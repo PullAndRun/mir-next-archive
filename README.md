@@ -38,10 +38,10 @@
 | 账号与角色存档（`mir-store`） | ✅ | PostgreSQL + 迁移；内存实现用于无库试玩 |
 | 游戏数据（`mir-db`） | ✅ | Crystal `Server.MirDB` 全量读取（地图/物品/怪物/NPC/任务/技能/商城/攻城/刷怪点），版本 60..117，6 个真实样本 leftover=0 |
 | 怪物 AI 与战斗 | ✅ | 索敌/追击/巡逻、两段式攻击（动作包立即、伤害 300ms 后结算）、护甲与闪避、暴击、死亡与尸体回收、经验升级、死亡复活、自然回血，RNG 顺序与 Crystal 一致；技能与 PK 未做 |
-| 物品与背包 | ✅ | 掉落（`Envir/Drops` 掉落表）、地面物品与过期、拾取/丢弃、46 格背包与 14 个装备槽、装备属性叠加、`UserItem[]` 存档往返；商店与 NPC 未做 |
-| NPC 商店、修理与仓库 | ⏳ | 协议包与物品模板已就绪 |
+| 物品与背包 | ✅ | 掉落（`Envir/Drops` 掉落表）、地面物品与过期、拾取/丢弃、46 格背包与 14 个装备槽、装备属性叠加、`UserItem[]` 存档往返；仓库未做 |
+| NPC 对话与商店 | ✅ | `Envir/NPCs` 脚本解析（`#INSERT`/`#INCLUDE`/条件/动作/按钮）、NPC 刷出与 `ObjectNPC`、`NewMapInfo` 下发、对话跳转、买/卖/修（Crystal 定价公式与价格倍率）；仓库、任务与时段可见性未做 |
 | 行会、任务、组队与攻城 | ⏳ | |
-| Rust 客户端（渲染与 UI） | ⏳ | 素材层（`mir-asset`）已能解码 `.Lib`/`.wzl` 并导出 PNG |
+| Rust 客户端（渲染与 UI） | 🟡 | `mir-render` 纯 CPU 等距渲染地图（真实 `0.map` 出图）、`mir-client` winit 窗口可平移/截图；角色/怪物/NPC 精灵与 UI 面板待做 |
 | 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计、MirDB 报告、图库查看/导出；素材库编辑器未做 |
 | 素材索引（`mir2_dev`） | ✅ | `tools/asset-index/` 把 `resource/` 的 233 万文件登记进 PostgreSQL，按名字/扩展名/仓库查询 |
 
@@ -190,6 +190,7 @@ python tools/protocol-gen/generate.py --crystal /path/to/Crystal
 | [`docs/world/tick-loop.md`](docs/world/tick-loop.md) | 世界循环与计时模型 |
 | [`docs/world/combat.md`](docs/world/combat.md) | 战斗公式、RNG 顺序、怪物 AI 与相关数据包 |
 | [`docs/world/items.md`](docs/world/items.md) | 物品系统：掉落、地面物品、背包/装备槽、持久化与协议包 |
+| [`docs/world/npc.md`](docs/world/npc.md) | NPC 脚本格式、条件/动作支持矩阵、商店与修理公式 |
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |
 | [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文与游戏内切换 |
 | [`docs/architecture.md`](docs/architecture.md) | 架构总览：crate 分层、数据流、时间与随机、测试策略 |

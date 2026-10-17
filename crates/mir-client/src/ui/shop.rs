@@ -3,6 +3,10 @@
 //! 数据来自 `S.NPCGoods`（`WorldSnapshot::npc_goods`）；点击某一行就买一件
 //! （`C.BuyItem { item_index: 商店物品唯一编号, count: 1 }`）。出售/修理走背包里
 //! 选中的物品（`S` / `R`），对应 `C.SellItem` / `C.RepairItem`。
+//!
+//! 商品多于可见行时用 [`shop_layout`] 的 `scroll` 参数滚动（鼠标滚轮/上下键由
+//! `UiState::on_wheel` / `UiState::scroll_shop` 维护），右侧画一条比例滚动条。
+//! `ShopLayout::row_at` 返回**货架绝对下标**（已加 `first_row`），调用方不必再换算。
 
 use mir_render::{Frame, Image, scale_to_fit};
 
@@ -25,32 +29,88 @@ pub const TITLE_HEIGHT: u32 = 24;
 pub const FOOTER_HEIGHT: u32 = 22;
 /// 内边距。
 pub const PADDING: u32 = 8;
-/// 最多同时显示多少行（超出的货架用 `+N` 提示，滚动留到以后做）。
+/// 一屏最多显示多少行（超出的部分滚动查看）。
 pub const MAX_SHOP_ROWS: usize = 11;
+/// 商店面板离屏幕左边的默认距离。
+pub const SHOP_LEFT: i32 = 8;
+/// 滚动条宽度。
+pub const SCROLLBAR_WIDTH: u32 = 4;
+/// 滚动条离面板右边的距离。
+pub const SCROLLBAR_MARGIN: u32 = 4;
+
+/// 商店面板左边距：装备面板同时打开时右移，避免两块左侧面板重叠。
+#[must_use]
+pub fn shop_left(equipment_open: bool) -> i32 {
+    if equipment_open {
+        SHOP_LEFT + i32::try_from(crate::ui::equipment::panel_width()).unwrap_or(0) + 8
+    } else {
+        SHOP_LEFT
+    }
+}
 
 /// 商店面板布局。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShopLayout {
     /// 面板矩形。
     pub panel: Rect,
-    /// 每一行（货架条目）的矩形。
+    /// 当前可见的每一行（货架条目）矩形。
     pub rows: Vec<Rect>,
     /// 底部提示区域。
     pub footer: Rect,
+    /// 第一条可见货架的下标（滚动位置）。
+    pub first_row: usize,
+    /// 滚动条轨道（没有可滚动内容时为 `None`）。
+    pub scrollbar: Option<Rect>,
 }
 
 impl ShopLayout {
-    /// 命中测试：点在哪个货架行上。
+    /// 命中测试：点在哪个货架行上（返回**货架绝对下标**）。
     #[must_use]
     pub fn row_at(&self, point: mir_core::Point) -> Option<usize> {
-        self.rows.iter().position(|rect| rect.contains(point))
+        self.rows
+            .iter()
+            .position(|rect| rect.contains(point))
+            .map(|index| self.first_row + index)
+    }
+
+    /// 滚动条滑块矩形（`total` 是货架总条数）。
+    #[must_use]
+    pub fn scroll_thumb(&self, total: usize) -> Option<Rect> {
+        let track = self.scrollbar?;
+        if total == 0 {
+            return None;
+        }
+        let visible = self.rows.len();
+        if visible == 0 {
+            return None;
+        }
+        let height = (track.height * u32::try_from(visible).unwrap_or(0)
+            / u32::try_from(total).unwrap_or(1))
+        .max(10)
+        .min(track.height);
+        let max_offset = track.height.saturating_sub(height);
+        let max_scroll = total.saturating_sub(visible);
+        let top = if max_scroll == 0 {
+            0
+        } else {
+            max_offset * u32::try_from(self.first_row.min(max_scroll)).unwrap_or(0)
+                / u32::try_from(max_scroll).unwrap_or(1)
+        };
+        Some(Rect::new(
+            track.x,
+            track.y + i32::try_from(top).unwrap_or(0),
+            track.width,
+            height,
+        ))
     }
 }
 
 /// 计算商店面板布局。
 #[must_use]
-pub fn shop_layout(frame: Rect, row_count: usize) -> ShopLayout {
+pub fn shop_layout(frame: Rect, row_count: usize, scroll: usize, left: i32) -> ShopLayout {
     let visible = row_count.min(MAX_SHOP_ROWS);
+    let max_scroll = row_count.saturating_sub(visible);
+    let first_row = scroll.min(max_scroll);
     let height = TITLE_HEIGHT
         + u32::try_from(visible)
             .unwrap_or(0)
@@ -59,7 +119,7 @@ pub fn shop_layout(frame: Rect, row_count: usize) -> ShopLayout {
         + PADDING
         + 4;
     let panel = Rect::new(
-        8,
+        left,
         60,
         SHOP_WIDTH.min(frame.width.saturating_sub(16)).max(160),
         height,
@@ -81,10 +141,27 @@ pub fn shop_layout(frame: Rect, row_count: usize) -> ShopLayout {
         panel.width.saturating_sub(PADDING * 2),
         FOOTER_HEIGHT,
     );
+    let scrollbar = if max_scroll > 0 {
+        let rows_top = panel.y + i32::try_from(TITLE_HEIGHT + 2).unwrap_or(0);
+        let rows_height = u32::try_from(visible)
+            .unwrap_or(0)
+            .saturating_mul(ROW_HEIGHT)
+            .saturating_sub(4);
+        Some(Rect::new(
+            panel.right() - i32::try_from(SCROLLBAR_MARGIN + SCROLLBAR_WIDTH).unwrap_or(0),
+            rows_top,
+            SCROLLBAR_WIDTH,
+            rows_height,
+        ))
+    } else {
+        None
+    };
     ShopLayout {
         panel,
         rows,
         footer,
+        first_row,
+        scrollbar,
     }
 }
 
@@ -159,11 +236,12 @@ pub fn draw(
     );
 
     for (index, row) in layout.rows.iter().enumerate() {
-        let Some(entry) = goods.list.get(index) else {
+        let item_index = layout.first_row + index;
+        let Some(entry) = goods.list.get(item_index) else {
             break;
         };
-        let highlighted = selected == Some(index);
-        let hovered = hover == Some(index);
+        let highlighted = selected == Some(item_index);
+        let hovered = hover == Some(item_index);
         if highlighted {
             frame.fill_rect(row.x, row.y, row.width, row.height, [86, 74, 32, 235]);
             frame.fill_rect(row.x, row.y, 2, row.height, [255, 216, 96, 255]);
@@ -210,16 +288,28 @@ pub fn draw(
         );
     }
 
-    if goods.list.len() > layout.rows.len() {
+    if let Some(track) = layout.scrollbar {
+        frame.fill_rect_alpha(
+            track.x,
+            track.y,
+            track.width,
+            track.height,
+            [40, 48, 60, 200],
+        );
+        if let Some(thumb) = layout.scroll_thumb(goods.list.len()) {
+            frame.fill_rect(
+                thumb.x,
+                thumb.y,
+                thumb.width,
+                thumb.height,
+                [128, 176, 240, 255],
+            );
+        }
         text.draw_right(
             frame,
             layout.panel.right() - 10,
-            layout.panel.y
-                + i32::try_from(
-                    TITLE_HEIGHT + 2 + ROW_HEIGHT * u32::try_from(layout.rows.len()).unwrap_or(0),
-                )
-                .unwrap_or(0),
-            &format!("+{}", goods.list.len() - layout.rows.len()),
+            layout.footer.y,
+            &format!("{}/{}", layout.first_row + 1, goods.list.len()),
             SIZE_SMALL,
             MUTED_COLOR,
         );
@@ -265,7 +355,7 @@ mod tests {
 
     #[test]
     fn rows_are_hit_testable_and_inside_the_panel() {
-        let layout = shop_layout(Rect::screen(800, 600), 5);
+        let layout = shop_layout(Rect::screen(800, 600), 5, 0, SHOP_LEFT);
         assert_eq!(layout.rows.len(), 5);
         for (index, row) in layout.rows.iter().enumerate() {
             assert!(layout.panel.contains(row.center()));
@@ -277,10 +367,35 @@ mod tests {
 
     #[test]
     fn rows_are_capped_and_stay_above_the_chat_panel() {
-        let layout = shop_layout(Rect::screen(800, 600), 40);
+        let layout = shop_layout(Rect::screen(800, 600), 40, 0, SHOP_LEFT);
         assert_eq!(layout.rows.len(), MAX_SHOP_ROWS);
         assert!(layout.panel.bottom() < 422, "商店不应压住聊天面板");
         assert!(layout.footer.y > layout.rows.last().unwrap().y);
+    }
+
+    #[test]
+    fn scrolling_moves_the_visible_window_and_the_scrollbar_thumb() {
+        let top = shop_layout(Rect::screen(800, 600), 40, 0, SHOP_LEFT);
+        let scrolled = shop_layout(Rect::screen(800, 600), 40, 5, SHOP_LEFT);
+        assert_eq!(top.first_row, 0);
+        assert_eq!(scrolled.first_row, 5);
+        assert_eq!(
+            scrolled.row_at(scrolled.rows[0].center()),
+            Some(5),
+            "row_at 返回货架绝对下标"
+        );
+        let top_thumb = top.scroll_thumb(40).expect("可滚动");
+        let scrolled_thumb = scrolled.scroll_thumb(40).expect("可滚动");
+        assert!(scrolled_thumb.y > top_thumb.y, "滚动条应下移");
+        assert!(scrolled_thumb.bottom() <= scrolled.scrollbar.unwrap().bottom());
+        // 超出范围时收边到最后一条。
+        let clamped = shop_layout(Rect::screen(800, 600), 40, 999, SHOP_LEFT);
+        assert_eq!(clamped.first_row, 40 - MAX_SHOP_ROWS);
+        assert!(
+            shop_layout(Rect::screen(800, 600), 3, 0, SHOP_LEFT)
+                .scrollbar
+                .is_none()
+        );
     }
 
     #[test]

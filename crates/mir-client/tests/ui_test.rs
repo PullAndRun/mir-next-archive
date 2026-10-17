@@ -344,6 +344,7 @@ fn headless_ui_renders_all_panels_and_dispatches_clicks() {
         &snapshot,
         &text,
         Some("你好，传奇-Next"),
+        center,
     );
 
     // 4. 保存 PNG。
@@ -371,7 +372,7 @@ fn headless_ui_renders_all_panels_and_dispatches_clicks() {
         inventory_changed > 100,
         "背包面板应覆盖地图像素，实际变化 {inventory_changed}"
     );
-    let shop_panel = shop::shop_layout(screen, 2).panel;
+    let shop_panel = shop::shop_layout(screen, 2, 0, shop::SHOP_LEFT).panel;
     assert!(
         changed_pixels(&world_only, &frame, shop_panel) > 100,
         "商店面板应覆盖地图像素"
@@ -413,7 +414,7 @@ fn headless_ui_renders_all_panels_and_dispatches_clicks() {
     );
     assert_eq!(state.selected_slot, Some(0));
 
-    let shop_layout = shop::shop_layout(screen, 2);
+    let shop_layout = shop::shop_layout(screen, 2, 0, shop::SHOP_LEFT);
     state.mouse = shop_layout.rows[1].center();
     let action = state
         .on_click(&snapshot, &text, screen, None)

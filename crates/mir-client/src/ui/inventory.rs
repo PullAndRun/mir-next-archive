@@ -31,6 +31,18 @@ pub const PANEL_GOLD_HEIGHT: u32 = 20;
 pub const PANEL_HINT_HEIGHT: u32 = 16;
 /// 物品图标的显示上限（像素，超出按比例缩到格子里）。
 pub const MAX_ICON_SIZE: u32 = 34;
+/// 双击判定窗口（毫秒）。
+pub const DOUBLE_CLICK_MS: i64 = 350;
+/// 右键菜单宽度。
+pub const MENU_WIDTH: u32 = 104;
+/// 右键菜单每项高度。
+pub const MENU_ENTRY_HEIGHT: u32 = 22;
+/// 右键菜单内边距。
+pub const MENU_PADDING: u32 = 3;
+/// 拖拽幽灵图标的边长。
+pub const GHOST_SIZE: i32 = 36;
+/// 拖拽幽灵图标的不透明度（0..=255）。
+pub const GHOST_ALPHA: u32 = 160;
 
 /// 面板宽度。
 #[must_use]
@@ -220,7 +232,7 @@ pub fn draw(
         frame,
         hint_area.x,
         hint_area.y,
-        Label::InventoryHint.text(language),
+        Label::InventoryTooltipHint.text(language),
         SIZE_SMALL,
         MUTED_COLOR,
         hint_area,
@@ -248,6 +260,109 @@ fn centered(rect: Rect, width: u16, height: u16) -> (i32, i32) {
     let x = rect.x + (i32::try_from(rect.width).unwrap_or(0) - i32::from(width)) / 2;
     let y = rect.y + (i32::try_from(rect.height).unwrap_or(0) - i32::from(height)) / 2;
     (x, y)
+}
+
+/// 右键菜单矩形：以鼠标为锚点，贴边时翻到另一侧。
+#[must_use]
+pub fn context_menu_rect(anchor: mir_core::Point, entries: usize, screen: Rect) -> Rect {
+    let height = MENU_PADDING * 2
+        + u32::try_from(entries)
+            .unwrap_or(0)
+            .saturating_mul(MENU_ENTRY_HEIGHT);
+    let width = MENU_WIDTH;
+    let mut x = anchor.x + 4;
+    let mut y = anchor.y + 4;
+    if x + i32::try_from(width).unwrap_or(0) > screen.right() - 4 {
+        x = anchor.x - i32::try_from(width).unwrap_or(0) - 4;
+    }
+    if y + i32::try_from(height).unwrap_or(0) > screen.bottom() - 4 {
+        y = anchor.y - i32::try_from(height).unwrap_or(0) - 4;
+    }
+    Rect::new(x.max(4), y.max(4), width, height)
+}
+
+/// 右键菜单第 `index` 项的矩形。
+#[must_use]
+pub fn context_menu_entry_rect(panel: Rect, index: usize) -> Rect {
+    Rect::new(
+        panel.x + i32::try_from(MENU_PADDING).unwrap_or(0),
+        panel.y
+            + i32::try_from(MENU_PADDING).unwrap_or(0)
+            + i32::try_from(index).unwrap_or(0) * i32::try_from(MENU_ENTRY_HEIGHT).unwrap_or(0),
+        panel.width.saturating_sub(MENU_PADDING * 2),
+        MENU_ENTRY_HEIGHT,
+    )
+}
+
+/// 右键菜单命中测试。
+#[must_use]
+pub fn context_menu_entry_at(panel: Rect, entries: usize, point: mir_core::Point) -> Option<usize> {
+    (0..entries).find(|index| context_menu_entry_rect(panel, *index).contains(point))
+}
+
+/// 画右键菜单（使用/装备/丢弃）。
+pub fn draw_context_menu(
+    frame: &mut Frame,
+    text: &crate::ui::UiText,
+    panel: Rect,
+    entries: &[crate::ui::ContextEntry],
+    hover: Option<usize>,
+) {
+    crate::ui::draw_panel(frame, panel);
+    for (index, entry) in entries.iter().enumerate() {
+        let rect = context_menu_entry_rect(panel, index);
+        if hover == Some(index) {
+            frame.fill_rect(rect.x, rect.y, rect.width, rect.height, [56, 68, 92, 245]);
+        }
+        text.draw_clipped(
+            frame,
+            rect.x + 8,
+            rect.y + 3,
+            &entry.label,
+            SIZE_BODY,
+            BODY_COLOR,
+            rect,
+        );
+    }
+}
+
+/// 画拖拽幽灵：半透明物品图标跟随鼠标，右下角带堆叠数量。
+pub fn draw_drag_ghost(
+    frame: &mut Frame,
+    text: &crate::ui::UiText,
+    image: Option<&Image>,
+    count: u16,
+    mouse: mir_core::Point,
+) {
+    let x = mouse.x - GHOST_SIZE / 2;
+    let y = mouse.y - GHOST_SIZE / 2;
+    frame.fill_rect_alpha(
+        x - 2,
+        y - 2,
+        u32::try_from(GHOST_SIZE + 4).unwrap_or(0),
+        u32::try_from(GHOST_SIZE + 4).unwrap_or(0),
+        [20, 26, 38, 120],
+    );
+    if let Some(image) = image {
+        let scaled = scale_to_fit(image, MAX_ICON_SIZE, MAX_ICON_SIZE);
+        let mut faded = scaled.clone();
+        for pixel in faded.pixels.chunks_exact_mut(4) {
+            pixel[3] = u8::try_from(u32::from(pixel[3]) * GHOST_ALPHA / 255).unwrap_or(pixel[3]);
+        }
+        let icon_x = x + (GHOST_SIZE - i32::from(faded.info.width)) / 2;
+        let icon_y = y + (GHOST_SIZE - i32::from(faded.info.height)) / 2;
+        frame.blit(&faded, icon_x, icon_y);
+    }
+    if count > 1 {
+        text.draw_right(
+            frame,
+            x + GHOST_SIZE,
+            y + GHOST_SIZE - 14,
+            &format!("×{count}"),
+            SIZE_SMALL,
+            [255, 240, 180, 255],
+        );
+    }
 }
 
 /// 画格子的四条边。

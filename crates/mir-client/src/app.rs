@@ -18,7 +18,7 @@
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use mir_client::geom::Rect;
 use mir_client::net::{NetClient, NetCommand, NetEvent, NetStatus, WorldSnapshot};
@@ -28,7 +28,7 @@ use mir_core::Point;
 use mir_core::enums::MirDirection;
 use mir_render::{Frame, MapScene};
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
@@ -42,6 +42,8 @@ pub const WINDOW_HEIGHT: u32 = 600;
 
 /// 动画节拍：与 Crystal 的 `MoveTime = CMain.Time + 100` 一致（`GameScene.cs:1190`）。
 const ANIMATION_INTERVAL: Duration = Duration::from_millis(100);
+/// 按住左键连续走路的重复间隔（至少隔一帧，避免一次点击发两包）。
+const WALK_REPEAT: Duration = Duration::from_millis(150);
 
 /// 客户端运行模式。
 enum Mode {
@@ -69,6 +71,12 @@ struct LiveState {
     last_status: NetStatus,
     /// 是否已经打印过「进入世界」。
     entered: bool,
+    /// 是否按住鼠标左键（点地连续走）。
+    left_held: bool,
+    /// 按住左键时的目标格。
+    walk_target: Option<Point>,
+    /// 下一次重复走路的时间。
+    next_walk: Instant,
 }
 
 impl LiveState {
@@ -109,6 +117,9 @@ pub fn run_live(
         last_chat: None,
         last_status: status,
         entered: false,
+        left_held: false,
+        walk_target: None,
+        next_walk: Instant::now(),
     }));
     run_app(scene, center, mode);
 }
@@ -270,11 +281,13 @@ impl ClientApp {
         }
     }
 
-    /// 画联机界面（状态栏、聊天、背包、商店、技能、NPC 对话）。
+    /// 画联机界面（世界文字、状态栏、增益、聊天、背包/装备/商店/技能/对话）。
     fn draw_ui(&mut self) {
+        let center = self.center;
         let Mode::Live(live) = &mut self.mode else {
             return;
         };
+        live.ui.set_time(now_millis());
         ui::draw(
             &mut live.ui,
             &mut self.frame,
@@ -282,6 +295,7 @@ impl ClientApp {
             &live.snapshot,
             &self.text,
             live.chat_input.as_deref(),
+            center,
         );
     }
 
@@ -434,17 +448,20 @@ impl ClientApp {
             return;
         };
         match action {
+            // 纯数据动作直接走 `UiAction::net_command`（与无头测试共用同一映射）。
+            action @ (UiAction::BuyItem { .. }
+            | UiAction::UseItem { .. }
+            | UiAction::DropItem { .. }
+            | UiAction::MoveItem { .. }) => {
+                if let Some(command) = action.net_command() {
+                    live.send(command);
+                }
+            }
             UiAction::CallNpc { object_id, key } => {
                 if key.eq_ignore_ascii_case("@exit") {
                     live.ui.close_npc();
                 }
                 live.send(NetCommand::CallNpc { object_id, key });
-            }
-            UiAction::BuyItem { unique_id } => {
-                live.send(NetCommand::BuyItem {
-                    unique_id,
-                    count: 1,
-                });
             }
             UiAction::CastMagic {
                 spell,
@@ -477,6 +494,14 @@ impl ClientApp {
                     .find(|magic| magic.spell == spell)
                 {
                     magic.key = key;
+                }
+            }
+            UiAction::WorldMove { direction, step } => {
+                let facing = live.snapshot.self_player.as_ref().map(|me| me.direction);
+                if step || facing == Some(direction) {
+                    live.send(NetCommand::Walk(direction));
+                } else {
+                    live.send(NetCommand::Turn(direction));
                 }
             }
         }
@@ -569,45 +594,157 @@ impl ClientApp {
         }
     }
 
-    /// 鼠标移动：记录位置；有面板打开时重绘以更新悬停高亮。
-    fn handle_cursor_moved(&mut self, position: winit::dpi::PhysicalPosition<f64>) {
+    /// `E`：开关装备纸娃娃面板。
+    fn live_toggle_equipment(&mut self) {
         let mut redraw = false;
         if let Mode::Live(live) = &mut self.mode {
-            live.ui.mouse = Point::new(position.x as i32, position.y as i32);
-            redraw = live.ui.show_inventory
-                || live.ui.show_skills
-                || live.ui.shop_open
-                || live.ui.dialog.is_some();
+            live.ui.show_equipment = !live.ui.show_equipment;
+            redraw = true;
         }
         if redraw {
             self.request_redraw();
         }
     }
 
-    /// 鼠标左键：点 NPC/对话按钮/商店行/背包格/技能行。
-    fn handle_mouse_click(&mut self) {
+    /// 鼠标移动：记录位置；有面板/拖拽/右键菜单时重绘以更新悬停高亮与幽灵图标。
+    fn handle_cursor_moved(&mut self, position: winit::dpi::PhysicalPosition<f64>) {
+        let mut redraw = false;
+        if let Mode::Live(live) = &mut self.mode {
+            live.ui.mouse = Point::new(position.x as i32, position.y as i32);
+            redraw = live.ui.show_inventory
+                || live.ui.show_skills
+                || live.ui.show_equipment
+                || live.ui.shop_open
+                || live.ui.dialog.is_some()
+                || live.ui.drag.is_some()
+                || live.ui.context_menu.is_some();
+        }
+        if redraw {
+            self.request_redraw();
+        }
+    }
+
+    /// 鼠标左键按下：点 NPC/对话按钮/商店行/背包格/技能行/地面。
+    fn handle_left_press(&mut self) {
+        let frame = Rect::screen(self.frame.width, self.frame.height);
+        let mut action = None;
+        let mut cell = None;
+        if let Mode::Live(live) = &mut self.mode {
+            if !live.snapshot.is_ready() {
+                return;
+            }
+            let mouse = live.ui.mouse;
+            let world_cell = self.scene.screen_to_cell(self.center, mouse);
+            cell = Some(world_cell);
+            action = live
+                .ui
+                .on_click(&live.snapshot, &self.text, frame, Some(world_cell));
+        }
+        if let Some(action) = action {
+            let walking = matches!(action, UiAction::WorldMove { .. });
+            self.dispatch_ui_action(action);
+            if walking {
+                self.start_walk_hold(cell);
+            }
+        }
+        // 没有动作（点面板空白处/同一个格子）时什么也不做。
+    }
+
+    /// 鼠标左键释放：结束连续走并处理拖拽落点。
+    fn handle_left_release(&mut self) {
+        let frame = Rect::screen(self.frame.width, self.frame.height);
+        let mut action = None;
+        if let Mode::Live(live) = &mut self.mode {
+            live.left_held = false;
+            live.walk_target = None;
+            action = live.ui.on_mouse_release(&live.snapshot, frame);
+        }
+        if let Some(action) = action {
+            self.dispatch_ui_action(action);
+        } else {
+            self.request_redraw();
+        }
+    }
+
+    /// 鼠标右键：背包物品弹出上下文菜单。
+    fn handle_right_press(&mut self) {
         let frame = Rect::screen(self.frame.width, self.frame.height);
         let mut action = None;
         if let Mode::Live(live) = &mut self.mode {
             if !live.snapshot.is_ready() {
                 return;
             }
-            let mouse = live.ui.mouse;
-            let cell = self.scene.screen_to_cell(self.center, mouse);
-            action = live
-                .ui
-                .on_click(&live.snapshot, &self.text, frame, Some(cell));
+            action = live.ui.on_right_click(&live.snapshot, frame);
         }
         if let Some(action) = action {
             self.dispatch_ui_action(action);
+        } else {
+            self.request_redraw();
         }
     }
 
-    /// Esc：按「聊天 > NPC 对话 > 背包/技能」的顺序关闭；关对话时给服务端发 `@exit`。
+    /// 鼠标滚轮：商店打开时滚动货架。
+    fn handle_mouse_wheel(&mut self, delta: MouseScrollDelta) {
+        let lines = match delta {
+            MouseScrollDelta::LineDelta(_, y) => y,
+            MouseScrollDelta::PixelDelta(position) => position.y as f32 / 40.0,
+        };
+        let step = i32::from(lines < 0.0) - i32::from(lines > 0.0);
+        if step == 0 {
+            return;
+        }
+        let mut changed = false;
+        if let Mode::Live(live) = &mut self.mode {
+            changed = live.ui.on_wheel(&live.snapshot, step);
+        }
+        if changed {
+            self.request_redraw();
+        }
+    }
+
+    /// 记录「按住左键连续走」的目标并在下一个节拍开始重复。
+    fn start_walk_hold(&mut self, cell: Option<Point>) {
+        if let Mode::Live(live) = &mut self.mode {
+            live.left_held = true;
+            live.walk_target = cell;
+            live.next_walk = Instant::now() + WALK_REPEAT;
+        }
+    }
+
+    /// 每帧检查是否该继续朝目标格走一步。
+    fn repeat_walk(&mut self) {
+        let Mode::Live(live) = &mut self.mode else {
+            return;
+        };
+        if !live.left_held || Instant::now() < live.next_walk {
+            return;
+        }
+        live.next_walk = Instant::now() + WALK_REPEAT;
+        let Some(target) = live.walk_target else {
+            return;
+        };
+        let Some(intent) = mir_client::ui::walk_intent(&live.snapshot, target) else {
+            return;
+        };
+        if intent.step {
+            live.send(NetCommand::Walk(intent.direction));
+        } else {
+            live.send(NetCommand::Turn(intent.direction));
+        }
+    }
+
+    /// Esc：按「右键菜单 > 拖拽 > 聊天 > NPC 对话 > 背包/装备/技能」的顺序关闭；
+    /// 关对话时给服务端发 `@exit`。
     fn live_escape(&mut self) {
         let mut redraw = false;
         if let Mode::Live(live) = &mut self.mode {
-            if live.chat_input.is_some() {
+            if live.ui.context_menu.is_some() {
+                live.ui.context_menu = None;
+                redraw = true;
+            } else if live.ui.drag.is_some() {
+                live.ui.drag = None;
+                redraw = true;
+            } else if live.chat_input.is_some() {
                 live.chat_input = None;
                 redraw = true;
             } else if live.ui.dialog.is_some() || live.ui.shop_open {
@@ -618,7 +755,7 @@ impl ClientApp {
                 });
                 live.ui.close_npc();
                 redraw = true;
-            } else if live.ui.show_inventory || live.ui.show_skills {
+            } else if live.ui.show_inventory || live.ui.show_skills || live.ui.show_equipment {
                 live.ui.close_panels();
                 redraw = true;
             }
@@ -724,14 +861,19 @@ impl ClientApp {
 
     /// 联机模式的按键。
     ///
-    /// 面板按键优先于移动键：`D` 在背包打开且有选中物品时是「丢弃」，否则是向右走；
-    /// `S` 在商店打开且有选中物品时是「出售」，否则是向下走。
+    /// 面板按键优先于移动键：`I` 背包、`E` 装备、`F3` 技能；`D` 在背包打开且有选中
+    /// 物品时是「丢弃」，否则是向右走；`S` 在商店打开且有选中物品时是「出售」，
+    /// 否则是向下走；商店打开时 ↑/↓ 滚动货架。
     fn handle_live_key(&mut self, event_loop: &ActiveEventLoop, event: &KeyEvent) {
         if let Key::Character(text) = &event.logical_key {
             let lower = text.to_ascii_lowercase();
             match lower.as_str() {
                 "i" => {
                     self.live_toggle_inventory();
+                    return;
+                }
+                "e" => {
+                    self.live_toggle_equipment();
                     return;
                 }
                 "p" => {
@@ -761,6 +903,24 @@ impl ClientApp {
                 if self.live_cast_key(key) {
                     return;
                 }
+            }
+        }
+        // 商店打开时，上下键滚动货架而不是走路。
+        if self.live_shop_open() {
+            let delta = match &event.logical_key {
+                Key::Named(NamedKey::ArrowUp) => Some(-1),
+                Key::Named(NamedKey::ArrowDown) => Some(1),
+                _ => None,
+            };
+            if let Some(delta) = delta {
+                let mut changed = false;
+                if let Mode::Live(live) = &mut self.mode {
+                    changed = live.ui.scroll_shop(&live.snapshot, delta);
+                }
+                if changed {
+                    self.request_redraw();
+                }
+                return;
             }
         }
         if let Some(direction) = direction_from_key(&event.logical_key) {
@@ -869,11 +1029,13 @@ impl ApplicationHandler for ClientApp {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => self.handle_cursor_moved(position),
-            WindowEvent::MouseInput {
-                state: ElementState::Pressed,
-                button: MouseButton::Left,
-                ..
-            } => self.handle_mouse_click(),
+            WindowEvent::MouseInput { state, button, .. } => match (state, button) {
+                (ElementState::Pressed, MouseButton::Left) => self.handle_left_press(),
+                (ElementState::Released, MouseButton::Left) => self.handle_left_release(),
+                (ElementState::Pressed, MouseButton::Right) => self.handle_right_press(),
+                _ => {}
+            },
+            WindowEvent::MouseWheel { delta, .. } => self.handle_mouse_wheel(delta),
             WindowEvent::KeyboardInput { event, .. } => self.handle_key(event_loop, &event),
             WindowEvent::RedrawRequested => self.draw(),
             _ => {}
@@ -882,6 +1044,7 @@ impl ApplicationHandler for ClientApp {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.poll_network();
+        self.repeat_walk();
         let now = Instant::now();
         if now >= self.next_animation {
             self.next_animation = now + ANIMATION_INTERVAL;
@@ -893,6 +1056,15 @@ impl ApplicationHandler for ClientApp {
         }
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_animation));
     }
+}
+
+/// 当前 Unix 毫秒（伤害飘字/增益倒计时用）。
+fn now_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
+        })
 }
 
 /// 找到下一个可用的截图路径：`build/screenshot-<n>.png`，`n` 从 1 递增。

@@ -44,13 +44,16 @@
 //! | 包 | 快照字段 / 用途 |
 //! |---|---|
 //! | `S.UserInformation` | 自己、`inventory`、`magics`、金币、HP/MP |
-//! | `S.NewItemInfo` | `item_infos`：物品名/图标号/价格/堆叠上限 |
+//! | `S.NewItemInfo` | `item_infos`：物品名/图标号/价格/堆叠上限/类型/需求/属性表 |
 //! | `S.GainedItem` | 并入背包（可堆叠物品先并堆）；系统聊天 |
 //! | `S.MoveItem` | 背包内交换（`grid = Inventory` 且 `success`） |
-//! | `S.EquipItem` / `S.RemoveItem` | 装备离/回背包（见下方已知差异） |
+//! | `S.EquipItem` / `S.RemoveItem` | 背包 ↔ 装备槽（按唯一编号搬运） |
 //! | `S.DeleteItem` | 按数量移除背包物品 |
 //! | `S.RefreshItem` | 用新数据替换同 `unique_id` 的物品（Crystal 的 `ItemChanged`） |
 //! | `S.ItemRepaired` | 更新持久度 |
+//! | `S.AddBuff` / `S.RemoveBuff` | `buffs`：图标栏数据（`ExpireTime` 由 UI 本地倒计时） |
+//! | `S.ObjectStruck` / `S.DamageIndicator` | `damage_events`：世界飘字（`ui::worldtext`） |
+//! | `S.ObjectEffect` | `effects`：魔法盾/元素结界等短光效 |
 //! | `S.NPCResponse` | `npc_dialog`：原文行 + 版本号 + 最近 NPC 的 `object_id` |
 //! | `S.NPCGoods` | `npc_goods`：货架 + 价格倍率（物品名/价格来自 `item_infos`） |
 //! | `S.NPCSell` / `S.NPCRepair` / `S.NPCSRepair` | 商店面板的「可出售/可修理」提示 |
@@ -63,8 +66,9 @@
 //!
 //! * **没有 `ItemChanged` / `LostItem` 这两条包**：Crystal 里对应 `S.RefreshItem`
 //!   与 `S.DeleteItem`，这里按它们实现。
-//! * **换下的旧装备不回背包快照**：`S.EquipItem` 只带被穿上的物品 ID，换下来的旧装备
-//!   数据不在包里，要等下一次 `S.UserInformation` 才能补全；`S.RemoveItem` 同理。
+//! * **换下的旧装备不回包**：`S.EquipItem` 只带被穿上的物品 ID 和目标槽，换下来的旧装备
+//!   数据不在包里；客户端用本地背包里那件物品的数据补进装备槽，并把旧装备放回原背包格
+//!   （与 Crystal `PlayerObject.EquipItem` 的 `:5674-5678` 语义一致）。
 //! * **`S.NPCResponse` 不带 NPC 对象 ID**：客户端取离自己最近的 NPC 作为对话对象
 //!   （[`WorldSnapshot::nearest_npc`]）；世界点击 NPC 时会直接记下被点的对象。
 //! * **最大 HP/MP 不在协议里**：状态栏进度条用「本次会话见过的最高值」近似，
@@ -79,9 +83,12 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
 use mir_core::Point;
-use mir_core::enums::{ChatType, MirClass, MirDirection, MirGender, MirGridType, PanelType, Spell};
+use mir_core::enums::{
+    BuffType, ChatType, DamageType, ItemGrade, ItemType, MirClass, MirDirection, MirGender,
+    MirGridType, PanelType, RequiredType, Spell, SpellEffect, Stat,
+};
 use mir_protocol::codec::FrameBuffer;
-use mir_protocol::data::{ClientMagic, ItemInfo, UserItem};
+use mir_protocol::data::{ClientBuff, ClientMagic, ItemInfo, UserItem};
 use mir_protocol::packets::client as c;
 use mir_protocol::{ClientPacket, DateTimeBinary, ServerPacket};
 use mir_render::{EntityKind, EntityView};
@@ -94,6 +101,13 @@ const READ_TIMEOUT: Duration = Duration::from_millis(20);
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(5);
 /// 聊天记录上限。
 const CHAT_LOG_LIMIT: usize = 100;
+/// 装备槽数量（Crystal `EquipmentSlot` 共 14 个：武器/衣服/头盔/火把/项链/双腕/双戒/
+/// 护身符/腰带/靴子/宝石/坐骑）。
+pub const EQUIPMENT_SLOTS: usize = 14;
+/// 快照里保留的伤害事件条数：UI 每帧取「比上次更新」的那些画飘字。
+const DAMAGE_EVENT_LIMIT: usize = 32;
+/// 快照里保留的光效事件条数。
+const EFFECT_EVENT_LIMIT: usize = 16;
 /// 客户端版本哈希的占位值：Crystal 发的是客户端 exe 的 MD5（16 字节），
 /// 服务端 `check_version = false` 时内容不重要，但长度保持 16 字节。
 const VERSION_HASH: &[u8] = b"mir-next-client!";
@@ -212,6 +226,27 @@ pub enum NetCommand {
         unique_id: u64,
         /// 数量。
         count: u16,
+    },
+    /// 使用背包物品（`C.UseItem`；药品/卷轴/技能书）。
+    UseItem {
+        /// 背包物品唯一编号。
+        unique_id: u64,
+    },
+    /// 拖拽物品（`C.MoveItem`）。
+    ///
+    /// `grid` 是**拖拽起点**网格、`to_grid` 是落点网格：背包内交换时两者都是
+    /// `Inventory`；背包 → 装备槽是 `Inventory` → `Equipment`；装备槽 → 背包反过来。
+    /// 网络层把「任一侧是 `Equipment`」的请求统一发成 `C.MoveItem { grid: Equipment }`
+    /// （`mir-server` 的 `World::move_equipment` 用 `from`/`to` 的方向判断穿/脱）。
+    MoveItem {
+        /// 起点网格。
+        grid: MirGridType,
+        /// 起点格（背包格或装备槽）。
+        from: i32,
+        /// 落点格（背包格或装备槽）。
+        to: i32,
+        /// 落点网格。
+        to_grid: MirGridType,
     },
     /// 施法（`C.Magic`）。
     Magic {
@@ -374,7 +409,10 @@ impl InventoryItem {
 }
 
 /// 物品模板（`S.NewItemInfo`）。
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// 除了画格子需要的图标/价格，还带上了 tooltip 需要的类型、需求与属性表
+/// （`ItemInfo.stats`，Crystal `Shared/Data/Stat.cs` 的 `Stats`）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ItemInfoView {
     /// 模板编号。
     pub index: i32,
@@ -386,6 +424,18 @@ pub struct ItemInfoView {
     pub price: u32,
     /// 最大堆叠数（1 表示不可堆叠）。
     pub stack_size: u16,
+    /// 物品类型（`ItemType`：武器/衣服/药品/卷轴…）。
+    pub item_type: ItemType,
+    /// 需求属性的种类（`RequiredType`：默认按等级）。
+    pub required_type: RequiredType,
+    /// 需求数值（与 `required_type` 搭配）。
+    pub required_amount: u8,
+    /// 模板最大持久度（0 表示没有持久度概念）。
+    pub durability: u16,
+    /// 品级（影响 tooltip 名字颜色）。
+    pub grade: ItemGrade,
+    /// 基础属性表：`Stat` → 数值，按枚举排序。
+    pub stats: BTreeMap<Stat, i32>,
 }
 
 impl ItemInfoView {
@@ -398,8 +448,109 @@ impl ItemInfoView {
             image: info.image,
             price: info.price,
             stack_size: info.stack_size,
+            item_type: info.item_type,
+            required_type: info.required_type,
+            required_amount: info.required_amount,
+            durability: info.durability,
+            grade: info.grade,
+            stats: info.stats.values().clone(),
         }
     }
+
+    /// 取一项属性（缺失时为 0）。
+    #[must_use]
+    pub fn stat(&self, stat: Stat) -> i32 {
+        self.stats.get(&stat).copied().unwrap_or(0)
+    }
+
+    /// `(min, max)` 形式的属性区间；两项都为 0 时返回 `None`。
+    #[must_use]
+    pub fn stat_range(&self, min: Stat, max: Stat) -> Option<(i32, i32)> {
+        let low = self.stat(min);
+        let high = self.stat(max);
+        if low == 0 && high == 0 {
+            return None;
+        }
+        Some((low, high))
+    }
+}
+
+/// 客户端增益（`S.AddBuff` / `S.RemoveBuff` 维护的界面子集）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuffView {
+    /// 增益类型。
+    pub buff_type: BuffType,
+    /// 是否在图标栏显示（Crystal `ClientBuff.Visible`）。
+    pub visible: bool,
+    /// 来源对象编号。
+    pub object_id: u32,
+    /// 到期时间（Unix 毫秒）；`infinite` 时无意义。
+    pub expire_time: i64,
+    /// 是否永久。
+    pub infinite: bool,
+    /// 计时是否暂停。
+    pub paused: bool,
+}
+
+impl BuffView {
+    /// 从协议增益里抽取界面字段。
+    #[must_use]
+    pub fn from_client_buff(buff: &ClientBuff) -> Self {
+        Self {
+            buff_type: buff.buff_type,
+            visible: buff.visible,
+            object_id: buff.object_id,
+            expire_time: buff.expire_time,
+            infinite: buff.infinite,
+            paused: buff.paused,
+        }
+    }
+
+    /// 剩余毫秒；永久/暂停/没有到期时间时返回 `None`（UI 显示「∞」）。
+    #[must_use]
+    pub fn remaining_millis(&self, now: i64) -> Option<i64> {
+        if self.infinite || self.paused || self.expire_time <= 0 {
+            return None;
+        }
+        Some(self.expire_time.saturating_sub(now).max(0))
+    }
+
+    /// 剩余秒数（向上取整，和 Crystal `Math.Round` 的观感接近）。
+    #[must_use]
+    pub fn remaining_seconds(&self, now: i64) -> Option<i64> {
+        self.remaining_millis(now)
+            .map(|millis| millis.saturating_add(999) / 1000)
+    }
+}
+
+/// 一次伤害/受击事件（`S.ObjectStruck` / `S.DamageIndicator`）。
+///
+/// `id` 单调递增，UI 只画比上次见过的 ID 大的事件，避免快照整体克隆导致重复飘字。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DamageEvent {
+    /// 递增编号。
+    pub id: u64,
+    /// 受击对象。
+    pub object_id: u32,
+    /// 伤害值；`ObjectStruck` 事件没有伤害数字，为 `None`。
+    pub damage: Option<i32>,
+    /// 伤害类型（`DamageIndicator` 才有）。
+    pub damage_type: Option<DamageType>,
+    /// 受击格（`ObjectStruck` 才有）。
+    pub location: Option<Point>,
+}
+
+/// 一次光效事件（`S.ObjectEffect`；魔法盾/元素结界等）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EffectEvent {
+    /// 递增编号。
+    pub id: u64,
+    /// 目标对象。
+    pub object_id: u32,
+    /// 特效类型。
+    pub effect: SpellEffect,
+    /// 持续毫秒（`ObjectEffect.time`）。
+    pub time: u32,
 }
 
 /// 已学技能（`ClientMagic` 的界面子集）。
@@ -516,6 +667,18 @@ pub struct WorldSnapshot {
     pub chat: Vec<ChatLine>,
     /// 背包（`S.UserInformation.Inventory`；`None` 槽位为空，长度固定 46）。
     pub inventory: Vec<Option<InventoryItem>>,
+    /// 装备（`S.UserInformation.Equipment`；槽位下标见 [`EQUIPMENT_SLOTS`]）。
+    pub equipment: Vec<Option<InventoryItem>>,
+    /// 当前增益（`S.AddBuff` / `S.RemoveBuff`；UI 用本地时钟算剩余秒数）。
+    pub buffs: Vec<BuffView>,
+    /// 最近的伤害/受击事件（尾部最新；UI 只消费新增的 `id`）。
+    pub damage_events: Vec<DamageEvent>,
+    /// 下一个伤害事件编号。
+    pub next_damage_id: u64,
+    /// 最近的光效事件（尾部最新；UI 只消费新增的 `id`）。
+    pub effects: Vec<EffectEvent>,
+    /// 下一个光效事件编号。
+    pub next_effect_id: u64,
     /// 物品模板（`S.NewItemInfo`，按模板编号索引）。
     pub item_infos: BTreeMap<i32, ItemInfoView>,
     /// 已学技能（`S.UserInformation.Magics` + `S.NewMagic`/`S.MagicLeveled`）。
@@ -547,6 +710,12 @@ impl Default for WorldSnapshot {
             entities: BTreeMap::new(),
             chat: Vec::new(),
             inventory: Vec::new(),
+            equipment: Vec::new(),
+            buffs: Vec::new(),
+            damage_events: Vec::new(),
+            next_damage_id: 0,
+            effects: Vec::new(),
+            next_effect_id: 0,
             item_infos: BTreeMap::new(),
             magics: Vec::new(),
             npc_dialog: None,
@@ -613,6 +782,45 @@ impl WorldSnapshot {
             item.as_ref()
                 .is_some_and(|item| item.unique_id == unique_id)
         })
+    }
+
+    /// 取装备槽里的物品；越界或空槽返回 `None`。
+    #[must_use]
+    pub fn equipment_item(&self, slot: usize) -> Option<&InventoryItem> {
+        self.equipment.get(slot).and_then(Option::as_ref)
+    }
+
+    /// 按唯一编号找装备槽。
+    #[must_use]
+    pub fn equipment_slot_of(&self, unique_id: u64) -> Option<usize> {
+        self.equipment.iter().position(|item| {
+            item.as_ref()
+                .is_some_and(|item| item.unique_id == unique_id)
+        })
+    }
+
+    /// 某个对象（含自己）所在格；未知对象返回 `None`。
+    #[must_use]
+    pub fn object_position(&self, object_id: u32) -> Option<Point> {
+        if let Some(me) = &self.self_player {
+            if me.object_id == object_id {
+                return Some(me.position);
+            }
+        }
+        self.entities.get(&object_id).map(|entity| entity.position)
+    }
+
+    /// 某个对象的名字（自己也在内）。
+    #[must_use]
+    pub fn object_name(&self, object_id: u32) -> Option<&str> {
+        if let Some(me) = &self.self_player {
+            if me.object_id == object_id {
+                return Some(me.name.as_str());
+            }
+        }
+        self.entities
+            .get(&object_id)
+            .map(|entity| entity.name.as_str())
     }
 
     /// 离自己最近的 NPC（对话对象推断；没有 NPC 时返回 `None`）。
@@ -1112,6 +1320,29 @@ fn handle_command(
             count,
             hero_inventory: false,
         }),
+        NetCommand::UseItem { unique_id } => ClientPacket::UseItem(c::UseItem {
+            unique_id,
+            grid: MirGridType::Inventory,
+        }),
+        NetCommand::MoveItem {
+            grid,
+            from,
+            to,
+            to_grid,
+        } => {
+            // 只要有一端是装备网格，就按 `mir-server` 的 `World::move_equipment` 发：
+            // 它用 `grid = Equipment` + `from`/`to` 的方向区分穿/脱。
+            let wire_grid = if grid == MirGridType::Equipment || to_grid == MirGridType::Equipment {
+                MirGridType::Equipment
+            } else {
+                grid
+            };
+            ClientPacket::MoveItem(c::MoveItem {
+                grid: wire_grid,
+                from,
+                to,
+            })
+        }
         NetCommand::Magic {
             spell,
             direction,
@@ -1180,6 +1411,10 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
         ServerPacket::ObjectRun(_) => "ObjectRun",
         ServerPacket::ObjectAttack(_) => "ObjectAttack",
         ServerPacket::ObjectStruck(_) => "ObjectStruck",
+        ServerPacket::DamageIndicator(_) => "DamageIndicator",
+        ServerPacket::ObjectEffect(_) => "ObjectEffect",
+        ServerPacket::AddBuff(_) => "AddBuff",
+        ServerPacket::RemoveBuff(_) => "RemoveBuff",
         ServerPacket::ObjectDied(_) => "ObjectDied",
         ServerPacket::ObjectRevived(_) => "ObjectRevived",
         ServerPacket::Death(_) => "Death",
@@ -1299,6 +1534,13 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
             // `Inventory = null` 表示「客户端保留旧数据」（Crystal 的语义）。
             if let Some(inventory) = &info.inventory {
                 snapshot.inventory = inventory
+                    .iter()
+                    .map(|item| item.as_ref().map(InventoryItem::from_user_item))
+                    .collect();
+            }
+            // 装备同理：`null` 表示保留旧数据。
+            if let Some(equipment) = &info.equipment {
+                snapshot.equipment = equipment
                     .iter()
                     .map(|item| item.as_ref().map(InventoryItem::from_user_item))
                     .collect();
@@ -1430,6 +1672,41 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
             update_entity(snapshot, struck.object_id, |entity| {
                 entity.direction = struck.direction;
             });
+            push_damage_event(
+                snapshot,
+                struck.object_id,
+                None,
+                None,
+                Some(struck.location),
+            );
+        }
+        ServerPacket::DamageIndicator(indicator) => {
+            push_damage_event(
+                snapshot,
+                indicator.object_id,
+                Some(indicator.damage),
+                Some(indicator.type_),
+                None,
+            );
+        }
+        ServerPacket::ObjectEffect(effect) => {
+            push_effect_event(snapshot, effect.object_id, effect.effect, effect.time);
+        }
+        ServerPacket::AddBuff(add) => {
+            let buff = BuffView::from_client_buff(&add.buff);
+            if let Some(existing) = snapshot.buffs.iter_mut().find(|known| {
+                known.buff_type == buff.buff_type && known.object_id == buff.object_id
+            }) {
+                *existing = buff;
+            } else {
+                snapshot.buffs.push(buff);
+            }
+        }
+        ServerPacket::RemoveBuff(remove) => {
+            snapshot.buffs.retain(|buff| {
+                !(buff.buff_type == remove.type_
+                    && (remove.object_id == 0 || buff.object_id == remove.object_id))
+            });
         }
         ServerPacket::ObjectDied(died) => {
             update_entity(snapshot, died.object_id, |entity| {
@@ -1480,22 +1757,28 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
                 .insert(info.info.index, ItemInfoView::from_item_info(&info.info));
         }
         ServerPacket::MoveItem(movement) => {
-            // 只有背包内的交换能直接映射到界面格子；装备/仓库等网格本作还没有面板。
+            // 背包内的交换能直接映射到界面格子；装备网格的移动由 `S.EquipItem` /
+            // `S.RemoveItem` 回显（`mir-server` 的 `World::move_equipment`），这里只吞掉
+            // 失败回执。
             if movement.success && movement.grid == MirGridType::Inventory {
                 snap_move_inventory(snapshot, movement.from, movement.to);
             }
         }
         ServerPacket::EquipItem(equipped) => {
-            // 穿上的物品离开背包；换下来的旧装备不在本作背包快照里（见模块文档的已知差异）。
+            // 穿上的物品离开背包、进入装备槽；换下来的旧装备回到同一个背包格
+            // （Crystal `PlayerObject.EquipItem`，`PlayerObject.cs:5674-5678`）。
             if equipped.success && equipped.grid == MirGridType::Inventory {
-                remove_inventory_item(snapshot, equipped.unique_id);
+                equip_from_inventory(snapshot, equipped.unique_id, equipped.to);
             }
         }
         ServerPacket::RemoveItem(removed) => {
-            // 脱下装备会回到背包，但 `S.RemoveItem` 不带物品数据，等下一次
-            // `S.UserInformation` 再补全；这里至少让旧格子空出来。
-            if removed.success && removed.grid == MirGridType::Inventory {
-                remove_inventory_item(snapshot, removed.unique_id);
+            // 脱下装备会回到背包；`S.RemoveItem` 只带目标背包格，物品数据来自快照里的装备。
+            if removed.success {
+                if removed.grid == MirGridType::Equipment {
+                    unequip_to_inventory(snapshot, removed.unique_id, removed.to);
+                } else if removed.grid == MirGridType::Inventory {
+                    remove_inventory_item(snapshot, removed.unique_id);
+                }
             }
         }
         ServerPacket::DeleteItem(deleted) => {
@@ -1801,14 +2084,111 @@ fn refresh_inventory_item(snapshot: &mut WorldSnapshot, item: &UserItem) {
     }
 }
 
+/// 把一个背包物品穿到 `slot` 号装备槽；换下来的旧装备回到原背包格（空着时）或并入背包。
+fn equip_from_inventory(snapshot: &mut WorldSnapshot, unique_id: u64, slot: i32) {
+    let Ok(slot) = usize::try_from(slot) else {
+        return;
+    };
+    if slot >= EQUIPMENT_SLOTS {
+        return;
+    }
+    let Some(inventory_slot) = snapshot.inventory_slot_of(unique_id) else {
+        return;
+    };
+    let Some(item) = snapshot
+        .inventory
+        .get_mut(inventory_slot)
+        .and_then(Option::take)
+    else {
+        return;
+    };
+    if snapshot.equipment.len() < EQUIPMENT_SLOTS {
+        snapshot.equipment.resize(EQUIPMENT_SLOTS, None);
+    }
+    let replaced = snapshot
+        .equipment
+        .get_mut(slot)
+        .and_then(|target| target.replace(item));
+    if let Some(replaced) = replaced {
+        if snapshot
+            .inventory
+            .get(inventory_slot)
+            .is_some_and(Option::is_none)
+        {
+            snapshot.inventory[inventory_slot] = Some(replaced);
+        } else {
+            add_inventory_item(snapshot, replaced);
+        }
+    }
+}
+
+/// 把一件装备脱到 `slot` 号背包格；目标格被占时并入第一个空位。
+fn unequip_to_inventory(snapshot: &mut WorldSnapshot, unique_id: u64, slot: i32) {
+    let Some(equipment_slot) = snapshot.equipment_slot_of(unique_id) else {
+        return;
+    };
+    let Some(item) = snapshot
+        .equipment
+        .get_mut(equipment_slot)
+        .and_then(Option::take)
+    else {
+        return;
+    };
+    if let Ok(slot) = usize::try_from(slot) {
+        if slot < snapshot.inventory.len() && snapshot.inventory[slot].is_none() {
+            snapshot.inventory[slot] = Some(item);
+            return;
+        }
+    }
+    add_inventory_item(snapshot, item);
+}
+
+/// 追加一条伤害事件（UI 用递增 ID 判断哪些是新的）。
+fn push_damage_event(
+    snapshot: &mut WorldSnapshot,
+    object_id: u32,
+    damage: Option<i32>,
+    damage_type: Option<DamageType>,
+    location: Option<Point>,
+) {
+    snapshot.next_damage_id = snapshot.next_damage_id.saturating_add(1);
+    let id = snapshot.next_damage_id;
+    snapshot.damage_events.push(DamageEvent {
+        id,
+        object_id,
+        damage,
+        damage_type,
+        location,
+    });
+    if snapshot.damage_events.len() > DAMAGE_EVENT_LIMIT {
+        snapshot.damage_events.remove(0);
+    }
+}
+
+/// 追加一条光效事件（`S.ObjectEffect`）。
+fn push_effect_event(snapshot: &mut WorldSnapshot, object_id: u32, effect: SpellEffect, time: u32) {
+    snapshot.next_effect_id = snapshot.next_effect_id.saturating_add(1);
+    let id = snapshot.next_effect_id;
+    snapshot.effects.push(EffectEvent {
+        id,
+        object_id,
+        effect,
+        time,
+    });
+    if snapshot.effects.len() > EFFECT_EVENT_LIMIT {
+        snapshot.effects.remove(0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use mir_core::enums::Monster as MonsterImage;
-    use mir_protocol::data::{ClientMagic, ItemInfo, SelectInfo, UserItem};
+    use mir_protocol::data::{ClientBuff, ClientMagic, ItemInfo, SelectInfo, Stats, UserItem};
     use mir_protocol::packets::server::{
-        DeleteItem, MoveItem, NPCGoods, NPCResponse, NewItemInfo, ObjectItem, ObjectMonster,
-        ObjectNPC, ObjectWalk, UserInformation, UserLocation,
+        AddBuff, DamageIndicator, DeleteItem, EquipItem, MoveItem, NPCGoods, NPCResponse,
+        NewItemInfo, ObjectEffect, ObjectItem, ObjectMonster, ObjectNPC, ObjectStruck, ObjectWalk,
+        RemoveBuff, RemoveItem, UserInformation, UserLocation,
     };
 
     fn test_item(unique_id: u64, item_index: i32, count: u16) -> UserItem {
@@ -2074,5 +2454,102 @@ mod tests {
         ));
         assert_eq!(snapshot.magics[0].level, 2);
         assert_eq!(snapshot.packet_count("MagicLeveled"), 1);
+    }
+
+    #[test]
+    fn snapshot_tracks_equipment_buffs_damage_and_effects() {
+        let mut snapshot = WorldSnapshot::default();
+        let mut information = user_information();
+        information.inventory = Some(vec![Some(test_item(11, 1, 1)), None]);
+        information.equipment = Some(vec![None, Some(test_item(21, 10, 1))]);
+        snapshot.apply_packet(&ServerPacket::UserInformation(information));
+        assert_eq!(snapshot.equipment.len(), 2);
+        assert_eq!(
+            snapshot.equipment_item(1).map(|item| item.unique_id),
+            Some(21)
+        );
+
+        // 穿上：背包 0 号格的物品进入 0 号装备槽。
+        snapshot.apply_packet(&ServerPacket::EquipItem(EquipItem {
+            grid: MirGridType::Inventory,
+            unique_id: 11,
+            to: 0,
+            success: true,
+        }));
+        assert!(snapshot.inventory_item(0).is_none());
+        assert_eq!(
+            snapshot.equipment_item(0).map(|item| item.unique_id),
+            Some(11)
+        );
+        // 脱下：装备槽 1 的旧装备回到背包 0 号格。
+        snapshot.apply_packet(&ServerPacket::RemoveItem(RemoveItem {
+            grid: MirGridType::Equipment,
+            unique_id: 21,
+            to: 0,
+            success: true,
+        }));
+        assert!(snapshot.equipment_item(1).is_none());
+        assert_eq!(
+            snapshot.inventory_item(0).map(|item| item.unique_id),
+            Some(21)
+        );
+
+        // buff 的新增/倒计时/移除。
+        snapshot.apply_packet(&ServerPacket::AddBuff(AddBuff {
+            buff: ClientBuff {
+                buff_type: BuffType::MagicShield,
+                visible: true,
+                object_id: 7,
+                expire_time: 10_000,
+                infinite: false,
+                paused: false,
+                stats: Stats::default(),
+                values: Vec::new(),
+            },
+        }));
+        assert_eq!(snapshot.buffs.len(), 1);
+        assert_eq!(snapshot.buffs[0].remaining_seconds(2_000), Some(8));
+        snapshot.apply_packet(&ServerPacket::RemoveBuff(RemoveBuff {
+            type_: BuffType::MagicShield,
+            object_id: 7,
+        }));
+        assert!(snapshot.buffs.is_empty());
+
+        // 伤害/受击事件与光效事件。
+        snapshot.apply_packet(&ServerPacket::ObjectMonster(ObjectMonster {
+            object_id: 8,
+            name: "骷髅".to_owned(),
+            image: MonsterImage::Skeleton,
+            location: Point::new(1, 1),
+            direction: MirDirection::Down,
+            ..ObjectMonster::default()
+        }));
+        snapshot.apply_packet(&ServerPacket::ObjectStruck(ObjectStruck {
+            object_id: 8,
+            attacker_id: 7,
+            location: Point::new(1, 1),
+            direction: MirDirection::Left,
+        }));
+        snapshot.apply_packet(&ServerPacket::DamageIndicator(DamageIndicator {
+            damage: 12,
+            type_: DamageType::Hit,
+            object_id: 8,
+        }));
+        assert_eq!(snapshot.damage_events.len(), 2);
+        assert_eq!(snapshot.damage_events[0].damage, None, "受击包没有伤害值");
+        assert_eq!(snapshot.damage_events[1].damage, Some(12));
+        assert!(snapshot.damage_events[0].id < snapshot.damage_events[1].id);
+        assert_eq!(snapshot.object_position(8), Some(Point::new(1, 1)));
+        snapshot.apply_packet(&ServerPacket::ObjectEffect(ObjectEffect {
+            object_id: 8,
+            effect: SpellEffect::MagicShieldUp,
+            effect_type: 0,
+            delay_time: 0,
+            time: 600,
+        }));
+        assert_eq!(snapshot.effects.len(), 1);
+        assert_eq!(snapshot.effects[0].object_id, 8);
+        assert_eq!(snapshot.packet_count("DamageIndicator"), 1);
+        assert_eq!(snapshot.packet_count("ObjectEffect"), 1);
     }
 }

@@ -168,13 +168,22 @@ def _element_type(rt: RustType, registry: TypeRegistry) -> RustType:
     return element
 
 
+def _enum_to_bits(expr: str, rt: RustType) -> str:
+    """枚举写线的表达式：普通枚举用 `as u8`，`[Flags]` 新类型用 `.value()`。"""
+    underlying = rt.enum_underlying
+    if rt.is_flags:
+        return f"{expr}.value()"
+    return f"{expr} as {underlying}"
+
+
 def _emit_element_write(element: RustType, expr: str, indent: str) -> list[str]:
     # `expr` is a reference (`value` in `for value in &list`), so scalars need a deref.
     if element.kind == "prim":
         return [f"{indent}w.{WRITER_METHOD[element.rust]}(*{expr});"]
     if element.kind == "enum":
         underlying = element.enum_underlying
-        return [f"{indent}w.{WRITER_METHOD[underlying]}(*{expr} as {underlying});"]
+        bits = _enum_to_bits(f"*{expr}", element)
+        return [f"{indent}w.{WRITER_METHOD[underlying]}({bits});"]
     if element.kind == "string":
         return [f"{indent}w.write_string({expr});"]
     if element.kind == "struct":
@@ -193,7 +202,7 @@ def write_value(rt: RustType, expr: str, ctx: Ctx) -> tuple[list[str], list[str]
         return [f"w.{WRITER_METHOD[rt.rust]}({expr});"], [f"prim:{rt.rust}"]
     if rt.kind == "enum":
         underlying = rt.enum_underlying
-        return [f"w.{WRITER_METHOD[underlying]}({expr} as {underlying});"], [f"enum:{underlying}"]
+        return [f"w.{WRITER_METHOD[underlying]}({_enum_to_bits(expr, rt)});"], [f"enum:{underlying}"]
     if rt.kind == "string":
         return [f"w.write_string(&{expr});"], ["string"]
     if rt.kind == "point":
@@ -698,8 +707,9 @@ def _collection_write_lines(
         cast_arg = re.fullmatch(r"\((?P<cast>\w+)\)\s*" + re.escape(target) + r"\[[^\]]+\]", arg)
         if cast_arg and element.kind == "enum":
             underlying = element.enum_underlying
+            bits = _enum_to_bits("*value", element)
             return (
-                [f"for value in &{field_ref} {{", f"    w.{WRITER_METHOD[underlying]}(*value as {underlying});", "}"],
+                [f"for value in &{field_ref} {{", f"    w.{WRITER_METHOD[underlying]}({bits});", "}"],
                 [f"enum:{underlying}"],
             )
         raise TranslationError(f"unsupported element write argument: {arg!r}")
@@ -772,8 +782,9 @@ def _write_expr(expr: str, ctx: Ctx) -> tuple[list[str], list[str]]:
         rt = ctx.field_type(inner)
         if rt.kind == "enum":
             underlying = rt.enum_underlying
+            bits = _enum_to_bits(ctx.field_rust(inner), rt)
             return (
-                [f"w.{WRITER_METHOD[underlying]}({ctx.field_rust(inner)} as {underlying});"],
+                [f"w.{WRITER_METHOD[underlying]}({bits});"],
                 [f"enum:{underlying}"],
             )
         if rt.kind == "prim":

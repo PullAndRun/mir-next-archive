@@ -286,7 +286,7 @@ impl UserInformation {
         w.write_i32(self.mp);
         w.write_i64(self.experience);
         w.write_i64(self.max_experience);
-        w.write_u16(self.level_effects as u16);
+        w.write_u16(self.level_effects.value());
         w.write_bool(self.has_hero);
         w.write_u8(self.hero_behaviour as u8);
         encode_optional_items(w, self.inventory.as_deref());

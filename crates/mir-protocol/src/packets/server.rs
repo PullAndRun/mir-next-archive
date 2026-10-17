@@ -736,7 +736,7 @@ impl ObjectPlayer {
         w.write_i16(self.weapon);
         w.write_i16(self.weapon_effect);
         w.write_i16(self.armour);
-        w.write_u16(self.poison as u16);
+        w.write_u16(self.poison.value());
         w.write_bool(self.dead);
         w.write_bool(self.hidden);
         w.write_u8(self.effect as u8);
@@ -753,7 +753,7 @@ impl ObjectPlayer {
         for value in &self.buffs {
             w.write_u8(*value as u8);
         }
-        w.write_u16(self.level_effects as u16);
+        w.write_u16(self.level_effects.value());
     }
 }
 
@@ -2401,7 +2401,7 @@ impl ObjectMonster {
         w.write_u8(self.light);
         w.write_bool(self.dead);
         w.write_bool(self.skeleton);
-        w.write_u16(self.poison as u16);
+        w.write_u16(self.poison.value());
         w.write_bool(self.hidden);
         w.write_i64(self.shock_time);
         w.write_bool(self.binding_shot_center);
@@ -3182,7 +3182,7 @@ impl Poisoned {
 
     /// Encode the packet payload (without the header).
     pub fn encode(&self, w: &mut crate::PacketWriter) {
-        w.write_u16(self.poison as u16);
+        w.write_u16(self.poison.value());
     }
 }
 
@@ -3210,7 +3210,7 @@ impl ObjectPoisoned {
     /// Encode the packet payload (without the header).
     pub fn encode(&self, w: &mut crate::PacketWriter) {
         w.write_u32(self.object_id);
-        w.write_u16(self.poison as u16);
+        w.write_u16(self.poison.value());
     }
 }
 
@@ -5235,7 +5235,7 @@ impl GuildStatus {
         w.write_bool(self.voting);
         w.write_u8(self.item_count);
         w.write_u8(self.buff_count);
-        w.write_u8(self.my_options as u8);
+        w.write_u8(self.my_options.value());
         w.write_i32(self.my_rank_id);
     }
 }
@@ -6416,7 +6416,7 @@ impl ObjectLevelEffects {
     /// Encode the packet payload (without the header).
     pub fn encode(&self, w: &mut crate::PacketWriter) {
         w.write_u32(self.object_id);
-        w.write_u16(self.level_effects as u16);
+        w.write_u16(self.level_effects.value());
     }
 }
 

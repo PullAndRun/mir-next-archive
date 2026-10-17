@@ -5,7 +5,8 @@
     clippy::upper_case_acronyms,
     clippy::enum_variant_names,
     non_camel_case_types,
-    clippy::derivable_impls
+    clippy::derivable_impls,
+    non_upper_case_globals
 )]
 
 /// Mirrors Crystal `Shared/Enums.cs`.
@@ -686,71 +687,104 @@ impl TryFrom<u8> for MonsterType {
     }
 }
 
-/// Mirrors Crystal `Shared/Enums.cs`.
+/// Crystal `[Flags]` 枚举 `GMOptions`：线上是 `u8` 位掩码。
 #[derive(
     Debug,
     Clone,
     Copy,
+    Default,
     PartialEq,
     Eq,
     PartialOrd,
     Ord,
     Hash,
-    Default,
     serde::Serialize,
     serde::Deserialize,
 )]
-#[repr(u8)]
-pub enum GMOptions {
-    #[default]
-    None = 0,
-    GameMaster = 1,
-    Observer = 2,
-    Superman = 4,
-}
+pub struct GMOptions(pub u8);
 
 impl GMOptions {
-    /// Every distinct declared value.
-    pub const ALL: &'static [GMOptions] = &[
-        GMOptions::None,
-        GMOptions::GameMaster,
-        GMOptions::Observer,
-        GMOptions::Superman,
-    ];
+    /// `None` = 0.
+    pub const None: Self = Self(0);
+    /// `GameMaster` = 1.
+    pub const GameMaster: Self = Self(1);
+    /// `Observer` = 2.
+    pub const Observer: Self = Self(2);
+    /// `Superman` = 4.
+    pub const Superman: Self = Self(4);
 
-    /// Raw discriminant, as written on the wire.
+    /// 声明的全部成员（不含组合值）。
+    pub const ALL: &'static [GMOptions] =
+        &[Self::None, Self::GameMaster, Self::Observer, Self::Superman];
+
+    /// 原始位值。
     #[must_use]
     pub const fn value(self) -> u8 {
-        self as u8
+        self.0
     }
 
-    /// Converts a raw wire value, returning `None` when the value is unknown.
+    /// 线上值直接就是位掩码，任何取值都合法。
     #[must_use]
     pub const fn from_value(value: u8) -> Option<Self> {
-        match value {
-            0 => Some(Self::None),
-            1 => Some(Self::GameMaster),
-            2 => Some(Self::Observer),
-            4 => Some(Self::Superman),
-            _ => None,
+        Some(Self(value))
+    }
+
+    /// 截断到已知位之外为零。
+    #[must_use]
+    pub const fn from_bits_truncate(bits: u8) -> Self {
+        let mut known: u8 = 0;
+        let mut index = 0;
+        while index < Self::ALL.len() {
+            known |= Self::ALL[index].0;
+            index += 1;
         }
+        Self(bits & known)
+    }
+
+    /// 是否包含 `other` 的全部位。
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// 位是否全为空。
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// 并集。
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+impl core::ops::BitOr for GMOptions {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl core::ops::BitAnd for GMOptions {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl core::ops::BitOrAssign for GMOptions {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
     }
 }
 
 impl From<GMOptions> for u8 {
     fn from(value: GMOptions) -> Self {
-        value as u8
-    }
-}
-
-impl TryFrom<u8> for GMOptions {
-    type Error = crate::UnknownEnumValue;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::from_value(value).ok_or(crate::UnknownEnumValue {
-            type_name: "GMOptions",
-            value: i64::from(value),
-        })
+        value.0
     }
 }
 
@@ -831,89 +865,126 @@ impl TryFrom<u8> for AwakeType {
     }
 }
 
-/// Mirrors Crystal `Shared/Enums.cs`.
+/// Crystal `[Flags]` 枚举 `LevelEffects`：线上是 `u16` 位掩码。
 #[derive(
     Debug,
     Clone,
     Copy,
+    Default,
     PartialEq,
     Eq,
     PartialOrd,
     Ord,
     Hash,
-    Default,
     serde::Serialize,
     serde::Deserialize,
 )]
-#[repr(u16)]
-pub enum LevelEffects {
-    #[default]
-    None = 0,
-    Mist = 1,
-    RedDragon = 2,
-    BlueDragon = 4,
-    Rebirth1 = 8,
-    Rebirth2 = 16,
-    Rebirth3 = 32,
-    NewBlue = 64,
-    YellowDragon = 128,
-    Phoenix = 256,
-}
+pub struct LevelEffects(pub u16);
 
 impl LevelEffects {
-    /// Every distinct declared value.
+    /// `None` = 0.
+    pub const None: Self = Self(0);
+    /// `Mist` = 1.
+    pub const Mist: Self = Self(1);
+    /// `RedDragon` = 2.
+    pub const RedDragon: Self = Self(2);
+    /// `BlueDragon` = 4.
+    pub const BlueDragon: Self = Self(4);
+    /// `Rebirth1` = 8.
+    pub const Rebirth1: Self = Self(8);
+    /// `Rebirth2` = 16.
+    pub const Rebirth2: Self = Self(16);
+    /// `Rebirth3` = 32.
+    pub const Rebirth3: Self = Self(32);
+    /// `NewBlue` = 64.
+    pub const NewBlue: Self = Self(64);
+    /// `YellowDragon` = 128.
+    pub const YellowDragon: Self = Self(128);
+    /// `Phoenix` = 256.
+    pub const Phoenix: Self = Self(256);
+
+    /// 声明的全部成员（不含组合值）。
     pub const ALL: &'static [LevelEffects] = &[
-        LevelEffects::None,
-        LevelEffects::Mist,
-        LevelEffects::RedDragon,
-        LevelEffects::BlueDragon,
-        LevelEffects::Rebirth1,
-        LevelEffects::Rebirth2,
-        LevelEffects::Rebirth3,
-        LevelEffects::NewBlue,
-        LevelEffects::YellowDragon,
-        LevelEffects::Phoenix,
+        Self::None,
+        Self::Mist,
+        Self::RedDragon,
+        Self::BlueDragon,
+        Self::Rebirth1,
+        Self::Rebirth2,
+        Self::Rebirth3,
+        Self::NewBlue,
+        Self::YellowDragon,
+        Self::Phoenix,
     ];
 
-    /// Raw discriminant, as written on the wire.
+    /// 原始位值。
     #[must_use]
     pub const fn value(self) -> u16 {
-        self as u16
+        self.0
     }
 
-    /// Converts a raw wire value, returning `None` when the value is unknown.
+    /// 线上值直接就是位掩码，任何取值都合法。
     #[must_use]
     pub const fn from_value(value: u16) -> Option<Self> {
-        match value {
-            0 => Some(Self::None),
-            1 => Some(Self::Mist),
-            2 => Some(Self::RedDragon),
-            4 => Some(Self::BlueDragon),
-            8 => Some(Self::Rebirth1),
-            16 => Some(Self::Rebirth2),
-            32 => Some(Self::Rebirth3),
-            64 => Some(Self::NewBlue),
-            128 => Some(Self::YellowDragon),
-            256 => Some(Self::Phoenix),
-            _ => None,
+        Some(Self(value))
+    }
+
+    /// 截断到已知位之外为零。
+    #[must_use]
+    pub const fn from_bits_truncate(bits: u16) -> Self {
+        let mut known: u16 = 0;
+        let mut index = 0;
+        while index < Self::ALL.len() {
+            known |= Self::ALL[index].0;
+            index += 1;
         }
+        Self(bits & known)
+    }
+
+    /// 是否包含 `other` 的全部位。
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// 位是否全为空。
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// 并集。
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+impl core::ops::BitOr for LevelEffects {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl core::ops::BitAnd for LevelEffects {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl core::ops::BitOrAssign for LevelEffects {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
     }
 }
 
 impl From<LevelEffects> for u16 {
     fn from(value: LevelEffects) -> Self {
-        value as u16
-    }
-}
-
-impl TryFrom<u16> for LevelEffects {
-    type Error = crate::UnknownEnumValue;
-
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
-        Self::from_value(value).ok_or(crate::UnknownEnumValue {
-            type_name: "LevelEffects",
-            value: i64::from(value),
-        })
+        value.0
     }
 }
 
@@ -4583,439 +4654,620 @@ impl TryFrom<u8> for PetMode {
     }
 }
 
-/// Mirrors Crystal `Shared/Enums.cs`.
+/// Crystal `[Flags]` 枚举 `PoisonType`：线上是 `u16` 位掩码。
 #[derive(
     Debug,
     Clone,
     Copy,
+    Default,
     PartialEq,
     Eq,
     PartialOrd,
     Ord,
     Hash,
-    Default,
     serde::Serialize,
     serde::Deserialize,
 )]
-#[repr(u16)]
-pub enum PoisonType {
-    #[default]
-    None = 0,
-    Green = 1,
-    Red = 2,
-    Slow = 4,
-    Frozen = 8,
-    Stun = 16,
-    Paralysis = 32,
-    DelayedExplosion = 64,
-    Bleeding = 128,
-    LRParalysis = 256,
-    Blindness = 512,
-    Dazed = 1024,
-}
+pub struct PoisonType(pub u16);
 
 impl PoisonType {
-    /// Every distinct declared value.
+    /// `None` = 0.
+    pub const None: Self = Self(0);
+    /// `Green` = 1.
+    pub const Green: Self = Self(1);
+    /// `Red` = 2.
+    pub const Red: Self = Self(2);
+    /// `Slow` = 4.
+    pub const Slow: Self = Self(4);
+    /// `Frozen` = 8.
+    pub const Frozen: Self = Self(8);
+    /// `Stun` = 16.
+    pub const Stun: Self = Self(16);
+    /// `Paralysis` = 32.
+    pub const Paralysis: Self = Self(32);
+    /// `DelayedExplosion` = 64.
+    pub const DelayedExplosion: Self = Self(64);
+    /// `Bleeding` = 128.
+    pub const Bleeding: Self = Self(128);
+    /// `LRParalysis` = 256.
+    pub const LRParalysis: Self = Self(256);
+    /// `Blindness` = 512.
+    pub const Blindness: Self = Self(512);
+    /// `Dazed` = 1024.
+    pub const Dazed: Self = Self(1024);
+
+    /// 声明的全部成员（不含组合值）。
     pub const ALL: &'static [PoisonType] = &[
-        PoisonType::None,
-        PoisonType::Green,
-        PoisonType::Red,
-        PoisonType::Slow,
-        PoisonType::Frozen,
-        PoisonType::Stun,
-        PoisonType::Paralysis,
-        PoisonType::DelayedExplosion,
-        PoisonType::Bleeding,
-        PoisonType::LRParalysis,
-        PoisonType::Blindness,
-        PoisonType::Dazed,
+        Self::None,
+        Self::Green,
+        Self::Red,
+        Self::Slow,
+        Self::Frozen,
+        Self::Stun,
+        Self::Paralysis,
+        Self::DelayedExplosion,
+        Self::Bleeding,
+        Self::LRParalysis,
+        Self::Blindness,
+        Self::Dazed,
     ];
 
-    /// Raw discriminant, as written on the wire.
+    /// 原始位值。
     #[must_use]
     pub const fn value(self) -> u16 {
-        self as u16
+        self.0
     }
 
-    /// Converts a raw wire value, returning `None` when the value is unknown.
+    /// 线上值直接就是位掩码，任何取值都合法。
     #[must_use]
     pub const fn from_value(value: u16) -> Option<Self> {
-        match value {
-            0 => Some(Self::None),
-            1 => Some(Self::Green),
-            2 => Some(Self::Red),
-            4 => Some(Self::Slow),
-            8 => Some(Self::Frozen),
-            16 => Some(Self::Stun),
-            32 => Some(Self::Paralysis),
-            64 => Some(Self::DelayedExplosion),
-            128 => Some(Self::Bleeding),
-            256 => Some(Self::LRParalysis),
-            512 => Some(Self::Blindness),
-            1024 => Some(Self::Dazed),
-            _ => None,
+        Some(Self(value))
+    }
+
+    /// 截断到已知位之外为零。
+    #[must_use]
+    pub const fn from_bits_truncate(bits: u16) -> Self {
+        let mut known: u16 = 0;
+        let mut index = 0;
+        while index < Self::ALL.len() {
+            known |= Self::ALL[index].0;
+            index += 1;
         }
+        Self(bits & known)
+    }
+
+    /// 是否包含 `other` 的全部位。
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// 位是否全为空。
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// 并集。
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+impl core::ops::BitOr for PoisonType {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl core::ops::BitAnd for PoisonType {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl core::ops::BitOrAssign for PoisonType {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
     }
 }
 
 impl From<PoisonType> for u16 {
     fn from(value: PoisonType) -> Self {
-        value as u16
+        value.0
     }
 }
 
-impl TryFrom<u16> for PoisonType {
-    type Error = crate::UnknownEnumValue;
-
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
-        Self::from_value(value).ok_or(crate::UnknownEnumValue {
-            type_name: "PoisonType",
-            value: i64::from(value),
-        })
-    }
-}
-
-/// Mirrors Crystal `Shared/Enums.cs`.
+/// Crystal `[Flags]` 枚举 `BindMode`：线上是 `i16` 位掩码。
 #[derive(
     Debug,
     Clone,
     Copy,
+    Default,
     PartialEq,
     Eq,
     PartialOrd,
     Ord,
     Hash,
-    Default,
     serde::Serialize,
     serde::Deserialize,
 )]
-#[repr(i16)]
-pub enum BindMode {
-    #[default]
-    None = 0,
-    DontDeathdrop = 1,
-    DontDrop = 2,
-    DontSell = 4,
-    DontStore = 8,
-    DontTrade = 16,
-    DontRepair = 32,
-    DontUpgrade = 64,
-    DestroyOnDrop = 128,
-    BreakOnDeath = 256,
-    BindOnEquip = 512,
-    NoSRepair = 1024,
-    NoWeddingRing = 2048,
-    UnableToRent = 4096,
-    UnableToDisassemble = 8192,
-    NoMail = 16384,
-    NoHero = -32768,
-}
+pub struct BindMode(pub i16);
 
 impl BindMode {
-    /// Every distinct declared value.
+    /// `None` = 0.
+    pub const None: Self = Self(0);
+    /// `DontDeathdrop` = 1.
+    pub const DontDeathdrop: Self = Self(1);
+    /// `DontDrop` = 2.
+    pub const DontDrop: Self = Self(2);
+    /// `DontSell` = 4.
+    pub const DontSell: Self = Self(4);
+    /// `DontStore` = 8.
+    pub const DontStore: Self = Self(8);
+    /// `DontTrade` = 16.
+    pub const DontTrade: Self = Self(16);
+    /// `DontRepair` = 32.
+    pub const DontRepair: Self = Self(32);
+    /// `DontUpgrade` = 64.
+    pub const DontUpgrade: Self = Self(64);
+    /// `DestroyOnDrop` = 128.
+    pub const DestroyOnDrop: Self = Self(128);
+    /// `BreakOnDeath` = 256.
+    pub const BreakOnDeath: Self = Self(256);
+    /// `BindOnEquip` = 512.
+    pub const BindOnEquip: Self = Self(512);
+    /// `NoSRepair` = 1024.
+    pub const NoSRepair: Self = Self(1024);
+    /// `NoWeddingRing` = 2048.
+    pub const NoWeddingRing: Self = Self(2048);
+    /// `UnableToRent` = 4096.
+    pub const UnableToRent: Self = Self(4096);
+    /// `UnableToDisassemble` = 8192.
+    pub const UnableToDisassemble: Self = Self(8192);
+    /// `NoMail` = 16384.
+    pub const NoMail: Self = Self(16384);
+    /// `NoHero` = -32768.
+    pub const NoHero: Self = Self(-32768);
+
+    /// 声明的全部成员（不含组合值）。
     pub const ALL: &'static [BindMode] = &[
-        BindMode::None,
-        BindMode::DontDeathdrop,
-        BindMode::DontDrop,
-        BindMode::DontSell,
-        BindMode::DontStore,
-        BindMode::DontTrade,
-        BindMode::DontRepair,
-        BindMode::DontUpgrade,
-        BindMode::DestroyOnDrop,
-        BindMode::BreakOnDeath,
-        BindMode::BindOnEquip,
-        BindMode::NoSRepair,
-        BindMode::NoWeddingRing,
-        BindMode::UnableToRent,
-        BindMode::UnableToDisassemble,
-        BindMode::NoMail,
-        BindMode::NoHero,
+        Self::None,
+        Self::DontDeathdrop,
+        Self::DontDrop,
+        Self::DontSell,
+        Self::DontStore,
+        Self::DontTrade,
+        Self::DontRepair,
+        Self::DontUpgrade,
+        Self::DestroyOnDrop,
+        Self::BreakOnDeath,
+        Self::BindOnEquip,
+        Self::NoSRepair,
+        Self::NoWeddingRing,
+        Self::UnableToRent,
+        Self::UnableToDisassemble,
+        Self::NoMail,
+        Self::NoHero,
     ];
 
-    /// Raw discriminant, as written on the wire.
+    /// 原始位值。
     #[must_use]
     pub const fn value(self) -> i16 {
-        self as i16
+        self.0
     }
 
-    /// Converts a raw wire value, returning `None` when the value is unknown.
+    /// 线上值直接就是位掩码，任何取值都合法。
     #[must_use]
     pub const fn from_value(value: i16) -> Option<Self> {
-        match value {
-            0 => Some(Self::None),
-            1 => Some(Self::DontDeathdrop),
-            2 => Some(Self::DontDrop),
-            4 => Some(Self::DontSell),
-            8 => Some(Self::DontStore),
-            16 => Some(Self::DontTrade),
-            32 => Some(Self::DontRepair),
-            64 => Some(Self::DontUpgrade),
-            128 => Some(Self::DestroyOnDrop),
-            256 => Some(Self::BreakOnDeath),
-            512 => Some(Self::BindOnEquip),
-            1024 => Some(Self::NoSRepair),
-            2048 => Some(Self::NoWeddingRing),
-            4096 => Some(Self::UnableToRent),
-            8192 => Some(Self::UnableToDisassemble),
-            16384 => Some(Self::NoMail),
-            -32768 => Some(Self::NoHero),
-            _ => None,
+        Some(Self(value))
+    }
+
+    /// 截断到已知位之外为零。
+    #[must_use]
+    pub const fn from_bits_truncate(bits: i16) -> Self {
+        let mut known: i16 = 0;
+        let mut index = 0;
+        while index < Self::ALL.len() {
+            known |= Self::ALL[index].0;
+            index += 1;
         }
+        Self(bits & known)
+    }
+
+    /// 是否包含 `other` 的全部位。
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// 位是否全为空。
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// 并集。
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+impl core::ops::BitOr for BindMode {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl core::ops::BitAnd for BindMode {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl core::ops::BitOrAssign for BindMode {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
     }
 }
 
 impl From<BindMode> for i16 {
     fn from(value: BindMode) -> Self {
-        value as i16
+        value.0
     }
 }
 
-impl TryFrom<i16> for BindMode {
-    type Error = crate::UnknownEnumValue;
-
-    fn try_from(value: i16) -> Result<Self, Self::Error> {
-        Self::from_value(value).ok_or(crate::UnknownEnumValue {
-            type_name: "BindMode",
-            value: i64::from(value),
-        })
-    }
-}
-
-/// Mirrors Crystal `Shared/Enums.cs`.
+/// Crystal `[Flags]` 枚举 `SpecialItemMode`：线上是 `i16` 位掩码。
 #[derive(
     Debug,
     Clone,
     Copy,
+    Default,
     PartialEq,
     Eq,
     PartialOrd,
     Ord,
     Hash,
-    Default,
     serde::Serialize,
     serde::Deserialize,
 )]
-#[repr(i16)]
-pub enum SpecialItemMode {
-    #[default]
-    None = 0,
-    Paralize = 1,
-    Teleport = 2,
-    ClearRing = 4,
-    Protection = 8,
-    Revival = 16,
-    Muscle = 32,
-    Flame = 64,
-    Healing = 128,
-    Probe = 256,
-    Skill = 512,
-    NoDuraLoss = 1024,
-    Blink = 2048,
-}
+pub struct SpecialItemMode(pub i16);
 
 impl SpecialItemMode {
-    /// Every distinct declared value.
+    /// `None` = 0.
+    pub const None: Self = Self(0);
+    /// `Paralize` = 1.
+    pub const Paralize: Self = Self(1);
+    /// `Teleport` = 2.
+    pub const Teleport: Self = Self(2);
+    /// `ClearRing` = 4.
+    pub const ClearRing: Self = Self(4);
+    /// `Protection` = 8.
+    pub const Protection: Self = Self(8);
+    /// `Revival` = 16.
+    pub const Revival: Self = Self(16);
+    /// `Muscle` = 32.
+    pub const Muscle: Self = Self(32);
+    /// `Flame` = 64.
+    pub const Flame: Self = Self(64);
+    /// `Healing` = 128.
+    pub const Healing: Self = Self(128);
+    /// `Probe` = 256.
+    pub const Probe: Self = Self(256);
+    /// `Skill` = 512.
+    pub const Skill: Self = Self(512);
+    /// `NoDuraLoss` = 1024.
+    pub const NoDuraLoss: Self = Self(1024);
+    /// `Blink` = 2048.
+    pub const Blink: Self = Self(2048);
+
+    /// 声明的全部成员（不含组合值）。
     pub const ALL: &'static [SpecialItemMode] = &[
-        SpecialItemMode::None,
-        SpecialItemMode::Paralize,
-        SpecialItemMode::Teleport,
-        SpecialItemMode::ClearRing,
-        SpecialItemMode::Protection,
-        SpecialItemMode::Revival,
-        SpecialItemMode::Muscle,
-        SpecialItemMode::Flame,
-        SpecialItemMode::Healing,
-        SpecialItemMode::Probe,
-        SpecialItemMode::Skill,
-        SpecialItemMode::NoDuraLoss,
-        SpecialItemMode::Blink,
+        Self::None,
+        Self::Paralize,
+        Self::Teleport,
+        Self::ClearRing,
+        Self::Protection,
+        Self::Revival,
+        Self::Muscle,
+        Self::Flame,
+        Self::Healing,
+        Self::Probe,
+        Self::Skill,
+        Self::NoDuraLoss,
+        Self::Blink,
     ];
 
-    /// Raw discriminant, as written on the wire.
+    /// 原始位值。
     #[must_use]
     pub const fn value(self) -> i16 {
-        self as i16
+        self.0
     }
 
-    /// Converts a raw wire value, returning `None` when the value is unknown.
+    /// 线上值直接就是位掩码，任何取值都合法。
     #[must_use]
     pub const fn from_value(value: i16) -> Option<Self> {
-        match value {
-            0 => Some(Self::None),
-            1 => Some(Self::Paralize),
-            2 => Some(Self::Teleport),
-            4 => Some(Self::ClearRing),
-            8 => Some(Self::Protection),
-            16 => Some(Self::Revival),
-            32 => Some(Self::Muscle),
-            64 => Some(Self::Flame),
-            128 => Some(Self::Healing),
-            256 => Some(Self::Probe),
-            512 => Some(Self::Skill),
-            1024 => Some(Self::NoDuraLoss),
-            2048 => Some(Self::Blink),
-            _ => None,
+        Some(Self(value))
+    }
+
+    /// 截断到已知位之外为零。
+    #[must_use]
+    pub const fn from_bits_truncate(bits: i16) -> Self {
+        let mut known: i16 = 0;
+        let mut index = 0;
+        while index < Self::ALL.len() {
+            known |= Self::ALL[index].0;
+            index += 1;
         }
+        Self(bits & known)
+    }
+
+    /// 是否包含 `other` 的全部位。
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// 位是否全为空。
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// 并集。
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+impl core::ops::BitOr for SpecialItemMode {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl core::ops::BitAnd for SpecialItemMode {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl core::ops::BitOrAssign for SpecialItemMode {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
     }
 }
 
 impl From<SpecialItemMode> for i16 {
     fn from(value: SpecialItemMode) -> Self {
-        value as i16
+        value.0
     }
 }
 
-impl TryFrom<i16> for SpecialItemMode {
-    type Error = crate::UnknownEnumValue;
-
-    fn try_from(value: i16) -> Result<Self, Self::Error> {
-        Self::from_value(value).ok_or(crate::UnknownEnumValue {
-            type_name: "SpecialItemMode",
-            value: i64::from(value),
-        })
-    }
-}
-
-/// Mirrors Crystal `Shared/Enums.cs`.
+/// Crystal `[Flags]` 枚举 `RequiredClass`：线上是 `u8` 位掩码。
 #[derive(
     Debug,
     Clone,
     Copy,
+    Default,
     PartialEq,
     Eq,
     PartialOrd,
     Ord,
     Hash,
-    Default,
     serde::Serialize,
     serde::Deserialize,
 )]
-#[repr(u8)]
-pub enum RequiredClass {
-    #[default]
-    Warrior = 1,
-    Wizard = 2,
-    Taoist = 4,
-    Assassin = 8,
-    Archer = 16,
-    WarWizTao = 7,
-    None = 31,
-}
+pub struct RequiredClass(pub u8);
 
 impl RequiredClass {
-    /// Every distinct declared value.
+    /// `Warrior` = 1.
+    pub const Warrior: Self = Self(1);
+    /// `Wizard` = 2.
+    pub const Wizard: Self = Self(2);
+    /// `Taoist` = 4.
+    pub const Taoist: Self = Self(4);
+    /// `Assassin` = 8.
+    pub const Assassin: Self = Self(8);
+    /// `Archer` = 16.
+    pub const Archer: Self = Self(16);
+    /// `WarWizTao` = 7.
+    pub const WarWizTao: Self = Self(7);
+    /// `None` = 31.
+    pub const None: Self = Self(31);
+
+    /// 声明的全部成员（不含组合值）。
     pub const ALL: &'static [RequiredClass] = &[
-        RequiredClass::Warrior,
-        RequiredClass::Wizard,
-        RequiredClass::Taoist,
-        RequiredClass::Assassin,
-        RequiredClass::Archer,
-        RequiredClass::WarWizTao,
-        RequiredClass::None,
+        Self::Warrior,
+        Self::Wizard,
+        Self::Taoist,
+        Self::Assassin,
+        Self::Archer,
+        Self::WarWizTao,
+        Self::None,
     ];
 
-    /// Raw discriminant, as written on the wire.
+    /// 原始位值。
     #[must_use]
     pub const fn value(self) -> u8 {
-        self as u8
+        self.0
     }
 
-    /// Converts a raw wire value, returning `None` when the value is unknown.
+    /// 线上值直接就是位掩码，任何取值都合法。
     #[must_use]
     pub const fn from_value(value: u8) -> Option<Self> {
-        match value {
-            1 => Some(Self::Warrior),
-            2 => Some(Self::Wizard),
-            4 => Some(Self::Taoist),
-            8 => Some(Self::Assassin),
-            16 => Some(Self::Archer),
-            7 => Some(Self::WarWizTao),
-            31 => Some(Self::None),
-            _ => None,
+        Some(Self(value))
+    }
+
+    /// 截断到已知位之外为零。
+    #[must_use]
+    pub const fn from_bits_truncate(bits: u8) -> Self {
+        let mut known: u8 = 0;
+        let mut index = 0;
+        while index < Self::ALL.len() {
+            known |= Self::ALL[index].0;
+            index += 1;
         }
+        Self(bits & known)
+    }
+
+    /// 是否包含 `other` 的全部位。
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// 位是否全为空。
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// 并集。
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+impl core::ops::BitOr for RequiredClass {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl core::ops::BitAnd for RequiredClass {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl core::ops::BitOrAssign for RequiredClass {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
     }
 }
 
 impl From<RequiredClass> for u8 {
     fn from(value: RequiredClass) -> Self {
-        value as u8
+        value.0
     }
 }
 
-impl TryFrom<u8> for RequiredClass {
-    type Error = crate::UnknownEnumValue;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::from_value(value).ok_or(crate::UnknownEnumValue {
-            type_name: "RequiredClass",
-            value: i64::from(value),
-        })
-    }
-}
-
-/// Mirrors Crystal `Shared/Enums.cs`.
+/// Crystal `[Flags]` 枚举 `RequiredGender`：线上是 `u8` 位掩码。
 #[derive(
     Debug,
     Clone,
     Copy,
+    Default,
     PartialEq,
     Eq,
     PartialOrd,
     Ord,
     Hash,
-    Default,
     serde::Serialize,
     serde::Deserialize,
 )]
-#[repr(u8)]
-pub enum RequiredGender {
-    #[default]
-    Male = 1,
-    Female = 2,
-    None = 3,
-}
+pub struct RequiredGender(pub u8);
 
 impl RequiredGender {
-    /// Every distinct declared value.
-    pub const ALL: &'static [RequiredGender] = &[
-        RequiredGender::Male,
-        RequiredGender::Female,
-        RequiredGender::None,
-    ];
+    /// `Male` = 1.
+    pub const Male: Self = Self(1);
+    /// `Female` = 2.
+    pub const Female: Self = Self(2);
+    /// `None` = 3.
+    pub const None: Self = Self(3);
 
-    /// Raw discriminant, as written on the wire.
+    /// 声明的全部成员（不含组合值）。
+    pub const ALL: &'static [RequiredGender] = &[Self::Male, Self::Female, Self::None];
+
+    /// 原始位值。
     #[must_use]
     pub const fn value(self) -> u8 {
-        self as u8
+        self.0
     }
 
-    /// Converts a raw wire value, returning `None` when the value is unknown.
+    /// 线上值直接就是位掩码，任何取值都合法。
     #[must_use]
     pub const fn from_value(value: u8) -> Option<Self> {
-        match value {
-            1 => Some(Self::Male),
-            2 => Some(Self::Female),
-            3 => Some(Self::None),
-            _ => None,
+        Some(Self(value))
+    }
+
+    /// 截断到已知位之外为零。
+    #[must_use]
+    pub const fn from_bits_truncate(bits: u8) -> Self {
+        let mut known: u8 = 0;
+        let mut index = 0;
+        while index < Self::ALL.len() {
+            known |= Self::ALL[index].0;
+            index += 1;
         }
+        Self(bits & known)
+    }
+
+    /// 是否包含 `other` 的全部位。
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// 位是否全为空。
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// 并集。
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+impl core::ops::BitOr for RequiredGender {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl core::ops::BitAnd for RequiredGender {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl core::ops::BitOrAssign for RequiredGender {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
     }
 }
 
 impl From<RequiredGender> for u8 {
     fn from(value: RequiredGender) -> Self {
-        value as u8
-    }
-}
-
-impl TryFrom<u8> for RequiredGender {
-    type Error = crate::UnknownEnumValue;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::from_value(value).ok_or(crate::UnknownEnumValue {
-            type_name: "RequiredGender",
-            value: i64::from(value),
-        })
+        value.0
     }
 }
 
@@ -6112,74 +6364,111 @@ impl TryFrom<u8> for BuffType {
     }
 }
 
-/// Mirrors Crystal `Shared/Enums.cs`.
+/// Crystal `[Flags]` 枚举 `BuffProperty`：线上是 `u8` 位掩码。
 #[derive(
     Debug,
     Clone,
     Copy,
+    Default,
     PartialEq,
     Eq,
     PartialOrd,
     Ord,
     Hash,
-    Default,
     serde::Serialize,
     serde::Deserialize,
 )]
-#[repr(u8)]
-pub enum BuffProperty {
-    #[default]
-    None = 0,
-    RemoveOnDeath = 1,
-    RemoveOnExit = 2,
-    Debuff = 4,
-    PauseInSafeZone = 8,
-}
+pub struct BuffProperty(pub u8);
 
 impl BuffProperty {
-    /// Every distinct declared value.
+    /// `None` = 0.
+    pub const None: Self = Self(0);
+    /// `RemoveOnDeath` = 1.
+    pub const RemoveOnDeath: Self = Self(1);
+    /// `RemoveOnExit` = 2.
+    pub const RemoveOnExit: Self = Self(2);
+    /// `Debuff` = 4.
+    pub const Debuff: Self = Self(4);
+    /// `PauseInSafeZone` = 8.
+    pub const PauseInSafeZone: Self = Self(8);
+
+    /// 声明的全部成员（不含组合值）。
     pub const ALL: &'static [BuffProperty] = &[
-        BuffProperty::None,
-        BuffProperty::RemoveOnDeath,
-        BuffProperty::RemoveOnExit,
-        BuffProperty::Debuff,
-        BuffProperty::PauseInSafeZone,
+        Self::None,
+        Self::RemoveOnDeath,
+        Self::RemoveOnExit,
+        Self::Debuff,
+        Self::PauseInSafeZone,
     ];
 
-    /// Raw discriminant, as written on the wire.
+    /// 原始位值。
     #[must_use]
     pub const fn value(self) -> u8 {
-        self as u8
+        self.0
     }
 
-    /// Converts a raw wire value, returning `None` when the value is unknown.
+    /// 线上值直接就是位掩码，任何取值都合法。
     #[must_use]
     pub const fn from_value(value: u8) -> Option<Self> {
-        match value {
-            0 => Some(Self::None),
-            1 => Some(Self::RemoveOnDeath),
-            2 => Some(Self::RemoveOnExit),
-            4 => Some(Self::Debuff),
-            8 => Some(Self::PauseInSafeZone),
-            _ => None,
+        Some(Self(value))
+    }
+
+    /// 截断到已知位之外为零。
+    #[must_use]
+    pub const fn from_bits_truncate(bits: u8) -> Self {
+        let mut known: u8 = 0;
+        let mut index = 0;
+        while index < Self::ALL.len() {
+            known |= Self::ALL[index].0;
+            index += 1;
         }
+        Self(bits & known)
+    }
+
+    /// 是否包含 `other` 的全部位。
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// 位是否全为空。
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// 并集。
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+impl core::ops::BitOr for BuffProperty {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl core::ops::BitAnd for BuffProperty {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl core::ops::BitOrAssign for BuffProperty {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
     }
 }
 
 impl From<BuffProperty> for u8 {
     fn from(value: BuffProperty) -> Self {
-        value as u8
-    }
-}
-
-impl TryFrom<u8> for BuffProperty {
-    type Error = crate::UnknownEnumValue;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::from_value(value).ok_or(crate::UnknownEnumValue {
-            type_name: "BuffProperty",
-            value: i64::from(value),
-        })
+        value.0
     }
 }
 
@@ -7884,83 +8173,120 @@ impl TryFrom<u8> for ConquestGame {
     }
 }
 
-/// Mirrors Crystal `Shared/Enums.cs`.
+/// Crystal `[Flags]` 枚举 `GuildRankOptions`：线上是 `u8` 位掩码。
 #[derive(
     Debug,
     Clone,
     Copy,
+    Default,
     PartialEq,
     Eq,
     PartialOrd,
     Ord,
     Hash,
-    Default,
     serde::Serialize,
     serde::Deserialize,
 )]
-#[repr(u8)]
-pub enum GuildRankOptions {
-    #[default]
-    CanChangeRank = 1,
-    CanRecruit = 2,
-    CanKick = 4,
-    CanStoreItem = 8,
-    CanRetrieveItem = 16,
-    CanAlterAlliance = 32,
-    CanChangeNotice = 64,
-    CanActivateBuff = 128,
-}
+pub struct GuildRankOptions(pub u8);
 
 impl GuildRankOptions {
-    /// Every distinct declared value.
+    /// `CanChangeRank` = 1.
+    pub const CanChangeRank: Self = Self(1);
+    /// `CanRecruit` = 2.
+    pub const CanRecruit: Self = Self(2);
+    /// `CanKick` = 4.
+    pub const CanKick: Self = Self(4);
+    /// `CanStoreItem` = 8.
+    pub const CanStoreItem: Self = Self(8);
+    /// `CanRetrieveItem` = 16.
+    pub const CanRetrieveItem: Self = Self(16);
+    /// `CanAlterAlliance` = 32.
+    pub const CanAlterAlliance: Self = Self(32);
+    /// `CanChangeNotice` = 64.
+    pub const CanChangeNotice: Self = Self(64);
+    /// `CanActivateBuff` = 128.
+    pub const CanActivateBuff: Self = Self(128);
+
+    /// 声明的全部成员（不含组合值）。
     pub const ALL: &'static [GuildRankOptions] = &[
-        GuildRankOptions::CanChangeRank,
-        GuildRankOptions::CanRecruit,
-        GuildRankOptions::CanKick,
-        GuildRankOptions::CanStoreItem,
-        GuildRankOptions::CanRetrieveItem,
-        GuildRankOptions::CanAlterAlliance,
-        GuildRankOptions::CanChangeNotice,
-        GuildRankOptions::CanActivateBuff,
+        Self::CanChangeRank,
+        Self::CanRecruit,
+        Self::CanKick,
+        Self::CanStoreItem,
+        Self::CanRetrieveItem,
+        Self::CanAlterAlliance,
+        Self::CanChangeNotice,
+        Self::CanActivateBuff,
     ];
 
-    /// Raw discriminant, as written on the wire.
+    /// 原始位值。
     #[must_use]
     pub const fn value(self) -> u8 {
-        self as u8
+        self.0
     }
 
-    /// Converts a raw wire value, returning `None` when the value is unknown.
+    /// 线上值直接就是位掩码，任何取值都合法。
     #[must_use]
     pub const fn from_value(value: u8) -> Option<Self> {
-        match value {
-            1 => Some(Self::CanChangeRank),
-            2 => Some(Self::CanRecruit),
-            4 => Some(Self::CanKick),
-            8 => Some(Self::CanStoreItem),
-            16 => Some(Self::CanRetrieveItem),
-            32 => Some(Self::CanAlterAlliance),
-            64 => Some(Self::CanChangeNotice),
-            128 => Some(Self::CanActivateBuff),
-            _ => None,
+        Some(Self(value))
+    }
+
+    /// 截断到已知位之外为零。
+    #[must_use]
+    pub const fn from_bits_truncate(bits: u8) -> Self {
+        let mut known: u8 = 0;
+        let mut index = 0;
+        while index < Self::ALL.len() {
+            known |= Self::ALL[index].0;
+            index += 1;
         }
+        Self(bits & known)
+    }
+
+    /// 是否包含 `other` 的全部位。
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// 位是否全为空。
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// 并集。
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+impl core::ops::BitOr for GuildRankOptions {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl core::ops::BitAnd for GuildRankOptions {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl core::ops::BitOrAssign for GuildRankOptions {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
     }
 }
 
 impl From<GuildRankOptions> for u8 {
     fn from(value: GuildRankOptions) -> Self {
-        value as u8
-    }
-}
-
-impl TryFrom<u8> for GuildRankOptions {
-    type Error = crate::UnknownEnumValue;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::from_value(value).ok_or(crate::UnknownEnumValue {
-            type_name: "GuildRankOptions",
-            value: i64::from(value),
-        })
+        value.0
     }
 }
 

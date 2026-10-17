@@ -150,7 +150,7 @@ impl GuildRank {
     /// 判断是否拥有某项权限，等价于 C# 的 `Options.HasFlag(option)`
     /// （例如 `Server/MirObjects/PlayerObject.cs:10362`）。
     pub fn has_option(&self, option: GuildRankOptions) -> bool {
-        self.options & (option as u8) != 0
+        self.options & option.value() != 0
     }
 }
 

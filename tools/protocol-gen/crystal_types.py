@@ -75,6 +75,7 @@ class RustType:
     element: str | None = None
     enum_underlying: str | None = None
     element_optional: bool = False
+    is_flags: bool = False
 
     @property
     def is_scalar(self) -> bool:
@@ -82,10 +83,17 @@ class RustType:
 
 
 class TypeRegistry:
-    def __init__(self, enum_underlying: dict[str, str], structs: set[str], deferred: set[str]):
+    def __init__(
+        self,
+        enum_underlying: dict[str, str],
+        structs: set[str],
+        deferred: set[str],
+        flags_enums: set[str] | None = None,
+    ):
         self.enum_underlying = enum_underlying
         self.structs = structs
         self.deferred = deferred
+        self.flags_enums = flags_enums or set()
 
     def resolve(self, cs_type: str) -> RustType | None:
         cs_type = cs_type.strip()
@@ -107,6 +115,7 @@ class TypeRegistry:
                 cs_type,
                 cs_type,
                 enum_underlying=self.enum_underlying[cs_type],
+                is_flags=cs_type in self.flags_enums,
             )
         array = _split_generic(cs_type, "[]")
         if array is not None:

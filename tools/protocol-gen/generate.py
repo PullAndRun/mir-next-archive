@@ -110,7 +110,8 @@ HAND_WRITTEN = {
 
 def build_registry(enums: dict) -> TypeRegistry:
     underlying = {name: enum.underlying for name, enum in enums.items()}
-    return TypeRegistry(underlying, IMPLEMENTED_STRUCTS, set())
+    flags = {name for name, enum in enums.items() if enum.is_flags}
+    return TypeRegistry(underlying, IMPLEMENTED_STRUCTS, set(), flags)
 
 
 def translate_packet(packet: PacketDef, registry: TypeRegistry) -> tuple[list[str], list[str], str]:

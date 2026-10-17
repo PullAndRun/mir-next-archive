@@ -308,7 +308,9 @@ def emit_rust_enums(enums: list[EnumDef], header: str) -> str:
         "",
         "#![allow("
         "clippy::upper_case_acronyms, clippy::enum_variant_names, "
-        "non_camel_case_types, clippy::derivable_impls"
+        "non_camel_case_types, clippy::derivable_impls, "
+        # `[Flags]` 成员的关联常量沿用 C# 命名（`RequiredClass::Warrior`），故意的。
+        "non_upper_case_globals"
         ")]",
         "",
     ]
@@ -318,7 +320,107 @@ def emit_rust_enums(enums: list[EnumDef], header: str) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _emit_flags_enum(enum: EnumDef) -> list[str]:
+    """`[Flags]` 枚举在线上的值是**位掩码**，组合值（如会长 255、`Warrior|Wizard`=3）
+    不可能用 Rust 的 C 风格枚举表达，因此生成轻量的位掩码新类型：
+    成员名照样能写 `RequiredClass::Warrior`，但类型内部保留原始位值。
+    """
+    ty = enum.underlying
+    unique = [m for m in enum.members if not m.duplicate]
+    name = enum.name
+    out: list[str] = []
+    out.append(f"/// Crystal `[Flags]` 枚举 `{name}`：线上是 `{ty}` 位掩码。")
+    out.append("#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]")
+    out.append("#[derive(serde::Serialize, serde::Deserialize)]")
+    out.append(f"pub struct {name}(pub {ty});")
+    out.append("")
+    out.append(f"impl {name} {{")
+    for member in unique:
+        out.append(f"    /// `{member.name}` = {member.value}.")
+        out.append(f"    pub const {rust_variant(member.name)}: Self = Self({member.value});")
+    out.append("")
+    out.append("    /// 声明的全部成员（不含组合值）。")
+    out.append(f"    pub const ALL: &'static [{name}] = &[")
+    for member in unique:
+        out.append(f"        Self::{rust_variant(member.name)},")
+    out.append("    ];")
+    out.append("")
+    out.append("    /// 原始位值。")
+    out.append("    #[must_use]")
+    out.append(f"    pub const fn value(self) -> {ty} {{")
+    out.append("        self.0")
+    out.append("    }")
+    out.append("")
+    out.append("    /// 线上值直接就是位掩码，任何取值都合法。")
+    out.append("    #[must_use]")
+    out.append(f"    pub const fn from_value(value: {ty}) -> Option<Self> {{")
+    out.append("        Some(Self(value))")
+    out.append("    }")
+    out.append("")
+    out.append("    /// 截断到已知位之外为零。")
+    out.append("    #[must_use]")
+    out.append("    pub const fn from_bits_truncate(bits: " + ty + ") -> Self {")
+    out.append("        let mut known: " + ty + " = 0;")
+    out.append("        let mut index = 0;")
+    out.append(f"        while index < Self::ALL.len() {{")
+    out.append("            known |= Self::ALL[index].0;")
+    out.append("            index += 1;")
+    out.append("        }")
+    out.append("        Self(bits & known)")
+    out.append("    }")
+    out.append("")
+    out.append("    /// 是否包含 `other` 的全部位。")
+    out.append("    #[must_use]")
+    out.append("    pub const fn contains(self, other: Self) -> bool {")
+    out.append("        self.0 & other.0 == other.0")
+    out.append("    }")
+    out.append("")
+    out.append("    /// 位是否全为空。")
+    out.append("    #[must_use]")
+    out.append("    pub const fn is_empty(self) -> bool {")
+    out.append("        self.0 == 0")
+    out.append("    }")
+    out.append("")
+    out.append("    /// 并集。")
+    out.append("    #[must_use]")
+    out.append("    pub const fn union(self, other: Self) -> Self {")
+    out.append("        Self(self.0 | other.0)")
+    out.append("    }")
+    out.append("}")
+    out.append("")
+    out.append(f"impl core::ops::BitOr for {name} {{")
+    out.append("    type Output = Self;")
+    out.append("")
+    out.append("    fn bitor(self, rhs: Self) -> Self {")
+    out.append("        Self(self.0 | rhs.0)")
+    out.append("    }")
+    out.append("}")
+    out.append("")
+    out.append(f"impl core::ops::BitAnd for {name} {{")
+    out.append("    type Output = Self;")
+    out.append("")
+    out.append("    fn bitand(self, rhs: Self) -> Self {")
+    out.append("        Self(self.0 & rhs.0)")
+    out.append("    }")
+    out.append("}")
+    out.append("")
+    out.append(f"impl core::ops::BitOrAssign for {name} {{")
+    out.append("    fn bitor_assign(&mut self, rhs: Self) {")
+    out.append("        self.0 |= rhs.0;")
+    out.append("    }")
+    out.append("}")
+    out.append("")
+    out.append(f"impl From<{name}> for {ty} {{")
+    out.append(f"    fn from(value: {name}) -> Self {{")
+    out.append("        value.0")
+    out.append("    }")
+    out.append("}")
+    return out
+
+
 def _emit_enum(enum: EnumDef) -> list[str]:
+    if enum.is_flags:
+        return _emit_flags_enum(enum)
     out: list[str] = []
     unique = [m for m in enum.members if not m.duplicate]
     zero = next((m for m in unique if m.value == 0), unique[0])

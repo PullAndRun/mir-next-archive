@@ -11,6 +11,7 @@ authors.workspace = true
 [dependencies]
 anyhow.workspace = true
 mir-core.workspace = true
+mir-db.workspace = true
 mir-protocol.workspace = true
 mir-world.workspace = true
 tracing.workspace = true

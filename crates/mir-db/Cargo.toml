@@ -1,0 +1,17 @@
+[package]
+name = "mir-db"
+description = "《传奇-Next》存档层：Crystal `Server.MirDB` 数据库读取器"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+mir-core.workspace = true
+mir-protocol.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

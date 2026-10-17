@@ -32,7 +32,12 @@
 
 写入顺序见 `Envir.cs:2457-2466`，读取顺序见 `Envir.cs:2847-2865`。注意 `Envir` 里还有一个 `ScriptIndex`（`Envir.cs:117`），它**不落盘**。
 
-> 计数器语义是「下一个可用值」还是「最后使用值」在代码里并不严格一致：样本中 `ItemIndex = 1348` 但实际存在 `Index = 1349` 的物品（实测，见 §8.4）。迁移时把它当**不透明序列值**继续用，不要用它推断记录数。
+> 计数器语义是「下一个可用值」还是「最后使用值」在代码里并不严格一致，实测三种情况都有：
+> * **等于记录数**：cjlaaa `NpcIndex = 309` / 309 个 NPC；
+> * **小于记录数**：cjlaaa `ItemIndex = 1348` 却有 1349 条物品；Jev `MapIndex = 387` 却有 389 张图；
+> * **远大于记录数**：`Jev Without Archers` 的 `ItemIndex = 1349` 只有 1254 条物品。
+>
+> 所以这些计数器只能当**不透明序列值**继续用，绝不能拿来推断记录数或做越界检查。
 
 ---
 
@@ -143,8 +148,8 @@
 | 13 | `Price` | `u32` | — | |
 | 14 | （旧版固定属性块） | 15 项 | `≤ 84` | `MinAC…MaxSC` u8/u16、`Luck/AttackSpeed` **`sbyte`** |
 | 15 | `StartItem` | `bool` | — | |
-| 16 | （旧版权重/效果） | 3+1 字节 | `≤ 84` | `BagWeight/HandWeight/WearWeight` 后接 `Effect` |
-| 17 | `Effect` | `u8` | — | |
+| 16 | （旧版权重） | 3 字节 | `≤ 84` | `BagWeight/HandWeight/WearWeight` |
+| 17 | `Effect` | `u8` | — | **无条件存在**；`≤ 84` 时排在三个权重之后（`ItemData.cs:121-130`），`> 84` 时紧跟 `StartItem` |
 | 18 | （旧版属性块 2） | 10 项 | `≤ 84` | `Strong…CriticalDamage` |
 | 19 | `bools` | `u8` 位域 | — | bit0 `NeedIdentify`、bit1 `ShowGroupPickup`、bit2 `ClassBased`、bit3 `LevelBased`、bit4 `CanMine`、bit5 `GlobalDropNotify`（`≥77`） |
 | 20 | （旧版属性块 3） | 5 项 | `≤ 84` | `MaxACRatePercent…PoisonAttack` |
@@ -170,7 +175,8 @@
 | 4 | `AI`,`Effect` | `u8 ×2` | — |
 | 5 | `Level` | `u16` | `≥ 62`（`<62` 为 `u8`） |
 | 6 | `ViewRange`,`CoolEye` | `u8 ×2` | — |
-| 7 | `Stats` | `Stats` | `> 84`（`≤84` 为 HP u32 + 10×u16 + Accuracy/Agility u8） |
+| 7 | 属性块 | 见下 | `≤84` 用定长块 |
+| 7b | `Stats` | `Stats` | `> 84` |
 | 8 | `Light` | `u8` | — |
 | 9 | `AttackSpeed`,`MoveSpeed` | `u16 ×2` | — |
 | 10 | `Experience` | `u32` | — |
@@ -179,6 +185,13 @@
 | 13 | `DropPath` | `string` | `≥ 89` |
 | 14 | `CanRecall` | `bool` | `≥ 115` |
 | 15 | `IsBoss` | `bool` | `≥ 116` |
+
+`≤84` 的属性块**有两个版本门**（`MonsterInfo.cs:85-97`，本表第 7 行）：
+
+| 版本 | 布局 |
+| --- | --- |
+| `< 62` | `HP`(u32) + 10 项属性 **各 `u8`** + `Accuracy`/`Agility`(u8 ×2) |
+| `62..=84` | `HP`(u32) + 10 项属性 **各 `u16`** + `Accuracy`/`Agility`(u8 ×2) |
 
 `Drops` 列表**不落盘**：掉落来自 `Envir/Drops/*.txt`（`MonsterInfo.cs:372-435`；`DropInfo` 只存在于文本解析结果）。
 
@@ -205,6 +218,10 @@
 | 17 | `CanTeleportTo` | `bool` | `> 96` |
 | 18 | `ConquestVisible` | `bool` | `≥ 107` |
 
+> `ConquestVisible` 的 C# 字段初值是 **`true`**（`NPCInfo.cs:38`），所以 `<107` 的旧文件里它缺省为「可见」而不是 `false`；
+> §8.4 那种「N/309 出现 true」的统计只说明文件里有没有这个字段，别当成默认值。
+> `MinuteEnd` 的初值也是 `1`（`NPCInfo.cs:27`），不是 0。
+
 ### 4.5 `QuestInfo`（`Server/MirDatabase/QuestInfo.cs:85-110` 读 / `:112-128` 写）
 
 **DB 里只有头部，没有任务正文/奖励**——构造时调用 `LoadInfo()` 从 `Envir/Quests/{FileName}.txt` 解析（`QuestInfo.cs:109, 130-146`），奖励与任务目标全是文本文件里的 `[@KILLTASKS]` 等小节。
@@ -218,6 +235,9 @@
 | 5 | `Type` | `u8` | — |
 | 6 | `GotoMessage`,`KillMessage`,`ItemMessage`,`FlagMessage` | `string ×4` | — |
 | 7 | `TimeLimitInSeconds` | `i32` | `> 90` |
+
+> **载入后改写**：`RequiredMaxLevel == 0` 会被改成 `ushort.MaxValue`（`QuestInfo.cs:94`），表示「无上限」。
+> 读取器保留文件原值并另给 `effective_required_max_level()`；服务端判断等级上限时要用后者。
 
 > 实测：样本 157 条任务记录总长仅 13,925 字节（平均 89 字节/条），与其「只有头部」一致。
 
@@ -247,6 +267,10 @@
 | 7 | `PowerBase`,`PowerBonus`,`MPowerBase`,`MPowerBonus` | `u16 ×4` | — |
 | 8 | `Range` | `u8` | `> 66` |
 | 9 | `MultiplierBase`,`MultiplierBonus` | **`f32 ×2`** | `> 70` |
+
+> C# 的字段初值会**影响旧文件解出来的语义**：`DelayBase = 1800`、`Range = 9`、`MultiplierBase = 1.0`
+> （`MagicInfo.cs:18-22`）。`≤66` 的文件读不到 `Range`、`≤70` 读不到 `MultiplierBase` 时，
+> 必须保留这些初值，不能当 0 / 1.0 之外的默认值处理。
 
 ### 4.8 `GameShopItem`（`Shared/Data/ItemData.cs:800-827` 读 / `:848-865` 写）
 
@@ -442,7 +466,13 @@ let magics = read_list(&mut r, |r| magic_info(r, version))?;
 let gameshop = if version >= 63 { read_list(&mut r, |r| gameshop_item(r, version))? } else { vec![] };
 let conquests = if version >= 66 { read_list(&mut r, |r| conquest_info(r, version))? } else { vec![] };
 let respawn = if version > 67 { Some(respawn_timer(&mut r)?) } else { None };
-let gt = if r.remaining() >= 4 { read_list(&mut r, |r| gt_map(r)).ok() } else { None };
+// GT 尾段：Crystal 写但不读。读取器必须**精确吃光**剩余字节才算解析成功，
+// 否则「碰巧能解析」的损坏尾巴会被当成 GT 段，把错位隐藏成 leftover = 0。
+let gt = if r.remaining() >= 4 {
+    let parsed = read_list(&mut r, |r| gt_map(r)).ok();
+    if r.remaining() != 0 { return Err(Error::TrailingBytes(r.pos())) }
+    parsed
+} else { None };
 assert_eq!(r.pos(), bytes.len(), "trailing bytes");
 ```
 
@@ -542,6 +572,21 @@ RespawnTimer: base_spawn_rate=20 current_tick_counter=71 options=[(0, 1.0)]
 | NPC `conquest_visible` | **0/309** 出现 | `≥107` 门生效 ✅ |
 | 商城 `can_buy_credit/gold` | **0/82** 出现 | `>105` 门生效 ✅ |
 | 物品索引范围 | 1 … **1349**（头部 `ItemIndex = 1348`） | 头部计数器与记录数**不一致**，不要用它推算 ⚠️ |
+
+### 8.5 更多回归样本（覆盖旧版本格式）
+
+`resource/` 里还有 5 个真实样本，全部解析成功且 `leftover = 0`（由 `crates/mir-db/tests/samples.rs` 断言）：
+
+| 样本 | version | maps | items | monsters | npcs | 覆盖的旧格式 |
+|---|---|---|---|---|---|---|
+| `community/clgforever910-mir2database/Daneo1989/Server.MirDB` | 83 | 400 | 1348 | 506 | 293 | `≤84` 物品固定属性块、`u32 StackSize`、无 `Slots`/无 `DropPath` |
+| `community/clgforever910-mir2database/Jev/Server.MirDB` | 88 | 389 | 1348 | 533 | 293 | 同上 + `>84` 字典格式 |
+| `…/Jev Without Archers/Server.MirDB` | 88 | 389 | 1254 | 533 | 293 | 物品表被裁剪 |
+| `…/Jev Without Archers&Sins/Server.MirDB` | 88 | 389 | 1171 | 533 | 293 | 同上 |
+| `…/Jev Without Sins/Server.MirDB` | 88 | 389 | 1266 | 533 | 293 | 同上 |
+
+索引里用 `python tools/asset-index/find_asset.py --name Server.MirDB` 可以列出全部 10 个样本（另含
+`masmx86-legend-of-mir-2`、`justkkalways-crystal-mir2-env-db` 等来源）。
 
 ---
 

@@ -787,6 +787,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mir-db"
+version = "0.1.0"
+dependencies = [
+ "mir-core",
+ "mir-protocol",
+ "thiserror",
+]
+
+[[package]]
 name = "mir-protocol"
 version = "0.1.0"
 dependencies = [
@@ -833,6 +842,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "mir-core",
+ "mir-db",
  "mir-protocol",
  "mir-world",
  "tracing",

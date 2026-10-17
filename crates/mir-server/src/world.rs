@@ -57,6 +57,7 @@ use crate::exp::ExpTable;
 use crate::gamedata::GameData;
 use crate::items::{GroundItem, ItemUidGenerator};
 use crate::monster::{Monster, MonsterKind};
+use crate::npc::{Npc, NpcState};
 
 /// 视野半径。
 ///
@@ -184,6 +185,10 @@ pub struct Player {
     pub gold: i64,
     /// 自己**已经看见**的地面物品，用于 `ObjectItem`/`ObjectGold`/`ObjectRemove` 的增量下发。
     pub visible_items: BTreeSet<u32>,
+    /// NPC 交互状态：当前对话的 NPC、页面、按钮白名单、标记位
+    /// （Crystal 上是 `PlayerObject.NPCObjectID` / `NPCPage` / `NPCSuccess` / `Info.Flags` 几处分散的字段，
+    /// 见 [`NpcState`]）。
+    pub npc: NpcState,
     /// 发包通道。
     pub sender: UnboundedSender<Vec<u8>>,
 }
@@ -379,6 +384,11 @@ pub struct World {
     pub(crate) players: HashMap<u32, Player>,
     /// 怪物列表：**按生成顺序**存放，等价于 Crystal `Envir.Objects` 链表的插入顺序。
     pub(crate) monsters: Vec<Monster>,
+    /// NPC 列表（Crystal `Envir.NPCs`，`Server/MirEnvir/Envir.cs:146`）。
+    ///
+    /// 与怪物不同，NPC 是建图时一次性刷出的静态对象（`Map.cs:490-496`），
+    /// 本作不参与 tick，因此单独放一个列表。
+    pub(crate) npcs: Vec<Npc>,
     /// 已到期但还没结算的延迟伤害（Crystal 每个对象 `ActionList` 里的 `DelayedType.Damage`）。
     pub(crate) pending_hits: Vec<PendingHit>,
     /// 刷怪组运行状态（Crystal 每张 `Map` 的 `Respawns` 列表，`Server/MirEnvir/Map.cs:473-488`）。
@@ -409,6 +419,8 @@ pub struct World {
     started: Instant,
     /// 测试用的时钟偏移（毫秒）。生产环境恒为 0，见 [`World::advance_clock`]。
     clock_offset: i64,
+    /// 时钟是否被 [`World::advance_clock`] 冻结（冻结后不再叠加真实流逝时间）。
+    clock_frozen: bool,
 }
 
 impl Default for World {
@@ -427,6 +439,7 @@ impl World {
         Self {
             players: HashMap::new(),
             monsters: Vec::new(),
+            npcs: Vec::new(),
             pending_hits: Vec::new(),
             respawn_groups: Vec::new(),
             ground_items: Vec::new(),
@@ -442,6 +455,7 @@ impl World {
             map: None,
             started: Instant::now(),
             clock_offset: 0,
+            clock_frozen: false,
         }
     }
 
@@ -452,6 +466,7 @@ impl World {
         Self {
             players: HashMap::new(),
             monsters: Vec::new(),
+            npcs: Vec::new(),
             pending_hits: Vec::new(),
             respawn_groups: Vec::new(),
             ground_items: Vec::new(),
@@ -467,6 +482,7 @@ impl World {
             map: Some(map),
             started: Instant::now(),
             clock_offset: 0,
+            clock_frozen: false,
         }
     }
 
@@ -526,13 +542,25 @@ impl World {
     /// 这里加上 `clock_offset` 只是为了测试能快进时间（见 [`World::advance_clock`]）。
     #[must_use]
     pub fn now(&self) -> i64 {
-        self.started.elapsed().as_millis() as i64 + self.clock_offset
+        if self.clock_frozen {
+            // 冻结时钟：dvance_clock 之后时间只由偏移决定，读到的时间才是可复现的。
+            self.clock_offset
+        } else {
+            self.started.elapsed().as_millis() as i64 + self.clock_offset
+        }
     }
 
     /// 把世界时钟快进 `ms` 毫秒（**仅用于测试**：让 300ms 的伤害延迟、2 秒的怪物调度粒度、
     /// 3 分钟的尸体停留都能被确定性地驱动，不必真的 `sleep`）。
+    /// 调用后时钟会**冻结**：`now()` 不再叠加真实流逝的毫秒数，否则「快进 60000ms 之后
+    /// 立刻读到的间隔」会随机器快慢在 59999/60000 之间抖动，断言精确间隔的测试就会偶发失败。
     pub fn advance_clock(&mut self, ms: i64) {
-        self.clock_offset += ms;
+        // 先把「当前时刻」固化进偏移再冻结，保证时间只向前走：
+        // 冻结前 `now()` 里含真实流逝的毫秒（`started.elapsed()`），直接清零偏移会把它拨回去，
+        // 于是「攻击时排的 305ms 后结算」在快进 300ms 后就永远到不了。
+        let current = self.now();
+        self.clock_frozen = true;
+        self.clock_offset = current + ms;
     }
 
     /// 用固定种子替换随机数发生器，让测试可回放
@@ -610,6 +638,10 @@ impl World {
                 let _ = player.sender.send(monster_info_frame(monster));
             }
         }
+
+        // 视野内的 NPC：`ObjectNPC`（Crystal `NPCObject.GetInfo`，`NPCObject.cs:381-395`；
+        // `MapObject.Add` 会把视野内每个对象的外观发给新玩家，`MapObject.cs:286-308`）。
+        self.send_visible_npcs(&player);
 
         // 视野内的地面物品：`ObjectItem`/`ObjectGold`（Crystal `ItemObject.GetInfo`，`ItemObject.cs:365-383`）。
         let mut visible_items = BTreeSet::new();
@@ -1968,6 +2000,17 @@ impl World {
                 y: cell.y,
             });
         }
+        // NPC 也挡路：Crystal `NPCObject.Blocking => Visible`（`NPCObject.cs:418-421`）。
+        let blocked_by_npc = self
+            .npcs
+            .iter()
+            .any(|npc| npc.map == map && npc.position == cell);
+        if blocked_by_npc {
+            return Err(MoveError::Occupied {
+                x: cell.x,
+                y: cell.y,
+            });
+        }
         Ok(())
     }
 
@@ -2204,6 +2247,7 @@ mod tests {
                 equipment: crate::items::new_equipment(),
                 gold: 0,
                 visible_items: BTreeSet::new(),
+                npc: crate::npc::NpcState::default(),
                 sender,
             },
             receiver,

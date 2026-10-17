@@ -156,6 +156,14 @@ fn spawn_from_database(world: &mut World, config: &ServerConfig) {
         .map(|dir| dir.display().to_string())
         .unwrap_or_default();
     world.set_game_data(Arc::new(data));
+    // NPC：Crystal 在建图时把 `MapIndex` 匹配的 `NPCInfo` 全刷出来
+    // （`Map.cs:490-496`），本作世界只加载一张图，所以在同一个地方一次性刷出。
+    let npcs = world.spawn_npcs(&config.start_map);
+    tracing::info!(
+        map = %config.start_map,
+        npcs = npcs.len(),
+        "已按数据库刷出 NPC"
+    );
     if groups.is_empty() {
         tracing::warn!(
             map = %config.start_map,

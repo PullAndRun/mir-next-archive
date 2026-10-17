@@ -41,6 +41,7 @@ pub mod magic;
 pub mod map;
 pub mod monster;
 pub mod npc;
+pub mod npc_script;
 pub mod quest;
 pub mod reader;
 pub mod report;
@@ -66,6 +67,10 @@ pub use magic::MagicInfo;
 pub use map::{MapInfo, MineZone, MovementInfo, RespawnInfo, SafeZoneInfo};
 pub use monster::MonsterInfo;
 pub use npc::NpcInfo;
+pub use npc_script::{
+    CompareOp, GoodsItem, NpcAction, NpcActionKind, NpcCheck, NpcCheckKind, NpcPage, NpcScript,
+    NpcScriptError, NpcSegment,
+};
 pub use quest::QuestInfo;
 pub use reader::{DbReader, DbWriter};
 pub use report::{SAMPLE_ROWS, render_report};

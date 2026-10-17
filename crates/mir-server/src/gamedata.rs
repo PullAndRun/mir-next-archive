@@ -31,7 +31,8 @@ use std::sync::{Arc, Mutex};
 use mir_core::Point;
 use mir_core::enums::Monster as MonsterImage;
 use mir_core::enums::Stat;
-use mir_db::{DropTable, ItemInfo, MapInfo, MirDb, MirDbError, MonsterInfo};
+use mir_db::npc_script::NpcScript;
+use mir_db::{DropTable, ItemInfo, MapInfo, MirDb, MirDbError, MonsterInfo, NpcInfo};
 
 use crate::combat::CombatStats;
 use crate::monster::{DEFAULT_ATTACK_SPEED_MS, DEFAULT_MOVE_SPEED_MS, MonsterKind};
@@ -67,12 +68,19 @@ pub struct GameData {
     monster_drops: HashMap<String, String>,
     /// `Envir/Drops` 目录；数据库不在文件系统上（内存构造）时为 `None`。
     drop_dir: Option<PathBuf>,
+    /// `Envir/` 根目录（NPC 脚本与 `#INSERT` 的相对路径都从这里算）。
+    envir_dir: Option<PathBuf>,
     /// 掉落表缓存：文件名 → 解析结果（`None` 表示文件不存在或解析失败）。
     ///
     /// 用 `Mutex` 是因为 [`GameData`] 会被多个世界/会话共享（`Arc`），而 `DropTable::load`
     /// 是惰性的：Crystal 在 `Envir.ReloadDrops`（`Envir.cs:5405-5419`）一次性全载，
     /// 本作改成「第一次用到某只怪时才读它的文件」，几百个文件里通常只会读到十几个。
     drop_cache: Mutex<HashMap<String, Option<Arc<DropTable>>>>,
+    /// NPC 脚本缓存：脚本文件名 → 解析结果（`None` 表示文件不存在或读不出来）。
+    ///
+    /// 对应 Crystal 的 `Envir.Scripts`（`NPCScript.cs:102`）——那边是**开局**全载，
+    /// 本作同样惰性：660 份脚本里一次对话只会用到一份。
+    npc_script_cache: Mutex<HashMap<String, Option<Arc<NpcScript>>>>,
     /// 数据文件路径（日志与排错用）。
     path: PathBuf,
 }
@@ -83,20 +91,27 @@ impl GameData {
         let path = path.as_ref().to_path_buf();
         let db = MirDb::load(&path)?;
         // Crystal `Settings.DropPath = ./Envir/Drops`（`Settings.cs:28`）；这里从数据库所在目录推。
-        let drop_dir = path
-            .parent()
-            .map(|parent| parent.join("Envir").join("Drops"));
-        Ok(Self::from_parts(db, drop_dir, path))
+        let envir_dir = path.parent().map(|parent| parent.join("Envir"));
+        let drop_dir = envir_dir.as_ref().map(|envir| envir.join("Drops"));
+        Ok(Self::from_parts(db, drop_dir, envir_dir, path))
     }
 
     /// 用内存里的数据库构造（测试、工具用）：不读文件，掉落表从 `drop_dir` 惰性加载。
     #[must_use]
     pub fn from_db(db: MirDb, drop_dir: Option<PathBuf>) -> Self {
         let path = PathBuf::from("<内存数据库>");
-        Self::from_parts(db, drop_dir, path)
+        let envir_dir = drop_dir
+            .as_ref()
+            .and_then(|dir| dir.parent().map(Path::to_path_buf));
+        Self::from_parts(db, drop_dir, envir_dir, path)
     }
 
-    fn from_parts(db: MirDb, drop_dir: Option<PathBuf>, path: PathBuf) -> Self {
+    fn from_parts(
+        db: MirDb,
+        drop_dir: Option<PathBuf>,
+        envir_dir: Option<PathBuf>,
+        path: PathBuf,
+    ) -> Self {
         let monsters = db
             .monsters
             .iter()
@@ -131,7 +146,9 @@ impl GameData {
             item_by_name,
             monster_drops,
             drop_dir,
+            envir_dir,
             drop_cache: Mutex::new(HashMap::new()),
+            npc_script_cache: Mutex::new(HashMap::new()),
             path,
         }
     }
@@ -173,6 +190,79 @@ impl GameData {
     #[must_use]
     pub fn drop_dir(&self) -> Option<&Path> {
         self.drop_dir.as_deref()
+    }
+
+    /// `Envir/` 根目录（NPC 脚本所在目录的父目录；`#INSERT` 的相对路径也从这里算）。
+    #[must_use]
+    pub fn envir_dir(&self) -> Option<&Path> {
+        self.envir_dir.as_deref()
+    }
+
+    /// NPC 脚本目录（`Envir/NPCs`，Crystal `Settings.NPCPath`，`Server/Settings.cs:24`）。
+    #[must_use]
+    pub fn npc_dir(&self) -> Option<PathBuf> {
+        self.envir_dir().map(|envir| envir.join("NPCs"))
+    }
+
+    /// 取（并缓存）一份 NPC 脚本。
+    ///
+    /// `file_name` 是 `NpcInfo.FileName`（相对 `Envir/NPCs/`，不含 `.txt`）。
+    /// 返回 `None` 表示脚本不存在或读不出来；结果按文件名缓存，重复对话不会重复读盘。
+    ///
+    /// 对应 Crystal `NPCScript.GetOrAdd`（`NPCScript.cs:26-36`）——那边按
+    /// `(LoadedObjectID, FileName)` 缓存，本作只按文件名（同一份脚本被多个 NPC 复用）。
+    #[must_use]
+    pub fn npc_script(&self, file_name: &str) -> Option<Arc<NpcScript>> {
+        let envir = self.envir_dir()?;
+        let key = file_name.to_owned();
+        if let Some(cached) = self
+            .npc_script_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&key)
+        {
+            return cached.clone();
+        }
+        let loaded = match NpcScript::load(&key, envir) {
+            Ok(script) => {
+                for warning in script.warnings() {
+                    // Crystal 对脚本问题只往 `MessageQueue` 里丢一条提示（`NPCScript.cs:165`），
+                    // 这里降级到 debug，避免几百份脚本刷屏。
+                    tracing::debug!(script = %key, %warning, "NPC 脚本告警");
+                }
+                Some(Arc::new(script))
+            }
+            Err(error) => {
+                tracing::debug!(script = %key, %error, "NPC 脚本读取失败，按「没有脚本」处理");
+                None
+            }
+        };
+        self.npc_script_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(key, loaded.clone());
+        loaded
+    }
+
+    /// 某张地图上的 NPC 模板（Crystal `MapInfo.CreateMap` 的 `Envir.NPCInfoList` 过滤，
+    /// `Server/MirDatabase/MapInfo.cs:197-204`）。
+    #[must_use]
+    pub fn npcs_for_map(&self, map_file: &str) -> Vec<&NpcInfo> {
+        let Some(info) = self.map_info(map_file) else {
+            return Vec::new();
+        };
+        let index = info.index;
+        self.db
+            .npcs
+            .iter()
+            .filter(|npc| npc.map_index == index)
+            .collect()
+    }
+
+    /// 按地图**主键**找 `MapInfo`（`MovementInfo.MapIndex` / `NpcInfo.MapIndex` 用的是主键）。
+    #[must_use]
+    pub fn map_info_by_index(&self, index: i32) -> Option<&MapInfo> {
+        self.db.maps.iter().find(|info| info.index == index)
     }
 
     /// 按 `ItemInfo.Index` 取物品模板（Crystal `Envir.GetItemInfo(int)`，`Envir.cs:4734-4743`）。

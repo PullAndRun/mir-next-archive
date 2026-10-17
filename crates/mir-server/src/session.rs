@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use mir_core::enums::{
     ChatType, HeroBehaviour, IntelligentCreatureType, LightSetting, MirClass, MirDirection,
-    MirGridType, WeatherSetting,
+    MirGridType, PanelType, WeatherSetting,
 };
 use mir_core::i18n::LanguageLibrary;
 use mir_core::{DateTimeBinary, LanguageCatalog, Point, TextKey};
@@ -28,6 +28,7 @@ use crate::config::ServerConfig;
 use crate::items::{
     decode_equipment, decode_inventory, encode_slots, new_equipment, new_inventory,
 };
+use crate::npc::NpcState;
 use crate::store::{Account, AccountStore, Character, StoreError};
 use crate::world::{Player, World};
 
@@ -149,6 +150,19 @@ impl<S: AccountStore> Session<S> {
             }
             ClientPacket::MoveItem(packet) => {
                 self.on_move_item(packet.grid, packet.from, packet.to).await;
+            }
+            ClientPacket::CallNPC(packet) => {
+                self.on_call_npc(packet.object_id, &packet.key).await;
+            }
+            ClientPacket::BuyItem(packet) => {
+                self.on_buy_item(packet.item_index, packet.count, packet.type_)
+                    .await;
+            }
+            ClientPacket::SellItem(packet) => {
+                self.on_sell_item(packet.unique_id, packet.count).await;
+            }
+            ClientPacket::RepairItem(packet) => {
+                self.on_repair_item(packet.unique_id).await;
             }
             ClientPacket::Disconnect(_) => {
                 self.leave_world().await;
@@ -475,8 +489,19 @@ impl<S: AccountStore> Session<S> {
             equipment: equipment.clone(),
             gold: character.gold,
             visible_items: std::collections::BTreeSet::new(),
+            npc: NpcState::default(),
             sender: self.out.clone(),
         });
+        // 进图资料：Crystal `PlayerObject.CheckMapInfo`（`PlayerObject.cs:1009-1056`）。
+        // 必须在释放世界锁之前取，Npc 列表与传送点都来自世界内的实时状态。
+        let map_index = world
+            .game_data()
+            .and_then(|data| data.map_info(&character.map))
+            .map(|info| info.index);
+        let entry_title = self
+            .languages
+            .map_title(self.language.language(), &character.map);
+        let entry_info = world.map_entry_info(&character.map, &entry_title);
         drop(world);
 
         self.object_id = Some(object_id);
@@ -488,11 +513,9 @@ impl<S: AccountStore> Session<S> {
             resolution: self.config.allowed_resolution,
         }));
         self.send(ServerPacket::MapInformation(MapInformation {
-            map_index: 0,
+            map_index: map_index.unwrap_or(0),
             file_name: character.map.clone(),
-            title: self
-                .languages
-                .map_title(self.language.language(), &character.map),
+            title: entry_title.clone(),
             mini_map: 0,
             big_map: 0,
             lights: LightSetting::Day,
@@ -502,6 +525,17 @@ impl<S: AccountStore> Session<S> {
             music: 0,
             weather_particles: WeatherSetting::None,
         }));
+        // 进图详情（NPC 列表 + 传送点）：Crystal `PlayerObject.CheckMapInfo` 发的
+        // `S.NewMapInfo`（`PlayerObject.cs:1054`）。`MapInformation` 本身没有这两个字段
+        // （`Shared/ServerPackets.cs:469-517`），见 [`crate::npc`] 模块文档。
+        if let Some(info) = entry_info {
+            self.send(ServerPacket::NewMapInfo(
+                mir_protocol::packets::server::NewMapInfo {
+                    map_index: map_index.unwrap_or(0),
+                    info,
+                },
+            ));
+        }
         self.send(ServerPacket::UserInformation(user_information(
             object_id,
             &character,
@@ -682,6 +716,84 @@ impl<S: AccountStore> Session<S> {
         match world.move_item(object_id, grid, from, to) {
             Ok(()) => tracing::debug!(session = self.id, ?grid, from, to, "物品移动成功"),
             Err(error) => tracing::debug!(session = self.id, %error, "物品移动被拒绝"),
+        }
+    }
+
+    /// 点 NPC / 点对话按钮（`C.CallNPC`，Crystal `PlayerObject.CallNPC`，`PlayerObject.cs:7900-7929`）。
+    ///
+    /// 脚本执行、`S.NPCResponse` 与商店面板的发送都在 [`World::call_npc`] 里；
+    /// 这里只负责把世界锁拿住、把结果记到日志。
+    async fn on_call_npc(&mut self, npc_object_id: u32, key: &str) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.call_npc(object_id, npc_object_id, key) {
+            Ok(reply) => tracing::debug!(
+                session = self.id,
+                npc = npc_object_id,
+                page = %reply.page_key,
+                lines = reply.page.len(),
+                panels = ?reply.panels,
+                closed = reply.closed,
+                unsupported = reply.unsupported_checks.len() + reply.unsupported_actions.len(),
+                "NPC 对话"
+            ),
+            Err(error) => tracing::debug!(session = self.id, %error, "NPC 对话被拒绝"),
+        }
+    }
+
+    /// 买（`C.BuyItem`，Crystal `PlayerObject.BuyItem`，`PlayerObject.cs:7944-7969`）。
+    async fn on_buy_item(&mut self, item_index: u64, count: u16, panel: PanelType) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.buy_item(object_id, item_index, count, panel) {
+            Ok(report) => tracing::debug!(
+                session = self.id,
+                item = %report.item.item_index,
+                count = report.item.count,
+                cost = report.cost,
+                "买到物品"
+            ),
+            Err(error) => tracing::debug!(session = self.id, %error, "买东西被拒绝"),
+        }
+    }
+
+    /// 卖（`C.SellItem`，Crystal `PlayerObject.SellItem`，`:7988-8091`）。
+    async fn on_sell_item(&mut self, unique_id: u64, count: u16) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.sell_item(object_id, unique_id, count) {
+            Ok(report) => tracing::debug!(
+                session = self.id,
+                item = %report.item_name,
+                count = report.count,
+                gold = report.gold,
+                "卖出物品"
+            ),
+            Err(error) => tracing::debug!(session = self.id, %error, "卖东西被拒绝"),
+        }
+    }
+
+    /// 修（`C.RepairItem`，Crystal `PlayerObject.RepairItem`，`:8092-8160`）。
+    async fn on_repair_item(&mut self, unique_id: u64) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.repair_item(object_id, unique_id) {
+            Ok(report) => tracing::debug!(
+                session = self.id,
+                unique_id,
+                cost = report.cost,
+                max_dura = report.max_dura,
+                "修理完成"
+            ),
+            Err(error) => tracing::debug!(session = self.id, %error, "修理被拒绝"),
         }
     }
 

@@ -83,6 +83,7 @@ impl Harness {
             equipment: items::new_equipment(),
             gold: 0,
             visible_items: BTreeSet::new(),
+            npc: mir_server::NpcState::default(),
             sender,
         });
         self.receivers.insert(object_id, receiver);

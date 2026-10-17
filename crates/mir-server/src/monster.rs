@@ -735,11 +735,12 @@ impl World {
     /// 怪物死亡：Crystal `MonsterObject.Die`（`MonsterObject.cs:966-1006`）。
     ///
     /// 照抄的部分：`HP = 0`、`Dead = true`、`DeadTime = now + DeadDelay`、广播 `S.ObjectDied`、
-    /// `EXPOwner.WinExp(Experience, Level)`、`Respawn.Count--`、`Drop()`（掉落见
-    /// [`World::drop_monster_loot`]，对应 `:997-998` 的 `if (Master == null && EXPOwner != null) Drop();`）。
+    /// `EXPOwner.WinExp(Experience, Level)`、击杀任务计数（`EXPOwner.CheckGroupQuestKill`）、
+    /// `Respawn.Count--`、`Drop()`（掉落见 [`World::drop_monster_loot`]，
+    /// 对应 `:997-998` 的 `if (Master == null && EXPOwner != null) Drop();`）。
     ///
-    /// 简化：`HasDieScript`（`:977-980`）、组队任务计数（`:989`）、
-    /// `Envir.MonsterCount` 统计（`:1003-1005`，本作按需扫描不维护计数）。
+    /// 简化：`HasDieScript`（`:977-980`）、`Envir.MonsterCount` 统计
+    /// （`:1003-1005`，本作按需扫描不维护计数）。
     pub(crate) fn monster_died(&mut self, monster_id: u32) {
         let now = self.now();
         let Some(monster) = self.monsters.iter_mut().find(|m| m.object_id == monster_id) else {
@@ -759,6 +760,7 @@ impl World {
         let expo_owner = monster.expo_owner;
         let experience = monster.kind.experience;
         let monster_level = monster.kind.level;
+        let monster_name = monster.kind.name.clone();
 
         let packet = ServerPacket::ObjectDied(ObjectDied {
             object_id: monster_id,
@@ -773,6 +775,8 @@ impl World {
         // 简化：`EXPOwner.Race == ObjectType.Player` 恒成立（本作只有玩家能打怪）。
         if let Some(owner) = expo_owner {
             self.win_experience(owner, experience, monster_level);
+            // `playerObj.CheckGroupQuestKill(Info);`（`:986-990`）——击杀任务计数。
+            self.advance_quest_kills(owner, &monster_name);
         }
 
         // `if (Respawn != null) Respawn.Count--;`（`MonsterObject.cs:994-995`）。

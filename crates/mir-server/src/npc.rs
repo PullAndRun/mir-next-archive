@@ -116,7 +116,9 @@ pub const SPECIAL_REPAIR_PAGES: &[&str] = &[SPECIAL_REPAIR_KEY];
 /// | [`NpcState::page_key`] | `PlayerObject.NPCPage.Key` |
 /// | [`NpcState::buttons`] | `PlayerObject.NPCSuccess`（每段「检查结果 → 可见按钮」的映射，`NPCScript.cs:839-847`） |
 /// | [`NpcState::flags`] | `CharacterInfo.Flags`（`Globals.FlagIndexCount` 个 bool） |
-/// | [`NpcState::quests_active`] / `quests_completed` | `PlayerObject.CurrentQuests` / `CompletedQuests`（任务系统未实现，先存集合） |
+///
+/// 任务状态不在这里：`CHECKQUEST` 读的是 [`Player::quests`] / [`Player::completed_quests`]
+/// （Crystal `PlayerObject.CurrentQuests` / `CompletedQuests`，见 `crate::quests`）。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NpcState {
     /// 当前正在对话的 NPC 对象 ID；`0` = 没在对话。
@@ -127,10 +129,6 @@ pub struct NpcState {
     pub buttons: BTreeSet<String>,
     /// NPC 脚本标记位（Crystal `Info.Flags`，只有 `true` 的下标才在集合里）。
     pub flags: BTreeSet<i32>,
-    /// 进行中的任务编号（`CHECKQUEST <n> ACTIVE`）。
-    pub quests_active: BTreeSet<i32>,
-    /// 已完成的任务编号（`CHECKQUEST <n> COMPLETE`）。
-    pub quests_completed: BTreeSet<i32>,
 }
 
 impl NpcState {
@@ -192,6 +190,14 @@ pub struct Npc {
     /// 这个 NPC 能接/交的任务编号（`NpcInfo.CollectQuestIndexes ∪ FinishQuestIndexes`，
     /// Crystal 在 `S.ObjectNPC` 里叫 `QuestIDs`，`NPCObject.cs:392-393`）。
     pub quest_indexes: Vec<i32>,
+    /// 这个 NPC 可以**发布**的任务（`NpcInfo.CollectQuestIndexes`，`NPCInfo.cs:40`）。
+    ///
+    /// Crystal 真正的来源是 NPC 脚本的 `[Quests]` 段（`NPCScript.ParseQuests`，
+    /// `NPCScript.cs:685-721`），数据库的这两个列表是编辑器里的等价物；
+    /// 本作两者都认（见 [`World::npc_gives_quest`]）。
+    pub collect_quest_indexes: Vec<i32>,
+    /// 这个 NPC 可以**交付**的任务（`NpcInfo.FinishQuestIndexes`，`NPCInfo.cs:41`）。
+    pub finish_quest_indexes: Vec<i32>,
 }
 
 impl Npc {
@@ -223,6 +229,8 @@ impl Npc {
             max_lev: info.max_lev,
             class_required: info.class_required.clone(),
             quest_indexes,
+            collect_quest_indexes: info.collect_quest_indexes.clone(),
+            finish_quest_indexes: info.finish_quest_indexes.clone(),
         }
     }
 
@@ -579,7 +587,12 @@ impl World {
             let direction = MirDirection::from_value(self.rng.next_bounded(3) as u8)
                 .unwrap_or(MirDirection::Down);
             let object_id = self.allocate_object_id();
-            let npc = Npc::from_info(info, &map_info.file_name, object_id, direction);
+            let mut npc = Npc::from_info(info, &map_info.file_name, object_id, direction);
+            // Crystal 的 `NPCScript.ParseQuests` 把 `[Quests]` 关联的任务塞进 `NPCObject.Quests`，
+            // `S.ObjectNPC` 的 `QuestIDs` 就是它（`NPCScript.cs:716-717`、`NPCObject.cs:392-393`）。
+            // 样本数据库里的两个任务列表全是空的，所以必须把脚本关联补进来，
+            // 否则客户端连一个任务图标都画不出来。
+            self.fill_npc_quest_links(&mut npc);
             let frame = ServerPacket::ObjectNPC(npc.object_packet()).encode_frame();
             self.npcs.push(npc.clone());
             for player in self.players.values() {
@@ -611,9 +624,23 @@ impl World {
             return None;
         }
         let object_id = self.allocate_object_id();
-        let npc = Npc::from_info(info, map_file, object_id, MirDirection::Down);
+        let mut npc = Npc::from_info(info, map_file, object_id, MirDirection::Down);
+        self.fill_npc_quest_links(&mut npc);
         self.npcs.push(npc);
         Some(object_id)
+    }
+
+    /// 把 NPC 脚本 `[Quests]` 里的**发布**任务并进 `Npc::quest_indexes`
+    /// （`S.ObjectNPC.QuestIDs` 用的是正数编号，`NPCObject.cs:392-393`）。
+    fn fill_npc_quest_links(&self, npc: &mut Npc) {
+        let Some(script) = self.npc_script(&npc.file_name) else {
+            return;
+        };
+        for &index in script.quest_indexes() {
+            if index > 0 && !npc.quest_indexes.contains(&index) {
+                npc.quest_indexes.push(index);
+            }
+        }
     }
 
     /// NPC 坐标是否在地图内（Crystal `Map.ValidPoint`，`Map.cs:493`）。
@@ -1029,6 +1056,61 @@ impl World {
             NpcActionKind::Unsupported | NpcActionKind::Unknown => {
                 run.unsupported_actions.push(action.source.clone());
             }
+            // 下面三个是**本作扩展**：Crystal 的 `NPCActions` 里没有对应的动作
+            // （任务接取/交付只能由客户端弹任务面板后发 `C.AcceptQuest`/`C.FinishQuest`，
+            // `PlayerObject.cs:11251`、`:11350`）。见 `docs/world/quests.md`。
+            NpcActionKind::AcceptQuest => {
+                let Some(index) = parse_i32(&action.params, 0) else {
+                    tracing::debug!(npc = %npc.name, "ACCEPTQUEST 缺参数：{}", action.source);
+                    return;
+                };
+                match self.accept_quest(player_id, npc.object_id, index) {
+                    Ok(report) => tracing::debug!(
+                        npc = %npc.name,
+                        quest = report.quest_index,
+                        "NPC 动作接取任务"
+                    ),
+                    Err(error) => {
+                        tracing::debug!(npc = %npc.name, %error, "NPC 动作接取任务被拒绝");
+                        // 让脚本知道结果，便于写 `<提示/@...>`。
+                        run.quest_events
+                            .push(format!("ACCEPTQUEST {index} 失败：{error}"));
+                    }
+                }
+            }
+            NpcActionKind::FinishQuest => {
+                let Some(index) = parse_i32(&action.params, 0) else {
+                    tracing::debug!(npc = %npc.name, "FINISHQUEST 缺参数：{}", action.source);
+                    return;
+                };
+                // 脚本里没有「选第几个可选奖励」的写法，交给 `C.FinishQuest` 的
+                // `SelectedItemIndex`；这里固定 `-1`（不发任选奖励）。
+                match self.finish_quest(player_id, index, -1) {
+                    Ok(report) => tracing::debug!(
+                        npc = %npc.name,
+                        quest = report.quest_index,
+                        gold = report.gold,
+                        exp = report.exp,
+                        "NPC 动作交付任务"
+                    ),
+                    Err(error) => {
+                        tracing::debug!(npc = %npc.name, %error, "NPC 动作交付任务被拒绝");
+                        run.quest_events
+                            .push(format!("FINISHQUEST {index} 失败：{error}"));
+                    }
+                }
+            }
+            NpcActionKind::AbandonQuest => {
+                let Some(index) = parse_i32(&action.params, 0) else {
+                    tracing::debug!(npc = %npc.name, "ABANDONQUEST 缺参数：{}", action.source);
+                    return;
+                };
+                if let Err(error) = self.abandon_quest(player_id, index) {
+                    tracing::debug!(npc = %npc.name, %error, "NPC 动作放弃任务被拒绝");
+                    run.quest_events
+                        .push(format!("ABANDONQUEST {index} 失败：{error}"));
+                }
+            }
         }
     }
 
@@ -1111,6 +1193,19 @@ impl World {
             }
             NpcCheckKind::Quest => {
                 // `:2518-2535`：`CHECKQUEST <序号> ACTIVE|COMPLETE`。
+                //
+                // Crystal 的判定**不是**「ACTIVE 走一个分支、其它走另一个」：
+                //
+                // ```csharp
+                // string tempString = param[1].ToUpper();
+                // if (tempString == "ACTIVE") failed = !player.CurrentQuests.Any(e => e.Index == tempInt);
+                // else failed = !player.CompletedQuests.Contains(tempInt);
+                // ```
+                //
+                // 也就是说**除 `ACTIVE` 之外的任何写法都按 `COMPLETE` 处理**——真实样本里有 32 处
+                // `CHECKQUEST n 1` / `CHECKQUEST n 0`（例如 `BichonProvince/BichonWall/Blacksmith1.txt`
+                // 的 `CHECKQUEST 155 1`），按 Crystal 的语义它们都在问「任务 155 完成了吗」。
+                // 本作照抄这个行为，见 `docs/world/quests.md` 的异常清单。
                 let Some(index) = parse_i32(&check.params, 0) else {
                     return CheckOutcome::Fail;
                 };
@@ -1119,11 +1214,14 @@ impl World {
                     .get(1)
                     .map(|value| value.to_uppercase())
                     .unwrap_or_default();
-                let state = &self.players[&player_id].npc;
+                let player = &self.players[&player_id];
                 let found = if mode == "ACTIVE" {
-                    state.quests_active.contains(&index)
+                    player
+                        .quests
+                        .iter()
+                        .any(|progress| progress.quest_index == index && progress.is_in_progress())
                 } else {
-                    state.quests_completed.contains(&index)
+                    player.completed_quests.contains(&index)
                 };
                 found.into()
             }
@@ -1371,6 +1469,8 @@ struct PageRun {
     unsupported_checks: Vec<String>,
     /// 没实现的动作。
     unsupported_actions: Vec<String>,
+    /// 任务动作（本作扩展的 `ACCEPTQUEST`/`FINISHQUEST`/`ABANDONQUEST`）的失败原因。
+    quest_events: Vec<String>,
 }
 
 /// 一条检查的结论。
@@ -1502,6 +1602,8 @@ impl World {
         if !added {
             return Err(NpcError::InventoryFull);
         }
+        // 买东西也算「获得物品」，收集类任务目标要跟着刷新（见 `crate::quests`）。
+        self.refresh_quest_items(player_id);
         Ok(BuyReport { item, cost })
     }
 

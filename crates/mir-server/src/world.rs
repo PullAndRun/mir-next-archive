@@ -195,8 +195,22 @@ pub struct Player {
     pub magic: MagicState,
     /// 金币（Crystal `AccountInfo.Gold`；本作存在角色行的 `gold` 列上）。
     pub gold: i64,
+    /// 元宝/点数（Crystal `AccountInfo.Credit`；同样挂在角色行上）。
+    ///
+    /// 任务奖励会走 [`World::gain_credit`]（`S.GainedCredit`），除此之外没有别的获取途径。
+    pub credit: i64,
     /// 自己**已经看见**的地面物品，用于 `ObjectItem`/`ObjectGold`/`ObjectRemove` 的增量下发。
     pub visible_items: BTreeSet<u32>,
+    /// 任务进度（Crystal `CharacterInfo.CurrentQuests`，`CharacterInfo.cs:91`；见 [`crate::quests`]）。
+    ///
+    /// 进行中与已完成的任务都在这里：完成的任务保留一条 `state = Completed` 的记录
+    /// （Crystal 交付后会把进度从 `CurrentQuests` 删掉并塞进 `CompletedQuests`，
+    /// 本作保留一条已完成记录，同时维护 [`Player::completed_quests`]）。
+    pub quests: Vec<crate::quests::QuestProgress>,
+    /// 已完成的任务编号（Crystal `CharacterInfo.CompletedQuests`，`CharacterInfo.cs:92`）。
+    ///
+    /// 可重复任务（`QuestType.Repeatable`）**不**计入这里（Crystal `PlayerObject.cs:11428-11432`）。
+    pub completed_quests: BTreeSet<i32>,
     /// 生效中的增益（Crystal `MapObject.Buffs`，见 [`crate::buffs`]）。
     ///
     /// Crystal 把 `Buffs` 放在 `MapObject` 上（`Server/MirObjects/MapObject.cs:49`），
@@ -448,6 +462,8 @@ pub struct World {
     pub(crate) map: Option<Arc<mir_world::Map>>,
     /// 服务器时钟起点（Crystal `Envir.Time` 的 0 点）。
     started: Instant,
+    /// 世界创建时刻的 Unix 毫秒（[`World::wall_now`] 的基准）。
+    started_unix_ms: i64,
     /// 测试用的时钟偏移（毫秒）。生产环境恒为 0，见 [`World::advance_clock`]。
     clock_offset: i64,
     /// 时钟是否被 [`World::advance_clock`] 冻结（冻结后不再叠加真实流逝时间）。
@@ -486,6 +502,7 @@ impl World {
             bound,
             map: None,
             started: Instant::now(),
+            started_unix_ms: unix_now_ms(),
             clock_offset: 0,
             clock_frozen: false,
         }
@@ -514,6 +531,7 @@ impl World {
             bound,
             map: Some(map),
             started: Instant::now(),
+            started_unix_ms: unix_now_ms(),
             clock_offset: 0,
             clock_frozen: false,
         }
@@ -594,6 +612,16 @@ impl World {
         let current = self.now();
         self.clock_frozen = true;
         self.clock_offset = current + ms;
+    }
+
+    /// 「墙上时钟」：世界创建时刻的 Unix 毫秒 + 单调时钟。
+    ///
+    /// 任务的接取时间/超时时间要**跨重启**保持意义（存档里存的就是它），所以不能用
+    /// 单纯的单调时钟；但超时测试又必须能被 [`World::advance_clock`] 驱动，因此两条时间线
+    /// 绑在一起：`advance_clock` 快进时墙上时钟也一起走。
+    #[must_use]
+    pub fn wall_now(&self) -> i64 {
+        self.started_unix_ms + self.now()
     }
 
     /// 用固定种子替换随机数发生器，让测试可回放
@@ -997,6 +1025,8 @@ impl World {
     pub fn tick(&mut self) {
         let now = self.now();
         self.tick_players(now);
+        // 任务超时（Crystal 用 `DelayedAction` 排程，本作每 tick 比较；见 `crate::quests`）。
+        self.tick_quests(self.wall_now());
         self.resolve_pending_hits(now);
         self.resolve_pending_magic(now);
         self.tick_respawns(now);
@@ -1620,7 +1650,10 @@ impl World {
     ///
     /// 流程：`Experience += amount` → 本人 `S.GainExperience` → 够阈值就跨级 →
     /// `LevelUp()`（见 [`World::player_level_up`]）。
-    fn gain_experience(&mut self, object_id: u32, amount: u32) {
+    ///
+    /// 任务奖励经验走的就是这条路（Crystal `GainExp(ExpReward * Settings.ExpRate)`，
+    /// `PlayerObject.cs:11457`），不经过 [`World::win_experience`] 的等级差衰减。
+    pub(crate) fn gain_experience(&mut self, object_id: u32, amount: u32) {
         // `if (amount == 0) return;`（`:850`）
         if amount == 0 {
             return;
@@ -2244,8 +2277,14 @@ fn take_ushort_chunk(pool: &mut u16, per_tick: i32) -> i32 {
     taken
 }
 
+/// 当前 Unix 毫秒（[`World::wall_now`] 的基准；`SystemTime` 取不到时退回 0）。
+fn unix_now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_millis() as i64)
+}
+
 /// Crystal `HumanObject.ReduceExp`（`Server/MirObjects/HumanObject.cs:2365-2381`）。
-///
 /// 高等级打低等级怪时经验衰减：
 ///
 /// ```csharp
@@ -2389,7 +2428,10 @@ mod tests {
                 magics: Vec::new(),
                 magic: crate::magic::MagicState::default(),
                 gold: 0,
+                credit: 0,
                 visible_items: BTreeSet::new(),
+                quests: Vec::new(),
+                completed_quests: BTreeSet::new(),
                 buffs: Vec::new(),
                 pot_health_amount: 0,
                 pot_mana_amount: 0,

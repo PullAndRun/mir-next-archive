@@ -32,7 +32,10 @@ use mir_core::Point;
 use mir_core::enums::Monster as MonsterImage;
 use mir_core::enums::{Spell, Stat};
 use mir_db::npc_script::NpcScript;
-use mir_db::{DropTable, ItemInfo, MagicInfo, MapInfo, MirDb, MirDbError, MonsterInfo, NpcInfo};
+use mir_db::quest_script::QuestScript;
+use mir_db::{
+    DropTable, ItemInfo, MagicInfo, MapInfo, MirDb, MirDbError, MonsterInfo, NpcInfo, QuestInfo,
+};
 
 use crate::combat::CombatStats;
 use crate::monster::{DEFAULT_ATTACK_SPEED_MS, DEFAULT_MOVE_SPEED_MS, MonsterKind};
@@ -86,6 +89,12 @@ pub struct GameData {
     /// 对应 Crystal 的 `Envir.Scripts`（`NPCScript.cs:102`）——那边是**开局**全载，
     /// 本作同样惰性：660 份脚本里一次对话只会用到一份。
     npc_script_cache: Mutex<HashMap<String, Option<Arc<NpcScript>>>>,
+    /// 任务脚本缓存：任务文件名 → 解析结果（`None` 表示文件不存在或读不出来）。
+    ///
+    /// 对应 Crystal 在 `Envir.LoadDB` 里对每个 `QuestInfo` 调 `LoadInfo()`
+    /// （`QuestInfo.cs:130-146`）把 `Envir/Quests/<file>.txt` 全读进来的做法；
+    /// 本作同样惰性（161 份脚本里，玩家一次只会接触其中几个）。
+    quest_script_cache: Mutex<HashMap<String, Option<Arc<QuestScript>>>>,
     /// 数据文件路径（日志与排错用）。
     path: PathBuf,
 }
@@ -160,6 +169,7 @@ impl GameData {
             envir_dir,
             drop_cache: Mutex::new(HashMap::new()),
             npc_script_cache: Mutex::new(HashMap::new()),
+            quest_script_cache: Mutex::new(HashMap::new()),
             path,
         }
     }
@@ -213,6 +223,66 @@ impl GameData {
     #[must_use]
     pub fn npc_dir(&self) -> Option<PathBuf> {
         self.envir_dir().map(|envir| envir.join("NPCs"))
+    }
+
+    /// 任务脚本目录（`Envir/Quests`，Crystal `Settings.QuestPath`，`Server/Settings.cs:27`）。
+    #[must_use]
+    pub fn quest_dir(&self) -> Option<PathBuf> {
+        self.envir_dir().map(|envir| envir.join("Quests"))
+    }
+
+    /// 按编号取任务头部（Crystal `Envir.GetQuestInfo`，`Envir.cs`；`QuestInfo.cs:24` 的 `Index`）。
+    ///
+    /// 注意头部里**没有** `NpcIndex` / `FinishNpcIndex`——Crystal 的这两个字段是
+    /// `NPCScript.ParseQuests` 从 NPC 脚本的 `[Quests]` 段回填的（`NPCScript.cs:711-714`），
+    /// 本作按 [`Npc::collect_quest_indexes`](crate::npc::Npc) + 脚本 `[Quests]` 现查。
+    #[must_use]
+    pub fn quest(&self, index: i32) -> Option<&QuestInfo> {
+        self.db.quests.iter().find(|info| info.index == index)
+    }
+
+    /// 任务总数（`db.quests.len()`）。
+    #[must_use]
+    pub fn quest_count(&self) -> usize {
+        self.db.quests.len()
+    }
+
+    /// 取（并缓存）一份任务脚本。
+    ///
+    /// `file_name` 是 `QuestInfo.file_name`（相对 `Envir/Quests/`，不含 `.txt`）。
+    /// 返回 `None` 表示脚本不存在或读不出来；结果按文件名缓存，重复调用只读一次盘。
+    ///
+    /// 对应 Crystal `QuestInfo.LoadInfo`（`QuestInfo.cs:130-146`）：找不到文件时它只往
+    /// `MessageQueue` 丢一条提示（`:145`），任务本身照样存在（只是没有任何目标与奖励）。
+    #[must_use]
+    pub fn quest_script(&self, file_name: &str) -> Option<Arc<QuestScript>> {
+        let envir = self.envir_dir()?;
+        let key = file_name.to_owned();
+        if let Some(cached) = self
+            .quest_script_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&key)
+        {
+            return cached.clone();
+        }
+        let loaded = match QuestScript::load(&key, envir) {
+            Ok(script) => {
+                for warning in script.warnings() {
+                    tracing::debug!(script = %key, %warning, "任务脚本告警");
+                }
+                Some(Arc::new(script))
+            }
+            Err(error) => {
+                tracing::debug!(script = %key, %error, "任务脚本读取失败，按「没有脚本」处理");
+                None
+            }
+        };
+        self.quest_script_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(key, loaded.clone());
+        loaded
     }
 
     /// 取（并缓存）一份 NPC 脚本。

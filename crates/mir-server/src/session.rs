@@ -30,6 +30,7 @@ use crate::items::{
 };
 use crate::magic::{decode_magics, encode_magics};
 use crate::npc::NpcState;
+use crate::quests::{decode_quests, encode_quests};
 use crate::store::{Account, AccountStore, Character, StoreError};
 use crate::world::{Player, World};
 
@@ -182,6 +183,22 @@ impl<S: AccountStore> Session<S> {
             }
             ClientPacket::MagicKey(packet) => {
                 self.on_magic_key(packet.spell, packet.key).await;
+            }
+            // 任务：`C.AcceptQuest` / `C.FinishQuest` / `C.AbandonQuest` / `C.ShareQuest`
+            // （Crystal `PlayerObject.cs:11251`、`:11350`、`:11462`、`:11472`）。
+            ClientPacket::AcceptQuest(packet) => {
+                self.on_accept_quest(packet.npc_index, packet.quest_index)
+                    .await;
+            }
+            ClientPacket::FinishQuest(packet) => {
+                self.on_finish_quest(packet.quest_index, packet.selected_item_index)
+                    .await;
+            }
+            ClientPacket::AbandonQuest(packet) => {
+                self.on_abandon_quest(packet.quest_index).await;
+            }
+            ClientPacket::ShareQuest(packet) => {
+                self.on_share_quest(packet.quest_index).await;
             }
             ClientPacket::SpellToggle(packet) => {
                 // `SpellToggle`（`HumanObject.cs:8501-`）只对「开关型」技能有意义
@@ -480,6 +497,15 @@ impl<S: AccountStore> Session<S> {
                 Vec::new()
             }
         };
+        // 任务块：Crystal 的 `CharacterInfo.CurrentQuests` + `CompletedQuests`
+        // （`CharacterInfo.cs:262-277`、`:307-313`），格式见 `crate::quests::encode_quests`。
+        let quest_save = match decode_quests(&character.quests) {
+            Ok(save) => save,
+            Err(error) => {
+                tracing::warn!(session = self.id, %error, "任务字节块解析失败，按没有任务处理");
+                crate::quests::QuestSave::default()
+            }
+        };
 
         let mut world = self.world.lock().await;
         // 读档里出现过的 UUID 要计入发生器，否则新掉的物品可能撞号
@@ -528,7 +554,10 @@ impl<S: AccountStore> Session<S> {
             magics: magics.clone(),
             magic: crate::magic::MagicState::default(),
             gold: character.gold,
+            credit: character.credit,
             visible_items: std::collections::BTreeSet::new(),
+            quests: quest_save.quests.clone(),
+            completed_quests: quest_save.completed_quests.clone(),
             // buff 不持久化（Crystal 的 `CharacterInfo` 存档里没有 buff 块），登录即空。
             buffs: Vec::new(),
             pot_health_amount: 0,
@@ -551,6 +580,12 @@ impl<S: AccountStore> Session<S> {
         // 已学技能（Crystal `UserInformation.Magics`，`ServerPackets.cs:640-680` 里逐条
         // `magic.CreateClientMagic()`）。同样必须在释放世界锁之前取。
         let client_magics = world.client_magics(object_id);
+        // 收集类任务目标按读档后的背包重算一次（**不发包**：此时还没进世界）。
+        world.sync_quest_items(object_id);
+        // 任务下发（Crystal `GetQuestInfo` / `GetCompletedQuests` / 逐条 `ChangeQuest{Add}`，
+        // `PlayerObject.cs:1185-1212`）。这些包要排在 `UserInformation` 之后，
+        // 所以先收集，等会话自己的包发完再发。
+        let quest_packets = world.quest_login_packets(object_id);
         drop(world);
 
         self.object_id = Some(object_id);
@@ -592,8 +627,12 @@ impl<S: AccountStore> Session<S> {
             &inventory,
             &equipment,
             &client_magics,
-            character.gold,
         )));
+        // 任务表（`PlayerObject.cs:1185-1212`）：全套 `S.NewQuestInfo` → `S.CompleteQuest` →
+        // 每条已接任务的 `S.ChangeQuest{Add}`。
+        for packet in quest_packets {
+            self.send(packet);
+        }
         let welcome = self.language.text_with(&self.languages, TextKey::Welcome);
         self.send_system_chat(&welcome);
         tracing::info!(
@@ -947,6 +986,79 @@ impl<S: AccountStore> Session<S> {
         tracing::debug!(session = self.id, ?spell, key, changed, "技能快捷键");
     }
 
+    /// 接任务（`C.AcceptQuest`，Crystal `PlayerObject.AcceptQuest`，`PlayerObject.cs:11251-11348`）。
+    async fn on_accept_quest(&mut self, npc_index: u32, quest_index: i32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.accept_quest(object_id, npc_index, quest_index) {
+            Ok(report) => tracing::debug!(
+                session = self.id,
+                quest = report.quest_index,
+                name = %report.name,
+                tasks = report.task_list.len(),
+                "接取任务"
+            ),
+            Err(error) => tracing::debug!(session = self.id, %error, "接取任务被拒绝"),
+        }
+    }
+
+    /// 交任务（`C.FinishQuest`，Crystal `PlayerObject.FinishQuest`，`:11350-11461`）。
+    ///
+    /// `selected_item_index` 就是 Crystal 的「选第几个可选奖励」（`:11350` 的默认参数 `-1`）。
+    async fn on_finish_quest(&mut self, quest_index: i32, selected_item_index: i32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.finish_quest(object_id, quest_index, selected_item_index) {
+            Ok(report) => tracing::debug!(
+                session = self.id,
+                quest = report.quest_index,
+                gold = report.gold,
+                exp = report.exp,
+                credit = report.credit,
+                items = report.items.len(),
+                "交付任务"
+            ),
+            Err(error) => tracing::debug!(session = self.id, %error, "交付任务被拒绝"),
+        }
+    }
+
+    /// 放弃任务（`C.AbandonQuest`，Crystal `PlayerObject.AbandonQuest`，`:11462-11471`）。
+    async fn on_abandon_quest(&mut self, quest_index: i32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.abandon_quest(object_id, quest_index) {
+            Ok(()) => tracing::debug!(session = self.id, quest = quest_index, "放弃任务"),
+            Err(error) => tracing::debug!(session = self.id, %error, "放弃任务被拒绝"),
+        }
+    }
+
+    /// 分享任务（`C.ShareQuest`，Crystal `PlayerObject.ShareQuest`，`:11472-11492`）。
+    ///
+    /// 本作没有组队系统，`World::share_quest` 会走 Crystal 的失败分支（系统提示）。
+    async fn on_share_quest(&mut self, quest_index: i32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.share_quest(object_id, quest_index) {
+            Ok(receivers) => {
+                tracing::debug!(
+                    session = self.id,
+                    quest = quest_index,
+                    receivers,
+                    "分享任务"
+                );
+            }
+            Err(error) => tracing::debug!(session = self.id, %error, "分享任务失败"),
+        }
+    }
+
     /// 如果是因为「动作还没结束」被拒，等到 `ActionTime` 之后再试一次。
     ///
     /// 返回 `true` 表示值得重试。等待时长有上限，避免异常状态把连接卡死。
@@ -1044,7 +1156,14 @@ impl<S: AccountStore> Session<S> {
                 // 技能块：`CharacterInfo.Save` 的「`Magics.Count` + 逐条 `UserMagic.Save`」
                 // （`CharacterInfo.cs:458-463`）。
                 character.magics = encode_magics(&player.magics);
+                // 任务块：`CharacterInfo.Save` 的「`CurrentQuests.Count` + 逐条」与
+                // 「`CompletedQuests.Count` + 逐条」（`CharacterInfo.cs:488-492`、`:514-518`）。
+                character.quests = encode_quests(&crate::quests::QuestSave {
+                    quests: player.quests.clone(),
+                    completed_quests: player.completed_quests.clone(),
+                });
                 character.gold = player.gold;
+                character.credit = player.credit;
                 character.hp = player.hp;
                 character.mp = player.mp;
                 character.level = player.level;
@@ -1086,7 +1205,6 @@ fn user_information(
     inventory: &[Option<UserItem>],
     equipment: &[Option<UserItem>],
     magics: &[ClientMagic],
-    gold: i64,
 ) -> UserInformation {
     UserInformation {
         object_id,
@@ -1111,8 +1229,8 @@ fn user_information(
         inventory: Some(inventory.to_vec()),
         equipment: Some(equipment.to_vec()),
         quest_inventory: Some(vec![None; 40]),
-        gold: u32::try_from(gold.max(0)).unwrap_or(u32::MAX),
-        credit: 0,
+        gold: u32::try_from(character.gold.max(0)).unwrap_or(u32::MAX),
+        credit: u32::try_from(character.credit.max(0)).unwrap_or(u32::MAX),
         has_expanded_storage: false,
         has_storage_password: false,
         require_storage_password: false,

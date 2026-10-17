@@ -65,7 +65,8 @@ Crystal `Path.Combine(Settings.NPCPath, FileName + ".txt")`，`NPCScript.cs:142`
 | `[Types]` | 每行一个 `ItemType` 整数：这个 NPC 收购/修理允许的类型 | `NPCScript.cs:622-635` |
 | `[UsedTypes]` | 二手货回收的类型限制（本作未用） | `NPCScript.cs:637-648` |
 | `[Trade]` | 每行 `物品名 [数量]` → 商品表 | `NPCScript.cs:650-684` |
-| `[Quests]` / `[Recipe]` / `[Speech]` | 任务/锻造/闲聊，本作**未实现** | `NPCScript.cs:685-783` |
+| `[Quests]` | 任务关联：正数=本 NPC 发布该任务、负数=本 NPC 交付该任务（详见 `docs/world/quests.md`） | `NPCScript.cs:685-721` |
+| `[Recipe]` / `[Speech]` | 锻造/闲聊，本作**未实现** | `NPCScript.cs:723-783` |
 
 ### 2.2 页面内的指令
 
@@ -126,7 +127,7 @@ Crystal `Path.Combine(Settings.NPCPath, FileName + ".txt")`，`NPCScript.cs:142`
 | `CHECKITEM` | `<物品名> [数量] [持久秒]` | ✅ | 遍历背包含该模板的物品；给了持久就跳过 `CurrentDura < 秒*1000` 的（`:2176-2207`） |
 | `CHECKCLASS` | `<职业名>` | ✅ | 忽略大小写（`MirClass.TryParse(..., true)`，`:2221-2231`） |
 | `CHECKGENDER` | `<Male\|Female>` | ✅ | 区分大小写（`MirGender.TryParse(..., false)`，`:2209-2219`） |
-| `CHECKQUEST` | `<序号> ACTIVE\|COMPLETE` | ✅（占位） | 任务系统未实现；读 `Player::npc.quests_active/completed`（`:2518-2535`） |
+| `CHECKQUEST` | `<序号> ACTIVE\|COMPLETE` | ✅ | 读 `Player::quests`（进行中）/ `Player::completed_quests`；**第二个参数只要不是 `ACTIVE` 就按 `COMPLETE` 判**（Crystal `:2525-2534`，见 `docs/world/quests.md` 的异常清单） |
 | `CHECK` | `[<flag>] <0\|1>` | ✅ | 标记位；下标须在 `0..=1999`（`Globals.cs:31`），越界算不通过（`:2334-2348`） |
 | `RANDOM` | `<n>` | ✅ | `Random.Next(0, n) == 0` 才算通过 → 概率 **1/n**（不是百分比，`:2414-2422`） |
 | `LEVEL` 之外的 `CHECK*`（`CHECKMAP`、`CHECKNAMELIST`、`CHECKHUM`、`CHECKMON`、`GROUPCOUNT`、`PETCOUNT`、`HASBAGSPACE`、`ISADMIN`、`CHECKTIMER`…） | — | ❌ | 记为「不支持」，**按不通过处理**（走 else 分支），并写进 `NpcReply::unsupported_checks` |
@@ -146,6 +147,9 @@ Crystal `Path.Combine(Settings.NPCPath, FileName + ".txt")`，`NPCScript.cs:142`
 | `GIVEGOLD <n>` | ✅ | 加钱（`S.GainedGold`），溢出按 `u32::MAX` 截断（`:3244-3253`） |
 | `TAKEGOLD <n>` | ✅ | 扣钱（`S.LoseGold`），不够就扣光（`:3255-3264`） |
 | `SET [<flag>] <0\|1>` | ✅ | 写标记位；下标越界丢弃（`:3706-3726`） |
+| `ACCEPTQUEST <序号>` | ✅（本作扩展） | 替玩家接取任务；Crystal **没有**这个动作（`NPCActions` 里搜不到），见 `docs/world/quests.md` |
+| `FINISHQUEST <序号>` | ✅（本作扩展） | 替玩家交付任务（可选奖励固定发 `-1`，即不选） |
+| `ABANDONQUEST <序号>` | ✅（本作扩展） | 替玩家放弃任务 |
 | `GIVEITEM` / `TAKEITEM` / `GIVEEXP` / `MOVE` / `MOV` / `CALC` / `MONGEN` / `CALL` / `TIMERECALL` / 行会/攻城/邮件/婚姻/英雄… | ❌ | 记为「不支持」，写进 `NpcReply::unsupported_actions`，不执行 |
 
 ---
@@ -356,7 +360,6 @@ Blacksmith_Smith 的商品数：19
 * **二手货 / 回购**（`Envir/Goods/<序号>.msd` 二进制 + `callingNPC.BuyBack` +
   `Settings.GoodsBuyBackTime`）：`NPCScript.LoadGoods`（`:180-217`）、`NPCObject.ProcessGoods`（`:68-134`）。
 * **特修**（`[@SREPAIR]`，`C.SRepairItem`，费用 ×3）：`PlayerObject.cs:8092-8160` 的 `special` 分支。
-* **任务接取/交付**（`[Quests]` 段、`CHECKQUEST` 的真实数据源、`C.AcceptQuest` 等）。
 * **NPC 时段/星期可见性**（`NPCObject.Process`，`:228-254`）与 **攻城可见性**（`:428-435`）。
 * **NPC 闲聊**（`[Speech]` 段 + `NPCObject.cs:256-270` 的 `ObjectChat` 广播）。
 * **`#INSERT`/`#INCLUDE` 之外的系统脚本**（`DefaultNPC`、`Robot`、`AutoPlayer/AutoMonster`
@@ -365,8 +368,8 @@ Blacksmith_Smith 的商品数：19
   `NPCVar` / `NPCData`（`Call` 里的输入框流程 `[@@"`，`:863-868`）。
 * **`GIVEITEM`/`TAKEITEM`/`GIVEEXP`/`MOVE`/`MONGEN`/`CALL` 等动作**（见 §4）。
 * **NPC 转身动画**（`NPCObject.cs:205-220` 每 10 秒随机转身 + `S.ObjectTurn` 广播）。
-* **标记位与任务状态的持久化**：本作的 `NpcState::flags` / `quests_active` /
-  `quests_completed` 只活在会话里（下线即丢）。Crystal 把 `Flags` 存在
-  `CharacterInfo` 里（随角色行落盘），任务进度也落盘；等任务系统接入时一起补。
+* **标记位持久化**：本作的 `NpcState::flags` 只活在会话里（下线即丢）。Crystal 把 `Flags`
+  存在 `CharacterInfo` 里（随角色行落盘），任务进度则已经落到 `characters.quests`
+  （见 `docs/world/quests.md`），标记位留待后续和 `CharacterInfo.Flags` 一起补。
 * **`Envir/NPCs` 里 `\` 分隔符的兼容**：`mir_db::npc_script::resolve_script_path` 已把
   两种分隔符统一成 `/`，但 `#INSERT` 的相对路径只在 Windows 风格下验证过。

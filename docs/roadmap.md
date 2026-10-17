@@ -32,7 +32,7 @@
 | NPC | ✅ | 660 份脚本解析、对话条件/动作子集、买卖修（定价公式与价格倍率）、`NewMapInfo` 下发 |
 | 技能 | ✅ | 用书学习、施法校验、8 个伤害/治疗技能 + 9 个增益技能（护盾/加速/减伤…） |
 | Buff | ✅ | 带到期时间的属性修饰层、`S.AddBuff`/`S.RemoveBuff`、药水增益（见 `docs/world/buffs.md`） |
-| 任务 | ⏳ | `Envir/Quests` 与 `QuestInfo` 头已能读 |
+| 任务 | ✅ | `Envir/Quests` 13 段脚本解析（真实 154/154 份）、接取前置、击杀/收集/标记目标、交付领奖、限时超时、放弃、NPC `[Quests]` 关联与三个任务动作、`characters.quests` 存档（见 `docs/world/quests.md`） |
 | 行会 / 组队 / 攻城 | ⏳ | 协议与数据类已就绪 |
 | 仓库 / 邮件 / 拍卖 | ⏳ | 协议与数据结构已就绪 |
 
@@ -58,6 +58,7 @@
 - [`docs/world/items.md`](world/items.md) — 背包/装备/掉落/使用物品/丢金币/持久化差异
 - [`docs/world/buffs.md`](world/buffs.md) — 增益容器、到期语义、9 个增益技能与 5 条异常
 - [`docs/world/npc.md`](world/npc.md) — 脚本支持矩阵与 12 条异常
+- [`docs/world/quests.md`](world/quests.md) — 任务脚本格式、接取/交付流程与 17 条 Crystal 异常
 - [`docs/world/magic.md`](world/magic.md) — 技能支持矩阵与 11 条异常
 - [`docs/client.md`](client.md) — 客户端协议流程与 7 条怪癖
 - [`docs/store/mirdb-format.md`](store/mirdb-format.md) — 数据库格式与版本门
@@ -66,7 +67,7 @@
 ## 五、下一步优先级
 
 1. **客户端 UI**：状态栏、聊天、背包、商店、技能栏与汉字字体。
-2. **任务系统**：`Envir/Quests` 解析 + `QuestInfo` 状态机 + 任务奖励。
-4. **组队 / 行会**：协议与数据结构已就绪，主要工作是状态机与广播。
-5. **地图切换与传送**：`MovementInfo` + NPC 脚本的 `MAPMOVE`。
-6. **视野与 AOI**：把广播半径与 Crystal 对齐，并做网格化索引。
+2. **组队 / 行会**：协议与数据结构已就绪，主要工作是状态机与广播。
+3. **地图切换与传送**：`MovementInfo` + NPC 脚本的 `MAPMOVE`。
+4. **视野与 AOI**：把广播半径与 Crystal 对齐，并做网格化索引。
+5. **任务系统补全**：任务物品栏（`QuestInventory`）、每日任务重置、`CallDefaultNPC`。

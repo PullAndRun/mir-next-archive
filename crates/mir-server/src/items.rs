@@ -1514,6 +1514,10 @@ impl World {
                 // 理论上 `can_gain_item` 已经保证了；真走到这里说明数据在两次检查之间变了。
                 return Err(ItemError::InventoryFull);
             }
+            // 收集类任务目标：按背包里的实时数量重算（Crystal `CheckGroupQuestItem` →
+            // `CheckNeedQuestItem`，`PlayerObject.cs:11509-11561`；本作没有任务物品栏，
+            // 所以不「截胡」物品，只在拾取后刷新计数）。
+            self.refresh_quest_items(object_id);
             self.remove_ground_item(ground_id);
             return Ok(PickupReport {
                 ground: ground_id,

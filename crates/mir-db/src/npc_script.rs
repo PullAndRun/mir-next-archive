@@ -12,6 +12,7 @@
 //! | `parse_segment` | `NPCScript.ParseSegment`（`:509-620`） | `#IF`/`#SAY`/`#ACT`/`#ELSE*`、`<text/@goto>` 按钮 |
 //! | [`NpcScript::goods`] | `NPCScript.ParseGoods`（`:650-684`） | `[TRADE]` 段：`物品名 [数量]` |
 //! | [`NpcScript::types`] | `NPCScript.ParseTypes`（`:622-649`） | `[TYPES]` / `[USEDTYPES]` 段 |
+//! | [`NpcScript::quest_indexes`] | `NPCScript.ParseQuests`（`:685-721`） | `[QUESTS]` 段：正数=发布、负数=交付 |
 //!
 //! # 商品表到底在哪
 //!
@@ -73,6 +74,15 @@ pub struct NpcScript {
     pub types: Vec<i32>,
     /// `[USEDTYPES]` 段：允许回收的 `ItemType` 原始值（`NPCScript.cs:637-648`）。
     pub used_types: Vec<i32>,
+    /// `[QUESTS]` 段：这个 NPC 关联的任务（`NPCScript.ParseQuests`，`NPCScript.cs:685-721`）。
+    ///
+    /// Crystal 的语义是**带符号**的（`:711-714`）：
+    ///
+    /// * **正数** `N` → 这个 NPC 是任务 `N` 的发布者（`QuestInfo.NpcIndex = LoadedObjectID`）；
+    /// * **负数** `-N` → 这个 NPC 是任务 `N` 的交付者（`QuestInfo.FinishNpcIndex = LoadedObjectID`）。
+    ///
+    /// 本作保留原始符号，查询用 [`NpcScript::publishes_quest`] / [`NpcScript::finishes_quest`]。
+    pub quest_indexes: Vec<i32>,
     /// 解析过程中的告警（缺文件、语法不认识等）。不参与逻辑，只给日志与测试看。
     pub warnings: Vec<String>,
 }
@@ -181,6 +191,17 @@ pub enum NpcActionKind {
     TakeGold,
     /// `SET [<flag>] <0|1>`（`ActionType.Set`，`:796-804`、`:3706-3726`）。
     SetFlag,
+    /// `ACCEPTQUEST <任务序号>`：**本作扩展**，替玩家接取任务。
+    ///
+    /// Crystal 的 `NPCActions` 里**没有**这个动作（全仓库搜索 `ACCEPTQUEST` 零命中），
+    /// 任务接取只能由客户端弹内置任务面板后发 `C.AcceptQuest`（`ClientPackets.cs`，
+    /// 服务端入口 `PlayerObject.AcceptQuest`，`PlayerObject.cs:11251`）。
+    /// 加上它是因为任务书要求「让 161 份真实脚本里的任务流程可用」，见 `docs/world/quests.md`。
+    AcceptQuest,
+    /// `FINISHQUEST <任务序号>`：**本作扩展**，替玩家交付任务（Crystal 无此动作）。
+    FinishQuest,
+    /// `ABANDONQUEST <任务序号>`：**本作扩展**，替玩家放弃任务（Crystal 无此动作）。
+    AbandonQuest,
     /// 认识关键字但本作没实现（例如 `GIVEITEM`、`MONGEN`、`MOV`）。
     Unsupported,
     /// 不认识的关键字。
@@ -288,12 +309,14 @@ impl NpcScript {
         let goods = parse_goods(&lines);
         let types = parse_type_list(&lines, "[TYPES]");
         let used_types = parse_type_list(&lines, "[USEDTYPES]");
+        let quest_indexes = parse_quest_indexes(&lines);
         Self {
             file_name: name,
             sections,
             goods,
             types,
             used_types,
+            quest_indexes,
             warnings,
         }
     }
@@ -345,6 +368,24 @@ impl NpcScript {
     #[must_use]
     pub fn used_types(&self) -> &[i32] {
         &self.used_types
+    }
+
+    /// `[QUESTS]` 段的原始内容（带符号，正=发布、负=交付）。
+    #[must_use]
+    pub fn quest_indexes(&self) -> &[i32] {
+        &self.quest_indexes
+    }
+
+    /// 这个 NPC 是否发布任务 `quest_index`（Crystal `[Quests]` 里的正数，`NPCScript.cs:711-712`）。
+    #[must_use]
+    pub fn publishes_quest(&self, quest_index: i32) -> bool {
+        quest_index > 0 && self.quest_indexes.contains(&quest_index)
+    }
+
+    /// 这个 NPC 是否交付任务 `quest_index`（Crystal `[Quests]` 里的负数，`NPCScript.cs:713-714`）。
+    #[must_use]
+    pub fn finishes_quest(&self, quest_index: i32) -> bool {
+        quest_index > 0 && self.quest_indexes.contains(&-quest_index)
     }
 
     /// 解析告警。
@@ -862,6 +903,10 @@ fn parse_action(line: &str) -> NpcAction {
             }
             NpcActionKind::SetFlag
         }
+        // 本作扩展（Crystal `NPCActions` 里没有这三个，见 [`NpcActionKind::AcceptQuest`]）。
+        "ACCEPTQUEST" => NpcActionKind::AcceptQuest,
+        "FINISHQUEST" => NpcActionKind::FinishQuest,
+        "ABANDONQUEST" => NpcActionKind::AbandonQuest,
         "" => NpcActionKind::Unknown,
         _ => NpcActionKind::Unsupported,
     };
@@ -927,6 +972,53 @@ fn parse_type_list(lines: &[String], header: &str) -> Vec<i32> {
             };
             out.push(value);
         }
+    }
+    out
+}
+
+/// 解析 `[QUESTS]` 段（Crystal `NPCScript.ParseQuests`，`NPCScript.cs:685-721`）。
+///
+/// ```csharp
+/// if (!lines[i].ToUpper().StartsWith(QuestKey)) continue;
+/// while (++i < lines.Count) {
+///     if (lines[i].StartsWith("[")) return;
+///     if (String.IsNullOrEmpty(lines[i])) continue;
+///     int.TryParse(lines[i], out int index);          // 失败 → 0
+///     if (index == 0) continue;                        // 0 直接跳过
+///     ...
+/// }
+/// ```
+///
+/// 语义照抄：非数字行（样本里 `BichonProvince/BorderVillage/Pedlar.txt` 的
+/// `[Quests]` 段里混进了一个 `<Close/@exit>` 按钮）被解析成 0 后**静默跳过**——
+/// Crystal 连日志都不记，而 `crates/mir-db/tests/npc_scripts.rs` 的
+/// 「真实样本零告警」断言也要求这里保持安静。正负号决定「发布 / 交付」，
+/// 见 [`NpcScript::quest_indexes`]。
+fn parse_quest_indexes(lines: &[String]) -> Vec<i32> {
+    let mut out = Vec::new();
+    let mut index = 0;
+    while index < lines.len() {
+        if !lines[index].to_uppercase().starts_with("[QUESTS]") {
+            index += 1;
+            continue;
+        }
+        let mut cursor = index + 1;
+        while cursor < lines.len() {
+            let line = &lines[cursor];
+            if line.starts_with('[') {
+                break;
+            }
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                if let Ok(value) = trimmed.parse::<i32>() {
+                    if value != 0 {
+                        out.push(value);
+                    }
+                }
+            }
+            cursor += 1;
+        }
+        index = cursor;
     }
     out
 }
@@ -1078,6 +1170,47 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn quest_section_records_signed_indexes() {
+        // `NPCScript.ParseQuests`（`NPCScript.cs:685-721`）：正数=发布、负数=交付。
+        let npc = script(
+            "[@MAIN]\n\
+             hi\n\
+             [Quests]\n\
+             -154\n\
+             155\n\
+             -155\n\
+             <Close/@exit>\n\
+             [Trade]\n\
+             WoodenSword\n",
+        );
+        assert_eq!(npc.quest_indexes(), &[-154, 155, -155]);
+        assert!(npc.publishes_quest(155));
+        assert!(npc.finishes_quest(154));
+        assert!(npc.finishes_quest(155));
+        assert!(!npc.publishes_quest(154));
+        // 样本里的 `Pedlar.txt` 就是这样：`[Quests]` 段里混进一个按钮，Crystal 静默跳过。
+        assert!(npc.warnings().is_empty(), "{:?}", npc.warnings());
+        // `[Trade]` 段不受影响。
+        assert_eq!(npc.goods().len(), 1);
+    }
+
+    #[test]
+    fn quest_actions_are_recognised_as_extensions() {
+        let npc = script(
+            "[@MAIN]\n\
+             #ACT\n\
+             ACCEPTQUEST 155\n\
+             FINISHQUEST 155\n\
+             ABANDONQUEST 154\n",
+        );
+        let actions = &npc.section("main").unwrap().segments[0].actions;
+        assert_eq!(actions[0].kind, NpcActionKind::AcceptQuest);
+        assert_eq!(actions[0].params, vec!["155"]);
+        assert_eq!(actions[1].kind, NpcActionKind::FinishQuest);
+        assert_eq!(actions[2].kind, NpcActionKind::AbandonQuest);
     }
 
     #[test]

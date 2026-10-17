@@ -43,6 +43,7 @@ pub mod monster;
 pub mod npc;
 pub mod npc_script;
 pub mod quest;
+pub mod quest_script;
 pub mod reader;
 pub mod report;
 pub mod respawn;
@@ -72,6 +73,10 @@ pub use npc_script::{
     NpcScriptError, NpcSegment,
 };
 pub use quest::QuestInfo;
+pub use quest_script::{
+    MAX_FLAG_TASK_NUMBER, QuestFlagTask, QuestItemTask, QuestKillTask, QuestRewardLine,
+    QuestScript, QuestScriptError,
+};
 pub use reader::{DbReader, DbWriter};
 pub use report::{SAMPLE_ROWS, render_report};
 pub use respawn::{GtMap, RespawnTickOption, RespawnTimer};

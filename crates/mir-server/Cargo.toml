@@ -12,6 +12,7 @@ authors.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 mir-core.workspace = true
+mir-db.workspace = true
 mir-protocol.workspace = true
 mir-store.workspace = true
 mir-world.workspace = true

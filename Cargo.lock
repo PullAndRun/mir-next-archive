@@ -812,6 +812,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "mir-core",
+ "mir-db",
  "mir-protocol",
  "mir-store",
  "mir-world",

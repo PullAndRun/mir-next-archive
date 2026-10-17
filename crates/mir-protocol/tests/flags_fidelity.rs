@@ -24,7 +24,12 @@ fn required_class_keeps_bit_combinations() {
     // 任何位组合都能原样往返（C# 侧就是这么用的）。
     let decoded = RequiredClass::from_value(7).expect("位掩码任何取值都合法");
     assert_eq!(decoded, combo);
-    assert_eq!(RequiredClass::from_value(255).expect("未知位也不丢").value(), 255);
+    assert_eq!(
+        RequiredClass::from_value(255)
+            .expect("未知位也不丢")
+            .value(),
+        255
+    );
 }
 
 #[test]
@@ -37,7 +42,10 @@ fn guild_rank_options_leader_is_255() {
     }
     // 普通职位按位或出来（`GuildObject.cs:370` 的 `Options |= 1 << Option`）。
     let officer = GuildRankOptions::CanRecruit | GuildRankOptions::CanKick;
-    assert_eq!(officer.value(), GuildRankOptions::CanRecruit.value() | GuildRankOptions::CanKick.value());
+    assert_eq!(
+        officer.value(),
+        GuildRankOptions::CanRecruit.value() | GuildRankOptions::CanKick.value()
+    );
     assert!(officer.contains(GuildRankOptions::CanRecruit));
     assert!(!officer.contains(GuildRankOptions::CanChangeRank));
 }
@@ -74,11 +82,7 @@ fn guild_status_packet_preserves_leader_permissions() {
     };
 
     let frame = ServerPacket::GuildStatus(packet.clone()).encode_frame();
-    let decoded = ServerPacket::decode(
-        GuildStatus::INDEX,
-        &frame[4..],
-    )
-    .expect("解码 GuildStatus");
+    let decoded = ServerPacket::decode(GuildStatus::INDEX, &frame[4..]).expect("解码 GuildStatus");
     let ServerPacket::GuildStatus(decoded) = decoded else {
         panic!("包编号不对");
     };

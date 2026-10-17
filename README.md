@@ -10,10 +10,11 @@
 
 传奇-Next（仓库名 `mir-next`）是《热血传奇 2》的开源重制项目。项目以 LOMCN 社区维护的开源实现 [Crystal](https://github.com/Suprcode/Crystal)（C#）作为玩法与协议的参照系，用 Rust 从零实现服务端、客户端与工具链，目标是在保留原作玩法体验的前提下，获得更好的性能、可维护性与跨平台部署能力。
 
-> **当前阶段：可跑的协议与服务端骨架。** 已经做到：Crystal 的 **432 个数据包全部覆盖**（408 个由 C# 源码自动生成、24 个手写），
+> **当前阶段：可以打怪的服务端。** 已经做到：Crystal 的 **432 个数据包全部覆盖**（408 个由 C# 源码自动生成、24 个手写），
 > 服务端能完成「连接 → 版本校验 → 注册/登录 → 建角/删角 → 进入世界 → 转身/走跑/聊天 → 退出」整条链路，
-> 行走走的是**真实 `.map` 地形**（Crystal 的 9 种地图版本全部支持），账号与角色可存 PostgreSQL。
-> 战斗、NPC、任务、行会等玩法尚未实现，客户端只有骨架。
+> 行走走的是**真实 `.map` 地形**（Crystal 的 9 种地图版本全部支持），账号与角色可存 PostgreSQL，
+> 世界里的怪物来自 **Crystal 自己的 `Server.MirDB` 数据库**（真实怪物属性 + 358 个刷怪点），
+> 已经能索敌、追击、出手、掉血、死亡并广播全套战斗包。NPC、任务、行会等玩法尚未实现，客户端只有骨架。
 
 ## 项目目标
 
@@ -31,13 +32,15 @@
 | Cargo workspace 与 CI | ✅ | `cargo fmt` / `clippy` / `test` + 协议生成一致性检查 |
 | 协议层（`mir-protocol`） | ✅ | **432/432 个包全覆盖**：408 个由 C# 源码自动生成 + 24 个手写；每个包都有 encode→decode 往返测试 |
 | 登录网关与会话（`mir-server`） | ✅ | 版本校验、注册、登录、建角/删角、进世界、聊天、语言切换 |
-| 地图与行走（`mir-world` / `mir-server`） | 🟡 | `.map` 9 种版本读取 + 可走性校验；动作计时按 Crystal（走/跑 600ms、转身 350ms、跑需先走一步）、`UserLocation`/`ObjectWalk`/`ObjectRun` 广播、世界 tick 100ms；视野增量、怪物、门状态机未做 |
+| 地图与行走（`mir-world` / `mir-server`） | 🟡 | `.map` 9 种版本读取 + 可走性校验；动作计时按 Crystal（走/跑 600ms、转身 350ms、跑需先走一步）、`UserLocation`/`ObjectWalk`/`ObjectRun` 广播、世界 tick 100ms；门状态机与 AOI 半径仍未完全对齐 |
 | 账号与角色存档（`mir-store`） | ✅ | PostgreSQL + 迁移；内存实现用于无库试玩 |
-| 战斗、怪物 AI、技能与状态效果 | ⏳ | |
-| 物品、NPC 商店、修理与掉落 | ⏳ | 物品线格式（`UserItem`）已实现 |
+| 游戏数据（`mir-db`） | ✅ | Crystal `Server.MirDB` 全量读取（地图/物品/怪物/NPC/任务/技能/商城/攻城/刷怪点），版本 60..117，6 个真实样本 leftover=0 |
+| 怪物 AI 与战斗 | ✅ | 索敌/追击/巡逻、两段式攻击（动作包立即、伤害 300ms 后结算）、护甲与闪避、暴击、死亡与尸体回收，RNG 顺序与 Crystal 一致；技能、PK、掉落、经验未做 |
+| 物品、NPC 商店、修理与掉落 | ⏳ | 物品线格式（`UserItem`）与物品数据库读取已实现 |
 | 行会、任务、组队与攻城 | ⏳ | |
 | Rust 客户端（渲染与 UI） | ⏳ | 只有骨架 |
-| 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计；素材库编辑器未做 |
+| 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计、MirDB 报告；素材库编辑器未做 |
+| 素材索引（`mir2_dev`） | ✅ | `tools/asset-index/` 把 `resource/` 的 233 万文件登记进 PostgreSQL，按名字/扩展名/仓库查询 |
 
 ### 协议自动生成
 
@@ -59,17 +62,46 @@ mir-next/
 │  ├─ mir-core/       基础类型：坐标、方向、枚举（生成）、时间、随机数、多语言
 │  ├─ mir-protocol/   包定义（生成）与编解码、帧格式、gzip、线格式数据类
 │  ├─ mir-world/      .map 读取与可走性（9 种版本）
+│  ├─ mir-db/         Crystal `Server.MirDB` 读取器（怪物/物品/NPC/刷怪点/技能…）
 │  ├─ mir-store/      PostgreSQL 持久化：账号与角色（Crystal 口令算法）
-│  ├─ mir-server/     网关、会话状态机、世界与广播
+│  ├─ mir-server/     网关、会话状态机、世界、战斗与怪物 AI
 │  ├─ mir-client/     客户端骨架（渲染与界面待实现）
-│  └─ mir-tools/      工具链入口（地图检查、协议统计）
+│  └─ mir-tools/      工具链入口（地图检查、协议统计、MirDB 报告）
 ├─ tools/protocol-gen/ 从 Crystal C# 源码生成 Rust 协议代码
+├─ tools/asset-index/  把 resource/ 登记进 mir2_dev 索引库，并按需查询
 ├─ config/lang/       语言包（默认 zh-cn，另有 en；运行时加载，覆盖内置文本）
-├─ docs/              协议、存档、地图与世界、多语言的实现契约
+├─ docs/              协议、存档、地图与世界、战斗、素材索引的实现契约
 ├─ resource/          素材目录（不提交到版本库）
 ├─ Cargo.toml         workspace 清单
 └─ LICENSE            GPL-3.0-or-later
 ```
+
+### 游戏数据与素材
+
+怪物、物品、NPC、刷怪点都来自 Crystal 自己的数据库文件 `Server.MirDB`（二进制格式，
+读取实现见 `crates/mir-db`，格式文档见 [`docs/store/mirdb-format.md`](docs/store/mirdb-format.md)）。
+
+服务端启动时会按顺序找：
+
+1. `MIR2_DB_PATH` 指定的文件；
+2. `crates/mir-server/src/gamedata.rs` 里的候选路径（索引里挑的 3 个真实样本，含 v105/v88/v83）。
+
+找到就用真实刷怪点铺满世界（比奇省 358 个刷怪点 / 2252 只怪），找不到就只刷演示怪，
+服务器照常可跑。`MIR2_LOAD_GAME_DATA=0` 可以强制关掉数据库刷怪（测试用）。
+
+素材（地图、客户端资源包、音效、社区仓库归档）统一放在 `resource/`，并由 PostgreSQL
+数据库 `mir2_dev` 建立索引：
+
+```bash
+# 建立/更新索引（幂等；230 万文件几分钟跑完）
+python tools/asset-index/index_resources.py
+
+# 查素材：先查索引，再按路径去 resource/ 取
+python tools/asset-index/find_asset.py --name Server.MirDB
+python tools/asset-index/find_asset.py --ext .wzl --top data --limit 20
+```
+
+细节见 [`docs/assets/index.md`](docs/assets/index.md)。
 
 ## 多语言
 
@@ -121,6 +153,9 @@ DATABASE_URL=postgres://user:pass@host:5432/mir2 cargo run -p mir-server
 # 检查一张地图
 cargo run -p mir-tools -- map-info resource/map/0.map
 
+# 看一眼游戏数据库里都有什么（怪物/物品/NPC/刷怪点数量 + 抽样记录）
+cargo run -p mir-tools -- mirdb-report --path resource/community/suprcode-crystal-database/cjlaaa/Server.MirDB
+
 # 从 Crystal 源码重新生成协议代码（需要 Crystal 检出）
 python tools/protocol-gen/generate.py --crystal /path/to/Crystal
 ```
@@ -149,6 +184,8 @@ python tools/protocol-gen/generate.py --crystal /path/to/Crystal
 | [`docs/world/map-format.md`](docs/world/map-format.md) | `.map` 各版本格式与真实文件实测 |
 | [`docs/world/movement.md`](docs/world/movement.md) | 走/跑/转身的判定与计时 |
 | [`docs/world/tick-loop.md`](docs/world/tick-loop.md) | 世界循环与计时模型 |
+| [`docs/world/combat.md`](docs/world/combat.md) | 战斗公式、RNG 顺序、怪物 AI 与相关数据包 |
+| [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |
 | [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文与游戏内切换 |
 
 ## 开发约定

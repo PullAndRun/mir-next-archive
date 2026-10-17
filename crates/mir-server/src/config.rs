@@ -37,6 +37,17 @@ pub struct ServerConfig {
     pub map_root: String,
     /// 语言包目录（`*.json`）；目录不存在时使用编译期内置语言包。
     pub language_dir: String,
+    /// 是否在出生点附近刷一批**演示怪物**（占位数值，见 `monster::MonsterKind`）。
+    ///
+    /// Crystal 的刷怪完全由数据库的 `RespawnInfo` 驱动；接入 `Server.MirDB` 之后，
+    /// 真实刷怪由 [`Self::db_path`] 提供，这个开关只用于「没有数据库时也能看到战斗」。
+    pub demo_monsters: bool,
+    /// `Server.MirDB` 路径。`None` 时按 `gamedata::DB_CANDIDATES` 依次查找索引里的样本。
+    pub db_path: Option<String>,
+    /// 是否从 `Server.MirDB` 读怪物/刷怪点填充世界。
+    ///
+    /// 测试里关掉它，世界就只包含测试自己放的怪物，断言才不会被真实数据打乱。
+    pub load_game_data: bool,
 }
 
 impl Default for ServerConfig {
@@ -60,6 +71,12 @@ impl Default for ServerConfig {
             start_point: (330, 270),
             map_root: "resource/map".to_owned(),
             language_dir: "config/lang".to_owned(),
+            demo_monsters: false,
+            db_path: std::env::var("MIR2_DB_PATH").ok(),
+            load_game_data: !matches!(
+                std::env::var("MIR2_LOAD_GAME_DATA").ok().as_deref(),
+                Some("0" | "false" | "no")
+            ),
         }
     }
 }
@@ -85,6 +102,9 @@ impl ServerConfig {
         }
         if let Ok(value) = std::env::var("MIR2_START_MAP") {
             config.start_map = value;
+        }
+        if let Ok(value) = std::env::var("MIR2_DEMO_MONSTERS") {
+            config.demo_monsters = matches!(value.as_str(), "1" | "true" | "yes");
         }
         config
     }

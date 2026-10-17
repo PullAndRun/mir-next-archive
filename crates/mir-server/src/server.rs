@@ -104,7 +104,7 @@ fn build_language_library(config: &ServerConfig) -> LanguageLibrary {
 /// 起世界：能读到 `{map_root}/{start_map}.map` 就用真实地形，否则退化成无边界的测试网格。
 fn build_world(config: &ServerConfig) -> World {
     let path = std::path::Path::new(&config.map_root).join(format!("{}.map", config.start_map));
-    match mir_world::Map::load(&path) {
+    let mut world = match mir_world::Map::load(&path) {
         Ok(map) => {
             tracing::info!(
                 map = %path.display(),
@@ -122,6 +122,88 @@ fn build_world(config: &ServerConfig) -> World {
             );
             World::default()
         }
+    };
+    if config.demo_monsters {
+        spawn_demo_monsters(&mut world, config);
+    }
+    spawn_from_database(&mut world, config);
+    world
+}
+
+/// 用 `Server.MirDB` 的刷怪点填充世界（Crystal 的 `MapRespawn` 数据来源）。
+///
+/// 优先级：`config.db_path`（或 `MIR2_DB_PATH`）→ 索引里的候选路径。找不到数据库时
+/// 只保留 [`spawn_demo_monsters`] 的演示怪，服务器照常可跑。
+fn spawn_from_database(world: &mut World, config: &ServerConfig) {
+    if !config.load_game_data {
+        return;
+    }
+    let Some(data) = load_game_data(config) else {
+        return;
+    };
+    let groups = data.spawn_groups(&config.start_map);
+    if groups.is_empty() {
+        tracing::warn!(
+            map = %config.start_map,
+            path = %data.path().display(),
+            "数据库里这张地图没有刷怪点（或怪物模板缺失）"
+        );
+        return;
+    }
+    let group_count = groups.len();
+    let mut spawned = 0;
+    for group in &groups {
+        spawned += world.spawn_group(group).len();
+    }
+    tracing::info!(
+        path = %data.path().display(),
+        monsters = data.monster_count(),
+        map = %config.start_map,
+        groups = group_count,
+        spawned,
+        "已按数据库刷怪点刷新"
+    );
+}
+
+fn load_game_data(config: &ServerConfig) -> Option<crate::gamedata::GameData> {
+    if let Some(path) = &config.db_path {
+        match crate::gamedata::GameData::load(path) {
+            Ok(data) => return Some(data),
+            Err(error) => {
+                tracing::warn!(path, %error, "MIR2_DB_PATH 指定的数据库读取失败");
+                return None;
+            }
+        }
+    }
+    match crate::gamedata::GameData::discover() {
+        Ok(data) => Some(data),
+        Err(error) => {
+            tracing::info!(%error, "没有可用的 Server.MirDB，跳过数据库刷怪");
+            None
+        }
+    }
+}
+
+/// 演示用刷怪：在出生点附近撒几只示例怪物。
+///
+/// 简化：Crystal 的刷怪节奏由 `MapRespawn`/`RespawnTimer` 驱动（见 `docs/world/tick-loop.md`
+/// §6），数据来自数据库；`mir-db` 接入前用这个开关让「刷怪 → 索敌 → 追 → 打 → 死」在真实
+/// 服务器上能看到。怪物数值是**占位值**（[`MonsterKind::scarecrow`] / [`MonsterKind::skeleton`]）。
+fn spawn_demo_monsters(world: &mut World, config: &ServerConfig) {
+    let center = mir_core::Point::new(config.start_point.0, config.start_point.1);
+    let groups = [
+        (crate::monster::MonsterKind::scarecrow(), 4, 6),
+        (crate::monster::MonsterKind::skeleton(), 2, 9),
+    ];
+    for (kind, count, spread) in groups {
+        let spawned = world.spawn_group(&crate::world::SpawnGroup {
+            map: config.start_map.clone(),
+            kind,
+            center,
+            count,
+            spread,
+        });
+        tracing::info!(count = spawned.len(), "演示怪物已刷新");
     }
 }
 

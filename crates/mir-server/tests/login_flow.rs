@@ -62,6 +62,8 @@ fn test_config() -> Arc<ServerConfig> {
     Arc::new(ServerConfig {
         // 测试不依赖 resource/ 下的真实地图，走无地形的兜底世界。
         map_root: "resource/不存在的目录".to_owned(),
+        // 也不读真实数据库：这样断言只面对测试自己造出来的包。
+        load_game_data: false,
         ..ServerConfig::default()
     })
 }

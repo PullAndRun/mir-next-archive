@@ -138,6 +138,7 @@ impl<S: AccountStore> Session<S> {
             ClientPacket::Turn(packet) => self.on_turn(packet.direction).await,
             ClientPacket::Walk(packet) => self.on_move(packet.direction, false).await,
             ClientPacket::Run(packet) => self.on_move(packet.direction, true).await,
+            ClientPacket::Attack(packet) => self.on_attack(packet.direction).await,
             ClientPacket::Chat(packet) => self.on_chat(&packet.message).await,
             ClientPacket::Disconnect(_) => {
                 self.leave_world().await;
@@ -418,12 +419,18 @@ impl<S: AccountStore> Session<S> {
             hair: character.hair,
             hp: character.hp,
             mp: character.mp,
+            // 战斗属性按等级/职业推出基础值（Crystal `BaseStats` 表），装备接入后再刷新。
+            stats: crate::combat::player_base_stats(character.level, character.class),
             // 动作计时由 `World::enter` 按服务器时钟初始化。
             action_time: 0,
+            attack_time: 0,
+            struck_time: 0,
             cell_time: 0,
             step_counter: 0,
             run_counter: 0,
             run_time: 0,
+            dead: false,
+            visible_monsters: std::collections::BTreeSet::new(),
             sender: self.out.clone(),
         });
         drop(world);
@@ -541,6 +548,44 @@ impl<S: AccountStore> Session<S> {
         }
     }
 
+    /// 物理攻击（`C.Attack`，Crystal `ClientPackets.Attack`）。
+    ///
+    /// Crystal 的连接层会在 `ActionTime > now || AttackTime > now` 时把包放进 `_retryList`
+    /// 下个周期重试（`Server/MirNetwork/MirConnection.cs:1454-1480`）；
+    /// 这里沿用与移动相同的「等到 deadline 再重试一次」策略。
+    async fn on_attack(&mut self, direction: MirDirection) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        for attempt in 0..2 {
+            let busy_until = {
+                let mut world = self.world.lock().await;
+                match world.attack(object_id, direction) {
+                    Ok(report) => {
+                        if let Some(report) = report {
+                            tracing::debug!(
+                                session = self.id,
+                                target = report.target,
+                                damage = report.damage,
+                                "发起攻击"
+                            );
+                        }
+                        return;
+                    }
+                    Err(crate::world::CombatError::Busy { until }) => until,
+                    Err(error) => {
+                        tracing::debug!(session = self.id, %error, "攻击被拒绝");
+                        return;
+                    }
+                }
+            };
+            if attempt == 0 && self.wait_until(busy_until).await {
+                continue;
+            }
+            return;
+        }
+    }
+
     /// 如果是因为「动作还没结束」被拒，等到 `ActionTime` 之后再试一次。
     ///
     /// 返回 `true` 表示值得重试。等待时长有上限，避免异常状态把连接卡死。
@@ -548,6 +593,11 @@ impl<S: AccountStore> Session<S> {
         let crate::world::MoveError::Busy { until } = *error else {
             return false;
         };
+        self.wait_until(until).await
+    }
+
+    /// 睡到服务器时钟的 `until`（最多 1 秒），返回是否值得重试。
+    async fn wait_until(&self, until: i64) -> bool {
         let now = {
             let world = self.world.lock().await;
             world.now()

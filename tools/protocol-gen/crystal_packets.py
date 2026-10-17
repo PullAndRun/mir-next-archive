@@ -1,4 +1,4 @@
-﻿"""Parse C# packet classes (Crystal `Shared/ClientPackets.cs` / `ServerPackets.cs`)
+"""Parse C# packet classes (Crystal `Shared/ClientPackets.cs` / `ServerPackets.cs`)
 and emit Rust equivalents.
 
 The parser understands the small statement vocabulary Crystal actually uses in
@@ -94,7 +94,13 @@ class PacketParseError(RuntimeError):
     pass
 
 
-_CLASS_HEADER = re.compile(r"public\s+(?:sealed\s+)?class\s+(?P<name>\w+)\s*:\s*Packet\s*\{")
+# 包类一般直接继承 `Packet`，但 Crystal 里也有继承另一个包类的：
+# `ObjectHero : ObjectPlayer`、`HeroInformation : UserInformation` 都**覆盖**了
+# Read/WritePacket（而不是复用基类实现），所以同样要当成独立的包处理。
+_PACKET_BASES = {"Packet", "ObjectPlayer", "UserInformation"}
+_CLASS_HEADER = re.compile(
+    r"public\s+(?:sealed\s+)?class\s+(?P<name>\w+)\s*:\s*(?P<base>\w+)\s*\{"
+)
 
 
 def _find_matching_brace(text: str, open_index: int) -> int:
@@ -128,63 +134,70 @@ def _read_balanced(text: str, open_index: int) -> int:
 _CONTROL = re.compile(r"(for|foreach|while|if|else|switch|do|try|using|lock)\b")
 
 
+def _parse_one_unit(text: str, start: int, stop: int) -> tuple[str, int]:
+    """Parse exactly ONE statement (optionally with a control-flow header).
+
+    Returns `(unit_text, next_index)`. This is deliberately separate from
+    `iter_units`: a control-flow header governs **one** statement, and an earlier
+    version of this parser recursively consumed the whole rest of the body, which
+    silently dropped every statement after the first `if (...)`.
+    """
+    i = start
+    while i < stop and text[i].isspace():
+        i += 1
+    if i >= stop:
+        return "", stop
+    unit_start = i
+    control = _CONTROL.match(text, i)
+    if control:
+        keyword = control.group(1)
+        i = control.end()
+        while i < stop and text[i].isspace():
+            i += 1
+        if keyword != "else" and i < stop and text[i] == "(":
+            i = _read_balanced(text, i)
+        while i < stop and text[i].isspace():
+            i += 1
+        if i < stop and text[i] == "{":
+            close = _read_balanced(text, i)
+            return text[unit_start:close], close
+        governed, next_index = _parse_one_unit(text, i, stop)
+        return f"{text[unit_start:i]} {governed}".strip(), next_index
+    if text[i] == "{":
+        close = _read_balanced(text, i)
+        return text[unit_start:close], close
+    depth = 0
+    while i < stop:
+        ch = text[i]
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        elif ch == ";" and depth == 0:
+            i += 1
+            break
+        i += 1
+    return text[unit_start:i].strip(), i
+
+
 def iter_units(body: str, start: int = 0, end: int | None = None) -> tuple[list[str], int]:
     """Split a method body into logical units.
 
     A unit is either a simple statement (`...;`) or a control-flow header
-    together with the unit it governs.  Returns `(units, consumed_length)`.
+    together with the single statement it governs.
+    Returns `(units, consumed_length)`.
     """
     text = " ".join(line.strip() for line in body.splitlines() if line.strip())
     stop = len(text) if end is None else end
     units: list[str] = []
     i = start
     while i < stop:
-        if text[i].isspace():
+        if text[i].isspace() or text[i] in ";{}":
             i += 1
             continue
-        if text[i] == "{":
-            i = _read_balanced(text, i)
-            continue
-        if text[i] == ";":
-            i += 1
-            continue
-        unit_start = i
-        control = _CONTROL.match(text, i)
-        if control:
-            keyword = control.group(1)
-            i = control.end()
-            while i < stop and text[i].isspace():
-                i += 1
-            if keyword == "else":
-                sub_units, sub_end = iter_units(text, i, stop)
-                units.append(text[unit_start:i] + " " + (sub_units[0] if sub_units else ""))
-                i = sub_end
-                continue
-            if i < stop and text[i] == "(":
-                i = _read_balanced(text, i)
-            while i < stop and text[i].isspace():
-                i += 1
-            if i < stop and text[i] == "{":
-                close = _read_balanced(text, i)
-                units.append(text[unit_start:close])
-                i = close
-            else:
-                sub_units, sub_end = iter_units(text, i, stop)
-                units.append(text[unit_start:i] + " " + (sub_units[0] if sub_units else ""))
-                i = sub_end
-            continue
-        depth = 0
-        while i < stop:
-            ch = text[i]
-            if ch in "([":
-                depth += 1
-            elif ch in ")]":
-                depth -= 1
-            elif ch == ";" and depth == 0:
-                i += 1
-                break
-            i += 1
-        units.append(text[unit_start:i].strip())
+        unit, i = _parse_one_unit(text, i, stop)
+        if unit:
+            units.append(unit)
     return units, i
 
 
@@ -385,6 +398,8 @@ def parse_packet_file(path: Path, direction: str, index_map: dict[str, int]) -> 
     text = strip_comments(path.read_text(encoding="utf-8"))
     packets: list[PacketDef] = []
     for match in _CLASS_HEADER.finditer(text):
+        if match.group("base") not in _PACKET_BASES:
+            continue
         name = match.group("name")
         open_index = text.index("{", match.end() - 1)
         close_index = _find_matching_brace(text, open_index)

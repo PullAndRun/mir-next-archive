@@ -54,6 +54,8 @@ class Ctx:
     fields: dict[str, FieldDecl]
     out: str = "out"
     locals: dict[str, str] = field(default_factory=dict)
+    # 曾经当作集合长度用的局部变量（Crystal 里会 `count = reader.ReadInt32();` 复用）。
+    count_vars: set[str] = field(default_factory=set)
 
     def field_type(self, name: str) -> RustType:
         decl = self.fields.get(name)
@@ -219,10 +221,17 @@ _ARRAY_ALLOC = re.compile(r"^(?P<target>\w+)\s*=\s*new\s+(?P<type>\w+)\[reader\.
 _FIXED_ALLOC = re.compile(r"^(?P<target>\w+)\s*=\s*new\s+(?P<type>\w+)\[(?P<len>\d+)\]$")
 _LIST_ALLOC = re.compile(r"^(?P<target>\w+)\s*=\s*new\s+List<(?P<type>\w+)>\(\)$")
 _COUNT_LOCAL = re.compile(r"^(?:int|var)\s+(?P<var>\w+)\s*=\s*reader\.ReadInt32\(\)$")
+_COUNT_REASSIGN = re.compile(r"^(?P<var>\w+)\s*=\s*reader\.ReadInt32\(\)$")
 _LOCAL_DECL = re.compile(r"^(?P<type>\w+)\s+(?P<var>\w+)\s*=\s*(?P<value>.+)$")
 _OPTIONAL_IF = re.compile(
-    r"^if\s*\(\s*(?P<neg>!?)\s*reader\.ReadBoolean\(\)\s*\)\s*(?P<body>.+)$"
+    r"^if\s*\(\s*(?P<neg>!?)\s*reader\.ReadBoolean\(\)\s*(?:==\s*true\s*)?\)\s*(?P<body>.+)$"
 )
+# `if (reader.ReadBoolean()) { ... }`：整块可选载荷（数组等）。
+_OPTIONAL_BLOCK = re.compile(
+    r"^if\s*\(\s*!?\s*reader\.ReadBoolean\(\)\s*\)\s*\{(?P<body>.*)\}$"
+)
+# `X = new T[count];`：长度来自之前读出的局部计数变量。
+_COUNT_ALLOC = re.compile(r"^(?P<target>\w+)\s*=\s*new\s+(?P<type>\w+)\[(?P<len>\w+)\]$")
 _ASSIGN = re.compile(r"^(?P<target>\w+)\s*=\s*(?P<value>.+)$")
 _CONTINUE = re.compile(r"^if\s*\(\s*(?P<neg>!?)\s*reader\.ReadBoolean\(\)\s*\)\s*continue$")
 _INDEX_ASSIGN = re.compile(r"^(?P<target>\w+)\s*\[\s*\w+\s*\]\s*=\s*(?P<value>.+)$")
@@ -238,17 +247,32 @@ def translate_read(units: list[str], ctx: Ctx) -> Translation:
             continue
 
         count_match = _COUNT_LOCAL.match(unit)
-        if count_match and index + 1 < len(units):
+        if count_match is None:
+            # `count = reader.ReadInt32();`：复用上面已经当作长度用过的局部变量。
+            reassigned = _COUNT_REASSIGN.match(unit)
+            if reassigned is not None and reassigned.group("var") in ctx.count_vars:
+                count_match = reassigned
+        if count_match is not None and index + 1 < len(units):
             # `int count = reader.ReadInt32();` optionally followed by a fresh
-            # allocation, then the fill loop.
+            # allocation, then the fill loop (either `Xs.Add(...)` or `Xs[i] = ...`).
+            count_var = count_match.group("var")
+            ctx.count_vars.add(count_var)
             offset = 1
             skipped_alloc = strip_semicolon(units[index + 1])
-            if _LIST_ALLOC.match(skipped_alloc) or _ARRAY_ALLOC.match(skipped_alloc):
+            alloc_target = None
+            alloc_match = (
+                _COUNT_ALLOC.match(skipped_alloc)
+                or _ARRAY_ALLOC.match(skipped_alloc)
+                or _FIXED_ALLOC.match(skipped_alloc)
+                or _LIST_ALLOC.match(skipped_alloc)
+            )
+            if alloc_match is not None:
                 offset = 2
+                alloc_target = alloc_match.group("target")
             if index + offset < len(units):
                 loop_unit = strip_semicolon(units[index + offset])
                 add_match = _LIST_ADD.match(loop_unit)
-                if add_match and add_match.group("limit") == count_match.group("var"):
+                if add_match and add_match.group("limit") == count_var:
                     target = add_match.group("list")
                     if "." in target:
                         raise TranslationError(f"nested list target {target!r}")
@@ -263,6 +287,31 @@ def translate_read(units: list[str], ctx: Ctx) -> Translation:
                     translation.decoded_fields.append(target)
                     index += offset + 1
                     continue
+                # `X = new T[count]; for (…) { if (reader.ReadBoolean()) X[i] = … }`
+                header = _FOR_HEADER.match(loop_unit)
+                if header is not None and alloc_target is not None:
+                    target = alloc_target
+                    rt = ctx.field_type(target)
+                    if rt.kind == "array" and header.group("limit") == count_var:
+                        element = _element_type(rt, ctx.registry)
+                        fill_lines, optional, elem_sig = _array_fill_lines(
+                            header.group("limit"),
+                            target,
+                            _loop_body_units(header.group("body")),
+                            element,
+                            ctx,
+                        )
+                        translation.lines.append("let count = r.read_count()?;")
+                        translation.lines.extend(fill_lines)
+                        if optional:
+                            translation.signature.extend(
+                                ["count", "flag", f"optional:{elem_sig}", "list"]
+                            )
+                        else:
+                            translation.signature.extend(["count", elem_sig, "list"])
+                        translation.decoded_fields.append(target)
+                        index += offset + 1
+                        continue
 
         array_match = _ARRAY_ALLOC.match(unit) or _FIXED_ALLOC.match(unit)
         if array_match:
@@ -322,6 +371,19 @@ def translate_read(units: list[str], ctx: Ctx) -> Translation:
             translation.signature.extend(["count", *sig, "list"])
             translation.decoded_fields.append(target)
             index += offset + 1
+            continue
+
+        # `if (reader.ReadBoolean()) { ...整块可选载荷... }`（例如 ManageHeroes 的 Heroes 数组）。
+        optional_block = _OPTIONAL_BLOCK.match(unit)
+        if optional_block is not None:
+            inner_units, _ = iter_units(optional_block.group("body"))
+            inner = translate_read(inner_units, ctx)
+            translation.lines.append("if r.read_bool()? {")
+            translation.lines.extend(f"    {line}" for line in inner.lines)
+            translation.lines.append("}")
+            translation.signature.extend(["flag", *inner.signature])
+            translation.decoded_fields.extend(inner.decoded_fields)
+            index += 1
             continue
 
         optional_match = _OPTIONAL_IF.match(unit)
@@ -520,8 +582,17 @@ def translate_write(units: list[str], ctx: Ctx) -> Translation:
                 if "." in target:
                     raise TranslationError(f"nested optional {target!r}")
                 rt = ctx.field_type(target)
+                if rt.kind == "array":
+                    # `writer.Write(Xs != null); if (Xs != null) { Write(Length); for … }`
+                    consume = _optional_array_write_lines(translation, target, rt, units[index + 1 :], ctx)
+                    translation.signature.extend(["flag", "count", *consume[1], "list"])
+                    index += 1 + consume[0]
+                    continue
                 if rt.kind != "struct":
                     raise TranslationError(f"optional write of non-struct {rt.cs}")
+                # `writer.Write(X != null)` 是「存在标志」本身，必须写出来；
+                # 只写 `if let Some` 会少一个字节（曾经真的漏过）。
+                translation.lines.append(f"w.write_bool({ctx.field_rust(target)}.is_some());")
                 consume = _optional_write_lines(translation, target, units[index + 1 : index + 2], ctx)
                 translation.signature.extend(["flag", f"optional:struct:{rt.rust}"])
                 index += 1 + consume
@@ -585,7 +656,14 @@ def _collection_write_lines(
 
     first = body_units[0]
     nullable_write = re.fullmatch(r"writer\.Write\(\s*(?P<name>\w+)\s*!=\s*null\s*\)", first)
-    if nullable_write and nullable_write.group("name") == alias:
+    if nullable_write is None:
+        # 元素直接按下标访问的写法：`writer.Write(Xs[i] != null)`。
+        nullable_write = re.fullmatch(
+            r"writer\.Write\(\s*(?P<name>" + re.escape(target) + r")\s*\[[^\]]+\]\s*!=\s*null\s*\)",
+            first,
+        )
+    if nullable_write:
+        # 匹配到的是 `alias != null`（局部别名）或 `Xs[i] != null`（按下标访问），两者等价。
         lines = [
             f"for value in &{field_ref} {{",
             "    w.write_bool(value.is_some());",
@@ -626,6 +704,41 @@ def _collection_write_lines(
             )
         raise TranslationError(f"unsupported element write argument: {arg!r}")
     raise TranslationError(f"unsupported collection body: {first[:120]}")
+
+
+def _optional_array_write_lines(
+    translation: Translation, target: str, rt: RustType, rest: list[str], ctx: Ctx
+) -> tuple[int, list[str]]:
+    """`writer.Write(Xs != null); if (Xs != null) { Write(Length); for … }`。
+
+    返回 `(消耗的单元数, 元素签名)`。Crystal 用 `null` 表示「本次不下发这个数组」，
+    而 Rust 的 `Vec` 没有 null；约定空数组即等价于 null（Crystal 侧不会发空的非 null 数组
+    给这些包），这样 `Default` 也能稳定往返。
+    """
+    field_ref = ctx.field_rust(target)
+    if not rest:
+        raise TranslationError(f"optional array {target!r} without guarded block")
+    first = strip_semicolon(rest[0])
+    guard = _IF_STMT.match(first)
+    if guard is None or not re.fullmatch(r"[\w\.]+\s*!=\s*null", guard.group("cond").strip()):
+        raise TranslationError(f"unsupported optional array guard: {first[:100]}")
+    body = guard.group("body")
+    body_units = split_blocks(body) if body.strip().startswith("{") else [body]
+    # body_units = [`writer.Write(Xs.Length);`, `for (…) { … }`]
+    loop_unit = None
+    for unit in body_units:
+        if strip_semicolon(unit).startswith("for"):
+            loop_unit = strip_semicolon(unit)
+            break
+    if loop_unit is None:
+        raise TranslationError(f"optional array {target!r} has no fill loop")
+    inner_lines, elem_sig = _collection_write_lines(loop_unit, target, rt, ctx)
+    translation.lines.append(f"w.write_bool(!{field_ref}.is_empty());")
+    translation.lines.append(f"if !{field_ref}.is_empty() {{")
+    translation.lines.append(f"    w.write_count({field_ref}.len());")
+    translation.lines.extend(f"    {line}" for line in inner_lines)
+    translation.lines.append("}")
+    return 1, elem_sig
 
 
 def _optional_write_lines(translation: Translation, target: str, rest: list[str], ctx: Ctx) -> int:

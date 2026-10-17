@@ -2381,6 +2381,8 @@ impl PurchaseGuildTerritory {
     }
 }
 
+pub use crate::manual::client::MarketSearch;
+
 /// Crystal `ClientPackets.MarketRefresh` (index 72).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct MarketRefresh {}
@@ -3204,6 +3206,8 @@ impl ResetAddedItem {
     }
 }
 
+pub use crate::manual::client::SendMail;
+
 /// Crystal `ClientPackets.ReadMail` (index 118).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ReadMail {
@@ -3335,6 +3339,8 @@ impl MailLockedItem {
     }
 }
 
+pub use crate::manual::client::MailCost;
+
 /// Crystal `ClientPackets.RequestIntelligentCreatureUpdates` (index 126).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RequestIntelligentCreatureUpdates {
@@ -3357,6 +3363,40 @@ impl RequestIntelligentCreatureUpdates {
     /// Encode the packet payload (without the header).
     pub fn encode(&self, w: &mut crate::PacketWriter) {
         w.write_bool(self.update);
+    }
+}
+
+/// Crystal `ClientPackets.UpdateIntelligentCreature` (index 124).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UpdateIntelligentCreature {
+    pub creature: ClientIntelligentCreature,
+    pub summon_me: bool,
+    pub un_summon_me: bool,
+    pub release_me: bool,
+}
+
+impl UpdateIntelligentCreature {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 124;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.creature = ClientIntelligentCreature::decode(r)?;
+        out.summon_me = r.read_bool()?;
+        out.un_summon_me = r.read_bool()?;
+        out.release_me = r.read_bool()?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        self.creature.encode(w);
+        w.write_bool(self.summon_me);
+        w.write_bool(self.un_summon_me);
+        w.write_bool(self.release_me);
     }
 }
 
@@ -4012,6 +4052,7 @@ pub enum ClientPacket {
     ConsignItem(ConsignItem),
     GuildTerritoryPage(GuildTerritoryPage),
     PurchaseGuildTerritory(PurchaseGuildTerritory),
+    MarketSearch(MarketSearch),
     MarketRefresh(MarketRefresh),
     MarketPage(MarketPage),
     MarketBuy(MarketBuy),
@@ -4043,12 +4084,15 @@ pub enum ClientPacket {
     DisassembleItem(DisassembleItem),
     DowngradeAwakening(DowngradeAwakening),
     ResetAddedItem(ResetAddedItem),
+    SendMail(SendMail),
     ReadMail(ReadMail),
     CollectParcel(CollectParcel),
     DeleteMail(DeleteMail),
     LockMail(LockMail),
     MailLockedItem(MailLockedItem),
+    MailCost(MailCost),
     RequestIntelligentCreatureUpdates(RequestIntelligentCreatureUpdates),
+    UpdateIntelligentCreature(UpdateIntelligentCreature),
     IntelligentCreaturePickup(IntelligentCreaturePickup),
     AddFriend(AddFriend),
     RemoveFriend(RemoveFriend),
@@ -4168,6 +4212,7 @@ impl ClientPacket {
             Self::ConsignItem(_) => ConsignItem::INDEX,
             Self::GuildTerritoryPage(_) => GuildTerritoryPage::INDEX,
             Self::PurchaseGuildTerritory(_) => PurchaseGuildTerritory::INDEX,
+            Self::MarketSearch(_) => MarketSearch::INDEX,
             Self::MarketRefresh(_) => MarketRefresh::INDEX,
             Self::MarketPage(_) => MarketPage::INDEX,
             Self::MarketBuy(_) => MarketBuy::INDEX,
@@ -4199,12 +4244,15 @@ impl ClientPacket {
             Self::DisassembleItem(_) => DisassembleItem::INDEX,
             Self::DowngradeAwakening(_) => DowngradeAwakening::INDEX,
             Self::ResetAddedItem(_) => ResetAddedItem::INDEX,
+            Self::SendMail(_) => SendMail::INDEX,
             Self::ReadMail(_) => ReadMail::INDEX,
             Self::CollectParcel(_) => CollectParcel::INDEX,
             Self::DeleteMail(_) => DeleteMail::INDEX,
             Self::LockMail(_) => LockMail::INDEX,
             Self::MailLockedItem(_) => MailLockedItem::INDEX,
+            Self::MailCost(_) => MailCost::INDEX,
             Self::RequestIntelligentCreatureUpdates(_) => RequestIntelligentCreatureUpdates::INDEX,
+            Self::UpdateIntelligentCreature(_) => UpdateIntelligentCreature::INDEX,
             Self::IntelligentCreaturePickup(_) => IntelligentCreaturePickup::INDEX,
             Self::AddFriend(_) => AddFriend::INDEX,
             Self::RemoveFriend(_) => RemoveFriend::INDEX,
@@ -4324,6 +4372,7 @@ impl ClientPacket {
             Self::ConsignItem(_) => ConsignItem::COMPRESSED,
             Self::GuildTerritoryPage(_) => GuildTerritoryPage::COMPRESSED,
             Self::PurchaseGuildTerritory(_) => PurchaseGuildTerritory::COMPRESSED,
+            Self::MarketSearch(_) => MarketSearch::COMPRESSED,
             Self::MarketRefresh(_) => MarketRefresh::COMPRESSED,
             Self::MarketPage(_) => MarketPage::COMPRESSED,
             Self::MarketBuy(_) => MarketBuy::COMPRESSED,
@@ -4355,14 +4404,17 @@ impl ClientPacket {
             Self::DisassembleItem(_) => DisassembleItem::COMPRESSED,
             Self::DowngradeAwakening(_) => DowngradeAwakening::COMPRESSED,
             Self::ResetAddedItem(_) => ResetAddedItem::COMPRESSED,
+            Self::SendMail(_) => SendMail::COMPRESSED,
             Self::ReadMail(_) => ReadMail::COMPRESSED,
             Self::CollectParcel(_) => CollectParcel::COMPRESSED,
             Self::DeleteMail(_) => DeleteMail::COMPRESSED,
             Self::LockMail(_) => LockMail::COMPRESSED,
             Self::MailLockedItem(_) => MailLockedItem::COMPRESSED,
+            Self::MailCost(_) => MailCost::COMPRESSED,
             Self::RequestIntelligentCreatureUpdates(_) => {
                 RequestIntelligentCreatureUpdates::COMPRESSED
             }
+            Self::UpdateIntelligentCreature(_) => UpdateIntelligentCreature::COMPRESSED,
             Self::IntelligentCreaturePickup(_) => IntelligentCreaturePickup::COMPRESSED,
             Self::AddFriend(_) => AddFriend::COMPRESSED,
             Self::RemoveFriend(_) => RemoveFriend::COMPRESSED,
@@ -4854,6 +4906,11 @@ impl ClientPacket {
                     PurchaseGuildTerritory::decode(&mut r)?,
                 ))
             }
+            MarketSearch::INDEX => {
+                let body = crate::codec::decompress_if(MarketSearch::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::MarketSearch(MarketSearch::decode(&mut r)?))
+            }
             MarketRefresh::INDEX => {
                 let body = crate::codec::decompress_if(MarketRefresh::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
@@ -5028,6 +5085,11 @@ impl ClientPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::ResetAddedItem(ResetAddedItem::decode(&mut r)?))
             }
+            SendMail::INDEX => {
+                let body = crate::codec::decompress_if(SendMail::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::SendMail(SendMail::decode(&mut r)?))
+            }
             ReadMail::INDEX => {
                 let body = crate::codec::decompress_if(ReadMail::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
@@ -5053,6 +5115,11 @@ impl ClientPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::MailLockedItem(MailLockedItem::decode(&mut r)?))
             }
+            MailCost::INDEX => {
+                let body = crate::codec::decompress_if(MailCost::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::MailCost(MailCost::decode(&mut r)?))
+            }
             RequestIntelligentCreatureUpdates::INDEX => {
                 let body = crate::codec::decompress_if(
                     RequestIntelligentCreatureUpdates::COMPRESSED,
@@ -5061,6 +5128,14 @@ impl ClientPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::RequestIntelligentCreatureUpdates(
                     RequestIntelligentCreatureUpdates::decode(&mut r)?,
+                ))
+            }
+            UpdateIntelligentCreature::INDEX => {
+                let body =
+                    crate::codec::decompress_if(UpdateIntelligentCreature::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::UpdateIntelligentCreature(
+                    UpdateIntelligentCreature::decode(&mut r)?,
                 ))
             }
             IntelligentCreaturePickup::INDEX => {
@@ -5277,6 +5352,7 @@ impl ClientPacket {
             Self::ConsignItem(p) => p.encode(w),
             Self::GuildTerritoryPage(p) => p.encode(w),
             Self::PurchaseGuildTerritory(p) => p.encode(w),
+            Self::MarketSearch(p) => p.encode(w),
             Self::MarketRefresh(p) => p.encode(w),
             Self::MarketPage(p) => p.encode(w),
             Self::MarketBuy(p) => p.encode(w),
@@ -5308,12 +5384,15 @@ impl ClientPacket {
             Self::DisassembleItem(p) => p.encode(w),
             Self::DowngradeAwakening(p) => p.encode(w),
             Self::ResetAddedItem(p) => p.encode(w),
+            Self::SendMail(p) => p.encode(w),
             Self::ReadMail(p) => p.encode(w),
             Self::CollectParcel(p) => p.encode(w),
             Self::DeleteMail(p) => p.encode(w),
             Self::LockMail(p) => p.encode(w),
             Self::MailLockedItem(p) => p.encode(w),
+            Self::MailCost(p) => p.encode(w),
             Self::RequestIntelligentCreatureUpdates(p) => p.encode(w),
+            Self::UpdateIntelligentCreature(p) => p.encode(w),
             Self::IntelligentCreaturePickup(p) => p.encode(w),
             Self::AddFriend(p) => p.encode(w),
             Self::RemoveFriend(p) => p.encode(w),
@@ -5345,5 +5424,182 @@ impl ClientPacket {
         let mut w = crate::PacketWriter::new();
         self.encode(&mut w);
         crate::codec::frame(self.index(), self.compressed(), w.into_inner())
+    }
+}
+
+#[cfg(test)]
+mod roundtrip {
+    /// 每个包的默认值走一遍 `encode_frame` → `decode`，必须与原文一致。
+    /// 这验证的是「生成器产出的读写路径互相对称」，不是与 Crystal 的字节一致性。
+    #[test]
+    fn default_packets_roundtrip() {
+        let packets = vec![
+            super::ClientPacket::ClientVersion(super::ClientVersion::default()),
+            super::ClientPacket::Disconnect(super::Disconnect::default()),
+            super::ClientPacket::KeepAlive(super::KeepAlive::default()),
+            super::ClientPacket::NewAccount(super::NewAccount::default()),
+            super::ClientPacket::ChangePassword(super::ChangePassword::default()),
+            super::ClientPacket::UnlockStorage(super::UnlockStorage::default()),
+            super::ClientPacket::SetStoragePassword(super::SetStoragePassword::default()),
+            super::ClientPacket::RemoveStoragePassword(super::RemoveStoragePassword::default()),
+            super::ClientPacket::Login(super::Login::default()),
+            super::ClientPacket::NewCharacter(super::NewCharacter::default()),
+            super::ClientPacket::DeleteCharacter(super::DeleteCharacter::default()),
+            super::ClientPacket::StartGame(super::StartGame::default()),
+            super::ClientPacket::LogOut(super::LogOut::default()),
+            super::ClientPacket::Turn(super::Turn::default()),
+            super::ClientPacket::Walk(super::Walk::default()),
+            super::ClientPacket::Run(super::Run::default()),
+            super::ClientPacket::Chat(super::Chat::default()),
+            super::ClientPacket::MoveItem(super::MoveItem::default()),
+            super::ClientPacket::StoreItem(super::StoreItem::default()),
+            super::ClientPacket::DepositRefineItem(super::DepositRefineItem::default()),
+            super::ClientPacket::RetrieveRefineItem(super::RetrieveRefineItem::default()),
+            super::ClientPacket::RefineCancel(super::RefineCancel::default()),
+            super::ClientPacket::RefineItem(super::RefineItem::default()),
+            super::ClientPacket::CheckRefine(super::CheckRefine::default()),
+            super::ClientPacket::ReplaceWedRing(super::ReplaceWedRing::default()),
+            super::ClientPacket::DepositTradeItem(super::DepositTradeItem::default()),
+            super::ClientPacket::RetrieveTradeItem(super::RetrieveTradeItem::default()),
+            super::ClientPacket::TakeBackItem(super::TakeBackItem::default()),
+            super::ClientPacket::MergeItem(super::MergeItem::default()),
+            super::ClientPacket::EquipItem(super::EquipItem::default()),
+            super::ClientPacket::RemoveItem(super::RemoveItem::default()),
+            super::ClientPacket::RemoveSlotItem(super::RemoveSlotItem::default()),
+            super::ClientPacket::SplitItem(super::SplitItem::default()),
+            super::ClientPacket::UseItem(super::UseItem::default()),
+            super::ClientPacket::DropItem(super::DropItem::default()),
+            super::ClientPacket::TakeBackHeroItem(super::TakeBackHeroItem::default()),
+            super::ClientPacket::TransferHeroItem(super::TransferHeroItem::default()),
+            super::ClientPacket::DropGold(super::DropGold::default()),
+            super::ClientPacket::PickUp(super::PickUp::default()),
+            super::ClientPacket::Inspect(super::Inspect::default()),
+            super::ClientPacket::Observe(super::Observe::default()),
+            super::ClientPacket::ChangeAMode(super::ChangeAMode::default()),
+            super::ClientPacket::ChangePMode(super::ChangePMode::default()),
+            super::ClientPacket::ChangeTrade(super::ChangeTrade::default()),
+            super::ClientPacket::Attack(super::Attack::default()),
+            super::ClientPacket::RangeAttack(super::RangeAttack::default()),
+            super::ClientPacket::Harvest(super::Harvest::default()),
+            super::ClientPacket::CallNPC(super::CallNPC::default()),
+            super::ClientPacket::BuyItem(super::BuyItem::default()),
+            super::ClientPacket::SellItem(super::SellItem::default()),
+            super::ClientPacket::CraftItem(super::CraftItem::default()),
+            super::ClientPacket::RepairItem(super::RepairItem::default()),
+            super::ClientPacket::BuyItemBack(super::BuyItemBack::default()),
+            super::ClientPacket::SRepairItem(super::SRepairItem::default()),
+            super::ClientPacket::RequestMapInfo(super::RequestMapInfo::default()),
+            super::ClientPacket::RequestMonsterInfo(super::RequestMonsterInfo::default()),
+            super::ClientPacket::RequestNPCInfo(super::RequestNPCInfo::default()),
+            super::ClientPacket::RequestItemInfo(super::RequestItemInfo::default()),
+            super::ClientPacket::TeleportToNPC(super::TeleportToNPC::default()),
+            super::ClientPacket::SearchMap(super::SearchMap::default()),
+            super::ClientPacket::MagicKey(super::MagicKey::default()),
+            super::ClientPacket::Magic(super::Magic::default()),
+            super::ClientPacket::SwitchGroup(super::SwitchGroup::default()),
+            super::ClientPacket::AddMember(super::AddMember::default()),
+            super::ClientPacket::DelMember(super::DelMember::default()),
+            super::ClientPacket::GroupInvite(super::GroupInvite::default()),
+            super::ClientPacket::NewHero(super::NewHero::default()),
+            super::ClientPacket::SetAutoPotValue(super::SetAutoPotValue::default()),
+            super::ClientPacket::SetAutoPotItem(super::SetAutoPotItem::default()),
+            super::ClientPacket::SetHeroBehaviour(super::SetHeroBehaviour::default()),
+            super::ClientPacket::ChangeHero(super::ChangeHero::default()),
+            super::ClientPacket::MarriageRequest(super::MarriageRequest::default()),
+            super::ClientPacket::MarriageReply(super::MarriageReply::default()),
+            super::ClientPacket::ChangeMarriage(super::ChangeMarriage::default()),
+            super::ClientPacket::DivorceRequest(super::DivorceRequest::default()),
+            super::ClientPacket::DivorceReply(super::DivorceReply::default()),
+            super::ClientPacket::AddMentor(super::AddMentor::default()),
+            super::ClientPacket::MentorReply(super::MentorReply::default()),
+            super::ClientPacket::AllowMentor(super::AllowMentor::default()),
+            super::ClientPacket::CancelMentor(super::CancelMentor::default()),
+            super::ClientPacket::TradeReply(super::TradeReply::default()),
+            super::ClientPacket::TradeRequest(super::TradeRequest::default()),
+            super::ClientPacket::TradeGold(super::TradeGold::default()),
+            super::ClientPacket::TradeConfirm(super::TradeConfirm::default()),
+            super::ClientPacket::TradeCancel(super::TradeCancel::default()),
+            super::ClientPacket::TownRevive(super::TownRevive::default()),
+            super::ClientPacket::SpellToggle(super::SpellToggle::default()),
+            super::ClientPacket::ConsignItem(super::ConsignItem::default()),
+            super::ClientPacket::GuildTerritoryPage(super::GuildTerritoryPage::default()),
+            super::ClientPacket::PurchaseGuildTerritory(super::PurchaseGuildTerritory::default()),
+            super::ClientPacket::MarketSearch(super::MarketSearch::default()),
+            super::ClientPacket::MarketRefresh(super::MarketRefresh::default()),
+            super::ClientPacket::MarketPage(super::MarketPage::default()),
+            super::ClientPacket::MarketBuy(super::MarketBuy::default()),
+            super::ClientPacket::MarketSellNow(super::MarketSellNow::default()),
+            super::ClientPacket::MarketGetBack(super::MarketGetBack::default()),
+            super::ClientPacket::RequestUserName(super::RequestUserName::default()),
+            super::ClientPacket::RequestChatItem(super::RequestChatItem::default()),
+            super::ClientPacket::EditGuildMember(super::EditGuildMember::default()),
+            super::ClientPacket::EditGuildNotice(super::EditGuildNotice::default()),
+            super::ClientPacket::GuildInvite(super::GuildInvite::default()),
+            super::ClientPacket::RequestGuildInfo(super::RequestGuildInfo::default()),
+            super::ClientPacket::GuildNameReturn(super::GuildNameReturn::default()),
+            super::ClientPacket::GuildWarReturn(super::GuildWarReturn::default()),
+            super::ClientPacket::GuildStorageGoldChange(super::GuildStorageGoldChange::default()),
+            super::ClientPacket::GuildStorageItemChange(super::GuildStorageItemChange::default()),
+            super::ClientPacket::EquipSlotItem(super::EquipSlotItem::default()),
+            super::ClientPacket::FishingCast(super::FishingCast::default()),
+            super::ClientPacket::FishingChangeAutocast(super::FishingChangeAutocast::default()),
+            super::ClientPacket::AcceptQuest(super::AcceptQuest::default()),
+            super::ClientPacket::FinishQuest(super::FinishQuest::default()),
+            super::ClientPacket::AbandonQuest(super::AbandonQuest::default()),
+            super::ClientPacket::ShareQuest(super::ShareQuest::default()),
+            super::ClientPacket::AcceptReincarnation(super::AcceptReincarnation::default()),
+            super::ClientPacket::CancelReincarnation(super::CancelReincarnation::default()),
+            super::ClientPacket::CombineItem(super::CombineItem::default()),
+            super::ClientPacket::AwakeningNeedMaterials(super::AwakeningNeedMaterials::default()),
+            super::ClientPacket::AwakeningLockedItem(super::AwakeningLockedItem::default()),
+            super::ClientPacket::Awakening(super::Awakening::default()),
+            super::ClientPacket::DisassembleItem(super::DisassembleItem::default()),
+            super::ClientPacket::DowngradeAwakening(super::DowngradeAwakening::default()),
+            super::ClientPacket::ResetAddedItem(super::ResetAddedItem::default()),
+            super::ClientPacket::SendMail(super::SendMail::default()),
+            super::ClientPacket::ReadMail(super::ReadMail::default()),
+            super::ClientPacket::CollectParcel(super::CollectParcel::default()),
+            super::ClientPacket::DeleteMail(super::DeleteMail::default()),
+            super::ClientPacket::LockMail(super::LockMail::default()),
+            super::ClientPacket::MailLockedItem(super::MailLockedItem::default()),
+            super::ClientPacket::MailCost(super::MailCost::default()),
+            super::ClientPacket::RequestIntelligentCreatureUpdates(
+                super::RequestIntelligentCreatureUpdates::default(),
+            ),
+            super::ClientPacket::UpdateIntelligentCreature(
+                super::UpdateIntelligentCreature::default(),
+            ),
+            super::ClientPacket::IntelligentCreaturePickup(
+                super::IntelligentCreaturePickup::default(),
+            ),
+            super::ClientPacket::AddFriend(super::AddFriend::default()),
+            super::ClientPacket::RemoveFriend(super::RemoveFriend::default()),
+            super::ClientPacket::RefreshFriends(super::RefreshFriends::default()),
+            super::ClientPacket::AddMemo(super::AddMemo::default()),
+            super::ClientPacket::GuildBuffUpdate(super::GuildBuffUpdate::default()),
+            super::ClientPacket::GameshopBuy(super::GameshopBuy::default()),
+            super::ClientPacket::NPCConfirmInput(super::NPCConfirmInput::default()),
+            super::ClientPacket::ReportIssue(super::ReportIssue::default()),
+            super::ClientPacket::GetRanking(super::GetRanking::default()),
+            super::ClientPacket::Opendoor(super::Opendoor::default()),
+            super::ClientPacket::GetRentedItems(super::GetRentedItems::default()),
+            super::ClientPacket::ItemRentalRequest(super::ItemRentalRequest::default()),
+            super::ClientPacket::ItemRentalFee(super::ItemRentalFee::default()),
+            super::ClientPacket::ItemRentalPeriod(super::ItemRentalPeriod::default()),
+            super::ClientPacket::DepositRentalItem(super::DepositRentalItem::default()),
+            super::ClientPacket::RetrieveRentalItem(super::RetrieveRentalItem::default()),
+            super::ClientPacket::CancelItemRental(super::CancelItemRental::default()),
+            super::ClientPacket::ItemRentalLockFee(super::ItemRentalLockFee::default()),
+            super::ClientPacket::ItemRentalLockItem(super::ItemRentalLockItem::default()),
+            super::ClientPacket::ConfirmItemRental(super::ConfirmItemRental::default()),
+            super::ClientPacket::DeleteItem(super::DeleteItem::default()),
+        ];
+        for packet in packets {
+            let frame = packet.encode_frame();
+            let index = i16::from_le_bytes([frame[2], frame[3]]);
+            assert_eq!(index, packet.index(), "包头编号应等于包上的 INDEX");
+            let decoded = super::ClientPacket::decode(index, &frame[4..]).expect("解码自己编的包");
+            assert_eq!(decoded, packet, "包 {index} 往返不一致");
+        }
     }
 }

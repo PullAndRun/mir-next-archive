@@ -41,6 +41,17 @@ pub async fn serve_forever<S: AccountStore>(
     let languages = Arc::new(build_language_library(&config));
     let next_session = Arc::new(AtomicU64::new(1));
 
+    // 世界 tick：每 100ms 推进一次（跑步计数衰减、停顿清零；怪物 AI 之后也挂这里）。
+    let tick_world = Arc::clone(&world);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            interval.tick().await;
+            tick_world.lock().await.tick();
+        }
+    });
+
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(accepted) => accepted,

@@ -168,7 +168,7 @@ async fn full_login_character_and_world_flow() {
         other => panic!("期望 MapInformation，收到 {other:?}"),
     }
     let packet = client.expect_index(s::UserInformation::INDEX).await;
-    let object_id = match packet {
+    let _object_id = match packet {
         ServerPacket::UserInformation(info) => {
             assert_eq!(info.name, "裁决者");
             assert_eq!(info.level, 1, "首次进世界补到 1 级");
@@ -190,19 +190,19 @@ async fn full_login_character_and_world_flow() {
         other => panic!("期望 Chat，收到 {other:?}"),
     }
 
-    // 7. 走路：服务端回 ObjectWalk（移动者本人也会收到）。
+    // 7. 走路：本人收到 UserLocation（新坐标），周围玩家才收 ObjectWalk。
     client
         .send(ClientPacket::Walk(c::Walk {
             direction: MirDirection::Right,
         }))
         .await;
-    let packet = client.expect_index(s::ObjectWalk::INDEX).await;
+    let packet = client.expect_index(s::UserLocation::INDEX).await;
     match packet {
-        ServerPacket::ObjectWalk(walk) => {
-            assert_eq!(walk.object_id, object_id);
-            assert_eq!(walk.direction, MirDirection::Right);
+        ServerPacket::UserLocation(location) => {
+            assert_eq!(location.location, mir_core::Point::new(331, 270));
+            assert_eq!(location.direction, MirDirection::Right);
         }
-        other => panic!("期望 ObjectWalk，收到 {other:?}"),
+        other => panic!("期望 UserLocation，收到 {other:?}"),
     }
 
     // 8. 游戏内切换语言：`/language en` 之后收到英文提示。

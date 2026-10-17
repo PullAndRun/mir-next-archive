@@ -514,6 +514,62 @@ impl StartGameDelay {
 
 pub use crate::manual::server::MapInformation;
 
+/// Crystal `ServerPackets.NewMapInfo` (index 18).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NewMapInfo {
+    pub map_index: i32,
+    pub info: ClientMapInfo,
+}
+
+impl NewMapInfo {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 18;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.map_index = r.read_i32()?;
+        out.info = ClientMapInfo::decode(r)?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        w.write_i32(self.map_index);
+        self.info.encode(w);
+    }
+}
+
+/// Crystal `ServerPackets.WorldMapSetupInfo` (index 19).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WorldMapSetupInfo {
+    pub setup: WorldMapSetup,
+    pub teleport_to_npc_cost: i32,
+}
+
+impl WorldMapSetupInfo {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 19;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.setup = WorldMapSetup::decode(r)?;
+        out.teleport_to_npc_cost = r.read_i32()?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        self.setup.encode(w);
+        w.write_i32(self.teleport_to_npc_cost);
+    }
+}
+
 /// Crystal `ServerPackets.SearchMapResult` (index 20).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SearchMapResult {
@@ -543,6 +599,8 @@ impl SearchMapResult {
 }
 
 pub use crate::manual::server::UserInformation;
+
+pub use crate::manual::server::UserSlotsRefresh;
 
 /// Crystal `ServerPackets.UserLocation` (index 23).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -698,6 +756,8 @@ impl ObjectPlayer {
         w.write_u16(self.level_effects as u16);
     }
 }
+
+pub use crate::manual::server::ObjectHero;
 
 /// Crystal `ServerPackets.ObjectRemove` (index 26).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -885,6 +945,59 @@ impl ObjectChat {
         w.write_u32(self.object_id);
         w.write_string(&self.text);
         w.write_u8(self.type_ as u8);
+    }
+}
+
+/// Crystal `ServerPackets.NewItemInfo` (index 32).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NewItemInfo {
+    pub info: ItemInfo,
+}
+
+impl NewItemInfo {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 32;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.info = ItemInfo::decode(r)?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        self.info.encode(w);
+    }
+}
+
+/// Crystal `ServerPackets.NewHeroInfo` (index 35).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NewHeroInfo {
+    pub info: ClientHeroInformation,
+    pub storage_index: i32,
+}
+
+impl NewHeroInfo {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 35;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.info = ClientHeroInformation::decode(r)?;
+        out.storage_index = r.read_i32()?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        self.info.encode(w);
+        w.write_i32(self.storage_index);
     }
 }
 
@@ -1344,14 +1457,17 @@ impl SplitItem {
         if r.read_bool()? {
             out.item = Some(UserItem::decode(r)?);
         }
+        out.grid = MirGridType::from_value(r.read_u8()?).unwrap_or_default();
         Ok(out)
     }
 
     /// Encode the packet payload (without the header).
     pub fn encode(&self, w: &mut crate::PacketWriter) {
+        w.write_bool(self.item.is_some());
         if let Some(v) = &self.item {
             v.encode(w);
         }
+        w.write_u8(self.grid as u8);
     }
 }
 
@@ -3254,6 +3370,9 @@ impl NPCGoods {
         for _ in 0..count {
             out.list.push(UserItem::decode(r)?);
         }
+        out.rate = r.read_f32()?;
+        out.type_ = PanelType::from_value(r.read_u8()?).unwrap_or_default();
+        out.hide_added_stats = r.read_bool()?;
         Ok(out)
     }
 
@@ -3263,6 +3382,9 @@ impl NPCGoods {
         for value in &self.list {
             value.encode(w);
         }
+        w.write_f32(self.rate);
+        w.write_u8(self.type_ as u8);
+        w.write_bool(self.hide_added_stats);
     }
 }
 
@@ -3594,6 +3716,34 @@ impl ItemSealChanged {
     }
 }
 
+/// Crystal `ServerPackets.NewMagic` (index 117).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NewMagic {
+    pub magic: ClientMagic,
+    pub hero: bool,
+}
+
+impl NewMagic {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 117;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.magic = ClientMagic::decode(r)?;
+        out.hero = r.read_bool()?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        self.magic.encode(w);
+        w.write_bool(self.hero);
+    }
+}
+
 /// Crystal `ServerPackets.RemoveMagic` (index 118).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RemoveMagic {
@@ -3653,6 +3803,8 @@ impl MagicLeveled {
     }
 }
 
+pub use crate::manual::server::Magic;
+
 /// Crystal `ServerPackets.MagicDelay` (index 121).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct MagicDelay {
@@ -3708,6 +3860,8 @@ impl MagicCast {
         w.write_u8(self.spell as u8);
     }
 }
+
+pub use crate::manual::server::ObjectMagic;
 
 /// Crystal `ServerPackets.ObjectEffect` (index 124).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -3906,6 +4060,8 @@ impl ObjectName {
         w.write_string(&self.name);
     }
 }
+
+pub use crate::manual::server::UserStorage;
 
 /// Crystal `ServerPackets.SwitchGroup` (index 131).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -4337,6 +4493,31 @@ impl ObjectRangeAttack {
     }
 }
 
+/// Crystal `ServerPackets.AddBuff` (index 144).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AddBuff {
+    pub buff: ClientBuff,
+}
+
+impl AddBuff {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 144;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.buff = ClientBuff::decode(r)?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        self.buff.encode(w);
+    }
+}
+
 /// Crystal `ServerPackets.RemoveBuff` (index 145).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RemoveBuff {
@@ -4668,6 +4849,108 @@ impl NPCConsign {
     pub fn encode(&self, _w: &mut crate::PacketWriter) {}
 }
 
+/// Crystal `ServerPackets.NPCMarket` (index 155).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NPCMarket {
+    pub listings: Vec<ClientAuction>,
+    pub pages: i32,
+    pub user_mode: bool,
+}
+
+impl NPCMarket {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 155;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        let count = r.read_count()?;
+        for _ in 0..count {
+            out.listings.push(ClientAuction::decode(r)?);
+        }
+        out.pages = r.read_i32()?;
+        out.user_mode = r.read_bool()?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        w.write_count(self.listings.len());
+        for value in &self.listings {
+            value.encode(w);
+        }
+        w.write_i32(self.pages);
+        w.write_bool(self.user_mode);
+    }
+}
+
+/// Crystal `ServerPackets.NPCMarketPage` (index 156).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NPCMarketPage {
+    pub listings: Vec<ClientAuction>,
+}
+
+impl NPCMarketPage {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 156;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        let count = r.read_count()?;
+        for _ in 0..count {
+            out.listings.push(ClientAuction::decode(r)?);
+        }
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        w.write_count(self.listings.len());
+        for value in &self.listings {
+            value.encode(w);
+        }
+    }
+}
+
+/// Crystal `ServerPackets.GuildTerritoryPage` (index 276).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct GuildTerritoryPage {
+    pub listings: Vec<ClientGTMap>,
+    pub length: i32,
+}
+
+impl GuildTerritoryPage {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 276;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.length = r.read_i32()?;
+        let count = r.read_count()?;
+        for _ in 0..count {
+            out.listings.push(ClientGTMap::decode(r)?);
+        }
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        w.write_i32(self.length);
+        w.write_count(self.listings.len());
+        for value in &self.listings {
+            value.encode(w);
+        }
+    }
+}
+
 /// Crystal `ServerPackets.ConsignItem` (index 157).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ConsignItem {
@@ -4809,6 +5092,56 @@ impl InTrapRock {
     }
 }
 
+/// Crystal `ServerPackets.BaseStatsInfo` (index 162).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BaseStatsInfo {
+    pub stats: BaseStats,
+}
+
+impl BaseStatsInfo {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 162;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.stats = BaseStats::decode(r)?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        self.stats.encode(w);
+    }
+}
+
+/// Crystal `ServerPackets.HeroBaseStatsInfo` (index 163).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HeroBaseStatsInfo {
+    pub stats: BaseStats,
+}
+
+impl HeroBaseStatsInfo {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 163;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.stats = BaseStats::decode(r)?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        self.stats.encode(w);
+    }
+}
+
 /// Crystal `ServerPackets.UserName` (index 164).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct UserName {
@@ -4836,6 +5169,12 @@ impl UserName {
         w.write_string(&self.name);
     }
 }
+
+pub use crate::manual::server::ChatItemStats;
+
+pub use crate::manual::server::GuildNoticeChange;
+
+pub use crate::manual::server::GuildMemberChange;
 
 /// Crystal `ServerPackets.GuildStatus` (index 168).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -5001,6 +5340,10 @@ impl GuildStorageGoldChange {
     }
 }
 
+pub use crate::manual::server::GuildStorageItemChange;
+
+pub use crate::manual::server::GuildStorageList;
+
 /// Crystal `ServerPackets.GuildRequestWar` (index 175).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GuildRequestWar {}
@@ -5019,6 +5362,8 @@ impl GuildRequestWar {
     /// Encode the packet payload (without the header).
     pub fn encode(&self, _w: &mut crate::PacketWriter) {}
 }
+
+pub use crate::manual::server::HeroCreateRequest;
 
 /// Crystal `ServerPackets.NewHero` (index 177).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -5044,6 +5389,8 @@ impl NewHero {
         w.write_u8(self.result);
     }
 }
+
+pub use crate::manual::server::HeroInformation;
 
 /// Crystal `ServerPackets.UpdateHeroSpawnState` (index 179).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -5167,6 +5514,60 @@ impl SetHeroBehaviour {
     /// Encode the packet payload (without the header).
     pub fn encode(&self, w: &mut crate::PacketWriter) {
         w.write_u8(self.behaviour as u8);
+    }
+}
+
+/// Crystal `ServerPackets.ManageHeroes` (index 184).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ManageHeroes {
+    pub maximum_count: i32,
+    pub current_hero: Option<ClientHeroInformation>,
+    pub heroes: Vec<Option<ClientHeroInformation>>,
+}
+
+impl ManageHeroes {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 184;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.maximum_count = r.read_i32()?;
+        if r.read_bool()? {
+            out.current_hero = Some(ClientHeroInformation::decode(r)?);
+        }
+        if r.read_bool()? {
+            let count = r.read_count()?;
+            for _ in 0..count {
+                if r.read_bool()? {
+                    out.heroes.push(Some(ClientHeroInformation::decode(r)?));
+                } else {
+                    out.heroes.push(None);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        w.write_i32(self.maximum_count);
+        w.write_bool(self.current_hero.is_some());
+        if let Some(v) = &self.current_hero {
+            v.encode(w);
+        }
+        w.write_bool(!self.heroes.is_empty());
+        if !self.heroes.is_empty() {
+            w.write_count(self.heroes.len());
+            for value in &self.heroes {
+                w.write_bool(value.is_some());
+                if let Some(v) = value {
+                    v.encode(w);
+                }
+            }
+        }
     }
 }
 
@@ -5416,6 +5817,39 @@ impl FishingUpdate {
     }
 }
 
+/// Crystal `ServerPackets.ChangeQuest` (index 201).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ChangeQuest {
+    pub quest: ClientQuestProgress,
+    pub quest_state: QuestState,
+    pub track_quest: bool,
+}
+
+impl ChangeQuest {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 201;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.quest = ClientQuestProgress::decode(r)?;
+        out.quest_state = QuestState::from_value(r.read_u8()?).unwrap_or_default();
+        out.track_quest = r.read_bool()?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        self.quest.encode(w);
+        w.write_u8(self.quest_state as u8);
+        w.write_bool(self.track_quest);
+    }
+}
+
+pub use crate::manual::server::CompleteQuest;
+
 /// Crystal `ServerPackets.ShareQuest` (index 203).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ShareQuest {
@@ -5441,6 +5875,31 @@ impl ShareQuest {
     pub fn encode(&self, w: &mut crate::PacketWriter) {
         w.write_i32(self.quest_index);
         w.write_string(&self.sharer_name);
+    }
+}
+
+/// Crystal `ServerPackets.NewQuestInfo` (index 204).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NewQuestInfo {
+    pub info: ClientQuestInfo,
+}
+
+impl NewQuestInfo {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 204;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.info = ClientQuestInfo::decode(r)?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        self.info.encode(w);
     }
 }
 
@@ -5496,6 +5955,8 @@ impl DeleteQuestItem {
         w.write_u16(self.count);
     }
 }
+
+pub use crate::manual::server::GameShopInfo;
 
 /// Crystal `ServerPackets.GameShopStock` (index 251).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -6094,6 +6555,8 @@ impl NPCReset {
     pub fn encode(&self, _w: &mut crate::PacketWriter) {}
 }
 
+pub use crate::manual::server::AwakeningNeedMaterials;
+
 /// Crystal `ServerPackets.AwakeningLockedItem` (index 229).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AwakeningLockedItem {
@@ -6147,6 +6610,37 @@ impl Awakening {
     pub fn encode(&self, w: &mut crate::PacketWriter) {
         w.write_i32(self.result);
         w.write_i64(self.remove_id);
+    }
+}
+
+/// Crystal `ServerPackets.ReceiveMail` (index 231).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ReceiveMail {
+    pub mail: Vec<ClientMail>,
+}
+
+impl ReceiveMail {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 231;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        let count = r.read_count()?;
+        for _ in 0..count {
+            out.mail.push(ClientMail::decode(r)?);
+        }
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        w.write_count(self.mail.len());
+        for value in &self.mail {
+            value.encode(w);
+        }
     }
 }
 
@@ -6328,6 +6822,73 @@ impl ResizeStorage {
     }
 }
 
+/// Crystal `ServerPackets.NewIntelligentCreature` (index 239).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NewIntelligentCreature {
+    pub creature: ClientIntelligentCreature,
+}
+
+impl NewIntelligentCreature {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 239;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.creature = ClientIntelligentCreature::decode(r)?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        self.creature.encode(w);
+    }
+}
+
+/// Crystal `ServerPackets.UpdateIntelligentCreatureList` (index 240).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UpdateIntelligentCreatureList {
+    pub creature_list: Vec<ClientIntelligentCreature>,
+    pub creature_summoned: bool,
+    pub summoned_creature_type: IntelligentCreatureType,
+    pub pearl_count: i32,
+}
+
+impl UpdateIntelligentCreatureList {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 240;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        let count = r.read_count()?;
+        for _ in 0..count {
+            out.creature_list
+                .push(ClientIntelligentCreature::decode(r)?);
+        }
+        out.creature_summoned = r.read_bool()?;
+        out.summoned_creature_type =
+            IntelligentCreatureType::from_value(r.read_u8()?).unwrap_or_default();
+        out.pearl_count = r.read_i32()?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        w.write_count(self.creature_list.len());
+        for value in &self.creature_list {
+            value.encode(w);
+        }
+        w.write_bool(self.creature_summoned);
+        w.write_u8(self.summoned_creature_type as u8);
+        w.write_i32(self.pearl_count);
+    }
+}
+
 /// Crystal `ServerPackets.IntelligentCreatureEnableRename` (index 241).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct IntelligentCreatureEnableRename {}
@@ -6393,6 +6954,8 @@ impl NPCPearlGoods {
         for _ in 0..count {
             out.list.push(UserItem::decode(r)?);
         }
+        out.rate = r.read_f32()?;
+        out.type_ = PanelType::from_value(r.read_u8()?).unwrap_or_default();
         Ok(out)
     }
 
@@ -6400,6 +6963,82 @@ impl NPCPearlGoods {
     pub fn encode(&self, w: &mut crate::PacketWriter) {
         w.write_count(self.list.len());
         for value in &self.list {
+            value.encode(w);
+        }
+        w.write_f32(self.rate);
+        w.write_u8(self.type_ as u8);
+    }
+}
+
+/// Crystal `ServerPackets.FriendUpdate` (index 245).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FriendUpdate {
+    pub friends: Vec<ClientFriend>,
+}
+
+impl FriendUpdate {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 245;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        let count = r.read_count()?;
+        for _ in 0..count {
+            out.friends.push(ClientFriend::decode(r)?);
+        }
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        w.write_count(self.friends.len());
+        for value in &self.friends {
+            value.encode(w);
+        }
+    }
+}
+
+/// Crystal `ServerPackets.GuildBuffList` (index 248).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct GuildBuffList {
+    pub remove: u8,
+    pub active_buffs: Vec<GuildBuff>,
+    pub guild_buffs: Vec<GuildBuffInfo>,
+}
+
+impl GuildBuffList {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 248;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.remove = r.read_u8()?;
+        let count = r.read_count()?;
+        for _ in 0..count {
+            out.active_buffs.push(GuildBuff::decode(r)?);
+        }
+        let count = r.read_count()?;
+        for _ in 0..count {
+            out.guild_buffs.push(GuildBuffInfo::decode(r)?);
+        }
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        w.write_u8(self.remove);
+        w.write_count(self.active_buffs.len());
+        for value in &self.active_buffs {
+            value.encode(w);
+        }
+        w.write_count(self.guild_buffs.len());
+        for value in &self.guild_buffs {
             value.encode(w);
         }
     }
@@ -6501,6 +7140,8 @@ impl NPCRequestInput {
     }
 }
 
+pub use crate::manual::server::Rankings;
+
 /// Crystal `ServerPackets.Opendoor` (index 253).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Opendoor {
@@ -6528,6 +7169,8 @@ impl Opendoor {
         w.write_bool(self.close);
     }
 }
+
+pub use crate::manual::server::GetRentedItems;
 
 /// Crystal `ServerPackets.ItemRentalRequest` (index 255).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -6669,6 +7312,8 @@ impl RetrieveRentalItem {
     }
 }
 
+pub use crate::manual::server::UpdateRentalItem;
+
 /// Crystal `ServerPackets.CancelItemRental` (index 261).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CancelItemRental {}
@@ -6783,6 +7428,31 @@ impl ConfirmItemRental {
 
     /// Encode the packet payload (without the header).
     pub fn encode(&self, _w: &mut crate::PacketWriter) {}
+}
+
+/// Crystal `ServerPackets.NewRecipeInfo` (index 266).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NewRecipeInfo {
+    pub info: ClientRecipeInfo,
+}
+
+impl NewRecipeInfo {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 266;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.info = ClientRecipeInfo::decode(r)?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        self.info.encode(w);
+    }
 }
 
 /// Crystal `ServerPackets.CraftItem` (index 112).
@@ -6916,6 +7586,31 @@ impl ExpireTimer {
     }
 }
 
+/// Crystal `ServerPackets.UpdateNotice` (index 271).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UpdateNotice {
+    pub notice: Notice,
+}
+
+impl UpdateNotice {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 271;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.notice = Notice::decode(r)?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        self.notice.encode(w);
+    }
+}
+
 /// Crystal `ServerPackets.Roll` (index 272).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Roll {
@@ -6979,6 +7674,56 @@ impl SetCompass {
     }
 }
 
+/// Crystal `ServerPackets.NewMonsterInfo` (index 33).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NewMonsterInfo {
+    pub info: ClientMonsterInfo,
+}
+
+impl NewMonsterInfo {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 33;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.info = ClientMonsterInfo::decode(r)?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        self.info.encode(w);
+    }
+}
+
+/// Crystal `ServerPackets.NewNPCInfo` (index 34).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NewNPCInfo {
+    pub info: ClientNPCInfo,
+}
+
+impl NewNPCInfo {
+    /// Packet index used on the wire.
+    pub const INDEX: i16 = 34;
+    /// Whether Crystal gzip-compresses this packet's payload.
+    pub const COMPRESSED: bool = false;
+
+    /// Decode the packet payload (without the header).
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let mut out = Self::default();
+        out.info = ClientNPCInfo::decode(r)?;
+        Ok(out)
+    }
+
+    /// Encode the packet payload (without the header).
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        self.info.encode(w);
+    }
+}
+
 /// Every server→client packet Crystal understands.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ServerPacket {
@@ -7002,16 +7747,22 @@ pub enum ServerPacket {
     StartGameBanned(StartGameBanned),
     StartGameDelay(StartGameDelay),
     MapInformation(MapInformation),
+    NewMapInfo(NewMapInfo),
+    WorldMapSetupInfo(WorldMapSetupInfo),
     SearchMapResult(SearchMapResult),
     UserInformation(UserInformation),
+    UserSlotsRefresh(UserSlotsRefresh),
     UserLocation(UserLocation),
     ObjectPlayer(ObjectPlayer),
+    ObjectHero(ObjectHero),
     ObjectRemove(ObjectRemove),
     ObjectTurn(ObjectTurn),
     ObjectWalk(ObjectWalk),
     ObjectRun(ObjectRun),
     Chat(Chat),
     ObjectChat(ObjectChat),
+    NewItemInfo(NewItemInfo),
+    NewHeroInfo(NewHeroInfo),
     NewChatItem(NewChatItem),
     MoveItem(MoveItem),
     EquipItem(EquipItem),
@@ -7101,16 +7852,20 @@ pub enum ServerPacket {
     ItemRepaired(ItemRepaired),
     ItemSlotSizeChanged(ItemSlotSizeChanged),
     ItemSealChanged(ItemSealChanged),
+    NewMagic(NewMagic),
     RemoveMagic(RemoveMagic),
     MagicLeveled(MagicLeveled),
+    Magic(Magic),
     MagicDelay(MagicDelay),
     MagicCast(MagicCast),
+    ObjectMagic(ObjectMagic),
     ObjectEffect(ObjectEffect),
     ObjectProjectile(ObjectProjectile),
     RangeAttack(RangeAttack),
     Pushed(Pushed),
     ObjectPushed(ObjectPushed),
     ObjectName(ObjectName),
+    UserStorage(UserStorage),
     SwitchGroup(SwitchGroup),
     DeleteGroup(DeleteGroup),
     DeleteMember(DeleteMember),
@@ -7126,6 +7881,7 @@ pub enum ServerPacket {
     MapEffect(MapEffect),
     AllowObserve(AllowObserve),
     ObjectRangeAttack(ObjectRangeAttack),
+    AddBuff(AddBuff),
     RemoveBuff(RemoveBuff),
     PauseBuff(PauseBuff),
     ObjectHidden(ObjectHidden),
@@ -7137,24 +7893,37 @@ pub enum ServerPacket {
     ObjectDashFail(ObjectDashFail),
     RemoveDelayedExplosion(RemoveDelayedExplosion),
     NPCConsign(NPCConsign),
+    NPCMarket(NPCMarket),
+    NPCMarketPage(NPCMarketPage),
+    GuildTerritoryPage(GuildTerritoryPage),
     ConsignItem(ConsignItem),
     MarketFail(MarketFail),
     MarketSuccess(MarketSuccess),
     ObjectSitDown(ObjectSitDown),
     InTrapRock(InTrapRock),
+    BaseStatsInfo(BaseStatsInfo),
+    HeroBaseStatsInfo(HeroBaseStatsInfo),
     UserName(UserName),
+    ChatItemStats(ChatItemStats),
+    GuildNoticeChange(GuildNoticeChange),
+    GuildMemberChange(GuildMemberChange),
     GuildStatus(GuildStatus),
     GuildInvite(GuildInvite),
     GuildExpGain(GuildExpGain),
     GuildNameRequest(GuildNameRequest),
     GuildStorageGoldChange(GuildStorageGoldChange),
+    GuildStorageItemChange(GuildStorageItemChange),
+    GuildStorageList(GuildStorageList),
     GuildRequestWar(GuildRequestWar),
+    HeroCreateRequest(HeroCreateRequest),
     NewHero(NewHero),
+    HeroInformation(HeroInformation),
     UpdateHeroSpawnState(UpdateHeroSpawnState),
     UnlockHeroAutoPot(UnlockHeroAutoPot),
     SetAutoPotValue(SetAutoPotValue),
     SetAutoPotItem(SetAutoPotItem),
     SetHeroBehaviour(SetHeroBehaviour),
+    ManageHeroes(ManageHeroes),
     ChangeHero(ChangeHero),
     DefaultNPC(DefaultNPC),
     NPCUpdate(NPCUpdate),
@@ -7163,9 +7932,13 @@ pub enum ServerPacket {
     TransformUpdate(TransformUpdate),
     EquipSlotItem(EquipSlotItem),
     FishingUpdate(FishingUpdate),
+    ChangeQuest(ChangeQuest),
+    CompleteQuest(CompleteQuest),
     ShareQuest(ShareQuest),
+    NewQuestInfo(NewQuestInfo),
     GainedQuestItem(GainedQuestItem),
     DeleteQuestItem(DeleteQuestItem),
+    GameShopInfo(GameShopInfo),
     GameShopStock(GameShopStock),
     CancelReincarnation(CancelReincarnation),
     RequestReincarnation(RequestReincarnation),
@@ -7187,8 +7960,10 @@ pub enum ServerPacket {
     NPCDisassemble(NPCDisassemble),
     NPCDowngrade(NPCDowngrade),
     NPCReset(NPCReset),
+    AwakeningNeedMaterials(AwakeningNeedMaterials),
     AwakeningLockedItem(AwakeningLockedItem),
     Awakening(Awakening),
+    ReceiveMail(ReceiveMail),
     MailLockedItem(MailLockedItem),
     MailSent(MailSent),
     MailSendRequest(MailSendRequest),
@@ -7196,30 +7971,41 @@ pub enum ServerPacket {
     MailCost(MailCost),
     ResizeInventory(ResizeInventory),
     ResizeStorage(ResizeStorage),
+    NewIntelligentCreature(NewIntelligentCreature),
+    UpdateIntelligentCreatureList(UpdateIntelligentCreatureList),
     IntelligentCreatureEnableRename(IntelligentCreatureEnableRename),
     IntelligentCreaturePickup(IntelligentCreaturePickup),
     NPCPearlGoods(NPCPearlGoods),
+    FriendUpdate(FriendUpdate),
+    GuildBuffList(GuildBuffList),
     LoverUpdate(LoverUpdate),
     MentorUpdate(MentorUpdate),
     NPCRequestInput(NPCRequestInput),
+    Rankings(Rankings),
     Opendoor(Opendoor),
+    GetRentedItems(GetRentedItems),
     ItemRentalRequest(ItemRentalRequest),
     ItemRentalFee(ItemRentalFee),
     ItemRentalPeriod(ItemRentalPeriod),
     DepositRentalItem(DepositRentalItem),
     RetrieveRentalItem(RetrieveRentalItem),
+    UpdateRentalItem(UpdateRentalItem),
     CancelItemRental(CancelItemRental),
     ItemRentalLock(ItemRentalLock),
     ItemRentalPartnerLock(ItemRentalPartnerLock),
     CanConfirmItemRental(CanConfirmItemRental),
     ConfirmItemRental(ConfirmItemRental),
+    NewRecipeInfo(NewRecipeInfo),
     CraftItem(CraftItem),
     OpenBrowser(OpenBrowser),
     PlaySound(PlaySound),
     SetTimer(SetTimer),
     ExpireTimer(ExpireTimer),
+    UpdateNotice(UpdateNotice),
     Roll(Roll),
     SetCompass(SetCompass),
+    NewMonsterInfo(NewMonsterInfo),
+    NewNPCInfo(NewNPCInfo),
 }
 
 impl ServerPacket {
@@ -7247,16 +8033,22 @@ impl ServerPacket {
             Self::StartGameBanned(_) => StartGameBanned::INDEX,
             Self::StartGameDelay(_) => StartGameDelay::INDEX,
             Self::MapInformation(_) => MapInformation::INDEX,
+            Self::NewMapInfo(_) => NewMapInfo::INDEX,
+            Self::WorldMapSetupInfo(_) => WorldMapSetupInfo::INDEX,
             Self::SearchMapResult(_) => SearchMapResult::INDEX,
             Self::UserInformation(_) => UserInformation::INDEX,
+            Self::UserSlotsRefresh(_) => UserSlotsRefresh::INDEX,
             Self::UserLocation(_) => UserLocation::INDEX,
             Self::ObjectPlayer(_) => ObjectPlayer::INDEX,
+            Self::ObjectHero(_) => ObjectHero::INDEX,
             Self::ObjectRemove(_) => ObjectRemove::INDEX,
             Self::ObjectTurn(_) => ObjectTurn::INDEX,
             Self::ObjectWalk(_) => ObjectWalk::INDEX,
             Self::ObjectRun(_) => ObjectRun::INDEX,
             Self::Chat(_) => Chat::INDEX,
             Self::ObjectChat(_) => ObjectChat::INDEX,
+            Self::NewItemInfo(_) => NewItemInfo::INDEX,
+            Self::NewHeroInfo(_) => NewHeroInfo::INDEX,
             Self::NewChatItem(_) => NewChatItem::INDEX,
             Self::MoveItem(_) => MoveItem::INDEX,
             Self::EquipItem(_) => EquipItem::INDEX,
@@ -7346,16 +8138,20 @@ impl ServerPacket {
             Self::ItemRepaired(_) => ItemRepaired::INDEX,
             Self::ItemSlotSizeChanged(_) => ItemSlotSizeChanged::INDEX,
             Self::ItemSealChanged(_) => ItemSealChanged::INDEX,
+            Self::NewMagic(_) => NewMagic::INDEX,
             Self::RemoveMagic(_) => RemoveMagic::INDEX,
             Self::MagicLeveled(_) => MagicLeveled::INDEX,
+            Self::Magic(_) => Magic::INDEX,
             Self::MagicDelay(_) => MagicDelay::INDEX,
             Self::MagicCast(_) => MagicCast::INDEX,
+            Self::ObjectMagic(_) => ObjectMagic::INDEX,
             Self::ObjectEffect(_) => ObjectEffect::INDEX,
             Self::ObjectProjectile(_) => ObjectProjectile::INDEX,
             Self::RangeAttack(_) => RangeAttack::INDEX,
             Self::Pushed(_) => Pushed::INDEX,
             Self::ObjectPushed(_) => ObjectPushed::INDEX,
             Self::ObjectName(_) => ObjectName::INDEX,
+            Self::UserStorage(_) => UserStorage::INDEX,
             Self::SwitchGroup(_) => SwitchGroup::INDEX,
             Self::DeleteGroup(_) => DeleteGroup::INDEX,
             Self::DeleteMember(_) => DeleteMember::INDEX,
@@ -7371,6 +8167,7 @@ impl ServerPacket {
             Self::MapEffect(_) => MapEffect::INDEX,
             Self::AllowObserve(_) => AllowObserve::INDEX,
             Self::ObjectRangeAttack(_) => ObjectRangeAttack::INDEX,
+            Self::AddBuff(_) => AddBuff::INDEX,
             Self::RemoveBuff(_) => RemoveBuff::INDEX,
             Self::PauseBuff(_) => PauseBuff::INDEX,
             Self::ObjectHidden(_) => ObjectHidden::INDEX,
@@ -7382,24 +8179,37 @@ impl ServerPacket {
             Self::ObjectDashFail(_) => ObjectDashFail::INDEX,
             Self::RemoveDelayedExplosion(_) => RemoveDelayedExplosion::INDEX,
             Self::NPCConsign(_) => NPCConsign::INDEX,
+            Self::NPCMarket(_) => NPCMarket::INDEX,
+            Self::NPCMarketPage(_) => NPCMarketPage::INDEX,
+            Self::GuildTerritoryPage(_) => GuildTerritoryPage::INDEX,
             Self::ConsignItem(_) => ConsignItem::INDEX,
             Self::MarketFail(_) => MarketFail::INDEX,
             Self::MarketSuccess(_) => MarketSuccess::INDEX,
             Self::ObjectSitDown(_) => ObjectSitDown::INDEX,
             Self::InTrapRock(_) => InTrapRock::INDEX,
+            Self::BaseStatsInfo(_) => BaseStatsInfo::INDEX,
+            Self::HeroBaseStatsInfo(_) => HeroBaseStatsInfo::INDEX,
             Self::UserName(_) => UserName::INDEX,
+            Self::ChatItemStats(_) => ChatItemStats::INDEX,
+            Self::GuildNoticeChange(_) => GuildNoticeChange::INDEX,
+            Self::GuildMemberChange(_) => GuildMemberChange::INDEX,
             Self::GuildStatus(_) => GuildStatus::INDEX,
             Self::GuildInvite(_) => GuildInvite::INDEX,
             Self::GuildExpGain(_) => GuildExpGain::INDEX,
             Self::GuildNameRequest(_) => GuildNameRequest::INDEX,
             Self::GuildStorageGoldChange(_) => GuildStorageGoldChange::INDEX,
+            Self::GuildStorageItemChange(_) => GuildStorageItemChange::INDEX,
+            Self::GuildStorageList(_) => GuildStorageList::INDEX,
             Self::GuildRequestWar(_) => GuildRequestWar::INDEX,
+            Self::HeroCreateRequest(_) => HeroCreateRequest::INDEX,
             Self::NewHero(_) => NewHero::INDEX,
+            Self::HeroInformation(_) => HeroInformation::INDEX,
             Self::UpdateHeroSpawnState(_) => UpdateHeroSpawnState::INDEX,
             Self::UnlockHeroAutoPot(_) => UnlockHeroAutoPot::INDEX,
             Self::SetAutoPotValue(_) => SetAutoPotValue::INDEX,
             Self::SetAutoPotItem(_) => SetAutoPotItem::INDEX,
             Self::SetHeroBehaviour(_) => SetHeroBehaviour::INDEX,
+            Self::ManageHeroes(_) => ManageHeroes::INDEX,
             Self::ChangeHero(_) => ChangeHero::INDEX,
             Self::DefaultNPC(_) => DefaultNPC::INDEX,
             Self::NPCUpdate(_) => NPCUpdate::INDEX,
@@ -7408,9 +8218,13 @@ impl ServerPacket {
             Self::TransformUpdate(_) => TransformUpdate::INDEX,
             Self::EquipSlotItem(_) => EquipSlotItem::INDEX,
             Self::FishingUpdate(_) => FishingUpdate::INDEX,
+            Self::ChangeQuest(_) => ChangeQuest::INDEX,
+            Self::CompleteQuest(_) => CompleteQuest::INDEX,
             Self::ShareQuest(_) => ShareQuest::INDEX,
+            Self::NewQuestInfo(_) => NewQuestInfo::INDEX,
             Self::GainedQuestItem(_) => GainedQuestItem::INDEX,
             Self::DeleteQuestItem(_) => DeleteQuestItem::INDEX,
+            Self::GameShopInfo(_) => GameShopInfo::INDEX,
             Self::GameShopStock(_) => GameShopStock::INDEX,
             Self::CancelReincarnation(_) => CancelReincarnation::INDEX,
             Self::RequestReincarnation(_) => RequestReincarnation::INDEX,
@@ -7432,8 +8246,10 @@ impl ServerPacket {
             Self::NPCDisassemble(_) => NPCDisassemble::INDEX,
             Self::NPCDowngrade(_) => NPCDowngrade::INDEX,
             Self::NPCReset(_) => NPCReset::INDEX,
+            Self::AwakeningNeedMaterials(_) => AwakeningNeedMaterials::INDEX,
             Self::AwakeningLockedItem(_) => AwakeningLockedItem::INDEX,
             Self::Awakening(_) => Awakening::INDEX,
+            Self::ReceiveMail(_) => ReceiveMail::INDEX,
             Self::MailLockedItem(_) => MailLockedItem::INDEX,
             Self::MailSent(_) => MailSent::INDEX,
             Self::MailSendRequest(_) => MailSendRequest::INDEX,
@@ -7441,30 +8257,41 @@ impl ServerPacket {
             Self::MailCost(_) => MailCost::INDEX,
             Self::ResizeInventory(_) => ResizeInventory::INDEX,
             Self::ResizeStorage(_) => ResizeStorage::INDEX,
+            Self::NewIntelligentCreature(_) => NewIntelligentCreature::INDEX,
+            Self::UpdateIntelligentCreatureList(_) => UpdateIntelligentCreatureList::INDEX,
             Self::IntelligentCreatureEnableRename(_) => IntelligentCreatureEnableRename::INDEX,
             Self::IntelligentCreaturePickup(_) => IntelligentCreaturePickup::INDEX,
             Self::NPCPearlGoods(_) => NPCPearlGoods::INDEX,
+            Self::FriendUpdate(_) => FriendUpdate::INDEX,
+            Self::GuildBuffList(_) => GuildBuffList::INDEX,
             Self::LoverUpdate(_) => LoverUpdate::INDEX,
             Self::MentorUpdate(_) => MentorUpdate::INDEX,
             Self::NPCRequestInput(_) => NPCRequestInput::INDEX,
+            Self::Rankings(_) => Rankings::INDEX,
             Self::Opendoor(_) => Opendoor::INDEX,
+            Self::GetRentedItems(_) => GetRentedItems::INDEX,
             Self::ItemRentalRequest(_) => ItemRentalRequest::INDEX,
             Self::ItemRentalFee(_) => ItemRentalFee::INDEX,
             Self::ItemRentalPeriod(_) => ItemRentalPeriod::INDEX,
             Self::DepositRentalItem(_) => DepositRentalItem::INDEX,
             Self::RetrieveRentalItem(_) => RetrieveRentalItem::INDEX,
+            Self::UpdateRentalItem(_) => UpdateRentalItem::INDEX,
             Self::CancelItemRental(_) => CancelItemRental::INDEX,
             Self::ItemRentalLock(_) => ItemRentalLock::INDEX,
             Self::ItemRentalPartnerLock(_) => ItemRentalPartnerLock::INDEX,
             Self::CanConfirmItemRental(_) => CanConfirmItemRental::INDEX,
             Self::ConfirmItemRental(_) => ConfirmItemRental::INDEX,
+            Self::NewRecipeInfo(_) => NewRecipeInfo::INDEX,
             Self::CraftItem(_) => CraftItem::INDEX,
             Self::OpenBrowser(_) => OpenBrowser::INDEX,
             Self::PlaySound(_) => PlaySound::INDEX,
             Self::SetTimer(_) => SetTimer::INDEX,
             Self::ExpireTimer(_) => ExpireTimer::INDEX,
+            Self::UpdateNotice(_) => UpdateNotice::INDEX,
             Self::Roll(_) => Roll::INDEX,
             Self::SetCompass(_) => SetCompass::INDEX,
+            Self::NewMonsterInfo(_) => NewMonsterInfo::INDEX,
+            Self::NewNPCInfo(_) => NewNPCInfo::INDEX,
         }
     }
 
@@ -7492,16 +8319,22 @@ impl ServerPacket {
             Self::StartGameBanned(_) => StartGameBanned::COMPRESSED,
             Self::StartGameDelay(_) => StartGameDelay::COMPRESSED,
             Self::MapInformation(_) => MapInformation::COMPRESSED,
+            Self::NewMapInfo(_) => NewMapInfo::COMPRESSED,
+            Self::WorldMapSetupInfo(_) => WorldMapSetupInfo::COMPRESSED,
             Self::SearchMapResult(_) => SearchMapResult::COMPRESSED,
             Self::UserInformation(_) => UserInformation::COMPRESSED,
+            Self::UserSlotsRefresh(_) => UserSlotsRefresh::COMPRESSED,
             Self::UserLocation(_) => UserLocation::COMPRESSED,
             Self::ObjectPlayer(_) => ObjectPlayer::COMPRESSED,
+            Self::ObjectHero(_) => ObjectHero::COMPRESSED,
             Self::ObjectRemove(_) => ObjectRemove::COMPRESSED,
             Self::ObjectTurn(_) => ObjectTurn::COMPRESSED,
             Self::ObjectWalk(_) => ObjectWalk::COMPRESSED,
             Self::ObjectRun(_) => ObjectRun::COMPRESSED,
             Self::Chat(_) => Chat::COMPRESSED,
             Self::ObjectChat(_) => ObjectChat::COMPRESSED,
+            Self::NewItemInfo(_) => NewItemInfo::COMPRESSED,
+            Self::NewHeroInfo(_) => NewHeroInfo::COMPRESSED,
             Self::NewChatItem(_) => NewChatItem::COMPRESSED,
             Self::MoveItem(_) => MoveItem::COMPRESSED,
             Self::EquipItem(_) => EquipItem::COMPRESSED,
@@ -7591,16 +8424,20 @@ impl ServerPacket {
             Self::ItemRepaired(_) => ItemRepaired::COMPRESSED,
             Self::ItemSlotSizeChanged(_) => ItemSlotSizeChanged::COMPRESSED,
             Self::ItemSealChanged(_) => ItemSealChanged::COMPRESSED,
+            Self::NewMagic(_) => NewMagic::COMPRESSED,
             Self::RemoveMagic(_) => RemoveMagic::COMPRESSED,
             Self::MagicLeveled(_) => MagicLeveled::COMPRESSED,
+            Self::Magic(_) => Magic::COMPRESSED,
             Self::MagicDelay(_) => MagicDelay::COMPRESSED,
             Self::MagicCast(_) => MagicCast::COMPRESSED,
+            Self::ObjectMagic(_) => ObjectMagic::COMPRESSED,
             Self::ObjectEffect(_) => ObjectEffect::COMPRESSED,
             Self::ObjectProjectile(_) => ObjectProjectile::COMPRESSED,
             Self::RangeAttack(_) => RangeAttack::COMPRESSED,
             Self::Pushed(_) => Pushed::COMPRESSED,
             Self::ObjectPushed(_) => ObjectPushed::COMPRESSED,
             Self::ObjectName(_) => ObjectName::COMPRESSED,
+            Self::UserStorage(_) => UserStorage::COMPRESSED,
             Self::SwitchGroup(_) => SwitchGroup::COMPRESSED,
             Self::DeleteGroup(_) => DeleteGroup::COMPRESSED,
             Self::DeleteMember(_) => DeleteMember::COMPRESSED,
@@ -7616,6 +8453,7 @@ impl ServerPacket {
             Self::MapEffect(_) => MapEffect::COMPRESSED,
             Self::AllowObserve(_) => AllowObserve::COMPRESSED,
             Self::ObjectRangeAttack(_) => ObjectRangeAttack::COMPRESSED,
+            Self::AddBuff(_) => AddBuff::COMPRESSED,
             Self::RemoveBuff(_) => RemoveBuff::COMPRESSED,
             Self::PauseBuff(_) => PauseBuff::COMPRESSED,
             Self::ObjectHidden(_) => ObjectHidden::COMPRESSED,
@@ -7627,24 +8465,37 @@ impl ServerPacket {
             Self::ObjectDashFail(_) => ObjectDashFail::COMPRESSED,
             Self::RemoveDelayedExplosion(_) => RemoveDelayedExplosion::COMPRESSED,
             Self::NPCConsign(_) => NPCConsign::COMPRESSED,
+            Self::NPCMarket(_) => NPCMarket::COMPRESSED,
+            Self::NPCMarketPage(_) => NPCMarketPage::COMPRESSED,
+            Self::GuildTerritoryPage(_) => GuildTerritoryPage::COMPRESSED,
             Self::ConsignItem(_) => ConsignItem::COMPRESSED,
             Self::MarketFail(_) => MarketFail::COMPRESSED,
             Self::MarketSuccess(_) => MarketSuccess::COMPRESSED,
             Self::ObjectSitDown(_) => ObjectSitDown::COMPRESSED,
             Self::InTrapRock(_) => InTrapRock::COMPRESSED,
+            Self::BaseStatsInfo(_) => BaseStatsInfo::COMPRESSED,
+            Self::HeroBaseStatsInfo(_) => HeroBaseStatsInfo::COMPRESSED,
             Self::UserName(_) => UserName::COMPRESSED,
+            Self::ChatItemStats(_) => ChatItemStats::COMPRESSED,
+            Self::GuildNoticeChange(_) => GuildNoticeChange::COMPRESSED,
+            Self::GuildMemberChange(_) => GuildMemberChange::COMPRESSED,
             Self::GuildStatus(_) => GuildStatus::COMPRESSED,
             Self::GuildInvite(_) => GuildInvite::COMPRESSED,
             Self::GuildExpGain(_) => GuildExpGain::COMPRESSED,
             Self::GuildNameRequest(_) => GuildNameRequest::COMPRESSED,
             Self::GuildStorageGoldChange(_) => GuildStorageGoldChange::COMPRESSED,
+            Self::GuildStorageItemChange(_) => GuildStorageItemChange::COMPRESSED,
+            Self::GuildStorageList(_) => GuildStorageList::COMPRESSED,
             Self::GuildRequestWar(_) => GuildRequestWar::COMPRESSED,
+            Self::HeroCreateRequest(_) => HeroCreateRequest::COMPRESSED,
             Self::NewHero(_) => NewHero::COMPRESSED,
+            Self::HeroInformation(_) => HeroInformation::COMPRESSED,
             Self::UpdateHeroSpawnState(_) => UpdateHeroSpawnState::COMPRESSED,
             Self::UnlockHeroAutoPot(_) => UnlockHeroAutoPot::COMPRESSED,
             Self::SetAutoPotValue(_) => SetAutoPotValue::COMPRESSED,
             Self::SetAutoPotItem(_) => SetAutoPotItem::COMPRESSED,
             Self::SetHeroBehaviour(_) => SetHeroBehaviour::COMPRESSED,
+            Self::ManageHeroes(_) => ManageHeroes::COMPRESSED,
             Self::ChangeHero(_) => ChangeHero::COMPRESSED,
             Self::DefaultNPC(_) => DefaultNPC::COMPRESSED,
             Self::NPCUpdate(_) => NPCUpdate::COMPRESSED,
@@ -7653,9 +8504,13 @@ impl ServerPacket {
             Self::TransformUpdate(_) => TransformUpdate::COMPRESSED,
             Self::EquipSlotItem(_) => EquipSlotItem::COMPRESSED,
             Self::FishingUpdate(_) => FishingUpdate::COMPRESSED,
+            Self::ChangeQuest(_) => ChangeQuest::COMPRESSED,
+            Self::CompleteQuest(_) => CompleteQuest::COMPRESSED,
             Self::ShareQuest(_) => ShareQuest::COMPRESSED,
+            Self::NewQuestInfo(_) => NewQuestInfo::COMPRESSED,
             Self::GainedQuestItem(_) => GainedQuestItem::COMPRESSED,
             Self::DeleteQuestItem(_) => DeleteQuestItem::COMPRESSED,
+            Self::GameShopInfo(_) => GameShopInfo::COMPRESSED,
             Self::GameShopStock(_) => GameShopStock::COMPRESSED,
             Self::CancelReincarnation(_) => CancelReincarnation::COMPRESSED,
             Self::RequestReincarnation(_) => RequestReincarnation::COMPRESSED,
@@ -7677,8 +8532,10 @@ impl ServerPacket {
             Self::NPCDisassemble(_) => NPCDisassemble::COMPRESSED,
             Self::NPCDowngrade(_) => NPCDowngrade::COMPRESSED,
             Self::NPCReset(_) => NPCReset::COMPRESSED,
+            Self::AwakeningNeedMaterials(_) => AwakeningNeedMaterials::COMPRESSED,
             Self::AwakeningLockedItem(_) => AwakeningLockedItem::COMPRESSED,
             Self::Awakening(_) => Awakening::COMPRESSED,
+            Self::ReceiveMail(_) => ReceiveMail::COMPRESSED,
             Self::MailLockedItem(_) => MailLockedItem::COMPRESSED,
             Self::MailSent(_) => MailSent::COMPRESSED,
             Self::MailSendRequest(_) => MailSendRequest::COMPRESSED,
@@ -7686,30 +8543,41 @@ impl ServerPacket {
             Self::MailCost(_) => MailCost::COMPRESSED,
             Self::ResizeInventory(_) => ResizeInventory::COMPRESSED,
             Self::ResizeStorage(_) => ResizeStorage::COMPRESSED,
+            Self::NewIntelligentCreature(_) => NewIntelligentCreature::COMPRESSED,
+            Self::UpdateIntelligentCreatureList(_) => UpdateIntelligentCreatureList::COMPRESSED,
             Self::IntelligentCreatureEnableRename(_) => IntelligentCreatureEnableRename::COMPRESSED,
             Self::IntelligentCreaturePickup(_) => IntelligentCreaturePickup::COMPRESSED,
             Self::NPCPearlGoods(_) => NPCPearlGoods::COMPRESSED,
+            Self::FriendUpdate(_) => FriendUpdate::COMPRESSED,
+            Self::GuildBuffList(_) => GuildBuffList::COMPRESSED,
             Self::LoverUpdate(_) => LoverUpdate::COMPRESSED,
             Self::MentorUpdate(_) => MentorUpdate::COMPRESSED,
             Self::NPCRequestInput(_) => NPCRequestInput::COMPRESSED,
+            Self::Rankings(_) => Rankings::COMPRESSED,
             Self::Opendoor(_) => Opendoor::COMPRESSED,
+            Self::GetRentedItems(_) => GetRentedItems::COMPRESSED,
             Self::ItemRentalRequest(_) => ItemRentalRequest::COMPRESSED,
             Self::ItemRentalFee(_) => ItemRentalFee::COMPRESSED,
             Self::ItemRentalPeriod(_) => ItemRentalPeriod::COMPRESSED,
             Self::DepositRentalItem(_) => DepositRentalItem::COMPRESSED,
             Self::RetrieveRentalItem(_) => RetrieveRentalItem::COMPRESSED,
+            Self::UpdateRentalItem(_) => UpdateRentalItem::COMPRESSED,
             Self::CancelItemRental(_) => CancelItemRental::COMPRESSED,
             Self::ItemRentalLock(_) => ItemRentalLock::COMPRESSED,
             Self::ItemRentalPartnerLock(_) => ItemRentalPartnerLock::COMPRESSED,
             Self::CanConfirmItemRental(_) => CanConfirmItemRental::COMPRESSED,
             Self::ConfirmItemRental(_) => ConfirmItemRental::COMPRESSED,
+            Self::NewRecipeInfo(_) => NewRecipeInfo::COMPRESSED,
             Self::CraftItem(_) => CraftItem::COMPRESSED,
             Self::OpenBrowser(_) => OpenBrowser::COMPRESSED,
             Self::PlaySound(_) => PlaySound::COMPRESSED,
             Self::SetTimer(_) => SetTimer::COMPRESSED,
             Self::ExpireTimer(_) => ExpireTimer::COMPRESSED,
+            Self::UpdateNotice(_) => UpdateNotice::COMPRESSED,
             Self::Roll(_) => Roll::COMPRESSED,
             Self::SetCompass(_) => SetCompass::COMPRESSED,
+            Self::NewMonsterInfo(_) => NewMonsterInfo::COMPRESSED,
+            Self::NewNPCInfo(_) => NewNPCInfo::COMPRESSED,
         }
     }
 
@@ -7827,6 +8695,16 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::MapInformation(MapInformation::decode(&mut r)?))
             }
+            NewMapInfo::INDEX => {
+                let body = crate::codec::decompress_if(NewMapInfo::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::NewMapInfo(NewMapInfo::decode(&mut r)?))
+            }
+            WorldMapSetupInfo::INDEX => {
+                let body = crate::codec::decompress_if(WorldMapSetupInfo::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::WorldMapSetupInfo(WorldMapSetupInfo::decode(&mut r)?))
+            }
             SearchMapResult::INDEX => {
                 let body = crate::codec::decompress_if(SearchMapResult::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
@@ -7837,6 +8715,11 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::UserInformation(UserInformation::decode(&mut r)?))
             }
+            UserSlotsRefresh::INDEX => {
+                let body = crate::codec::decompress_if(UserSlotsRefresh::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::UserSlotsRefresh(UserSlotsRefresh::decode(&mut r)?))
+            }
             UserLocation::INDEX => {
                 let body = crate::codec::decompress_if(UserLocation::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
@@ -7846,6 +8729,11 @@ impl ServerPacket {
                 let body = crate::codec::decompress_if(ObjectPlayer::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::ObjectPlayer(ObjectPlayer::decode(&mut r)?))
+            }
+            ObjectHero::INDEX => {
+                let body = crate::codec::decompress_if(ObjectHero::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::ObjectHero(ObjectHero::decode(&mut r)?))
             }
             ObjectRemove::INDEX => {
                 let body = crate::codec::decompress_if(ObjectRemove::COMPRESSED, payload)?;
@@ -7876,6 +8764,16 @@ impl ServerPacket {
                 let body = crate::codec::decompress_if(ObjectChat::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::ObjectChat(ObjectChat::decode(&mut r)?))
+            }
+            NewItemInfo::INDEX => {
+                let body = crate::codec::decompress_if(NewItemInfo::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::NewItemInfo(NewItemInfo::decode(&mut r)?))
+            }
+            NewHeroInfo::INDEX => {
+                let body = crate::codec::decompress_if(NewHeroInfo::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::NewHeroInfo(NewHeroInfo::decode(&mut r)?))
             }
             NewChatItem::INDEX => {
                 let body = crate::codec::decompress_if(NewChatItem::COMPRESSED, payload)?;
@@ -8333,6 +9231,11 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::ItemSealChanged(ItemSealChanged::decode(&mut r)?))
             }
+            NewMagic::INDEX => {
+                let body = crate::codec::decompress_if(NewMagic::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::NewMagic(NewMagic::decode(&mut r)?))
+            }
             RemoveMagic::INDEX => {
                 let body = crate::codec::decompress_if(RemoveMagic::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
@@ -8343,6 +9246,11 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::MagicLeveled(MagicLeveled::decode(&mut r)?))
             }
+            Magic::INDEX => {
+                let body = crate::codec::decompress_if(Magic::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::Magic(Magic::decode(&mut r)?))
+            }
             MagicDelay::INDEX => {
                 let body = crate::codec::decompress_if(MagicDelay::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
@@ -8352,6 +9260,11 @@ impl ServerPacket {
                 let body = crate::codec::decompress_if(MagicCast::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::MagicCast(MagicCast::decode(&mut r)?))
+            }
+            ObjectMagic::INDEX => {
+                let body = crate::codec::decompress_if(ObjectMagic::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::ObjectMagic(ObjectMagic::decode(&mut r)?))
             }
             ObjectEffect::INDEX => {
                 let body = crate::codec::decompress_if(ObjectEffect::COMPRESSED, payload)?;
@@ -8382,6 +9295,11 @@ impl ServerPacket {
                 let body = crate::codec::decompress_if(ObjectName::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::ObjectName(ObjectName::decode(&mut r)?))
+            }
+            UserStorage::INDEX => {
+                let body = crate::codec::decompress_if(UserStorage::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::UserStorage(UserStorage::decode(&mut r)?))
             }
             SwitchGroup::INDEX => {
                 let body = crate::codec::decompress_if(SwitchGroup::COMPRESSED, payload)?;
@@ -8460,6 +9378,11 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::ObjectRangeAttack(ObjectRangeAttack::decode(&mut r)?))
             }
+            AddBuff::INDEX => {
+                let body = crate::codec::decompress_if(AddBuff::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::AddBuff(AddBuff::decode(&mut r)?))
+            }
             RemoveBuff::INDEX => {
                 let body = crate::codec::decompress_if(RemoveBuff::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
@@ -8518,6 +9441,23 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::NPCConsign(NPCConsign::decode(&mut r)?))
             }
+            NPCMarket::INDEX => {
+                let body = crate::codec::decompress_if(NPCMarket::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::NPCMarket(NPCMarket::decode(&mut r)?))
+            }
+            NPCMarketPage::INDEX => {
+                let body = crate::codec::decompress_if(NPCMarketPage::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::NPCMarketPage(NPCMarketPage::decode(&mut r)?))
+            }
+            GuildTerritoryPage::INDEX => {
+                let body = crate::codec::decompress_if(GuildTerritoryPage::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::GuildTerritoryPage(GuildTerritoryPage::decode(
+                    &mut r,
+                )?))
+            }
             ConsignItem::INDEX => {
                 let body = crate::codec::decompress_if(ConsignItem::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
@@ -8543,10 +9483,35 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::InTrapRock(InTrapRock::decode(&mut r)?))
             }
+            BaseStatsInfo::INDEX => {
+                let body = crate::codec::decompress_if(BaseStatsInfo::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::BaseStatsInfo(BaseStatsInfo::decode(&mut r)?))
+            }
+            HeroBaseStatsInfo::INDEX => {
+                let body = crate::codec::decompress_if(HeroBaseStatsInfo::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::HeroBaseStatsInfo(HeroBaseStatsInfo::decode(&mut r)?))
+            }
             UserName::INDEX => {
                 let body = crate::codec::decompress_if(UserName::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::UserName(UserName::decode(&mut r)?))
+            }
+            ChatItemStats::INDEX => {
+                let body = crate::codec::decompress_if(ChatItemStats::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::ChatItemStats(ChatItemStats::decode(&mut r)?))
+            }
+            GuildNoticeChange::INDEX => {
+                let body = crate::codec::decompress_if(GuildNoticeChange::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::GuildNoticeChange(GuildNoticeChange::decode(&mut r)?))
+            }
+            GuildMemberChange::INDEX => {
+                let body = crate::codec::decompress_if(GuildMemberChange::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::GuildMemberChange(GuildMemberChange::decode(&mut r)?))
             }
             GuildStatus::INDEX => {
                 let body = crate::codec::decompress_if(GuildStatus::COMPRESSED, payload)?;
@@ -8576,15 +9541,38 @@ impl ServerPacket {
                     GuildStorageGoldChange::decode(&mut r)?,
                 ))
             }
+            GuildStorageItemChange::INDEX => {
+                let body =
+                    crate::codec::decompress_if(GuildStorageItemChange::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::GuildStorageItemChange(
+                    GuildStorageItemChange::decode(&mut r)?,
+                ))
+            }
+            GuildStorageList::INDEX => {
+                let body = crate::codec::decompress_if(GuildStorageList::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::GuildStorageList(GuildStorageList::decode(&mut r)?))
+            }
             GuildRequestWar::INDEX => {
                 let body = crate::codec::decompress_if(GuildRequestWar::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::GuildRequestWar(GuildRequestWar::decode(&mut r)?))
             }
+            HeroCreateRequest::INDEX => {
+                let body = crate::codec::decompress_if(HeroCreateRequest::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::HeroCreateRequest(HeroCreateRequest::decode(&mut r)?))
+            }
             NewHero::INDEX => {
                 let body = crate::codec::decompress_if(NewHero::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::NewHero(NewHero::decode(&mut r)?))
+            }
+            HeroInformation::INDEX => {
+                let body = crate::codec::decompress_if(HeroInformation::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::HeroInformation(HeroInformation::decode(&mut r)?))
             }
             UpdateHeroSpawnState::INDEX => {
                 let body = crate::codec::decompress_if(UpdateHeroSpawnState::COMPRESSED, payload)?;
@@ -8612,6 +9600,11 @@ impl ServerPacket {
                 let body = crate::codec::decompress_if(SetHeroBehaviour::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::SetHeroBehaviour(SetHeroBehaviour::decode(&mut r)?))
+            }
+            ManageHeroes::INDEX => {
+                let body = crate::codec::decompress_if(ManageHeroes::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::ManageHeroes(ManageHeroes::decode(&mut r)?))
             }
             ChangeHero::INDEX => {
                 let body = crate::codec::decompress_if(ChangeHero::COMPRESSED, payload)?;
@@ -8653,10 +9646,25 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::FishingUpdate(FishingUpdate::decode(&mut r)?))
             }
+            ChangeQuest::INDEX => {
+                let body = crate::codec::decompress_if(ChangeQuest::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::ChangeQuest(ChangeQuest::decode(&mut r)?))
+            }
+            CompleteQuest::INDEX => {
+                let body = crate::codec::decompress_if(CompleteQuest::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::CompleteQuest(CompleteQuest::decode(&mut r)?))
+            }
             ShareQuest::INDEX => {
                 let body = crate::codec::decompress_if(ShareQuest::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::ShareQuest(ShareQuest::decode(&mut r)?))
+            }
+            NewQuestInfo::INDEX => {
+                let body = crate::codec::decompress_if(NewQuestInfo::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::NewQuestInfo(NewQuestInfo::decode(&mut r)?))
             }
             GainedQuestItem::INDEX => {
                 let body = crate::codec::decompress_if(GainedQuestItem::COMPRESSED, payload)?;
@@ -8667,6 +9675,11 @@ impl ServerPacket {
                 let body = crate::codec::decompress_if(DeleteQuestItem::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::DeleteQuestItem(DeleteQuestItem::decode(&mut r)?))
+            }
+            GameShopInfo::INDEX => {
+                let body = crate::codec::decompress_if(GameShopInfo::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::GameShopInfo(GameShopInfo::decode(&mut r)?))
             }
             GameShopStock::INDEX => {
                 let body = crate::codec::decompress_if(GameShopStock::COMPRESSED, payload)?;
@@ -8779,6 +9792,14 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::NPCReset(NPCReset::decode(&mut r)?))
             }
+            AwakeningNeedMaterials::INDEX => {
+                let body =
+                    crate::codec::decompress_if(AwakeningNeedMaterials::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::AwakeningNeedMaterials(
+                    AwakeningNeedMaterials::decode(&mut r)?,
+                ))
+            }
             AwakeningLockedItem::INDEX => {
                 let body = crate::codec::decompress_if(AwakeningLockedItem::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
@@ -8790,6 +9811,11 @@ impl ServerPacket {
                 let body = crate::codec::decompress_if(Awakening::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::Awakening(Awakening::decode(&mut r)?))
+            }
+            ReceiveMail::INDEX => {
+                let body = crate::codec::decompress_if(ReceiveMail::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::ReceiveMail(ReceiveMail::decode(&mut r)?))
             }
             MailLockedItem::INDEX => {
                 let body = crate::codec::decompress_if(MailLockedItem::COMPRESSED, payload)?;
@@ -8826,6 +9852,24 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::ResizeStorage(ResizeStorage::decode(&mut r)?))
             }
+            NewIntelligentCreature::INDEX => {
+                let body =
+                    crate::codec::decompress_if(NewIntelligentCreature::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::NewIntelligentCreature(
+                    NewIntelligentCreature::decode(&mut r)?,
+                ))
+            }
+            UpdateIntelligentCreatureList::INDEX => {
+                let body = crate::codec::decompress_if(
+                    UpdateIntelligentCreatureList::COMPRESSED,
+                    payload,
+                )?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::UpdateIntelligentCreatureList(
+                    UpdateIntelligentCreatureList::decode(&mut r)?,
+                ))
+            }
             IntelligentCreatureEnableRename::INDEX => {
                 let body = crate::codec::decompress_if(
                     IntelligentCreatureEnableRename::COMPRESSED,
@@ -8849,6 +9893,16 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::NPCPearlGoods(NPCPearlGoods::decode(&mut r)?))
             }
+            FriendUpdate::INDEX => {
+                let body = crate::codec::decompress_if(FriendUpdate::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::FriendUpdate(FriendUpdate::decode(&mut r)?))
+            }
+            GuildBuffList::INDEX => {
+                let body = crate::codec::decompress_if(GuildBuffList::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::GuildBuffList(GuildBuffList::decode(&mut r)?))
+            }
             LoverUpdate::INDEX => {
                 let body = crate::codec::decompress_if(LoverUpdate::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
@@ -8864,10 +9918,20 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::NPCRequestInput(NPCRequestInput::decode(&mut r)?))
             }
+            Rankings::INDEX => {
+                let body = crate::codec::decompress_if(Rankings::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::Rankings(Rankings::decode(&mut r)?))
+            }
             Opendoor::INDEX => {
                 let body = crate::codec::decompress_if(Opendoor::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::Opendoor(Opendoor::decode(&mut r)?))
+            }
+            GetRentedItems::INDEX => {
+                let body = crate::codec::decompress_if(GetRentedItems::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::GetRentedItems(GetRentedItems::decode(&mut r)?))
             }
             ItemRentalRequest::INDEX => {
                 let body = crate::codec::decompress_if(ItemRentalRequest::COMPRESSED, payload)?;
@@ -8895,6 +9959,11 @@ impl ServerPacket {
                 Ok(Self::RetrieveRentalItem(RetrieveRentalItem::decode(
                     &mut r,
                 )?))
+            }
+            UpdateRentalItem::INDEX => {
+                let body = crate::codec::decompress_if(UpdateRentalItem::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::UpdateRentalItem(UpdateRentalItem::decode(&mut r)?))
             }
             CancelItemRental::INDEX => {
                 let body = crate::codec::decompress_if(CancelItemRental::COMPRESSED, payload)?;
@@ -8925,6 +9994,11 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::ConfirmItemRental(ConfirmItemRental::decode(&mut r)?))
             }
+            NewRecipeInfo::INDEX => {
+                let body = crate::codec::decompress_if(NewRecipeInfo::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::NewRecipeInfo(NewRecipeInfo::decode(&mut r)?))
+            }
             CraftItem::INDEX => {
                 let body = crate::codec::decompress_if(CraftItem::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
@@ -8950,6 +10024,11 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::ExpireTimer(ExpireTimer::decode(&mut r)?))
             }
+            UpdateNotice::INDEX => {
+                let body = crate::codec::decompress_if(UpdateNotice::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::UpdateNotice(UpdateNotice::decode(&mut r)?))
+            }
             Roll::INDEX => {
                 let body = crate::codec::decompress_if(Roll::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
@@ -8959,6 +10038,16 @@ impl ServerPacket {
                 let body = crate::codec::decompress_if(SetCompass::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::SetCompass(SetCompass::decode(&mut r)?))
+            }
+            NewMonsterInfo::INDEX => {
+                let body = crate::codec::decompress_if(NewMonsterInfo::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::NewMonsterInfo(NewMonsterInfo::decode(&mut r)?))
+            }
+            NewNPCInfo::INDEX => {
+                let body = crate::codec::decompress_if(NewNPCInfo::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::NewNPCInfo(NewNPCInfo::decode(&mut r)?))
             }
             other => Err(crate::ProtocolError::UnknownPacket { index: other }),
         }
@@ -8987,16 +10076,22 @@ impl ServerPacket {
             Self::StartGameBanned(p) => p.encode(w),
             Self::StartGameDelay(p) => p.encode(w),
             Self::MapInformation(p) => p.encode(w),
+            Self::NewMapInfo(p) => p.encode(w),
+            Self::WorldMapSetupInfo(p) => p.encode(w),
             Self::SearchMapResult(p) => p.encode(w),
             Self::UserInformation(p) => p.encode(w),
+            Self::UserSlotsRefresh(p) => p.encode(w),
             Self::UserLocation(p) => p.encode(w),
             Self::ObjectPlayer(p) => p.encode(w),
+            Self::ObjectHero(p) => p.encode(w),
             Self::ObjectRemove(p) => p.encode(w),
             Self::ObjectTurn(p) => p.encode(w),
             Self::ObjectWalk(p) => p.encode(w),
             Self::ObjectRun(p) => p.encode(w),
             Self::Chat(p) => p.encode(w),
             Self::ObjectChat(p) => p.encode(w),
+            Self::NewItemInfo(p) => p.encode(w),
+            Self::NewHeroInfo(p) => p.encode(w),
             Self::NewChatItem(p) => p.encode(w),
             Self::MoveItem(p) => p.encode(w),
             Self::EquipItem(p) => p.encode(w),
@@ -9086,16 +10181,20 @@ impl ServerPacket {
             Self::ItemRepaired(p) => p.encode(w),
             Self::ItemSlotSizeChanged(p) => p.encode(w),
             Self::ItemSealChanged(p) => p.encode(w),
+            Self::NewMagic(p) => p.encode(w),
             Self::RemoveMagic(p) => p.encode(w),
             Self::MagicLeveled(p) => p.encode(w),
+            Self::Magic(p) => p.encode(w),
             Self::MagicDelay(p) => p.encode(w),
             Self::MagicCast(p) => p.encode(w),
+            Self::ObjectMagic(p) => p.encode(w),
             Self::ObjectEffect(p) => p.encode(w),
             Self::ObjectProjectile(p) => p.encode(w),
             Self::RangeAttack(p) => p.encode(w),
             Self::Pushed(p) => p.encode(w),
             Self::ObjectPushed(p) => p.encode(w),
             Self::ObjectName(p) => p.encode(w),
+            Self::UserStorage(p) => p.encode(w),
             Self::SwitchGroup(p) => p.encode(w),
             Self::DeleteGroup(p) => p.encode(w),
             Self::DeleteMember(p) => p.encode(w),
@@ -9111,6 +10210,7 @@ impl ServerPacket {
             Self::MapEffect(p) => p.encode(w),
             Self::AllowObserve(p) => p.encode(w),
             Self::ObjectRangeAttack(p) => p.encode(w),
+            Self::AddBuff(p) => p.encode(w),
             Self::RemoveBuff(p) => p.encode(w),
             Self::PauseBuff(p) => p.encode(w),
             Self::ObjectHidden(p) => p.encode(w),
@@ -9122,24 +10222,37 @@ impl ServerPacket {
             Self::ObjectDashFail(p) => p.encode(w),
             Self::RemoveDelayedExplosion(p) => p.encode(w),
             Self::NPCConsign(p) => p.encode(w),
+            Self::NPCMarket(p) => p.encode(w),
+            Self::NPCMarketPage(p) => p.encode(w),
+            Self::GuildTerritoryPage(p) => p.encode(w),
             Self::ConsignItem(p) => p.encode(w),
             Self::MarketFail(p) => p.encode(w),
             Self::MarketSuccess(p) => p.encode(w),
             Self::ObjectSitDown(p) => p.encode(w),
             Self::InTrapRock(p) => p.encode(w),
+            Self::BaseStatsInfo(p) => p.encode(w),
+            Self::HeroBaseStatsInfo(p) => p.encode(w),
             Self::UserName(p) => p.encode(w),
+            Self::ChatItemStats(p) => p.encode(w),
+            Self::GuildNoticeChange(p) => p.encode(w),
+            Self::GuildMemberChange(p) => p.encode(w),
             Self::GuildStatus(p) => p.encode(w),
             Self::GuildInvite(p) => p.encode(w),
             Self::GuildExpGain(p) => p.encode(w),
             Self::GuildNameRequest(p) => p.encode(w),
             Self::GuildStorageGoldChange(p) => p.encode(w),
+            Self::GuildStorageItemChange(p) => p.encode(w),
+            Self::GuildStorageList(p) => p.encode(w),
             Self::GuildRequestWar(p) => p.encode(w),
+            Self::HeroCreateRequest(p) => p.encode(w),
             Self::NewHero(p) => p.encode(w),
+            Self::HeroInformation(p) => p.encode(w),
             Self::UpdateHeroSpawnState(p) => p.encode(w),
             Self::UnlockHeroAutoPot(p) => p.encode(w),
             Self::SetAutoPotValue(p) => p.encode(w),
             Self::SetAutoPotItem(p) => p.encode(w),
             Self::SetHeroBehaviour(p) => p.encode(w),
+            Self::ManageHeroes(p) => p.encode(w),
             Self::ChangeHero(p) => p.encode(w),
             Self::DefaultNPC(p) => p.encode(w),
             Self::NPCUpdate(p) => p.encode(w),
@@ -9148,9 +10261,13 @@ impl ServerPacket {
             Self::TransformUpdate(p) => p.encode(w),
             Self::EquipSlotItem(p) => p.encode(w),
             Self::FishingUpdate(p) => p.encode(w),
+            Self::ChangeQuest(p) => p.encode(w),
+            Self::CompleteQuest(p) => p.encode(w),
             Self::ShareQuest(p) => p.encode(w),
+            Self::NewQuestInfo(p) => p.encode(w),
             Self::GainedQuestItem(p) => p.encode(w),
             Self::DeleteQuestItem(p) => p.encode(w),
+            Self::GameShopInfo(p) => p.encode(w),
             Self::GameShopStock(p) => p.encode(w),
             Self::CancelReincarnation(p) => p.encode(w),
             Self::RequestReincarnation(p) => p.encode(w),
@@ -9172,8 +10289,10 @@ impl ServerPacket {
             Self::NPCDisassemble(p) => p.encode(w),
             Self::NPCDowngrade(p) => p.encode(w),
             Self::NPCReset(p) => p.encode(w),
+            Self::AwakeningNeedMaterials(p) => p.encode(w),
             Self::AwakeningLockedItem(p) => p.encode(w),
             Self::Awakening(p) => p.encode(w),
+            Self::ReceiveMail(p) => p.encode(w),
             Self::MailLockedItem(p) => p.encode(w),
             Self::MailSent(p) => p.encode(w),
             Self::MailSendRequest(p) => p.encode(w),
@@ -9181,30 +10300,41 @@ impl ServerPacket {
             Self::MailCost(p) => p.encode(w),
             Self::ResizeInventory(p) => p.encode(w),
             Self::ResizeStorage(p) => p.encode(w),
+            Self::NewIntelligentCreature(p) => p.encode(w),
+            Self::UpdateIntelligentCreatureList(p) => p.encode(w),
             Self::IntelligentCreatureEnableRename(p) => p.encode(w),
             Self::IntelligentCreaturePickup(p) => p.encode(w),
             Self::NPCPearlGoods(p) => p.encode(w),
+            Self::FriendUpdate(p) => p.encode(w),
+            Self::GuildBuffList(p) => p.encode(w),
             Self::LoverUpdate(p) => p.encode(w),
             Self::MentorUpdate(p) => p.encode(w),
             Self::NPCRequestInput(p) => p.encode(w),
+            Self::Rankings(p) => p.encode(w),
             Self::Opendoor(p) => p.encode(w),
+            Self::GetRentedItems(p) => p.encode(w),
             Self::ItemRentalRequest(p) => p.encode(w),
             Self::ItemRentalFee(p) => p.encode(w),
             Self::ItemRentalPeriod(p) => p.encode(w),
             Self::DepositRentalItem(p) => p.encode(w),
             Self::RetrieveRentalItem(p) => p.encode(w),
+            Self::UpdateRentalItem(p) => p.encode(w),
             Self::CancelItemRental(p) => p.encode(w),
             Self::ItemRentalLock(p) => p.encode(w),
             Self::ItemRentalPartnerLock(p) => p.encode(w),
             Self::CanConfirmItemRental(p) => p.encode(w),
             Self::ConfirmItemRental(p) => p.encode(w),
+            Self::NewRecipeInfo(p) => p.encode(w),
             Self::CraftItem(p) => p.encode(w),
             Self::OpenBrowser(p) => p.encode(w),
             Self::PlaySound(p) => p.encode(w),
             Self::SetTimer(p) => p.encode(w),
             Self::ExpireTimer(p) => p.encode(w),
+            Self::UpdateNotice(p) => p.encode(w),
             Self::Roll(p) => p.encode(w),
             Self::SetCompass(p) => p.encode(w),
+            Self::NewMonsterInfo(p) => p.encode(w),
+            Self::NewNPCInfo(p) => p.encode(w),
         }
     }
 
@@ -9214,5 +10344,307 @@ impl ServerPacket {
         let mut w = crate::PacketWriter::new();
         self.encode(&mut w);
         crate::codec::frame(self.index(), self.compressed(), w.into_inner())
+    }
+}
+
+#[cfg(test)]
+mod roundtrip {
+    /// 每个包的默认值走一遍 `encode_frame` → `decode`，必须与原文一致。
+    /// 这验证的是「生成器产出的读写路径互相对称」，不是与 Crystal 的字节一致性。
+    #[test]
+    fn default_packets_roundtrip() {
+        let packets = vec![
+            super::ServerPacket::KeepAlive(super::KeepAlive::default()),
+            super::ServerPacket::Connected(super::Connected::default()),
+            super::ServerPacket::ClientVersion(super::ClientVersion::default()),
+            super::ServerPacket::Disconnect(super::Disconnect::default()),
+            super::ServerPacket::NewAccount(super::NewAccount::default()),
+            super::ServerPacket::ChangePassword(super::ChangePassword::default()),
+            super::ServerPacket::ChangePasswordBanned(super::ChangePasswordBanned::default()),
+            super::ServerPacket::StorageUnlockResult(super::StorageUnlockResult::default()),
+            super::ServerPacket::StoragePasswordResult(super::StoragePasswordResult::default()),
+            super::ServerPacket::Login(super::Login::default()),
+            super::ServerPacket::LoginBanned(super::LoginBanned::default()),
+            super::ServerPacket::LoginSuccess(super::LoginSuccess::default()),
+            super::ServerPacket::NewCharacter(super::NewCharacter::default()),
+            super::ServerPacket::NewCharacterSuccess(super::NewCharacterSuccess::default()),
+            super::ServerPacket::DeleteCharacter(super::DeleteCharacter::default()),
+            super::ServerPacket::DeleteCharacterSuccess(super::DeleteCharacterSuccess::default()),
+            super::ServerPacket::StartGame(super::StartGame::default()),
+            super::ServerPacket::StartGameBanned(super::StartGameBanned::default()),
+            super::ServerPacket::StartGameDelay(super::StartGameDelay::default()),
+            super::ServerPacket::MapInformation(super::MapInformation::default()),
+            super::ServerPacket::NewMapInfo(super::NewMapInfo::default()),
+            super::ServerPacket::WorldMapSetupInfo(super::WorldMapSetupInfo::default()),
+            super::ServerPacket::SearchMapResult(super::SearchMapResult::default()),
+            super::ServerPacket::UserInformation(super::UserInformation::default()),
+            super::ServerPacket::UserSlotsRefresh(super::UserSlotsRefresh::default()),
+            super::ServerPacket::UserLocation(super::UserLocation::default()),
+            super::ServerPacket::ObjectPlayer(super::ObjectPlayer::default()),
+            super::ServerPacket::ObjectHero(super::ObjectHero::default()),
+            super::ServerPacket::ObjectRemove(super::ObjectRemove::default()),
+            super::ServerPacket::ObjectTurn(super::ObjectTurn::default()),
+            super::ServerPacket::ObjectWalk(super::ObjectWalk::default()),
+            super::ServerPacket::ObjectRun(super::ObjectRun::default()),
+            super::ServerPacket::Chat(super::Chat::default()),
+            super::ServerPacket::ObjectChat(super::ObjectChat::default()),
+            super::ServerPacket::NewItemInfo(super::NewItemInfo::default()),
+            super::ServerPacket::NewHeroInfo(super::NewHeroInfo::default()),
+            super::ServerPacket::NewChatItem(super::NewChatItem::default()),
+            super::ServerPacket::MoveItem(super::MoveItem::default()),
+            super::ServerPacket::EquipItem(super::EquipItem::default()),
+            super::ServerPacket::MergeItem(super::MergeItem::default()),
+            super::ServerPacket::RemoveItem(super::RemoveItem::default()),
+            super::ServerPacket::RemoveSlotItem(super::RemoveSlotItem::default()),
+            super::ServerPacket::TakeBackItem(super::TakeBackItem::default()),
+            super::ServerPacket::StoreItem(super::StoreItem::default()),
+            super::ServerPacket::DepositRefineItem(super::DepositRefineItem::default()),
+            super::ServerPacket::RetrieveRefineItem(super::RetrieveRefineItem::default()),
+            super::ServerPacket::RefineCancel(super::RefineCancel::default()),
+            super::ServerPacket::RefineItem(super::RefineItem::default()),
+            super::ServerPacket::DepositTradeItem(super::DepositTradeItem::default()),
+            super::ServerPacket::RetrieveTradeItem(super::RetrieveTradeItem::default()),
+            super::ServerPacket::SplitItem(super::SplitItem::default()),
+            super::ServerPacket::SplitItem1(super::SplitItem1::default()),
+            super::ServerPacket::UseItem(super::UseItem::default()),
+            super::ServerPacket::DropItem(super::DropItem::default()),
+            super::ServerPacket::TakeBackHeroItem(super::TakeBackHeroItem::default()),
+            super::ServerPacket::TransferHeroItem(super::TransferHeroItem::default()),
+            super::ServerPacket::PlayerUpdate(super::PlayerUpdate::default()),
+            super::ServerPacket::PlayerInspect(super::PlayerInspect::default()),
+            super::ServerPacket::MarriageRequest(super::MarriageRequest::default()),
+            super::ServerPacket::DivorceRequest(super::DivorceRequest::default()),
+            super::ServerPacket::MentorRequest(super::MentorRequest::default()),
+            super::ServerPacket::TradeRequest(super::TradeRequest::default()),
+            super::ServerPacket::TradeAccept(super::TradeAccept::default()),
+            super::ServerPacket::TradeGold(super::TradeGold::default()),
+            super::ServerPacket::TradeItem(super::TradeItem::default()),
+            super::ServerPacket::TradeConfirm(super::TradeConfirm::default()),
+            super::ServerPacket::TradeCancel(super::TradeCancel::default()),
+            super::ServerPacket::LogOutSuccess(super::LogOutSuccess::default()),
+            super::ServerPacket::LogOutFailed(super::LogOutFailed::default()),
+            super::ServerPacket::ReturnToLogin(super::ReturnToLogin::default()),
+            super::ServerPacket::TimeOfDay(super::TimeOfDay::default()),
+            super::ServerPacket::ChangeAMode(super::ChangeAMode::default()),
+            super::ServerPacket::ChangePMode(super::ChangePMode::default()),
+            super::ServerPacket::ObjectItem(super::ObjectItem::default()),
+            super::ServerPacket::ObjectGold(super::ObjectGold::default()),
+            super::ServerPacket::GainedItem(super::GainedItem::default()),
+            super::ServerPacket::GainedGold(super::GainedGold::default()),
+            super::ServerPacket::LoseGold(super::LoseGold::default()),
+            super::ServerPacket::GainedCredit(super::GainedCredit::default()),
+            super::ServerPacket::LoseCredit(super::LoseCredit::default()),
+            super::ServerPacket::ObjectMonster(super::ObjectMonster::default()),
+            super::ServerPacket::ObjectAttack(super::ObjectAttack::default()),
+            super::ServerPacket::Struck(super::Struck::default()),
+            super::ServerPacket::ObjectStruck(super::ObjectStruck::default()),
+            super::ServerPacket::DamageIndicator(super::DamageIndicator::default()),
+            super::ServerPacket::DuraChanged(super::DuraChanged::default()),
+            super::ServerPacket::HealthChanged(super::HealthChanged::default()),
+            super::ServerPacket::HeroHealthChanged(super::HeroHealthChanged::default()),
+            super::ServerPacket::DeleteItem(super::DeleteItem::default()),
+            super::ServerPacket::Death(super::Death::default()),
+            super::ServerPacket::ObjectDied(super::ObjectDied::default()),
+            super::ServerPacket::ColourChanged(super::ColourChanged::default()),
+            super::ServerPacket::ObjectColourChanged(super::ObjectColourChanged::default()),
+            super::ServerPacket::ObjectGuildNameChanged(super::ObjectGuildNameChanged::default()),
+            super::ServerPacket::GainExperience(super::GainExperience::default()),
+            super::ServerPacket::GainHeroExperience(super::GainHeroExperience::default()),
+            super::ServerPacket::LevelChanged(super::LevelChanged::default()),
+            super::ServerPacket::HeroLevelChanged(super::HeroLevelChanged::default()),
+            super::ServerPacket::ObjectLeveled(super::ObjectLeveled::default()),
+            super::ServerPacket::ObjectHarvest(super::ObjectHarvest::default()),
+            super::ServerPacket::ObjectHarvested(super::ObjectHarvested::default()),
+            super::ServerPacket::ObjectNPC(super::ObjectNPC::default()),
+            super::ServerPacket::NPCResponse(super::NPCResponse::default()),
+            super::ServerPacket::ObjectHide(super::ObjectHide::default()),
+            super::ServerPacket::ObjectShow(super::ObjectShow::default()),
+            super::ServerPacket::Poisoned(super::Poisoned::default()),
+            super::ServerPacket::ObjectPoisoned(super::ObjectPoisoned::default()),
+            super::ServerPacket::MapChanged(super::MapChanged::default()),
+            super::ServerPacket::ObjectTeleportOut(super::ObjectTeleportOut::default()),
+            super::ServerPacket::ObjectTeleportIn(super::ObjectTeleportIn::default()),
+            super::ServerPacket::TeleportIn(super::TeleportIn::default()),
+            super::ServerPacket::NPCGoods(super::NPCGoods::default()),
+            super::ServerPacket::NPCSell(super::NPCSell::default()),
+            super::ServerPacket::NPCRepair(super::NPCRepair::default()),
+            super::ServerPacket::NPCSRepair(super::NPCSRepair::default()),
+            super::ServerPacket::NPCRefine(super::NPCRefine::default()),
+            super::ServerPacket::NPCCheckRefine(super::NPCCheckRefine::default()),
+            super::ServerPacket::NPCCollectRefine(super::NPCCollectRefine::default()),
+            super::ServerPacket::NPCReplaceWedRing(super::NPCReplaceWedRing::default()),
+            super::ServerPacket::NPCStorage(super::NPCStorage::default()),
+            super::ServerPacket::SellItem(super::SellItem::default()),
+            super::ServerPacket::RepairItem(super::RepairItem::default()),
+            super::ServerPacket::ItemRepaired(super::ItemRepaired::default()),
+            super::ServerPacket::ItemSlotSizeChanged(super::ItemSlotSizeChanged::default()),
+            super::ServerPacket::ItemSealChanged(super::ItemSealChanged::default()),
+            super::ServerPacket::NewMagic(super::NewMagic::default()),
+            super::ServerPacket::RemoveMagic(super::RemoveMagic::default()),
+            super::ServerPacket::MagicLeveled(super::MagicLeveled::default()),
+            super::ServerPacket::Magic(super::Magic::default()),
+            super::ServerPacket::MagicDelay(super::MagicDelay::default()),
+            super::ServerPacket::MagicCast(super::MagicCast::default()),
+            super::ServerPacket::ObjectMagic(super::ObjectMagic::default()),
+            super::ServerPacket::ObjectEffect(super::ObjectEffect::default()),
+            super::ServerPacket::ObjectProjectile(super::ObjectProjectile::default()),
+            super::ServerPacket::RangeAttack(super::RangeAttack::default()),
+            super::ServerPacket::Pushed(super::Pushed::default()),
+            super::ServerPacket::ObjectPushed(super::ObjectPushed::default()),
+            super::ServerPacket::ObjectName(super::ObjectName::default()),
+            super::ServerPacket::UserStorage(super::UserStorage::default()),
+            super::ServerPacket::SwitchGroup(super::SwitchGroup::default()),
+            super::ServerPacket::DeleteGroup(super::DeleteGroup::default()),
+            super::ServerPacket::DeleteMember(super::DeleteMember::default()),
+            super::ServerPacket::GroupInvite(super::GroupInvite::default()),
+            super::ServerPacket::AddMember(super::AddMember::default()),
+            super::ServerPacket::GroupMembersMap(super::GroupMembersMap::default()),
+            super::ServerPacket::SendMemberLocation(super::SendMemberLocation::default()),
+            super::ServerPacket::Revived(super::Revived::default()),
+            super::ServerPacket::ObjectRevived(super::ObjectRevived::default()),
+            super::ServerPacket::SpellToggle(super::SpellToggle::default()),
+            super::ServerPacket::ObjectHealth(super::ObjectHealth::default()),
+            super::ServerPacket::ObjectMana(super::ObjectMana::default()),
+            super::ServerPacket::MapEffect(super::MapEffect::default()),
+            super::ServerPacket::AllowObserve(super::AllowObserve::default()),
+            super::ServerPacket::ObjectRangeAttack(super::ObjectRangeAttack::default()),
+            super::ServerPacket::AddBuff(super::AddBuff::default()),
+            super::ServerPacket::RemoveBuff(super::RemoveBuff::default()),
+            super::ServerPacket::PauseBuff(super::PauseBuff::default()),
+            super::ServerPacket::ObjectHidden(super::ObjectHidden::default()),
+            super::ServerPacket::RefreshItem(super::RefreshItem::default()),
+            super::ServerPacket::ObjectSpell(super::ObjectSpell::default()),
+            super::ServerPacket::UserDash(super::UserDash::default()),
+            super::ServerPacket::ObjectDash(super::ObjectDash::default()),
+            super::ServerPacket::UserDashFail(super::UserDashFail::default()),
+            super::ServerPacket::ObjectDashFail(super::ObjectDashFail::default()),
+            super::ServerPacket::RemoveDelayedExplosion(super::RemoveDelayedExplosion::default()),
+            super::ServerPacket::NPCConsign(super::NPCConsign::default()),
+            super::ServerPacket::NPCMarket(super::NPCMarket::default()),
+            super::ServerPacket::NPCMarketPage(super::NPCMarketPage::default()),
+            super::ServerPacket::GuildTerritoryPage(super::GuildTerritoryPage::default()),
+            super::ServerPacket::ConsignItem(super::ConsignItem::default()),
+            super::ServerPacket::MarketFail(super::MarketFail::default()),
+            super::ServerPacket::MarketSuccess(super::MarketSuccess::default()),
+            super::ServerPacket::ObjectSitDown(super::ObjectSitDown::default()),
+            super::ServerPacket::InTrapRock(super::InTrapRock::default()),
+            super::ServerPacket::BaseStatsInfo(super::BaseStatsInfo::default()),
+            super::ServerPacket::HeroBaseStatsInfo(super::HeroBaseStatsInfo::default()),
+            super::ServerPacket::UserName(super::UserName::default()),
+            super::ServerPacket::GuildNoticeChange(super::GuildNoticeChange::default()),
+            super::ServerPacket::GuildMemberChange(super::GuildMemberChange::default()),
+            super::ServerPacket::GuildStatus(super::GuildStatus::default()),
+            super::ServerPacket::GuildInvite(super::GuildInvite::default()),
+            super::ServerPacket::GuildExpGain(super::GuildExpGain::default()),
+            super::ServerPacket::GuildNameRequest(super::GuildNameRequest::default()),
+            super::ServerPacket::GuildStorageGoldChange(super::GuildStorageGoldChange::default()),
+            super::ServerPacket::GuildStorageItemChange(super::GuildStorageItemChange::default()),
+            super::ServerPacket::GuildStorageList(super::GuildStorageList::default()),
+            super::ServerPacket::GuildRequestWar(super::GuildRequestWar::default()),
+            super::ServerPacket::HeroCreateRequest(super::HeroCreateRequest::default()),
+            super::ServerPacket::NewHero(super::NewHero::default()),
+            super::ServerPacket::HeroInformation(super::HeroInformation::default()),
+            super::ServerPacket::UpdateHeroSpawnState(super::UpdateHeroSpawnState::default()),
+            super::ServerPacket::UnlockHeroAutoPot(super::UnlockHeroAutoPot::default()),
+            super::ServerPacket::SetAutoPotValue(super::SetAutoPotValue::default()),
+            super::ServerPacket::SetAutoPotItem(super::SetAutoPotItem::default()),
+            super::ServerPacket::SetHeroBehaviour(super::SetHeroBehaviour::default()),
+            super::ServerPacket::ManageHeroes(super::ManageHeroes::default()),
+            super::ServerPacket::ChangeHero(super::ChangeHero::default()),
+            super::ServerPacket::DefaultNPC(super::DefaultNPC::default()),
+            super::ServerPacket::NPCUpdate(super::NPCUpdate::default()),
+            super::ServerPacket::NPCImageUpdate(super::NPCImageUpdate::default()),
+            super::ServerPacket::MountUpdate(super::MountUpdate::default()),
+            super::ServerPacket::TransformUpdate(super::TransformUpdate::default()),
+            super::ServerPacket::EquipSlotItem(super::EquipSlotItem::default()),
+            super::ServerPacket::FishingUpdate(super::FishingUpdate::default()),
+            super::ServerPacket::ChangeQuest(super::ChangeQuest::default()),
+            super::ServerPacket::CompleteQuest(super::CompleteQuest::default()),
+            super::ServerPacket::ShareQuest(super::ShareQuest::default()),
+            super::ServerPacket::NewQuestInfo(super::NewQuestInfo::default()),
+            super::ServerPacket::GainedQuestItem(super::GainedQuestItem::default()),
+            super::ServerPacket::DeleteQuestItem(super::DeleteQuestItem::default()),
+            super::ServerPacket::GameShopInfo(super::GameShopInfo::default()),
+            super::ServerPacket::GameShopStock(super::GameShopStock::default()),
+            super::ServerPacket::CancelReincarnation(super::CancelReincarnation::default()),
+            super::ServerPacket::RequestReincarnation(super::RequestReincarnation::default()),
+            super::ServerPacket::UserBackStep(super::UserBackStep::default()),
+            super::ServerPacket::ObjectBackStep(super::ObjectBackStep::default()),
+            super::ServerPacket::UserDashAttack(super::UserDashAttack::default()),
+            super::ServerPacket::ObjectDashAttack(super::ObjectDashAttack::default()),
+            super::ServerPacket::UserAttackMove(super::UserAttackMove::default()),
+            super::ServerPacket::CombineItem(super::CombineItem::default()),
+            super::ServerPacket::ItemUpgraded(super::ItemUpgraded::default()),
+            super::ServerPacket::SetConcentration(super::SetConcentration::default()),
+            super::ServerPacket::SetElemental(super::SetElemental::default()),
+            super::ServerPacket::ObjectDeco(super::ObjectDeco::default()),
+            super::ServerPacket::ObjectSneaking(super::ObjectSneaking::default()),
+            super::ServerPacket::ObjectLevelEffects(super::ObjectLevelEffects::default()),
+            super::ServerPacket::SetBindingShot(super::SetBindingShot::default()),
+            super::ServerPacket::SendOutputMessage(super::SendOutputMessage::default()),
+            super::ServerPacket::NPCAwakening(super::NPCAwakening::default()),
+            super::ServerPacket::NPCDisassemble(super::NPCDisassemble::default()),
+            super::ServerPacket::NPCDowngrade(super::NPCDowngrade::default()),
+            super::ServerPacket::NPCReset(super::NPCReset::default()),
+            super::ServerPacket::AwakeningNeedMaterials(super::AwakeningNeedMaterials::default()),
+            super::ServerPacket::AwakeningLockedItem(super::AwakeningLockedItem::default()),
+            super::ServerPacket::Awakening(super::Awakening::default()),
+            super::ServerPacket::ReceiveMail(super::ReceiveMail::default()),
+            super::ServerPacket::MailLockedItem(super::MailLockedItem::default()),
+            super::ServerPacket::MailSent(super::MailSent::default()),
+            super::ServerPacket::MailSendRequest(super::MailSendRequest::default()),
+            super::ServerPacket::ParcelCollected(super::ParcelCollected::default()),
+            super::ServerPacket::MailCost(super::MailCost::default()),
+            super::ServerPacket::ResizeInventory(super::ResizeInventory::default()),
+            super::ServerPacket::ResizeStorage(super::ResizeStorage::default()),
+            super::ServerPacket::NewIntelligentCreature(super::NewIntelligentCreature::default()),
+            super::ServerPacket::UpdateIntelligentCreatureList(
+                super::UpdateIntelligentCreatureList::default(),
+            ),
+            super::ServerPacket::IntelligentCreatureEnableRename(
+                super::IntelligentCreatureEnableRename::default(),
+            ),
+            super::ServerPacket::IntelligentCreaturePickup(
+                super::IntelligentCreaturePickup::default(),
+            ),
+            super::ServerPacket::NPCPearlGoods(super::NPCPearlGoods::default()),
+            super::ServerPacket::FriendUpdate(super::FriendUpdate::default()),
+            super::ServerPacket::GuildBuffList(super::GuildBuffList::default()),
+            super::ServerPacket::LoverUpdate(super::LoverUpdate::default()),
+            super::ServerPacket::MentorUpdate(super::MentorUpdate::default()),
+            super::ServerPacket::NPCRequestInput(super::NPCRequestInput::default()),
+            super::ServerPacket::Rankings(super::Rankings::default()),
+            super::ServerPacket::Opendoor(super::Opendoor::default()),
+            super::ServerPacket::GetRentedItems(super::GetRentedItems::default()),
+            super::ServerPacket::ItemRentalRequest(super::ItemRentalRequest::default()),
+            super::ServerPacket::ItemRentalFee(super::ItemRentalFee::default()),
+            super::ServerPacket::ItemRentalPeriod(super::ItemRentalPeriod::default()),
+            super::ServerPacket::DepositRentalItem(super::DepositRentalItem::default()),
+            super::ServerPacket::RetrieveRentalItem(super::RetrieveRentalItem::default()),
+            super::ServerPacket::UpdateRentalItem(super::UpdateRentalItem::default()),
+            super::ServerPacket::CancelItemRental(super::CancelItemRental::default()),
+            super::ServerPacket::ItemRentalLock(super::ItemRentalLock::default()),
+            super::ServerPacket::ItemRentalPartnerLock(super::ItemRentalPartnerLock::default()),
+            super::ServerPacket::CanConfirmItemRental(super::CanConfirmItemRental::default()),
+            super::ServerPacket::ConfirmItemRental(super::ConfirmItemRental::default()),
+            super::ServerPacket::NewRecipeInfo(super::NewRecipeInfo::default()),
+            super::ServerPacket::CraftItem(super::CraftItem::default()),
+            super::ServerPacket::OpenBrowser(super::OpenBrowser::default()),
+            super::ServerPacket::PlaySound(super::PlaySound::default()),
+            super::ServerPacket::SetTimer(super::SetTimer::default()),
+            super::ServerPacket::ExpireTimer(super::ExpireTimer::default()),
+            super::ServerPacket::UpdateNotice(super::UpdateNotice::default()),
+            super::ServerPacket::Roll(super::Roll::default()),
+            super::ServerPacket::SetCompass(super::SetCompass::default()),
+            super::ServerPacket::NewMonsterInfo(super::NewMonsterInfo::default()),
+            super::ServerPacket::NewNPCInfo(super::NewNPCInfo::default()),
+        ];
+        for packet in packets {
+            let frame = packet.encode_frame();
+            let index = i16::from_le_bytes([frame[2], frame[3]]);
+            assert_eq!(index, packet.index(), "包头编号应等于包上的 INDEX");
+            let decoded = super::ServerPacket::decode(index, &frame[4..]).expect("解码自己编的包");
+            assert_eq!(decoded, packet, "包 {index} 往返不一致");
+        }
     }
 }

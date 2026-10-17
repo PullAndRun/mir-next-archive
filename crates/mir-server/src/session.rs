@@ -418,6 +418,12 @@ impl<S: AccountStore> Session<S> {
             hair: character.hair,
             hp: character.hp,
             mp: character.mp,
+            // 动作计时由 `World::enter` 按服务器时钟初始化。
+            action_time: 0,
+            cell_time: 0,
+            step_counter: 0,
+            run_counter: 0,
+            run_time: 0,
             sender: self.out.clone(),
         });
         drop(world);
@@ -485,9 +491,21 @@ impl<S: AccountStore> Session<S> {
         let Some(object_id) = self.object_id else {
             return;
         };
-        let mut world = self.world.lock().await;
-        if let Err(error) = world.turn(object_id, direction) {
+        // Crystal 的做法是「早到的动作包进 retryList，下一个处理周期再试」；
+        // 这里用「等到 ActionTime 再重试一次」等价实现，避免丢包导致角色卡住。
+        for attempt in 0..2 {
+            let error = {
+                let mut world = self.world.lock().await;
+                match world.turn(object_id, direction) {
+                    Ok(()) => return,
+                    Err(error) => error,
+                }
+            };
+            if attempt == 0 && self.wait_for_action(&error).await {
+                continue;
+            }
             tracing::debug!(session = self.id, %error, "转身失败");
+            return;
         }
     }
 
@@ -495,21 +513,51 @@ impl<S: AccountStore> Session<S> {
         let Some(object_id) = self.object_id else {
             return;
         };
-        let position = {
-            let mut world = self.world.lock().await;
-            match world.walk(object_id, direction, running) {
-                Ok(position) => position,
-                Err(error) => {
-                    tracing::debug!(session = self.id, %error, "移动被拒绝");
-                    return;
+        for attempt in 0..2 {
+            let error = {
+                let mut world = self.world.lock().await;
+                let result = if running {
+                    world.run(object_id, direction)
+                } else {
+                    world.walk(object_id, direction)
+                };
+                match result {
+                    Ok(position) => {
+                        if let Some(character) = &mut self.character {
+                            character.x = position.x;
+                            character.y = position.y;
+                            character.direction = direction;
+                        }
+                        return;
+                    }
+                    Err(error) => error,
                 }
+            };
+            if attempt == 0 && self.wait_for_action(&error).await {
+                continue;
             }
-        };
-        if let Some(character) = &mut self.character {
-            character.x = position.x;
-            character.y = position.y;
-            character.direction = direction;
+            tracing::debug!(session = self.id, %error, "移动被拒绝");
+            return;
         }
+    }
+
+    /// 如果是因为「动作还没结束」被拒，等到 `ActionTime` 之后再试一次。
+    ///
+    /// 返回 `true` 表示值得重试。等待时长有上限，避免异常状态把连接卡死。
+    async fn wait_for_action(&self, error: &crate::world::MoveError) -> bool {
+        let crate::world::MoveError::Busy { until } = *error else {
+            return false;
+        };
+        let now = {
+            let world = self.world.lock().await;
+            world.now()
+        };
+        let wait_ms = (until - now).clamp(0, 1_000);
+        if wait_ms <= 0 {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(wait_ms as u64)).await;
+        true
     }
 
     async fn on_chat(&mut self, message: &str) {

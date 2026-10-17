@@ -1,6 +1,6 @@
 //! 战斗：战斗属性、命中/伤害结算与玩家基础属性。
 //!
-//! 规则逐条对应 Crystal（参考根目录 `C:\Users\diana\ref\Crystal`，下文只写相对路径）：
+//! 规则逐条对应 Crystal（参考根目录 `github\Crystal`，下文只写相对路径）：
 //!
 //! | 本模块 | Crystal |
 //! |---|---|
@@ -145,6 +145,24 @@ pub struct CombatStats {
     pub wear_weight: i32,
     /// `Stat.HandWeight`：武器/火把的重量上限（`Shared/BaseStats.cs:20`）。
     pub hand_weight: i32,
+    /// `Stat.DamageReductionPercent`：伤害减免百分比（`Shared/Data/Stat.cs:144`）。
+    ///
+    /// 唯一的来源是魔法盾（`BuffType.MagicShield`，`(Level + 2) * 10`，
+    /// `HumanObject.cs:6203`）；受击时先按它削减伤害再减护甲
+    /// （`HumanObject.cs:7126-7130`、`:7244-7248`）。
+    pub damage_reduction_percent: i32,
+    /// `Stat.EnergyShieldPercent`：气功波每次受击的回血触发概率（`Stat.cs:145`）。
+    ///
+    /// 由 `Spell.EnergyShield` 写入：`(int)Math.Round((1 / (decimal)chance) * 100)`
+    /// （`HumanObject.cs:4766`），受击时 `Random.Next(100) < 该值` 就回血（`:7262-7271`）。
+    pub energy_shield_percent: i32,
+    /// `Stat.EnergyShieldHPGain`：气功波触发时回复的生命（`Stat.cs:146`、`HumanObject.cs:4767`）。
+    pub energy_shield_hp_gain: i32,
+    /// `Stat.ManaPenaltyPercent`：技能耗蓝惩罚百分比（`Stat.cs:147`）。
+    ///
+    /// 来源是魔力增幅（`BuffType.MagicBooster`，`6 + Level`，`HumanObject.cs:6234`）；
+    /// 耗蓝公式见 [`crate::magic::UserMagic::cost_with_penalty`]（`HumanObject.cs:3387-3390`）。
+    pub mana_penalty_percent: i32,
 }
 
 impl CombatStats {
@@ -304,11 +322,16 @@ pub fn resolve_player_attack(
 /// 怪物打玩家的伤害结算：Crystal `HumanObject.Attacked(MonsterObject)`
 /// （`Server/MirObjects/HumanObject.cs:7222-7315`）。
 ///
-/// 与 [`resolve_player_attack`] 的两点不同（都是 Crystal 的原样行为）：
+/// 与 [`resolve_player_attack`] 的三点不同（都是 Crystal 的原样行为）：
 ///
 /// 1. 进门先掷**反射**（`HumanObject.cs:7231`），本作 `reflect` 恒为 0，但抽签照做；
 /// 2. **没有暴击判定**——Crystal 只在「与玩家交锋」的 `Attacked(HumanObject)` 里判暴击
-///    （`HumanObject.cs:7156`），怪物打玩家永远不暴击。
+///    （`HumanObject.cs:7156`），怪物打玩家永远不暴击；
+/// 3. 护甲之前先过一次**魔法盾减伤**：`damage -= (damage * DamageReductionPercent) / 100`
+///    （`HumanObject.cs:7244-7248`）。
+///
+/// 气功波（`Stat.EnergyShieldPercent`）要改血量、还要抽一次 `Random.Next(100)`，
+/// 所以不在这里做，交给 `World::damage_player`（顺序保持一致：在「未命中」判定之后）。
 #[must_use]
 pub fn resolve_monster_attack(
     attacker: &CombatStats,
@@ -323,7 +346,18 @@ pub fn resolve_monster_attack(
     }
 
     let (armour, hit) = defender.get_armour(attacker, DefenceType::ACAgility, rng);
-    if !hit || armour >= damage {
+    if !hit {
+        return HitResult::missed();
+    }
+
+    let mut damage = damage;
+    // `if (Stats[Stat.DamageReductionPercent] != 0) damage -= (damage * …) / 100;`
+    // （`HumanObject.cs:7245-7248`，整数除法向零截断，与 C# 一致）。
+    if defender.damage_reduction_percent != 0 {
+        damage -= damage * defender.damage_reduction_percent / 100;
+    }
+
+    if armour >= damage {
         return HitResult::missed();
     }
 

@@ -1,6 +1,6 @@
 # Crystal 协议：数据包编号总表
 
-> 参照实现：`C:\Users\diana\ref\Crystal`（只读）。
+> 参照实现：`github\Crystal`（只读）。
 > 帧格式与语义见 [framing.md](framing.md)；复杂包体解析见 [packets-complex.md](packets-complex.md)。
 
 ## 0. 基础事实

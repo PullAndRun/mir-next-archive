@@ -1,6 +1,6 @@
 # `Server.MirDB` 二进制容器格式（`mir-tools` 实现规格）
 
-> 参考实现：`C:\Users\diana\ref\Crystal`（相对路径均以该目录为根）。
+> 参考实现：`github\Crystal`（相对路径均以该目录为根）。
 > 读取代码：`Server/MirEnvir/Envir.cs:2821-2942`（`LoadDB`）；写入代码：`Server/MirEnvir/Envir.cs:2439-2507`（`SaveDB`）。
 > 被测样本：`resource/community/suprcode-crystal-database/cjlaaa/Server.MirDB`，452,106 字节，`Version = 105`。
 > **本文档的字段布局已用代码推导的解析器对该样本做完整消费验证：解析 452,106 字节，`leftover = 0`（见 §8）。**

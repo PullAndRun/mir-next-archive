@@ -1,6 +1,6 @@
 //! 物品系统：模板查找、地面物品、拾取 / 丢弃 / 背包交换 / 装备穿戴、持久化编解码与 UUID。
 //!
-//! 规则逐条对照 Crystal（参考根目录 `C:\Users\diana\ref\Crystal`，下文只写相对路径）：
+//! 规则逐条对照 Crystal（参考根目录 `github\Crystal`，下文只写相对路径）：
 //!
 //! | 本模块 | Crystal |
 //! |---|---|
@@ -48,12 +48,14 @@ use mir_protocol::data::{ItemInfo, UserItem};
 use mir_protocol::packets::server::{
     DropItem as DropItemPacket, EquipItem as EquipItemPacket, GainedGold, GainedItem, LoseGold,
     MoveItem as MoveItemPacket, ObjectGold, ObjectItem, PlayerUpdate,
-    RemoveItem as RemoveItemPacket,
+    RemoveItem as RemoveItemPacket, UseItem as UseItemPacket,
 };
 use mir_protocol::{PacketReader, PacketWriter, ProtocolError, ServerPacket};
 
+use crate::buffs::{BuffKind, minutes_to_ms};
 use crate::combat::{self, CombatStats};
 use crate::gamedata::GameData;
+use crate::magic::{MagicError, UserMagic};
 use crate::world::{MINUTE_MS, VIEW_RANGE, World};
 
 /// 背包格数：Crystal `CharacterInfo.Inventory = new UserItem[46]`（`CharacterInfo.cs:75`）。
@@ -91,6 +93,11 @@ pub const DROP_RANGE: i32 = 4;
 pub const DROP_STACK_SIZE: usize = 5;
 /// 单堆金币上限：Crystal `Settings.MaxDropGold = 2000`（`Settings.cs:228`）。
 pub const MAX_DROP_GOLD: u32 = 2000;
+/// 丢金币时的落地搜索半径：Crystal `ob.Drop(5)`（`PlayerObject.cs:7479`）。
+///
+/// 注意它与掉落物品的 [`DROP_RANGE`]（`Settings.DropRange = 4`）不是同一个数——
+/// 玩家丢金币是写死的 5。
+pub const DROP_GOLD_RANGE: i32 = 5;
 /// 全局掉落率倍率：Crystal `Settings.DropRate = 1F`（`Settings.cs:112`）。
 pub const DROP_RATE: u32 = 1;
 
@@ -240,6 +247,175 @@ pub enum ItemError {
     /// 金币数量溢出（Crystal `CanGainGold`，`PlayerObject.cs:7638-7641`）。
     #[error("金币数量溢出")]
     GoldOverflow,
+    /// 金币不够（Crystal `if (Account.Gold < gold) return;`，`PlayerObject.cs:7475`）。
+    #[error("金币不够：想丢 {requested}，只有 {held}")]
+    NotEnoughGold {
+        /// 想丢的数量。
+        requested: u32,
+        /// 实际持有。
+        held: u32,
+    },
+    /// 性别不符（Crystal `HumanObject.CanUseItem`，`HumanObject.cs:1024-1040`）。
+    #[error("性别不符")]
+    WrongGender,
+    /// 职业不符（`HumanObject.cs:1042-1079`）。
+    #[error("职业不符：需要 {required:?}，当前 {class:?}")]
+    WrongClass {
+        /// 物品要求的职业位。
+        required: RequiredClass,
+        /// 玩家职业。
+        class: MirClass,
+    },
+    /// 等级不满足 `RequiredType::Level` / `MaxLevel`（`HumanObject.cs:1081-1131`）。
+    #[error("等级不符：要求 {required} 级，当前 {level} 级")]
+    LowLevel {
+        /// 要求等级。
+        required: u8,
+        /// 当前等级。
+        level: u16,
+    },
+    /// 满血/满蓝时喝药水。
+    ///
+    /// **本作扩展**：Crystal 在满血时照样把药水喝掉（`PotHealthAmount` 会在下一次
+    /// `ProcessRegen` 里被清零，`HumanObject.cs:641-645`），等于白白浪费一瓶；
+    /// 这里直接拒绝并提示，见 `docs/world/items.md` 的「与 Crystal 的差异」。
+    #[error("药水没有效果：生命/魔法已满")]
+    PotionNoEffect,
+    /// 本作还不支持的物品类型/形状（传送卷、马粮、变身卷…）。
+    #[error("物品 {item_index}（shape {shape}）的效果尚未实现")]
+    UnsupportedItem {
+        /// 物品模板编号。
+        item_index: i32,
+        /// 物品形状。
+        shape: i16,
+    },
+    /// 用书失败（转自技能系统的 [`MagicError`]）。
+    #[error("用书失败：{0}")]
+    MagicBook(#[from] MagicError),
+}
+
+/// 玩家的性别位：Crystal `RequiredGender` 的 `Male = 1`、`Female = 2`
+/// （`Shared/Enums.cs`；`CanUseItem` 用 `HasFlag` 判定，`HumanObject.cs:1024-1040`）。
+pub(crate) const fn gender_flag(gender: MirGender) -> u8 {
+    match gender {
+        MirGender::Male => 1,
+        MirGender::Female => 2,
+    }
+}
+
+/// 玩家职业对应的 `RequiredClass` 位（`Warrior=1, Wizard=2, Taoist=4, Assassin=8, Archer=16`）。
+pub(crate) const fn class_flag(class: MirClass) -> u8 {
+    match class {
+        MirClass::Warrior => 1,
+        MirClass::Wizard => 2,
+        MirClass::Taoist => 4,
+        MirClass::Assassin => 8,
+        MirClass::Archer => 16,
+    }
+}
+
+/// 药水喝下去到底有没有效果。
+///
+/// 某一项属性 `<= 0` 视为「这瓶药不管这项」，另一项满了同样算「这一项没效果」，
+/// 两项都没效果时返回 `false`（[`ItemError::PotionNoEffect`]）。
+///
+/// **本作扩展**：Crystal 没有这个判定（满血也照喝，`PlayerObject.cs:5831-5838`），
+/// 见 `docs/world/items.md` 的「与 Crystal 的差异」。
+fn potion_has_effect(
+    hp_amount: i32,
+    hp: i32,
+    max_hp: i32,
+    mp_amount: i32,
+    mp: i32,
+    max_mp: i32,
+) -> bool {
+    let hp_useful = hp_amount > 0 && hp < max_hp;
+    let mp_useful = mp_amount > 0 && mp < max_mp;
+    hp_useful || mp_useful
+}
+
+/// `item.GetTotal(stat)`：模板属性 + 物品的附加属性（`Shared/Data/ItemData.cs:170-180`）。
+fn item_total(info: &ItemInfo, item: &UserItem, stat: Stat) -> i32 {
+    info.stats.get(stat) + item.added_stats.get(stat)
+}
+
+/// 药水增益（`ItemInfo.Shape == 3`）要套哪些 buff。
+///
+/// 逐条对照 `PlayerObject.cs:5849-5879`：每个「属性组」只在组内任一属性 `> 0` 时添加，
+/// 顺序就是源码里的书写顺序（这决定了 `S.AddBuff` 的先后）。
+fn buff_potion_groups(
+    info: &ItemInfo,
+    item: &UserItem,
+) -> Vec<(BuffKind, mir_protocol::data::Stats)> {
+    use mir_protocol::data::Stats;
+
+    let mut groups: Vec<(BuffKind, Stats)> = Vec::new();
+    let mut group = |kind: BuffKind, pairs: &[(Stat, i32)]| {
+        let mut stats = Stats::default();
+        for &(stat, value) in pairs {
+            stats.set(stat, value);
+        }
+        groups.push((kind, stats));
+    };
+
+    // `if (item.GetTotal(Stat.MaxDC) > 0 || item.GetTotal(Stat.MinDC) > 0) AddBuff(BuffType.Impact, …)`
+    let max_dc = item_total(info, item, Stat::MaxDC);
+    let min_dc = item_total(info, item, Stat::MinDC);
+    if max_dc > 0 || min_dc > 0 {
+        group(
+            BuffKind::Impact,
+            &[(Stat::MaxDC, max_dc), (Stat::MinDC, min_dc)],
+        );
+    }
+    let max_mc = item_total(info, item, Stat::MaxMC);
+    let min_mc = item_total(info, item, Stat::MinMC);
+    if max_mc > 0 || min_mc > 0 {
+        group(
+            BuffKind::Magic,
+            &[(Stat::MaxMC, max_mc), (Stat::MinMC, min_mc)],
+        );
+    }
+    let max_sc = item_total(info, item, Stat::MaxSC);
+    let min_sc = item_total(info, item, Stat::MinSC);
+    if max_sc > 0 || min_sc > 0 {
+        group(
+            BuffKind::Taoist,
+            &[(Stat::MaxSC, max_sc), (Stat::MinSC, min_sc)],
+        );
+    }
+    let attack_speed = item_total(info, item, Stat::AttackSpeed);
+    if attack_speed > 0 {
+        group(BuffKind::Storm, &[(Stat::AttackSpeed, attack_speed)]);
+    }
+    let hp = item_total(info, item, Stat::HP);
+    if hp > 0 {
+        group(BuffKind::HealthAid, &[(Stat::HP, hp)]);
+    }
+    let mp = item_total(info, item, Stat::MP);
+    if mp > 0 {
+        group(BuffKind::ManaAid, &[(Stat::MP, mp)]);
+    }
+    let max_ac = item_total(info, item, Stat::MaxAC);
+    let min_ac = item_total(info, item, Stat::MinAC);
+    if max_ac > 0 || min_ac > 0 {
+        group(
+            BuffKind::Defence,
+            &[(Stat::MaxAC, max_ac), (Stat::MinAC, min_ac)],
+        );
+    }
+    let max_mac = item_total(info, item, Stat::MaxMAC);
+    let min_mac = item_total(info, item, Stat::MinMAC);
+    if max_mac > 0 || min_mac > 0 {
+        group(
+            BuffKind::MagicDefence,
+            &[(Stat::MaxMAC, max_mac), (Stat::MinMAC, min_mac)],
+        );
+    }
+    let bag_weight = item_total(info, item, Stat::BagWeight);
+    if bag_weight > 0 {
+        group(BuffKind::BagWeight, &[(Stat::BagWeight, bag_weight)]);
+    }
+    groups
 }
 
 /// 物品在客户端上的显示名：Crystal `ItemInfo.FriendlyName`（`Shared/Data/ItemData.cs:52-62`）。
@@ -265,8 +441,7 @@ pub fn friendly_name(name: &str) -> String {
     temp
 }
 
-/// 物品图标编号：Crystal `UserItem.Image`（`Shared/Data/ItemData.cs:641-677`）。
-///
+/// 物品图标编号：Crystal `UserItem.Image`（`Shared/Data/ItemData.cs:641-677`）。///
 /// 绝大多数物品就是模板的 `Image`；只有**护身符/毒药**按数量换图标（`:648-670`）。
 #[must_use]
 pub fn item_image(info: &ItemInfo, count: u16) -> u16 {
@@ -308,6 +483,34 @@ pub struct PickupReport {
     pub item: Option<UserItem>,
     /// 拾到的金币。
     pub gold: u32,
+}
+
+/// 一次「使用物品」的结果（Crystal `PlayerObject.UseItem` 的可观察效果）。
+///
+/// 所有字段都是**已经发生**的效果：调用方（会话层 / 测试）只需要记录或断言，
+/// 不需要再发包——包已经在 [`World::use_item`] 内部按 Crystal 的顺序发完了。
+#[derive(Debug, Clone, PartialEq)]
+pub struct UseItemReport {
+    /// 被使用的物品 UUID。
+    pub unique_id: u64,
+    /// 物品模板编号。
+    pub item_index: i32,
+    /// 物品名（模板里的原始名）。
+    pub item_name: String,
+    /// 立即回复的生命（太阳水一类的 `Shape == 1`）。
+    pub hp: i32,
+    /// 立即回复的魔法。
+    pub mp: i32,
+    /// 累加进「药水回复池」的生命（`Shape == 0`，随后由 `ProcessRegen` 分批放出）。
+    pub pot_health: u32,
+    /// 累加进「药水回复池」的魔法。
+    pub pot_mana: u32,
+    /// 本次套上的增益（药水增益，按 Crystal 的 `AddBuff` 顺序）。
+    pub buffs: Vec<BuffKind>,
+    /// 若是技能书，这里带着学会的技能。
+    pub learned: Option<UserMagic>,
+    /// 消耗一件之后这一格的剩余内容（`None` = 整格清空）。
+    pub remaining: Option<UserItem>,
 }
 
 /// 角色外观里随装备变化的那部分（Crystal `HumanObject.Looks_*`，`HumanObject.cs:164-165`）。
@@ -436,6 +639,12 @@ fn add_stat(target: &mut CombatStats, stat: Stat, value: i32) {
         Stat::BagWeight => target.bag_weight += value,
         Stat::WearWeight => target.wear_weight += value,
         Stat::HandWeight => target.hand_weight += value,
+        // 增益类属性（魔法盾/气功波/魔力增幅）：Crystal 的 `Stats` 字典里同样是普通键，
+        // 由 `Attacked`/`MagicCost` 读取（`HumanObject.cs:7245`、`:7262`、`:3387`）。
+        Stat::DamageReductionPercent => target.damage_reduction_percent += value,
+        Stat::EnergyShieldPercent => target.energy_shield_percent += value,
+        Stat::EnergyShieldHPGain => target.energy_shield_hp_gain += value,
+        Stat::ManaPenaltyPercent => target.mana_penalty_percent += value,
         // 简化：毒/冰冻/圣/吸血/上限百分比等属性尚未进入战斗结算，叠上去也观察不到。
         _ => {}
     }
@@ -821,15 +1030,20 @@ impl World {
         looks
     }
 
-    /// 重算玩家属性：基础值（等级/职业曲线）+ 装备加成 + 职业上限。
+    /// 重算玩家属性：基础值（等级/职业曲线）+ 装备加成 + buff 加成 + 职业上限。
     ///
     /// 对应 Crystal `HumanObject.RefreshStats`（`HumanObject.cs:1730-1769`）里
     /// `RefreshLevelStats()`（`:1740`）→ `RefreshEquipmentStats()`（`:1742`）→
-    /// `RefreshStatCaps()`（`:1761`）→ `if (HP > Stats[HP]) SetHP(...)`（`:1763-1764`）四步。
+    /// `RefreshBuffs()`（`:1746`）→ `RefreshStatCaps()`（`:1761`）→
+    /// `if (HP > Stats[HP]) SetHP(...)`（`:1763-1764`）几步。
     ///
-    /// 简化：跳过 `RefreshItemSetStats`（套装）、`RefreshMirSetStats`、`RefreshSkills`、`RefreshBuffs`、
+    /// 简化：跳过 `RefreshItemSetStats`（套装）、`RefreshMirSetStats`、`RefreshSkills`、
     /// `RefreshGuildBuffs`（`:1743-1747`）以及末尾的百分比加成（`:1751-1759`）——
     /// 这些系统本作都还没有；它们只影响数值，不影响属性刷新的**时机**。
+    ///
+    /// 上限（`Stat.HP`/`Stat.MP`）变化时补发 `S.HealthChanged` 与 `S.ObjectHealth`：
+    /// Crystal 靠 `RefreshBuff` 之后客户端自己按 `S.AddBuff` 里的属性重算，本作额外
+    /// 兜一条血量同步，免得增益到期时客户端血条停在旧上限（**本作扩展**，见 `docs/world/buffs.md`）。
     pub fn refresh_stats(&mut self, object_id: u32) {
         let Some(player) = self.players.get(&object_id) else {
             return;
@@ -843,7 +1057,15 @@ impl World {
             };
             apply_equipment_stats(&mut stats, info, item);
         }
+        // `RefreshBuffs`：把每个生效 buff 的属性表累加进来（`HumanObject.cs:2326-2333`）。
+        // 注意顺序——buff 在装备之后、`RefreshStatCaps` 之前。
+        for buff in &player.buffs {
+            for (&stat, &value) in buff.stats.values() {
+                add_stat(&mut stats, stat, value);
+            }
+        }
         stats.apply_caps();
+        let max_changed = stats.hp != player.stats.hp || stats.mp != player.stats.mp;
         if let Some(player) = self.players.get_mut(&object_id) {
             player.stats = stats;
         }
@@ -851,6 +1073,10 @@ impl World {
         // ——`SetHP` 自己会在值没变时不发 `S.HealthChanged`（`HumanObject.cs:858-869`）。
         self.set_player_hp(object_id, hp.min(stats.hp));
         self.set_player_mp(object_id, mp.min(stats.mp));
+        if max_changed {
+            self.send_health_changed(object_id);
+            self.broadcast_health_change(object_id);
+        }
     }
 
     /// 生成一件掉落物实例：Crystal `Envir.CreateDropItem`（`Envir.cs:4407-4424`）。
@@ -1323,7 +1549,7 @@ impl World {
     /// 扣金币：Crystal `PlayerObject.DropGold`（`:7473-7482`）里的
     /// `Account.Gold -= gold; Enqueue(new S.LoseGold { Gold = gold });`。
     ///
-    /// 本作还没有「丢金币」的客户端包，先把这个入口留出来（GM 指令/后续功能会用到）。
+    /// 真正的「丢金币落地」入口是 [`World::drop_gold`]；这个函数只负责扣钱与发包。
     pub fn lose_gold(&mut self, object_id: u32, gold: u32) -> Result<(), ItemError> {
         let Some(player) = self.players.get_mut(&object_id) else {
             return Err(ItemError::NotInWorld(object_id));
@@ -1336,6 +1562,391 @@ impl World {
             .sender
             .send(ServerPacket::LoseGold(LoseGold { gold }).encode_frame());
         Ok(())
+    }
+
+    /// 丢金币到地上：Crystal `PlayerObject.DropGold`（`PlayerObject.cs:7473-7482`）。
+    ///
+    /// ```csharp
+    /// if (Account.Gold < gold) return;            // 钱不够：静默
+    /// ItemObject ob = new ItemObject(this, gold); // 落点先按自己脚下
+    /// if (!ob.Drop(5)) return;                    // 半径 5 找空格，失败也静默
+    /// Account.Gold -= gold;
+    /// Enqueue(new S.LoseGold { Gold = gold });
+    /// ```
+    ///
+    /// 金币堆复用现有的 [`GroundItem`]（`item = None`、金额在 `gold`），
+    /// 落地时给视野内玩家发 `S.ObjectGold`（见 [`World::spawn_ground_item`]）。
+    /// 顺序照抄：**先落地再扣钱**——落点找不到时玩家一分钱都不会掉。
+    ///
+    /// 简化：`gold == 0` 时不落地（Crystal 会生成一堆 0 金币的地面物品，
+    /// 见 `docs/world/items.md` 的异常清单）。
+    pub fn drop_gold(&mut self, object_id: u32, gold: u32) -> Result<Option<u32>, ItemError> {
+        let Some(player) = self.players.get(&object_id) else {
+            return Err(ItemError::NotInWorld(object_id));
+        };
+        let held = u32::try_from(player.gold.clamp(0, i64::from(u32::MAX))).unwrap_or(0);
+        if player.gold < i64::from(gold) {
+            return Err(ItemError::NotEnoughGold {
+                requested: gold,
+                held,
+            });
+        }
+        if gold == 0 {
+            return Ok(None);
+        }
+        let map = player.map.clone();
+        let position = player.position;
+        // `ob.Drop(5)`：半径是 **5**（不是掉落物品的 `Settings.DropRange = 4`）。
+        let Some(cell) = self.drop_cell_at(&map, position, DROP_GOLD_RANGE) else {
+            return Ok(None);
+        };
+        // `ob.Drop()` 成功之后才 `Account.Gold -= gold`（`:7479-7480`）。
+        let ground = self.spawn_ground_item(&map, cell, None, gold, None);
+        self.lose_gold(object_id, gold)?;
+        Ok(Some(ground))
+    }
+
+    /// 用物品（`C.UseItem`，Crystal `PlayerObject.UseItem`，`PlayerObject.cs:5799-6338`）。
+    ///
+    /// 判定顺序逐条照抄：
+    ///
+    /// ```csharp
+    /// 找 UUID（背包 46 格） → CanUseItem（性别/职业/等级）→ Dead 检查  // :5806-5824
+    /// switch (item.Info.Type) { Potion / Scroll / Book / Food / … }     // :5826-6328
+    /// if (item.Count > 1) item.Count--; else Info.Inventory[index] = null;  // :6330-6331
+    /// Report.ItemChanged(item, 1, 1);                                  // :6334（服务端统计，不上行）
+    /// p.Success = true; Enqueue(p);                                    // :6336-6337
+    /// ```
+    ///
+    /// 失败一律发 `S.UseItem{Success=false}`（Crystal 的 `Enqueue(p)`，`p.Success` 默认 false），
+    /// **并且不消耗任何东西**。药水/卷轴/书的细节见 `docs/world/items.md` §「使用物品」。
+    ///
+    /// 简化（都在对应分支标注了 `// 简化：`）：
+    /// * 传送/回城/随机传送卷（`Scroll` 的 shape 0/1/2 等）需要地图绑定与传送系统；
+    /// * `Food` 只在有坐骑时才有意义（喂坐骑耐久，`PlayerObject.cs:6093-6117`）；
+    /// * 护身符/毒药的消耗不在本函数里（技能那一侧仍未实现）。
+    pub fn use_item(&mut self, object_id: u32, unique_id: u64) -> Result<UseItemReport, ItemError> {
+        if !self.players.contains_key(&object_id) {
+            return Err(ItemError::NotInWorld(object_id));
+        }
+        // `item == null || index == -1 || !CanUseItem(item)`（`:5814-5818`）。
+        let Some((index, item)) = self.find_inventory_item(object_id, unique_id) else {
+            self.send_use_item_failure(object_id, unique_id);
+            return Err(ItemError::ItemNotFound { unique_id });
+        };
+        let Some(info) = self.item_info(item.item_index).cloned() else {
+            self.send_use_item_failure(object_id, unique_id);
+            return Err(ItemError::UnknownItem(item.item_index));
+        };
+        if let Err(error) = self.can_use_requirements(object_id, &info) {
+            self.send_use_item_failure(object_id, unique_id);
+            return Err(error);
+        }
+        // 复活卷轴是唯一「死亡时也能用」的物品（`:5820-5824`）。
+        let resurrect = info.item_type == ItemType::Scroll && info.shape == 6;
+        if self.players[&object_id].dead && !resurrect {
+            self.send_use_item_failure(object_id, unique_id);
+            return Err(ItemError::Dead { object_id });
+        }
+
+        let mut report = UseItemReport {
+            unique_id,
+            item_index: info.index,
+            item_name: info.name.clone(),
+            hp: 0,
+            mp: 0,
+            pot_health: 0,
+            pot_mana: 0,
+            buffs: Vec::new(),
+            learned: None,
+            remaining: None,
+        };
+        match info.item_type {
+            ItemType::Potion => {
+                if let Err(error) = self.use_potion(object_id, &info, &item, &mut report) {
+                    // 药水分支里的拒绝（满血/满蓝）还没发过包，这里补上失败包。
+                    self.send_use_item_failure(object_id, unique_id);
+                    return Err(error);
+                }
+            }
+            ItemType::Scroll if resurrect => {
+                // `MP = Stats[Stat.MP]; Revive(MaxHealth, true);`（`:5986-5987`）。
+                let max_mp = self.players[&object_id].stats.mp;
+                self.set_player_mp(object_id, max_mp);
+                self.revive_player(object_id);
+            }
+            ItemType::Scroll => {
+                // 简化：传送/回城/祝福油/修复油等卷轴需要传送、武器幸运、修理子系统，
+                // 本作没有；直接拒绝并提示，不消耗物品（Crystal 会把不认识的花色照样吃掉）。
+                self.send_system_chat(
+                    object_id,
+                    &format!("「{}」的效果尚未实现，物品没有被消耗。", info.name),
+                );
+                self.send_use_item_failure(object_id, unique_id);
+                return Err(ItemError::UnsupportedItem {
+                    item_index: info.index,
+                    shape: info.shape,
+                });
+            }
+            ItemType::Book => {
+                // 书走技能系统（`PlayerObject.cs:6077-6089`），它会自己发 `S.NewMagic`
+                // 与 `S.UseItem{Success=true}` 并扣掉一本。
+                let learned = self.use_book(object_id, unique_id)?;
+                report.learned = Some(learned.magic);
+                report.remaining = learned.book;
+                return Ok(report);
+            }
+            ItemType::Food => {
+                // 简化：食物只用来喂坐骑（`PlayerObject.cs:6093-6117`），本作没有坐骑。
+                self.send_system_chat(object_id, "本作还不能骑乘，食物暂时用不上。");
+                self.send_use_item_failure(object_id, unique_id);
+                return Err(ItemError::UnsupportedItem {
+                    item_index: info.index,
+                    shape: info.shape,
+                });
+            }
+            _ => {
+                // Crystal 的 `default: return;`（`:6326-6327`）：什么都不发、也不消耗。
+                // 本作发一条失败的 `S.UseItem`，让客户端的物品格子解锁（差异见 docs）。
+                self.send_use_item_failure(object_id, unique_id);
+                return Err(ItemError::UnsupportedItem {
+                    item_index: info.index,
+                    shape: info.shape,
+                });
+            }
+        }
+
+        // `if (item.Count > 1) item.Count--; else Info.Inventory[index] = null;`（`:6330-6331`）。
+        report.remaining = self.consume_one(object_id, index);
+        // `p.Success = true; Enqueue(p);`（`:6336-6337`）。
+        self.send_use_item_success(object_id, unique_id);
+        Ok(report)
+    }
+
+    /// 药水分支（Crystal `PlayerObject.cs:5828-5894`）。
+    ///
+    /// `ItemInfo.Shape` 的含义：
+    ///
+    /// | Shape | Crystal | 效果 |
+    /// |---|---|---|
+    /// | 0 | `NormalPotion` | `PotHealthAmount/PotManaAmount += Stats[HP/MP]`，之后由 `ProcessRegen` 分批放（`:5831-5834`） |
+    /// | 1 | `SunPotion` | 立刻 `ChangeHP/ChangeMP(Stats[HP/MP])`（`:5835-5838`） |
+    /// | 2 | `MysteryWater` | 解除诅咒装备的限制（`:5839-5848`），本作只置标记并提示 |
+    /// | 3 | `Buff` | 按属性表套若干个 `BuffType.Impact/Magic/Taoist/Storm/HealthAid/ManaAid/Defence/MagicDefence/BagWeight`（`:5849-5879`） |
+    /// | 4 | `Exp` | `BuffType.Exp`，`Stat.ExpRatePercent = 物品的 Luck`（`:5881-5886`） |
+    /// | 5 | `Drop` | `BuffType.Drop`，`Stat.ItemDropRatePercent = 物品的 Luck`（`:5887-5892`） |
+    ///
+    /// 注意 Crystal 的「太阳水」是**固定值**（模板 `Stats[Stat.HP]`），
+    /// 不是百分比——模板里没有百分比字段（`Shared/Data/ItemData.cs` 的属性表就是 `Stats`）。
+    fn use_potion(
+        &mut self,
+        object_id: u32,
+        info: &ItemInfo,
+        item: &UserItem,
+        report: &mut UseItemReport,
+    ) -> Result<(), ItemError> {
+        let hp_amount = info.stats.get(Stat::HP);
+        let mp_amount = info.stats.get(Stat::MP);
+        let (hp, max_hp, mp, max_mp) = {
+            let player = &self.players[&object_id];
+            (player.hp, player.stats.hp, player.mp, player.stats.mp)
+        };
+        match info.shape {
+            0 => {
+                // 满血/满蓝喝下去毫无效果 → 本作直接拒绝（**扩展**，Crystal 会白喝）。
+                if !potion_has_effect(hp_amount, hp, max_hp, mp_amount, mp, max_mp) {
+                    self.send_system_chat(object_id, "生命和魔法都是满的，药水没有效果。");
+                    return Err(ItemError::PotionNoEffect);
+                }
+                let (pot_hp, pot_mp) = {
+                    let Some(player) = self.players.get_mut(&object_id) else {
+                        return Err(ItemError::NotInWorld(object_id));
+                    };
+                    // `PotHealthAmount = (ushort)Math.Min(ushort.MaxValue, PotHealthAmount + …)`
+                    // （`:5832-5833`）。
+                    player.pot_health_amount = player
+                        .pot_health_amount
+                        .saturating_add(u16::try_from(hp_amount.max(0)).unwrap_or(u16::MAX));
+                    player.pot_mana_amount = player
+                        .pot_mana_amount
+                        .saturating_add(u16::try_from(mp_amount.max(0)).unwrap_or(u16::MAX));
+                    (player.pot_health_amount, player.pot_mana_amount)
+                };
+                report.pot_health = u32::from(pot_hp);
+                report.pot_mana = u32::from(pot_mp);
+            }
+            1 => {
+                if !potion_has_effect(hp_amount, hp, max_hp, mp_amount, mp, max_mp) {
+                    self.send_system_chat(object_id, "生命和魔法都是满的，药水没有效果。");
+                    return Err(ItemError::PotionNoEffect);
+                }
+                // `ChangeHP(item.Info.Stats[Stat.HP]); ChangeMP(item.Info.Stats[Stat.MP]);`
+                // （`:5836-5837`）——两个都走 `SendHealthChanged`。
+                if hp_amount > 0 {
+                    let before = self.players[&object_id].hp;
+                    self.change_player_hp(object_id, hp_amount);
+                    report.hp = self.players[&object_id].hp - before;
+                }
+                if mp_amount > 0 {
+                    let before = self.players[&object_id].mp;
+                    self.change_player_mp(object_id, mp_amount);
+                    report.mp = self.players[&object_id].mp - before;
+                }
+            }
+            2 => {
+                // `UnlockCurse = true;`（`:5847`）+ 两条提示（`:5840-5846`）。
+                if self.players[&object_id].unlock_curse {
+                    self.send_system_chat(object_id, "你已经可以卸下诅咒装备了。");
+                    return Err(ItemError::PotionNoEffect);
+                }
+                if let Some(player) = self.players.get_mut(&object_id) {
+                    player.unlock_curse = true;
+                }
+                self.send_system_chat(object_id, "你现在可以卸下诅咒装备了。");
+            }
+            3 => {
+                // `int time = item.Info.Durability;`（`:5850`），单位是**分钟**。
+                let duration = minutes_to_ms(info.durability);
+                let groups = buff_potion_groups(info, item);
+                for (kind, stats) in groups {
+                    self.add_buff(object_id, kind, duration, stats, object_id);
+                    report.buffs.push(kind);
+                }
+            }
+            4 => {
+                // `AddBuff(BuffType.Exp, this, Settings.Minute * time,
+                //          new Stats { [Stat.ExpRatePercent] = item.GetTotal(Stat.Luck) })`（`:5881-5886`）。
+                let mut stats = mir_protocol::data::Stats::default();
+                stats.set(Stat::ExpRatePercent, item_total(info, item, Stat::Luck));
+                self.add_buff(
+                    object_id,
+                    BuffKind::Exp,
+                    minutes_to_ms(info.durability),
+                    stats,
+                    object_id,
+                );
+                report.buffs.push(BuffKind::Exp);
+            }
+            5 => {
+                // `AddBuff(BuffType.Drop, …, new Stats { [Stat.ItemDropRatePercent] = … })`（`:5887-5892`）。
+                let mut stats = mir_protocol::data::Stats::default();
+                stats.set(
+                    Stat::ItemDropRatePercent,
+                    item_total(info, item, Stat::Luck),
+                );
+                self.add_buff(
+                    object_id,
+                    BuffKind::Drop,
+                    minutes_to_ms(info.durability),
+                    stats,
+                    object_id,
+                );
+                report.buffs.push(BuffKind::Drop);
+            }
+            _ => {
+                // Crystal 的内层 `switch` 没有 `default`：不认识的花色照样被吃掉（`:5893-5894`）。
+                // 本作照抄「消耗」这个结果，但不发任何效果。
+            }
+        }
+        Ok(())
+    }
+
+    /// `HumanObject.CanUseItem` 里与「使用」有关的三关：性别、职业、等级
+    /// （`HumanObject.cs:1020-1160`），外加复活卷轴的「必须处于死亡状态」（`:1195-1200`）。
+    ///
+    /// 失败时按 Crystal 的位置发一条 `S.Chat{System}`；调用方负责补 `S.UseItem{Success=false}`。
+    ///
+    /// 简化：`RequiredType` 的 AC/MAC/DC/MC/SC 分支（`:1090-1166`）与地图级开关
+    /// （`NoDrug`/`NoEscape`/`NoTownTeleport`，`:1169-1235`）未实现——前者只用于装备，
+    /// 后者需要地图的 `MapInfo` 运行期表；本作的药水/卷轴/书只用等级限制。
+    pub fn can_use_requirements(&self, object_id: u32, info: &ItemInfo) -> Result<(), ItemError> {
+        let Some(player) = self.players.get(&object_id) else {
+            return Err(ItemError::NotInWorld(object_id));
+        };
+        // `RequiredGender`：`None = 3`（两位都允许）；`0` 视为「没有限制」
+        // （Rust 侧的 `ItemInfo::default()` 是 0，而 C# 字段初值是 `None`）。
+        let required_gender = info.required_gender.0;
+        if required_gender != 0 && required_gender & gender_flag(player.gender) == 0 {
+            self.send_system_chat(object_id, "你的性别无法使用这件物品。");
+            return Err(ItemError::WrongGender);
+        }
+        let required_class = info.required_class.0;
+        if required_class != 0 && required_class & class_flag(player.class) == 0 {
+            self.send_system_chat(object_id, "你的职业无法使用这件物品。");
+            return Err(ItemError::WrongClass {
+                required: info.required_class,
+                class: player.class,
+            });
+        }
+        if info.required_type == RequiredType::Level
+            && player.level < u16::from(info.required_amount)
+        {
+            self.send_system_chat(
+                object_id,
+                &format!("等级不够：需要 {} 级。", info.required_amount),
+            );
+            return Err(ItemError::LowLevel {
+                required: info.required_amount,
+                level: player.level,
+            });
+        }
+        if info.required_type == RequiredType::MaxLevel
+            && player.level > u16::from(info.required_amount)
+        {
+            self.send_system_chat(
+                object_id,
+                &format!("等级过高：最多 {} 级可用。", info.required_amount),
+            );
+            return Err(ItemError::LowLevel {
+                required: info.required_amount,
+                level: player.level,
+            });
+        }
+        // `case 6: if (!Dead) { …; return false; }`（`:1195-1200`）。
+        if info.item_type == ItemType::Scroll && info.shape == 6 && !player.dead {
+            self.send_system_chat(object_id, "你还没有死亡，不能使用复活卷轴。");
+            return Err(ItemError::UnsupportedItem {
+                item_index: info.index,
+                shape: info.shape,
+            });
+        }
+        Ok(())
+    }
+
+    /// 消耗背包里的一件（`PlayerObject.cs:6330-6331`），返回这一格的剩余内容。
+    pub(crate) fn consume_one(&mut self, object_id: u32, index: usize) -> Option<UserItem> {
+        let player = self.players.get_mut(&object_id)?;
+        let slot = player.inventory.get_mut(index)?;
+        let stack = slot.as_mut()?;
+        if stack.count > 1 {
+            stack.count -= 1;
+            Some(stack.clone())
+        } else {
+            *slot = None;
+            None
+        }
+    }
+
+    /// 发一条失败的 `S.UseItem`（Crystal `PlayerObject.UseItem` 里的 `Enqueue(p)`）。
+    pub(crate) fn send_use_item_failure(&self, object_id: u32, unique_id: u64) {
+        self.send_use_item_packet(object_id, unique_id, false);
+    }
+
+    /// 发一条成功的 `S.UseItem`（`p.Success = true; Enqueue(p);`，`:6336-6337`）。
+    pub(crate) fn send_use_item_success(&self, object_id: u32, unique_id: u64) {
+        self.send_use_item_packet(object_id, unique_id, true);
+    }
+
+    fn send_use_item_packet(&self, object_id: u32, unique_id: u64, success: bool) {
+        self.send_to_player(
+            object_id,
+            &ServerPacket::UseItem(UseItemPacket {
+                unique_id,
+                success,
+                grid: MirGridType::Inventory,
+            })
+            .encode_frame(),
+        );
     }
 
     /// 丢弃物品：Crystal `PlayerObject.DropItem`（`:7359-7472`）。
@@ -1847,7 +2458,7 @@ impl World {
 
         // `if (scaledGold > 0) DropGold(scaledGold);`（`:1114-1117`）
         if reward.gold > 0 {
-            self.drop_gold(&map, position, reward.gold, owner);
+            self.drop_monster_gold(&map, position, reward.gold, owner);
         }
         // `foreach (var dropItem in reward.Items) { ... if (!DropItem(item)) return; }`（`:1119-1142`）
         for item_name in &reward.items {
@@ -1866,11 +2477,14 @@ impl World {
         }
     }
 
-    /// 掉金币：Crystal `MonsterObject.DropGold`（`:1169-1190`）。
+    /// 怪物掉金币：Crystal `MonsterObject.DropGold`（`:1169-1190`）。
     ///
     /// `Settings.DropGold` 默认为 `true`（`Settings.cs:229`），所以金币**落在地上**而不是
     /// 直接进击杀者背包；按 `MaxDropGold = 2000` 拆成多堆（`Settings.cs:228`）。
-    fn drop_gold(&mut self, map: &str, position: Point, gold: u32, owner: u32) {
+    ///
+    /// 与玩家主动丢金币的 [`World::drop_gold`] 区分：这里带归属（`owner`），
+    /// 掉落半径按 `Settings.DropRange = 4`。
+    fn drop_monster_gold(&mut self, map: &str, position: Point, gold: u32, owner: u32) {
         let count = if gold / MAX_DROP_GOLD == 0 {
             1
         } else {
@@ -1896,7 +2510,8 @@ impl World {
 
     /// 掉落落点：Crystal `ItemObject.Drop(distance)`（`ItemObject.cs:190-275`）。
     ///
-    /// 原文的扫描方式（`distance = Settings.DropRange = 4`）：
+    /// 原文的扫描方式（物品掉落用 `distance = Settings.DropRange = 4`，
+    /// 玩家丢金币用写死的 `5`，见 [`DROP_GOLD_RANGE`]）：
     ///
     /// ```csharp
     /// for (int d = 0; d <= distance; d++)
@@ -1916,8 +2531,13 @@ impl World {
     /// 简化：Crystal 还会跳过本图的 `Movement` 起点（传送门，`ItemObject.cs:211-220`）；
     /// 世界层没有 `MapInfo.Movements` 的运行时表，这里省略。
     fn drop_cell(&self, map: &str, center: Point) -> Option<Point> {
+        self.drop_cell_at(map, center, DROP_RANGE)
+    }
+
+    /// 同 [`World::drop_cell`]，但可以指定搜索半径（玩家丢金币传 5）。
+    fn drop_cell_at(&self, map: &str, center: Point, distance: i32) -> Option<Point> {
         let mut best: Option<(Point, usize)> = None;
-        for distance in 0..=DROP_RANGE {
+        for distance in 0..=distance {
             for y in (center.y - distance)..=(center.y + distance) {
                 if y < 0 {
                     continue;

@@ -1,6 +1,6 @@
 # 移动系统：Walk / Run / Turn 的精确规则
 
-> 参考实现根目录：`C:\Users\diana\ref\Crystal`（下文 `路径:行号` 均相对该目录）。
+> 参考实现根目录：`github\Crystal`（下文 `路径:行号` 均相对该目录）。
 > 核心文件：`Server/MirObjects/HumanObject.cs`（玩家/英雄共用）、`Server/MirObjects/PlayerObject.cs`（玩家特有）、
 > `Server/MirObjects/MapObject.cs`（动作表与广播）、`Server/MirEnvir/Map.cs`（格子/门）、
 > `Server/MirNetwork/MirConnection.cs`（收包与限速）、`Shared/Functions/Functions.cs`（方向/坐标）。

@@ -1,6 +1,6 @@
 # Crystal 持久化数据模型（Rust 重写用 schema 说明）
 
-> 参考实现：`C:\Users\diana\ref\Crystal`（下称「参考源」，文中相对路径均以该目录为根）。
+> 参考实现：`github\Crystal`（下称「参考源」，文中相对路径均以该目录为根）。
 > 数据库版本：`Envir.Version = 117`，`Envir.MinVersion = 60`，`Envir.CustomVersion = 0`（`Server/MirEnvir/Envir.cs:56-58`）。
 > 目标：为 `传奇-Next`（Rust + PostgreSQL + sqlx）提供「等价存储」所需的字段级规格。
 > 本文所有结论都标注了 `文件:行号`；凡是没能从代码确认的，明确写成「未验证」。

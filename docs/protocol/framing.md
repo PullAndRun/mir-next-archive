@@ -1,6 +1,6 @@
 # Crystal 协议：帧格式（Wire Framing）
 
-> 参照实现：`C:\Users\diana\ref\Crystal`（**只读**，不可修改）。
+> 参照实现：`github\Crystal`（**只读**，不可修改）。
 > 本文件逐字节描述 Crystal（Legend of Mir 2，C#）在 TCP 上收发的帧格式，作为 Rust 重写的实现契约。
 > 配套文档：[packet-ids.md](packet-ids.md)（全部编号）、[packets-complex.md](packets-complex.md)（非纯线性的包体）。
 

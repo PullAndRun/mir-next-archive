@@ -1,6 +1,6 @@
 # Crystal 协议：复杂数据包（ReadPacket 非纯线性）
 
-> 参照实现：`C:\Users\diana\ref\Crystal`（只读）。本文件是 Rust 重写的实现契约。
+> 参照实现：`github\Crystal`（只读）。本文件是 Rust 重写的实现契约。
 > 帧格式与 `ReceivePacket`/`GetPacketBytes` 语义见 [framing.md](framing.md)；全部数据包编号见 [packet-ids.md](packet-ids.md)。
 
 ## 0. 判定标准与统计

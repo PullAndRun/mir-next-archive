@@ -1,6 +1,6 @@
 # NPC 系统（实体 / 脚本对话 / 商店 / 修理）
 
-> 参考实现根目录：`C:\Users\diana\ref\Crystal`（下文 `路径:行号` 均相对该目录）。
+> 参考实现根目录：`github\Crystal`（下文 `路径:行号` 均相对该目录）。
 > 核心文件：`Server/MirObjects/NPCObject.cs`（NPC 对象、可见性、`GetInfo`）、
 > `Server/MirObjects/NPC/NPCScript.cs`（脚本装载、`Call`、`ProcessSpecial`、`Buy`）、
 > `Server/MirObjects/NPC/NPCSegment.cs`（`#IF`/`#ACT` 的解析与执行、`ParseSay`、`Compare`）、

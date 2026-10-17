@@ -76,6 +76,7 @@ mir-next/
 ├─ config/lang/       语言包（默认 zh-cn，另有 en；运行时加载，覆盖内置文本）
 ├─ docs/              协议、存档、地图与世界、战斗、素材索引的实现契约
 ├─ resource/          素材目录（不提交到版本库）
+├─ github/            从 GitHub clone 的参考项目（如 github/Crystal；不提交到版本库）
 ├─ Cargo.toml         workspace 清单
 └─ LICENSE            GPL-3.0-or-later
 ```
@@ -137,7 +138,7 @@ python tools/asset-index/find_asset.py --ext .wzl --top data --limit 20
 - Rust 工具链（stable）
 - Python 3（仅在重新生成协议代码时需要）
 - PostgreSQL 16+（可选；不配置时服务端使用内存存储）
-- Crystal 源码检出（仅在重新生成协议代码时需要）
+- Crystal 源码检出（仅在重新生成协议代码时需要）：放在仓库根的 `github/Crystal`
 
 ### 构建与运行
 
@@ -160,8 +161,8 @@ cargo run -p mir-tools -- map-info resource/map/0.map
 # 看一眼游戏数据库里都有什么（怪物/物品/NPC/刷怪点数量 + 抽样记录）
 cargo run -p mir-tools -- mirdb-report --path resource/community/suprcode-crystal-database/cjlaaa/Server.MirDB
 
-# 从 Crystal 源码重新生成协议代码（需要 Crystal 检出）
-python tools/protocol-gen/generate.py --crystal /path/to/Crystal
+# 从 Crystal 源码重新生成协议代码（默认读 github/Crystal，可用 --crystal 覆盖）
+python tools/protocol-gen/generate.py
 ```
 
 服务端默认监听 `0.0.0.0:7000`（`MIR2_LISTEN` 可改），会尝试加载

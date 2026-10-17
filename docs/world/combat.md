@@ -1,6 +1,6 @@
 # 战斗与怪物 AI
 
-> 参考实现根目录：`C:\Users\diana\ref\Crystal`（下文 `路径:行号` 均相对该目录）。
+> 参考实现根目录：`github\Crystal`（下文 `路径:行号` 均相对该目录）。
 > 核心文件：`Server/MirObjects/MapObject.cs`（`GetAttackPower`/`GetDefencePower`/`GetArmour`/广播）、
 > `Server/MirObjects/HumanObject.cs`（玩家攻击、受击、死亡、回血）、`Server/MirObjects/MonsterObject.cs`
 > （怪物 AI、攻击、死亡）、`Server/MirObjects/PlayerObject.cs`（经验、升级、复活）、

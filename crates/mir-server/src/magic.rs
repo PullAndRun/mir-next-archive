@@ -1,6 +1,6 @@
 //! 技能（魔法）：数据、学习、施法流程、伤害/治疗结算与持久化。
 //!
-//! 规则逐条对应 Crystal（参考根目录 `C:\Users\diana\ref\Crystal`，下文写相对路径）：
+//! 规则逐条对应 Crystal（参考根目录 `github\Crystal`，下文写相对路径）：
 //!
 //! | 本模块 | Crystal |
 //! |---|---|
@@ -63,15 +63,18 @@ use std::collections::HashMap;
 use mir_core::MirRng;
 use mir_core::Point;
 use mir_core::enums::{
-    DefenceType, ItemType, MirClass, MirDirection, MirGender, MirGridType, RequiredClass, Spell,
+    DefenceType, ItemType, MirClass, MirDirection, MirGridType, RequiredClass, Spell, Stat,
 };
 use mir_db::MagicInfo;
-use mir_protocol::data::{ClientMagic, UserItem};
+use mir_protocol::data::{ClientMagic, Stats, UserItem};
 use mir_protocol::packets::server::{
     Magic, MagicDelay, MagicLeveled, NewMagic, ObjectMagic, UseItem,
 };
 use mir_protocol::{PacketReader, PacketWriter, ProtocolError, ServerPacket};
 
+use crate::buffs::{
+    BuffKind, ENERGY_SHIELD_MIN_CHANCE, PendingBuff, SECOND_MS, SHIELD_AREA_RADIUS,
+};
 use crate::combat::PendingHit;
 use crate::world::{PLAYER_REGEN_DELAY_MS, World};
 /// 技能最高等级：Crystal 的 `MagicInfo` 只有 `Level1`/`Level2`/`Level3` 三档
@@ -124,22 +127,23 @@ pub const MAX_MAGICS: usize = 64;
 
 /// 已登记但**本作尚未实现效果**的技能。
 ///
-/// 这些技能在 Crystal 里都会 `AddBuff`（`HumanObject.cs:6149-6242` 等），而本作没有
-/// buff 容器：`CombatStats` 只有「当前值」没有「来源与到期时间」，加上去就再也撤不掉。
-/// 因此这里只登记（`MagicInfo` 能查到、能学、能进客户端技能栏），施法时返回
-/// [`MagicError::UnsupportedSpell`]，**不扣蓝、不进冷却**。
+/// 这些技能在 Crystal 里会 `AddBuff`（`HumanObject.cs:4964-4973`、`:6171-6182` 等），
+/// 而本作还没有对应的效果实现，因此只登记（`MagicInfo` 能查到、能学、能进客户端技能栏），
+/// 施法时返回 [`MagicError::UnsupportedSpell`]，**不扣蓝、不进冷却**。
+///
+/// 曾经在这个列表里的 9 个增益技能（`ProtectionField`/`Haste`/`MagicShield`/`SoulShield`/
+/// `BlessedArmour`/`EnergyShield`/`LightBody`/`Fury`/`MagicBooster`）已经由
+/// [`SpellKind::Buff`] 实现，见 [`crate::buffs`] 与 `docs/world/magic.md` 的支持矩阵。
 pub const REGISTERED_UNSUPPORTED: &[Spell] = &[
-    // 任务点名的三个：`Protection` 在 Crystal 里叫 `ProtectionField`（`Shared/Enums.cs`）。
-    Spell::ProtectionField,
-    Spell::Haste,
-    Spell::MagicShield,
-    // 同族的护盾/增益，一并登记，避免被当成「不存在的技能」。
-    Spell::SoulShield,
-    Spell::BlessedArmour,
-    Spell::EnergyShield,
-    Spell::LightBody,
-    Spell::Fury,
-    Spell::MagicBooster,
+    // 战士：狂暴 / 金刚不坏（`HumanObject.cs:4964-4973`、`:6171-6182`）。
+    Spell::Rage,
+    Spell::ImmortalSkin,
+    // 道士：强化术 / 隐身 / 神兽强化。
+    Spell::UltimateEnhancer,
+    Spell::Hiding,
+    Spell::PetEnhancer,
+    // 法师：元素护盾。
+    Spell::ElementalBarrier,
 ];
 
 /// 玩家已学的一个技能（Crystal `UserMagic`，`Server/MirDatabase/MagicInfo.cs:88-101`）。
@@ -175,11 +179,29 @@ impl UserMagic {
 
     /// 施法耗蓝：`Info.BaseCost + Info.LevelCost * Level`（`HumanObject.cs:3377`）。
     ///
-    /// 简化：`Stat.ManaPenaltyPercent` / `Stat.TeleportManaPenaltyPercent`（`:3379-3390`）
-    /// 与 `Spell.Plague` 的特殊算法（`:3392-3395`）未实现——本作没有这两个属性，
-    /// 而 plague 不在支持清单里。
+    /// 简化：`Stat.TeleportManaPenaltyPercent`（`:3379-3385`）与 `Spell.Plague` 的特殊算法
+    /// （`:3392-3395`）不参与——本作没有传送类技能，plague 也不在支持清单里；
+    /// `Stat.ManaPenaltyPercent` 见 [`Self::cost_with_penalty`]。
     pub fn cost(&self, info: &MagicInfo) -> i32 {
         i32::from(info.base_cost) + i32::from(info.level_cost) * i32::from(self.level)
+    }
+
+    /// 带「魔法消耗惩罚」的施法耗蓝（Crystal `HumanObject.MagicCost`，`HumanObject.cs:3375-3398`）。
+    ///
+    /// ```csharp
+    /// int cost = magic.Info.BaseCost + magic.Info.LevelCost * magic.Level;
+    /// if (Stats[Stat.ManaPenaltyPercent] > 0) cost += (cost * Stats[Stat.ManaPenaltyPercent]) / 100;
+    /// ```
+    ///
+    /// 唯一会写入 `Stat.ManaPenaltyPercent` 的是魔力增幅
+    /// （`BuffType.MagicBooster`，`6 + Level`，`HumanObject.cs:6234`）。
+    pub fn cost_with_penalty(&self, info: &MagicInfo, mana_penalty_percent: i32) -> i32 {
+        let cost = self.cost(info);
+        if mana_penalty_percent > 0 {
+            cost + cost * mana_penalty_percent / 100
+        } else {
+            cost
+        }
     }
 
     /// 冷却时长：`Info.DelayBase - Level * Info.DelayReduction`（`MagicInfo.cs:219-222`）。
@@ -216,6 +238,19 @@ impl UserMagic {
     pub fn damage(&self, info: &MagicInfo, base: i32, rng: &mut MirRng) -> i32 {
         let power = self.power(info, rng);
         (f64::from(base.saturating_add(power)) * self.multiplier(info)) as i32
+    }
+
+    /// `GetPower(int power)`（`MagicInfo.cs:214-217`）：
+    /// `(int)Math.Round(power / 4F * (Level + 1) + DefPower())`。
+    ///
+    /// 与 [`Self::power`] 的区别：这里**不抽 `MPower`**，只抽 `DefPower`
+    /// （`PowerBase .. PowerBase + PowerBonus - 1`，`:204-212`）。魔法盾/气功波/幽灵盾
+    /// 都用这个重载来算「时长」或「回血量」。
+    pub fn power_with_base(&self, info: &MagicInfo, power: i32, rng: &mut MirRng) -> i32 {
+        let def_power = roll_u16(info.power_base, info.power_bonus, rng);
+        let value =
+            f64::from(power) / 4.0 * f64::from(u16::from(self.level) + 1) + f64::from(def_power);
+        value.round_ties_even() as i32
     }
 
     /// 组装下发给客户端的技能视图（`UserMagic.CreateClientMagic`，`MagicInfo.cs:155-178`）。
@@ -292,6 +327,11 @@ pub enum SpellKind {
     Heal,
     /// 3×3 范围治疗（`MassHealing`）：`HumanObject.cs:4526-4532` + `Map.cs:1255-1296`。
     MassHealing,
+    /// 增益类技能（套 buff）：`HumanObject.cs:3544-3674` + `CompleteMagic` 的各分支。
+    ///
+    /// 包括 `ProtectionField`/`MagicShield`/`SoulShield`/`BlessedArmour`/`EnergyShield`/
+    /// `Haste`/`LightBody`/`Fury`/`MagicBooster`，效果见 [`crate::buffs`]。
+    Buff,
     /// 已登记、但本作没有效果（见 [`REGISTERED_UNSUPPORTED`]）。
     Unsupported,
 }
@@ -306,12 +346,21 @@ pub const fn spell_kind(spell: Spell) -> SpellKind {
         Spell::FireBang => SpellKind::FireBang,
         Spell::Healing => SpellKind::Heal,
         Spell::MassHealing => SpellKind::MassHealing,
+        Spell::ProtectionField
+        | Spell::MagicShield
+        | Spell::SoulShield
+        | Spell::BlessedArmour
+        | Spell::EnergyShield
+        | Spell::Haste
+        | Spell::LightBody
+        | Spell::Fury
+        | Spell::MagicBooster => SpellKind::Buff,
         _ => SpellKind::Unsupported,
     }
 }
 
 /// 一条已经排进延迟队列的魔法效果（Crystal 的 `DelayedAction(DelayedType.Magic, ...)`）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MagicEffect {
     /// 单体伤害（`FireBall` 一族）。`location` 是施法时的落点，结算时目标必须还在它 ±2 格内
     /// （`HumanObject.cs:5928`）。
@@ -355,10 +404,30 @@ pub enum MagicEffect {
         /// 每次结算的治疗量。
         amount: i32,
     },
+    /// 给单个目标套增益（`CompleteMagic` 里的 `AddBuff`，`HumanObject.cs:6149-6242`）。
+    ///
+    /// 数值在施法瞬间就抽好了（见 [`PendingBuff`]），这里只负责「到点写入」。
+    Buff {
+        /// 目标玩家对象 ID。
+        target_id: u32,
+        /// 待写入的增益。
+        buff: PendingBuff,
+    },
+    /// 7×7 范围内的友方增益（`SoulShield`/`BlessedArmour`，`Map.cs:1046-1097`）。
+    AreaBuff {
+        /// 区域中心（施法落点）。
+        location: Point,
+        /// 增益种类。
+        kind: BuffKind,
+        /// 持续时长（毫秒）。
+        duration_ms: i64,
+        /// 加成落在哪个防御属性上（`Stat.MaxAC` 或 `Stat.MaxMAC`，`Map.cs:1082`）。
+        stat: Stat,
+    },
 }
 
 /// 延迟魔法效果（Crystal 里每个对象/地图各有一条 `ActionList`，本作合并成世界级队列）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PendingMagic {
     /// 结算时刻（毫秒）。
     pub at: i64,
@@ -487,6 +556,11 @@ pub struct CastReport {
     pub damage: Option<i32>,
     /// 本次抽到的治疗量（治疗类技能才有）。
     pub heal: Option<i32>,
+    /// 本次套上的增益种类（增益类技能才有，见 [`crate::buffs::BuffKind`]）。
+    ///
+    /// 注意它表示「这次施法成功登记了增益」，延迟生效的 6 个技能要到
+    /// 500ms（幽灵盾是「距离 × 50 + 500」ms）之后才真正出现在玩家身上。
+    pub buff: Option<BuffKind>,
     /// 本次扣掉的魔法。
     pub cost: i32,
 }
@@ -575,25 +649,6 @@ pub fn decode_magics(bytes: &[u8]) -> Result<Vec<UserMagic>, MagicCodecError> {
         });
     }
     Ok(magics)
-}
-
-/// 玩家职业对应的 `RequiredClass` 位（`Shared/Enums.cs` 的 `RequiredClass`）。
-const fn class_flag(class: MirClass) -> u8 {
-    match class {
-        MirClass::Warrior => 1,
-        MirClass::Wizard => 2,
-        MirClass::Taoist => 4,
-        MirClass::Assassin => 8,
-        MirClass::Archer => 16,
-    }
-}
-
-/// 玩家的性别位（`RequiredGender` 的 `Male = 1`、`Female = 2`）。
-const fn gender_flag(gender: MirGender) -> u8 {
-    match gender {
-        MirGender::Male => 1,
-        MirGender::Female => 2,
-    }
 }
 
 impl World {
@@ -733,56 +788,27 @@ impl World {
     /// `HumanObject.CanUseItem` 里对书有意义的那几项：性别、职业、等级
     /// （`HumanObject.cs:1020-1160`）。
     ///
-    /// 简化：`RequiredType` 的 AC/MAC/DC/MC/SC 分支（`:1090-1155`）未实现——
-    /// 传奇的技能书全部用 `Level` 限制；`MaxLevel` 也一并检查（`:1125-1131`）。
+    /// 实现在物品系统（[`World::can_use_requirements`]）——喝药水/用卷轴走的是同一条判定
+    /// （`PlayerObject.cs:5814` 的 `CanUseItem(item)`），这里只把
+    /// [`crate::items::ItemError`] 翻译回 [`MagicError`]，保持 [`World::use_book`] 的签名。
     fn check_item_requirements(
         &self,
         object_id: u32,
         info: &mir_protocol::data::ItemInfo,
     ) -> Result<(), MagicError> {
-        let Some(player) = self.players.get(&object_id) else {
-            return Err(MagicError::NotInWorld(object_id));
-        };
-        // `RequiredGender`：`None = 3`（两位都允许）；`0` 视为「没有限制」
-        // （Rust 侧的 `ItemInfo::default()` 是 0，而 C# 字段初值是 `None`，见模块文档）。
-        let required_gender = info.required_gender.0;
-        if required_gender != 0 && required_gender & gender_flag(player.gender) == 0 {
-            self.send_system_chat(object_id, "你的性别无法使用这件物品。");
-            return Err(MagicError::WrongGender);
-        }
-        let required_class = info.required_class.0;
-        if required_class != 0 && required_class & class_flag(player.class) == 0 {
-            self.send_system_chat(object_id, "你的职业无法使用这件物品。");
-            return Err(MagicError::WrongClass {
-                required: info.required_class,
-                class: player.class,
-            });
-        }
-        if info.required_type == mir_core::enums::RequiredType::Level
-            && player.level < u16::from(info.required_amount)
-        {
-            self.send_system_chat(
-                object_id,
-                &format!("等级不够：需要 {} 级。", info.required_amount),
-            );
-            return Err(MagicError::LowLevel {
-                required: info.required_amount,
-                level: player.level,
-            });
-        }
-        if info.required_type == mir_core::enums::RequiredType::MaxLevel
-            && player.level > u16::from(info.required_amount)
-        {
-            self.send_system_chat(
-                object_id,
-                &format!("等级过高：最多 {} 级可用。", info.required_amount),
-            );
-            return Err(MagicError::LowLevel {
-                required: info.required_amount,
-                level: player.level,
-            });
-        }
-        Ok(())
+        use crate::items::ItemError;
+
+        self.can_use_requirements(object_id, info)
+            .map_err(|error| match error {
+                ItemError::WrongGender => MagicError::WrongGender,
+                ItemError::WrongClass { required, class } => {
+                    MagicError::WrongClass { required, class }
+                }
+                ItemError::LowLevel { required, level } => MagicError::LowLevel { required, level },
+                ItemError::NotInWorld(object_id) => MagicError::NotInWorld(object_id),
+                // 复活卷轴那条「必须处于死亡状态」的检查与书无关；其余分支书本走不到。
+                _ => MagicError::UnknownItem(info.index),
+            })
     }
 
     /// `C.MagicKey`：改技能快捷键（`MirConnection.cs:1543-1566`）。
@@ -892,6 +918,28 @@ impl World {
                 }
                 target_id = 0;
             }
+            SpellKind::Buff => {
+                // 增益的落点为空时退回自己脚下（同样按 `:3416` 的放行规则）。
+                if target_location.x == 0 && target_location.y == 0 {
+                    target_location = position;
+                }
+                // 目标：`EnergyShield` 可以给友方，其余 8 个都作用在自己身上
+                // （`HumanObject.cs:4755` 的 `target = this`；`Haste`/`LightBody`/`Fury`/
+                // `MagicShield`/`MagicBooster`/`ProtectionField` 的 `AddBuff(..., this, ...)`）。
+                // 简化：没有队伍系统，「友方」只认同图存活的玩家。
+                let valid_friendly = target_id != 0
+                    && self
+                        .players
+                        .get(&target_id)
+                        .is_some_and(|target| !target.dead && target.map == map);
+                if !matches!(
+                    spell,
+                    Spell::EnergyShield | Spell::SoulShield | Spell::BlessedArmour
+                ) || !valid_friendly
+                {
+                    target_id = 0;
+                }
+            }
             SpellKind::Unsupported => unreachable!("上面已经分派过"),
         }
         // `if ((location.X != 0) && (location.Y != 0) && magic.Info.Range != 0
@@ -929,7 +977,9 @@ impl World {
         }
 
         // --- 蓝量（`HumanObject.cs:3442-3448`） -------------------------------------
-        let cost = magic.cost(&info);
+        // `MagicCost`：基础耗蓝 + `Stat.ManaPenaltyPercent` 惩罚（`:3375-3398`）。
+        let mana_penalty = self.players[&object_id].stats.mana_penalty_percent;
+        let cost = magic.cost_with_penalty(&info, mana_penalty);
         let mp = self.players.get(&object_id).map_or(0, |player| player.mp);
         if cost > mp {
             self.send_user_location(object_id);
@@ -946,6 +996,7 @@ impl World {
         let level = self.players[&object_id].level;
         let mut damage = None;
         let mut heal = None;
+        let mut buff = None;
         let mut effects: Vec<(i64, MagicEffect)> = Vec::new();
         match kind {
             SpellKind::Bolt => {
@@ -1035,6 +1086,24 @@ impl World {
                     },
                 ));
             }
+            SpellKind::Buff => {
+                // 增益的数值在**这里**抽好（Crystal 也是施法时就 `GetPower(...)`，
+                // 只是写入 buff 的时刻延后，见 `HumanObject.cs:3591`）。
+                buff = self.cast_buff_spell(
+                    &BuffCast {
+                        object_id,
+                        spell,
+                        magic,
+                        info: &info,
+                        stats,
+                        position,
+                        target_location,
+                        target_id,
+                        now,
+                    },
+                    &mut effects,
+                );
+            }
             SpellKind::Unsupported => unreachable!("上面已经分派过"),
         }
         for (at, effect) in effects {
@@ -1086,8 +1155,193 @@ impl World {
             location: target_location,
             damage,
             heal,
+            buff,
             cost,
         })
+    }
+
+    /// 增益类技能的副作用（Crystal `Magic` 的 `switch` 分支 + `CompleteMagic` 的对应分支）。
+    ///
+    /// 9 个技能的公式与发包时机（逐条对照 `HumanObject.cs` / `Map.cs`）：
+    ///
+    /// | 技能 | 加成 | 时长 | 生效时机 |
+    /// |---|---|---|---|
+    /// | `ProtectionField` | `MinAC/MaxAC = round(MaxAC × (0.2 + 0.03L))`（`:4958`） | `45 + 15L` 秒（`:4957`） | 立刻（`:3650-3651` 直接调用） |
+    /// | `Haste` | `AttackSpeed = 2L + 2`（`:6151`） | `25 + 15L` 秒（`:6151`） | 500ms（`:3544-3546`） |
+    /// | `LightBody` | `Agility = 2(L+1)`（`:6189`） | `30(L+1)` 秒（`:6189`） | 500ms |
+    /// | `Fury` | `AttackSpeed = 4`（`:6162`） | `60 + 10L` 秒（`:6162`） | 500ms |
+    /// | `MagicShield` | `DamageReductionPercent = 10(L+2)`（`:6203`） | `GetPower(GetAttackPower(MinMC,MaxMC)+15)` 秒（`:3591`） | 500ms |
+    /// | `MagicBooster` | `MinMC = MaxMC = 6 + 6L`、`ManaPenaltyPercent = 6 + L`（`:6232-6235`） | 60 秒（`:6237`） | 500ms |
+    /// | `EnergyShield` | `EnergyShieldPercent = round(100 / chance)`、`EnergyShieldHPGain = GetPower(GetAttackPower(MinSC,MaxSC))`（`:4757-4768`） | `30 + 50L` 秒（`:4757`） | 立刻（`:3672-3673`） |
+    /// | `SoulShield` | `MaxMAC = Level / 7 + 4`（按**受术者**等级，`Map.cs:1082`） | `GetAttackPower(MinSC,MaxSC) × 4 + 50(L+1)` 秒（`:4521`） | `距离 × 50 + 500` ms，落点 7×7 |
+    /// | `BlessedArmour` | `MaxAC = Level / 7 + 4`（同上） | 同上 | 同上 |
+    ///
+    /// `L` 是技能等级（0..=3）。`chance = max(2, 10 - (Luck / 3 + L + 1))`（`:4760-4762`）。
+    ///
+    /// 简化：`SoulShield`/`BlessedArmour` 在 Crystal 里要消耗 1 个护身符
+    /// （`GetAmulet(1)`，`:4515`），本作的消耗品还没接到技能上，这里不扣。
+    fn cast_buff_spell(
+        &mut self,
+        cast: &BuffCast<'_>,
+        effects: &mut Vec<(i64, MagicEffect)>,
+    ) -> Option<BuffKind> {
+        let BuffCast {
+            object_id,
+            spell,
+            magic,
+            info,
+            stats,
+            position,
+            target_location,
+            target_id,
+            now,
+        } = *cast;
+        let level = i32::from(magic.level);
+        match spell {
+            Spell::ProtectionField => {
+                let duration = i64::from(45 + 15 * level) * SECOND_MS;
+                let add = (f64::from(stats.max_ac) * (0.2 + 0.03 * f64::from(level)))
+                    .round_ties_even() as i32;
+                let mut delta = Stats::default();
+                delta.set(Stat::MaxAC, add);
+                delta.set(Stat::MinAC, add);
+                self.add_buff(
+                    object_id,
+                    BuffKind::ProtectionField,
+                    duration,
+                    delta,
+                    object_id,
+                );
+                self.level_magic(object_id, spell);
+                Some(BuffKind::ProtectionField)
+            }
+            Spell::Haste => {
+                let duration = i64::from(25 + 15 * level) * SECOND_MS;
+                let mut delta = Stats::default();
+                delta.set(Stat::AttackSpeed, level * 2 + 2);
+                let buff = PendingBuff::new(BuffKind::Haste, duration, delta);
+                effects.push((
+                    now + 500,
+                    MagicEffect::Buff {
+                        target_id: object_id,
+                        buff,
+                    },
+                ));
+                Some(BuffKind::Haste)
+            }
+            Spell::LightBody => {
+                // `(magic.Level + 1) * (Settings.Second * 30)`，`Agility = (Level + 1) * 2`（`:6189`）。
+                let duration = i64::from((level + 1) * 30) * SECOND_MS;
+                let mut delta = Stats::default();
+                delta.set(Stat::Agility, (level + 1) * 2);
+                let buff = PendingBuff::new(BuffKind::LightBody, duration, delta);
+                effects.push((
+                    now + 500,
+                    MagicEffect::Buff {
+                        target_id: object_id,
+                        buff,
+                    },
+                ));
+                Some(BuffKind::LightBody)
+            }
+            Spell::Fury => {
+                // `(Settings.Second * 60) + (magic.Level * 10000)`（`:6162`）——每级多 10 秒。
+                let duration = 60 * SECOND_MS + i64::from(level) * 10_000;
+                let mut delta = Stats::default();
+                delta.set(Stat::AttackSpeed, 4);
+                let buff = PendingBuff::new(BuffKind::Fury, duration, delta);
+                effects.push((
+                    now + 500,
+                    MagicEffect::Buff {
+                        target_id: object_id,
+                        buff,
+                    },
+                ));
+                Some(BuffKind::Fury)
+            }
+            Spell::MagicShield => {
+                // `DelayedAction(Magic, now + 500, magic,
+                //      magic.GetPower(GetAttackPower(Stats[MinMC], Stats[MaxMC]) + 15))`（`:3591`）。
+                // 抽签顺序：先 `GetAttackPower`，再 `GetPower` 里的 `DefPower`。
+                let power = stats.attack_power(stats.min_mc, stats.max_mc, &mut self.rng) + 15;
+                let seconds = magic.power_with_base(info, power, &mut self.rng).max(0);
+                let duration = i64::from(seconds) * SECOND_MS;
+                let mut delta = Stats::default();
+                delta.set(Stat::DamageReductionPercent, (level + 2) * 10);
+                let buff = PendingBuff::new(BuffKind::MagicShield, duration, delta);
+                effects.push((
+                    now + 500,
+                    MagicEffect::Buff {
+                        target_id: object_id,
+                        buff,
+                    },
+                ));
+                Some(BuffKind::MagicShield)
+            }
+            Spell::MagicBooster => {
+                // `int bonus = 6 + magic.Level * 6;`（`:4347`），500ms 后
+                // `AddBuff(BuffType.MagicBooster, this, Settings.Second * 60,
+                //          { MinMC = bonus, MaxMC = bonus, ManaPenaltyPercent = 6 + Level })`（`:6230-6237`）。
+                let bonus = 6 + level * 6;
+                let mut delta = Stats::default();
+                delta.set(Stat::MinMC, bonus);
+                delta.set(Stat::MaxMC, bonus);
+                delta.set(Stat::ManaPenaltyPercent, 6 + level);
+                let buff = PendingBuff::new(BuffKind::MagicBooster, 60 * SECOND_MS, delta);
+                effects.push((
+                    now + 500,
+                    MagicEffect::Buff {
+                        target_id: object_id,
+                        buff,
+                    },
+                ));
+                Some(BuffKind::MagicBooster)
+            }
+            Spell::EnergyShield => {
+                // `int duration = 30 + 50 * magic.Level;`
+                // `int power = magic.GetPower(GetAttackPower(Stats[MinSC], Stats[MaxSC]));`
+                // `int chance = (10 - (Stats[Stat.Luck] / 3 + magic.Level + 1)); if (chance < 2) chance = 2;`
+                // `EnergyShieldPercent = round((1 / (decimal)chance) * 100)`（`:4757-4768`）。
+                let base = stats.attack_power(stats.min_sc, stats.max_sc, &mut self.rng);
+                let power = magic.power_with_base(info, base, &mut self.rng);
+                let chance = (10 - (stats.luck / 3 + level + 1)).max(ENERGY_SHIELD_MIN_CHANCE);
+                let percent = (100.0 / f64::from(chance)).round_ties_even() as i32;
+                let duration = i64::from(30 + 50 * level) * SECOND_MS;
+                let mut delta = Stats::default();
+                delta.set(Stat::EnergyShieldPercent, percent);
+                delta.set(Stat::EnergyShieldHPGain, power);
+                // `if (target == null || target.Node == null || !target.IsFriendlyTarget(this)) target = this;`
+                // （`:4755`）——没有目标就套在自己身上。
+                let target = if target_id == 0 { object_id } else { target_id };
+                self.add_buff(target, BuffKind::EnergyShield, duration, delta, object_id);
+                self.level_magic(object_id, spell);
+                Some(BuffKind::EnergyShield)
+            }
+            Spell::SoulShield | Spell::BlessedArmour => {
+                // `GetAttackPower(Stats[MinSC], Stats[MaxSC]) * 4 + (magic.Level + 1) * 50`
+                // 作为「秒」用（`HumanObject.cs:4521`），延迟 `MaxDistance * 50 + 500`（`:4519`）。
+                let base = stats.attack_power(stats.min_sc, stats.max_sc, &mut self.rng);
+                let seconds = base * 4 + (level + 1) * 50;
+                let duration = i64::from(seconds.max(0)) * SECOND_MS;
+                let delay = i64::from(position.max_distance(target_location)) * 50 + 500;
+                let (kind, stat) = if spell == Spell::SoulShield {
+                    (BuffKind::SoulShield, Stat::MaxMAC)
+                } else {
+                    (BuffKind::BlessedArmour, Stat::MaxAC)
+                };
+                effects.push((
+                    now + delay,
+                    MagicEffect::AreaBuff {
+                        location: target_location,
+                        kind,
+                        duration_ms: duration,
+                        stat,
+                    },
+                ));
+                Some(kind)
+            }
+            _ => None,
+        }
     }
 
     /// 攻击类技能能命中的目标位置：只认**未死亡的同图怪物**。
@@ -1200,6 +1454,44 @@ impl World {
                 let mut trained = false;
                 for target in targets {
                     if self.queue_heal(target, &map, amount) {
+                        trained = true;
+                    }
+                }
+                if trained {
+                    self.level_magic(action.caster_id, action.spell);
+                }
+            }
+            MagicEffect::Buff { target_id, buff } => {
+                // `CompleteMagic` 的增益分支：`AddBuff(...)` 之后 `LevelMagic(magic)`
+                // （`HumanObject.cs:6151-6153`、`:6202-6203` 等）。
+                if self.apply_pending_buff(target_id, action.caster_id, &buff) {
+                    self.level_magic(action.caster_id, action.spell);
+                }
+            }
+            MagicEffect::AreaBuff {
+                location,
+                kind,
+                duration_ms,
+                stat,
+            } => {
+                // `Map.cs:1052-1095`：落点 ±3 的 7×7，逐个友方 `AddBuff`，
+                // 加成是**受术者**的 `Level / 7 + 4`（`:1082`）。
+                let mut targets: Vec<(u32, u16)> = self
+                    .players
+                    .values()
+                    .filter(|player| {
+                        player.map == map
+                            && !player.dead
+                            && player.position.in_range(location, SHIELD_AREA_RADIUS)
+                    })
+                    .map(|player| (player.object_id, player.level))
+                    .collect();
+                targets.sort_unstable();
+                let mut trained = false;
+                for (target_id, level) in targets {
+                    let mut delta = Stats::default();
+                    delta.set(stat, i32::from(level) / 7 + 4);
+                    if self.add_buff(target_id, kind, duration_ms, delta, action.caster_id) {
                         trained = true;
                     }
                 }
@@ -1467,19 +1759,34 @@ fn rotate_direction(direction: MirDirection, steps: i32) -> MirDirection {
         .unwrap_or(direction)
 }
 
+/// 一次增益施法的上下文（参数太多，打包成结构体；字段全部是值语义）。
+struct BuffCast<'a> {
+    /// 施法者对象 ID。
+    object_id: u32,
+    /// 技能编号。
+    spell: Spell,
+    /// 施法者的技能记录（等级决定时长与加成）。
+    magic: UserMagic,
+    /// 技能模板（`GetPower` 要用 `PowerBase/PowerBonus`）。
+    info: &'a MagicInfo,
+    /// 施法瞬间的战斗属性（`MaxAC`、`Luck`、`MinSC/MaxSC` 等）。
+    stats: crate::combat::CombatStats,
+    /// 施法者所在格。
+    position: Point,
+    /// 施法落点。
+    target_location: Point,
+    /// 目标（0 = 自己）。
+    target_id: u32,
+    /// 施法时刻（毫秒）。
+    now: i64,
+}
+
 /// 技能模块私有的发包工具。
 impl World {
-    /// 用物品失败的 `S.UseItem`（Crystal `PlayerObject.UseItem` 的 `p` 参数）。
+    /// 用物品失败的 `S.UseItem`（Crystal `PlayerObject.UseItem` 的 `p` 参数）——
+    /// 实现已挪到物品系统（[`World::send_use_item_failure`]），这里保留别名方便阅读。
     fn use_item_failure(&self, object_id: u32, unique_id: u64) {
-        self.send_to_player(
-            object_id,
-            &ServerPacket::UseItem(UseItem {
-                unique_id,
-                success: false,
-                grid: MirGridType::Inventory,
-            })
-            .encode_frame(),
-        );
+        self.send_use_item_failure(object_id, unique_id);
     }
 }
 
@@ -1605,9 +1912,26 @@ mod tests {
         assert_eq!(spell_kind(Spell::FireBang), SpellKind::FireBang);
         assert_eq!(spell_kind(Spell::Healing), SpellKind::Heal);
         assert_eq!(spell_kind(Spell::MassHealing), SpellKind::MassHealing);
-        assert_eq!(spell_kind(Spell::Haste), SpellKind::Unsupported);
+        // 9 个增益技能现在都有实现（`crate::buffs`），不再是 `Unsupported`。
+        for spell in [
+            Spell::ProtectionField,
+            Spell::MagicShield,
+            Spell::SoulShield,
+            Spell::BlessedArmour,
+            Spell::EnergyShield,
+            Spell::Haste,
+            Spell::LightBody,
+            Spell::Fury,
+            Spell::MagicBooster,
+        ] {
+            assert_eq!(spell_kind(spell), SpellKind::Buff, "{spell:?} 应是增益技能");
+        }
+        // 登记但还没实现的那些，仍然走 `Unsupported`。
         for spell in REGISTERED_UNSUPPORTED {
             assert_eq!(spell_kind(*spell), SpellKind::Unsupported);
         }
+        assert_eq!(spell_kind(Spell::Rage), SpellKind::Unsupported);
+        // 增益技能不能和已实现的伤害/治疗技能重叠。
+        assert!(!REGISTERED_UNSUPPORTED.contains(&Spell::MagicShield));
     }
 }

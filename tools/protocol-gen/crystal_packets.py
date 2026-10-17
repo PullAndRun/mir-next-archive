@@ -452,7 +452,7 @@ def load_packets(crystal: Path) -> tuple[list[PacketDef], list[PacketDef]]:
 def main() -> None:  # pragma: no cover - manual use
     import sys
 
-    crystal = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("C:/Users/diana/ref/Crystal")
+    crystal = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("github/Crystal")
     client, server = load_packets(crystal)
     report = {
         "client": {

@@ -1,6 +1,6 @@
 # 世界主循环（Tick Loop）与时间模型
 
-> 参考实现根目录：`C:\Users\diana\ref\Crystal`（下文 `路径:行号` 均相对该目录）。
+> 参考实现根目录：`github\Crystal`（下文 `路径:行号` 均相对该目录）。
 > 核心文件：`Server/MirEnvir/Envir.cs`（`WorkLoop`/`Process`/`ThreadLoop`）、`Server/MirEnvir/Map.cs`（`Map.Process`、刷怪）、
 > `Server/MirEnvir/RespawnTimer.cs`、各对象的 `SetOperateTime()`。
 

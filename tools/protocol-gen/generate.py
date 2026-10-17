@@ -1,7 +1,7 @@
 """Entry point: regenerate Rust protocol code from a Crystal checkout.
 
 Usage:
-    py generate.py [--crystal C:/Users/diana/ref/Crystal] [--check]
+    py generate.py [--crystal github/Crystal] [--check]
 
 `--check` only verifies that the checked-in Rust matches what the generator would
 produce, without writing files (used by CI when a Crystal checkout exists).
@@ -378,7 +378,7 @@ def format_rust(content: str) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--crystal", default="C:/Users/diana/ref/Crystal")
+    parser.add_argument("--crystal", default="github/Crystal")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     crystal = Path(args.crystal)

@@ -8,7 +8,7 @@
 ## 用法
 
 ```bash
-# 需要一份 Crystal 检出（默认 C:/Users/diana/ref/Crystal）
+# 需要一份 Crystal 检出（默认 github/Crystal）
 python tools/protocol-gen/generate.py --crystal /path/to/Crystal
 
 # 只校验「仓库里的生成结果与重新生成的一致」（CI 用）

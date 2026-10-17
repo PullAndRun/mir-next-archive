@@ -1,6 +1,6 @@
 # 技能（魔法）系统（学书 / 施法 / 伤害治疗结算 / 持久化）
 
-> 参考实现根目录：`C:\Users\diana\ref\Crystal`（下文 `路径:行号` 均相对该目录）。
+> 参考实现根目录：`github\Crystal`（下文 `路径:行号` 均相对该目录）。
 > 核心文件：`Server/MirObjects/HumanObject.cs`（`Magic`/`LevelMagic`/`CanCast`/`MagicCost`/`CompleteMagic`/`ProcessRegen`）、
 > `Server/MirObjects/PlayerObject.cs`（`UseItem` 的书本分支、`Process(DelayedType.Magic)`）、
 > `Server/MirEnvir/Map.cs`（地图级 `CompleteMagic`：HellFire/FireBang/MassHealing）、
@@ -292,6 +292,9 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 | S→C | `S.UseItem`（52） | 学书成功/失败 | `unique_id, success, grid` | `PlayerObject.cs:5801`、`:6336` |
 | S→C | `S.HealthChanged`（77） | 扣蓝、治疗、自然回复 | `hp, mp` | `HumanObject.cs:870-884` |
 | S→C | `S.DamageIndicator`（31） | 命中/闪避/暴击/治疗 | `damage, type_, object_id` | `MapObject.cs:916-926` |
+| S→C | `S.AddBuff`（144） | 增益生效/刷新 | `ClientBuff{type, visible, object_id(被增益者), expire_time(剩余 ms), stats, values}` | `HumanObject.cs:7474-7481`、`BuffInfo.cs:256-270` |
+| S→C | `S.RemoveBuff`（145） | 增益到期/被移除 | `type_, object_id` | `HumanObject.cs:452-458` |
+| S→C | `S.ObjectEffect`（124） | 魔法盾开/关特效 | `object_id, effect(MagicShieldUp/Down), …` | `HumanObject.cs:7466-7470`、`:485-487` |
 | S→C | `S.Chat`（30） | 学书失败提示 | `message, type_:System` | `ReceiveChat`（`HumanObject.cs:1047` 等） |
 
 **没有** `S.UserMagic`（任务书里的写法）：Crystal 的实际包名是 `S.NewMagic`；
@@ -315,12 +318,19 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 | FireBang | 38 | 3×3 区域 | ✅ | 落点来自包里的 `location` |
 | Healing | 61 | 单体治疗 | ✅ | 分段生效（§7） |
 | MassHealing | 75 | 3×3 治疗 | ✅ | 分段生效（§7） |
-| ProtectionField | 12 | 增益（护盾） | ⛔ 登记 | 无 buff 容器（§10） |
-| Haste | 93 | 增益（攻速） | ⛔ 登记 | 同上 |
-| MagicShield | 43 | 增益（减伤） | ⛔ 登记 | 同上；任务书里的「Protection」= 这个族的 `ProtectionField` |
-| SoulShield / BlessedArmour / EnergyShield | 69/71/84 | 增益 | ⛔ 登记 | 同上 |
-| LightBody / Fury / MagicBooster | 95/16/51 | 增益/开关 | ⛔ 登记 | 同上 |
+| ProtectionField | 12 | 增益（护盾） | ✅ 已实现 | `MinAC/MaxAC += round(MaxAC × (0.2 + 0.03L))`，`45 + 15L` 秒（`HumanObject.cs:4955-4963`） |
+| Haste | 93 | 增益（攻速） | ✅ 已实现 | `AttackSpeed += 2L + 2`，`25 + 15L` 秒（`:6149-6153`） |
+| MagicShield | 43 | 增益（减伤） | ✅ 已实现 | `DamageReductionPercent = 10(L+2)`，每点伤害扣 60ms（`:6198-6204`、`:7165`） |
+| SoulShield / BlessedArmour | 69/71 | 增益（防御） | ✅ 已实现 | 落点 7×7、`Level/7 + 4` 的 `MaxMAC`/`MaxAC`（`Map.cs:1046-1097`） |
+| EnergyShield | 84 | 增益（受击回血） | ✅ 已实现 | `EnergyShieldPercent = round(100/chance)`、`30 + 50L` 秒（`:4751-4783`） |
+| LightBody | 95 | 增益（敏捷） | ✅ 已实现 | `Agility += 2(L+1)`，`30(L+1)` 秒（`:6187-6191`） |
+| Fury | 16 | 增益（攻速） | ✅ 已实现 | `AttackSpeed += 4`，`60 + 10L` 秒（`:6160-6164`） |
+| MagicBooster | 51 | 增益（魔力） | ✅ 已实现 | `MinMC/MaxMC += 6 + 6L`、耗蓝 +`6 + L`%，60 秒（`:4345-4350`、`:6228-6240`） |
+| Rage / ImmortalSkin / UltimateEnhancer / Hiding / PetEnhancer / ElementalBarrier | 13/17/77/67/85/131 | 增益 | ⛔ 登记 | 见 `magic::REGISTERED_UNSUPPORTED`（`docs/world/buffs.md` §6） |
 | 其余（FireWall、Lightning、Teleport、Summon*、Poison* 等） | — | — | ❌ 未实现 | 模板能查到，施法返回 `UnsupportedSpell`；若模板缺失则 `UnknownSpell` |
+
+「✅ 已实现」的 9 个增益技能走 `SpellKind::Buff`：施法照常扣蓝、写冷却、发
+`S.Magic`/`S.ObjectMagic`，然后按 Crystal 的时机套 buff（`docs/world/buffs.md` 有逐条公式与包序）。
 
 「⛔ 登记」的集合就是 `magic::REGISTERED_UNSUPPORTED`：可以被学会、进技能栏、
 `MagicInfo` 查得到，但**施法直接返回 `UnsupportedSpell`，不扣蓝、不进冷却**。
@@ -329,9 +339,10 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 
 ## 10. 与 Crystal 的差异（都是有意为之）
 
-1. **重复学同一本书会被拒绝**。Crystal 的书本分支没有查重（`PlayerObject.cs:6077-6089`
-   直接 `Info.Magics.Add`），连用两本同样的书会产生两条同 `Spell` 的记录。
-   本作返回 `AlreadyLearned`、发失败包与系统提示，避免客户端技能栏出现重复项。
+1. **重复学同一本书会被拒绝**。Crystal 的 `CanUseItem` 里其实**有**查重
+   （`HumanObject.cs:1237-1242` 的 `Info.Magics.Any(t => t.Spell == (Spell)item.Info.Shape)`），
+   `UseItem` 在 `:5814` 就用它挡掉了。两边的可观察行为一致（拒绝 + 不消耗），
+   只是本作的提示多一句「已经学会」。
 2. **攻击类技能只认怪物**：PK/行会战未实现，`IsAttackTarget` 的玩家分支不可达，
    目标玩家返回 `InvalidTarget`。
 3. **目标合法性在扣蓝之前严格校验**。Crystal 在扣蓝后才发现目标无效，
@@ -368,11 +379,13 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 
 ## 11. 未做（TODO）
 
-- 增益/护盾类技能的 buff 容器：需要「带到期时间的属性叠加」结构，`CombatStats` 目前只有
-  「当前值」。建议后续引入 `Vec<Buff { stats, expire }>` + `RefreshStats` 重算，
-  再实现 `ProtectionField`/`Haste`/`MagicShield`/`SoulShield`/`BlessedArmour`。
 - 开关型技能（`SpellToggle`）：需要玩家级开关状态与攻击分支配合（`Thrusting`、`HalfMoon`、
   `FlamingSword`、`TwinDrakeBlade`…）。
+- **仍登记但无效果的增益技能**：`Rage`、`ImmortalSkin`、`UltimateEnhancer`、`Hiding`、
+  `PetEnhancer`、`ElementalBarrier`（都是 `AddBuff`，只是效果需要额外系统：狂暴/金刚不坏的
+  百分比换算是纯数值、隐身要改视野、神兽强化要宠物）。
+- 增益的护身符消耗：`SoulShield`/`BlessedArmour` 在 Crystal 里要 1 个护身符
+  （`HumanObject.cs:4515`），本作还没把护身符接到技能上。
 - 位移/传送类：`Teleport`、`Blink`、`ShoulderDash`、`BackStep`、`StormEscape`。
 - 召唤/宠物：`SummonSkeleton`、`SummonShinsu`、`SummonHolyDeva` 等。
 - 持续伤害/中毒：`Poisoning`、`PoisonCloud`、`FrostCrunch` 的减速/冰冻。
@@ -383,7 +396,11 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 
 ---
 
-## 12. 测试清单（`crates/mir-server/tests/magic.rs`，21 个）
+## 12. 测试清单
+
+`crates/mir-server/tests/magic.rs`（21 个）覆盖学书、施法校验、伤害/治疗结算与持久化；
+增益技能（9 个）与药水/卷轴的用例在 `crates/mir-server/tests/use_items.rs`
+（18 个，见 `docs/world/buffs.md` §7 与 `docs/world/items.md` §14）。
 
 | # | 用例 | 断言要点 |
 |---|---|---|
@@ -404,10 +421,29 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 | 15 | `magic_level_up_sends_magic_leveled_and_magic_delay` | 10 次施法升 1 级 + `MagicDelay=1700` |
 | 16 | `hellfire_burns_a_line_of_cells` | 4 格逐格 100ms 推进 |
 | 17 | `firebang_hits_the_whole_3x3_area` | 3 个目标全中、区域外不掉血 |
-| 18 | `unsupported_spells_are_registered_but_apply_nothing` | `UnsupportedSpell`、不扣蓝、技能栏可见 |
+| 18 | `unsupported_spells_are_registered_but_apply_nothing` | `Rage`（仍在登记表里）→ `UnsupportedSpell`、不扣蓝、技能栏可见 |
 | 19 | `magic_key_rebinding_clears_the_previous_owner` | 同键互斥、未学不能绑 |
 | 20 | `magic_blob_roundtrips_through_crystal_layout` | 编解码往返、空块 |
 | 21 | `real_database_exposes_magic_infos` | 真实数据：≥100 条、FireBall 的 delay/power/range 非 0、书→`Spell` 可映射 |
 
 模块内单元测试（`src/magic.rs`）：记录布局、空块/截断/超限、`cost`/`delay`/`multiplier`、
-威力与银行家舍入、`ClientMagic` 截断、`spell_kind` 覆盖。
+威力与银行家舍入、`ClientMagic` 截断、`spell_kind` 覆盖（9 个增益技能都是 `SpellKind::Buff`、
+`REGISTERED_UNSUPPORTED` 里的仍是 `Unsupported`）。
+
+---
+
+## 13. 增益技能的施法副作用（`World::cast_buff_spell`）
+
+9 个增益技能共用 `SpellKind::Buff` 分支：扣蓝/冷却/`S.Magic` 与伤害类完全一样，
+只是效果换成了 `add_buff` 或延迟队列里的 `MagicEffect::Buff`/`AreaBuff`。
+逐条公式、生效时机、`S.AddBuff` 包序都在 `docs/world/buffs.md` §4，这里只列要点：
+
+* **立刻生效**：`ProtectionField`、`EnergyShield`（Crystal 在 `Magic` 的 `switch` 里直接调用）；
+* **延迟 500ms**：`Haste`、`LightBody`、`Fury`、`MagicShield`、`MagicBooster`
+  （`DelayedAction(DelayedType.Magic, Envir.Time + 500, magic)`）；
+* **延迟「距离 × 50 + 500」ms、作用 7×7**：`SoulShield`、`BlessedArmour`
+  （`Map.cs:1046-1097`，加成按**受术者**等级 `Level/7 + 4`）；
+* 数值（时长/加成）在**施法瞬间**抽签（`GetPower`/`GetAttackPower`），与 Crystal 一致；
+* `MagicShield` 重复施放不会刷新（`HumanObject.cs:6200` 的 `if (HasBuff(...)) return;`），
+  但**蓝照扣**（判定发生在 `CompleteMagic`，此时已经扣过蓝、发过 `S.Magic`）。
+

@@ -1,6 +1,6 @@
 # 物品系统（地面物品 / 拾取丢弃 / 背包与装备 / 持久化）
 
-> 参考实现根目录：`C:\Users\diana\ref\Crystal`（下文 `路径:行号` 均相对该目录）。
+> 参考实现根目录：`github\Crystal`（下文 `路径:行号` 均相对该目录）。
 > 核心文件：`Server/MirObjects/ItemObject.cs`（地面物品与落点扫描）、
 > `Server/MirObjects/PlayerObject.cs`（`PickUp`/`DropItem`/`MoveItem`/`EquipItem`/`RemoveItem`/`GainGold`）、
 > `Server/MirObjects/HumanObject.cs`（`GainItem`/`CanGainItem`/`AddItem`/`CanEquipItem`/`RefreshStats`）、

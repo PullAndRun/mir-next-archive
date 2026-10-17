@@ -1,6 +1,6 @@
 # `.map` 地图文件格式与服务器加载器
 
-> 参考实现根目录：`C:\Users\diana\ref\Crystal`（下文所有 `路径:行号` 均相对该目录）。
+> 参考实现根目录：`github\Crystal`（下文所有 `路径:行号` 均相对该目录）。
 > 实测样本：`resource/map/0.map`（5,880,052 字节）、`resource/map/0100.map`（3,292 字节）。
 > 本文描述的是 **服务器端**（`Server/MirEnvir/Map.cs`）实际解析的格式；客户端 `Client/MirObjects/MapCode.cs` 的 `MapReader` 只用于渲染，在个别字节上与服务器不一致，已在 §4.4 单独标注。
 

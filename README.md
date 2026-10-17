@@ -143,7 +143,11 @@ cargo test --workspace
 
 ## 许可证
 
-本项目采用 [GNU General Public License v3.0 or later](LICENSE)，SPDX 标识为 `GPL-3.0-or-later`。
+Copyright (C) 2026 diana and contributors.
+
+本项目采用 [GNU General Public License v3.0 or later](LICENSE)，SPDX 标识为 `GPL-3.0-or-later`。你可以按 GPL 第 3 版的条款，或自由软件基金会此后发布的任一更新版本，复制、修改和分发本项目。
+
+`LICENSE` 中存放的是 GPL-3.0 的完整官方文本；`or later` 的授权范围以本节声明为准。
 
 ## 致谢
 

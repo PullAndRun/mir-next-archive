@@ -1,0 +1,16 @@
+[package]
+name = "mir-core"
+description = "《传奇-Next》基础类型：坐标、方向、枚举、时间与随机数"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+chrono.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

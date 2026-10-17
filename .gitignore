@@ -1,3 +1,7 @@
 resource/
 .env
 AGENTS.md
+/target/
+**/target/
+*.pyc
+__pycache__/

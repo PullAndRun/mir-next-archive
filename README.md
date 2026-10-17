@@ -2,7 +2,7 @@
 
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
-![Status](https://img.shields.io/badge/status-initializing-lightgrey)
+![Status](https://img.shields.io/badge/status-working--skeleton-lightgrey)
 
 用 Rust 重写的《热血传奇 2》（Legend of Mir 2）服务端、客户端与配套工具链。
 
@@ -10,109 +10,151 @@
 
 传奇-Next（仓库名 `mir-next`）是《热血传奇 2》的开源重制项目。项目以 LOMCN 社区维护的开源实现 [Crystal](https://github.com/Suprcode/Crystal)（C#）作为玩法与协议的参照系，用 Rust 从零实现服务端、客户端与工具链，目标是在保留原作玩法体验的前提下，获得更好的性能、可维护性与跨平台部署能力。
 
-> **当前阶段：初始化。** 仓库目前只包含工程文档与许可证，尚无任何源码。下文中的架构、技术选型与命令描述的都是目标状态，会随实现推进同步修正。
+> **当前阶段：可跑的协议与服务端骨架。** 已经做到：Crystal 的 **430 个数据包**从 C# 源码自动生成 Rust 实现（含帧格式、gzip、枚举），
+> 服务端能完成「连接 → 版本校验 → 注册/登录 → 建角/删角 → 进入世界 → 转身/走跑/聊天 → 退出」整条链路，
+> 行走走的是**真实 `.map` 地形**（Crystal 的 9 种地图版本全部支持），账号与角色可存 PostgreSQL。
+> 战斗、NPC、任务、行会等玩法尚未实现，客户端只有骨架。
 
 ## 项目目标
 
 - **玩法对齐**：地图与行走、战斗与技能、装备与强化、NPC 商店与修理、掉落与经济、任务、组队、行会、攻城、PK 与红名，均以 Crystal 的行为作为基准逐项对齐。
-- **协议对齐**：数据包编号、字段顺序与序列化规则尽量与 Crystal 保持一致，使现有 Crystal 客户端可以直接连接本项目服务端。
+- **协议对齐**：数据包编号、字段顺序与序列化规则与 Crystal 保持一致，使现有 Crystal 客户端可以直接连接本项目服务端。
 - **数据对齐**：能够读取 Crystal 生态的地图文件、素材库与数据库结构，降低素材与存档的迁移成本。
-- **工程化**：单一可执行文件部署、配置驱动、结构化日志与指标、覆盖核心规则的自动化测试。
+- **全中文化**：默认简体中文，并可在游戏内切换语言（见 [`docs/i18n.md`](docs/i18n.md)）。
+- **工程化**：结构化日志、覆盖核心规则的自动化测试、单一可执行文件部署。
 
 ## 当前状态
 
-| 模块 | 状态 |
-| --- | --- |
-| 仓库初始化、许可证、README | ✅ 完成 |
-| Cargo workspace 脚手架与 CI | ⏳ 规划中 |
-| 协议定义、登录网关与会话 | ⏳ 规划中 |
-| 世界环境、地图与视野广播 | ⏳ 规划中 |
-| 战斗、怪物 AI、技能与状态效果 | ⏳ 规划中 |
-| 角色存档、物品、商店与掉落 | ⏳ 规划中 |
-| 行会、任务、组队与攻城 | ⏳ 规划中 |
-| Rust 客户端（渲染与 UI） | ⏳ 规划中 |
-| 工具链（素材库编辑器、地图查看器、补丁器） | ⏳ 规划中 |
+| 模块 | 状态 | 说明 |
+| --- | --- | --- |
+| 仓库初始化、许可证、README | ✅ | |
+| Cargo workspace 与 CI | ✅ | `cargo fmt` / `clippy` / `test` + 协议生成一致性检查 |
+| 协议层（`mir-protocol`） | ✅ | 430 个包中 **382 个由 C# 源码自动生成**，其余手写或在 `tools/protocol-gen/report.md` 登记 |
+| 登录网关与会话（`mir-server`） | ✅ | 版本校验、注册、登录、建角/删角、进世界、聊天、语言切换 |
+| 地图与行走（`mir-world` / `mir-server`） | 🟡 | `.map` 9 种版本读取 + 可走性校验；视野广播、怪物、门状态机未做 |
+| 账号与角色存档（`mir-store`） | ✅ | PostgreSQL + 迁移；内存实现用于无库试玩 |
+| 战斗、怪物 AI、技能与状态效果 | ⏳ | |
+| 物品、NPC 商店、修理与掉落 | ⏳ | 物品线格式（`UserItem`）已实现 |
+| 行会、任务、组队与攻城 | ⏳ | |
+| Rust 客户端（渲染与 UI） | ⏳ | 只有骨架 |
+| 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计；素材库编辑器未做 |
 
-## 与 Crystal 的对应关系
+### 协议自动生成
 
-| Crystal 模块 | 职责 | 传奇-Next 对应 | 说明 |
-| --- | --- | --- | --- |
-| `Shared` | 数据包、枚举、公共结构 | `mir-protocol` | 包编号与字段顺序对齐 Crystal，便于复用客户端 |
-| `Server.MirEnvir` | 世界环境、地图、刷怪与全局状态 | `mir-world` | 按地图分区组织，避免单一「大世界」锁 |
-| `Server.MirObjects` | 玩家、怪物、NPC、行会与技能实现 | `mir-world` | 对象系统按行为拆分，便于单独测试 |
-| `Server.MirDatabase` | 存档模型与数据库访问 | `mir-store` | PostgreSQL，结构对照 Crystal 的表设计 |
-| `Server.MirNetwork` | 网关、连接与封包分发 | `mir-server` | tokio 异步，网络层与规则层解耦 |
-| `Client` | 渲染、界面与输入 | `mir-client` | winit + wgpu 重写 |
-| `LibraryEditor` / `LibraryViewer` | 素材库编辑与预览 | `mir-tools` | 合并为一套命令行/图形工具 |
-| `AutoPatcher` | 客户端补丁分发 | `mir-tools` | 规划中 |
+`tools/protocol-gen/` 会解析 Crystal 的 `Shared/Enums.cs`、`Shared/ClientPackets.cs`、
+`Shared/ServerPackets.cs` 与 `Shared/Data/*.cs`，生成：
 
-本项目以 Crystal 的行为为参照，代码为独立实现，不直接复制其 C# 源码。
+- `crates/mir-core/src/enums/generated.rs`：全部枚举（与 C# 一一对应，含底层类型）；
+- `crates/mir-protocol/src/packets/{client,server}.rs`：每个包的 `decode` / `encode`。
 
-## 仓库结构（规划）
+生成器**同时翻译读侧与写侧**，只有当两边推导出的线格式完全一致时才产出代码；不一致的包会被列进
+`tools/protocol-gen/report.md` 并改为手写（例如 `MapInformation` 的位标记、
+`UserInformation` 的三组可选背包）。CI 会校验「生成结果与仓库中提交的一致」。
+
+## 仓库结构
 
 ```text
 mir-next/
 ├─ crates/
-│  ├─ mir-core/       基础类型：坐标、方向、时间、随机数、枚举
-│  ├─ mir-protocol/   数据包定义、编解码与版本握手
-│  ├─ mir-world/      地图、视野、对象、战斗、AI、技能与规则
-│  ├─ mir-store/      存档模型、数据库迁移与仓储
-│  ├─ mir-server/     网关与游戏服务端可执行程序
-│  ├─ mir-client/     客户端可执行程序（渲染、UI、输入）
-│  └─ mir-tools/      素材库、地图与补丁工具
-├─ config/            服务端配置模板
-├─ docs/              架构说明与协议文档
+│  ├─ mir-core/       基础类型：坐标、方向、枚举（生成）、时间、随机数、多语言
+│  ├─ mir-protocol/   包定义（生成）与编解码、帧格式、gzip、线格式数据类
+│  ├─ mir-world/      .map 读取与可走性（9 种版本）
+│  ├─ mir-store/      PostgreSQL 持久化：账号与角色（Crystal 口令算法）
+│  ├─ mir-server/     网关、会话状态机、世界与广播
+│  ├─ mir-client/     客户端骨架（渲染与界面待实现）
+│  └─ mir-tools/      工具链入口（地图检查、协议统计）
+├─ tools/protocol-gen/ 从 Crystal C# 源码生成 Rust 协议代码
+├─ docs/              协议、存档、地图与世界、多语言的实现契约
 ├─ resource/          素材目录（不提交到版本库）
 ├─ Cargo.toml         workspace 清单
 └─ LICENSE            GPL-3.0-or-later
 ```
 
-目录名会按实际实现调整，以 `Cargo.toml` 的 workspace 成员为准。
-
-## 技术选型（计划采用）
+## 技术选型
 
 | 领域 | 选型 | 说明 |
 | --- | --- | --- |
-| 语言 | Rust（stable） | edition 2024，MSRV 随实现确定 |
-| 异步运行时 | tokio | 网络 I/O、定时器与后台任务 |
-| 编解码 | `bytes` + 手写 packet trait | 严格对齐 Crystal 的读写顺序 |
-| 数据库 | PostgreSQL + `sqlx` | 账号、角色、行会、日志与后台数据 |
-| 缓存（可选） | Redis | 会话与跨服状态共享 |
-| 配置 | `serde` + TOML | 服务端配置分层覆盖 |
-| 可观测性 | `tracing` | 结构化日志，按模块划分 target |
-| 客户端渲染 | `winit` + `wgpu` | 解码素材库后交由 GPU 渲染 |
+| 语言 | Rust（stable，edition 2024） | 工作区统一 lint（clippy all + pedantic） |
+| 异步运行时 | tokio | 每连接一个任务，写队列走 `mpsc` |
+| 编解码 | 手写 `PacketReader` / `PacketWriter` | 严格对齐 Crystal 的读写顺序 |
+| 数据库 | PostgreSQL + `sqlx` | 迁移内嵌，集成测试需要显式提供测试库 URL |
+| 配置 | 环境变量（`MIR2_*`） | `.env` 仅供本地开发 |
+| 可观测性 | `tracing` | 按模块划分 target |
+| 客户端渲染 | 未定（winit + wgpu 为候选） | 里程碑 M6 |
 
 ## 环境与构建
 
 ### 前置条件
 
-- Rust 工具链（通过 [rustup](https://rustup.rs/) 安装 stable 版本）
-- PostgreSQL 16 及以上（服务端存档）
-- Redis（可选，仅在启用会话共享时需要）
-- Windows 与 Linux 为主要目标平台；macOS 尚未验证
+- Rust 工具链（stable）
+- Python 3（仅在重新生成协议代码时需要）
+- PostgreSQL 16+（可选；不配置时服务端使用内存存储）
+- Crystal 源码检出（仅在重新生成协议代码时需要）
 
 ### 构建与运行
-
-脚手架落地后，工作区将提供以下命令：
 
 ```bash
 # 构建全部 crate
 cargo build --release
 
-# 运行服务端（后续会拆分为网关与游戏服）
+# 跑测试（不依赖数据库）
+cargo test --workspace
+
+# 启动服务端（不配置数据库时用内存存储）
 cargo run -p mir-server
 
-# 运行全部测试
-cargo test --workspace
+# 用 PostgreSQL 存储（会先跑迁移）
+DATABASE_URL=postgres://user:pass@host:5432/mir2 cargo run -p mir-server
+
+# 检查一张地图
+cargo run -p mir-tools -- map-info resource/map/0.map
+
+# 从 Crystal 源码重新生成协议代码（需要 Crystal 检出）
+python tools/protocol-gen/generate.py --crystal /path/to/Crystal
 ```
 
-> 当前仓库还没有 `Cargo.toml`，以上命令暂不可用。
+服务端默认监听 `0.0.0.0:7000`（`MIR2_LISTEN` 可改），会尝试加载
+`resource/map/0.map` 作为起始地图；加载失败则退化成只校验边界与占格的兜底世界。
 
-## 素材与本地资源
+### 本地试玩链路
 
-游戏素材（地图、素材库、音频等）不随仓库分发。`resource/` 目录已在 [`.gitignore`](.gitignore) 中忽略，其中的内容按来源分类存放（例如 `community`、`data`、`ld`、`map`、`wav`），由使用者自行准备。
+1. `cargo run -p mir-server`
+2. 用 Crystal 客户端（或后续的 `mir-client`）连上来：版本校验通过后会收到 `ClientVersion{Result=1}`；
+3. 注册账号（成功码 `8`）→ 登录（收到 `LoginSuccess`）→ 建角色（等级 0，首次进世界补到 1 级）
+   → 进世界（`StartGame{Result=4}` + `MapInformation` + `UserInformation`）；
+4. 在聊天框输入 `/language en` 可以在游戏内切换语言。
 
-数据库连接串、下载器令牌等本地开发配置统一放在根目录的 `.env` 文件，该文件同样不会进入版本库。克隆后请自行创建，不要提交任何凭据。
+## 文档
+
+| 文档 | 内容 |
+| --- | --- |
+| [`docs/protocol/framing.md`](docs/protocol/framing.md) | 帧格式、类型映射、字符串编码、gzip、上限，逐字节契约 |
+| [`docs/protocol/packet-ids.md`](docs/protocol/packet-ids.md) | 两张完整包编号表（279 + 153） |
+| [`docs/protocol/packets-complex.md`](docs/protocol/packets-complex.md) | 需要手写/特殊处理的包逐条说明 |
+| [`docs/protocol/login-flow.md`](docs/protocol/login-flow.md) | 连接生命周期、账号与角色流程、状态机、结果码 |
+| [`docs/store/schema.md`](docs/store/schema.md) | 账号/角色的持久化字段与存档触发点 |
+| [`docs/store/mirdb-format.md`](docs/store/mirdb-format.md) | Crystal 二进制世界库与账号库的容器格式 |
+| [`docs/world/map-format.md`](docs/world/map-format.md) | `.map` 各版本格式与真实文件实测 |
+| [`docs/world/movement.md`](docs/world/movement.md) | 走/跑/转身的判定与计时 |
+| [`docs/world/tick-loop.md`](docs/world/tick-loop.md) | 世界循环与计时模型 |
+| [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文与游戏内切换 |
+
+## 开发约定
+
+- 提交前至少通过 `cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings` 与 `cargo test --workspace`。
+- 协议代码**不要手改**：改 `tools/protocol-gen/` 后重新生成；手写的包放在 `crates/mir-protocol/src/manual/`。
+- 每个 crate 只承担单一职责；规则逻辑与网络、存储解耦，保证可以脱离网络单独测试。
+- 库代码中对可恢复错误使用 `Result` 传播，不使用 `unwrap` / `expect`。
+- 新增玩法时，先在 `docs/` 写明与 Crystal 的对照行为（带源码行号），再实现与补充测试。
+- 玩家可见文本一律走 `mir-core::i18n`，默认简体中文，不在代码里写死文案。
+
+## 许可证
+
+Copyright (C) 2026 diana and contributors.
+
+本项目采用 [GNU General Public License v3.0 or later](LICENSE)，SPDX 标识为 `GPL-3.0-or-later`。
+
+`LICENSE` 中存放的是 GPL-3.0 的完整官方文本；`or later` 的授权范围以本节声明为准。
 
 ## 版权与免责声明
 
@@ -120,37 +162,8 @@ cargo test --workspace
 
 本项目仅供学习、研究与自建私服的技术验证使用，请勿用于商业运营；因使用本项目产生的任何法律与运营风险由使用者自行承担。
 
-## 路线图
-
-| 里程碑 | 内容 | 状态 |
-| --- | --- | --- |
-| M0 | 仓库初始化、许可证与文档 | ✅ |
-| M1 | Cargo workspace、协议定义、登录网关，客户端可登录并选角 | ⏳ |
-| M2 | 地图读取、视野广播、行走与传送 | ⏳ |
-| M3 | 战斗、怪物 AI、技能与状态效果 | ⏳ |
-| M4 | 物品、背包装备、NPC 商店、修理与掉落 | ⏳ |
-| M5 | 行会、任务、组队、攻城与 PK 规则 | ⏳ |
-| M6 | Rust 客户端：素材库解码、地图渲染与界面 | ⏳ |
-| M7 | 工具链（素材库编辑器、地图查看器、补丁器）与发布 | ⏳ |
-
-## 开发约定
-
-- 提交前至少通过 `cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings` 与 `cargo test --workspace`。
-- 每个 crate 只承担单一职责；规则逻辑与网络、存储解耦，保证可以脱离网络单独测试。
-- 库代码中对可恢复错误使用 `Result` 传播，不使用 `unwrap` / `expect`。
-- 新增玩法时，优先在 issue 或文档中写明与 Crystal 的对照行为，再实现与补充测试。
-- 面向玩家的文案保持原作口径，中英文版本后续统一维护。
-
-## 许可证
-
-Copyright (C) 2026 diana and contributors.
-
-本项目采用 [GNU General Public License v3.0 or later](LICENSE)，SPDX 标识为 `GPL-3.0-or-later`。你可以按 GPL 第 3 版的条款，或自由软件基金会此后发布的任一更新版本，复制、修改和分发本项目。
-
-`LICENSE` 中存放的是 GPL-3.0 的完整官方文本；`or later` 的授权范围以本节声明为准。
-
 ## 致谢
 
 - [Crystal](https://github.com/Suprcode/Crystal) 及 LOMCN 社区：提供了完整可参照的传奇 2 服务端与客户端实现。
 - ActozSoft 与 Wemade Entertainment：创造了《热血传奇 2》原作。
-- Rust 生态中的 tokio、sqlx、tracing、wgpu 等项目。
+- Rust 生态中的 tokio、sqlx、tracing、flate2 等项目。

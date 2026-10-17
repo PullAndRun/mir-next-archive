@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust（fmt / clippy / test）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: rustfmt
+        run: cargo fmt --all --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo test --workspace
+
+  protocol-codegen:
+    name: 协议生成器与生成结果一致
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 克隆 Crystal（协议生成的输入）
+        run: git clone --depth 1 https://github.com/Suprcode/Crystal.git "$RUNNER_TEMP/Crystal"
+      - name: 生成器自检（生成结果必须与仓库中已提交的一致）
+        run: python tools/protocol-gen/generate.py --crystal "$RUNNER_TEMP/Crystal" --check

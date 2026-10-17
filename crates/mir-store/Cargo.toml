@@ -1,0 +1,28 @@
+[package]
+name = "mir-store"
+description = "《传奇-Next》PostgreSQL 持久化：账号与角色（对应 Crystal 的 AccountInfo / CharacterInfo）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+chrono.workspace = true
+rand.workspace = true
+serde.workspace = true
+sqlx = { workspace = true, features = ["migrate"] }
+thiserror.workspace = true
+tracing.workspace = true
+
+# Crystal 的口令散列是 PBKDF2-HMAC-SHA1（50 次迭代、24 字节盐、24 字节输出），
+# 工作区的 sqlx 特性里没有这些算法，因此在 crate 内直接声明。
+pbkdf2 = "0.12"
+sha1 = "0.10"
+
+[dev-dependencies]
+tokio.workspace = true
+
+[lints]
+workspace = true

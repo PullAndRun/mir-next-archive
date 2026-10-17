@@ -1,0 +1,17 @@
+[package]
+name = "mir-world"
+description = "《传奇-Next》世界层：地图、视野、行走与规则"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+mir-core.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

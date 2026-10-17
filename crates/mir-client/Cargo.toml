@@ -1,0 +1,20 @@
+[package]
+name = "mir-client"
+description = "《传奇-Next》客户端（渲染、界面与输入）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+mir-core.workspace = true
+mir-protocol.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

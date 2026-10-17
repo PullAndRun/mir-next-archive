@@ -177,6 +177,7 @@ impl World {
             riding_mount: false,
             fishing: false,
             level_effects: mir_core::enums::LevelEffects::None,
+            ..ObjectPlayer::default()
         })
         .encode_frame();
 
@@ -325,7 +326,7 @@ impl World {
         map: &str,
         position: Point,
         exclude: Option<u32>,
-        packet: Vec<u8>,
+        packet: &[u8],
         include_self: bool,
         actor: u32,
     ) -> usize {
@@ -377,6 +378,7 @@ fn spawn_packet(player: &Player) -> Vec<u8> {
         riding_mount: false,
         fishing: false,
         level_effects: mir_core::enums::LevelEffects::None,
+        ..ObjectPlayer::default()
     })
     .encode_frame()
 }

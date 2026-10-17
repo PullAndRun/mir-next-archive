@@ -13,6 +13,7 @@ anyhow.workspace = true
 mir-core.workspace = true
 mir-protocol.workspace = true
 mir-render.workspace = true
+mir-world.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 # 窗口与软件呈现只出现在客户端；mir-render 保持纯 headless。
@@ -21,6 +22,11 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 winit = "0.30"
+
+[dev-dependencies]
+# 端到端联机测试在进程内起真实服务端（mir-server 依赖 tokio）。
+mir-server = { path = "../mir-server" }
+tokio = { workspace = true }
 
 [lints]
 workspace = true

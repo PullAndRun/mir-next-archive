@@ -32,6 +32,7 @@ use mir_asset::{Image, ImageInfo, format};
 use mir_core::Point;
 use mir_world::{Map, MapCell, MapVersion};
 
+use crate::entities::{EntityLibraries, EntityRenderer, EntityView};
 use crate::geometry::{self, CELL_HEIGHT, CELL_WIDTH, Viewport};
 use crate::tiles::TileLibraries;
 use crate::{BACKGROUND, Frame, RenderError};
@@ -67,6 +68,8 @@ pub struct MapScene {
     viewport: Viewport,
     /// 地图图库。
     libraries: TileLibraries,
+    /// 实体图库与解码缓存（玩家、怪物、NPC、地面物品）。
+    entities: EntityRenderer,
     /// 解码缓存。
     cache: DecodeCache,
     /// 动画计数（Crystal `MapControl.AnimationCount`）。
@@ -83,11 +86,15 @@ impl MapScene {
         data_dir: impl AsRef<Path>,
     ) -> Result<Self, RenderError> {
         let map = Map::load(map_path.as_ref())?;
-        let libraries = TileLibraries::open_dir(data_dir)?;
+        let libraries = TileLibraries::open_dir(data_dir.as_ref())?;
+        // 实体图库是可选增强：素材目录里没有 `hum.wzl` / `mon*.wzl` 时仍然能画地图，
+        // 实体退化为彩色占位方块（见 `entities` 模块）。
+        let entities = EntityRenderer::new(EntityLibraries::open_dir(data_dir.as_ref()));
         Ok(Self {
             map,
             viewport: Viewport::DEFAULT,
             libraries,
+            entities,
             cache: DecodeCache::default(),
             animation_frame: DEFAULT_ANIMATION_FRAME,
         })
@@ -100,6 +107,25 @@ impl MapScene {
             map,
             viewport,
             libraries,
+            entities: EntityRenderer::empty(),
+            cache: DecodeCache::default(),
+            animation_frame: DEFAULT_ANIMATION_FRAME,
+        }
+    }
+
+    /// 用地图、图库与实体图库构造场景（无 `resource/data` 的测试可以把实体图库留空）。
+    #[must_use]
+    pub fn from_parts_with_entities(
+        map: Map,
+        libraries: TileLibraries,
+        viewport: Viewport,
+        entity_libraries: EntityLibraries,
+    ) -> Self {
+        Self {
+            map,
+            viewport,
+            libraries,
+            entities: EntityRenderer::new(entity_libraries),
             cache: DecodeCache::default(),
             animation_frame: DEFAULT_ANIMATION_FRAME,
         }
@@ -120,6 +146,23 @@ impl MapScene {
     #[must_use]
     pub const fn libraries(&self) -> &TileLibraries {
         &self.libraries
+    }
+
+    /// 实体图库集合。
+    #[must_use]
+    pub fn entity_libraries(&self) -> &EntityLibraries {
+        self.entities.libraries()
+    }
+
+    /// 实体图库集合（可变；换素材目录后可以重新设置）。
+    pub fn entity_libraries_mut(&mut self) -> &mut EntityLibraries {
+        self.entities.libraries_mut()
+    }
+
+    /// 已缓存的实体图像张数（含解码失败的空占位）。
+    #[must_use]
+    pub fn entity_image_cache_len(&self) -> usize {
+        self.entities.cache_len()
     }
 
     /// 当前动画计数。
@@ -164,6 +207,31 @@ impl MapScene {
         let (columns, rows) = geometry::cell_bounds(self.viewport, center);
         self.render_floor(frame, center, &columns, &rows);
         self.render_objects(frame, center, &columns, &rows);
+    }
+
+    /// 画地形 + 实体（玩家、怪物、NPC、地面物品）。
+    ///
+    /// 等价于先 [`MapScene::render`] 再 [`MapScene::render_entities`]；实体在地形
+    /// 对象层之后按地图 Y、X 排序绘制。素材缺失的实体画彩色占位方块。
+    pub fn render_with_entities(
+        &mut self,
+        frame: &mut Frame,
+        center: Point,
+        entities: &[EntityView],
+    ) {
+        self.render(frame, center);
+        self.render_entities(frame, center, entities);
+    }
+
+    /// 只画实体层（地形已经画好的情况下使用）。
+    ///
+    /// 使用当前的 [`MapScene::viewport`]；如果还没调用过 [`MapScene::render`]，
+    /// 视口是 [`Viewport::DEFAULT`]。
+    pub fn render_entities(&mut self, frame: &mut Frame, center: Point, entities: &[EntityView]) {
+        let viewport = self.viewport;
+        let animation_frame = self.animation_frame;
+        self.entities
+            .render(frame, viewport, center, entities, animation_frame);
     }
 
     /// 铺地层（`GameScene.cs:10658-10764`）。
@@ -475,7 +543,7 @@ fn is_cell_sized(info: ImageInfo) -> bool {
 /// 而地图图像以纯黑表示空像素；Crystal 的 `.Lib` 在写库时已经做过同样的处理
 /// （`LibraryEditor/Graphics/MLibraryV2.cs:419-426`：`R=G=B=0` 时 alpha 置 0）。
 /// 只对调色板格式生效，带真实 alpha 的 `.Lib`/DXT1 图像不受影响。
-fn remove_black(image: &mut Image) {
+pub(crate) fn remove_black(image: &mut Image) {
     if !matches!(image.info.format, format::EMPTY | format::PALETTE8) {
         return;
     }
@@ -584,6 +652,43 @@ mod tests {
         remove_black(&mut rgba);
         assert_eq!(&rgba.pixels[0..4], &[0, 0, 0, 255]);
         assert_eq!(&rgba.pixels[4..8], &[0, 0, 0, 128]);
+    }
+
+    #[test]
+    fn render_with_entities_draws_placeholders_without_assets() {
+        use mir_core::enums::MirDirection;
+
+        use crate::entities::{EntityKind, EntityView};
+
+        let mut scene = empty_scene(8, 8);
+        let mut frame = Frame::new(200, 200);
+        frame.clear([9, 9, 9, 255]);
+        let entities = [
+            EntityView {
+                position: Point::new(4, 4),
+                direction: MirDirection::Down,
+                kind: EntityKind::Player,
+                image: 0,
+                name: Some("自己".to_owned()),
+                dead: false,
+                hp_percent: None,
+            },
+            EntityView {
+                position: Point::new(5, 5),
+                direction: MirDirection::Down,
+                kind: EntityKind::Monster,
+                image: 27,
+                name: Some("稻草人".to_owned()),
+                dead: false,
+                hp_percent: Some(50),
+            },
+        ];
+        scene.render_with_entities(&mut frame, Point::new(4, 4), &entities);
+        assert!(
+            frame.distinct_color_count() >= 3,
+            "占位方块与血条至少带来 3 种颜色"
+        );
+        assert_eq!(scene.entity_image_cache_len(), 0, "没有实体图库");
     }
 
     #[test]

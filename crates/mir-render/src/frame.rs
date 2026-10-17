@@ -91,6 +91,29 @@ impl Frame {
         }
     }
 
+    /// 用同一种颜色填充一个矩形；坐标为像素坐标，越界部分自动裁剪。
+    ///
+    /// 实体占位方块、血条与调试标记用。宽或高为 0 时什么都不做。
+    pub fn fill_rect(&mut self, x: i32, y: i32, width: u32, height: u32, color: [u8; 4]) {
+        let left = i64::from(x).max(0);
+        let top = i64::from(y).max(0);
+        let right = (i64::from(x) + i64::from(width)).min(i64::from(self.width));
+        let bottom = (i64::from(y) + i64::from(height)).min(i64::from(self.height));
+        if left >= right || top >= bottom {
+            return;
+        }
+        for destination_y in top..bottom {
+            let row =
+                usize::try_from((destination_y * i64::from(self.width) + left) * 4).unwrap_or(0);
+            for destination_x in left..right {
+                let offset = row + usize::try_from(destination_x - left).unwrap_or(0) * 4;
+                if let Some(target) = self.pixels.get_mut(offset..offset + 4) {
+                    target.copy_from_slice(&color);
+                }
+            }
+        }
+    }
+
     /// 把一张图以 source-over 方式贴到 `(x, y)`。
     ///
     /// * `x`/`y` 可以为负（左侧/上方越界会被裁掉）；
@@ -311,6 +334,24 @@ mod tests {
         assert_eq!(frame.pixel(0, 0), Some([1, 2, 3, 255]));
         assert_eq!(frame.pixel(2, 1), Some([1, 2, 3, 255]));
         assert_eq!(frame.pixel(3, 1), None);
+    }
+
+    #[test]
+    fn fill_rect_clips_to_the_frame() {
+        let mut frame = Frame::new(4, 4);
+        frame.clear([0, 0, 0, 255]);
+        frame.fill_rect(1, 1, 2, 2, [255, 0, 0, 255]);
+        assert_eq!(frame.pixel(1, 1), Some([255, 0, 0, 255]));
+        assert_eq!(frame.pixel(2, 2), Some([255, 0, 0, 255]));
+        assert_eq!(frame.pixel(0, 0), Some([0, 0, 0, 255]));
+        assert_eq!(frame.pixel(3, 3), Some([0, 0, 0, 255]));
+
+        // 越界部分被裁剪，不 panic。
+        frame.fill_rect(-2, -2, 3, 3, [0, 255, 0, 255]);
+        assert_eq!(frame.pixel(0, 0), Some([0, 255, 0, 255]));
+        frame.fill_rect(3, 3, 10, 10, [0, 0, 255, 255]);
+        assert_eq!(frame.pixel(3, 3), Some([0, 0, 255, 255]));
+        assert_eq!(frame.pixel(2, 2), Some([255, 0, 0, 255]));
     }
 
     #[test]

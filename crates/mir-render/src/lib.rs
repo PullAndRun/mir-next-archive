@@ -61,12 +61,28 @@
 //! * 地图背景图（`DrawBackground`，`GameScene.cs:10765-10785`：只有 `ID1`/`ID2`
 //!   等少数地图名才画）与 Shanda 瓦片动画层（`MapLibs[190] AniTiles1`，
 //!   `GameScene.cs:10825-10836`；v0 地图没有 `TileAnimationImage` 数据）；
-//! * 角色、怪物、NPC、掉落物（`GameScene.cs:10940-11008` 的 `DrawObjects` 部分）；
-//! * NPC 对话框与所有 UI；
+//! * 角色的头发/武器/坐骑/特效、NPC 对话框与所有 UI（见下节）；
+//! * 实体名字文字（`name` 字段已保留，但没有字体）。
 //! * 门的开关状态：静态帧按「门关闭」处理，不做 `DoorOffset` 的帧号调整
 //!   （`GameScene.cs:10902-10917`）；
 //! * 后层/中层的动画：v0 的客户端读不到这两层的动画字节（`MapCode.cs:239-253`），
 //!   只有前层动画会随 [`MapScene::set_animation_frame`] 播放。
+//!
+//! # 实体层
+//!
+//! [`MapScene::render_with_entities`] 在地形之后按地图 Y、X 顺序追加玩家、怪物、
+//! NPC 与地面物品精灵（`GameScene.cs:10798-11008` 的对象顺序）。实体图库选用、
+//! 帧号公式与素材缺失时的占位行为见 [`entities`] 模块文档；简单说：
+//!
+//! | 实体 | 文件 | 帧号 |
+//! |---|---|---|
+//! | 玩家 | `hum.wzl` | `appearance*600 + direction*8 + n` |
+//! | 怪物 | `mon{image/10+1}.wzl` | `(image%10)*430 + direction*8 + n` |
+//! | NPC | `npc.wzl` / `npc2..4.wzl` | `(image%100)*60` |
+//! | 物品 | `items.wzl` | `image`（金币用 112..116，`ItemObject.cs:55-64`） |
+//!
+//! 精灵缺失时画 12×18 的彩色占位方块（按类型着色），所以没有 `resource/` 的 CI
+//! 也能在 `Frame` 里看到实体。血条是 3px 色块，不依赖字体。
 //!
 //! 阴影：Crystal 客户端**没有**地图/对象的阴影绘制。`MImage` 虽然解析了
 //! `ShadowX/ShadowY`（`MLibrary.cs:887-888`），但全仓库没有任何地方用它们画阴影，
@@ -126,12 +142,19 @@
 //! # Ok::<(), mir_render::RenderError>(())
 //! ```
 
+pub mod entities;
 mod error;
 mod frame;
 pub mod geometry;
 mod scene;
 mod tiles;
 
+pub use entities::{
+    EntityKind, EntityLibraries, EntityRenderer, EntityView, MAX_ENTITY_CACHED_IMAGES,
+    MONSTER_DIRECTION_STRIDE, MONSTER_FRAMES_PER_IMAGE, NPC_FRAMES_PER_IMAGE,
+    PLAYER_DIRECTION_STRIDE, PLAYER_FRAMES_PER_APPEARANCE, monster_library, monster_standing_frame,
+    npc_library, player_standing_frame,
+};
 pub use error::RenderError;
 pub use frame::Frame;
 pub use geometry::{CELL_HEIGHT, CELL_WIDTH, Viewport};

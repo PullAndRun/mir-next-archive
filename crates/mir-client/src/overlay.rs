@@ -23,10 +23,34 @@ const CROSSHAIR: [u8; 4] = [255, 0, 255, 255];
 
 /// 画叠层：左上角显示中心格坐标，屏幕中心画一个准星。
 pub fn draw(frame: &mut Frame, center: Point) {
-    let text = format!("X {}  Y {}", center.x, center.y);
-    draw_text(frame, 10, 10, &text, SHADOW);
-    draw_text(frame, 9, 9, &text, TEXT);
+    draw_line(frame, 9, 9, &format!("X {}  Y {}", center.x, center.y));
     draw_crosshair(frame, frame.width / 2, frame.height / 2);
+}
+
+/// 联机叠层：坐标、实体数、HP/MP，聊天输入时显示 `CHAT`。
+///
+/// 只是调试信息，不参与游戏逻辑；没有字体库，全部用 3×5 点阵数字与少量字母。
+pub fn draw_live(
+    frame: &mut Frame,
+    center: Point,
+    entities: usize,
+    hp: i32,
+    mp: i32,
+    chat_active: bool,
+) {
+    draw_line(frame, 9, 9, &format!("X {}  Y {}", center.x, center.y));
+    draw_line(frame, 9, 23, &format!("E {entities}"));
+    draw_line(frame, 9, 37, &format!("H {hp}  M {mp}"));
+    if chat_active {
+        draw_line(frame, 9, 51, "CHAT");
+    }
+    draw_crosshair(frame, frame.width / 2, frame.height / 2);
+}
+
+/// 画一行带阴影的点阵字。
+fn draw_line(frame: &mut Frame, x: u32, y: u32, text: &str) {
+    draw_text(frame, x + 1, y + 1, text, SHADOW);
+    draw_text(frame, x, y, text, TEXT);
 }
 
 /// 在 `(x, y)` 画一行字。
@@ -76,6 +100,12 @@ fn glyph(character: char) -> [u8; 5] {
         '9' => [0b111, 0b101, 0b111, 0b001, 0b111],
         'X' => [0b101, 0b101, 0b010, 0b101, 0b101],
         'Y' => [0b101, 0b101, 0b010, 0b010, 0b010],
+        'E' => [0b111, 0b100, 0b111, 0b100, 0b111],
+        'H' => [0b101, 0b101, 0b111, 0b101, 0b101],
+        'M' => [0b101, 0b111, 0b111, 0b101, 0b101],
+        'A' => [0b010, 0b101, 0b111, 0b101, 0b101],
+        'C' => [0b011, 0b100, 0b100, 0b100, 0b011],
+        'T' => [0b111, 0b010, 0b010, 0b010, 0b010],
         '-' => [0b000, 0b000, 0b111, 0b000, 0b000],
         ',' => [0b000, 0b000, 0b000, 0b010, 0b100],
         _ => [0, 0, 0, 0, 0],
@@ -102,5 +132,15 @@ mod tests {
     fn unknown_glyphs_are_blank() {
         assert_eq!(glyph('?'), [0, 0, 0, 0, 0]);
         assert_ne!(glyph('0'), [0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn live_overlay_draws_entity_and_chat_markers() {
+        let mut frame = Frame::new(200, 120);
+        frame.clear([0, 0, 0, 255]);
+        draw_live(&mut frame, Point::new(330, 270), 12, 15, 9, true);
+        assert_ne!(frame.pixel(9, 9), Some([0, 0, 0, 255]));
+        assert_ne!(frame.pixel(11, 51), Some([0, 0, 0, 255]));
+        assert_eq!(frame.pixel(100, 60), Some(CROSSHAIR));
     }
 }

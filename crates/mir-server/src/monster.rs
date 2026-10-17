@@ -524,7 +524,8 @@ impl World {
         }
         // 目标就在隔壁：Crystal 先 `ValidPoint` 再查占格，任一不满足就**原地不动**（不绕路）。
         if monster.position.in_range(location, 1)
-            && (!self.walkable(location) || !self.monster_cell_free(monster, location))
+            && (!self.walkable_on(&monster.map, location)
+                || !self.monster_cell_free(monster, location))
         {
             return;
         }
@@ -558,7 +559,7 @@ impl World {
             return false;
         }
         let location = monster.position.adjacent(direction);
-        if !self.walkable(location) || !self.monster_cell_free(monster, location) {
+        if !self.walkable_on(&monster.map, location) || !self.monster_cell_free(monster, location) {
             return false;
         }
         monster.position = location;

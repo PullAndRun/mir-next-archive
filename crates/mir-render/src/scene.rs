@@ -185,6 +185,23 @@ impl MapScene {
         self.animation_frame = frame;
     }
 
+    /// 换一张地图，保留图库与实体图库（客户端切图用）。
+    ///
+    /// Crystal 收到 `S.MapChanged` 后如果地图编号变了会重新 `MapControl.LoadMap()`
+    /// （`Client/MirScenes/GameScene.cs:3974-3988`）。这里只重读地形与清空解码缓存：
+    /// 瓦片/实体图库与素材目录无关，没必要跟着重读。
+    ///
+    /// # Errors
+    /// 地图文件缺失或损坏时返回 [`RenderError`]，调用方应保留旧地图（画面不切成黑屏）。
+    pub fn reload_map(&mut self, map_path: impl AsRef<Path>) -> Result<(), RenderError> {
+        let map = Map::load(map_path.as_ref())?;
+        self.map = map;
+        // 旧地图的图像号在新地图里含义不同，缓存必须整体丢弃
+        // （Crystal 每次 `LoadMap` 都会重建 `MapControl` 的纹理缓存）。
+        self.cache = DecodeCache::default();
+        Ok(())
+    }
+
     /// 已缓存的图像张数（含解码失败的空占位）。
     #[must_use]
     pub fn image_cache_len(&self) -> usize {

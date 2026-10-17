@@ -303,7 +303,14 @@ fn run_connected(options: &Options, server: &str, language: Language) -> Result<
         "方向键/WASD 走（Shift 跑，反向先转身）· Space 攻击 · P 捡取 · T 聊天 · I 背包 · F3 技能 · 1..9 施法"
     );
     println!("鼠标点 NPC / 面板按钮 · Esc 关面板 · F1 叠层 · F2 截图 · Q 退出");
-    app::run_live(scene, center, client, snapshot, language);
+    app::run_live(
+        scene,
+        center,
+        client,
+        snapshot,
+        language,
+        options.map_dir.clone(),
+    );
     Ok(())
 }
 

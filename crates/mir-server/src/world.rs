@@ -60,6 +60,7 @@ use crate::exp::ExpTable;
 use crate::gamedata::GameData;
 use crate::items::{GroundItem, ItemUidGenerator};
 use crate::magic::{MagicState, PendingMagic, UserMagic};
+use crate::maps::{PendingMapMove, map_cache_limit_from_env};
 use crate::monster::{Monster, MonsterKind};
 use crate::npc::{Npc, NpcState};
 
@@ -185,6 +186,14 @@ pub struct Player {
     pub dead: bool,
     /// 自己**已经看见**的怪物，用于 `ObjectMonster`/`ObjectRemove` 的增量下发。
     pub visible_monsters: BTreeSet<u32>,
+    /// 自己**已经看见**的 NPC（`S.ObjectNPC`）。目前只在进图/切图时整批下发，
+    /// 移动后的增量刷新还没做（Crystal 的 `AddObjects/RemoveObjects` 会逐个比对，
+    /// `HumanObject.cs:7864`、`:8152`）；切图时用它把旧图的 NPC 从视野里抹掉。
+    pub visible_npcs: BTreeSet<u32>,
+    /// 切图后的移动冷却截止时刻：`Envir.Time < MovementTime` 时不再检查传送点
+    /// （Crystal `PlayerObject.MovementTime`，`Server/MirObjects/PlayerObject.cs:114`、
+    /// 只由 `CompleteMapMovement` 设为 `Envir.Time + MovementDelay`，`:4564`）。
+    pub movement_time: i64,
     /// 背包（Crystal `CharacterInfo.Inventory`，46 格；见 [`crate::items::INVENTORY_SIZE`]）。
     pub inventory: Vec<Option<UserItem>>,
     /// 装备（Crystal `CharacterInfo.Equipment`，14 槽；见 [`crate::items::EQUIPMENT_SLOTS`]）。
@@ -458,8 +467,36 @@ pub struct World {
     pub(crate) rng: MirRng,
     /// 允许的坐标范围（0..=bound）。没有加载真实地图时用它兜底。
     pub bound: i32,
-    /// 已加载的地图；有它时行走按真实地形的可走性判定。
-    pub(crate) map: Option<Arc<mir_world::Map>>,
+    /// 已加载的地形缓存：地图文件名 → 地图（Crystal `Envir.MapList`，
+    /// `Server/MirEnvir/Envir.cs:4587-4590`）。按需加载，见 [`World::load_map`]。
+    pub(crate) maps: HashMap<String, Arc<mir_world::Map>>,
+    /// 走地形判定时的**兜底地图**：由 [`World::with_map`] 设置，代表「世界只有这一张图」
+    /// （无数据库的服务器与绝大多数测试都是这种形态）。世界里有按名字加载的地图时，
+    /// 兜底地图不再参与判定。
+    pub(crate) fallback_map: Option<Arc<mir_world::Map>>,
+    /// 地图文件根目录（Crystal `Settings.MapPath`，`Server/Settings.cs`）。
+    pub(crate) map_root: Option<std::path::PathBuf>,
+    /// 地图缓存上限（`MIR2_MAP_CACHE`，0 = 不限制）。超出时优先淘汰没有对象的地图。
+    pub(crate) map_cache_limit: usize,
+    /// 加载失败过的地图文件名：避免每次切图都重读一遍磁盘。
+    pub(crate) missing_maps: BTreeSet<String>,
+    /// 每张图的传送点（Crystal `MapInfo.Movements`，`Server/MirDatabase/MovementInfo.cs`）。
+    ///
+    /// 在地图首次进入时从 `Server.MirDB` 灌入（见 [`World::initialize_map`]），
+    /// 也可以由测试/工具用 [`World::set_map_movements`] 直接设置。
+    pub(crate) movements: HashMap<String, Arc<Vec<mir_db::MovementInfo>>>,
+    /// 已经初始化过（刷 NPC + 注册刷怪点）的地图：Crystal 在 `Map.Load` 里一次性建好
+    /// （`Server/MirEnvir/Map.cs:473-496`），本作推迟到「第一次有人进入这张图」。
+    pub(crate) initialized_maps: BTreeSet<String>,
+    /// 排队中的传送点触发：走/跑/转身命中 `MovementInfo.Source` 后**下一个 tick** 结算
+    /// （Crystal 上游在 `HumanObject.Process` 里每 tick 调 `MapTime()`，见 `docs/world/maps.md`）。
+    pub(crate) pending_map_moves: Vec<PendingMapMove>,
+    /// 已挖开的洞（`need_hole` 传送点要求同格有洞才能通过，Crystal 检查同格的
+    /// `Spell.DigOutZombie` / `Spell.DigOutArmadillo` 法术对象，`PlayerObject.cs:4480-4487`）。
+    ///
+    /// 简化：本作没有挖洞技能，用一个 `(地图, 坐标)` 集合表示「洞已打开」，
+    /// 由 GM 命令/测试用 [`World::set_hole`] 打开。
+    pub(crate) holes: BTreeSet<(String, Point)>,
     /// 服务器时钟起点（Crystal `Envir.Time` 的 0 点）。
     started: Instant,
     /// 世界创建时刻的 Unix 毫秒（[`World::wall_now`] 的基准）。
@@ -500,7 +537,15 @@ impl World {
             next_object_id: 1,
             rng: MirRng::from_entropy(),
             bound,
-            map: None,
+            maps: HashMap::new(),
+            fallback_map: None,
+            map_root: None,
+            map_cache_limit: map_cache_limit_from_env(),
+            missing_maps: BTreeSet::new(),
+            movements: HashMap::new(),
+            initialized_maps: BTreeSet::new(),
+            pending_map_moves: Vec::new(),
+            holes: BTreeSet::new(),
             started: Instant::now(),
             started_unix_ms: unix_now_ms(),
             clock_offset: 0,
@@ -509,6 +554,9 @@ impl World {
     }
 
     /// 用真实地图构造：行走判定会查地图的可走性。
+    ///
+    /// 这张地图是**兜底地图**（世界只有一张图时用它，见 [`World::fallback_map`]）。
+    /// 多地图世界请改用 [`World::set_map_root`] + [`World::load_map`] / [`World::insert_map`]。
     #[must_use]
     pub fn with_map(map: Arc<mir_world::Map>) -> Self {
         let bound = map.width.max(map.height).saturating_sub(1);
@@ -529,7 +577,15 @@ impl World {
             next_object_id: 1,
             rng: MirRng::from_entropy(),
             bound,
-            map: Some(map),
+            maps: HashMap::new(),
+            fallback_map: Some(map),
+            map_root: None,
+            map_cache_limit: map_cache_limit_from_env(),
+            missing_maps: BTreeSet::new(),
+            movements: HashMap::new(),
+            initialized_maps: BTreeSet::new(),
+            pending_map_moves: Vec::new(),
+            holes: BTreeSet::new(),
             started: Instant::now(),
             started_unix_ms: unix_now_ms(),
             clock_offset: 0,
@@ -582,9 +638,12 @@ impl World {
     }
 
     /// 当前地图（如果有）。
+    ///
+    /// 只对「单地图世界」有意义：返回 [`World::with_map`] 设置的兜底地图。
+    /// 多地图世界请用 [`World::map_of`] 按地图文件名取。
     #[must_use]
     pub fn map(&self) -> Option<&Arc<mir_world::Map>> {
-        self.map.as_ref()
+        self.fallback_map.as_ref()
     }
 
     /// 服务器时钟（毫秒，单调递增）。
@@ -678,39 +737,37 @@ impl World {
     }
 
     /// 把玩家放进世界，并把它的外观广播给同图可见玩家。
+    ///
+    /// 进入一张还没初始化过的地图时会先补齐地形/NPC/刷怪点
+    /// （Crystal `Envir.GetMap` → `MapInfo.CreateMap` → `Map.Load`，
+    /// `Server/MirDatabase/MapInfo.cs:197-215`、`Server/MirEnvir/Map.cs:432-514`）。
     pub fn enter(&mut self, player: Player) {
+        let init = self.initialize_map(&player.map);
+        if init.initialized {
+            tracing::info!(
+                map = %player.map,
+                npcs = init.npcs,
+                groups = init.respawn_groups,
+                spawned = init.spawned,
+                "首次进入地图：已补齐 NPC 与刷怪点"
+            );
+        }
         let now = self.now();
         let appearance = self.appearance_packet(&player);
         // 先让新玩家看到周围的人，再把自己的外观发给别人
         // （Crystal 对视野内每个对象调用 `Add(player)` 下发 `GetInfo()`，`MapObject.cs:286-308`）。
-        let mut existing = Vec::new();
-        for other in self.nearby(player.position, &player.map, VIEW_RANGE, None) {
-            existing.push(other.clone());
+        let view = self.gather_view(&player);
+        for (frame, _) in &view.players {
+            let _ = player.sender.send(frame.clone());
         }
-        for other in &existing {
-            let _ = player.sender.send(self.appearance_packet(other));
+        for (frame, _) in &view.monsters {
+            let _ = player.sender.send(frame.clone());
         }
-
-        // 视野内的怪物：`ObjectMonster`（Crystal `MonsterObject.GetInfo`）。
-        let mut visible_monsters = BTreeSet::new();
-        for monster in &self.monsters {
-            if monster.map == player.map && monster.position.in_range(player.position, VIEW_RANGE) {
-                visible_monsters.insert(monster.object_id);
-                let _ = player.sender.send(monster_info_frame(monster));
-            }
+        for (frame, _) in &view.npcs {
+            let _ = player.sender.send(frame.clone());
         }
-
-        // 视野内的 NPC：`ObjectNPC`（Crystal `NPCObject.GetInfo`，`NPCObject.cs:381-395`；
-        // `MapObject.Add` 会把视野内每个对象的外观发给新玩家，`MapObject.cs:286-308`）。
-        self.send_visible_npcs(&player);
-
-        // 视野内的地面物品：`ObjectItem`/`ObjectGold`（Crystal `ItemObject.GetInfo`，`ItemObject.cs:365-383`）。
-        let mut visible_items = BTreeSet::new();
-        for ground in &self.ground_items {
-            if ground.map == player.map && ground.position.in_range(player.position, VIEW_RANGE) {
-                visible_items.insert(ground.object_id);
-                let _ = player.sender.send(self.ground_item_frame(ground));
-            }
+        for (frame, _) in &view.items {
+            let _ = player.sender.send(frame.clone());
         }
 
         for other in self.players.values() {
@@ -734,8 +791,9 @@ impl World {
         // 「入场后满一个 `RegenDelay` 才首次回复」，原因：角色存档里的 HP 经常不是满的，
         // 登录瞬间凭空回血会让客户端开场动画里莫名飘字，也让登录链路的包序列不可稳定断言。
         player.regen_time = now + PLAYER_REGEN_DELAY_MS;
-        player.visible_monsters = visible_monsters;
-        player.visible_items = visible_items;
+        player.visible_monsters = view.monster_ids();
+        player.visible_npcs = view.npc_ids();
+        player.visible_items = view.item_ids();
         // 让后续 `allocate_object_id` 不会撞上这个玩家的 ID
         // （生产路径是先分配再 `enter`，但测试会直接构造对象 ID）。
         self.next_object_id = self.next_object_id.max(player.object_id.wrapping_add(1));
@@ -796,6 +854,12 @@ impl World {
             player.direction = direction;
             player.action_time = now + TURN_DELAY_MS;
         }
+        // 转身也算一次移动检查：Crystal `PlayerObject.Turn` 在设完方向后调
+        // `CheckMovement(CurrentLocation)`（`Server/MirObjects/PlayerObject.cs:4264-4273`），
+        // 命中传送点时**不广播** `ObjectTurn`、也不回 `UserLocation`，直接切图。
+        if self.queue_movement_trigger(object_id, position) {
+            return Ok(());
+        }
         let packet = ServerPacket::ObjectTurn(ObjectTurn {
             object_id,
             location: position,
@@ -833,6 +897,16 @@ impl World {
         if let Err(error) = self.check_cell(&map, to, object_id, now) {
             self.send_user_location(object_id);
             return Err(error);
+        }
+        // 落格前先更新朝向（Crystal `HumanObject.Walk` 的 `Direction = dir` 在
+        // `CheckMovement(location)` 之前，`Server/MirObjects/HumanObject.cs:2465-2466`）。
+        if let Some(player) = self.players.get_mut(&object_id) {
+            player.direction = direction;
+        }
+        // 传送点：整次走动作**作废**（不广播 `ObjectWalk`、不回 `UserLocation`），
+        // 由下一个 tick 结算切图（Crystal 在 `Walk` 里同步 `CompleteMapMovement`）。
+        if self.queue_movement_trigger(object_id, to) {
+            return Ok(from);
         }
 
         if let Some(player) = self.players.get_mut(&object_id) {
@@ -886,11 +960,19 @@ impl World {
         let from = player.position;
         let steps = 2;
         let mut destination = from;
+        // Crystal 在跑之前就把朝向改掉（`HumanObject.cs:2549`），逐格检查里命中
+        // 传送点会整次作废（`:2584` 的 `if (CheckMovement(location)) return false;`）。
+        if let Some(player) = self.players.get_mut(&object_id) {
+            player.direction = direction;
+        }
         for step in 1..=steps {
             let cell = from.moved(direction, step);
             if let Err(error) = self.check_cell(&map, cell, object_id, now) {
                 self.send_user_location(object_id);
                 return Err(error);
+            }
+            if self.queue_movement_trigger(object_id, cell) {
+                return Ok(from);
             }
             destination = cell;
         }
@@ -989,7 +1071,7 @@ impl World {
 
         // 4) 前方一格（`HumanObject.cs:2978-3026`）。
         let target_cell = position.adjacent(direction);
-        if !self.walkable(target_cell) {
+        if !self.walkable_on(&map, target_cell) {
             return Ok(None);
         }
         let Some(target_id) = self.melee_target(&map, target_cell) else {
@@ -1024,6 +1106,10 @@ impl World {
     /// 由服务端的定时任务每 100ms 调一次；顺序理由见模块文档的「tick 顺序」。
     pub fn tick(&mut self) {
         let now = self.now();
+        // 传送点：走/跑/转身命中后在**下一个 tick** 结算（Crystal 上游在
+        // `HumanObject.Process` 里每 tick 调 `MapTime()`；本仓库的 Crystal 分支改为在
+        // `CheckMovement` 里同步执行，见 `docs/world/maps.md`）。
+        self.resolve_pending_map_moves();
         self.tick_players(now);
         // 任务超时（Crystal 用 `DelayedAction` 排程，本作每 tick 比较；见 `crate::quests`）。
         self.tick_quests(self.wall_now());
@@ -1838,7 +1924,7 @@ impl World {
             let dx = self.rng.next_range(-group.spread, group.spread);
             let dy = self.rng.next_range(-group.spread, group.spread);
             let cell = Point::new((group.center.x + dx).max(0), (group.center.y + dy).max(0));
-            if !self.walkable(cell) {
+            if !self.walkable_on(&group.map, cell) {
                 continue;
             }
             if self.monsters.iter().any(|monster| {
@@ -2112,25 +2198,30 @@ impl World {
         &mut self.rng
     }
 
-    /// 目标格是否在地图内且可走（怪物的 `Walk` 只做这一层判定，`MonsterObject.cs:2101`）。
-    pub(crate) fn walkable(&self, cell: Point) -> bool {
-        if cell.x < 0 || cell.y < 0 || cell.x > self.bound || cell.y > self.bound {
+    /// 目标格是否在这张地图内且可走（怪物的 `Walk` 只做这一层判定，
+    /// `Server/MirObjects/MonsterObject.cs:2101` 的 `CurrentMap.ValidPoint(location)`）。
+    ///
+    /// 地图名只是「这张图的键」：世界没加载过它时退回坐标上界 `bound`
+    /// （无地形世界，绝大多数单元测试用的就是这种）。
+    pub(crate) fn walkable_on(&self, map: &str, cell: Point) -> bool {
+        let (max_x, max_y) = self.map_bounds(map);
+        if cell.x < 0 || cell.y < 0 || cell.x > max_x || cell.y > max_y {
             return false;
         }
-        self.map
-            .as_ref()
-            .is_none_or(|map| map.walkable(cell.x, cell.y))
+        self.map_of(map)
+            .is_none_or(|data| data.walkable(cell.x, cell.y))
     }
 
     /// 检查目标格是否可进入：边界、地形、占格。
     fn check_cell(&self, map: &str, cell: Point, mover: u32, now: i64) -> Result<(), MoveError> {
-        if cell.x < 0 || cell.y < 0 || cell.x > self.bound || cell.y > self.bound {
+        let (max_x, max_y) = self.map_bounds(map);
+        if cell.x < 0 || cell.y < 0 || cell.x > max_x || cell.y > max_y {
             return Err(MoveError::OutOfBounds {
                 x: cell.x,
                 y: cell.y,
             });
         }
-        if let Some(map_data) = &self.map {
+        if let Some(map_data) = self.map_of(map) {
             if !map_data.walkable(cell.x, cell.y) {
                 return Err(MoveError::Blocked {
                     x: cell.x,
@@ -2195,17 +2286,6 @@ impl World {
             .encode_frame();
             let _ = player.sender.send(packet);
         }
-    }
-
-    fn nearby(&self, position: Point, map: &str, range: i32, exclude: Option<u32>) -> Vec<&Player> {
-        self.players
-            .values()
-            .filter(|other| {
-                other.map == map
-                    && other.position.in_range(position, range)
-                    && exclude != Some(other.object_id)
-            })
-            .collect()
     }
 
     /// 同图、视野内的**其它**玩家接收 `packet`（Crystal `Broadcast` 不发给本人）。
@@ -2375,8 +2455,8 @@ pub(crate) fn monster_info_frame(monster: &Monster) -> Vec<u8> {
     .encode_frame()
 }
 
-/// `ObjectRemove` 帧（怪物消失、玩家下线都用它）。
-fn object_remove_frame(object_id: u32) -> Vec<u8> {
+/// `ObjectRemove` 帧（怪物消失、玩家下线、切图离开旧图都用它）。
+pub(crate) fn object_remove_frame(object_id: u32) -> Vec<u8> {
     ServerPacket::ObjectRemove(ObjectRemove { object_id }).encode_frame()
 }
 
@@ -2423,6 +2503,8 @@ mod tests {
                 run_time: 0,
                 dead: false,
                 visible_monsters: BTreeSet::new(),
+                visible_npcs: BTreeSet::new(),
+                movement_time: 0,
                 inventory: crate::items::new_inventory(),
                 equipment: crate::items::new_equipment(),
                 magics: Vec::new(),

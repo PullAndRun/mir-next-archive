@@ -101,92 +101,67 @@ fn build_language_library(config: &ServerConfig) -> LanguageLibrary {
     }
 }
 
-/// 起世界：能读到 `{map_root}/{start_map}.map` 就用真实地形，否则退化成无边界的测试网格。
+/// 起世界：地图按需从 `{map_root}/{start_map}.map` 加载（`World::load_map`），
+/// 出生地图在这里先初始化一次（刷 NPC + 注册刷怪点）。
 fn build_world(config: &ServerConfig) -> World {
-    let path = std::path::Path::new(&config.map_root).join(format!("{}.map", config.start_map));
-    let mut world = match mir_world::Map::load(&path) {
-        Ok(map) => {
-            tracing::info!(
-                map = %path.display(),
-                width = map.width,
-                height = map.height,
-                "已加载地图"
-            );
-            World::with_map(Arc::new(map))
-        }
-        Err(error) => {
-            tracing::warn!(
-                map = %path.display(),
-                %error,
-                "地图加载失败，使用无地形的兜底世界（只校验边界与占格）"
-            );
-            World::default()
-        }
-    };
+    let mut world = World::new(999);
+    // 多地图：地图目录与缓存上限。Crystal `Settings.MapPath`，`Server/Settings.cs`。
+    world.set_map_root(&config.map_root);
     // 等级经验表：`config/ExpList.ini` → 素材索引里的 `Configs/ExpList.ini` → 近似曲线。
     // `World` 的默认表是兜底曲线（保证测试确定性），生产路径必须显式换成真表。
     world.set_exp_table(crate::exp::ExpTable::discover());
+    attach_game_data(&mut world, config);
     if config.demo_monsters {
         spawn_demo_monsters(&mut world, config);
     }
-    spawn_from_database(&mut world, config);
     world
 }
 
-/// 用 `Server.MirDB` 的刷怪点填充世界（Crystal 的 `MapRespawn` 数据来源）。
+/// 把 `Server.MirDB` 挂到世界上，并初始化出生地图（Crystal 建图时一次做完的事：
+/// `Map.Load` 读地形 + `MapRespawn` 注册 + `NPCObject` 刷出，`Server/MirEnvir/Map.cs:432-514`）。
 ///
 /// 优先级：`config.db_path`（或 `MIR2_DB_PATH`）→ 索引里的候选路径。找不到数据库时
 /// 只保留 [`spawn_demo_monsters`] 的演示怪，服务器照常可跑。
 ///
-/// 顺便把 `GameData` 挂到世界上（`World::set_game_data`）：物品模板查找与怪物掉落都要用它，
-/// 对应 Crystal 的 `Envir.ItemInfoList` / `MonsterInfo.Drops`（`Envir.cs:5405-5419`）。
-fn spawn_from_database(world: &mut World, config: &ServerConfig) {
-    if !config.load_game_data {
-        return;
+/// `GameData` 还要给物品模板查找与怪物掉落用（对应 Crystal 的 `Envir.ItemInfoList` /
+/// `MonsterInfo.Drops`，`Envir.cs:5405-5419`）。
+fn attach_game_data(world: &mut World, config: &ServerConfig) {
+    if config.load_game_data {
+        if let Some(data) = load_game_data(config) {
+            let path = data.path().display().to_string();
+            let monsters = data.monster_count();
+            let items = data.item_count();
+            let drop_dir = data
+                .drop_dir()
+                .map(|dir| dir.display().to_string())
+                .unwrap_or_default();
+            world.set_game_data(Arc::new(data));
+            tracing::info!(
+                path = %path,
+                monsters,
+                items,
+                drop_dir = %drop_dir,
+                "已加载 Server.MirDB"
+            );
+        }
     }
-    let Some(data) = load_game_data(config) else {
-        return;
-    };
-    let groups = data.spawn_groups(&config.start_map);
-    let path = data.path().display().to_string();
-    let monsters = data.monster_count();
-    let items = data.item_count();
-    let drop_dir = data
-        .drop_dir()
-        .map(|dir| dir.display().to_string())
-        .unwrap_or_default();
-    world.set_game_data(Arc::new(data));
-    // NPC：Crystal 在建图时把 `MapIndex` 匹配的 `NPCInfo` 全刷出来
-    // （`Map.cs:490-496`），本作世界只加载一张图，所以在同一个地方一次性刷出。
-    let npcs = world.spawn_npcs(&config.start_map);
-    tracing::info!(
-        map = %config.start_map,
-        npcs = npcs.len(),
-        "已按数据库刷出 NPC"
-    );
-    if groups.is_empty() {
+    // 出生地图：地形 + NPC + 刷怪点（`World::initialize_map`）。
+    let report = world.initialize_map(&config.start_map);
+    if report.initialized {
+        tracing::info!(
+            map = %config.start_map,
+            npcs = report.npcs,
+            groups = report.respawn_groups,
+            spawned = report.spawned,
+            "出生地图已初始化"
+        );
+    } else {
         tracing::warn!(
             map = %config.start_map,
-            path = %path,
-            "数据库里这张地图没有刷怪点（或怪物模板缺失）"
+            root = %config.map_root,
+            "出生地图地形加载失败：使用无地形的兜底世界（只校验边界与占格）"
         );
-        return;
     }
-    let group_count = groups.len();
-    let mut spawned = 0;
-    for group in &groups {
-        spawned += world.spawn_group(group).len();
-    }
-    tracing::info!(
-        path = %path,
-        monsters,
-        items,
-        drop_dir = %drop_dir,
-        map = %config.start_map,
-        groups = group_count,
-        spawned,
-        "已按数据库刷怪点刷新"
-    );
 }
 
 fn load_game_data(config: &ServerConfig) -> Option<crate::gamedata::GameData> {

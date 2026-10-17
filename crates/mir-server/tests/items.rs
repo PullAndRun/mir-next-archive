@@ -79,6 +79,8 @@ impl Harness {
             run_time: 0,
             dead: false,
             visible_monsters: BTreeSet::new(),
+            visible_npcs: BTreeSet::new(),
+            movement_time: 0,
             inventory: items::new_inventory(),
             equipment: items::new_equipment(),
             magics: Vec::new(),

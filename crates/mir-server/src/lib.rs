@@ -6,8 +6,9 @@
 //! **物品系统**（含使用消耗品与丢金币，见 [`items`] 与 `docs/world/items.md`）、
 //! **NPC 与商店**（见 [`npc`]、[`mir_db::npc_script`] 与 `docs/world/npc.md`）、
 //! **技能/魔法**（含 9 个增益技能，见 [`magic`] 与 `docs/world/magic.md`）、
-//! **增益容器**（见 [`buffs`] 与 `docs/world/buffs.md`）以及
-//! **任务系统**（见 [`quests`]、[`mir_db::quest_script`] 与 `docs/world/quests.md`）。
+//! **增益容器**（见 [`buffs`] 与 `docs/world/buffs.md`）、
+//! **任务系统**（见 [`quests`]、[`mir_db::quest_script`] 与 `docs/world/quests.md`）以及
+//! **多地图与传送**（见 [`maps`] 与 `docs/world/maps.md`）。
 
 pub mod buffs;
 pub mod combat;
@@ -16,6 +17,7 @@ pub mod exp;
 pub mod gamedata;
 pub mod items;
 pub mod magic;
+pub mod maps;
 pub mod monster;
 pub mod npc;
 pub mod pg_store;
@@ -37,6 +39,10 @@ pub use items::{
 pub use magic::{
     CastReport, LearnedMagic, MagicError, MagicState, SpellKind, UserMagic, decode_magics,
     encode_magics, spell_kind,
+};
+pub use maps::{
+    DEFAULT_MAP_CACHE_LIMIT, MAP_CACHE_ENV, MOVEMENT_DELAY_MS, MapChangeError, MapChangeReport,
+    MapInitReport, PendingMapMove, ViewCounts,
 };
 pub use monster::{Monster, MonsterKind};
 pub use npc::{BuyReport, Npc, NpcError, NpcReply, NpcState, RepairReport, SellReport};

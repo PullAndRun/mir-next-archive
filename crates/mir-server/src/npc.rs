@@ -129,6 +129,12 @@ pub struct NpcState {
     pub buttons: BTreeSet<String>,
     /// NPC 脚本标记位（Crystal `Info.Flags`，只有 `true` 的下标才在集合里）。
     pub flags: BTreeSet<i32>,
+    /// `NeedMove` 传送点记下的目标地图文件名（Crystal `NPCData["NPCMoveMap"]`，
+    /// `Server/MirObjects/PlayerObject.cs:4497`），由 NPC 动作 `ENTERMAP` 消费
+    /// （`NPCSegment.cs:4065-4074`）。
+    pub move_map: Option<String>,
+    /// 见 [`NpcState::move_map`]（Crystal `NPCData["NPCMoveCoord"]`，`:4498`）。
+    pub move_coord: Option<Point>,
 }
 
 impl NpcState {
@@ -575,7 +581,16 @@ impl World {
         let infos: Vec<NpcInfo> = data.npcs_for_map(map_file).into_iter().cloned().collect();
         let mut spawned = Vec::with_capacity(infos.len());
         for info in &infos {
-            if !self.valid_npc_point(info.location) {
+            // 同一张图的同一个 `NpcInfo.Index` 只刷一次：Crystal 在 `Map.Load` 里只跑一遍
+            // （`Map.cs:490-496`），重复调用等价于重复 Load，不应该多出一份 NPC。
+            if self
+                .npcs
+                .iter()
+                .any(|npc| npc.map == map_info.file_name && npc.index == info.index)
+            {
+                continue;
+            }
+            if !self.valid_npc_point(&map_info.file_name, info.location) {
                 tracing::debug!(
                     npc = %info.name,
                     x = info.location.x,
@@ -620,7 +635,7 @@ impl World {
     ///
     /// 返回新对象 ID；坐标越界时返回 `None`。
     pub fn spawn_npc(&mut self, map_file: &str, info: &NpcInfo) -> Option<u32> {
-        if !self.valid_npc_point(info.location) {
+        if !self.valid_npc_point(map_file, info.location) {
             return None;
         }
         let object_id = self.allocate_object_id();
@@ -644,14 +659,12 @@ impl World {
     }
 
     /// NPC 坐标是否在地图内（Crystal `Map.ValidPoint`，`Map.cs:493`）。
-    fn valid_npc_point(&self, point: Point) -> bool {
+    fn valid_npc_point(&self, map_file: &str, point: Point) -> bool {
         if point.x < 0 || point.y < 0 {
             return false;
         }
-        match &self.map {
-            Some(map) => point.x < map.width && point.y < map.height,
-            None => point.x <= self.bound && point.y <= self.bound,
-        }
+        let (max_x, max_y) = self.map_bounds(map_file);
+        point.x <= max_x && point.y <= max_y
     }
 
     /// 取（并缓存）NPC 脚本。
@@ -696,14 +709,13 @@ impl World {
     ///   `ObjectID` 填运行期 ID，其余字段来自 `NpcInfo.ClientInformation`。
     ///
     /// 简化：`RequiredGroup` / `WorldMapSetupInfo` 与 `Connection.SentMapInfo` 去重未实现
-    /// （本作只有一张图、且只在进世界时发一次）。
+    /// （本作只在进世界时发一次，切图不发 `NewMapInfo`）。
     #[must_use]
     pub fn map_entry_info(&self, map_file: &str, title: &str) -> Option<ClientMapInfo> {
         let data = self.game_data.as_ref()?;
         let map_info: &MapInfo = data.map_info(map_file)?;
         let (width, height) = self
-            .map
-            .as_ref()
+            .map_of(map_file)
             .map_or((0, 0), |map| (map.width, map.height));
         let mut movements = Vec::new();
         for movement in &map_info.movements {
@@ -737,11 +749,14 @@ impl World {
         })
     }
 
-    /// 进图时给这个玩家补发视野内 NPC 的 `S.ObjectNPC`（Crystal `MapObject.Add`，
-    /// `MapObject.cs:286-308`；在 [`World::enter`] 里调用）。
+    /// 进图/切图时要给这个玩家下发的视野内 NPC 帧（Crystal `MapObject.Add`，
+    /// `MapObject.cs:286-308`；在 [`World::enter`] 与
+    /// [`World::change_map`](crate::maps::World::change_map) 里调用）。
     ///
+    /// 返回 `(S.ObjectNPC 帧, NPC 对象 ID)`，调用方负责真正发送并记录可见集合。
     /// 不可见的 NPC（等级/职业/标记位不符）**不发**，与 `CheckVisible` 的结论一致。
-    pub(crate) fn send_visible_npcs(&self, player: &Player) {
+    pub(crate) fn visible_npc_frames(&self, player: &Player) -> Vec<(Vec<u8>, u32)> {
+        let mut frames = Vec::new();
         for npc in &self.npcs {
             if npc.map == player.map
                 && npc
@@ -749,11 +764,13 @@ impl World {
                     .in_range(player.position, crate::world::VIEW_RANGE)
                 && npc_visible_to(player, npc)
             {
-                let _ = player
-                    .sender
-                    .send(ServerPacket::ObjectNPC(npc.object_packet()).encode_frame());
+                frames.push((
+                    ServerPacket::ObjectNPC(npc.object_packet()).encode_frame(),
+                    npc.object_id,
+                ));
             }
         }
+        frames
     }
 }
 
@@ -1054,7 +1071,12 @@ impl World {
                 }
             }
             NpcActionKind::Unsupported | NpcActionKind::Unknown => {
-                run.unsupported_actions.push(action.source.clone());
+                // `mir-db` 只把少数动作认到具体种类（见 `crates/mir-db/src/npc_script.rs`
+                // 的 `parse_action`）；切图类动作在这里按关键字补上，
+                // 与 Crystal `NPCSegment.ParseAct`/`Act` 对齐（见 [`World::run_map_action`]）。
+                if !self.run_map_action(player_id, npc, action) {
+                    run.unsupported_actions.push(action.source.clone());
+                }
             }
             // 下面三个是**本作扩展**：Crystal 的 `NPCActions` 里没有对应的动作
             // （任务接取/交付只能由客户端弹任务面板后发 `C.AcceptQuest`/`C.FinishQuest`，
@@ -1112,6 +1134,124 @@ impl World {
                 }
             }
         }
+    }
+
+    /// 切图类 NPC 动作：`MOVE` / `MAPMOVE` / `ENTERMAP`。
+    ///
+    /// 返回 `true` 表示「认识这个关键字」（即使因为参数缺失/地图不存在而没有执行），
+    /// 调用方就不会把它记进 `unsupported_actions`。
+    ///
+    /// | 动作 | Crystal | 本作 |
+    /// |---|---|---|
+    /// | `MOVE <地图> <x> <y>` | `NPCSegment.cs:452-459`（解析）、`:3075-3088`（执行） | 同步切图；缺坐标时忽略（Crystal 会随机传送） |
+    /// | `MAPMOVE <地图> <x> <y>` | 只在 GM 聊天命令里出现（`PlayerObject.cs:2872-2913`） | **本作扩展**：`MOVE` 的别名（任务要求的写法） |
+    /// | `ENTERMAP` | `NPCSegment.cs:993-995`（解析）、`:4065-4074`（执行） | 消费 `NeedMove` 传送点记下的目的地 |
+    fn run_map_action(&mut self, player_id: u32, npc: &Npc, action: &NpcAction) -> bool {
+        let keyword = action
+            .source
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_ascii_uppercase();
+        match keyword.as_str() {
+            "MOVE" | "MAPMOVE" => {
+                // Crystal：`if (parts.Length < 2) return;`（`NPCSegment.cs:453`）。
+                let Some(map_arg) = action.params.first() else {
+                    return true;
+                };
+                let Some(map_file) = self.resolve_script_map(map_arg) else {
+                    tracing::debug!(
+                        npc = %npc.name,
+                        map = %map_arg,
+                        "MOVE 的目标地图不存在，忽略"
+                    );
+                    return true;
+                };
+                // Crystal `NPCSegment.cs:3080-3086`：`coords.X > 0 && coords.Y > 0` 才按坐标传送，
+                // 否则随机传送（本作没有实现随机传送，缺坐标时忽略）。
+                let (Some(x), Some(y)) =
+                    (parse_i32(&action.params, 1), parse_i32(&action.params, 2))
+                else {
+                    tracing::debug!(
+                        npc = %npc.name,
+                        source = %action.source,
+                        "MOVE 缺少坐标，忽略（Crystal 会随机传送）"
+                    );
+                    return true;
+                };
+                let direction = self.players[&player_id].direction;
+                match self.change_map(player_id, &map_file, Point::new(x, y), direction) {
+                    Ok(report) => tracing::debug!(
+                        npc = %npc.name,
+                        player = %self.players[&player_id].name,
+                        to = %report.to_map,
+                        x = report.position.x,
+                        y = report.position.y,
+                        "NPC 动作切图"
+                    ),
+                    Err(error) => {
+                        tracing::debug!(npc = %npc.name, %error, "NPC 动作切图失败");
+                    }
+                }
+                true
+            }
+            "ENTERMAP" => {
+                // Crystal `NPCSegment.cs:4067-4072`：取出 `NeedMove` 传送点记下的地图/坐标并清掉。
+                let pending = self
+                    .players
+                    .get(&player_id)
+                    .and_then(|player| player.npc.move_map.clone().zip(player.npc.move_coord));
+                let Some((map_file, point)) = pending else {
+                    return true;
+                };
+                if let Some(player) = self.players.get_mut(&player_id) {
+                    player.npc.move_map = None;
+                    player.npc.move_coord = None;
+                }
+                let direction = self.players[&player_id].direction;
+                match self.change_map(player_id, &map_file, point, direction) {
+                    Ok(report) => tracing::debug!(
+                        npc = %npc.name,
+                        player = %self.players[&player_id].name,
+                        to = %report.to_map,
+                        x = report.position.x,
+                        y = report.position.y,
+                        "ENTERMAP 切图"
+                    ),
+                    Err(error) => {
+                        tracing::debug!(npc = %npc.name, %error, "ENTERMAP 切图失败");
+                    }
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// NPC 脚本里的地图参数。
+    ///
+    /// Crystal 的脚本写的是**地图文件名**（`Envir.GetMapByNameAndInstance(param[0])`，
+    /// `Server/MirEnvir/Envir.cs:4607-4614`），所以**先按文件名查**；查不到再按
+    /// `MapInfo.Index` 查（**本作扩展**，方便写 `MOVE 20 10 10`）。
+    /// 顺序不能反：Mir2 的地图文件名全是数字，按主键优先会把 `MOVE 1 ...` 解析成错误的地图。
+    fn resolve_script_map(&self, arg: &str) -> Option<String> {
+        let file = arg
+            .strip_suffix(".map")
+            .or_else(|| arg.strip_suffix(".MAP"))
+            .unwrap_or(arg);
+        if let Some(info) = self.game_data.as_ref().and_then(|data| data.map_info(file)) {
+            return Some(info.file_name.clone());
+        }
+        // 数据库里没有这张图、但世界已经加载了它（测试里直接 insert_map 的图）。
+        if self.map_of(file).is_some() {
+            return Some(file.to_owned());
+        }
+        let index = arg.parse::<i32>().ok()?;
+        let info = self
+            .game_data
+            .as_ref()
+            .and_then(|data| data.map_info_by_index(index))?;
+        Some(info.file_name.clone())
     }
 
     /// 逐条检查 `#IF`（Crystal `NPCSegment.Check(PlayerObject)`，`:2077-2950`）。

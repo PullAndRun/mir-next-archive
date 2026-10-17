@@ -549,6 +549,8 @@ impl<S: AccountStore> Session<S> {
             run_time: 0,
             dead: false,
             visible_monsters: std::collections::BTreeSet::new(),
+            visible_npcs: std::collections::BTreeSet::new(),
+            movement_time: 0,
             inventory: inventory.clone(),
             equipment: equipment.clone(),
             magics: magics.clone(),
@@ -702,10 +704,16 @@ impl<S: AccountStore> Session<S> {
                 };
                 match result {
                     Ok(position) => {
+                        // 传送点可能在走/跑之后把玩家切到别的图，坐标回写时连地图名一起同步
+                        // （Crystal 的 `CurrentMap` 是对象字段，存档里存 `CurrentMapIndex` 对应的地图）。
+                        let map = world.player(object_id).map(|player| player.map.clone());
                         if let Some(character) = &mut self.character {
                             character.x = position.x;
                             character.y = position.y;
                             character.direction = direction;
+                            if let Some(map) = map {
+                                character.map = map;
+                            }
                         }
                         return;
                     }
@@ -1171,6 +1179,9 @@ impl<S: AccountStore> Session<S> {
                 character.x = player.position.x;
                 character.y = player.position.y;
                 character.direction = player.direction;
+                // 切图后角色要在新图上重登，地图名必须一起落盘
+                // （Crystal `CharacterInfo` 存的是当前地图，`Envir.SaveAccounts`）。
+                character.map.clone_from(&player.map);
             }
         }
         if let Some(character) = self.character.clone() {

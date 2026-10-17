@@ -16,12 +16,14 @@
 //! `NetClient` 的 `Drop` 会发送 `Quit` 并回收线程，不会留下半开连接。
 
 use std::num::NonZeroU32;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use mir_client::geom::Rect;
-use mir_client::net::{NetClient, NetCommand, NetEvent, NetStatus, WorldSnapshot};
+use mir_client::net::{
+    MapReloadRequest, NetClient, NetCommand, NetEvent, NetStatus, WorldSnapshot,
+};
 use mir_client::ui::{self, UiAction, UiState, UiText};
 use mir_core::Language;
 use mir_core::Point;
@@ -93,19 +95,23 @@ impl LiveState {
 /// 没有图形环境（`EventLoop::new` 失败、窗口/表面创建失败）时打印原因并返回，
 /// 不 panic、不返回非零退出码。离线模式只有 F1 点阵叠层，`language` 暂不影响画面。
 pub fn run(scene: MapScene, center: Point, _language: Language) {
-    run_app(scene, center, Mode::Offline);
+    // 离线模式不会切图，地图目录只是占位（`ClientApp` 要求有这个字段）。
+    run_app(scene, center, Mode::Offline, PathBuf::from("resource/map"));
 }
 
 /// 启动联机窗口。
 ///
 /// `snapshot` 是进入世界后的首个快照（`wait_until_in_game` 的返回值），
-/// `center` 通常是自己的坐标。窗口创建失败时连接会被 `Drop` 自动关闭。
+/// `center` 通常是自己的坐标；`map_dir` 是 `resource/map` 一类的地图目录，
+/// 切图（`S.MapChanged`）时用它拼出 `<map_dir>/<file>.map` 重新加载地形。
+/// 窗口创建失败时连接会被 `Drop` 自动关闭。
 pub fn run_live(
     scene: MapScene,
     center: Point,
     net: NetClient,
     snapshot: WorldSnapshot,
     language: Language,
+    map_dir: PathBuf,
 ) {
     let status = snapshot.status;
     let mode = Mode::Live(Box::new(LiveState {
@@ -121,11 +127,11 @@ pub fn run_live(
         walk_target: None,
         next_walk: Instant::now(),
     }));
-    run_app(scene, center, mode);
+    run_app(scene, center, mode, map_dir);
 }
 
 /// 公共窗口事件循环。
-fn run_app(scene: MapScene, center: Point, mode: Mode) {
+fn run_app(scene: MapScene, center: Point, mode: Mode, map_dir: PathBuf) {
     let event_loop = match EventLoop::new() {
         Ok(event_loop) => event_loop,
         Err(error) => {
@@ -134,7 +140,7 @@ fn run_app(scene: MapScene, center: Point, mode: Mode) {
             return;
         }
     };
-    let mut app = ClientApp::new(scene, center, mode);
+    let mut app = ClientApp::new(scene, center, mode, map_dir);
     if let Err(error) = event_loop.run_app(&mut app) {
         eprintln!("窗口事件循环异常退出：{error}");
     }
@@ -151,6 +157,8 @@ struct ClientApp {
     mode: Mode,
     /// 界面文字（TrueType 或点阵兜底）。
     text: UiText,
+    /// 地图目录：切图时按 `<map_dir>/<file>.map` 重载地形。
+    map_dir: PathBuf,
     /// 窗口句柄（`resumed` 里创建）。
     window: Option<Arc<Window>>,
     /// softbuffer 表面。
@@ -164,13 +172,14 @@ struct ClientApp {
 }
 
 impl ClientApp {
-    fn new(scene: MapScene, center: Point, mode: Mode) -> Self {
+    fn new(scene: MapScene, center: Point, mode: Mode, map_dir: PathBuf) -> Self {
         Self {
             scene,
             center,
             frame: Frame::new(WINDOW_WIDTH, WINDOW_HEIGHT),
             mode,
             text: UiText::load(None),
+            map_dir,
             window: None,
             surface: None,
             context: None,
@@ -766,53 +775,92 @@ impl ClientApp {
     }
 
     /// 从网络线程取事件，更新快照与相机。
+    /// 从网络线程取事件，**按到达顺序**更新快照与相机；切图事件在地形重载后重置相机。
+    ///
+    /// 事件顺序由网络线程保证：先 [`NetEvent::Snapshot`]（快照已按 `S.MapChanged` 清空实体、
+    /// 更新坐标与地图号），再 [`NetEvent::MapChanged`]（触发本地地形重载）。
     fn poll_network(&mut self) {
-        let mut snapshots = Vec::new();
-        let mut messages = Vec::new();
+        let mut events = Vec::new();
         if let Mode::Live(live) = &mut self.mode {
             while let Some(event) = live.net.try_recv() {
-                match event {
-                    NetEvent::Snapshot(snapshot) => snapshots.push(*snapshot),
-                    NetEvent::Error(message) => messages.push(message),
-                    NetEvent::Closed(reason) => messages.push(format!("连接关闭：{reason}")),
+                events.push(event);
+            }
+        }
+        for event in events {
+            match event {
+                NetEvent::Snapshot(snapshot) => self.apply_snapshot(*snapshot),
+                NetEvent::MapChanged {
+                    map_index,
+                    position,
+                } => self.apply_map_changed(map_index, position),
+                NetEvent::Error(message) => eprintln!("{message}"),
+                NetEvent::Closed(reason) => eprintln!("连接关闭：{reason}"),
+            }
+        }
+    }
+
+    /// 应用一份世界快照：更新状态、聊天日志与相机。
+    fn apply_snapshot(&mut self, snapshot: WorldSnapshot) {
+        let position = snapshot.self_player.as_ref().map(|player| player.position);
+        let status = snapshot.status;
+        let ready = snapshot.is_ready();
+        let new_chat = snapshot.chat.last().map(mir_client::net::ChatLine::display);
+        if let Mode::Live(live) = &mut self.mode {
+            if live.last_status != status {
+                println!("网络状态：{}", status.label());
+                live.last_status = status;
+            }
+            live.snapshot = snapshot;
+            live.ui.sync(&live.snapshot);
+            if let Some(line) = new_chat {
+                if live.last_chat.as_ref() != Some(&line) {
+                    println!("{line}");
+                    live.last_chat = Some(line);
+                }
+            }
+            if ready && !live.entered {
+                live.entered = true;
+                if let Some(me) = &live.snapshot.self_player {
+                    println!(
+                        "已进入世界：{} · 坐标 ({}, {}) · HP {} · MP {}",
+                        me.name, me.position.x, me.position.y, me.hp, me.mp
+                    );
                 }
             }
         }
-        for message in messages {
-            eprintln!("{message}");
+        if let Some(position) = position {
+            self.center = self.clamp_center(position);
+            self.request_redraw();
         }
-        for snapshot in snapshots {
-            let position = snapshot.self_player.as_ref().map(|player| player.position);
-            let status = snapshot.status;
-            let ready = snapshot.is_ready();
-            let new_chat = snapshot.chat.last().map(mir_client::net::ChatLine::display);
-            if let Mode::Live(live) = &mut self.mode {
-                if live.last_status != status {
-                    println!("网络状态：{}", status.label());
-                    live.last_status = status;
-                }
-                live.snapshot = snapshot;
-                live.ui.sync(&live.snapshot);
-                if let Some(line) = new_chat {
-                    if live.last_chat.as_ref() != Some(&line) {
-                        println!("{line}");
-                        live.last_chat = Some(line);
-                    }
-                }
-                if ready && !live.entered {
-                    live.entered = true;
-                    if let Some(me) = &live.snapshot.self_player {
-                        println!(
-                            "已进入世界：{} · 坐标 ({}, {}) · HP {} · MP {}",
-                            me.name, me.position.x, me.position.y, me.hp, me.mp
-                        );
-                    }
-                }
-            }
-            if let Some(position) = position {
+    }
+
+    /// 切图：按快照里的地图文件名重载本地地形，并把相机重置到落点。
+    ///
+    /// 对应 Crystal 客户端 `GameScene.MapChanged`（`Client/MirScenes/GameScene.cs:3970-4009`）：
+    /// 地图编号变了就 `MapControl.LoadMap()`，然后 `User.CurrentLocation = p.Location`、
+    /// `MapControl.InputDelay = CMain.Time + 400`（本作没有输入延迟缓冲）。
+    /// 缺文件时**保留旧地图**并打印警告（黑屏占位比旧图更糟，见需求）。
+    fn apply_map_changed(&mut self, map_index: i32, position: Point) {
+        let map_dir = self.map_dir.clone();
+        let snapshot = match &self.mode {
+            Mode::Live(live) => live.snapshot.clone(),
+            Mode::Offline => return,
+        };
+        match reload_after_map_change(&mut self.scene, &snapshot, &map_dir, map_index) {
+            Ok(request) => {
+                println!(
+                    "切换地图：{}（编号 {}）· 地形 {}×{} · 落点 ({}, {})",
+                    request.file_name,
+                    request.map_index,
+                    self.scene.map.width,
+                    self.scene.map.height,
+                    position.x,
+                    position.y
+                );
                 self.center = self.clamp_center(position);
                 self.request_redraw();
             }
+            Err(error) => eprintln!("警告：{error}"),
         }
     }
 
@@ -968,6 +1016,29 @@ fn direction_from_key(key: &Key) -> Option<MirDirection> {
     }
 }
 
+/// 切图后重载地形，返回发起的重载请求（失败时把原因作为 `Err`，旧地图保持不变）。
+///
+/// 提成自由函数是为了能在不创建窗口的情况下驱动「注入 `S.MapChanged` → 记录重载请求」：
+/// 单元测试直接给它一份 [`WorldSnapshot`] 与临时地图目录即可。
+fn reload_after_map_change(
+    scene: &mut MapScene,
+    snapshot: &WorldSnapshot,
+    map_dir: &Path,
+    map_index: i32,
+) -> Result<MapReloadRequest, String> {
+    let request = snapshot.map_reload_request(map_dir).ok_or_else(|| {
+        format!("收到切图（地图编号 {map_index}）但快照里没有地图信息，保留当前地形")
+    })?;
+    scene.reload_map(&request.path).map_err(|error| {
+        format!(
+            "加载地图 {} 失败：{error}；保留当前地形（{}）",
+            request.path.display(),
+            scene.map.file_name
+        )
+    })?;
+    Ok(request)
+}
+
 /// 把 RGBA8 帧缓冲送进 softbuffer 并呈现。
 fn present(
     surface: &mut softbuffer::Surface<Arc<Window>, Arc<Window>>,
@@ -1121,5 +1192,84 @@ mod tests {
         assert_eq!(digit_key("0"), None);
         assert_eq!(digit_key("12"), None);
         assert_eq!(digit_key("a"), None);
+    }
+
+    /// 注入一条 `S.MapChanged`，验证「重载请求被记录、旧地图在缺文件时保留」。
+    ///
+    /// 不创建窗口：`reload_after_map_change` 只碰 `MapScene` 与快照。
+    #[test]
+    fn map_changed_records_a_reload_request_and_keeps_the_old_map_when_the_file_is_missing() {
+        use mir_protocol::ServerPacket;
+        use mir_protocol::packets::server::MapChanged;
+
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.apply_packet(&ServerPacket::MapChanged(MapChanged {
+            map_index: 7,
+            file_name: "D2083".to_owned(),
+            location: Point::new(3, 4),
+            direction: MirDirection::Down,
+            ..MapChanged::default()
+        }));
+        let mut scene = MapScene::from_parts(
+            crate::blank_map(),
+            mir_render::TileLibraries::empty("."),
+            mir_render::Viewport::DEFAULT,
+        );
+        let before = scene.map.file_name.clone();
+
+        let error =
+            reload_after_map_change(&mut scene, &snapshot, Path::new("resource/不存在的目录"), 7)
+                .expect_err("缺文件时应返回错误");
+        assert!(error.contains("D2083"), "错误里应带文件名：{error}");
+        assert_eq!(scene.map.file_name, before, "缺文件时必须保留旧地图");
+
+        // 请求本身仍在快照里可查（UI/日志用它记录「要重载哪张图」）。
+        let request = snapshot
+            .map_reload_request("resource/map")
+            .expect("切图后应能算出重载请求");
+        assert_eq!(request.map_index, 7);
+        assert_eq!(request.file_name, "D2083");
+        assert_eq!(request.path, PathBuf::from("resource/map/D2083.map"));
+    }
+
+    /// 有地图文件时真的把地形换掉（拷一张真实地图到临时目录，素材缺失就跳过）。
+    #[test]
+    fn map_changed_reloads_the_terrain_when_the_file_exists() {
+        use mir_protocol::ServerPacket;
+        use mir_protocol::packets::server::MapChanged;
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let source = root.join("resource/map/0100.map");
+        if !source.is_file() {
+            eprintln!("跳过：{} 不存在", source.display());
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!(
+            "mir-next-reload-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        std::fs::copy(&source, dir.join("D2083.map")).expect("复制地图");
+
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.apply_packet(&ServerPacket::MapChanged(MapChanged {
+            map_index: 7,
+            file_name: "D2083".to_owned(),
+            location: Point::new(5, 6),
+            ..MapChanged::default()
+        }));
+        let mut scene = MapScene::from_parts(
+            crate::blank_map(),
+            mir_render::TileLibraries::empty("."),
+            mir_render::Viewport::DEFAULT,
+        );
+        let request =
+            reload_after_map_change(&mut scene, &snapshot, &dir, 7).expect("有文件时应重载成功");
+        assert_eq!(request.file_name, "D2083");
+        assert_eq!(scene.map.file_name, "D2083", "地形已换成新地图");
+        assert!(scene.map.width > 0 && scene.map.height > 0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

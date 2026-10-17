@@ -1416,7 +1416,7 @@ impl World {
                 remaining,
             } => {
                 let cell = location.moved(direction, 1);
-                if !self.in_bounds(cell) {
+                if !self.in_bounds(&map, cell) {
                     return;
                 }
                 if remaining > 1 {
@@ -1539,7 +1539,7 @@ impl World {
         for dy in -AREA_RADIUS..=AREA_RADIUS {
             for dx in -AREA_RADIUS..=AREA_RADIUS {
                 let cell = Point::new(center.x + dx, center.y + dy);
-                if !self.in_bounds(cell) {
+                if !self.in_bounds(map, cell) {
                     continue;
                 }
                 targets.extend(self.monsters_on_cell(map, cell));
@@ -1728,10 +1728,11 @@ impl World {
     /// 目标格是否在地图范围内（Crystal `Map.ValidPoint` 的边界判定，
     /// `Server/MirEnvir/Map.cs:881`：`if (!ValidPoint(location)) return;`）。
     ///
-    /// 与 [`World::walkable`] 的区别：这里**不看地形**——Crystal 的 `ValidPoint`
+    /// 与 [`World::walkable_on`] 的区别：这里**不看地形**——Crystal 的 `ValidPoint`
     /// 只要求坐标合法，火焰可以推进到不能站的格子上。
-    fn in_bounds(&self, cell: Point) -> bool {
-        cell.x >= 0 && cell.y >= 0 && cell.x <= self.bound && cell.y <= self.bound
+    fn in_bounds(&self, map: &str, cell: Point) -> bool {
+        let (max_x, max_y) = self.map_bounds(map);
+        cell.x >= 0 && cell.y >= 0 && cell.x <= max_x && cell.y <= max_y
     }
 
     /// 发一条 `S.NewMagic`（Crystal `HumanObject.SendMagicInfo`，`HumanObject.cs:2275-2278`）。

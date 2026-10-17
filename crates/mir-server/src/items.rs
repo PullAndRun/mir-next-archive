@@ -2552,13 +2552,14 @@ impl World {
 
     /// 同 [`World::drop_cell`]，但可以指定搜索半径（玩家丢金币传 5）。
     fn drop_cell_at(&self, map: &str, center: Point, distance: i32) -> Option<Point> {
+        let (max_x, max_y) = self.map_bounds(map);
         let mut best: Option<(Point, usize)> = None;
         for distance in 0..=distance {
             for y in (center.y - distance)..=(center.y + distance) {
                 if y < 0 {
                     continue;
                 }
-                if y > self.bound {
+                if y > max_y {
                     break;
                 }
                 let step = if (y - center.y).abs() == distance {
@@ -2572,7 +2573,7 @@ impl World {
                 let mut x = center.x - distance;
                 while x <= center.x + distance {
                     let cell = Point::new(x, y);
-                    if x >= 0 && x <= self.bound && self.walkable(cell) {
+                    if x >= 0 && x <= max_x && self.walkable_on(map, cell) {
                         let count = self
                             .ground_items
                             .iter()

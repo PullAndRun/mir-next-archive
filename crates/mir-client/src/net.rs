@@ -77,6 +77,7 @@
 use std::collections::BTreeMap;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -279,6 +280,18 @@ pub enum NetEvent {
     ///
     /// 装箱是为了避免每个 `NetEvent`（包括错误/关闭）都被快照撑大。
     Snapshot(Box<WorldSnapshot>),
+    /// 收到 `S.MapChanged`：服务端把角色切到了另一张图
+    /// （Crystal `Shared/ServerPackets.cs:2979-3025`、客户端处理 `GameScene.cs:3970-4009`）。
+    ///
+    /// 本事件**排在**对应的 [`NetEvent::Snapshot`] 之后发出，所以 UI 处理时快照里已经是新地图
+    /// （实体已清空、坐标已更新）。UI 用 [`WorldSnapshot::map_reload_request`] 决定要不要
+    /// 重载本地地形。
+    MapChanged {
+        /// 新地图主键（`S.MapChanged.MapIndex`）。
+        map_index: i32,
+        /// 落点（`S.MapChanged.Location`），相机要重置到这里。
+        position: Point,
+    },
     /// 致命错误（随后还会有 `Closed`）。
     Error(String),
     /// 连接已关闭。
@@ -298,6 +311,25 @@ pub struct MapSnapshot {
     pub width: i32,
     /// 高。
     pub height: i32,
+}
+
+/// 客户端收到 `S.MapChanged` 后要做的切图动作：本地地形文件 + 新的相机中心。
+///
+/// Crystal 客户端在 `GameScene.MapChanged` 里把 `MapControl.FileName` 换成
+/// `Path.Combine(Settings.MapPath, p.FileName + ".map")` 并 `LoadMap()`
+/// （`Client/MirScenes/GameScene.cs:3974-3988`）；本作按同样的约定拼本地路径：
+/// 地图目录（默认 `resource/map`）+ `<FileName>.map`。`FileName` 为空时退回用地图主键，
+/// 也就是「地图号 == 文件名」的老约定。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MapReloadRequest {
+    /// 新地图主键（`S.MapChanged.MapIndex`）。
+    pub map_index: i32,
+    /// 地图文件名（不含 `.map`）。
+    pub file_name: String,
+    /// 落点：相机与「自己」的位置都重置到这里。
+    pub position: Point,
+    /// 本地地形文件路径（可能不存在，调用方负责打印警告并保留旧图）。
+    pub path: PathBuf,
 }
 
 /// 自己的角色状态。
@@ -737,6 +769,32 @@ impl WorldSnapshot {
         self.status == NetStatus::InGame && self.self_player.is_some()
     }
 
+    /// 收到 `S.MapChanged` 后要不要重载本地地形：返回请求（地图文件路径 + 新相机中心）。
+    ///
+    /// 快照里没有地图信息（还没收到 `MapInformation`）时返回 `None`。
+    /// 注意这里**不检查文件是否存在**：缺图时由调用方打印警告并保留旧图
+    /// （需求：缺文件时保留旧图/黑屏占位）。
+    #[must_use]
+    pub fn map_reload_request(&self, map_dir: impl AsRef<Path>) -> Option<MapReloadRequest> {
+        let map = self.map.as_ref()?;
+        let file_name = if map.file_name.is_empty() {
+            map.map_index.to_string()
+        } else {
+            map.file_name.clone()
+        };
+        let path = map_dir.as_ref().join(format!("{file_name}.map"));
+        let position = self
+            .self_player
+            .as_ref()
+            .map_or_else(|| Point::new(0, 0), |player| player.position);
+        Some(MapReloadRequest {
+            map_index: map.map_index,
+            file_name,
+            position,
+            path,
+        })
+    }
+
     /// 某个包收到过多少次（测试/调试用）。
     #[must_use]
     pub fn packet_count(&self, name: &str) -> u32 {
@@ -969,6 +1027,8 @@ impl NetClient {
                 }
                 Ok(NetEvent::Error(message)) => bail!("{message}"),
                 Ok(NetEvent::Closed(reason)) => bail!("连接已关闭：{reason}"),
+                // 切图事件不改变等待条件，继续等下一个快照/错误。
+                Ok(NetEvent::MapChanged { .. }) => {}
                 Err(RecvTimeoutError::Timeout) => {
                     bail!("等待服务器响应超时（{} ms）", timeout.as_millis());
                 }
@@ -1033,9 +1093,14 @@ fn session(
             }
             Ok(read) => {
                 frames.push(&buffer[..read]);
+                // 这一批里的 `MapChanged`：快照发完后再发事件，UI 处理事件时快照已是新地图。
+                let mut map_changes = Vec::new();
                 while let Some((index, payload)) = frames.next_frame()? {
                     match ServerPacket::decode(index, &payload) {
                         Ok(packet) => {
+                            if let ServerPacket::MapChanged(changed) = &packet {
+                                map_changes.push((changed.map_index, changed.location));
+                            }
                             apply_packet_to(&mut snapshot, &packet);
                             advance(&mut stream, options, &mut stage, &mut snapshot, &packet)?;
                             dirty = true;
@@ -1050,6 +1115,12 @@ fn session(
                 if dirty {
                     send_snapshot(events, &snapshot);
                     dirty = false;
+                }
+                for (map_index, position) in map_changes {
+                    let _ = events.send(NetEvent::MapChanged {
+                        map_index,
+                        position,
+                    });
                 }
             }
             Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}

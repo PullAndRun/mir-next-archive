@@ -1,0 +1,25 @@
+[package]
+name = "mir-render"
+description = "《传奇-Next》客户端地图渲染：纯软件 RGBA 光栅化与 Mir2 等距地图图层"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+mir-asset.workspace = true
+mir-core.workspace = true
+mir-world.workspace = true
+png.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# 集成测试把渲染结果编码成 PNG 后再解码回来做非空校验。
+png.workspace = true
+# 合成测试自己拼 .wzl/.wzx，需要 zlib 压缩。
+flate2.workspace = true
+
+[lints]
+workspace = true

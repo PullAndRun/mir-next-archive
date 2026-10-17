@@ -8,6 +8,7 @@ members = [
     "crates/mir-world",
     "crates/mir-server",
     "crates/mir-client",
+    "crates/mir-render",
     "crates/mir-asset",
     "crates/mir-tools",
 ]
@@ -25,6 +26,7 @@ mir-asset = { path = "crates/mir-asset" }
 mir-core = { path = "crates/mir-core" }
 mir-db = { path = "crates/mir-db" }
 mir-protocol = { path = "crates/mir-protocol" }
+mir-render = { path = "crates/mir-render" }
 mir-store = { path = "crates/mir-store" }
 mir-world = { path = "crates/mir-world" }
 

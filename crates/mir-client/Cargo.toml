@@ -12,11 +12,15 @@ authors.workspace = true
 anyhow.workspace = true
 mir-core.workspace = true
 mir-protocol.workspace = true
+mir-render.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# 窗口与软件呈现只出现在客户端；mir-render 保持纯 headless。
+softbuffer = "0.4"
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+winit = "0.30"
 
 [lints]
 workspace = true

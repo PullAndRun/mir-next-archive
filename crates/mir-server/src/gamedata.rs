@@ -39,12 +39,17 @@ use crate::world::SpawnGroup;
 
 /// 索引里能找到的 `Server.MirDB` 候选路径（按优先级）。
 ///
-/// 用 `python tools/asset-index/find_asset.py --name Server.MirDB` 可以列出全部；
-/// 这里只挑版本较新、内容完整的三个（v105 / v88 / v83），任何一个存在就能跑。
+/// 用 `python tools/asset-index/find_asset.py --name Server.MirDB` 可以列出全部。
+/// 排序依据是**配套目录的完整度**而不是版本号：`cjlaaa` 是 v105 的参考样本，但那份归档
+/// 只带了 `Server.MirDB`，没有 `Envir/`（掉落表、NPC 脚本、任务、配置全都缺），
+/// 只能用于「只读数据库本身」的验证；真正的服务器数据用带全套 `Envir/` 的样本。
 pub const DB_CANDIDATES: &[&str] = &[
-    "resource/community/suprcode-crystal-database/cjlaaa/Server.MirDB",
+    // v88：Envir（1641 掉落 / 660 NPC 脚本 / 53 商店 / 161 任务）+ Configs + Maps，最完整。
     "resource/community/suprcode-crystal-database/Jev/Server.MirDB",
+    // v83：Envir（517 / 313 / 2 / 157）+ Configs，旧版格式覆盖。
     "resource/community/clgforever910-mir2database/Daneo1989/Server.MirDB",
+    // v105：只有数据库文件，缺 Envir；放在最后当兜底。
+    "resource/community/suprcode-crystal-database/cjlaaa/Server.MirDB",
 ];
 
 /// 已加载的游戏数据。

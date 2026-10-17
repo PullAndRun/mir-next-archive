@@ -18,11 +18,20 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      # `mir-client` 用 winit + softbuffer，Linux 上需要 X11/Wayland 的头文件才能编译
+      # （CI 不创建窗口，只是把 bin 编出来）。
+      - name: 安装 winit/softbuffer 的系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libx11-dev libxcursor-dev libxrandr-dev \
+            libxi-dev libxinerama-dev libwayland-dev
       - name: rustfmt
         run: cargo fmt --all --check
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test
+        # 素材目录（resource/）不进仓库，依赖真实素材的测试会自行跳过。
         run: cargo test --workspace
 
   protocol-codegen:

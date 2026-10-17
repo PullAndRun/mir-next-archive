@@ -14,7 +14,9 @@
 > 服务端能完成「连接 → 版本校验 → 注册/登录 → 建角/删角 → 进入世界 → 转身/走跑/聊天 → 退出」整条链路，
 > 行走走的是**真实 `.map` 地形**（Crystal 的 9 种地图版本全部支持），账号与角色可存 PostgreSQL，
 > 世界里的怪物来自 **Crystal 自己的 `Server.MirDB` 数据库**（真实怪物属性 + 358 个刷怪点），
-> 已经能索敌、追击、出手、掉血、死亡并广播全套战斗包。NPC、任务、行会等玩法尚未实现，客户端只有骨架。
+> 已经能索敌、追击、出手、掉血、掉落、拾取、升级、死亡复活并广播全套战斗与物品包；
+> 客户端素材层能解码 `.Lib`/`.wzl` 图库（已用真实素材验证）。
+> NPC 商店、任务、行会等玩法尚未实现，客户端渲染只有骨架。
 
 ## 项目目标
 
@@ -35,11 +37,12 @@
 | 地图与行走（`mir-world` / `mir-server`） | 🟡 | `.map` 9 种版本读取 + 可走性校验；动作计时按 Crystal（走/跑 600ms、转身 350ms、跑需先走一步）、`UserLocation`/`ObjectWalk`/`ObjectRun` 广播、世界 tick 100ms；门状态机与 AOI 半径仍未完全对齐 |
 | 账号与角色存档（`mir-store`） | ✅ | PostgreSQL + 迁移；内存实现用于无库试玩 |
 | 游戏数据（`mir-db`） | ✅ | Crystal `Server.MirDB` 全量读取（地图/物品/怪物/NPC/任务/技能/商城/攻城/刷怪点），版本 60..117，6 个真实样本 leftover=0 |
-| 怪物 AI 与战斗 | ✅ | 索敌/追击/巡逻、两段式攻击（动作包立即、伤害 300ms 后结算）、护甲与闪避、暴击、死亡与尸体回收，RNG 顺序与 Crystal 一致；技能、PK、掉落、经验未做 |
-| 物品、NPC 商店、修理与掉落 | ⏳ | 物品线格式（`UserItem`）与物品数据库读取已实现 |
+| 怪物 AI 与战斗 | ✅ | 索敌/追击/巡逻、两段式攻击（动作包立即、伤害 300ms 后结算）、护甲与闪避、暴击、死亡与尸体回收、经验升级、死亡复活、自然回血，RNG 顺序与 Crystal 一致；技能与 PK 未做 |
+| 物品与背包 | ✅ | 掉落（`Envir/Drops` 掉落表）、地面物品与过期、拾取/丢弃、46 格背包与 14 个装备槽、装备属性叠加、`UserItem[]` 存档往返；商店与 NPC 未做 |
+| NPC 商店、修理与仓库 | ⏳ | 协议包与物品模板已就绪 |
 | 行会、任务、组队与攻城 | ⏳ | |
-| Rust 客户端（渲染与 UI） | ⏳ | 只有骨架 |
-| 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计、MirDB 报告；素材库编辑器未做 |
+| Rust 客户端（渲染与 UI） | ⏳ | 素材层（`mir-asset`）已能解码 `.Lib`/`.wzl` 并导出 PNG |
+| 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计、MirDB 报告、图库查看/导出；素材库编辑器未做 |
 | 素材索引（`mir2_dev`） | ✅ | `tools/asset-index/` 把 `resource/` 的 233 万文件登记进 PostgreSQL，按名字/扩展名/仓库查询 |
 
 ### 协议自动生成
@@ -186,6 +189,7 @@ python tools/protocol-gen/generate.py --crystal /path/to/Crystal
 | [`docs/world/movement.md`](docs/world/movement.md) | 走/跑/转身的判定与计时 |
 | [`docs/world/tick-loop.md`](docs/world/tick-loop.md) | 世界循环与计时模型 |
 | [`docs/world/combat.md`](docs/world/combat.md) | 战斗公式、RNG 顺序、怪物 AI 与相关数据包 |
+| [`docs/world/items.md`](docs/world/items.md) | 物品系统：掉落、地面物品、背包/装备槽、持久化与协议包 |
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |
 | [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文与游戏内切换 |
 

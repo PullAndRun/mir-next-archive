@@ -123,6 +123,9 @@ fn build_world(config: &ServerConfig) -> World {
             World::default()
         }
     };
+    // 等级经验表：`config/ExpList.ini` → 素材索引里的 `Configs/ExpList.ini` → 近似曲线。
+    // `World` 的默认表是兜底曲线（保证测试确定性），生产路径必须显式换成真表。
+    world.set_exp_table(crate::exp::ExpTable::discover());
     if config.demo_monsters {
         spawn_demo_monsters(&mut world, config);
     }
@@ -189,6 +192,7 @@ fn load_game_data(config: &ServerConfig) -> Option<crate::gamedata::GameData> {
 /// 简化：Crystal 的刷怪节奏由 `MapRespawn`/`RespawnTimer` 驱动（见 `docs/world/tick-loop.md`
 /// §6），数据来自数据库；`mir-db` 接入前用这个开关让「刷怪 → 索敌 → 追 → 打 → 死」在真实
 /// 服务器上能看到。怪物数值是**占位值**（[`MonsterKind::scarecrow`] / [`MonsterKind::skeleton`]）。
+/// 刷新节奏给 1~2 分钟，方便手动验证「打死 → 到点补一只」。
 fn spawn_demo_monsters(world: &mut World, config: &ServerConfig) {
     let center = mir_core::Point::new(config.start_point.0, config.start_point.1);
     let groups = [
@@ -196,13 +200,10 @@ fn spawn_demo_monsters(world: &mut World, config: &ServerConfig) {
         (crate::monster::MonsterKind::skeleton(), 2, 9),
     ];
     for (kind, count, spread) in groups {
-        let spawned = world.spawn_group(&crate::world::SpawnGroup {
-            map: config.start_map.clone(),
-            kind,
-            center,
-            count,
-            spread,
-        });
+        let spawned = world.register_spawn_group(
+            crate::world::SpawnGroup::new(config.start_map.clone(), kind, center, count, spread)
+                .with_delay(1, 0),
+        );
         tracing::info!(count = spawned.len(), "演示怪物已刷新");
     }
 }

@@ -222,6 +222,9 @@ pub struct Monster {
     pub target: Option<u32>,
     /// 首个攻击者的玩家 ID（Crystal `EXPOwner`，用于经验/血量包）。
     pub expo_owner: Option<u32>,
+    /// 所属刷怪组在 [`crate::world::World`] 里的下标（Crystal `MonsterObject.Respawn`，
+    /// `Server/MirObjects/MonsterObject.cs:504`）；手工刷出来的怪是 `None`。
+    pub respawn_group: Option<usize>,
     /// 附近有没有玩家（Crystal `Alone`：没有玩家时整只怪跳过 AI）。
     pub alone: bool,
     /// 下次检查 `alone` 的时刻（Crystal `AloneTime`）。
@@ -274,6 +277,7 @@ impl Monster {
             operate_time,
             target: None,
             expo_owner: None,
+            respawn_group: None,
             alone: false,
             alone_time: 0,
         }
@@ -730,8 +734,11 @@ impl World {
 
     /// 怪物死亡：Crystal `MonsterObject.Die`（`MonsterObject.cs:966-1006`）。
     ///
-    /// 只做「标死 + 广播 `ObjectDied` + 设置尸体到期时间」；
-    /// 经验、掉落、`HasDieScript` 与重生留给后续里程碑（`// TODO`）。
+    /// 照抄的部分：`HP = 0`、`Dead = true`、`DeadTime = now + DeadDelay`、广播 `S.ObjectDied`、
+    /// `EXPOwner.WinExp(Experience, Level)`、`Respawn.Count--`。
+    ///
+    /// 简化：`HasDieScript`（`:977-980`）、组队任务计数（`:989`）、掉落 `Drop()`（`:997-998`）——
+    /// 掉落要等 `mir-db` 的 `DropInfo` 接入（另有人在改 drops 解析）。
     pub(crate) fn monster_died(&mut self, monster_id: u32) {
         let now = self.now();
         let Some(monster) = self.monsters.iter_mut().find(|m| m.object_id == monster_id) else {
@@ -747,6 +754,10 @@ impl World {
         let map = monster.map.clone();
         let position = monster.position;
         let direction = monster.direction;
+        let respawn_group = monster.respawn_group;
+        let expo_owner = monster.expo_owner;
+        let experience = monster.kind.experience;
+        let monster_level = monster.kind.level;
 
         let packet = ServerPacket::ObjectDied(ObjectDied {
             object_id: monster_id,
@@ -756,6 +767,16 @@ impl World {
         })
         .encode_frame();
         self.broadcast(&map, position, Some(monster_id), &packet, monster_id);
-        // TODO: 经验结算（`EXPOwner.WinExp`）与掉落（`Drop()`），等 `mir-db` 的物品/经验表接入。
+
+        // `if (EXPOwner != null && ... ) EXPOwner.WinExp(Experience, Level);`（`MonsterObject.cs:982-992`）。
+        // 简化：`EXPOwner.Race == ObjectType.Player` 恒成立（本作只有玩家能打怪）。
+        if let Some(owner) = expo_owner {
+            self.win_experience(owner, experience, monster_level);
+        }
+
+        // `if (Respawn != null) Respawn.Count--;`（`MonsterObject.cs:994-995`）。
+        if let Some(index) = respawn_group {
+            self.on_respawn_monster_died(index, now);
+        }
     }
 }

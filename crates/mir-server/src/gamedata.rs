@@ -13,7 +13,7 @@
 //! | [`MonsterKind::stats`] | `MonsterInfo.Stats` 字典（`Stat::HP`/`MinDC`/…） |
 //! | [`MonsterKind::attack_speed_ms`] | `MonsterInfo.AttackSpeed`（毫秒，0 用默认 2500） |
 //! | [`MonsterKind::move_speed_ms`] | `MonsterInfo.MoveSpeed`（毫秒，0 用默认 1800） |
-//! | [`SpawnGroup`] | `MapInfo.Respawns`（`RespawnInfo` 的 count/spread/location） |
+//! | [`SpawnGroup`] | `MapInfo.Respawns`（`RespawnInfo` 的 count/spread/location/delay/random_delay） |
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -135,6 +135,9 @@ impl GameData {
                 center: respawn.location,
                 count: usize::from(respawn.count),
                 spread: i32::from(respawn.spread),
+                // 刷新节奏：Crystal `Map.ProcessRespawns` 的 `Delay`/`RandomDelay`（`Map.cs:759`）。
+                delay_minutes: respawn.delay,
+                random_delay_minutes: respawn.random_delay,
             });
         }
         groups

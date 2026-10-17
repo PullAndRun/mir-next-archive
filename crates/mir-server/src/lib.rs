@@ -6,6 +6,7 @@
 
 pub mod combat;
 pub mod config;
+pub mod exp;
 pub mod gamedata;
 pub mod monster;
 pub mod pg_store;
@@ -16,9 +17,10 @@ pub mod world;
 
 pub use combat::{CombatStats, HitResult};
 pub use config::ServerConfig;
+pub use exp::{ExpSource, ExpTable};
 pub use gamedata::GameData;
 pub use monster::{Monster, MonsterKind};
 pub use pg_store::PgAccountStore;
 pub use server::{run, serve_forever};
 pub use store::{Account, AccountStore, Character, MemoryStore, StoreError};
-pub use world::{AttackReport, CombatError, MoveError, Player, SpawnGroup, World};
+pub use world::{AttackReport, CombatError, MoveError, Player, RespawnState, SpawnGroup, World};

@@ -246,8 +246,8 @@ fn now_ms() -> u64 { START.get_or_init(Instant::now).elapsed().as_millis() as u6
 |---|---|
 | 玩家每 tick 处理、怪物最快 2000ms 一次 | 怪物 AI 的「反应时间」直接决定手感；若把怪物做成每 tick 处理，AI 行为频率会变化（攻击/搜索/漫游的时间戳都以 `Process` 为粒度推进） |
 | `Map.Process()` 每 tick 全量执行 | 关门 5000ms、地图 `ActionList`（魔法分段伤害）、雷火特效都依赖于此 |
-| 刷怪的「全局 tick 计数器」模型 | 老玩家的刷怪节奏与 `RespawnTicks`、在线人数系数绑定；改成按怪物个体计时会改变刷新密度 |
-| `MapRespawn` 的「一次补齐到 Count×Multiplier」 | 死亡后不会逐个补，而是到点整批补 |
+| 刷怪必须由「地图级刷新周期」驱动，不能按怪物个体计时 | 老玩家的刷怪节奏与 `RespawnTicks`、在线人数系数绑定；改成按怪物个体计时会改变刷新密度 |
+| `MapRespawn` 的「缺口补齐」语义：死亡 `Count--`、刷出 `Count++`，补到 `Count×Multiplier` 为止 | 现阶段实现为「每个刷新周期补 1 只」（见 `docs/world/combat.md` §8.4），比 Crystal 的一次补齐更慢，但不会在到点瞬间刷出一整群 |
 | 20ms 时间片的「延续式」对象轮转（`current` 跨迭代保留） | 保证大对象量时不会饿死尾部；Rust 端可用「按 OperateTime 排序的最小堆 + 每 tick 处理直到预算耗尽」等价实现 |
 
 ### 7.3 推荐结构（tokio）

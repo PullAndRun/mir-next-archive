@@ -8,6 +8,7 @@ members = [
     "crates/mir-world",
     "crates/mir-server",
     "crates/mir-client",
+    "crates/mir-asset",
     "crates/mir-tools",
 ]
 
@@ -20,6 +21,7 @@ repository = "https://github.com/PullAndRun/mir-next"
 authors = ["diana and contributors"]
 
 [workspace.dependencies]
+mir-asset = { path = "crates/mir-asset" }
 mir-core = { path = "crates/mir-core" }
 mir-db = { path = "crates/mir-db" }
 mir-protocol = { path = "crates/mir-protocol" }
@@ -29,6 +31,7 @@ mir-world = { path = "crates/mir-world" }
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 flate2 = "1"
+png = "0.18"
 rand = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

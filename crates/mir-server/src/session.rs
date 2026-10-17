@@ -414,6 +414,10 @@ impl<S: AccountStore> Session<S> {
             position,
             direction: character.direction,
             level: character.level,
+            // 经验与升级需求：`max_experience` 由 `World::enter` 按经验表补上
+            // （Crystal `PlayerObject.RefreshMaxExperience`，`PlayerObject.cs:9627-9630`）。
+            experience: character.experience,
+            max_experience: 0,
             class: character.class,
             gender: character.gender,
             hair: character.hair,
@@ -425,6 +429,11 @@ impl<S: AccountStore> Session<S> {
             action_time: 0,
             attack_time: 0,
             struck_time: 0,
+            // Crystal 的 `RegenTime` 初值是 0，第一次 `Process` 就进入回复分支
+            // （`HumanObject.cs:145-151`）；`death_time`/`revive_time` 同样从 0 开始。
+            regen_time: 0,
+            death_time: 0,
+            revive_time: 0,
             cell_time: 0,
             step_counter: 0,
             run_counter: 0,

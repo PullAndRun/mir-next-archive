@@ -8,11 +8,11 @@ use std::sync::Arc;
 
 use mir_core::enums::{
     ChatType, HeroBehaviour, IntelligentCreatureType, LightSetting, MirClass, MirDirection,
-    WeatherSetting,
+    MirGridType, WeatherSetting,
 };
 use mir_core::i18n::LanguageLibrary;
 use mir_core::{DateTimeBinary, LanguageCatalog, Point, TextKey};
-use mir_protocol::data::SelectInfo;
+use mir_protocol::data::{SelectInfo, UserItem};
 use mir_protocol::manual::server::{MapInformation, UserInformation};
 use mir_protocol::packets::server::{
     ClientVersion as ClientVersionResponse, Connected, DeleteCharacter as DeleteCharacterResult,
@@ -25,6 +25,9 @@ use tokio::sync::Mutex;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::config::ServerConfig;
+use crate::items::{
+    decode_equipment, decode_inventory, encode_slots, new_equipment, new_inventory,
+};
 use crate::store::{Account, AccountStore, Character, StoreError};
 use crate::world::{Player, World};
 
@@ -140,6 +143,13 @@ impl<S: AccountStore> Session<S> {
             ClientPacket::Run(packet) => self.on_move(packet.direction, true).await,
             ClientPacket::Attack(packet) => self.on_attack(packet.direction).await,
             ClientPacket::Chat(packet) => self.on_chat(&packet.message).await,
+            ClientPacket::PickUp(_) => self.on_pickup().await,
+            ClientPacket::DropItem(packet) => {
+                self.on_drop_item(packet.unique_id, packet.count).await;
+            }
+            ClientPacket::MoveItem(packet) => {
+                self.on_move_item(packet.grid, packet.from, packet.to).await;
+            }
             ClientPacket::Disconnect(_) => {
                 self.leave_world().await;
             }
@@ -402,7 +412,27 @@ impl<S: AccountStore> Session<S> {
             self.store.save_character(character.clone()).await?;
         }
 
+        // 背包/装备：Crystal 存的是 `UserItem[]` 整块（`CharacterInfo.cs:431-447`），
+        // 空块（新角色）解成空背包/空装备栏。解析失败时按「空」处理并记日志，不拒绝登录。
+        let inventory = match decode_inventory(&character.inventory) {
+            Ok(inventory) => inventory,
+            Err(error) => {
+                tracing::warn!(session = self.id, %error, "背包字节块解析失败，按空背包处理");
+                new_inventory()
+            }
+        };
+        let equipment = match decode_equipment(&character.equipment) {
+            Ok(equipment) => equipment,
+            Err(error) => {
+                tracing::warn!(session = self.id, %error, "装备字节块解析失败，按空装备处理");
+                new_equipment()
+            }
+        };
+
         let mut world = self.world.lock().await;
+        // 读档里出现过的 UUID 要计入发生器，否则新掉的物品可能撞号
+        // （Crystal 用账号库里的 `NextUserItemID` 做同一件事，`Envir.cs:127,2579`）。
+        world.observe_item_uids(inventory.iter().chain(equipment.iter()).flatten());
         let object_id = world.allocate_object_id();
         let position = Point::new(character.x, character.y);
         world.enter(Player {
@@ -423,7 +453,8 @@ impl<S: AccountStore> Session<S> {
             hair: character.hair,
             hp: character.hp,
             mp: character.mp,
-            // 战斗属性按等级/职业推出基础值（Crystal `BaseStats` 表），装备接入后再刷新。
+            // 战斗属性按等级/职业推出基础值（Crystal `BaseStats` 表）；玩家带装备时
+            // `World::enter` 会再叠加一次装备加成（`HumanObject.cs:1730-1769`）。
             stats: crate::combat::player_base_stats(character.level, character.class),
             // 动作计时由 `World::enter` 按服务器时钟初始化。
             action_time: 0,
@@ -440,6 +471,10 @@ impl<S: AccountStore> Session<S> {
             run_time: 0,
             dead: false,
             visible_monsters: std::collections::BTreeSet::new(),
+            inventory: inventory.clone(),
+            equipment: equipment.clone(),
+            gold: character.gold,
+            visible_items: std::collections::BTreeSet::new(),
             sender: self.out.clone(),
         });
         drop(world);
@@ -468,7 +503,12 @@ impl<S: AccountStore> Session<S> {
             weather_particles: WeatherSetting::None,
         }));
         self.send(ServerPacket::UserInformation(user_information(
-            object_id, &character, position,
+            object_id,
+            &character,
+            position,
+            &inventory,
+            &equipment,
+            character.gold,
         )));
         let welcome = self.language.text_with(&self.languages, TextKey::Welcome);
         self.send_system_chat(&welcome);
@@ -595,6 +635,56 @@ impl<S: AccountStore> Session<S> {
         }
     }
 
+    /// 拾取脚下物品（`C.PickUp`，Crystal `PlayerObject.PickUp`，`PlayerObject.cs:7483-7537`）。
+    async fn on_pickup(&mut self) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.pickup(object_id) {
+            Ok(report) => {
+                tracing::debug!(
+                    session = self.id,
+                    ground = report.ground,
+                    item = report.item.as_ref().map(|item| item.item_index),
+                    gold = report.gold,
+                    "拾取成功"
+                );
+            }
+            Err(error) => tracing::debug!(session = self.id, %error, "拾取被拒绝"),
+        }
+    }
+
+    /// 丢弃背包物品（`C.DropItem`，Crystal `PlayerObject.DropItem`，`PlayerObject.cs:7359-7472`）。
+    async fn on_drop_item(&mut self, unique_id: u64, count: u16) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.drop_item(object_id, unique_id, count) {
+            Ok(ground) => {
+                tracing::debug!(session = self.id, ground, "丢弃成功");
+            }
+            Err(error) => tracing::debug!(session = self.id, %error, "丢弃被拒绝"),
+        }
+    }
+
+    /// 背包内移动 / 装备穿戴（`C.MoveItem`）。
+    ///
+    /// Crystal 把「背包内交换」和「穿/脱装备」拆成三个包（`C.MoveItem` / `C.EquipItem` /
+    /// `C.RemoveItem`，`MirConnection.cs:1217-1307`）；本作统一走 `C.MoveItem`，
+    /// 由 [`World::move_item`] 按 `grid` 分派，见那里的说明。
+    async fn on_move_item(&mut self, grid: MirGridType, from: i32, to: i32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.move_item(object_id, grid, from, to) {
+            Ok(()) => tracing::debug!(session = self.id, ?grid, from, to, "物品移动成功"),
+            Err(error) => tracing::debug!(session = self.id, %error, "物品移动被拒绝"),
+        }
+    }
+
     /// 如果是因为「动作还没结束」被拒，等到 `ActionTime` 之后再试一次。
     ///
     /// 返回 `true` 表示值得重试。等待时长有上限，避免异常状态把连接卡死。
@@ -672,13 +762,33 @@ impl<S: AccountStore> Session<S> {
     }
 
     /// 离开世界并按需存盘。
+    ///
+    /// 存盘时把世界里的**当前**状态回写到角色行：背包/装备编成 Crystal 的 `UserItem[]`
+    /// 字节块（`CharacterInfo.cs:431-447`），金币/HP/MP/等级/经验/坐标也一并同步——
+    /// Crystal 的 `CharacterInfo` 是整行落盘的（`Envir.cs` 的 `SaveAccounts`），
+    /// 本作的角色行同样是整行回写（`mir_store::save_character`）。
     pub async fn leave_world(&mut self) {
         let Some(object_id) = self.object_id.take() else {
             return;
         };
-        let mut world = self.world.lock().await;
-        world.leave(object_id);
-        drop(world);
+        let leaving = {
+            let mut world = self.world.lock().await;
+            world.leave(object_id)
+        };
+        if let Some(player) = leaving {
+            if let Some(character) = &mut self.character {
+                character.inventory = encode_slots(&player.inventory);
+                character.equipment = encode_slots(&player.equipment);
+                character.gold = player.gold;
+                character.hp = player.hp;
+                character.mp = player.mp;
+                character.level = player.level;
+                character.experience = player.experience;
+                character.x = player.position.x;
+                character.y = player.position.y;
+                character.direction = player.direction;
+            }
+        }
         if let Some(character) = self.character.clone() {
             if let Err(error) = self.store.save_character(character).await {
                 tracing::warn!(session = self.id, %error, "下线存盘失败");
@@ -704,7 +814,14 @@ fn select_info(character: &Character) -> SelectInfo {
     }
 }
 
-fn user_information(object_id: u32, character: &Character, position: Point) -> UserInformation {
+fn user_information(
+    object_id: u32,
+    character: &Character,
+    position: Point,
+    inventory: &[Option<UserItem>],
+    equipment: &[Option<UserItem>],
+    gold: i64,
+) -> UserInformation {
     UserInformation {
         object_id,
         real_id: character.id as u32,
@@ -723,10 +840,12 @@ fn user_information(object_id: u32, character: &Character, position: Point) -> U
         level_effects: mir_core::enums::LevelEffects::None,
         has_hero: false,
         hero_behaviour: HeroBehaviour::default(),
-        inventory: Some(vec![None; 46]),
-        equipment: Some(vec![None; 14]),
+        // 背包/装备按**当前内容**下发（Crystal `UserInformation` 里就是 `Info.Inventory` /
+        // `Info.Equipment` 整块，`ServerPackets.cs:640-680`）。
+        inventory: Some(inventory.to_vec()),
+        equipment: Some(equipment.to_vec()),
         quest_inventory: Some(vec![None; 40]),
-        gold: character.gold,
+        gold: u32::try_from(gold.max(0)).unwrap_or(u32::MAX),
         credit: 0,
         has_expanded_storage: false,
         has_storage_password: false,

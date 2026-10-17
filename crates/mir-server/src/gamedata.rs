@@ -1,8 +1,8 @@
 //! 游戏数据（`Server.MirDB`）到运行时类型的桥接。
 //!
 //! `mir-db` 负责把 Crystal 的数据库文件解析成结构体；这一层负责把「数据库里的怪物模板」
-//! 变成 `mir-server` 战斗系统真正使用的 [`MonsterKind`]，并把地图上的 `RespawnInfo`
-//! 变成可执行的 [`SpawnGroup`]。
+//! 变成 `mir-server` 战斗系统真正使用的 [`MonsterKind`]，把地图上的 `RespawnInfo`
+//! 变成可执行的 [`SpawnGroup`]，并为物品系统提供**模板查找**与**掉落表缓存**。
 //!
 //! 数值来源与 Crystal 的对应关系：
 //!
@@ -13,15 +13,25 @@
 //! | [`MonsterKind::stats`] | `MonsterInfo.Stats` 字典（`Stat::HP`/`MinDC`/…） |
 //! | [`MonsterKind::attack_speed_ms`] | `MonsterInfo.AttackSpeed`（毫秒，0 用默认 2500） |
 //! | [`MonsterKind::move_speed_ms`] | `MonsterInfo.MoveSpeed`（毫秒，0 用默认 1800） |
-//! | [`SpawnGroup`] | `MapInfo.Respawns`（`RespawnInfo` 的 count/spread/location/delay/random_delay） |
+//! | [`SpawnGroup`] | `MapInfo.Respawns`（`RespawnInfo` 的 `count`/`spread`/`location`/`delay`/`random_delay`） |
+//! | [`GameData::item`] / [`GameData::item_by_name`] | `Envir.GetItemInfo(int)` / `Envir.GetItemInfo(string)`（`Server/MirEnvir/Envir.cs:4734-4754`） |
+//! | [`GameData::monster_drop_table`] | `Envir.ReloadDrops`（`Envir.cs:5405-5419`）+ `MonsterInfo.Drops` |
+//!
+//! # 掉落表的位置
+//!
+//! Crystal 的 `Settings.DropPath` 是 `./Envir/Drops`（`Server/Settings.cs:28`），
+//! 文件名取 `MonsterInfo.DropPath`，为空时退回 `MonsterInfo.Name`，并强制加 `.txt`
+//! （`Envir.cs:5409-5414`）。本作把 `Settings.DropPath` 从**数据库所在目录**推出来：
+//! `<Server.MirDB 所在目录>/Envir/Drops`，这样索引里的每个数据库样本都能直接找到自己的掉落表。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use mir_core::Point;
 use mir_core::enums::Monster as MonsterImage;
 use mir_core::enums::Stat;
-use mir_db::{MapInfo, MirDb, MirDbError, MonsterInfo};
+use mir_db::{DropTable, ItemInfo, MapInfo, MirDb, MirDbError, MonsterInfo};
 
 use crate::combat::CombatStats;
 use crate::monster::{DEFAULT_ATTACK_SPEED_MS, DEFAULT_MOVE_SPEED_MS, MonsterKind};
@@ -44,6 +54,20 @@ pub struct GameData {
     pub db: MirDb,
     /// 怪物模板：`MonsterIndex` → 运行期种类。
     monsters: HashMap<i32, MonsterKind>,
+    /// 物品模板下标：`ItemInfo.Index` → `db.items` 的下标。
+    item_by_index: HashMap<i32, usize>,
+    /// 物品模板下标：**大小写不敏感、忽略空格**的物品名 → `db.items` 的下标。
+    item_by_name: HashMap<String, usize>,
+    /// 怪物名（小写）→ 掉落表文件名（`MonsterInfo.DropPath`，空则怪物名）。
+    monster_drops: HashMap<String, String>,
+    /// `Envir/Drops` 目录；数据库不在文件系统上（内存构造）时为 `None`。
+    drop_dir: Option<PathBuf>,
+    /// 掉落表缓存：文件名 → 解析结果（`None` 表示文件不存在或解析失败）。
+    ///
+    /// 用 `Mutex` 是因为 [`GameData`] 会被多个世界/会话共享（`Arc`），而 `DropTable::load`
+    /// 是惰性的：Crystal 在 `Envir.ReloadDrops`（`Envir.cs:5405-5419`）一次性全载，
+    /// 本作改成「第一次用到某只怪时才读它的文件」，几百个文件里通常只会读到十几个。
+    drop_cache: Mutex<HashMap<String, Option<Arc<DropTable>>>>,
     /// 数据文件路径（日志与排错用）。
     path: PathBuf,
 }
@@ -53,12 +77,58 @@ impl GameData {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, MirDbError> {
         let path = path.as_ref().to_path_buf();
         let db = MirDb::load(&path)?;
+        // Crystal `Settings.DropPath = ./Envir/Drops`（`Settings.cs:28`）；这里从数据库所在目录推。
+        let drop_dir = path
+            .parent()
+            .map(|parent| parent.join("Envir").join("Drops"));
+        Ok(Self::from_parts(db, drop_dir, path))
+    }
+
+    /// 用内存里的数据库构造（测试、工具用）：不读文件，掉落表从 `drop_dir` 惰性加载。
+    #[must_use]
+    pub fn from_db(db: MirDb, drop_dir: Option<PathBuf>) -> Self {
+        let path = PathBuf::from("<内存数据库>");
+        Self::from_parts(db, drop_dir, path)
+    }
+
+    fn from_parts(db: MirDb, drop_dir: Option<PathBuf>, path: PathBuf) -> Self {
         let monsters = db
             .monsters
             .iter()
             .map(|info| (info.index, kind_from_monster_info(info)))
             .collect();
-        Ok(Self { db, monsters, path })
+        let mut item_by_index = HashMap::with_capacity(db.items.len());
+        let mut item_by_name = HashMap::with_capacity(db.items.len());
+        for (position, info) in db.items.iter().enumerate() {
+            item_by_index.insert(info.index, position);
+            // Crystal 的 `GetItemInfo(string)` 只把**模板名**里的空格去掉再比较
+            // （`Envir.cs:4750` 的 `info.Name.Replace(" ", "")`），查询串里的空格是不去的。
+            // 简化：两边都按「去空格 + 小写」归一化，否则 `金创药 (小量)` 这种带空格的查询永远找不到。
+            let key = normalize_item_name(&info.name);
+            item_by_name.entry(key).or_insert(position);
+        }
+        let mut monster_drops = HashMap::with_capacity(db.monsters.len());
+        for info in &db.monsters {
+            // `Envir.ReloadDrops`：`DropPath` 为空时用怪物名（`Envir.cs:5409-5414`）。
+            let file = if info.drop_path.is_empty() {
+                info.name.clone()
+            } else {
+                info.drop_path.clone()
+            };
+            if !file.is_empty() {
+                monster_drops.insert(info.name.to_lowercase(), file);
+            }
+        }
+        Self {
+            db,
+            monsters,
+            item_by_index,
+            item_by_name,
+            monster_drops,
+            drop_dir,
+            drop_cache: Mutex::new(HashMap::new()),
+            path,
+        }
     }
 
     /// 按候选路径依次尝试加载，全部失败时返回错误（调用方决定降级）。
@@ -94,10 +164,96 @@ impl GameData {
         &self.path
     }
 
+    /// 掉落表目录（`Envir/Drops`）。
+    #[must_use]
+    pub fn drop_dir(&self) -> Option<&Path> {
+        self.drop_dir.as_deref()
+    }
+
+    /// 按 `ItemInfo.Index` 取物品模板（Crystal `Envir.GetItemInfo(int)`，`Envir.cs:4734-4743`）。
+    #[must_use]
+    pub fn item(&self, index: i32) -> Option<&ItemInfo> {
+        self.item_by_index
+            .get(&index)
+            .and_then(|position| self.db.items.get(*position))
+    }
+
+    /// 按名字取物品模板（Crystal `Envir.GetItemInfo(string)`，`Envir.cs:4745-4754`）。
+    ///
+    /// 大小写不敏感、忽略空格；`StringComparison.OrdinalIgnoreCase` 的对应物是 `eq_ignore_ascii_case`
+    /// 加一次小写化——中文名没有大小写，所以两者在中文数据上等价。
+    #[must_use]
+    pub fn item_by_name(&self, name: &str) -> Option<&ItemInfo> {
+        self.item_by_name
+            .get(&normalize_item_name(name))
+            .and_then(|position| self.db.items.get(*position))
+    }
+
+    /// 已加载的物品模板数量。
+    #[must_use]
+    pub fn item_count(&self) -> usize {
+        self.db.items.len()
+    }
+
+    /// 某只怪的掉落表（Crystal `MonsterInfo.Drops`，`Envir.cs:5405-5419` 加载）。
+    ///
+    /// 返回 `None` 表示这只怪没有掉落表（文件不存在、或数据库里没有这个怪）。
+    /// 结果按文件名缓存，重复调用不会重复读盘。
+    #[must_use]
+    pub fn monster_drop_table(&self, monster_name: &str) -> Option<Arc<DropTable>> {
+        let file = self.monster_drops.get(&monster_name.to_lowercase())?;
+        self.drop_table(file)
+    }
+
+    /// 按文件名（不含目录与 `.txt`）取掉落表。
+    #[must_use]
+    pub fn drop_table(&self, file: &str) -> Option<Arc<DropTable>> {
+        let Some(dir) = &self.drop_dir else {
+            return None;
+        };
+        if let Some(cached) = self
+            .drop_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(file)
+        {
+            return cached.clone();
+        }
+        let name = if Path::new(file).extension().is_some() {
+            file.to_owned()
+        } else {
+            format!("{file}.txt")
+        };
+        let path = dir.join(&name);
+        let loaded = match DropTable::load(&path, dir) {
+            Ok(table) => Some(Arc::new(table)),
+            Err(error) => {
+                // Crystal 对缺失的掉落文件是静默的（`MonsterInfo.Load` 直接 return，
+                // `MonsterInfo.cs:374-396`），这里降一级到 debug，避免刷屏。
+                tracing::debug!(path = %path.display(), %error, "掉落表读取失败，按「不掉东西」处理");
+                None
+            }
+        };
+        self.drop_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(file.to_owned(), loaded.clone());
+        loaded
+    }
+
     /// 按 `MonsterIndex` 取怪物种类。
     #[must_use]
     pub fn monster(&self, index: i32) -> Option<&MonsterKind> {
         self.monsters.get(&index)
+    }
+
+    /// 按名字取怪物模板（Crystal `Envir.GetMonsterInfo(string)` 的等价物，掉落解析要用）。
+    #[must_use]
+    pub fn monster_info_by_name(&self, name: &str) -> Option<&MonsterInfo> {
+        self.db
+            .monsters
+            .iter()
+            .find(|info| info.name.eq_ignore_ascii_case(name))
     }
 
     /// 已加载的怪物模板数量。
@@ -211,7 +367,21 @@ pub fn stats_from_monster_info(info: &MonsterInfo) -> CombatStats {
         critical_damage: get(Stat::CriticalDamage),
         magic_resist: get(Stat::MagicResist),
         reflect: get(Stat::Reflect),
+        // 怪物的负重上限只影响「能不能被推动」之类的玩家规则，本作不用；
+        // 照抄字典里的值，便于以后接入。
+        bag_weight: get(Stat::BagWeight),
+        wear_weight: get(Stat::WearWeight),
+        hand_weight: get(Stat::HandWeight),
     }
+}
+
+/// 物品名归一化：去掉**所有空白**并转小写（Crystal `GetItemInfo(string)` 的反向查找口径）。
+#[must_use]
+pub fn normalize_item_name(name: &str) -> String {
+    name.chars()
+        .filter(|ch| !ch.is_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 /// 把候选路径展开成真实路径：先按仓库根，再按当前工作目录。
@@ -346,5 +516,50 @@ mod tests {
         }
         let total: usize = groups.iter().map(|g| g.count).sum();
         assert!(total > 10, "比奇省的刷怪总量应该不少，实际 {total}");
+    }
+
+    #[test]
+    fn sample_database_exposes_item_templates_and_drop_tables() {
+        let Some(data) = sample() else {
+            eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
+            return;
+        };
+        // 物品模板（`Envir.ItemInfoList` 的对应物）。
+        assert!(data.item_count() > 100, "样本里的物品模板应有上百个");
+        let first = data
+            .db
+            .items
+            .iter()
+            .find(|info| !info.name.is_empty())
+            .expect("样本里必然有带名字的物品");
+        assert_eq!(
+            data.item(first.index).map(|info| info.name.clone()),
+            Some(first.name.clone()),
+            "按编号能查到同一条模板"
+        );
+        assert_eq!(
+            data.item_by_name(&first.name).map(|info| info.index),
+            Some(first.index),
+            "按名字能查到同一条模板"
+        );
+
+        // 掉落表目录：`<Server.MirDB 所在目录>/Envir/Drops`（Crystal `Settings.DropPath`，
+        // `Settings.cs:28`）。
+        let Some(dir) = data.drop_dir() else {
+            eprintln!("跳过：内存数据库没有掉落目录");
+            return;
+        };
+        assert!(dir.is_dir(), "{} 应该存在", dir.display());
+
+        // 至少有一只怪能解析出非空掉落表（`Envir.ReloadDrops`，`Envir.cs:5405-5419`）。
+        let found = data.db.monsters.iter().find_map(|info| {
+            let table = data.monster_drop_table(&info.name)?;
+            (!table.drops.is_empty()).then(|| (info.name.clone(), table.drops.len()))
+        });
+        let Some((monster, rules)) = found else {
+            eprintln!("跳过：样本里没有带掉落规则的怪物");
+            return;
+        };
+        assert!(rules > 0, "{monster} 的掉落表应有规则");
     }
 }

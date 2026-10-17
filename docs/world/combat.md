@@ -208,7 +208,8 @@ min = max(min, 0);  if (min > max) max = min
 - `EXPOwner.WinExp(Experience, Level)` 给击杀者加经验（见 §9）；
 - `Respawn.Count--` 让刷怪组进入补怪排程（见 §8.3）；
 - `DeadTime` 到期后从世界移除并广播 `S.ObjectRemove`（`Despawn`，`MapObject.cs:363`）；
-- **掉落仍未实现**（TODO：`Drop()`，等 `mir-db` 的 `DropInfo` 接入）。
+- **掉落已实现**：`if (Master == null && EXPOwner != null) Drop();`（`:997-998`）→
+  `World::drop_monster_loot`，见 `docs/world/items.md` §3。
 
 ---
 
@@ -547,12 +548,12 @@ if (manaRegen > 0) ChangeMP(manaRegen);                             // :647
 | 只有「野生敌对怪物」一条 AI 分支 | 没有宠物（`Master`/`PMode`）、巡逻路线（`Route`）、毒/麻痹/buff、`ShockTime`、`Rage`、隐身、召唤、传送 |
 | 怪物只打玩家，不打怪物 | 野生怪物之间 `IsAttackTarget` 返回 false（`MonsterObject.cs:2537-2539`），本来就不会互殴 |
 | 玩家近战只打怪物 | PK/红名/行会战未实现；`HumanObject.Attack` 的技能分支（Slaying/Thrusting/HalfMoon/…）全部跳过 |
-| 没有装备/技能/buff，玩家属性=等级曲线基础值 | 装备系统未实现，等 `mir-db` 接装备后重算 |
-| `reflect`/`CriticalRate` 等属性恒 0（但抽签保留） | 只影响装备加成，抽签保留才能保证随机序列与 Crystal 一致 |
+| 没有技能/buff，玩家属性=等级曲线基础值 + 装备加成 | 装备系统见 `docs/world/items.md`；技能/buff 仍未实现 |
+| `reflect`/`CriticalRate` 等属性基础值恒 0（但抽签保留） | 只影响装备加成，抽签保留才能保证随机序列与 Crystal 一致 |
 | 刷怪用 `SpawnGroup`（半径内撒点） | Crystal 用地图预计算的 `WalkableCells`；`mir-db` 接入后用真实刷新点 |
 | 刷怪「每个周期只补 1 只」 | Crystal 一次补齐（`Map.cs:749-755`）；逐只补避免到点瞬间刷出一整群 |
 | `RespawnTicks`（tick 制刷怪）折成时间制 × `respawn_tick_scale` | 还没有在线人数档位（`DelayTicks`）；字段已在 `mir-db` 里，接入时换算即可 |
-| 尸体 180s 后直接移除，没有掉落 | 掉落物在 `mir-db` 的 `DropInfo` 里（另有人在改 drops 解析） |
+| 尸体 180s 后移除，掉落物自己再活 3 分钟 | Crystal 地面物品 `Settings.ItemTimeOut = 30` 分钟（`Settings.cs:115`），见 `docs/world/items.md` §2 |
 | 死亡后由服务端计时自动原地复活（10s） | Crystal 由客户端弹窗 + `C.TownRevive`；服务端自动复活是为了让单人测试与挂机场景不卡死 |
 | 复活不发 `MapChanged` | 世界层没有地图标题/小地图/光照等元数据（只在 `MapInformation` 发过一次），且复活不换图 |
 | 复活额外补一条 `ObjectPlayer` | 我们的客户端把 `ObjectRemove` 当彻底删除；Crystal 不发（`Map.cs:2361-2373` 只把对象塞回格子） |

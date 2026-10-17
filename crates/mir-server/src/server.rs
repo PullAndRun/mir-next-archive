@@ -137,6 +137,9 @@ fn build_world(config: &ServerConfig) -> World {
 ///
 /// 优先级：`config.db_path`（或 `MIR2_DB_PATH`）→ 索引里的候选路径。找不到数据库时
 /// 只保留 [`spawn_demo_monsters`] 的演示怪，服务器照常可跑。
+///
+/// 顺便把 `GameData` 挂到世界上（`World::set_game_data`）：物品模板查找与怪物掉落都要用它，
+/// 对应 Crystal 的 `Envir.ItemInfoList` / `MonsterInfo.Drops`（`Envir.cs:5405-5419`）。
 fn spawn_from_database(world: &mut World, config: &ServerConfig) {
     if !config.load_game_data {
         return;
@@ -145,10 +148,18 @@ fn spawn_from_database(world: &mut World, config: &ServerConfig) {
         return;
     };
     let groups = data.spawn_groups(&config.start_map);
+    let path = data.path().display().to_string();
+    let monsters = data.monster_count();
+    let items = data.item_count();
+    let drop_dir = data
+        .drop_dir()
+        .map(|dir| dir.display().to_string())
+        .unwrap_or_default();
+    world.set_game_data(Arc::new(data));
     if groups.is_empty() {
         tracing::warn!(
             map = %config.start_map,
-            path = %data.path().display(),
+            path = %path,
             "数据库里这张地图没有刷怪点（或怪物模板缺失）"
         );
         return;
@@ -159,8 +170,10 @@ fn spawn_from_database(world: &mut World, config: &ServerConfig) {
         spawned += world.spawn_group(group).len();
     }
     tracing::info!(
-        path = %data.path().display(),
-        monsters = data.monster_count(),
+        path = %path,
+        monsters,
+        items,
+        drop_dir = %drop_dir,
         map = %config.start_map,
         groups = group_count,
         spawned,

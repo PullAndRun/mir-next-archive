@@ -37,6 +37,12 @@ pub const MAGIC_RESIST_WEIGHT: u32 = 10;
 pub const CRITICAL_RATE_WEIGHT: i32 = 5;
 /// 暴击伤害权重：Crystal `Settings.CriticalDamageWeight`（`Server/Settings.cs:299`）。
 pub const CRITICAL_DAMAGE_WEIGHT: i32 = 50;
+/// 魔法闪避的职业上限：Crystal `Caps[Stat.MagicResist] = 2`（`Shared/BaseStats.cs:91`）。
+pub const MAGIC_RESIST_CAP: i32 = 2;
+/// 暴击率的职业上限：Crystal `Caps[Stat.CriticalRate] = 18`（`Shared/BaseStats.cs:93`）。
+pub const CRITICAL_RATE_CAP: i32 = 18;
+/// 暴击伤害的职业上限：Crystal `Caps[Stat.CriticalDamage] = 10`（`Shared/BaseStats.cs:94`）。
+pub const CRITICAL_DAMAGE_CAP: i32 = 10;
 
 /// 一条等待结算的攻击（Crystal `DelayedAction(DelayedType.Damage, ...)`，`Server/MirObjects/DelayedAction.cs`）。
 ///
@@ -128,8 +134,17 @@ pub struct CombatStats {
     pub critical_damage: i32,
     /// `Stat.MagicResist`：魔法闪避（只在 `MAC`/`MACAgility` 防御类型里用）。
     pub magic_resist: i32,
-    /// `Stat.Reflect`：伤害反射（本作没有装备，恒为 0，但抽签照做以保持随机序列一致）。
+    /// `Stat.Reflect`：伤害反射（本作没有反射类装备，恒为 0，但抽签照做以保持随机序列一致）。
     pub reflect: i32,
+    /// `Stat.BagWeight`：背包负重上限。
+    ///
+    /// 基础值来自 `Shared/BaseStats.cs:18`（战士 `Base = 50, Gain = 3F`，公式见
+    /// [`weight_cap`]）；装备可以用 `Stat.BagWeight` 叠加（`HumanObject.cs:1858` 的 `Stats.Add`）。
+    pub bag_weight: i32,
+    /// `Stat.WearWeight`：除武器/火把之外的装备重量上限（`Shared/BaseStats.cs:19`）。
+    pub wear_weight: i32,
+    /// `Stat.HandWeight`：武器/火把的重量上限（`Shared/BaseStats.cs:20`）。
+    pub hand_weight: i32,
 }
 
 impl CombatStats {
@@ -216,6 +231,37 @@ impl CombatStats {
             DefenceType::Repulsion | DefenceType::None => 0,
         };
         (armour, hit)
+    }
+
+    /// Crystal `HumanObject.RefreshStatCaps`（`Server/MirObjects/HumanObject.cs:2229-2253`）。
+    ///
+    /// 装备叠加完之后必须再过一遍：先按职业上限截断（`Settings.ClassBaseStats[..].Caps`，
+    /// `Shared/BaseStats.cs:91-99`），再把 HP/MP/攻击/防御夹到非负，最后 `MinDC <= MaxDC`
+    /// （MC/SC 同理）。
+    ///
+    /// 简化：只截断本结构建模的属性。Crystal 还会截断毒抗/冰冻/中毒攻击/回血回蓝
+    /// （`BaseStats.cs:92-99`），那几项本作尚未接入战斗结算，留着也观察不到。
+    pub fn apply_caps(&mut self) {
+        self.magic_resist = self.magic_resist.min(MAGIC_RESIST_CAP);
+        self.critical_rate = self.critical_rate.min(CRITICAL_RATE_CAP);
+        self.critical_damage = self.critical_damage.min(CRITICAL_DAMAGE_CAP);
+
+        self.hp = self.hp.max(0);
+        self.mp = self.mp.max(0);
+        self.min_ac = self.min_ac.max(0);
+        self.max_ac = self.max_ac.max(0);
+        self.min_mac = self.min_mac.max(0);
+        self.max_mac = self.max_mac.max(0);
+        self.min_dc = self.min_dc.max(0);
+        self.max_dc = self.max_dc.max(0);
+        self.min_mc = self.min_mc.max(0);
+        self.max_mc = self.max_mc.max(0);
+        self.min_sc = self.min_sc.max(0);
+        self.max_sc = self.max_sc.max(0);
+
+        self.min_dc = self.min_dc.min(self.max_dc);
+        self.min_mc = self.min_mc.min(self.max_mc);
+        self.min_sc = self.min_sc.min(self.max_sc);
     }
 }
 
@@ -305,8 +351,10 @@ pub fn player_attack_delay_ms(level: u16, attack_speed: i32) -> i64 {
 /// （`Shared/BaseStats.cs:155-184`），以及 `HumanObject.RefreshStatCaps`
 /// （`Server/MirObjects/HumanObject.cs:2229-2253`）里的三类上限与 `MinDC <= MaxDC` 夹取。
 ///
-/// 简化：只算**基础值**（等级曲线），不含装备、技能、buff、行会加成——这些系统还没实现；
-/// 等 `mir-db` 接入装备后由刷新流程重新算一遍即可。
+/// 这里算的是**基础值**（等级曲线 + 三个负重上限），不含装备、技能、buff、行会加成。
+/// 装备加成由 `World::refresh_stats` 在基础值之上叠加
+/// （对应 Crystal `HumanObject.RefreshStats` 里 `RefreshLevelStats` → `RefreshEquipmentStats`
+/// 的两步，`HumanObject.cs:1730-1769`）。
 #[must_use]
 pub fn player_base_stats(level: u16, class: MirClass) -> CombatStats {
     let level_f = f64::from(level);
@@ -331,6 +379,8 @@ pub fn player_base_stats(level: u16, class: MirClass) -> CombatStats {
             stats.max_ac = stat_curve(level_f, 7.0);
             stats.min_dc = stat_curve(level_f, 5.0);
             stats.max_dc = stat_curve(level_f, 5.0);
+            // 负重三项：`Shared/BaseStats.cs:18-20`。
+            set_weights(&mut stats, level_f, (3.0, 20.0, 13.0));
         }
         MirClass::Wizard => {
             stats.hp = health(level_f, 14, 15.0, 1.8, false);
@@ -339,6 +389,8 @@ pub fn player_base_stats(level: u16, class: MirClass) -> CombatStats {
             stats.max_dc = stat_curve(level_f, 7.0);
             stats.min_mc = stat_curve(level_f, 7.0);
             stats.max_mc = stat_curve(level_f, 7.0);
+            // `Shared/BaseStats.cs:33-35`。
+            set_weights(&mut stats, level_f, (5.0, 100.0, 90.0));
         }
         MirClass::Taoist => {
             stats.hp = health(level_f, 14, 6.0, 2.5, false);
@@ -349,12 +401,16 @@ pub fn player_base_stats(level: u16, class: MirClass) -> CombatStats {
             stats.max_dc = stat_curve(level_f, 7.0);
             stats.min_sc = stat_curve(level_f, 7.0);
             stats.max_sc = stat_curve(level_f, 7.0);
+            // `Shared/BaseStats.cs:48-50`。
+            set_weights(&mut stats, level_f, (4.0, 50.0, 42.0));
         }
         MirClass::Assassin => {
             stats.hp = health(level_f, 14, 4.0, 3.25, false);
             stats.mp = mana_plain(level_f, 11, 5.0, 0.0);
             stats.min_dc = stat_curve(level_f, 8.0);
             stats.max_dc = stat_curve(level_f, 8.0);
+            // `Shared/BaseStats.cs:65-67`。
+            set_weights(&mut stats, level_f, (3.5, 33.0, 30.0));
         }
         MirClass::Archer => {
             stats.hp = health(level_f, 14, 4.0, 3.25, false);
@@ -363,18 +419,33 @@ pub fn player_base_stats(level: u16, class: MirClass) -> CombatStats {
             stats.max_dc = stat_curve(level_f, 8.0);
             stats.min_mc = stat_curve(level_f, 8.0);
             stats.max_mc = stat_curve(level_f, 8.0);
+            // `Shared/BaseStats.cs:78-80`。
+            set_weights(&mut stats, level_f, (4.0, 33.0, 30.0));
         }
     }
 
-    // `RefreshStatCaps`：这些属性有职业上限（`Shared/BaseStats.cs:91-99`），基础值恒为 0。
-    stats.critical_rate = stats.critical_rate.min(18);
-    stats.critical_damage = stats.critical_damage.min(10);
-    stats.magic_resist = stats.magic_resist.min(2);
-    // `HumanObject.cs:2250`：`MinDC = Math.Min(MinDC, MaxDC)`（MC/SC 同理）。
-    stats.min_dc = stats.min_dc.min(stats.max_dc);
-    stats.min_mc = stats.min_mc.min(stats.max_mc);
-    stats.min_sc = stats.min_sc.min(stats.max_sc);
+    // `RefreshStatCaps`：职业上限 + 非负 + `MinDC <= MaxDC`（`HumanObject.cs:2229-2253`）。
+    stats.apply_caps();
     stats
+}
+
+/// 三个负重上限的 `Gain`（`BagWeight` / `WearWeight` / `HandWeight`）。
+///
+/// 三项的 `Base` 都是常数 50 / 15 / 12（`Shared/BaseStats.cs:18-20` 等），只有 `Gain` 随职业变，
+/// 所以这里只传 `Gain` 三元组。
+fn set_weights(stats: &mut CombatStats, level: f64, gains: (f64, f64, f64)) {
+    stats.bag_weight = weight_cap(level, 50, gains.0);
+    stats.wear_weight = weight_cap(level, 15, gains.1);
+    stats.hand_weight = weight_cap(level, 12, gains.2);
+}
+
+/// `StatFormula.Weight`（`Shared/BaseStats.cs:180`）：`Base + (Level / Gain) * Level`。
+///
+/// `Gain` 在 C# 里是 `float`，所以是**浮点除法**再截断——1 级战士的背包负重是
+/// `50 + (1/3)*1 = 50.33 → 50`，而不是整数除法会得到的 50（两者在这里巧合相同，
+/// 但 2 级就分叉：`50 + (2/3)*2 = 51.33 → 51`，整数除法会算成 `50 + 0*2 = 50`）。
+fn weight_cap(level: f64, base: i32, gain: f64) -> i32 {
+    (f64::from(base) + (level / gain) * level) as i32
 }
 
 /// `StatFormula.Health`（`Shared/BaseStats.cs:159-166`）。

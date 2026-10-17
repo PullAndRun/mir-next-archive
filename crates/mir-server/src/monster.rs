@@ -735,10 +735,11 @@ impl World {
     /// 怪物死亡：Crystal `MonsterObject.Die`（`MonsterObject.cs:966-1006`）。
     ///
     /// 照抄的部分：`HP = 0`、`Dead = true`、`DeadTime = now + DeadDelay`、广播 `S.ObjectDied`、
-    /// `EXPOwner.WinExp(Experience, Level)`、`Respawn.Count--`。
+    /// `EXPOwner.WinExp(Experience, Level)`、`Respawn.Count--`、`Drop()`（掉落见
+    /// [`World::drop_monster_loot`]，对应 `:997-998` 的 `if (Master == null && EXPOwner != null) Drop();`）。
     ///
-    /// 简化：`HasDieScript`（`:977-980`）、组队任务计数（`:989`）、掉落 `Drop()`（`:997-998`）——
-    /// 掉落要等 `mir-db` 的 `DropInfo` 接入（另有人在改 drops 解析）。
+    /// 简化：`HasDieScript`（`:977-980`）、组队任务计数（`:989`）、
+    /// `Envir.MonsterCount` 统计（`:1003-1005`，本作按需扫描不维护计数）。
     pub(crate) fn monster_died(&mut self, monster_id: u32) {
         let now = self.now();
         let Some(monster) = self.monsters.iter_mut().find(|m| m.object_id == monster_id) else {
@@ -777,6 +778,13 @@ impl World {
         // `if (Respawn != null) Respawn.Count--;`（`MonsterObject.cs:994-995`）。
         if let Some(index) = respawn_group {
             self.on_respawn_monster_died(index, now);
+        }
+
+        // `if (Master == null && EXPOwner != null) Drop();`（`MonsterObject.cs:997-998`）——
+        // 顺序照抄：经验 → 刷怪计数 → 掉落。
+        // 「没有击杀者就不掉」这一条在 `drop_monster_loot` 里用 `expo_owner` 再判一次。
+        if expo_owner.is_some() {
+            self.drop_monster_loot(monster_id);
         }
     }
 }

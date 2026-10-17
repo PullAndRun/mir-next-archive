@@ -44,6 +44,7 @@ use mir_core::enums::{
     Spell, SpellEffect,
 };
 use mir_protocol::ServerPacket;
+use mir_protocol::data::UserItem;
 use mir_protocol::packets::server::{
     DamageIndicator, Death, GainExperience, HealthChanged, LevelChanged, ObjectAttack, ObjectDied,
     ObjectEffect, ObjectHealth, ObjectLeveled, ObjectMonster, ObjectPlayer, ObjectRemove,
@@ -53,6 +54,8 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::combat::{self, CombatStats, PendingHit};
 use crate::exp::ExpTable;
+use crate::gamedata::GameData;
+use crate::items::{GroundItem, ItemUidGenerator};
 use crate::monster::{Monster, MonsterKind};
 
 /// 视野半径。
@@ -173,6 +176,14 @@ pub struct Player {
     pub dead: bool,
     /// 自己**已经看见**的怪物，用于 `ObjectMonster`/`ObjectRemove` 的增量下发。
     pub visible_monsters: BTreeSet<u32>,
+    /// 背包（Crystal `CharacterInfo.Inventory`，46 格；见 [`crate::items::INVENTORY_SIZE`]）。
+    pub inventory: Vec<Option<UserItem>>,
+    /// 装备（Crystal `CharacterInfo.Equipment`，14 槽；见 [`crate::items::EQUIPMENT_SLOTS`]）。
+    pub equipment: Vec<Option<UserItem>>,
+    /// 金币（Crystal `AccountInfo.Gold`；本作存在角色行的 `gold` 列上）。
+    pub gold: i64,
+    /// 自己**已经看见**的地面物品，用于 `ObjectItem`/`ObjectGold`/`ObjectRemove` 的增量下发。
+    pub visible_items: BTreeSet<u32>,
     /// 发包通道。
     pub sender: UnboundedSender<Vec<u8>>,
 }
@@ -372,6 +383,16 @@ pub struct World {
     pub(crate) pending_hits: Vec<PendingHit>,
     /// 刷怪组运行状态（Crystal 每张 `Map` 的 `Respawns` 列表，`Server/MirEnvir/Map.cs:473-488`）。
     respawn_groups: Vec<RespawnGroupState>,
+    /// 地面物品（Crystal `Envir.Objects` 里 `ObjectType.Item` 的那部分，见 `crate::items`）。
+    pub(crate) ground_items: Vec<GroundItem>,
+    /// 游戏数据（物品模板 + 掉落表）；`None` 时物品系统降级成「只能搬运已有物品」。
+    pub(crate) game_data: Option<Arc<GameData>>,
+    /// 地面物品的存活时间（毫秒），见 [`crate::items::ITEM_EXPIRE_MS`]。
+    pub(crate) item_expire_ms: i64,
+    /// 拾取时是否检查背包负重（**本作扩展**，Crystal 只在奔跑时查重量）。
+    pub(crate) enforce_bag_weight: bool,
+    /// 物品 UUID 发生器（Crystal `Envir.NextUserItemID`，见 [`ItemUidGenerator`]）。
+    pub(crate) item_uids: ItemUidGenerator,
     /// 等级经验表（Crystal `Settings.ExperienceList`，见 [`crate::exp`]）。
     exp: ExpTable,
     /// Crystal `Envir.RespawnTick` 的全局节奏倍率：`1.0` 等于 Crystal 默认
@@ -408,6 +429,11 @@ impl World {
             monsters: Vec::new(),
             pending_hits: Vec::new(),
             respawn_groups: Vec::new(),
+            ground_items: Vec::new(),
+            game_data: None,
+            item_expire_ms: crate::items::ITEM_EXPIRE_MS,
+            enforce_bag_weight: true,
+            item_uids: ItemUidGenerator::default(),
             exp: ExpTable::fallback(),
             respawn_tick_scale: 1.0,
             next_object_id: 1,
@@ -428,6 +454,11 @@ impl World {
             monsters: Vec::new(),
             pending_hits: Vec::new(),
             respawn_groups: Vec::new(),
+            ground_items: Vec::new(),
+            game_data: None,
+            item_expire_ms: crate::items::ITEM_EXPIRE_MS,
+            enforce_bag_weight: true,
+            item_uids: ItemUidGenerator::default(),
             exp: ExpTable::fallback(),
             respawn_tick_scale: 1.0,
             next_object_id: 1,
@@ -559,9 +590,8 @@ impl World {
 
     /// 把玩家放进世界，并把它的外观广播给同图可见玩家。
     pub fn enter(&mut self, player: Player) {
-        let appearance = appearance_packet(&player);
         let now = self.now();
-
+        let appearance = self.appearance_packet(&player);
         // 先让新玩家看到周围的人，再把自己的外观发给别人
         // （Crystal 对视野内每个对象调用 `Add(player)` 下发 `GetInfo()`，`MapObject.cs:286-308`）。
         let mut existing = Vec::new();
@@ -569,7 +599,7 @@ impl World {
             existing.push(other.clone());
         }
         for other in &existing {
-            let _ = player.sender.send(appearance_packet(other));
+            let _ = player.sender.send(self.appearance_packet(other));
         }
 
         // 视野内的怪物：`ObjectMonster`（Crystal `MonsterObject.GetInfo`）。
@@ -578,6 +608,15 @@ impl World {
             if monster.map == player.map && monster.position.in_range(player.position, VIEW_RANGE) {
                 visible_monsters.insert(monster.object_id);
                 let _ = player.sender.send(monster_info_frame(monster));
+            }
+        }
+
+        // 视野内的地面物品：`ObjectItem`/`ObjectGold`（Crystal `ItemObject.GetInfo`，`ItemObject.cs:365-383`）。
+        let mut visible_items = BTreeSet::new();
+        for ground in &self.ground_items {
+            if ground.map == player.map && ground.position.in_range(player.position, VIEW_RANGE) {
+                visible_items.insert(ground.object_id);
+                let _ = player.sender.send(self.ground_item_frame(ground));
             }
         }
 
@@ -603,10 +642,19 @@ impl World {
         // 登录瞬间凭空回血会让客户端开场动画里莫名飘字，也让登录链路的包序列不可稳定断言。
         player.regen_time = now + PLAYER_REGEN_DELAY_MS;
         player.visible_monsters = visible_monsters;
+        player.visible_items = visible_items;
         // 让后续 `allocate_object_id` 不会撞上这个玩家的 ID
         // （生产路径是先分配再 `enter`，但测试会直接构造对象 ID）。
         self.next_object_id = self.next_object_id.max(player.object_id.wrapping_add(1));
-        self.players.insert(player.object_id, player);
+        let object_id = player.object_id;
+        let has_equipment = player.equipment.iter().any(Option::is_some);
+        self.players.insert(object_id, player);
+        // 带着装备登录时要立刻把装备加成算进去（Crystal 登录/换装都会走
+        // `RefreshStats`，`HumanObject.cs:1730-1769`）；空装备就不动，避免覆盖测试
+        // 直接塞进 `Player::stats` 的自定义数值。
+        if has_equipment {
+            self.refresh_stats(object_id);
+        }
     }
 
     /// 把玩家移出世界，并通知周围玩家移除。
@@ -709,8 +757,10 @@ impl World {
         .encode_frame();
         self.broadcast(&map, to, Some(object_id), &packet, object_id);
         self.send_user_location(object_id);
-        // 走完之后刷新自己的怪物视野（Crystal `AddObjects/RemoveObjects`，`HumanObject.cs:2500-2510`）。
+        // 走完之后刷新自己的怪物/地面物品视野（Crystal `AddObjects/RemoveObjects`，
+        // `HumanObject.cs:2500-2510`、`:7864`、`:8152`）。
         self.sync_player_monsters(object_id);
+        self.sync_player_ground_items(object_id);
         Ok(to)
     }
 
@@ -776,6 +826,7 @@ impl World {
         self.broadcast(&map, destination, Some(object_id), &packet, object_id);
         self.send_user_location(object_id);
         self.sync_player_monsters(object_id);
+        self.sync_player_ground_items(object_id);
         Ok(destination)
     }
 
@@ -884,6 +935,9 @@ impl World {
         self.resolve_pending_hits(now);
         self.tick_respawns(now);
         self.tick_monsters(now);
+        // 地面物品到期（Crystal `ItemObject.Process`，`ItemObject.cs:129-142`）。
+        // 放在最后：本 tick 新生成/拾取的物品不会在同一 tick 里被判过期。
+        self.tick_ground_items(now);
     }
 
     /// 玩家侧簿记：跑步计数衰减、停顿后清零 `step_counter`、自然回血回蓝、到点复活。
@@ -1275,7 +1329,10 @@ impl World {
             effect: true,
         })
         .encode_frame();
-        let appearance = self.players.get(&player_id).map(appearance_packet);
+        let appearance = self
+            .players
+            .get(&player_id)
+            .map(|player| self.appearance_packet(player));
         for other in self.players.values() {
             if other.object_id == player_id
                 || other.map != map
@@ -1294,7 +1351,7 @@ impl World {
     }
 
     /// `HumanObject.SetHP`（`HumanObject.cs:858-869`）：赋值 → 夹到上限 → 归零则死 → 同步血量。
-    fn set_player_hp(&mut self, object_id: u32, amount: i32) {
+    pub(crate) fn set_player_hp(&mut self, object_id: u32, amount: i32) {
         let Some(player) = self.players.get_mut(&object_id) else {
             return;
         };
@@ -1311,7 +1368,7 @@ impl World {
     }
 
     /// `HumanObject.SetMP`（`HumanObject.cs:875-884`）：与 `SetHP` 同构，但不会触发死亡。
-    fn set_player_mp(&mut self, object_id: u32, amount: i32) {
+    pub(crate) fn set_player_mp(&mut self, object_id: u32, amount: i32) {
         let Some(player) = self.players.get_mut(&object_id) else {
             return;
         };
@@ -1478,17 +1535,15 @@ impl World {
             return;
         };
         let level = player.level;
-        let class = player.class;
         let map = player.map.clone();
         let position = player.position;
         let experience = player.experience;
         let max_experience = player.max_experience;
 
-        // `RefreshStats()`（`HumanObject.cs:847`）：本作只有等级/职业曲线，直接重算。
-        let stats = combat::player_base_stats(level, class);
-        if let Some(player) = self.players.get_mut(&object_id) {
-            player.stats = stats;
-        }
+        // `RefreshStats()`（`HumanObject.cs:847`）：等级曲线 + 装备加成一起重算
+        // （`RefreshLevelStats` → `RefreshEquipmentStats`，`:1740-1742`）。
+        self.refresh_stats(object_id);
+        let stats = self.players[&object_id].stats;
         // `SetHP(Stats[Stat.HP]); SetMP(Stats[Stat.MP]);`（`:848-849`）
         self.set_player_hp(object_id, stats.hp);
         self.set_player_mp(object_id, stats.mp);
@@ -2035,26 +2090,38 @@ fn reduce_exp(level: u16, amount: u32, target_level: u16) -> i32 {
     exp.max(1)
 }
 
-fn appearance_packet(player: &Player) -> Vec<u8> {
-    ServerPacket::ObjectPlayer(ObjectPlayer {
-        object_id: player.object_id,
-        name: player.name.clone(),
-        class: player.class,
-        gender: player.gender,
-        level: player.level,
-        location: player.position,
-        direction: player.direction,
-        hair: player.hair,
-        light: 0,
-        dead: player.dead,
-        hidden: false,
-        extra: false,
-        riding_mount: false,
-        fishing: false,
-        level_effects: mir_core::enums::LevelEffects::None,
-        ..ObjectPlayer::default()
-    })
-    .encode_frame()
+impl World {
+    /// 玩家外观包（Crystal `HumanObject.GetInfo`，对应 `S.ObjectPlayer`）。
+    ///
+    /// 武器/盔甲外观来自装备（Crystal `Looks_Weapon`/`Looks_Armour`/`Looks_Wings`/`Light`，
+    /// `HumanObject.cs:164-165`、`:1838-1876`），由 [`World::looks`] 从装备表算出来；
+    /// 换装后的**增量**外观包是 `S.PlayerUpdate`（`HumanObject.UpdateLooks`，`:7058-7061`）。
+    pub(crate) fn appearance_packet(&self, player: &Player) -> Vec<u8> {
+        let looks = self.looks(player.object_id);
+        ServerPacket::ObjectPlayer(ObjectPlayer {
+            object_id: player.object_id,
+            name: player.name.clone(),
+            class: player.class,
+            gender: player.gender,
+            level: player.level,
+            location: player.position,
+            direction: player.direction,
+            hair: player.hair,
+            light: looks.light,
+            weapon: looks.weapon,
+            weapon_effect: looks.weapon_effect,
+            armour: looks.armour,
+            wing_effect: looks.wings,
+            dead: player.dead,
+            hidden: false,
+            extra: false,
+            riding_mount: false,
+            fishing: false,
+            level_effects: mir_core::enums::LevelEffects::None,
+            ..ObjectPlayer::default()
+        })
+        .encode_frame()
+    }
 }
 
 /// 怪物外观包（Crystal `MonsterObject.GetInfo`，对应 `S.ObjectMonster`）。
@@ -2133,6 +2200,10 @@ mod tests {
                 run_time: 0,
                 dead: false,
                 visible_monsters: BTreeSet::new(),
+                inventory: crate::items::new_inventory(),
+                equipment: crate::items::new_equipment(),
+                gold: 0,
+                visible_items: BTreeSet::new(),
                 sender,
             },
             receiver,

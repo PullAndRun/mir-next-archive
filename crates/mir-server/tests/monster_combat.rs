@@ -68,6 +68,10 @@ impl Harness {
             run_time: 0,
             dead: false,
             visible_monsters: BTreeSet::new(),
+            inventory: mir_server::items::new_inventory(),
+            equipment: mir_server::items::new_equipment(),
+            gold: 0,
+            visible_items: BTreeSet::new(),
             sender,
         });
         self.receivers.insert(object_id, receiver);

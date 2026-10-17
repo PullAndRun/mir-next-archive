@@ -122,8 +122,13 @@ pub struct Character {
     pub mp: i32,
     /// 经验。
     pub experience: i64,
-    /// 金币。
-    pub gold: u32,
+    /// 金币（Crystal `AccountInfo.Gold`；本作落在角色行的 `gold` 列上，`i64`）。
+    pub gold: i64,
+    /// 背包（Crystal `CharacterInfo.Inventory` 的 `UserItem[]` 字节块，编解码见
+    /// [`crate::items::encode_slots`] / [`crate::items::decode_inventory`]）。
+    pub inventory: Vec<u8>,
+    /// 装备（同样的字节块格式，见 [`crate::items::decode_equipment`]）。
+    pub equipment: Vec<u8>,
     /// 最后登录时间。
     pub last_access: DateTimeBinary,
 }
@@ -156,6 +161,8 @@ impl Character {
             mp: 0,
             experience: 0,
             gold: 0,
+            inventory: Vec::new(),
+            equipment: Vec::new(),
             last_access: DateTimeBinary(0),
         }
     }

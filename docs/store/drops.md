@@ -63,7 +63,11 @@ python tools/asset-index/find_asset.py --name Drops --top community
 
 ## 还没做的
 
-- 掉落物落地成地面物品（`ObjectItem`）与拾取：需要 `ItemInfo` 实例化（`UserItem`）与背包同步；
-- `QuestRequired` 的任务判定；
-- 全局掉率倍率 `Settings.DropRate`、会员掉率偏移的配置来源；
-- 金币上限与「掉在地上」的堆叠规则。
+- `QuestRequired` 的任务判定（掉落时会直接跳过带 `Q` 的行，见 `docs/world/items.md`）；
+- 全局掉率倍率 `Settings.DropRate`、会员掉率偏移的配置来源（现在是常量 `DROP_RATE = 1`）。
+
+已经做完的（原本列在这里的）：
+
+- **掉落物落地成地面物品与拾取**：见 `docs/world/items.md`（`World::drop_monster_loot` /
+  `World::pickup`，`crates/mir-server/src/items.rs`）；
+- 金币落地的拆堆规则：`Settings.MaxDropGold = 2000`（`Settings.cs:228`）。

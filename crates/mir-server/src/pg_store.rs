@@ -96,7 +96,9 @@ fn from_store_character(character: mir_store::Character) -> Character {
         hp: character.hp,
         mp: character.mp,
         experience: character.experience,
-        gold: u32::try_from(character.gold).unwrap_or(0),
+        gold: character.gold,
+        inventory: character.inventory,
+        equipment: character.equipment,
         last_access: from_datetime(character.last_login_date),
     }
 }
@@ -118,7 +120,9 @@ fn apply_to_store_character(character: &Character, target: &mut mir_store::Chara
     target.hp = character.hp;
     target.mp = character.mp;
     target.experience = character.experience;
-    target.gold = i64::from(character.gold);
+    target.gold = character.gold;
+    target.inventory.clone_from(&character.inventory);
+    target.equipment.clone_from(&character.equipment);
 }
 
 // 返回类型写成 `impl Future + Send` 是为了满足 trait 的 Send 契约（见 `store.rs`），

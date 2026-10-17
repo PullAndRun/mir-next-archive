@@ -39,12 +39,13 @@
 | 账号与角色存档（`mir-store`） | ✅ | PostgreSQL + 迁移；内存实现用于无库试玩 |
 | 游戏数据（`mir-db`） | ✅ | Crystal `Server.MirDB` 全量读取（地图/物品/怪物/NPC/任务/技能/商城/攻城/刷怪点），版本 60..117，6 个真实样本 leftover=0 |
 | 怪物 AI 与战斗 | ✅ | 索敌/追击/巡逻、两段式攻击（动作包立即、伤害 300ms 后结算）、护甲与闪避、暴击、死亡与尸体回收、经验升级、死亡复活、自然回血，RNG 顺序与 Crystal 一致；PK 未做 |
-| 技能（魔法） | 🟡 | 技能数据/用书学习/施法校验（冷却、蓝量、射程、目标）/延迟结算/修炼值与升级、技能存档往返；已实现火球、大火球、雷电、灵魂火球、地狱火、爆裂火焰、治愈术、群体治愈术，增益与其余技能登记未实现 |
-| 物品与背包 | ✅ | 掉落（`Envir/Drops` 掉落表）、地面物品与过期、拾取/丢弃、46 格背包与 14 个装备槽、装备属性叠加、`UserItem[]` 存档往返；仓库未做 |
+| 技能（魔法） | 🟡 | 技能数据/用书学习/施法校验/延迟结算/修炼值升级/存档；已实现 8 个伤害与治疗技能 + 9 个增益技能（护盾/加速/魔法盾…），其余登记未实现 |
+| 物品与背包 | ✅ | 掉落、地面物品与过期、拾取/丢弃、46 格背包、14 装备槽、装备加成、药水/卷轴/丢金币、`UserItem[]` 存档；仓库未做 |
+| Buff | ✅ | 带到期时间的属性修饰层、`AddBuff`/`RemoveBuff` 广播、魔法盾按伤害扣时、到期重算属性并补发血量 |
 | NPC 对话与商店 | ✅ | `Envir/NPCs` 脚本解析（`#INSERT`/`#INCLUDE`/条件/动作/按钮）、NPC 刷出与 `ObjectNPC`、`NewMapInfo` 下发、对话跳转、买/卖/修（Crystal 定价公式与价格倍率）；仓库与时段可见性未做 |
 | 任务 | ✅ | `Envir/Quests` 脚本解析（13 个段）、接取前置（等级/职业/前置任务链/上限）、击杀·收集·标记目标、交付领奖（金币/经验/元宝/固定/任选）、限时超时、放弃、NPC `CHECKQUEST` 与 `[Quests]` 关联、`characters.quests` 存档往返；任务物品栏与每日重置未做（见 `docs/world/quests.md`） |
 | 行会、组队与攻城 | ⏳ | |
-| Rust 客户端（渲染与 UI） | 🟡 | `mir-render` 纯 CPU 等距渲染地图（真实 `0.map` 出图）、`mir-client` winit 窗口可平移/截图；角色/怪物/NPC 精灵与 UI 面板待做 |
+| Rust 客户端（渲染与 UI） | 🟡 | 等距地图渲染 + 联机登录 + 实体精灵 + 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能栏/buff 栏/伤害数字）+ 拖拽穿脱 + 点地走路；多地图切换、装备外观贴图与音效待做 |
 | 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计、MirDB 报告、图库查看/导出；素材库编辑器未做 |
 | 素材索引（`mir2_dev`） | ✅ | `tools/asset-index/` 把 `resource/` 的 233 万文件登记进 PostgreSQL，按名字/扩展名/仓库查询 |
 
@@ -196,6 +197,9 @@ python tools/protocol-gen/generate.py
 | [`docs/world/items.md`](docs/world/items.md) | 物品系统：掉落、地面物品、背包/装备槽、持久化与协议包 |
 | [`docs/world/magic.md`](docs/world/magic.md) | 技能系统：数据与存档、用书学习、施法流程、伤害/治疗公式、协议包与支持矩阵 |
 | [`docs/world/npc.md`](docs/world/npc.md) | NPC 脚本格式、条件/动作支持矩阵、商店与修理公式 |
+| [`docs/world/quests.md`](docs/world/quests.md) | 任务系统：脚本段、接取/交付流程、奖励与存档 |
+| [`docs/world/buffs.md`](docs/world/buffs.md) | Buff 容器：到期、属性叠加、药水与增益技能 |
+| [`docs/client.md`](docs/client.md) | 客户端：协议流程、按键/鼠标、面板与字体 |
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |
 | [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文与游戏内切换 |
 | [`docs/architecture.md`](docs/architecture.md) | 架构总览：crate 分层、数据流、时间与随机、测试策略 |

@@ -1261,6 +1261,8 @@ dependencies = [
  "mir-core",
  "mir-protocol",
  "mir-render",
+ "mir-server",
+ "mir-world",
  "serde",
  "serde_json",
  "softbuffer",

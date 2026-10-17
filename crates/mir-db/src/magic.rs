@@ -30,13 +30,15 @@ pub struct MagicInfo {
     pub level_cost: u8,
     /// 图标（`:40`）。
     pub icon: u8,
-    /// 1/2/3 级所需修炼点（`:41-43`）。
+    /// 1/2/3 级所需**角色等级**（`MagicInfo.cs:41-43`；Crystal `LevelMagic` 用
+    /// `Level < magic.Info.Level1` 判断，`HumanObject.cs:6933`）。
     pub level1: u8,
     /// 见 [`Self::level1`]。
     pub level2: u8,
     /// 见 [`Self::level1`]。
     pub level3: u8,
-    /// 1/2/3 级所需等级（`u16`，`:44-46`）。
+    /// 1/2/3 级所需**修炼值**（`u16`，`:44-46`；`magic.Experience >= magic.Info.Need1`，
+    /// `HumanObject.cs:6937`）。
     pub need1: u16,
     /// 见 [`Self::need1`]。
     pub need2: u16,

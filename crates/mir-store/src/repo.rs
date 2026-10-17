@@ -43,7 +43,7 @@ const CHARACTER_COLUMNS: &str = "id, account_id, name, level, class, gender, hai
      creation_date, banned, ban_reason, expiry_date, last_ip, last_login_date, last_logout_date, \
      deleted, delete_date, current_map_index, current_x, current_y, direction, bind_map_index, \
      bind_x, bind_y, hp, mp, experience, gold, credit, attack_mode, pet_mode, pk_points, \
-     allow_group, allow_trade, allow_observe, guild_index, inventory, equipment, storage, \
+     allow_group, allow_trade, allow_observe, guild_index, inventory, equipment, magics, storage, \
      married, married_date, mentor, mentor_date, is_mentor, mentor_exp";
 
 /// 拼出账号查询：`SELECT <列> FROM accounts WHERE <filter>`。
@@ -293,7 +293,7 @@ where
 /// 回写角色的可变状态。
 ///
 /// 可改字段：等级、封禁、登录/登出时间、位置与朝向、HP/MP/经验/货币、模式与权限、
-/// 行会、三个物品大块、婚姻与师徒关系。姓名、归属账号、建号信息不可改。
+/// 行会、背包/装备/仓库/技能四个二进制块、婚姻与师徒关系。姓名、归属账号、建号信息不可改。
 /// 目标行不存在（例如已被硬删除）返回 [`StoreError::NotFound`]。
 pub async fn save_character<'e, E>(executor: E, character: &Character) -> Result<()>
 where
@@ -310,7 +310,7 @@ where
          allow_group = $26, allow_trade = $27, allow_observe = $28, guild_index = $29, \
          inventory = $30, equipment = $31, storage = $32, \
          married = $33, married_date = $34, mentor = $35, mentor_date = $36, \
-         is_mentor = $37, mentor_exp = $38 \
+         is_mentor = $37, mentor_exp = $38, magics = $39 \
        WHERE id = $1";
 
     let result = sqlx::query(SQL)
@@ -352,6 +352,7 @@ where
         .bind(character.mentor_date)
         .bind(character.is_mentor)
         .bind(character.mentor_exp)
+        .bind(character.magics.as_slice())
         .execute(executor)
         .await
         .map_err(StoreError::Database)?;

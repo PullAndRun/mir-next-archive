@@ -37,7 +37,8 @@
 | 地图与行走（`mir-world` / `mir-server`） | 🟡 | `.map` 9 种版本读取 + 可走性校验；动作计时按 Crystal（走/跑 600ms、转身 350ms、跑需先走一步）、`UserLocation`/`ObjectWalk`/`ObjectRun` 广播、世界 tick 100ms；门状态机与 AOI 半径仍未完全对齐 |
 | 账号与角色存档（`mir-store`） | ✅ | PostgreSQL + 迁移；内存实现用于无库试玩 |
 | 游戏数据（`mir-db`） | ✅ | Crystal `Server.MirDB` 全量读取（地图/物品/怪物/NPC/任务/技能/商城/攻城/刷怪点），版本 60..117，6 个真实样本 leftover=0 |
-| 怪物 AI 与战斗 | ✅ | 索敌/追击/巡逻、两段式攻击（动作包立即、伤害 300ms 后结算）、护甲与闪避、暴击、死亡与尸体回收、经验升级、死亡复活、自然回血，RNG 顺序与 Crystal 一致；技能与 PK 未做 |
+| 怪物 AI 与战斗 | ✅ | 索敌/追击/巡逻、两段式攻击（动作包立即、伤害 300ms 后结算）、护甲与闪避、暴击、死亡与尸体回收、经验升级、死亡复活、自然回血，RNG 顺序与 Crystal 一致；PK 未做 |
+| 技能（魔法） | 🟡 | 技能数据/用书学习/施法校验（冷却、蓝量、射程、目标）/延迟结算/修炼值与升级、技能存档往返；已实现火球、大火球、雷电、灵魂火球、地狱火、爆裂火焰、治愈术、群体治愈术，增益与其余技能登记未实现 |
 | 物品与背包 | ✅ | 掉落（`Envir/Drops` 掉落表）、地面物品与过期、拾取/丢弃、46 格背包与 14 个装备槽、装备属性叠加、`UserItem[]` 存档往返；仓库未做 |
 | NPC 对话与商店 | ✅ | `Envir/NPCs` 脚本解析（`#INSERT`/`#INCLUDE`/条件/动作/按钮）、NPC 刷出与 `ObjectNPC`、`NewMapInfo` 下发、对话跳转、买/卖/修（Crystal 定价公式与价格倍率）；仓库、任务与时段可见性未做 |
 | 行会、任务、组队与攻城 | ⏳ | |
@@ -190,6 +191,7 @@ python tools/protocol-gen/generate.py --crystal /path/to/Crystal
 | [`docs/world/tick-loop.md`](docs/world/tick-loop.md) | 世界循环与计时模型 |
 | [`docs/world/combat.md`](docs/world/combat.md) | 战斗公式、RNG 顺序、怪物 AI 与相关数据包 |
 | [`docs/world/items.md`](docs/world/items.md) | 物品系统：掉落、地面物品、背包/装备槽、持久化与协议包 |
+| [`docs/world/magic.md`](docs/world/magic.md) | 技能系统：数据与存档、用书学习、施法流程、伤害/治疗公式、协议包与支持矩阵 |
 | [`docs/world/npc.md`](docs/world/npc.md) | NPC 脚本格式、条件/动作支持矩阵、商店与修理公式 |
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |
 | [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文与游戏内切换 |

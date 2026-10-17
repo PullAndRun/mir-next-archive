@@ -12,12 +12,14 @@
 //! * 玩家的物理攻击是**延迟结算**的：动作包立刻广播，伤害 300ms 后才落地
 //!   （Crystal `DelayedAction`，`Server/MirObjects/HumanObject.cs:3201`），
 //!   怪物的攻击同理（`Server/MirObjects/MonsterObject.cs:2171`）。
+//! * **技能（魔法）**由 [`crate::magic`] 实现：施法时的 `ActionTime`/`SpellTime` 锁、
+//!   延迟效果队列与治疗分段都在那边，本模块只负责 `Player` 上的字段与 tick 调度。
 //!
 //! # tick 顺序
 //!
 //! Crystal 没有「先处理怪物还是先处理玩家」的区分：所有对象在同一个 `Envir.Objects`
 //! 链表里按插入顺序轮转（`Server/MirEnvir/Envir.cs:2119-2138`）。mir-next 把顺序固定成
-//! **玩家簿记 → 到期伤害 → 刷怪点 → 怪物 AI**：玩家每 tick 都要处理（Crystal `HumanObject.SetOperateTime`
+//! **玩家簿记 → 到期伤害 → 到期魔法 → 刷怪点 → 怪物 AI**：玩家每 tick 都要处理（Crystal `HumanObject.SetOperateTime`
 //! 把 `OperateTime` 设成 `Envir.Time`，`HumanObject.cs:392-395`），怪物则受 `operate_time`
 //! 节流（最快 2 秒一次，`MonsterObject.cs:1232-1310`），所以先玩家后怪物与 Crystal 的可观测行为一致；
 //! 刷怪点放在「到期伤害」之后，是为了让本 tick 结算出来的死亡数立刻反映到刷怪组的存活计数上。
@@ -56,6 +58,7 @@ use crate::combat::{self, CombatStats, PendingHit};
 use crate::exp::ExpTable;
 use crate::gamedata::GameData;
 use crate::items::{GroundItem, ItemUidGenerator};
+use crate::magic::{MagicState, PendingMagic, UserMagic};
 use crate::monster::{Monster, MonsterKind};
 use crate::npc::{Npc, NpcState};
 
@@ -181,6 +184,10 @@ pub struct Player {
     pub inventory: Vec<Option<UserItem>>,
     /// 装备（Crystal `CharacterInfo.Equipment`，14 槽；见 [`crate::items::EQUIPMENT_SLOTS`]）。
     pub equipment: Vec<Option<UserItem>>,
+    /// 已学技能（Crystal `CharacterInfo.Magics`，见 [`crate::magic`]）。
+    pub magics: Vec<UserMagic>,
+    /// 施法相关的计时状态（`SpellTime`、每个技能的 `CastTime`、待生效治疗量）。
+    pub magic: MagicState,
     /// 金币（Crystal `AccountInfo.Gold`；本作存在角色行的 `gold` 列上）。
     pub gold: i64,
     /// 自己**已经看见**的地面物品，用于 `ObjectItem`/`ObjectGold`/`ObjectRemove` 的增量下发。
@@ -391,6 +398,8 @@ pub struct World {
     pub(crate) npcs: Vec<Npc>,
     /// 已到期但还没结算的延迟伤害（Crystal 每个对象 `ActionList` 里的 `DelayedType.Damage`）。
     pub(crate) pending_hits: Vec<PendingHit>,
+    /// 已到期但还没结算的延迟魔法效果（Crystal `DelayedType.Magic`，见 [`crate::magic`]）。
+    pub(crate) pending_magic: Vec<PendingMagic>,
     /// 刷怪组运行状态（Crystal 每张 `Map` 的 `Respawns` 列表，`Server/MirEnvir/Map.cs:473-488`）。
     respawn_groups: Vec<RespawnGroupState>,
     /// 地面物品（Crystal `Envir.Objects` 里 `ObjectType.Item` 的那部分，见 `crate::items`）。
@@ -441,6 +450,7 @@ impl World {
             monsters: Vec::new(),
             npcs: Vec::new(),
             pending_hits: Vec::new(),
+            pending_magic: Vec::new(),
             respawn_groups: Vec::new(),
             ground_items: Vec::new(),
             game_data: None,
@@ -468,6 +478,7 @@ impl World {
             monsters: Vec::new(),
             npcs: Vec::new(),
             pending_hits: Vec::new(),
+            pending_magic: Vec::new(),
             respawn_groups: Vec::new(),
             ground_items: Vec::new(),
             game_data: None,
@@ -958,13 +969,14 @@ impl World {
             .map(|monster| monster.object_id)
     }
 
-    /// 世界 tick：玩家簿记 → 到期伤害结算 → 刷怪点 → 怪物 AI。
+    /// 世界 tick：玩家簿记 → 到期伤害 → 到期魔法 → 刷怪点 → 怪物 AI。
     ///
     /// 由服务端的定时任务每 100ms 调一次；顺序理由见模块文档的「tick 顺序」。
     pub fn tick(&mut self) {
         let now = self.now();
         self.tick_players(now);
         self.resolve_pending_hits(now);
+        self.resolve_pending_magic(now);
         self.tick_respawns(now);
         self.tick_monsters(now);
         // 地面物品到期（Crystal `ItemObject.Process`，`ItemObject.cs:129-142`）。
@@ -1012,13 +1024,17 @@ impl World {
     ///     if (HP < Stats[HP]) healthRegen += (int)(Stats[HP] * 0.03F) + 1;  // :560-564
     ///     if (MP < Stats[MP]) manaRegen   += (int)(Stats[MP] * 0.03F) + 1;  // :566-570
     /// }
+    /// if (Envir.Time > HealTime) { ... HealAmount 分段 ... }             // :602-617（治疗术的生效方式）
     /// if (healthRegen > 0) { ChangeHP(healthRegen); BroadcastDamageIndicator(Hit, healthRegen); }  // :635-639
     /// if (manaRegen > 0) ChangeMP(manaRegen);                            // :647
     /// ```
     ///
+    /// **治疗分段不受 `CanRegen` 节流**：Crystal 的 `HealAmount` 块在 `if (CanRegen)` 之外，
+    /// 每 600ms 结算一次（`HealDelay`），所以这里先取走本 tick 的治疗分段，再判断自然回复。
+    ///
     /// 简化：`Stats[HealthRecovery]`/`Stats[SpellRecovery]`（装备加成，`:563`、`:569`）
-    /// 与药水/治疗/吸血三个计时器（`:573-633`）未实现——本作没有装备与消耗品，三项恒为 0，
-    /// 加进来只会平白多抽随机数。回血/回蓝后的 `S.HealthChanged` 由
+    /// 与药水/吸血两个计时器（`:573-600`、`:619-633`）未实现——本作没有这两类消耗品与吸血，
+    /// 两项恒为 0，加进来只会平白多抽随机数。回血/回蓝后的 `S.HealthChanged` 由
     /// [`World::change_player_hp`]/[`World::change_player_mp`] 发出（Crystal 的
     /// `SetHP`/`SetMP` 都走 `SendHealthChanged`，`HumanObject.cs:867-884`；
     /// Crystal 没有 `S.MPChanged` 这种包）。
@@ -1030,26 +1046,38 @@ impl World {
         if player.dead {
             return;
         }
-        // `CanRegen`（`HumanObject.cs:145-151`）。
-        if now < player.regen_time {
-            return;
-        }
         let max_hp = player.stats.hp;
         let max_mp = player.stats.mp;
         let hp = player.hp;
         let mp = player.mp;
+        let regen_time = player.regen_time;
         let map = player.map.clone();
         let position = player.position;
 
-        // `RegenTime = Envir.Time + RegenDelay;`（`:558`）——**只要进入这个分支就重置**，
-        // 与本次是否真的回了血无关。
-        if let Some(player) = self.players.get_mut(&object_id) {
-            player.regen_time = now + PLAYER_REGEN_DELAY_MS;
+        // 治疗术攒下的 `HealAmount`：每 600ms 放出一小段（`:602-617`），与自然回复相加后
+        // 统一 `ChangeHP`（Crystal 也是在 `:635` 一次性生效）。
+        let heal_regen = self.take_heal_chunk(object_id, now);
+
+        // `CanRegen`（`HumanObject.cs:145-151`）。
+        if now >= regen_time {
+            // `RegenTime = Envir.Time + RegenDelay;`（`:558`）——**只要进入这个分支就重置**，
+            // 与本次是否真的回了血无关。
+            if let Some(player) = self.players.get_mut(&object_id) {
+                player.regen_time = now + PLAYER_REGEN_DELAY_MS;
+            }
+        } else {
+            // 自然回复还没到点：只结算治疗分段。
+            if heal_regen > 0 {
+                self.change_player_hp(object_id, heal_regen);
+                self.emit_damage_indicator(&map, position, object_id, heal_regen, DamageType::Hit);
+                self.clear_heal_when_full(object_id);
+            }
+            return;
         }
 
-        let mut health_regen = 0;
+        let mut health_regen = heal_regen;
         if hp < max_hp {
-            health_regen = (f64::from(max_hp) * PLAYER_REGEN_RATE) as i32 + 1;
+            health_regen += (f64::from(max_hp) * PLAYER_REGEN_RATE) as i32 + 1;
         }
         let mut mana_regen = 0;
         if mp < max_mp {
@@ -1061,9 +1089,20 @@ impl World {
             // `BroadcastDamageIndicator(DamageType.Hit, healthRegen)`（`:638`）：
             // 自身与周围玩家都会看到一条「+N」飘字。
             self.emit_damage_indicator(&map, position, object_id, health_regen, DamageType::Hit);
+            self.clear_heal_when_full(object_id);
         }
         if mana_regen > 0 {
             self.change_player_mp(object_id, mana_regen);
+        }
+    }
+
+    /// `if (HP == Stats[HP]) { PotHealthAmount = 0; HealAmount = 0; }`
+    /// （`HumanObject.cs:641-645`）：满血后丢弃剩余治疗量。
+    fn clear_heal_when_full(&mut self, object_id: u32) {
+        if let Some(player) = self.players.get_mut(&object_id) {
+            if player.hp >= player.stats.hp {
+                player.magic.heal_amount = 0;
+            }
         }
     }
 
@@ -1103,13 +1142,16 @@ impl World {
     }
 
     /// 怪物被打：Crystal `MonsterObject.Attacked(HumanObject)`（`MonsterObject.cs:2569-2684`）。
-    fn damage_monster(&mut self, hit: PendingHit, attacker_stats: &CombatStats) {
+    ///
+    /// 返回实际扣掉的血量（`damage - armour`，未命中时 0）：魔法伤害要靠它决定
+    /// 是否给技能加经验（`HumanObject.cs:5929` 的 `if (target.Attacked(...) > 0) LevelMagic(magic)`）。
+    pub(crate) fn damage_monster(&mut self, hit: PendingHit, attacker_stats: &CombatStats) -> i32 {
         let Some((stats, dead, map, position, direction)) = self.monster_snapshot(hit.target_id)
         else {
-            return;
+            return 0;
         };
         if dead {
-            return;
+            return 0;
         }
         let result = combat::resolve_player_attack(
             attacker_stats,
@@ -1120,7 +1162,7 @@ impl World {
         );
         if result.miss {
             self.emit_damage_indicator(&map, position, hit.target_id, 0, DamageType::Miss);
-            return;
+            return 0;
         }
 
         // 暴击：先广播 `ObjectEffect{Critical}`，再发 `DamageIndicator{Critical, 0}`
@@ -1190,6 +1232,7 @@ impl World {
         if died {
             self.monster_died(hit.target_id);
         }
+        result.damage
     }
 
     /// 玩家被打：Crystal `HumanObject.Attacked(MonsterObject)`（`HumanObject.cs:7222-7315`）。
@@ -1437,7 +1480,7 @@ impl World {
     }
 
     /// `HumanObject.ChangeMP`（`HumanObject.cs:912-926`）。
-    fn change_player_mp(&mut self, object_id: u32, amount: i32) {
+    pub(crate) fn change_player_mp(&mut self, object_id: u32, amount: i32) {
         let Some(player) = self.players.get_mut(&object_id) else {
             return;
         };
@@ -2024,7 +2067,7 @@ impl World {
     }
 
     /// 给本人发一条坐标回显（成功与失败都发，与 Crystal 一致）。
-    fn send_user_location(&self, object_id: u32) {
+    pub(crate) fn send_user_location(&self, object_id: u32) {
         if let Some(player) = self.players.get(&object_id) {
             let packet = ServerPacket::UserLocation(UserLocation {
                 location: player.position,
@@ -2245,6 +2288,8 @@ mod tests {
                 visible_monsters: BTreeSet::new(),
                 inventory: crate::items::new_inventory(),
                 equipment: crate::items::new_equipment(),
+                magics: Vec::new(),
+                magic: crate::magic::MagicState::default(),
                 gold: 0,
                 visible_items: BTreeSet::new(),
                 npc: crate::npc::NpcState::default(),

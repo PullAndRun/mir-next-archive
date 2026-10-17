@@ -72,6 +72,8 @@ impl Harness {
             visible_monsters: BTreeSet::new(),
             inventory: mir_server::items::new_inventory(),
             equipment: mir_server::items::new_equipment(),
+            magics: Vec::new(),
+            magic: mir_server::MagicState::default(),
             gold: 0,
             visible_items: BTreeSet::new(),
             npc: mir_server::NpcState::default(),

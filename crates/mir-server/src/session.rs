@@ -12,7 +12,7 @@ use mir_core::enums::{
 };
 use mir_core::i18n::LanguageLibrary;
 use mir_core::{DateTimeBinary, LanguageCatalog, Point, TextKey};
-use mir_protocol::data::{SelectInfo, UserItem};
+use mir_protocol::data::{ClientMagic, SelectInfo, UserItem};
 use mir_protocol::manual::server::{MapInformation, UserInformation};
 use mir_protocol::packets::server::{
     ClientVersion as ClientVersionResponse, Connected, DeleteCharacter as DeleteCharacterResult,
@@ -28,6 +28,7 @@ use crate::config::ServerConfig;
 use crate::items::{
     decode_equipment, decode_inventory, encode_slots, new_equipment, new_inventory,
 };
+use crate::magic::{decode_magics, encode_magics};
 use crate::npc::NpcState;
 use crate::store::{Account, AccountStore, Character, StoreError};
 use crate::world::{Player, World};
@@ -163,6 +164,32 @@ impl<S: AccountStore> Session<S> {
             }
             ClientPacket::RepairItem(packet) => {
                 self.on_repair_item(packet.unique_id).await;
+            }
+            ClientPacket::UseItem(packet) => {
+                self.on_use_item(packet.unique_id, packet.grid).await;
+            }
+            ClientPacket::Magic(packet) => {
+                self.on_magic(
+                    packet.spell,
+                    packet.direction,
+                    packet.target_id,
+                    packet.location,
+                )
+                .await;
+            }
+            ClientPacket::MagicKey(packet) => {
+                self.on_magic_key(packet.spell, packet.key).await;
+            }
+            ClientPacket::SpellToggle(packet) => {
+                // `SpellToggle`（`HumanObject.cs:8501-`）只对「开关型」技能有意义
+                // （Thrusting/HalfMoon/FlamingSword…），本作这些技能都还没实现效果，
+                // 收到后只记一条日志，不改任何状态。见 `docs/world/magic.md`。
+                tracing::debug!(
+                    session = self.id,
+                    spell = ?packet.spell,
+                    state = ?packet.can_use,
+                    "忽略 SpellToggle（开关型技能未实现）"
+                );
             }
             ClientPacket::Disconnect(_) => {
                 self.leave_world().await;
@@ -442,6 +469,14 @@ impl<S: AccountStore> Session<S> {
                 new_equipment()
             }
         };
+        // 技能块：Crystal 的 `CharacterInfo.Magics`（`CharacterInfo.cs:226-234`）。
+        let magics = match decode_magics(&character.magics) {
+            Ok(magics) => magics,
+            Err(error) => {
+                tracing::warn!(session = self.id, %error, "技能字节块解析失败，按未学技能处理");
+                Vec::new()
+            }
+        };
 
         let mut world = self.world.lock().await;
         // 读档里出现过的 UUID 要计入发生器，否则新掉的物品可能撞号
@@ -487,6 +522,8 @@ impl<S: AccountStore> Session<S> {
             visible_monsters: std::collections::BTreeSet::new(),
             inventory: inventory.clone(),
             equipment: equipment.clone(),
+            magics: magics.clone(),
+            magic: crate::magic::MagicState::default(),
             gold: character.gold,
             visible_items: std::collections::BTreeSet::new(),
             npc: NpcState::default(),
@@ -502,6 +539,9 @@ impl<S: AccountStore> Session<S> {
             .languages
             .map_title(self.language.language(), &character.map);
         let entry_info = world.map_entry_info(&character.map, &entry_title);
+        // 已学技能（Crystal `UserInformation.Magics`，`ServerPackets.cs:640-680` 里逐条
+        // `magic.CreateClientMagic()`）。同样必须在释放世界锁之前取。
+        let client_magics = world.client_magics(object_id);
         drop(world);
 
         self.object_id = Some(object_id);
@@ -542,6 +582,7 @@ impl<S: AccountStore> Session<S> {
             position,
             &inventory,
             &equipment,
+            &client_magics,
             character.gold,
         )));
         let welcome = self.language.text_with(&self.languages, TextKey::Welcome);
@@ -797,6 +838,85 @@ impl<S: AccountStore> Session<S> {
         }
     }
 
+    /// 用物品（`C.UseItem`，Crystal `PlayerObject.UseItem`，`PlayerObject.cs:5799-6338`）。
+    ///
+    /// 本作只实现技能书（`ItemType.Book`）这一支：学会/升级技能并消耗一本，
+    /// 见 [`World::use_book`]。其余物品类型会收到 `S.UseItem{Success=false}`。
+    async fn on_use_item(&mut self, unique_id: u64, grid: MirGridType) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        if grid != MirGridType::Inventory {
+            tracing::debug!(session = self.id, ?grid, "忽略非背包网格的 UseItem");
+            return;
+        }
+        let mut world = self.world.lock().await;
+        match world.use_book(object_id, unique_id) {
+            Ok(learned) => tracing::debug!(
+                session = self.id,
+                spell = ?learned.magic.spell,
+                level = learned.magic.level,
+                "学会技能"
+            ),
+            Err(error) => tracing::debug!(session = self.id, %error, "用书被拒绝"),
+        }
+    }
+
+    /// 施法（`C.Magic`，Crystal `HumanObject.Magic`，`HumanObject.cs:3400-3780`）。
+    ///
+    /// Crystal 的连接层会在 `ActionTime > now || SpellTime > now` 时把包放进 `_retryList`
+    /// 下个周期重试（`MirConnection.cs:1577-1580`）；与移动/攻击一致，这里用
+    /// 「等到 deadline 再重试一次」等价实现。
+    async fn on_magic(
+        &mut self,
+        spell: mir_core::enums::Spell,
+        direction: MirDirection,
+        target_id: u32,
+        location: Point,
+    ) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        for attempt in 0..2 {
+            let busy_until = {
+                let mut world = self.world.lock().await;
+                match world.cast_magic(object_id, spell, direction, target_id, location) {
+                    Ok(report) => {
+                        tracing::debug!(
+                            session = self.id,
+                            spell = ?report.spell,
+                            target = report.target_id,
+                            damage = report.damage,
+                            heal = report.heal,
+                            cost = report.cost,
+                            "施法"
+                        );
+                        return;
+                    }
+                    Err(crate::magic::MagicError::Busy { until }) => until,
+                    Err(error) => {
+                        tracing::debug!(session = self.id, %error, "施法被拒绝");
+                        return;
+                    }
+                }
+            };
+            if attempt == 0 && self.wait_until(busy_until).await {
+                continue;
+            }
+            return;
+        }
+    }
+
+    /// 改技能快捷键（`C.MagicKey`，Crystal `MirConnection.MagicKey`，`MirConnection.cs:1543-1566`）。
+    async fn on_magic_key(&mut self, spell: mir_core::enums::Spell, key: u8) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        let changed = world.set_magic_key(object_id, spell, key);
+        tracing::debug!(session = self.id, ?spell, key, changed, "技能快捷键");
+    }
+
     /// 如果是因为「动作还没结束」被拒，等到 `ActionTime` 之后再试一次。
     ///
     /// 返回 `true` 表示值得重试。等待时长有上限，避免异常状态把连接卡死。
@@ -891,6 +1011,9 @@ impl<S: AccountStore> Session<S> {
             if let Some(character) = &mut self.character {
                 character.inventory = encode_slots(&player.inventory);
                 character.equipment = encode_slots(&player.equipment);
+                // 技能块：`CharacterInfo.Save` 的「`Magics.Count` + 逐条 `UserMagic.Save`」
+                // （`CharacterInfo.cs:458-463`）。
+                character.magics = encode_magics(&player.magics);
                 character.gold = player.gold;
                 character.hp = player.hp;
                 character.mp = player.mp;
@@ -932,6 +1055,7 @@ fn user_information(
     position: Point,
     inventory: &[Option<UserItem>],
     equipment: &[Option<UserItem>],
+    magics: &[ClientMagic],
     gold: i64,
 ) -> UserInformation {
     UserInformation {
@@ -964,7 +1088,7 @@ fn user_information(
         require_storage_password: false,
         storage_password_last_set: DateTimeBinary(0),
         expanded_storage_expiry_time: DateTimeBinary(0),
-        magics: Vec::new(),
+        magics: magics.to_vec(),
         intelligent_creatures: Vec::new(),
         summoned_creature_type: IntelligentCreatureType::None,
         creature_summoned: false,

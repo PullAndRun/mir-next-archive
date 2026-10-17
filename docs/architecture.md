@@ -17,12 +17,12 @@
         ▲                    ▲                     ▲                      ▲
         └────────┬───────────┴─────────────────────┘                      │
                  │                                                        │
-            mir-store（PostgreSQL：账号/角色/背包/金币）                     │
+            mir-store（PostgreSQL：账号/角色/背包/装备/技能/金币）                     │
                  │                                                        │
               mir-db（Server.MirDB：怪物/物品/NPC/刷怪点/技能/掉落表/脚本）  │
                  │                                                        │
                  ▼                                                        │
-            mir-server（网关、会话、世界、战斗、怪物 AI、物品、NPC）           │
+            mir-server（网关、会话、世界、战斗、怪物 AI、技能、物品、NPC）           │
                  │                                                        │
        ┌─────────┴─────────┐                                             │
        ▼                   ▼                                             │
@@ -38,8 +38,8 @@
 | `mir-world` | 客户端 `.map` 解析（9 种版本）、可走性、门/光照等格数据。 | `resource/map` |
 | `mir-asset` | `.Lib` / `.wzl+.wzx` 图库解码为 RGBA8；调色板、RGB565、RGB24、DXT1、gzip RGBA32。 | `resource/data` |
 | `mir-db` | Crystal `Server.MirDB` 读取（版本 60..117）、掉落表（`Envir/Drops`）、NPC 脚本（`Envir/NPCs`）。 | `Server.MirDB` + `Envir/` |
-| `mir-store` | PostgreSQL 持久化：账号（Crystal 口令算法）、角色、背包/装备字节块、金币。 | 需要库 |
-| `mir-server` | 网关与会话状态机、世界 tick、怪物 AI 与战斗、物品与背包、NPC 与商店、经验/复活/回血。 | 全部依赖 |
+| `mir-store` | PostgreSQL 持久化：账号（Crystal 口令算法）、角色、背包/装备/技能字节块、金币。 | 需要库 |
+| `mir-server` | 网关与会话状态机、世界 tick、怪物 AI 与战斗、技能（魔法）、物品与背包、NPC 与商店、经验/复活/回血。 | 全部依赖 |
 | `mir-render` | 纯 CPU 等距渲染：地图格 → 图库 → 一帧 RGBA。 | `resource` |
 | `mir-client` | winit 窗口 + softbuffer 呈现，键盘移动镜头。 | `resource` |
 | `mir-tools` | CLI：`map-info`、`protocol-report`、`mirdb-report`、`image-info`、`image-dump`。 | 视子命令 |

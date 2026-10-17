@@ -129,6 +129,9 @@ pub struct Character {
     pub inventory: Vec<u8>,
     /// 装备（同样的字节块格式，见 [`crate::items::decode_equipment`]）。
     pub equipment: Vec<u8>,
+    /// 已学技能（Crystal `CharacterInfo.Magics` 的字节块，编解码见
+    /// [`crate::magic::encode_magics`] / [`crate::magic::decode_magics`]）。
+    pub magics: Vec<u8>,
     /// 最后登录时间。
     pub last_access: DateTimeBinary,
 }
@@ -163,6 +166,7 @@ impl Character {
             gold: 0,
             inventory: Vec::new(),
             equipment: Vec::new(),
+            magics: Vec::new(),
             last_access: DateTimeBinary(0),
         }
     }

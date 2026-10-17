@@ -548,7 +548,7 @@ if (manaRegen > 0) ChangeMP(manaRegen);                             // :647
 | 只有「野生敌对怪物」一条 AI 分支 | 没有宠物（`Master`/`PMode`）、巡逻路线（`Route`）、毒/麻痹/buff、`ShockTime`、`Rage`、隐身、召唤、传送 |
 | 怪物只打玩家，不打怪物 | 野生怪物之间 `IsAttackTarget` 返回 false（`MonsterObject.cs:2537-2539`），本来就不会互殴 |
 | 玩家近战只打怪物 | PK/红名/行会战未实现；`HumanObject.Attack` 的技能分支（Slaying/Thrusting/HalfMoon/…）全部跳过 |
-| 没有技能/buff，玩家属性=等级曲线基础值 + 装备加成 | 装备系统见 `docs/world/items.md`；技能/buff 仍未实现 |
+| 没有 buff，玩家属性=等级曲线基础值 + 装备加成 | 装备系统见 `docs/world/items.md`；技能（魔法）已实现一部分、见 `docs/world/magic.md`，增益/护盾类仍无 buff 容器 |
 | `reflect`/`CriticalRate` 等属性基础值恒 0（但抽签保留） | 只影响装备加成，抽签保留才能保证随机序列与 Crystal 一致 |
 | 刷怪用 `SpawnGroup`（半径内撒点） | Crystal 用地图预计算的 `WalkableCells`；`mir-db` 接入后用真实刷新点 |
 | 刷怪「每个周期只补 1 只」 | Crystal 一次补齐（`Map.cs:749-755`）；逐只补避免到点瞬间刷出一整群 |
@@ -560,7 +560,7 @@ if (manaRegen > 0) ChangeMP(manaRegen);                             // :647
 | 升级需求用「兜底曲线」当默认 | `World::new` 不碰文件系统，保证测试确定性；生产在 `server.rs` 里装 `ExpList.ini` |
 | 没有安全区 | 地图安全区数据未接入；Crystal 里安全区会让怪物无法选中玩家 |
 | 没有 `ActionList` 数据结构，用世界级 `pending_hits` | 单目标场景下与「每对象各自队列」等价；顺序按入队顺序 |
-| 玩家回复只做「自然回血/回蓝」 | 药水/治疗术/吸血三个计时器与 `HealthRecovery` 装备属性未实现 |
+| 玩家回复只做「自然回血/回蓝 + 治疗术分段」 | 药水/吸血两个计时器与 `HealthRecovery` 装备属性未实现；治疗术的 `HealAmount` 分段已实现（`docs/world/magic.md` §7） |
 
 ---
 

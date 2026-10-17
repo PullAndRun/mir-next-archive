@@ -1734,7 +1734,7 @@ impl World {
     }
 
     /// 给本人发一条系统聊天。
-    fn send_system_chat(&self, player_id: u32, message: &str) {
+    pub(crate) fn send_system_chat(&self, player_id: u32, message: &str) {
         self.send_to_player(
             player_id,
             &ServerPacket::Chat(mir_protocol::packets::server::Chat {

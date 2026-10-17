@@ -275,6 +275,9 @@ pub struct Character {
     pub inventory: Vec<u8>,
     /// 装备（Crystal `Equipment` 的 `UserItem[]` 二进制整块）。
     pub equipment: Vec<u8>,
+    /// 已学技能（Crystal `Magics` 的整块二进制；格式见
+    /// `crates/mir-server/src/magic.rs` 的 `encode_magics`/`decode_magics`）。
+    pub magics: Vec<u8>,
     /// 仓库（任务要求放在角色行；Crystal 实际存于 `AccountInfo.Storage`）。
     pub storage: Vec<u8>,
     /// 配偶角色主键，0 表示未婚（Crystal `Married`）。

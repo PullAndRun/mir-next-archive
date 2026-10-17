@@ -30,9 +30,9 @@ use std::sync::{Arc, Mutex};
 
 use mir_core::Point;
 use mir_core::enums::Monster as MonsterImage;
-use mir_core::enums::Stat;
+use mir_core::enums::{Spell, Stat};
 use mir_db::npc_script::NpcScript;
-use mir_db::{DropTable, ItemInfo, MapInfo, MirDb, MirDbError, MonsterInfo, NpcInfo};
+use mir_db::{DropTable, ItemInfo, MagicInfo, MapInfo, MirDb, MirDbError, MonsterInfo, NpcInfo};
 
 use crate::combat::CombatStats;
 use crate::monster::{DEFAULT_ATTACK_SPEED_MS, DEFAULT_MOVE_SPEED_MS, MonsterKind};
@@ -66,6 +66,11 @@ pub struct GameData {
     item_by_name: HashMap<String, usize>,
     /// 怪物名（小写）→ 掉落表文件名（`MonsterInfo.DropPath`，空则怪物名）。
     monster_drops: HashMap<String, String>,
+    /// 技能模板下标：`Spell` 的枚举值 → `db.magics` 的下标。
+    ///
+    /// Crystal 的 `Envir.MagicInfoList` 按 `Spell` **去重**（`Envir.cs:2903` 的
+    /// `if (!MagicExists(m.Spell))`，先出现的胜出），这里的映射同样只记第一次出现的那条。
+    magic_by_spell: HashMap<u8, usize>,
     /// `Envir/Drops` 目录；数据库不在文件系统上（内存构造）时为 `None`。
     drop_dir: Option<PathBuf>,
     /// `Envir/` 根目录（NPC 脚本与 `#INSERT` 的相对路径都从这里算）。
@@ -139,12 +144,18 @@ impl GameData {
                 monster_drops.insert(info.name.to_lowercase(), file);
             }
         }
+        let mut magic_by_spell = HashMap::with_capacity(db.magics.len());
+        for (position, info) in db.magics.iter().enumerate() {
+            // `Envir.cs:2899-2905`：重复的 `Spell` 只保留文件里第一次出现的那条。
+            magic_by_spell.entry(info.spell).or_insert(position);
+        }
         Self {
             db,
             monsters,
             item_by_index,
             item_by_name,
             monster_drops,
+            magic_by_spell,
             drop_dir,
             envir_dir,
             drop_cache: Mutex::new(HashMap::new()),
@@ -288,6 +299,39 @@ impl GameData {
     #[must_use]
     pub fn item_count(&self) -> usize {
         self.db.items.len()
+    }
+
+    /// 按 `Spell` 取技能模板（Crystal `Envir.MagicInfoList` 的线性查找，
+    /// `Server/MirDatabase/MagicInfo.cs:103-112`）。
+    ///
+    /// 返回 `None` 表示数据库里没有这个技能（Crystal 里同样会得到 `magic.Info == null`）。
+    #[must_use]
+    pub fn magic(&self, spell: Spell) -> Option<&MagicInfo> {
+        self.magic_by_spell
+            .get(&spell.value())
+            .and_then(|position| self.db.magics.get(*position))
+    }
+
+    /// 按名字取技能模板（大小写不敏感、忽略空格；与物品名查找同口径）。
+    #[must_use]
+    pub fn magic_by_name(&self, name: &str) -> Option<&MagicInfo> {
+        let key = normalize_item_name(name);
+        self.db
+            .magics
+            .iter()
+            .find(|info| normalize_item_name(&info.name) == key)
+    }
+
+    /// 已加载的技能模板数量（去重前，即数据库里的原始条数）。
+    #[must_use]
+    pub fn magic_count(&self) -> usize {
+        self.db.magics.len()
+    }
+
+    /// 去重后能按 `Spell` 查到模板的数量（Crystal `MagicInfoList.Count`）。
+    #[must_use]
+    pub fn distinct_magic_count(&self) -> usize {
+        self.magic_by_spell.len()
     }
 
     /// 某只怪的掉落表（Crystal `MonsterInfo.Drops`，`Envir.cs:5405-5419` 加载）。

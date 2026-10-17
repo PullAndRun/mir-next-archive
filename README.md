@@ -181,6 +181,7 @@ python tools/protocol-gen/generate.py --crystal /path/to/Crystal
 | [`docs/protocol/login-flow.md`](docs/protocol/login-flow.md) | 连接生命周期、账号与角色流程、状态机、结果码 |
 | [`docs/store/schema.md`](docs/store/schema.md) | 账号/角色的持久化字段与存档触发点 |
 | [`docs/store/mirdb-format.md`](docs/store/mirdb-format.md) | Crystal 二进制世界库与账号库的容器格式 |
+| [`docs/store/drops.md`](docs/store/drops.md) | 掉落表（`Envir/Drops/*.txt`）的格式与掷骰语义 |
 | [`docs/world/map-format.md`](docs/world/map-format.md) | `.map` 各版本格式与真实文件实测 |
 | [`docs/world/movement.md`](docs/world/movement.md) | 走/跑/转身的判定与计时 |
 | [`docs/world/tick-loop.md`](docs/world/tick-loop.md) | 世界循环与计时模型 |

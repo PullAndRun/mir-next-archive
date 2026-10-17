@@ -1,0 +1,19 @@
+[package]
+name = "mir-asset"
+description = "《传奇-Next》素材层：Crystal 图像库（.Lib / .wzl+.wzx）的解析与像素解码"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+flate2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+png.workspace = true
+
+[lints]
+workspace = true

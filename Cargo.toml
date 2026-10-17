@@ -30,6 +30,7 @@ mir-render = { path = "crates/mir-render" }
 mir-store = { path = "crates/mir-store" }
 mir-world = { path = "crates/mir-world" }
 
+ab_glyph = "0.2"
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 flate2 = "1"

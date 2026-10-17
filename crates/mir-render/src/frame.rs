@@ -34,6 +34,61 @@ pub struct Frame {
     pub pixels: Vec<u8>,
 }
 
+/// 把图像按最近邻缩放到不超过 `max_width × max_height`（不放大）。
+///
+/// 背包/商店的格子比素材里的物品图标小，直接用原图会压到相邻格子；这个函数
+/// 保持纵横比缩到格子里。已经放得下时原样返回。空图/非法尺寸返回克隆。
+#[must_use]
+pub fn scale_to_fit(image: &Image, max_width: u32, max_height: u32) -> Image {
+    let source_width = u32::from(image.info.width);
+    let source_height = u32::from(image.info.height);
+    if source_width == 0
+        || source_height == 0
+        || max_width == 0
+        || max_height == 0
+        || (source_width <= max_width && source_height <= max_height)
+    {
+        return image.clone();
+    }
+    let width_ratio = f64::from(max_width) / f64::from(source_width);
+    let height_ratio = f64::from(max_height) / f64::from(source_height);
+    let ratio = width_ratio.min(height_ratio);
+    let target_width = ((f64::from(source_width) * ratio).floor() as u32).max(1);
+    let target_height = ((f64::from(source_height) * ratio).floor() as u32).max(1);
+    let mut pixels = vec![0u8; usize::try_from(target_width * target_height * 4).unwrap_or(0)];
+    for y in 0..target_height {
+        let source_y = y * source_height / target_height;
+        for x in 0..target_width {
+            let source_x = x * source_width / target_width;
+            let source_offset =
+                usize::try_from((source_y * source_width + source_x) * 4).unwrap_or(0);
+            let target_offset = usize::try_from((y * target_width + x) * 4).unwrap_or(0);
+            if let (Some(source), Some(target)) = (
+                image.pixels.get(source_offset..source_offset + 4),
+                pixels.get_mut(target_offset..target_offset + 4),
+            ) {
+                target.copy_from_slice(source);
+            }
+        }
+    }
+    Image {
+        info: mir_asset::ImageInfo {
+            width: u16::try_from(target_width).unwrap_or(u16::MAX),
+            height: u16::try_from(target_height).unwrap_or(u16::MAX),
+            offset_x: 0,
+            offset_y: 0,
+            format: mir_asset::format::RGBA32_GZIP,
+            shadow_x: 0,
+            shadow_y: 0,
+            reserved: [0; 3],
+            has_mask: false,
+            data_offset: 0,
+            data_len: 0,
+        },
+        pixels,
+    }
+}
+
 impl Frame {
     /// 新建一帧，像素全 0（透明黑）。
     ///
@@ -93,7 +148,9 @@ impl Frame {
 
     /// 用同一种颜色填充一个矩形；坐标为像素坐标，越界部分自动裁剪。
     ///
-    /// 实体占位方块、血条与调试标记用。宽或高为 0 时什么都不做。
+    /// 帧缓冲是**不透明**画布：目标 alpha 一律写回 255，`color[3]` 被忽略。
+    /// 需要真正半透明时用 [`Frame::fill_rect_alpha`]（把 alpha 混进 RGB）。
+    /// 实体占位方块、血条、面板格子与调试标记用。宽或高为 0 时什么都不做。
     pub fn fill_rect(&mut self, x: i32, y: i32, width: u32, height: u32, color: [u8; 4]) {
         let left = i64::from(x).max(0);
         let top = i64::from(y).max(0);
@@ -102,14 +159,56 @@ impl Frame {
         if left >= right || top >= bottom {
             return;
         }
+        let opaque = [color[0], color[1], color[2], 255];
         for destination_y in top..bottom {
             let row =
                 usize::try_from((destination_y * i64::from(self.width) + left) * 4).unwrap_or(0);
             for destination_x in left..right {
                 let offset = row + usize::try_from(destination_x - left).unwrap_or(0) * 4;
                 if let Some(target) = self.pixels.get_mut(offset..offset + 4) {
-                    target.copy_from_slice(&color);
+                    target.copy_from_slice(&opaque);
                 }
+            }
+        }
+    }
+
+    /// 把一个像素以 source-over 方式混合进帧（`alpha` 与 `color[3]` 相乘）。
+    ///
+    /// 文字光栅化用：覆盖度作为 alpha 传进来，颜色本身可以是任意 RGBA。
+    /// 越界时什么都不做。
+    pub fn blend_pixel(&mut self, x: i32, y: i32, color: [u8; 4], alpha: u8) {
+        let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
+            return;
+        };
+        if x >= self.width || y >= self.height {
+            return;
+        }
+        let offset = pixel_offset(self.width, x, y);
+        let source = [color[0], color[1], color[2], alpha];
+        blend_pixel(&mut self.pixels, offset, &source, BlendMode::Over);
+    }
+
+    /// 用带 alpha 的颜色填充矩形（半透明 UI 背板）。
+    ///
+    /// 与 [`Frame::fill_rect`] 一样自动裁剪越界部分；`color[3]` 是混合用的 alpha。
+    pub fn fill_rect_alpha(&mut self, x: i32, y: i32, width: u32, height: u32, color: [u8; 4]) {
+        if color[3] == 0 || width == 0 || height == 0 {
+            return;
+        }
+        let left = i64::from(x).max(0);
+        let top = i64::from(y).max(0);
+        let right = (i64::from(x) + i64::from(width)).min(i64::from(self.width));
+        let bottom = (i64::from(y) + i64::from(height)).min(i64::from(self.height));
+        if left >= right || top >= bottom {
+            return;
+        }
+        let source = [color[0], color[1], color[2], color[3]];
+        for destination_y in top..bottom {
+            let row =
+                usize::try_from((destination_y * i64::from(self.width) + left) * 4).unwrap_or(0);
+            for destination_x in left..right {
+                let offset = row + usize::try_from(destination_x - left).unwrap_or(0) * 4;
+                blend_pixel(&mut self.pixels, offset, &source, BlendMode::Over);
             }
         }
     }
@@ -463,5 +562,23 @@ mod tests {
         frame.clear([0, 0, 0, 255]);
         frame.pixels[0..4].copy_from_slice(&[10, 20, 30, 0]);
         assert_eq!(frame.distinct_color_count(), 2);
+    }
+
+    #[test]
+    fn scale_to_fit_preserves_aspect_ratio_and_never_upscales() {
+        let image = test_image(8, 4, vec![255; 8 * 4 * 4]);
+        let scaled = scale_to_fit(&image, 4, 4);
+        assert_eq!((scaled.info.width, scaled.info.height), (4, 2));
+        assert_eq!(scaled.pixels.len(), 4 * 2 * 4);
+        let untouched = scale_to_fit(&image, 100, 100);
+        assert_eq!((untouched.info.width, untouched.info.height), (8, 4));
+        assert_eq!(untouched.pixels, image.pixels);
+    }
+
+    #[test]
+    fn fill_rect_always_writes_opaque_pixels() {
+        let mut frame = Frame::new(1, 1);
+        frame.fill_rect(0, 0, 1, 1, [10, 20, 30, 40]);
+        assert_eq!(frame.pixel(0, 0), Some([10, 20, 30, 255]));
     }
 }

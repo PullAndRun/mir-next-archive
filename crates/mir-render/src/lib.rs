@@ -61,12 +61,17 @@
 //! * 地图背景图（`DrawBackground`，`GameScene.cs:10765-10785`：只有 `ID1`/`ID2`
 //!   等少数地图名才画）与 Shanda 瓦片动画层（`MapLibs[190] AniTiles1`，
 //!   `GameScene.cs:10825-10836`；v0 地图没有 `TileAnimationImage` 数据）；
-//! * 角色的头发/武器/坐骑/特效、NPC 对话框与所有 UI（见下节）；
-//! * 实体名字文字（`name` 字段已保留，但没有字体）。
+//! * 角色的头发/武器/坐骑/特效（UI 在 `mir-client` 里，用本 crate 的文字与图库原语绘制）；
+//! * 实体名字文字（[`text`] 已能画中文，但实体层还没接名字绘制）。
 //! * 门的开关状态：静态帧按「门关闭」处理，不做 `DoorOffset` 的帧号调整
 //!   （`GameScene.cs:10902-10917`）；
 //! * 后层/中层的动画：v0 的客户端读不到这两层的动画字节（`MapCode.cs:239-253`），
 //!   只有前层动画会随 [`MapScene::set_animation_frame`] 播放。
+//!
+//! # 文字
+//!
+//! [`text`] 模块用 `ab_glyph` 栅格化 TrueType 字体，支持中文；[`pixel`] 是找不到字体时
+//! 的 3×5 点阵兜底。UI 本身在 `mir-client` 里，本 crate 只提供「文字 → RGBA」原语。
 //!
 //! # 实体层
 //!
@@ -147,6 +152,7 @@ mod error;
 mod frame;
 pub mod geometry;
 mod scene;
+pub mod text;
 mod tiles;
 
 pub use entities::{
@@ -156,9 +162,12 @@ pub use entities::{
     npc_library, player_standing_frame,
 };
 pub use error::RenderError;
-pub use frame::Frame;
+pub use frame::{Frame, scale_to_fit};
 pub use geometry::{CELL_HEIGHT, CELL_WIDTH, Viewport};
+// 客户端 UI 画物品图标时需要 `Image` 的尺寸/像素字段，但不应直接依赖 `mir-asset`。
+pub use mir_asset::Image;
 pub use scene::MapScene;
+pub use text::{TextClip, TextError, TextRenderer, font_candidates, pixel};
 pub use tiles::{LIBRARY_FILES, TileLibraries};
 
 /// 帧缓冲的默认背景色：不透明黑（`MapControl.BackColour = Color.Black`，

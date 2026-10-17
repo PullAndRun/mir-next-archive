@@ -165,6 +165,15 @@ impl MapScene {
         self.entities.cache_len()
     }
 
+    /// 取一张物品图标（`items.wzl`，缺失时回退 `dnitems.wzl`）。
+    ///
+    /// 背包与商店面板用它画格子里的物品图；素材缺失时返回 `None`，调用方退化成
+    /// 文字占位，不影响界面其余部分。
+    #[must_use]
+    pub fn item_icon(&mut self, image: u16) -> Option<Image> {
+        self.entities.item_icon(image)
+    }
+
     /// 当前动画计数。
     #[must_use]
     pub const fn animation_frame(&self) -> u32 {

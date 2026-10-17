@@ -38,6 +38,37 @@
 //! [`WorldSnapshot`] 是渲染层的唯一输入：它由 `ServerPacket` 增量更新，客户端每批
 //! 包处理完把整个快照克隆给 UI。快照里的 `packet_counts` 记录收到过的包种类，
 //! 端到端测试用它断言 `UserInformation`、`ObjectMonster`、`UserLocation` 都到了。
+//!
+//! # 界面消费的包
+//!
+//! | 包 | 快照字段 / 用途 |
+//! |---|---|
+//! | `S.UserInformation` | 自己、`inventory`、`magics`、金币、HP/MP |
+//! | `S.NewItemInfo` | `item_infos`：物品名/图标号/价格/堆叠上限 |
+//! | `S.GainedItem` | 并入背包（可堆叠物品先并堆）；系统聊天 |
+//! | `S.MoveItem` | 背包内交换（`grid = Inventory` 且 `success`） |
+//! | `S.EquipItem` / `S.RemoveItem` | 装备离/回背包（见下方已知差异） |
+//! | `S.DeleteItem` | 按数量移除背包物品 |
+//! | `S.RefreshItem` | 用新数据替换同 `unique_id` 的物品（Crystal 的 `ItemChanged`） |
+//! | `S.ItemRepaired` | 更新持久度 |
+//! | `S.NPCResponse` | `npc_dialog`：原文行 + 版本号 + 最近 NPC 的 `object_id` |
+//! | `S.NPCGoods` | `npc_goods`：货架 + 价格倍率（物品名/价格来自 `item_infos`） |
+//! | `S.NPCSell` / `S.NPCRepair` / `S.NPCSRepair` | 商店面板的「可出售/可修理」提示 |
+//! | `S.NewMagic` / `S.MagicLeveled` / `S.RemoveMagic` | `magics` |
+//! | `S.GainedGold` / `S.LoseGold` | 金币 |
+//! | `S.Chat` / `S.ObjectChat` | 聊天面板 |
+//! | `S.MapInformation` / `S.NewMapInfo` / `S.MapChanged` | 地图名与 NPC 列表 |
+//!
+//! # 与 Crystal 客户端的已知差异
+//!
+//! * **没有 `ItemChanged` / `LostItem` 这两条包**：Crystal 里对应 `S.RefreshItem`
+//!   与 `S.DeleteItem`，这里按它们实现。
+//! * **换下的旧装备不回背包快照**：`S.EquipItem` 只带被穿上的物品 ID，换下来的旧装备
+//!   数据不在包里，要等下一次 `S.UserInformation` 才能补全；`S.RemoveItem` 同理。
+//! * **`S.NPCResponse` 不带 NPC 对象 ID**：客户端取离自己最近的 NPC 作为对话对象
+//!   （[`WorldSnapshot::nearest_npc`]）；世界点击 NPC 时会直接记下被点的对象。
+//! * **最大 HP/MP 不在协议里**：状态栏进度条用「本次会话见过的最高值」近似，
+//!   数字显示为 `当前/高水位`，见 [`SelfPlayer::hp_max`]。
 
 use std::collections::BTreeMap;
 use std::io::{ErrorKind, Read, Write};
@@ -48,8 +79,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
 use mir_core::Point;
-use mir_core::enums::{ChatType, MirClass, MirDirection, MirGender};
+use mir_core::enums::{ChatType, MirClass, MirDirection, MirGender, MirGridType, PanelType, Spell};
 use mir_protocol::codec::FrameBuffer;
+use mir_protocol::data::{ClientMagic, ItemInfo, UserItem};
 use mir_protocol::packets::client as c;
 use mir_protocol::{ClientPacket, DateTimeBinary, ServerPacket};
 use mir_render::{EntityKind, EntityView};
@@ -148,6 +180,59 @@ pub enum NetCommand {
     PickUp,
     /// 聊天（`C.Chat`）。
     Chat(String),
+    /// 点 NPC 按钮（`C.CallNPC`）；`key = "@exit"` 关闭对话。
+    CallNpc {
+        /// NPC 对象 ID。
+        object_id: u32,
+        /// 脚本页键（含 `@`）。
+        key: String,
+    },
+    /// 买一件商品（`C.BuyItem`）；`unique_id` 是商店物品的唯一编号。
+    BuyItem {
+        /// 商店物品唯一编号。
+        unique_id: u64,
+        /// 数量。
+        count: u16,
+    },
+    /// 卖背包物品（`C.SellItem`）。
+    SellItem {
+        /// 背包物品唯一编号。
+        unique_id: u64,
+        /// 数量。
+        count: u16,
+    },
+    /// 修理背包物品（`C.RepairItem`）。
+    RepairItem {
+        /// 背包物品唯一编号。
+        unique_id: u64,
+    },
+    /// 丢弃背包物品（`C.DropItem`）。
+    DropItem {
+        /// 背包物品唯一编号。
+        unique_id: u64,
+        /// 数量。
+        count: u16,
+    },
+    /// 施法（`C.Magic`）。
+    Magic {
+        /// 技能。
+        spell: Spell,
+        /// 朝向。
+        direction: MirDirection,
+        /// 目标对象 ID（0 表示无目标）。
+        target_id: u32,
+        /// 目标格。
+        location: Point,
+    },
+    /// 重新绑定技能快捷键（`C.MagicKey`）。
+    MagicKey {
+        /// 技能。
+        spell: Spell,
+        /// 新按键（1..=9）。
+        key: u8,
+        /// 旧按键。
+        old_key: u8,
+    },
     /// 关闭连接。
     Quit,
 }
@@ -195,6 +280,10 @@ pub struct SelfPlayer {
     pub hp: i32,
     /// 当前 MP。
     pub mp: i32,
+    /// 本次会话见过的最高 HP（协议不发最大生命，用高水位近似进度条）。
+    pub hp_max: i32,
+    /// 本次会话见过的最高 MP。
+    pub mp_max: i32,
     /// 等级。
     pub level: u16,
     /// 职业。
@@ -252,6 +341,166 @@ impl ChatLine {
     }
 }
 
+/// 背包物品（`UserItem` 的界面子集）。
+///
+/// 只保留画格子需要的四个字段；镶嵌、觉醒、封印等复杂数据留在服务端/协议层，
+/// 等以后做装备提示框时再扩展。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InventoryItem {
+    /// 唯一编号（`C.DropItem`/`C.SellItem`/`C.RepairItem` 用它定位）。
+    pub unique_id: u64,
+    /// 模板编号（指向 [`ItemInfoView`]）。
+    pub item_index: i32,
+    /// 堆叠数量。
+    pub count: u16,
+    /// 当前持久度。
+    pub current_dura: u16,
+    /// 最大持久度。
+    pub max_dura: u16,
+}
+
+impl InventoryItem {
+    /// 从协议物品里抽取界面字段。
+    #[must_use]
+    pub fn from_user_item(item: &UserItem) -> Self {
+        Self {
+            unique_id: item.unique_id,
+            item_index: item.item_index,
+            count: item.count,
+            current_dura: item.current_dura,
+            max_dura: item.max_dura,
+        }
+    }
+}
+
+/// 物品模板（`S.NewItemInfo`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemInfoView {
+    /// 模板编号。
+    pub index: i32,
+    /// 名称（服务端已本地化）。
+    pub name: String,
+    /// `items.wzl` 图像号。
+    pub image: u16,
+    /// 基础价格。
+    pub price: u32,
+    /// 最大堆叠数（1 表示不可堆叠）。
+    pub stack_size: u16,
+}
+
+impl ItemInfoView {
+    /// 从协议模板里抽取界面字段。
+    #[must_use]
+    pub fn from_item_info(info: &ItemInfo) -> Self {
+        Self {
+            index: info.index,
+            name: info.name.clone(),
+            image: info.image,
+            price: info.price,
+            stack_size: info.stack_size,
+        }
+    }
+}
+
+/// 已学技能（`ClientMagic` 的界面子集）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MagicView {
+    /// 技能名。
+    pub name: String,
+    /// 技能编号。
+    pub spell: Spell,
+    /// 当前等级。
+    pub level: u8,
+    /// 绑定的快捷键（0 或 10 以上表示未绑定）。
+    pub key: u8,
+    /// 基础耗蓝。
+    pub base_cost: u8,
+    /// 图标编号（未使用）。
+    pub icon: u8,
+    /// 施法距离。
+    pub range: u8,
+}
+
+impl MagicView {
+    /// 从协议技能里抽取界面字段。
+    #[must_use]
+    pub fn from_client_magic(magic: &ClientMagic) -> Self {
+        Self {
+            name: magic.name.clone(),
+            spell: magic.spell,
+            level: magic.level,
+            key: magic.key,
+            base_cost: magic.base_cost,
+            icon: magic.icon,
+            range: magic.range,
+        }
+    }
+}
+
+/// NPC 对话页（`S.NPCResponse`）。
+///
+/// `version` 每收到一页就递增，UI 用它判断「这是新一页」而不是靠文本比较。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NpcDialog {
+    /// 页面正文（原始文本，按键标记由 UI 解析）。
+    pub lines: Vec<String>,
+    /// 发起对话的 NPC 对象 ID（取离自己最近的 NPC；服务端包里不带这个字段）。
+    pub object_id: Option<u32>,
+    /// 递增版本号。
+    pub version: u64,
+}
+
+/// 商店货架条目（`S.NPCGoods` + `S.NewItemInfo` 拼出来）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShopEntry {
+    /// 商店物品的唯一编号（`C.BuyItem.ItemIndex` 用的就是它）。
+    pub unique_id: u64,
+    /// 模板编号。
+    pub item_index: i32,
+    /// 名称。
+    pub name: String,
+    /// `items.wzl` 图像号。
+    pub image: u16,
+    /// 单价。
+    pub price: u32,
+    /// 货架数量。
+    pub count: u16,
+    /// 当前持久度。
+    pub current_dura: u16,
+    /// 最大持久度。
+    pub max_dura: u16,
+}
+
+/// 商店货架（`S.NPCGoods`）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShopGoods {
+    /// 货架条目。
+    pub list: Vec<ShopEntry>,
+    /// 价格倍率（`NPCScript.PriceRate`）。
+    pub rate: f32,
+    /// 递增版本号。
+    pub version: u64,
+}
+
+impl ShopGoods {
+    /// 货架是否为空。
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
+}
+
+/// NPC 面板开关（`S.NPCSell` / `S.NPCRepair` / `S.NPCSRepair`）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NpcPanels {
+    /// 可以出售（`S.NPCSell`）。
+    pub sell: bool,
+    /// 可以普通修理（`S.NPCRepair`）。
+    pub repair: bool,
+    /// 可以特修（`S.NPCSRepair`）。
+    pub special_repair: bool,
+}
+
 /// 客户端看到的世界。
 #[derive(Debug, Clone)]
 pub struct WorldSnapshot {
@@ -265,10 +514,22 @@ pub struct WorldSnapshot {
     pub entities: BTreeMap<u32, WorldEntity>,
     /// 聊天记录（最新在末尾，最多 [`CHAT_LOG_LIMIT`] 条）。
     pub chat: Vec<ChatLine>,
-    /// NPC 对话页（`S.NPCResponse` 的原文行）。
-    pub npc_dialog: Option<Vec<String>>,
-    /// 最近一次商店商品数量（`S.NPCGoods`，没有 UI，只记数量）。
-    pub npc_goods: Option<usize>,
+    /// 背包（`S.UserInformation.Inventory`；`None` 槽位为空，长度固定 46）。
+    pub inventory: Vec<Option<InventoryItem>>,
+    /// 物品模板（`S.NewItemInfo`，按模板编号索引）。
+    pub item_infos: BTreeMap<i32, ItemInfoView>,
+    /// 已学技能（`S.UserInformation.Magics` + `S.NewMagic`/`S.MagicLeveled`）。
+    pub magics: Vec<MagicView>,
+    /// 当前 NPC 对话页（`S.NPCResponse`）。
+    pub npc_dialog: Option<NpcDialog>,
+    /// 当前商店货架（`S.NPCGoods`）。
+    pub npc_goods: Option<ShopGoods>,
+    /// NPC 面板提示（卖/修理）。
+    pub npc_panels: NpcPanels,
+    /// 收到过多少页 NPC 对话（版本号来源）。
+    pub npc_dialog_version: u64,
+    /// 收到过多少次商店货架（版本号来源）。
+    pub npc_goods_version: u64,
     /// 收到过的包种类 → 次数。
     pub packet_counts: BTreeMap<&'static str, u32>,
     /// 解析失败的包数量。
@@ -285,8 +546,14 @@ impl Default for WorldSnapshot {
             self_player: None,
             entities: BTreeMap::new(),
             chat: Vec::new(),
+            inventory: Vec::new(),
+            item_infos: BTreeMap::new(),
+            magics: Vec::new(),
             npc_dialog: None,
             npc_goods: None,
+            npc_panels: NpcPanels::default(),
+            npc_dialog_version: 0,
+            npc_goods_version: 0,
             packet_counts: BTreeMap::new(),
             decode_errors: 0,
             last_error: None,
@@ -305,6 +572,65 @@ impl WorldSnapshot {
     #[must_use]
     pub fn packet_count(&self, name: &str) -> u32 {
         self.packet_counts.get(name).copied().unwrap_or(0)
+    }
+
+    /// 用一条服务端包更新快照。
+    ///
+    /// 网络线程内部每解码一个包就调用一次；无头 UI 测试也用它注入假的
+    /// `NPCResponse`/`NPCGoods`/`UserInformation`，不需要真实 NPC。
+    pub fn apply_packet(&mut self, packet: &ServerPacket) {
+        apply_packet_to(self, packet);
+    }
+
+    /// 取物品模板。
+    #[must_use]
+    pub fn item_info(&self, item_index: i32) -> Option<&ItemInfoView> {
+        self.item_infos.get(&item_index)
+    }
+
+    /// 物品图标号（没有模板时返回 `None`）。
+    #[must_use]
+    pub fn item_image(&self, item_index: i32) -> Option<u16> {
+        self.item_info(item_index).map(|info| info.image)
+    }
+
+    /// 物品单价（没有模板时返回 `None`）。
+    #[must_use]
+    pub fn item_price(&self, item_index: i32) -> Option<u32> {
+        self.item_info(item_index).map(|info| info.price)
+    }
+
+    /// 取背包格；越界或空格返回 `None`。
+    #[must_use]
+    pub fn inventory_item(&self, slot: usize) -> Option<&InventoryItem> {
+        self.inventory.get(slot).and_then(Option::as_ref)
+    }
+
+    /// 按唯一编号找背包格。
+    #[must_use]
+    pub fn inventory_slot_of(&self, unique_id: u64) -> Option<usize> {
+        self.inventory.iter().position(|item| {
+            item.as_ref()
+                .is_some_and(|item| item.unique_id == unique_id)
+        })
+    }
+
+    /// 离自己最近的 NPC（对话对象推断；没有 NPC 时返回 `None`）。
+    #[must_use]
+    pub fn nearest_npc(&self) -> Option<&WorldEntity> {
+        let me = self.self_player.as_ref()?;
+        self.entities
+            .values()
+            .filter(|entity| entity.kind == EntityKind::Npc)
+            .min_by_key(|entity| me.position.max_distance(entity.position))
+    }
+
+    /// 取某个格子上的 NPC（世界点击对话用）。
+    #[must_use]
+    pub fn npc_at(&self, cell: Point) -> Option<&WorldEntity> {
+        self.entities
+            .values()
+            .find(|entity| entity.kind == EntityKind::Npc && entity.position == cell)
     }
 
     /// 转成渲染层的实体列表：自己 + 其他对象。
@@ -502,7 +828,7 @@ fn session(
                 while let Some((index, payload)) = frames.next_frame()? {
                     match ServerPacket::decode(index, &payload) {
                         Ok(packet) => {
-                            apply_packet(&mut snapshot, &packet);
+                            apply_packet_to(&mut snapshot, &packet);
                             advance(&mut stream, options, &mut stage, &mut snapshot, &packet)?;
                             dirty = true;
                         }
@@ -767,6 +1093,47 @@ fn handle_command(
                 linked_items: Vec::new(),
             })
         }
+        NetCommand::CallNpc { object_id, key } => {
+            ClientPacket::CallNPC(c::CallNPC { object_id, key })
+        }
+        NetCommand::BuyItem { unique_id, count } => ClientPacket::BuyItem(c::BuyItem {
+            item_index: unique_id,
+            count,
+            type_: PanelType::Buy,
+        }),
+        NetCommand::SellItem { unique_id, count } => {
+            ClientPacket::SellItem(c::SellItem { unique_id, count })
+        }
+        NetCommand::RepairItem { unique_id } => {
+            ClientPacket::RepairItem(c::RepairItem { unique_id })
+        }
+        NetCommand::DropItem { unique_id, count } => ClientPacket::DropItem(c::DropItem {
+            unique_id,
+            count,
+            hero_inventory: false,
+        }),
+        NetCommand::Magic {
+            spell,
+            direction,
+            target_id,
+            location,
+        } => ClientPacket::Magic(c::Magic {
+            spell,
+            direction,
+            target_id,
+            location,
+            object_id: snapshot.self_player.as_ref().map_or(0, |me| me.object_id),
+            spell_target_lock: false,
+        }),
+        NetCommand::MagicKey {
+            spell,
+            key,
+            old_key,
+        } => ClientPacket::MagicKey(c::MagicKey {
+            spell,
+            key,
+            old_key,
+        }),
         NetCommand::Quit => return Ok(()),
     };
     send(stream, &packet)
@@ -820,13 +1187,26 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
         ServerPacket::HealthChanged(_) => "HealthChanged",
         ServerPacket::ObjectHealth(_) => "ObjectHealth",
         ServerPacket::LevelChanged(_) => "LevelChanged",
+        ServerPacket::NewItemInfo(_) => "NewItemInfo",
         ServerPacket::GainedItem(_) => "GainedItem",
         ServerPacket::GainedGold(_) => "GainedGold",
         ServerPacket::LoseGold(_) => "LoseGold",
+        ServerPacket::MoveItem(_) => "MoveItem",
+        ServerPacket::EquipItem(_) => "EquipItem",
+        ServerPacket::RemoveItem(_) => "RemoveItem",
+        ServerPacket::DeleteItem(_) => "DeleteItem",
+        ServerPacket::RefreshItem(_) => "RefreshItem",
+        ServerPacket::ItemRepaired(_) => "ItemRepaired",
+        ServerPacket::NewMagic(_) => "NewMagic",
+        ServerPacket::RemoveMagic(_) => "RemoveMagic",
+        ServerPacket::MagicLeveled(_) => "MagicLeveled",
         ServerPacket::Chat(_) => "Chat",
         ServerPacket::ObjectChat(_) => "ObjectChat",
         ServerPacket::NPCResponse(_) => "NPCResponse",
         ServerPacket::NPCGoods(_) => "NPCGoods",
+        ServerPacket::NPCSell(_) => "NPCSell",
+        ServerPacket::NPCRepair(_) => "NPCRepair",
+        ServerPacket::NPCSRepair(_) => "NPCSRepair",
         ServerPacket::ObjectName(_) => "ObjectName",
         ServerPacket::PlayerUpdate(_) => "PlayerUpdate",
         ServerPacket::Disconnect(_) => "Disconnect",
@@ -835,7 +1215,7 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
 }
 
 /// 用一条服务端包更新快照。
-fn apply_packet(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
+fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
     *snapshot
         .packet_counts
         .entry(packet_name(packet))
@@ -890,6 +1270,10 @@ fn apply_packet(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
                 height: 0,
             });
             snapshot.entities.clear();
+            // 换地图等于离开当前 NPC，UI 必须把对话/商店收起来。
+            snapshot.npc_dialog = None;
+            snapshot.npc_goods = None;
+            snapshot.npc_panels = NpcPanels::default();
             if let Some(me) = &mut snapshot.self_player {
                 me.position = changed.location;
                 me.direction = changed.direction;
@@ -903,6 +1287,8 @@ fn apply_packet(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
                 direction: info.direction,
                 hp: info.hp,
                 mp: info.mp,
+                hp_max: info.hp.max(1),
+                mp_max: info.mp.max(1),
                 level: info.level,
                 class: info.class,
                 gender: info.gender,
@@ -910,6 +1296,18 @@ fn apply_packet(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
                 gold: info.gold,
                 dead: false,
             });
+            // `Inventory = null` 表示「客户端保留旧数据」（Crystal 的语义）。
+            if let Some(inventory) = &info.inventory {
+                snapshot.inventory = inventory
+                    .iter()
+                    .map(|item| item.as_ref().map(InventoryItem::from_user_item))
+                    .collect();
+            }
+            snapshot.magics = info
+                .magics
+                .iter()
+                .map(MagicView::from_client_magic)
+                .collect();
         }
         ServerPacket::UserLocation(location) => {
             if let Some(me) = &mut snapshot.self_player {
@@ -1067,6 +1465,8 @@ fn apply_packet(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
             if let Some(me) = &mut snapshot.self_player {
                 me.hp = health.hp;
                 me.mp = health.mp;
+                me.hp_max = me.hp_max.max(health.hp).max(1);
+                me.mp_max = me.mp_max.max(health.mp).max(1);
             }
         }
         ServerPacket::LevelChanged(level) => {
@@ -1074,15 +1474,85 @@ fn apply_packet(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
                 me.level = level.level;
             }
         }
+        ServerPacket::NewItemInfo(info) => {
+            snapshot
+                .item_infos
+                .insert(info.info.index, ItemInfoView::from_item_info(&info.info));
+        }
+        ServerPacket::MoveItem(movement) => {
+            // 只有背包内的交换能直接映射到界面格子；装备/仓库等网格本作还没有面板。
+            if movement.success && movement.grid == MirGridType::Inventory {
+                snap_move_inventory(snapshot, movement.from, movement.to);
+            }
+        }
+        ServerPacket::EquipItem(equipped) => {
+            // 穿上的物品离开背包；换下来的旧装备不在本作背包快照里（见模块文档的已知差异）。
+            if equipped.success && equipped.grid == MirGridType::Inventory {
+                remove_inventory_item(snapshot, equipped.unique_id);
+            }
+        }
+        ServerPacket::RemoveItem(removed) => {
+            // 脱下装备会回到背包，但 `S.RemoveItem` 不带物品数据，等下一次
+            // `S.UserInformation` 再补全；这里至少让旧格子空出来。
+            if removed.success && removed.grid == MirGridType::Inventory {
+                remove_inventory_item(snapshot, removed.unique_id);
+            }
+        }
+        ServerPacket::DeleteItem(deleted) => {
+            delete_inventory_item(snapshot, deleted.unique_id, deleted.count);
+        }
+        ServerPacket::RefreshItem(refreshed) => {
+            refresh_inventory_item(snapshot, &refreshed.item);
+        }
+        ServerPacket::ItemRepaired(repaired) => {
+            if let Some(slot) = snapshot.inventory_slot_of(repaired.unique_id) {
+                if let Some(item) = snapshot.inventory.get_mut(slot).and_then(Option::as_mut) {
+                    item.current_dura = repaired.current_dura;
+                    item.max_dura = repaired.max_dura;
+                }
+            }
+        }
+        ServerPacket::NewMagic(magic) => {
+            let view = MagicView::from_client_magic(&magic.magic);
+            if let Some(existing) = snapshot
+                .magics
+                .iter_mut()
+                .find(|known| known.spell == view.spell)
+            {
+                *existing = view;
+            } else {
+                snapshot.magics.push(view);
+            }
+        }
+        ServerPacket::RemoveMagic(removed) => {
+            let index = usize::try_from(removed.place_id).ok();
+            if let Some(index) = index {
+                if index < snapshot.magics.len() {
+                    snapshot.magics.remove(index);
+                }
+            }
+        }
+        ServerPacket::MagicLeveled(leveled) => {
+            if let Some(magic) = snapshot
+                .magics
+                .iter_mut()
+                .find(|magic| magic.spell == leveled.spell)
+            {
+                magic.level = leveled.level;
+            }
+        }
         ServerPacket::GainedItem(gained) => {
+            let item = InventoryItem::from_user_item(&gained.item);
+            add_inventory_item(snapshot, item.clone());
+            let name = snapshot.item_info(item.item_index).map_or_else(
+                || format!("物品 #{}", item.item_index),
+                |info| info.name.clone(),
+            );
             push_chat(
                 snapshot,
                 ChatLine {
                     speaker: None,
-                    text: format!(
-                        "获得物品 #{} ×{}",
-                        gained.item.item_index, gained.item.count
-                    ),
+                    text: format!("获得 {name} ×{}", item.count),
                     kind: ChatType::System,
                 },
             );
@@ -1137,7 +1607,21 @@ fn apply_packet(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
         }
         ServerPacket::NPCResponse(response) => {
             tracing::info!(lines = response.page.len(), "NPC 对话");
-            snapshot.npc_dialog = Some(response.page.clone());
+            snapshot.npc_dialog_version = snapshot.npc_dialog_version.saturating_add(1);
+            let object_id = snapshot.nearest_npc().map(|npc| npc.object_id);
+            snapshot.npc_dialog = Some(NpcDialog {
+                lines: response.page.clone(),
+                object_id,
+                version: snapshot.npc_dialog_version,
+            });
+            // 每翻一页都先清掉旧货架/旧面板提示：服务端随后会为买/卖/修理页重新发
+            // `S.NPCGoods` / `S.NPCSell` 等；普通页面则不应继续显示上一页的商店。
+            snapshot.npc_goods = None;
+            snapshot.npc_panels = NpcPanels::default();
+            if response.page.is_empty() {
+                // 空正文 = 服务端确认关窗（`Client/MirScenes/GameScene.cs:3891-3907`）。
+                tracing::debug!("NPC 对话已关闭");
+            }
         }
         ServerPacket::NPCGoods(goods) => {
             tracing::info!(
@@ -1145,7 +1629,41 @@ fn apply_packet(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
                 rate = goods.rate,
                 "NPC 商店商品列表"
             );
-            snapshot.npc_goods = Some(goods.list.len());
+            snapshot.npc_goods_version = snapshot.npc_goods_version.saturating_add(1);
+            let list = goods
+                .list
+                .iter()
+                .map(|item| {
+                    let info = snapshot.item_infos.get(&item.item_index);
+                    ShopEntry {
+                        unique_id: item.unique_id,
+                        item_index: item.item_index,
+                        name: info.map_or_else(
+                            || format!("物品 #{}", item.item_index),
+                            |info| info.name.clone(),
+                        ),
+                        image: info.map_or(0, |info| info.image),
+                        price: info.map_or(0, |info| info.price),
+                        count: item.count,
+                        current_dura: item.current_dura,
+                        max_dura: item.max_dura,
+                    }
+                })
+                .collect();
+            snapshot.npc_goods = Some(ShopGoods {
+                list,
+                rate: goods.rate,
+                version: snapshot.npc_goods_version,
+            });
+        }
+        ServerPacket::NPCSell(_) => {
+            snapshot.npc_panels.sell = true;
+        }
+        ServerPacket::NPCRepair(_) => {
+            snapshot.npc_panels.repair = true;
+        }
+        ServerPacket::NPCSRepair(_) => {
+            snapshot.npc_panels.special_repair = true;
         }
         ServerPacket::ObjectName(name) => {
             update_entity(snapshot, name.object_id, |entity| {
@@ -1209,14 +1727,109 @@ fn push_chat(snapshot: &mut WorldSnapshot, line: ChatLine) {
     }
 }
 
+/// 背包内交换两个格子（`S.MoveItem`）。
+fn snap_move_inventory(snapshot: &mut WorldSnapshot, from: i32, to: i32) {
+    let (Ok(from), Ok(to)) = (usize::try_from(from), usize::try_from(to)) else {
+        return;
+    };
+    if from >= snapshot.inventory.len() || to >= snapshot.inventory.len() {
+        return;
+    }
+    snapshot.inventory.swap(from, to);
+}
+
+/// 把一件物品放进背包：可堆叠就先并进已有堆，否则找第一个空格。
+fn add_inventory_item(snapshot: &mut WorldSnapshot, item: InventoryItem) {
+    let stack_size = snapshot
+        .item_infos
+        .get(&item.item_index)
+        .map_or(1, |info| info.stack_size.max(1));
+    if stack_size > 1 {
+        let existing =
+            snapshot.inventory.iter_mut().flatten().find(|existing| {
+                existing.item_index == item.item_index && existing.count < stack_size
+            });
+        if let Some(existing) = existing {
+            let room = stack_size.saturating_sub(existing.count);
+            existing.count = existing.count.saturating_add(room.min(item.count));
+            return;
+        }
+    }
+    if let Some(slot) = snapshot.inventory.iter_mut().find(|slot| slot.is_none()) {
+        *slot = Some(item);
+    } else {
+        tracing::warn!(
+            item_index = item.item_index,
+            unique_id = item.unique_id,
+            "背包已满，丢弃新物品的界面记录"
+        );
+    }
+}
+
+/// 按唯一编号移除背包物品。
+fn remove_inventory_item(snapshot: &mut WorldSnapshot, unique_id: u64) {
+    if let Some(slot) = snapshot.inventory_slot_of(unique_id) {
+        if let Some(slot) = snapshot.inventory.get_mut(slot) {
+            *slot = None;
+        }
+    }
+}
+
+/// 按数量移除背包物品（`S.DeleteItem`）。
+fn delete_inventory_item(snapshot: &mut WorldSnapshot, unique_id: u64, count: u16) {
+    let Some(slot) = snapshot.inventory_slot_of(unique_id) else {
+        return;
+    };
+    let Some(item) = snapshot.inventory.get_mut(slot).and_then(Option::as_mut) else {
+        return;
+    };
+    if count >= item.count || item.count <= 1 {
+        if let Some(slot) = snapshot.inventory.get_mut(slot) {
+            *slot = None;
+        }
+    } else {
+        item.count -= count;
+    }
+}
+
+/// 用带新数据的 `S.RefreshItem` 更新背包里的同一件物品。
+fn refresh_inventory_item(snapshot: &mut WorldSnapshot, item: &UserItem) {
+    if let Some(slot) = snapshot.inventory_slot_of(item.unique_id) {
+        if let Some(existing) = snapshot.inventory.get_mut(slot) {
+            *existing = Some(InventoryItem::from_user_item(item));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use mir_core::enums::Monster as MonsterImage;
-    use mir_protocol::data::SelectInfo;
+    use mir_protocol::data::{ClientMagic, ItemInfo, SelectInfo, UserItem};
     use mir_protocol::packets::server::{
-        ObjectItem, ObjectMonster, ObjectWalk, UserInformation, UserLocation,
+        DeleteItem, MoveItem, NPCGoods, NPCResponse, NewItemInfo, ObjectItem, ObjectMonster,
+        ObjectNPC, ObjectWalk, UserInformation, UserLocation,
     };
+
+    fn test_item(unique_id: u64, item_index: i32, count: u16) -> UserItem {
+        UserItem {
+            unique_id,
+            item_index,
+            count,
+            ..UserItem::default()
+        }
+    }
+
+    fn test_item_info(index: i32, name: &str, price: u32, stack_size: u16) -> ItemInfo {
+        ItemInfo {
+            index,
+            name: name.to_owned(),
+            image: u16::try_from(index).unwrap_or(0),
+            price,
+            stack_size,
+            ..ItemInfo::default()
+        }
+    }
 
     fn user_information() -> UserInformation {
         UserInformation {
@@ -1239,71 +1852,53 @@ mod tests {
     #[test]
     fn snapshot_handles_login_and_entities() {
         let mut snapshot = WorldSnapshot::default();
-        apply_packet(
-            &mut snapshot,
-            &ServerPacket::UserInformation(user_information()),
-        );
+        snapshot.apply_packet(&ServerPacket::UserInformation(user_information()));
         assert_eq!(snapshot.packet_count("UserInformation"), 1);
         let me = snapshot.self_player.as_ref().expect("自己");
         assert_eq!(me.object_id, 7);
         assert_eq!(me.position, Point::new(330, 270));
 
-        apply_packet(
-            &mut snapshot,
-            &ServerPacket::ObjectMonster(ObjectMonster {
-                object_id: 8,
-                name: "骷髅".to_owned(),
-                image: MonsterImage::Skeleton,
-                location: Point::new(331, 271),
-                direction: MirDirection::Left,
-                ..ObjectMonster::default()
-            }),
-        );
-        apply_packet(
-            &mut snapshot,
-            &ServerPacket::ObjectItem(ObjectItem {
-                object_id: 9,
-                name: "金币".to_owned(),
-                location: Point::new(330, 271),
-                image: 112,
-                ..ObjectItem::default()
-            }),
-        );
+        snapshot.apply_packet(&ServerPacket::ObjectMonster(ObjectMonster {
+            object_id: 8,
+            name: "骷髅".to_owned(),
+            image: MonsterImage::Skeleton,
+            location: Point::new(331, 271),
+            direction: MirDirection::Left,
+            ..ObjectMonster::default()
+        }));
+        snapshot.apply_packet(&ServerPacket::ObjectItem(ObjectItem {
+            object_id: 9,
+            name: "金币".to_owned(),
+            location: Point::new(330, 271),
+            image: 112,
+            ..ObjectItem::default()
+        }));
         assert_eq!(snapshot.entities.len(), 2);
         assert_eq!(snapshot.entity_views().len(), 3);
 
-        apply_packet(
-            &mut snapshot,
-            &ServerPacket::ObjectWalk(ObjectWalk {
-                object_id: 8,
-                location: Point::new(332, 271),
-                direction: MirDirection::Right,
-            }),
-        );
+        snapshot.apply_packet(&ServerPacket::ObjectWalk(ObjectWalk {
+            object_id: 8,
+            location: Point::new(332, 271),
+            direction: MirDirection::Right,
+        }));
         assert_eq!(
             snapshot.entities[&8].position,
             Point::new(332, 271),
             "ObjectWalk 应更新怪物坐标"
         );
 
-        apply_packet(
-            &mut snapshot,
-            &ServerPacket::UserLocation(UserLocation {
-                location: Point::new(330, 271),
-                direction: MirDirection::Down,
-            }),
-        );
+        snapshot.apply_packet(&ServerPacket::UserLocation(UserLocation {
+            location: Point::new(330, 271),
+            direction: MirDirection::Down,
+        }));
         assert_eq!(
             snapshot.self_player.as_ref().unwrap().position,
             Point::new(330, 271)
         );
 
-        apply_packet(
-            &mut snapshot,
-            &ServerPacket::ObjectRemove(mir_protocol::packets::server::ObjectRemove {
-                object_id: 8,
-            }),
-        );
+        snapshot.apply_packet(&ServerPacket::ObjectRemove(
+            mir_protocol::packets::server::ObjectRemove { object_id: 8 },
+        ));
         assert!(!snapshot.entities.contains_key(&8));
     }
 
@@ -1353,5 +1948,131 @@ mod tests {
             Some(4)
         );
         assert!(find_character(&characters, "missing").is_none());
+    }
+
+    #[test]
+    fn inventory_tracks_user_information_gain_move_and_delete() {
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.apply_packet(&ServerPacket::NewItemInfo(NewItemInfo {
+            info: test_item_info(1, "金创药", 50, 100),
+        }));
+
+        let mut information = user_information();
+        information.inventory = Some(vec![
+            Some(test_item(11, 1, 3)),
+            None,
+            Some(test_item(12, 2, 1)),
+        ]);
+        information.magics = vec![ClientMagic {
+            name: "治愈术".to_owned(),
+            spell: Spell::Healing,
+            level: 1,
+            key: 1,
+            base_cost: 5,
+            ..ClientMagic::default()
+        }];
+        snapshot.apply_packet(&ServerPacket::UserInformation(information));
+        assert_eq!(snapshot.inventory.len(), 3);
+        assert_eq!(snapshot.inventory_item(0).map(|item| item.count), Some(3));
+        assert_eq!(snapshot.magics[0].name, "治愈术");
+        assert_eq!(snapshot.magics[0].spell, Spell::Healing);
+        assert_eq!(snapshot.item_info(1).map(|info| info.price), Some(50));
+
+        // 同模板可堆叠物品并入已有堆（3 + 5 = 8）。
+        snapshot.apply_packet(&ServerPacket::GainedItem(
+            mir_protocol::packets::server::GainedItem {
+                item: test_item(11, 1, 5),
+            },
+        ));
+        assert_eq!(snapshot.inventory_item(0).map(|item| item.count), Some(8));
+
+        // 背包内交换。
+        snapshot.apply_packet(&ServerPacket::MoveItem(MoveItem {
+            grid: MirGridType::Inventory,
+            from: 0,
+            to: 1,
+            success: true,
+        }));
+        assert!(snapshot.inventory_item(0).is_none());
+        assert_eq!(
+            snapshot.inventory_item(1).map(|item| item.unique_id),
+            Some(11)
+        );
+
+        // 删除整堆。
+        snapshot.apply_packet(&ServerPacket::DeleteItem(DeleteItem {
+            unique_id: 11,
+            count: 8,
+        }));
+        assert!(snapshot.inventory_item(1).is_none());
+        assert_eq!(snapshot.packet_count("DeleteItem"), 1);
+    }
+
+    #[test]
+    fn npc_dialog_and_shop_resolve_names_prices_and_nearest_npc() {
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.apply_packet(&ServerPacket::UserInformation(user_information()));
+        snapshot.apply_packet(&ServerPacket::ObjectNPC(ObjectNPC {
+            object_id: 42,
+            name: "测试商人".to_owned(),
+            image: 5,
+            location: Point::new(331, 270),
+            direction: MirDirection::Down,
+            ..ObjectNPC::default()
+        }));
+        snapshot.apply_packet(&ServerPacket::NPCResponse(NPCResponse {
+            page: vec!["欢迎光临".to_owned(), "<买东西/@BUY>".to_owned()],
+        }));
+        let dialog = snapshot.npc_dialog.as_ref().expect("对话页");
+        assert_eq!(dialog.lines.len(), 2);
+        assert_eq!(dialog.object_id, Some(42), "应取离自己最近的 NPC");
+        assert_eq!(dialog.version, 1);
+
+        snapshot.apply_packet(&ServerPacket::NewItemInfo(NewItemInfo {
+            info: test_item_info(2, "木剑", 100, 1),
+        }));
+        snapshot.apply_packet(&ServerPacket::NPCGoods(NPCGoods {
+            list: vec![test_item(99, 2, 1)],
+            rate: 1.0,
+            type_: PanelType::Buy,
+            hide_added_stats: true,
+        }));
+        let goods = snapshot.npc_goods.as_ref().expect("货架");
+        assert_eq!(goods.list[0].name, "木剑");
+        assert_eq!(goods.list[0].price, 100);
+        assert_eq!(goods.list[0].unique_id, 99);
+        assert_eq!(goods.version, 1);
+
+        // 空正文 = 服务端确认关窗，货架也要收起。
+        snapshot.apply_packet(&ServerPacket::NPCResponse(NPCResponse { page: vec![] }));
+        let dialog = snapshot.npc_dialog.as_ref().expect("空页仍在快照里");
+        assert!(dialog.lines.is_empty());
+        assert_eq!(dialog.version, 2);
+        assert!(snapshot.npc_goods.is_none());
+    }
+
+    #[test]
+    fn magic_leveled_updates_the_skill_list() {
+        let mut snapshot = WorldSnapshot::default();
+        let mut information = user_information();
+        information.magics = vec![ClientMagic {
+            name: "火球术".to_owned(),
+            spell: Spell::FireBall,
+            level: 1,
+            key: 2,
+            base_cost: 3,
+            ..ClientMagic::default()
+        }];
+        snapshot.apply_packet(&ServerPacket::UserInformation(information));
+        snapshot.apply_packet(&ServerPacket::MagicLeveled(
+            mir_protocol::packets::server::MagicLeveled {
+                object_id: 7,
+                spell: Spell::FireBall,
+                level: 2,
+                experience: 10,
+            },
+        ));
+        assert_eq!(snapshot.magics[0].level, 2);
+        assert_eq!(snapshot.packet_count("MagicLeveled"), 1);
     }
 }

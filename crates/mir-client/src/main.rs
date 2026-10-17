@@ -8,8 +8,9 @@
 //!
 //! 窗口内按键：离线用方向键/WASD 平移相机、`S` 截图、`F1` 叠层、`Q` 退出；
 //! 联机用方向键/WASD 转身/走/跑（Shift 跑）、`Space` 攻击、`P` 捡取、`T` 聊天、
-//! `Esc` 关聊天/NPC 对话、`F1` 叠层、`F2` 截图、`Q` 退出。
-//! 渲染全部委托给 `mir-render`；本 crate 只负责窗口、输入与网络会话。
+//! `I` 背包、`F3` 技能、`1..9` 施法、鼠标点 NPC/面板按钮、`Esc` 关面板、
+//! `F1` 叠层、`F2` 截图、`Q` 退出。
+//! 渲染全部委托给 `mir-render`，界面在 `mir-client::ui`；本 crate 只负责窗口、输入与网络会话。
 
 mod app;
 mod overlay;
@@ -235,7 +236,7 @@ fn main() -> Result<()> {
     );
 
     if let Some(server) = options.connect.clone() {
-        return run_connected(&options, &server);
+        return run_connected(&options, &server, language);
     }
 
     let map_path = resolve_map_path(&options.map, &options.map_dir);
@@ -256,12 +257,12 @@ fn main() -> Result<()> {
         options.center.y
     );
     println!("方向键/WASD 平移 · S 截图 · F1 调试叠层 · Q 退出");
-    app::run(scene, options.center);
+    app::run(scene, options.center, language);
     Ok(())
 }
 
 /// 联机模式：连接 → 登录/建角 → 进世界 → 按服务器地图加载本地地形 → 开窗口。
-fn run_connected(options: &Options, server: &str) -> Result<()> {
+fn run_connected(options: &Options, server: &str, language: Language) -> Result<()> {
     if options.account.is_empty() || options.password.is_empty() || options.character.is_empty() {
         anyhow::bail!(
             "联机模式需要 --account NAME --password PASS --character NAME（角色不存在时加 --create-character）"
@@ -299,9 +300,10 @@ fn run_connected(options: &Options, server: &str) -> Result<()> {
         scene.map.height
     );
     println!(
-        "方向键/WASD 走（Shift 跑，反向先转身）· Space 攻击 · P 捡取 · T 聊天 · Esc 关对话 · F1 叠层 · F2 截图 · Q 退出"
+        "方向键/WASD 走（Shift 跑，反向先转身）· Space 攻击 · P 捡取 · T 聊天 · I 背包 · F3 技能 · 1..9 施法"
     );
-    app::run_live(scene, center, client, snapshot);
+    println!("鼠标点 NPC / 面板按钮 · Esc 关面板 · F1 叠层 · F2 截图 · Q 退出");
+    app::run_live(scene, center, client, snapshot, language);
     Ok(())
 }
 
@@ -413,7 +415,9 @@ fn print_help() {
     println!("窗口内按键：");
     println!("  离线：方向键 / W A D 平移（S 截图）；S 截图；F1 叠层；Q/Esc 退出");
     println!("  联机：方向键 / WASD 走（Shift 跑，反向先转身）；Space 攻击；P 捡取；");
-    println!("        T 聊天（回车发送、Esc 取消）；Esc 关 NPC 对话；F1 叠层；F2 截图；Q 退出");
+    println!("        T 聊天（回车发送、Esc 取消）；I 背包；F3 技能；1..9 施法；");
+    println!("        商店里 S 出售 / R 修理选中物品；背包里 D 丢弃选中物品；");
+    println!("        鼠标点 NPC 对话、点按钮/货架/背包格；Esc 关面板；F1 叠层；F2 截图；Q 退出");
     println!();
     println!("默认语言：zh-cn（简体中文）。语言设置保存在本地，可随时切换。");
 }

@@ -1,12 +1,14 @@
 //! winit 窗口 + softbuffer 软件呈现。
 //!
-//! 渲染本身全部在 `mir-render` 里完成（纯 headless），这里只负责：
+//! 渲染本身全部在 `mir-render` 里完成（纯 headless），界面在 `mir_client::ui` 里；
+//! 这里只负责：
 //!
 //! * 创建 800×600 的窗口，失败时打印可读的原因并以成功状态退出（无显示器的 CI）；
 //! * 把 [`Frame`] 的 RGBA8 转成 softbuffer 需要的 `0x00RRGGBB`；
 //! * 离线模式（`--map`）：方向键 / WASD 平移相机、`S` 截图、`F1` 调试叠层、`Q` 退出；
-//! * 联机模式（`--connect`）：方向键/WASD 发送转身/走/跑、`Space` 攻击、`P` 捡取、
-//!   `T` 打开聊天输入、`Esc` 关闭聊天/NPC 对话、`F1` 叠层、`F2` 截图、`Q` 退出；
+//! * 联机模式（`--connect`）：方向键/WASD 移动、`Space` 攻击、`P` 捡取、`T` 聊天、
+//!   `I` 背包、`F3` 技能、`1..9` 施法、鼠标点 NPC/面板按钮、`Esc` 关面板、
+//!   `F1` 叠层、`F2` 截图、`Q` 退出；
 //! * 每 100 ms 递增一次动画帧（对应 Crystal 的 `MapControl.AnimationCount++`，
 //!   `GameScene.cs:1188-1193`）。
 //!
@@ -18,12 +20,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use mir_client::geom::Rect;
 use mir_client::net::{NetClient, NetCommand, NetEvent, NetStatus, WorldSnapshot};
+use mir_client::ui::{self, UiAction, UiState, UiText};
+use mir_core::Language;
 use mir_core::Point;
 use mir_core::enums::MirDirection;
 use mir_render::{Frame, MapScene};
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
@@ -52,6 +57,8 @@ struct LiveState {
     net: NetClient,
     /// 最近一次世界快照。
     snapshot: WorldSnapshot,
+    /// 界面状态（面板开关、选中项、鼠标）。
+    ui: UiState,
     /// 聊天输入框；`Some` 表示正在输入。
     chat_input: Option<String>,
     /// 是否按住 Shift（移动键 + Shift = 跑）。
@@ -76,8 +83,8 @@ impl LiveState {
 /// 启动离线地图窗口。
 ///
 /// 没有图形环境（`EventLoop::new` 失败、窗口/表面创建失败）时打印原因并返回，
-/// 不 panic、不返回非零退出码。
-pub fn run(scene: MapScene, center: Point) {
+/// 不 panic、不返回非零退出码。离线模式只有 F1 点阵叠层，`language` 暂不影响画面。
+pub fn run(scene: MapScene, center: Point, _language: Language) {
     run_app(scene, center, Mode::Offline);
 }
 
@@ -85,10 +92,17 @@ pub fn run(scene: MapScene, center: Point) {
 ///
 /// `snapshot` 是进入世界后的首个快照（`wait_until_in_game` 的返回值），
 /// `center` 通常是自己的坐标。窗口创建失败时连接会被 `Drop` 自动关闭。
-pub fn run_live(scene: MapScene, center: Point, net: NetClient, snapshot: WorldSnapshot) {
+pub fn run_live(
+    scene: MapScene,
+    center: Point,
+    net: NetClient,
+    snapshot: WorldSnapshot,
+    language: Language,
+) {
     let status = snapshot.status;
     let mode = Mode::Live(Box::new(LiveState {
         net,
+        ui: UiState::new(language),
         snapshot,
         chat_input: None,
         shift: false,
@@ -124,6 +138,8 @@ struct ClientApp {
     frame: Frame,
     /// 运行模式。
     mode: Mode,
+    /// 界面文字（TrueType 或点阵兜底）。
+    text: UiText,
     /// 窗口句柄（`resumed` 里创建）。
     window: Option<Arc<Window>>,
     /// softbuffer 表面。
@@ -143,6 +159,7 @@ impl ClientApp {
             center,
             frame: Frame::new(WINDOW_WIDTH, WINDOW_HEIGHT),
             mode,
+            text: UiText::load(None),
             window: None,
             surface: None,
             context: None,
@@ -253,6 +270,21 @@ impl ClientApp {
         }
     }
 
+    /// 画联机界面（状态栏、聊天、背包、商店、技能、NPC 对话）。
+    fn draw_ui(&mut self) {
+        let Mode::Live(live) = &mut self.mode else {
+            return;
+        };
+        ui::draw(
+            &mut live.ui,
+            &mut self.frame,
+            &mut self.scene,
+            &live.snapshot,
+            &self.text,
+            live.chat_input.as_deref(),
+        );
+    }
+
     /// 渲染当前状态并呈现到窗口。
     fn draw(&mut self) {
         let Some(window) = self.window.clone() else {
@@ -265,6 +297,7 @@ impl ClientApp {
             self.frame = Frame::new(width, height);
         }
         self.render_current();
+        self.draw_ui();
         if self.show_overlay {
             self.draw_overlay();
         }
@@ -277,6 +310,7 @@ impl ClientApp {
     fn save_screenshot(&mut self) {
         // 先确保当前帧与相机状态一致（窗口还没创建时也能截图）。
         self.render_current();
+        self.draw_ui();
         if self.show_overlay {
             self.draw_overlay();
         }
@@ -384,14 +418,213 @@ impl ClientApp {
         }
     }
 
-    /// Esc：关聊天、关 NPC 对话。
-    fn live_close_dialog(&mut self) {
+    /// 背包面板是否打开。
+    fn live_inventory_open(&self) -> bool {
+        matches!(&self.mode, Mode::Live(live) if live.ui.show_inventory)
+    }
+
+    /// 商店面板是否打开。
+    fn live_shop_open(&self) -> bool {
+        matches!(&self.mode, Mode::Live(live) if live.ui.shop_open)
+    }
+
+    /// 把界面动作映射成网络命令。
+    fn dispatch_ui_action(&mut self, action: UiAction) {
+        let Mode::Live(live) = &mut self.mode else {
+            return;
+        };
+        match action {
+            UiAction::CallNpc { object_id, key } => {
+                if key.eq_ignore_ascii_case("@exit") {
+                    live.ui.close_npc();
+                }
+                live.send(NetCommand::CallNpc { object_id, key });
+            }
+            UiAction::BuyItem { unique_id } => {
+                live.send(NetCommand::BuyItem {
+                    unique_id,
+                    count: 1,
+                });
+            }
+            UiAction::CastMagic {
+                spell,
+                direction,
+                target_id,
+                location,
+            } => {
+                live.send(NetCommand::Magic {
+                    spell,
+                    direction,
+                    target_id,
+                    location,
+                });
+            }
+            UiAction::BindMagic {
+                spell,
+                key,
+                old_key,
+            } => {
+                live.send(NetCommand::MagicKey {
+                    spell,
+                    key,
+                    old_key,
+                });
+                // 服务端不回显绑定，先在本地更新，技能面板下一帧就能看到新键位。
+                if let Some(magic) = live
+                    .snapshot
+                    .magics
+                    .iter_mut()
+                    .find(|magic| magic.spell == spell)
+                {
+                    magic.key = key;
+                }
+            }
+        }
+        self.request_redraw();
+    }
+
+    /// 选中的背包物品（唯一编号, 数量）。
+    fn selected_inventory(&self) -> Option<(u64, u16)> {
+        let Mode::Live(live) = &self.mode else {
+            return None;
+        };
+        live.ui
+            .selected_inventory_item(&live.snapshot)
+            .map(|item| (item.unique_id, item.count))
+    }
+
+    /// 按数字键施法；没有技能时返回 `false`（让按键落到别处）。
+    fn live_cast_key(&mut self, key: u8) -> bool {
+        let actions = match &mut self.mode {
+            Mode::Live(live) => live.ui.press_magic_key(&live.snapshot, key),
+            Mode::Offline => Vec::new(),
+        };
+        let handled = !actions.is_empty();
+        for action in actions {
+            self.dispatch_ui_action(action);
+        }
+        handled
+    }
+
+    /// 卖一件选中的背包物品（商店面板打开时 `S`）。
+    fn live_sell_selected(&mut self) -> bool {
+        let Some((unique_id, _)) = self.selected_inventory() else {
+            return false;
+        };
+        if let Mode::Live(live) = &mut self.mode {
+            live.send(NetCommand::SellItem {
+                unique_id,
+                count: 1,
+            });
+        }
+        true
+    }
+
+    /// 修理选中的背包物品（商店面板打开时 `R`）。
+    fn live_repair_selected(&mut self) -> bool {
+        let Some((unique_id, _)) = self.selected_inventory() else {
+            return false;
+        };
+        if let Mode::Live(live) = &mut self.mode {
+            live.send(NetCommand::RepairItem { unique_id });
+        }
+        true
+    }
+
+    /// 丢弃选中的背包物品（背包面板打开时 `D`）。
+    fn live_drop_selected(&mut self) -> bool {
+        let Some((unique_id, _)) = self.selected_inventory() else {
+            return false;
+        };
+        if let Mode::Live(live) = &mut self.mode {
+            live.send(NetCommand::DropItem {
+                unique_id,
+                count: 1,
+            });
+        }
+        true
+    }
+
+    /// `I`：开关背包。
+    fn live_toggle_inventory(&mut self) {
+        let mut redraw = false;
+        if let Mode::Live(live) = &mut self.mode {
+            live.ui.show_inventory = !live.ui.show_inventory;
+            redraw = true;
+        }
+        if redraw {
+            self.request_redraw();
+        }
+    }
+
+    /// `F3`：开关技能列表。
+    fn live_toggle_skills(&mut self) {
+        let mut redraw = false;
+        if let Mode::Live(live) = &mut self.mode {
+            live.ui.show_skills = !live.ui.show_skills;
+            redraw = true;
+        }
+        if redraw {
+            self.request_redraw();
+        }
+    }
+
+    /// 鼠标移动：记录位置；有面板打开时重绘以更新悬停高亮。
+    fn handle_cursor_moved(&mut self, position: winit::dpi::PhysicalPosition<f64>) {
+        let mut redraw = false;
+        if let Mode::Live(live) = &mut self.mode {
+            live.ui.mouse = Point::new(position.x as i32, position.y as i32);
+            redraw = live.ui.show_inventory
+                || live.ui.show_skills
+                || live.ui.shop_open
+                || live.ui.dialog.is_some();
+        }
+        if redraw {
+            self.request_redraw();
+        }
+    }
+
+    /// 鼠标左键：点 NPC/对话按钮/商店行/背包格/技能行。
+    fn handle_mouse_click(&mut self) {
+        let frame = Rect::screen(self.frame.width, self.frame.height);
+        let mut action = None;
+        if let Mode::Live(live) = &mut self.mode {
+            if !live.snapshot.is_ready() {
+                return;
+            }
+            let mouse = live.ui.mouse;
+            let cell = self.scene.screen_to_cell(self.center, mouse);
+            action = live
+                .ui
+                .on_click(&live.snapshot, &self.text, frame, Some(cell));
+        }
+        if let Some(action) = action {
+            self.dispatch_ui_action(action);
+        }
+    }
+
+    /// Esc：按「聊天 > NPC 对话 > 背包/技能」的顺序关闭；关对话时给服务端发 `@exit`。
+    fn live_escape(&mut self) {
+        let mut redraw = false;
         if let Mode::Live(live) = &mut self.mode {
             if live.chat_input.is_some() {
                 live.chat_input = None;
-            } else {
-                live.snapshot.npc_dialog = None;
+                redraw = true;
+            } else if live.ui.dialog.is_some() || live.ui.shop_open {
+                let object_id = live.ui.npc_object_id.unwrap_or(0);
+                live.send(NetCommand::CallNpc {
+                    object_id,
+                    key: "@exit".to_owned(),
+                });
+                live.ui.close_npc();
+                redraw = true;
+            } else if live.ui.show_inventory || live.ui.show_skills {
+                live.ui.close_panels();
+                redraw = true;
             }
+        }
+        if redraw {
+            self.request_redraw();
         }
     }
 
@@ -422,6 +655,7 @@ impl ClientApp {
                     live.last_status = status;
                 }
                 live.snapshot = snapshot;
+                live.ui.sync(&live.snapshot);
                 if let Some(line) = new_chat {
                     if live.last_chat.as_ref() != Some(&line) {
                         println!("{line}");
@@ -489,7 +723,46 @@ impl ClientApp {
     }
 
     /// 联机模式的按键。
+    ///
+    /// 面板按键优先于移动键：`D` 在背包打开且有选中物品时是「丢弃」，否则是向右走；
+    /// `S` 在商店打开且有选中物品时是「出售」，否则是向下走。
     fn handle_live_key(&mut self, event_loop: &ActiveEventLoop, event: &KeyEvent) {
+        if let Key::Character(text) = &event.logical_key {
+            let lower = text.to_ascii_lowercase();
+            match lower.as_str() {
+                "i" => {
+                    self.live_toggle_inventory();
+                    return;
+                }
+                "p" => {
+                    self.live_pickup();
+                    return;
+                }
+                "t" => {
+                    self.live_open_chat();
+                    return;
+                }
+                "q" => {
+                    event_loop.exit();
+                    return;
+                }
+                _ => {}
+            }
+            if lower == "d" && self.live_inventory_open() && self.live_drop_selected() {
+                return;
+            }
+            if lower == "s" && self.live_shop_open() && self.live_sell_selected() {
+                return;
+            }
+            if lower == "r" && self.live_shop_open() && self.live_repair_selected() {
+                return;
+            }
+            if let Some(key) = digit_key(&lower) {
+                if self.live_cast_key(key) {
+                    return;
+                }
+            }
+        }
         if let Some(direction) = direction_from_key(&event.logical_key) {
             self.live_move(direction);
             return;
@@ -501,15 +774,19 @@ impl ClientApp {
                 self.request_redraw();
             }
             Key::Named(NamedKey::F2) => self.save_screenshot(),
-            Key::Named(NamedKey::Escape) => self.live_close_dialog(),
-            Key::Character(text) => match text.to_ascii_lowercase().as_str() {
-                "p" => self.live_pickup(),
-                "t" => self.live_open_chat(),
-                "q" => event_loop.exit(),
-                _ => {}
-            },
+            Key::Named(NamedKey::F3) => self.live_toggle_skills(),
+            Key::Named(NamedKey::Escape) => self.live_escape(),
             _ => {}
         }
+    }
+}
+
+/// 单个数字键 `1..=9`（技能快捷键）。
+fn digit_key(text: &str) -> Option<u8> {
+    let bytes = text.as_bytes();
+    match bytes {
+        [digit @ b'1'..=b'9'] => Some(digit - b'0'),
+        _ => None,
     }
 }
 
@@ -591,6 +868,12 @@ impl ApplicationHandler for ClientApp {
                     live.shift = modifiers.state().shift_key();
                 }
             }
+            WindowEvent::CursorMoved { position, .. } => self.handle_cursor_moved(position),
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } => self.handle_mouse_click(),
             WindowEvent::KeyboardInput { event, .. } => self.handle_key(event_loop, &event),
             WindowEvent::RedrawRequested => self.draw(),
             _ => {}
@@ -657,5 +940,14 @@ mod tests {
             Some(MirDirection::Down)
         );
         assert_eq!(direction_from_key(&Key::Character("x".into())), None);
+    }
+
+    #[test]
+    fn digit_keys_map_to_skill_slots_only_for_one_to_nine() {
+        assert_eq!(digit_key("1"), Some(1));
+        assert_eq!(digit_key("9"), Some(9));
+        assert_eq!(digit_key("0"), None);
+        assert_eq!(digit_key("12"), None);
+        assert_eq!(digit_key("a"), None);
     }
 }

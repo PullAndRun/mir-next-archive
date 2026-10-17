@@ -9,6 +9,8 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+# TrueType 文字光栅化（HUD、对话框、背包等所有中文界面文字）。
+ab_glyph.workspace = true
 mir-asset.workspace = true
 mir-core.workspace = true
 mir-world.workspace = true

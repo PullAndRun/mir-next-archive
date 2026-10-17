@@ -365,6 +365,15 @@ impl EntityRenderer {
         None
     }
 
+    /// 取一张物品图标（`items.wzl`，缺失时回退 `dnitems.wzl`）。
+    ///
+    /// 背包/商店面板用；与地面物品走同一条精灵路径，所以图标与地图上看到的一致。
+    /// 返回的是缓存图像的克隆，调用方可以随意缩放/裁剪。
+    #[must_use]
+    pub fn item_icon(&mut self, image: u16) -> Option<Image> {
+        self.image(SpriteLibrary::Item, u32::from(image))
+    }
+
     /// 取一张实体图（带缓存与纯黑透明处理）。
     fn image(&mut self, library: SpriteLibrary, index: u32) -> Option<Image> {
         let key = (library, index);

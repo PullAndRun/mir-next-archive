@@ -66,6 +66,28 @@ python tools/asset-index/find_asset.py --repo crystal-database --json
 | Crystal 配置（BaseStats/ExpList/GoodsSystem…） | `--name Configs --top community` 后看 `*/Configs/*.ini` |
 | 客户端图片库 | `--ext .wzl --top data` |
 | 地图 | `--ext .map --top map` |
+| 中文字体 | `--name NotoSans --ext .otf`（本地 `resource/fonts/NotoSansSC-Regular.otf`，SIL OFL 1.1；客户端字体发现的第一顺位就是 `resource/fonts/`） |
 
 `Server.MirDB` 的二进制格式见 [`docs/store/mirdb-format.md`](../store/mirdb-format.md)，
 Rust 读取实现在 `crates/mir-db`。
+
+## 字体
+
+客户端的文字渲染（`mir-render::TextRenderer`）按以下顺序找字体，找到第一个可用的就用：
+
+1. `resource/fonts/*.ttf|*.otf|*.ttc`（按路径排序）；
+2. Windows 系统字体 `msyh.ttc` → `simhei.ttf` → `simsun.ttc`；
+3. Linux 常见路径（DejaVu / Noto CJK / WQY / Droid）与 `/usr/share/fonts` 下常见中文字体；
+4. 都没有时退化成内置 3×5 点阵（ASCII 可读，中文空白）并打印一次警告。
+
+仓库**不携带**字体文件（`resource/` 不进 git）。为了保证中文在任何机器上都可显示，
+把 **Noto Sans SC**（SIL OFL 1.1，可自由分发）放到 `resource/fonts/`：
+
+```bash
+# 已在索引里：先用索引确认，再按路径取
+python tools/asset-index/find_asset.py --name NotoSans --ext .otf
+# 没有就下载（Google 的 noto-cjk 仓库，SIL OFL 1.1）
+curl -L -o resource/fonts/NotoSansSC-Regular.otf \
+  https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/SubsetOTF/SC/NotoSansSC-Regular.otf
+python tools/asset-index/index_resources.py --roots fonts
+```

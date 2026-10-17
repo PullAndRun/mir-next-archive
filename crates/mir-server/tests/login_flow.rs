@@ -59,10 +59,11 @@ impl TestClient {
 }
 
 fn test_config() -> Arc<ServerConfig> {
-    let mut config = ServerConfig::default();
-    // 测试不依赖 resource/ 下的真实地图，走无地形的兜底世界。
-    config.map_root = "resource/不存在的目录".to_owned();
-    Arc::new(config)
+    Arc::new(ServerConfig {
+        // 测试不依赖 resource/ 下的真实地图，走无地形的兜底世界。
+        map_root: "resource/不存在的目录".to_owned(),
+        ..ServerConfig::default()
+    })
 }
 
 #[tokio::test]

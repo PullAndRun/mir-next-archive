@@ -286,9 +286,9 @@ impl UserInformation {
         w.write_u16(self.level_effects as u16);
         w.write_bool(self.has_hero);
         w.write_u8(self.hero_behaviour as u8);
-        encode_optional_items(w, &self.inventory);
-        encode_optional_items(w, &self.equipment);
-        encode_optional_items(w, &self.quest_inventory);
+        encode_optional_items(w, self.inventory.as_deref());
+        encode_optional_items(w, self.equipment.as_deref());
+        encode_optional_items(w, self.quest_inventory.as_deref());
         w.write_u32(self.gold);
         w.write_u32(self.credit);
         w.write_bool(self.has_expanded_storage);
@@ -329,7 +329,7 @@ fn decode_optional_items(
     Ok(Some(items))
 }
 
-fn encode_optional_items(w: &mut crate::PacketWriter, items: &Option<Vec<Option<UserItem>>>) {
+fn encode_optional_items(w: &mut crate::PacketWriter, items: Option<&[Option<UserItem>]>) {
     let Some(items) = items else {
         w.write_bool(false);
         return;

@@ -1,6 +1,8 @@
 //! PostgreSQL 存储实现（把 `mir-store` 的仓储适配成服务端的 [`AccountStore`]）。
 
-use chrono::{DateTime, TimeZone, Utc};
+#[cfg(test)]
+use chrono::TimeZone;
+use chrono::{DateTime, Utc};
 use mir_core::DateTimeBinary;
 use mir_core::enums::{MirClass, MirDirection, MirGender};
 use mir_store::PgPool;
@@ -43,6 +45,7 @@ fn map_store_error(error: mir_store::StoreError) -> StoreError {
     }
 }
 
+#[cfg(test)]
 fn to_datetime(value: DateTimeBinary) -> Option<DateTime<Utc>> {
     if value.is_unset() {
         return None;
@@ -98,7 +101,7 @@ fn from_store_character(character: mir_store::Character) -> Character {
 
 /// 把服务端的角色视图写回存储行。
 fn apply_to_store_character(character: &Character, target: &mut mir_store::Character) {
-    target.name = character.name.clone();
+    target.name.clone_from(&character.name);
     target.level = i16::try_from(character.level).unwrap_or(1);
     target.class = i16::from(character.class as u8);
     target.gender = i16::from(character.gender as u8);
@@ -116,6 +119,9 @@ fn apply_to_store_character(character: &Character, target: &mut mir_store::Chara
     target.gold = i64::from(character.gold);
 }
 
+// 返回类型写成 `impl Future + Send` 是为了满足 trait 的 Send 契约（见 `store.rs`），
+// 因此这里不能用 `async fn` 语法糖。
+#[allow(clippy::manual_async_fn)]
 impl AccountStore for PgAccountStore {
     fn create_account<'a>(
         &'a self,
@@ -205,8 +211,7 @@ impl AccountStore for PgAccountStore {
         async move {
             match mir_store::load_character(&self.pool, character_id).await {
                 Ok(row) if row.account_id == account_id => Ok(Some(from_store_character(row))),
-                Ok(_) => Ok(None),
-                Err(mir_store::StoreError::NotFound(_)) => Ok(None),
+                Ok(_) | Err(mir_store::StoreError::NotFound(_)) => Ok(None),
                 Err(error) => Err(map_store_error(error)),
             }
         }

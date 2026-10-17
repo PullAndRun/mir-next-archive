@@ -22,16 +22,13 @@ async fn main() -> Result<()> {
     let database_url = std::env::var("MIR2_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
         .ok();
-    match database_url {
-        Some(url) => {
-            tracing::info!("使用 PostgreSQL 存储");
-            let store = Arc::new(mir_server::PgAccountStore::connect(&url).await?);
-            run(config, store).await
-        }
-        None => {
-            tracing::warn!("未配置数据库，使用内存存储（重启即丢失）");
-            let store = Arc::new(MemoryStore::new());
-            run(config, store).await
-        }
+    if let Some(url) = database_url {
+        tracing::info!("使用 PostgreSQL 存储");
+        let store = Arc::new(mir_server::PgAccountStore::connect(&url).await?);
+        run(config, store).await
+    } else {
+        tracing::warn!("未配置数据库，使用内存存储（重启即丢失）");
+        let store = Arc::new(MemoryStore::new());
+        run(config, store).await
     }
 }

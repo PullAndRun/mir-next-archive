@@ -158,6 +158,7 @@ impl Character {
 ///
 /// 返回类型写成 `impl Future + Send`（而不是裸 `async fn`）是为了让泛型调用方
 /// 能证明 future 是 `Send`，否则 `tokio::spawn` 里的连接任务无法编译。
+#[allow(clippy::manual_async_fn)] // 见上：必须显式声明 `+ Send`
 pub trait AccountStore: Send + Sync + 'static {
     /// 建账号。
     fn create_account<'a>(

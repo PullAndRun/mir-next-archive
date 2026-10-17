@@ -10,7 +10,10 @@ produce, without writing files (used by CI when a Crystal checkout exists).
 from __future__ import annotations
 
 import argparse
+import os
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from crystal_codegen import Ctx, TranslationError, translate_read, translate_write
@@ -235,6 +238,26 @@ def emit_packet_enum(packets: list[PacketDef], direction: str) -> str:
     return "\n".join(lines)
 
 
+def format_rust(content: str) -> str:
+    """Run rustfmt over generated code so `cargo fmt --check` and `--check` agree."""
+    handle, path = tempfile.mkstemp(suffix=".rs")
+    os.close(handle)
+    try:
+        Path(path).write_text(content, encoding="utf-8")
+        subprocess.run(
+            ["rustfmt", "--edition", "2024", path],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return Path(path).read_text(encoding="utf-8")
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"rustfmt 不可用，跳过格式化：{error}", file=sys.stderr)
+        return content
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--crystal", default="C:/Users/diana/ref/Crystal")
@@ -276,7 +299,10 @@ def main() -> None:
 
     changed = 0
     for path, content in outputs.items():
-        normalized = content.rstrip() + "\n"
+        if path.suffix != ".rs":
+            normalized = content.rstrip() + "\n"
+        else:
+            normalized = format_rust(content).rstrip() + "\n"
         current = path.read_text(encoding="utf-8") if path.exists() else ""
         if current.rstrip() + "\n" != normalized:
             changed += 1

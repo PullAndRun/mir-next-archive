@@ -205,11 +205,7 @@ impl World {
     /// 把玩家移出世界，并通知周围玩家移除。
     pub fn leave(&mut self, object_id: u32) -> Option<Player> {
         let player = self.players.remove(&object_id)?;
-        let removal = ServerPacket::ObjectRemove(ObjectRemove {
-            object_id,
-            ..ObjectRemove::default()
-        })
-        .encode_frame();
+        let removal = ServerPacket::ObjectRemove(ObjectRemove { object_id }).encode_frame();
         for other in self.players.values() {
             if other.map == player.map && other.position.in_range(player.position, VIEW_RANGE) {
                 let _ = other.sender.send(removal.clone());

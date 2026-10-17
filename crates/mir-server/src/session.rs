@@ -102,7 +102,9 @@ impl<S: AccountStore> Session<S> {
         self.stage
     }
 
+    #[allow(clippy::needless_pass_by_value)] // 包需要被 `encode_frame` 消费
     fn send(&self, packet: ServerPacket) {
+        // 包按值传进来是为了能直接 `encode_frame()` 消费它；这里不是「没用完」。
         let frame = packet.encode_frame();
         let _ = self.out.send(frame);
     }
@@ -113,6 +115,7 @@ impl<S: AccountStore> Session<S> {
     }
 
     /// 处理一个客户端包。
+    #[allow(clippy::needless_pass_by_value)] // 包按值传入，内部按需移动字段
     pub async fn handle(&mut self, packet: ClientPacket) -> Result<(), SessionError> {
         match packet {
             ClientPacket::ClientVersion(packet) => self.on_client_version(&packet),

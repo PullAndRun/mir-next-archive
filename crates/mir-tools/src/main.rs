@@ -17,7 +17,10 @@ fn main() -> Result<()> {
 
     let mut args = std::env::args().skip(1);
     match args.next().as_deref() {
-        Some("protocol-report") => protocol_report(),
+        Some("protocol-report") => {
+            protocol_report();
+            Ok(())
+        }
         Some("map-info") => {
             let path = args
                 .next()
@@ -42,11 +45,10 @@ fn print_help() {
     println!("  map-info [路径]   解析地图文件并统计可走比例（默认 resource/map/0.map）");
 }
 
-fn protocol_report() -> Result<()> {
+fn protocol_report() {
     let client = mir_protocol::ClientPacketIds::ALL.len();
     let server = mir_protocol::ServerPacketIds::ALL.len();
     println!("Crystal 协议：客户端→服务端 {client} 个包，服务端→客户端 {server} 个包");
-    Ok(())
 }
 
 fn map_info(path: &Path) -> Result<()> {

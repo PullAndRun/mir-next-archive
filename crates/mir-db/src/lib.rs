@@ -35,6 +35,7 @@
 
 pub mod conquest;
 pub mod dragon;
+pub mod drops;
 pub mod item;
 pub mod magic;
 pub mod map;
@@ -60,6 +61,7 @@ pub use mir_protocol::data::Stats;
 
 pub use conquest::{ConquestArcherInfo, ConquestFlagInfo, ConquestInfo, ConquestStructure};
 pub use dragon::{DRAGON_EXP_LEVELS, DragonInfo, MAX_DRAGON_LEVEL};
+pub use drops::{DropInfo, DropKind, DropReward, DropTable, GroupDrop};
 pub use magic::MagicInfo;
 pub use map::{MapInfo, MineZone, MovementInfo, RespawnInfo, SafeZoneInfo};
 pub use monster::MonsterInfo;

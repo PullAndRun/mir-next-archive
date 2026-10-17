@@ -35,6 +35,8 @@ pub struct ServerConfig {
     pub start_point: (i32, i32),
     /// 地图文件目录（`.map` 文件所在处）。
     pub map_root: String,
+    /// 语言包目录（`*.json`）；目录不存在时使用编译期内置语言包。
+    pub language_dir: String,
 }
 
 impl Default for ServerConfig {
@@ -57,6 +59,7 @@ impl Default for ServerConfig {
             start_map: "0".to_owned(),
             start_point: (330, 270),
             map_root: "resource/map".to_owned(),
+            language_dir: "config/lang".to_owned(),
         }
     }
 }

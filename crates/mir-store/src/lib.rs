@@ -6,10 +6,12 @@
 //!
 //! # 表结构
 //!
-//! `migrations/0001_init.sql` 建两张表：
+//! `migrations/0001_init.sql` 建两张表，`migrations/0002_account_language.sql` 再给账号
+//! 加上界面语言列（迁移是只追加的，`0001` 不再改动）：
 //!
 //! - `accounts`：登录名（大小写不敏感唯一）、口令散列与 24 字节盐、邮箱、注册 IP/时间、
-//!   封禁（标志 + 原因 + 到期时间）、强制改密、错误口令计数、最后登录 IP/时间、GM 标志。
+//!   封禁（标志 + 原因 + 到期时间）、强制改密、错误口令计数、最后登录 IP/时间、GM 标志、
+//!   界面语言（`language`，BCP-47 小写代码，默认 `zh-cn` = 简体中文，可在游戏内切换）。
 //! - `characters`：归属账号（外键，账号删除时级联）、角色名（大小写不敏感唯一）、
 //!   等级/职业/性别/发型、建号信息、封禁、登录/登出时间、软删除、位置与朝向、回城点、
 //!   HP/MP/经验/金币/点数、模式与权限、行会、三个物品大块（背包/装备/仓库，`BYTEA`）、
@@ -23,6 +25,9 @@
 //! - 物品在 MVP 阶段是 `BYTEA` 整块，尚未拆成独立的 `user_items` 表。
 //! - 金币、点数、仓库按任务要求放在角色行；Crystal 实际把它们挂在账号上，
 //!   多角色共享仓库/钱包的语义要等拆表时再补。
+//! - 界面语言是账号级扩展：Crystal 的语言跟着客户端设置走，本项目要求「默认全中文、
+//!   游戏内可切换」，因此落库到 `accounts.language`，换角色/重登都保留同一个选择。
+//!   别名（`zh`/`cn`/`chs`/`en-us` 等，大小写不敏感）由 [`normalize_language`] 归一化。
 //!
 //! # 示例
 //!
@@ -32,6 +37,10 @@
 //! mir_store::migrate(&pool).await?;
 //!
 //! let account = mir_store::create_account(&pool, &mir_store::NewAccount::new("demo", "secret")).await?;
+//! // 新账号默认简体中文；玩家在游戏内切换语言时调用（`EN` 会归一化成 `en`）。
+//! assert_eq!(account.language, mir_store::DEFAULT_LANGUAGE);
+//! mir_store::set_account_language(&pool, account.id, "en").await?;
+//!
 //! let character =
 //!     mir_store::create_character(&pool, &mir_store::NewCharacter::new(account.id, "Hero", 0, 0))
 //!         .await?;
@@ -50,11 +59,14 @@ mod password;
 mod repo;
 
 pub use error::{Result, StoreError};
-pub use models::{Account, Character, CharacterSummary, LoginGate, NewAccount, NewCharacter};
+pub use models::{
+    Account, Character, CharacterSummary, DEFAULT_LANGUAGE, LoginGate, NewAccount, NewCharacter,
+};
 pub use password::{HASH_LEN, ITERATIONS, SALT_LEN, generate_salt, hash_password, verify_password};
 pub use repo::{
-    create_account, create_character, delete_character, find_account, list_characters,
-    load_character, mark_login, save_account, save_character, set_last_login_ip,
+    create_account, create_character, delete_character, find_account, is_supported_language,
+    list_characters, load_character, mark_login, normalize_language, save_account, save_character,
+    set_account_language, set_last_login_ip,
 };
 pub use sqlx::PgPool;
 

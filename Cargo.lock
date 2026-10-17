@@ -769,6 +769,8 @@ dependencies = [
  "anyhow",
  "mir-core",
  "mir-protocol",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -780,6 +782,8 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

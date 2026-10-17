@@ -41,6 +41,7 @@ fn map_store_error(error: mir_store::StoreError) -> StoreError {
     match error {
         mir_store::StoreError::AccountExists(username) => StoreError::AccountExists(username),
         mir_store::StoreError::CharacterNameTaken(name) => StoreError::CharacterExists(name),
+        mir_store::StoreError::InvalidLanguage(code) => StoreError::InvalidLanguage(code),
         other => StoreError::Internal(other.to_string()),
     }
 }
@@ -73,6 +74,7 @@ fn from_store_account(account: mir_store::Account) -> Account {
         require_password_change: account.require_password_change,
         wrong_password_count: u32::try_from(account.wrong_password_count).unwrap_or(0),
         admin: account.admin,
+        language: account.language,
     }
 }
 
@@ -248,6 +250,18 @@ impl AccountStore for PgAccountStore {
             };
             apply_to_store_character(&character, &mut row);
             mir_store::save_character(&self.pool, &row)
+                .await
+                .map_err(map_store_error)
+        }
+    }
+
+    fn set_language(
+        &self,
+        account_id: i64,
+        language: String,
+    ) -> impl std::future::Future<Output = Result<(), StoreError>> + Send + '_ {
+        async move {
+            mir_store::set_account_language(&self.pool, account_id, &language)
                 .await
                 .map_err(map_store_error)
         }

@@ -1,0 +1,19 @@
+{
+  "language": "zh-cn",
+  "server": {
+    "welcome": "欢迎来到传奇-Next。",
+    "account_banned": "该账号已被封禁。",
+    "wrong_password": "账号或密码错误。",
+    "too_many_characters": "角色数量已达上限。",
+    "language_changed": "语言已切换为简体中文。",
+    "unknown_language": "未知的语言代码，可用：zh-cn、en。",
+    "server_full": "服务器人数已满，请稍后再试。",
+    "unsupported_command": "不支持的命令。",
+    "character_name_taken": "该角色名已被占用。",
+    "character_name_invalid": "角色名不合法：3-15 个汉字、字母、数字或下划线。",
+    "login_success": "登录成功。"
+  },
+  "maps": {
+    "0": "比奇省"
+  }
+}

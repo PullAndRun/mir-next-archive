@@ -10,7 +10,8 @@
 //! |---|---|
 //! | [`create_account`] | 生成 24 字节盐、按 Crystal 算法散列口令后插入 |
 //! | [`find_account`] | 按登录名查账号，大小写不敏感 |
-//! | [`save_account`] | 回写账号的可变状态（封禁、强制改密、错误计数、口令、最后登录） |
+//! | [`save_account`] | 回写账号的可变状态（封禁、强制改密、错误计数、口令、最后登录、界面语言） |
+//! | [`set_account_language`] | 校验并归一化语言代码后写 `accounts.language` |
 //! | [`create_character`] | 建角色；账号不存在返回 [`StoreError::NotFound`] |
 //! | [`list_characters`] | 选角列表（未删除，按创建顺序） |
 //! | [`load_character`] | 读完整角色；不存在或已软删除返回 [`StoreError::NotFound`] |
@@ -18,17 +19,24 @@
 //! | [`delete_character`] | 软删除，写 `deleted`/`delete_date`，保留行 |
 //! | [`mark_login`] | 记录最后登录时间并清零错误口令计数 |
 //! | [`set_last_login_ip`] | 记录最后登录 IP |
+//!
+//! 界面语言（`accounts.language`）的校验与归一化是纯函数，不查库：
+//! [`normalize_language`] 把 `zh`/`cn`/`chs`/`en-us` 之类的别名归一成 `zh-cn`/`en`，
+//! [`is_supported_language`] 是它的布尔包装。写库的两个入口
+//! （[`create_account`] 与 [`set_account_language`]）都会先归一化再落库。
 
 use sqlx::PgExecutor;
 
 use crate::error::{Result, StoreError};
-use crate::models::{Account, Character, CharacterSummary, NewAccount, NewCharacter};
+use crate::models::{
+    Account, Character, CharacterSummary, DEFAULT_LANGUAGE, NewAccount, NewCharacter,
+};
 use crate::password::{generate_salt, hash_password};
 
 /// `accounts` 表的列顺序；`Account` 的 `FromRow` 按名字匹配，这里的顺序只用于手写 SQL 的可读性。
 const ACCOUNT_COLUMNS: &str = "id, username, password_hash, salt, email, creation_ip, creation_date, \
      banned, ban_reason, expiry_date, require_password_change, wrong_password_count, last_ip, \
-     last_date, admin";
+     last_date, admin, language";
 
 /// `characters` 表的列顺序。
 const CHARACTER_COLUMNS: &str = "id, account_id, name, level, class, gender, hair, creation_ip, \
@@ -52,15 +60,20 @@ fn character_select(filter: &str) -> String {
 ///
 /// 盐由 [`generate_salt`] 生成，口令按 Crystal 算法散列（见 [`crate::hash_password`]）；
 /// 登录名冲突返回 [`StoreError::AccountExists`]。
+///
+/// `new.language` 会先经 [`normalize_language`] 归一化再落库，因此传 `en-US` 也写成 `en`；
+/// 无法识别的代码返回 [`StoreError::InvalidLanguage`]（在 SQL 之前就返回，不会留下半行数据）。
 pub async fn create_account<'e, E>(executor: E, new: &NewAccount) -> Result<Account>
 where
     E: PgExecutor<'e>,
 {
     let salt = generate_salt();
     let password_hash = hash_password(&new.password, &salt);
+    let language = normalize_language(&new.language)
+        .ok_or_else(|| StoreError::InvalidLanguage(new.language.clone()))?;
     let sql = format!(
-        "INSERT INTO accounts (username, password_hash, salt, email, creation_ip, admin) \
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING {ACCOUNT_COLUMNS}"
+        "INSERT INTO accounts (username, password_hash, salt, email, creation_ip, admin, language) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {ACCOUNT_COLUMNS}"
     );
 
     sqlx::query_as::<_, Account>(&sql)
@@ -70,6 +83,7 @@ where
         .bind(new.email.as_str())
         .bind(new.creation_ip.as_str())
         .bind(new.admin)
+        .bind(language)
         .fetch_one(executor)
         .await
         .map_err(|error| {
@@ -98,10 +112,12 @@ where
 /// 回写账号的可变状态。
 ///
 /// 可改字段：邮箱、口令散列与盐、封禁（标志/原因/到期时间）、强制改密、错误口令计数、
-/// 最后登录 IP/时间、GM 标志。登录名与建号信息不可改。
+/// 最后登录 IP/时间、GM 标志、界面语言。登录名与建号信息不可改。
 ///
 /// 改密时先用 [`Account::set_password`] 重新生成盐和散列，再调用本函数；封禁、
-/// 解除封禁、清零错误计数同理。目标行不存在返回 [`StoreError::NotFound`]。
+/// 解除封禁、清零错误计数同理。界面语言先经 [`normalize_language`] 归一化再写，
+/// 无法识别的代码返回 [`StoreError::InvalidLanguage`]；只改语言时用
+/// [`set_account_language`] 更省事。目标行不存在返回 [`StoreError::NotFound`]。
 pub async fn save_account<'e, E>(executor: E, account: &Account) -> Result<()>
 where
     E: PgExecutor<'e>,
@@ -109,8 +125,11 @@ where
     const SQL: &str = "UPDATE accounts SET \
          email = $2, password_hash = $3, salt = $4, banned = $5, ban_reason = $6, \
          expiry_date = $7, require_password_change = $8, wrong_password_count = $9, \
-         last_ip = $10, last_date = $11, admin = $12 \
+         last_ip = $10, last_date = $11, admin = $12, language = $13 \
        WHERE id = $1";
+
+    let language = normalize_language(&account.language)
+        .ok_or_else(|| StoreError::InvalidLanguage(account.language.clone()))?;
 
     let result = sqlx::query(SQL)
         .bind(account.id)
@@ -125,6 +144,7 @@ where
         .bind(account.last_ip.as_str())
         .bind(account.last_date)
         .bind(account.admin)
+        .bind(language)
         .execute(executor)
         .await
         .map_err(StoreError::Database)?;
@@ -134,6 +154,74 @@ where
     }
 
     Ok(())
+}
+
+/// 修改账号的界面语言（游戏内切换语言时调用）。
+///
+/// `language` 可以是 [`normalize_language`] 认识的任何别名及其大小写变体
+/// （例如 `EN`、`en-US`、`chs`），落库前统一归一成 `zh-cn`/`en`；
+/// 无法识别时返回 [`StoreError::InvalidLanguage`]，该检查发生在 SQL 之前，
+/// 因此不会触碰数据库。账号不存在返回 [`StoreError::NotFound`]。
+pub async fn set_account_language<'e, E>(executor: E, account_id: i64, language: &str) -> Result<()>
+where
+    E: PgExecutor<'e>,
+{
+    const SQL: &str = "UPDATE accounts SET language = $2 WHERE id = $1";
+
+    let normalized = normalize_language(language)
+        .ok_or_else(|| StoreError::InvalidLanguage(language.to_owned()))?;
+
+    let result = sqlx::query(SQL)
+        .bind(account_id)
+        .bind(normalized)
+        .execute(executor)
+        .await
+        .map_err(StoreError::Database)?;
+
+    if result.rows_affected() == 0 {
+        return Err(StoreError::NotFound("账号"));
+    }
+
+    Ok(())
+}
+
+/// 把语言代码归一成受支持的 BCP-47 小写代码，无法识别时返回 `None`。
+///
+/// 接受大小写不敏感、允许首尾空白的别名：
+///
+/// | 输入 | 归一化结果 |
+/// |---|---|
+/// | `zh-cn`、`zh`、`cn`、`chs`、`zh_cn` | `zh-cn`（[`DEFAULT_LANGUAGE`]） |
+/// | `en`、`en-us`、`en_us` | `en` |
+/// | 其他（`fr`、`zh-tw`、空串等） | `None` |
+///
+/// 别名表与 `mir-core` 的 `Language::from_code` 保持一致，避免两层对同一输入给出不同结论。
+pub fn normalize_language(code: &str) -> Option<&'static str> {
+    /// 简体中文的别名（比较前已 trim，比较时大小写不敏感）。
+    const CHINESE_ALIASES: [&str; 5] = ["zh-cn", "zh", "cn", "chs", "zh_cn"];
+    /// 英文的别名。
+    const ENGLISH_ALIASES: [&str; 3] = ["en", "en-us", "en_us"];
+
+    let code = code.trim();
+
+    if CHINESE_ALIASES
+        .iter()
+        .any(|alias| code.eq_ignore_ascii_case(alias))
+    {
+        Some(DEFAULT_LANGUAGE)
+    } else if ENGLISH_ALIASES
+        .iter()
+        .any(|alias| code.eq_ignore_ascii_case(alias))
+    {
+        Some("en")
+    } else {
+        None
+    }
+}
+
+/// 语言代码是否受支持；等价于 [`normalize_language`] 返回 `Some`。
+pub fn is_supported_language(code: &str) -> bool {
+    normalize_language(code).is_some()
 }
 
 /// 新建角色。
@@ -344,4 +432,107 @@ where
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 全部受支持的别名，以及它们归一化后的规范代码。
+    const ACCEPTED: &[(&str, &str)] = &[
+        ("zh-cn", "zh-cn"),
+        ("zh", "zh-cn"),
+        ("cn", "zh-cn"),
+        ("chs", "zh-cn"),
+        ("zh_cn", "zh-cn"),
+        ("en", "en"),
+        ("en-us", "en"),
+        ("en_us", "en"),
+    ];
+
+    /// 看上去像语言、但不受支持的代码。
+    const REJECTED: &[&str] = &[
+        "",
+        "  ",
+        "fr",
+        "fr-fr",
+        "en-gb",
+        "zh-tw",
+        "zh-hk",
+        "ch",
+        "cnn",
+        "en-usss",
+        "zhcn",
+        "english",
+        "简体中文",
+        "zh cn",
+    ];
+
+    #[test]
+    fn normalize_language_accepts_every_alias() {
+        for (input, expected) in ACCEPTED {
+            assert_eq!(
+                normalize_language(input),
+                Some(*expected),
+                "{input} 应当归一化成 {expected}",
+            );
+        }
+    }
+
+    #[test]
+    fn normalize_language_ignores_case_and_surrounding_space() {
+        for (input, expected) in ACCEPTED {
+            let variants = [
+                input.to_ascii_uppercase(),
+                input.to_ascii_uppercase().replace('-', "_"),
+                format!("  {input}\t"),
+                format!("\n{}\r\n", input.to_ascii_lowercase()),
+            ];
+            for variant in &variants {
+                assert_eq!(
+                    normalize_language(variant),
+                    Some(*expected),
+                    "{variant:?} 应当归一化成 {expected}",
+                );
+            }
+        }
+
+        assert_eq!(normalize_language("EN"), Some("en"));
+        assert_eq!(normalize_language("ChS"), Some("zh-cn"));
+        assert_eq!(normalize_language("En-Us"), Some("en"));
+    }
+
+    #[test]
+    fn normalize_language_rejects_unsupported_codes() {
+        for input in REJECTED {
+            assert_eq!(normalize_language(input), None, "{input:?} 不应被接受");
+        }
+    }
+
+    #[test]
+    fn is_supported_language_matches_normalize_language() {
+        for (input, _) in ACCEPTED {
+            assert!(is_supported_language(input), "{input} 应当受支持");
+        }
+        for input in REJECTED {
+            assert!(!is_supported_language(input), "{input:?} 不应受支持");
+        }
+
+        assert!(is_supported_language("EN"));
+        assert!(!is_supported_language("fr"));
+    }
+
+    #[test]
+    fn new_account_and_default_account_use_simplified_chinese() {
+        assert_eq!(DEFAULT_LANGUAGE, "zh-cn");
+
+        let new = NewAccount::new("demo", "secret");
+        assert_eq!(new.language, "zh-cn");
+        assert_eq!(new.language, DEFAULT_LANGUAGE);
+
+        // 空账号的语言不是空串，避免把「未设置」当成一种语言写进库里。
+        let account = Account::default();
+        assert_eq!(account.language, "zh-cn");
+        assert!(is_supported_language(&account.language));
+    }
 }

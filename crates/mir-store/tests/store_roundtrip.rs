@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use mir_store::{
     LoginGate, NewAccount, NewCharacter, SALT_LEN, StoreError, create_account, create_character,
     delete_character, find_account, list_characters, load_character, mark_login, save_account,
-    save_character, set_last_login_ip, verify_password,
+    save_character, set_account_language, set_last_login_ip, verify_password,
 };
 
 #[tokio::test]
@@ -46,6 +46,7 @@ async fn account_and_character_lifecycle_rolls_back() {
         .expect("创建账号应当成功");
     assert!(account.id > 0, "账号应当拿到自增主键");
     assert_eq!(account.username, username);
+    assert_eq!(account.language, "zh-cn", "新账号默认简体中文");
     assert_eq!(account.salt.len(), SALT_LEN);
     assert!(account.creation_ip.is_empty());
     assert!(verify_password(&account, "secret123"));
@@ -58,6 +59,40 @@ async fn account_and_character_lifecycle_rolls_back() {
         .expect("查询账号应当成功")
         .expect("账号应当存在");
     assert_eq!(found.id, account.id);
+    assert_eq!(found.language, "zh-cn", "大小写不敏感查询也要带出界面语言");
+
+    // ---- 界面语言：账号级设置，换角色/重登都保留 ----
+    // 别名大小写不敏感，`EN` 落库前归一成 `en`。
+    set_account_language(&mut *tx, account.id, "EN")
+        .await
+        .expect("改界面语言应当成功");
+    let switched = find_account(&mut *tx, &username)
+        .await
+        .expect("查询账号应当成功")
+        .expect("账号应当存在");
+    assert_eq!(switched.language, "en", "重登后应当还是玩家选的语言");
+
+    // 不支持的代码被拒绝；校验发生在 SQL 之前，保存点只是保持测试与既有的预期失败写法一致。
+    sqlx::query("SAVEPOINT expect_language")
+        .execute(&mut *tx)
+        .await
+        .expect("创建保存点应当成功");
+    let unsupported = set_account_language(&mut *tx, account.id, "klingon").await;
+    sqlx::query("ROLLBACK TO SAVEPOINT expect_language")
+        .execute(&mut *tx)
+        .await
+        .expect("回滚到保存点应当成功");
+    assert!(
+        matches!(unsupported, Err(StoreError::InvalidLanguage(_))),
+        "不支持的语言应当返回 InvalidLanguage，实际为 {unsupported:?}"
+    );
+
+    // 被拒绝的写入没有改动库里的值。
+    let still_en = find_account(&mut *tx, &username)
+        .await
+        .expect("查询账号应当成功")
+        .expect("账号应当存在");
+    assert_eq!(still_en.language, "en");
 
     // 重名账号被唯一索引拒绝。
     sqlx::query("SAVEPOINT expect_unique")
@@ -194,6 +229,7 @@ async fn account_and_character_lifecycle_rolls_back() {
     assert!(refreshed.last_date.is_some(), "登录后应写入最后登录时间");
     assert_eq!(refreshed.last_ip, "203.0.113.7");
     assert_eq!(refreshed.wrong_password_count, 0);
+    assert_eq!(refreshed.language, "en", "登录记录不应改动界面语言");
     assert_eq!(refreshed.login_gate(Utc::now()), LoginGate::Allowed);
 
     let missing_account = mark_login(&mut *tx, -1).await;
@@ -210,6 +246,8 @@ async fn account_and_character_lifecycle_rolls_back() {
     // 远未来的到期时间 → 处于封禁期。
     managed.expiry_date = DateTime::<Utc>::from_timestamp(4_000_000_000, 0);
     managed.require_password_change = true;
+    // 语言是账号行的一部分，`save_account` 回写时同样归一化。
+    managed.language = "ZH-CN".to_owned();
     save_account(&mut *tx, &managed)
         .await
         .expect("回写账号状态应当成功");
@@ -222,6 +260,10 @@ async fn account_and_character_lifecycle_rolls_back() {
     assert!(!verify_password(&banned, "secret123"));
     assert!(banned.is_banned(Utc::now()), "到期时间未到应当算封禁");
     assert_eq!(banned.login_gate(Utc::now()), LoginGate::Banned);
+    assert_eq!(
+        banned.language, "zh-cn",
+        "save_account 也应当把语言别名归一化后回写"
+    );
 
     // 到期时间已过 → 封禁失效，但仍要求改密。
     managed.expiry_date = Some(fixed_time);

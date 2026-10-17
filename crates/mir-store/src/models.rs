@@ -9,6 +9,13 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+/// 默认界面语言：简体中文。
+///
+/// 与 `migrations/0002_account_language.sql` 里 `accounts.language` 的 `DEFAULT 'zh-cn'`
+/// 以及 `mir-core` 的 `Language::ZhCn` 保持一致；全部受支持的语言代码见
+/// [`crate::normalize_language`]。
+pub const DEFAULT_LANGUAGE: &str = "zh-cn";
+
 /// 新账号的创建参数。
 ///
 /// [`password`](Self::password) 是明文口令，只在 [`crate::create_account`] 内部参与散列，
@@ -25,10 +32,17 @@ pub struct NewAccount {
     pub creation_ip: String,
     /// 是否为 GM 账号（Crystal `AdminAccount`）。
     pub admin: bool,
+    /// 界面语言代码，默认 [`DEFAULT_LANGUAGE`]（`zh-cn`，简体中文）。
+    ///
+    /// 接受 `zh-cn`/`zh`/`cn`/`chs`、`en`/`en-us` 及其大小写变体，
+    /// 落库前由 [`crate::normalize_language`] 归一成 `zh-cn`/`en`；
+    /// 无法识别的代码会让 [`crate::create_account`] 返回
+    /// [`StoreError::InvalidLanguage`](crate::StoreError::InvalidLanguage)。
+    pub language: String,
 }
 
 impl NewAccount {
-    /// 用最少的参数构造：邮箱、注册 IP 为空，非 GM。
+    /// 用最少的参数构造：邮箱、注册 IP 为空，非 GM，界面语言取 [`DEFAULT_LANGUAGE`]。
     pub fn new(username: impl Into<String>, password: impl Into<String>) -> Self {
         Self {
             username: username.into(),
@@ -36,6 +50,7 @@ impl NewAccount {
             email: String::new(),
             creation_ip: String::new(),
             admin: false,
+            language: DEFAULT_LANGUAGE.to_owned(),
         }
     }
 }
@@ -44,7 +59,7 @@ impl NewAccount {
 ///
 /// 只包含「登录 + 账号状态」需要的字段；密保资料、仓库二级密码、扩建仓库等尚未迁移，
 /// 见 crate 文档的「刻意延后」一节。
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromRow)]
 pub struct Account {
     /// 账号主键（Crystal `AccountInfo.Index`）。
     pub id: i64,
@@ -76,6 +91,37 @@ pub struct Account {
     pub last_date: Option<DateTime<Utc>>,
     /// GM 账号标志（Crystal `AdminAccount`）。
     pub admin: bool,
+    /// 界面语言的 BCP-47 小写代码（目前是 `zh-cn` 或 `en`），默认 [`DEFAULT_LANGUAGE`]。
+    ///
+    /// 账号级设置：与角色无关，登录后用来初始化客户端的语言目录，因此换角色或重登
+    /// 都保留同一个选择。读出的行一定已归一化；改语言请走 [`crate::set_account_language`]。
+    pub language: String,
+}
+
+impl Default for Account {
+    /// 空账号，界面语言取 [`DEFAULT_LANGUAGE`]（`zh-cn`，简体中文），其余字段取空值。
+    ///
+    /// 主要给测试和「先建空行再逐字段填」的场景用；正常读账号走 [`crate::find_account`]。
+    fn default() -> Self {
+        Self {
+            id: 0,
+            username: String::new(),
+            password_hash: String::new(),
+            salt: Vec::new(),
+            email: String::new(),
+            creation_ip: String::new(),
+            creation_date: DateTime::<Utc>::default(),
+            banned: false,
+            ban_reason: String::new(),
+            expiry_date: None,
+            require_password_change: false,
+            wrong_password_count: 0,
+            last_ip: String::new(),
+            last_date: None,
+            admin: false,
+            language: DEFAULT_LANGUAGE.to_owned(),
+        }
+    }
 }
 
 impl Account {

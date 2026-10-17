@@ -10,6 +10,7 @@ use mir_core::enums::{
     ChatType, HeroBehaviour, IntelligentCreatureType, LightSetting, MirClass, MirDirection,
     WeatherSetting,
 };
+use mir_core::i18n::LanguageLibrary;
 use mir_core::{DateTimeBinary, LanguageCatalog, Point, TextKey};
 use mir_protocol::data::SelectInfo;
 use mir_protocol::manual::server::{MapInformation, UserInformation};
@@ -67,6 +68,8 @@ pub struct Session<S: AccountStore> {
     object_id: Option<u32>,
     /// 该会话的语言（默认简体中文，可在游戏内用 `/language` 切换）。
     language: LanguageCatalog,
+    /// 语言包（服务端文本与地图标题的运行时覆盖层）。
+    languages: Arc<LanguageLibrary>,
 }
 
 impl<S: AccountStore> Session<S> {
@@ -79,6 +82,7 @@ impl<S: AccountStore> Session<S> {
         store: Arc<S>,
         world: Arc<Mutex<World>>,
         out: UnboundedSender<Vec<u8>>,
+        languages: Arc<LanguageLibrary>,
     ) -> Self {
         Self {
             id,
@@ -93,6 +97,7 @@ impl<S: AccountStore> Session<S> {
             object_id: None,
             // 项目要求默认全中文化；玩家可以在游戏内用 `/language en` 切换。
             language: LanguageCatalog::new(),
+            languages,
         }
     }
 
@@ -254,6 +259,10 @@ impl<S: AccountStore> Session<S> {
             characters = characters.len(),
             "登录成功"
         );
+        // 语言设置随账号持久化：老账号默认中文，玩家上次选的会被带回来。
+        if let Some(language) = mir_core::Language::from_code(&account.language) {
+            self.language.set(language);
+        }
         self.account = Some(account);
         self.stage = Stage::Select;
         self.send(ServerPacket::LoginSuccess(LoginSuccess {
@@ -424,7 +433,9 @@ impl<S: AccountStore> Session<S> {
         self.send(ServerPacket::MapInformation(MapInformation {
             map_index: 0,
             file_name: character.map.clone(),
-            title: "比奇省".to_owned(),
+            title: self
+                .languages
+                .map_title(self.language.language(), &character.map),
             mini_map: 0,
             big_map: 0,
             lights: LightSetting::Day,
@@ -437,8 +448,8 @@ impl<S: AccountStore> Session<S> {
         self.send(ServerPacket::UserInformation(user_information(
             object_id, &character, position,
         )));
-        let welcome = self.language.text(TextKey::Welcome);
-        self.send_system_chat(welcome);
+        let welcome = self.language.text_with(&self.languages, TextKey::Welcome);
+        self.send_system_chat(&welcome);
         tracing::info!(
             session = self.id,
             character = %character.name,
@@ -504,9 +515,32 @@ impl<S: AccountStore> Session<S> {
     async fn on_chat(&mut self, message: &str) {
         // 游戏内语言切换：`/language <代码>`（协议里没有对应包，是我们的扩展）。
         if message.starts_with("/language") {
-            let reply = self.language.handle_command(message);
-            if let Some(text) = reply {
-                self.send_system_chat(text);
+            let Some(result) = self.language.parse_command(message) else {
+                return;
+            };
+            if let Ok(language) = result {
+                // 语言随账号持久化，下次登录直接生效。
+                if let Some(account) = &self.account {
+                    let account_id = account.id;
+                    if let Err(error) = self
+                        .store
+                        .set_language(account_id, language.code().to_owned())
+                        .await
+                    {
+                        tracing::warn!(session = self.id, %error, "保存语言设置失败");
+                    } else if let Some(account) = &mut self.account {
+                        language.code().clone_into(&mut account.language);
+                    }
+                }
+                let reply = self
+                    .language
+                    .text_with(&self.languages, TextKey::LanguageChanged);
+                self.send_system_chat(&reply);
+            } else {
+                let reply = self
+                    .language
+                    .text_with(&self.languages, TextKey::UnknownLanguage);
+                self.send_system_chat(&reply);
             }
             return;
         }

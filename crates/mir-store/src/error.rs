@@ -20,6 +20,13 @@ pub enum StoreError {
     #[error("找不到{0}：记录不存在或已被标记删除")]
     NotFound(&'static str),
 
+    /// 界面语言代码不受支持；参数是调用方传入的原始代码。
+    ///
+    /// 只有 [`crate::normalize_language`] 认识的代码才能落库（别名会先归一化），
+    /// 例如 `zh-cn`/`zh`/`cn`/`chs`、`en`/`en-us`（大小写不敏感）。
+    #[error("不支持的界面语言代码 {0}（支持 zh-cn / en）")]
+    InvalidLanguage(String),
+
     /// 底层数据库错误。
     #[error("数据库错误：{0}")]
     Database(#[from] sqlx::Error),

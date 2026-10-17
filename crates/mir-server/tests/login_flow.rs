@@ -159,7 +159,14 @@ async fn full_login_character_and_world_flow() {
         }
         other => panic!("期望 StartGame，收到 {other:?}"),
     }
-    client.expect_index(s::MapInformation::INDEX).await;
+    let packet = client.expect_index(s::MapInformation::INDEX).await;
+    match packet {
+        ServerPacket::MapInformation(info) => {
+            assert_eq!(info.file_name, "0");
+            assert_eq!(info.title, "比奇省", "地图标题默认走中文语言包");
+        }
+        other => panic!("期望 MapInformation，收到 {other:?}"),
+    }
     let packet = client.expect_index(s::UserInformation::INDEX).await;
     let object_id = match packet {
         ServerPacket::UserInformation(info) => {
@@ -222,6 +229,37 @@ async fn full_login_character_and_world_flow() {
             assert_eq!(success.characters[0].name, "裁决者");
         }
         other => panic!("期望 LogOutSuccess，收到 {other:?}"),
+    }
+
+    // 10. 语言随账号持久化：重新连一条连接并登录，`/language` 应回英文。
+    let mut again = TestClient::connect(address).await;
+    again.expect_index(s::Connected::INDEX).await;
+    again
+        .send(ClientPacket::ClientVersion(c::ClientVersion {
+            version_hash: Vec::new(),
+        }))
+        .await;
+    again.expect_index(s::ClientVersion::INDEX).await;
+    again
+        .send(ClientPacket::Login(c::Login {
+            account_id: "diana".to_owned(),
+            password: "secret".to_owned(),
+        }))
+        .await;
+    again.expect_index(s::LoginSuccess::INDEX).await;
+    again
+        .send(ClientPacket::Chat(c::Chat {
+            message: "/language".to_owned(),
+            linked_items: Vec::new(),
+        }))
+        .await;
+    let packet = again.expect_index(s::Chat::INDEX).await;
+    match packet {
+        ServerPacket::Chat(chat) => assert_eq!(
+            chat.message, "Language switched to English.",
+            "上次选的英文应该被带回来；聊天指令仍只在 Select 阶段生效"
+        ),
+        other => panic!("期望 Chat，收到 {other:?}"),
     }
 }
 

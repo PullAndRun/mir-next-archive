@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::Context;
+use mir_core::i18n::LanguageLibrary;
 use mir_protocol::ClientPacket;
 use mir_protocol::codec::FrameBuffer;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -37,6 +38,7 @@ pub async fn serve_forever<S: AccountStore>(
     store: Arc<S>,
 ) -> anyhow::Result<()> {
     let world = Arc::new(Mutex::new(build_world(&config)));
+    let languages = Arc::new(build_language_library(&config));
     let next_session = Arc::new(AtomicU64::new(1));
 
     loop {
@@ -51,11 +53,40 @@ pub async fn serve_forever<S: AccountStore>(
         let config = Arc::clone(&config);
         let store = Arc::clone(&store);
         let world = Arc::clone(&world);
+        let languages = Arc::clone(&languages);
         tokio::spawn(async move {
-            if let Err(error) = serve(stream, peer.to_string(), id, config, store, world).await {
+            if let Err(error) = serve(
+                stream,
+                peer.to_string(),
+                id,
+                config,
+                store,
+                world,
+                languages,
+            )
+            .await
+            {
                 tracing::warn!(session = id, %peer, %error, "连接结束");
             }
         });
+    }
+}
+
+/// 加载语言包：目录不存在或解析失败时退回内置语言包（默认中文仍然可用）。
+fn build_language_library(config: &ServerConfig) -> LanguageLibrary {
+    match LanguageLibrary::load_dir(std::path::Path::new(&config.language_dir)) {
+        Ok(library) => {
+            tracing::info!(
+                dir = %config.language_dir,
+                languages = library.languages().len(),
+                "已加载语言包"
+            );
+            library
+        }
+        Err(error) => {
+            tracing::warn!(dir = %config.language_dir, %error, "语言包加载失败，使用内置语言包");
+            LanguageLibrary::embedded()
+        }
     }
 }
 
@@ -90,6 +121,7 @@ async fn serve<S: AccountStore>(
     config: Arc<ServerConfig>,
     store: Arc<S>,
     world: Arc<Mutex<World>>,
+    languages: Arc<LanguageLibrary>,
 ) -> anyhow::Result<()> {
     stream.set_nodelay(true).ok();
     let (mut reader, mut writer) = stream.into_split();
@@ -113,6 +145,7 @@ async fn serve<S: AccountStore>(
         store,
         Arc::clone(&world),
         out_tx.clone(),
+        languages,
     );
     session.on_connected();
 

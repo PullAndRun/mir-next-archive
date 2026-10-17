@@ -20,7 +20,7 @@
 - **玩法对齐**：地图与行走、战斗与技能、装备与强化、NPC 商店与修理、掉落与经济、任务、组队、行会、攻城、PK 与红名，均以 Crystal 的行为作为基准逐项对齐。
 - **协议对齐**：数据包编号、字段顺序与序列化规则与 Crystal 保持一致，使现有 Crystal 客户端可以直接连接本项目服务端。
 - **数据对齐**：能够读取 Crystal 生态的地图文件、素材库与数据库结构，降低素材与存档的迁移成本。
-- **全中文化**：默认简体中文，并可在游戏内切换语言（见 [`docs/i18n.md`](docs/i18n.md)）。
+- **全中文化**：默认简体中文，文本与地图名走 `config/lang/` 语言包；游戏内 `/language en` 可切换，语言随账号保存（见 [`docs/i18n.md`](docs/i18n.md)）。
 - **工程化**：结构化日志、覆盖核心规则的自动化测试、单一可执行文件部署。
 
 ## 当前状态
@@ -64,11 +64,23 @@ mir-next/
 │  ├─ mir-client/     客户端骨架（渲染与界面待实现）
 │  └─ mir-tools/      工具链入口（地图检查、协议统计）
 ├─ tools/protocol-gen/ 从 Crystal C# 源码生成 Rust 协议代码
+├─ config/lang/       语言包（默认 zh-cn，另有 en；运行时加载，覆盖内置文本）
 ├─ docs/              协议、存档、地图与世界、多语言的实现契约
 ├─ resource/          素材目录（不提交到版本库）
 ├─ Cargo.toml         workspace 清单
 └─ LICENSE            GPL-3.0-or-later
 ```
+
+## 多语言
+
+- **默认全中文**：内置文本与 `config/lang/zh-cn.json` 都是简体中文，缺语言包时也回落中文。
+- **游戏内切换**：聊天框输入 `/language en` 切换英文、`/language zh-cn` 切回中文，
+  服务端回一条该语言的系统提示，并把选择写回 `accounts.language`（迁移 `0002`）。
+- **内容也跟随语言**：地图标题（`MapInformation.Title`）等文本从语言包的
+  `maps` 段取，未收录时用文件名兜底。
+- **客户端本地语言**：`cargo run -p mir-client -- --lang en`（设置存本地，断网也能切）。
+
+细节与新增文本的流程见 [`docs/i18n.md`](docs/i18n.md)。
 
 ## 技术选型
 

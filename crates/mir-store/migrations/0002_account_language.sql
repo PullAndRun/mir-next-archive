@@ -1,0 +1,14 @@
+-- 0002_account_language.sql — 账号级「界面语言」列。
+--
+-- 游戏默认简体中文（zh-cn），玩家可以在游戏内切换（目前是 zh-cn 与 en）。
+-- 语言是**账号级**设置而不是角色级：换角色、重登都要保留同一个选择，
+-- 所以挂在 accounts 上（Crystal 原版把语言放在客户端设置里，与账号无关；
+-- 这里按本项目「默认全中文、可在游戏内切换」的要求落到账号）。
+--
+-- 取值是 BCP-47 的小写语言标签；写入前由 crates/mir-store/src/repo.rs 的
+-- normalize_language 把 cn / chs / en-us 之类的别名归一成 zh-cn / en。
+--
+-- DEFAULT 'zh-cn' 表示默认简体中文：
+--   * 迁移前就存在的账号（含从 Crystal 导入的账号）自动获得简体中文；
+--   * 新账号在没有显式指定语言时也落简体中文，与服务端默认语言一致。
+ALTER TABLE accounts ADD COLUMN language TEXT NOT NULL DEFAULT 'zh-cn';

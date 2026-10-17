@@ -22,6 +22,9 @@ pub enum StoreError {
     /// 账号不存在。
     #[error("账号 {0} 不存在")]
     AccountMissing(String),
+    /// 不支持的界面语言代码。
+    #[error("不支持的界面语言代码 {0}（支持 zh-cn / en）")]
+    InvalidLanguage(String),
     /// 内部错误。
     #[error("存储错误：{0}")]
     Internal(String),
@@ -52,6 +55,8 @@ pub struct Account {
     pub wrong_password_count: u32,
     /// 是否是管理员。
     pub admin: bool,
+    /// 界面语言代码（默认 `zh-cn`；玩家在游戏内切换后会回写）。
+    pub language: String,
 }
 
 impl Account {
@@ -72,6 +77,8 @@ impl Account {
             require_password_change: false,
             wrong_password_count: 0,
             admin: false,
+            // 项目要求默认全中文化。
+            language: "zh-cn".to_owned(),
         }
     }
 
@@ -210,6 +217,13 @@ pub trait AccountStore: Send + Sync + 'static {
         &self,
         character: Character,
     ) -> impl Future<Output = Result<(), StoreError>> + Send + '_;
+
+    /// 保存账号的语言设置（游戏内切换后回写）。
+    fn set_language(
+        &self,
+        account_id: i64,
+        language: String,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send + '_;
 }
 
 /// 内存实现：用于测试与无数据库的本地试玩。
@@ -340,6 +354,18 @@ impl AccountStore for MemoryStore {
             .find(|candidate| candidate.id == character.id)
         {
             *existing = character;
+        }
+        Ok(())
+    }
+
+    async fn set_language(&self, account_id: i64, language: String) -> Result<(), StoreError> {
+        let mut state = self.state.lock().await;
+        if let Some(account) = state
+            .accounts
+            .iter_mut()
+            .find(|candidate| candidate.id == account_id)
+        {
+            account.language = language;
         }
         Ok(())
     }

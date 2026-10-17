@@ -1,0 +1,19 @@
+{
+  "language": "en",
+  "server": {
+    "welcome": "Welcome to Mir-Next.",
+    "account_banned": "This account is banned.",
+    "wrong_password": "Incorrect account or password.",
+    "too_many_characters": "You have too many characters.",
+    "language_changed": "Language switched to English.",
+    "unknown_language": "Unknown language code. Available: zh-cn, en.",
+    "server_full": "The server is full, please try again later.",
+    "unsupported_command": "Unsupported command.",
+    "character_name_taken": "That character name is already taken.",
+    "character_name_invalid": "Invalid character name: 3-15 CJK characters, letters, digits or underscores.",
+    "login_success": "Login successful."
+  },
+  "maps": {
+    "0": "Bichon Province"
+  }
+}

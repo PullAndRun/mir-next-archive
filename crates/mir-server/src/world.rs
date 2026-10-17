@@ -54,6 +54,7 @@ use mir_protocol::packets::server::{
 };
 use tokio::sync::mpsc::UnboundedSender;
 
+use crate::buffs::{ActiveBuff, BuffKind, MAGIC_SHIELD_MS_PER_DAMAGE};
 use crate::combat::{self, CombatStats, PendingHit};
 use crate::exp::ExpTable;
 use crate::gamedata::GameData;
@@ -104,6 +105,10 @@ pub const PLAYER_REGEN_DELAY_MS: i64 = 10_000;
 /// 每次自然回复的生命/魔法比例：Crystal `(int)(Stats[Stat.HP] * 0.03F) + 1`
 /// （`Server/MirObjects/HumanObject.cs:562`，魔法同式见 `:568`）。
 pub const PLAYER_REGEN_RATE: f64 = 0.03;
+/// 药水回复池的分批间隔：Crystal `HumanObject.PotDelay = 200`（`HumanObject.cs:186`）。
+pub const PLAYER_POT_DELAY_MS: i64 = 200;
+/// 药水每批放出多少的基数：`int PerTickRegen = 5 + (Level / 10);`（`HumanObject.cs:577`）。
+pub const POT_REGEN_BASE: i32 = 5;
 /// 死亡后自动复活的等待时间（毫秒）。
 ///
 /// Crystal **没有**服务端复活计时器：死亡后由客户端在死亡动画结束（`DeadTime`）时弹窗，
@@ -192,6 +197,23 @@ pub struct Player {
     pub gold: i64,
     /// 自己**已经看见**的地面物品，用于 `ObjectItem`/`ObjectGold`/`ObjectRemove` 的增量下发。
     pub visible_items: BTreeSet<u32>,
+    /// 生效中的增益（Crystal `MapObject.Buffs`，见 [`crate::buffs`]）。
+    ///
+    /// Crystal 把 `Buffs` 放在 `MapObject` 上（`Server/MirObjects/MapObject.cs:49`），
+    /// 本作只有玩家能带 buff（怪物 buff 还没接），所以就放在这里。
+    /// **不持久化**：Crystal 的 `CharacterInfo` 存档里没有 buff 块，下线即清。
+    pub buffs: Vec<ActiveBuff>,
+    /// 药水回复池：普通药水喝下去先攒在这里，再按 [`PLAYER_POT_DELAY_MS`] 分批放出来。
+    ///
+    /// Crystal `MapObject.PotHealthAmount` / `PotManaAmount`（`MapObject.cs:75`，`ushort`）。
+    pub pot_health_amount: u16,
+    /// 见 [`Player::pot_health_amount`]。
+    pub pot_mana_amount: u16,
+    /// 下一次放出药水回复的时刻：Crystal `HumanObject.PotTime`（`HumanObject.cs:187`）。
+    pub pot_time: i64,
+    /// 是否已解锁「卸下诅咒装备」：Crystal `HumanObject.UnlockCurse`
+    /// （神秘药水 `PlayerObject.cs:5839-5848`）。本作没有诅咒装备，标记只用于提示去重。
+    pub unlock_curse: bool,
     /// NPC 交互状态：当前对话的 NPC、页面、按钮白名单、标记位
     /// （Crystal 上是 `PlayerObject.NPCObjectID` / `NPCPage` / `NPCSuccess` / `Info.Flags` 几处分散的字段，
     /// 见 [`NpcState`]）。
@@ -989,6 +1011,9 @@ impl World {
     /// 玩家按对象 ID 升序遍历（Crystal 按 `Envir.Objects` 的插入顺序，等价于创建顺序），
     /// 保证同一 seed 下发包顺序可回放。
     fn tick_players(&mut self, now: i64) {
+        // `HumanObject.Process` 先 `ProcessBuffs()` 再 `ProcessRegen()`（`HumanObject.cs:323-324`），
+        // 所以增益到期（可能改上限）必须排在natural回复之前。
+        self.tick_buffs(now);
         let mut ids: Vec<u32> = self.players.keys().copied().collect();
         ids.sort_unstable();
         for object_id in ids {
@@ -1015,7 +1040,7 @@ impl World {
         }
     }
 
-    /// 玩家自然回血/回蓝：Crystal `HumanObject.ProcessRegen`（`HumanObject.cs:550-649`）。
+    /// 玩家自然回血/回蓝/药水回复：Crystal `HumanObject.ProcessRegen`（`HumanObject.cs:550-649`）。
     ///
     /// ```csharp
     /// if (Dead) return;                                                  // :552
@@ -1024,17 +1049,20 @@ impl World {
     ///     if (HP < Stats[HP]) healthRegen += (int)(Stats[HP] * 0.03F) + 1;  // :560-564
     ///     if (MP < Stats[MP]) manaRegen   += (int)(Stats[MP] * 0.03F) + 1;  // :566-570
     /// }
+    /// if (Envir.Time > PotTime) { ... 药水池每 200ms 放 5 + Level/10 ... }  // :573-600
     /// if (Envir.Time > HealTime) { ... HealAmount 分段 ... }             // :602-617（治疗术的生效方式）
     /// if (healthRegen > 0) { ChangeHP(healthRegen); BroadcastDamageIndicator(Hit, healthRegen); }  // :635-639
+    /// if (HP == Stats[HP]) { PotHealthAmount = 0; HealAmount = 0; }      // :641-645
     /// if (manaRegen > 0) ChangeMP(manaRegen);                            // :647
+    /// if (MP == Stats[MP]) PotManaAmount = 0;                            // :648
     /// ```
     ///
-    /// **治疗分段不受 `CanRegen` 节流**：Crystal 的 `HealAmount` 块在 `if (CanRegen)` 之外，
-    /// 每 600ms 结算一次（`HealDelay`），所以这里先取走本 tick 的治疗分段，再判断自然回复。
+    /// **药水分段与治疗分段都不受 `CanRegen` 节流**：Crystal 的 `PotTime`/`HealTime`
+    /// 两个块在 `if (CanRegen)` 之外，各自按 200ms / 600ms 结算。
     ///
     /// 简化：`Stats[HealthRecovery]`/`Stats[SpellRecovery]`（装备加成，`:563`、`:569`）
-    /// 与药水/吸血两个计时器（`:573-600`、`:619-633`）未实现——本作没有这两类消耗品与吸血，
-    /// 两项恒为 0，加进来只会平白多抽随机数。回血/回蓝后的 `S.HealthChanged` 由
+    /// 与吸血计时器（`:619-633`）未实现——本作没有这两类装备属性与吸血，
+    /// 加进来只会平白多抽随机数。回血/回蓝后的 `S.HealthChanged` 由
     /// [`World::change_player_hp`]/[`World::change_player_mp`] 发出（Crystal 的
     /// `SetHP`/`SetMP` 都走 `SendHealthChanged`，`HumanObject.cs:867-884`；
     /// Crystal 没有 `S.MPChanged` 这种包）。
@@ -1051,37 +1079,34 @@ impl World {
         let hp = player.hp;
         let mp = player.mp;
         let regen_time = player.regen_time;
+        let level = i32::from(player.level);
         let map = player.map.clone();
         let position = player.position;
 
-        // 治疗术攒下的 `HealAmount`：每 600ms 放出一小段（`:602-617`），与自然回复相加后
-        // 统一 `ChangeHP`（Crystal 也是在 `:635` 一次性生效）。
-        let heal_regen = self.take_heal_chunk(object_id, now);
-
         // `CanRegen`（`HumanObject.cs:145-151`）。
-        if now >= regen_time {
+        let can_regen = now >= regen_time;
+        if can_regen {
             // `RegenTime = Envir.Time + RegenDelay;`（`:558`）——**只要进入这个分支就重置**，
             // 与本次是否真的回了血无关。
             if let Some(player) = self.players.get_mut(&object_id) {
                 player.regen_time = now + PLAYER_REGEN_DELAY_MS;
             }
-        } else {
-            // 自然回复还没到点：只结算治疗分段。
-            if heal_regen > 0 {
-                self.change_player_hp(object_id, heal_regen);
-                self.emit_damage_indicator(&map, position, object_id, heal_regen, DamageType::Hit);
-                self.clear_heal_when_full(object_id);
-            }
-            return;
         }
 
-        let mut health_regen = heal_regen;
-        if hp < max_hp {
-            health_regen += (f64::from(max_hp) * PLAYER_REGEN_RATE) as i32 + 1;
-        }
-        let mut mana_regen = 0;
-        if mp < max_mp {
-            mana_regen = (f64::from(max_mp) * PLAYER_REGEN_RATE) as i32 + 1;
+        // 药水池（`:573-600`）：喝了普通药水之后每 200ms 放一小段，和自然回复相加后统一生效。
+        let (pot_health, pot_mana) = self.take_pot_chunk(object_id, now, level);
+        // 治疗术攒下的 `HealAmount`：每 600ms 放出一小段（`:602-617`）。
+        let heal_regen = self.take_heal_chunk(object_id, now);
+
+        let mut health_regen = pot_health + heal_regen;
+        let mut mana_regen = pot_mana;
+        if can_regen {
+            if hp < max_hp {
+                health_regen += (f64::from(max_hp) * PLAYER_REGEN_RATE) as i32 + 1;
+            }
+            if mp < max_mp {
+                mana_regen += (f64::from(max_mp) * PLAYER_REGEN_RATE) as i32 + 1;
+            }
         }
 
         if health_regen > 0 {
@@ -1094,6 +1119,37 @@ impl World {
         if mana_regen > 0 {
             self.change_player_mp(object_id, mana_regen);
         }
+        // `if (MP == Stats[MP]) PotManaAmount = 0;`（`:648`）。
+        if let Some(player) = self.players.get_mut(&object_id) {
+            if player.mp >= player.stats.mp {
+                player.pot_mana_amount = 0;
+            }
+        }
+    }
+
+    /// 取走本 tick 的药水回复量：Crystal `ProcessRegen` 的 `PotTime` 块（`HumanObject.cs:573-600`）。
+    ///
+    /// ```csharp
+    /// if (Envir.Time > PotTime) {
+    ///     PotTime = Envir.Time + PotDelay;                     // 200ms
+    ///     int PerTickRegen = 5 + (Level / 10);
+    ///     if (PotHealthAmount > PerTickRegen) { healthRegen += PerTickRegen; PotHealthAmount -= …; }
+    ///     else { healthRegen += PotHealthAmount; PotHealthAmount = 0; }
+    ///     ... 魔法同式 ...
+    /// }
+    /// ```
+    fn take_pot_chunk(&mut self, object_id: u32, now: i64, level: i32) -> (i32, i32) {
+        let Some(player) = self.players.get_mut(&object_id) else {
+            return (0, 0);
+        };
+        if now <= player.pot_time {
+            return (0, 0);
+        }
+        player.pot_time = now + PLAYER_POT_DELAY_MS;
+        let per_tick = POT_REGEN_BASE + level / 10;
+        let health = take_ushort_chunk(&mut player.pot_health_amount, per_tick);
+        let mana = take_ushort_chunk(&mut player.pot_mana_amount, per_tick);
+        (health, mana)
     }
 
     /// `if (HP == Stats[HP]) { PotHealthAmount = 0; HealAmount = 0; }`
@@ -1102,6 +1158,7 @@ impl World {
         if let Some(player) = self.players.get_mut(&object_id) {
             if player.hp >= player.stats.hp {
                 player.magic.heal_amount = 0;
+                player.pot_health_amount = 0;
             }
         }
     }
@@ -1251,6 +1308,33 @@ impl World {
             self.emit_damage_indicator(&map, position, hit.target_id, 0, DamageType::Miss);
             return;
         }
+
+        // 气功波（`Stat.EnergyShieldPercent`）：`if (Random.Next(100) < Percent) { …回血… }`
+        // （`HumanObject.cs:7262-7271`）。抽签位置在「未命中」判定之后、`S.Struck` 之前。
+        let shield_percent = stats.energy_shield_percent;
+        if shield_percent > 0 && (self.rng.next_bounded(100) as i32) < shield_percent {
+            let gain = stats.energy_shield_hp_gain;
+            let (hp, max_hp) = {
+                let player = &self.players[&hit.target_id];
+                (player.hp, player.stats.hp)
+            };
+            if gain > 0 {
+                if hp + gain >= max_hp {
+                    // `if (HP + Gain >= Stats[HP]) SetHP(Stats[HP]); else ChangeHP(Gain);`
+                    self.set_player_hp(hit.target_id, max_hp);
+                } else {
+                    self.change_player_hp(hit.target_id, gain);
+                }
+            }
+        }
+
+        // 魔法盾：每点实际伤害扣 60ms（`HumanObject.cs:7273-7277`）。
+        let dealt = result.damage.max(0);
+        self.shave_buff(
+            hit.target_id,
+            BuffKind::MagicShield,
+            i64::from(dealt) * MAGIC_SHIELD_MS_PER_DAMAGE,
+        );
 
         // `RegenTime = Envir.Time + RegenDelay;`（`HumanObject.cs:7295`，在 `S.Struck` 之前）。
         if let Some(player) = self.players.get_mut(&hit.target_id) {
@@ -1456,7 +1540,7 @@ impl World {
     }
 
     /// `HumanObject.ChangeHP`（`HumanObject.cs:885-907`）。
-    fn change_player_hp(&mut self, object_id: u32, amount: i32) {
+    pub(crate) fn change_player_hp(&mut self, object_id: u32, amount: i32) {
         let Some(player) = self.players.get_mut(&object_id) else {
             return;
         };
@@ -1502,8 +1586,10 @@ impl World {
     /// `HumanObject.SendHealthChanged`（`HumanObject.cs:870-874`）：只给本人发 `S.HealthChanged{HP,MP}`。
     ///
     /// 简化：Crystal 还会调 `BroadcastHealthChange()`（`MapObject.cs:841-914`），
-    /// 把 `S.ObjectHealth` 发给队友/宠物主人；本作没有队伍与宠物，玩家侧这一路恒为空。
-    fn send_health_changed(&self, object_id: u32) {
+    /// 把 `S.ObjectHealth` 发给队友/宠物主人；本作没有队伍与宠物，玩家侧这一路在
+    /// `change`/`set` 里不发，只有**上限变化**时由
+    /// [`World::broadcast_health_change`](crate::buffs::World::broadcast_health_change) 补一条。
+    pub(crate) fn send_health_changed(&self, object_id: u32) {
         if let Some(player) = self.players.get(&object_id) {
             let _ = player.sender.send(
                 ServerPacket::HealthChanged(HealthChanged {
@@ -2146,6 +2232,18 @@ impl World {
     }
 }
 
+/// 从药水池里取一批：Crystal `ProcessRegen` 的 `PotHealthAmount > PerTickRegen ? … : …`
+/// （`HumanObject.cs:579-599`）。
+///
+/// 注意比较用的是 `>`：恰好等于一批时会把池子一次性清空（`else` 分支），
+/// 数学上的结果相同，但池子必须归零，否则下一次又会被判成「还有剩」。
+fn take_ushort_chunk(pool: &mut u16, per_tick: i32) -> i32 {
+    let amount = i32::from(*pool);
+    let taken = if amount > per_tick { per_tick } else { amount };
+    *pool = u16::try_from(amount - taken).unwrap_or(0);
+    taken
+}
+
 /// Crystal `HumanObject.ReduceExp`（`Server/MirObjects/HumanObject.cs:2365-2381`）。
 ///
 /// 高等级打低等级怪时经验衰减：
@@ -2292,6 +2390,11 @@ mod tests {
                 magic: crate::magic::MagicState::default(),
                 gold: 0,
                 visible_items: BTreeSet::new(),
+                buffs: Vec::new(),
+                pot_health_amount: 0,
+                pot_mana_amount: 0,
+                pot_time: 0,
+                unlock_curse: false,
                 npc: crate::npc::NpcState::default(),
                 sender,
             },

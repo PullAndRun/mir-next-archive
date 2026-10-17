@@ -332,12 +332,18 @@ bool IsShopItem, bool SealedInfo?, bool GMMade
 | 地面物品消失 | `S.ObjectRemove` | 看见过它的人 | `MapObject.Despawn`（`MapObject.cs:363`） |
 | 拾到物品 | `S.GainedItem{Item}` | 本人 | `HumanObject.GainItem`（`:7831`） |
 | 拾到金币 | `S.GainedGold{Gold}` | 本人 | `PlayerObject.GainGold`（`:7682`） |
-| 扣金币（GM/后续） | `S.LoseGold{Gold}` | 本人 | `PlayerObject.DropGold`（`:7481`） |
+| 丢金币落地 | `S.ObjectGold`（视野）+ `S.LoseGold{Gold}`（本人） | 见左 | `PlayerObject.DropGold`（`:7473-7482`） |
 | 丢弃 | `S.DropItem{UniqueID, Count, HeroItem, Success}` | 本人 | `PlayerObject.DropItem`（`:7361`、`:7459`） |
+| 使用物品 | `S.UseItem{UniqueID, Grid, Success}` | 本人 | `PlayerObject.UseItem`（`PlayerObject.cs:5801`、`:6336`） |
+| 使用物品的副作用 | `S.HealthChanged` / `S.AddBuff` / `S.RemoveBuff` / `S.ObjectHealth` / `S.NewMagic` | 见 `docs/world/buffs.md`、`docs/world/magic.md` | 同左 |
 | 背包内移动 | `S.MoveItem{Grid, From, To, Success}` | 本人 | `PlayerObject.MoveItem`（`:5289`、`:5369`） |
 | 穿戴 | `S.EquipItem{Grid, UniqueID, To, Success}` | 本人 | `PlayerObject.EquipItem`（`:5529`、`:5682`） |
 | 脱下 | `S.RemoveItem{Grid, UniqueID, To, Success}` | 本人 | `PlayerObject.RemoveItem`（`:5015`、`:5123`） |
 | 外观变化 | `S.PlayerUpdate{ObjectID, Light, Weapon, WeaponEffect, Armour, WingEffect}` | 周围玩家（不含本人） | `HumanObject.UpdateLooks`（`:7058-7061`） |
+
+**注意**：Crystal 用物品时**不发** `S.ItemChanged` / `S.DuraChanged`
+（这两个包在整个 Crystal 服务端只有 4 个发送点，全是修理/耐久相关）。堆叠的扣减是客户端
+收到 `S.UseItem{Success=true}` 后自己减的。
 
 ---
 
@@ -353,6 +359,9 @@ bool IsShopItem, bool SealedInfo?, bool GMMade
 | 落点跳过 `Movement` 不实现 | `ItemObject.cs:211-220` 跳过传送门起点 | 世界层没有运行时 `Movements` 表 |
 | 掉落物不带 `GMMade`/任务物品消耗 | `MonsterObject.cs:1125-1140` | 没有 GM 制造与任务系统 |
 | 背包扩容上限 86 只用于解码校验 | `ResizeInventory`（`CharacterInfo.cs:594-607`） | 还没有扩容道具/功能 |
+| 满血/满蓝喝药水直接拒绝 | 照喝，`PotHealthAmount` 随后被清零（`HumanObject.cs:641-645`） | 避免白白消耗一瓶（本作扩展） |
+| 未实现的卷轴/食物拒绝且不消耗 | 不认识的花色照样被吃掉（`PlayerObject.cs:5893-5894`） | 玩家体验优先；见 §15.2 |
+| 玩家丢金币落地半径 5 | 同（`ob.Drop(5)`，`PlayerObject.cs:7479`） | 一致，仅 `gold == 0` 不落地 |
 
 ---
 
@@ -385,6 +394,16 @@ bool IsShopItem, bool SealedInfo?, bool GMMade
 10. **`UserItem.Image` 不是模板 `Image`**：护身符与两种毒药按堆叠数量换图标
     （`ItemData.cs:641-677`，例如护身符 `>=300` 是 3662、`>=200` 是 3661、其余 3660）。
     本作照抄（`items::item_image`）。
+11. **满血喝红药是白喝**：`UseItem` 不检查血量，`PotHealthAmount` 加上去之后
+    `ProcessRegen` 里 `if (HP == Stats[HP]) PotHealthAmount = 0;`（`HumanObject.cs:641-645`）
+    把它扔掉——物品已经消耗。本作改成直接拒绝（见 §11）。
+12. **发光的经验/爆率药水没有 `Visible`**：`BuffInfo.Load()` 里 `BuffType.Exp`/`Drop`
+    都是 `PauseInSafeZone` + `StackDuration`，没有 `Visible = true`（`BuffInfo.cs:70-72`），
+    所以客户端图标栏可能看不到它们，但属性仍生效。
+13. **`C.DropGold` 的 0 金币堆**：`Account.Gold < gold` 对 `gold = 0` 为假，于是会建一堆
+    0 金币的地面物品（`PlayerObject.cs:7475-7479`）；本作跳过。
+14. **未实现的卷轴会被静默吃掉**（`PlayerObject.cs:5826-6075` 的内层 `switch` 没有 `default`），
+    玩家丢一件物品、什么也不会发生。
 
 ---
 
@@ -420,10 +439,109 @@ bool IsShopItem, bool SealedInfo?, bool GMMade
 
 ## 14. 还没做的
 
-- 药水/卷轴的使用（`C.UseItem` → `PlayerObject.UseItem`）、堆叠拆分（`C.SplitItem`）、
-  合并（`C.MergeItem`）、仓库/交易/商城/邮件；
+- 堆叠拆分（`C.SplitItem`）、合并（`C.MergeItem`）、仓库/交易/商城/邮件；
+- 传送/回城/随机传送/祝福油/修复油卷轴（`Scroll` 的 shape 0-5、7-15 等，需要传送与修理子系统）；
+- 变身卷/怪物召唤/宠物粮（`ItemType.Transform`/`MonsterSpawn`/`Pets`）；
 - 装备诅咒/封印/租借/婚戒/灵魂绑定、觉醒与镶嵌、套装效果；
 - 耐久损耗（`DamageDura`/`DamageWeapon`，`HumanObject.cs:7837-7862`）；
 - 任务物品判定与 `BindMode` 的完整语义；
 - 背包扩容（`CharacterInfo.ResizeInventory`）；
 - `C.EquipItem` / `C.RemoveItem` 两条原始客户端包的接收（目前统一走 `C.MoveItem`）。
+
+---
+
+## 15. 使用物品（`C.UseItem`，`World::use_item`）
+
+入口是 `PlayerObject.UseItem`（`Server/MirObjects/PlayerObject.cs:5799-6338`），流程逐条照抄：
+
+```csharp
+找 UUID（背包 46 格）                              // :5806-5812
+if (item == null || index == -1 || !CanUseItem(item)) { Enqueue(p); return; }   // :5814-5818
+if (Dead && !(Scroll && Shape == 6)) { Enqueue(p); return; }                    // :5820-5824
+switch (item.Info.Type) { Potion / Scroll / Book / Food / … }                   // :5826-6328
+if (item.Count > 1) item.Count--; else Info.Inventory[index] = null;            // :6330-6331
+Report.ItemChanged(item, 1, 1);                                                 // :6334（服务端统计）
+p.Success = true; Enqueue(p);                                                   // :6336-6337
+```
+
+失败一律发 `S.UseItem{Success=false}`（Crystal 的 `p` 默认 `Success = false`，`:5801`），
+**且不消耗任何东西**。`CanUseItem` 里的性别/职业/等级三关在
+`World::can_use_requirements`（`HumanObject.cs:1020-1160`），书与药水共用。
+
+### 15.1 药水（`ItemType.Potion` 的 `Shape`）
+
+| Shape | Crystal | 效果 | 位置 |
+|---|---|---|---|
+| 0 | `NormalPotion` | `PotHealthAmount/PotManaAmount += Stats[HP/MP]`（`ushort` 封顶），之后由 `ProcessRegen` 每 200ms 放 `5 + Level/10` | `PlayerObject.cs:5831-5834`、`HumanObject.cs:573-600` |
+| 1 | `SunPotion` | 立刻 `ChangeHP/ChangeMP(Stats[HP/MP])` | `:5835-5838` |
+| 2 | `MysteryWater` | 解锁「卸下诅咒装备」（本作只置 `Player.unlock_curse` 并提示） | `:5839-5848` |
+| 3 | `Buff` | 按属性表套 9 类药水增益（`Impact`/`Magic`/`Taoist`/`Storm`/`HealthAid`/`ManaAid`/`Defence`/`MagicDefence`/`BagWeight`），时长 = `Durability` 分钟 | `:5849-5879` |
+| 4 | `Exp` | `BuffType.Exp`，`ExpRatePercent = 物品的 Luck` | `:5881-5886` |
+| 5 | `Drop` | `BuffType.Drop`，`ItemDropRatePercent = 物品的 Luck` | `:5887-5892` |
+| 其它 | — | 内层 `switch` 没有 `default`：Crystal 会把物品吃掉、毫无效果（本作照抄「消耗」） | `:5893-5894` |
+
+**太阳水不是百分比**：Crystal 的 `ItemInfo` 没有百分比字段，`Stats[Stat.HP]` 就是固定值
+（任务书里「太阳水百分比」的说法与源码不符，以源码为准）。
+
+普通药水的回复池是**玩家字段**：`Player::pot_health_amount` / `pot_mana_amount` / `pot_time`
+（Crystal `MapObject.PotHealthAmount`、`HumanObject.PotTime`），由 `World::process_player_regen`
+每 200ms 放一批；满血时 `PotHealthAmount` 清零（`HumanObject.cs:641-645`）。
+
+### 15.2 卷轴（`ItemType.Scroll`）
+
+本作只实现 **shape 6（复活卷轴）**：唯一允许「死亡时使用」的物品
+（`CanUseItem` 反过来要求必须死亡，`:1195-1200`），效果是 `MP = Stats[MP]; Revive(MaxHealth, true);`
+（`:5986-5987`）。其余 shape 需要传送/修理/武器幸运等子系统，本作**拒绝并提示、不消耗**
+（Crystal 会把不认识的花色照样吃掉，见 §17）。
+
+### 15.3 技能书（`ItemType.Book`）
+
+走 `World::use_book`（`PlayerObject.cs:6077-6089`）：`Shape` 就是 `Spell`，学会 → `S.NewMagic`
+→ 扣一本 → `S.UseItem{Success=true}`。详见 `docs/world/magic.md` §4。
+
+### 15.4 其它类型
+
+`ItemType.Food` 只用来喂坐骑（`:6093-6117`），本作没有坐骑 → 拒绝 + 提示；
+其余类型 Crystal 是 `default: return;`（不发包、不消耗），本作发失败包
+（差别只在「客户端会不会卡住物品格子」）。
+
+---
+
+## 16. 丢金币（`C.DropGold`，`World::drop_gold`）
+
+`PlayerObject.DropGold`（`PlayerObject.cs:7473-7482`）：
+
+```csharp
+if (Account.Gold < gold) return;                 // 钱不够：静默
+ItemObject ob = new ItemObject(this, gold);      // 金币堆落在脚下
+if (!ob.Drop(5)) return;                         // 半径 **5** 找空格（不是 DropRange=4）
+Account.Gold -= gold;
+Enqueue(new S.LoseGold { Gold = gold });
+```
+
+要点：
+
+* 落地半径是写死的 **5**（`DROP_GOLD_RANGE`），与掉落物品的 `Settings.DropRange = 4` 不同；
+* **先落地再扣钱**：附近没有空格时玩家一分钱都不会掉，也不会收到任何包；
+* 金币堆复用 `GroundItem`（`item = None`、金额在 `gold`），归属为 `None`
+  （玩家丢的东西没有保护期），视野内玩家收到 `S.ObjectGold`；
+* 本作简化：`gold == 0` 时不落地（Crystal 会生成一堆 0 金币）。
+
+---
+
+## 17. 测试清单（`crates/mir-server/tests/use_items.rs`，18 个）
+
+药水/卷轴/书/护盾/丢金币的用例集中在 `tests/use_items.rs`，逐条列在
+`docs/world/buffs.md` §7；其中与物品直接相关的是：
+
+| 用例 | 覆盖点 |
+|---|---|
+| `normal_potion_fills_the_pot_pool_and_heals_over_time` | 回复池 + 200ms 分批 + 堆叠减 1 + `S.UseItem{true}` |
+| `normal_potion_at_full_health_is_rejected_without_consuming` | 满血拒绝（本作扩展）+ 失败包 + 提示 |
+| `mana_potion_restores_mp_through_the_pot_pool` | 蓝药走同一条池子 |
+| `sun_potion_heals_the_flat_amount_immediately` | 太阳水固定值 |
+| `potion_class_requirement_is_enforced` / `potion_level_requirement_is_enforced` | `CanUseItem` 的职业/等级 |
+| `dead_player_cannot_use_a_potion_but_a_resurrection_scroll_revives` | 死亡拒绝 + 复活卷轴 |
+| `unknown_item_shapes_and_scrolls_are_rejected_without_consuming` | 未实现卷轴不吃物品 |
+| `using_a_book_still_learns_the_spell` | 书仍可学 |
+| `drop_gold_spawns_a_gold_pile_and_loses_gold` | 落地 + 扣钱 + `S.LoseGold` + `S.ObjectGold` + 钱不够 |

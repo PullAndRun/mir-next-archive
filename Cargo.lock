@@ -1305,6 +1305,7 @@ dependencies = [
 name = "mir-render"
 version = "0.1.0"
 dependencies = [
+ "ab_glyph",
  "flate2",
  "mir-asset",
  "mir-core",

@@ -3,10 +3,12 @@
 //! 当前里程碑打通了 Crystal 协议的「连接 → 版本校验 → 注册/登录 → 选角 →
 //! 进入世界 → 转身/走跑/聊天 → 下线」全链路，并在世界层移植了
 //! **物理战斗与怪物 AI**（见 [`combat`]、[`monster`] 与 `docs/world/combat.md`）、
-//! **物品系统**（见 [`items`] 与 `docs/world/items.md`）、
-//! **NPC 与商店**（见 [`npc`]、[`mir_db::npc_script`] 与 `docs/world/npc.md`）以及
-//! **技能/魔法**（见 [`magic`] 与 `docs/world/magic.md`）。
+//! **物品系统**（含使用消耗品与丢金币，见 [`items`] 与 `docs/world/items.md`）、
+//! **NPC 与商店**（见 [`npc`]、[`mir_db::npc_script`] 与 `docs/world/npc.md`）、
+//! **技能/魔法**（含 9 个增益技能，见 [`magic`] 与 `docs/world/magic.md`）以及
+//! **增益容器**（见 [`buffs`] 与 `docs/world/buffs.md`）。
 
+pub mod buffs;
 pub mod combat;
 pub mod config;
 pub mod exp;
@@ -21,6 +23,7 @@ pub mod session;
 pub mod store;
 pub mod world;
 
+pub use buffs::{ActiveBuff, BuffKind, PendingBuff};
 pub use combat::{CombatStats, HitResult};
 pub use config::ServerConfig;
 pub use exp::{ExpSource, ExpTable};

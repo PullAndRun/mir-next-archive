@@ -511,6 +511,12 @@ pub fn stats_from_monster_info(info: &MonsterInfo) -> CombatStats {
         bag_weight: get(Stat::BagWeight),
         wear_weight: get(Stat::WearWeight),
         hand_weight: get(Stat::HandWeight),
+        // 怪物模板理论上也能带 buff 类属性（Crystal 的 `Stats` 字典是通用的），
+        // 但怪物不吃玩家的增益技能，照抄数值即可。
+        damage_reduction_percent: get(Stat::DamageReductionPercent),
+        energy_shield_percent: get(Stat::EnergyShieldPercent),
+        energy_shield_hp_gain: get(Stat::EnergyShieldHPGain),
+        mana_penalty_percent: get(Stat::ManaPenaltyPercent),
     }
 }
 

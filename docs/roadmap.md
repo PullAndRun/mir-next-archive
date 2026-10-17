@@ -28,10 +28,10 @@
 | 战斗 | ✅ | 两段式攻击、护甲/闪避/暴击、RNG 顺序照抄；PK 未做 |
 | 经验 / 升级 | ✅ | `ExpList.ini` 真表、高等级衰减、属性重算、包与 Crystal 一致 |
 | 死亡 / 复活 / 回血 | ✅ | 10 秒原地复活（Crystal 走客户端 `C.TownRevive`，本作先自动）、10 秒 3% 回血 |
-| 物品 | ✅ | 掉落表、地面物品、拾取/丢弃、46 格背包、14 装备槽、装备加成、存档 |
+| 物品 | ✅ | 掉落表、地面物品、拾取/丢弃/丢金币、46 格背包、14 装备槽、装备加成、消耗品使用、存档 |
 | NPC | ✅ | 660 份脚本解析、对话条件/动作子集、买卖修（定价公式与价格倍率）、`NewMapInfo` 下发 |
-| 技能 | 🟡 | 用书学习、施法校验、8 个伤害/治疗技能；护盾/加速类需 buff 容器 |
-| Buff | ⏳ | 本次迭代目标：带到期时间的属性修饰层 |
+| 技能 | ✅ | 用书学习、施法校验、8 个伤害/治疗技能 + 9 个增益技能（护盾/加速/减伤…） |
+| Buff | ✅ | 带到期时间的属性修饰层、`S.AddBuff`/`S.RemoveBuff`、药水增益（见 `docs/world/buffs.md`） |
 | 任务 | ⏳ | `Envir/Quests` 与 `QuestInfo` 头已能读 |
 | 行会 / 组队 / 攻城 | ⏳ | 协议与数据类已就绪 |
 | 仓库 / 邮件 / 拍卖 | ⏳ | 协议与数据结构已就绪 |
@@ -55,7 +55,8 @@
 
 - [`docs/world/movement.md`](world/movement.md) — 移动与动作计时
 - [`docs/world/combat.md`](world/combat.md) — 战斗公式、RNG 顺序、18 条 Crystal 异常
-- [`docs/world/items.md`](world/items.md) — 背包/装备/掉落/持久化差异
+- [`docs/world/items.md`](world/items.md) — 背包/装备/掉落/使用物品/丢金币/持久化差异
+- [`docs/world/buffs.md`](world/buffs.md) — 增益容器、到期语义、9 个增益技能与 5 条异常
 - [`docs/world/npc.md`](world/npc.md) — 脚本支持矩阵与 12 条异常
 - [`docs/world/magic.md`](world/magic.md) — 技能支持矩阵与 11 条异常
 - [`docs/client.md`](client.md) — 客户端协议流程与 7 条怪癖
@@ -64,9 +65,8 @@
 
 ## 五、下一步优先级
 
-1. **Buff 容器 + 消耗品**：让护盾/加速类技能与药水生效（可玩性关键）。
-2. **客户端 UI**：状态栏、聊天、背包、商店、技能栏与汉字字体。
-3. **任务系统**：`Envir/Quests` 解析 + `QuestInfo` 状态机 + 任务奖励。
+1. **客户端 UI**：状态栏、聊天、背包、商店、技能栏与汉字字体。
+2. **任务系统**：`Envir/Quests` 解析 + `QuestInfo` 状态机 + 任务奖励。
 4. **组队 / 行会**：协议与数据结构已就绪，主要工作是状态机与广播。
 5. **地图切换与传送**：`MovementInfo` + NPC 脚本的 `MAPMOVE`。
 6. **视野与 AOI**：把广播半径与 Crystal 对齐，并做网格化索引。

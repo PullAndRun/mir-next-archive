@@ -76,6 +76,11 @@ impl Harness {
             magic: mir_server::MagicState::default(),
             gold: 0,
             visible_items: BTreeSet::new(),
+            buffs: Vec::new(),
+            pot_health_amount: 0,
+            pot_mana_amount: 0,
+            pot_time: 0,
+            unlock_curse: false,
             npc: mir_server::NpcState::default(),
             sender,
         });
@@ -642,10 +647,12 @@ fn attacking_postpones_regen_but_walking_does_not() {
         .attack(player, MirDirection::Up)
         .expect("挥空");
     let after_attack = harness.world.player(player).unwrap().regen_time;
-    assert_eq!(
-        after_attack,
-        harness.world.now() + PLAYER_REGEN_DELAY_MS,
-        "出手后重置回复计时"
+    // 容差 5ms：`now()` 读的是真实时钟，`attack()` 与断言之间可能跨过一毫秒
+    // （并行跑全量测试时尤其明显），这里只验证「被推后了一个完整周期」。
+    let expected = harness.world.now() + PLAYER_REGEN_DELAY_MS;
+    assert!(
+        (after_attack - expected).abs() <= 5,
+        "出手后重置回复计时：{after_attack} vs {expected}"
     );
 
     // 走路**不会**重置回复计时——这是 Crystal 的原样行为：

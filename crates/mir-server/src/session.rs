@@ -168,6 +168,9 @@ impl<S: AccountStore> Session<S> {
             ClientPacket::UseItem(packet) => {
                 self.on_use_item(packet.unique_id, packet.grid).await;
             }
+            ClientPacket::DropGold(packet) => {
+                self.on_drop_gold(packet.amount).await;
+            }
             ClientPacket::Magic(packet) => {
                 self.on_magic(
                     packet.spell,
@@ -526,6 +529,12 @@ impl<S: AccountStore> Session<S> {
             magic: crate::magic::MagicState::default(),
             gold: character.gold,
             visible_items: std::collections::BTreeSet::new(),
+            // buff 不持久化（Crystal 的 `CharacterInfo` 存档里没有 buff 块），登录即空。
+            buffs: Vec::new(),
+            pot_health_amount: 0,
+            pot_mana_amount: 0,
+            pot_time: 0,
+            unlock_curse: false,
             npc: NpcState::default(),
             sender: self.out.clone(),
         });
@@ -840,8 +849,9 @@ impl<S: AccountStore> Session<S> {
 
     /// 用物品（`C.UseItem`，Crystal `PlayerObject.UseItem`，`PlayerObject.cs:5799-6338`）。
     ///
-    /// 本作只实现技能书（`ItemType.Book`）这一支：学会/升级技能并消耗一本，
-    /// 见 [`World::use_book`]。其余物品类型会收到 `S.UseItem{Success=false}`。
+    /// 药水/卷轴/技能书都在 [`World::use_item`] 里分派：药水走进「药水池 + 增益」，
+    /// 复活卷轴在死亡状态下才有意义，书学会/升级技能。其余物品类型会收到
+    /// `S.UseItem{Success=false}` 且不被消耗。
     async fn on_use_item(&mut self, unique_id: u64, grid: MirGridType) {
         let Some(object_id) = self.object_id else {
             return;
@@ -851,14 +861,34 @@ impl<S: AccountStore> Session<S> {
             return;
         }
         let mut world = self.world.lock().await;
-        match world.use_book(object_id, unique_id) {
-            Ok(learned) => tracing::debug!(
+        match world.use_item(object_id, unique_id) {
+            Ok(report) => tracing::debug!(
                 session = self.id,
-                spell = ?learned.magic.spell,
-                level = learned.magic.level,
-                "学会技能"
+                item = %report.item_name,
+                hp = report.hp,
+                mp = report.mp,
+                pot_hp = report.pot_health,
+                pot_mp = report.pot_mana,
+                buffs = report.buffs.len(),
+                spell = ?report.learned.map(|magic| magic.spell),
+                "使用物品"
             ),
-            Err(error) => tracing::debug!(session = self.id, %error, "用书被拒绝"),
+            Err(error) => tracing::debug!(session = self.id, %error, "使用物品被拒绝"),
+        }
+    }
+
+    /// 丢金币（`C.DropGold`，Crystal `PlayerObject.DropGold`，`PlayerObject.cs:7473-7482`）。
+    async fn on_drop_gold(&mut self, amount: u32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.drop_gold(object_id, amount) {
+            Ok(Some(ground)) => {
+                tracing::debug!(session = self.id, amount, ground, "丢金币");
+            }
+            Ok(None) => tracing::debug!(session = self.id, amount, "丢金币：附近没有空格"),
+            Err(error) => tracing::debug!(session = self.id, amount, %error, "丢金币被拒绝"),
         }
     }
 

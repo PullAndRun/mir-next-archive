@@ -92,6 +92,11 @@ impl Harness {
             magic: mir_server::MagicState::default(),
             gold: 0,
             visible_items: BTreeSet::new(),
+            buffs: Vec::new(),
+            pot_health_amount: 0,
+            pot_mana_amount: 0,
+            pot_time: 0,
+            unlock_curse: false,
             npc: mir_server::NpcState::default(),
             sender,
         });
@@ -241,8 +246,9 @@ fn game_data_with(fireball: MagicInfo) -> Arc<GameData> {
             magic_info(Spell::FireBang, 5, 1_800, 8),
             magic_info(Spell::Healing, 3, 1_800, 8),
             magic_info(Spell::MassHealing, 5, 1_800, 8),
-            // 已登记、无效果（`REGISTERED_UNSUPPORTED`）：用来验证「不扣蓝」。
+            // 增益技能（`SpellKind::Buff`）：`Haste` 已经实现，`Rage` 仍是「登记但无效果」。
             magic_info(Spell::Haste, 5, 1_800, 8),
+            magic_info(Spell::Rage, 5, 1_800, 8),
         ],
         items: vec![
             book(1, Spell::FireBall, RequiredClass::None, 1),
@@ -982,28 +988,23 @@ fn firebang_hits_the_whole_3x3_area() {
 #[test]
 fn unsupported_spells_are_registered_but_apply_nothing() {
     let mut harness = Harness::new(17);
-    let player = harness.add_player(1, MirClass::Wizard, 1, Point::new(20, 20));
-    harness.learn(player, Spell::Haste);
+    let player = harness.add_player(1, MirClass::Warrior, 1, Point::new(20, 20));
+    // `Rage` 仍在 `REGISTERED_UNSUPPORTED` 里（`Haste` 已经实现，见 `tests/use_items.rs`）。
+    harness.learn(player, Spell::Rage);
     harness.ready_all(player);
     let mp = harness.world.player(player).unwrap().mp;
 
     let error = harness
         .world
-        .cast_magic(
-            player,
-            Spell::Haste,
-            MirDirection::Down,
-            0,
-            Point::new(0, 0),
-        )
+        .cast_magic(player, Spell::Rage, MirDirection::Down, 0, Point::new(0, 0))
         .expect_err("增益类技能尚未实现");
-    assert_eq!(error, MagicError::UnsupportedSpell(Spell::Haste));
+    assert_eq!(error, MagicError::UnsupportedSpell(Spell::Rage));
     assert_eq!(harness.world.player(player).unwrap().mp, mp, "不该扣蓝");
 
     // 但客户端仍能拿到模板（技能栏里能看到）。
     let client = harness.world.client_magics(player);
     assert_eq!(client.len(), 1);
-    assert_eq!(client[0].spell, Spell::Haste);
+    assert_eq!(client[0].spell, Spell::Rage);
 }
 
 #[test]

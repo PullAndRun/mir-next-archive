@@ -1,4 +1,5 @@
-//! 物品系统：模板查找、地面物品、拾取 / 丢弃 / 背包交换 / 装备穿戴、持久化编解码与 UUID。
+//! 物品系统：模板查找、地面物品、拾取 / 丢弃 / 使用 / 丢金币 / 背包交换 / 装备穿戴、
+//! 持久化编解码与 UUID。
 //!
 //! 规则逐条对照 Crystal（参考根目录 `github\Crystal`，下文只写相对路径）：
 //!
@@ -10,6 +11,9 @@
 //! | `World::drop_monster_loot` | `MonsterObject.Drop` / `DropItem` / `DropGold`（`MonsterObject.cs:1093-1190`） |
 //! | `World::pickup` | `PlayerObject.PickUp`（`Server/MirObjects/PlayerObject.cs:7483-7537`） |
 //! | `World::drop_item` | `PlayerObject.DropItem`（`:7359-7472`）+ `HumanObject.DropItem`（`HumanObject.cs:1380-1390`） |
+//! | [`World::drop_gold`] | `PlayerObject.DropGold`（`:7473-7482`） |
+//! | [`World::use_item`] | `PlayerObject.UseItem`（`:5799-6338`） |
+//! | [`World::can_use_requirements`] | `HumanObject.CanUseItem`（`HumanObject.cs:1020-1235`） |
 //! | `World::move_item`（背包） | `PlayerObject.MoveItem`（`:5350-5374`） |
 //! | `World::move_item`（装备） | `PlayerObject.EquipItem`（`:5527-5693`）+ `PlayerObject.RemoveItem`（`:5013-5135`）+ `HumanObject.CanEquipItem`（`HumanObject.cs:7661-7823`） |
 //! | `World::refresh_stats` | `HumanObject.RefreshStats` / `RefreshEquipmentStats`（`HumanObject.cs:1730-1936`） |
@@ -17,7 +21,10 @@
 //! | `World::add_item_to_inventory` | `HumanObject.AddItem`（`HumanObject.cs:1577-1630`） |
 //! | [`encode_slots`] / [`decode_slots`] | `CharacterInfo.Save`（`Server/MirDatabase/CharacterInfo.cs:431-456`）与读入（`:190-224`） |
 //!
-//! # 与 Crystal 的三处**有意**差异（都在函数上写了 `// 扩展：`）
+//! 使用物品（药水/卷轴/技能书）与增益的细节见 `docs/world/items.md` §15 与
+//! `docs/world/buffs.md`。
+//!
+//! # 与 Crystal 的**有意**差异（都在函数上写了 `// 扩展：` 或 `// 简化：`）
 //!
 //! 1. **拾取时检查负重**：Crystal 的 `CanGainItem` 只检查背包空位与可堆叠，重量只在
 //!    「能不能跑」里起作用（`HumanObject.cs:135,2516`）。本作按需求在拾取时也拒绝超重，
@@ -25,7 +32,12 @@
 //! 2. **地面物品的存活时间**：Crystal `Settings.ItemTimeOut = 30` 分钟（`Settings.cs:115`），
 //!    本作默认 3 分钟（[`ITEM_EXPIRE_MS`]），可用 [`World::set_item_expire_ms`] 调整。
 //! 3. **掉落落点**：Crystal 是**确定性**的环形扫描（`ItemObject.Drop`），不是随机偏移；
-//!    本作照抄扫描逻辑（见 [`World::drop_cell`] 的说明），没有引入随机数。
+//!    本作照抄扫描逻辑（见 `World::drop_cell` 的说明），没有引入随机数。
+//! 4. **满血/满蓝喝药水直接拒绝**（[`ItemError::PotionNoEffect`]）：Crystal 照喝，
+//!    `PotHealthAmount` 随后在 `ProcessRegen` 里被清零（`HumanObject.cs:641-645`），等于白喝。
+//! 5. **未实现的卷轴/食物拒绝且不消耗**：Crystal 的内层 `switch` 没有 `default`，
+//!    不认识的花色会被静默吃掉（`PlayerObject.cs:5826-6075`）。
+//! 6. **玩家丢 0 金币不落地**：Crystal 会生成一堆 0 金币（`PlayerObject.cs:7475-7479`）。
 //!
 //! # 掉落物的 UUID
 //!

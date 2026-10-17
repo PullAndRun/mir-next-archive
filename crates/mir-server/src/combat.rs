@@ -139,7 +139,7 @@ pub struct CombatStats {
     /// `Stat.BagWeight`：背包负重上限。
     ///
     /// 基础值来自 `Shared/BaseStats.cs:18`（战士 `Base = 50, Gain = 3F`，公式见
-    /// [`weight_cap`]）；装备可以用 `Stat.BagWeight` 叠加（`HumanObject.cs:1858` 的 `Stats.Add`）。
+    /// `weight_cap`）；装备可以用 `Stat.BagWeight` 叠加（`HumanObject.cs:1858` 的 `Stats.Add`）。
     pub bag_weight: i32,
     /// `Stat.WearWeight`：除武器/火把之外的装备重量上限（`Shared/BaseStats.cs:19`）。
     pub wear_weight: i32,

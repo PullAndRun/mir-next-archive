@@ -100,6 +100,9 @@ AttackSpeed = 1400 - (Stats[AttackSpeed] * 60 + min(370, Level * 14))   下限 5
 | `critical_rate` / `critical_damage` | `CriticalRate` / `CriticalDamage` | 暴击率/暴击伤害 |
 | `magic_resist` | `MagicResist` | 魔法闪避（`MAC` 类防御时先判一次） |
 | `reflect` | `Reflect` | 伤害反射（无装备，恒 0；**抽签照做**以保持随机序列） |
+| `damage_reduction_percent` | `DamageReductionPercent` | 伤害减免百分比（魔法盾；见 `docs/world/buffs.md`） |
+| `energy_shield_percent` / `energy_shield_hp_gain` | `EnergyShieldPercent` / `EnergyShieldHPGain` | 气功波：受击回血概率与回血量 |
+| `mana_penalty_percent` | `ManaPenaltyPercent` | 技能耗蓝惩罚（魔力增幅），不影响物理战斗 |
 | `hp` / `mp` | `HP` / `MP` | **上限值**；当前血量在 `Player.hp` / `Monster.hp` |
 
 玩家基础属性由等级/职业推出（`combat::player_base_stats`），逐条移植 `Shared/BaseStats.cs:12-89`
@@ -183,15 +186,22 @@ min = max(min, 0);  if (min > max) max = min
 ### 5.2 怪物打玩家：`HumanObject.Attacked(MonsterObject)`（`HumanObject.cs:7222-7315`）
 
 ```
-1. Next(100) < Reflect → 反射（本作恒 0，但抽签照做）
-2. (armour, hit) = GetArmour(ACAgility, ...)；!hit → 广播 Miss
-3. armour >= damage → 广播 Miss
-4. **没有暴击判定**
-5. S.Struck 给本人（500ms 节流） + Broadcast(ObjectStruck) 给周围玩家
-6. DamageIndicator{Hit, armour - damage}（负数）
-7. ChangeHP(...) → SendHealthChanged（HealthChanged 给本人）
-8. 血量归零 → PlayerObject.Die()
+1. (armour, hit) = GetArmour(ACAgility, ...)；!hit → 返回 0（不发包）
+2. Next(100) < Reflect → 反射（本作恒 0，但抽签照做）
+3. damage -= damage * DamageReductionPercent / 100      // 魔法盾（`:7244-7248`，本作在 combat::resolve_monster_attack）
+4. armour >= damage → 广播 Miss
+5. Next(100) < EnergyShieldPercent → SetHP/ChangeHP(+EnergyShieldHPGain)   // 气功波（`:7262-7271`，在 World::damage_player）
+6. MagicShield 每点伤害扣 60ms（`:7273-7277`）
+7. **没有暴击判定**
+8. Struck 给本人（500ms 节流） + Broadcast(ObjectStruck) 给周围玩家
+9. DamageIndicator{Hit, armour - damage}（负数）
+10. ChangeHP(...) → SendHealthChanged（HealthChanged 给本人）
+11. 血量归零 → PlayerObject.Die()
 ```
+
+简化：Crystal 的抽签顺序是「先 `GetArmour` 再掷反射」；本作 `resolve_monster_attack` 先掷反射
+再取护甲（`reflect` 恒 0，两者都不改变可观察结果），但**随机数消耗的次数与顺序不同**，
+同一 seed 下的具体数值与 Crystal 不会逐位一致（见 §13）。
 
 ### 5.3 玩家死亡：`PlayerObject.Die`（`PlayerObject.cs:578-667`）的 MVP 实现
 
@@ -475,8 +485,12 @@ if (CanRegen) {                                                     // :556，�
     if (HP < Stats[HP]) healthRegen += (int)(Stats[HP] * 0.03F) + 1;   // :562
     if (MP < Stats[MP]) manaRegen   += (int)(Stats[MP] * 0.03F) + 1;   // :568
 }
+if (Envir.Time > PotTime) { ... 药水池每 200ms 放 5 + Level/10 ... }   // :573-600
+if (Envir.Time > HealTime) { ... HealAmount 每 600ms 分一段 ... }      // :602-617
 if (healthRegen > 0) { ChangeHP(healthRegen); BroadcastDamageIndicator(DamageType.Hit, healthRegen); }  // :635-639
+if (HP == Stats[HP]) { PotHealthAmount = 0; HealAmount = 0; }       // :641-645
 if (manaRegen > 0) ChangeMP(manaRegen);                             // :647
+if (MP == Stats[MP]) PotManaAmount = 0;                             // :648
 ```
 
 要点（都是 Crystal 原文行为）：
@@ -489,9 +503,12 @@ if (manaRegen > 0) ChangeMP(manaRegen);                             // :647
 3. 回蓝走的也是 `ChangeMP` → `SendHealthChanged`（`S.HealthChanged{HP,MP}`）：
    **Crystal 没有 `S.MPChanged` 这种包**。
 4. 满血时不会发任何血量包，但 `RegenTime` 照样推进（`:556-558`）。
+5. **药水池与治疗分段都不受 `CanRegen` 节流**：`PotTime`（200ms）与 `HealTime`（600ms）
+   各自独立推进，三段回复量最后合并成一次 `ChangeHP` / `ChangeMP`。
+   药水池的来源是普通药水（`docs/world/items.md` §15.1）。
 
-简化：`Stats[HealthRecovery]`/`Stats[SpellRecovery]` 与药水/治疗/吸血三个计时器
-（`HumanObject.cs:563`、`:569`、`:573-633`）未实现——本作没有装备与消耗品。
+简化：`Stats[HealthRecovery]`/`Stats[SpellRecovery]` 与吸血计时器
+（`HumanObject.cs:563`、`:569`、`:619-633`）未实现——本作没有这两类装备属性与吸血技能。
 
 ---
 
@@ -548,7 +565,7 @@ if (manaRegen > 0) ChangeMP(manaRegen);                             // :647
 | 只有「野生敌对怪物」一条 AI 分支 | 没有宠物（`Master`/`PMode`）、巡逻路线（`Route`）、毒/麻痹/buff、`ShockTime`、`Rage`、隐身、召唤、传送 |
 | 怪物只打玩家，不打怪物 | 野生怪物之间 `IsAttackTarget` 返回 false（`MonsterObject.cs:2537-2539`），本来就不会互殴 |
 | 玩家近战只打怪物 | PK/红名/行会战未实现；`HumanObject.Attack` 的技能分支（Slaying/Thrusting/HalfMoon/…）全部跳过 |
-| 没有 buff，玩家属性=等级曲线基础值 + 装备加成 | 装备系统见 `docs/world/items.md`；技能（魔法）已实现一部分、见 `docs/world/magic.md`，增益/护盾类仍无 buff 容器 |
+| 没有 buff 容器之外的属性来源，玩家属性=等级曲线基础值 + 装备加成 + **生效中的 buff** | 装备见 `docs/world/items.md`；9 个增益技能与药水增益见 `docs/world/buffs.md` |
 | `reflect`/`CriticalRate` 等属性基础值恒 0（但抽签保留） | 只影响装备加成，抽签保留才能保证随机序列与 Crystal 一致 |
 | 刷怪用 `SpawnGroup`（半径内撒点） | Crystal 用地图预计算的 `WalkableCells`；`mir-db` 接入后用真实刷新点 |
 | 刷怪「每个周期只补 1 只」 | Crystal 一次补齐（`Map.cs:749-755`）；逐只补避免到点瞬间刷出一整群 |
@@ -560,7 +577,7 @@ if (manaRegen > 0) ChangeMP(manaRegen);                             // :647
 | 升级需求用「兜底曲线」当默认 | `World::new` 不碰文件系统，保证测试确定性；生产在 `server.rs` 里装 `ExpList.ini` |
 | 没有安全区 | 地图安全区数据未接入；Crystal 里安全区会让怪物无法选中玩家 |
 | 没有 `ActionList` 数据结构，用世界级 `pending_hits` | 单目标场景下与「每对象各自队列」等价；顺序按入队顺序 |
-| 玩家回复只做「自然回血/回蓝 + 治疗术分段」 | 药水/吸血两个计时器与 `HealthRecovery` 装备属性未实现；治疗术的 `HealAmount` 分段已实现（`docs/world/magic.md` §7） |
+| 玩家回复做「自然回血/回蓝 + 药水池 + 治疗术分段」 | 吸血计时器与 `HealthRecovery`/`SpellRecovery` 装备属性未实现；药水池见 `docs/world/items.md` §15.1，治疗分段见 `docs/world/magic.md` §7 |
 
 ---
 

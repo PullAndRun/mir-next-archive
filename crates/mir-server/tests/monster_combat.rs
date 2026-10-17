@@ -74,6 +74,11 @@ impl Harness {
             magic: mir_server::MagicState::default(),
             gold: 0,
             visible_items: BTreeSet::new(),
+            buffs: Vec::new(),
+            pot_health_amount: 0,
+            pot_mana_amount: 0,
+            pot_time: 0,
+            unlock_curse: false,
             npc: mir_server::NpcState::default(),
             sender,
         });

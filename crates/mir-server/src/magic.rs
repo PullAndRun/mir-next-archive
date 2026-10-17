@@ -10,6 +10,7 @@
 //! | [`UserMagic::cost`] | `HumanObject.MagicCost`（`Server/MirObjects/HumanObject.cs:3375-3398`） |
 //! | [`World::cast_magic`] | `HumanObject.Magic`（`HumanObject.cs:3400-3780`） |
 //! | [`World::use_book`] | `PlayerObject.UseItem` 的 `ItemType.Book` 分支（`Server/MirObjects/PlayerObject.cs:6077-6089`） |
+//! | `World::cast_buff_spell` | `Magic` 的增益分支（`HumanObject.cs:3544-3674`）+ `CompleteMagic`（`:6149-6242`）+ `Map.cs:1046-1097` |
 //! | `World::level_magic` | `HumanObject.LevelMagic`（`HumanObject.cs:6903-6980`） |
 //! | [`World::set_magic_key`] | `MirConnection.MagicKey`（`Server/MirNetwork/MirConnection.cs:1543-1566`） |
 //! | 延迟效果队列 | `DelayedType.Magic` → `Map.CompleteMagic`（`Server/MirEnvir/Map.cs:856-`）/ `HumanObject.CompleteMagic`（`HumanObject.cs:5903-`） |
@@ -51,12 +52,12 @@
 //! * `CanFly`（目标格是否允许飞行道具）未实现——地图层没有飞行属性，只按距离判定。
 //! * PK 未实现：攻击类技能**只认怪物**为目标，目标玩家一律 `InvalidTarget`。
 //! * 目标合法性在扣蓝之前严格校验（Crystal 是扣蓝后才发现目标无效，仍算一次施法）。
-//! * 增益类技能（`ProtectionField`/`Haste`/`MagicShield` 等）只登记、不生效，
-//!   原因见 [`REGISTERED_UNSUPPORTED`]。
+//! * 增益类技能由 [`SpellKind::Buff`] 实现（9 个），效果、时长与包序见 [`crate::buffs`]；
+//!   仍然「只登记、不生效」的少数技能见 [`REGISTERED_UNSUPPORTED`]。
 //! * 施法者死亡后已排入队列的延迟效果仍会结算（Crystal 只检查对象是否还在图上，
 //!   同样不检查 `Dead`）。
-//! * 护身符/毒药消耗未实现（`SoulFireBall` 在 Crystal 里要消耗 1 个护身符，
-//!   `HumanObject.cs:4382-4396`），原因是本作的消耗品系统还没接入。
+//! * 护身符/毒药消耗未实现（`SoulFireBall` 与 `SoulShield` 在 Crystal 里都要消耗 1 个护身符，
+//!   `HumanObject.cs:4382-4396`、`:4515`），原因是本作的护身符还没有接到技能上。
 
 use std::collections::HashMap;
 

@@ -34,8 +34,10 @@
   而不是一次性加满。
 - **`S.MagicDelay` 只在技能升级时发一次**（`HumanObject.cs:6972-6976`），**不是每次施法都发**；
   每次施法里客户端靠 `S.Magic` + `ClientMagic.Delay` 自己算冷却。
-- 本作已实现 8 个技能的效果（4 个单体、HellFire、FireBang、Healing、MassHealing），
-  其余「登记但无效果」（原因见 §9）。
+- 本作已实现 **8 个伤害/治疗技能**（4 个单体、HellFire、FireBang、Healing、MassHealing）
+  与 **9 个增益技能**（`ProtectionField`/`MagicShield`/`SoulShield`/`BlessedArmour`/`EnergyShield`/
+  `Haste`/`LightBody`/`Fury`/`MagicBooster`，见 §13 与 `docs/world/buffs.md`），
+  其余「登记但无效果」（原因见 §9、§11）。
 
 ---
 
@@ -56,9 +58,11 @@
 | 初始 `CastTime` | `int.MinValue` | `magic::INITIAL_CAST_TIME` | `CharacterInfo.cs:232`（读档强制重置） |
 | 一条技能记录 | 14 字节 | `magic::MAGIC_RECORD_LEN` | `MagicInfo.cs:135-144` |
 | 技能条数上限 | 64 | `magic::MAX_MAGICS` | **本作扩展**（读档防御；客户端技能栏 24 格） |
+| 增益生效延迟 | 500ms | 字面量 `500`（`cast_buff_spell`） | `HumanObject.cs:3544-3546`、`:3590-3591`、`:3632-3633` |
+| 盾类区域半径 | 3（7×7） | `buffs::SHIELD_AREA_RADIUS` | `Map.cs:1052-1057` |
 
-本作沿用的既有常量：施法不消耗物品、不查负重、不需要药水；`RegenDelay = 10000`
-（`HumanObject.cs:186`、`:3450` 施法会重置 `RegenTime`）。
+本作沿用的既有常量：施法不消耗物品、不查负重（护身符消耗仍未接，见 §11）；
+`RegenDelay = 10000`（`HumanObject.cs:186`、`:3450` 施法会重置 `RegenTime`）。
 
 ---
 

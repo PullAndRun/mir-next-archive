@@ -173,6 +173,7 @@
     "npc_repair_type_not_allowed": "This type of item cannot be repaired here.",
     "npc_wont_buy_type": "This NPC does not buy that kind of item.",
     "pk_protected_by_law": "You are protected by the law.",
+    "quest_item_found": "You found {item}",
     "quest_killed_monster": "You killed {monster}",
     "quest_share_needs_party": "You can only share a quest while in a group with a member nearby.",
     "quest_task_done_suffix": " (done)",

@@ -130,6 +130,10 @@ async fn account_and_character_lifecycle_rolls_back() {
         character.quest_inventory.is_empty(),
         "新角色没有任务物品，任务物品栏列应当是零长度"
     );
+    assert_eq!(
+        character.last_daily_reset_at, 0,
+        "新角色还没做过每日重置（迁移 0014 默认 0）"
+    );
     assert_eq!(character.guild_index, -1);
 
     // 角色名全局唯一（大小写不敏感）。
@@ -201,6 +205,8 @@ async fn account_and_character_lifecycle_rolls_back() {
     character.storage = vec![6];
     // 任务物品栏是独立的 BYTEA 块（迁移 0012）；内容由 mir-server 编码，存储层只保证往返。
     character.quest_inventory = vec![0x00, 0x28, 0x01, 0xAA, 0xBB];
+    // 每日重置时间戳（迁移 0014，Unix 毫秒）。
+    character.last_daily_reset_at = 1_700_000_000_000;
     character.last_login_date = Some(fixed_time);
     character.last_logout_date = Some(fixed_time);
     save_character(&mut *tx, &character)

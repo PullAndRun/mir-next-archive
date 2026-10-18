@@ -2567,8 +2567,11 @@ impl World {
     /// 命中「有未完成收集任务」的掉落直接进任务物品栏（[`crate::quest_inventory`]），
     /// 不再落地；本作在 [`World::drop_monster_loot`] 的掉落循环里照做。
     ///
-    /// 简化：`NoDropMonster` 地图开关、稀有度/会员掉率加成（`:1098-1102`）、
-    /// `GMMade` 标记、`drop.QuestRequired`（数据层还没有这个字段）都未实现。
+    /// 简化：`NoDropMonster` 地图开关、稀有度/会员掉率加成（`:1098-1102`）、`GMMade` 标记未实现。
+    ///
+    /// `drop.QuestRequired`（行尾 `Q`）：`DropReward::quest_required` 与 `reward.items` 一一对应；
+    /// 先让 `CheckGroupQuestItem` 截胡（`:1130-1138`），截不到才按 `Q` 跳过落地（`:1140`），
+    /// 与 Crystal 顺序一致。
     pub(crate) fn drop_monster_loot(&mut self, monster_id: u32) {
         // 用 `World::monster`（monster_slots 下标）代替遍历全部怪物。
         let Some(monster) = self.monster(monster_id) else {
@@ -2596,7 +2599,7 @@ impl World {
             self.drop_monster_gold(&map, position, reward.gold, owner);
         }
         // `foreach (var dropItem in reward.Items) { ... if (!DropItem(item)) return; }`（`:1119-1142`）
-        for item_name in &reward.items {
+        for (index, item_name) in reward.items.iter().enumerate() {
             let Some(info) = data.item_by_name(item_name).cloned() else {
                 // Crystal 在载入掉落表时就用 `Envir.GetItemInfo` 过滤掉了未知物品
                 // （`MonsterInfo.cs:356-357`），所以这里只可能是数据不一致。
@@ -2607,6 +2610,11 @@ impl World {
             // Crystal `MonsterObject.cs:1130-1138`：击杀者（组队时含同图范围内的队员）有
             // **未完成的收集任务**时，这件掉落直接进任务物品栏，不再落地。
             if self.check_group_quest_item(owner, &item) {
+                continue;
+            }
+            // Crystal `MonsterObject.cs:1140`：`Q` 标记的任务物品如果没人截胡，也绝不落地。
+            // `reward.quest_required` 与 `reward.items` 一一对应，下标来自同一个 `enumerate`。
+            if reward.quest_required.get(index).copied().unwrap_or(false) {
                 continue;
             }
             let Some(cell) = self.drop_cell(&map, position) else {

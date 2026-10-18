@@ -334,3 +334,139 @@ async fn wrong_password_is_rejected_with_result_4() {
         other => panic!("期望 Login，收到 {other:?}"),
     }
 }
+
+// ---------------------------------------------------------------------------
+// GM 命令的权限门（t33）：`@...` 只有 GM 账号才被消费
+// ---------------------------------------------------------------------------
+
+/// 起一个测试服务器，`gm_accounts` 里放 `"gmuser"`。
+fn gm_config() -> Arc<ServerConfig> {
+    Arc::new(ServerConfig {
+        map_root: "resource/不存在的目录".to_owned(),
+        load_game_data: false,
+        gm_accounts: vec!["gmuser".to_owned()],
+        ..ServerConfig::default()
+    })
+}
+
+/// 完整走「连接 → 版本 → 注册 → 登录 → 建角 → 进世界」，返回在游戏里的客户端。
+async fn enter_world(address: std::net::SocketAddr, account: &str) -> TestClient {
+    let mut client = TestClient::connect(address).await;
+    client.expect_index(s::Connected::INDEX).await;
+    client
+        .send(ClientPacket::ClientVersion(c::ClientVersion {
+            version_hash: Vec::new(),
+        }))
+        .await;
+    client.expect_index(s::ClientVersion::INDEX).await;
+    client
+        .send(ClientPacket::NewAccount(c::NewAccount {
+            account_id: account.to_owned(),
+            password: "secret".to_owned(),
+            birth_date: mir_core::DateTimeBinary(0),
+            user_name: String::new(),
+            secret_question: String::new(),
+            secret_answer: String::new(),
+            e_mail_address: String::new(),
+        }))
+        .await;
+    client.expect_index(s::NewAccount::INDEX).await;
+    client
+        .send(ClientPacket::Login(c::Login {
+            account_id: account.to_owned(),
+            password: "secret".to_owned(),
+        }))
+        .await;
+    client.expect_index(s::LoginSuccess::INDEX).await;
+    client
+        .send(ClientPacket::NewCharacter(c::NewCharacter {
+            name: format!("{account}_char"),
+            gender: MirGender::Male,
+            class: MirClass::Warrior,
+        }))
+        .await;
+    let character_index = match client.expect_index(s::NewCharacterSuccess::INDEX).await {
+        // `char_info.index` 是角色**主键**（服务端 `find_character(account, id)` 用它），
+        // 不是角色列表下标。
+        ServerPacket::NewCharacterSuccess(success) => success.char_info.index,
+        other => panic!("期望 NewCharacterSuccess，收到 {other:?}"),
+    };
+    client
+        .send(ClientPacket::StartGame(c::StartGame { character_index }))
+        .await;
+    // 进世界序列：`StartGame{result=4}` 之后还有 `NewItemInfo`/`MapInformation`/`ObjectPlayer`…
+    // 这里只挑关键的两条断言（成功码 + `UserInformation`），其余跳过。
+    loop {
+        match client.expect().await {
+            ServerPacket::StartGame(response) => assert_eq!(response.result, 4, "进世界应成功"),
+            ServerPacket::UserInformation(_) => break,
+            _ => {}
+        }
+    }
+    client
+}
+
+#[tokio::test]
+async fn gm_chat_is_silent_for_normal_accounts_and_works_for_gm() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("绑定临时端口");
+    let address = listener.local_addr().expect("取端口");
+    tokio::spawn(serve_forever(
+        listener,
+        gm_config(),
+        Arc::new(MemoryStore::new()),
+    ));
+
+    // ---- 非 GM：`@level 50` 按普通聊天走，不生效、不报错、不泄露命令存在 ----
+    let mut plain = enter_world(address, "plainuser").await;
+    plain
+        .send(ClientPacket::Chat(c::Chat {
+            message: "@level 50".to_owned(),
+            linked_items: Vec::new(),
+        }))
+        .await;
+    // 普通聊天广播回自己时是 `S.ObjectChat`（Crystal 的本地图广播），
+    // 说明这条 `@...` 没被当成命令消费。
+    loop {
+        match plain.expect().await {
+            ServerPacket::ObjectChat(chat) => {
+                assert_eq!(chat.text, "@level 50", "非 GM 的 @... 原样广播");
+                break;
+            }
+            ServerPacket::LevelChanged(_) => panic!("非 GM 的 @level 不能生效"),
+            _ => {}
+        }
+    }
+
+    // ---- GM：同一句命令生效，回英文提示 + 等级变化 ----
+    let mut gm = enter_world(address, "gmuser").await;
+    gm.send(ClientPacket::Chat(c::Chat {
+        message: "@level 50".to_owned(),
+        linked_items: Vec::new(),
+    }))
+    .await;
+    let mut reply = None;
+    let mut leveled = None;
+    for _ in 0..20 {
+        let packet = gm.expect().await;
+        match packet {
+            ServerPacket::Chat(chat) => {
+                if chat.message.starts_with("Level set to 50") {
+                    reply = Some(chat.message);
+                }
+            }
+            ServerPacket::LevelChanged(change) => {
+                leveled = Some(change);
+            }
+            _ => {}
+        }
+        if reply.is_some() && leveled.is_some() {
+            break;
+        }
+    }
+    assert!(reply.is_some(), "GM 应收到英文回执");
+    let leveled = leveled.expect("GM 应收到 S.LevelChanged");
+    assert_eq!(leveled.level, 50);
+    assert!(leveled.max_experience > 0, "下一级经验上限要按新等级重算");
+}

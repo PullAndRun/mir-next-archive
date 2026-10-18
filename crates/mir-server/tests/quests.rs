@@ -14,7 +14,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use mir_core::Point;
-use mir_core::enums::{ItemGrade, ItemType, MirClass, MirDirection, MirGender, QuestState, Stat};
+use mir_core::enums::{
+    ItemGrade, ItemType, MirClass, MirDirection, MirGender, OutputMessageType, QuestState, Stat,
+};
 use mir_core::i18n::{Language, TextKey, format_text};
 use mir_db::quest_script::QuestScript;
 use mir_db::{MapInfo, MirDb, MonsterInfo, NpcInfo, QuestInfo};
@@ -1459,6 +1461,52 @@ fn quest_inventory_roundtrips_through_world_and_store_blob() {
             .item_count_of("Egg"),
         1,
         "重登后收集进度从任务物品栏重算"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 5.5 YouFound 提示（Crystal `PlayerObject.CheckNeedQuestItem`）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn you_found_hint_is_sent_after_gained_quest_item() {
+    let (mut harness, _envir) = Harness::new("you-found");
+    let craft_lady = harness.npc_id("工匠");
+    let player = harness.add_player(1, Point::new(105, 101));
+    let egg = harness.world.item_info_by_name("Egg").unwrap().clone();
+    harness
+        .world
+        .accept_quest(player, craft_lady, 2)
+        .expect("接取");
+    // 丢掉接取任务产生的包，避免其中 `ChangeQuest{Add}` 干扰下面的顺序断言。
+    harness.packets(player);
+    let drop = harness.world.create_fresh_item(&egg);
+    assert!(harness.world.check_group_quest_item(player, &drop));
+    let packets = harness.packets(player);
+    let gained = packets
+        .iter()
+        .position(|packet| matches!(packet, ServerPacket::GainedQuestItem(_)))
+        .expect("应当先发 `S.GainedQuestItem`(205)");
+    let hint = packets
+        .iter()
+        .position(|packet| match packet {
+            ServerPacket::SendOutputMessage(message) => {
+                message.type_ == OutputMessageType::Quest && message.message.contains("Egg")
+            }
+            _ => false,
+        })
+        .expect("应当发 YouFound 提示");
+    let update = packets
+        .iter()
+        .position(|packet| matches!(packet, ServerPacket::ChangeQuest(_)))
+        .expect("应当发 `S.ChangeQuest`");
+    assert!(
+        gained < hint,
+        "Crystal 顺序：`GainQuestItem`(205) → YouFound（`PlayerObject.cs:11546-11556`）"
+    );
+    assert!(
+        hint < update,
+        "Crystal 顺序：YouFound → `SendUpdateQuest`（ChangeQuest）"
     );
 }
 

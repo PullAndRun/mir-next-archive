@@ -60,6 +60,21 @@ pub const MAX_CONCURRENT_QUESTS: usize = 20;
 /// （`QuestProgressInfo.cs:40-43`）。
 pub const QUEST_NEW_WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
 
+/// 每日任务的重置间隔：24 小时（毫秒）。
+///
+/// Crystal 在服务器**跨天（0 点）**时对全部角色执行 `ClearDailyQuests`（`Envir.cs:2311-2315`、
+/// `:4856-4866`）；本作改为按角色的 `last_daily_reset_at` 惰性补做，间隔 24h。
+pub const DAILY_RESET_INTERVAL_MS: i64 = 24 * 60 * 60 * 1000;
+
+/// 是否该做每日重置：距上次重置 ≥24h，或从未重置过（`last <= 0`，新角色/旧存档）。
+///
+/// 纯函数，方便在 session 侧（登录/任务交互）判边界；重置本身是幂等的，所以
+/// 「从未重置过」直接视为到期不会有副作用。
+#[must_use]
+pub fn daily_reset_due(last_reset_at_ms: i64, now_ms: i64) -> bool {
+    last_reset_at_ms <= 0 || now_ms.saturating_sub(last_reset_at_ms) >= DAILY_RESET_INTERVAL_MS
+}
+
 /// 一毫秒对应的秒数换算用的常量（`time_limit_in_seconds` → 毫秒）。
 const SECOND_MS: i64 = 1_000;
 
@@ -1263,6 +1278,88 @@ impl World {
         for quest_index in indexes {
             self.update_objectives(player_id, quest_index);
         }
+    }
+
+    /// 所有 `QuestType.Daily` 的任务编号（Crystal `QuestInfoList.Where(Type == Daily)`）。
+    fn daily_quest_indexes(&self) -> Vec<i32> {
+        self.game_data()
+            .map(|data| {
+                data.db
+                    .quests
+                    .iter()
+                    .filter(|quest| {
+                        QuestType::from_value(quest.quest_type) == Some(QuestType::Daily)
+                    })
+                    .map(|quest| quest.index)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// 惰性每日重置（Crystal `Envir.ProcessNewDay` → `ClearDailyQuests`，`Envir.cs:4856-4866`、
+    /// `:5009-5024`）：把 `QuestType.Daily` 的完成记录清掉，让每日任务可以再接。
+    ///
+    /// 与 Crystal 的差异：
+    /// * Crystal 在服务器**跨天（0 点）**时对所有角色（含离线）执行；本作按角色
+    ///   `last_daily_reset_at` 在**登录/任务交互时**惰性补做，间隔 24h（[`daily_reset_due`]）；
+    /// * 本作交付后保留一条 `state = Completed` 的进度（Crystal 直接删 `CurrentQuests`），
+    ///   所以这里连这条进度一起删，否则再接会被 `AlreadyCompleted` 拒绝。
+    ///
+    /// 进行中的每日任务不打断（Crystal 只清 `CompletedQuests`）。清完发 `S.CompleteQuest` 整表
+    /// （Crystal `GetCompletedQuests`）。返回清掉的任务数。
+    pub fn reset_daily_quests(&mut self, player_id: u32) -> usize {
+        let daily = self.daily_quest_indexes();
+        if daily.is_empty() {
+            return 0;
+        }
+        let Some(player) = self.players.get_mut(&player_id) else {
+            return 0;
+        };
+        let mut removed = 0;
+        for quest_index in daily {
+            let had_completed = player.completed_quests.remove(&quest_index);
+            let before = player.quests.len();
+            player.quests.retain(|progress| {
+                !(progress.quest_index == quest_index
+                    && progress.state == QuestProgressState::Completed)
+            });
+            let removed_progress = player.quests.len() != before;
+            if had_completed || removed_progress {
+                removed += 1;
+            }
+        }
+        if removed > 0 {
+            self.send_completed_quests(player_id);
+        }
+        removed
+    }
+
+    /// 登录时的每日重置（在 `world.enter` **之前**改角色记录，session 补丁调用）。
+    ///
+    /// 与 [`World::reset_daily_quests`] 同一份判定与清理逻辑，但作用在**存档记录**的
+    /// `quests` 字节块上：登录流程会先解码 `character.quests` 再 `enter`，所以必须在解码前调用；
+    /// `last_daily_reset_at` 随记录一起落盘（`market::character_snapshot` 克隆 base 时自带）。
+    /// 返回是否真的做了重置（调用方据此决定是否记日志/立即存盘）。
+    pub fn apply_daily_reset(&self, character: &mut crate::store::Character, now_ms: i64) -> bool {
+        if !daily_reset_due(character.last_daily_reset_at, now_ms) {
+            return false;
+        }
+        character.last_daily_reset_at = now_ms;
+        let daily = self.daily_quest_indexes();
+        if daily.is_empty() {
+            return true;
+        }
+        let Ok(mut save) = decode_quests(&character.quests) else {
+            // 坏块交给登录流程按空存档处理；这里只更新时间戳，避免每次登录反复重试。
+            return true;
+        };
+        save.completed_quests.retain(|index| !daily.contains(index));
+        save.quests.retain(|progress| {
+            !(daily.contains(&progress.quest_index)
+                && progress.state == QuestProgressState::Completed)
+        });
+        character.quests = encode_quests(&save);
+        true
     }
 
     /// 重新计算一个任务「目标是否全部达成」（不发包）。

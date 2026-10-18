@@ -387,16 +387,26 @@ async fn serve<S: AccountStore>(
         languages,
     );
     session.on_connected();
+    // GM `@kick` 通道：`gm.rs` 通过登记表找到会话后发一个信号，读循环立刻断开
+    // （Crystal `Connection.Disconnect()` 的等价物）。
+    let (kick_tx, mut kick_rx) = mpsc::unbounded_channel::<()>();
+    crate::gm::register_session(id, kick_tx);
 
     let mut frames = FrameBuffer::new();
     let mut chunk = [0u8; 8192];
     'read: loop {
-        let read = match reader.read(&mut chunk).await {
-            Ok(0) => break,
-            Ok(read) => read,
-            Err(error) => {
-                tracing::debug!(session = id, %error, "读取失败");
-                break;
+        let read = tokio::select! {
+            read = reader.read(&mut chunk) => match read {
+                Ok(0) => break,
+                Ok(read) => read,
+                Err(error) => {
+                    tracing::debug!(session = id, %error, "读取失败");
+                    break;
+                }
+            },
+            Some(()) = kick_rx.recv() => {
+                tracing::info!(session = id, %peer, "GM @kick：断开连接");
+                break 'read;
             }
         };
         frames.push(&chunk[..read]);
@@ -425,6 +435,7 @@ async fn serve<S: AccountStore>(
         }
     }
 
+    crate::gm::unregister_session(id);
     session.on_disconnected().await;
     drop(session);
     drop(out_tx);

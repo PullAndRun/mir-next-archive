@@ -38,11 +38,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use mir_db::quest_script::QuestScript;
 use mir_protocol::ServerPacket;
 use mir_protocol::data::{ItemInfo, UserItem};
-use mir_protocol::packets::server::{DeleteQuestItem, GainedQuestItem};
+use mir_protocol::packets::server::{DeleteQuestItem, GainedQuestItem, SendOutputMessage};
 
 use crate::items::{ItemCodecError, decode_slots, encode_slots, fit_slots};
 use crate::quests::{QuestProgress, item_matches_task};
 use crate::world::World;
+
+use mir_core::enums::OutputMessageType;
+use mir_core::i18n::TextKey;
 
 /// 任务物品栏格数：Crystal `CharacterInfo.cs:75` 的 `UserItem[40]`。
 pub const QUEST_INVENTORY_SIZE: usize = 40;
@@ -428,6 +431,23 @@ impl World {
         }
         let frame = gained_quest_item_frame(item);
         self.send_to_player(player_id, &frame);
+        // Crystal `PlayerObject.CheckNeedQuestItem`（`:11546-11556`）的顺序：
+        // `GainQuestItem`（S.GainedQuestItem 205）→ `SendOutputMessage{Type=Quest, YouFound}`
+        // → `SendUpdateQuest`（S.ChangeQuest Update，由下面的 `refresh_quest_items` 发）。
+        if let Some(name) = self
+            .item_info(item.item_index)
+            .map(|info| info.name.clone())
+        {
+            let message = self.format(player_id, TextKey::QuestItemFound, &[("item", &name)]);
+            self.send_to_player(
+                player_id,
+                &ServerPacket::SendOutputMessage(SendOutputMessage {
+                    message,
+                    type_: OutputMessageType::Quest,
+                })
+                .encode_frame(),
+            );
+        }
         self.refresh_quest_items(player_id);
         true
     }

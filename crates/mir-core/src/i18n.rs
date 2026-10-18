@@ -468,6 +468,10 @@ pub enum TextKey {
     QuestTaskItem,
     /// 场景：`任务进度文本`（`quests.rs:481`）；模板：`激活标记 {number}{done_suffix}`；参数：`{number}`、`{done_suffix}`。
     QuestTaskFlag,
+    /// 场景：`check_need_quest_item` 截胡任务物品（`quest_inventory.rs`，Crystal
+    /// `CheckNeedQuestItem` → `S.SendOutputMessage{Type=Quest}`，`PlayerObject.cs:11549-11550`）；
+    /// 模板：`你找到了 {item}`；参数：`{item}`。
+    QuestItemFound,
     /// 场景：`on_gameshop_buy 读计数失败`（`session.rs:487`）；模板：`商城暂时不可用，请稍后再试。`；参数：无。
     GameshopStoreUnavailable,
     /// 场景：`on_gameshop_buy 市场页签成功回执`（`session.rs:488`）；模板：`你购买了 {item} × {count}。`；参数：`{item}`、`{count}`。
@@ -695,6 +699,7 @@ impl TextKey {
         Self::QuestTaskKill,
         Self::QuestTaskItem,
         Self::QuestTaskFlag,
+        Self::QuestItemFound,
         Self::GameshopStoreUnavailable,
         Self::GameshopBoughtMarketSuccess,
         Self::GameshopRolledBack,
@@ -901,6 +906,7 @@ impl TextKey {
             Self::QuestTaskKill => "quest_task_kill",
             Self::QuestTaskItem => "quest_task_item",
             Self::QuestTaskFlag => "quest_task_flag",
+            Self::QuestItemFound => "quest_item_found",
             Self::GameshopStoreUnavailable => "gameshop_store_unavailable",
             Self::GameshopBoughtMarketSuccess => "gameshop_bought_market_success",
             Self::GameshopRolledBack => "gameshop_rolled_back",
@@ -1112,6 +1118,7 @@ impl TextKey {
             Self::QuestTaskKill => &["monster", "count", "total"],
             Self::QuestTaskItem => &["item", "count", "total"],
             Self::QuestTaskFlag => &["number", "done_suffix"],
+            Self::QuestItemFound => &["item"],
             Self::GameshopStoreUnavailable => &[],
             Self::GameshopBoughtMarketSuccess => &["item", "count"],
             Self::GameshopRolledBack => &[],
@@ -1470,6 +1477,7 @@ const fn text_zh(key: TextKey) -> &'static str {
         TextKey::QuestTaskKill => "击杀 {monster} {count}/{total}",
         TextKey::QuestTaskItem => "收集 {item} {count}/{total}",
         TextKey::QuestTaskFlag => "激活标记 {number}{done_suffix}",
+        TextKey::QuestItemFound => "你找到了 {item}",
         TextKey::GameshopStoreUnavailable => "商城暂时不可用，请稍后再试。",
         TextKey::GameshopBoughtMarketSuccess => "你购买了 {item} × {count}。",
         TextKey::GameshopRolledBack => "商城购买失败：已退回支付的货币与物品，请稍后再试。",
@@ -1763,6 +1771,7 @@ const fn text_en(key: TextKey) -> &'static str {
         TextKey::QuestTaskKill => "Kill {monster} {count}/{total}",
         TextKey::QuestTaskItem => "Collect {item} {count}/{total}",
         TextKey::QuestTaskFlag => "Activate flag {number}{done_suffix}",
+        TextKey::QuestItemFound => "You found {item}",
         TextKey::GameshopStoreUnavailable => {
             "The shop is temporarily unavailable. Please try again later."
         }
@@ -2144,7 +2153,7 @@ mod tests {
         //
         // 新增变体时必须同时登记 `TextKey::ALL`，否则这条会挡住——`ALL` 是
         // 语言包校验与参数核对的唯一入口，漏登记等于漏测试。
-        assert_eq!(TextKey::ALL.len(), 200, "新增/删除键时同步更新数量");
+        assert_eq!(TextKey::ALL.len(), 201, "新增/删除键时同步更新数量");
     }
 
     #[test]

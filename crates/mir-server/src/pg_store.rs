@@ -110,6 +110,7 @@ fn from_store_character(character: mir_store::Character) -> Character {
         magics: character.magics,
         quests: character.quests,
         quest_inventory: character.quest_inventory,
+        last_daily_reset_at: character.last_daily_reset_at,
         guild_index: character.guild_index,
         last_access: from_datetime(character.last_login_date),
     }
@@ -144,6 +145,7 @@ fn apply_to_store_character(character: &Character, target: &mut mir_store::Chara
     target
         .quest_inventory
         .clone_from(&character.quest_inventory);
+    target.last_daily_reset_at = character.last_daily_reset_at;
     target.guild_index = character.guild_index;
 }
 

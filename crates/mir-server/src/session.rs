@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use mir_core::enums::{
     AttackMode, ChatType, HeroBehaviour, IntelligentCreatureType, LightSetting,
-    MarketCollectionMode, MarketPanelType, MirClass, MirDirection, MirGridType, PanelType,
+    MarketCollectionMode, MarketPanelType, MirClass, MirDirection, MirGridType, PanelType, PetMode,
     WeatherSetting,
 };
 use mir_core::i18n::LanguageLibrary;
@@ -16,8 +16,8 @@ use mir_core::{DateTimeBinary, LanguageCatalog, Point, TextKey};
 use mir_protocol::data::{ClientMagic, SelectInfo, UserItem};
 use mir_protocol::manual::server::{MapInformation, UserInformation};
 use mir_protocol::packets::server::{
-    ChangeAMode, ClientVersion as ClientVersionResponse, Connected,
-    DeleteCharacter as DeleteCharacterResult, DeleteCharacterSuccess, LogOutSuccess,
+    ChangeAMode, ChangePMode as ChangePModeResponse, ClientVersion as ClientVersionResponse,
+    Connected, DeleteCharacter as DeleteCharacterResult, DeleteCharacterSuccess, LogOutSuccess,
     Login as LoginResult, LoginBanned, LoginSuccess, MarketFail, MarketSuccess,
     NewAccount as NewAccountResult, NewCharacter as NewCharacterResult, NewCharacterSuccess,
     StartGame,
@@ -72,6 +72,9 @@ pub enum SessionError {
     /// 存储错误。
     #[error("存储错误：{0}")]
     Store(#[from] StoreError),
+    /// 被 GM `@kick` 踢下线（错误串是开发者可见的日志文本，用英文）。
+    #[error("kicked by GM")]
+    Kicked,
 }
 
 /// 一个客户端连接。
@@ -144,6 +147,12 @@ impl<S: AccountStore> Session<S> {
     /// 处理一个客户端包。
     #[allow(clippy::needless_pass_by_value)] // 包按值传入，内部按需移动字段
     pub async fn handle(&mut self, packet: ClientPacket) -> Result<(), SessionError> {
+        // GM `@kick` 的兜底路径：连接建立时登记过通道的会话由读循环直接断开；
+        // 没登记的（测试/裸 Session）在这里退出。
+        if crate::gm::take_pending_kick(self.id) {
+            tracing::info!(session = self.id, "会话被 GM 踢下线");
+            return Err(SessionError::Kicked);
+        }
         // 市场变更包（上架/买断/提前成交/取回）成功后要整表快照落盘；搜索/翻页只改
         // 会话里的浏览状态，不写库。判断放在 match 之前、落盘放在 match 之后，
         // 七个市场分派分支与 handler 保持队长提交时的原样（见 t4 合同）。
@@ -173,6 +182,9 @@ impl<S: AccountStore> Session<S> {
             ClientPacket::Attack(packet) => self.on_attack(packet.direction).await,
             // 攻击模式：`C.ChangeAMode`（Crystal `MirConnection.cs:1432-1439`）。
             ClientPacket::ChangeAMode(packet) => self.on_change_attack_mode(packet.mode).await,
+            // 宠物模式：`C.ChangePMode`（Crystal `MirConnection.cs:1441-1448`）——
+            // 写入 `PMode` 并无条件回一条 `S.ChangePMode`。
+            ClientPacket::ChangePMode(packet) => self.on_change_pet_mode(packet.mode).await,
             ClientPacket::Chat(packet) => self.on_chat(&packet.message).await,
             ClientPacket::PickUp(_) => self.on_pickup().await,
             ClientPacket::DropItem(packet) => {
@@ -667,6 +679,21 @@ impl<S: AccountStore> Session<S> {
             self.store.save_character(character.clone()).await?;
         }
 
+        // 每日任务惰性重置：必须在**解码 `character.quests` 之前**作用在角色记录上，
+        // 这样重置结果随本次登录的 `Player` 生效、并随登录存档写回。
+        // Crystal 是服务器 0 点对全角色 `ClearDailyQuests`（`Envir.cs:4856-4866`）；
+        // 本作按角色 24h 惰性补，差异见 `docs/world/quests.md`。
+        let reset_now = {
+            let world = self.world.lock().await;
+            world.wall_now()
+        };
+        {
+            let world = self.world.lock().await;
+            if world.apply_daily_reset(&mut character, reset_now) {
+                tracing::debug!(session = self.id, "登录时补做每日任务重置");
+            }
+        }
+
         // 背包/装备：Crystal 存的是 `UserItem[]` 整块（`CharacterInfo.cs:431-447`），
         // 空块（新角色）解成空背包/空装备栏。解析失败时按「空」处理并记日志，不拒绝登录。
         let inventory = match decode_inventory(&character.inventory) {
@@ -942,6 +969,14 @@ impl<S: AccountStore> Session<S> {
             "进入世界"
         );
         self.character = Some(character);
+        // 让 `@kick <账号|角色>` 能在会话登记表里按名字反查（见 `crate::gm`）。
+        if let Some(account) = &self.account {
+            let character_name = self
+                .character
+                .as_ref()
+                .map_or_else(String::new, |character| character.name.clone());
+            crate::gm::set_session_identity(self.id, &account.username, &character_name);
+        }
         Ok(())
     }
 
@@ -1083,6 +1118,23 @@ impl<S: AccountStore> Session<S> {
         if world.change_attack_mode(object_id, mode) {
             tracing::debug!(session = self.id, ?mode, "切换攻击模式");
         }
+    }
+
+    /// 切换宠物模式（`C.ChangePMode`）。
+    ///
+    /// Crystal `MirConnection.ChangePMode`（`Server/MirNetwork/MirConnection.cs:1441-1448`）：
+    /// `Player.PMode = p.Mode; Enqueue(new S.ChangePMode { Mode = Player.PMode });`
+    /// —— 写状态 + **无条件**回包（回包让客户端把下拉框同步到服务端值）。
+    async fn on_change_pet_mode(&mut self, mode: PetMode) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        {
+            let mut world = self.world.lock().await;
+            world.set_pet_mode(object_id, mode);
+        }
+        tracing::debug!(session = self.id, ?mode, "切换宠物模式");
+        self.send(ServerPacket::ChangePMode(ChangePModeResponse { mode }));
     }
 
     /// 拾取脚下物品（`C.PickUp`，Crystal `PlayerObject.PickUp`，`PlayerObject.cs:7483-7537`）。
@@ -1313,8 +1365,42 @@ impl<S: AccountStore> Session<S> {
         tracing::debug!(session = self.id, ?spell, key, changed, "技能快捷键");
     }
 
+    /// 惰性每日重置：除登录外，每次任务交互前补做一次。
+    ///
+    /// Crystal 在服务器跨天（0 点）对全角色 `ClearDailyQuests`（`Envir::ProcessNewDay`，
+    /// `Envir.cs:4856-4866`）；本作没有全局日切，按角色 24h 惰性补（判定见
+    /// [`crate::quests::daily_reset_due`]），差异见 `docs/world/quests.md`。
+    async fn maybe_reset_daily_quests(&mut self) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let Some(last_reset) = self
+            .character
+            .as_ref()
+            .map(|character| character.last_daily_reset_at)
+        else {
+            return;
+        };
+        let now = {
+            let world = self.world.lock().await;
+            world.wall_now()
+        };
+        if !crate::quests::daily_reset_due(last_reset, now) {
+            return;
+        }
+        {
+            let mut world = self.world.lock().await;
+            world.reset_daily_quests(object_id);
+        }
+        if let Some(character) = self.character.as_mut() {
+            character.last_daily_reset_at = now;
+        }
+        tracing::debug!(session = self.id, "任务交互前补做每日任务重置");
+    }
+
     /// 接任务（`C.AcceptQuest`，Crystal `PlayerObject.AcceptQuest`，`PlayerObject.cs:11251-11348`）。
     async fn on_accept_quest(&mut self, npc_index: u32, quest_index: i32) {
+        self.maybe_reset_daily_quests().await;
         let Some(object_id) = self.object_id else {
             return;
         };
@@ -1335,6 +1421,7 @@ impl<S: AccountStore> Session<S> {
     ///
     /// `selected_item_index` 就是 Crystal 的「选第几个可选奖励」（`:11350` 的默认参数 `-1`）。
     async fn on_finish_quest(&mut self, quest_index: i32, selected_item_index: i32) {
+        self.maybe_reset_daily_quests().await;
         let Some(object_id) = self.object_id else {
             return;
         };
@@ -1355,6 +1442,7 @@ impl<S: AccountStore> Session<S> {
 
     /// 放弃任务（`C.AbandonQuest`，Crystal `PlayerObject.AbandonQuest`，`:11462-11471`）。
     async fn on_abandon_quest(&mut self, quest_index: i32) {
+        self.maybe_reset_daily_quests().await;
         let Some(object_id) = self.object_id else {
             return;
         };
@@ -2349,6 +2437,14 @@ impl<S: AccountStore> Session<S> {
         let Some(object_id) = self.object_id else {
             return;
         };
+        // GM 命令：只有 GM 账号才消费 `@...`；非 GM 的 `@...` 按普通聊天走，
+        // 不报错、也不泄露命令是否存在（Crystal 在 `PlayerObject.Chat` 里做同样的判定）。
+        if message.starts_with('@') && self.is_gm() {
+            let mut world = self.world.lock().await;
+            if world.run_gm_command(object_id, message) {
+                return;
+            }
+        }
         let mut world = self.world.lock().await;
         match world.chat(object_id, message) {
             Ok(receivers) => {
@@ -2356,6 +2452,14 @@ impl<S: AccountStore> Session<S> {
             }
             Err(error) => tracing::debug!(session = self.id, %error, "聊天失败"),
         }
+    }
+
+    /// 当前账号是否 GM（`accounts.admin` 或 `MIR2_GM_ACCOUNTS` 名单，见 [`crate::gm::is_gm`]）。
+    #[must_use]
+    pub fn is_gm(&self) -> bool {
+        self.account
+            .as_ref()
+            .is_some_and(|account| crate::gm::is_gm(account, &self.config))
     }
 
     /// 给本会话发一条系统提示（走 `Chat` 包，`ChatType::System`）。

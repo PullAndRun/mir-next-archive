@@ -157,6 +157,12 @@ pub struct Character {
     /// 编解码见 [`crate::quest_inventory::QuestInventory::encode`] /
     /// [`crate::quest_inventory::QuestInventory::decode`]；迁移 0012）。
     pub quest_inventory: Vec<u8>,
+    /// 上次每日任务重置时间（Unix 毫秒；0 = 从未重置过；迁移 0013
+    /// `characters.last_daily_reset_at`）。
+    ///
+    /// 每日任务是「按角色 24h 惰性重置」（Crystal 是服务器 0 点对全角色
+    /// `ClearDailyQuests`，`Envir.cs:4856-4866`），判定见 [`crate::quests::daily_reset_due`]。
+    pub last_daily_reset_at: i64,
     /// 所属行会的主键，`-1` 表示没有行会（Crystal `CharacterInfo.GuildIndex`）。
     ///
     /// 行会本体走 [`GuildRecord`]（`guilds` / `guild_ranks` / `guild_members` 三张表），
@@ -201,6 +207,7 @@ impl Character {
             magics: Vec::new(),
             quests: Vec::new(),
             quest_inventory: Vec::new(),
+            last_daily_reset_at: 0,
             // Crystal 的 `CharacterInfo.GuildIndex` 默认 -1（没有行会）。
             guild_index: -1,
             last_access: DateTimeBinary(0),

@@ -48,6 +48,12 @@ pub struct ServerConfig {
     ///
     /// 测试里关掉它，世界就只包含测试自己放的怪物，断言才不会被真实数据打乱。
     pub load_game_data: bool,
+    /// GM 账号名单（`MIR2_GM_ACCOUNTS`，逗号分隔账号名）。
+    ///
+    /// 与 `accounts.admin`（Crystal `AccountInfo.AdminAccount`）取**或**：名单里的账号
+    /// 即使 `admin = false` 也能用 `@` 命令（运维临时授权）。判定见
+    /// [`crate::gm::is_gm`]。默认空 = 只认 `accounts.admin`。
+    pub gm_accounts: Vec<String>,
 }
 
 impl Default for ServerConfig {
@@ -77,6 +83,9 @@ impl Default for ServerConfig {
                 std::env::var("MIR2_LOAD_GAME_DATA").ok().as_deref(),
                 Some("0" | "false" | "no")
             ),
+            gm_accounts: std::env::var(crate::gm::GM_ACCOUNTS_ENV)
+                .map(|raw| crate::gm::parse_gm_accounts(&raw))
+                .unwrap_or_default(),
         }
     }
 }
@@ -105,6 +114,9 @@ impl ServerConfig {
         }
         if let Ok(value) = std::env::var("MIR2_DEMO_MONSTERS") {
             config.demo_monsters = matches!(value.as_str(), "1" | "true" | "yes");
+        }
+        if let Ok(value) = std::env::var(crate::gm::GM_ACCOUNTS_ENV) {
+            config.gm_accounts = crate::gm::parse_gm_accounts(&value);
         }
         config
     }

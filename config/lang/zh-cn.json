@@ -173,6 +173,7 @@
     "npc_repair_type_not_allowed": "这里不能修理这种物品。",
     "npc_wont_buy_type": "这个 NPC 不收购这种物品。",
     "pk_protected_by_law": "你受到了法律的保护。",
+    "quest_item_found": "你找到了 {item}",
     "quest_killed_monster": "你杀死了 {monster}",
     "quest_share_needs_party": "组队并且附近有队友时才能分享任务。",
     "quest_task_done_suffix": "（已完成）",

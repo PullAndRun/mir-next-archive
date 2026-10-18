@@ -291,6 +291,10 @@ pub struct Character {
     ///
     /// 空数组（没有任务物品）是零长度；Crystal 的存档在 `CharacterInfo.cs:449-456`。
     pub quest_inventory: Vec<u8>,
+    /// 上次每日任务重置的时间（Unix 毫秒，迁移 0013）。
+    ///
+    /// 0 表示从未重置过；`quests::daily_reset_due` 按 24h 间隔惰性判定，登录/任务交互时补做。
+    pub last_daily_reset_at: i64,
     /// 仓库（任务要求放在角色行；Crystal 实际存于 `AccountInfo.Storage`）。
     pub storage: Vec<u8>,
     /// 配偶角色主键，0 表示未婚（Crystal `Married`）。

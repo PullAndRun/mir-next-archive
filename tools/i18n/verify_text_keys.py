@@ -65,7 +65,11 @@ EXTENSION_KEYS = (
     "guild_not_allowed_kick",
     "guild_not_allowed_change_rank",
     "guild_not_allowed_change_notice",
+    "quest_item_found",
 )
+
+#: 允许带参数的扩展键（Crystal `ServerTextKeys.YouFound` 是 `You found {0}`）。
+EXTENSION_KEYS_WITH_ARGS = ("quest_item_found",)
 
 #: §7.2 预期的行数（第 2 轮扫描口径，冻结；文档改口径时同步改这里）。
 EXPECTED_ROWS = 192
@@ -543,7 +547,7 @@ def verify() -> tuple[list[str], list[DocRow], RustTables, dict[str, str], dict[
         )
         if variant not in all_variants:
             continue
-        if tables.args.get(variant):
+        if tables.args.get(variant) and key not in EXTENSION_KEYS_WITH_ARGS:
             problems.append(f"扩展键 {key} 不应有参数：{tables.args[variant]}")
         if key in doc_keys:
             problems.append(

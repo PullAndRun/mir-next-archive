@@ -24,6 +24,7 @@ pub mod config;
 pub mod conquest;
 pub mod exp;
 pub mod gamedata;
+pub mod gm;
 pub mod group;
 pub mod guild;
 pub mod guild_buffs;

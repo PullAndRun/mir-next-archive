@@ -31,6 +31,10 @@ use mir_core::MirRng;
 pub struct DropReward {
     /// 掉落的物品名（可多个：成组掉落会累加）。
     pub items: Vec<String>,
+    /// 与 [`DropReward::items`] 一一对应的任务物品标记（Crystal `DropInfo.QuestRequired`，
+    /// 行尾 `Q`）：`true` 的物品只允许进任务系统，没人截胡时绝不落地
+    /// （`MonsterObject.cs:1140`）。长度与 `items` 相同。
+    pub quest_required: Vec<bool>,
     /// 掉落的金币。
     pub gold: u32,
 }
@@ -264,6 +268,7 @@ impl DropTable {
             if let Some(part) = drop.roll(rng, rate, 0, 0) {
                 reward.gold = reward.gold.saturating_add(part.gold);
                 reward.items.extend(part.items);
+                reward.quest_required.extend(part.quest_required);
             }
         }
         reward
@@ -312,19 +317,25 @@ impl DropInfo {
                 let rolled = rng.next_range(lower, upper - 1);
                 reward.gold = rolled.max(0) as u32;
             }
-            DropKind::Item(name) => reward.items.push(name.clone()),
+            DropKind::Item(name) => {
+                reward.items.push(name.clone());
+                reward.quest_required.push(self.quest_required);
+            }
             DropKind::Group(group) => {
                 let mut items = Vec::new();
+                let mut flags = Vec::new();
                 for child in &group.children {
                     if let Some(part) = child.roll(rng, rate, item_offset, gold_offset) {
                         reward.gold = reward.gold.saturating_add(part.gold);
                         items.extend(part.items);
+                        flags.extend(part.quest_required);
                         if group.first {
                             break;
                         }
                     }
                 }
                 reward.items = items;
+                reward.quest_required = flags;
             }
         }
         Some(reward)
@@ -475,6 +486,19 @@ mod tests {
             "{} 有无法解析的行：{:?}",
             path.display(),
             table.bad_lines
+        );
+    }
+
+    #[test]
+    fn roll_keeps_quest_required_flag_aligned_with_items() {
+        let table = DropTable::parse("1/1 QuestItem Q\n1/1 NormalItem\n");
+        assert_eq!(table.drops.len(), 2);
+        let reward = table.roll(&mut rng(), 1);
+        assert_eq!(reward.items, vec!["QuestItem", "NormalItem"]);
+        assert_eq!(
+            reward.quest_required,
+            vec![true, false],
+            "`Q` 标记必须与 items 一一对应（Crystal `DropInfo.QuestRequired`）"
         );
     }
 }

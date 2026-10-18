@@ -28,6 +28,7 @@ pub mod equipment;
 pub mod hud;
 pub mod inventory;
 pub mod labels;
+pub mod minimap;
 pub mod shop;
 pub mod skills;
 pub mod text;
@@ -306,6 +307,10 @@ pub struct UiState {
     pub show_skills: bool,
     /// 装备纸娃娃面板是否打开（`E`）。
     pub show_equipment: bool,
+    /// 小地图面板是否打开（`M`）。
+    pub show_minimap: bool,
+    /// 小地图渲染器（`resource/data/mmap.wzl`；缺素材时是空场景，画纯色占位）。
+    pub minimap_scene: mir_render::MinimapScene,
     /// 鼠标位置（物理像素，与帧坐标一致）。
     pub mouse: Point,
     /// 背包选中的格子。
@@ -357,6 +362,8 @@ impl UiState {
             show_inventory: false,
             show_skills: false,
             show_equipment: false,
+            show_minimap: false,
+            minimap_scene: mir_render::MinimapScene::empty(),
             mouse: Point::new(0, 0),
             selected_slot: None,
             selected_goods: None,
@@ -529,6 +536,17 @@ impl UiState {
         self.drag = None;
         self.context_menu = None;
         self.close_npc();
+    }
+
+    /// 开关小地图（`M`）。
+    pub fn toggle_minimap(&mut self) {
+        self.show_minimap = !self.show_minimap;
+    }
+
+    /// 鼠标是否落在小地图面板上（面板开着时吃掉点击，避免误点成走路）。
+    #[must_use]
+    pub fn minimap_clicked(&self, frame: Rect) -> bool {
+        self.show_minimap && minimap::panel_rect(frame).contains(self.mouse)
     }
 
     /// 选中的背包物品。
@@ -716,6 +734,10 @@ impl UiState {
                 }
                 return None;
             }
+        }
+        // 小地图开着且点在面板上：吃掉这次点击（不然会变成「点地走路」）。
+        if self.minimap_clicked(frame) {
+            return None;
         }
         if let Some(cell) = world_cell {
             if let Some(npc) = snapshot.npc_at(cell) {
@@ -955,6 +977,19 @@ pub fn draw(
     if state.show_skills {
         let layout = skills::skill_layout(screen, snapshot.magics.len());
         skills::draw(frame, &layout, &context, state.selected_magic);
+    }
+
+    // 小地图（右上角）。放在世界/面板之后、tooltip 之前：它盖住地图与其它面板的右上角，
+    // 但下面的 tooltip/右键菜单仍然可以压在它上面（与 Crystal 的控件层级不同，简化）。
+    if state.show_minimap {
+        let view = minimap::view_for(snapshot, (scene.map.width, scene.map.height));
+        let title = snapshot.map.as_ref().map_or("", |map| map.title.as_str());
+        let UiState {
+            minimap_scene,
+            language,
+            ..
+        } = state;
+        minimap::draw(frame, screen, minimap_scene, &view, title, text, *language);
     }
 
     if let Some(page) = &state.dialog {

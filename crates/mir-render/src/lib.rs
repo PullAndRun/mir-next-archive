@@ -161,7 +161,9 @@ pub mod entities;
 mod error;
 mod frame;
 pub mod geometry;
+pub mod minimap;
 mod scene;
+pub mod sound;
 pub mod text;
 mod tiles;
 
@@ -183,9 +185,18 @@ pub use entities::{
 pub use error::RenderError;
 pub use frame::{Frame, scale_to_fit};
 pub use geometry::{CELL_HEIGHT, CELL_WIDTH, Viewport};
-// 客户端 UI 画物品图标时需要 `Image` 的尺寸/像素字段，但不应直接依赖 `mir-asset`。
-pub use mir_asset::Image;
+// 客户端 UI 画物品图标时需要 `Image` 的尺寸/像素字段，但不应直接依赖 `mir-asset`；
+// 测试造「合成小地图图库」时也要 `ImageInfo`（`Image` 的字段之一）。
+pub use minimap::{
+    GROUP_COLOR, MARKER_SIZE, MONSTER_COLOR, MarkerKind, MinimapMarker, MinimapProjection,
+    MinimapScene, MinimapView, NPC_COLOR, PLAYER_COLOR, PLAYER_OTHER_COLOR, VIEW_HEIGHT,
+    VIEW_WIDTH,
+};
+pub use mir_asset::{Image, ImageInfo};
 pub use scene::MapScene;
+pub use sound::{
+    SOUND_COOLDOWN_MS, SoundId, index_to_fallback_name, sound_for_event, sound_for_sex, spell_sound,
+};
 pub use text::{TextClip, TextError, TextRenderer, font_candidates, pixel};
 pub use tiles::{LIBRARY_FILES, TileLibraries};
 

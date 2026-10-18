@@ -1,20 +1,29 @@
 //! 客户端本地设置。
 //!
 //! 语言选择属于本地设置：不依赖服务端也能切换界面语言，默认简体中文。
+//! 音效开关与音量也在这里（默认开启、音量 0.5），命令行 `--no-sound` / `--volume`
+//! 会覆盖并写回。
 //! 设置文件放在 `%APPDATA%\mir-next\settings.json`（其它平台放在用户目录下的
 //! `.mir-next/settings.json`），读写失败时回退到默认值而不是中断启动。
 
 use std::path::{Path, PathBuf};
 
+use mir_client::audio::DEFAULT_VOLUME;
 use mir_core::Language;
 use serde::{Deserialize, Serialize};
 
 /// 客户端设置。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClientSettings {
     /// 界面语言代码（`zh-cn` / `en`）。
     #[serde(default = "default_language")]
     pub language: String,
+    /// 是否播放音效（默认开启；`--no-sound` 关掉）。
+    #[serde(default = "default_sound")]
+    pub sound: bool,
+    /// 音效音量（0.0..=1.0，默认 0.5）。
+    #[serde(default = "default_volume")]
+    pub volume: f32,
 }
 
 fn default_language() -> String {
@@ -22,10 +31,22 @@ fn default_language() -> String {
     Language::ZhCn.code().to_owned()
 }
 
+/// 音效默认开启（需求：默认开启，音量 0.5）。
+const fn default_sound() -> bool {
+    true
+}
+
+/// 默认音量。
+const fn default_volume() -> f32 {
+    DEFAULT_VOLUME
+}
+
 impl Default for ClientSettings {
     fn default() -> Self {
         Self {
             language: default_language(),
+            sound: default_sound(),
+            volume: default_volume(),
         }
     }
 }
@@ -35,6 +56,16 @@ impl ClientSettings {
     #[must_use]
     pub fn language(&self) -> Language {
         Language::from_code(&self.language).unwrap_or_default()
+    }
+
+    /// 归一化音效音量到 `0.0..=1.0`。
+    #[must_use]
+    pub fn sound_volume(&self) -> f32 {
+        if self.volume.is_finite() {
+            self.volume.clamp(0.0, 1.0)
+        } else {
+            DEFAULT_VOLUME
+        }
     }
 
     /// 设置语言（只接受受支持的代码）。
@@ -97,6 +128,48 @@ mod tests {
         let settings = ClientSettings::default();
         assert_eq!(settings.language(), Language::ZhCn);
         assert_eq!(settings.language, "zh-cn");
+    }
+
+    #[test]
+    fn sound_defaults_on_at_half_volume() {
+        let settings = ClientSettings::default();
+        assert!(settings.sound, "音效默认开启");
+        assert!((settings.sound_volume() - 0.5).abs() < f32::EPSILON);
+        assert!((settings.sound_volume() - mir_client::audio::DEFAULT_VOLUME).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn old_settings_files_without_sound_fields_still_load() {
+        // 老版本设置文件只有 `language`：serde 默认值补上音效两项。
+        let directory =
+            std::env::temp_dir().join(format!("mir-next-settings-old-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("建临时目录");
+        let path = directory.join("settings.json");
+        std::fs::write(&path, "{\"language\":\"en\"}").expect("写设置");
+        let settings = ClientSettings::load(&path);
+        assert_eq!(settings.language, "en");
+        assert!(settings.sound);
+        assert!((settings.sound_volume() - 0.5).abs() < f32::EPSILON);
+        std::fs::remove_dir_all(&directory).ok();
+    }
+
+    #[test]
+    fn volume_is_clamped_and_nan_falls_back() {
+        let settings = ClientSettings {
+            volume: 3.0,
+            ..ClientSettings::default()
+        };
+        assert!((settings.sound_volume() - 1.0).abs() < f32::EPSILON);
+        let settings = ClientSettings {
+            volume: -2.0,
+            ..ClientSettings::default()
+        };
+        assert!(settings.sound_volume().abs() < f32::EPSILON);
+        let settings = ClientSettings {
+            volume: f32::NAN,
+            ..ClientSettings::default()
+        };
+        assert!((settings.sound_volume() - mir_client::audio::DEFAULT_VOLUME).abs() < f32::EPSILON);
     }
 
     #[test]

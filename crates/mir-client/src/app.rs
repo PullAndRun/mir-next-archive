@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use mir_client::audio::SoundPlayer;
 use mir_client::geom::Rect;
 use mir_client::net::{
     MapReloadRequest, NetClient, NetCommand, NetEvent, NetStatus, WorldSnapshot,
@@ -27,8 +28,9 @@ use mir_client::net::{
 use mir_client::ui::{self, UiAction, UiState, UiText};
 use mir_core::Language;
 use mir_core::Point;
-use mir_core::enums::MirDirection;
-use mir_render::{Frame, MapScene};
+use mir_core::enums::{ItemType, MirDirection, Spell};
+use mir_render::sound::SoundId;
+use mir_render::{ActorAction, Frame, MapScene};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -63,6 +65,10 @@ struct LiveState {
     snapshot: WorldSnapshot,
     /// 界面状态（面板开关、选中项、鼠标）。
     ui: UiState,
+    /// 音效播放器（没有音频设备时是空操作，见 [`crate::audio`]）。
+    sound: SoundPlayer,
+    /// 已消费到哪一条音效事件（快照整体克隆，用递增 ID 去重）。
+    last_sound_id: u64,
     /// 聊天输入框；`Some` 表示正在输入。
     chat_input: Option<String>,
     /// 是否按住 Shift（移动键 + Shift = 跑）。
@@ -86,13 +92,46 @@ impl LiveState {
     ///
     /// 走/跑/攻击/转身在发包前先更新本地快照的动作，画面不用等服务器回包
     /// （Crystal 客户端也是先播放动作再发包，`PlayerObject.cs:1313-1334`）。
+    /// 音效也在这里**本地预播**：服务端不会把 `ObjectWalk`/`ObjectRun`/`ObjectAttack`
+    /// 回发给动作发起者（`mir-server/src/world.rs:2428-2449`），不本地播的话自己走路没声音。
     fn send(&mut self, command: NetCommand) {
         if let Some((action, direction)) = command.local_animation() {
             self.snapshot
                 .apply_local_action(action, direction, now_millis_u64());
+            // 本地动作 → 音效（Crystal 同样在动画帧上播，`PlayerObject.cs:3596-3599`、
+            // `:4779-4847`）。
+            let sound = match action {
+                ActorAction::Walking => Some(SoundId::Walk),
+                ActorAction::Running => Some(SoundId::Run),
+                ActorAction::Attacking => Some(SoundId::Swing),
+                _ => None,
+            };
+            if let Some(sound) = sound {
+                self.snapshot.push_local_sound(sound, Spell::None);
+            }
         }
+        // 立刻把待播事件送进播放器，不等下一份快照（网络卡顿时也能听到自己的脚步）。
+        self.play_pending_sounds(now_millis_u64());
         if !self.net.send(command) {
             eprintln!("网络线程已退出，命令被丢弃");
+        }
+    }
+
+    /// 把快照里新增的音效事件交给播放器（自己与别人走同一条队列）。
+    ///
+    /// `now_ms` 是 Unix 毫秒，喂给 100 ms 频控（[`mir_render::SOUND_COOLDOWN_MS`]）。
+    fn play_pending_sounds(&mut self, now_ms: u64) {
+        let (events, last) = self.snapshot.sound_events_since(self.last_sound_id);
+        self.last_sound_id = last;
+        for event in events {
+            let played = match event.sound {
+                // 施法音随技能变（`SoundManager.cs:87-89` 的 `M<技能>-0.wav`）。
+                SoundId::Cast if event.spell != Spell::None => {
+                    self.sound.play_spell(event.spell, now_ms)
+                }
+                sound => self.sound.play_event(sound, event.female, now_ms),
+            };
+            tracing::debug!(?event.sound, played, "音效事件");
         }
     }
 }
@@ -106,11 +145,24 @@ pub fn run(scene: MapScene, center: Point, _language: Language) {
     run_app(scene, center, Mode::Offline, PathBuf::from("resource/map"));
 }
 
+/// 联机窗口的启动参数：目录与音效播放器。
+///
+/// 打包成结构体是为了让 [`run_live`] 的参数不至于太多，也方便以后加新选项。
+pub struct LiveOptions {
+    /// 地图目录（`resource/map`）。
+    pub map_dir: PathBuf,
+    /// 素材目录（`resource/data`）：用来打开小地图图库 `mmap.wzl`。
+    pub data_dir: PathBuf,
+    /// 音效播放器（没有设备时是空操作）。
+    pub sound: SoundPlayer,
+}
+
 /// 启动联机窗口。
 ///
 /// `snapshot` 是进入世界后的首个快照（`wait_until_in_game` 的返回值），
-/// `center` 通常是自己的坐标；`map_dir` 是 `resource/map` 一类的地图目录，
-/// 切图（`S.MapChanged`）时用它拼出 `<map_dir>/<file>.map` 重新加载地形。
+/// `center` 通常是自己的坐标。切图（`S.MapChanged`）时用地形目录
+/// （[`LiveOptions::map_dir`]）拼出 `<map_dir>/<file>.map` 重新加载地形；
+/// [`LiveOptions::data_dir`] 用来打开小地图图库（缺文件时面板画占位）。
 /// 窗口创建失败时连接会被 `Drop` 自动关闭。
 pub fn run_live(
     scene: MapScene,
@@ -118,13 +170,21 @@ pub fn run_live(
     net: NetClient,
     snapshot: WorldSnapshot,
     language: Language,
-    map_dir: PathBuf,
+    options: LiveOptions,
 ) {
     let status = snapshot.status;
+    let mut ui = UiState::new(language);
+    let (minimap_scene, reason) = mir_render::MinimapScene::open_dir(&options.data_dir);
+    if let Some(reason) = reason {
+        println!("小地图素材不可用：{reason}（M 面板会显示纯色占位）");
+    }
+    ui.minimap_scene = minimap_scene;
     let mode = Mode::Live(Box::new(LiveState {
         net,
-        ui: UiState::new(language),
+        ui,
         snapshot,
+        sound: options.sound,
+        last_sound_id: 0,
         chat_input: None,
         shift: false,
         last_chat: None,
@@ -134,7 +194,7 @@ pub fn run_live(
         walk_target: None,
         next_walk: Instant::now(),
     }));
-    run_app(scene, center, mode, map_dir);
+    run_app(scene, center, mode, options.map_dir);
 }
 
 /// 公共窗口事件循环。
@@ -474,12 +534,20 @@ impl ClientApp {
         match action {
             // 纯数据动作直接走 `UiAction::net_command`（与无头测试共用同一映射）。
             action @ (UiAction::BuyItem { .. }
-            | UiAction::UseItem { .. }
             | UiAction::DropItem { .. }
             | UiAction::MoveItem { .. }) => {
                 if let Some(command) = action.net_command() {
                     live.send(command);
                 }
+            }
+            UiAction::UseItem { unique_id } => {
+                // 喝药音：Crystal 在点背包里的药品时播 `ClickDrug`
+                // （`MirItemCell.cs:2047-2048`）；这里只在「用」药品时播（简化）。
+                if used_item_is_potion(&live.snapshot, unique_id) {
+                    live.snapshot.push_local_sound(SoundId::Drink, Spell::None);
+                    live.play_pending_sounds(now_millis_u64());
+                }
+                live.send(NetCommand::UseItem { unique_id });
             }
             UiAction::CallNpc { object_id, key } => {
                 if key.eq_ignore_ascii_case("@exit") {
@@ -493,6 +561,10 @@ impl ClientApp {
                 target_id,
                 location,
             } => {
+                // 施法音（`PlayerObject.cs:1538` 的 `PlaySound(20000 + Spell × 10)`）：
+                // 服务端不回显，本地先播。
+                live.snapshot.push_local_sound(SoundId::Cast, spell);
+                live.play_pending_sounds(now_millis_u64());
                 live.send(NetCommand::Magic {
                     spell,
                     direction,
@@ -623,6 +695,19 @@ impl ClientApp {
         let mut redraw = false;
         if let Mode::Live(live) = &mut self.mode {
             live.ui.show_equipment = !live.ui.show_equipment;
+            redraw = true;
+        }
+        if redraw {
+            self.request_redraw();
+        }
+    }
+
+    /// `M`：开关小地图（Crystal `KeybindOptions.Minimap` → `MiniMapDialog.Toggle()`，
+    /// `GameScene.cs:770-772`）。
+    fn live_toggle_minimap(&mut self) {
+        let mut redraw = false;
+        if let Mode::Live(live) = &mut self.mode {
+            live.ui.toggle_minimap();
             redraw = true;
         }
         if redraw {
@@ -820,6 +905,7 @@ impl ClientApp {
         let status = snapshot.status;
         let ready = snapshot.is_ready();
         let new_chat = snapshot.chat.last().map(mir_client::net::ChatLine::display);
+        let now = now_millis_u64();
         if let Mode::Live(live) = &mut self.mode {
             if live.last_status != status {
                 println!("网络状态：{}", status.label());
@@ -827,6 +913,8 @@ impl ClientApp {
             }
             live.snapshot = snapshot;
             live.ui.sync(&live.snapshot);
+            // 别人身上的动作（走/跑/攻击/受击/死亡/升级…）与服务器通知的音效都在这里播。
+            live.play_pending_sounds(now);
             if let Some(line) = new_chat {
                 if live.last_chat.as_ref() != Some(&line) {
                     println!("{line}");
@@ -939,6 +1027,10 @@ impl ClientApp {
                     self.live_toggle_equipment();
                     return;
                 }
+                "m" => {
+                    self.live_toggle_minimap();
+                    return;
+                }
                 "p" => {
                     self.live_pickup();
                     return;
@@ -1002,6 +1094,23 @@ impl ClientApp {
             _ => {}
         }
     }
+}
+
+/// 要使用的物品是不是药（决定要不要播喝药音）。
+///
+/// 走「唯一编号 → 背包格 → 模板」这条链：Crystal 在 `MirItemCell` 里能直接拿到 `Item.Info`，
+/// 我们只有快照，所以要绕一圈（`ItemInfoView.item_type`，`ItemType::Potion` 见
+/// `mir-core` 的 `ItemType` 枚举，Crystal `Shared/ItemInfo.cs` 的 `ItemType.Potion`）。
+fn used_item_is_potion(snapshot: &WorldSnapshot, unique_id: u64) -> bool {
+    let Some(slot) = snapshot.inventory_slot_of(unique_id) else {
+        return false;
+    };
+    let Some(item) = snapshot.inventory_item(slot) else {
+        return false;
+    };
+    snapshot
+        .item_info(item.item_index)
+        .is_some_and(|info| info.item_type == ItemType::Potion)
 }
 
 /// 单个数字键 `1..=9`（技能快捷键）。

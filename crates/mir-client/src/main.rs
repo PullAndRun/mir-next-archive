@@ -8,7 +8,7 @@
 //!
 //! 窗口内按键：离线用方向键/WASD 平移相机、`S` 截图、`F1` 叠层、`Q` 退出；
 //! 联机用方向键/WASD 转身/走/跑（Shift 跑）、`Space` 攻击、`P` 捡取、`T` 聊天、
-//! `I` 背包、`F3` 技能、`1..9` 施法、鼠标点 NPC/面板按钮、`Esc` 关面板、
+//! `I` 背包、`M` 小地图、`F3` 技能、`1..9` 施法、鼠标点 NPC/面板按钮、`Esc` 关面板、
 //! `F1` 叠层、`F2` 截图、`Q` 退出。
 //! 渲染全部委托给 `mir-render`，界面在 `mir-client::ui`；本 crate 只负责窗口、输入与网络会话。
 
@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use mir_client::audio::{SoundLibrary, SoundPlayer};
 use mir_client::net::{ConnectOptions, CreateCharacter, NetClient};
 use mir_core::enums::{MirClass, MirGender};
 use mir_core::i18n::LanguageLibrary;
@@ -54,6 +55,12 @@ struct Options {
     create: Option<CreateCharacter>,
     /// 账号不存在时自动注册。
     auto_register: bool,
+    /// `--no-sound`：本次不播音效。
+    no_sound: bool,
+    /// `--volume`：覆盖音量（0.0..=1.0）。
+    volume: Option<f32>,
+    /// `--sound-dir`：额外的音效目录（优先于默认目录）。
+    sound_dirs: Vec<PathBuf>,
 }
 
 impl Default for Options {
@@ -69,6 +76,9 @@ impl Default for Options {
             character: String::new(),
             create: None,
             auto_register: true,
+            no_sound: false,
+            volume: None,
+            sound_dirs: Vec::new(),
         }
     }
 }
@@ -216,6 +226,26 @@ fn main() -> Result<()> {
                 }
             }
             "--no-register" => options.auto_register = false,
+            "--no-sound" => options.no_sound = true,
+            "--volume" => {
+                let Some(value) = args.next() else {
+                    anyhow::bail!("--volume 需要 0.0..=1.0 之间的数值，例如 --volume 0.5");
+                };
+                let volume = value
+                    .trim()
+                    .parse::<f32>()
+                    .with_context(|| format!("--volume 不是数字：{value}"))?;
+                if !(0.0..=1.0).contains(&volume) {
+                    anyhow::bail!("--volume 必须在 0.0..=1.0 之间，收到 {volume}");
+                }
+                options.volume = Some(volume);
+            }
+            "--sound-dir" => {
+                let Some(value) = args.next() else {
+                    anyhow::bail!("--sound-dir 需要一个目录（例如 resource/wav）");
+                };
+                options.sound_dirs.push(PathBuf::from(value));
+            }
             "--help" | "-h" => {
                 print_help();
                 return Ok(());
@@ -236,7 +266,7 @@ fn main() -> Result<()> {
     );
 
     if let Some(server) = options.connect.clone() {
-        return run_connected(&options, &server, language);
+        return run_connected(&options, &server, language, &client_settings);
     }
 
     let map_path = resolve_map_path(&options.map, &options.map_dir);
@@ -262,7 +292,12 @@ fn main() -> Result<()> {
 }
 
 /// 联机模式：连接 → 登录/建角 → 进世界 → 按服务器地图加载本地地形 → 开窗口。
-fn run_connected(options: &Options, server: &str, language: Language) -> Result<()> {
+fn run_connected(
+    options: &Options,
+    server: &str,
+    language: Language,
+    client_settings: &ClientSettings,
+) -> Result<()> {
     if options.account.is_empty() || options.password.is_empty() || options.character.is_empty() {
         anyhow::bail!(
             "联机模式需要 --account NAME --password PASS --character NAME（角色不存在时加 --create-character）"
@@ -300,18 +335,55 @@ fn run_connected(options: &Options, server: &str, language: Language) -> Result<
         scene.map.height
     );
     println!(
-        "方向键/WASD 走（Shift 跑，反向先转身）· Space 攻击 · P 捡取 · T 聊天 · I 背包 · F3 技能 · 1..9 施法"
+        "方向键/WASD 走（Shift 跑，反向先转身）· Space 攻击 · P 捡取 · T 聊天 · I 背包 · M 小地图 · F3 技能 · 1..9 施法"
     );
     println!("鼠标点 NPC / 面板按钮 · Esc 关面板 · F1 叠层 · F2 截图 · Q 退出");
+    let sound = build_sound_player(options, client_settings);
+    if sound.is_active() {
+        println!(
+            "音效：开启（音量 {:.2}，素材目录 {}）",
+            sound.volume(),
+            sound
+                .library()
+                .roots()
+                .iter()
+                .map(|root| root.display().to_string())
+                .collect::<Vec<_>>()
+                .join(" / ")
+        );
+    } else if options.no_sound || !client_settings.sound {
+        println!("音效：关闭（--no-sound 或设置文件里的 sound = false）");
+    }
     app::run_live(
         scene,
         center,
         client,
         snapshot,
         language,
-        options.map_dir.clone(),
+        app::LiveOptions {
+            map_dir: options.map_dir.clone(),
+            data_dir: options.data_dir.clone(),
+            sound,
+        },
     );
     Ok(())
+}
+
+/// 按 CLI + 设置文件构造播放器（默认开启、音量 0.5）。
+///
+/// 没有音频设备时 [`SoundPlayer::new`] 会打印一次警告并退化成空操作
+/// （CI 上没有声卡也能照常跑窗口）。
+fn build_sound_player(options: &Options, settings: &ClientSettings) -> SoundPlayer {
+    let enabled = settings.sound && !options.no_sound;
+    let volume = options.volume.unwrap_or_else(|| settings.sound_volume());
+    // 素材目录：`--sound-dir` 最优先，其次是按 `--data-dir` 推出来的
+    // `resource/wav` 与 Crystal 完整音效集，最后是相对当前目录的默认值兜底。
+    let mut library = SoundLibrary::around_data_dir(&options.data_dir);
+    library.push_back(&SoundLibrary::default_roots());
+    for directory in options.sound_dirs.iter().rev() {
+        library.push_front(directory.clone());
+    }
+    SoundPlayer::new(library, enabled, volume)
 }
 
 /// 联机模式的地图加载：失败时退化成空白地图，但仍然尝试加载实体图库。
@@ -413,6 +485,11 @@ fn print_help() {
     println!("  --gender <性别>         male/female 或 0/1（默认 male）");
     println!("  --no-register           账号不存在时不自动注册，直接报错");
     println!();
+    println!("音效：");
+    println!("  --no-sound              本次运行不播音效（不写设置文件）");
+    println!("  --volume <0..1>         本次运行音量（默认 0.5，不写设置文件）");
+    println!("  --sound-dir <目录>      额外音效目录（可多次；优先于 resource/wav）");
+    println!();
     println!("其它：");
     println!("  --lang <代码>           本次启动使用该语言（并保存）");
     println!("  --set-language <代码>   只修改并保存语言设置");
@@ -422,7 +499,7 @@ fn print_help() {
     println!("窗口内按键：");
     println!("  离线：方向键 / W A D 平移（S 截图）；S 截图；F1 叠层；Q/Esc 退出");
     println!("  联机：方向键 / WASD 走（Shift 跑，反向先转身）；Space 攻击；P 捡取；");
-    println!("        T 聊天（回车发送、Esc 取消）；I 背包；F3 技能；1..9 施法；");
+    println!("        T 聊天（回车发送、Esc 取消）；I 背包；M 小地图；F3 技能；1..9 施法；");
     println!("        商店里 S 出售 / R 修理选中物品；背包里 D 丢弃选中物品；");
     println!("        鼠标点 NPC 对话、点按钮/货架/背包格；Esc 关面板；F1 叠层；F2 截图；Q 退出");
     println!();

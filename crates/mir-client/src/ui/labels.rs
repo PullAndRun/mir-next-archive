@@ -117,6 +117,12 @@ pub enum Label {
     WorldHint,
     /// 背包交互提示（双击/右键）。
     InventoryTooltipHint,
+    /// 小地图面板标题。
+    Minimap,
+    /// 没有小地图素材时的占位文字。
+    NoMinimap,
+    /// 小地图面板底部的按键提示。
+    MinimapHint,
 }
 
 impl Label {
@@ -230,6 +236,12 @@ impl Label {
             (Self::InventoryTooltipHint, Language::En) => {
                 "Double-click use · right-click menu · drag to equip"
             }
+            (Self::Minimap, Language::ZhCn) => "小地图",
+            (Self::Minimap, Language::En) => "Minimap",
+            (Self::NoMinimap, Language::ZhCn) => "无小地图素材",
+            (Self::NoMinimap, Language::En) => "No minimap art",
+            (Self::MinimapHint, Language::ZhCn) => "M 关闭",
+            (Self::MinimapHint, Language::En) => "M to close",
         }
     }
 

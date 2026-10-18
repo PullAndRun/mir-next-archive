@@ -1,7 +1,7 @@
 # 客户端：联机世界、面板交互与实体渲染
 
 本文记录 `mir-client` 在「离线看地图」之外的联机能力：登录链路、世界快照、输入映射、
-物品/装备交互、世界内文字、面板与无窗口端到端测试。协议细节见
+物品/装备交互、世界内文字、面板、小地图、音效与无窗口端到端测试。协议细节见
 [`protocol/login-flow.md`](protocol/login-flow.md)，渲染几何见
 `crates/mir-render/src/lib.rs` 与 `crates/mir-render/src/geometry.rs` 的模块文档。
 
@@ -30,6 +30,9 @@ cargo run -p mir-client -- --connect 127.0.0.1:7000 `
   `Quit` 并回收网络线程。
 * 界面默认中文；`--lang en` 切换成英文（写入 `settings.json`，`--set-language` 只改设置）。
   所有固定文案都在 `crates/mir-client/src/ui/labels.rs`。
+* 音效默认开启、音量 0.5（`settings.json` 的 `sound` / `volume`）；`--no-sound` 与
+  `--volume <0..1>` 只影响本次启动，`--sound-dir <目录>` 可追加音效目录。
+  没有音频设备时只打印一次警告，窗口照常运行（见 §5.6）。
 
 ## 2. 登录包序（实现于 `crates/mir-client/src/net.rs`）
 
@@ -121,10 +124,11 @@ buff 倒计时都基于它，所以无头测试可以任意拨表。
 | T | 打开聊天输入；回车 `C.Chat`，Esc 取消 |
 | I | 开关背包 |
 | E | 开关装备纸娃娃面板 |
+| M | 开关小地图（`ui::minimap`，见 §5.5） |
 | F3 | 开关技能列表 |
 | 1..9 | 施法（未绑定技能会先发 `C.MagicKey`） |
 | 商店打开时 ↑/↓ | 滚动货架（不移动角色） |
-| Esc | 依次关闭：右键菜单 → 拖拽 → 聊天输入 → NPC 对话（发 `@exit`）→ 背包/装备/技能 |
+| Esc | 依次关闭：右键菜单 → 拖拽 → 聊天输入 → NPC 对话（发 `@exit`）→ 背包/装备/技能（小地图只由 `M` 开关，与 Crystal 的 `MiniMapDialog.Toggle()` 一致） |
 | F1 | 调试叠层 |
 | F2 | 截图到 `build/screenshot-<n>.png` |
 | Q | 退出 |
@@ -208,6 +212,92 @@ Crystal 的商店同样用滚轮翻页（`Client/MirScenes/Dialogs/NPCDialogs.cs
   （数字 / `闪避` / 暴击加 `!`）在目标头顶向上飘 50 px、1 s 内淡出。
   时长与位移对应 Crystal `Client/MirObjects/Damage.cs:16-46`
   （`duration = 1000`、`Distance = 50`、`-75` 的基准偏移）。
+
+### 5.5 小地图（M）
+
+面板贴屏幕右上角，半透明底 + 边框，从上到下是：地图名（`MapSnapshot.title`）、
+120×108 的小地图视窗、坐标行（`(x, y)`）与 `M 关闭` 提示。
+
+映射与几何全部照抄 Crystal 的 `MiniMapDialog`：
+
+| 项 | 本项目 | Crystal 出处 |
+|---|---|---|
+| 图库 | `resource/data/mmap.wzl`（`mmap.wzx` 索引） | `Client/MirGraphics/MLibrary.cs:23` `MiniMap = new MLibrary(Settings.DataPath + "MMap")` |
+| 图像号 | `S.MapInformation.mini_map`（`0` = 没有小地图） | `Shared/ServerPackets.cs:479`；`MirDatabase/MapInfo.cs:20` 的 `MapInfo.MiniMap` |
+| 面板位置 | `x = 屏宽 - 126`、`y = 0` | `Client/MirScenes/Dialogs/MainDialogs.cs:1780` |
+| 标题行 | 高 18 | `MainDialogs.cs:1786-1793` |
+| 视窗 | 面板内 `(3, 22)`、120×108 | `MainDialogs.cs:1912-1914` |
+| 坐标行 | 高 18 | `MainDialogs.cs:1795-1802`、`:2079-2080` |
+
+投影公式（`mir-render/src/minimap.rs`，与 `MainDialogs.cs:1916-1943` 逐行对应）：
+
+```text
+scaleX = 图像宽 / 地图宽(格)        scaleY = 图像高 / 地图高(格)
+view.x = (int)(scaleX × 自己.x) - 120/2     越界时贴右/下边，再夹到 0
+view.y = (int)(scaleY × 自己.y) - 108/2
+点像素 = 视窗原点 + (格坐标 - view/scale) × scale
+```
+
+* 图像是 **1:1 裁剪**绘制的（`MainDialogs.cs:1933` 的 `Draw(index, viewRect, …)`），
+  缩放只用于「格 → 像素」换算；地图宽高优先用 `S.NewMapInfo`，没有时退回本地地形尺寸
+  （Crystal 用 `MapControl.Width/Height`）。
+* 点位颜色与 Crystal 一致：队友蓝（`0,0,255`）、其他玩家白、NPC 绿（`0,255,50`）、
+  怪物等红（`255,0,0`），2×2 像素；**自己画黄色**（Crystal 是白色，
+  这里按需求改色，`MainDialogs.cs:1950-1962`）。
+* 与 Crystal 一样跳过地面物品、尸体、法术对象（`MainDialogs.cs:1941`）。
+  队友点已经支持（`MarkerKind::Group`），但本作还没有组队数据来源，所以目前不会出现。
+* 缺素材（没有 `mmap.wzl`，或 `MapInformation.mini_map == 0`）时：视窗画纯色占位
+  （`[26,34,46]`）+ `无小地图素材`，标题仍然显示地图名，不 panic。
+  Crystal 对应的处理是把面板切成无图小档（`MainDialogs.cs:1898-1901,2046-2058`）。
+* 面板开着时点在它上面的鼠标不会变成「点地走路」（`UiState::minimap_clicked`）。
+
+### 5.6 音效
+
+事件 → 文件名 的映射是**纯数据**，放在 `crates/mir-render/src/sound.rs`（`SoundId` +
+`sound_for_event`）；播放只在 `crates/mir-client/src/audio.rs`（`rodio`）——`mir-render`
+不依赖任何音频库。
+
+文件名来自 Crystal 客户端的 `Sound/SoundList.lst`
+（`Client/MirSounds/SoundManager.cs:85-92` 查表；查不到才用编号公式
+`index/10` + `-` + `index%10`，见 `:87-89`）：
+
+| `SoundId` | 事件 | Crystal 常量（`SoundList.cs` 行） | 编号 | `SoundList.lst` 行 | 文件 |
+|---|---|---|---|---|---|
+| `Walk` | 走路 | `WalkGroundL`（`:61`） | 10001 | `:2` | `1.wav` |
+| `Run` | 跑步 | `RunGroundL`（`:63`） | 10003 | `:4` | `3.wav` |
+| `Swing` | 攻击挥空 | `SwingShort`（`:102`） | 10050 | `:36` | `50.wav` |
+| `Hit` | 攻击命中 | `StruckBodySword`（`:119`） | 10070 | `:52` | `70.wav` |
+| `Struck` | 受击 | `MaleFlinch` / `FemaleFlinch`（`:131-132`） | 10138/10139 | `:83-84` | `138.wav` / `139.wav` |
+| `Die` | 死亡 | `MaleDie` / `FemaleDie`（`:133-134`） | 10144/10145 | `:85-86` | `144.wav` / `145.wav` |
+| `LevelUp` | 升级 | `LevelUp`（`:49`） | 10156 | `:93` | `levelup.wav` |
+| `Pickup` | 拾取 | `PetPickup`（`:177`，简化） | 10520 | `:145` | `pet_pickup.wav` |
+| `Gold` | 金币（得/失） | `Gold`（`:44`） | 10106 | `:68` | `106.wav` |
+| `Drink` | 喝药 | `ClickDrug`（`:46`） | 10108 | `:70` | `108.wav` |
+| `Cast` | 施法 | `20000 + Spell×10`（`SoundManager.cs:87-89`） | 20000+ | — | `M<技能号>-0.wav`（缺省 `M31-0.wav`） |
+| `NpcDialog` | 打开 NPC 对话 | `ButtonA`（`:41`，简化） | 10103 | `:65` | `103.wav` |
+
+触发来源：
+
+* **别人**的动作由快照事件触发（`WorldSnapshot.sound_events`，`net.rs` 在
+  `ObjectWalk`/`ObjectRun`/`ObjectAttack`/`ObjectStruck`/`ObjectDied` 处压事件）；
+  升级（`S.LevelChanged`）、拾取（`S.GainedItem`）、金币（`S.GainedGold`/`S.LoseGold`）、
+  挨打（`S.Struck`）、NPC 对话（`S.NPCResponse` 非空页：开窗与翻页都响，空页不响）同理。
+* **自己**的走/跑/攻击/施法/喝药在**发包前本地预播**（`LiveState::send`、
+  `dispatch_ui_action`）：服务端不会把 `ObjectWalk`/`ObjectAttack` 回发给动作发起者
+  （`mir-server/src/world.rs:2428-2449`，Crystal 也一样），不本地播就没有自己的脚步声。
+* 频控：同一音效 100 ms 内只播一次（`mir_render::SOUND_COOLDOWN_MS`，`SoundThrottle`）。
+  Crystal 没有这张表（它的节流靠步帧播放 `PlayerObject.cs:3596-3599` 与延迟队列
+  `SoundManager.cs:79-82`），本作按需求加了一层。频控同时挡住「本地预播 + 服务端回显」
+  可能造成的双响。
+* 素材目录按顺序找同名文件：`resource/wav`（786 个经典 WAV）→
+  `resource/community/gqf2008-crystal/Sound`（Crystal 完整音效集，补上
+  `levelup.wav`/`pet_pickup.wav`/`M<技能>-*.wav`）。找不到就静默跳过（`tracing::debug!`）。
+* 降级：`rodio` 打不开默认输出设备时只打印**一次**警告，之后所有播放都是空操作，
+  窗口/渲染/网络完全照常（CI 没有声卡）。音量默认 0.5，`--volume` / `settings.json` 可调。
+* 简化：走路统一用「普通地面」音（Crystal 按地块选 8 种，`PlayerObject.cs:3601-4208`）；
+  受击不区分武器类型；喝药用 `ClickDrug`（真正的 `EatDrug` 在 Crystal 客户端里
+  **从未被调用**）；NPC 对话没有专用音效，借用界面按钮音；怪物攻击/死亡不按 `BaseSound`
+  取各自音效（`MonsterObject.cs:217,601,1395`）。
 
 ## 6. 实体图库映射
 
@@ -407,7 +497,40 @@ Crystal 的 `Frame` 是 `Start / Count / Skip / Interval`（`Client/MirObjects/F
 （RGB24 纯色）验证层合成：带装备的帧与裸体帧不同、武器/头发颜色确实出现在身体区域、
 **朝下时武器盖住身体、朝上时身体盖住武器**（层顺序画反就会被抓出来）、缺层时安静降级。
 
+`crates/mir-render/tests/minimap.rs`：**小地图渲染**。
+
+1. 现场拼一个最小的 `mmap.wzl` + `mmap.wzx`（`mir-asset` 只读不写，测试按
+   `WeMadeLibrary.cs:140-147,313-331` 的记录格式自己写），用
+   `MinimapScene::open_dir` 打开，断言空帧/越界帧返回 `None`、3 号帧是 160×120；
+2. 画到 `Frame`：底图颜色正确、玩家点是 2×2 黄色、怪物点是红色、视窗外不画；
+   同一张图重复画逐字节一致；
+3. 真实素材：解 `resource/data/mmap.wzl` 前 64 帧并打印尺寸（第一张是 0 号 600×399），
+   用真实底图画一帧到 `target/minimap-real.png`，断言非黑像素 > 1000。
+
+`crates/mir-client/tests/minimap_panel.rs`：**M 面板无头测试**（不连服务器）。
+
+1. 注入 `S.UserInformation` + `S.MapInformation`（小地图号）+ `S.NewMapInfo`（宽高）
+   + `S.ObjectMonster` + 一个 NPC，断言 `view_for` 的图号/宽高/点位；
+2. `UiState::toggle_minimap()` 后 `show_minimap` 为真，鼠标落在面板上时点击被吃掉
+   （不会变成走路）；
+3. 渲染整屏到 `target/client-minimap.png`，断言面板区域变化 > 5000 像素、
+   玩家点（黄）≥ 4 像素；
+4. 缺素材时视窗是纯色占位；`mini_map == 0` 时即使图库里有 0 号帧也不画。
+
+`crates/mir-client/tests/sound.rs`：**音效事件 + 真实 WAV 冒烟**（不连服务器、不开窗口）。
+
+1. 注入 `ObjectWalk`/`ObjectRun`/`ObjectAttack`（带技能）/`ObjectStruck`/`S.Struck`/
+   `ObjectDied`/`LevelChanged`/`GainedItem`/`GainedGold`/`NPCResponse`，断言事件顺序、
+   `GainedGold(0)` 与空 NPC 页不产生事件、编号严格递增且不重复消费；
+2. 本地事件（`push_local_sound`）与队列上限；
+3. 100 ms 频控（`SoundThrottle`）与无设备播放器的空操作行为；
+4. 真实素材：`resource/wav` 里 12 个映射文件逐个用 `rodio::Decoder` 解码并打印
+   采样率/声道（至少 5 个必须成功，缺素材时打印跳过），并确认 12 个事件的文件都能定位。
+
 ```powershell
+cargo test -p mir-client --test sound -- --nocapture
+cargo test -p mir-client --test minimap_panel -- --nocapture
+cargo test -p mir-render --test minimap -- --nocapture
 cargo test -p mir-client --test ui_interaction -- --nocapture
 cargo test -p mir-client --test player_looks -- --nocapture
 cargo test -p mir-client --test anim -- --nocapture
@@ -434,7 +557,14 @@ cargo fmt --all -- --check
 * 装备面板里的角色小预览（面板目前只有 14 个槽的图标 + 名称 + 属性汇总）；
 * A\* 寻路（点地走路只有「朝目标方向一步」）；拾取/攻击的鼠标目标选择；
 * 地图切换后的素材重载（服务端 `MapChanged` 会更新快照地图名，窗口仍用启动时加载的地形）；
-* 声音、天气、光照、小地图/大地图；聊天频道切换与物品链接；
+* **音效**：背景音乐（`SoundManager.PlayMusic`）、循环音（`LoopProvider`）、
+  怪物各自的 `BaseSound`、按地块选择脚步音、按武器选择受击音、按距离衰减、
+  音量条 UI（`MainDialogs.cs:2864-2887`）、解码缓存与回收
+  （Crystal 的 `CachedSound` / `SoundManager.cs:195-223`；本作每次播放现解码，
+  短 WAV 够快，但没有缓存与 30 秒回收）；
+* **小地图**：大地图面板（`BigMapDialog`，图像号用 `MapInfo.BigMap`）、NPC 任务感叹号、
+  两档尺寸/底部按钮（邮件/大地图/亮度）、滚轮缩放的「大地图搜索」；
+* 天气、光照（`LightSetting`/`MapDarkLight`）、聊天频道切换与物品链接；
 * 交易/仓库/摆摊/邮件/任务面板；装备升级/镶嵌/觉醒等数值系统；
 * `!Mon.dat` 精确怪物外观映射（见 §6.2）。
 
@@ -483,3 +613,20 @@ cargo fmt --all -- --check
     挖肉 456~471、受击 472~535、死亡 536~599。`Frame.Skip` 在原版里也是
     「每方向末尾空槽」而不是「播放前跳过」（`Frames.cs:209-212`），
     `mir-render/src/animation.rs` 的常量表按这个语义填写。
+16. **`SoundList.cs` 的编号不等于文件名**：`SoundManager.PlaySound(index)` 先查
+    `Sound/SoundList.lst`（`SoundManager.cs:85-92`），表里 10001 对应 `1.wav`、10106 对应
+    `106.wav`、10156 对应 `levelup.wav`；只有查不到时才用 `index/10` + `-` + `index%10`
+    的公式（`:87-89`）。所以「按公式算出来的 `1000-1.wav`」在语料里**并不存在**，
+    必须用表里的名字。
+17. **`SoundList.EatDrug`（10107）在整个 Crystal 客户端里从未被调用**，真正响的喝药音是
+    点背包药品时的 `ClickDrug`（10108，`MirItemCell.cs:2047-2048`）。
+18. **NPC 对话没有打开音效**：`GameScene.NPCResponse`（`GameScene.cs:3891-3913`）只
+    Show/Hide 面板；界面按钮的音效来自 `MirControl.OnMouseClick` 的 `Sound` 属性
+    （`MirControl.cs:823-824`），默认 `ButtonA`（`SoundList.cs:41`）。本作用它当「打开对话」音。
+19. **小地图的两个图像号是两个控件**：`MiniMapDialog` 用 `MapControl.MiniMap`
+    （`MainDialogs.cs:1916`），`BigMapDialog` 用 `MapInfo.BigMap`（`BigMapDialog.cs:642`），
+    但都取自同一个 `mmap.wzl`（`MLibrary.cs:23`）。本项目小地图面板只做前者，
+    `big_map` 已经在快照里备好（`MapSnapshot::big_map`）等大地图面板用。
+20. **`mmap.wzl` 的 0 号帧是真实地图图**（600×399），不是「空图」；Crystal 用
+    `MapInfo.MiniMap <= 0` 判断「这张图没有小地图」（`MainDialogs.cs:1898-1907`），
+    所以客户端把 0 当哨兵值、不去查图库，否则会画出别的地图。

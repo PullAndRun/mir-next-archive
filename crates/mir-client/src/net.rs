@@ -98,6 +98,7 @@ use mir_protocol::data::{ClientBuff, ClientMagic, ItemInfo, UserItem};
 use mir_protocol::packets::client as c;
 use mir_protocol::{ClientPacket, DateTimeBinary, ServerPacket};
 use mir_render::animation::{ActorAction, BodyKind};
+use mir_render::sound::SoundId;
 use mir_render::{EntityKind, EntityView};
 
 /// 连接超时。
@@ -115,6 +116,8 @@ pub const EQUIPMENT_SLOTS: usize = 14;
 const DAMAGE_EVENT_LIMIT: usize = 32;
 /// 快照里保留的光效事件条数。
 const EFFECT_EVENT_LIMIT: usize = 16;
+/// 快照里保留的音效事件条数：UI 每帧把「比上次多」的那些交给播放器。
+const SOUND_EVENT_LIMIT: usize = 32;
 /// 客户端版本哈希的占位值：Crystal 发的是客户端 exe 的 MD5（16 字节），
 /// 服务端 `check_version = false` 时内容不重要，但长度保持 16 字节。
 const VERSION_HASH: &[u8] = b"mir-next-client!";
@@ -334,6 +337,16 @@ pub struct MapSnapshot {
     pub width: i32,
     /// 高。
     pub height: i32,
+    /// 小地图图像号（`S.MapInformation.MiniMap` / `S.MapChanged.MiniMap`，
+    /// `Shared/ServerPackets.cs:479,2989`；值是 `MapInfo.MiniMap`，`MirDatabase/MapInfo.cs:20`）。
+    ///
+    /// 它是 `resource/data/mmap.wzl` 的帧号（Crystal `MLibrary.cs:23` 把 `MMap`
+    /// 打开成 `Libraries.MiniMap`）；`0` 表示这张图没有小地图
+    /// （Crystal `MainDialogs.cs:1898` 会切到无图模式）。
+    pub mini_map: u16,
+    /// 大地图图像号（`S.MapInformation.BigMap` / `ClientMapInfo.BigMap`，
+    /// `Shared/Data/ClientData.cs:324`；`BigMapDialog.cs:642` 用它取 `mmap.wzl` 的帧）。
+    pub big_map: u16,
 }
 
 /// 客户端收到 `S.MapChanged` 后要做的切图动作：本地地形文件 + 新的相机中心。
@@ -835,6 +848,30 @@ pub struct EffectEvent {
     pub time: u32,
 }
 
+/// 一次音效事件：服务端包 → 「该响什么」。
+///
+/// 事件只保存**语义**（[`SoundId`]），文件名映射与播放都在客户端：
+/// 映射在 `mir_render::sound`（纯数据），播放由 [`crate::audio::SoundPlayer`] 负责。
+///
+/// 与伤害/光效事件一样带递增 `id`：快照每帧整体克隆，消费方只处理比上次大的 ID。
+///
+/// 服务端**不会**把 `S.ObjectWalk` / `S.ObjectRun` / `S.ObjectAttack` 回发给动作发起者
+/// （`mir-server/src/world.rs:2428-2449` 的 `broadcast` 明确跳过本人，Crystal 也一样），
+/// 所以自己的走/跑/攻击音效由客户端在发包时本地预播
+/// （[`WorldSnapshot::push_local_sound`]），这里的事件只覆盖「别人身上的动作」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SoundEvent {
+    /// 递增编号。
+    pub id: u64,
+    /// 该响的音效。
+    pub sound: SoundId,
+    /// 施法音用哪个技能（`S.ObjectAttack.spell`）；其它事件为 [`Spell::None`]。
+    pub spell: Spell,
+    /// 是否用女声那两档音效（`SoundList.cs:131-134` 的 `MaleFlinch/FemaleFlinch`、
+    /// `MaleDie/FemaleDie`）。只有「自己」知道性别，别人一律按男声（简化）。
+    pub female: bool,
+}
+
 /// 已学技能（`ClientMagic` 的界面子集）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MagicView {
@@ -1001,6 +1038,12 @@ pub struct WorldSnapshot {
     pub effects: Vec<EffectEvent>,
     /// 下一个光效事件编号。
     pub next_effect_id: u64,
+    /// 最近的音效事件（尾部最新；播放器只消费新增的 `id`）。
+    pub sound_events: Vec<SoundEvent>,
+    /// 下一个音效事件编号。
+    ///
+    /// 从 1 开始：`0` 表示「还没消费过任何事件」，见 [`Self::sound_events_since`]。
+    pub next_sound_id: u64,
     /// 物品模板（`S.NewItemInfo`，按模板编号索引）。
     pub item_infos: BTreeMap<i32, ItemInfoView>,
     /// 已学技能（`S.UserInformation.Magics` + `S.NewMagic`/`S.MagicLeveled`）。
@@ -1038,6 +1081,8 @@ impl Default for WorldSnapshot {
             next_damage_id: 0,
             effects: Vec::new(),
             next_effect_id: 0,
+            sound_events: Vec::new(),
+            next_sound_id: 1,
             item_infos: BTreeMap::new(),
             magics: Vec::new(),
             npc_dialog: None,
@@ -1271,6 +1316,52 @@ impl WorldSnapshot {
             me.direction = direction;
             me.set_action(action, now_ms);
         }
+    }
+
+    /// 记一条本地音效事件（自己的走/跑/攻击、点药、施法、服务器不回发的那些）。
+    ///
+    /// 与服务端包产生的 [`SoundEvent`] 走同一条队列，播放器不必区分来源。
+    /// 自己的性别来自 [`Self::self_player`]（`S.UserInformation.gender`）。
+    pub fn push_local_sound(&mut self, sound: SoundId, spell: Spell) {
+        let female = self
+            .self_player
+            .as_ref()
+            .is_some_and(|me| me.gender == MirGender::Female);
+        self.push_sound(sound, spell, female);
+    }
+
+    /// 记一条音效事件（内部与测试用）。
+    pub fn push_sound(&mut self, sound: SoundId, spell: Spell, female: bool) {
+        let id = self.next_sound_id;
+        self.next_sound_id = self.next_sound_id.saturating_add(1);
+        self.sound_events.push(SoundEvent {
+            id,
+            sound,
+            spell,
+            female,
+        });
+        if self.sound_events.len() > SOUND_EVENT_LIMIT {
+            let excess = self.sound_events.len() - SOUND_EVENT_LIMIT;
+            self.sound_events.drain(..excess);
+        }
+    }
+
+    /// 取出所有编号大于 `after` 的音效事件（播放器每帧调用一次）。
+    ///
+    /// 返回的第二个值是「已消费到的编号」，调用方存起来下次传回来
+    /// （与伤害/光效事件一样用「严格大于」判定，避免快照整体克隆导致重复播放）。
+    /// 编号从 1 开始，所以 `after = 0` 表示「一条都还没消费」。
+    #[must_use]
+    pub fn sound_events_since(&self, after: u64) -> (Vec<SoundEvent>, u64) {
+        let mut last = after;
+        let mut events = Vec::new();
+        for event in &self.sound_events {
+            if event.id > after {
+                last = last.max(event.id);
+                events.push(*event);
+            }
+        }
+        (events, last)
     }
 
     /// 推进动画状态：把已经播完的走/跑/攻击/受击切回 Standing，把死亡切到 Dead。
@@ -1935,6 +2026,8 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 title: info.title.clone(),
                 width: 0,
                 height: 0,
+                mini_map: info.mini_map,
+                big_map: info.big_map,
             });
         }
         ServerPacket::NewMapInfo(info) => {
@@ -1943,6 +2036,8 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             map.title.clone_from(&info.info.title);
             map.width = info.info.width;
             map.height = info.info.height;
+            // `ClientMapInfo.BigMap` 是 i32（`ClientData.cs:324`），负数/超界按 0 处理。
+            map.big_map = u16::try_from(info.info.big_map).unwrap_or(0);
             for npc in &info.info.npcs {
                 if npc.object_id == 0 {
                     continue;
@@ -1967,6 +2062,8 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 title: changed.title.clone(),
                 width: 0,
                 height: 0,
+                mini_map: changed.mini_map,
+                big_map: changed.big_map,
             });
             snapshot.entities.clear();
             // 换地图等于离开当前 NPC，UI 必须把对话/商店收起来。
@@ -2143,6 +2240,8 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             });
         }
         ServerPacket::ObjectWalk(walk) => {
+            // 走路音：Crystal 在步帧播 `WalkGroundL`（`PlayerObject.cs:3596-3599`）。
+            snapshot.push_sound(SoundId::Walk, Spell::None, false);
             update_entity(snapshot, walk.object_id, |entity| {
                 entity.position = walk.location;
                 entity.direction = walk.direction;
@@ -2150,6 +2249,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             });
         }
         ServerPacket::ObjectRun(run) => {
+            snapshot.push_sound(SoundId::Run, Spell::None, false);
             update_entity(snapshot, run.object_id, |entity| {
                 entity.position = run.location;
                 entity.direction = run.direction;
@@ -2157,6 +2257,9 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             });
         }
         ServerPacket::ObjectAttack(attack) => {
+            // 挥空/挥武器（`PlayerObject.cs:4779-4847`）＋施法音（若这一下是魔法，
+            // `PlayerObject.cs:1538` 的 `20000 + Spell × 10`）。
+            snapshot.push_sound(SoundId::Swing, attack.spell, false);
             update_entity(snapshot, attack.object_id, |entity| {
                 entity.position = attack.location;
                 entity.direction = attack.direction;
@@ -2164,6 +2267,8 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             });
         }
         ServerPacket::ObjectStruck(struck) => {
+            // 被打中的身体音（`PlayerObject.cs:4700-4762` 的 `StruckBodySword + add`）。
+            snapshot.push_sound(SoundId::Hit, Spell::None, false);
             update_entity(snapshot, struck.object_id, |entity| {
                 entity.direction = struck.direction;
                 entity.set_action(ActorAction::Struck, now_ms);
@@ -2175,6 +2280,11 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 None,
                 Some(struck.location),
             );
+        }
+        ServerPacket::Struck(_) => {
+            // 自己被攻击（`S.Struck` 只发给挨打的人）：受击呻吟按性别分档
+            // （`PlayerObject.cs:624-625` 的 `FlinchSound`）。
+            snapshot.push_local_sound(SoundId::Struck, Spell::None);
         }
         ServerPacket::DamageIndicator(indicator) => {
             push_damage_event(
@@ -2205,6 +2315,9 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             });
         }
         ServerPacket::ObjectDied(died) => {
+            // 怪物/玩家死亡：Crystal 玩家用 `MaleDie/FemaleDie`（`PlayerObject.cs:4854-4855`），
+            // 怪物用 `BaseSound + 9`（`MonsterObject.cs:4087`）；本作统一按性别取死亡音。
+            snapshot.push_sound(SoundId::Die, Spell::None, false);
             update_entity(snapshot, died.object_id, |entity| {
                 entity.position = died.location;
                 entity.direction = died.direction;
@@ -2229,6 +2342,8 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 me.direction = death.direction;
                 me.set_action(ActorAction::Dying, now_ms);
             }
+            // 自己阵亡：男女两档死亡音（`SoundList.cs:133-134`）。
+            snapshot.push_local_sound(SoundId::Die, Spell::None);
         }
         ServerPacket::Revived(_) => {
             if let Some(me) = &mut snapshot.self_player {
@@ -2247,6 +2362,8 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             if let Some(me) = &mut snapshot.self_player {
                 me.level = level.level;
             }
+            // 升级音（`GameScene.cs:3853` 的 `SoundList.LevelUp`）。
+            snapshot.push_local_sound(SoundId::LevelUp, Spell::None);
         }
         ServerPacket::NewItemInfo(info) => {
             snapshot
@@ -2324,6 +2441,9 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
         ServerPacket::GainedItem(gained) => {
             let item = InventoryItem::from_user_item(&gained.item);
             add_inventory_item(snapshot, item.clone());
+            // 拾取音：Crystal 只有宠物拾取音（`MonsterObject.cs:4266` 的 `PetPickup`），
+            // 简化：玩家捡东西也用它。
+            snapshot.push_local_sound(SoundId::Pickup, Spell::None);
             let name = snapshot.item_info(item.item_index).map_or_else(
                 || format!("物品 #{}", item.item_index),
                 |info| info.name.clone(),
@@ -2341,6 +2461,11 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             if let Some(me) = &mut snapshot.self_player {
                 me.gold = me.gold.saturating_add(gained.gold);
             }
+            // 金币音（`GameScene.cs:3300` 的 `GainedGold`；数量为 0 时 Crystal 直接 return，
+            // 这里也跳过：`GainedGold` 的 `p.Gold == 0` 分支，`GameScene.cs:3297`）。
+            if gained.gold > 0 {
+                snapshot.push_local_sound(SoundId::Gold, Spell::None);
+            }
             push_chat(
                 snapshot,
                 ChatLine {
@@ -2354,6 +2479,8 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             if let Some(me) = &mut snapshot.self_player {
                 me.gold = me.gold.saturating_sub(lost.gold);
             }
+            // 失去金币也响同一个音（`GameScene.cs:3306` 的 `LoseGold`）。
+            snapshot.push_local_sound(SoundId::Gold, Spell::None);
         }
         ServerPacket::Chat(chat) => {
             tracing::info!(message = %chat.message, "系统/频道聊天");
@@ -2398,6 +2525,13 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             // `S.NPCGoods` / `S.NPCSell` 等；普通页面则不应继续显示上一页的商店。
             snapshot.npc_goods = None;
             snapshot.npc_panels = NpcPanels::default();
+            // NPC 对话音：（简化）Crystal 没有专用音效，面板按钮音是 `ButtonA`
+            // （`SoundList.cs:41`，点击路径 `MirControl.cs:823-824`）。
+            // 每收到一页非空正文都响一次（开窗与翻页，接近 Crystal 的「点按钮翻页」），
+            // 空正文 = 关窗，不响。
+            if !response.page.is_empty() {
+                snapshot.push_local_sound(SoundId::NpcDialog, Spell::None);
+            }
             if response.page.is_empty() {
                 // 空正文 = 服务端确认关窗（`Client/MirScenes/GameScene.cs:3891-3907`）。
                 tracing::debug!("NPC 对话已关闭");

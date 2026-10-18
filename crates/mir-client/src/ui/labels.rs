@@ -311,6 +311,84 @@ pub enum Label {
     Health,
     /// 组队面板：踢人按钮。
     GroupKick,
+    /// 市场面板标题。
+    Market,
+    /// 物品列（市场列表）。
+    ItemColumn,
+    /// 寄售页签。
+    Consign,
+    /// 拍卖页签。
+    Auction,
+    /// 搜索。
+    Search,
+    /// 刷新。
+    Refresh,
+    /// 卖家列。
+    Seller,
+    /// 到期列。
+    Expiry,
+    /// 买下（一口价）。
+    Buy,
+    /// 出价。
+    Bid,
+    /// 出价金额（输入框占位）。
+    BidAmount,
+    /// 寄售售价（输入框占位）。
+    ConsignPrice,
+    /// 拍卖起拍价（输入框占位）。
+    StartingBid,
+    /// 上架。
+    ListItem,
+    /// 取回。
+    GetBack,
+    /// 提前成交。
+    SellNow,
+    /// 一键收款。
+    CollectSold,
+    /// 上一页。
+    PrevPage,
+    /// 下一页。
+    NextPage,
+    /// 没有市场条目。
+    NoListings,
+    /// 市场面板底部提示。
+    MarketHint,
+    /// 寄售面板底部提示。
+    ConsignHint,
+    /// 拍卖面板底部提示。
+    AuctionHint,
+    /// 市场操作失败（未知原因）。
+    MarketFailGeneric,
+    /// 失败原因：角色死亡。
+    MarketFailDead,
+    /// 失败原因：不在市场 NPC 旁。
+    MarketFailNoDialog,
+    /// 失败原因：条目已售出。
+    MarketFailSold,
+    /// 失败原因：条目已过期。
+    MarketFailExpired,
+    /// 失败原因：背包空间不足。
+    MarketFailNoSpace,
+    /// 失败原因：不能购买自己的条目。
+    MarketFailOwnItem,
+    /// 失败原因：金币不足。
+    MarketFailLowGold,
+    /// 失败原因：条目不可用或距离太远。
+    MarketFailTooFar,
+    /// 失败原因：金币已达上限。
+    MarketFailCannotGainGold,
+    /// 失败原因：出价太低。
+    MarketFailBidTooLow,
+    /// 失败原因：拍卖已结束。
+    MarketFailAuctionEnded,
+    /// 上架成功。
+    ConsignSuccess,
+    /// 上架失败。
+    ConsignFailed,
+    /// 背包里没有选中物品。
+    NoSelectedItem,
+    /// 寄售表单里「上架物品：」前缀。
+    ConsignSelected,
 }
 
 impl Label {
@@ -347,7 +425,7 @@ impl Label {
             (Self::Level, Language::ZhCn) => "等级",
             (Self::Level, Language::En) => "Lv",
             (Self::Price, Language::ZhCn) => "价格",
-            (Self::Price, Language::En) => "Price",
+            (Self::Price | Self::ConsignPrice, Language::En) => "Price",
             (Self::Rate, Language::ZhCn) => "倍率",
             (Self::Rate, Language::En) => "Rate",
             (Self::Empty, Language::ZhCn) => "空",
@@ -609,6 +687,83 @@ impl Label {
             (Self::NoGroup, Language::En) => "Not in a group",
             (Self::Health, Language::ZhCn) => "血量",
             (Self::GroupKick, Language::ZhCn) => "踢出队伍",
+            (Self::Market, Language::ZhCn) => "市场",
+            (Self::Market, Language::En) => "Market",
+            (Self::ItemColumn, Language::ZhCn) => "物品",
+            (Self::ItemColumn, Language::En) => "Item",
+            (Self::Consign, Language::ZhCn) => "寄售",
+            (Self::Consign, Language::En) => "Consign",
+            (Self::Auction, Language::ZhCn) => "拍卖",
+            (Self::Auction, Language::En) => "Auction",
+            (Self::Search, Language::ZhCn) => "搜索",
+            (Self::Search, Language::En) => "Search",
+            (Self::Refresh, Language::ZhCn) => "刷新",
+            (Self::Refresh, Language::En) => "Refresh",
+            (Self::Seller, Language::ZhCn) => "卖家",
+            (Self::Seller, Language::En) => "Seller",
+            (Self::Expiry, Language::ZhCn) => "到期",
+            (Self::Expiry, Language::En) => "Expires",
+            (Self::Buy, Language::ZhCn) => "买下",
+            (Self::Buy, Language::En) => "Buy",
+            (Self::Bid, Language::ZhCn) => "出价",
+            (Self::Bid, Language::En) => "Bid",
+            (Self::BidAmount, Language::ZhCn) => "出价金额",
+            (Self::BidAmount, Language::En) => "Bid amount",
+            (Self::ConsignPrice, Language::ZhCn) => "售价",
+            (Self::StartingBid, Language::ZhCn) => "起拍价",
+            (Self::StartingBid, Language::En) => "Starting bid",
+            (Self::ListItem, Language::ZhCn) => "上架",
+            (Self::ListItem, Language::En) => "List",
+            (Self::GetBack, Language::ZhCn) => "取回",
+            (Self::GetBack, Language::En) => "Take back",
+            (Self::SellNow, Language::ZhCn) => "提前成交",
+            (Self::SellNow, Language::En) => "Sell now",
+            (Self::CollectSold, Language::ZhCn) => "一键收款",
+            (Self::CollectSold, Language::En) => "Collect sold",
+            (Self::PrevPage, Language::ZhCn) => "上一页",
+            (Self::PrevPage, Language::En) => "Prev",
+            (Self::NextPage, Language::ZhCn) => "下一页",
+            (Self::NextPage, Language::En) => "Next",
+            (Self::NoListings, Language::ZhCn) => "没有条目",
+            (Self::NoListings, Language::En) => "No listings",
+            (Self::MarketHint, Language::ZhCn) => "搜索 / 翻页 · Esc 关闭",
+            (Self::MarketHint, Language::En) => "Search or page · Esc closes",
+            (Self::ConsignHint, Language::ZhCn) => "在背包选中物品、填价后上架",
+            (Self::ConsignHint, Language::En) => "Select a bag item, set a price, then list",
+            (Self::AuctionHint, Language::ZhCn) => "在背包选中物品、填起拍价后上架",
+            (Self::AuctionHint, Language::En) => "Select a bag item, set a starting bid, then list",
+            (Self::MarketFailGeneric, Language::ZhCn) => "操作失败",
+            (Self::MarketFailGeneric, Language::En) => "Failed",
+            (Self::MarketFailDead, Language::ZhCn) => "角色已死亡",
+            (Self::MarketFailDead, Language::En) => "You are dead",
+            (Self::MarketFailNoDialog, Language::ZhCn) => "不在市场 NPC 旁",
+            (Self::MarketFailNoDialog, Language::En) => "Not at the market NPC",
+            (Self::MarketFailSold, Language::ZhCn) => "该条目已售出",
+            (Self::MarketFailSold, Language::En) => "That listing is sold",
+            (Self::MarketFailExpired, Language::ZhCn) => "该条目已过期",
+            (Self::MarketFailExpired, Language::En) => "That listing has expired",
+            (Self::MarketFailNoSpace, Language::ZhCn) => "背包空间不足",
+            (Self::MarketFailNoSpace, Language::En) => "Not enough bag space",
+            (Self::MarketFailOwnItem, Language::ZhCn) => "不能购买自己的条目",
+            (Self::MarketFailOwnItem, Language::En) => "Cannot buy your own listing",
+            (Self::MarketFailLowGold, Language::ZhCn) => "金币不足",
+            (Self::MarketFailLowGold, Language::En) => "Not enough gold",
+            (Self::MarketFailTooFar, Language::ZhCn) => "条目不可用或距离太远",
+            (Self::MarketFailTooFar, Language::En) => "Listing unavailable or too far",
+            (Self::MarketFailCannotGainGold, Language::ZhCn) => "金币已达上限",
+            (Self::MarketFailCannotGainGold, Language::En) => "Gold limit reached",
+            (Self::MarketFailBidTooLow, Language::ZhCn) => "出价太低",
+            (Self::MarketFailBidTooLow, Language::En) => "Bid too low",
+            (Self::MarketFailAuctionEnded, Language::ZhCn) => "拍卖已结束",
+            (Self::MarketFailAuctionEnded, Language::En) => "Auction ended",
+            (Self::ConsignSuccess, Language::ZhCn) => "上架成功",
+            (Self::ConsignSuccess, Language::En) => "Listed",
+            (Self::ConsignFailed, Language::ZhCn) => "上架失败",
+            (Self::ConsignFailed, Language::En) => "Listing failed",
+            (Self::NoSelectedItem, Language::ZhCn) => "未选中物品",
+            (Self::NoSelectedItem, Language::En) => "No item selected",
+            (Self::ConsignSelected, Language::ZhCn) => "上架物品",
+            (Self::ConsignSelected, Language::En) => "Listing",
         }
     }
 
@@ -996,6 +1151,45 @@ mod tests {
             Label::Collected,
             Label::NoBody,
             Label::NoSubjectField,
+            Label::Market,
+            Label::ItemColumn,
+            Label::Consign,
+            Label::Auction,
+            Label::Search,
+            Label::Refresh,
+            Label::Seller,
+            Label::Expiry,
+            Label::Buy,
+            Label::Bid,
+            Label::BidAmount,
+            Label::ConsignPrice,
+            Label::StartingBid,
+            Label::ListItem,
+            Label::GetBack,
+            Label::SellNow,
+            Label::CollectSold,
+            Label::PrevPage,
+            Label::NextPage,
+            Label::NoListings,
+            Label::MarketHint,
+            Label::ConsignHint,
+            Label::AuctionHint,
+            Label::MarketFailGeneric,
+            Label::MarketFailDead,
+            Label::MarketFailNoDialog,
+            Label::MarketFailSold,
+            Label::MarketFailExpired,
+            Label::MarketFailNoSpace,
+            Label::MarketFailOwnItem,
+            Label::MarketFailLowGold,
+            Label::MarketFailTooFar,
+            Label::MarketFailCannotGainGold,
+            Label::MarketFailBidTooLow,
+            Label::MarketFailAuctionEnded,
+            Label::ConsignSuccess,
+            Label::ConsignFailed,
+            Label::NoSelectedItem,
+            Label::ConsignSelected,
         ] {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);

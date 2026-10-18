@@ -106,14 +106,15 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, anyhow, bail};
 use mir_core::Point;
 use mir_core::enums::{
-    BuffType, ChatType, DamageType, ItemGrade, ItemType, MirClass, MirDirection, MirGender,
-    MirGridType, PanelType, QuestState, QuestType, RequiredType, Spell, SpellEffect, Stat,
+    BuffType, ChatType, DamageType, ItemGrade, ItemType, MarketCollectionMode, MarketItemType,
+    MarketPanelType, MirClass, MirDirection, MirGender, MirGridType, PanelType, QuestState,
+    QuestType, RequiredType, Spell, SpellEffect, Stat,
 };
 use mir_protocol::codec::FrameBuffer;
 use mir_protocol::data::guild_rank::{GuildMember, GuildRank};
 use mir_protocol::data::{
-    ClientBuff, ClientMagic, ClientMail, ClientQuestProgress, GuildBuff, GuildBuffInfo,
-    GuildStorageItem, ItemInfo, UserItem,
+    ClientAuction, ClientBuff, ClientMagic, ClientMail, ClientQuestProgress, GuildBuff,
+    GuildBuffInfo, GuildStorageItem, ItemInfo, UserItem,
 };
 use mir_protocol::packets::client as c;
 use mir_protocol::packets::server::{GuildBuffList, GuildMemberChange, GuildStorageItemChange};
@@ -492,6 +493,59 @@ pub enum NetCommand {
     SwitchGroup {
         /// 是否允许别人邀请自己。
         allow_group: bool,
+    },
+    /// 搜索市场（`C.MarketSearch`，Crystal `PlayerObject.MarketSearch`，
+    /// `PlayerObject.cs:8424-8448`）。
+    ///
+    /// `user_mode = true` 时服务端按卖家过滤（寄售/拍卖页签看自己的挂单）。
+    MarketSearch {
+        /// 搜索关键字（空串 = 全部）。
+        match_text: String,
+        /// 物品类型过滤（本作 UI 只发 `ItemType::Nothing`）。
+        item_type: ItemType,
+        /// 是否按玩家名/自己的挂单过滤。
+        user_mode: bool,
+        /// 外观编号下限。
+        min_shape: i16,
+        /// 外观编号上限。
+        max_shape: i16,
+        /// 市场面板类型。
+        panel: MarketPanelType,
+    },
+    /// 刷新市场列表（`C.MarketRefresh`，`MirConnection.cs:1692-1697`）。
+    MarketRefresh,
+    /// 市场翻页（`C.MarketPage{Page}`，Crystal `PlayerObject.MarketPage`，`:8327-8374`）。
+    MarketPage {
+        /// 页码（0 起）。
+        page: i32,
+    },
+    /// 买断寄售 / 拍卖出价（`C.MarketBuy{AuctionID,BidPrice}`，`:8450-8589`）。
+    MarketBuy {
+        /// 条目编号。
+        auction_id: u64,
+        /// 出价（寄售买断时服务端只用 `Price`）。
+        bid_price: u32,
+    },
+    /// 拍卖提前成交（`C.MarketSellNow{AuctionID}`，`:8591-8666`）。
+    MarketSellNow {
+        /// 条目编号。
+        auction_id: u64,
+    },
+    /// 下架 / 收款（`C.MarketGetBack{Mode,AuctionID}`，`:8668-8793`）。
+    MarketGetBack {
+        /// 收取模式：单条 / 所有已售出 / 所有已过期。
+        mode: MarketCollectionMode,
+        /// 条目编号（`mode != Any` 时忽略）。
+        auction_id: u64,
+    },
+    /// 上架寄售/拍卖（`C.ConsignItem{UniqueID,Price,Type}`，`:8218-8316`）。
+    ConsignItem {
+        /// 背包物品唯一编号。
+        unique_id: u64,
+        /// 一口价 / 起拍价。
+        price: u32,
+        /// 面板类型（`Consign` 或 `Auction`）。
+        panel: MarketPanelType,
     },
     /// 关闭连接。
     Quit,
@@ -1241,6 +1295,166 @@ impl ShopGoods {
     }
 }
 
+/// 一条市场/寄售/拍卖条目（`S.NPCMarket` / `S.NPCMarketPage` 的 `ClientAuction`）。
+///
+/// Crystal 的 `TrustMerchantDialog.AuctionRow`（`Client/MirScenes/Dialogs/TrustMerchantDialog.cs:1440-1625`）
+/// 画图标、名字、价格（拍卖在后面加「竞价」）、卖家与到期时间。名字/图标在这里从
+/// [`WorldSnapshot::item_info`] 解析（`S.NewItemInfo` 通常先到；缺模板时退回编号与 0 号图标）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarketListing {
+    /// 拍卖/寄售编号（`C.MarketBuy` / `C.MarketGetBack` 用它定位）。
+    pub auction_id: u64,
+    /// 物品模板编号。
+    pub item_index: i32,
+    /// 堆叠数量。
+    pub count: u16,
+    /// 当前持久度。
+    pub current_dura: u16,
+    /// 最大持久度。
+    pub max_dura: u16,
+    /// 物品名（模板缺省时用编号字符串）。
+    pub name: String,
+    /// `items.wzl` 图像号。
+    pub image: u16,
+    /// 卖家名（自己的挂单在「我的寄售/拍卖」页签下由服务端换成「出售中/已售出」等状态）。
+    pub seller: String,
+    /// 价格：寄售是一口价，拍卖是当前最高价（`ClientAuction.Price`）。
+    pub price: u32,
+    /// 条目类型（寄售 / 拍卖 / 商城）。
+    pub item_type: MarketItemType,
+    /// 寄售时间（到期 = 寄售时间 + `Globals.ConsignmentLength`，7 天）。
+    pub consignment_date: DateTimeBinary,
+}
+
+impl MarketListing {
+    /// 从协议条目 + 当前快照的物品模板构造。
+    #[must_use]
+    pub fn from_client_auction(auction: &ClientAuction, snapshot: &WorldSnapshot) -> Self {
+        Self::from_auction(auction, &snapshot.item_infos)
+    }
+
+    /// 从协议条目 + 物品模板表构造（快照内部用，避开 `&mut market` 与 `&snapshot` 的借用冲突）。
+    fn from_auction(auction: &ClientAuction, items: &BTreeMap<i32, ItemInfoView>) -> Self {
+        let info = items.get(&auction.item.item_index);
+        Self {
+            auction_id: auction.auction_id,
+            item_index: auction.item.item_index,
+            count: auction.item.count,
+            current_dura: auction.item.current_dura,
+            max_dura: auction.item.max_dura,
+            name: info.map_or_else(
+                || auction.item.item_index.to_string(),
+                |info| info.name.clone(),
+            ),
+            image: info.map_or(0, |info| info.image),
+            seller: auction.seller.clone(),
+            price: auction.price,
+            item_type: auction.item_type,
+            consignment_date: auction.consignment_date,
+        }
+    }
+
+    /// 当前价是否为「竞价」（拍卖显示 `N 竞价`，与 Crystal `AuctionRow.Update` 一致：
+    /// `TrustMerchantDialog.cs:1569`）。
+    #[must_use]
+    pub const fn is_bid(&self) -> bool {
+        matches!(self.item_type, MarketItemType::Auction)
+    }
+}
+
+/// 市场窗口状态（Crystal `TrustMerchantDialog`，`Client/MirScenes/Dialogs/TrustMerchantDialog.cs`）。
+///
+/// # 包 ↔ 状态
+///
+/// | 包 | 状态变化 |
+/// |---|---|
+/// | `S.NPCMarket` | [`Self::open`] = true、列表重置为第一页、[`Self::pages`]/[`Self::user_mode`] 更新、[`Self::open_version`] +1 |
+/// | `S.NPCMarketPage` | 追加一页到 [`Self::listings`]、[`Self::page_version`] +1 |
+/// | `S.NPCConsign` | [`Self::open`] = true、切到寄售页（[`Self::consign_open_version`] +1） |
+/// | `S.ConsignItem` | [`Self::consign_result`]（成功/失败） |
+/// | `S.MarketFail` | [`Self::fail`] = 原因编号（UI 底部红字 + 聊天系统行） |
+/// | `S.MarketSuccess` | [`Self::message`] = 服务端文案（UI 底部绿字 + 聊天系统行） |
+///
+/// 列表按页累积（Crystal 客户端也是把 `NPCMarketPage.Listings` 追加进 `Listings`，
+/// 再用 `Page` 切片显示），所以「上一页」不需要再向服务端要数据。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MarketView {
+    /// 市场窗口是否打开。
+    pub open: bool,
+    /// [`Self::open`] 每被打开一次 +1（UI 据此自动弹面板并回到第一页）。
+    pub open_version: u64,
+    /// 累积的条目（搜索/刷新时整体替换，翻页时追加）。
+    pub listings: Vec<MarketListing>,
+    /// 服务端算出的总页数（`S.NPCMarket.Pages`）。
+    pub pages: i32,
+    /// 是否为「按玩家名/自己的挂单」模式（`S.NPCMarket.UserMode`）。
+    pub user_mode: bool,
+    /// 最近一次搜索的市场面板类型（UI 据此恢复页签）。
+    pub panel: MarketPanelType,
+    /// 列表每变一次 +1（搜索/刷新/翻页）。
+    pub version: u64,
+    /// 收到一页新数据时 +1（UI 据此把 `page_page_requested` 落成当前页）。
+    pub page_version: u64,
+    /// 寄售面板是否打开（`S.NPCConsign`）。
+    pub consign_open: bool,
+    /// 收到过多少次 `S.NPCConsign`。
+    pub consign_open_version: u64,
+    /// 最近一次上架回执（物品唯一编号, 是否成功）。
+    pub consign_result: Option<(u64, bool)>,
+    /// 上架回执每来一次 +1。
+    pub consign_version: u64,
+    /// 最近一次 `S.MarketFail` 的原因编号。
+    pub fail: Option<u8>,
+    /// 失败提示每来一次 +1。
+    pub fail_version: u64,
+    /// 最近一次 `S.MarketSuccess` 的文案。
+    pub message: Option<String>,
+    /// 成功提示每来一次 +1。
+    pub message_version: u64,
+}
+
+impl MarketView {
+    /// 取某个编号的条目。
+    #[must_use]
+    pub fn listing(&self, auction_id: u64) -> Option<&MarketListing> {
+        self.listings
+            .iter()
+            .find(|listing| listing.auction_id == auction_id)
+    }
+
+    /// 当前已拿到的页数（按 10 条一页向上取整，至少 0）。
+    #[must_use]
+    pub fn fetched_pages(&self) -> i32 {
+        i32::try_from(self.listings.len().div_ceil(crate::net::MARKET_PAGE_SIZE))
+            .unwrap_or(i32::MAX)
+    }
+
+    /// 清空列表并回到第一页（收到新的 `S.NPCMarket` 时调用）。
+    fn reset_list(&mut self, listings: &[ClientAuction], items: &BTreeMap<i32, ItemInfoView>) {
+        self.listings = listings
+            .iter()
+            .map(|auction| MarketListing::from_auction(auction, items))
+            .collect();
+        self.version = self.version.saturating_add(1);
+        self.page_version = self.page_version.saturating_add(1);
+    }
+
+    /// 追加一页（收到 `S.NPCMarketPage` 时调用；同一编号不重复加入）。
+    fn append_page(&mut self, listings: &[ClientAuction], items: &BTreeMap<i32, ItemInfoView>) {
+        for auction in listings {
+            if self.listing(auction.auction_id).is_none() {
+                self.listings
+                    .push(MarketListing::from_auction(auction, items));
+            }
+        }
+        self.version = self.version.saturating_add(1);
+        self.page_version = self.page_version.saturating_add(1);
+    }
+}
+
+/// 市场每页条目数：Crystal `for (int i = 0; i < 10; i++)`（`PlayerObject.cs:8356`）。
+pub const MARKET_PAGE_SIZE: usize = 10;
+
 /// NPC 面板开关（`S.NPCSell` / `S.NPCRepair` / `S.NPCSRepair`）。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NpcPanels {
@@ -1953,6 +2167,9 @@ pub struct WorldSnapshot {
     /// 组队状态（`S.AddMember`/`S.DeleteMember`/`S.DeleteGroup`/`S.SwitchGroup`/
     /// `S.GroupInvite`/`S.GroupMembersMap`/`S.SendMemberLocation`，见 [`GroupView`]）。
     pub group: GroupView,
+    /// 市场/寄售/拍卖状态（`S.NPCMarket`/`S.NPCMarketPage`/`S.NPCConsign`/
+    /// `S.ConsignItem`/`S.MarketFail`/`S.MarketSuccess`，见 [`MarketView`]）。
+    pub market: MarketView,
     /// 收到过多少页 NPC 对话（版本号来源）。
     pub npc_dialog_version: u64,
     /// 收到过多少次商店货架（版本号来源）。
@@ -2008,6 +2225,7 @@ impl Default for WorldSnapshot {
             guild_active_buffs: Vec::new(),
             trade: TradeView::new(),
             group: GroupView::new(),
+            market: MarketView::default(),
             npc_dialog_version: 0,
             npc_goods_version: 0,
             packet_counts: BTreeMap::new(),
@@ -3111,6 +3329,51 @@ fn handle_command(
         NetCommand::SwitchGroup { allow_group } => {
             ClientPacket::SwitchGroup(c::SwitchGroup { allow_group })
         }
+        NetCommand::MarketSearch {
+            match_text,
+            item_type,
+            user_mode,
+            min_shape,
+            max_shape,
+            panel,
+        } => {
+            // 面板类型没有回包字段（`S.NPCMarket` 只有 `UserMode`），先在本地记下，
+            // UI 的页签/诊断都读这里。
+            snapshot.market.panel = panel;
+            snapshot.market.user_mode = user_mode;
+            ClientPacket::MarketSearch(c::MarketSearch {
+                match_text,
+                item_type,
+                usermode: user_mode,
+                min_shape,
+                max_shape,
+                market_type: panel,
+            })
+        }
+        NetCommand::MarketRefresh => ClientPacket::MarketRefresh(c::MarketRefresh {}),
+        NetCommand::MarketPage { page } => ClientPacket::MarketPage(c::MarketPage { page }),
+        NetCommand::MarketBuy {
+            auction_id,
+            bid_price,
+        } => ClientPacket::MarketBuy(c::MarketBuy {
+            auction_id,
+            bid_price,
+        }),
+        NetCommand::MarketSellNow { auction_id } => {
+            ClientPacket::MarketSellNow(c::MarketSellNow { auction_id })
+        }
+        NetCommand::MarketGetBack { mode, auction_id } => {
+            ClientPacket::MarketGetBack(c::MarketGetBack { mode, auction_id })
+        }
+        NetCommand::ConsignItem {
+            unique_id,
+            price,
+            panel,
+        } => ClientPacket::ConsignItem(c::ConsignItem {
+            unique_id,
+            price,
+            type_: panel,
+        }),
         NetCommand::Quit => return Ok(()),
     };
     send(stream, &packet)
@@ -3226,6 +3489,12 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
         ServerPacket::TradeCancel(_) => "TradeCancel",
         ServerPacket::DepositTradeItem(_) => "DepositTradeItem",
         ServerPacket::RetrieveTradeItem(_) => "RetrieveTradeItem",
+        ServerPacket::NPCMarket(_) => "NPCMarket",
+        ServerPacket::NPCMarketPage(_) => "NPCMarketPage",
+        ServerPacket::NPCConsign(_) => "NPCConsign",
+        ServerPacket::ConsignItem(_) => "ConsignItem",
+        ServerPacket::MarketFail(_) => "MarketFail",
+        ServerPacket::MarketSuccess(_) => "MarketSuccess",
         ServerPacket::SwitchGroup(_) => "SwitchGroup",
         ServerPacket::AddMember(_) => "AddMember",
         ServerPacket::DeleteMember(_) => "DeleteMember",
@@ -3861,6 +4130,62 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             if taken.success {
                 take_back_storage_to_inventory(snapshot, taken.from, taken.to);
             }
+        }
+        ServerPacket::NPCMarket(market) => {
+            // Crystal `GameScene.NPCMarket`（`Client/MirScenes/GameScene.cs:5632-5643`）：
+            // 打开 TrustMerchantDialog、换掉整份列表、回到第一页。
+            snapshot.market.open = true;
+            snapshot.market.open_version = snapshot.market.open_version.saturating_add(1);
+            snapshot.market.pages = market.pages;
+            snapshot.market.user_mode = market.user_mode;
+            snapshot
+                .market
+                .reset_list(&market.listings, &snapshot.item_infos);
+        }
+        ServerPacket::NPCMarketPage(page) => {
+            // Crystal `GameScene.NPCMarketPage`（`GameScene.cs:5644-5654`）：追加一页，
+            // 当前页 = `(Listings.Count - 1) / 10`。
+            snapshot
+                .market
+                .append_page(&page.listings, &snapshot.item_infos);
+        }
+        ServerPacket::NPCConsign(_) => {
+            // Crystal `GameScene.NPCConsign`（`GameScene.cs:5626-5631`）：打开寄售面板。
+            snapshot.market.open = true;
+            snapshot.market.consign_open = true;
+            snapshot.market.consign_open_version =
+                snapshot.market.consign_open_version.saturating_add(1);
+        }
+        ServerPacket::ConsignItem(consigned) => {
+            // Crystal `GameScene.ConsignItem`（`GameScene.cs:5655-5668`）：成功时把物品
+            // 从背包格子里拿掉（服务端只回执、不回 `S.DeleteItem`）。
+            if consigned.success {
+                remove_inventory_item(snapshot, consigned.unique_id);
+            }
+            snapshot.market.consign_result = Some((consigned.unique_id, consigned.success));
+            snapshot.market.consign_version = snapshot.market.consign_version.saturating_add(1);
+        }
+        ServerPacket::MarketFail(fail) => {
+            // Crystal `GameScene.MarketFail`（`GameScene.cs:5669-5709`）：按原因弹提示框；
+            // 本作改成面板底部红字（`ui::market::fail_label` 本地化），失败原因编号
+            // 单独推进版本号，不往聊天里塞硬编码文案。
+            snapshot.market.fail = Some(fail.reason);
+            snapshot.market.fail_version = snapshot.market.fail_version.saturating_add(1);
+            snapshot.market.message = None;
+        }
+        ServerPacket::MarketSuccess(success) => {
+            // Crystal `GameScene.MarketSuccess`（`GameScene.cs:5710-5714`）：弹出服务端文案。
+            snapshot.market.message = Some(success.message.clone());
+            snapshot.market.message_version = snapshot.market.message_version.saturating_add(1);
+            snapshot.market.fail = None;
+            push_chat(
+                snapshot,
+                ChatLine {
+                    speaker: None,
+                    text: success.message.clone(),
+                    kind: ChatType::System,
+                },
+            );
         }
         ServerPacket::NewQuestInfo(info) => {
             snapshot.quest_infos.insert(

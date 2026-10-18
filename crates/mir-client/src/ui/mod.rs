@@ -42,6 +42,7 @@ pub mod input;
 pub mod inventory;
 pub mod labels;
 pub mod mail;
+pub mod market;
 pub mod minimap;
 pub mod notice;
 pub mod quests;
@@ -57,7 +58,9 @@ pub mod worldtext;
 use std::collections::HashMap;
 
 use mir_core::Point;
-use mir_core::enums::{MirDirection, MirGridType, Spell};
+use mir_core::enums::{
+    ItemType, MarketCollectionMode, MarketPanelType, MirDirection, MirGridType, Spell,
+};
 use mir_render::{Frame, Image, MapScene};
 
 use crate::geom::Rect;
@@ -324,6 +327,56 @@ pub enum UiAction {
         /// 是否允许别人邀请自己。
         allow_group: bool,
     },
+    /// 搜索市场（`C.MarketSearch`）。
+    MarketSearch {
+        /// 搜索关键字（空串 = 全部）。
+        match_text: String,
+        /// 物品类型过滤（当前 UI 恒为 `ItemType::Nothing`）。
+        item_type: ItemType,
+        /// 是否只看自己的挂单（寄售/拍卖页签）。
+        user_mode: bool,
+        /// 外观编号下限。
+        min_shape: i16,
+        /// 外观编号上限。
+        max_shape: i16,
+        /// 市场面板类型。
+        panel: MarketPanelType,
+    },
+    /// 刷新市场列表（`C.MarketRefresh`）。
+    MarketRefresh,
+    /// 市场翻页（`C.MarketPage`）。
+    MarketPage {
+        /// 页码（0 起）。
+        page: i32,
+    },
+    /// 买断寄售 / 拍卖出价（`C.MarketBuy`）。
+    MarketBuy {
+        /// 条目编号。
+        auction_id: u64,
+        /// 出价（寄售买断时服务端忽略）。
+        bid_price: u32,
+    },
+    /// 拍卖提前成交（`C.MarketSellNow`）。
+    MarketSellNow {
+        /// 条目编号。
+        auction_id: u64,
+    },
+    /// 下架 / 收款（`C.MarketGetBack`）。
+    MarketGetBack {
+        /// 收取模式：单条 / 所有已售出 / 所有已过期。
+        mode: MarketCollectionMode,
+        /// 条目编号（批量模式为 0）。
+        auction_id: u64,
+    },
+    /// 上架寄售/拍卖（`C.ConsignItem`）。
+    ConsignItem {
+        /// 背包物品唯一编号。
+        unique_id: u64,
+        /// 一口价 / 起拍价。
+        price: u32,
+        /// 面板类型。
+        panel: MarketPanelType,
+    },
 }
 
 impl UiAction {
@@ -452,6 +505,46 @@ impl UiAction {
             Self::GroupReply { accept } => Some(NetCommand::GroupReply { accept: *accept }),
             Self::SwitchGroup { allow_group } => Some(NetCommand::SwitchGroup {
                 allow_group: *allow_group,
+            }),
+            Self::MarketSearch {
+                match_text,
+                item_type,
+                user_mode,
+                min_shape,
+                max_shape,
+                panel,
+            } => Some(NetCommand::MarketSearch {
+                match_text: match_text.clone(),
+                item_type: *item_type,
+                user_mode: *user_mode,
+                min_shape: *min_shape,
+                max_shape: *max_shape,
+                panel: *panel,
+            }),
+            Self::MarketRefresh => Some(NetCommand::MarketRefresh),
+            Self::MarketPage { page } => Some(NetCommand::MarketPage { page: *page }),
+            Self::MarketBuy {
+                auction_id,
+                bid_price,
+            } => Some(NetCommand::MarketBuy {
+                auction_id: *auction_id,
+                bid_price: *bid_price,
+            }),
+            Self::MarketSellNow { auction_id } => Some(NetCommand::MarketSellNow {
+                auction_id: *auction_id,
+            }),
+            Self::MarketGetBack { mode, auction_id } => Some(NetCommand::MarketGetBack {
+                mode: *mode,
+                auction_id: *auction_id,
+            }),
+            Self::ConsignItem {
+                unique_id,
+                price,
+                panel,
+            } => Some(NetCommand::ConsignItem {
+                unique_id: *unique_id,
+                price: *price,
+                panel: *panel,
             }),
             Self::WalkStep { direction, run } => Some(if *run {
                 NetCommand::Run(*direction)
@@ -715,6 +808,10 @@ pub enum FieldId {
     TradeGold,
     /// 组队面板：被邀请者名字。
     GroupName,
+    /// 市场面板：搜索框。
+    MarketSearch,
+    /// 市场面板：寄售售价 / 拍卖出价。
+    MarketPrice,
 }
 
 /// 界面状态：面板开关、选中项、鼠标位置、拖拽/右键菜单、飘字与物品图标缓存。
@@ -777,6 +874,23 @@ pub struct UiState {
     pub group_selected: Option<usize>,
     /// 组队面板滚动行。
     pub group_scroll: usize,
+    /// 市场面板是否打开（`S.NPCMarket` / `S.NPCConsign` 自动打开）。
+    pub show_market: bool,
+    /// 市场面板当前页签（市场/寄售/拍卖）。
+    pub market_tab: MarketPanelType,
+    /// 市场面板选中的条目编号。
+    pub market_selected: Option<u64>,
+    /// 市场搜索输入框。
+    pub market_search: input::TextField,
+    /// 市场寄售价格 / 出价输入框。
+    pub market_price: input::TextField,
+    /// 市场页内滚动行。
+    pub market_scroll: usize,
+    /// 市场当前页（0 起）。
+    pub market_page: i32,
+    /// 市场是否是从 `S.NPCConsign` 打开的「纯寄售」会话（NPC 页是 `[@CONSIGN]`，
+    /// 此时服务端只接受上架，不接受搜索/翻页；切到其它页签要先 `@MARKET`）。
+    pub market_consign_only: bool,
     /// 当前聚焦的输入框。
     pub focus: Option<FieldId>,
     /// 小地图面板是否打开（`M`）。
@@ -845,6 +959,12 @@ pub struct UiState {
     trade_invite_version: u64,
     /// 已同步的组队邀请版本（`S.GroupInvite`）。
     group_invite_version: u64,
+    /// 已同步的市场打开版本（`S.NPCMarket`）。
+    market_open_version: u64,
+    /// 已同步的寄售面板版本（`S.NPCConsign`）。
+    market_consign_version: u64,
+    /// 已同步的市场翻页版本（`S.NPCMarketPage`）。
+    market_page_version: u64,
 }
 
 impl UiState {
@@ -881,6 +1001,14 @@ impl UiState {
             group_invite: None,
             group_selected: None,
             group_scroll: 0,
+            show_market: false,
+            market_tab: MarketPanelType::Market,
+            market_selected: None,
+            market_search: input::TextField::new(20),
+            market_price: input::TextField::numeric(9),
+            market_scroll: 0,
+            market_page: 0,
+            market_consign_only: false,
             focus: None,
             show_minimap: false,
             show_bigmap: false,
@@ -915,6 +1043,9 @@ impl UiState {
             trade_version: 0,
             trade_invite_version: 0,
             group_invite_version: 0,
+            market_open_version: 0,
+            market_consign_version: 0,
+            market_page_version: 0,
         }
     }
 
@@ -1009,6 +1140,70 @@ impl UiState {
         if snapshot.group.invitation_version != self.group_invite_version {
             self.group_invite_version = snapshot.group.invitation_version;
             self.group_invite.clone_from(&snapshot.group.invitation);
+        }
+        // 市场：`S.NPCMarket` 打开窗口并换一份新列表（Crystal `GameScene.NPCMarket`，
+        // `GameScene.cs:5632-5643`）；`S.NPCConsign` 打开寄售页并拉自己的挂单。
+        if snapshot.market.open_version != self.market_open_version {
+            self.market_open_version = snapshot.market.open_version;
+            // 从关闭状态打开时回到「市场」页签（Crystal `Show()` → `TMerchantDialog(Market)`，
+            // `TrustMerchantDialog.cs:1420-1433`）；搜索/刷新回来的列表不重置页签。
+            if !self.show_market {
+                self.market_tab = MarketPanelType::Market;
+                self.market_search = input::TextField::new(20);
+            }
+            self.show_market = snapshot.market.open;
+            self.market_consign_only = false;
+            self.market_page = 0;
+            self.market_scroll = 0;
+            self.market_selected = None;
+            if self.show_market {
+                // Crystal `TrustMerchantDialog.Show()` 会把背包一起摆出来（`:1435-1436`）。
+                self.show_inventory = true;
+            }
+        }
+        if snapshot.market.consign_open_version != self.market_consign_version {
+            self.market_consign_version = snapshot.market.consign_open_version;
+            self.show_market = true;
+            self.market_tab = MarketPanelType::Consign;
+            self.market_page = 0;
+            self.market_scroll = 0;
+            self.market_selected = None;
+            self.market_price = input::TextField::numeric(9);
+            self.market_consign_only = true;
+            self.show_inventory = true;
+        }
+        if !snapshot.market.open {
+            self.show_market = false;
+        }
+        // 翻页：Crystal 用 `(Listings.Count - 1) / 10` 算当前页（`GameScene.cs:5652`）。
+        if snapshot.market.page_version != self.market_page_version {
+            self.market_page_version = snapshot.market.page_version;
+            self.market_page = snapshot
+                .market
+                .listings
+                .len()
+                .saturating_sub(1)
+                .checked_div(crate::net::MARKET_PAGE_SIZE)
+                .and_then(|page| i32::try_from(page).ok())
+                .unwrap_or(0);
+            self.market_scroll = 0;
+        }
+        // 市场选中项/页码/滚动收边。
+        let market_pages = snapshot.market.pages.max(0);
+        self.market_page = self
+            .market_page
+            .clamp(0, market_pages.saturating_sub(1).max(0));
+        let market_scroll_max = market::max_scroll(
+            snapshot.market.listings.len(),
+            self.market_page,
+            market::MAX_ROWS,
+        );
+        self.market_scroll = self.market_scroll.min(market_scroll_max);
+        if self
+            .market_selected
+            .is_some_and(|auction_id| snapshot.market.listing(auction_id).is_none())
+        {
+            self.market_selected = None;
         }
         // 组队面板滚动/选中收边。
         let member_count = snapshot.group.members.len();
@@ -1202,6 +1397,7 @@ impl UiState {
         self.show_group = false;
         self.show_bigmap = false;
         self.close_trade();
+        self.close_market();
         self.focus = None;
         self.drag = None;
         self.context_menu = None;
@@ -1277,6 +1473,14 @@ impl UiState {
         self.focus = None;
     }
 
+    /// 关掉市场面板（本地关窗；Crystal 的 `TrustMerchantDialog.Hide()` 也不发包）。
+    pub fn close_market(&mut self) {
+        self.show_market = false;
+        self.market_selected = None;
+        self.market_scroll = 0;
+        self.focus = None;
+    }
+
     /// 开关小地图（`M`）。
     pub fn toggle_minimap(&mut self) {
         self.show_minimap = !self.show_minimap;
@@ -1324,6 +1528,11 @@ impl UiState {
         if self.show_trade {
             self.close_trade();
             return EscapeResult::Trade;
+        }
+        // 市场窗只是 NPC 窗口，关窗不发包（Crystal `Hide()`，`TrustMerchantDialog.cs:1398-1412`）。
+        if self.show_market {
+            self.close_market();
+            return EscapeResult::Panels;
         }
         if self.show_inventory
             || self.show_skills
@@ -1433,6 +1642,19 @@ impl UiState {
             && group::group_layout(frame, snapshot.group.members.len(), self.group_scroll)
                 .panel
                 .contains(self.mouse)
+        {
+            return true;
+        }
+        if self.show_market
+            && market::market_layout(
+                frame,
+                self.market_tab,
+                snapshot.market.listings.len(),
+                self.market_page,
+                self.market_scroll,
+            )
+            .panel
+            .contains(self.mouse)
         {
             return true;
         }
@@ -1575,6 +1797,10 @@ impl UiState {
     ///
     /// `delta > 0` 表示向下滚。
     pub fn on_wheel(&mut self, snapshot: &WorldSnapshot, delta: i32) -> bool {
+        // 市场面板用「上一页/下一页」按钮翻页，滚轮不穿透到下面的商店/背包。
+        if self.show_market {
+            return false;
+        }
         if self.show_group && self.scroll_group(snapshot, delta) {
             return true;
         }
@@ -1930,6 +2156,182 @@ impl UiState {
         None
     }
 
+    /// 打开市场/寄售面板后要发的请求（Crystal `TMerchantDialog(type)` 打开页签时都会
+    /// 发一次 `C.MarketSearch`，`TrustMerchantDialog.cs:1160-1166`、`:1210-1216`）。
+    ///
+    /// `S.NPCMarket` 本身只带第一页（服务端 `GetMarket` 用的 `Min/MaxShapes` 还是 0），
+    /// 所以客户端打开后要按当前页签再搜一次，才能拿到完整的在售/自己的挂单。
+    #[must_use]
+    pub fn market_open_requests(&self) -> Vec<UiAction> {
+        if !self.show_market {
+            return Vec::new();
+        }
+        vec![self.market_search_action()]
+    }
+
+    /// 当前页签的搜索动作（关键字取搜索框；外观区间用 Crystal `MarketSearch` 的
+    /// 缺省值 0..=5000，`Shared/ClientPackets.cs:1571`）。
+    fn market_search_action(&self) -> UiAction {
+        UiAction::MarketSearch {
+            match_text: self.market_search.value.clone(),
+            item_type: ItemType::Nothing,
+            user_mode: market::is_user_mode(self.market_tab),
+            min_shape: 0,
+            max_shape: 5000,
+            panel: self.market_tab,
+        }
+    }
+
+    /// 点击市场面板：页签 / 搜索 / 刷新 / 翻页 / 选中行 / 买断-出价 / 取回 / 上架。
+    fn click_market(&mut self, snapshot: &WorldSnapshot, frame: Rect) -> Option<UiAction> {
+        let layout = market::market_layout(
+            frame,
+            self.market_tab,
+            snapshot.market.listings.len(),
+            self.market_page,
+            self.market_scroll,
+        );
+        if !layout.panel.contains(self.mouse) {
+            return None;
+        }
+        // 市场面板吃掉点击，顺便清掉从背包拖过来的幽灵（寄售物品靠「选中背包格」）。
+        self.drag = None;
+        if layout.close.contains(self.mouse) {
+            self.close_market();
+            return None;
+        }
+        if let Some(tab) = layout.tab_at(self.mouse) {
+            if tab == self.market_tab {
+                return None;
+            }
+            self.market_tab = tab;
+            self.market_selected = None;
+            self.market_page = 0;
+            self.market_scroll = 0;
+            // Crystal 切页签会清空价格框（`PriceTextBox.Text = null`，
+            // `TrustMerchantDialog.cs:1183`、`:1233`）。
+            self.market_price = input::TextField::numeric(9);
+            self.focus = None;
+            // `S.NPCConsign` 的 NPC 页是 `[@CONSIGN]`：服务端只接受上架，搜索/翻页要先
+            // 回到 `[@MARKET]` 页（`crates/mir-server/src/market.rs` 的 `check_market_npc`）。
+            if self.market_consign_only && tab != MarketPanelType::Consign {
+                self.market_consign_only = false;
+                return Some(UiAction::CallNpc {
+                    object_id: self.npc_object_id.unwrap_or(0),
+                    key: market::MARKET_KEY.to_owned(),
+                });
+            }
+            return Some(self.market_search_action());
+        }
+        if market::has_sell_form(self.market_tab) {
+            if layout.price_field.contains(self.mouse) {
+                self.focus = Some(FieldId::MarketPrice);
+                return None;
+            }
+            if layout.sell.contains(self.mouse) {
+                let slot = self.selected_slot?;
+                let item = snapshot.inventory_item(slot)?;
+                let price = self.market_price.number();
+                if price == 0 {
+                    return None;
+                }
+                self.focus = None;
+                return Some(UiAction::ConsignItem {
+                    unique_id: item.unique_id,
+                    price,
+                    panel: self.market_tab,
+                });
+            }
+        } else {
+            if layout.search_field.contains(self.mouse) {
+                self.focus = Some(FieldId::MarketSearch);
+                return None;
+            }
+            if layout.find.contains(self.mouse) {
+                self.focus = None;
+                return Some(self.market_search_action());
+            }
+            if layout.refresh.contains(self.mouse) {
+                self.focus = None;
+                return Some(UiAction::MarketRefresh);
+            }
+            if layout.bid_field.contains(self.mouse) {
+                self.focus = Some(FieldId::MarketPrice);
+                return None;
+            }
+        }
+        if let Some(index) = layout.row_at(self.mouse) {
+            let listing = snapshot.market.listings.get(index)?;
+            self.market_selected = Some(listing.auction_id);
+            // 拍卖条目：按 Crystal 的 `MirAmountBox` 预填「当前价 + 1」
+            // （`TrustMerchantDialog.cs:421`）；寄售是一口价，清掉残留的出价。
+            if !market::is_user_mode(self.market_tab) {
+                if listing.item_type == mir_core::enums::MarketItemType::Auction {
+                    let minimum = listing.price.saturating_add(1);
+                    if self.market_price.number() <= listing.price {
+                        self.market_price.set(&minimum.to_string());
+                    }
+                    self.focus = Some(FieldId::MarketPrice);
+                } else {
+                    self.market_price = input::TextField::numeric(9);
+                }
+            }
+            return None;
+        }
+        if layout.prev.contains(self.mouse) {
+            self.market_page = self.market_page.saturating_sub(1);
+            self.market_scroll = 0;
+            self.market_selected = None;
+            return None;
+        }
+        if layout.next.contains(self.mouse) {
+            let next = self.market_page + 1;
+            if next >= snapshot.market.pages {
+                return None;
+            }
+            if next < snapshot.market.fetched_pages() {
+                // 这一页已经在本地（Crystal 的列表也是累积的），直接翻。
+                self.market_page = next;
+                self.market_scroll = 0;
+                self.market_selected = None;
+                return None;
+            }
+            return Some(UiAction::MarketPage { page: next });
+        }
+        let selected = self
+            .market_selected
+            .and_then(|auction_id| snapshot.market.listing(auction_id));
+        if layout.primary.contains(self.mouse) {
+            let listing = selected?;
+            if market::is_user_mode(self.market_tab) {
+                return Some(UiAction::MarketGetBack {
+                    mode: MarketCollectionMode::Any,
+                    auction_id: listing.auction_id,
+                });
+            }
+            // 拍卖出价：输入框空着就用当前价（服务端只拒绝 `current_bid > bid`）。
+            let bid_price = self.market_price.number().max(listing.price);
+            return Some(UiAction::MarketBuy {
+                auction_id: listing.auction_id,
+                bid_price,
+            });
+        }
+        if layout.sell_now.contains(self.mouse) && self.market_tab == MarketPanelType::Auction {
+            let listing = selected?;
+            return Some(UiAction::MarketSellNow {
+                auction_id: listing.auction_id,
+            });
+        }
+        if layout.collect.contains(self.mouse) && market::is_user_mode(self.market_tab) {
+            // Crystal「Collect Sold」：`C.MarketGetBack{Mode=Sold, AuctionID=0}`（`:474-480`）。
+            return Some(UiAction::MarketGetBack {
+                mode: MarketCollectionMode::Sold,
+                auction_id: 0,
+            });
+        }
+        None
+    }
+
     /// 点击交易面板：金币输入 / 放入金币 / 准备-确认 / 取消 / 拖起自己的交易格。
     fn click_trade(&mut self, snapshot: &WorldSnapshot, frame: Rect) -> Option<UiAction> {
         let layout = trade::trade_layout(frame);
@@ -2216,6 +2618,11 @@ impl UiState {
         // 先问各面板要动作，再统一吞掉落在任一新面板上的点击。
         if self.show_trade {
             if let Some(action) = self.click_trade(snapshot, frame) {
+                return Some(action);
+            }
+        }
+        if self.show_market {
+            if let Some(action) = self.click_market(snapshot, frame) {
                 return Some(action);
             }
         }
@@ -2793,6 +3200,19 @@ impl UiState {
         {
             return true;
         }
+        if self.show_market
+            && market::market_layout(
+                frame,
+                self.market_tab,
+                snapshot.market.listings.len(),
+                self.market_page,
+                self.market_scroll,
+            )
+            .panel
+            .contains(self.mouse)
+        {
+            return true;
+        }
         if self.show_trade && trade::trade_layout(frame).panel.contains(self.mouse) {
             return true;
         }
@@ -2825,6 +3245,8 @@ impl UiState {
             FieldId::GuildNotice => self.guild_notice.insert(character),
             FieldId::TradeGold => self.trade_gold.insert(character),
             FieldId::GroupName => self.group_name.insert(character),
+            FieldId::MarketSearch => self.market_search.insert(character),
+            FieldId::MarketPrice => self.market_price.insert(character),
         }
         true
     }
@@ -2843,6 +3265,8 @@ impl UiState {
             FieldId::GuildNotice => self.guild_notice.backspace(),
             FieldId::TradeGold => self.trade_gold.backspace(),
             FieldId::GroupName => self.group_name.backspace(),
+            FieldId::MarketSearch => self.market_search.backspace(),
+            FieldId::MarketPrice => self.market_price.backspace(),
         }
         true
     }
@@ -3074,6 +3498,45 @@ pub fn draw(
             snapshot.group.allow_group,
             snapshot.is_group_leader(),
             mouse,
+        );
+    }
+
+    if state.show_market {
+        let layout = market::market_layout(
+            screen,
+            state.market_tab,
+            snapshot.market.listings.len(),
+            state.market_page,
+            state.market_scroll,
+        );
+        let hover = layout.row_at(state.mouse);
+        let tab = state.market_tab;
+        let page = state.market_page;
+        let pages = snapshot.market.pages;
+        let search = state.market_search.clone();
+        let price = state.market_price.clone();
+        let selected = state.market_selected;
+        let focus = state.focus;
+        let consign_item = state
+            .selected_slot
+            .and_then(|slot| snapshot.inventory_item(slot));
+        let UiState { icons, .. } = state;
+        let mut icon_fn = |image: u16| -> Option<Image> { load_icon(scene, icons, image) };
+        market::draw(
+            frame,
+            &layout,
+            &context,
+            tab,
+            &snapshot.market.listings,
+            page,
+            pages,
+            selected,
+            hover,
+            &search,
+            &price,
+            consign_item,
+            focus,
+            &mut icon_fn,
         );
     }
 

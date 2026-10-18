@@ -667,7 +667,14 @@ impl ClientApp {
             | UiAction::AddMember { .. }
             | UiAction::DelMember { .. }
             | UiAction::GroupReply { .. }
-            | UiAction::SwitchGroup { .. }) => {
+            | UiAction::SwitchGroup { .. }
+            | UiAction::MarketSearch { .. }
+            | UiAction::MarketRefresh
+            | UiAction::MarketPage { .. }
+            | UiAction::MarketBuy { .. }
+            | UiAction::MarketSellNow { .. }
+            | UiAction::MarketGetBack { .. }
+            | UiAction::ConsignItem { .. }) => {
                 if let Some(command) = action.net_command() {
                     live.send(command);
                 }
@@ -770,6 +777,19 @@ impl ClientApp {
             }
         }
         self.request_redraw();
+    }
+
+    /// 市场搜索框回车 / 「搜索」按钮（`C.MarketSearch`）。
+    fn live_market_search(&mut self) -> bool {
+        let actions = match &mut self.mode {
+            Mode::Live(live) => live.ui.market_open_requests(),
+            Mode::Offline => Vec::new(),
+        };
+        let handled = !actions.is_empty();
+        for action in actions {
+            self.dispatch_ui_action(action);
+        }
+        handled
     }
 
     /// 选中的背包物品（唯一编号, 数量）。
@@ -1193,13 +1213,23 @@ impl ClientApp {
         let ready = snapshot.is_ready();
         let new_chat = snapshot.chat.last().map(mir_client::net::ChatLine::display);
         let now = now_millis_u64();
+        let mut market_actions = Vec::new();
         if let Mode::Live(live) = &mut self.mode {
             if live.last_status != status {
                 println!("网络状态：{}", status.label());
                 live.last_status = status;
             }
+            let old_market_open = live.snapshot.market.open_version;
             live.snapshot = snapshot;
             live.ui.sync(&live.snapshot);
+            // 市场窗口刚打开：按当前页签补一次 `C.MarketSearch`（服务端打开时只发
+            // 第一页，`GetMarket` 的 Min/MaxShapes 还是 0；Crystal `TMerchantDialog(type)`
+            // 打开页签时也会发一次搜索，`TrustMerchantDialog.cs:1160-1166`）。
+            // `S.NPCConsign` 的 NPC 页是 `[@CONSIGN]`，服务端不接受搜索；此时不发，
+            // 等玩家切页签时由 `ui::market` 发 `@MARKET` 换页。
+            if live.snapshot.market.open_version != old_market_open {
+                market_actions = live.ui.market_open_requests();
+            }
             // 别人身上的动作（走/跑/攻击/受击/死亡/升级…）与服务器通知的音效都在这里播。
             live.play_pending_sounds(now);
             if let Some(line) = new_chat {
@@ -1217,6 +1247,9 @@ impl ClientApp {
                     );
                 }
             }
+        }
+        for action in market_actions {
+            self.dispatch_ui_action(action);
         }
         if let Some(position) = position {
             self.center = self.clamp_center(position);
@@ -1306,6 +1339,7 @@ impl ClientApp {
         // 表单输入优先：写信页/行会公告/行会资金聚焦时，字符键只进输入框。
         let mut text_handled = false;
         let mut text_consumed_key = true;
+        let mut market_search_enter = false;
         if let Mode::Live(live) = &mut self.mode {
             if live.ui.focused_field().is_some() {
                 text_handled = true;
@@ -1322,12 +1356,20 @@ impl ClientApp {
                         live.ui.clear_focus();
                     }
                     // 回车/退格之外的命名键不吞（F2 截图、F10 退出仍可用）。
-                    Key::Named(NamedKey::Enter) => {}
+                    Key::Named(NamedKey::Enter) => {
+                        // 市场搜索框里按回车 = 点「搜索」（Crystal `SearchTextBox_KeyPress`，
+                        // `TrustMerchantDialog.cs:1044-1056`）。
+                        market_search_enter =
+                            live.ui.focused_field() == Some(ui::FieldId::MarketSearch);
+                    }
                     _ => text_consumed_key = false,
                 }
             }
         }
         if text_handled && text_consumed_key {
+            if market_search_enter {
+                self.live_market_search();
+            }
             self.request_redraw();
             return;
         }

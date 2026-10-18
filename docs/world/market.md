@@ -532,11 +532,12 @@ Crystal 把挂单写在 `Server.MirADB` 的全局段（`Envir.cs:2591-2594`）�
 
 ---
 
-## 12. 与 AGENTS.md 约定的偏差
+## 12. 与 AGENTS.md 约定的偏差（第 3 轮已消除）
 
-`market.rs` 的玩家可见文本（`S.MarketSuccess` 的成交/出价提示、系统邮件正文、`seller_label`
-的「出售中/已售出/已过期/已有出价/无人出价」）目前是**硬编码简体中文**，没有走
-`mir-core::i18n`。具体位置（`crates/mir-server/src/market.rs`）：
+第 2 轮时 `market.rs` 的玩家可见文本（`S.MarketSuccess` 的成交/出价提示、系统邮件正文、
+`seller_label` 的「出售中/已售出/已过期/已有出价/无人出价」）还是**硬编码简体中文**；
+第 3 轮已全部迁移到 `TextKey`。下表是第 2 轮的**快照位置**（行号会随代码变动失效，
+只作历史记录），当前逐条键名与替换后调用点见 `docs/i18n.md` §7.2：
 
 | 行 | 内容 |
 |---|---|
@@ -548,9 +549,11 @@ Crystal 把挂单写在 `Server.MirADB` 的全局段（`Envir.cs:2591-2594`）�
 | `:1083`、`:1091` | 拍卖赢家邮件、卖家提前成交提示 |
 | `:1365`、`:1389` | 下架退款邮件、收款提示 |
 
-这与 `AGENTS.md`「玩家可见文本一律走 `mir-core::i18n`」的约定不符；本轮登记，
-下一轮做 i18n 收口时迁移（新增 `MarketSold/Bought/Bid/…` 键，中英语言包补齐）。
-审计结论与复跑命令见 [`docs/i18n.md`](../i18n.md) §6。
+这与 `AGENTS.md`「玩家可见文本一律走 `mir-core::i18n`」的约定不符；**第 3 轮已完成
+i18n 收口**：上述文本全部迁移到 `TextKey`（`market_label_*` / `market_*` / `gameshop_*`
+键，中英语言包齐全），在线玩家按各自语言渲染，离线系统邮件用服务器默认 `zh-cn`
+（异步查 `accounts.language` 未做，见 `mail.rs::language_for_character`）。
+逐条键名与替换后调用点见 [`docs/i18n.md`](../i18n.md) §7.2；复跑命令见 §7.6。
 
 ---
 

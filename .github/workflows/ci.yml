@@ -73,6 +73,26 @@ jobs:
           python tools/docs/check_links.py
           --require docs/world/market.md,docs/world/trade.md,docs/world/aoi.md,docs/world/gameshop.md
 
+  i18n:
+    name: 国际化（文本键与硬编码棘轮）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # 1) 每个 TextKey 都真的落到枚举/ALL/key()/args()/中英模板与两份语言包里（无孤儿键、无漏键）。
+      - name: TextKey 与语言包闭合
+        run: python tools/i18n/verify_text_keys.py
+      # 2) 玩家可见硬编码不再增加。第 3 轮已把 192 处迁到 TextKey；剩下的上限是
+      #    「第 2 类开发者可见（thiserror Display/断言）+ 第 3 类数据名」的存量。
+      #    新增玩家可见文本请走 mir_core::i18n，否则这里会红（见 docs/i18n.md）。
+      - name: 玩家可见硬编码棘轮
+        run: >-
+          python tools/i18n/scan_hardcoded.py
+          --player-visible --strict --fail-above 102
+
+
   postgres:
     name: PostgreSQL 集成测试
     runs-on: ubuntu-latest

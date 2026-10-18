@@ -39,6 +39,9 @@ CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 TEST_START_RE = re.compile(r"^\s*#\[cfg\(test\)\]")
 # 日志宏：这些行的中文是给运维看的，不是玩家可见文本。
 LOG_RE = re.compile(r"\b(tracing::|debug!|info!|warn!|error!|trace!)")
+# 开发者可见文本的常见形态：thiserror 的 Display、断言与 panic、启动期 expect。
+# `--strict` 会把它们一起排除，剩下的才该真正归零（CI 用它当棘轮）。
+DEV_RE = re.compile(r"#\[error\(|panic!|\.expect\(|assert!\(|assert_eq!\(|anyhow!|bail!\(")
 
 
 def strip_comment(line: str) -> str | None:
@@ -49,7 +52,9 @@ def strip_comment(line: str) -> str | None:
     return line
 
 
-def scan_file(path: Path, include_tests: bool, player_visible: bool) -> list[tuple[int, str, bool]]:
+def scan_file(
+    path: Path, include_tests: bool, player_visible: bool, strict: bool
+) -> list[tuple[int, str, bool]]:
     hits: list[tuple[int, str, bool]] = []
     in_test = False
     in_block_comment = False
@@ -78,6 +83,9 @@ def scan_file(path: Path, include_tests: bool, player_visible: bool) -> list[tup
                 continue
         if player_visible and LOG_RE.search(body):
             continue
+        # `--strict`：再排除 thiserror Display / 断言 / panic / expect 这类开发者可见文本。
+        if strict and DEV_RE.search(body):
+            continue
         for match in STRING_RE.finditer(body):
             text = match.group("raw") if match.group("raw") is not None else match.group("plain")
             if text and CJK_RE.search(text):
@@ -96,6 +104,18 @@ def main(argv: list[str]) -> int:
         help="排除日志宏所在行，只留玩家可见文本",
     )
     parser.add_argument("--markdown", action="store_true", help="输出 markdown 表格")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="在 --player-visible 之上再排除 thiserror Display / 断言 / panic / expect",
+    )
+    parser.add_argument(
+        "--fail-above",
+        type=int,
+        default=None,
+        metavar="N",
+        help="命中数超过 N 时以退出码 1 结束（CI 门禁用）",
+    )
     args = parser.parse_args(argv)
 
     files = sorted(SERVER_SRC.rglob("*.rs"))
@@ -108,7 +128,12 @@ def main(argv: list[str]) -> int:
         print("| 文件:行 | 原文 | 建议 TextKey | 参数占位 |")
         print("| --- | --- | --- | --- |")
     for path in files:
-        hits = scan_file(path, include_tests=not args.no_test, player_visible=args.player_visible)
+        hits = scan_file(
+            path,
+            include_tests=not args.no_test,
+            player_visible=args.player_visible,
+            strict=args.strict,
+        )
         if not hits:
             continue
         rel = path.relative_to(ROOT).as_posix()
@@ -125,6 +150,15 @@ def main(argv: list[str]) -> int:
                 print(f"  {number}: {text}{marker}")
 
     print(f"\n合计 {total} 处硬编码中文（{len(files)} 个文件已扫描）")
+    if args.fail_above is not None and total > args.fail_above:
+        print(
+            f"[FAIL] 命中 {total} 处，超过上限 {args.fail_above}；"
+            "新增玩家可见文本请走 mir_core::i18n（见 docs/i18n.md）",
+            file=sys.stderr,
+        )
+        return 1
+    if args.fail_above is not None:
+        print(f"[OK] 命中 {total} 处，未超过上限 {args.fail_above}")
     return 0
 
 

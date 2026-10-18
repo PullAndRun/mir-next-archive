@@ -617,7 +617,7 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 | 取回 / 收款 | `C.MarketGetBack{Mode,AuctionID}` → `S.GainedItem` / `S.GainedGold` / `S.MarketSuccess` / `S.MarketFail` | `World::market_get_back` | `market.listings` / `market.message` |
 | 上架 | `C.ConsignItem{UniqueID,Price,Type}` → `S.ConsignItem{UniqueID,Success}` + `S.LoseGold` | `World::consign_item` | `market.consign_result` |
 | 商城页签 | `C.MarketSearch{MarketType=GameShop}` → `S.NPCMarket`；`C.GameshopBuy{GIndex,Quantity,PType}` → `S.LoseCredit`/`S.LoseGold` + `S.GainedItem`（背包满转邮件 + `S.Chat`） | `World::gameshop_buy`（`market.rs`）、`session.rs::on_gameshop_buy` | `market.listings` / `market.message` / `self_player.credit` |
-| 设置面板 | 无网络包：改 `settings.json`（音效/音乐/语言/分辨率/缩放），语言切换即时生效 | `mir-client/src/settings.rs` + `ui/settings.rs` | `settings`（`app.rs` 持有） |
+| 设置面板 | 改 `settings.json`（音效/音乐/语言/分辨率/缩放）；**客户端界面**语言即时生效，并代发 `/language <code>`（`NetCommand::Chat`）让服务端聊天/邮件/市场回执一起切换 | `mir-client/src/settings.rs` + `ui/settings.rs` + `app.rs` 的 `Action::SetLanguage` | `settings`（`app.rs` 持有） |
 | 登录 / 选服 / 选角 | `C.ClientVersion` → `C.Login` → `S.LoginSuccess{Characters}`；`C.StartGame{CharacterIndex}` / `C.NewCharacter` | `net.rs`（`manual_select`）+ `ui/select.rs` | `login_stage` / `characters` |
 | 技能表现 | ← `S.Magic` / `S.ObjectMagic` / `S.ObjectSpell` / `S.ObjectRemove` / `S.ObjectHidden` / `S.Poisoned` / `S.ObjectPoisoned` | `magic.rs`（§6.2-§6.7） | `spell_events` |
 | 组队开关 | `C.SwitchGroup{AllowGroup}` → `S.SwitchGroup{AllowGroup}` | `group.rs`（`World::switch_group`） | `group.allow_group` |

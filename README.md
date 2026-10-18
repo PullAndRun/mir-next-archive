@@ -129,14 +129,17 @@ python tools/asset-index/find_asset.py --ext .wzl --top data --limit 20
 - **默认全中文**：内置文本与 `config/lang/zh-cn.json` 都是简体中文，缺语言包时也回落中文。
 - **游戏内切换**：聊天框输入 `/language en` 切换英文、`/language zh-cn` 切回中文，
   服务端回一条该语言的系统提示，并把选择写回 `accounts.language`（迁移 `0002`）。
+- **服务端玩家可见文本全部走 `TextKey`**：聊天/系统提示/邮件/市场回执/攻城公告等
+  200 个键都有中英模板；按**收件人自己的语言**渲染（全服公告逐收件人编码），
+  `/language en` 后系统提示立刻跟随。
 - **内容也跟随语言**：地图标题（`MapInformation.Title`）等文本从语言包的
   `maps` 段取，未收录时用文件名兜底。
 - **客户端本地语言**：`cargo run -p mir-client -- --lang en`（设置存本地，断网也能切）。
   客户端固定文案在 `crates/mir-client/src/ui/labels.rs` 的 `Label` 枚举里编译期内置，
   **不进** `config/lang/`（后者只镜像服务端 `TextKey`）。
 
-细节、新增文本流程、覆盖审计与**第 2 轮 i18n 收口清单**（逐条 `文件:行` + 建议 `TextKey` +
-参数占位，下一轮照单执行）见 [`docs/i18n.md`](docs/i18n.md)。
+细节、新增文本流程与覆盖审计见 [`docs/i18n.md`](docs/i18n.md)；硬编码中文可用
+`py tools/i18n/scan_hardcoded.py --player-visible --no-test --strict` 复跑（CI 以此作棘轮）。
 
 ## 技术选型
 

@@ -83,7 +83,7 @@
 | `destination` | 落点 | 越界/墙里会被夹进地图（§3.4） |
 | `need_hole` | 需要洞口 | 要求 `World::has_hole(map, source)`；没开洞就**继续检查下一条** |
 | `need_move` | 延迟到 NPC 动作 | 只把目的地记进 `Player::npc.move_map / move_coord`，由 NPC 动作 `ENTERMAP` 切图 |
-| `conquest_index` | 攻城区域 | `> 0` 时一律不通过（本作没有行会/攻城） |
+| `conquest_index` | 攻城区域 | `> 0` 时要求**行会拥有**对应的攻城区（`PlayerObject.cs:4489-4493`，见 [`docs/world/conquest.md`](conquest.md)） |
 | `show_on_big_map` / `icon` | 大地图显示 | 只影响进图下发的 `S.NewMapInfo`（`World::map_entry_info`） |
 
 ### 3.2 触发规则（`PlayerObject.CheckMovement`，`PlayerObject.cs:4459-4514`）
@@ -93,7 +93,7 @@
 2. 按顺序遍历 `CurrentMap.Info.Movements`，只看 `Source == location`（`:4474-4478`）。
 3. `NeedHole` 不满足 → 下一条（`:4480-4487`；Crystal 检查同格的法术对象
    `Spell.DigOutZombie` / `Spell.DigOutArmadillo`，本作用 `World::set_hole` 表示「洞已挖开」）。
-4. `ConquestIndex > 0` → 下一条（`:4489-4493`）。
+4. `ConquestIndex > 0` 且行会不拥有这座城 → 下一条（`:4489-4493`）。
 5. `NeedMove` → 记录目的地后**下一条**，走路照常完成（`:4495-4500`）。
 6. 其余：解析目标图 → 排队传送。
 
@@ -215,7 +215,8 @@
 4. **落点越界**：Crystal 跳过该传送点；本作夹进地图并回退到最近可走格（§3.4）。
 5. **`NeedHole` 的判定**：Crystal 找同格的 `SpellObject`（`Spell.DigOutZombie` /
    `Spell.DigOutArmadillo`）；本作没有挖洞技能，用 `World::set_hole` 的集合表示。
-6. **`ConquestIndex`**：Crystal 要求行会占领对应攻城区域；本作没有行会/攻城，`> 0` 一律不通过。
+6. **`ConquestIndex`**：Crystal 要求行会**拥有**对应攻城区；本作照抄
+   （[`World::guild_conquest`]，见 `docs/world/conquest.md`）。
 7. **延迟伤害/魔法**：Crystal 的 `ActionList` 挂在对象/地图上，切图不会丢；
    本作队列只记对象 ID 与坐标，所以切图时丢弃「以该玩家为发起者/目标」的延迟伤害、
    以及该玩家施放的延迟魔法，避免在新图上按旧坐标结算。
@@ -238,7 +239,7 @@
 - 安全区/绑定坐标（`SafeZoneInfo`、`BindLocation`）：切图后不更新绑定，
   死亡复活仍是原地复活（见 `docs/world/combat.md`）。
 - 门的开关（`CheckDoorOpen`）与挖洞技能：`need_hole` 只认 `World::set_hole`。
-- 行会/攻城对传送点的限制、`RequiredGroup` 等地图进入条件。
+- `RequiredGroup` 等其它地图进入条件（攻城对传送点的限制已实现，见 `docs/world/conquest.md`）。
 - 跨图延迟魔法/伤害的「跟随对象」语义（见 §7.7）。
 - 客户端切图时的 400ms 输入延迟与 `MapControl` 纹理重建策略（见 §6.2）。
 - 地图缓存上限的 LRU（本作是「先淘汰空闲图」，不维护访问顺序）。

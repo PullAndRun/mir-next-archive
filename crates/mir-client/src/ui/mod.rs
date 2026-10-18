@@ -9,6 +9,11 @@
 //! * [`worldtext`]：实体头顶名字（描边）与伤害飘字；
 //! * [`shop`]：NPC 商店货架与价格（支持滚轮/上下键滚动）；
 //! * [`dialog`]：NPC 对话页与 `<文本/@跳转键>` 按钮；
+//! * [`quests`]：`Q` 任务面板（进度/限时/放弃/完成高亮）；
+//! * [`storage`]：个人仓库 80 格（服务端 `S.NPCStorage` 自动打开，与背包拖拽存取）；
+//! * [`mail`]：`N` 邮件面板（收件箱/阅读/写信，`C.ReadMail`/`C.CollectParcel`/`C.SendMail`）；
+//! * [`guild`]：`G` 行会面板（成员/仓库/增益/公告，112 格行会仓库）；
+//! * [`grid`] / [`input`]：上面三个面板共用的物品网格与单行输入框；
 //! * [`skills`]：F3 技能列表与 1..9 施法目标选择；
 //! * [`labels`]：中文/英文标签表。
 //!
@@ -26,12 +31,18 @@ pub mod bigmap;
 pub mod buffs;
 pub mod dialog;
 pub mod equipment;
+pub mod grid;
+pub mod guild;
 pub mod hud;
+pub mod input;
 pub mod inventory;
 pub mod labels;
+pub mod mail;
 pub mod minimap;
+pub mod quests;
 pub mod shop;
 pub mod skills;
+pub mod storage;
 pub mod target;
 pub mod text;
 pub mod tooltip;
@@ -147,6 +158,113 @@ pub enum UiAction {
         /// 朝向目标的方向。
         direction: MirDirection,
     },
+    /// 放弃任务（`C.AbandonQuest`）。
+    AbandonQuest {
+        /// 任务编号。
+        quest_index: i32,
+    },
+    /// 阅读邮件（`C.ReadMail`；点邮件列表的一行时产生）。
+    ReadMail {
+        /// 邮件编号。
+        mail_id: u64,
+    },
+    /// 领取邮件附件（`C.CollectParcel`）。
+    CollectParcel {
+        /// 邮件编号。
+        mail_id: u64,
+    },
+    /// 锁定/解锁邮件（`C.LockMail`）。
+    LockMail {
+        /// 邮件编号。
+        mail_id: u64,
+        /// `true` = 锁定。
+        lock: bool,
+    },
+    /// 删除邮件（`C.DeleteMail`）。
+    DeleteMail {
+        /// 邮件编号。
+        mail_id: u64,
+    },
+    /// 发送邮件（`C.SendMail`）。
+    SendMail {
+        /// 收件人。
+        name: String,
+        /// 正文。
+        message: String,
+        /// 附带金币。
+        gold: u32,
+        /// 附件唯一编号（固定 5 格）。
+        items_idx: [u64; 5],
+        /// 是否贴邮票。
+        stamped: bool,
+    },
+    /// 询邮费（`C.MailCost`）。
+    MailCost {
+        /// 附带金币。
+        gold: u32,
+        /// 附件唯一编号（固定 5 格）。
+        items_idx: [u64; 5],
+        /// 是否贴邮票。
+        stamped: bool,
+    },
+    /// 存物品到个人仓库（`C.StoreItem`）。
+    StoreItem {
+        /// 背包格。
+        from: i32,
+        /// 仓库格。
+        to: i32,
+    },
+    /// 从个人仓库取物品（`C.TakeBackItem`）。
+    TakeBackItem {
+        /// 仓库格。
+        from: i32,
+        /// 背包格。
+        to: i32,
+    },
+    /// 行会仓库物品变动（`C.GuildStorageItemChange`）。
+    GuildStorageItemChange {
+        /// `0` 存入 / `1` 取回 / `2` 仓库内移动。
+        type_: u8,
+        /// 起点格。
+        from: i32,
+        /// 落点格。
+        to: i32,
+    },
+    /// 行会资金存取（`C.GuildStorageGoldChange`）。
+    GuildStorageGoldChange {
+        /// `0` = 存入，其它 = 取出。
+        type_: u8,
+        /// 金额。
+        amount: u32,
+    },
+    /// 行会增益（`C.GuildBuffUpdate`）。
+    GuildBuffUpdate {
+        /// `0` 请求列表 / `1` 购买 / `2` 激活。
+        action: u8,
+        /// 增益编号。
+        id: i32,
+    },
+    /// 行会成员管理（`C.EditGuildMember`）。
+    EditGuildMember {
+        /// 变动类型。
+        change_type: u8,
+        /// 职位序号。
+        rank_index: u8,
+        /// 目标角色名。
+        name: String,
+        /// 职位名。
+        rank_name: String,
+    },
+    /// 行会公告（`C.EditGuildNotice`）。
+    EditGuildNotice {
+        /// 公告行。
+        notice: Vec<String>,
+    },
+    /// 请求行会公告/成员表（`C.RequestGuildInfo`）。
+    RequestGuildInfo {
+        /// `0` 公告 / `1` 成员表。
+        type_: u8,
+    },
 }
 
 impl UiAction {
@@ -181,6 +299,82 @@ impl UiAction {
                 count: 1,
             }),
             Self::AttackTarget { direction } => Some(NetCommand::Attack(*direction)),
+            Self::AbandonQuest { quest_index } => Some(NetCommand::AbandonQuest {
+                quest_index: *quest_index,
+            }),
+            Self::ReadMail { mail_id } => Some(NetCommand::ReadMail { mail_id: *mail_id }),
+            Self::CollectParcel { mail_id } => {
+                Some(NetCommand::CollectParcel { mail_id: *mail_id })
+            }
+            Self::LockMail { mail_id, lock } => Some(NetCommand::LockMail {
+                mail_id: *mail_id,
+                lock: *lock,
+            }),
+            Self::DeleteMail { mail_id } => Some(NetCommand::DeleteMail { mail_id: *mail_id }),
+            Self::SendMail {
+                name,
+                message,
+                gold,
+                items_idx,
+                stamped,
+            } => Some(NetCommand::SendMail {
+                name: name.clone(),
+                message: message.clone(),
+                gold: *gold,
+                items_idx: *items_idx,
+                stamped: *stamped,
+            }),
+            Self::MailCost {
+                gold,
+                items_idx,
+                stamped,
+            } => Some(NetCommand::MailCost {
+                gold: *gold,
+                items_idx: *items_idx,
+                stamped: *stamped,
+            }),
+            Self::StoreItem { from, to } => Some(NetCommand::StoreItem {
+                from: *from,
+                to: *to,
+            }),
+            Self::TakeBackItem { from, to } => Some(NetCommand::TakeBackItem {
+                from: *from,
+                to: *to,
+            }),
+            Self::GuildStorageItemChange { type_, from, to } => {
+                Some(NetCommand::GuildStorageItemChange {
+                    type_: *type_,
+                    from: *from,
+                    to: *to,
+                })
+            }
+            Self::GuildStorageGoldChange { type_, amount } => {
+                Some(NetCommand::GuildStorageGoldChange {
+                    type_: *type_,
+                    amount: *amount,
+                })
+            }
+            Self::GuildBuffUpdate { action, id } => Some(NetCommand::GuildBuffUpdate {
+                action: *action,
+                id: *id,
+            }),
+            Self::EditGuildMember {
+                change_type,
+                rank_index,
+                name,
+                rank_name,
+            } => Some(NetCommand::EditGuildMember {
+                change_type: *change_type,
+                rank_index: *rank_index,
+                name: name.clone(),
+                rank_name: rank_name.clone(),
+            }),
+            Self::EditGuildNotice { notice } => Some(NetCommand::EditGuildNotice {
+                notice: notice.clone(),
+            }),
+            Self::RequestGuildInfo { type_ } => {
+                Some(NetCommand::RequestGuildInfo { type_: *type_ })
+            }
             Self::WalkStep { direction, run } => Some(if *run {
                 NetCommand::Run(*direction)
             } else {
@@ -192,21 +386,26 @@ impl UiAction {
     }
 }
 
-/// 拖拽起点（背包格或装备槽）。
+/// 拖拽起点（背包格、装备槽、个人仓库格、行会仓库格）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DragSource {
     /// 背包格。
     Inventory(usize),
     /// 装备槽。
     Equipment(usize),
+    /// 个人仓库格（`C.StoreItem` / `C.TakeBackItem`）。
+    Storage(usize),
+    /// 行会仓库格（`C.GuildStorageItemChange`）。
+    GuildStorage(usize),
 }
 
 impl DragSource {
-    /// 起点网格。
+    /// 起点网格（仓库走 `C.StoreItem`/`C.TakeBackItem`，不经过 `C.MoveItem`，这里返回
+    /// 语义最接近的背包网格，仅供日志/诊断）。
     #[must_use]
     pub const fn grid(self) -> MirGridType {
         match self {
-            Self::Inventory(_) => MirGridType::Inventory,
+            Self::Inventory(_) | Self::Storage(_) | Self::GuildStorage(_) => MirGridType::Inventory,
             Self::Equipment(_) => MirGridType::Equipment,
         }
     }
@@ -215,7 +414,10 @@ impl DragSource {
     #[must_use]
     pub const fn slot(self) -> usize {
         match self {
-            Self::Inventory(slot) | Self::Equipment(slot) => slot,
+            Self::Inventory(slot)
+            | Self::Equipment(slot)
+            | Self::Storage(slot)
+            | Self::GuildStorage(slot) => slot,
         }
     }
 }
@@ -407,6 +609,26 @@ impl EscapeResult {
     }
 }
 
+/// 正在编辑的输入框（写信页 / 行会公告 / 行会资金）。
+///
+/// 窗口层（`app.rs`）在 `UiState::focus` 非空时把字符键交给 [`UiState::type_char`]，
+/// 这样同一套键盘事件既能聊天也能填表单。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldId {
+    /// 写信页：收件人。
+    MailRecipient,
+    /// 写信页：主题（协议不发送，见 `ui::mail` 模块文档）。
+    MailSubject,
+    /// 写信页：附带金币。
+    MailGold,
+    /// 写信页：正文。
+    MailMessage,
+    /// 行会仓库：存取金额。
+    GuildGold,
+    /// 行会公告：输入一行公告。
+    GuildNotice,
+}
+
 /// 界面状态：面板开关、选中项、鼠标位置、拖拽/右键菜单、飘字与物品图标缓存。
 pub struct UiState {
     /// 界面语言。
@@ -417,6 +639,40 @@ pub struct UiState {
     pub show_skills: bool,
     /// 装备纸娃娃面板是否打开（`E`）。
     pub show_equipment: bool,
+    /// 任务面板是否打开（`Q`）。
+    pub show_quests: bool,
+    /// 任务面板选中的任务编号。
+    pub selected_quest: Option<i32>,
+    /// 任务面板滚动行。
+    pub quest_scroll: usize,
+    /// 个人仓库面板是否打开（服务端 `S.NPCStorage` 自动打开）。
+    pub show_storage: bool,
+    /// 邮件面板是否打开（`N`）。
+    pub show_mail: bool,
+    /// 邮件页签（收件箱/写信）。
+    pub mail_tab: mail::MailTab,
+    /// 邮件列表页码（0 起）。
+    pub mail_page: usize,
+    /// 选中邮件的编号。
+    pub mail_selected: Option<u64>,
+    /// 写信页表单。
+    pub mail_compose: mail::MailCompose,
+    /// 行会面板是否打开（`G`）。
+    pub show_guild: bool,
+    /// 行会页签。
+    pub guild_tab: guild::GuildTab,
+    /// 行会成员表选中的行（展平下标）。
+    pub guild_selected_member: Option<usize>,
+    /// 行会成员表滚动行。
+    pub guild_member_scroll: usize,
+    /// 行会增益表滚动行。
+    pub guild_buff_scroll: usize,
+    /// 行会仓库的存取金额。
+    pub guild_gold: input::TextField,
+    /// 行会公告输入行。
+    pub guild_notice: input::TextField,
+    /// 当前聚焦的输入框。
+    pub focus: Option<FieldId>,
     /// 小地图面板是否打开（`M`）。
     pub show_minimap: bool,
     /// 大地图面板是否打开（`B`，Crystal `BigMapDialog.Toggle()`，`GameScene.cs:774`）。
@@ -471,6 +727,10 @@ pub struct UiState {
     last_click: Option<(i64, DragSource)>,
     /// 上一次点击的世界目标（双击判定：同一目标 `TARGET_DOUBLE_CLICK_MS` 内两次点击）。
     last_target_click: Option<(i64, u32)>,
+    /// 已同步的仓库打开版本（`S.NPCStorage`，见 [`UiState::sync`]）。
+    storage_open_version: u64,
+    /// 已同步的写信页请求版本（`S.MailSendRequest`）。
+    mail_send_request_version: u64,
 }
 
 impl UiState {
@@ -482,6 +742,23 @@ impl UiState {
             show_inventory: false,
             show_skills: false,
             show_equipment: false,
+            show_quests: false,
+            selected_quest: None,
+            quest_scroll: 0,
+            show_storage: false,
+            show_mail: false,
+            mail_tab: mail::MailTab::Inbox,
+            mail_page: 0,
+            mail_selected: None,
+            mail_compose: mail::MailCompose::default(),
+            show_guild: false,
+            guild_tab: guild::GuildTab::Members,
+            guild_selected_member: None,
+            guild_member_scroll: 0,
+            guild_buff_scroll: 0,
+            guild_gold: input::TextField::numeric(9),
+            guild_notice: input::TextField::new(200),
+            focus: None,
             show_minimap: false,
             show_bigmap: false,
             minimap_scene: mir_render::MinimapScene::empty(),
@@ -509,6 +786,8 @@ impl UiState {
             icons: HashMap::new(),
             last_click: None,
             last_target_click: None,
+            storage_open_version: 0,
+            mail_send_request_version: 0,
         }
     }
 
@@ -557,6 +836,70 @@ impl UiState {
                 self.shop_scroll = 0;
             }
         }
+        // 仓库：`S.NPCStorage` 每来一次就打开一次（Crystal 的 `StorageDialog.Show()`，
+        // `GameScene.cs:4256`）；离开仓库页后服务端不再发 `NPCStorage`，快照把
+        // `storage_open` 置假，这里收面板。
+        if snapshot.storage_open_version != self.storage_open_version {
+            self.storage_open_version = snapshot.storage_open_version;
+            self.show_storage = true;
+            // 拖拽存取需要背包一起显示（Crystal 的仓库也是和背包并排用的）。
+            self.show_inventory = true;
+        } else if self.show_storage && !snapshot.storage_open {
+            self.show_storage = false;
+        }
+        // 写信页：`S.MailSendRequest`（NPC 邮筒页）到达时自动打开写信页。
+        if snapshot.mail_send_request_version != self.mail_send_request_version {
+            self.mail_send_request_version = snapshot.mail_send_request_version;
+            self.show_mail = true;
+            self.mail_tab = mail::MailTab::Compose;
+            self.mail_page = 0;
+        }
+        // 任务滚动/选中收边。
+        let quest_scroll_max = snapshot.quests.len().saturating_sub(quests::MAX_QUEST_ROWS);
+        self.quest_scroll = self.quest_scroll.min(quest_scroll_max);
+        if self
+            .selected_quest
+            .is_some_and(|id| snapshot.quest(id).is_none())
+        {
+            self.selected_quest = None;
+        }
+        // 邮件页码/选中收边（`page_count` 至少为 1，所以 `- 1` 不会下溢）。
+        self.mail_page = self
+            .mail_page
+            .min(mail::page_count(snapshot.mails.len()) - 1);
+        if self
+            .mail_selected
+            .is_some_and(|mail_id| snapshot.mail(mail_id).is_none())
+        {
+            self.mail_selected = None;
+        }
+        // 行会成员表/增益表收边。
+        let member_count = snapshot.guild_members().len();
+        self.guild_member_scroll = self
+            .guild_member_scroll
+            .min(member_count.saturating_sub(guild::MEMBER_ROWS));
+        if self
+            .guild_selected_member
+            .is_some_and(|index| index >= member_count)
+        {
+            self.guild_selected_member = None;
+        }
+        self.guild_buff_scroll = self.guild_buff_scroll.min(
+            snapshot
+                .guild_buff_infos
+                .len()
+                .saturating_sub(guild::BUFF_ROWS),
+        );
+        // 面板被关掉时丢掉对应的拖拽（不然幽灵图标会留在屏幕上）。
+        if self.drag.as_ref().is_some_and(|drag| match drag.source {
+            DragSource::Storage(_) => !self.show_storage,
+            DragSource::GuildStorage(_) => {
+                !(self.show_guild && self.guild_tab == guild::GuildTab::Storage)
+            }
+            _ => false,
+        }) {
+            self.drag = None;
+        }
         if self
             .selected_slot
             .is_some_and(|slot| slot >= snapshot.inventory.len())
@@ -580,6 +923,8 @@ impl UiState {
         if self.drag.as_ref().is_some_and(|drag| match drag.source {
             DragSource::Inventory(slot) => snapshot.inventory_item(slot).is_none(),
             DragSource::Equipment(slot) => snapshot.equipment_item(slot).is_none(),
+            DragSource::Storage(slot) => snapshot.storage_item(slot).is_none(),
+            DragSource::GuildStorage(slot) => snapshot.guild_storage_item(slot).is_none(),
         }) {
             self.drag = None;
         }
@@ -677,10 +1022,59 @@ impl UiState {
         self.show_inventory = false;
         self.show_skills = false;
         self.show_equipment = false;
+        self.show_quests = false;
+        self.show_storage = false;
+        self.show_mail = false;
+        self.show_guild = false;
         self.show_bigmap = false;
+        self.focus = None;
         self.drag = None;
         self.context_menu = None;
         self.close_npc();
+    }
+
+    /// 开关任务面板（`Q`，Crystal `KeybindOptions.Quests` → `QuestLogDialog`，
+    /// `GameScene.cs:660-664`）。
+    pub fn toggle_quests(&mut self) {
+        self.show_quests = !self.show_quests;
+        if !self.show_quests {
+            self.selected_quest = None;
+        }
+    }
+
+    /// 开关邮件面板（`N`）。打开时回到收件箱；开关都清掉输入焦点。
+    pub fn toggle_mail(&mut self) {
+        self.show_mail = !self.show_mail;
+        if self.show_mail {
+            self.mail_tab = mail::MailTab::Inbox;
+        }
+        self.focus = None;
+    }
+
+    /// 开关行会面板（`G`，Crystal `KeybindOptions.Guilds` → `GuildDialog`，
+    /// `GameScene.cs:648-655`）。
+    pub fn toggle_guild(&mut self) {
+        self.show_guild = !self.show_guild;
+        if !self.show_guild {
+            self.focus = None;
+        }
+    }
+
+    /// 打开行会面板时要发的请求（Crystal `GuildDialog.Show()` 拉公告/成员/仓库/增益）。
+    ///
+    /// 窗口层在按键打开面板时把这些动作派发出去；无头测试可以直接断言。
+    #[must_use]
+    pub fn guild_open_requests() -> Vec<UiAction> {
+        vec![
+            UiAction::RequestGuildInfo { type_: 0 },
+            UiAction::RequestGuildInfo { type_: 1 },
+            UiAction::GuildStorageItemChange {
+                type_: 3,
+                from: 0,
+                to: 0,
+            },
+            UiAction::GuildBuffUpdate { action: 0, id: 0 },
+        ]
     }
 
     /// 开关小地图（`M`）。
@@ -725,7 +1119,14 @@ impl UiState {
             self.close_npc();
             return EscapeResult::Npc { object_id };
         }
-        if self.show_inventory || self.show_skills || self.show_equipment {
+        if self.show_inventory
+            || self.show_skills
+            || self.show_equipment
+            || self.show_quests
+            || self.show_storage
+            || self.show_mail
+            || self.show_guild
+        {
             self.close_panels();
             return EscapeResult::Panels;
         }
@@ -780,6 +1181,42 @@ impl UiState {
             return true;
         }
         if self.minimap_clicked(frame) {
+            return true;
+        }
+        if self.show_quests
+            && quests::quest_layout(frame, snapshot.quests.len(), self.quest_scroll)
+                .panel
+                .contains(self.mouse)
+        {
+            return true;
+        }
+        if self.show_storage && storage::storage_layout(frame).panel.contains(self.mouse) {
+            return true;
+        }
+        if self.show_mail
+            && mail::mail_layout(
+                frame,
+                self.mail_tab,
+                snapshot.mails.len(),
+                self.mail_page,
+                snapshot.inventory.len(),
+            )
+            .panel
+            .contains(self.mouse)
+        {
+            return true;
+        }
+        if self.show_guild
+            && guild::guild_layout(
+                frame,
+                snapshot.guild_members().len(),
+                snapshot.guild_buff_infos.len(),
+                self.guild_member_scroll,
+                self.guild_buff_scroll,
+            )
+            .panel
+            .contains(self.mouse)
+        {
             return true;
         }
         if self.show_inventory && inventory::inventory_panel_rect(frame).contains(self.mouse) {
@@ -914,12 +1351,100 @@ impl UiState {
         snapshot.inventory_item(self.selected_slot?)
     }
 
-    /// 滚轮：商店打开时上下滚动货架（`delta > 0` 向下），返回是否发生了变化。
+    /// 滚轮：优先滚动最上层的面板（任务 → 邮件 → 行会 → 商店），返回是否发生了变化。
+    ///
+    /// `delta > 0` 表示向下滚。
     pub fn on_wheel(&mut self, snapshot: &WorldSnapshot, delta: i32) -> bool {
+        if self.show_quests && self.scroll_quests(snapshot, delta) {
+            return true;
+        }
+        if self.show_mail && self.scroll_mail(snapshot, delta) {
+            return true;
+        }
+        if self.show_guild && self.scroll_guild(snapshot, delta) {
+            return true;
+        }
         if !self.shop_open {
             return false;
         }
         self.scroll_shop(snapshot, delta.signum())
+    }
+
+    /// 滚动任务列表。
+    pub fn scroll_quests(&mut self, snapshot: &WorldSnapshot, delta: i32) -> bool {
+        let max_scroll = snapshot.quests.len().saturating_sub(quests::MAX_QUEST_ROWS);
+        if max_scroll == 0 {
+            return false;
+        }
+        let before = self.quest_scroll;
+        let step = usize::try_from(delta.abs()).unwrap_or(1).max(1);
+        self.quest_scroll = if delta < 0 {
+            self.quest_scroll.saturating_sub(step)
+        } else {
+            self.quest_scroll.saturating_add(step)
+        }
+        .min(max_scroll);
+        self.quest_scroll != before
+    }
+
+    /// 翻邮件页（滚轮 / 上下键）。
+    pub fn scroll_mail(&mut self, snapshot: &WorldSnapshot, delta: i32) -> bool {
+        let pages = mail::page_count(snapshot.mails.len());
+        if pages <= 1 || delta == 0 {
+            return false;
+        }
+        let before = self.mail_page;
+        self.mail_page = if delta < 0 {
+            self.mail_page.saturating_sub(1)
+        } else {
+            self.mail_page.saturating_add(1)
+        }
+        .min(pages - 1);
+        self.mail_page != before
+    }
+
+    /// 滚动行会成员/增益页（按当前页签）。
+    pub fn scroll_guild(&mut self, snapshot: &WorldSnapshot, delta: i32) -> bool {
+        if delta == 0 {
+            return false;
+        }
+        match self.guild_tab {
+            guild::GuildTab::Members => {
+                let max_scroll = snapshot
+                    .guild_members()
+                    .len()
+                    .saturating_sub(guild::MEMBER_ROWS);
+                if max_scroll == 0 {
+                    return false;
+                }
+                let before = self.guild_member_scroll;
+                self.guild_member_scroll = if delta < 0 {
+                    self.guild_member_scroll.saturating_sub(1)
+                } else {
+                    self.guild_member_scroll.saturating_add(1)
+                }
+                .min(max_scroll);
+                self.guild_member_scroll != before
+            }
+            guild::GuildTab::Buffs => {
+                let max_scroll = snapshot
+                    .guild_buff_infos
+                    .len()
+                    .saturating_sub(guild::BUFF_ROWS);
+                if max_scroll == 0 {
+                    return false;
+                }
+                let before = self.guild_buff_scroll;
+                self.guild_buff_scroll = if delta < 0 {
+                    self.guild_buff_scroll.saturating_sub(1)
+                } else {
+                    self.guild_buff_scroll.saturating_add(1)
+                }
+                .min(max_scroll);
+                self.guild_buff_scroll != before
+            }
+            _ => false,
+        }
     }
 
     /// 上下键滚动商店（`delta` 为 +1 / -1）。
@@ -964,6 +1489,283 @@ impl UiState {
             location: press.cast.location,
         });
         actions
+    }
+
+    /// 点击任务面板：选中任务或点「放弃」。
+    ///
+    /// 点在面板空白处只吞掉点击（返回 `None`），不会穿透成走路。
+    fn click_quests(&mut self, snapshot: &WorldSnapshot, frame: Rect) -> Option<UiAction> {
+        let layout = quests::quest_layout(frame, snapshot.quests.len(), self.quest_scroll);
+        if !layout.panel.contains(self.mouse) {
+            return None;
+        }
+        if let Some(index) = layout.abandon_at(self.mouse) {
+            if let Some(quest) = snapshot.quests.get(index) {
+                return Some(UiAction::AbandonQuest {
+                    quest_index: quest.id,
+                });
+            }
+        }
+        if let Some(index) = layout.row_at(self.mouse) {
+            if let Some(quest) = snapshot.quests.get(index) {
+                self.selected_quest = Some(quest.id);
+            }
+        }
+        None
+    }
+
+    /// 点击仓库面板：在仓库格上按下开始拖拽（松手时译成 `C.StoreItem`/`C.TakeBackItem`）。
+    fn click_storage(&mut self, snapshot: &WorldSnapshot, frame: Rect) -> Option<UiAction> {
+        let layout = storage::storage_layout(frame);
+        if !layout.panel.contains(self.mouse) {
+            return None;
+        }
+        if let Some(slot) = layout.grid.slot_at(self.mouse) {
+            self.start_drag(snapshot, DragSource::Storage(slot));
+        }
+        None
+    }
+
+    /// 点击邮件面板：页签 / 列表行 / 阅读按钮 / 写信表单。
+    fn click_mail(&mut self, snapshot: &WorldSnapshot, frame: Rect) -> Option<UiAction> {
+        let layout = mail::mail_layout(
+            frame,
+            self.mail_tab,
+            snapshot.mails.len(),
+            self.mail_page,
+            snapshot.inventory.len(),
+        );
+        if !layout.panel.contains(self.mouse) {
+            return None;
+        }
+        if let Some(tab) = layout.tab_at(self.mouse) {
+            self.mail_tab = if tab == 0 {
+                mail::MailTab::Inbox
+            } else {
+                mail::MailTab::Compose
+            };
+            self.focus = None;
+            return None;
+        }
+        match self.mail_tab {
+            mail::MailTab::Inbox => {
+                if layout.prev.contains(self.mouse) {
+                    self.scroll_mail(snapshot, -1);
+                    return None;
+                }
+                if layout.next.contains(self.mouse) {
+                    self.scroll_mail(snapshot, 1);
+                    return None;
+                }
+                if let Some(index) = layout.row_at(self.mouse) {
+                    let mail = snapshot.mails.get(index)?;
+                    self.mail_selected = Some(mail.mail_id);
+                    // Crystal 点开一封邮件就发 `C.ReadMail`（`MailDialogs.cs:1098`），
+                    // 服务端把 `Opened` 置真并重发整份列表。
+                    return Some(UiAction::ReadMail {
+                        mail_id: mail.mail_id,
+                    });
+                }
+                let selected = self
+                    .mail_selected
+                    .and_then(|mail_id| snapshot.mail(mail_id));
+                if layout.collect.contains(self.mouse) {
+                    if let Some(mail) = selected {
+                        if mail.can_collect() {
+                            return Some(UiAction::CollectParcel {
+                                mail_id: mail.mail_id,
+                            });
+                        }
+                    }
+                }
+                if layout.lock.contains(self.mouse) {
+                    if let Some(mail) = selected {
+                        return Some(UiAction::LockMail {
+                            mail_id: mail.mail_id,
+                            lock: !mail.locked,
+                        });
+                    }
+                }
+                if layout.delete.contains(self.mouse) {
+                    if let Some(mail) = selected {
+                        if !mail.locked {
+                            return Some(UiAction::DeleteMail {
+                                mail_id: mail.mail_id,
+                            });
+                        }
+                    }
+                }
+            }
+            mail::MailTab::Compose => {
+                for (rect, field) in [
+                    (layout.recipient, FieldId::MailRecipient),
+                    (layout.subject, FieldId::MailSubject),
+                    (layout.gold, FieldId::MailGold),
+                    (layout.message, FieldId::MailMessage),
+                ] {
+                    if rect.contains(self.mouse) {
+                        self.focus = Some(field);
+                        return None;
+                    }
+                }
+                if layout.stamp.contains(self.mouse) {
+                    self.mail_compose.stamped = !self.mail_compose.stamped;
+                    return None;
+                }
+                for (index, rect) in layout.attachments.iter().enumerate() {
+                    if rect.contains(self.mouse) {
+                        self.mail_compose.attachments[index] = None;
+                        return None;
+                    }
+                }
+                if let Some(slot) = layout.pick_grid.slot_at(self.mouse) {
+                    if let Some(item) = snapshot.inventory_item(slot) {
+                        self.mail_compose.toggle_attachment(item.unique_id);
+                    }
+                    return None;
+                }
+                if layout.quote.contains(self.mouse) {
+                    return Some(UiAction::MailCost {
+                        gold: self.mail_compose.gold.number(),
+                        items_idx: self.mail_compose.items_idx(),
+                        stamped: self.mail_compose.stamped,
+                    });
+                }
+                if layout.send.contains(self.mouse) {
+                    if !self.mail_compose.recipient.is_empty() {
+                        return Some(UiAction::SendMail {
+                            name: self.mail_compose.recipient.value.clone(),
+                            message: self.mail_compose.message.value.clone(),
+                            gold: self.mail_compose.gold.number(),
+                            items_idx: self.mail_compose.items_idx(),
+                            stamped: self.mail_compose.stamped,
+                        });
+                    }
+                    return None;
+                }
+                if layout.back.contains(self.mouse) {
+                    self.mail_tab = mail::MailTab::Inbox;
+                    self.focus = None;
+                    return None;
+                }
+            }
+        }
+        None
+    }
+
+    /// 点击行会面板：页签 / 成员行 / 职位管理 / 仓库拖拽 / 资金 / 增益 / 公告。
+    fn click_guild(&mut self, snapshot: &WorldSnapshot, frame: Rect) -> Option<UiAction> {
+        let layout = guild::guild_layout(
+            frame,
+            snapshot.guild_members().len(),
+            snapshot.guild_buff_infos.len(),
+            self.guild_member_scroll,
+            self.guild_buff_scroll,
+        );
+        if !layout.panel.contains(self.mouse) {
+            return None;
+        }
+        if let Some(tab) = layout.tab_at(self.mouse) {
+            self.guild_tab = guild::GuildTab::ALL[tab];
+            self.focus = None;
+            return None;
+        }
+        match self.guild_tab {
+            guild::GuildTab::Members => {
+                if let Some(index) = layout.member_at(self.mouse) {
+                    self.guild_selected_member = Some(index);
+                    return None;
+                }
+                let members = snapshot.guild_members();
+                let selected = self
+                    .guild_selected_member
+                    .and_then(|index| members.get(index).copied());
+                let max_rank = snapshot.guild_ranks.len().saturating_sub(1);
+                if layout.promote.contains(self.mouse) {
+                    if let Some((rank, member)) = selected {
+                        if rank.index > 0 {
+                            return Some(UiAction::EditGuildMember {
+                                change_type: 2,
+                                rank_index: u8::try_from(rank.index - 1).unwrap_or(0),
+                                name: member.name.clone(),
+                                rank_name: String::new(),
+                            });
+                        }
+                    }
+                }
+                if layout.demote.contains(self.mouse) {
+                    if let Some((rank, member)) = selected {
+                        let index = usize::try_from(rank.index).unwrap_or(0);
+                        if index < max_rank {
+                            return Some(UiAction::EditGuildMember {
+                                change_type: 2,
+                                rank_index: u8::try_from(index + 1).unwrap_or(u8::MAX),
+                                name: member.name.clone(),
+                                rank_name: String::new(),
+                            });
+                        }
+                    }
+                }
+                if layout.kick.contains(self.mouse) {
+                    if let Some((_, member)) = selected {
+                        return Some(UiAction::EditGuildMember {
+                            change_type: 1,
+                            rank_index: 0,
+                            name: member.name.clone(),
+                            rank_name: String::new(),
+                        });
+                    }
+                }
+            }
+            guild::GuildTab::Storage => {
+                if layout.gold_field.contains(self.mouse) {
+                    self.focus = Some(FieldId::GuildGold);
+                    return None;
+                }
+                let amount = self.guild_gold.number();
+                if layout.deposit.contains(self.mouse) && amount > 0 {
+                    return Some(UiAction::GuildStorageGoldChange { type_: 0, amount });
+                }
+                if layout.withdraw.contains(self.mouse) && amount > 0 {
+                    return Some(UiAction::GuildStorageGoldChange { type_: 1, amount });
+                }
+                if let Some(slot) = layout.storage_grid.slot_at(self.mouse) {
+                    self.start_drag(snapshot, DragSource::GuildStorage(slot));
+                }
+            }
+            guild::GuildTab::Buffs => {
+                if let Some(index) = layout.buff_button_at(self.mouse) {
+                    if let Some(info) = snapshot.guild_buff_infos.get(index) {
+                        // Crystal：未获得的走「购买」（Action=1），已获得但过期的走
+                        // 「激活」（Action=2）（`crates/mir-server/src/guild_buffs.rs` 包序表）。
+                        let action = if snapshot.guild_active_buff(info.id).is_some() {
+                            2
+                        } else {
+                            1
+                        };
+                        return Some(UiAction::GuildBuffUpdate {
+                            action,
+                            id: info.id,
+                        });
+                    }
+                }
+            }
+            guild::GuildTab::Notice => {
+                if layout.notice_field.contains(self.mouse) {
+                    self.focus = Some(FieldId::GuildNotice);
+                    return None;
+                }
+                if layout.save_notice.contains(self.mouse) {
+                    let notice = self.guild_notice.value.trim().to_owned();
+                    if !notice.is_empty() {
+                        return Some(UiAction::EditGuildNotice {
+                            notice: vec![notice],
+                        });
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// 鼠标左键按下（无地图可走性时的兼容入口）。
@@ -1026,6 +1828,40 @@ impl UiState {
                 // 点在对话面板空白处：吃掉这次点击，避免误点到底下的面板。
                 return None;
             }
+        }
+        // 小地图/大地图是覆盖层，画在其它面板之后，所以先吃掉点击。
+        if self.minimap_clicked(frame) {
+            return None;
+        }
+        // 大地图同理；Crystal 点大地图会寻路（`BigMapDialog.cs:612-628`），
+        // 本作还没把大地图坐标映射到世界格，只吃掉点击（简化）。
+        if self.bigmap_clicked(frame) {
+            return None;
+        }
+        // 任务 / 邮件 / 行会 / 仓库（按「后画的先响应」顺序）：
+        // 先问各面板要动作，再统一吞掉落在任一新面板上的点击。
+        if self.show_guild {
+            if let Some(action) = self.click_guild(snapshot, frame) {
+                return Some(action);
+            }
+        }
+        if self.show_mail {
+            if let Some(action) = self.click_mail(snapshot, frame) {
+                return Some(action);
+            }
+        }
+        if self.show_quests {
+            if let Some(action) = self.click_quests(snapshot, frame) {
+                return Some(action);
+            }
+        }
+        if self.show_storage {
+            if let Some(action) = self.click_storage(snapshot, frame) {
+                return Some(action);
+            }
+        }
+        if self.panel_contains_mouse(snapshot, frame) {
+            return None;
         }
         if self.shop_open {
             if let Some(goods) = &snapshot.npc_goods {
@@ -1110,15 +1946,6 @@ impl UiState {
                 }
                 return None;
             }
-        }
-        // 小地图开着且点在面板上：吃掉这次点击（不然会变成「点地走路」）。
-        if self.minimap_clicked(frame) {
-            return None;
-        }
-        // 大地图同理；Crystal 点大地图会寻路（`BigMapDialog.cs:612-628`），
-        // 本作还没把大地图坐标映射到世界格，只吃掉点击（简化）。
-        if self.bigmap_clicked(frame) {
-            return None;
         }
         if let Some(cell) = world_cell {
             if let Some(npc) = snapshot.npc_at(cell) {
@@ -1287,6 +2114,8 @@ impl UiState {
         let item = match source {
             DragSource::Inventory(slot) => snapshot.inventory_item(slot),
             DragSource::Equipment(slot) => snapshot.equipment_item(slot),
+            DragSource::Storage(slot) => snapshot.storage_item(slot),
+            DragSource::GuildStorage(slot) => snapshot.guild_storage_item(slot),
         };
         self.drag = item.map(|item| DragState {
             source,
@@ -1296,7 +2125,7 @@ impl UiState {
         });
     }
 
-    /// 鼠标左键释放：把拖拽落点翻译成 [`UiAction::MoveItem`]。
+    /// 鼠标左键释放：把拖拽落点翻译成 [`UiAction`]。
     pub fn on_mouse_release(&mut self, snapshot: &WorldSnapshot, frame: Rect) -> Option<UiAction> {
         self.sync(snapshot);
         let drag = self.drag.take()?;
@@ -1313,8 +2142,53 @@ impl UiState {
                     to_grid: MirGridType::Equipment,
                 }),
                 DragSource::Equipment(slot) if slot == to => None,
-                DragSource::Equipment(_) => None,
+                // 仓库 → 装备槽没有对应包（Crystal 也要先取回背包）。
+                DragSource::Equipment(_) | DragSource::Storage(_) | DragSource::GuildStorage(_) => {
+                    None
+                }
             };
+        }
+        // 落在个人仓库格上：背包 → 仓库是 `C.StoreItem`；仓库内部没有移动包。
+        if self.show_storage {
+            let layout = storage::storage_layout(frame);
+            if let Some(to) = layout.grid.slot_at(self.mouse) {
+                return match drag.source {
+                    DragSource::Inventory(from) => Some(UiAction::StoreItem {
+                        from: i32::try_from(from).unwrap_or(0),
+                        to: i32::try_from(to).unwrap_or(0),
+                    }),
+                    _ => None,
+                };
+            }
+        }
+        // 落在行会仓库格上：`C.GuildStorageItemChange` 的 0/2 两种类型。
+        if self.show_guild && self.guild_tab == guild::GuildTab::Storage {
+            let layout = guild::guild_layout(
+                frame,
+                snapshot.guild_members().len(),
+                snapshot.guild_buff_infos.len(),
+                self.guild_member_scroll,
+                self.guild_buff_scroll,
+            );
+            if let Some(to) = layout.storage_grid.slot_at(self.mouse) {
+                let to = i32::try_from(to).unwrap_or(0);
+                return match drag.source {
+                    DragSource::Inventory(from) => Some(UiAction::GuildStorageItemChange {
+                        type_: 0,
+                        from: i32::try_from(from).unwrap_or(0),
+                        to,
+                    }),
+                    DragSource::GuildStorage(from) => {
+                        let from = i32::try_from(from).unwrap_or(0);
+                        (from != to).then_some(UiAction::GuildStorageItemChange {
+                            type_: 2,
+                            from,
+                            to,
+                        })
+                    }
+                    _ => None,
+                };
+            }
         }
         let inventory_slot = self
             .show_inventory
@@ -1336,6 +2210,15 @@ impl UiState {
                 from: i32::try_from(from).unwrap_or(0),
                 to: i32::try_from(to).unwrap_or(0),
                 to_grid: MirGridType::Inventory,
+            }),
+            DragSource::Storage(from) => Some(UiAction::TakeBackItem {
+                from: i32::try_from(from).unwrap_or(0),
+                to: i32::try_from(to).unwrap_or(0),
+            }),
+            DragSource::GuildStorage(from) => Some(UiAction::GuildStorageItemChange {
+                type_: 1,
+                from: i32::try_from(from).unwrap_or(0),
+                to: i32::try_from(to).unwrap_or(0),
             }),
         }
     }
@@ -1404,12 +2287,129 @@ impl UiState {
         }
         equipment::equipment_layout(frame).slot_at(self.mouse)
     }
+
+    /// 鼠标悬停的个人仓库格（tooltip 用）。
+    #[must_use]
+    pub fn hovered_storage_slot(&self, frame: Rect) -> Option<usize> {
+        if !self.show_storage {
+            return None;
+        }
+        storage::slot_at(&storage::storage_layout(frame), self.mouse)
+    }
+
+    /// 鼠标悬停的行会仓库格（tooltip 用；只在仓库页签下有效）。
+    #[must_use]
+    pub fn hovered_guild_storage_slot(
+        &self,
+        snapshot: &WorldSnapshot,
+        frame: Rect,
+    ) -> Option<usize> {
+        if !self.show_guild || self.guild_tab != guild::GuildTab::Storage {
+            return None;
+        }
+        let layout = guild::guild_layout(
+            frame,
+            snapshot.guild_members().len(),
+            snapshot.guild_buff_infos.len(),
+            self.guild_member_scroll,
+            self.guild_buff_scroll,
+        );
+        layout.storage_grid.slot_at(self.mouse)
+    }
+
+    /// 鼠标是否落在新增的四个面板之一上（任务/仓库/邮件/行会）。
+    ///
+    /// `on_click_with_path` 用它吞掉「面板内但没命中按钮」的点击，避免穿透成走路。
+    #[must_use]
+    pub fn panel_contains_mouse(&self, snapshot: &WorldSnapshot, frame: Rect) -> bool {
+        if self.show_quests
+            && quests::quest_layout(frame, snapshot.quests.len(), self.quest_scroll)
+                .panel
+                .contains(self.mouse)
+        {
+            return true;
+        }
+        if self.show_storage && storage::storage_layout(frame).panel.contains(self.mouse) {
+            return true;
+        }
+        if self.show_mail
+            && mail::mail_layout(
+                frame,
+                self.mail_tab,
+                snapshot.mails.len(),
+                self.mail_page,
+                snapshot.inventory.len(),
+            )
+            .panel
+            .contains(self.mouse)
+        {
+            return true;
+        }
+        if self.show_guild
+            && guild::guild_layout(
+                frame,
+                snapshot.guild_members().len(),
+                snapshot.guild_buff_infos.len(),
+                self.guild_member_scroll,
+                self.guild_buff_scroll,
+            )
+            .panel
+            .contains(self.mouse)
+        {
+            return true;
+        }
+        false
+    }
+
+    /// 当前聚焦的输入框。
+    #[must_use]
+    pub const fn focused_field(&self) -> Option<FieldId> {
+        self.focus
+    }
+
+    /// 向当前聚焦的输入框追加一个字符；返回是否消费了这次按键。
+    pub fn type_char(&mut self, character: char) -> bool {
+        let Some(field) = self.focus else {
+            return false;
+        };
+        match field {
+            FieldId::MailRecipient => self.mail_compose.recipient.insert(character),
+            FieldId::MailSubject => self.mail_compose.subject.insert(character),
+            FieldId::MailGold => self.mail_compose.gold.insert(character),
+            FieldId::MailMessage => self.mail_compose.message.insert(character),
+            FieldId::GuildGold => self.guild_gold.insert(character),
+            FieldId::GuildNotice => self.guild_notice.insert(character),
+        }
+        true
+    }
+
+    /// 当前聚焦的输入框退格；返回是否消费了这次按键。
+    pub fn backspace(&mut self) -> bool {
+        let Some(field) = self.focus else {
+            return false;
+        };
+        match field {
+            FieldId::MailRecipient => self.mail_compose.recipient.backspace(),
+            FieldId::MailSubject => self.mail_compose.subject.backspace(),
+            FieldId::MailGold => self.mail_compose.gold.backspace(),
+            FieldId::MailMessage => self.mail_compose.message.backspace(),
+            FieldId::GuildGold => self.guild_gold.backspace(),
+            FieldId::GuildNotice => self.guild_notice.backspace(),
+        }
+        true
+    }
+
+    /// 取消输入焦点（`Esc`/点面板空白处）。
+    pub fn clear_focus(&mut self) {
+        self.focus = None;
+    }
 }
 
 /// 画所有面板与世界叠层。
 ///
 /// 绘制顺序：世界文字（名字/伤害/光效）→ 光标目标高亮 → 状态栏 → 增益栏 → 聊天 →
-/// 装备 → 背包 → 商店 → 技能 → 小地图 → 大地图 → 对话 → tooltip → 右键菜单 → 拖拽幽灵。
+/// 装备 → 背包 → 仓库 → 商店 → 任务 → 邮件 → 行会 → 技能 → 小地图 → 大地图 → 对话 →
+/// tooltip → 右键菜单 → 拖拽幽灵。点击派发按相反顺序（后画的面板先响应）。
 pub fn draw(
     state: &mut UiState,
     frame: &mut Frame,
@@ -1512,6 +2512,100 @@ pub fn draw(
         }
     }
 
+    if state.show_storage {
+        let layout = storage::storage_layout(screen);
+        let hover = storage::slot_at(&layout, state.mouse);
+        let drag = state.drag.as_ref().and_then(|drag| match drag.source {
+            DragSource::Storage(slot) => Some(slot),
+            _ => None,
+        });
+        let UiState { icons, .. } = state;
+        let mut icon_fn = |image: u16| -> Option<Image> { load_icon(scene, icons, image) };
+        storage::draw(frame, &layout, &context, hover, drag, &mut icon_fn);
+    }
+
+    if state.show_quests {
+        let layout = quests::quest_layout(screen, snapshot.quests.len(), state.quest_scroll);
+        let hover_index = layout.row_at(state.mouse);
+        quests::draw(
+            frame,
+            &layout,
+            &context,
+            snapshot,
+            state.selected_quest,
+            hover_index,
+            state.mouse,
+            u64::try_from(state.time_millis).unwrap_or(0),
+        );
+    }
+
+    if state.show_mail {
+        let layout = mail::mail_layout(
+            screen,
+            state.mail_tab,
+            snapshot.mails.len(),
+            state.mail_page,
+            snapshot.inventory.len(),
+        );
+        let tab = state.mail_tab;
+        let page = state.mail_page;
+        let selected = state.mail_selected;
+        let compose = state.mail_compose.clone();
+        let focus = state.focus;
+        let mouse = state.mouse;
+        let UiState { icons, .. } = state;
+        let mut icon_fn = |image: u16| -> Option<Image> { load_icon(scene, icons, image) };
+        mail::draw(
+            frame,
+            &layout,
+            &context,
+            tab,
+            page,
+            selected,
+            &compose,
+            focus,
+            mouse,
+            &mut icon_fn,
+        );
+    }
+
+    if state.show_guild {
+        let layout = guild::guild_layout(
+            screen,
+            snapshot.guild_members().len(),
+            snapshot.guild_buff_infos.len(),
+            state.guild_member_scroll,
+            state.guild_buff_scroll,
+        );
+        let gold_field = state.guild_gold.clone();
+        let notice_field = state.guild_notice.clone();
+        let UiState {
+            icons,
+            guild_tab,
+            guild_selected_member,
+            focus,
+            mouse,
+            ..
+        } = state;
+        let guild_tab = *guild_tab;
+        let selected_member = *guild_selected_member;
+        let focus = *focus;
+        let mouse = *mouse;
+        let mut icon_fn = |image: u16| -> Option<Image> { load_icon(scene, icons, image) };
+        guild::draw(
+            frame,
+            &layout,
+            &context,
+            guild_tab,
+            selected_member,
+            &gold_field,
+            &notice_field,
+            focus,
+            mouse,
+            &mut icon_fn,
+        );
+    }
+
     if state.show_skills {
         let layout = skills::skill_layout(screen, snapshot.magics.len());
         skills::draw(frame, &layout, &context, state.selected_magic);
@@ -1571,7 +2665,7 @@ pub fn draw(
     }
 }
 
-/// 当前鼠标下的物品（背包优先，其次装备槽）。
+/// 当前鼠标下的物品（背包 → 装备槽 → 个人仓库 → 行会仓库，先命中先返回）。
 fn hovered_item<'a>(
     state: &UiState,
     snapshot: &'a WorldSnapshot,
@@ -1582,8 +2676,18 @@ fn hovered_item<'a>(
             return Some(item);
         }
     }
-    let slot = state.hovered_equipment_slot(screen)?;
-    snapshot.equipment_item(slot)
+    if let Some(slot) = state.hovered_equipment_slot(screen) {
+        if let Some(item) = snapshot.equipment_item(slot) {
+            return Some(item);
+        }
+    }
+    if let Some(slot) = state.hovered_storage_slot(screen) {
+        if let Some(item) = snapshot.storage_item(slot) {
+            return Some(item);
+        }
+    }
+    let slot = state.hovered_guild_storage_slot(snapshot, screen)?;
+    snapshot.guild_storage_item(slot)
 }
 
 /// 取物品图标：先查 UI 缓存，没有就让地图场景从 `items.wzl` 解码一次。
@@ -1733,6 +2837,7 @@ mod tests {
         let mut snapshot = WorldSnapshot {
             self_player: Some(SelfPlayer {
                 object_id: 7,
+                real_id: 7,
                 name: "测试者".to_owned(),
                 position: Point::new(10, 10),
                 direction: MirDirection::Down,

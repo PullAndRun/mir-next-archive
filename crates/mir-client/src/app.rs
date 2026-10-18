@@ -8,8 +8,9 @@
 //! * 离线模式（`--map`）：方向键 / WASD 平移相机、`S` 截图、`F1` 调试叠层、`Q` 退出；
 //! * 联机模式（`--connect`）：方向键/WASD 移动、`Space` 攻击（锁定目标时朝目标攻击/
 //!   靠近）、`P` 捡取、`T` 聊天、`I` 背包、`E` 装备、`F3` 技能、`M` 小地图、`B` 大地图、
+//!   `Q` 任务、`N` 邮件、`G` 行会（仓库面板由服务端 `S.NPCStorage` 自动打开）、
 //!   `1..9` 施法、鼠标悬停/点击锁定世界目标、左键双击目标攻击、鼠标点 NPC/面板按钮、
-//!   点空地走 A\* 路径、点地面物品拾取、`Esc` 关面板、`F1` 叠层、`F2` 截图、`Q` 退出；
+//!   点空地走 A\* 路径、点地面物品拾取、`Esc` 关面板、`F1` 叠层、`F2` 截图、`F10` 退出；
 //! * 每帧按 `S.MapInformation.Music` / `S.MapChanged.Music` 切换背景音乐；
 //! * 每 100 ms 递增一次动画帧（对应 Crystal 的 `MapControl.AnimationCount++`，
 //!   `GameScene.cs:1188-1193`）。
@@ -636,10 +637,54 @@ impl ClientApp {
             | UiAction::DropItem { .. }
             | UiAction::MoveItem { .. }
             | UiAction::WalkStep { .. }
-            | UiAction::PickUp) => {
+            | UiAction::PickUp
+            | UiAction::AbandonQuest { .. }
+            | UiAction::ReadMail { .. }
+            | UiAction::CollectParcel { .. }
+            | UiAction::LockMail { .. }
+            | UiAction::DeleteMail { .. }
+            | UiAction::StoreItem { .. }
+            | UiAction::TakeBackItem { .. }
+            | UiAction::GuildStorageItemChange { .. }
+            | UiAction::GuildStorageGoldChange { .. }
+            | UiAction::GuildBuffUpdate { .. }
+            | UiAction::EditGuildMember { .. }
+            | UiAction::EditGuildNotice { .. }
+            | UiAction::RequestGuildInfo { .. }) => {
                 if let Some(command) = action.net_command() {
                     live.send(command);
                 }
+            }
+            // 写信：发送成功后清空表单（服务端会回 `S.MailSent`，这里先按成功清空；
+            // 失败时服务端重发列表，表单内容已丢——简化，Crystal 也是关窗即清）。
+            UiAction::SendMail {
+                name,
+                message,
+                gold,
+                items_idx,
+                stamped,
+            } => {
+                live.send(NetCommand::SendMail {
+                    name,
+                    message,
+                    gold,
+                    items_idx,
+                    stamped,
+                });
+                live.ui.mail_compose.clear();
+                live.ui.mail_tab = mir_client::ui::mail::MailTab::Inbox;
+                live.ui.clear_focus();
+            }
+            UiAction::MailCost {
+                gold,
+                items_idx,
+                stamped,
+            } => {
+                live.send(NetCommand::MailCost {
+                    gold,
+                    items_idx,
+                    stamped,
+                });
             }
             UiAction::UseItem { unique_id } => {
                 // 喝药音：Crystal 在点背包里的药品时播 `ClickDrug`
@@ -834,6 +879,55 @@ impl ClientApp {
         }
     }
 
+    /// `Q`：开关任务面板（Crystal `KeybindOptions.Quests` → `QuestLogDialog`，
+    /// `GameScene.cs:660-664`；默认键就是 `Q`，见 `KeyBindSettings.cs:219`）。
+    fn live_toggle_quests(&mut self) {
+        let mut redraw = false;
+        if let Mode::Live(live) = &mut self.mode {
+            live.ui.toggle_quests();
+            redraw = true;
+        }
+        if redraw {
+            self.request_redraw();
+        }
+    }
+
+    /// `N`：开关邮件面板（Crystal 的邮件窗口没有默认键，本作按需求绑 `N`）。
+    fn live_toggle_mail(&mut self) {
+        let mut redraw = false;
+        if let Mode::Live(live) = &mut self.mode {
+            live.ui.toggle_mail();
+            redraw = true;
+        }
+        if redraw {
+            self.request_redraw();
+        }
+    }
+
+    /// `G`：开关行会面板（Crystal `KeybindOptions.Guilds` → `GuildDialog`，
+    /// `GameScene.cs:648-655`）。
+    ///
+    /// 打开时顺手拉公告/成员/仓库/增益（Crystal `GuildDialog.Show()` 里用
+    /// `RequestGuildInfo` / `GuildStorageItemChange{Type=3}` / `GuildBuffUpdate{Action=0}` 拉）。
+    fn live_toggle_guild(&mut self) {
+        let mut actions = Vec::new();
+        let mut opened = false;
+        if let Mode::Live(live) = &mut self.mode {
+            let was_open = live.ui.show_guild;
+            live.ui.toggle_guild();
+            opened = live.ui.show_guild && !was_open;
+            if opened {
+                actions = ui::UiState::guild_open_requests();
+            }
+        }
+        for action in actions {
+            self.dispatch_ui_action(action);
+        }
+        if opened {
+            self.request_redraw();
+        }
+    }
+
     /// 鼠标移动：记录位置；面板打开、悬停格子变化时重绘（更新悬停高亮与目标框）。
     fn handle_cursor_moved(&mut self, position: winit::dpi::PhysicalPosition<f64>) {
         let mouse = Point::new(position.x as i32, position.y as i32);
@@ -847,6 +941,10 @@ impl ClientApp {
                 || live.ui.show_inventory
                 || live.ui.show_skills
                 || live.ui.show_equipment
+                || live.ui.show_quests
+                || live.ui.show_storage
+                || live.ui.show_mail
+                || live.ui.show_guild
                 || live.ui.show_bigmap
                 || live.ui.shop_open
                 || live.ui.dialog.is_some()
@@ -1156,6 +1254,34 @@ impl ClientApp {
     /// 物品时是「丢弃」，否则是向右走；`S` 在商店打开且有选中物品时是「出售」，
     /// 否则是向下走；商店打开时 ↑/↓ 滚动货架。
     fn handle_live_key(&mut self, event_loop: &ActiveEventLoop, event: &KeyEvent) {
+        // 表单输入优先：写信页/行会公告/行会资金聚焦时，字符键只进输入框。
+        let mut text_handled = false;
+        let mut text_consumed_key = true;
+        if let Mode::Live(live) = &mut self.mode {
+            if live.ui.focused_field().is_some() {
+                text_handled = true;
+                match &event.logical_key {
+                    Key::Character(text) => {
+                        for character in text.chars() {
+                            live.ui.type_char(character);
+                        }
+                    }
+                    Key::Named(NamedKey::Backspace) => {
+                        live.ui.backspace();
+                    }
+                    Key::Named(NamedKey::Escape) => {
+                        live.ui.clear_focus();
+                    }
+                    // 回车/退格之外的命名键不吞（F2 截图、F10 退出仍可用）。
+                    Key::Named(NamedKey::Enter) => {}
+                    _ => text_consumed_key = false,
+                }
+            }
+        }
+        if text_handled && text_consumed_key {
+            self.request_redraw();
+            return;
+        }
         if let Key::Character(text) = &event.logical_key {
             let lower = text.to_ascii_lowercase();
             match lower.as_str() {
@@ -1179,12 +1305,22 @@ impl ClientApp {
                     self.live_pickup();
                     return;
                 }
+                // `T` 打开聊天；任务面板按 Crystal 的默认键 `Q`（`KeyBindSettings.cs:219`），
+                // 退出改到 F10（原先是 `Q`）。
                 "t" => {
                     self.live_open_chat();
                     return;
                 }
                 "q" => {
-                    event_loop.exit();
+                    self.live_toggle_quests();
+                    return;
+                }
+                "n" => {
+                    self.live_toggle_mail();
+                    return;
+                }
+                "g" => {
+                    self.live_toggle_guild();
                     return;
                 }
                 _ => {}
@@ -1234,6 +1370,8 @@ impl ClientApp {
             }
             Key::Named(NamedKey::F2) => self.save_screenshot(),
             Key::Named(NamedKey::F3) => self.live_toggle_skills(),
+            // 退出从 `Q` 挪到 `F10`：`Q` 现在是任务面板（Crystal 的默认键）。
+            Key::Named(NamedKey::F10) => event_loop.exit(),
             Key::Named(NamedKey::Escape) => self.live_escape(),
             _ => {}
         }

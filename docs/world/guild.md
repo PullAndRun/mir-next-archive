@@ -685,10 +685,12 @@ Crystal 的行会 buff **没有暂停机制**（`GuildObject.Process` 不看安�
 
 ## 14. 未做（明确划出本次范围）
 
-* **攻城 / 领地**：`C.GuildRequestWar`（`GuildWarReturn`）、`C.PurchaseGuildTerritory`、
+* **行会战 / 领地租赁**：`C.GuildRequestWar`（`GuildWarReturn`）、`C.PurchaseGuildTerritory`、
   `C.GuildTerritoryPage`、`GuildObject.GoToWar`/`GTForSale`/`EndGT`（`:707-900`）全部未实现，
   收到包只记 `debug!` 日志。`GuildInfo` 里的 `GTRent`/`GTIndex`/`GTKey`/`GTPrice`/`GTBegin`
   也不落库。
+  注意这两项与**攻城**无关：攻城（`ConquestObject`）已经实现，见
+  [`docs/world/conquest.md`](conquest.md)。
 * **行会联盟/敌对**：`AllyGuilds`/`WarringGuilds`（`GuildObject.cs:59-64`）、
   `CanAlterAlliance` 权限未实现。
 * **投票**：`GuildInfo.Votes`/`Voting`/`LastVoteAttempt`（`:16-19`）未实现，

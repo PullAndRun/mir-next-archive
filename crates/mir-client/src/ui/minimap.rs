@@ -301,6 +301,7 @@ mod tests {
             }),
             self_player: Some(SelfPlayer {
                 object_id: 7,
+                real_id: 7,
                 name: "测试者".to_owned(),
                 position: Point::new(330, 270),
                 direction: MirDirection::Down,

@@ -1,0 +1,450 @@
+//! 任务面板（`Q`，Crystal `QuestDiaryDialog` / `Client/MirScenes/Dialogs/QuestDialogs.cs:642`）。
+//!
+//! 数据来自快照：任务定义（`S.NewQuestInfo`）+ 进度（`S.ChangeQuest`）。进度文本由服务端
+//! 算好（`crates/mir-server/src/quests.rs` 的 `task_list`，对应 Crystal
+//! `QuestProgressInfo.UpdateTasks`），例如「击杀 鹿 3/10」，客户端原样显示。
+//!
+//! 行为：
+//! * 列出**进行中**任务（名字、目标进度、限时剩余）；
+//! * 目标已达成（`QuestView::completed`）的任务名变绿并标「已完成 · 去交付」；
+//! * 每行右侧的「放弃」按钮发 `C.AbandonQuest { quest_index }`；
+//! * 任务多于可见行时用滚轮滚动（[`MAX_QUEST_ROWS`] 行）。
+//!
+//! 简化：
+//! * Crystal 的任务日记按 `QuestInfo.Group` 折叠分组（`QuestDialogs.cs:716-760`），本作按
+//!   接取顺序平铺，行里显示分组名；
+//! * Crystal 的任务面板还有「详情页/奖励选择/共享/追踪」四个控件
+//!   （`QuestListDialog`、`QuestDetailDialog`、`QuestTrackingDialog`），本作只做需求里的
+//!   「进度 + 放弃 + 完成提示」；
+//! * 协议不带任务接取时间，限时剩余只能从客户端第一次看到任务开始算
+//!   （见 [`crate::net::QuestView::accepted_at_ms`]）。
+
+use mir_core::Language;
+use mir_render::Frame;
+
+use crate::geom::Rect;
+use crate::net::{QuestView, WorldSnapshot};
+use crate::ui::PanelContext;
+use crate::ui::hud::{BODY_COLOR, GOLD_COLOR, MUTED_COLOR, SIZE_BODY, SIZE_SMALL, TITLE_COLOR};
+use crate::ui::labels::Label;
+
+/// 面板宽度。
+pub const PANEL_WIDTH: u32 = 468;
+/// 每行高度。
+pub const ROW_HEIGHT: u32 = 46;
+/// 一屏最多显示多少行任务。
+pub const MAX_QUEST_ROWS: usize = 7;
+/// 标题高度。
+pub const TITLE_HEIGHT: u32 = 24;
+/// 顶部计数行高度。
+pub const HEADER_HEIGHT: u32 = 18;
+/// 底部提示高度。
+pub const FOOTER_HEIGHT: u32 = 18;
+/// 内边距。
+pub const PADDING: u32 = 8;
+/// 「放弃」按钮宽度。
+pub const ABANDON_WIDTH: u32 = 48;
+/// 「放弃」按钮高度。
+pub const ABANDON_HEIGHT: u32 = 20;
+/// 完成任务的文字色（Crystal 用绿色表示可交付）。
+pub const COMPLETE_COLOR: [u8; 4] = [140, 240, 150, 255];
+/// 新任务标记色。
+pub const NEW_COLOR: [u8; 4] = [255, 236, 140, 255];
+/// 过期（剩余 0）的颜色。
+pub const EXPIRED_COLOR: [u8; 4] = [232, 96, 96, 255];
+
+/// 一行任务的可点击区域。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QuestRow {
+    /// 整行（点它选中任务）。
+    pub row: Rect,
+    /// 「放弃」按钮。
+    pub abandon: Rect,
+}
+
+/// 任务面板布局。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuestLayout {
+    /// 面板矩形。
+    pub panel: Rect,
+    /// 可见行。
+    pub rows: Vec<QuestRow>,
+    /// 第一条可见任务在 `snapshot.quests` 里的下标。
+    pub first_index: usize,
+    /// 底部提示区域。
+    pub footer: Rect,
+    /// 最大滚动行数（0 = 不需要滚动）。
+    pub max_scroll: usize,
+}
+
+impl QuestLayout {
+    /// 命中测试：点在哪个任务行上（返回 `snapshot.quests` 的绝对下标）。
+    #[must_use]
+    pub fn row_at(&self, point: mir_core::Point) -> Option<usize> {
+        self.rows
+            .iter()
+            .position(|row| row.row.contains(point))
+            .map(|index| self.first_index + index)
+    }
+
+    /// 命中测试：点在哪个「放弃」按钮上（返回绝对下标）。
+    #[must_use]
+    pub fn abandon_at(&self, point: mir_core::Point) -> Option<usize> {
+        self.rows
+            .iter()
+            .position(|row| row.abandon.contains(point))
+            .map(|index| self.first_index + index)
+    }
+}
+
+/// 计算任务面板布局（居中偏左，与 Crystal 的任务日记位置接近）。
+#[must_use]
+pub fn quest_layout(frame: Rect, quest_count: usize, scroll: usize) -> QuestLayout {
+    let width = PANEL_WIDTH.min(frame.width.saturating_sub(32)).max(240);
+    let visible = quest_count.min(MAX_QUEST_ROWS);
+    let height = TITLE_HEIGHT
+        + HEADER_HEIGHT
+        + u32::try_from(visible.max(1)).unwrap_or(1) * ROW_HEIGHT
+        + FOOTER_HEIGHT
+        + PADDING * 2;
+    let x = frame.x + 40;
+    let y = frame.y + 60;
+    let panel = Rect::new(
+        x,
+        y,
+        width,
+        height.min(frame.height.saturating_sub(70)).max(160),
+    );
+    let max_scroll = quest_count.saturating_sub(visible.max(1));
+    let first_index = scroll.min(max_scroll);
+    let mut rows = Vec::with_capacity(visible);
+    for index in 0..visible {
+        let row = Rect::new(
+            panel.x + i32::try_from(PADDING).unwrap_or(0),
+            panel.y
+                + i32::try_from(TITLE_HEIGHT + HEADER_HEIGHT).unwrap_or(0)
+                + i32::try_from(index).unwrap_or(0) * i32::try_from(ROW_HEIGHT).unwrap_or(0),
+            panel.width.saturating_sub(PADDING * 2),
+            ROW_HEIGHT,
+        );
+        let abandon = Rect::new(
+            row.right() - i32::try_from(ABANDON_WIDTH + 4).unwrap_or(0),
+            row.y + 4,
+            ABANDON_WIDTH,
+            ABANDON_HEIGHT,
+        );
+        rows.push(QuestRow { row, abandon });
+    }
+    let footer = Rect::new(
+        panel.x + i32::try_from(PADDING).unwrap_or(0),
+        panel.bottom() - i32::try_from(FOOTER_HEIGHT + 4).unwrap_or(0),
+        panel.width.saturating_sub(PADDING * 2),
+        FOOTER_HEIGHT,
+    );
+    QuestLayout {
+        panel,
+        rows,
+        first_index,
+        footer,
+        max_scroll,
+    }
+}
+
+/// 一行的状态文案（测试与绘制共用）。
+#[must_use]
+pub fn status_text(quest: &QuestView, language: Language) -> String {
+    if quest.ready_to_return() {
+        return Label::QuestComplete.text(language).to_owned();
+    }
+    if quest.taken {
+        Label::QuestInProgress.text(language).to_owned()
+    } else {
+        Label::QuestAvailable.text(language).to_owned()
+    }
+}
+
+/// 限时剩余文案（`剩余 12:34`）；不限时返回空串。
+#[must_use]
+pub fn time_left_text(quest: &QuestView, now_ms: u64, language: Language) -> String {
+    let Some(seconds) = quest.remaining_seconds(now_ms) else {
+        return String::new();
+    };
+    let minutes = seconds / 60;
+    let seconds = seconds % 60;
+    format!(
+        "{} {:02}:{:02}",
+        Label::TimeLeft.text(language),
+        minutes,
+        seconds
+    )
+}
+
+/// 一行任务的名字（缺定义时按当前语言显示 `任务 #n`）。
+#[must_use]
+pub fn quest_name(quest: &QuestView, language: Language) -> String {
+    if quest.name.is_empty() {
+        format!("{} #{}", Label::Quests.text(language), quest.id)
+    } else {
+        quest.name.clone()
+    }
+}
+
+/// 任务标题行：`名字 · 分组`（分组为空时只有名字）。
+#[must_use]
+pub fn title_text(quest: &QuestView, language: Language) -> String {
+    let name = quest_name(quest, language);
+    if quest.group.is_empty() {
+        name
+    } else {
+        format!("{name} · {}", quest.group)
+    }
+}
+
+/// 画任务面板。
+#[allow(clippy::too_many_arguments)]
+pub fn draw(
+    frame: &mut Frame,
+    layout: &QuestLayout,
+    context: &PanelContext<'_>,
+    snapshot: &WorldSnapshot,
+    selected: Option<i32>,
+    hover: Option<usize>,
+    mouse: mir_core::Point,
+    now_ms: u64,
+) {
+    let text = context.text;
+    let language = context.language;
+    crate::ui::draw_panel(frame, layout.panel);
+    text.draw_clipped(
+        frame,
+        layout.panel.x + 10,
+        layout.panel.y + 4,
+        &format!("{} (Q)", Label::QuestDiary.text(language)),
+        SIZE_BODY,
+        TITLE_COLOR,
+        Rect::new(
+            layout.panel.x,
+            layout.panel.y,
+            layout.panel.width,
+            TITLE_HEIGHT,
+        ),
+    );
+    text.draw_right(
+        frame,
+        layout.panel.right() - 10,
+        layout.panel.y + 5,
+        &format!("{}", snapshot.quests.len()),
+        SIZE_SMALL,
+        MUTED_COLOR,
+    );
+    if snapshot.quests.is_empty() {
+        text.draw_center(
+            frame,
+            Rect::new(
+                layout.panel.x,
+                layout.panel.y + i32::try_from(TITLE_HEIGHT + HEADER_HEIGHT).unwrap_or(0),
+                layout.panel.width,
+                ROW_HEIGHT,
+            ),
+            Label::NoQuests.text(language),
+            SIZE_BODY,
+            MUTED_COLOR,
+        );
+        return;
+    }
+    for (visible_index, row_layout) in layout.rows.iter().enumerate() {
+        let index = layout.first_index + visible_index;
+        let Some(quest) = snapshot.quests.get(index) else {
+            break;
+        };
+        let row = row_layout.row;
+        let is_selected = selected == Some(quest.id);
+        let is_hover = hover == Some(index);
+        if is_selected {
+            frame.fill_rect(row.x, row.y, row.width, row.height, [86, 74, 32, 235]);
+            frame.fill_rect(row.x, row.y, 2, row.height, [255, 216, 96, 255]);
+        } else if is_hover {
+            frame.fill_rect(row.x, row.y, row.width, row.height, [44, 56, 76, 235]);
+            frame.fill_rect(row.x, row.y, 2, row.height, [128, 176, 240, 255]);
+        } else if visible_index % 2 == 1 {
+            frame.fill_rect(row.x, row.y, row.width, row.height, [26, 30, 38, 160]);
+        }
+        // 名字：完成/新任务用不同颜色（Crystal 的任务列表同样按状态着色）。
+        let name_color = if quest.ready_to_return() {
+            COMPLETE_COLOR
+        } else if quest.new {
+            NEW_COLOR
+        } else {
+            BODY_COLOR
+        };
+        let name_area = Rect::new(
+            row.x + 8,
+            row.y + 3,
+            row.width.saturating_sub(ABANDON_WIDTH + 20),
+            SIZE_BODY + 4,
+        );
+        text.draw_clipped(
+            frame,
+            name_area.x,
+            name_area.y,
+            &title_text(quest, language),
+            SIZE_BODY,
+            name_color,
+            name_area,
+        );
+        // 目标进度：逐行显示服务端算好的文本（最多两行，超出裁掉）。
+        let mut task_y = name_area.y + i32::try_from(SIZE_BODY + 2).unwrap_or(16);
+        for line in quest.task_list.iter().take(2) {
+            text.draw_clipped(
+                frame,
+                row.x + 8,
+                task_y,
+                line,
+                SIZE_SMALL,
+                if quest.ready_to_return() {
+                    COMPLETE_COLOR
+                } else {
+                    MUTED_COLOR
+                },
+                Rect::new(
+                    row.x + 8,
+                    task_y,
+                    row.width.saturating_sub(ABANDON_WIDTH + 20),
+                    SIZE_SMALL + 3,
+                ),
+            );
+            task_y = task_y.saturating_add(i32::try_from(SIZE_SMALL + 2).unwrap_or(13));
+        }
+        // 右下角：状态 + 限时剩余。
+        let mut status = status_text(quest, language);
+        let left = time_left_text(quest, now_ms, language);
+        if !left.is_empty() {
+            status.push_str(" · ");
+            status.push_str(&left);
+        }
+        let status_color = if quest.remaining_seconds(now_ms) == Some(0) {
+            EXPIRED_COLOR
+        } else if quest.ready_to_return() {
+            COMPLETE_COLOR
+        } else {
+            GOLD_COLOR
+        };
+        text.draw_right(
+            frame,
+            row.right() - 8,
+            row.bottom() - i32::try_from(SIZE_SMALL + 4).unwrap_or(15),
+            &status,
+            SIZE_SMALL,
+            status_color,
+        );
+        // 「放弃」按钮。
+        let button = row_layout.abandon;
+        let hovered = button.contains(mouse);
+        let fill = if hovered {
+            [120, 56, 56, 255]
+        } else {
+            [64, 40, 44, 255]
+        };
+        frame.fill_rect(button.x, button.y, button.width, button.height, fill);
+        frame.fill_rect(button.x, button.y, button.width, 1, [140, 100, 100, 255]);
+        frame.fill_rect(
+            button.x,
+            button.bottom() - 1,
+            button.width,
+            1,
+            [48, 32, 34, 255],
+        );
+        text.draw_center(
+            frame,
+            button,
+            Label::Abandon.text(language),
+            SIZE_SMALL,
+            [255, 220, 200, 255],
+        );
+    }
+    text.draw_clipped(
+        frame,
+        layout.footer.x,
+        layout.footer.y,
+        Label::QuestHint.text(language),
+        SIZE_SMALL,
+        MUTED_COLOR,
+        layout.footer,
+    );
+    if layout.max_scroll > 0 {
+        text.draw_right(
+            frame,
+            layout.panel.right() - 10,
+            layout.footer.y,
+            &format!("{}/{}", layout.first_index + 1, snapshot.quests.len()),
+            SIZE_SMALL,
+            MUTED_COLOR,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mir_core::Point;
+
+    fn quest(id: i32, completed: bool) -> QuestView {
+        QuestView {
+            id,
+            name: format!("任务{id}"),
+            group: "新手".to_owned(),
+            task_list: vec!["击杀 鹿 3/10".to_owned()],
+            taken: true,
+            completed,
+            new: false,
+            time_limit_seconds: 600,
+            accepted_at_ms: Some(1_000),
+        }
+    }
+
+    #[test]
+    fn layout_rows_are_inside_the_panel_and_hit_testable() {
+        let frame = Rect::screen(800, 600);
+        let layout = quest_layout(frame, 3, 0);
+        assert_eq!(layout.rows.len(), 3);
+        for (index, row) in layout.rows.iter().enumerate() {
+            assert!(layout.panel.contains(row.row.center()));
+            assert_eq!(layout.row_at(row.row.center()), Some(index));
+            assert_eq!(layout.abandon_at(row.abandon.center()), Some(index));
+        }
+        assert_eq!(layout.abandon_at(Point::new(0, 0)), None);
+        assert_eq!(layout.max_scroll, 0);
+    }
+
+    #[test]
+    fn scrolling_is_clamped_to_the_last_page() {
+        let frame = Rect::screen(800, 600);
+        let layout = quest_layout(frame, 20, 99);
+        assert_eq!(layout.rows.len(), MAX_QUEST_ROWS);
+        assert_eq!(layout.max_scroll, 20 - MAX_QUEST_ROWS);
+        assert_eq!(layout.first_index, 20 - MAX_QUEST_ROWS);
+        assert_eq!(
+            layout.row_at(layout.rows[0].row.center()),
+            Some(layout.first_index)
+        );
+    }
+
+    #[test]
+    fn status_and_time_texts_are_localized() {
+        let active = quest(7, false);
+        assert_eq!(status_text(&active, Language::ZhCn), "进行中");
+        assert_eq!(status_text(&active, Language::En), "In progress");
+        let completed = quest(7, true);
+        assert_eq!(status_text(&completed, Language::ZhCn), "已完成 · 去交付");
+        assert_eq!(
+            time_left_text(&active, 1_000 + 60_000, Language::ZhCn),
+            "剩余 09:00"
+        );
+        let unlimited = QuestView {
+            time_limit_seconds: 0,
+            ..active.clone()
+        };
+        assert_eq!(time_left_text(&unlimited, 1_000, Language::ZhCn), "");
+        assert_eq!(quest_name(&active, Language::ZhCn), "任务7");
+    }
+}

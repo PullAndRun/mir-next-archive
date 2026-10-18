@@ -63,6 +63,21 @@
 //! | `S.GainedGold` / `S.LoseGold` | 金币 |
 //! | `S.Chat` / `S.ObjectChat` | 聊天面板 |
 //! | `S.MapInformation` / `S.NewMapInfo` / `S.MapChanged` | 地图名与 NPC 列表 |
+//! | `S.NewQuestInfo` | `quest_infos`：任务定义（名字/分组/限时/奖励） |
+//! | `S.ChangeQuest` | `quests`：进行中任务的进度文本（`task_list` 已含「击杀 鹿 3/10」）+ 本地接取时刻 |
+//! | `S.CompleteQuest` | `completed_quests`：已完成任务编号 |
+//! | `S.ShareQuest` | 聊天面板里的一条系统消息 |
+//! | `S.UserStorage` / `S.NPCStorage` | `storage`（80 格）+ `storage_open`（打开仓库面板） |
+//! | `S.StoreItem` / `S.TakeBackItem` | 背包 ↔ 仓库的搬运回执 |
+//! | `S.ReceiveMail` | `mails`：邮件列表（发件人/正文/附件/金币/已读/锁定/已领取） |
+//! | `S.MailSendRequest` / `S.MailCost` / `S.MailSent` / `S.ParcelCollected` | 写信页与邮件操作的开关/回执 |
+//! | `S.MailLockedItem` | `mail_locked_items`：附件格锁定状态 |
+//! | `S.GuildStatus` | `guild`：行会名/等级/经验/资金/人数/我的职位与权限 |
+//! | `S.GuildMemberChange` | `guild_ranks`：职位 + 成员（状态码语义见 [`apply_guild_member_change`]） |
+//! | `S.GuildNoticeChange` | `guild_notice`：公告行 |
+//! | `S.GuildStorageList` / `S.GuildStorageItemChange` | `guild_storage`（112 格） |
+//! | `S.GuildStorageGoldChange` | 行会资金 |
+//! | `S.GuildBuffList` | `guild_buff_infos`（全部可选）+ `guild_active_buffs`（已获得/激活） |
 //!
 //! # 与 Crystal 客户端的已知差异
 //!
@@ -92,11 +107,16 @@ use anyhow::{Context, Result, anyhow, bail};
 use mir_core::Point;
 use mir_core::enums::{
     BuffType, ChatType, DamageType, ItemGrade, ItemType, MirClass, MirDirection, MirGender,
-    MirGridType, PanelType, RequiredType, Spell, SpellEffect, Stat,
+    MirGridType, PanelType, QuestState, QuestType, RequiredType, Spell, SpellEffect, Stat,
 };
 use mir_protocol::codec::FrameBuffer;
-use mir_protocol::data::{ClientBuff, ClientMagic, ItemInfo, UserItem};
+use mir_protocol::data::guild_rank::{GuildMember, GuildRank};
+use mir_protocol::data::{
+    ClientBuff, ClientMagic, ClientMail, ClientQuestProgress, GuildBuff, GuildBuffInfo,
+    GuildStorageItem, ItemInfo, UserItem,
+};
 use mir_protocol::packets::client as c;
+use mir_protocol::packets::server::{GuildBuffList, GuildMemberChange, GuildStorageItemChange};
 use mir_protocol::{ClientPacket, DateTimeBinary, ServerPacket};
 use mir_render::animation::{ActorAction, BodyKind};
 use mir_render::sound::SoundId;
@@ -113,6 +133,13 @@ const CHAT_LOG_LIMIT: usize = 100;
 /// 装备槽数量（Crystal `EquipmentSlot` 共 14 个：武器/衣服/头盔/火把/项链/双腕/双戒/
 /// 护身符/腰带/靴子/宝石/坐骑）。
 pub const EQUIPMENT_SLOTS: usize = 14;
+/// 个人仓库格数：Crystal `AccountInfo.Storage = new UserItem[80]`（`AccountInfo.cs:69`）
+/// 与 `Globals.StorageGridSize = 80`（`Shared/Globals.cs:19`）；见
+/// `crates/mir-server/src/storage.rs` 的 `STORAGE_SIZE`。本作没有扩充仓库。
+pub const STORAGE_SLOTS: usize = 80;
+/// 行会仓库格数：Crystal `GuildStorageItem[] StoredItems = new GuildStorageItem[112]`
+/// （`Server/MirDatabase/GuildInfo.cs:22`；服务端 `GUILD_STORAGE_SLOTS`）。
+pub const GUILD_STORAGE_SLOTS: usize = 112;
 /// 快照里保留的伤害事件条数：UI 每帧取「比上次更新」的那些画飘字。
 const DAMAGE_EVENT_LIMIT: usize = 32;
 /// 快照里保留的光效事件条数。
@@ -278,6 +305,119 @@ pub enum NetCommand {
         key: u8,
         /// 旧按键。
         old_key: u8,
+    },
+    /// 放弃任务（`C.AbandonQuest`）。
+    AbandonQuest {
+        /// 任务编号。
+        quest_index: i32,
+    },
+    /// 阅读邮件（`C.ReadMail`；服务端会把整份列表重新发一次）。
+    ReadMail {
+        /// 邮件编号。
+        mail_id: u64,
+    },
+    /// 领取邮件附件（`C.CollectParcel`）。
+    CollectParcel {
+        /// 邮件编号。
+        mail_id: u64,
+    },
+    /// 删除邮件（`C.DeleteMail`）。
+    DeleteMail {
+        /// 邮件编号。
+        mail_id: u64,
+    },
+    /// 锁定/解锁邮件（`C.LockMail`）。
+    LockMail {
+        /// 邮件编号。
+        mail_id: u64,
+        /// `true` = 锁定。
+        lock: bool,
+    },
+    /// 发送邮件（`C.SendMail`）。
+    SendMail {
+        /// 收件人角色名。
+        name: String,
+        /// 正文。
+        message: String,
+        /// 附带金币。
+        gold: u32,
+        /// 附件物品唯一编号（固定 5 格，`0` 为空）。
+        items_idx: [u64; 5],
+        /// 是否贴邮票。
+        stamped: bool,
+    },
+    /// 询邮费（`C.MailCost`；服务端回 `S.MailCost`）。
+    MailCost {
+        /// 附带金币。
+        gold: u32,
+        /// 附件物品唯一编号（固定 5 格，`0` 为空）。
+        items_idx: [u64; 5],
+        /// 是否贴邮票。
+        stamped: bool,
+    },
+    /// 存物品到个人仓库（`C.StoreItem`）。
+    StoreItem {
+        /// 背包格。
+        from: i32,
+        /// 仓库格。
+        to: i32,
+    },
+    /// 从个人仓库取物品（`C.TakeBackItem`）。
+    TakeBackItem {
+        /// 仓库格。
+        from: i32,
+        /// 背包格。
+        to: i32,
+    },
+    /// 行会仓库物品变动（`C.GuildStorageItemChange`）。
+    ///
+    /// `type`：`0` 存入、`1` 取回、`2` 仓库内移动、`3` 拉取列表
+    /// （`crates/mir-server/src/guild_storage.rs` 的模块文档）。
+    GuildStorageItemChange {
+        /// 变动类型。
+        type_: u8,
+        /// 起点格（含意随 `type_` 变化）。
+        from: i32,
+        /// 落点格。
+        to: i32,
+    },
+    /// 行会资金存取（`C.GuildStorageGoldChange`；任何非 0 的 `type` 都按「取」处理）。
+    GuildStorageGoldChange {
+        /// `0` = 存入，其它 = 取出。
+        type_: u8,
+        /// 金额。
+        amount: u32,
+    },
+    /// 行会增益（`C.GuildBuffUpdate`）：`0` 请求列表、`1` 购买、`2` 激活。
+    GuildBuffUpdate {
+        /// 动作。
+        action: u8,
+        /// 增益编号（请求列表时给 `0`）。
+        id: i32,
+    },
+    /// 行会成员管理（`C.EditGuildMember`）。
+    ///
+    /// `change_type`：`0` 邀请、`1` 踢人/退会、`2` 升/降职、`3` 改职位名、
+    /// `4` 新建职位、`5` 改职位权限（`crates/mir-server/src/guild.rs` 的模块文档）。
+    EditGuildMember {
+        /// 变动类型。
+        change_type: u8,
+        /// 职位序号（`2`/`3`/`5` 用）。
+        rank_index: u8,
+        /// 目标角色名（`0`/`1`/`2` 用）。
+        name: String,
+        /// 职位名（`3`/`4` 用）。
+        rank_name: String,
+    },
+    /// 行会公告（`C.EditGuildNotice`）。
+    EditGuildNotice {
+        /// 公告行。
+        notice: Vec<String>,
+    },
+    /// 拉取行会公告/成员（`C.RequestGuildInfo`）：`0` 公告、`1` 成员表。
+    RequestGuildInfo {
+        /// 信息类型。
+        type_: u8,
     },
     /// 关闭连接。
     Quit,
@@ -573,6 +713,12 @@ fn wing_layer(wing_effect: u8) -> u16 {
 pub struct SelfPlayer {
     /// 对象 ID。
     pub object_id: u32,
+    /// 角色编号（`S.UserInformation.real_id`，数据库主键）。
+    ///
+    /// 行会包的 `S.GuildStorageItemChange.user` 用的是**角色编号**而不是对象 ID
+    /// （`crates/mir-server/src/guild_storage.rs` 传 `character_id`），客户端靠这个字段
+    /// 判断「这次仓库变动是不是我做的」。
+    pub real_id: u32,
     /// 名字。
     pub name: String,
     /// 坐标。
@@ -1019,6 +1165,378 @@ pub struct NpcPanels {
     pub special_repair: bool,
 }
 
+/// 任务定义（`S.NewQuestInfo` 的界面子集）。
+///
+/// Crystal 在登录时把**全部**任务定义下发一遍（`PlayerObject.GetQuestInfo`，
+/// `Server/MirObjects/PlayerObject.cs:1185`、`:1727-1731`），客户端按 `Index` 缓存，
+/// 进度包 `S.ChangeQuest` 只带编号。界面用的名字/描述/限时/奖励都来自这里。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct QuestInfoView {
+    /// 任务编号（`ClientQuestInfo.index`）。
+    pub index: i32,
+    /// 任务名。
+    pub name: String,
+    /// 任务分组（Crystal 任务日记按分组折叠）。
+    pub group: String,
+    /// 发布任务的 NPC 模板号。
+    pub npc_index: u32,
+    /// 交任务的 NPC 模板号。
+    pub finish_npc_index: u32,
+    /// 任务简介行。
+    pub description: Vec<String>,
+    /// 目标描述行。
+    pub task_description: Vec<String>,
+    /// 交任务时的描述行。
+    pub return_description: Vec<String>,
+    /// 完成后的描述行。
+    pub completion_description: Vec<String>,
+    /// 任务类型（决定 NPC 头顶感叹号的颜色，`QuestIcon`）。
+    pub quest_type: QuestType,
+    /// 限时秒数（`0` = 不限时）。
+    pub time_limit_seconds: i32,
+    /// 奖励金币。
+    pub reward_gold: u32,
+    /// 奖励经验。
+    pub reward_exp: u32,
+    /// 奖励元宝。
+    pub reward_credit: u32,
+    /// 接取等级下限。
+    pub min_level: i32,
+    /// 接取等级上限。
+    pub max_level: i32,
+}
+
+impl QuestInfoView {
+    /// 从协议定义里抽取界面字段。
+    #[must_use]
+    pub fn from_client_quest(info: &mir_protocol::data::ClientQuestInfo) -> Self {
+        Self {
+            index: info.index,
+            name: info.name.clone(),
+            group: info.group.clone(),
+            npc_index: info.npc_index,
+            finish_npc_index: info.finish_npc_index,
+            description: info.description.clone(),
+            task_description: info.task_description.clone(),
+            return_description: info.return_description.clone(),
+            completion_description: info.completion_description.clone(),
+            quest_type: info.quest_type,
+            time_limit_seconds: info.time_limit_in_seconds,
+            reward_gold: info.reward_gold,
+            reward_exp: info.reward_exp,
+            reward_credit: info.reward_credit,
+            min_level: info.min_level_needed,
+            max_level: info.max_level_needed,
+        }
+    }
+}
+
+/// 一条进行中/已完成的任务进度（`S.ChangeQuest` + 定义）。
+///
+/// `task_list` 是服务端算好的进度文本（`crates/mir-server/src/quests.rs` 的 `task_list`，
+/// 对应 Crystal `QuestProgressInfo.UpdateTasks`），例如「击杀 鹿 3/10」，客户端原样显示。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct QuestView {
+    /// 任务编号。
+    pub id: i32,
+    /// 任务名（定义缺失时是 `任务 #n`）。
+    pub name: String,
+    /// 任务分组。
+    pub group: String,
+    /// 进度文本行。
+    pub task_list: Vec<String>,
+    /// 是否已接取（Crystal `ClientQuestProgress.Taken`）。
+    pub taken: bool,
+    /// **目标是否已达成**（Crystal `ClientQuestProgress.Completed`，不是「已交付」）。
+    ///
+    /// 为真时面板高亮成绿色并提示「去交付」。
+    pub completed: bool,
+    /// 是否是新任务（Crystal `New`，一天内接的）。
+    pub new: bool,
+    /// 限时秒数（来自定义，`0` = 不限时）。
+    pub time_limit_seconds: i32,
+    /// 本地收到 `S.ChangeQuest{Add}` 的时刻（Unix 毫秒）。
+    ///
+    /// 简化：协议里的 `ClientQuestProgress` **不带接取时间**（Crystal 的
+    /// `StartDateTime` 只在服务端 `QuestProgressInfo` 里），所以剩余时间只能从
+    /// 「客户端第一次看到这条任务」开始算；重登后会被重置成完整时长。
+    pub accepted_at_ms: Option<u64>,
+}
+
+impl QuestView {
+    /// 限时剩余秒数；不限时返回 `None`。
+    ///
+    /// `now_ms` 是客户端本地时钟（与 `accepted_at_ms` 同一时间轴）。
+    #[must_use]
+    pub fn remaining_seconds(&self, now_ms: u64) -> Option<i64> {
+        if self.time_limit_seconds <= 0 {
+            return None;
+        }
+        let elapsed_ms = self
+            .accepted_at_ms
+            .map_or(0, |accepted| now_ms.saturating_sub(accepted));
+        let elapsed = i64::try_from(elapsed_ms / 1000).unwrap_or(i64::MAX);
+        Some((i64::from(self.time_limit_seconds) - elapsed).max(0))
+    }
+
+    /// 是否应该高亮成「目标已达成、去交付」。
+    #[must_use]
+    pub const fn ready_to_return(&self) -> bool {
+        self.completed && self.taken
+    }
+}
+
+/// 一封邮件（`S.ReceiveMail` 里的 `ClientMail` 界面子集）。
+///
+/// 协议里**没有主题字段**（Crystal `Shared/Data/ClientData.cs:154` 的 `ClientMail`
+/// 只有发件人/正文/标志/时间/金币/附件）；服务端 `mail` 表的 `subject` 列也不上线。
+/// 所以列表的「主题」列显示正文首行，见 `ui::mail`。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MailView {
+    /// 邮件编号（`C.ReadMail` / `C.CollectParcel` / `C.DeleteMail` / `C.LockMail` 用它）。
+    pub mail_id: u64,
+    /// 发件人角色名。
+    pub sender_name: String,
+    /// 正文。
+    pub message: String,
+    /// 是否已读。
+    pub opened: bool,
+    /// 是否锁定（锁定后不能删除）。
+    pub locked: bool,
+    /// 是否可回复。
+    pub can_reply: bool,
+    /// 附件是否已领取。
+    pub collected: bool,
+    /// 发送时间（`DateTime.ToBinary()`，见 `mir_core::DateTimeBinary`）。
+    pub date_sent: mir_core::DateTimeBinary,
+    /// 附带金币。
+    pub gold: u32,
+    /// 附带物品。
+    pub items: Vec<InventoryItem>,
+}
+
+impl MailView {
+    /// 从协议邮件里抽取界面字段。
+    #[must_use]
+    pub fn from_client_mail(mail: &ClientMail) -> Self {
+        Self {
+            mail_id: mail.mail_id,
+            sender_name: mail.sender_name.clone(),
+            message: mail.message.clone(),
+            opened: mail.opened,
+            locked: mail.locked,
+            can_reply: mail.can_reply,
+            collected: mail.collected,
+            date_sent: mail.date_sent,
+            gold: mail.gold,
+            items: mail
+                .items
+                .iter()
+                .map(InventoryItem::from_user_item)
+                .collect(),
+        }
+    }
+
+    /// 是否带附件（金币或物品）。
+    #[must_use]
+    pub fn is_parcel(&self) -> bool {
+        self.gold > 0 || !self.items.is_empty()
+    }
+
+    /// 列表里的「主题」：正文第一行（协议没有主题字段，见类型文档）。
+    #[must_use]
+    pub fn subject_line(&self) -> &str {
+        self.message
+            .lines()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or("")
+    }
+
+    /// 是否可以领取附件（带附件、还没领过）。
+    #[must_use]
+    pub fn can_collect(&self) -> bool {
+        !self.collected && (self.gold > 0 || !self.items.is_empty())
+    }
+}
+
+/// 行会成员（`S.GuildMemberChange.Ranks[].Members[]`）。
+///
+/// 简化：协议里的 `GuildMember` **不带所在地图**（`Shared/Data/GuildData.cs:62-90` 只有
+/// 名字/编号/最后登录/是否投票/是否在线），所以成员表的「地图」列恒为空。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GuildMemberView {
+    /// 角色名。
+    pub name: String,
+    /// 角色编号（`GuildMember.id`）。
+    pub id: i32,
+    /// 最后登录时间。
+    pub last_login: mir_core::DateTimeBinary,
+    /// 是否在线。
+    pub online: bool,
+}
+
+/// 行会职位（`S.GuildMemberChange.Ranks[]`）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GuildRankView {
+    /// 职位序号（`0` 是会长）。
+    pub index: i32,
+    /// 职位名。
+    pub name: String,
+    /// 权限位掩码（`GuildRankOptions`，逐位判断用
+    /// [`mir_core::enums::GuildRankOptions::contains`]）。
+    pub options: u8,
+    /// 该职位下的成员。
+    pub members: Vec<GuildMemberView>,
+}
+
+impl GuildRankView {
+    /// 从协议职位里抽取界面字段。
+    #[must_use]
+    pub fn from_guild_rank(rank: &GuildRank) -> Self {
+        Self {
+            index: rank.index,
+            name: rank.name.clone(),
+            options: rank.options,
+            members: rank
+                .members
+                .iter()
+                .map(|member: &GuildMember| GuildMemberView {
+                    name: member.name.clone(),
+                    id: member.id,
+                    last_login: member.last_login,
+                    online: member.online,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// 行会概况（`S.GuildStatus`）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GuildView {
+    /// 行会名（空串 = 没有行会）。
+    pub name: String,
+    /// 我的职位名。
+    pub rank_name: String,
+    /// 行会等级。
+    pub level: u8,
+    /// 当前经验。
+    pub experience: i64,
+    /// 升级所需经验。
+    pub max_experience: i64,
+    /// 行会资金（= 行会仓库金币，Crystal `GuildInfo.Gold`）。
+    pub gold: u32,
+    /// 可分配的升级点。
+    pub spare_points: u8,
+    /// 成员数。
+    pub member_count: i32,
+    /// 成员上限（`0` 表示不限）。
+    pub max_members: i32,
+    /// 是否在投票（本作服务端恒为 false）。
+    pub voting: bool,
+    /// 仓库已用格数。
+    pub item_count: u8,
+    /// 增益个数（Crystal 恒写 0）。
+    pub buff_count: u8,
+    /// 我的职位权限。
+    pub my_options: mir_core::enums::GuildRankOptions,
+    /// 我的职位序号（`256` 表示不是成员）。
+    pub my_rank_id: i32,
+}
+
+impl GuildView {
+    /// 我是否拥有某项职位权限。
+    #[must_use]
+    pub const fn allows(&self, option: mir_core::enums::GuildRankOptions) -> bool {
+        self.my_options.contains(option)
+    }
+
+    /// 是否可以管理职位（升/降职）。
+    #[must_use]
+    pub const fn can_change_rank(&self) -> bool {
+        self.allows(mir_core::enums::GuildRankOptions::CanChangeRank)
+    }
+
+    /// 是否可以踢人。
+    #[must_use]
+    pub const fn can_kick(&self) -> bool {
+        self.allows(mir_core::enums::GuildRankOptions::CanKick)
+    }
+
+    /// 是否可以改公告。
+    #[must_use]
+    pub const fn can_change_notice(&self) -> bool {
+        self.allows(mir_core::enums::GuildRankOptions::CanChangeNotice)
+    }
+
+    /// 是否可以激活增益。
+    #[must_use]
+    pub const fn can_activate_buff(&self) -> bool {
+        self.allows(mir_core::enums::GuildRankOptions::CanActivateBuff)
+    }
+}
+
+/// 行会增益定义（`S.GuildBuffList.GuildBuffs[]`，Crystal `GuildBuffInfo`）。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct GuildBuffInfoView {
+    /// 增益编号。
+    pub id: i32,
+    /// 图标编号。
+    pub icon: i32,
+    /// 增益名。
+    pub name: String,
+    /// 解锁所需行会等级。
+    pub level_requirement: u8,
+    /// 解锁所需行会点数。
+    pub points_requirement: u8,
+    /// 生效时长（**分钟**，Crystal `GuildBuffInfo.TimeLimit`；`0` = 永久）。
+    pub time_limit_minutes: i32,
+    /// 激活消耗（行会资金）。
+    pub activation_cost: i32,
+    /// 提供的属性。
+    pub stats: BTreeMap<Stat, i32>,
+}
+
+impl GuildBuffInfoView {
+    /// 从协议定义里抽取界面字段。
+    #[must_use]
+    pub fn from_guild_buff_info(info: &GuildBuffInfo) -> Self {
+        Self {
+            id: info.id,
+            icon: info.icon,
+            name: info.name.clone(),
+            level_requirement: info.level_requirement,
+            points_requirement: info.points_requirement,
+            time_limit_minutes: info.time_limit,
+            activation_cost: info.activation_cost,
+            stats: info.stats.values().clone(),
+        }
+    }
+}
+
+/// 行会已获得的增益（`S.GuildBuffList.ActiveBuffs[]`，Crystal `GuildBuff`）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GuildBuffView {
+    /// 增益编号（指向 [`GuildBuffInfoView`]）。
+    pub id: i32,
+    /// 是否正在生效。
+    pub active: bool,
+    /// 剩余生效时间（**分钟**，Crystal `GuildBuff.ActiveTimeRemaining`）。
+    pub active_time_remaining_minutes: i32,
+}
+
+impl GuildBuffView {
+    /// 从协议增益里抽取界面字段。
+    #[must_use]
+    pub const fn from_guild_buff(buff: &GuildBuff) -> Self {
+        Self {
+            id: buff.id,
+            active: buff.active,
+            active_time_remaining_minutes: buff.active_time_remaining,
+        }
+    }
+}
+
 /// 实体种类 → 动画帧表种类。
 fn body_kind_for(kind: EntityKind) -> BodyKind {
     match kind {
@@ -1116,6 +1634,44 @@ pub struct WorldSnapshot {
     pub npc_goods: Option<ShopGoods>,
     /// NPC 面板提示（卖/修理）。
     pub npc_panels: NpcPanels,
+    /// 任务定义（`S.NewQuestInfo`，按任务编号索引）。
+    pub quest_infos: BTreeMap<i32, QuestInfoView>,
+    /// 进行中任务（`S.ChangeQuest`，按接取顺序；`S.ChangeQuest{Remove}` 时移除）。
+    pub quests: Vec<QuestView>,
+    /// 已完成任务编号（`S.CompleteQuest`）。
+    pub completed_quests: Vec<i32>,
+    /// 仓库（`S.UserStorage`；长度 80，`None` 为空格）。没收到过时为空。
+    pub storage: Vec<Option<InventoryItem>>,
+    /// 仓库面板是否该打开（`S.NPCStorage`；离开 NPC 对话/切图时关闭）。
+    pub storage_open: bool,
+    /// 收到过多少次 `S.NPCStorage`（UI 用它判断「这是新的一次打开」）。
+    pub storage_open_version: u64,
+    /// 邮件列表（`S.ReceiveMail`，服务端按发送时间升序）。
+    pub mails: Vec<MailView>,
+    /// 服务端要求打开写信页（`S.MailSendRequest`）。
+    pub mail_send_request: bool,
+    /// 收到过多少次 `S.MailSendRequest`（版本号）。
+    pub mail_send_request_version: u64,
+    /// 最近一次邮费询价结果（`S.MailCost`）。
+    pub mail_cost: Option<u32>,
+    /// 最近一次发送结果（`S.MailSent.result`；`0` 成功）。
+    pub mail_sent_result: Option<i8>,
+    /// 最近一次领取回执（`S.ParcelCollected.result`）。
+    pub parcel_collected_result: Option<i8>,
+    /// 附件格锁定状态（`S.MailLockedItem`：物品唯一编号 → 是否锁定）。
+    pub mail_locked_items: BTreeMap<u64, bool>,
+    /// 行会概况（`S.GuildStatus`；`None` 表示没收到过）。
+    pub guild: Option<GuildView>,
+    /// 行会职位与成员（`S.GuildMemberChange`，按职位序号排序）。
+    pub guild_ranks: Vec<GuildRankView>,
+    /// 行会公告（`S.GuildNoticeChange`）。
+    pub guild_notice: Vec<String>,
+    /// 行会仓库（`S.GuildStorageList`；长度 112，`None` 为空格）。
+    pub guild_storage: Vec<Option<InventoryItem>>,
+    /// 全部可选行会增益（`S.GuildBuffList.GuildBuffs`）。
+    pub guild_buff_infos: Vec<GuildBuffInfoView>,
+    /// 已获得/激活的行会增益（`S.GuildBuffList.ActiveBuffs`）。
+    pub guild_active_buffs: Vec<GuildBuffView>,
     /// 收到过多少页 NPC 对话（版本号来源）。
     pub npc_dialog_version: u64,
     /// 收到过多少次商店货架（版本号来源）。
@@ -1150,6 +1706,25 @@ impl Default for WorldSnapshot {
             npc_dialog: None,
             npc_goods: None,
             npc_panels: NpcPanels::default(),
+            quest_infos: BTreeMap::new(),
+            quests: Vec::new(),
+            completed_quests: Vec::new(),
+            storage: Vec::new(),
+            storage_open: false,
+            storage_open_version: 0,
+            mails: Vec::new(),
+            mail_send_request: false,
+            mail_send_request_version: 0,
+            mail_cost: None,
+            mail_sent_result: None,
+            parcel_collected_result: None,
+            mail_locked_items: BTreeMap::new(),
+            guild: None,
+            guild_ranks: Vec::new(),
+            guild_notice: Vec::new(),
+            guild_storage: Vec::new(),
+            guild_buff_infos: Vec::new(),
+            guild_active_buffs: Vec::new(),
             npc_dialog_version: 0,
             npc_goods_version: 0,
             packet_counts: BTreeMap::new(),
@@ -1260,6 +1835,56 @@ impl WorldSnapshot {
             item.as_ref()
                 .is_some_and(|item| item.unique_id == unique_id)
         })
+    }
+
+    /// 取仓库格；越界或空格返回 `None`。
+    #[must_use]
+    pub fn storage_item(&self, slot: usize) -> Option<&InventoryItem> {
+        self.storage.get(slot).and_then(Option::as_ref)
+    }
+
+    /// 取行会仓库格；越界或空格返回 `None`。
+    #[must_use]
+    pub fn guild_storage_item(&self, slot: usize) -> Option<&InventoryItem> {
+        self.guild_storage.get(slot).and_then(Option::as_ref)
+    }
+
+    /// 按编号找进行中任务。
+    #[must_use]
+    pub fn quest(&self, quest_id: i32) -> Option<&QuestView> {
+        self.quests.iter().find(|quest| quest.id == quest_id)
+    }
+
+    /// 按编号找邮件。
+    #[must_use]
+    pub fn mail(&self, mail_id: u64) -> Option<&MailView> {
+        self.mails.iter().find(|mail| mail.mail_id == mail_id)
+    }
+
+    /// 按编号找行会增益定义。
+    #[must_use]
+    pub fn guild_buff_info(&self, buff_id: i32) -> Option<&GuildBuffInfoView> {
+        self.guild_buff_infos.iter().find(|info| info.id == buff_id)
+    }
+
+    /// 按编号找行会已获得增益。
+    #[must_use]
+    pub fn guild_active_buff(&self, buff_id: i32) -> Option<&GuildBuffView> {
+        self.guild_active_buffs
+            .iter()
+            .find(|buff| buff.id == buff_id)
+    }
+
+    /// 展平成「职位 + 成员」的成员表（成员表按职位序号、再按名字排序）。
+    #[must_use]
+    pub fn guild_members(&self) -> Vec<(&GuildRankView, &GuildMemberView)> {
+        let mut rows = Vec::new();
+        for rank in &self.guild_ranks {
+            for member in &rank.members {
+                rows.push((rank, member));
+            }
+        }
+        rows
     }
 
     /// 某个对象（含自己）所在格；未知对象返回 `None`。
@@ -1989,6 +2614,69 @@ fn handle_command(
             key,
             old_key,
         }),
+        NetCommand::AbandonQuest { quest_index } => {
+            ClientPacket::AbandonQuest(c::AbandonQuest { quest_index })
+        }
+        NetCommand::ReadMail { mail_id } => ClientPacket::ReadMail(c::ReadMail { mail_id }),
+        NetCommand::CollectParcel { mail_id } => {
+            ClientPacket::CollectParcel(c::CollectParcel { mail_id })
+        }
+        NetCommand::DeleteMail { mail_id } => ClientPacket::DeleteMail(c::DeleteMail { mail_id }),
+        NetCommand::LockMail { mail_id, lock } => {
+            ClientPacket::LockMail(c::LockMail { mail_id, lock })
+        }
+        NetCommand::SendMail {
+            name,
+            message,
+            gold,
+            items_idx,
+            stamped,
+        } => ClientPacket::SendMail(c::SendMail {
+            name,
+            message,
+            gold,
+            items_idx,
+            stamped,
+        }),
+        NetCommand::MailCost {
+            gold,
+            items_idx,
+            stamped,
+        } => ClientPacket::MailCost(c::MailCost {
+            gold,
+            items_idx,
+            stamped,
+        }),
+        NetCommand::StoreItem { from, to } => ClientPacket::StoreItem(c::StoreItem { from, to }),
+        NetCommand::TakeBackItem { from, to } => {
+            ClientPacket::TakeBackItem(c::TakeBackItem { from, to })
+        }
+        NetCommand::GuildStorageItemChange { type_, from, to } => {
+            ClientPacket::GuildStorageItemChange(c::GuildStorageItemChange { type_, from, to })
+        }
+        NetCommand::GuildStorageGoldChange { type_, amount } => {
+            ClientPacket::GuildStorageGoldChange(c::GuildStorageGoldChange { type_, amount })
+        }
+        NetCommand::GuildBuffUpdate { action, id } => {
+            ClientPacket::GuildBuffUpdate(c::GuildBuffUpdate { action, id })
+        }
+        NetCommand::EditGuildMember {
+            change_type,
+            rank_index,
+            name,
+            rank_name,
+        } => ClientPacket::EditGuildMember(c::EditGuildMember {
+            change_type,
+            rank_index,
+            name,
+            rank_name,
+        }),
+        NetCommand::EditGuildNotice { notice } => {
+            ClientPacket::EditGuildNotice(c::EditGuildNotice { notice })
+        }
+        NetCommand::RequestGuildInfo { type_ } => {
+            ClientPacket::RequestGuildInfo(c::RequestGuildInfo { type_ })
+        }
         NetCommand::Quit => return Ok(()),
     };
     send(stream, &packet)
@@ -2075,6 +2763,27 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
         ServerPacket::NPCSell(_) => "NPCSell",
         ServerPacket::NPCRepair(_) => "NPCRepair",
         ServerPacket::NPCSRepair(_) => "NPCSRepair",
+        ServerPacket::UserStorage(_) => "UserStorage",
+        ServerPacket::NPCStorage(_) => "NPCStorage",
+        ServerPacket::StoreItem(_) => "StoreItem",
+        ServerPacket::TakeBackItem(_) => "TakeBackItem",
+        ServerPacket::NewQuestInfo(_) => "NewQuestInfo",
+        ServerPacket::ChangeQuest(_) => "ChangeQuest",
+        ServerPacket::CompleteQuest(_) => "CompleteQuest",
+        ServerPacket::ShareQuest(_) => "ShareQuest",
+        ServerPacket::ReceiveMail(_) => "ReceiveMail",
+        ServerPacket::MailSendRequest(_) => "MailSendRequest",
+        ServerPacket::MailCost(_) => "MailCost",
+        ServerPacket::MailSent(_) => "MailSent",
+        ServerPacket::ParcelCollected(_) => "ParcelCollected",
+        ServerPacket::MailLockedItem(_) => "MailLockedItem",
+        ServerPacket::GuildStatus(_) => "GuildStatus",
+        ServerPacket::GuildMemberChange(_) => "GuildMemberChange",
+        ServerPacket::GuildNoticeChange(_) => "GuildNoticeChange",
+        ServerPacket::GuildStorageList(_) => "GuildStorageList",
+        ServerPacket::GuildStorageItemChange(_) => "GuildStorageItemChange",
+        ServerPacket::GuildStorageGoldChange(_) => "GuildStorageGoldChange",
+        ServerPacket::GuildBuffList(_) => "GuildBuffList",
         ServerPacket::ObjectName(_) => "ObjectName",
         ServerPacket::PlayerUpdate(_) => "PlayerUpdate",
         ServerPacket::Disconnect(_) => "Disconnect",
@@ -2144,10 +2853,11 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 music: changed.music,
             });
             snapshot.entities.clear();
-            // 换地图等于离开当前 NPC，UI 必须把对话/商店收起来。
+            // 换地图等于离开当前 NPC，UI 必须把对话/商店/仓库收起来。
             snapshot.npc_dialog = None;
             snapshot.npc_goods = None;
             snapshot.npc_panels = NpcPanels::default();
+            snapshot.storage_open = false;
             if let Some(me) = &mut snapshot.self_player {
                 me.position = changed.location;
                 me.direction = changed.direction;
@@ -2186,6 +2896,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             looks.wings = wings;
             snapshot.self_player = Some(SelfPlayer {
                 object_id: info.object_id,
+                real_id: info.real_id,
                 name: info.name.clone(),
                 position: info.location,
                 direction: info.direction,
@@ -2615,6 +3326,9 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             // `S.NPCGoods` / `S.NPCSell` 等；普通页面则不应继续显示上一页的商店。
             snapshot.npc_goods = None;
             snapshot.npc_panels = NpcPanels::default();
+            // 仓库页是「页面 + S.NPCStorage」两步；先按非仓库页处理，随后到达的
+            // `S.NPCStorage` 会重新打开面板（`NPCScript.cs:1002-1006`）。
+            snapshot.storage_open = false;
             // NPC 对话音：（简化）Crystal 没有专用音效，面板按钮音是 `ButtonA`
             // （`SoundList.cs:41`，点击路径 `MirControl.cs:823-824`）。
             // 每收到一页非空正文都响一次（开窗与翻页，接近 Crystal 的「点按钮翻页」），
@@ -2669,6 +3383,168 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
         ServerPacket::NPCSRepair(_) => {
             snapshot.npc_panels.special_repair = true;
         }
+        ServerPacket::UserStorage(storage) => {
+            // `Storage = null` 表示「客户端保留旧数据」（Crystal 语义，`PlayerObject.cs:8169`）。
+            if let Some(slots) = &storage.storage {
+                snapshot.storage = fit_inventory_slots(slots, STORAGE_SLOTS);
+            }
+        }
+        ServerPacket::NPCStorage(_) => {
+            // 服务端打开仓库面板（`NPCScript.cs:1002-1006`）：快照只记「该显示仓库」，
+            // 由 UI 在版本变化时自动打开面板（`UiState::sync`）。
+            snapshot.storage_open = true;
+            snapshot.storage_open_version = snapshot.storage_open_version.saturating_add(1);
+            if snapshot.storage.len() < STORAGE_SLOTS {
+                snapshot.storage.resize(STORAGE_SLOTS, None);
+            }
+        }
+        ServerPacket::StoreItem(stored) => {
+            if stored.success {
+                store_inventory_to_storage(snapshot, stored.from, stored.to);
+            }
+        }
+        ServerPacket::TakeBackItem(taken) => {
+            if taken.success {
+                take_back_storage_to_inventory(snapshot, taken.from, taken.to);
+            }
+        }
+        ServerPacket::NewQuestInfo(info) => {
+            snapshot.quest_infos.insert(
+                info.info.index,
+                QuestInfoView::from_client_quest(&info.info),
+            );
+            // 任务名可能先于定义到达（登录包序是定义在前，但假包/切图重连不保证），
+            // 定义到位后把已有进度的显示名刷新一次。
+            for quest in &mut snapshot.quests {
+                if let Some(definition) = snapshot.quest_infos.get(&quest.id) {
+                    quest.name.clone_from(&definition.name);
+                    quest.group.clone_from(&definition.group);
+                    quest.time_limit_seconds = definition.time_limit_seconds;
+                }
+            }
+        }
+        ServerPacket::ChangeQuest(change) => {
+            apply_quest_change(snapshot, &change.quest, change.quest_state, now_ms);
+        }
+        ServerPacket::CompleteQuest(complete) => {
+            snapshot
+                .completed_quests
+                .clone_from(&complete.completed_quests);
+        }
+        ServerPacket::ShareQuest(share) => {
+            let name = snapshot.quest_infos.get(&share.quest_index).map_or_else(
+                || format!("任务 #{}", share.quest_index),
+                |info| info.name.clone(),
+            );
+            push_chat(
+                snapshot,
+                ChatLine {
+                    speaker: None,
+                    text: format!("{} 分享了任务：{name}", share.sharer_name),
+                    kind: ChatType::System,
+                },
+            );
+        }
+        ServerPacket::ReceiveMail(received) => {
+            snapshot.mails = received
+                .mail
+                .iter()
+                .map(MailView::from_client_mail)
+                .collect();
+        }
+        ServerPacket::MailSendRequest(_) => {
+            snapshot.mail_send_request = true;
+            snapshot.mail_send_request_version =
+                snapshot.mail_send_request_version.saturating_add(1);
+        }
+        ServerPacket::MailCost(cost) => {
+            snapshot.mail_cost = Some(cost.cost);
+        }
+        ServerPacket::MailSent(sent) => {
+            snapshot.mail_sent_result = Some(sent.result);
+        }
+        ServerPacket::ParcelCollected(collected) => {
+            snapshot.parcel_collected_result = Some(collected.result);
+        }
+        ServerPacket::MailLockedItem(locked) => {
+            snapshot
+                .mail_locked_items
+                .insert(locked.unique_id, locked.locked);
+        }
+        ServerPacket::GuildStatus(status) => {
+            snapshot.guild = Some(GuildView {
+                name: status.guild_name.clone(),
+                rank_name: status.guild_rank_name.clone(),
+                level: status.level,
+                experience: status.experience,
+                max_experience: status.max_experience,
+                gold: status.gold,
+                spare_points: status.spare_points,
+                member_count: status.member_count,
+                max_members: status.max_members,
+                voting: status.voting,
+                item_count: status.item_count,
+                buff_count: status.buff_count,
+                my_options: status.my_options,
+                my_rank_id: status.my_rank_id,
+            });
+            if status.guild_name.is_empty() {
+                // Crystal：`p.GuildName == ""` 时关窗并清空本地行会数据
+                // （`GameScene.cs:5874-5877`）。
+                snapshot.guild_ranks.clear();
+                snapshot.guild_notice.clear();
+                snapshot.guild_storage.clear();
+                snapshot.guild_active_buffs.clear();
+            }
+        }
+        ServerPacket::GuildMemberChange(change) => {
+            apply_guild_member_change(snapshot, change);
+        }
+        ServerPacket::GuildNoticeChange(notice) => {
+            if notice.update < 0 {
+                // `update == -1` 是「公告变了，自己去拉」的通知（`GuildObject.cs:599`），
+                // 客户端此时清空缓存；真正的公告正文由随后的 `S.GuildNoticeChange{update>=0}` 发。
+                snapshot.guild_notice.clear();
+            } else {
+                snapshot.guild_notice.clone_from(&notice.notice);
+            }
+        }
+        ServerPacket::GuildStorageList(list) => {
+            snapshot.guild_storage = fit_guild_storage_slots(&list.items);
+        }
+        ServerPacket::GuildStorageItemChange(change) => {
+            apply_guild_storage_item_change(snapshot, change);
+        }
+        ServerPacket::GuildStorageGoldChange(gold) => {
+            if let Some(guild) = &mut snapshot.guild {
+                match gold.type_ {
+                    // 0 = 存入（行会资金增加），3 = 退还（Crystal `GameScene.cs:5912-5931`）。
+                    0 | 3 => guild.gold = guild.gold.saturating_add(gold.amount),
+                    // 1 = 取出，2 = 购买增益花掉：都减少，按 Crystal 的「不够就归零」。
+                    _ => guild.gold = guild.gold.saturating_sub(gold.amount),
+                }
+            }
+            // 行会频道提示：0 = 捐献、1 = 取出；2（买增益）/3（退还）不提示
+            // （Crystal `GameScene.cs:5910-5931` 同样只对 0/1 发聊天）。
+            let text = match gold.type_ {
+                0 => Some(format!("{} 向行会捐献 {} 金币", gold.name, gold.amount)),
+                1 => Some(format!("{} 从行会取出 {} 金币", gold.name, gold.amount)),
+                _ => None,
+            };
+            if let Some(text) = text {
+                push_chat(
+                    snapshot,
+                    ChatLine {
+                        speaker: None,
+                        text,
+                        kind: ChatType::Guild,
+                    },
+                );
+            }
+        }
+        ServerPacket::GuildBuffList(list) => {
+            apply_guild_buff_list(snapshot, list);
+        }
         ServerPacket::ObjectName(name) => {
             update_entity(snapshot, name.object_id, |entity| {
                 entity.name.clone_from(&name.name);
@@ -2712,6 +3588,402 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
 /// 插入或更新一个实体。
 fn upsert_entity(snapshot: &mut WorldSnapshot, entity: WorldEntity) {
     snapshot.entities.insert(entity.object_id, entity);
+}
+
+/// 把协议里的槽位列表搬成界面物品并补齐到固定格数。
+///
+/// 协议允许 `null` 槽位；长度来自服务端（仓库 80、行会仓库 112），超过的截断、不足的补空，
+/// 这样 UI 的格子下标永远等于协议下标。
+fn fit_inventory_slots(slots: &[Option<UserItem>], size: usize) -> Vec<Option<InventoryItem>> {
+    let mut out: Vec<Option<InventoryItem>> = slots
+        .iter()
+        .take(size)
+        .map(|slot| slot.as_ref().map(InventoryItem::from_user_item))
+        .collect();
+    out.resize(size, None);
+    out
+}
+
+/// 把 `S.GuildStorageList` 的槽位搬成界面物品（补齐到 112 格）。
+fn fit_guild_storage_slots(items: &[Option<GuildStorageItem>]) -> Vec<Option<InventoryItem>> {
+    let mut out: Vec<Option<InventoryItem>> = items
+        .iter()
+        .take(GUILD_STORAGE_SLOTS)
+        .map(|slot| {
+            slot.as_ref()
+                .map(|stored| InventoryItem::from_user_item(&stored.item))
+        })
+        .collect();
+    out.resize(GUILD_STORAGE_SLOTS, None);
+    out
+}
+
+/// 背包 → 仓库（`S.StoreItem{success=true}`）。
+///
+/// 服务端只回「哪一格搬到哪一格」，物品数据仍以客户端背包里的为准
+/// （Crystal `PlayerObject.StoreItem` 的 `Account.Storage[to] = temp`）。
+fn store_inventory_to_storage(snapshot: &mut WorldSnapshot, from: i32, to: i32) {
+    let (Ok(from), Ok(to)) = (usize::try_from(from), usize::try_from(to)) else {
+        return;
+    };
+    if to >= STORAGE_SLOTS {
+        return;
+    }
+    if snapshot.storage.len() < STORAGE_SLOTS {
+        snapshot.storage.resize(STORAGE_SLOTS, None);
+    }
+    let Some(item) = snapshot.inventory.get_mut(from).and_then(Option::take) else {
+        return;
+    };
+    snapshot.storage[to] = Some(item);
+}
+
+/// 仓库 → 背包（`S.TakeBackItem{success=true}`）。
+fn take_back_storage_to_inventory(snapshot: &mut WorldSnapshot, from: i32, to: i32) {
+    let (Ok(from), Ok(to)) = (usize::try_from(from), usize::try_from(to)) else {
+        return;
+    };
+    let Some(item) = snapshot.storage.get_mut(from).and_then(Option::take) else {
+        return;
+    };
+    if snapshot.inventory.len() <= to {
+        snapshot.inventory.resize(to + 1, None);
+    }
+    snapshot.inventory[to] = Some(item);
+}
+
+/// 应用一条 `S.ChangeQuest`。
+///
+/// * `Add`：新接/重接任务，记录本地接取时刻（用于限时倒计时）；
+/// * `Update`：替换进度文本，保留接取时刻；
+/// * `Remove`：从进行中列表移除（交付/放弃/超时都由服务端发这一条）。
+fn apply_quest_change(
+    snapshot: &mut WorldSnapshot,
+    progress: &ClientQuestProgress,
+    state: QuestState,
+    now_ms: u64,
+) {
+    let id = progress.id;
+    match state {
+        QuestState::Add => {
+            let accepted_at_ms = snapshot
+                .quest(id)
+                .and_then(|quest| quest.accepted_at_ms)
+                .or(Some(now_ms));
+            let definition = snapshot.quest_infos.get(&id).cloned();
+            let view = QuestView {
+                id,
+                // 定义缺失时留空串，由 UI 按当前语言显示「任务 #n」（不能在这里写死中文）。
+                name: definition
+                    .as_ref()
+                    .map_or_else(String::new, |info| info.name.clone()),
+                group: definition
+                    .as_ref()
+                    .map_or_else(String::new, |info| info.group.clone()),
+                task_list: progress.task_list.clone(),
+                taken: progress.taken,
+                completed: progress.completed,
+                new: progress.new,
+                time_limit_seconds: definition
+                    .as_ref()
+                    .map_or(0, |info| info.time_limit_seconds),
+                accepted_at_ms,
+            };
+            if let Some(existing) = snapshot.quests.iter_mut().find(|quest| quest.id == id) {
+                *existing = view;
+            } else {
+                snapshot.quests.push(view);
+            }
+        }
+        QuestState::Update => {
+            if let Some(quest) = snapshot.quests.iter_mut().find(|quest| quest.id == id) {
+                quest.task_list.clone_from(&progress.task_list);
+                quest.taken = progress.taken;
+                quest.completed = progress.completed;
+                quest.new = progress.new;
+            } else {
+                // 进度包先于接取包到达（理论上不会，防御性补一条）。
+                apply_quest_change(snapshot, progress, QuestState::Add, now_ms);
+            }
+        }
+        QuestState::Remove => {
+            snapshot.quests.retain(|quest| quest.id != id);
+        }
+    }
+}
+
+/// 从所有职位里摘掉一个成员。
+fn take_guild_member(snapshot: &mut WorldSnapshot, name: &str) -> Option<GuildMemberView> {
+    for rank in &mut snapshot.guild_ranks {
+        if let Some(index) = rank.members.iter().position(|member| member.name == name) {
+            return Some(rank.members.remove(index));
+        }
+    }
+    None
+}
+
+/// 插入/替换一个职位快照，并把该职位里出现的成员从其它职位里摘掉。
+///
+/// Crystal 的 `GuildMemberChange` 一次只带**一个**职位的成员列表
+/// （`GuildObject.cs:315-330`），被调动者的旧职位不会重发，所以客户端要自己摘。
+fn upsert_guild_rank(snapshot: &mut WorldSnapshot, rank: GuildRankView) {
+    let names: Vec<String> = rank
+        .members
+        .iter()
+        .map(|member| member.name.clone())
+        .collect();
+    for other in &mut snapshot.guild_ranks {
+        if other.index == rank.index {
+            continue;
+        }
+        other.members.retain(|member| !names.contains(&member.name));
+    }
+    if let Some(existing) = snapshot
+        .guild_ranks
+        .iter_mut()
+        .find(|existing| existing.index == rank.index)
+    {
+        *existing = rank;
+    } else {
+        snapshot.guild_ranks.push(rank);
+    }
+    snapshot.guild_ranks.sort_by_key(|rank| rank.index);
+}
+
+/// 应用一条 `S.GuildMemberChange`（状态码语义照 Crystal `GameScene.cs:5813-5868`）。
+///
+/// | `status` | 含义 | 客户端动作 |
+/// |---|---|---|
+/// | 0 | 成员下线 | 该成员 `online = false` |
+/// | 1 | 成员上线 | 该成员 `online = true` + 行会频道消息 |
+/// | 2 | 新成员入会 | 插入到 `rank_index` 职位（在线） |
+/// | 3 | 被踢 | 从成员表移除 |
+/// | 4 | 主动退会 | 从成员表移除 |
+/// | 5 | 职位调动通知（给其他成员） | 把该成员挪到 `rank_index` |
+/// | 6 | 新建职位 | `ranks[0]` 插入 |
+/// | 7 | 职位改名/权限变化 | `ranks[0]` 替换同序号职位 |
+/// | 8 | 我自己的职位变了 | `ranks[0]` 是我的新职位，同时更新 [`GuildView`] 的权限 |
+/// | 255 | 完整成员表 | 整体替换 |
+fn apply_guild_member_change(snapshot: &mut WorldSnapshot, change: &GuildMemberChange) {
+    let name = change.name.clone();
+    match change.status {
+        0 => {
+            if let Some(member) = snapshot
+                .guild_ranks
+                .iter_mut()
+                .flat_map(|rank| rank.members.iter_mut())
+                .find(|member| member.name == name)
+            {
+                member.online = false;
+            }
+        }
+        1 => {
+            let mut found = false;
+            for member in snapshot
+                .guild_ranks
+                .iter_mut()
+                .flat_map(|rank| rank.members.iter_mut())
+            {
+                if member.name == name {
+                    member.online = true;
+                    found = true;
+                }
+            }
+            if found {
+                push_chat(
+                    snapshot,
+                    ChatLine {
+                        speaker: None,
+                        text: format!("{name} 上线了"),
+                        kind: ChatType::Guild,
+                    },
+                );
+            }
+        }
+        2 => {
+            push_chat(
+                snapshot,
+                ChatLine {
+                    speaker: None,
+                    text: format!("{name} 加入了行会"),
+                    kind: ChatType::Guild,
+                },
+            );
+            // 新成员可能已经在别的职位里（重连/重复包）：先摘出来再放到 `rank_index`。
+            let existing = take_guild_member(snapshot, &name);
+            let member = existing.unwrap_or_else(|| GuildMemberView {
+                name,
+                id: 0,
+                last_login: mir_core::DateTimeBinary::default(),
+                online: true,
+            });
+            let rank_index = i32::from(change.rank_index);
+            if let Some(rank) = snapshot
+                .guild_ranks
+                .iter_mut()
+                .find(|rank| rank.index == rank_index)
+            {
+                rank.members.push(member);
+            }
+            if let Some(guild) = &mut snapshot.guild {
+                guild.member_count = guild.member_count.saturating_add(1);
+            }
+        }
+        3 | 4 => {
+            let verb = if change.status == 3 {
+                "被移出行会"
+            } else {
+                "离开了行会"
+            };
+            if take_guild_member(snapshot, &name).is_some() {
+                push_chat(
+                    snapshot,
+                    ChatLine {
+                        speaker: None,
+                        text: format!("{name} {verb}"),
+                        kind: ChatType::Guild,
+                    },
+                );
+                if let Some(guild) = &mut snapshot.guild {
+                    guild.member_count = guild.member_count.saturating_sub(1).max(0);
+                }
+            }
+        }
+        5 | 8 => {
+            // 调动：`status = 5` 是「别人被挪到 rank_index」，`status = 8` 带的是
+            // 我自己的新职位快照（`ranks[0]`），成员表由它决定。
+            if let Some(rank) = change.ranks.first() {
+                upsert_guild_rank(snapshot, GuildRankView::from_guild_rank(rank));
+                if change.status == 8 {
+                    if let Some(guild) = &mut snapshot.guild {
+                        guild.my_rank_id = rank.index;
+                        guild.rank_name.clone_from(&rank.name);
+                        guild.my_options =
+                            mir_core::enums::GuildRankOptions::from_bits_truncate(rank.options);
+                    }
+                }
+            } else if let Some(position) = snapshot
+                .guild_ranks
+                .iter()
+                .position(|rank| rank.index == i32::from(change.rank_index))
+            {
+                if let Some(member) = take_guild_member(snapshot, &name) {
+                    snapshot.guild_ranks[position].members.push(member);
+                }
+            }
+        }
+        6 | 7 => {
+            if let Some(rank) = change.ranks.first() {
+                upsert_guild_rank(snapshot, GuildRankView::from_guild_rank(rank));
+            }
+        }
+        255 => {
+            snapshot.guild_ranks = change
+                .ranks
+                .iter()
+                .map(GuildRankView::from_guild_rank)
+                .collect();
+            snapshot.guild_ranks.sort_by_key(|rank| rank.index);
+        }
+        _ => {}
+    }
+}
+
+/// 应用一条 `S.GuildStorageItemChange`（广播给全行会，`crates/mir-server/src/guild_storage.rs`）。
+///
+/// * `0` 存入：`Item` 是存入的物品，本地背包 `from` 清空（只有自己才有背包数据）；
+/// * `1` 取回：**没有 `Item`**，从本地仓库格 `from` 取出放进背包 `to`；
+/// * `2` 仓库内移动：`Item` 是移动后的目标格物品；
+/// * `3..=5` 是失败回执（Crystal 的 `p.Type = 3 + type`），不改状态。
+fn apply_guild_storage_item_change(snapshot: &mut WorldSnapshot, change: &GuildStorageItemChange) {
+    let is_me = snapshot
+        .self_player
+        .as_ref()
+        .is_some_and(|me| i64::from(me.real_id) == i64::from(change.user));
+    let Ok(to) = usize::try_from(change.to) else {
+        return;
+    };
+    let from = usize::try_from(change.from).ok();
+    match change.change_type {
+        0 => {
+            let item = change
+                .item
+                .as_ref()
+                .map(|stored| InventoryItem::from_user_item(&stored.item));
+            if snapshot.guild_storage.len() < GUILD_STORAGE_SLOTS {
+                snapshot.guild_storage.resize(GUILD_STORAGE_SLOTS, None);
+            }
+            if to < GUILD_STORAGE_SLOTS {
+                snapshot.guild_storage[to] = item;
+            }
+            if is_me {
+                if let Some(slot) = from.and_then(|from| snapshot.inventory.get_mut(from)) {
+                    *slot = None;
+                }
+            }
+        }
+        1 => {
+            let item =
+                from.and_then(|from| snapshot.guild_storage.get_mut(from).and_then(Option::take));
+            if is_me {
+                if let Some(item) = item {
+                    if snapshot.inventory.len() <= to {
+                        snapshot.inventory.resize(to + 1, None);
+                    }
+                    snapshot.inventory[to] = Some(item);
+                }
+            }
+        }
+        2 => {
+            let item = change
+                .item
+                .as_ref()
+                .map(|stored| InventoryItem::from_user_item(&stored.item));
+            if let Some(from) = from {
+                if let Some(slot) = snapshot.guild_storage.get_mut(from) {
+                    *slot = None;
+                }
+            }
+            if to < GUILD_STORAGE_SLOTS {
+                if snapshot.guild_storage.len() < GUILD_STORAGE_SLOTS {
+                    snapshot.guild_storage.resize(GUILD_STORAGE_SLOTS, None);
+                }
+                snapshot.guild_storage[to] = item;
+            }
+        }
+        _ => {}
+    }
+}
+
+/// 应用一条 `S.GuildBuffList`（Crystal `GameScene.cs:6249-6285`）。
+///
+/// `GuildBuffs` 非空 = 全量可选列表（登录/请求时下发）；`remove == 1` 表示
+/// `ActiveBuffs` 里的条目是「移除」（到期/被清掉）。
+fn apply_guild_buff_list(snapshot: &mut WorldSnapshot, list: &GuildBuffList) {
+    if !list.guild_buffs.is_empty() {
+        snapshot.guild_buff_infos = list
+            .guild_buffs
+            .iter()
+            .map(GuildBuffInfoView::from_guild_buff_info)
+            .collect();
+    }
+    let remove = list.remove == 1;
+    for buff in &list.active_buffs {
+        let view = GuildBuffView::from_guild_buff(buff);
+        if remove {
+            snapshot
+                .guild_active_buffs
+                .retain(|existing| existing.id != view.id);
+        } else if let Some(existing) = snapshot
+            .guild_active_buffs
+            .iter_mut()
+            .find(|existing| existing.id == view.id)
+        {
+            *existing = view;
+        } else {
+            snapshot.guild_active_buffs.push(view);
+        }
+    }
 }
 
 /// 修改一个实体；不存在时什么也不做。
@@ -2933,12 +4205,14 @@ mod tests {
     use super::*;
     use mir_core::enums::EquipmentSlot;
     use mir_core::enums::Monster as MonsterImage;
-    use mir_protocol::data::{ClientBuff, ClientMagic, ItemInfo, SelectInfo, Stats, UserItem};
+    use mir_protocol::data::{
+        ClientBuff, ClientMagic, ClientMail, ItemInfo, SelectInfo, Stats, UserItem,
+    };
     use mir_protocol::packets::server::{
-        AddBuff, DamageIndicator, DeleteItem, EquipItem, MountUpdate, MoveItem, NPCGoods,
-        NPCResponse, NewItemInfo, ObjectEffect, ObjectItem, ObjectMonster, ObjectNPC, ObjectPlayer,
-        ObjectStruck, ObjectWalk, PlayerUpdate, RemoveBuff, RemoveItem, UserInformation,
-        UserLocation,
+        AddBuff, DamageIndicator, DeleteItem, EquipItem, GuildStatus, MountUpdate, MoveItem,
+        NPCGoods, NPCResponse, NPCStorage, NewItemInfo, ObjectEffect, ObjectItem, ObjectMonster,
+        ObjectNPC, ObjectPlayer, ObjectStruck, ObjectWalk, PlayerUpdate, RemoveBuff, RemoveItem,
+        UserInformation, UserLocation, UserStorage,
     };
 
     fn test_item(unique_id: u64, item_index: i32, count: u16) -> UserItem {
@@ -3567,5 +4841,443 @@ mod tests {
             },
         ));
         assert_eq!(snapshot.map.as_ref().expect("地图").music, 30_101);
+    }
+
+    // -----------------------------------------------------------------------
+    // 任务 / 仓库 / 邮件 / 行会快照
+    // -----------------------------------------------------------------------
+
+    fn quest_info(index: i32, name: &str, limit: i32) -> mir_protocol::data::ClientQuestInfo {
+        mir_protocol::data::ClientQuestInfo {
+            index,
+            name: name.to_owned(),
+            group: "新手村".to_owned(),
+            time_limit_in_seconds: limit,
+            ..mir_protocol::data::ClientQuestInfo::default()
+        }
+    }
+
+    fn quest_change(
+        id: i32,
+        task_list: &[&str],
+        completed: bool,
+        state: QuestState,
+    ) -> ServerPacket {
+        ServerPacket::ChangeQuest(mir_protocol::packets::server::ChangeQuest {
+            quest: ClientQuestProgress {
+                id,
+                task_list: task_list.iter().map(|line| (*line).to_owned()).collect(),
+                taken: true,
+                completed,
+                new: false,
+            },
+            quest_state: state,
+            track_quest: false,
+        })
+    }
+
+    #[test]
+    fn quest_packets_track_definitions_progress_removal_and_share_chat() {
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.apply_packet(&ServerPacket::NewQuestInfo(
+            mir_protocol::packets::server::NewQuestInfo {
+                info: quest_info(5, "猎鹿", 600),
+            },
+        ));
+        assert_eq!(
+            snapshot.quest_infos.get(&5).map(|info| info.name.as_str()),
+            Some("猎鹿")
+        );
+
+        snapshot.apply_packet_at(
+            &quest_change(5, &["击杀 鹿 3/10"], false, QuestState::Add),
+            1_000,
+        );
+        let quest = snapshot.quest(5).expect("进行中任务");
+        assert_eq!(quest.name, "猎鹿");
+        assert_eq!(quest.group, "新手村");
+        assert_eq!(quest.time_limit_seconds, 600);
+        assert_eq!(quest.remaining_seconds(61_000), Some(540));
+        assert!(!quest.ready_to_return());
+
+        snapshot.apply_packet_at(
+            &quest_change(5, &["击杀 鹿 10/10"], true, QuestState::Update),
+            90_000,
+        );
+        let quest = snapshot.quest(5).expect("进度更新");
+        assert!(quest.ready_to_return());
+        assert_eq!(quest.accepted_at_ms, Some(1_000), "Update 不重置接取时刻");
+
+        snapshot.apply_packet(&ServerPacket::CompleteQuest(
+            mir_protocol::packets::server::CompleteQuest {
+                completed_quests: vec![5],
+            },
+        ));
+        assert_eq!(snapshot.completed_quests, vec![5]);
+
+        snapshot.apply_packet(&ServerPacket::ShareQuest(
+            mir_protocol::packets::server::ShareQuest {
+                quest_index: 5,
+                sharer_name: "队长".to_owned(),
+            },
+        ));
+        assert!(
+            snapshot
+                .chat
+                .last()
+                .is_some_and(|line| line.text.contains("猎鹿") && line.text.contains("队长"))
+        );
+
+        snapshot.apply_packet(&quest_change(5, &[], false, QuestState::Remove));
+        assert!(snapshot.quests.is_empty(), "Remove 应移除进行中任务");
+        assert_eq!(snapshot.packet_count("ChangeQuest"), 3);
+    }
+
+    fn guild_member(name: &str, online: bool) -> GuildMember {
+        GuildMember {
+            name: name.to_owned(),
+            online,
+            ..GuildMember::default()
+        }
+    }
+
+    fn guild_rank(index: i32, name: &str, members: Vec<GuildMember>) -> GuildRank {
+        GuildRank {
+            name: name.to_owned(),
+            index,
+            options: 0,
+            members,
+        }
+    }
+
+    fn member_change(
+        name: &str,
+        status: u8,
+        rank_index: u8,
+        ranks: Vec<GuildRank>,
+    ) -> ServerPacket {
+        ServerPacket::GuildMemberChange(GuildMemberChange {
+            name: name.to_owned(),
+            rank_index,
+            status,
+            ranks,
+        })
+    }
+
+    fn guild_status(options: u8) -> ServerPacket {
+        ServerPacket::GuildStatus(GuildStatus {
+            guild_name: "沙巴克".to_owned(),
+            guild_rank_name: "成员".to_owned(),
+            level: 3,
+            gold: 5_000,
+            member_count: 2,
+            max_members: 20,
+            my_options: mir_core::enums::GuildRankOptions(options),
+            my_rank_id: 1,
+            ..GuildStatus::default()
+        })
+    }
+
+    #[test]
+    fn guild_member_status_codes_rebuild_the_rank_table() {
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.apply_packet(&guild_status(255));
+        assert_eq!(snapshot.guild.as_ref().map(|guild| guild.level), Some(3));
+        snapshot.apply_packet(&member_change(
+            "会长",
+            255,
+            0,
+            vec![
+                guild_rank(0, "会长", vec![guild_member("会长", true)]),
+                guild_rank(1, "成员", vec![guild_member("小明", false)]),
+            ],
+        ));
+        assert_eq!(snapshot.guild_ranks.len(), 2);
+        assert_eq!(snapshot.guild_members().len(), 2);
+        assert!(!snapshot.guild_members()[1].1.online);
+
+        // 1 = 上线。
+        snapshot.apply_packet(&member_change("小明", 1, 1, Vec::new()));
+        assert!(snapshot.guild_members()[1].1.online);
+        assert!(
+            snapshot
+                .chat
+                .iter()
+                .any(|line| line.text.contains("小明 上线了"))
+        );
+
+        // 5 = 被挪到 0 号职位。
+        snapshot.apply_packet(&member_change("小明", 5, 0, Vec::new()));
+        assert_eq!(snapshot.guild_ranks[0].members.len(), 2);
+        assert!(snapshot.guild_ranks[1].members.is_empty());
+
+        // 2 = 新成员。
+        snapshot.apply_packet(&member_change("新人", 2, 1, Vec::new()));
+        assert_eq!(snapshot.guild_ranks[1].members.len(), 1);
+        assert_eq!(
+            snapshot.guild.as_ref().map(|guild| guild.member_count),
+            Some(3),
+            "新成员会让人数 +1"
+        );
+
+        // 3 = 被踢；4 = 主动退会。
+        snapshot.apply_packet(&member_change("新人", 3, 1, Vec::new()));
+        assert!(snapshot.guild_ranks[1].members.is_empty());
+        snapshot.apply_packet(&member_change("小明", 4, 0, Vec::new()));
+        assert_eq!(snapshot.guild_ranks[0].members.len(), 1);
+
+        // 8 = 我的职位变了：`ranks[0]` 是新的职位快照。
+        snapshot.apply_packet(&member_change(
+            "会长",
+            8,
+            0,
+            vec![GuildRank {
+                name: "副会长".to_owned(),
+                options: 64,
+                index: 0,
+                members: vec![guild_member("会长", true)],
+            }],
+        ));
+        assert_rank(&snapshot, "副会长", 64);
+
+        // 空名字的 GuildStatus = 没有行会（清空成员/仓库/增益）。
+        snapshot.apply_packet(&ServerPacket::GuildStatus(GuildStatus::default()));
+        assert!(snapshot.guild_ranks.is_empty());
+        assert!(snapshot.guild_notice.is_empty());
+        assert!(snapshot.guild_storage.is_empty());
+    }
+
+    fn assert_rank(snapshot: &WorldSnapshot, name: &str, options: u8) {
+        let guild = snapshot.guild.as_ref().expect("行会");
+        assert_eq!(guild.rank_name, name);
+        assert_eq!(guild.my_options.value(), options);
+    }
+
+    #[test]
+    fn guild_storage_gold_and_buff_packets_update_the_snapshot() {
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.apply_packet(&guild_status(255));
+        snapshot.apply_packet(&ServerPacket::GuildStorageList(
+            mir_protocol::packets::server::GuildStorageList {
+                items: vec![Some(GuildStorageItem {
+                    item: test_item(41, 3, 9),
+                    user_id: 1,
+                })],
+            },
+        ));
+        assert_eq!(snapshot.guild_storage.len(), GUILD_STORAGE_SLOTS);
+        assert_eq!(
+            snapshot.guild_storage_item(0).map(|item| item.unique_id),
+            Some(41)
+        );
+
+        // 0 = 我存入：仓库格出现物品，背包对应格清空。
+        let mut inventory = vec![None; 4];
+        inventory[1] = Some(test_item(11, 1, 1));
+        snapshot.apply_packet(&ServerPacket::UserInformation(UserInformation {
+            inventory: Some(inventory),
+            ..user_information()
+        }));
+        snapshot.apply_packet(&ServerPacket::GuildStorageItemChange(
+            mir_protocol::packets::server::GuildStorageItemChange {
+                user: 1,
+                change_type: 0,
+                to: 2,
+                from: 1,
+                item: Some(GuildStorageItem {
+                    item: test_item(11, 1, 1),
+                    user_id: 1,
+                }),
+            },
+        ));
+        assert!(snapshot.inventory_item(1).is_none());
+        assert_eq!(
+            snapshot.guild_storage_item(2).map(|item| item.unique_id),
+            Some(11)
+        );
+
+        // 1 = 我取回：仓库格清空，物品出现在背包。
+        snapshot.apply_packet(&ServerPacket::GuildStorageItemChange(
+            mir_protocol::packets::server::GuildStorageItemChange {
+                user: 1,
+                change_type: 1,
+                to: 3,
+                from: 2,
+                item: None,
+            },
+        ));
+        assert!(snapshot.guild_storage_item(2).is_none());
+        assert_eq!(
+            snapshot.inventory_item(3).map(|item| item.unique_id),
+            Some(11)
+        );
+
+        // 资金：0 存入、1 取出、2 买增益、3 退还。
+        for (type_, expected) in [(0u8, 5_500u32), (1, 5_000), (2, 4_500), (3, 5_000)] {
+            snapshot.apply_packet(&ServerPacket::GuildStorageGoldChange(
+                mir_protocol::packets::server::GuildStorageGoldChange {
+                    amount: 500,
+                    type_,
+                    name: "测试者".to_owned(),
+                },
+            ));
+            assert_eq!(
+                snapshot.guild.as_ref().map(|guild| guild.gold),
+                Some(expected),
+                "type = {type_}"
+            );
+        }
+
+        // 增益：定义 + 获得 + 激活 + 移除。
+        snapshot.apply_packet(&ServerPacket::GuildBuffList(GuildBuffList {
+            remove: 0,
+            active_buffs: Vec::new(),
+            guild_buffs: vec![GuildBuffInfo {
+                id: 3,
+                name: "公会之力".to_owned(),
+                time_limit: 60,
+                activation_cost: 500,
+                ..GuildBuffInfo::default()
+            }],
+        }));
+        assert_eq!(snapshot.guild_buff_infos.len(), 1);
+        snapshot.apply_packet(&ServerPacket::GuildBuffList(GuildBuffList {
+            remove: 0,
+            active_buffs: vec![GuildBuff {
+                id: 3,
+                active: true,
+                active_time_remaining: 59,
+            }],
+            guild_buffs: Vec::new(),
+        }));
+        assert_eq!(
+            snapshot
+                .guild_active_buff(3)
+                .map(|buff| buff.active_time_remaining_minutes),
+            Some(59)
+        );
+        snapshot.apply_packet(&ServerPacket::GuildBuffList(GuildBuffList {
+            remove: 1,
+            active_buffs: vec![GuildBuff {
+                id: 3,
+                active: false,
+                active_time_remaining: 0,
+            }],
+            guild_buffs: Vec::new(),
+        }));
+        assert!(snapshot.guild_active_buff(3).is_none());
+    }
+
+    #[test]
+    fn mail_packets_track_list_flags_and_send_results() {
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.apply_packet(&ServerPacket::ReceiveMail(
+            mir_protocol::packets::server::ReceiveMail {
+                mail: vec![ClientMail {
+                    mail_id: 9,
+                    sender_name: "张三".to_owned(),
+                    message: "你好\n附件".to_owned(),
+                    opened: false,
+                    locked: false,
+                    can_reply: true,
+                    collected: false,
+                    gold: 100,
+                    items: vec![test_item(31, 1, 1)],
+                    ..ClientMail::default()
+                }],
+            },
+        ));
+        let mail = snapshot.mail(9).expect("邮件");
+        assert!(mail.can_collect());
+        assert!(mail.is_parcel());
+        assert_eq!(mail.subject_line(), "你好");
+        assert_eq!(mail.items.len(), 1);
+
+        snapshot.apply_packet(&ServerPacket::MailSendRequest(
+            mir_protocol::packets::server::MailSendRequest {},
+        ));
+        assert!(snapshot.mail_send_request);
+        assert_eq!(snapshot.mail_send_request_version, 1);
+        snapshot.apply_packet(&ServerPacket::MailCost(
+            mir_protocol::packets::server::MailCost { cost: 250 },
+        ));
+        assert_eq!(snapshot.mail_cost, Some(250));
+        snapshot.apply_packet(&ServerPacket::MailSent(
+            mir_protocol::packets::server::MailSent { result: 0 },
+        ));
+        assert_eq!(snapshot.mail_sent_result, Some(0));
+        snapshot.apply_packet(&ServerPacket::ParcelCollected(
+            mir_protocol::packets::server::ParcelCollected { result: 1 },
+        ));
+        assert_eq!(snapshot.parcel_collected_result, Some(1));
+        snapshot.apply_packet(&ServerPacket::MailLockedItem(
+            mir_protocol::packets::server::MailLockedItem {
+                unique_id: 31,
+                locked: true,
+            },
+        ));
+        assert_eq!(snapshot.mail_locked_items.get(&31), Some(&true));
+    }
+
+    #[test]
+    fn storage_packets_fill_eighty_slots_and_move_items() {
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.apply_packet(&ServerPacket::UserStorage(UserStorage {
+            storage: Some(vec![Some(test_item(21, 2, 3))]),
+        }));
+        assert_eq!(snapshot.storage.len(), STORAGE_SLOTS);
+        assert_eq!(
+            snapshot.storage_item(0).map(|item| item.unique_id),
+            Some(21)
+        );
+        assert!(!snapshot.storage_open);
+        snapshot.apply_packet(&ServerPacket::NPCStorage(NPCStorage {}));
+        assert!(snapshot.storage_open);
+        assert_eq!(snapshot.storage_open_version, 1);
+
+        let mut inventory = vec![None; 3];
+        inventory[0] = Some(test_item(11, 1, 1));
+        snapshot.apply_packet(&ServerPacket::UserInformation(UserInformation {
+            inventory: Some(inventory),
+            ..user_information()
+        }));
+        snapshot.apply_packet(&ServerPacket::StoreItem(
+            mir_protocol::packets::server::StoreItem {
+                from: 0,
+                to: 5,
+                success: true,
+            },
+        ));
+        assert!(snapshot.inventory_item(0).is_none());
+        assert_eq!(
+            snapshot.storage_item(5).map(|item| item.unique_id),
+            Some(11)
+        );
+        snapshot.apply_packet(&ServerPacket::TakeBackItem(
+            mir_protocol::packets::server::TakeBackItem {
+                from: 0,
+                to: 1,
+                success: true,
+            },
+        ));
+        assert!(snapshot.storage_item(0).is_none());
+        assert_eq!(
+            snapshot.inventory_item(1).map(|item| item.unique_id),
+            Some(21)
+        );
+
+        // 失败回执不动状态。
+        snapshot.apply_packet(&ServerPacket::StoreItem(
+            mir_protocol::packets::server::StoreItem {
+                from: 0,
+                to: 7,
+                success: false,
+            },
+        ));
+        assert!(snapshot.storage_item(7).is_none());
+
+        // 空 NPC 页会关掉仓库面板。
+        snapshot.apply_packet(&ServerPacket::NPCResponse(NPCResponse { page: Vec::new() }));
+        assert!(!snapshot.storage_open);
     }
 }

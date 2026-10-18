@@ -168,6 +168,7 @@ mod tests {
         let mut snapshot = WorldSnapshot {
             self_player: Some(crate::net::SelfPlayer {
                 object_id: 1,
+                real_id: 1,
                 name: "测试者".to_owned(),
                 position: Point::new(10, 10),
                 direction: MirDirection::Down,

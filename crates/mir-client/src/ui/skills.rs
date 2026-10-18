@@ -352,6 +352,7 @@ mod tests {
         WorldSnapshot {
             self_player: Some(SelfPlayer {
                 object_id: 7,
+                real_id: 7,
                 name: "法师".to_owned(),
                 position: Point::new(10, 10),
                 direction: MirDirection::Right,

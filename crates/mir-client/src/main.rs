@@ -8,8 +8,9 @@
 //!
 //! 窗口内按键：离线用方向键/WASD 平移相机、`S` 截图、`F1` 叠层、`Q` 退出；
 //! 联机用方向键/WASD 转身/走/跑（Shift 跑）、`Space` 攻击、`P` 捡取、`T` 聊天、
-//! `I` 背包、`M` 小地图、`F3` 技能、`1..9` 施法、鼠标点 NPC/面板按钮、`Esc` 关面板、
-//! `F1` 叠层、`F2` 截图、`Q` 退出。
+//! `I` 背包、`E` 装备、`M` 小地图、`B` 大地图、`Q` 任务、`N` 邮件、`G` 行会、
+//! `F3` 技能、`1..9` 施法、鼠标点 NPC/面板按钮、`Esc` 关面板、
+//! `F1` 叠层、`F2` 截图、`F10` 退出。
 //! 渲染全部委托给 `mir-render`，界面在 `mir-client::ui`；本 crate 只负责窗口、输入与网络会话。
 
 mod app;
@@ -357,9 +358,9 @@ fn run_connected(
         scene.map.height
     );
     println!(
-        "方向键/WASD 走（Shift 跑，反向先转身）· Space 攻击 · P 捡取 · T 聊天 · I 背包 · M 小地图 · F3 技能 · 1..9 施法"
+        "方向键/WASD 走（Shift 跑，反向先转身）· Space 攻击 · P 捡取 · T 聊天 · I 背包 · M 小地图 · Q 任务 · N 邮件 · G 行会 · F3 技能 · 1..9 施法"
     );
-    println!("鼠标点 NPC / 面板按钮 · Esc 关面板 · F1 叠层 · F2 截图 · Q 退出");
+    println!("鼠标点 NPC / 面板按钮 · Esc 关面板 · F1 叠层 · F2 截图 · F10 退出");
     let sound = build_sound_player(options, client_settings);
     if sound.is_active() {
         println!(
@@ -535,9 +536,10 @@ fn print_help() {
     println!("窗口内按键：");
     println!("  离线：方向键 / W A D 平移（S 截图）；S 截图；F1 叠层；Q/Esc 退出");
     println!("  联机：方向键 / WASD 走（Shift 跑，反向先转身）；Space 攻击；P 捡取；");
-    println!("        T 聊天（回车发送、Esc 取消）；I 背包；M 小地图；F3 技能；1..9 施法；");
+    println!("        T 聊天（回车发送、Esc 取消）；I 背包；M 小地图；Q 任务；N 邮件；G 行会；");
+    println!("        F3 技能；1..9 施法；仓库面板由 NPC 仓库页自动打开；");
     println!("        商店里 S 出售 / R 修理选中物品；背包里 D 丢弃选中物品；");
-    println!("        鼠标点 NPC 对话、点按钮/货架/背包格；Esc 关面板；F1 叠层；F2 截图；Q 退出");
+    println!("        鼠标点 NPC 对话、点按钮/货架/背包格；Esc 关面板；F1 叠层；F2 截图；F10 退出");
     println!();
     println!("默认语言：zh-cn（简体中文）。语言设置保存在本地，可随时切换。");
 }

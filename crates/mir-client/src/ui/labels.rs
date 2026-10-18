@@ -127,6 +127,130 @@ pub enum Label {
     NoBigmap,
     /// 大地图面板底部的按键提示。
     BigmapHint,
+    /// 任务面板标题。
+    Quests,
+    /// 任务日志标题（Crystal `QuestDiaryDialog`）。
+    QuestDiary,
+    /// 任务面板底部提示。
+    QuestHint,
+    /// 任务状态「进行中」。
+    QuestInProgress,
+    /// 任务状态「已完成 / 可交付」。
+    QuestComplete,
+    /// 任务状态「可接取」。
+    QuestAvailable,
+    /// 放弃任务按钮。
+    Abandon,
+    /// 任务限时剩余。
+    TimeLeft,
+    /// 仓库面板标题。
+    Storage,
+    /// 仓库容量（`已用/总数`）。
+    Capacity,
+    /// 仓库面板底部提示。
+    StorageHint,
+    /// 邮件面板标题。
+    Mail,
+    /// 收件箱。
+    Inbox,
+    /// 写信。
+    Compose,
+    /// 发件人列。
+    Sender,
+    /// 主题列。
+    Subject,
+    /// 正文。
+    Message,
+    /// 日期列。
+    Date,
+    /// 附件。
+    Attachment,
+    /// 收取附件。
+    Collect,
+    /// 锁定。
+    Lock,
+    /// 解锁。
+    Unlock,
+    /// 删除。
+    Delete,
+    /// 发送。
+    Send,
+    /// 收件人。
+    Recipient,
+    /// 邮费。
+    Postage,
+    /// 询价。
+    Inquiry,
+    /// 贴邮票。
+    Stamp,
+    /// 返回。
+    Back,
+    /// 没有邮件。
+    NoMail,
+    /// 邮件面板底部提示。
+    MailHint,
+    /// 行会面板标题。
+    Guild,
+    /// 行会成员页。
+    Members,
+    /// 行会仓库页。
+    GuildStorageTab,
+    /// 行会增益页。
+    GuildBuffsTab,
+    /// 行会公告页。
+    Notice,
+    /// 行会资金。
+    GuildFunds,
+    /// 职位列。
+    Rank,
+    /// 在线。
+    Online,
+    /// 离线。
+    Offline,
+    /// 地图列。
+    MapColumn,
+    /// 升职。
+    Promote,
+    /// 降职。
+    Demote,
+    /// 踢人。
+    Kick,
+    /// 保存。
+    Save,
+    /// 激活增益。
+    Activate,
+    /// 购买增益。
+    Purchase,
+    /// 存入金币。
+    Deposit,
+    /// 取出金币。
+    Withdraw,
+    /// 金额输入。
+    Amount,
+    /// 未加入行会。
+    NoGuild,
+    /// 行会面板底部提示。
+    GuildHint,
+    /// 可用（增益状态）。
+    Available,
+    /// 已获得（增益状态）。
+    Obtained,
+    /// 已过期（增益状态）。
+    Expired,
+    /// 剩余时长（分钟）。
+    MinutesLeft,
+    /// 没有进行中的任务。
+    NoQuests,
+    /// 升级点（行会增益需求）。
+    Points,
+    /// 未读（邮件）。
+    Unread,
+    /// 已领取（邮件附件）。
+    Collected,
+    /// 邮件没有正文时的占位主题。
+    NoBody,
+    /// 写信页主题框的占位提示（协议没有主题字段）。
+    NoSubjectField,
 }
 
 impl Label {
@@ -140,8 +264,8 @@ impl Label {
             (Self::Mp, Language::En) => "MP",
             (Self::Gold, Language::ZhCn) => "金币",
             (Self::Gold, Language::En) => "Gold",
-            (Self::Map, Language::ZhCn) => "地图",
-            (Self::Map, Language::En) => "Map",
+            (Self::Map | Self::MapColumn, Language::ZhCn) => "地图",
+            (Self::Map | Self::MapColumn, Language::En) => "Map",
             (Self::Chat, Language::ZhCn) => "聊天",
             (Self::Chat, Language::En) => "Chat",
             (Self::Inventory, Language::ZhCn) => "背包",
@@ -222,8 +346,8 @@ impl Label {
             (Self::Luck, Language::En) => "Luck",
             (Self::Totals, Language::ZhCn) => "属性汇总",
             (Self::Totals, Language::En) => "Totals",
-            (Self::Buffs, Language::ZhCn) => "增益",
-            (Self::Buffs, Language::En) => "Buffs",
+            (Self::Buffs | Self::GuildBuffsTab, Language::ZhCn) => "增益",
+            (Self::Buffs | Self::GuildBuffsTab, Language::En) => "Buffs",
             (Self::Seconds, Language::ZhCn) => "秒",
             (Self::Seconds, Language::En) => "s",
             (Self::Infinite, Language::ZhCn) => "永久",
@@ -250,6 +374,122 @@ impl Label {
             (Self::NoBigmap, Language::En) => "No big map art",
             (Self::BigmapHint, Language::ZhCn) => "B / Esc 关闭",
             (Self::BigmapHint, Language::En) => "B / Esc to close",
+            (Self::Quests | Self::QuestDiary, Language::ZhCn) => "任务",
+            (Self::Quests, Language::En) => "Quests",
+            (Self::QuestDiary, Language::En) => "Quest Diary",
+            (Self::QuestHint, Language::ZhCn) => "Q 关闭 · 点击任务选中",
+            (Self::QuestHint, Language::En) => "Q to close · click a quest",
+            (Self::QuestInProgress, Language::ZhCn) => "进行中",
+            (Self::QuestInProgress, Language::En) => "In progress",
+            (Self::QuestComplete, Language::ZhCn) => "已完成 · 去交付",
+            (Self::QuestComplete, Language::En) => "Completed · turn in",
+            (Self::QuestAvailable, Language::ZhCn) => "可接取",
+            (Self::QuestAvailable | Self::Available, Language::En) => "Available",
+            (Self::Abandon, Language::ZhCn) => "放弃",
+            (Self::Abandon, Language::En) => "Abandon",
+            (Self::TimeLeft, Language::ZhCn) => "剩余",
+            (Self::TimeLeft, Language::En) => "Left",
+            (Self::Storage | Self::GuildStorageTab, Language::ZhCn) => "仓库",
+            (Self::Storage | Self::GuildStorageTab, Language::En) => "Storage",
+            (Self::Capacity, Language::ZhCn) => "容量",
+            (Self::Capacity, Language::En) => "Capacity",
+            (Self::StorageHint, Language::ZhCn) => "拖拽存取 · Esc 关闭",
+            (Self::StorageHint, Language::En) => "Drag to store · Esc to close",
+            (Self::Mail, Language::ZhCn) => "邮件",
+            (Self::Mail, Language::En) => "Mail",
+            (Self::Inbox, Language::ZhCn) => "收件箱",
+            (Self::Inbox, Language::En) => "Inbox",
+            (Self::Compose, Language::ZhCn) => "写信",
+            (Self::Compose, Language::En) => "Compose",
+            (Self::Sender, Language::ZhCn) => "发件人",
+            (Self::Sender, Language::En) => "Sender",
+            (Self::Subject, Language::ZhCn) => "主题",
+            (Self::Subject, Language::En) => "Subject",
+            (Self::Message, Language::ZhCn) => "正文",
+            (Self::Message, Language::En) => "Message",
+            (Self::Date, Language::ZhCn) => "日期",
+            (Self::Date, Language::En) => "Date",
+            (Self::Attachment, Language::ZhCn) => "附件",
+            (Self::Attachment, Language::En) => "Attachment",
+            (Self::Collect, Language::ZhCn) => "收取附件",
+            (Self::Collect, Language::En) => "Collect",
+            (Self::Lock, Language::ZhCn) => "锁定",
+            (Self::Lock, Language::En) => "Lock",
+            (Self::Unlock, Language::ZhCn) => "解锁",
+            (Self::Unlock, Language::En) => "Unlock",
+            (Self::Delete, Language::ZhCn) => "删除",
+            (Self::Delete, Language::En) => "Delete",
+            (Self::Send, Language::ZhCn) => "发送",
+            (Self::Send, Language::En) => "Send",
+            (Self::Recipient, Language::ZhCn) => "收件人",
+            (Self::Recipient, Language::En) => "Recipient",
+            (Self::Postage, Language::ZhCn) => "邮费",
+            (Self::Postage, Language::En) => "Postage",
+            (Self::Inquiry, Language::ZhCn) => "询价",
+            (Self::Inquiry, Language::En) => "Quote",
+            (Self::Stamp, Language::ZhCn) => "贴邮票",
+            (Self::Stamp, Language::En) => "Stamp",
+            (Self::Back, Language::ZhCn) => "返回",
+            (Self::Back, Language::En) => "Back",
+            (Self::NoMail, Language::ZhCn) => "没有邮件",
+            (Self::NoMail, Language::En) => "No mail",
+            (Self::MailHint, Language::ZhCn) => "N 关闭 · 点击邮件阅读",
+            (Self::MailHint, Language::En) => "N to close · click to read",
+            (Self::Guild, Language::ZhCn) => "行会",
+            (Self::Guild, Language::En) => "Guild",
+            (Self::Members, Language::ZhCn) => "成员",
+            (Self::Members, Language::En) => "Members",
+            (Self::Notice, Language::ZhCn) => "公告",
+            (Self::Notice, Language::En) => "Notice",
+            (Self::GuildFunds, Language::ZhCn) => "行会资金",
+            (Self::GuildFunds, Language::En) => "Guild Funds",
+            (Self::Rank, Language::ZhCn) => "职位",
+            (Self::Rank, Language::En) => "Rank",
+            (Self::Online, Language::ZhCn) => "在线",
+            (Self::Online, Language::En) => "Online",
+            (Self::Offline, Language::ZhCn) => "离线",
+            (Self::Offline, Language::En) => "Offline",
+            (Self::Promote, Language::ZhCn) => "升职",
+            (Self::Promote, Language::En) => "Promote",
+            (Self::Demote, Language::ZhCn) => "降职",
+            (Self::Demote, Language::En) => "Demote",
+            (Self::Kick, Language::ZhCn) => "踢人",
+            (Self::Kick, Language::En) => "Kick",
+            (Self::Save, Language::ZhCn) => "保存",
+            (Self::Save, Language::En) => "Save",
+            (Self::Activate, Language::ZhCn) => "激活",
+            (Self::Activate, Language::En) => "Activate",
+            (Self::Purchase, Language::ZhCn) => "购买",
+            (Self::Purchase, Language::En) => "Purchase",
+            (Self::Deposit, Language::ZhCn) => "存入",
+            (Self::Deposit, Language::En) => "Deposit",
+            (Self::Withdraw, Language::ZhCn) => "取出",
+            (Self::Withdraw, Language::En) => "Withdraw",
+            (Self::Amount, Language::ZhCn) => "金额",
+            (Self::Amount, Language::En) => "Amount",
+            (Self::NoGuild, Language::ZhCn) => "未加入行会",
+            (Self::NoGuild, Language::En) => "Not in a guild",
+            (Self::GuildHint, Language::ZhCn) => "G 关闭 · Esc 收起",
+            (Self::GuildHint, Language::En) => "G to close · Esc hides",
+            (Self::Available, Language::ZhCn) => "可用",
+            (Self::Obtained, Language::ZhCn) => "已获得",
+            (Self::Obtained, Language::En) => "Obtained",
+            (Self::Expired, Language::ZhCn) => "已过期",
+            (Self::Expired, Language::En) => "Expired",
+            (Self::MinutesLeft, Language::ZhCn) => "分钟",
+            (Self::MinutesLeft, Language::En) => "min",
+            (Self::NoQuests, Language::ZhCn) => "没有进行中的任务",
+            (Self::NoQuests, Language::En) => "No active quests",
+            (Self::Points, Language::ZhCn) => "点数",
+            (Self::Points, Language::En) => "Points",
+            (Self::Unread, Language::ZhCn) => "未读",
+            (Self::Unread, Language::En) => "Unread",
+            (Self::Collected, Language::ZhCn) => "已领取",
+            (Self::Collected, Language::En) => "Collected",
+            (Self::NoBody, Language::ZhCn) => "（无正文）",
+            (Self::NoBody, Language::En) => "(no message)",
+            (Self::NoSubjectField, Language::ZhCn) => "协议无主题字段，仅本地显示",
+            (Self::NoSubjectField, Language::En) => "no subject field on the wire",
         }
     }
 
@@ -561,6 +801,68 @@ mod tests {
             Label::MinimapHint,
             Label::NoBigmap,
             Label::BigmapHint,
+            Label::Quests,
+            Label::QuestDiary,
+            Label::QuestHint,
+            Label::QuestInProgress,
+            Label::QuestComplete,
+            Label::QuestAvailable,
+            Label::Abandon,
+            Label::TimeLeft,
+            Label::Storage,
+            Label::Capacity,
+            Label::StorageHint,
+            Label::Mail,
+            Label::Inbox,
+            Label::Compose,
+            Label::Sender,
+            Label::Subject,
+            Label::Message,
+            Label::Date,
+            Label::Attachment,
+            Label::Collect,
+            Label::Lock,
+            Label::Unlock,
+            Label::Delete,
+            Label::Send,
+            Label::Recipient,
+            Label::Postage,
+            Label::Inquiry,
+            Label::Stamp,
+            Label::Back,
+            Label::NoMail,
+            Label::MailHint,
+            Label::Guild,
+            Label::Members,
+            Label::GuildStorageTab,
+            Label::GuildBuffsTab,
+            Label::Notice,
+            Label::GuildFunds,
+            Label::Rank,
+            Label::Online,
+            Label::Offline,
+            Label::MapColumn,
+            Label::Promote,
+            Label::Demote,
+            Label::Kick,
+            Label::Save,
+            Label::Activate,
+            Label::Purchase,
+            Label::Deposit,
+            Label::Withdraw,
+            Label::Amount,
+            Label::NoGuild,
+            Label::GuildHint,
+            Label::Available,
+            Label::Obtained,
+            Label::Expired,
+            Label::MinutesLeft,
+            Label::NoQuests,
+            Label::Points,
+            Label::Unread,
+            Label::Collected,
+            Label::NoBody,
+            Label::NoSubjectField,
         ] {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);

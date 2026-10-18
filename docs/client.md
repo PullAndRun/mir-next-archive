@@ -104,6 +104,18 @@ Crystal 的版本哈希是客户端 exe 的 MD5（`Client/MirScenes/LoginScene.c
   所以装备与模板谁先到都能收敛；
 * `map.music`：`S.MapInformation.Music`（`GameScene.cs:2146`）或
   `S.MapChanged.Music`（`GameScene.cs:3985`），窗口每帧用它切背景音乐；
+* `quest_infos` / `quests` / `completed_quests`：任务定义（`S.NewQuestInfo`）、进行中任务
+  （`S.ChangeQuest` 的进度文本 + 本地接取时刻）、已交付任务编号（`S.CompleteQuest`）；
+* `storage` / `storage_open` / `storage_open_version`：个人仓库 80 格（`S.UserStorage`）与
+  「该不该显示仓库面板」（`S.NPCStorage`）；`S.StoreItem`/`S.TakeBackItem` 的回执直接
+  搬动背包/仓库里的物品；
+* `mails` / `mail_send_request` / `mail_cost` / `mail_sent_result` /
+  `parcel_collected_result` / `mail_locked_items`：邮件列表（`S.ReceiveMail`）与写信页/
+  操作回执；
+* `guild` / `guild_ranks` / `guild_notice` / `guild_storage` / `guild_buff_infos` /
+  `guild_active_buffs`：行会概况（`S.GuildStatus`）、职位与成员（`S.GuildMemberChange`
+  的状态码语义见 `net::apply_guild_member_change`）、公告、112 格行会仓库与增益
+  （`S.GuildStorageList` / `S.GuildStorageItemChange` / `S.GuildBuffList`）；
 * `packet_counts` 记录包种类次数，供测试断言。
 
 客户端每批包处理完把快照整体克隆给 UI；UI 侧 `poll_network` 用最新快照重绘。
@@ -121,8 +133,10 @@ buff 倒计时都基于它，所以无头测试可以任意拨表。
 
 ### 键盘（联机模式）
 
-本里程碑新增 `B`（大地图）；`Space` 在锁定目标后变成「朝目标攻击/靠近」，没有目标时
+本里程碑新增任务（`Q`）、邮件（`N`）与行会（`G`）面板；仓库面板由服务端的
+`S.NPCStorage` 自动打开。`Space` 在锁定目标后变成「朝目标攻击/靠近」，没有目标时
 仍是原来的「朝当前朝向挥一下」。走/跑/攻击/受击/死亡都由收到的包或这些按键驱动。
+`Q` 现在是任务面板（Crystal 的默认键），退出改到 `F10`。
 
 | 按键 | 行为 |
 |---|---|
@@ -135,13 +149,19 @@ buff 倒计时都基于它，所以无头测试可以任意拨表。
 | E | 开关装备纸娃娃面板 |
 | M | 开关小地图（`ui::minimap`，见 §5.5） |
 | B | 开关大地图（`ui::bigmap`，见 §5.7） |
+| Q | 开关任务面板（`ui::quests`，见 §5.8；Crystal 的 `KeybindOptions.Quests` 默认就是 `Q`，`KeyBindSettings.cs:219`） |
+| N | 开关邮件面板（`ui::mail`，见 §5.10） |
+| G | 开关行会面板（`ui::guild`，见 §5.11）；打开时自动拉公告/成员/仓库/增益 |
 | F3 | 开关技能列表 |
 | 1..9 | 施法（未绑定技能会先发 `C.MagicKey`） |
 | 商店打开时 ↑/↓ | 滚动货架（不移动角色） |
-| Esc | 依次关闭：右键菜单 → 拖拽 → 聊天输入 → 大地图 → NPC 对话（发 `@exit`）→ 背包/装备/技能（小地图只由 `M` 开关，与 Crystal 的 `MiniMapDialog.Toggle()` 一致）；顺序集中在 `UiState::escape` |
+| Esc | 依次关闭：右键菜单 → 拖拽 → 聊天输入 → 大地图 → NPC 对话（发 `@exit`）→ 任务/仓库/邮件/行会/背包/装备/技能（小地图只由 `M` 开关，与 Crystal 的 `MiniMapDialog.Toggle()` 一致）；顺序集中在 `UiState::escape`。输入框聚焦时第一次 `Esc` 只取消焦点 |
 | F1 | 调试叠层 |
 | F2 | 截图到 `build/screenshot-<n>.png` |
-| Q | 退出 |
+| F10 | 退出（`Q` 现在属于任务面板，与 Crystal 一致） |
+
+> 仓库面板没有独立按键：服务端在 NPC 仓库页发 `S.NPCStorage` 时自动打开（§5.9），
+> 与 Crystal 的 `StorageDialog.Show()`（`GameScene.cs:4256`）一致。
 
 离线模式：方向键/WASD 平移相机、`S` 截图、`F1` 叠层、`Q` 退出。
 
@@ -158,6 +178,17 @@ buff 倒计时都基于它，所以无头测试可以任意拨表。
 | 拖拽 | 背包 → 装备槽 | 穿戴：`C.MoveItem { grid: Inventory, from: 背包格, to: 装备槽 }` |
 | 拖拽 | 装备槽 → 背包 | 脱下：`C.MoveItem { grid: Equipment, from: 装备槽, to: 背包格 }` |
 | 拖拽 | 背包 → 背包 | 交换：`C.MoveItem { grid: Inventory, from, to }` |
+| 拖拽 | 背包 → 个人仓库格 | 存物品：`C.StoreItem { from: 背包格, to: 仓库格 }` |
+| 拖拽 | 个人仓库格 → 背包 | 取物品：`C.TakeBackItem { from: 仓库格, to: 背包格 }` |
+| 拖拽 | 背包 / 行会仓库格 → 行会仓库格 | 存物品 / 仓库内移动：`C.GuildStorageItemChange { type: 0/2 }` |
+| 拖拽 | 行会仓库格 → 背包 | 取物品：`C.GuildStorageItemChange { type: 1 }` |
+| 左键单击 | 任务行 / 任务「放弃」 | 选中任务 / `C.AbandonQuest`（§5.8） |
+| 左键单击 | 邮件行 / 收取附件 / 锁定 / 删除 | `C.ReadMail` / `C.CollectParcel` / `C.LockMail` / `C.DeleteMail`（§5.10） |
+| 左键单击 | 写信页输入框 / 背包挑选格 / 贴邮票 / 询价 / 发送 | 聚焦输入框 / 切换附件 / 切换邮票 / `C.MailCost` / `C.SendMail` |
+| 左键单击 | 行会成员行 / 升职 / 降职 / 踢人 | 选中成员 / `C.EditGuildMember{ChangeType=2/2/1}`（§5.11） |
+| 左键单击 | 行会仓库页的资金框 / 存入 / 取出 | 聚焦金额 / `C.GuildStorageGoldChange{Type=0/1}` |
+| 左键单击 | 行会增益行的「购买 / 激活」 | `C.GuildBuffUpdate{Action=1/2}` |
+| 左键单击 | 行会公告输入框 / 保存 | 聚焦 / `C.EditGuildNotice` |
 | 悬停 | 背包/装备物品 | 跟随鼠标的 tooltip（名字/类型/需求/属性/耐久/堆叠/价格） |
 | 滚轮 | 商店面板 | 货架滚动（同时画比例滚动条） |
 | 悬停 | 世界实体（怪物/玩家/NPC） | 该格画 1px 黄色方框（头顶名字本来就常显） |
@@ -406,6 +437,157 @@ view.y = (int)(scaleY × 自己.y) - 108/2
 Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`:676`），但对象点仍减去
 `startPointX/Y`（`:678-705`），而自己的点却按 `格 × 比例` 画（`:707-710`）。玩家不在
 图像边缘时两者会错位；本作按 `格 × 比例` 统一投影（需求也要求「画整张图 + 自己位置点」）。
+
+### 5.8 任务面板（Q）
+
+`ui::quests`。数据全部来自快照：
+
+* `S.NewQuestInfo` → `quest_infos`：登录时服务端把**全部任务定义**发一遍
+  （`Server/MirObjects/PlayerObject.cs:1185`、`:1727-1731`），界面用名字/分组/限时/奖励；
+* `S.ChangeQuest` → `quests`：进度文本 `task_list` 由服务端算好（`crates/mir-server/src/quests.rs`
+  的 `task_list`，对应 Crystal `QuestProgressInfo.UpdateTasks`），例如「击杀 鹿 3/10」；
+  `Add` 插入、`Update` 替换进度、`Remove`（交付/放弃/超时）移除；
+* `S.CompleteQuest` → `completed_quests`（已交付任务编号，面板暂未展示）；
+* `S.ShareQuest` → 一条系统聊天消息。
+
+布局（`quests::quest_layout`，纯函数、绘制与命中测试共用）：
+
+| 项 | 本项目 | Crystal 出处 |
+|---|---|---|
+| 按键 | `Q` | `KeybindSettings.cs:219`（`KeybindOptions.Quests` = `Keys.Q`）、`GameScene.cs:660-664` |
+| 位置 | 左侧 `(x+40, y+60)`，宽 468 | `QuestDiaryDialog` 的 `Location = new Point(ScreenWidth/2-300-20, 60)`（`QuestDialogs.cs:660`） |
+| 行高 | 46 px，一屏 7 行（滚轮滚动） | 任务日记按分组逐条排（`QuestDialogs.cs:716-760`） |
+| 一行内容 | 名字 · 分组 / 进度文本（最多 2 行）/ 状态 + 限时剩余 / 「放弃」按钮 | `QuestSingleQuestItem` 的 `Complete`/`InProgress` 文案（`QuestDialogs.cs:1898`） |
+| 完成提示 | 名字与状态都画绿色（`COMPLETE_COLOR`）+「已完成 · 去交付」 | `ClientQuestProgress.Completed` 是「目标达成」，不是「已交付」 |
+| 放弃 | 按钮发 `C.AbandonQuest { quest_index }` | `AskCancelQuest` 确认框 → `C.AbandonQuest`（`QuestDialogs.cs:592`） |
+
+简化（原因）：
+
+* 限时剩余从**客户端第一次看到该任务**（`S.ChangeQuest{Add}`）开始算：协议里的
+  `ClientQuestProgress` 不带接取时间（Crystal 的 `StartDateTime` 只在服务端
+  `QuestProgressInfo` 里），重登后会重置成完整时长；
+* Crystal 的任务日记按 `QuestInfo.Group` 折叠分组、另有详情页/奖励选择/共享/追踪四个控件
+  （`QuestListDialog`、`QuestDetailDialog`、`QuestTrackingDialog`），本作只做需求里的
+  「进度 + 放弃 + 完成高亮」；
+* 「可接取任务」不做：服务端没有「可接任务列表」包，可接任务只能从 NPC 对话页里点
+  （`C.AcceptQuest` 由 NPC 脚本触发），所以面板只列进行中任务。
+
+### 5.9 仓库面板（服务端自动打开）
+
+`ui::storage`。流程与 Crystal 一致：
+
+1. NPC 脚本页 `[@STORAGE]` → 服务端发 `S.UserStorage`（80 格物品列表，每个连接只发一次，
+   `PlayerObject.cs:8169-8180`）→ `S.NPCStorage`（`NPCScript.cs:1002-1006`）；
+2. 快照把 `storage_open` 置真、`storage_open_version` 加一，`UiState::sync` 据此自动打开
+   仓库面板，并把背包面板一起打开（拖拽存取需要两侧都可见）；
+3. 离开仓库页（`S.NPCResponse` 空页/换页、切图）时 `storage_open` 置假，面板收起。
+
+| 项 | 本项目 | Crystal 出处 |
+|---|---|---|
+| 格数 | 80（10 列 × 8 行，一屏画完） | `Globals.StorageGridSize = 80`（`Globals.cs:19`）、`AccountInfo.Storage = new UserItem[80]`（`AccountInfo.cs:69`） |
+| 布局 | 10 列 × 8 行 | Crystal 是 `StorageDialog.Grid = new MirItemCell[10 * 16]`（`NPCDialogs.cs:2935`）里前 80 格、按页滚动 |
+| 存 | 背包格 → 仓库格：`C.StoreItem { from, to }` | `PlayerObject.StoreItem`（`PlayerObject.cs:5376-5456`） |
+| 取 | 仓库格 → 背包格：`C.TakeBackItem { from, to }` | `PlayerObject.TakeBackItem`（`:5457-5526`） |
+| 回执 | `S.StoreItem` / `S.TakeBackItem` 的 `Success` 把物品搬进快照 | 同左 |
+| 容量 | 标题右侧「容量 已用/80」 | Crystal 没有容量文案（格子数就是容量） |
+| 金币 | **没有**（只显示物品） | 个人仓库没有金币功能；金币仓库是行会的（§5.11） |
+
+简化：没有扩充仓库（`HasExpandedStorage` 恒假）、没有仓库密码（服务端恒不要求）、
+没有滚动（80 格一屏放得下）；仓库内部没有「移动」包（Crystal 也只有存/取两条路径）；
+点在仓库面板空白处只吞掉点击，不会穿透成走路。`Esc` 关掉面板后，重新点 NPC 的仓库选项
+会让服务端再发一条 `S.NPCStorage`（`S.UserStorage` 每个连接只发一次），面板会再次打开。
+
+### 5.10 邮件面板（N）
+
+`ui::mail`。两个页签：
+
+**收件箱**（`S.ReceiveMail` 的 `ClientMail` 列表）：
+
+| 项 | 本项目 | Crystal 出处 |
+|---|---|---|
+| 列表 | 10 行一页 + 上一页/下一页 | `MailListDialog.Rows = new MailItemRow[10]`、`PreviousButton/NextButton`（`MailDialogs.cs:26`、`:143-215`） |
+| 列 | 类型图标（金=带附件、灰=普通信）/ 发件人 / 主题 / 日期 | `TitleTypeLabel/TitleSenderLabel/TitleMessageLabel`（`MailDialogs.cs:40-76`） |
+| 阅读 | 点一行 → `C.ReadMail { mail_id }`，正文与附件显示在下方 | `MailReadParcelDialog.ReadMail` → `C.ReadMail`（`MailDialogs.cs:1098`） |
+| 收取附件 | `C.CollectParcel { mail_id }`（带附件且未领取才可用） | `:1189` |
+| 锁定/解锁 | `C.LockMail { mail_id, lock }` | `:1074` |
+| 删除 | `C.DeleteMail { mail_id }`（锁定/未领取时禁用） | `:1051` |
+
+**写信**：收件人 / 主题 / 正文 / 金额 / 贴邮票 / 5 个附件格 + 面板内的背包挑选格 + 邮费。
+
+* 「发送」发 `C.SendMail { name, message, gold, items_idx[5], stamped }`；
+* 「询价」发 `C.MailCost { gold, items_idx, stamped }`，服务端回 `S.MailCost { cost }`；
+* 「贴邮票」切换 `Stamped`（服务端：贴票免邮费且可带 5 件，未贴只认第 1 件，
+  `PlayerObject.cs:11790`）；
+* 服务端 `S.MailSendRequest`（NPC 邮筒页）到达时自动打开写信页；
+* `S.MailSent` / `S.ParcelCollected` 的结果记录在快照里（`mail_sent_result` /
+  `parcel_collected_result`），`S.MailLockedItem` 记附件格的锁定状态。
+
+简化（原因，都在 `ui/mail.rs` 模块文档里）：
+
+* **主题**：Crystal 的 `ClientMail` 没有主题字段（`Shared/Data/ClientData.cs:154`），
+  服务端 `mail` 表的 `subject` 也不上线。列表的「主题」列显示正文首行；写信页的主题
+  输入框只本地记录，发送时忽略；
+* 输入框是单行（Crystal 是多行 `MirTextBox`），不处理 IME 组合中间态；
+* 附件用「点背包格切换」而不是从背包拖拽（Crystal 是拖 `MirItemCell`，`MailDialogs.cs:889`）；
+  未贴邮票时界面仍允许挂 5 件，但服务端只认第 1 件（`PlayerObject.cs:11790`）；
+* 没有「回复 / 黑名单 / 举报」按钮；邮件类型用色块代替 `Title.wzl` 图库图标；
+* 日期按 `MM-DD HH:MM`（UTC）显示，Crystal 用「今天/昨天/N 天前」文案。
+
+### 5.11 行会面板（G）
+
+`ui::guild`。四个页签（对应 Crystal 的左右两栏按钮）：
+
+| 页签 | 数据 | 动作 |
+|---|---|---|
+| 成员 | `S.GuildStatus` + `S.GuildMemberChange{Status=255}` | 选中成员；升职/降职 `C.EditGuildMember{ChangeType=2}`、踢人 `{ChangeType=1}`（按 `GuildStatus.MyOptions` 的权限位置灰） |
+| 仓库 | `S.GuildStorageList{Items[112]}`、`S.GuildStorageGoldChange` | 拖拽存取/移动 `C.GuildStorageItemChange{Type=0/1/2}`；存入/取出资金 `C.GuildStorageGoldChange{Type=0/1}` |
+| 增益 | `S.GuildBuffList` 的 `GuildBuffs`（可选）与 `ActiveBuffs`（已获得） | 「购买」（`Action=1`，未获得）/「激活」（`Action=2`，已获得但过期）；已激活时置灰 |
+| 公告 | `S.GuildNoticeChange` | 输入一行并「保存」→ `C.EditGuildNotice { notice: [行] }`（需要 `CanChangeNotice`） |
+
+打开面板（`G`）时自动发四条请求（Crystal `GuildDialog.Show()` 的拉取）：
+`C.RequestGuildInfo{Type=0}`（公告）、`{Type=1}`（成员表）、
+`C.GuildStorageItemChange{Type=3}`（仓库列表）、`C.GuildBuffUpdate{Action=0}`（增益列表）。
+
+成员状态码按 Crystal 的 `GameScene.GuildMemberChange`（`GameScene.cs:5813-5868`）处理：
+`0` 下线、`1` 上线（+行会频道消息）、`2` 新成员、`3/4` 被踢/退会、`5` 职位调动通知、
+`6/7` 职位新增/修改、`8` 我的职位变了（同时更新 `GuildStatus` 里的权限）、`255` 完整成员表。
+
+简化（原因）：
+
+* 成员表「地图」列**恒为空**：协议 `GuildMember` 只有名字/编号/最后登录/投票/在线
+  （`Shared/Data/GuildData.cs:62-90`），没有所在地图；Crystal 的成员页也只有
+  名字/职位/在线状态。这一列按需求保留，显示 `--`；
+* 职位用「升职 / 降职」（职位序号 ±1）而不是 Crystal 的下拉框（`MirDropDownBox`）；
+* 没有「新建职位 / 职位权限编辑 / 邀请入会」控件（服务端已实现
+  `C.EditGuildMember{ChangeType=0/3/4/5}`，界面未接，见 §8）；
+* 行会仓库 112 格一屏画完（Crystal 是 8 列 × 14 行、一页 8 行滚动）；
+* 面板固定靠左 500 px：本作的面板不可拖动，不靠左会把右侧背包挡住，
+  「背包 → 行会仓库」的拖拽就点不到；
+* 资金存取没有 Crystal 的 `MirAmountBox` 弹窗，直接在面板里输入金额。
+
+### 5.12 面板 ↔ 包对照表
+
+| 面板 / 功能 | 客户端包 → 服务端包 | 服务端实现 | 快照字段 |
+|---|---|---|---|
+| 任务列表 | ← `S.NewQuestInfo` / `S.ChangeQuest` / `S.CompleteQuest` / `S.ShareQuest` | `quests.rs` | `quest_infos` / `quests` / `completed_quests` |
+| 放弃任务 | `C.AbandonQuest{QuestIndex}` → `S.ChangeQuest{Remove}` | `World::abandon_quest`（`quests.rs`） | `quests` 移除 |
+| 仓库打开 | ← `S.UserStorage{Storage[80]}` + `S.NPCStorage` | `storage.rs` | `storage` / `storage_open` / `storage_open_version` |
+| 存物品 | `C.StoreItem{From,To}` → `S.StoreItem{From,To,Success}` | `World::storage_store_item` | 背包 ↔ `storage` |
+| 取物品 | `C.TakeBackItem{From,To}` → `S.TakeBackItem{From,To,Success}` | `World::storage_take_back_item` | 背包 ↔ `storage` |
+| 邮件列表 | ← `S.ReceiveMail{Mail[]}` | `mail.rs`（`mail_list_packet`） | `mails` |
+| 阅读 | `C.ReadMail{MailID}` → `S.ReceiveMail` | `World::mail_read` | `mails` |
+| 领取附件 | `C.CollectParcel{MailID}` → `S.GainedItem`/`S.GainedGold` + `S.ParcelCollected` + `S.ReceiveMail` | `World::mail_collect` | `parcel_collected_result` |
+| 锁定 / 删除 | `C.LockMail` / `C.DeleteMail` → `S.ReceiveMail` | `World::mail_lock` / `mail_delete` | `mails` |
+| 写信页 | ← `S.MailSendRequest`；`C.MailCost{Gold,ItemsIdx,Stamped}` → `S.MailCost{Cost}` | `World::mail_open_send_page` / `mail_cost` | `mail_send_request` / `mail_cost` |
+| 发送 | `C.SendMail{Name,Message,Gold,ItemsIdx[5],Stamped}` → `S.DeleteItem`×N + `S.LoseGold` + `S.MailSent` | `World::mail_send` | `mail_sent_result` |
+| 附件格锁定 | `C.MailLockedItem{UniqueID,Locked}` → `S.MailLockedItem` | `MirConnection` 回显 | `mail_locked_items` |
+| 行会概况 | ← `S.GuildStatus` | `guild.rs`（`Guild::status`） | `guild` |
+| 成员表 | `C.RequestGuildInfo{Type=1}` → `S.GuildMemberChange{Status=255,Ranks}`；增量 `Status=0..8` | `World::guild_request_info` | `guild_ranks` |
+| 升/降职/踢人 | `C.EditGuildMember{ChangeType,RankIndex,Name,RankName}` → `S.GuildMemberChange` | `World::guild_edit_member` | `guild_ranks` |
+| 公告 | `C.RequestGuildInfo{Type=0}` → `S.GuildNoticeChange`；`C.EditGuildNotice{Notice[]}` | `World::guild_request_info` / `guild_edit_notice` | `guild_notice` |
+| 行会仓库 | `C.GuildStorageItemChange{Type=3}` → `S.GuildStorageList{Items[112]}`；`{Type=0/1/2}` → `S.GuildStorageItemChange` | `guild_storage.rs` | `guild_storage` |
+| 行会资金 | `C.GuildStorageGoldChange{Type,Amount}` → `S.LoseGold`/`S.GainedGold` + `S.GuildStorageGoldChange{Amount,Type,Name}` | `World::guild_storage_gold_change` | `guild.gold` |
+| 行会增益 | `C.GuildBuffUpdate{Action=0}` → `S.GuildBuffList`；`{Action=1/2,Id}` → `S.GuildBuffList`（+ 资金变化） | `guild_buffs.rs` | `guild_buff_infos` / `guild_active_buffs` |
 
 ## 6. 实体图库映射
 
@@ -725,6 +907,31 @@ Crystal 的 `Frame` 是 `Start / Count / Skip / Interval`（`Client/MirObjects/F
 `crates/mir-render` 的 `pathfind` 单元测试覆盖：直线、绕墙、不可达、对角不切角、
 节点上限/步数上限、启发式与确定性。
 
+`crates/mir-client/tests/panels.rs`：**任务/仓库/邮件/行会四个面板的无头测试**（不连服务器）。
+
+1. 用 `WorldSnapshot::apply_packet` 注入 `S.UserInformation`、`S.NewItemInfo`、
+   `S.NewQuestInfo`/`S.ChangeQuest`、`S.UserStorage`/`S.NPCStorage`、`S.ReceiveMail`、
+   `S.GuildStatus`/`S.GuildMemberChange`/`S.GuildNoticeChange`/`S.GuildStorageList`/
+   `S.GuildBuffList`；
+2. 分别渲染整屏到 `target/client-quests.png`、`target/client-storage.png`、
+   `target/client-mail.png`、`target/client-guild.png`，断言面板区域相对「只有世界」那一帧
+   的像素变化 > 1000、PNG 非空；
+3. 命中测试与命令断言：
+   * 任务「放弃」→ `NetCommand::AbandonQuest{quest_index}`；完成任务行是绿色；
+   * 背包格 → 仓库格 → `NetCommand::StoreItem{from,to}`；仓库格 → 背包格 →
+     `NetCommand::TakeBackItem{from,to}`；`S.StoreItem`/`S.TakeBackItem` 回执改动快照；
+   * 邮件行 → `ReadMail`；「收取附件」→ `CollectParcel`；「锁定」→ `LockMail`；
+     「删除」→ `DeleteMail`；写信页「发送」→ `SendMail{name,message,gold,items_idx,stamped}`、
+     「询价」→ `MailCost`；
+   * 行会「升职」→ `EditGuildMember{ChangeType=2}`、增益「购买」→
+     `GuildBuffUpdate{Action=1}`、资金「存入」→ `GuildStorageGoldChange{Type=0}`、
+     背包 → 行会仓库 → `GuildStorageItemChange{Type=0}`、公告「保存」→ `EditGuildNotice`；
+4. 小窗口（320×240）下四个布局函数仍然可用（面板宽度/命中矩形收边）。
+
+```powershell
+cargo test -p mir-client --test panels -- --nocapture
+```
+
 `crates/mir-client/tests/sound.rs`：**音效事件 + 真实 WAV 冒烟**（不连服务器、不开窗口）。
 
 1. 注入 `ObjectWalk`/`ObjectRun`/`ObjectAttack`（带技能）/`ObjectStruck`/`S.Struck`/
@@ -736,6 +943,7 @@ Crystal 的 `Frame` 是 `Start / Count / Skip / Interval`（`Client/MirObjects/F
    采样率/声道（至少 5 个必须成功，缺素材时打印跳过），并确认 12 个事件的文件都能定位。
 
 ```powershell
+cargo test -p mir-client --test panels -- --nocapture
 cargo test -p mir-client --test sound -- --nocapture
 cargo test -p mir-client --test minimap_panel -- --nocapture
 cargo test -p mir-client --test bigmap_panel -- --nocapture
@@ -781,7 +989,17 @@ cargo fmt --all -- --check
 * **小地图**：NPC 任务感叹号（`MainDialogs.cs:1963-2010`）、两档尺寸/底部按钮
   （邮件/大地图/亮度）、滚轮缩放的「大地图搜索」；大地图面板本体见 §5.7（已实现）；
 * 天气、光照（`LightSetting`/`MapDarkLight`）、聊天频道切换与物品链接；
-* 交易/仓库/摆摊/邮件/任务面板；装备升级/镶嵌/觉醒等数值系统；
+* **交易/摆摊/拍卖**（Crystal `TradeDialogs`、`TrustMerchantDialog`、`GameshopDialog`）没有界面；
+* **任务**：可接任务列表（目前只能从 NPC 对话页接取）、任务详情/奖励选择/共享/追踪控件、
+  已完成任务列表的展示（`S.CompleteQuest` 已进快照，面板只列进行中任务）；
+* **仓库**：扩充仓库（`HasExpandedStorage`）、仓库密码、仓库内的金币存取
+  （Crystal 的个人仓库本来就没有金币功能）；
+* **邮件**：回复预填、黑名单/举报按钮、多行正文输入、邮件过期提示（服务端 30 天清理，
+  客户端不显示剩余天数）、主题字段（协议没有）；
+* **行会**：新建职位/职位权限编辑/邀请入会（服务端 `C.EditGuildMember{ChangeType=0/3/4/5}`
+  已实现，界面未接）、行会投票、攻城/联盟、成员表「地图」列（协议 `GuildMember` 没有地图）、
+  行会仓库的滚动分页（112 格一屏画完）；
+* 装备升级/镶嵌/觉醒等数值系统；
 * `!Mon.dat` 精确怪物外观映射（见 §6.2）。
 
 ## 9. 对拍 Crystal 时发现的怪癖

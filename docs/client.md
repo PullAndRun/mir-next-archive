@@ -603,13 +603,79 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 | 交易金币 | `C.TradeGold{Amount}`（增量）→ 自己 `S.LoseGold`、对方 `S.TradeGold{Amount=累计}` | `World::trade_gold` | `trade.gold` / `trade.partner_gold` |
 | 准备/确认 | `C.TradeConfirm{Locked}` → 双方都锁定时互换物品 + `S.TradeConfirm{}`（空包） | `World::trade_confirm` | `trade.locked` / `trade.partner_ready` |
 | 取消 | `C.TradeCancel{}` → `S.TradeCancel{Unlock=false}`；双方都已锁定时校验失败发 `{Unlock=true}` | `World::trade_cancel` | `trade.open` / `trade.version` |
+| 打开市场 | ← `S.NPCMarket{Listings,Pages,UserMode}` | `market.rs`（`World::open_market`） | `market.listings` / `market.pages` |
+| 搜索 / 刷新 | `C.MarketSearch{Match,Type,UserMode,Min/MaxShape,MarketType}` / `C.MarketRefresh{}` → `S.NPCMarket` | `World::market_search` / `market_refresh` | `market.listings` / `market.pages` |
+| 翻页 | `C.MarketPage{Page}` → `S.NPCMarketPage{Listings}` | `World::market_page` | `market.listings`（追加） |
+| 买断 / 出价 | `C.MarketBuy{AuctionID,BidPrice}` → `S.LoseGold` / `S.GainedItem` / `S.MarketSuccess` / `S.MarketFail` | `World::market_buy` | `market.message` / `market.fail` |
+| 提前成交 | `C.MarketSellNow{AuctionID}` → `S.MarketSuccess` / `S.MarketFail` | `World::market_sell_now` | `market.message` |
+| 取回 / 收款 | `C.MarketGetBack{Mode,AuctionID}` → `S.GainedItem` / `S.GainedGold` / `S.MarketSuccess` / `S.MarketFail` | `World::market_get_back` | `market.listings` / `market.message` |
+| 上架 | `C.ConsignItem{UniqueID,Price,Type}` → `S.ConsignItem{UniqueID,Success}` + `S.LoseGold` | `World::consign_item` | `market.consign_result` |
 | 组队开关 | `C.SwitchGroup{AllowGroup}` → `S.SwitchGroup{AllowGroup}` | `group.rs`（`World::switch_group`） | `group.allow_group` |
 | 邀请入队 | `C.AddMember{Name}` → 目标 `S.GroupInvite{Name}`；接受后双方 `S.AddMember` | `World::group_invite` | `group.members` |
 | 接受/拒绝组队 | `C.GroupInvite{AcceptInvite}` → `S.AddMember` × N + `S.GroupMembersMap` + `S.SendMemberLocation` + `S.ObjectHealth` | `World::group_join` | `group.members`（含地图/坐标） |
 | 退队 / 踢人 | `C.DelMember{Name}` → `S.DeleteMember` / `S.DeleteGroup` | `World::group_kick` / `leave_group` | `group.members` |
 | 组队聊天 | `C.Chat{"!!…"}` → `S.ObjectChat{Type=Group}` 只发队员 | `World::group_chat` | `chat`（`ChatType::Group`） |
 
-## 6. 实体图库映射
+### 5.13 交易面板（T / Y）
+
+`ui::trade`。一个面板同时画两栏（Crystal 是 `TradeDialog` + `GuestTradeDialog` 两个窗口）：
+
+| 区域 | 内容 | 交互 |
+|---|---|---|
+| 标题 | 「交易（对方：名字）」 | — |
+| 左栏 | 自己的 5×2 格、金币、金币输入框 + 「放入金币」 | 从背包拖入 → `C.DepositTradeItem`；点自己的格子 → `C.RetrieveTradeItem` |
+| 右栏 | 对方的 5×2 格、对方金币、准备状态 | 只读（服务端 `S.TradeItem` / `S.TradeGold` 更新） |
+| 底部 | 「准备 / 确认」「取消交易」 | `C.TradeConfirm{Locked=true}` / `C.TradeCancel` |
+
+要点：
+
+* 打开方式：对方发起后收到 `S.TradeRequest`，聊天区提示「某某 请求与你交易」；
+  按 `T` 或点聊天里的邀请接受/拒绝（`C.TradeReply`）；`Y` 是 Crystal 的发起键，
+  本作 `T` 已用于聊天，所以发起固定为 `Y`（见 §4 键位表）。
+* 面板打开时 `pointer_over_panel` 会拦截世界点击，不会误走路；`Esc` 发 `C.TradeCancel`。
+* 只用一个「准备/确认」按钮：未准备时显示「准备」、已准备显示「确认」，两次点击都发
+  `C.TradeConfirm{Locked=true}`，服务端幂等。
+* 对方状态行（未准备/已准备）是**本作扩展**：Crystal 没有这个 UI 元素，但
+  `S.TradeConfirm{Unlock=true}`/`S.TradeItem` 已足以推导。
+* 金币没有 `MirAmountBox` 弹窗，直接输入数字 + 「放入金币」；协议是增量
+  `C.TradeGold{Amount}`，对方看到的是累计额。
+* 成交后服务端发 `S.TradeConfirm`（空包）关窗；`S.TradeCancel{Unlock=true}` 只解锁，
+  `{Unlock=false}` 才关窗并退货。
+
+测试：`crates/mir-client/tests/trade_panel.rs`
+（`trade_panel_accepts_items_gold_and_confirm`、`trade_layouts_survive_small_windows`）。
+
+### 5.14 市场 / 寄售 / 拍卖面板
+
+`ui::market`。三个页签对应协议的 `MarketPanelType`：
+
+| 页签 | `C.MarketSearch.UserMode` | 列表 | 主按钮 |
+|---|---|---|---|
+| 市场 | `false` | 全服在售（寄售 + 拍卖） | 寄售「买下」/ 拍卖「出价」→ `C.MarketBuy` |
+| 寄售 | `true` | 自己挂的寄售 | 「取回」→ `C.MarketGetBack{Any}` |
+| 拍卖 | `true` | 自己挂的拍卖 | 「取回」；有人出价时「提前成交」→ `C.MarketSellNow` |
+
+* 打开：NPC 的 `[@MARKET]` 页 → `S.NPCMarket` 打开面板；`[@CONSIGN]` → `S.NPCConsign`
+  直接打开「寄售」页签（`ui::market` 的 `consign_open_version`）。
+* 搜索框 + 「搜索」「刷新」：`C.MarketSearch` 的 `Match/Type/UserMode/MinShape/MaxShape/
+  MarketType` 来自当前页签与输入框；`C.MarketRefresh` 走服务端上次关键字。
+* 翻页：客户端页号 0 起、协议 `C.MarketPage.Page` 从 0 开始；「上一页 / 下一页」只请求
+  尚未取过的页（`ui::market::max_scroll` / `MarketView::append_page`）。
+* 列表列：物品（图标 + 名字）、价格、卖家/状态、到期；`ClientAuction.seller` 是**状态标签**
+  （出售中/已售出/已过期/无人出价/已有出价），不是玩家名（Crystal `GetSellerLabel`）。
+* 失败码 `S.MarketFail.Reason` 0..=10 全部本地化：0 死亡、1 未与商人对话、2 已售出、
+  3 已过期、4 金币不足、5 背包已满、6 不能买自己的、7 商人太远/条目不存在、
+  8 金币超上限、9 出价太低、10 拍卖已结束；未知编号回「操作失败」。
+* `S.MarketSuccess.Message` 是服务端文案，直接显示在面板底部绿字 + 聊天系统行。
+* 寄售 / 拍卖页签有「上架」表单：背包选中物品 + 价格 + 上架 → `C.ConsignItem`；
+  价格输入框按页签校验（寄售 5000..=50,000,000，拍卖 0..=50,000）。
+* 简化：市场面板打开时会关掉 NPC 对话；面板不可拖动、固定在屏幕中央偏上；
+  Crystal 的商城页签（`GameShop`）本作不显示。
+
+测试：`crates/mir-client/tests/market_panel.rs`（布局/快照/失败码/搜索翻页/购买出价/上架/
+截图，见文件内 6 个用例）。
+
+
 
 扁平素材（`resource/data/*.wzl`）与 Crystal 的「一个外观一个 `.Lib`」不同，因此用文件名
 + 固定步长定位；映射表如下：
@@ -1009,7 +1075,9 @@ cargo fmt --all -- --check
 * **小地图**：NPC 任务感叹号（`MainDialogs.cs:1963-2010`）、两档尺寸/底部按钮
   （邮件/大地图/亮度）、滚轮缩放的「大地图搜索」；大地图面板本体见 §5.7（已实现）；
 * 天气、光照（`LightSetting`/`MapDarkLight`）、聊天频道切换与物品链接；
-* **交易/摆摊/拍卖**（Crystal `TradeDialogs`、`TrustMerchantDialog`、`GameshopDialog`）没有界面；
+* **摆摊/拍卖的剩余项**：NPC 市场（寄售/拍卖/搜索/翻页/买断/出价/提前成交/取回）面板已在
+  §5.14 实现；仍缺 Crystal 的商城 `GameShop` 页签（没有商城数据）、挂单页的按类型过滤树与
+  滚动条（本作固定 10 行 + 上下页）；
 * **任务**：可接任务列表（目前只能从 NPC 对话页接取）、任务详情/奖励选择/共享/追踪控件、
   已完成任务列表的展示（`S.CompleteQuest` 已进快照，面板只列进行中任务）；
 * **仓库**：扩充仓库（`HasExpandedStorage`）、仓库密码、仓库内的金币存取

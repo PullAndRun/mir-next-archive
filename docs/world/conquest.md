@@ -253,7 +253,7 @@ if (guildCounter == 1 && takingGuild != Guild) {
 
 玩家**切图进入皇宫**时结算：`PlayerObject.CheckConquest(true)`（`:13949-13966`，
 由 `CompleteMapMovement` 在 `:4617` 调用）→ `TakeConquest(player)` → 立刻 `EndWar`。
-本作把这一步接在 [`World::change_map`](crate::maps::World::change_map) 的末尾。
+本作把这一步接在 `World::change_map` 的末尾。
 
 ### 6.5 `TakeConquest`（`ConquestObject.cs:551-632`）
 

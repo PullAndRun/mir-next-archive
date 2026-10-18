@@ -2,7 +2,7 @@
 
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
-![Status](https://img.shields.io/badge/status-working--skeleton-lightgrey)
+![Status](https://img.shields.io/badge/status-playable-orange)
 
 用 Rust 重写的《热血传奇 2》（Legend of Mir 2）服务端、客户端与配套工具链。
 
@@ -10,14 +10,17 @@
 
 传奇-Next（仓库名 `mir-next`）是《热血传奇 2》的开源重制项目。项目以 LOMCN 社区维护的开源实现 [Crystal](https://github.com/Suprcode/Crystal)（C#）作为玩法与协议的参照系，用 Rust 从零实现服务端、客户端与工具链，目标是在保留原作玩法体验的前提下，获得更好的性能、可维护性与跨平台部署能力。
 
-> **当前阶段：可以打怪的服务端。** 已经做到：Crystal 的 **432 个数据包全部覆盖**（408 个由 C# 源码自动生成、24 个手写），
-> 服务端能完成「连接 → 版本校验 → 注册/登录 → 建角/删角 → 进入世界 → 转身/走跑/聊天 → 退出」整条链路，
-> 行走走的是**真实 `.map` 地形**（Crystal 的 9 种地图版本全部支持），账号与角色可存 PostgreSQL，
-> 世界里的怪物来自 **Crystal 自己的 `Server.MirDB` 数据库**（真实怪物属性 + 358 个刷怪点），
-> 已经能索敌、追击、出手、掉血、掉落、拾取、升级、死亡复活并广播全套战斗与物品包；
-> 客户端素材层能解码 `.Lib`/`.wzl` 图库（已用真实素材验证）。
-> NPC 商店与任务（接取/击杀收集目标/交付领奖/限时/存档）已经可用，行会、组队与攻城等玩法尚未实现，
-> 客户端渲染只有骨架。
+> **当前阶段：可联机游玩的服务器 + 客户端。** 已经做到：Crystal 的 **432 个数据包全部覆盖**
+> （408 个由 C# 源码自动生成、24 个手写），服务端能完成「连接 → 版本校验 → 注册/登录 →
+> 建角/删角 → 进入世界 → 转身/走跑/聊天 → 退出」整条链路，行走走的是**真实 `.map` 地形**
+> （Crystal 的 9 种地图版本全部支持），账号与角色可存 PostgreSQL，世界里的怪物来自
+> **Crystal 自己的 `Server.MirDB` 数据库**（真实怪物属性 + 刷怪点），已能索敌、追击、出手、
+> 掉血、掉落、拾取、升级、死亡复活并广播全套战斗与物品包；NPC 商店、任务、组队、行会、
+> 玩家仓库、邮件、玩家间交易与 NPC 寄售/拍卖市场均已在服务端落地，其中仓库、邮件与市场挂单
+> 可持久化；客户端素材层能解码 `.Lib`/`.wzl` 图库（已用真实素材验证），联机渲染与中文 UI
+> 已覆盖状态栏、聊天、背包、纸娃娃、商店、对话、技能、buff、小地图/大地图、邮件、仓库、
+> 行会、组队、交易与市场面板。AOI 网格化、视野 16 与门状态机已落地，待刑部全量验收；攻城建筑、
+> 部分高级玩法与客户端细节（见 [`docs/client.md`](docs/client.md) §8）尚未完成。
 
 ## 项目目标
 
@@ -35,23 +38,25 @@
 | Cargo workspace 与 CI | ✅ | `cargo fmt` / `clippy` / `test` + 协议生成一致性检查 |
 | 协议层（`mir-protocol`） | ✅ | **432/432 个包全覆盖**：408 个由 C# 源码自动生成 + 24 个手写；每个包都有 encode→decode 往返测试 |
 | 登录网关与会话（`mir-server`） | ✅ | 版本校验、注册、登录、建角/删角、进世界、聊天、语言切换 |
-| 地图与行走（`mir-world` / `mir-server`） | 🟡 | `.map` 9 种版本读取 + 可走性校验；动作计时按 Crystal（走/跑 600ms、转身 350ms、跑需先走一步）、`UserLocation`/`ObjectWalk`/`ObjectRun` 广播、世界 tick 100ms；门状态机与 AOI 半径仍未完全对齐 |
+| 地图与行走（`mir-world` / `mir-server`） | 🟡 | `.map` 9 种版本读取 + 可走性校验；动作计时按 Crystal（走/跑 600ms、转身 350ms、跑需先走一步）、`UserLocation`/`ObjectWalk`/`ObjectRun` 广播、世界 tick 100ms；视野已对齐 16 格（`DataRange`）并接入 8×8 桶 AOI 网格、进出视野差分与门状态机（5 秒自动关）；本轮端到端测试见 `tests/aoi.rs`，待刑部全量验收 |
 | 账号与角色存档（`mir-store`） | ✅ | PostgreSQL + 迁移；内存实现用于无库试玩 |
 | 游戏数据（`mir-db`） | ✅ | Crystal `Server.MirDB` 全量读取（地图/物品/怪物/NPC/任务/技能/商城/攻城/刷怪点），版本 60..117，6 个真实样本 leftover=0 |
 | 怪物 AI 与战斗 | ✅ | 索敌/追击/巡逻、两段式攻击（动作包立即、伤害 300ms 后结算）、护甲与闪避、暴击、死亡与尸体回收、经验升级、死亡复活、自然回血，RNG 顺序与 Crystal 一致 |
 | PK 与攻击模式 | ✅ | Peace/Group/Guild/RedBrown/All 判定、安全区与 NoFight 禁打、PvP 300ms 结算与暴击、PK 值（击杀 +100、红名 200/黄名 100、12 秒衰减、棕名 60 秒）、名字颜色广播、死亡掉落（红名背包全掉）、守卫只打红名并可回位 |
 | 攻城（沙巴克） | 🟡 | 申请校验、时间表开战/停战、四种城主判定（Classic/KingOfHill/ControlPoints/CapturePalace）、夺城广播与城主税收、战区名字色与 PK 保护、攻城传送点城主专属、箭塔只射敌对行会、迁移 0008 持久化；城门/城墙/器械实体与旗子对象未做 |
 | 技能（魔法） | 🟡 | 技能数据/用书学习/施法校验/延迟结算/修炼值升级/存档；已实现 8 个伤害与治疗技能 + 9 个增益技能（护盾/加速/魔法盾…），其余登记未实现 |
-| 物品与背包 | ✅ | 掉落、地面物品与过期、拾取/丢弃、46 格背包、14 装备槽、装备加成、药水/卷轴/丢金币、`UserItem[]` 存档；仓库未做 |
+| 物品与背包 | ✅ | 掉落、地面物品与过期、拾取/丢弃、46 格背包、14 装备槽、装备加成、药水/卷轴/丢金币、`UserItem[]` 存档；仓库见「玩家仓库与邮件」 |
 | Buff | ✅ | 带到期时间的属性修饰层、`AddBuff`/`RemoveBuff` 广播、魔法盾按伤害扣时、到期重算属性并补发血量 |
-| NPC 对话与商店 | ✅ | `Envir/NPCs` 脚本解析（`#INSERT`/`#INCLUDE`/条件/动作/按钮）、NPC 刷出与 `ObjectNPC`、`NewMapInfo` 下发、对话跳转、买/卖/修（Crystal 定价公式与价格倍率）；仓库与时段可见性未做 |
+| NPC 对话与商店 | ✅ | `Envir/NPCs` 脚本解析（`#INSERT`/`#INCLUDE`/条件/动作/按钮）、NPC 刷出与 `ObjectNPC`、`NewMapInfo` 下发、对话跳转、买/卖/修（Crystal 定价公式与价格倍率）；NPC 营业时段可见性未做 |
 | 任务 | ✅ | `Envir/Quests` 脚本解析（13 个段）、接取前置（等级/职业/前置任务链/上限）、击杀·收集·标记目标、交付领奖（金币/经验/元宝/固定/任选）、限时超时、放弃、NPC `CHECKQUEST` 与 `[Quests]` 关联、`characters.quests` 存档往返；任务物品栏与每日重置未做（见 `docs/world/quests.md`） |
 | 组队 | ✅ | 邀请/接受/拒绝/退队/踢人、队长顺延、组内 `!!` 聊天、16 格内按人数与等级分配经验、组队任务击杀共享、切图通知；PK 与地图准入规则未做 |
-| 多地图与传送 | ✅ | 按地图文件惰性加载与缓存、`MovementInfo` 传送点（含 `need_hole`/`need_move`）、`S.MapChanged` 包序、NPC `MOVE`/`MAPMOVE`/`ENTERMAP`、客户端切图重载地形 |
+| 多地图与传送 | ✅ | 按地图文件惰性加载与缓存、`MovementInfo` 传送点（含 `need_hole`/`need_move`）、`S.MapChanged` 包序、NPC `MOVE`/`MAPMOVE`/`ENTERMAP`；客户端地形仍是启动时加载（见 `docs/client.md` §8） |
 | 行会 | ✅ | 创建（NPC `[@CREATEGUILD]`）、邀请/加入、职位与权限位、升降职/踢人、公告、`!~` 行会聊天、行会经验与等级、行会仓库（112 格物品 + 资金）、行会 buff（购买/激活/到期/全员加成）、迁移 0005/0006 持久化；攻城与领地未做 |
 | 玩家仓库与邮件 | ✅ | 80 格仓库（`[@STORAGE]` 页，`characters.storage` 持久化）、邮件发送（附件/邮票/邮费/限速）、阅读/锁定/领取/删除、迁移 0007、离线按名投递与 30 天过期 |
-| 攻城与领地 | ⏳ | `ConquestInfo` 数据已可读，待行会城战流程 |
-| Rust 客户端（渲染与 UI） | 🟡 | 等距地图 + 联机 + 实体精灵 + 装备分层外观 + 逐帧动画（站立/走/跑/攻击/受击/死亡）+ 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能/buff/小地图/大地图）+ 伤害数字 + 头顶血条 + 目标锁定 + 拖拽穿脱 + 点地走路 + 音效（rodio，可无声降级）；坐骑/翅膀/背景音乐/寻路待做 |
+| 玩家交易 | ✅ | 面朝格发起/回应、10 格交易栏、金币、双方确认后互换、放物品即清双方确认、取消/走跑转身切图下线死亡中止、背包满时取消改寄邮件（`docs/world/trade.md`） |
+| 寄售 / 拍卖市场 | 🟡 | NPC `[@CONSIGN]`/`[@MARKET]` 上架、搜索/翻页/买断/出价/提前成交/取回、5% 佣金与手续费、7 天过期与启动清理、迁移 0009 持久化；客户端市场面板已实现，待刑部验收；到期自动成交未做（`docs/world/market.md`） |
+| 攻城与领地 | ⏳ | `ConquestInfo` 数据已可读，城门/城墙/旗子与领地租借待做 |
+| Rust 客户端（渲染与 UI） | 🟡 | 等距地图 + 联机 + 实体精灵 + 装备分层外观 + 逐帧动画（站立/走/跑/攻击/受击/死亡）+ 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能/buff/小地图/大地图/任务/邮件/仓库/行会/组队/交易/市场）+ 伤害数字 + 头顶血条 + 目标锁定 + 拖拽穿脱 + 点地走路 + 音效与背景音乐（rodio，可无声降级）；坐骑/翅膀精确素材、移动插值、寻路与天气待做（见 [`docs/client.md`](docs/client.md) §8） |
 | 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计、MirDB 报告、图库查看/导出；素材库编辑器未做 |
 | 素材索引（`mir2_dev`） | ✅ | `tools/asset-index/` 把 `resource/` 的 233 万文件登记进 PostgreSQL，按名字/扩展名/仓库查询 |
 
@@ -125,8 +130,10 @@ python tools/asset-index/find_asset.py --ext .wzl --top data --limit 20
 - **内容也跟随语言**：地图标题（`MapInformation.Title`）等文本从语言包的
   `maps` 段取，未收录时用文件名兜底。
 - **客户端本地语言**：`cargo run -p mir-client -- --lang en`（设置存本地，断网也能切）。
+  客户端固定文案在 `crates/mir-client/src/ui/labels.rs` 的 `Label` 枚举里编译期内置，
+  **不进** `config/lang/`（后者只镜像服务端 `TextKey`）。
 
-细节与新增文本的流程见 [`docs/i18n.md`](docs/i18n.md)。
+细节、新增文本流程与覆盖审计见 [`docs/i18n.md`](docs/i18n.md)。
 
 ## 技术选型
 
@@ -206,10 +213,13 @@ python tools/protocol-gen/generate.py
 | [`docs/world/quests.md`](docs/world/quests.md) | 任务系统：脚本段、接取/交付流程、奖励与存档 |
 | [`docs/world/buffs.md`](docs/world/buffs.md) | Buff 容器：到期、属性叠加、药水与增益技能 |
 | [`docs/world/maps.md`](docs/world/maps.md) | 多地图与传送：加载缓存、传送点、切图包序 |
+| [`docs/world/aoi.md`](docs/world/aoi.md) | AOI 网格、视野半径 16、进出视野差分与门状态机 |
 | [`docs/world/group.md`](docs/world/group.md) | 组队：状态模型、包序、经验共享公式 |
 | [`docs/world/guild.md`](docs/world/guild.md) | 行会：创建/职位/公告/聊天/经验、仓库与 buff、持久化 |
 | [`docs/world/storage.md`](docs/world/storage.md) | 玩家仓库：80 格、存取校验与存档 |
 | [`docs/world/mail.md`](docs/world/mail.md) | 邮件：发送/领取/锁定/删除、附件与邮费、过期 |
+| [`docs/world/trade.md`](docs/world/trade.md) | 玩家交易：发起/接受/交易格/金币/确认/取消、距离与朝向、包序 |
+| [`docs/world/market.md`](docs/world/market.md) | NPC 寄售/拍卖：上架/搜索/翻页/买断/出价/取回/过期、佣金与持久化 |
 | [`docs/client.md`](docs/client.md) | 客户端：协议流程、按键/鼠标、面板与字体 |
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |
 | [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文与游戏内切换 |

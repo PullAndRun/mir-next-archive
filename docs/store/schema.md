@@ -598,3 +598,59 @@ if (string.CompareOrdinal(account.Password, p.Password) != 0)
 4. **`Stats`**：`jsonb` 即可（键是稀疏小整数），但排序/比较逻辑要保留「0 值不存」的语义。
 5. **`DateTime`**：原版存的是 `DateTime.ToBinary()`（含 Kind，且多为 `Envir.Now` 这个「服务器启动时刻 + Stopwatch 毫秒」的伪时钟，`Envir.cs:72`、`Envir.cs:85-86`）。迁移时统一转 `timestamptz`，并对 `MinValue`（二进制 0）做 `NULL` 映射。
 6. **别复制的设计**：内存对象即持久化对象、整文件重写、无脏标记、`WrongPasswordCount` 不落盘、`Friends` 计数 bug、`UserItem.Slots` 的反语义标志。
+
+---
+
+## 9. 本作 PostgreSQL 映射：迁移 `0009_market.sql`（寄售/拍卖挂单）
+
+Crystal 的 `AuctionInfo` 存在 MirADB 的**全局** `Auctions` 段（见 §5、`Envir.cs:2591-2594` /
+`:3018-3029`），不是角色行。本作沿用「全局表」的语义，把每条挂单落成
+`market_auctions` 的一行；卖家/买家只存角色主键 + 名字快照，物品仍是
+`encode_slots(&[Some(item)])` 的单格 `UserItem[]` 字节块。
+
+### 9.1 表结构
+
+`crates/mir-store/migrations/0009_market.sql`：
+
+| 列 | 类型 | 约束 / 默认 | Crystal 字段 |
+|---|---|---|---|
+| `id` | `BIGINT` | 主键；服务器显式写号（不建序列） | `AuctionInfo.AuctionID`（`AuctionInfo.cs:12`，`ulong`，`:33`） |
+| `item` | `BYTEA` | `NOT NULL`；`encode_slots(&[Some(item)])` | `AuctionInfo.Item`（`:14`） |
+| `consignment_date` | `TIMESTAMPTZ` | `NOT NULL DEFAULT now()` | `AuctionInfo.ConsignmentDate`（`:15`，`Envir.Now`） |
+| `price` | `BIGINT` | `NOT NULL`；`0..=4294967295`（`uint`） | `AuctionInfo.Price`（`:16`） |
+| `current_bid` | `BIGINT` | `NOT NULL DEFAULT 0`；`0..=4294967295` | `AuctionInfo.CurrentBid`（`:16`） |
+| `seller_character_id` | `BIGINT` | `NOT NULL REFERENCES characters(id) ON DELETE CASCADE` | `AuctionInfo.SellerIndex`（`:18`） |
+| `seller_name` | `TEXT` | `NOT NULL DEFAULT ''` | `SellerInfo.Name`（`:19`、`:96`） |
+| `current_buyer_character_id` | `BIGINT` | `NULL`；`REFERENCES characters(id) ON DELETE SET NULL` | `AuctionInfo.CurrentBuyerIndex`（`:18`，`-1` → `NULL`） |
+| `current_buyer_name` | `TEXT` | `NULL` | `CurrentBuyerInfo.Name`（`:19`） |
+| `expired` | `BOOLEAN` | `NOT NULL DEFAULT FALSE` | `AuctionInfo.Expired`（`:21`） |
+| `sold` | `BOOLEAN` | `NOT NULL DEFAULT FALSE` | `AuctionInfo.Sold`（`:21`） |
+| `item_type` | `SMALLINT` | `NOT NULL DEFAULT 0`；`0..=2` | `AuctionInfo.ItemType`（`:23`：Consign/Auction/GameShop） |
+| `updated_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT now()` | 本作扩展（最后写入时间） |
+
+索引：
+
+* `market_auctions_seller_idx (seller_character_id, id DESC)`：卖家查自己的挂单
+  （Crystal `Account.Auctions` 的 `UserMatch` 分支，`PlayerObject.cs:8393-8399`）；
+* `market_auctions_active_idx (sold, expired, id DESC)`：买家搜索只看未售出/未过期
+  （`PlayerObject.Match`，`:8318-8325`）。
+
+### 9.2 与 Crystal 的存档差异
+
+1. **顺序**：Crystal 链表按 `AddFirst` 保存（最新在前，`PlayerObject.cs:8302`）；
+   本表按 `id DESC` 读回，二者等价（`id` 单调递增）。
+2. **`NextAuctionID` 不落列**：Crystal 在 MirADB 里持久化计数器（`Envir.cs:2591`）；
+   本作启动时按 `max(id) + 1` 续号。
+3. **名字快照**：Crystal 读档后靠 `BindCharacter` 重新绑定卖家/买家
+   （`Envir.cs:3018-3029`）；本作把名字冗余在行里，离线卖家也能显示。
+4. **写入方式**：Crystal 每次 `SaveAccounts` 重写整个 `Auctions` 段；本作由
+   `save_auctions` 在事务内 `DELETE` + 批量 `INSERT` 做整表快照（见
+   `crates/mir-store/src/repo.rs` 的 `list_auctions` / `save_auctions`）。
+5. **过期清理**：Crystal 只把 `Expired` 置真等卖家取回（`Envir.cs:2396`）；本作在服务器
+   启动时 `World::purge_expired_auctions` 把物品/最高出价用系统邮件退回后删除挂单，
+   再把清理后的快照写回本表。
+
+Rust 结构：`mir_store::MarketAuction`（存储层）↔ `mir_server::store::AuctionRecord`
+（服务端世界层）。字段以迁移文件为准，二者按列名一一映射。
+
+

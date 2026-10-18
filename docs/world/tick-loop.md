@@ -165,7 +165,9 @@ Map.Process():
 ```
 
 要点：
-- 门的自动关闭是 **全局固定 5000ms**（`Map.cs:659`），与开门者的操作无关；
+- 门的自动关闭是 **全局固定 5000ms**（`Map.cs:659`），与开门者的操作无关；本作由
+  `World::tick` 调 `tick_doors` 实现（`DOOR_OPEN_MS = 5_000`），开门/关门广播见
+  [`docs/world/aoi.md`](aoi.md) §7；
 - 雷鸣/火焰是**每张地图独立**的随机计时，间隔 `[3000, 15000)` 毫秒；
 - `ProcessRespawns()` 只做「是否到点 + 补齐数量」，真正的刷怪在 `MapRespawn.Spawn()`。
 

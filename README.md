@@ -44,7 +44,7 @@
 | 怪物 AI 与战斗 | ✅ | 索敌/追击/巡逻、两段式攻击（动作包立即、伤害 300ms 后结算）、护甲与闪避、暴击、死亡与尸体回收、经验升级、死亡复活、自然回血，RNG 顺序与 Crystal 一致 |
 | PK 与攻击模式 | ✅ | Peace/Group/Guild/RedBrown/All 判定、安全区与 NoFight 禁打、PvP 300ms 结算与暴击、PK 值（击杀 +100、红名 200/黄名 100、12 秒衰减、棕名 60 秒）、名字颜色广播、死亡掉落（红名背包全掉）、守卫只打红名并可回位 |
 | 攻城（沙巴克） | 🟡 | 申请校验、时间表开战/停战、四种城主判定（Classic/KingOfHill/ControlPoints/CapturePalace）、夺城广播与城主税收、战区名字色与 PK 保护、攻城传送点城主专属、箭塔只射敌对行会、迁移 0008 持久化；城门/城墙/器械实体与旗子对象未做 |
-| 技能（魔法） | 🟡 | 技能数据/用书学习/施法校验/延迟结算/修炼值升级/存档；已实现 8 个伤害与治疗技能 + 9 个增益技能（护盾/加速/魔法盾…），其余登记未实现 |
+| 技能（魔法） | 🟡 | 技能数据/用书学习/施法校验/延迟结算/修炼值升级/存档；已实现 15 个伤害/治疗/位移/召唤/中毒技能（火球系列/HellFire/FireBang/治疗/火墙/雷电/瞬息移动/隐身/召唤骷髅/召唤神兽/施毒）与 9 个增益技能（护盾/加速/魔法盾…），其余登记未实现（`docs/world/magic.md` §9） |
 | 物品与背包 | ✅ | 掉落、地面物品与过期、拾取/丢弃、46 格背包、14 装备槽、装备加成、药水/卷轴/丢金币、`UserItem[]` 存档；仓库见「玩家仓库与邮件」 |
 | Buff | ✅ | 带到期时间的属性修饰层、`AddBuff`/`RemoveBuff` 广播、魔法盾按伤害扣时、到期重算属性并补发血量 |
 | NPC 对话与商店 | ✅ | `Envir/NPCs` 脚本解析（`#INSERT`/`#INCLUDE`/条件/动作/按钮）、NPC 刷出与 `ObjectNPC`、`NewMapInfo` 下发、对话跳转、买/卖/修（Crystal 定价公式与价格倍率）；NPC 营业时段可见性未做 |
@@ -55,8 +55,9 @@
 | 玩家仓库与邮件 | ✅ | 80 格仓库（`[@STORAGE]` 页，`characters.storage` 持久化）、邮件发送（附件/邮票/邮费/限速）、阅读/锁定/领取/删除、迁移 0007、离线按名投递与 30 天过期 |
 | 玩家交易 | ✅ | 面朝格发起/回应、10 格交易栏、金币、双方确认后互换、放物品即清双方确认、取消/走跑转身切图下线死亡中止、背包满时取消改寄邮件（`docs/world/trade.md`） |
 | 寄售 / 拍卖市场 | 🟡 | NPC `[@CONSIGN]`/`[@MARKET]` 上架、搜索/翻页/买断/出价/提前成交/取回、5% 佣金与手续费、7 天过期与启动清理、迁移 0009 持久化；核心闭环可用，持久化与原子性已修复并有 PG 实测；到期自动成交未做（`docs/world/market.md`） |
+| 商城（GameShop）与元宝 | 🟡 | 市场面板商城页签、`C.GameshopBuy` 真实扣元宝/金币、职业等级与库存校验、背包优先/放不下转商城邮件、库存计数迁移 0011 单事务持久化；独立商城面板与 `S.GameShopInfo`/`S.GameShopStock` 下发未做（`docs/world/gameshop.md`） |
 | 攻城与领地 | ⏳ | `ConquestInfo` 数据已可读，城门/城墙/旗子与领地租借待做 |
-| Rust 客户端（渲染与 UI） | 🟡 | 等距地图 + 联机 + 实体精灵 + 装备分层外观 + 逐帧动画（站立/走/跑/攻击/受击/死亡）+ 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能/buff/小地图/大地图/任务/邮件/仓库/行会/组队/交易/市场）+ 伤害数字 + 头顶血条 + 目标锁定 + 拖拽穿脱 + 点地走路 + 音效与背景音乐（rodio，可无声降级）；坐骑/翅膀精确素材、移动插值、寻路与天气待做（见 [`docs/client.md`](docs/client.md) §8） |
+| Rust 客户端（渲染与 UI） | 🟡 | 等距地图 + 联机 + 实体精灵 + 装备分层外观 + 逐帧动画（站立/走/跑/攻击/受击/死亡）+ 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能/buff/小地图/大地图/任务/邮件/仓库/行会/组队/交易/市场/商城页签/设置面板/服务器与角色选择）+ 技能表现（火墙/雷电/瞬息移动/隐身/召唤）+ 伤害数字 + 头顶血条 + 目标锁定 + 拖拽穿脱 + 点地走路 + 音效与背景音乐（rodio，可无声降级）；坐骑/翅膀精确素材、移动插值、寻路与天气待做（见 [`docs/client.md`](docs/client.md) §8） |
 | 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计、MirDB 报告、图库查看/导出；素材库编辑器未做 |
 | 素材索引（`mir2_dev`） | ✅ | `tools/asset-index/` 把 `resource/` 的 233 万文件登记进 PostgreSQL，按名字/扩展名/仓库查询 |
 
@@ -82,11 +83,12 @@ mir-next/
 │  ├─ mir-world/      .map 读取与可走性（9 种版本）
 │  ├─ mir-db/         Crystal `Server.MirDB` 读取器（怪物/物品/NPC/刷怪点/技能…）
 │  ├─ mir-store/      PostgreSQL 持久化：账号与角色（Crystal 口令算法）
-│  ├─ mir-server/     网关、会话状态机、世界、战斗与怪物 AI
-│  ├─ mir-client/     客户端骨架（渲染与界面待实现）
+│  ├─ mir-server/     网关、会话状态机、世界、战斗/技能/怪物 AI、商城与市场
+│  ├─ mir-client/     客户端：等距渲染、UI 面板、登录/选角、设置面板、技能表现
 │  └─ mir-tools/      工具链入口（地图检查、协议统计、MirDB 报告）
 ├─ tools/protocol-gen/ 从 Crystal C# 源码生成 Rust 协议代码
 ├─ tools/asset-index/  把 resource/ 登记进 mir2_dev 索引库，并按需查询
+├─ tools/i18n/         硬编码中文扫描（i18n 收口清单的复跑工具）
 ├─ config/lang/       语言包（默认 zh-cn，另有 en；运行时加载，覆盖内置文本）
 ├─ docs/              协议、存档、地图与世界、战斗、素材索引的实现契约
 ├─ resource/          素材目录（不提交到版本库）
@@ -133,7 +135,8 @@ python tools/asset-index/find_asset.py --ext .wzl --top data --limit 20
   客户端固定文案在 `crates/mir-client/src/ui/labels.rs` 的 `Label` 枚举里编译期内置，
   **不进** `config/lang/`（后者只镜像服务端 `TextKey`）。
 
-细节、新增文本流程与覆盖审计见 [`docs/i18n.md`](docs/i18n.md)。
+细节、新增文本流程、覆盖审计与**第 2 轮 i18n 收口清单**（逐条 `文件:行` + 建议 `TextKey` +
+参数占位，下一轮照单执行）见 [`docs/i18n.md`](docs/i18n.md)。
 
 ## 技术选型
 
@@ -220,9 +223,10 @@ python tools/protocol-gen/generate.py
 | [`docs/world/mail.md`](docs/world/mail.md) | 邮件：发送/领取/锁定/删除、附件与邮费、过期 |
 | [`docs/world/trade.md`](docs/world/trade.md) | 玩家交易：发起/接受/交易格/金币/确认/取消、距离与朝向、包序 |
 | [`docs/world/market.md`](docs/world/market.md) | NPC 寄售/拍卖：上架/搜索/翻页/买断/出价/取回/过期、佣金与持久化 |
+| [`docs/world/gameshop.md`](docs/world/gameshop.md) | 商城（GameShop）与元宝：商品数据、购买校验、发货与邮件兜底、库存计数与页签包序 |
 | [`docs/client.md`](docs/client.md) | 客户端：协议流程、按键/鼠标、面板与字体 |
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |
-| [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文与游戏内切换 |
+| [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文、游戏内切换与 i18n 收口清单（逐条 TextKey 表） |
 | [`docs/architecture.md`](docs/architecture.md) | 架构总览：crate 分层、数据流、时间与随机、测试策略 |
 
 ## 开发约定

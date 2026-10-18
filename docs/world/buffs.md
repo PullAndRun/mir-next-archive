@@ -225,8 +225,10 @@ base(等级/职业) → 装备 → **buff** → apply_caps → 夹当前 HP/MP
   等价路径叠加属性，**不**创建 `Player.buffs`、**不**发 `S.AddBuff`。
   详见 `docs/world/guild.md` §8。这里之后可能会复用 `Stats`/`apply_caps` 的顺序，
   但生命周期（分钟级、行会级、可持久化）与个人 buff 完全不同。
-- 其余增益技能：`Rage`、`ImmortalSkin`、`UltimateEnhancer`、`Hiding`、`PetEnhancer`、
+- 其余增益技能：`Rage`、`ImmortalSkin`、`UltimateEnhancer`、`PetEnhancer`、
   `ElementalBarrier`（见 `magic::REGISTERED_UNSUPPORTED`）。
+  `Hiding` 已不在这个列表里：第 2 轮按 `SpellKind::Hiding` 实现（`MagicState::hidden` +
+  `S.ObjectHidden`/`S.AddBuff`），不走本模块的 `buffs` 容器，见 `docs/world/magic.md` §6.5。
 - 怪物/英雄的 buff（`MonsterObject.AddBuff`，`MonsterObject.cs:2838-2852`）。
 - buff 的暂停（安全区/掉线）与 `PauseBuff`/`UnpauseBuff` 包。
 - 药水增益里的经验/爆率真正参与结算。

@@ -563,9 +563,9 @@ if (MP == Stats[MP]) PotManaAmount = 0;                             // :648
 | 简化 | 原因 |
 |---|---|
 | 广播半径沿用 `VIEW_RANGE = 10`（Crystal `DataRange = 16`） | 避免改动已通过的移动/聊天测试；索敌视野（7）不受影响 |
-| 只有「野生敌对怪物」一条 AI 分支 | 没有宠物（`Master`/`PMode`）、巡逻路线（`Route`）、毒/麻痹/buff、`ShockTime`、`Rage`、隐身、召唤、传送 |
-| 怪物只打玩家，不打怪物 | 野生怪物之间 `IsAttackTarget` 返回 false（`MonsterObject.cs:2537-2539`），本来就不会互殴 |
-| 玩家近战只打怪物 | PK/红名/行会战未实现；`HumanObject.Attack` 的技能分支（Slaying/Thrusting/HalfMoon/…）全部跳过 |
+| 只有「野生敌对怪物」一条 AI 分支 | 没有巡逻路线（`Route`）、毒/麻痹/buff、`ShockTime`、`Rage`、隐身、传送；第 2 轮补了宠物 AI（`Monster.master` + `process_pet_ai`，见 `docs/world/magic.md` §6.6） |
+| 怪物只打玩家，不打怪物 | 野生怪物之间 `IsAttackTarget` 返回 false（`MonsterObject.cs:2537-2539`），本来就不会互殴；**宠物除外（本作当前不反击，本轮有意不做、下一轮补）**：Crystal 的野生怪会把宠物当目标（`MonsterObject.cs:2481-2484`、`FindTarget` `:1918-1963`、`Attacked` `:2601-2610`），本作的 `World::find_target` 只扫玩家，所以召唤物不会被野怪索敌/反击 |
+| 玩家近战可打玩家（PK 模式，见 `docs/world/pk.md`），但攻击**魔法**仍只对怪物 | `HumanObject.Attack` 的技能分支（Slaying/Thrusting/HalfMoon/…）全部跳过；`Bolt`/`Poisoning` 的目标玩家返回 `InvalidTarget`（`FireWall`/`Lightning` 的范围结算除外） |
 | 没有 buff 容器之外的属性来源，玩家属性=等级曲线基础值 + 装备加成 + **生效中的 buff** | 装备见 `docs/world/items.md`；9 个增益技能与药水增益见 `docs/world/buffs.md` |
 | `reflect`/`CriticalRate` 等属性基础值恒 0（但抽签保留） | 只影响装备加成，抽签保留才能保证随机序列与 Crystal 一致 |
 | 刷怪用 `SpawnGroup`（半径内撒点） | Crystal 用地图预计算的 `WalkableCells`；`mir-db` 接入后用真实刷新点 |

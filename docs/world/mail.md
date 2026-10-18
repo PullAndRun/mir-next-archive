@@ -251,7 +251,9 @@ Crystal 的 `Collected` 不是「附件已进背包」，而是「包裹已被�
 4. **主题列**：Crystal 无此字段；本作保留 `subject` 列恒空串。
 5. **好友黑名单**：Crystal 检查双方 `Friends.Blocked`（`:11704-11714`）；本作无好友系统，跳过。
 6. **`can_reply` 恒真**：玩家邮件的 `CanReply = true`（`MailInfo.cs:44`、`PlayerObject.cs:11833`）；
-   系统邮件（`Envir.MailCharacter`）本作不做，所以恒真。
+   第 2 轮实现了系统邮件（`World::mail_system_to_character`：交易退货/市场退款/成交邮寄）与
+   商城邮件（`World::mail_gameshop_to_character`），但 `can_reply` 仍恒为 `true`
+   （Crystal 的系统邮件 `new MailInfo(index)` 默认 `false`）——属于已知差异，客户端目前不读这个字段。
 7. **`MailSendRequest` 只由 NPC 页面触发**：与 Crystal 一致（`NPCScript.cs:1078-1080`），
    没有额外的「未读邮件自动弹写信窗」。
 
@@ -344,11 +346,11 @@ Crystal 的 `Collected` 不是「附件已进背包」，而是「包裹已被�
 ## 12. 未做 / 明确不做
 
 * **行会邮件**（群发全体成员）——不做。
-* **商城邮件**（`Envir.MailCharacter` 的购买/拍卖结果，`PlayerObject.cs:13900-13910`、
-  `Envir.cs:5069`）——不做。
 * **系统公告邮件 / GM 补发**——不做。
 * **邮件物品找回**（误删/过期邮件的恢复）——不做。
 * **好友黑名单**（`Friends.Blocked`，`:11704-11714`）——没有好友系统。
-* **拍卖/租借/交易失败邮件**（`GainItemMail`，`:10912`、`:14251-14272` 等）——对应系统都不存在。
+* **租借（物品租赁）邮件**（`ItemRentalInformation`）——租赁系统不存在；
+  拍卖/交易的系统邮件已实现（`mail_system_to_character`），商城邮件已实现
+  （`mail_gameshop_to_character`）。
 * **`MailAutoSendGold/Items` 的配置化**（`Configs/MailSystem.ini`）——常量固定为默认值。
 * **`S.MailSendRequest` 的「未读邮件自动打开」**——Crystal 只有 NPC 页面触发，本作一致。

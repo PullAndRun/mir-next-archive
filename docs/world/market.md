@@ -36,7 +36,7 @@
 >   （`MarketAuction`、`list_auctions` / 低层 `save_auctions`）
 > * `crates/mir-server/src/store.rs` / `pg_store.rs`（`MarketUpdate` + `apply_market_update` 单事务）
 > * 测试：`crates/mir-server/src/market.rs` 内 4 个单元测试；
->   `crates/mir-server/tests/market_persistence.rs`（落盘/重启/原子性 8 个）；
+>   `crates/mir-server/tests/market_persistence.rs`（落盘/重启/原子性 9 个）；
 >   `crates/mir-server/tests/market_flow.rs`（真实 TCP 端到端 4 个）
 >
 > **`mir-protocol` 没有改动**：`C.ConsignItem` / `C.MarketSearch` / `C.MarketRefresh` /
@@ -66,7 +66,7 @@
 | 持久化 | 写进 MirADB 的全局 `Auctions` 段（`Envir.cs:2591-2594`、`:3018-3029`） | PostgreSQL `market_auctions`（迁移 `0009`），整表快照 |
 | 页大小 | 固定 10（`:8356`、`:8405`） | `MARKET_PAGE_SIZE = 10` |
 | 到期 | `ProcessAuction` 每 10 分钟：有高于起拍价的出价就自动成交，否则置 `Expired` | `tick_market` 每 tick 置 `Expired`；启动时清理已过期挂单（见 §11） |
-| 商城页签 | `MarketPanelType.GameShop` 读 `Envir.GameShopList`（代码被注释掉） | **没有商城**，页签永远空列表 |
+| 商城页签 | `MarketPanelType.GameShop` 读 `Envir.GameShopList`（代码被注释掉） | **已实现**（第 2 轮）：页签列出 `Server.MirDB` 商城段，`auction_id = GIndex`、`price = 元宝单价`；见 [`docs/world/gameshop.md`](gameshop.md) |
 
 ---
 
@@ -424,8 +424,10 @@ MarketSearch(…)
 3. **`Envir.MessageAccount` 只给在线角色发**：Crystal 会写进账号的消息队列，离线也能收到；
    本作 `World::message_character` 只给在线角色发系统聊天，离线丢弃。真正需要离线送达的
    内容（拍卖成交、出价被超过、下架退款）走**系统邮件**，这一点与 Crystal 一致。
-4. **没有商城（GameShop）**：`MarketPanelType::GameShop` 的搜索永远返回空列表；
-   Crystal 的商城分支代码本身也被注释掉了（`PlayerObject.cs:8385-8390`）。
+4. **商城页签按户部实现**：`MarketPanelType::GameShop` 的搜索返回 `Server.MirDB` 的商城条目
+   （Crystal 的 `GetMarket` 商城分支被注释掉了，`PlayerObject.cs:8385-8390`），
+   购买主路径是 `C.GameshopBuy`（133），`C.MarketBuy` 只作页签兼容路径（数量 1、元宝）。
+   详见 [`docs/world/gameshop.md`](gameshop.md)。
 5. **刷新复用关键字**：本作用上次的 `MatchName` 重新搜索；Crystal 的 `MarketRefresh`
    清空关键字只保留类型（`MirConnection.cs:1696`）。本作的行为更符合玩家直觉，但与参考实现
    在「刷新后是否保留搜索词」上不同。
@@ -504,6 +506,18 @@ MarketSearch(…)
 （`market::character_snapshot`：背包/装备/仓库/技能/任务 + 金币/HP/MP/等级/经验/坐标/
 地图/行会），保证「客户端看到的市场背包/金币变化」与挂单、邮件同事务落地。
 
+**事务失败时邮件回灌**（`market.rs:1509-1547`，第 1 轮刑部 t11/t12 的收口）：
+
+* 邮件与挂单在**同一个**事务里提交，所以「事务成功」才是队列真正清空的唯一条件；
+* `flush_market_update` 在调用 `apply_market_update` 之前先把本次 drain 的邮件 `clone()`
+  一份（`:1525`）。一旦返回 `Err`，它重新拿 world 锁，把这份邮件**按原顺序**放回
+  `World::mail_writes` 队首，再把等待期间其它路径追加的新邮件接到后面（`:1533-1545`），
+  并记一条 `warn!`（`restored` 为回灌条数）；
+* 因此 DB 故障 / 事务回滚不会吞掉退款、成交、过期退回等系统邮件：下一次 flush（可能是
+  同一次会话的下一个市场包，也可能是下线兜底）会用新快照重试同一批邮件；
+* 对应的回归用例是 `market_persistence.rs::flush_failure_keeps_mail_queue_for_retry`
+  （见 §14）。
+
 `World::auction_snapshot()` 生成 `Vec<AuctionRecord>`；`market::persist_auctions` 仍保留为
 **低层工具**（只写挂单、不写角色行/邮件），正常市场链路使用 `flush_market_update`。
 `next_auction_id` 在 `World::load_auctions` 时按 `max(id) + 1` 续号（含解码失败但 id 有效的
@@ -556,8 +570,9 @@ Crystal 把挂单写在 `Server.MirADB` 的全局段（`Envir.cs:2591-2594`）�
    本作同样用 `market_refresh`，行为一致。
 7. **`MarketBuy` 的挂单只在上次搜索结果里找**：没搜过、或搜索后列表被清空，会回 Reason 7
    （`:8502`、`:8588`）。所以「打开市场 → 直接买」必须先有首页搜索结果。
-8. **商城分支是死代码**：`GetMarket` 的 GameShop 分支整段被注释（`:8385-8390`），
-   `MarketBuy` 的 GameShop 分支仍引用 `Account.Credit`；本作不做商城。
+8. **Crystal 的商城分支是死代码**：`GetMarket` 的 GameShop 分支整段被注释（`:8385-8390`），
+   `MarketBuy` 的 GameShop 分支仍引用 `Account.Credit`。本作**已实现**商城页签与
+   `C.GameshopBuy`（`docs/world/gameshop.md`），这里保留 Crystal 的原状描述作对照。
 9. **到期自动成交**：`ProcessAuction` 在 7 天到期时若有 `CurrentBid > Price`，会直接把物品
    邮寄给最高出价者并给双方消息（`Envir.cs:2398-2409`），不是简单的「过期」。本作未实现，
    见 §10 第 6 条。
@@ -585,7 +600,7 @@ Crystal 把挂单写在 `Server.MirADB` 的全局段（`Envir.cs:2591-2594`）�
 | 3 | `market_state_defaults_match_crystal` | `MinShapes/MaxShapes=0`、`MatchType=Nothing`、`UserMarket=false`、面板默认 `Market` |
 | 4 | `market_fail_reasons_match_crystal_numbers` | Reason 0..10 的编号 |
 
-`crates/mir-server/tests/market_persistence.rs`（户部本轮新增，重启/落盘/原子性 8 个）：
+`crates/mir-server/tests/market_persistence.rs`（户部本轮新增，重启/落盘/原子性 9 个）：
 
 | # | 用例 | 覆盖点 |
 |---|---|---|
@@ -597,6 +612,7 @@ Crystal 把挂单写在 `Server.MirADB` 的全局段（`Envir.cs:2591-2594`）�
 | 6 | `market_cleanup_refund_is_at_most_once` | 启动清理的退邮件+删除挂单同事务，崩溃重试不会重复退款 |
 | 7 | `reload_advances_next_auction_id_from_max_id` | `max(id)+1` 续号（含坏行 id），不覆盖旧挂单 |
 | 8 | `postgres_market_persistence_roundtrip` | 同一组断言走 MemoryStore 与 PgStore；Pg 按 `MIR2_TEST_DATABASE_URL` 条件跳过（CI/本地已实测） |
+| 9 | `flush_failure_keeps_mail_queue_for_retry` | `apply_market_update` 失败时，本次 drain 的邮件按原顺序回灌 `World::mail_writes` 队首（并发追加的新邮件排在其后）；下一次 flush 能重试同一批邮件，退款/通知不丢 |
 
 `crates/mir-server/tests/market_flow.rs`（本轮新增，真实 TCP 端到端）：
 
@@ -627,7 +643,8 @@ Crystal 把挂单写在 `Server.MirADB` 的全局段（`Envir.cs:2591-2594`）�
 
 ## 15. 未做 / 明确不做
 
-* **商城（GameShop）**：没有商城数据，页签永远空。
+* **商城（GameShop）**：已实现（第 2 轮），见 [`docs/world/gameshop.md`](gameshop.md)；
+  独立商城面板（`S.GameShopInfo`/`S.GameShopStock`）与 `Category` 二级筛选仍未做。
 * **拍卖到期自动成交**：见 §10 第 6 条。
 * **出价历史 / 一口价买断拍卖**：Crystal 也没有。
 * **离线消息队列**：`MessageAccount` 只发给在线角色；退款/成交走邮件。

@@ -13,7 +13,8 @@
 > `crates/mir-server/src/world.rs`（`Player.magics`/`Player.magic`、tick 调度、`ChangeMP`、治疗分段）、
 > `crates/mir-server/src/gamedata.rs`（`MagicInfo` 查找）、
 > `crates/mir-server/src/session.rs`（登录下发、下线存盘、`C.Magic`/`C.MagicKey`/`C.UseItem`）。
-> 测试：`crates/mir-server/tests/magic.rs`（21 个确定性用例）+ `magic.rs` 模块内 6 个单元测试。
+> 测试：`crates/mir-server/tests/magic.rs`（21 个确定性用例）+ `crates/mir-server/tests/skills.rs`
+> （第 2 轮 7 个新技能，20 个用例）+ `magic.rs` 模块内单元测试。
 
 ---
 
@@ -34,10 +35,13 @@
   而不是一次性加满。
 - **`S.MagicDelay` 只在技能升级时发一次**（`HumanObject.cs:6972-6976`），**不是每次施法都发**；
   每次施法里客户端靠 `S.Magic` + `ClientMagic.Delay` 自己算冷却。
-- 本作已实现 **8 个伤害/治疗技能**（4 个单体、HellFire、FireBang、Healing、MassHealing）
-  与 **9 个增益技能**（`ProtectionField`/`MagicShield`/`SoulShield`/`BlessedArmour`/`EnergyShield`/
-  `Haste`/`LightBody`/`Fury`/`MagicBooster`，见 §13 与 `docs/world/buffs.md`），
-  其余「登记但无效果」（原因见 §9、§11）。
+- 本作已实现 **15 个伤害/治疗/位移/召唤/中毒技能**与 **9 个增益技能**：
+  - 伤害/治疗：`FireBall`、`GreatFireBall`、`ThunderBolt`（含不死系 ×1.5）、`SoulFireBall`、
+    `HellFire`、`FireBang`、`Healing`、`MassHealing`；
+  - 第 2 轮新增：`FireWall`（持续伤害场）、`Lightning`（前方 6 格贯穿）、`Teleport`（瞬息移动）、
+    `Hiding`（隐身）、`SummonSkeleton` / `SummonShinsu`（召唤）、`Poisoning`（施毒）；
+  - 增益 9 个见 §13 与 `docs/world/buffs.md`；
+  其余「登记但无效果」的原因见 §9、§11。
 
 ---
 
@@ -60,6 +64,19 @@
 | 技能条数上限 | 64 | `magic::MAX_MAGICS` | **本作扩展**（读档防御；客户端技能栏 24 格） |
 | 增益生效延迟 | 500ms | 字面量 `500`（`cast_buff_spell`） | `HumanObject.cs:3544-3546`、`:3590-3591`、`:3632-3633` |
 | 盾类区域半径 | 3（7×7） | `buffs::SHIELD_AREA_RADIUS` | `Map.cs:1052-1057` |
+| 火墙：格数 | 5（中心 + 上/右/下/左） | `magic::FIREWALL_CELLS` | `Map.cs:1145-1149` |
+| 火墙：结算间隔 | 2000ms | `magic::FIREWALL_TICK_MS` | `Map.cs:1134`（`TickSpeed = 2000`） |
+| 火墙：基础持久 | 10 秒 + 伤害/2 秒 | `magic::FIREWALL_BASE_SECONDS` | `Map.cs:1133`、`:1172`（`ExpireTime = now + (10 + value / 2) * 1000`） |
+| 雷电：射程 | 6 格 | `magic::LIGHTNING_RANGE` | `Map.cs:1194` |
+| 雷电：延迟 | 500ms | `magic::LIGHTNING_DELAY_MS` | `HumanObject.cs:4213` |
+| 瞬息移动：延迟 | 200ms | `magic::TELEPORT_DELAY_MS` | `HumanObject.cs:3539` |
+| 瞬息移动：尝试次数 | 200 | `magic::TELEPORT_ATTEMPTS` | `PlayerObject.cs:4639` |
+| 瞬息移动：法力惩罚 | 30 秒 / +30% | `magic::TELEPORT_PENALTY_MS` / `TELEPORT_MANA_PENALTY_PERCENT` | `HumanObject.cs:6106`、`:3379-3385` |
+| 隐身：延迟 | 500ms | `magic::HIDING_DELAY_MS` | `HumanObject.cs:4496` |
+| 召唤：延迟 | 500ms | `magic::SUMMON_DELAY_MS` | `HumanObject.cs:4437`、`:4486` |
+| 召唤：共享上限 | 2 只 | `magic::MAX_MONSTER_PETS` | `HumanObject.cs:4417`、`:4466` |
+| 施毒：延迟 / 每跳间隔 | 500ms / 2000ms | `magic::POISON_DELAY_MS` / `POISON_TICK_MS` | `HumanObject.cs:4372-4374`、`:6058` |
+| 不死系伤害倍率 | ×1.5 | `magic::UNDEAD_DAMAGE_PERCENT` | `HumanObject.cs:4126` |
 
 本作沿用的既有常量：施法不消耗物品、不查负重（护身符消耗仍未接，见 §11）；
 `RegenDelay = 10000`（`HumanObject.cs:186`、`:3450` 施法会重置 `RegenTime`）。
@@ -95,8 +112,46 @@ pub struct MagicState {
     pub casts: HashMap<Spell, i64>,      // 每个技能的「上次施法时刻」（UserMagic.CastTime）
     pub heal_amount: u32,                // MapObject.HealAmount
     pub heal_time: i64,                  // HumanObject.HealTime
+    // 第 2 轮新增（都放在 MagicState，避免给 Player 加字段——17 个测试与 session 直接构造 Player）：
+    pub hidden: bool,                    // MapObject.Hidden（BuffType.Hiding）
+    pub hidden_until: i64,               // Hiding buff 到期时刻
+    pub teleport_penalty_until: i64,     // BuffType.TemporalFlux（+30% 耗蓝）
+    pub poisons: Vec<PoisonState>,       // HumanObject.PoisonList
+    pub last_target: Option<u32>,        // 本作扩展：召唤物优先打主人的目标
 }
 ```
+
+毒与法术场也各有一个运行期结构（都不入档）：
+
+```rust
+pub struct PoisonState {           // Crystal Poison（MapObject.cs:74）
+    pub kind: PoisonType,          // 本作只做 Green / Red
+    pub value: i32,                // 绿毒每跳伤害（红毒为 0）
+    pub duration: u32,             // 总跳数（不是毫秒）
+    pub ticks: u32,                // 已经跳过的次数
+    pub tick_at: i64,              // 下一次结算的绝对时刻
+    pub owner_id: u32,             // 施毒者；下线后整条毒移除
+}
+
+pub struct SpellField {            // Crystal SpellObject（Server/MirObjects/SpellObject.cs）
+    pub object_id: u32,            // S.ObjectSpell / S.ObjectRemove 的对象 ID
+    pub map: String,
+    pub center: Point,
+    pub radius: i32,               // 火墙为 0（只烧同格）
+    pub damage: i32,               // SpellObject.Value
+    pub caster_id: u32,
+    pub expire_at: i64,
+    pub next_tick: i64,
+    pub tick_ms: i64,              // 2000
+    pub spell: Spell,              // 目前只有 FireWall
+    pub direction: MirDirection,
+    pub cast_id: u32,              // CastInstanceId（FireWallLimit 按实例回收）
+}
+```
+
+> 本作**没有** Crystal 的 `ObjectType.Spell` 对象层：火墙用「中心 + 半径 + 到期 + 结算间隔」
+> 的 `SpellField` 表示，每 tick 用 AOI 查同格对象结算（`World::tick_spell_fields`），
+> 客户端看到的是 `S.ObjectSpell` / `S.ObjectRemove`。
 
 ### 3.2 存档格式（`CharacterInfo.Save`，`CharacterInfo.cs:458-463`）
 
@@ -207,8 +262,16 @@ per magic (14 bytes):
 | `FireBang` | 落点坐标 | 落点为空 `(0,0)` 时退回自己脚下（Crystal 会照 `(0,0)` 施法） |
 | `Heal` | 玩家（自己/他人） | 没给目标时默认自己（`DefaultMagicTarget`，`HumanObject.cs:3399`、`:3506-3512`） |
 | `MassHealing` | 落点坐标（3×3） | 同上 |
+| `FireWall` | 落点坐标 | 落点为空时退回自己脚下；`target_id` 恒 0（`:3565-3566`） |
+| `Lightning` | 无（方向） | 只用到方向与施法者位置（`:3568-3569`、`:4209-4215`） |
+| `Teleport` | 无（落点只做射程预检） | `info.range != 0` 时仍按 `HumanObject.cs:3416` 判一次 |
+| `Hiding` / `Summon*` | 自己 | `target_id` 统一覆盖成施法者对象 ID |
+| `Poisoning` | 怪物对象 | 与 `Bolt` 相同：目标必须在 10 格内且可攻击（`:4367`） |
+| `Buff` | 自己（`EnergyShield`/`SoulShield`/`BlessedArmour` 可给同图存活玩家） | 其余 6 个增益无视目标、作用在自己身上 |
 
-简化：PK 未实现，**攻击类技能只认怪物**；目标玩家一律 `InvalidTarget`。
+简化：PK 只支持「玩家打玩家」的一部分路径（`is_attack_target_player`），
+**攻击类魔法仍只认怪物**；`Bolt`/`Poisoning` 的目标玩家返回 `InvalidTarget`
+（`FireWall`/`Lightning` 的范围结算里已经会打到玩家，见 §6.2、§6.3）。
 
 ---
 
@@ -241,15 +304,197 @@ cost          = BaseCost + LevelCost * Level                                    
 | 技能 | 伤害/治疗基数 | 延迟 | Crystal |
 |---|---|---|---|
 | `FireBall` / `GreatFireBall` | `GetAttackPower(MinMC, MaxMC)` | `MaxDistance(自己,目标) * 50 + 500` | `HumanObject.cs:3943-3947` |
-| `ThunderBolt` | 同上（未做不死系 ×1.5） | 500ms | `:4124-4128` |
+| `ThunderBolt` | 同上；**不死系 ×1.5**（`UNDEAD_DAMAGE_PERCENT`） | 500ms | `:4124-4128` |
 | `SoulFireBall` | `GetAttackPower(MinSC, MaxSC)`（未消耗护身符） | `MaxDistance * 50 + 500` | `:4388-4392` |
 | `HellFire` | `GetAttackPower(MinMC, MaxMC)` | 500ms 起，每格 +100ms，直线 4 格；3 级同时向左右 45° 各一道 | `:4103-4119` + `Map.cs:875-910` |
 | `FireBang` | `GetAttackPower(MinMC, MaxMC)` | 500ms，落点 3×3 | `:4142-4148` + `Map.cs:951-991` |
 | `Healing` | `GetDamage(GetAttackPower(MinSC, MaxSC) * 2) + Level` | 500ms | `:4355-4364` |
 | `MassHealing` | `GetDamage(GetAttackPower(MinSC, MaxSC))` | 500ms，落点 3×3 | `:4526-4532` + `Map.cs:1255-1296` |
+| `FireWall` | `GetDamage(GetAttackPower(MinMC, MaxMC))` | 500ms 落地，5 格持续场；每 2000ms 结算一次，持续 `10 + 伤害/2` 秒 | `:4149-4182` + `Map.cs:1101-1183` + `SpellObject.cs:128-135` |
+| `Lightning` | `GetDamage(GetAttackPower(MinMC, MaxMC))` | 500ms，前方 6 格逐格打第一个目标 | `:4209-4215` + `Map.cs:1187-1218` |
+| `Teleport` | —（位移） | 200ms 后随机传送；30 秒 +30% 施法耗蓝 | `:3537-3539` + `:6095-6109` + `PlayerObject.cs:4633-4648` |
+| `Hiding` | 时长 = `GetAttackPower(MinSC, MaxSC) + (Level + 1) * 5` **秒** | 500ms | `:4489-4498` + `:6133-6145` |
+| `SummonSkeleton` | 召唤「骷髅」（`BoneFamiliar` 模板，缺失时回退）、1 张护身符（未接） | 500ms | `:4399-4439` + `Map.cs:914-933` |
+| `SummonShinsu` | 召唤「神兽」（`Shinsu` 模板，缺失时回退）、5 张护身符（未接） | 500ms | `:4448-4488` + `Map.cs:914-933` |
+| `Poisoning` | `GetDamage(GetAttackPower(MinSC, MaxSC))`，绿毒伤害 = `power / 15 + Level + 1` | 500ms 落地，每 2000ms 一跳 | `:4365-4378` + `:6041-6077` |
 
 HellFire 的「3 级三向」用 `(Direction + 1) % 8` / `(Direction - 1 + 8) % 8`
 （`HumanObject.cs:4110-4119`）。
+
+### 6.2 火墙（`FireWall`）
+
+**施法瞬间**（扣蓝之后、排延迟动作之前）先做地图上限检查
+（`World::can_cast_fire_wall`，Crystal `HumanObject.cs:4151-4175`）：
+`MapInfo.FireWallLimit && FireWallCount > 0` 时统计本玩家在该图的火墙施法实例
+（`cast_id`，去重）；达到上限就回收**最老的一次施法**
+（`TryReplaceOldestFireWallCast`，`HumanObject.cs:4183-4207`），回收失败回聊天
+「火墙数量已达上限，请稍后再试。」并且**不排延迟动作**（火墙不落地）。
+注意 Crystal 此时 `cast` 仍为 `true`：蓝**照扣**、`S.Magic`/`S.ObjectMagic` 照发、
+`CastTime` 照记——本作与之一致。
+
+500ms 后落地（`World::create_fire_wall`）：
+
+1. **铺 5 格**：中心格是落点，其余 4 格按 `Up → Right → Down → Left`
+   各偏 1 格（`Map.cs:1145-1149`）；**越界或不可走**（`walkable_on`，对应 Crystal
+   `Map.cs:637-640` 的 `Cell.Valid`）以及已被火墙占用的格跳过；
+2. **持久**：`ExpireTime = now + (10 + 伤害/2) * 1000`（`Map.cs:1133`、`:1172`）；
+3. **每 tick**（2000ms，首跳立即，`SpellObject.cs:111-112`）：同格内玩家（非施法者、
+   可攻击目标）与怪物（非召唤物）各吃一次 `DefenceType.MAC` 伤害
+   （`SpellObject.cs:128-135`），并 `BroadcastDamageIndicator`；
+4. **移除**：到期或施法者下线/换图 → 每格广播 `S.ObjectRemove`（`SpellObject.cs:57`、
+   `:82-90`）。
+
+包序：
+
+```text
+S.Magic（本人）+ S.ObjectMagic（周围）        // 施法回显（cast=true）
+[500ms] S.ObjectSpell × 5（每格一条）        // Spell=FireWall, ObjectID=新分配, Direction=Up
+[每 2000ms] S.DamageIndicator / S.Struck     // 命中反馈
+[到期] S.ObjectRemove × 5
+```
+
+Crystal 的 `FireWallLimit` 是**地图**字段（`MapInfo`），本作同样读 `MapInfo.firewall_limit` /
+`firewall_count`；`FireWallCount == 0` 表示不限。
+
+### 6.3 雷电（`Lightning`）
+
+结算 `World::resolve_lightning`（Crystal `Map.cs:1187-1218`）：
+
+* 从**施法者位置**沿施法方向推进最多 6 格（`LIGHTNING_RANGE`）；
+* 每格按 `(y, x, object_id)` 顺序找**第一个**可攻击对象（怪物跳过守卫；
+  玩家要求 `is_attack_target_player`），命中后**内层 `break`**，继续下一格；
+* 不可走格/越界只是 `continue`（`walkable_on`；Crystal 是 `ValidPoint`，
+  `Map.cs:1194-1198`），**没有「碰到墙就停」**；
+* 全部走 `DefenceType.MAC`；任一目标掉血就 `LevelMagic`。
+
+**表现**：Crystal 没有 `Lightning` 的 `SpellEffect` 变体，命中反馈靠
+`S.ObjectMagic` + `S.ObjectStruck`（受击动作）/伤害飘字；本作同样不加额外特效包，
+客户端 `spellfx` 把 `S.Magic`/`S.ObjectMagic` 的落点当锚点，画一条**施法者 → 落点**
+的线（不按服务端的 6 格方向逐格重放；落点由客户端发包时的 `location` 决定）。
+
+### 6.4 瞬息移动（`Teleport`）
+
+`World::teleport_caster`（Crystal `PlayerObject.MagicTeleport`，`PlayerObject.cs:4633-4648`）：
+
+1. `MapInfo.NoTeleport` → 回聊天「这张地图不能使用瞬息移动。」（`:6097-6101`）；
+2. 在**矩形半径**内随机取点：`size_x = Width / (Level + 1)`、
+   `size_y = Height / (Level + 1)`，即等级越高范围越小；
+3. 最多 **200 次**尝试，只要求 `walkable_on`（Crystal `Teleport` 只校验可走点）；
+4. 成功：广播 `S.ObjectTeleportOut` → 移动 → `S.ObjectTeleportIn`；
+5. 加 30 秒 **TemporalFlux**：之后每次 `Teleport` 的耗蓝 +30%
+   （`:6106` + `HumanObject.cs:3379-3385`；由 `MagicState::teleport_penalty_until` 记时）。
+
+> **与 Crystal 的差异**：Crystal 以**回城点**（`BindMapIndex` + `BindLocation`）为中心，
+> 回城点会在进安全区/复活/回城卷时更新（`:1064-1068`、`:4279-4280`、`:4589-4590`）；
+> 本作 `Player` 还没有建模 bind 点（`characters.bind_*` 列存在），
+> 改用**当前地图 + 当前坐标**为中心。这是行为差异，不是等价实现。
+
+### 6.5 隐身（`Hiding`）
+
+施法（`HumanObject.cs:4489-4498`）：500ms 后写入 `MagicState::hidden`，时长
+`GetAttackPower(MinSC, MaxSC) + (Level + 1) * 5` **秒**。
+
+包序（`World::start_hiding`）：
+
+```text
+S.ObjectHidden{ObjectID, Hidden=true}     // 广播给周围（不含自己）
+S.AddBuff{BuffType.Hiding, Visible=false} // 只发本人
+（HideFromTargets）                       // 范围内锁定自己的怪脱战
+```
+
+解除：
+
+* **走路/跑步**（`HumanObject.cs:2460-2463`、`:2540-2545`）——与 Crystal 一致；
+* **到期**（`BuffType.Hiding` 到期 → `Hidden = false`）；
+* **死亡**（`world.rs` 的死亡清理把 `magic.hidden` 置假）。
+
+攻击 / 施法 / 受击**不解除**隐身——Crystal 只在这几处解除 MoonLight/DarkBody
+（`:2869-2886`、`:3418-3422`、`:7138-7142`、`:7256-7260`、`:7320-7324`），
+本作与 Crystal 一致（任务书里的「移动/攻击解除」是概述，以源码行为为准）。
+
+两个细节：
+
+* **破隐怪**：带 `CoolEye` 且等级 ≥ 玩家等级的怪仍能看见隐身玩家
+  （`MonsterObject.cs:1974`；`hiding_is_seen_by_cool_eye_monster_of_equal_level`）；
+* **重复施放**只刷新时长（`hidden_until`），不会重复广播 `S.ObjectHidden`/`S.AddBuff`
+  （`recasting_hiding_while_hidden_only_refreshes_duration`）。
+
+状态只放在 `MagicState`（`hidden`/`hidden_until`），**不入存档**；施法本身照常
+`cast = true`、扣蓝、进冷却。
+
+Crystal 的隐身消耗 **1 张护身符**（`GetAmulet(1)`），本作消耗品系统未接，**不消耗**。
+
+### 6.6 召唤（`SummonSkeleton` / `SummonShinsu`）
+
+`World::summon_pet`（Crystal `HumanObject.cs:4399-4488`、`Map.cs:914-933`）：
+
+1. `MapInfo.NoPets` → 回聊天「这张地图不能召唤宠物。」，召唤失败；
+   与 Crystal 一致：`NoPets` 检查在 `SummonSkeleton` 内（`:4401-4405`），
+   此时蓝已扣、`S.Magic` 已发（`summoning_on_a_no_pets_map_is_rejected_after_spending_mana`）；
+2. **同名活宠**已在场 → 只「召回」（传送到主人身后一格），不再召唤（`:4408-4415`）；
+3. 怪物类召唤物**共享上限 2 只**（`MAX_MONSTER_PETS`，`:4417`、`:4466`），
+   达到上限直接返回（Crystal 无提示）；
+4. 模板：`SummonSkeleton` → `BoneFamiliar`、`SummonShinsu` → `Shinsu`
+   （Crystal 用 `Settings.SkeletonName` / `ShinsuName`）；数据库里没有时用
+   `MonsterKind::bone_familiar()` / `MonsterKind::shinsu()` 兜底；
+5. 落点：主人面前一格，不可走则落在主人脚下（`Map.cs:925-932`）；
+6. 属性（`MonsterObject.RefreshAll`，`MonsterObject.cs:811-827`）：
+   `HP + 20L`、`AC/MAC + 2L`、`DC + L`，移动/攻击间隔减 `MaxPetLevel × 130 / 70`
+   （下限 400ms）；`PetLevel = 技能等级`、`MaxPetLevel = 4 + L`（骷髅）/ `1 + 2L`（神兽）；
+7. 主人死亡 → 全部召唤物一起死；主人下线 → 全部移除；
+   召唤物远离/跨图 → 自动召回（`MonsterObject.cs:1334-1375`）；
+8. 召唤物**击杀**怪物时经验归主人（`MonsterObject.cs:952-958` 的 `GetAttacker`
+   语义，`expo_owner = master`）；召唤物自己死亡**不给**主人经验
+   （`MonsterObject.cs:982` 只在 `Master == null` 时 `WinExp`）。
+
+> **简化**：护身符消耗未接（Crystal 骷髅 1 张、神兽 5 张）；
+> 不做 `PetSave`（下线保留宠物）、不做 `PetExp`（宠物经验，Crystal 有 ×3 设定）。
+> 召唤物优先打主人最近攻击的目标（`MagicState::last_target`，本作扩展；
+> Crystal 由召唤物自己 `FindTarget`，`MonsterObject.cs:1918-1997`）。
+>
+> **野生怪不反击召唤物**（玩法差异，**本轮有意不做、下一轮补**）：Crystal 的
+> `MonsterObject.IsAttackTarget(MonsterObject)` 会把「目标是宠物 + 攻击者是野生怪」判为可攻击
+> （`MonsterObject.cs:2481-2484`），`FindTarget` 的 Monster 分支也会把宠物纳入索敌
+> （`:1918-1963`）、`Attacked` 会反击（`:2601-2610`）；本作 `World::find_target` 只扫玩家，
+> 怪物不会把召唤物当目标，召唤物挨打后怪物也不反击。
+> 影响：召唤物对野怪基本无敌，只有主人死亡/下线、玩家攻击或 AoE（火墙/雷电）才会消失。
+
+### 6.7 施毒（`Poisoning`）
+
+施法（`HumanObject.cs:4365-4378`）：`power = GetDamage(GetAttackPower(MinSC, MaxSC))`，
+500ms 后落地（`:6041-6077`）。
+
+**毒型选择**：Crystal 由装备栏毒药的 `Shape` 决定（1 绿 / 2 红，`:6050-6070`）；
+本作没有毒药消耗品，改为确定性策略：
+
+* 目标**没有绿毒** → 施**绿毒**；
+* 目标**已经有绿毒** → 施**红毒**。
+
+红毒不扣血，效果是**降防御**：Crystal 每中一次红毒 `ArmourRate -= 0.10F`（玩家，
+`HumanObject.cs:714-715`）/ `-= 0.5F`（怪物，`MonsterObject.cs:1536-1537`），结算时
+`armour * ArmourRate`（`HumanObject.cs:7241`）。本作在 `World::player_armour_rate` /
+`Monster::armour_rate` 里按红毒条数累减，并在生成战斗属性快照时缩放四项防御
+（`world.rs` 的 `scale_armour`）。
+
+数值（绿毒，逐字照抄）：
+
+```text
+Duration = power * 2 + (Level + 1) * 7      // 跳数（不是秒）
+TickSpeed = 2000ms
+Value     = power / 15 + Level + 1          // 每跳伤害（Crystal 还要 + Random.Next(PoisonAttack)，
+                                            // 本作没有 Stat.PoisonAttack，省略）
+```
+
+每 2 秒结算：
+
+* 玩家：**最后一跳仍然结算**（先扣血再移除，`HumanObject.cs:668-693`）；
+* 怪物：`Time++` 后 `Time >= Duration` 先移除再 `continue`，**最后一跳不结算**
+  （`MonsterObject.cs:1476-1491`）；
+* 同类毒覆盖规则：绿毒只接受更高 `value`、红毒只接受更长剩余时长（`:2805-2813`）；
+* 施毒者下线 → 整条毒移除（`MonsterObject.cs:1464-1474`）。
+
+包序：本人 `S.Poisoned{Poison}`、周围 `S.ObjectPoisoned{ObjectID, Poison}`（`HumanObject.cs:727-732`）；
+每跳 `S.DamageIndicator{Hit, -value}`。
 
 ---
 
@@ -299,7 +544,15 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 | S→C | `S.AddBuff`（144） | 增益生效/刷新 | `ClientBuff{type, visible, object_id(被增益者), expire_time(剩余 ms), stats, values}` | `HumanObject.cs:7474-7481`、`BuffInfo.cs:256-270` |
 | S→C | `S.RemoveBuff`（145） | 增益到期/被移除 | `type_, object_id` | `HumanObject.cs:452-458` |
 | S→C | `S.ObjectEffect`（124） | 魔法盾开/关特效 | `object_id, effect(MagicShieldUp/Down), …` | `HumanObject.cs:7466-7470`、`:485-487` |
-| S→C | `S.Chat`（30） | 学书失败提示 | `message, type_:System` | `ReceiveChat`（`HumanObject.cs:1047` 等） |
+| S→C | `S.ObjectSpell`（149） | 火墙落地（每格一条） | `object_id, location, spell, direction, param` | `Map.cs:1129-1141`（`Spawned()`） |
+| S→C | `S.ObjectRemove`（26） | 火墙到期/施法者离开/回收 | `object_id` | `SpellObject.cs:77-78`、`Map.cs:4198` |
+| S→C | `S.ObjectHidden`（147） | 隐身进入/解除（广播给周围，不含本人） | `object_id, hidden` | `MapObject.cs:80-92`、`:672-694` |
+| S→C | `S.Poisoned`（96） | 玩家毒型变化（只给本人） | `poison` | `HumanObject.cs:727-732` |
+| S→C | `S.ObjectPoisoned`（97） | 毒型变化（广播给周围） | `object_id, poison` | 同上 |
+| S→C | `S.ObjectTeleportOut`（99）/ `ObjectTeleportIn`（100） | 瞬息移动 | `object_id, type_` | `MapObject.cs:784-786` |
+| S→C | `S.ObjectMonster`（71） | 召唤物出生/外观更新（带 `MasterObjectId`） | `object_id, monster, …` | `Map.cs:914-933` |
+| S→C | `S.ObjectStruck`（74） | 受击动作（雷电/火墙命中的表现） | `object_id, location, direction` | `MapObject.cs` 受击分支 |
+| S→C | `S.Chat`（30） | 学书失败、火墙上限、地图禁止传送/召唤提示 | `message, type_:System` | `ReceiveChat`（`HumanObject.cs:1047` 等） |
 
 **没有** `S.UserMagic`（任务书里的写法）：Crystal 的实际包名是 `S.NewMagic`；
 `mir-protocol` 里 `NewMagic`/`MagicLeveled`/`MagicDelay`/`Magic`/`ObjectMagic`/`UseItem` 全部已存在，
@@ -316,12 +569,19 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 |---|---|---|---|---|
 | FireBall | 31 | 单体 | ✅ | 火球，`MAC` 防御 |
 | GreatFireBall | 34 | 单体 | ✅ | 同 FireBall，数值来自模板 |
-| ThunderBolt | 36 | 单体 | ✅ | 未做「不死系 ×1.5」（`MonsterKind` 没有 `Undead`） |
+| ThunderBolt | 36 | 单体 | ✅ | **不死系 ×1.5 已实现**（`MonsterKind.undead`，`HumanObject.cs:4124-4128`） |
 | SoulFireBall | 64 | 单体 | ✅ | 未消耗护身符（`HumanObject.cs:4382-4396`） |
 | HellFire | 35 | 前方贯穿 | ✅ | 直线 4 格、每格 100ms；3 级三向 |
 | FireBang | 38 | 3×3 区域 | ✅ | 落点来自包里的 `location` |
 | Healing | 61 | 单体治疗 | ✅ | 分段生效（§7） |
 | MassHealing | 75 | 3×3 治疗 | ✅ | 分段生效（§7） |
+| **FireWall** | 39 | 持续伤害场 | ✅ **第 2 轮新增** | 5 格、每 2s 结算、`10 + 伤害/2` 秒；`S.ObjectSpell`/`S.ObjectRemove`（§6.2） |
+| **Lightning** | 40 | 前方贯穿 | ✅ **第 2 轮新增** | 6 格逐格打第一个目标，无 `SpellEffect` 变体（§6.3） |
+| **Teleport** | 37 | 位移 | ✅ **第 2 轮新增** | 随机落点以**当前坐标**为中心（Crystal 用回城点，§6.4 差异） |
+| **Hiding** | 67 | 自身状态 | ✅ **第 2 轮新增** | 走/跑、到期、死亡解除（与 Crystal 一致，§6.5） |
+| **SummonSkeleton** | 65 | 召唤 | ✅ **第 2 轮新增** | 骷髅；共享上限 2；不耗护身符（§6.6） |
+| **SummonShinsu** | 78 | 召唤 | ✅ **第 2 轮新增** | 神兽；共享上限 2；不耗护身符（§6.6） |
+| **Poisoning** | 63 | 持续伤害 | ✅ **第 2 轮新增** | 绿/红毒确定性选择；2s 一跳（§6.7） |
 | ProtectionField | 12 | 增益（护盾） | ✅ 已实现 | `MinAC/MaxAC += round(MaxAC × (0.2 + 0.03L))`，`45 + 15L` 秒（`HumanObject.cs:4955-4963`） |
 | Haste | 93 | 增益（攻速） | ✅ 已实现 | `AttackSpeed += 2L + 2`，`25 + 15L` 秒（`:6149-6153`） |
 | MagicShield | 43 | 增益（减伤） | ✅ 已实现 | `DamageReductionPercent = 10(L+2)`，每点伤害扣 60ms（`:6198-6204`、`:7165`） |
@@ -330,8 +590,8 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 | LightBody | 95 | 增益（敏捷） | ✅ 已实现 | `Agility += 2(L+1)`，`30(L+1)` 秒（`:6187-6191`） |
 | Fury | 16 | 增益（攻速） | ✅ 已实现 | `AttackSpeed += 4`，`60 + 10L` 秒（`:6160-6164`） |
 | MagicBooster | 51 | 增益（魔力） | ✅ 已实现 | `MinMC/MaxMC += 6 + 6L`、耗蓝 +`6 + L`%，60 秒（`:4345-4350`、`:6228-6240`） |
-| Rage / ImmortalSkin / UltimateEnhancer / Hiding / PetEnhancer / ElementalBarrier | 13/17/77/67/85/131 | 增益 | ⛔ 登记 | 见 `magic::REGISTERED_UNSUPPORTED`（`docs/world/buffs.md` §6） |
-| 其余（FireWall、Lightning、Teleport、Summon*、Poison* 等） | — | — | ❌ 未实现 | 模板能查到，施法返回 `UnsupportedSpell`；若模板缺失则 `UnknownSpell` |
+| Rage / ImmortalSkin / UltimateEnhancer / PetEnhancer / ElementalBarrier | 13/17/77/85/131 | 增益 | ⛔ 登记 | 见 `magic::REGISTERED_UNSUPPORTED`（`docs/world/buffs.md` §6） |
+| 其余（`Blink`、`ShoulderDash`、`ThunderStorm`、`PoisonCloud`、`SummonHolyDeva`、`TrapHexagon`、`IceStorm` 等） | — | — | ❌ 未实现 | 模板能查到，施法返回 `UnsupportedSpell`；若模板缺失则 `UnknownSpell` |
 
 「✅ 已实现」的 9 个增益技能走 `SpellKind::Buff`：施法照常扣蓝、写冷却、发
 `S.Magic`/`S.ObjectMagic`，然后按 Crystal 的时机套 buff（`docs/world/buffs.md` 有逐条公式与包序）。
@@ -347,20 +607,23 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
    （`HumanObject.cs:1237-1242` 的 `Info.Magics.Any(t => t.Spell == (Spell)item.Info.Shape)`），
    `UseItem` 在 `:5814` 就用它挡掉了。两边的可观察行为一致（拒绝 + 不消耗），
    只是本作的提示多一句「已经学会」。
-2. **攻击类技能只认怪物**：PK/行会战未实现，`IsAttackTarget` 的玩家分支不可达，
-   目标玩家返回 `InvalidTarget`。
+2. **单体攻击魔法只认怪物**：`Bolt`/`Poisoning` 的目标解析走 `attack_target_position`，
+   目标玩家返回 `InvalidTarget`；但**范围结算**（`FireWall` 中心格、`Lightning` 逐格）
+   已经会打到玩家（`is_attack_target_player` + PK 规则），这是第 2 轮补的玩家伤害路径。
 3. **目标合法性在扣蓝之前严格校验**。Crystal 在扣蓝后才发现目标无效，
    此时仍算一次施法（`cast = true`、`targetID = 0`、无伤害）。
    本作选择「不合法就不扣蓝」，避免玩家被误扣。射程检查仍保持 Crystal 的
    「写在计时器之前、失败静默」。
 4. **`C.Magic.SpellTargetLock` 未实现**：落点始终取包里的 `location`；
-   `FireBang`/`MassHealing` 等不需要锁定目标的逻辑因此不受影响。
+   `FireBang`/`MassHealing`/`FireWall` 等不需要锁定目标的逻辑因此不受影响。
 5. **`CanFly` 未实现**：Crystal 会检查目标格是否允许飞行道具（火球/灵魂火球），
    地图层没有这个属性，本作只按距离判定。
-6. **不死系加成（ThunderBolt ×1.5）未实现**：`MonsterKind` 没有 `Undead` 字段
-   （`mir-db` 的 `MonsterInfo.undead` 尚未桥接）。
-7. **护身符/毒药消耗未实现**：`SoulFireBall` 不消耗护身符（Crystal 需要 1 个，
-   `HumanObject.cs:4382-4396`）；本作还没有消耗品系统。
+6. **不死系加成（ThunderBolt ×1.5）已实现**：`MonsterKind.undead` 已从
+   `mir-db` 桥接，`HumanObject.cs:4126` 的 `(int)(damage * 1.5F)` 用 f32 等比换算。
+7. **护身符/毒药消耗未实现**：`SoulFireBall`（1 张）、`Hiding`（1 张）、
+   `SummonSkeleton`（1 张）、`SummonShinsu`（5 张）、`SoulShield`/`BlessedArmour`（各 1 张）
+   在 Crystal 都要消耗护身符/毒药（`GetAmulet`/`GetPoison`），本作还没有消耗品系统，
+   **一律不消耗**。`Poisoning` 也不消耗毒药（见第 18 条）。
 8. **`Stats[SkillGainMultiplier]` 固定为 1**：Crystal 会乘这个属性
    （`HumanObject.cs:6924`），本作没有该属性。
 9. **`RefreshSkills` 未移植**（`HumanObject.cs:2294-`）：它按装备/等级调整
@@ -371,13 +634,41 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
     没有状态可翻。
 12. **`MagicDelay` 的发送时机**：见 §8，只有升级时才发。任务书里「每次施法发 `S.MagicDelay`」
     与 Crystal 不符，本作以 Crystal 为准。
-13. **失败提示是硬编码中文**（`World` 层没有语言目录）。客户端语言包/服务端 i18n 键位接入后再替换。
+13. **失败提示是硬编码中文**（`World` 层没有语言目录）。第 2 轮新增的
+    「火墙数量已达上限」「这张地图不能使用瞬息移动」「这张地图不能召唤宠物」同样如此，
+    已登记在 [`docs/i18n.md`](../i18n.md) §7.2。
 14. **治疗类的射程按目标实际位置判定**。Crystal 只检查包里的 `location`
     （`HumanObject.cs:3416`），目标对象本身不在射程检查内；本作对 `Healing` 直接取目标坐标判距离，
     更严格也更符合直觉。
 15. **区域技能回显的 `target_id` 恒为 0**。Crystal 会把包里的 `TargetID` 原样回显
     （`HumanObject.cs:3778`），但 `SpellTargetLock` 未实现，落点一律取包里的 `location`，
     回显一个不参与结算的目标 ID 只会让客户端困惑。
+16. **瞬息移动以当前坐标为中心**（§6.4）。Crystal 用 `BindMapIndex` + `BindLocation`
+    （回城点），本作 `Player` 尚未建模 bind 点；随机半径 `Width/(Level+1)`、
+    `Height/(Level+1)` 与 200 次尝试与 Crystal 相同。这是**行为差异**。
+17. **隐身的解除条件与 Crystal 一致**（§6.5）：只有走路/跑步、到期、死亡会解除；
+    攻击/施法/受击都不解除（Crystal 只在这几处解除 MoonLight/DarkBody）。
+    任务书里的「移动/攻击解除」按源码口径收窄为「移动解除」。
+18. **施毒的绿/红毒选择是确定性的**（§6.7）。Crystal 由装备毒药的 `Shape` 决定
+    （1 绿 / 2 红，`HumanObject.cs:6050-6070`）；本作「目标无绿毒则绿、有绿毒则红」。
+    另外 `Value` 里省略了 `+ Random.Next(Stats[Stat.PoisonAttack])`（本作没有该属性）。
+19. **召唤的简化**：共享上限 2 只（与 Crystal 一致），但**不做** `PetSave`
+    （下线保留宠物）、`PetExp`（宠物经验，Crystal 有 ×3 设定）、护身符消耗；
+    召唤物优先打主人最近攻击的目标（`MagicState::last_target`，本作扩展；
+    Crystal 由召唤物自己 `FindTarget`，`MonsterObject.cs:1918-1997`）。
+20. **火墙没有 `ObjectType.Spell` 对象层**：本作用 `SpellField`（中心 + 半径 + 到期）表示，
+    每 tick 用 AOI 查同格对象；Crystal 是真实 `SpellObject` 挂在地图格上。
+    可观察行为（5 格、2s 结算、到期消失）一致，网络包是 `S.ObjectSpell`/`S.ObjectRemove`。
+21. **地形校验口径不一致（第 1 轮遗留）**：`HellFire`/`FireBang` 的格子判定仍只查边界
+    （`in_bounds`），不查地形可走（Crystal 的 `ValidPoint` 含 `Cell.Valid`）；
+    第 2 轮新写的 `FireWall`/`Lightning` 已统一用 `walkable_on` 对齐 Crystal。
+22. **不死系标记在刷怪时回填**：`MonsterKind` 没有加字段，`Monster.undead` 在
+    `World::spawn_monster` 里从 `MonsterInfo.Undead` 回查填入（`ThunderBolt` 用它）；
+    `monster_kind` 夹具默认 `false`。
+23. **野生怪不反击召唤物**（§6.6，本轮有意不做、下一轮补）：Crystal 的野生怪会把宠物
+    纳入索敌并反击（`MonsterObject.cs:2481-2484`、`:1918-1963`、`:2601-2610`）；
+    本作 `World::find_target` 只扫玩家，召唤物不会被野怪攻击/反击，
+    只有玩家攻击或 AoE 才会掉血。
 
 ---
 
@@ -385,15 +676,18 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 
 - 开关型技能（`SpellToggle`）：需要玩家级开关状态与攻击分支配合（`Thrusting`、`HalfMoon`、
   `FlamingSword`、`TwinDrakeBlade`…）。
-- **仍登记但无效果的增益技能**：`Rage`、`ImmortalSkin`、`UltimateEnhancer`、`Hiding`、
-  `PetEnhancer`、`ElementalBarrier`（都是 `AddBuff`，只是效果需要额外系统：狂暴/金刚不坏的
-  百分比换算是纯数值、隐身要改视野、神兽强化要宠物）。
-- 增益的护身符消耗：`SoulShield`/`BlessedArmour` 在 Crystal 里要 1 个护身符
-  （`HumanObject.cs:4515`），本作还没把护身符接到技能上。
-- 位移/传送类：`Teleport`、`Blink`、`ShoulderDash`、`BackStep`、`StormEscape`。
-- 召唤/宠物：`SummonSkeleton`、`SummonShinsu`、`SummonHolyDeva` 等。
-- 持续伤害/中毒：`Poisoning`、`PoisonCloud`、`FrostCrunch` 的减速/冰冻。
-- 地图级持续技能对象（`SpellObject`）：`FireWall`、`ThunderStorm`、`TrapHexagon` 等。
+- **仍登记但无效果的增益技能**：`Rage`、`ImmortalSkin`、`UltimateEnhancer`、
+  `PetEnhancer`、`ElementalBarrier`（都是 `AddBuff`，只是效果需要额外系统：
+  狂暴/金刚不坏的百分比换算是纯数值、神兽强化要宠物）。
+- 护身符/毒药消耗：见 §10 第 7 条（`SoulFireBall`/`Hiding`/`Summon*`/`SoulShield`/
+  `BlessedArmour`/`Poisoning` 都不消耗）。
+- 位移/传送类：`Blink`、`ShoulderDash`、`BackStep`、`StormEscape`
+  （`Teleport` 已实现，见 §6.4）。
+- 召唤/宠物：`SummonHolyDeva`；`SummonSkeleton`/`SummonShinsu` 已实现（§6.6），
+  但 `PetSave`（下线保留）、`PetExp`（宠物经验）未做。
+- 持续伤害/中毒：`PoisonCloud`、`FrostCrunch` 的减速/冰冻（`Poisoning` 已实现，§6.7）。
+- 地图级持续技能对象：`ThunderStorm`、`TrapHexagon`、`HealingCircle` 等
+  （`FireWall` 已用 `SpellField` 实现，§6.2）。
 - 英雄（`HeroObject`）技能：`S.HeroInformation.magics` 仍恒为空。
 - 技能冷却的客户端下发：本作发 `ClientMagic.CastTime = 0`（Crystal 发的是
   `int.MinValue - Envir.Time` 的巨负值，语义等价）。
@@ -403,8 +697,36 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 ## 12. 测试清单
 
 `crates/mir-server/tests/magic.rs`（21 个）覆盖学书、施法校验、伤害/治疗结算与持久化；
+第 2 轮的 7 个新技能在 `crates/mir-server/tests/skills.rs`（20 个用例，逐条见下表）；
 增益技能（9 个）与药水/卷轴的用例在 `crates/mir-server/tests/use_items.rs`
 （18 个，见 `docs/world/buffs.md` §7 与 `docs/world/items.md` §14）。
+
+`tests/skills.rs`（第 2 轮新增）：
+
+| # | 用例 | 断言要点 |
+|---|---|---|
+| 1 | `fire_wall_spawns_five_cells_and_burns_each_cell_every_two_seconds` | 5 格 `S.ObjectSpell`、每格 2s 结算、`MAC` 伤害 |
+| 2 | `fire_wall_without_mana_is_rejected` | 缺蓝拒绝、不落地 |
+| 3 | `fire_wall_limit_recycles_the_oldest_cast` | 地图 `FireWallLimit` 达上限回收最老一次施法（`S.ObjectRemove`） |
+| 4 | `lightning_pierces_six_cells_hitting_first_target_per_cell` | 6 格逐格首个目标、内层 `break`、外层继续 |
+| 5 | `lightning_without_mana_is_rejected` | 缺蓝拒绝 |
+| 6 | `teleport_moves_the_caster_at_200ms_and_applies_mana_penalty` | 200ms 延迟、`ObjectTeleportOut/In`、30 秒 +30% 耗蓝 |
+| 7 | `teleport_without_mana_is_rejected_and_keeps_position` | 缺蓝拒绝、位置不变 |
+| 8 | `hiding_hides_from_monsters_and_breaks_on_walking_only` | `S.ObjectHidden` 广播、走一步解除、攻击不解除 |
+| 9 | `hiding_is_seen_by_cool_eye_monster_of_equal_level` | `CoolEye` 且等级相同的怪能破隐 |
+| 10 | `hiding_without_mana_is_rejected` | 缺蓝拒绝 |
+| 11 | `recasting_hiding_while_hidden_only_refreshes_duration` | 重复施放只刷新时长 |
+| 12 | `summon_skeleton_creates_a_pet_that_attacks_the_masters_target` | 召唤物出生、跟随主人目标 |
+| 13 | `summoning_the_same_pet_again_recalls_instead_of_creating_a_second` | 同名活宠只召回 |
+| 14 | `pets_disappear_when_the_master_logs_out_or_dies` | 主人下线/死亡清宠物 |
+| 15 | `summoned_pets_do_not_grant_experience` | 召唤物死亡不给主人经验 |
+| 16 | `summoning_on_a_no_pets_map_is_rejected_after_spending_mana` | `NoPets` 地图：已扣蓝、召唤失败（与 Crystal 一致） |
+| 17 | `poisoning_applies_green_then_red_and_ticks_each_two_seconds` | 先绿后红、每 2s 扣血 |
+| 18 | `poisoning_requires_a_target_and_does_not_spend_mana` | 目标非法：不扣蓝 |
+| 19 | `thunderbolt_gets_fifty_percent_bonus_against_undead` | 不死系 ×1.5 |
+| 20 | `undead_flag_is_bridged_from_monster_info_at_spawn` | `MonsterInfo.Undead` 在刷怪时回填 `Monster.undead` |
+
+`tests/magic.rs`（第 1 轮 21 个）：
 
 | # | 用例 | 断言要点 |
 |---|---|---|
@@ -432,7 +754,7 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 
 模块内单元测试（`src/magic.rs`）：记录布局、空块/截断/超限、`cost`/`delay`/`multiplier`、
 威力与银行家舍入、`ClientMagic` 截断、`spell_kind` 覆盖（9 个增益技能都是 `SpellKind::Buff`、
-`REGISTERED_UNSUPPORTED` 里的仍是 `Unsupported`）。
+第 2 轮的 7 个新技能各走自己的 `SpellKind`，`REGISTERED_UNSUPPORTED` 里的仍是 `Unsupported`）。
 
 ---
 

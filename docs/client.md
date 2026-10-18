@@ -6,12 +6,13 @@
 [`protocol/login-flow.md`](protocol/login-flow.md)，渲染几何见
 `crates/mir-render/src/lib.rs` 与 `crates/mir-render/src/geometry.rs` 的模块文档。
 
-## 1. 两种模式
+## 1. 三种模式
 
 | 模式 | 启动参数 | 行为 |
 |---|---|---|
 | 离线地图 | `--map 0 --cell 330,270` | 直接读本地 `.map`，方向键/WASD 平移相机；`S` 截图 |
 | 联机世界 | `--connect 127.0.0.1:7000 --account NAME --password PASS --character NAME` | 连真实服务端，登录/建角/进入世界；相机跟随自己 |
+| 登录窗口 | `--login`（可加 `--server 地址`） | 显示登录页 → 选角页 → 进入世界；服务器地址存本地设置（§5.17） |
 
 联机示例：
 
@@ -38,6 +39,9 @@ cargo run -p mir-client -- --connect 127.0.0.1:7000 `
   `--no-music` 与 `--music-volume <0..1>` 只影响本次启动。切图时按
   `S.MapInformation.Music` / `S.MapChanged.Music` 换曲；编号为 0（示例数据库全部如此）
   时用 `music_for_map` 的主题曲兜底，缺少 `300xx.wav` 时安静静音（见 §5.6）。
+* 游戏内设置面板：`F12`（备用 `O`）——音效/音乐/语言/分辨率/渲染缩放 + 按键说明表（§5.15）。
+* 商城页签：市场面板的第四个页签，用元宝购买（§5.16）；技能表现（火墙/雷电/瞬息移动/
+  隐身/召唤）见 §5.18。
 
 ## 2. 登录包序（实现于 `crates/mir-client/src/net.rs`）
 
@@ -74,7 +78,8 @@ Crystal 的版本哈希是客户端 exe 的 MD5（`Client/MirScenes/LoginScene.c
 
 `WorldSnapshot`（`mir-client/src/net.rs`）是网络层与渲染层之间唯一的接口：
 
-* `self_player`：`UserInformation` 里的对象 ID/名字/坐标/朝向/HP/MP/等级/职业/金币；
+* `self_player`：`UserInformation` 里的对象 ID/名字/坐标/朝向/HP/MP/等级/职业/金币/**元宝
+  （`credit`）**；
 * `inventory` / `equipment`：背包 46 格与 14 个装备槽（`EquipmentSlot` 顺序：武器/衣服/
   头盔/火把/项链/左手镯/右手镯/左戒指/右戒指/护身符/腰带/靴子/宝石/坐骑）；
   `S.EquipItem` / `S.RemoveItem` 用本地物品数据补全背包 ↔ 装备槽的搬运
@@ -94,7 +99,8 @@ Crystal 的版本哈希是客户端 exe 的 MD5（`Client/MirScenes/LoginScene.c
   的逐帧选择由渲染层按真实时间完成（见 §6.3）；
 * `HealthChanged` 更新自己，`ObjectHealth` 更新怪物血量百分比；
 * `Chat`、`ObjectChat` 进聊天记录（最多 100 条）；`NPCResponse` 存对话页，
-  `NPCGoods` 记货架；`GainedItem/GainedGold` 写一条系统消息并更新金币；
+  `NPCGoods` 记货架；`GainedItem/GainedGold` 写一条系统消息并更新金币，
+  `GainedCredit/LoseCredit` 更新元宝余额（商城购买与 NPC `GIVECREDIT` 用）；
 * `ObjectRemove`/`MapChanged` 清理实体；
 * `self_player.looks` / `entities[].looks`（`PlayerLooks`）：纸娃娃外观（衣服/武器/发型/
   盾牌/坐骑/翅膀）。自己的衣服/武器由装备槽 + 物品模板推导（Crystal
@@ -610,6 +616,10 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 | 提前成交 | `C.MarketSellNow{AuctionID}` → `S.MarketSuccess` / `S.MarketFail` | `World::market_sell_now` | `market.message` |
 | 取回 / 收款 | `C.MarketGetBack{Mode,AuctionID}` → `S.GainedItem` / `S.GainedGold` / `S.MarketSuccess` / `S.MarketFail` | `World::market_get_back` | `market.listings` / `market.message` |
 | 上架 | `C.ConsignItem{UniqueID,Price,Type}` → `S.ConsignItem{UniqueID,Success}` + `S.LoseGold` | `World::consign_item` | `market.consign_result` |
+| 商城页签 | `C.MarketSearch{MarketType=GameShop}` → `S.NPCMarket`；`C.GameshopBuy{GIndex,Quantity,PType}` → `S.LoseCredit`/`S.LoseGold` + `S.GainedItem`（背包满转邮件 + `S.Chat`） | `World::gameshop_buy`（`market.rs`）、`session.rs::on_gameshop_buy` | `market.listings` / `market.message` / `self_player.credit` |
+| 设置面板 | 无网络包：改 `settings.json`（音效/音乐/语言/分辨率/缩放），语言切换即时生效 | `mir-client/src/settings.rs` + `ui/settings.rs` | `settings`（`app.rs` 持有） |
+| 登录 / 选服 / 选角 | `C.ClientVersion` → `C.Login` → `S.LoginSuccess{Characters}`；`C.StartGame{CharacterIndex}` / `C.NewCharacter` | `net.rs`（`manual_select`）+ `ui/select.rs` | `login_stage` / `characters` |
+| 技能表现 | ← `S.Magic` / `S.ObjectMagic` / `S.ObjectSpell` / `S.ObjectRemove` / `S.ObjectHidden` / `S.Poisoned` / `S.ObjectPoisoned` | `magic.rs`（§6.2-§6.7） | `spell_events` |
 | 组队开关 | `C.SwitchGroup{AllowGroup}` → `S.SwitchGroup{AllowGroup}` | `group.rs`（`World::switch_group`） | `group.allow_group` |
 | 邀请入队 | `C.AddMember{Name}` → 目标 `S.GroupInvite{Name}`；接受后双方 `S.AddMember` | `World::group_invite` | `group.members` |
 | 接受/拒绝组队 | `C.GroupInvite{AcceptInvite}` → `S.AddMember` × N + `S.GroupMembersMap` + `S.SendMemberLocation` + `S.ObjectHealth` | `World::group_join` | `group.members`（含地图/坐标） |
@@ -647,13 +657,14 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 
 ### 5.14 市场 / 寄售 / 拍卖面板
 
-`ui::market`。三个页签对应协议的 `MarketPanelType`：
+`ui::market`。四个页签对应协议的 `MarketPanelType`：
 
 | 页签 | `C.MarketSearch.UserMode` | 列表 | 主按钮 |
 |---|---|---|---|
 | 市场 | `false` | 全服在售（寄售 + 拍卖） | 寄售「买下」/ 拍卖「出价」→ `C.MarketBuy` |
 | 寄售 | `true` | 自己挂的寄售 | 「取回」→ `C.MarketGetBack{Any}` |
 | 拍卖 | `true` | 自己挂的拍卖 | 「取回」；有人出价时「提前成交」→ `C.MarketSellNow` |
+| 商城 | `false` | 服务端商城目录（`item_type = GameShop`） | 「购买」→ `C.GameshopBuy`（元宝，见 §5.16） |
 
 * 打开：NPC 的 `[@MARKET]` 页 → `S.NPCMarket` 打开面板；`[@CONSIGN]` → `S.NPCConsign`
   直接打开「寄售」页签（`ui::market` 的 `consign_open_version`）。
@@ -671,10 +682,109 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
   价格输入框按页签校验（寄售 5000..=50,000,000，拍卖 0..=50,000）。
 * 实际行为：市场面板打开时会把背包一起显示（Crystal `TrustMerchantDialog.Show()` 同样会
   摆出背包），**不会主动关闭 NPC 对话/商店**；两个面板可以同时存在。面板不可拖动、
-  固定在屏幕中央偏上；Crystal 的商城页签（`GameShop`）本作不显示。
+  固定在屏幕中央偏上。商城页签（`GameShop`）第 2 轮已实现，见 §5.16。
 
 测试：`crates/mir-client/tests/market_panel.rs`（布局/快照/失败码/搜索翻页/购买出价/上架/
-截图，见文件内 6 个用例）。
+商城页签/截图，见文件内用例）。
+
+### 5.15 设置面板（F12 / O）
+
+`ui::settings`（Crystal `OptionDialog`，`Client/MirScenes/Dialogs/OptionDialog.cs`；
+默认键 `F12`、备用 `O`，`Client/KeyBindSettings.cs:221-224`）。分四组，改动**即时生效并写回**
+`settings.json`：
+
+| 分组 | 控件 | 行为 |
+|---|---|---|
+| 音频 | 音效开关、音效音量（±10%） | 写入 `settings.sound` / `volume`；下一次播放立即用新音量（`audio.rs`） |
+| 音频 | 背景音乐开关、音乐音量 | 写入 `settings.music` / `music_volume`；切图换曲时生效 |
+| 语言 | 中文 / English | 写 `settings.language`；**面板自己的文案立即切换**（`Label::text(language)`） |
+| 显示 | 分辨率预设（800×600 / 1024×768 / 1280×720 / 1600×900）、渲染缩放（1/2/3） | 写 `settings.resolution` / `scale`；缩放按比例降采样再放大（`frame.rs`） |
+
+底部是**按键说明表**（`KEY_BINDINGS`，18 条：WASD/方向键、Shift 跑、Space 攻击、Tab 拾取、
+T 聊天、I 背包、E 装备、F3 技能、M 小地图、B 大地图、Q 任务、N 邮件、G 行会、P 组队、
+Y 交易、O 设置、Esc 关面板、F10 退出），动作文案走 `Label`，键名本身是固定串。
+`Esc` / 右上角「关闭」收起；小窗口下按 `MIN_PANEL_WIDTH/HEIGHT` 收缩布局。
+
+测试：`crates/mir-client/tests/round2_panels.rs`（`settings_roundtrip_through_disk_survives_restart`、
+`settings_panel_layout_and_clicks`、`settings_panel_is_modal_in_the_ui_state`）与
+`ui/settings.rs` 内单元测试。
+
+### 5.16 商城页签（市场面板第四个页签）
+
+`ui::market` 的 `TABS` 第 4 项是 `MarketPanelType::GameShop`（Crystal 的
+`GameShopButton`，`TrustMerchantDialog.cs:143-155`）：
+
+* 打开：点击页签直接发 `C.MarketSearch{MarketType=GameShop, Match:"", Type:Nothing}`
+  （**不要求 NPC 对话**，服务端商城分支跳过 NPC 校验）→ `S.NPCMarket`；翻页
+  `C.MarketPage` → `S.NPCMarketPage`；`C.MarketRefresh` 重新拉首页。搜索/刷新/翻页
+  都受服务端 500ms 节流（`S.MarketFail{TooFar}` 或静默丢弃）。
+* 列表：`ClientAuction.seller` 为空串，客户端显示「商城」；价格单位是**元宝**
+  （如 `250 元宝`），标题栏余额也显示 `self_player.credit`（`S.UserInformation.Credit`
+  初始化，`S.LoseCredit`/`S.GainedCredit` 更新）；表头换成「物品 / 价格 / 分类 / 库存」，
+  库存列当前显示「在售」占位（服务端不实时下发库存，见 `docs/world/gameshop.md` §7.3）。
+* 购买：数量输入框 +「购买」→ `C.GameshopBuy{GIndex = auction_id, Quantity, PType}`；
+  页签固定用**元宝**（`PType = 0`），数量按「不超过 5 组」在客户端先夹一次
+  （例如堆叠上限 10、每份 2 个时，输入 50 会被夹到 25），服务端再独立校验。
+  成功时服务端发 `S.LoseCredit` + `S.GainedItem`（背包放不下转邮件 + `S.Chat`），
+  页签没有 `S.MarketSuccess` 回执。
+* 失败：静默类（数量/余额/支付方式）无提示；其余走 `S.Chat`（页签没有 `S.MarketFail`）。
+  若走兼容路径 `C.MarketBuy`（旧客户端），失败回 `S.MarketFail`，成功回 `S.MarketSuccess`。
+* 页签不显示「上架 / 取回 / 回收」按钮（商城没有卖家）。
+
+测试：`crates/mir-client/tests/market_panel.rs`（市场页签）与 `tests/round2_panels.rs`
+（`game_shop_tab_sends_market_search_and_buys_with_credits`、
+`game_shop_tab_fits_small_and_large_screens`、`credit_balance_updates_from_lose_credit`）。
+
+### 5.17 服务器选择与角色选择（`--login`）
+
+`ui::select`（Crystal `LoginScene` / `SelectScene`）：
+
+```text
+--login 启动
+  → 登录页：服务器地址（默认 127.0.0.1:7000，可用 --server 改并写回设置）
+            + 账号 + 口令 → 「连接」
+  → S.LoginSuccess{Characters}：进入选角页（角色卡：名字/职业/等级/性别/上次登录/装备摘要）
+  → 选中角色「进入游戏」→ C.StartGame{CharacterIndex}
+  → 「新建角色」：名字 + 职业 + 性别 → C.NewCharacter → 回到选角页
+```
+
+* 登录失败留在登录页并给出可重试提示（连接失败/账号不存在/口令错误/封禁，
+  见 `select::error_label`）；`ConnectState::Connecting` 时按钮变灰、超时 15 秒。
+* 服务器地址与装备摘要缓存在 `settings.json`（`server` / `equipment`）；
+  选角页的装备摘要来自上次进世界时的 `S.UserInformation.Equipment`，没有缓存时显示「暂无装备」
+  （`SelectInfo` 协议里没有装备字段）。
+* 命令行 `--connect` 仍走「自动选角」（`ConnectOptions::manual_select = false`）；
+  `--login` 用 `manual_select = true`，登录成功后停在选角页等 UI 命令。
+* 空角色列表时选角页提示「先创建角色」，`C.NewCharacter` 成功后自动刷新列表。
+
+测试：`crates/mir-client/tests/round2_panels.rs`（`login_success_exposes_character_list_for_manual_select`、
+`server_select_defaults_to_localhost_and_can_retry`、
+`character_select_shows_class_level_and_equipment_summary`、`login_screens_render_at_both_sizes`）。
+
+### 5.18 技能表现（火墙 / 雷电 / 瞬息移动 / 隐身 / 召唤）
+
+`ui::spellfx`（Crystal `Client/MirObjects/SpellObject.cs`）。网络层把
+`S.Magic` / `S.ObjectMagic` / `S.ObjectSpell` 转成 `WorldSnapshot.spell_events`
+（`SpellEvent{spell, location, direction, param, started_ms}`，上限 24 条），
+UI 按三类画简化表现（没有逐帧贴图素材）：
+
+| 类别 | 技能 | 画法 | 时长 |
+|---|---|---|---|
+| 区域 | FireWall、PoisonCloud、ThunderStorm、IceStorm… | 沿 `direction` 铺 3 格半透明色块 | 4000ms |
+| 指向 | 雷电、火球系列、HellFire | 施法者 → 落点一条抖动线（无施法者就画落点） | 700ms |
+| 自身 | 隐身、魔法盾、召唤系列 | 落点一圈光环 + 技能名 | 1200ms |
+
+伤害数字/受击动作仍走 `S.DamageIndicator` / `S.ObjectStruck`。两个注意点：
+
+* `S.ObjectRemove` 只移除实体（`entities.remove`），**不会**提前抹掉火墙色块：
+  表现按 `AREA_MS = 4s` 淡出，而服务端火墙能活 `10 + 伤害/2` 秒——客户端看到的是
+  「一簇火苗 4 秒后消失、但伤害仍在」的简化表现（没有逐帧贴图素材）；
+* `S.ObjectHidden` 会把该对象的外观/名字/血条一起隐藏并禁止点选
+  （`GameScene.cs:5780-5790` 的等价行为），不是只隐藏名字。
+
+测试：`crates/mir-client/tests/round2_panels.rs`
+（`spell_packets_create_visible_effects`、`object_hidden_hides_entities_everywhere`），
+以及服务端 `tests/magic.rs` 的包序断言。
 
 
 
@@ -1069,16 +1179,20 @@ cargo fmt --all -- --check
   以及坐标行跟随鼠标（本作显示自己的坐标）；玩家蓝条（`MapObject.cs:500`）暂未画；
 * 地图切换后的素材重载（服务端 `MapChanged` 会更新快照地图名，窗口仍用启动时加载的地形）；
 * **音效/音乐**：循环音（`LoopProvider`）、怪物各自的 `BaseSound`、按地块选择脚步音、
-  按武器选择受击音、按距离衰减、音量条 UI（`MainDialogs.cs:2864-2887`）、解码缓存与回收
+  按武器选择受击音、按距离衰减、Crystal 的滑杆式音量条 UI（`MainDialogs.cs:2864-2887`；
+  本作设置面板改用 ±10% 按钮）、解码缓存与回收
   （Crystal 的 `CachedSound` / `SoundManager.cs:195-223`；本作每次播放现解码，
   短 WAV 够快，但没有缓存与 30 秒回收）；音乐目前只按地图编号/标题选曲，
   没有登录/选角/战斗音乐切换（`LoginScene.cs:29`、`SelectScene.cs:25`）；
+* **按键自定义**：设置面板的按键说明表是**只读**的（`KEY_BINDINGS` 18 条），
+  不支持像 Crystal `KeyBindSettings.cs` 那样改键；`F12`/`O` 是固定的面板快捷键；
 * **小地图**：NPC 任务感叹号（`MainDialogs.cs:1963-2010`）、两档尺寸/底部按钮
   （邮件/大地图/亮度）、滚轮缩放的「大地图搜索」；大地图面板本体见 §5.7（已实现）；
 * 天气、光照（`LightSetting`/`MapDarkLight`）、聊天频道切换与物品链接；
-* **摆摊/拍卖的剩余项**：NPC 市场（寄售/拍卖/搜索/翻页/买断/出价/提前成交/取回）面板已在
-  §5.14 实现；仍缺 Crystal 的商城 `GameShop` 页签（没有商城数据）、挂单页的按类型过滤树与
-  滚动条（本作固定 10 行 + 上下页）；
+* **摆摊/拍卖/商城的剩余项**：NPC 市场（寄售/拍卖/搜索/翻页/买断/出价/提前成交/取回）面板已在
+  §5.14 实现，商城页签在 §5.16 实现；仍缺 Crystal 的**独立商城面板**（`S.GameShopInfo`/
+  `S.GameShopStock` 下发、库存实时刷新、`Class`/`Category` 二级筛选页签）、
+  挂单页的按类型过滤树与滚动条（本作固定 10 行 + 上下页）；
 * **任务**：可接任务列表（目前只能从 NPC 对话页接取）、任务详情/奖励选择/共享/追踪控件、
   已完成任务列表的展示（`S.CompleteQuest` 已进快照，面板只列进行中任务）；
 * **仓库**：扩充仓库（`HasExpandedStorage`）、仓库密码、仓库内的金币存取

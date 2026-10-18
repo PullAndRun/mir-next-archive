@@ -2545,7 +2545,8 @@ impl World {
     /// 简化：`NoDropMonster` 地图开关、稀有度/会员掉率加成（`:1098-1102`）、
     /// `QuestRequired` 与任务物品的消耗（`:1134-1140`）、`GMMade` 标记都未实现。
     pub(crate) fn drop_monster_loot(&mut self, monster_id: u32) {
-        let Some(monster) = self.monsters.iter().find(|m| m.object_id == monster_id) else {
+        // 用 `World::monster`（monster_slots 下标）代替遍历全部怪物。
+        let Some(monster) = self.monster(monster_id) else {
             return;
         };
         if !monster.dead {

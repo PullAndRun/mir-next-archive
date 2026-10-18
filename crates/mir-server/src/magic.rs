@@ -1478,17 +1478,7 @@ impl World {
             } => {
                 // `Map.cs:1052-1095`：落点 ±3 的 7×7，逐个友方 `AddBuff`，
                 // 加成是**受术者**的 `Level / 7 + 4`（`:1082`）。
-                let mut targets: Vec<(u32, u16)> = self
-                    .players
-                    .values()
-                    .filter(|player| {
-                        player.map == map
-                            && !player.dead
-                            && player.position.in_range(location, SHIELD_AREA_RADIUS)
-                    })
-                    .map(|player| (player.object_id, player.level))
-                    .collect();
-                targets.sort_unstable();
+                let targets = self.area_buff_targets(&map, location);
                 let mut trained = false;
                 for (target_id, level) in targets {
                     let mut delta = Stats::default();
@@ -1562,6 +1552,27 @@ impl World {
                     .is_some_and(|monster| !monster.dead && monster.position == cell)
             })
             .collect()
+    }
+
+    /// 群体增益（`MagicEffect::AreaBuff`）的作用目标：同图、未死亡、在落点
+    /// `±SHIELD_AREA_RADIUS` 内的玩家，按对象 ID 升序（= 旧暴力扫描后 `sort_unstable`
+    /// 的结果，保证增益包序可回放）。
+    ///
+    /// Crystal `Map.cs:1052-1095` 是外层 y、内层 x 逐格取对象；本作用 AOI 网格取
+    /// 落点半径内的玩家（`aoi_ids_in_radius`，等价 7×7 扫描），判定阈值不变。
+    fn area_buff_targets(&self, map: &str, location: Point) -> Vec<(u32, u16)> {
+        let mut targets: Vec<(u32, u16)> = self
+            .aoi_ids_in_radius(map, location, SHIELD_AREA_RADIUS, AoiKind::Player)
+            .into_iter()
+            .filter_map(|object_id| {
+                self.players
+                    .get(&object_id)
+                    .filter(|player| player.map == map && !player.dead)
+                    .map(|player| (player.object_id, player.level))
+            })
+            .collect();
+        targets.sort_unstable();
+        targets
     }
 
     /// 3×3 区域里的玩家（`Map.cs:1259-1290`），按对象 ID 升序保证可回放。
@@ -1803,6 +1814,7 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::sync::mpsc;
 
     fn info() -> MagicInfo {
         MagicInfo {
@@ -1910,6 +1922,142 @@ mod tests {
         assert_eq!(client.range, 8);
         assert_eq!(client.delay, 1_700);
         assert_eq!(client.cast_time, 0);
+    }
+
+    /// 测试用玩家（字段与 `world.rs` 的测试辅助一致）。
+    fn test_player(
+        object_id: u32,
+        map: &str,
+        position: Point,
+        level: u16,
+        dead: bool,
+    ) -> (crate::world::Player, mpsc::UnboundedReceiver<Vec<u8>>) {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        let stats = crate::combat::player_base_stats(level, MirClass::Warrior);
+        (
+            crate::world::Player {
+                object_id,
+                session_id: u64::from(object_id),
+                character_id: i64::from(object_id),
+                name: format!("玩家{object_id}"),
+                map: map.to_owned(),
+                position,
+                direction: MirDirection::Down,
+                level,
+                experience: 0,
+                max_experience: 0,
+                class: MirClass::Warrior,
+                gender: mir_core::enums::MirGender::Male,
+                hair: 1,
+                hp: stats.hp,
+                mp: stats.mp,
+                stats,
+                action_time: 0,
+                attack_time: 0,
+                struck_time: 0,
+                regen_time: 0,
+                death_time: 0,
+                revive_time: 0,
+                cell_time: 0,
+                step_counter: 0,
+                run_counter: 0,
+                run_time: 0,
+                dead,
+                attack_mode: mir_core::enums::AttackMode::Peace,
+                pk_points: 0,
+                brown_time: 0,
+                pk_point_time: 0,
+                last_hitter: None,
+                last_hit_time: 0,
+                name_colour: mir_core::Color(-1),
+                visible_monsters: std::collections::BTreeSet::new(),
+                visible_npcs: std::collections::BTreeSet::new(),
+                movement_time: 0,
+                inventory: crate::items::new_inventory(),
+                equipment: crate::items::new_equipment(),
+                storage: crate::storage::new_storage(),
+                magics: Vec::new(),
+                magic: MagicState::default(),
+                gold: 0,
+                credit: 0,
+                visible_items: std::collections::BTreeSet::new(),
+                quests: Vec::new(),
+                completed_quests: std::collections::BTreeSet::new(),
+                mail: crate::mail::MailState::default(),
+                buffs: Vec::new(),
+                pot_health_amount: 0,
+                pot_mana_amount: 0,
+                pot_time: 0,
+                unlock_curse: false,
+                npc: crate::npc::NpcState::default(),
+                group_id: None,
+                group_invitation: None,
+                group_invite_time: 0,
+                allow_group: true,
+                guild: None,
+                trade: crate::trade::TradeState::default(),
+                trade_invitation: None,
+                next_trade_time: 0,
+                allow_trade: true,
+                sender,
+            },
+            receiver,
+        )
+    }
+
+    /// 对拍：AreaBuff 的新 AOI 选择结果必须与旧的 `players.values() + in_range`
+    /// 暴力扫描（含「同图 / 存活 / 半径内」三条判定）完全一致，
+    /// 且输出顺序（按对象 ID 升序）不变。
+    #[test]
+    fn area_buff_targets_match_the_old_bruteforce_scan() {
+        let mut world = World::new(999);
+        let location = Point::new(20, 20);
+        let boundary = Point::new(20 + SHIELD_AREA_RADIUS, 20);
+        let outside = Point::new(20 + SHIELD_AREA_RADIUS + 1, 20);
+        let cases: [(u32, &str, Point, u16, bool); 5] = [
+            // 半径内、同图、存活 → 命中。
+            (1, "0", location, 10, false),
+            // 恰好落在半径边界（切比雪夫 ≤ radius）→ 命中。
+            (2, "0", boundary, 20, false),
+            // 半径外 → 不命中。
+            (3, "0", outside, 30, false),
+            // 同格但已死亡 → 不命中。
+            (4, "0", location, 40, true),
+            // 同坐标但另一张地图 → 不命中。
+            (5, "1", location, 50, false),
+        ];
+        // 收包端只用于保活（`enter` 会往 sender 写外观包），不参与断言。
+        let mut receivers = Vec::new();
+        for (object_id, map, position, level, dead) in cases {
+            let (player, receiver) = test_player(object_id, map, position, level, dead);
+            receivers.push(receiver);
+            world.enter(player);
+        }
+
+        // 新实现：AOI 网格取落点半径内的玩家。
+        let new_targets = world.area_buff_targets("0", location);
+        // 旧实现（t3 之前的暴力扫描）原样重算，作为对拍基准。
+        let mut old_targets: Vec<(u32, u16)> = world
+            .players
+            .values()
+            .filter(|player| {
+                player.map == "0"
+                    && !player.dead
+                    && player.position.in_range(location, SHIELD_AREA_RADIUS)
+            })
+            .map(|player| (player.object_id, player.level))
+            .collect();
+        old_targets.sort_unstable();
+
+        assert_eq!(
+            new_targets, old_targets,
+            "AOI 查询结果应与人物列表暴力扫描一致"
+        );
+        assert_eq!(
+            new_targets,
+            vec![(1, 10), (2, 20)],
+            "只命中同图、存活、切比雪夫半径内的玩家（含边界）"
+        );
     }
 
     #[test]

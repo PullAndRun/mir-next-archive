@@ -1001,7 +1001,8 @@ impl World {
     /// （`:1003-1005`，本作按需扫描不维护计数）。
     pub(crate) fn monster_died(&mut self, monster_id: u32) {
         let now = self.now();
-        let Some(monster) = self.monsters.iter_mut().find(|m| m.object_id == monster_id) else {
+        // 用 `World::monster_mut`（monster_slots 下标）代替遍历全部怪物。
+        let Some(monster) = self.monster_mut(monster_id) else {
             return;
         };
         if monster.dead {

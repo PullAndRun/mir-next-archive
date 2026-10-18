@@ -58,3 +58,53 @@ jobs:
         run: git clone --depth 1 https://github.com/Suprcode/Crystal.git "$RUNNER_TEMP/Crystal"
       - name: 生成器自检（生成结果必须与仓库中已提交的一致）
         run: python tools/protocol-gen/generate.py --crystal "$RUNNER_TEMP/Crystal" --check
+
+  docs:
+    name: 文档链接与包编号
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # 相对链接必须指向真实文件；README 文档表必须引用核心契约；市场包编号要与协议常量一致。
+      - name: check_links
+        run: >-
+          python tools/docs/check_links.py
+          --require docs/world/market.md,docs/world/trade.md,docs/world/aoi.md,docs/world/gameshop.md
+
+  postgres:
+    name: PostgreSQL 集成测试
+    runs-on: ubuntu-latest
+    # 这些用例在没有 MIR2_TEST_DATABASE_URL 时会**静默跳过**，本地很容易漏测；
+    # 这里起一个一次性 PostgreSQL，把它们真正跑起来（迁移 0001..、事务原子性、重启读回）。
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mir2
+          POSTGRES_PASSWORD: mir2
+          POSTGRES_DB: mir2_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mir2 -d mir2_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      MIR2_TEST_DATABASE_URL: postgres://mir2:mir2@127.0.0.1:5432/mir2_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # 只编 mir-store 与 mir-server：不装客户端那套 X11/Wayland 头文件。
+      - name: store（迁移 + 账号/角色/行会往返）
+        run: cargo test -p mir-store -- --test-threads=1
+      - name: server（登录 / 行会 / 市场持久化 / 商城）
+        run: >
+          cargo test -p mir-server
+          --test postgres_login --test postgres_guild
+          --test market_persistence --test gameshop
+          -- --test-threads=1
+

@@ -1,0 +1,11 @@
+# docker build 的上下文（compose 里是仓库根目录）：素材与参考仓库不该进构建上下文。
+# `resource/` 有两百多万个文件，拷进 context 会让每次构建多花好几分钟。
+resource/
+github/
+target/
+build/
+.git/
+.agent-teams/
+.edict/
+deploy/
+*.png

@@ -73,20 +73,24 @@ pub async fn serve_forever<S: AccountStore>(
         }
         Err(error) => tracing::warn!(%error, "读取攻城状态失败：从空状态启动"),
     }
-    // 市场：把库里的挂单灌进世界，并清理已过期挂单（物品/最高出价按系统邮件退回）。
+    // 市场：把库里的挂单灌进世界，先结算停机期间到期的拍卖（有有效出价 → 自动成交），
+    // 再清理剩下的过期挂单（物品/最高出价按系统邮件退回）。
     // 读取失败直接中止启动——绝不能让运行期用「空挂单」的快照把库里的行覆盖掉。
     let auctions = store
         .load_auctions()
         .await
         .context("读取市场挂单失败，拒绝以空市场启动")?;
-    let (auction_count, purged, market_cleanup) = {
+    let (auction_count, sold, purged, market_cleanup) = {
         let mut world = world.lock().await;
         let loaded = world.load_auctions(auctions);
         let now_ms = world.wall_now();
+        // Crystal 的 `ProcessAuction` 在停机期间没跑过：重启后先按同一语义补结算，
+        // 否则「到期+有出价」的挂单会被清理路径当成普通过期挂单退款退货。
+        let sold = world.process_auctions(now_ms);
         let purged = world.purge_expired_auctions(now_ms);
-        // F2：退回邮件与「删除挂单」必须在同一事务提交；否则崩溃在两者之间会重复退款。
-        // 出锁后由 `apply_market_update` 用一个 PostgreSQL 事务落库。
-        let cleanup = if purged.is_empty() {
+        // F2：邮件（成交/退回）与「删除挂单」必须在同一事务提交；否则崩溃在两者之间
+        // 会重复退款或重复发货。出锁后由 `apply_market_update` 用一个事务落库。
+        let cleanup = if sold.is_empty() && purged.is_empty() {
             None
         } else {
             Some(crate::store::MarketUpdate {
@@ -95,16 +99,23 @@ pub async fn serve_forever<S: AccountStore>(
                 auctions: world.auction_snapshot(),
             })
         };
-        (loaded, purged, cleanup)
+        (loaded, sold, purged, cleanup)
     };
+    if !sold.is_empty() {
+        tracing::info!(
+            count = sold.len(),
+            "启动结算：到期的拍卖已自动成交（物品寄买家、成交价−佣金寄卖家）"
+        );
+    }
     if let Some(cleanup) = market_cleanup {
         store
             .apply_market_update(cleanup)
             .await
-            .context("过期市场挂单清理（退回邮件+删除挂单）事务失败")?;
+            .context("过期市场挂单清理（成交/退回邮件+删除挂单）事务失败")?;
     }
     tracing::info!(
         loaded = auction_count,
+        sold = sold.len(),
         purged = purged.len(),
         "已载入市场挂单"
     );
@@ -123,14 +134,36 @@ pub async fn serve_forever<S: AccountStore>(
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // 拍卖到期结算的闸门：Crystal 每 10 分钟一次（`Envir.cs:2354-2358`），本作 tick 是
+        // 100ms，按 [`crate::market::AUCTION_SCAN_INTERVAL_MS`] 节流，避免每 tick 全表扫描。
+        // 状态放在 tick 任务里而不是 `World` 上：不给世界加只服务一次扫描的字段。
+        let mut next_auction_scan = 0_i64;
+        // 成交结果已在内存里（挂单删除 + 邮件入队），落盘失败时必须继续重试，直到事务提交。
+        let mut sale_flush_pending = false;
         loop {
             interval.tick().await;
-            let (writes, conquest_writes) = {
+            let (writes, conquest_writes, auction_sales) = {
                 let mut world = tick_world.lock().await;
                 world.tick();
                 // 行会经验来自怪物击杀（tick 里结算），写入由这里定期落盘。
                 // 攻城状态（开战/停战/城主/税收）同样在 tick 里变化。
-                (world.take_guild_writes(), world.take_conquest_writes())
+                let now_ms = world.wall_now();
+                let auction_sales = if now_ms >= next_auction_scan {
+                    next_auction_scan =
+                        now_ms.saturating_add(crate::market::AUCTION_SCAN_INTERVAL_MS);
+                    let sales = world.process_auctions(now_ms);
+                    if !sales.is_empty() {
+                        sale_flush_pending = true;
+                    }
+                    sales
+                } else {
+                    Vec::new()
+                };
+                (
+                    world.take_guild_writes(),
+                    world.take_conquest_writes(),
+                    auction_sales,
+                )
             };
             if !writes.is_empty()
                 && let Err(error) =
@@ -144,6 +177,21 @@ pub async fn serve_forever<S: AccountStore>(
                         .await
             {
                 tracing::warn!(%error, "tick 里的攻城状态落盘失败");
+            }
+            if sale_flush_pending {
+                let count = auction_sales.len();
+                match crate::market::flush_auction_sales(tick_store.as_ref(), tick_world.as_ref())
+                    .await
+                {
+                    Ok(()) => sale_flush_pending = false,
+                    Err(error) => {
+                        // 事务一行未写、内存里的成交结果保留（见 `flush_auction_sales` 文档）：
+                        // 5 秒后重试落盘，而不是等满一个扫描周期。
+                        next_auction_scan =
+                            tick_world.lock().await.wall_now().saturating_add(5_000);
+                        tracing::warn!(%error, count, "tick 里的拍卖成交落盘失败，稍后重试");
+                    }
+                }
             }
         }
     });

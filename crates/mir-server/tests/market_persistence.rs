@@ -502,7 +502,7 @@ async fn run_bid_attribution_survives_restart<S: AccountStore>(store: &S, tag: &
 }
 
 // ---------------------------------------------------------------------------
-// 场景 4：过期 → 重启 → 启动清理
+// 场景 4：过期 → 重启 → 启动清理（**出价不高于起拍价**，不满足自动成交条件）
 // ---------------------------------------------------------------------------
 
 async fn run_expired_auctions_are_purged<S: AccountStore>(store: &S, tag: &str) {
@@ -513,8 +513,10 @@ async fn run_expired_auctions_are_purged<S: AccountStore>(store: &S, tag: &str) 
     add_player(&mut world, BUYER, buyer_id, "买家", 100_000, npc_id);
     let auction_id = consign(&mut world, SELLER, 1, 5_000, MarketPanelType::Auction);
     search_market(&mut world, BUYER);
+    // 出价**等于**起拍价：Crystal 的自动成交条件是 `CurrentBid > Price`（`Envir.cs:2398`），
+    // 相等不成交，所以这类挂单到期后仍走「置过期 → 启动清理退款退货」。
     world
-        .market_buy(BUYER, auction_id, 6_000)
+        .market_buy(BUYER, auction_id, 5_000)
         .expect("拍卖出价应成功");
 
     // 把上架时间改成 8 天前，模拟停机期间过期（`Globals.ConsignmentLength = 7`）。
@@ -523,13 +525,18 @@ async fn run_expired_auctions_are_purged<S: AccountStore>(store: &S, tag: &str) 
     records[0].consignment_date = DateTimeBinary::from_unix_seconds(old_ms / 1000);
     store.save_auctions(records).await.expect("写回过期挂单");
 
-    // 重启 + 启动清理（server.rs 启动路径的同款调用）。
+    // 重启 + 启动清理（server.rs 启动路径的同款调用：先结算成交，再清理剩余的过期挂单）。
     let (mut restarted, _) = build_world();
     assert_eq!(
         restarted.load_auctions(store.load_auctions().await.expect("读取挂单")),
         1
     );
-    let purged = restarted.purge_expired_auctions(restarted.wall_now());
+    let now = restarted.wall_now();
+    assert!(
+        restarted.process_auctions(now).is_empty(),
+        "出价等于起拍价不满足 > 条件，不能自动成交"
+    );
+    let purged = restarted.purge_expired_auctions(now);
     assert_eq!(purged, vec![auction_id], "过期挂单应被启动清理");
     assert!(restarted.auction(auction_id).is_none());
     flush_mails(store, &mut restarted).await;
@@ -541,7 +548,7 @@ async fn run_expired_auctions_are_purged<S: AccountStore>(store: &S, tag: &str) 
     );
     let buyer_mails = store.list_mail(buyer_id).await.expect("读买家邮箱");
     assert!(
-        buyer_mails.iter().any(|mail| mail.gold == 6_000),
+        buyer_mails.iter().any(|mail| mail.gold == 5_000),
         "最高出价应退回买家邮箱"
     );
 
@@ -795,6 +802,11 @@ async fn postgres_market_persistence_roundtrip() {
     run_expired_auctions_are_purged(&store, &format!("{tag}d")).await;
     run_market_update_is_atomic(&store, &format!("{tag}e")).await;
     run_market_cleanup_is_atomic(&store, &format!("{tag}f")).await;
+    // 拍卖到期自动成交（Crystal `Envir.ProcessAuction`）：成交/只置过期/重复扫描/崩溃窗口。
+    run_auto_sale_of_expired_auction(&store, &format!("{tag}g")).await;
+    run_expired_auction_without_bid_is_marked(&store, &format!("{tag}h")).await;
+    run_repeated_scan_sells_once(&store, &format!("{tag}i")).await;
+    run_auto_sale_crash_window_is_consistent(&store, &format!("{tag}j")).await;
     store.save_auctions(Vec::new()).await.expect("清空测试挂单");
 }
 
@@ -885,4 +897,489 @@ async fn flush_failure_keeps_mail_queue_for_retry() {
         1,
         "成功后队列已清空，不能重复写",
     );
+}
+
+// ---------------------------------------------------------------------------
+// 场景 7：拍卖到期自动成交（Crystal `Envir.ProcessAuction`，`Envir.cs:2388-2418`）
+// ---------------------------------------------------------------------------
+
+/// 把唯一一条挂单的上架时间改成 8 天前（`Globals.ConsignmentLength = 7`），世界与库同步。
+async fn backdate_only_auction<S: AccountStore>(store: &S, world: &mut World) -> AuctionRecord {
+    let mut records = world.auction_snapshot();
+    assert_eq!(records.len(), 1, "用例只处理一条挂单");
+    let old_seconds = world.wall_now() / 1000 - 8 * 24 * 60 * 60;
+    records[0].consignment_date = DateTimeBinary::from_unix_seconds(old_seconds);
+    store
+        .save_auctions(records.clone())
+        .await
+        .expect("写回过期挂单");
+    assert_eq!(world.load_auctions(records.clone()), 1);
+    records.remove(0)
+}
+
+/// 邮箱里**物品总件数**（跨所有邮件、按附件槽位累计）。用来断言「没有双发」。
+async fn mailbox_item_count<S: AccountStore>(store: &S, character_id: i64) -> usize {
+    store
+        .list_mail(character_id)
+        .await
+        .expect("读邮箱")
+        .iter()
+        .flat_map(|mail| {
+            mir_server::decode_slots(&mail.items)
+                .expect("邮件附件字节块")
+                .into_iter()
+                .flatten()
+        })
+        .count()
+}
+
+/// 邮箱里**金币总额**（跨所有邮件）。用来断言卖家没有收两次钱。
+async fn mailbox_gold<S: AccountStore>(store: &S, character_id: i64) -> u32 {
+    store
+        .list_mail(character_id)
+        .await
+        .expect("读邮箱")
+        .iter()
+        .map(|mail| mail.gold)
+        .sum()
+}
+
+/// 走到「拍卖已有高于起拍价的出价」这一步，并把出价那一笔按真实链路落盘。
+async fn bid_on_only_auction<S: AccountStore>(
+    store: &S,
+    world: &mut World,
+    account_id: i64,
+    buyer_character_id: i64,
+    auction_id: u64,
+) {
+    search_market(world, BUYER);
+    world
+        .market_buy(BUYER, auction_id, 6_000)
+        .expect("拍卖出价应成功");
+    let base = store
+        .find_character(account_id, buyer_character_id)
+        .await
+        .expect("查买家")
+        .expect("买家存在");
+    let buyer = world.player(BUYER).expect("买家在线");
+    store
+        .apply_market_update(MarketUpdate {
+            character: Some(mir_server::market::character_snapshot(&base, buyer)),
+            mail_writes: world.take_mail_writes(),
+            auctions: world.auction_snapshot(),
+        })
+        .await
+        .expect("出价（买家扣款 + 挂单）应同事务落盘");
+}
+
+/// 场景 7a：到期 + 有高于起拍价的出价 → 自动成交。
+///
+/// * 物品按系统邮件寄给最高出价者（`market_mail_auction_won`）；
+/// * 卖家收到「成交价 − 佣金」金币邮件（`market_mail_sold`）；
+/// * 挂单从世界与库里一起消失，重启后不再出现；
+/// * 重复扫描不会二次成交。
+async fn run_auto_sale_of_expired_auction<S: AccountStore>(store: &S, tag: &str) {
+    let (account_id, seller_id, buyer_id) = seed_characters(store, tag).await;
+    let (mut world, npc_id) = build_world();
+    add_player(&mut world, SELLER, seller_id, "卖家", 100_000, npc_id);
+    add_player(&mut world, BUYER, buyer_id, "买家", 100_000, npc_id);
+    let auction_id = consign(&mut world, SELLER, 1, 5_000, MarketPanelType::Auction);
+    bid_on_only_auction(store, &mut world, account_id, buyer_id, auction_id).await;
+    let record = backdate_only_auction(store, &mut world).await;
+    assert_eq!(record.current_bid, 6_000);
+    let seller_row_before = store
+        .find_character(account_id, seller_id)
+        .await
+        .expect("查卖家")
+        .expect("卖家存在");
+
+    let now = world.wall_now();
+    let sold = world.process_auctions(now);
+    assert_eq!(sold.len(), 1, "到期且有更高出价的拍卖应自动成交");
+    assert!(world.auction(auction_id).is_none(), "成交后挂单应清出列表");
+    assert_eq!(
+        world.pending_mail_writes(),
+        2,
+        "买家物品邮件 + 卖家金币邮件"
+    );
+
+    let world = tokio::sync::Mutex::new(world);
+    mir_server::market::flush_auction_sales(store, &world)
+        .await
+        .expect("成交应原子落盘");
+
+    // 买家：一件物品、无金币。
+    let buyer_mails = store.list_mail(buyer_id).await.expect("读买家邮箱");
+    let won = buyer_mails
+        .iter()
+        .find(|mail| !mail.items.is_empty())
+        .expect("买家应收到物品邮件");
+    let attachments = mir_server::decode_slots(&won.items).expect("邮件附件字节块");
+    assert!(
+        attachments
+            .iter()
+            .flatten()
+            .any(|item| item.item_index == ITEM_INDEX),
+        "邮件附件应是成交的那件物品"
+    );
+    assert_eq!(won.gold, 0);
+    assert_eq!(
+        won.message,
+        mir_core::i18n::format_text(
+            mir_core::Language::ZhCn,
+            mir_core::TextKey::MarketMailAuctionWon,
+            &[("item", "测试之剑"), ("cost", "6000")],
+        ),
+        "成交邮件正文按语言包渲染",
+    );
+
+    // 卖家：成交价 − 佣金（5%）。
+    let payout = Auction::after_commission(6_000);
+    assert_eq!(payout, 5_700);
+    let seller_mails = store.list_mail(seller_id).await.expect("读卖家邮箱");
+    let paid = seller_mails
+        .iter()
+        .find(|mail| mail.gold > 0)
+        .expect("卖家应收到金币邮件");
+    assert_eq!(paid.gold, payout, "卖家拿到成交价 − 佣金");
+    assert!(
+        mir_server::decode_slots(&paid.items)
+            .expect("邮件字节块")
+            .iter()
+            .flatten()
+            .next()
+            .is_none(),
+        "金币邮件不带物品附件",
+    );
+    assert_eq!(
+        paid.message,
+        mir_core::i18n::format_text(
+            mir_core::Language::ZhCn,
+            mir_core::TextKey::MarketMailSoldCommission,
+            &[("item", "测试之剑"), ("cost", "6000"), ("gold", "5700")],
+        ),
+        "卖家邮件要同时写清成交价与扣佣金后到手",
+    );
+
+    // 库里挂单已删除；卖家角色行没有被跨会话改写（金币只走邮件）。
+    assert!(
+        store.load_auctions().await.expect("读取挂单").is_empty(),
+        "成交后库里不能残留挂单"
+    );
+    let seller_row = store
+        .find_character(account_id, seller_id)
+        .await
+        .expect("查卖家")
+        .expect("卖家存在");
+    assert_eq!(
+        seller_row.gold, seller_row_before.gold,
+        "卖家角色行只能由卖家自己的会话写（本作把金币寄成邮件）"
+    );
+    let _ = &seller_row_before;
+
+    // 幂等：再扫一遍不会二次成交，也不会再产生邮件。
+    let again = world.lock().await.process_auctions(now + 60_000);
+    assert!(again.is_empty(), "同一拍卖只能成交一次");
+    assert_eq!(world.lock().await.pending_mail_writes(), 0);
+
+    // 重启：挂单不回来，邮件仍在。
+    let (mut restarted, _) = build_world();
+    assert_eq!(
+        restarted.load_auctions(store.load_auctions().await.expect("读取挂单")),
+        0
+    );
+    assert!(restarted.process_auctions(now).is_empty());
+    assert_eq!(
+        store.list_mail(buyer_id).await.expect("读买家邮箱").len(),
+        1
+    );
+    assert_eq!(
+        store.list_mail(seller_id).await.expect("读卖家邮箱").len(),
+        1
+    );
+}
+
+/// 场景 7b：到期但**没有**高于起拍价的出价 → 只置 `Expired`，不成交。
+async fn run_expired_auction_without_bid_is_marked<S: AccountStore>(store: &S, tag: &str) {
+    let (_account_id, seller_id, buyer_id) = seed_characters(store, tag).await;
+    let (mut world, npc_id) = build_world();
+    add_player(&mut world, SELLER, seller_id, "卖家", 100_000, npc_id);
+    add_player(&mut world, BUYER, buyer_id, "买家", 100_000, npc_id);
+    let auction_id = consign(&mut world, SELLER, 1, 5_000, MarketPanelType::Auction);
+    backdate_only_auction(store, &mut world).await;
+
+    let now = world.wall_now();
+    let sold = world.process_auctions(now);
+    assert!(sold.is_empty(), "没有出价不能成交");
+    let auction = world.auction(auction_id).expect("挂单仍在");
+    assert!(auction.expired && !auction.sold, "只置 Expired");
+    assert_eq!(world.pending_mail_writes(), 0, "不成交就不发邮件");
+
+    // 之后的取回/清理路径与原来一致：启动清理把物品退回卖家、把出价退回买家。
+    assert_eq!(world.purge_expired_auctions(now), vec![auction_id]);
+    let writes = world.take_mail_writes();
+    assert!(
+        writes.iter().any(|write| matches!(
+            write,
+            MailWrite::Create(mail) if mail.character_id == seller_id && !mail.items.is_empty()
+        )),
+        "过期物品退回卖家"
+    );
+}
+
+/// 场景 7c：同一批发多次扫描只成交一次（重复 tick 不双发）。
+async fn run_repeated_scan_sells_once<S: AccountStore>(store: &S, tag: &str) {
+    let (account_id, seller_id, buyer_id) = seed_characters(store, tag).await;
+    let (mut world, npc_id) = build_world();
+    add_player(&mut world, SELLER, seller_id, "卖家", 100_000, npc_id);
+    add_player(&mut world, BUYER, buyer_id, "买家", 100_000, npc_id);
+    let auction_id = consign(&mut world, SELLER, 1, 5_000, MarketPanelType::Auction);
+    bid_on_only_auction(store, &mut world, account_id, buyer_id, auction_id).await;
+    backdate_only_auction(store, &mut world).await;
+
+    let now = world.wall_now();
+    let first = world.process_auctions(now);
+    assert_eq!(first.len(), 1);
+    for tick in 1..=5 {
+        assert!(
+            world.process_auctions(now + tick * 1_000).is_empty(),
+            "第 {tick} 次重复扫描不能再成交"
+        );
+    }
+    assert_eq!(world.pending_mail_writes(), 2, "重复扫描不能重复产生邮件");
+
+    let world = tokio::sync::Mutex::new(world);
+    mir_server::market::flush_auction_sales(store, &world)
+        .await
+        .expect("落盘");
+    // 落盘后再扫：成交过的挂单已不在世界/库里，不能再发一次。
+    assert!(world.lock().await.process_auctions(now + 10_000).is_empty());
+    assert_eq!(
+        store.list_mail(buyer_id).await.expect("读买家邮箱").len(),
+        1
+    );
+    assert_eq!(
+        store.list_mail(seller_id).await.expect("读卖家邮箱").len(),
+        1
+    );
+}
+
+/// 场景 7d：事务失败（崩溃窗口）→ 内存成交结果保留、邮件回灌队列；重试落盘成功且不双发。
+async fn run_failed_sale_flush_keeps_memory_and_retries(store: &MemoryStore) {
+    let (account_id, seller_id, buyer_id) = seed_characters(store, "mem-sale-fail").await;
+    let (mut world, npc_id) = build_world();
+    add_player(&mut world, SELLER, seller_id, "卖家", 100_000, npc_id);
+    add_player(&mut world, BUYER, buyer_id, "买家", 100_000, npc_id);
+    let auction_id = consign(&mut world, SELLER, 1, 5_000, MarketPanelType::Auction);
+    bid_on_only_auction(store, &mut world, account_id, buyer_id, auction_id).await;
+    backdate_only_auction(store, &mut world).await;
+
+    let now = world.wall_now();
+    let sold = world.process_auctions(now);
+    assert_eq!(sold.len(), 1);
+    let world = tokio::sync::Mutex::new(world);
+
+    // 注入一次事务失败：DB 一行未写。
+    store.fail_next_market_update().await;
+    let failed = mir_server::market::flush_auction_sales(store, &world).await;
+    assert!(failed.is_err(), "注入的事务失败应返回错误");
+    {
+        let guard = world.lock().await;
+        assert!(
+            guard.auction(auction_id).is_none(),
+            "内存里的成交结果保留（挂单已删），落盘失败只重试事务，不回滚"
+        );
+        assert_eq!(guard.pending_mail_writes(), 2, "邮件必须回灌队列，不能丢");
+    }
+    assert!(
+        store.load_auctions().await.expect("读取挂单").len() == 1,
+        "失败事务不能改动库里的挂单"
+    );
+    assert!(
+        store
+            .list_mail(buyer_id)
+            .await
+            .expect("读买家邮箱")
+            .is_empty()
+    );
+
+    // 重试同一个 flush（不重新扫描、不重新成交）→ 成功，且只发一次。
+    assert!(
+        world.lock().await.process_auctions(now + 1_000).is_empty(),
+        "重试期间不能再成交一次"
+    );
+    mir_server::market::flush_auction_sales(store, &world)
+        .await
+        .expect("重试应成功");
+    assert!(store.load_auctions().await.expect("读取挂单").is_empty());
+    assert_eq!(
+        world.lock().await.pending_mail_writes(),
+        0,
+        "提交成功后队列清空"
+    );
+    // 关键断言（中书省 t27）：买家**只收到 1 件**、卖家**只收到 1 笔**款。
+    assert_eq!(
+        mailbox_item_count(store, buyer_id).await,
+        1,
+        "买家只能收到 1 件物品"
+    );
+    assert_eq!(
+        mailbox_gold(store, seller_id).await,
+        Auction::after_commission(6_000),
+        "卖家只能收到 1 笔成交价 − 佣金"
+    );
+
+    // 再 flush 一次（tick 任务的重试是幂等的）：不会重复写。
+    mir_server::market::flush_auction_sales(store, &world)
+        .await
+        .expect("重复 flush");
+    assert_eq!(mailbox_item_count(store, buyer_id).await, 1);
+    assert_eq!(
+        mailbox_gold(store, seller_id).await,
+        Auction::after_commission(6_000)
+    );
+}
+
+/// 场景 7f（中书省 t27 点名的并发入口）：tick 出锁后、会话的 `flush_market_update`
+/// 先把成交落库，随后 tick 的 flush 失败——**不能**把挂单放回世界再成交一次。
+///
+/// 本作实现是「失败不回滚挂单、只重试事务」，所以这个交错天然安全：
+/// 会话已经把「两封邮件 + 挂单删除」提交了，tick 的失败只影响它自己那次空事务。
+async fn run_session_commit_then_tick_flush_failure(store: &MemoryStore) {
+    let (account_id, seller_id, buyer_id) = seed_characters(store, "mem-sale-race").await;
+    let (mut world, npc_id) = build_world();
+    add_player(&mut world, SELLER, seller_id, "卖家", 100_000, npc_id);
+    add_player(&mut world, BUYER, buyer_id, "买家", 100_000, npc_id);
+    let auction_id = consign(&mut world, SELLER, 1, 5_000, MarketPanelType::Auction);
+    bid_on_only_auction(store, &mut world, account_id, buyer_id, auction_id).await;
+    backdate_only_auction(store, &mut world).await;
+
+    let now = world.wall_now();
+    assert_eq!(world.process_auctions(now).len(), 1);
+    let world = tokio::sync::Mutex::new(world);
+
+    // 会话侧（卖家的刷新/取回等操作）先把整批落盘：邮件 + 挂单删除同一事务。
+    mir_server::market::flush_market_update(store, &world, None)
+        .await
+        .expect("会话 flush 应提交成交");
+    assert_eq!(mailbox_item_count(store, buyer_id).await, 1);
+    assert_eq!(
+        mailbox_gold(store, seller_id).await,
+        Auction::after_commission(6_000)
+    );
+
+    // 随后 tick 的 flush 失败（注入）：此时待写邮件已被会话 drain 空，事务是空写。
+    store.fail_next_market_update().await;
+    assert!(
+        mir_server::market::flush_auction_sales(store, &world)
+            .await
+            .is_err(),
+        "注入的事务失败应返回错误"
+    );
+
+    // 不双发：库里仍只有 1 件 + 1 笔，世界没有挂单，再扫也不会成交。
+    assert_eq!(
+        mailbox_item_count(store, buyer_id).await,
+        1,
+        "买家不能收两次"
+    );
+    assert_eq!(
+        mailbox_gold(store, seller_id).await,
+        Auction::after_commission(6_000),
+        "卖家不能收两次钱"
+    );
+    assert!(store.load_auctions().await.expect("读取挂单").is_empty());
+    assert!(
+        world.lock().await.process_auctions(now + 60_000).is_empty(),
+        "已成交的挂单不能因 tick flush 失败而复活"
+    );
+
+    // 恢复后再 flush 一次（tick 任务的 5s 重试路径）：仍然只有一份。
+    mir_server::market::flush_auction_sales(store, &world)
+        .await
+        .expect("恢复后 flush");
+    assert_eq!(mailbox_item_count(store, buyer_id).await, 1);
+    assert_eq!(
+        mailbox_gold(store, seller_id).await,
+        Auction::after_commission(6_000)
+    );
+}
+
+/// 场景 7e：崩溃窗口「内存成交了、事务没提交」→ 重启后由启动结算补跑，不会双发。
+async fn run_auto_sale_crash_window_is_consistent<S: AccountStore>(store: &S, tag: &str) {
+    let (account_id, seller_id, buyer_id) = seed_characters(store, tag).await;
+    let (mut world, npc_id) = build_world();
+    add_player(&mut world, SELLER, seller_id, "卖家", 100_000, npc_id);
+    add_player(&mut world, BUYER, buyer_id, "买家", 100_000, npc_id);
+    let auction_id = consign(&mut world, SELLER, 1, 5_000, MarketPanelType::Auction);
+    bid_on_only_auction(store, &mut world, account_id, buyer_id, auction_id).await;
+    backdate_only_auction(store, &mut world).await;
+
+    // 成交只在内存里发生，随后进程崩溃（不落盘）。
+    assert_eq!(world.process_auctions(world.wall_now()).len(), 1);
+    drop(world);
+
+    // 重启：库里挂单仍在且已过期；启动路径先结算成交、再清理剩余的过期挂单。
+    let (mut restarted, _) = build_world();
+    assert_eq!(
+        restarted.load_auctions(store.load_auctions().await.expect("读取挂单")),
+        1,
+        "崩溃窗口里未提交的成交，挂单仍在库里"
+    );
+    let now = restarted.wall_now();
+    let sold = restarted.process_auctions(now);
+    assert_eq!(sold.len(), 1, "重启后补结算，仍应成交一次");
+    let purged = restarted.purge_expired_auctions(now);
+    assert!(purged.is_empty(), "已成交的挂单不应再走过期清理");
+
+    let world = tokio::sync::Mutex::new(restarted);
+    mir_server::market::flush_auction_sales(store, &world)
+        .await
+        .expect("重启结算落盘");
+    assert_eq!(
+        store.list_mail(buyer_id).await.expect("读买家邮箱").len(),
+        1
+    );
+    assert_eq!(
+        store.list_mail(seller_id).await.expect("读卖家邮箱").len(),
+        1,
+        "崩溃重启后也不能给卖家发两次金币"
+    );
+    assert!(store.load_auctions().await.expect("读取挂单").is_empty());
+}
+
+#[tokio::test]
+async fn expired_auction_with_bid_sells_automatically() {
+    let store = MemoryStore::new();
+    run_auto_sale_of_expired_auction(&store, "mem-sale").await;
+}
+
+#[tokio::test]
+async fn expired_auction_without_bid_only_expires() {
+    let store = MemoryStore::new();
+    run_expired_auction_without_bid_is_marked(&store, "mem-sale-none").await;
+}
+
+#[tokio::test]
+async fn repeated_scan_sells_an_auction_only_once() {
+    let store = MemoryStore::new();
+    run_repeated_scan_sells_once(&store, "mem-sale-repeat").await;
+}
+
+#[tokio::test]
+async fn failed_sale_flush_retries_without_double_delivery() {
+    let store = MemoryStore::new();
+    run_failed_sale_flush_keeps_memory_and_retries(&store).await;
+}
+
+#[tokio::test]
+async fn sale_committed_by_session_flush_survives_tick_failure() {
+    let store = MemoryStore::new();
+    run_session_commit_then_tick_flush_failure(&store).await;
+}
+
+#[tokio::test]
+async fn auto_sale_crash_window_is_consistent() {
+    let store = MemoryStore::new();
+    run_auto_sale_crash_window_is_consistent(&store, "mem-sale-crash").await;
 }

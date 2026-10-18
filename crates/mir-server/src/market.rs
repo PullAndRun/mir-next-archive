@@ -25,7 +25,9 @@
 //! | [`World::market_buy`] | `PlayerObject.MarketBuy`（`:8450-8589`） |
 //! | [`World::market_sell_now`] | `PlayerObject.MarketSellNow`（`:8591-8666`） |
 //! | [`World::market_get_back`] | `PlayerObject.MarketGetBack`（`:8668-8793`） |
-//! | [`World::tick_market`] | `Envir.Process` 里的过期标记（`Server/MirEnvir/Envir.cs:2396`） |
+//! | [`World::tick_market`] | 兼容空壳（`world.rs` 每 tick 调一次，O(1)）；过期标记已并入
+//!   [`World::process_auctions`]（`Envir.Process` 的 `Expired` 标记，`Server/MirEnvir/Envir.cs:2396`） |
+//! | [`World::process_auctions`] | `Envir.ProcessAuction`（`:2388-2418`，每 10 分钟 `:2354-2358`） |
 //! | [`Auction`] | `Server/MirDatabase/AuctionInfo.cs:5-117` |
 //!
 //! # 包序
@@ -51,9 +53,12 @@
 //!    （`Envir.cs:3018-3029`）。本作落 `market_auctions` 表（`migrations/0009_market.sql`）：
 //!    启动时 [`World::load_auctions`]、每次市场操作成功后整表快照回写
 //!    （[`persist_auctions`]）、下线再补一次；卖家/买家名字随条目冗余保存。
-//!    启动时会调用 [`World::purge_expired_auctions`] 把已过期挂单清掉（物品/最高出价按
-//!    系统邮件退回）；Crystal 只把 `Expired` 置真、等卖家 `MarketGetBack` 取回
-//!    （`Envir.cs:2396`、`PlayerObject.cs:8668-8793`）。
+//!    启动时会先按 [`World::process_auctions`] 结算停机期间到期的拍卖（有有效出价的
+//!    自动成交），再用 [`World::purge_expired_auctions`] 把剩下的过期挂单清掉
+//!    （物品/最高出价按系统邮件退回）；Crystal 只把 `Expired` 置真、等卖家 `MarketGetBack`
+//!    取回（`Envir.cs:2396`、`PlayerObject.cs:8668-8793`）。
+//!    运行期 [`World::process_auctions`] 由 `server.rs` 的 tick 任务按
+//!    [`AUCTION_SCAN_INTERVAL_MS`] 节流调用（Crystal 是每 10 分钟一次）。
 //! 2. **商城（GameShop）走市场面板页签**：Crystal 有两条商城入口——独立的
 //!    `GameshopDialog`（`S.GameShopInfo`/`S.GameShopStock` 下发目录，`PlayerObject.GetGameShop`，
 //!    `PlayerObject.cs:13913-13944`）和市场面板的 `MarketPanelType.GameShop` 页签
@@ -174,6 +179,27 @@ pub const SEARCH_DELAY_MS: i64 = 500;
 
 /// 每页条目数：Crystal 固定 10（`PlayerObject.cs:8356`、`:8405`）。
 pub const MARKET_PAGE_SIZE: usize = 10;
+
+/// 拍卖到期结算（[`World::process_auctions`]）的最小扫描间隔（毫秒）。
+///
+/// **方案**：固定间隔节流，扫描状态放在 `server.rs` 的 tick 任务里（`next_auction_scan`），
+/// 不放进 [`World`]（避免为一次扫描给世界加字段）。
+///
+/// **理由**：
+/// * Crystal 是 `if (Time >= auctionTime) { auctionTime = Time + Settings.Minute * 10; ProcessAuction(); }`
+///   （`Server/MirEnvir/Envir.cs:2354-2358`），即每 10 分钟扫一遍；本作 tick 是 100ms，
+///   照抄会每 tick 全表扫描 + 可能的邮件生成。
+/// * 取 60 秒而不是 10 分钟：挂单有效期是 [`CONSIGNMENT_LENGTH_DAYS`] 天，到期后多等
+///   几十秒没有实质影响，但比 Crystal 的 10 分钟窗口更及时；同时把「全表扫描 + 潜在的
+///   邮件/落盘」限制在每分钟最多一次（1000 条挂单也只有一次 O(n) 遍历）。
+/// * 不做到期时间索引：索引要在上架/下架/成交/载入/回滚五处维护，收益只是把 O(n) 的
+///   每分钟一次遍历变成 O(log n)，在本作挂单量级（单表快照本来就每次市场操作全量回写）
+///   下不值得引入额外一致性负担。
+/// * **每 tick 的 [`World::tick_market`] 已经是 O(1) 空壳**：到期标记也并入这个节流扫描，
+///   所以 100ms 的 `World::tick` 不再遍历挂单表（合同要求「避免每 tick 全表扫描」）。
+///   代价是 `Expired` 标记最多晚一个周期出现（卖家的取回分支另有
+///   [`World::auction_expired_at`] 兜底，功能不缺）。
+pub const AUCTION_SCAN_INTERVAL_MS: i64 = 60_000;
 
 /// 打开寄售（丢物品定价）面板的 NPC 页面键：`NPCScript.ConsignKey = "[@CONSIGN]"`（`NPCScript.cs:56`）。
 pub const CONSIGN_KEY: &str = "[@CONSIGN]";
@@ -1629,15 +1655,153 @@ impl World {
         Err(MarketError::ListingNotFound(auction_id))
     }
 
-    /// 过期标记：Crystal `Envir.Process`（`Server/MirEnvir/Envir.cs:2396`）：
-    /// `if (!info.Expired && !info.Sold && Now >= info.ConsignmentDate.AddDays(Globals.ConsignmentLength)) info.Expired = true;`
-    pub fn tick_market(&mut self) {
-        let now = self.wall_now();
-        for auction in &mut self.auctions {
-            if !auction.expired && !auction.sold && Self::auction_expired_at(auction, now) {
-                auction.expired = true;
+    /// 每个 tick 的兼容入口（`world.rs` 的 [`World::tick`] 每 100ms 调一次）。
+    ///
+    /// **这里不做全表扫描**：到期标记与自动成交统一由节流的 [`World::process_auctions`]
+    /// 完成（`server.rs` 的 tick 任务按 [`AUCTION_SCAN_INTERVAL_MS`] 每分钟调一次；
+    /// Crystal 是每 10 分钟一次，`Server/MirEnvir/Envir.cs:2354-2358`）。
+    ///
+    /// 保留这个空壳只是为了不动 `world.rs`（兵部独占）里的调用点；等那边的调用删掉，
+    /// 本函数即可删除。语义上唯一的可见差异：挂单到期后 `Expired` 标记最多延迟
+    /// [`AUCTION_SCAN_INTERVAL_MS`]（卖家 `MarketGetBack` 的取回分支另有
+    /// [`World::auction_expired_at`] 兜底，功能不缺）。
+    pub fn tick_market(&mut self) {}
+
+    /// 到期的拍卖是否该**自动成交**（[`World::process_auctions`] 的成交分支）：
+    /// 拍卖类型 + 最高出价**高于起拍价** + 记了出价者（Crystal `Envir.cs:2398`）。
+    ///
+    /// 寄售（`Consign`）买断走 `market_buy` 当场成交（`Sold`），不经过这里；出价只在
+    /// 拍卖类型上产生（`PlayerObject.cs:8556-8581`）。
+    #[must_use]
+    pub fn auction_will_sell(auction: &Auction) -> bool {
+        auction.item_type == MarketItemType::Auction
+            && auction.current_bid > auction.price
+            && auction.current_buyer_character_id.is_some()
+    }
+
+    /// 到期结算：Crystal `Envir.ProcessAuction`（`Server/MirEnvir/Envir.cs:2388-2418`）。
+    ///
+    /// 对每条到期（`ConsignmentDate + ConsignmentLength`，`!Sold`）的挂单：
+    ///
+    /// * **有有效出价**（[`World::auction_will_sell`]）→ 自动成交：
+    ///   物品按系统邮件寄给最高出价者、`成交价 − 佣金` 按系统邮件寄给卖家，挂单从
+    ///   [`World::auctions`] 移除并作为返回值交给调用方落盘；在线双方各收一条聊天提示
+    ///   （Crystal `MessageAccount(..., ChatType.Hint)`，`:2405-2408`）。
+    /// * 否则置 `Expired`（由启动清理 [`World::purge_expired_auctions`] 或卖家
+    ///   `MarketGetBack` 收尾）。
+    ///
+    /// **为什么用金币邮件而不是直接加卖家角色行**：卖家可能在离线，而
+    /// [`crate::store::MarketUpdate`] 的不变量是「对手方只通过 `mail_writes` 收款/收货，
+    /// 不跨会话写对方角色行」——直接写离线角色行既需要额外的行加载，又会和卖家会话的
+    /// 整行快照互相覆盖。Crystal 的做法是卖家登录后 `MarketGetBack` 领钱；本作自动成交
+    /// 后挂单即删除，所以把金币直接寄到卖家邮箱（离线也能到账），原子性由
+    /// [`flush_auction_sales`] 的同一个事务保证。
+    ///
+    /// **幂等**：成交的挂单会被移出列表，重复调用不会重复成交。本函数只改内存，
+    /// 落盘由调用方用 [`flush_auction_sales`] 完成——事务失败时**内存里的成交结果保留**
+    /// （挂单已删、邮件留在 [`World::mail_writes`] 队列），调用方在下一轮扫描重试落盘即可
+    /// （会话侧的市场操作也是这个语义：内存先行、失败重试）。这样不会出现
+    /// 「回滚挂单 + 但邮件已被别的会话提交」的双发；崩溃窗口内（内存改了、事务没提交）
+    /// 重启后以库为准，由启动路径重新结算，同样只成交一次。
+    ///
+    /// **取回窗口**：到期后到下一轮扫描之间（≤ [`AUCTION_SCAN_INTERVAL_MS`]，Crystal 是
+    /// 10 分钟）卖家仍可用 `MarketGetBack` 把物品取回（买家当场收到出价退款）；取回会
+    /// 删掉挂单，本函数之后不再成交——与 Crystal「扫描前取回即作废」一致。
+    ///
+    /// 返回本次成交的挂单（新 → 旧），供调用方观测/测试断言与日志。
+    pub fn process_auctions(&mut self, now_ms: i64) -> Vec<Auction> {
+        let due: Vec<Auction> = self
+            .auctions
+            .iter()
+            .filter(|auction| {
+                !auction.sold && !auction.expired && Self::auction_expired_at(auction, now_ms)
+            })
+            .cloned()
+            .collect();
+        if due.is_empty() {
+            return Vec::new();
+        }
+        let mut sold = Vec::new();
+        for auction in due {
+            if Self::auction_will_sell(&auction) {
+                self.sell_auction_on_expiry(&auction);
+                sold.push(auction);
+            } else if let Some(listing) = self
+                .auctions
+                .iter_mut()
+                .find(|listing| listing.id == auction.id)
+            {
+                listing.expired = true;
             }
         }
+        if !sold.is_empty() {
+            let ids: std::collections::BTreeSet<u64> = sold.iter().map(|a| a.id).collect();
+            self.auctions.retain(|listing| !ids.contains(&listing.id));
+        }
+        sold
+    }
+
+    /// 自动成交收尾：物品寄给最高出价者、`成交价 − 佣金` 寄给卖家，在线双方各一条提示。
+    ///
+    /// 出价的金币在出价时就已从买家扣除（`market_buy` 的拍卖分支），所以这里只发货、
+    /// 不再扣钱；买家拿不到物品的风险由「邮件与挂单删除同事务」兜住。
+    fn sell_auction_on_expiry(&mut self, auction: &Auction) {
+        let item_name = friendly_name(&self.item_info(auction.item.item_index).map_or_else(
+            || auction.item.item_index.to_string(),
+            |info| info.name.clone(),
+        ));
+        let cost = auction.current_bid;
+        let payout = Auction::after_commission(cost);
+        let Some(buyer) = auction.current_buyer_character_id else {
+            return;
+        };
+        // 物品 → 最高出价者（Crystal `MailCharacter(CurrentBuyerInfo, item: Item, customMessage)`，`:2403`）
+        let item_message = self.format_for_character(
+            buyer,
+            TextKey::MarketMailAuctionWon,
+            &[("item", &item_name), ("cost", &cost.to_string())],
+        );
+        self.mail_system_to_character(buyer, Some(auction.item.clone()), 0, &item_message);
+        // 金币 → 卖家（Crystal 让卖家 `MarketGetBack` 领；本作随成交直接寄，离线也能到账）。
+        // 正文用 `market_mail_sold_commission`：把「成交价 {cost}」和「扣佣金后到手 {gold}」
+        // 都写清楚（Crystal 的 `YouSoldForGold` 只有金额，佣金是 `MarketGetBack` 时才算）。
+        if payout > 0 {
+            let gold_message = self.format_for_character(
+                auction.seller_character_id,
+                TextKey::MarketMailSoldCommission,
+                &[
+                    ("item", &item_name),
+                    ("cost", &cost.to_string()),
+                    ("gold", &payout.to_string()),
+                ],
+            );
+            self.mail_system_to_character(auction.seller_character_id, None, payout, &gold_message);
+        }
+        // 在线提示（Crystal `MessageAccount(..., ChatType.Hint)`，`:2405-2408`）。
+        let buyer_chat = self.format_for_character(
+            buyer,
+            TextKey::MarketBought,
+            &[("gold", &cost.to_string()), ("item", &item_name)],
+        );
+        self.message_character(buyer, &buyer_chat);
+        let seller_chat = self.format_for_character(
+            auction.seller_character_id,
+            TextKey::MarketSoldNow,
+            &[
+                ("cost", &cost.to_string()),
+                ("item", &item_name),
+                ("gold", &payout.to_string()),
+            ],
+        );
+        self.message_character(auction.seller_character_id, &seller_chat);
+        tracing::info!(
+            auction = auction.id,
+            buyer,
+            seller = auction.seller_character_id,
+            cost,
+            payout,
+            "拍卖到期自动成交"
+        );
     }
 
     /// 条目是否已到 [`CONSIGNMENT_LENGTH_DAYS`] 天。
@@ -2506,6 +2670,33 @@ async fn commit_market_like<S: AccountStore>(
     result
 }
 
+/// 原子落盘一批「拍卖到期自动成交」。
+///
+/// 内容与 [`flush_market_update`] 完全一致——买家物品邮件 + 卖家金币邮件 + 挂单快照
+/// （已不含成交的挂单）在**同一个事务**里提交，因此「物品寄出」「金币寄出」「挂单删除」
+/// 不可能只成功一半。世界层的成交结果由 [`World::process_auctions`] 先写入内存，
+/// 本函数只负责落盘：
+///
+/// * **成功**：DB 与内存一致（挂单已删、两封邮件在库里）；重启后同样一致。
+/// * **失败**：事务一行未写，已 drain 的邮件按原顺序回灌 [`World::mail_writes`]
+///   （与 [`flush_market_update`] 同一套逻辑）；内存里的成交结果**保持**，调用方
+///   （`server.rs` 的 tick 任务）在下一轮重试本函数即可提交。**不回滚挂单**是刻意的：
+///   其它会话的市场操作也会 flush 整个邮件队列与快照，若这里把挂单放回世界，
+///   可能与「邮件已被别的会话提交」叠成二次成交/双发。
+/// * **进程崩溃**（内存改了、事务未提交）：库里挂单仍在且已过期，重启的启动路径
+///   （[`World::process_auctions`] → [`World::purge_expired_auctions`]）重新结算，
+///   邮件只会在那次事务里写一次，不会双发。
+///
+/// # Errors
+/// 存储层失败时返回错误，调用方记日志并在下一轮重试（`server.rs` 的 tick 任务用
+/// 短退避重试）。
+pub async fn flush_auction_sales<S: AccountStore>(
+    store: &S,
+    world: &tokio::sync::Mutex<World>,
+) -> Result<(), StoreError> {
+    flush_market_update(store, world, None).await
+}
+
 /// 把当前挂单快照落到存储层（整表替换）。
 ///
 /// 会话在上架/买断/提前成交/取回成功后调用（见 `session.rs` 的统一 flush 钩子），
@@ -2685,6 +2876,47 @@ mod tests {
             sold: false,
             item_type: MarketItemType::Consign,
         }
+    }
+
+    /// 到期标记与自动成交统一由节流的 `process_auctions` 负责；`tick_market`（`world.rs`
+    /// 每 100ms 调一次）必须是 O(1)，不能每 tick 全表扫描（合同 t22 第 2 条）。
+    #[test]
+    fn process_auctions_owns_expiry_and_auto_sale() {
+        let mut world = World::new(999);
+        let now = world.wall_now();
+        let old = DateTimeBinary::from_unix_seconds(
+            now / 1000 - (CONSIGNMENT_LENGTH_DAYS + 1) * 24 * 60 * 60,
+        );
+        // 1 号：拍卖、有高于起拍价的出价 → 自动成交（不置过期）。
+        let mut sellable = sample_auction(1);
+        sellable.item_type = MarketItemType::Auction;
+        sellable.consignment_date = old;
+        sellable.current_bid = 6_000;
+        sellable.current_buyer_character_id = Some(2);
+        // 2 号：拍卖但没有出价 → 置过期。
+        let mut plain = sample_auction(2);
+        plain.item_type = MarketItemType::Auction;
+        plain.consignment_date = old;
+        world.auctions.push(sellable);
+        world.auctions.push(plain);
+
+        // 每 tick 的入口不再扫描：到期标记不会在这里发生。
+        world.tick_market();
+        assert!(
+            !world.auction(1).expect("1 号在").expired
+                && !world.auction(2).expect("2 号在").expired,
+            "tick_market 是 O(1) 空壳，不逐条翻标志"
+        );
+
+        // 节流的扫描：成交一条、另一条置过期。
+        let sold = world.process_auctions(now);
+        assert_eq!(sold.len(), 1, "有有效出价的到期拍卖应成交");
+        assert!(world.auction(1).is_none(), "成交后从列表移除");
+        assert!(
+            world.auction(2).expect("2 号在").expired,
+            "没有出价的到期拍卖置过期"
+        );
+        assert_eq!(world.pending_mail_writes(), 2, "买家物品 + 卖家金币");
     }
 
     /// F1：两个会话交错 flush 时，后提交的必须是**最新**快照。

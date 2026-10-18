@@ -2029,3 +2029,237 @@ async fn i18n_session_syncs_language_and_renders_success() {
         "元宝按商品价扣除"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 十二、任务物品栏（迁移 0012 / Crystal `CharacterInfo.QuestInventory`）
+// ---------------------------------------------------------------------------
+
+/// 任务物品栏必须**活过**商城/市场的角色行落盘（`Session::character_snapshot` 覆写），
+/// 否则任意一次购买都会把 `characters.quest_inventory` 写回登录时的旧值（丢任务物品）。
+#[tokio::test]
+async fn quest_inventory_survives_gameshop_flush_and_relogin() {
+    use mir_protocol::packets::client as c;
+
+    const QUEST_ITEM: i32 = 300;
+    const QUEST_ITEM_UID: u64 = 9_001;
+
+    let store = Arc::new(MemoryStore::new());
+    let account = store
+        .create_account("qinv", "secret", "")
+        .await
+        .expect("建号");
+    let mut character = store
+        .create_character(
+            account.id,
+            "带任务物品",
+            MirClass::Warrior,
+            MirGender::Male,
+            MAP,
+            (100, 101),
+        )
+        .await
+        .expect("建角");
+    character.level = 10;
+    character.credit = 1_000;
+    // 角色行里预置 1 件任务物品（登录时由 `QuestInventory::decode` 装进世界侧表）。
+    let mut quest_inventory = mir_server::quest_inventory::QuestInventory::new();
+    let quest_item = mir_protocol::data::UserItem {
+        unique_id: QUEST_ITEM_UID,
+        item_index: QUEST_ITEM,
+        count: 1,
+        ..Default::default()
+    };
+    assert!(
+        quest_inventory.add(&quest_item, 20),
+        "任务物品栏应放得进这件物品"
+    );
+    character.quest_inventory = quest_inventory.encode();
+    store
+        .save_character(character.clone())
+        .await
+        .expect("存角色");
+
+    let envir = Envir::new("quest-inventory");
+    let mut world = World::new(999);
+    world.set_game_data(Arc::new(GameData::from_db(
+        database(),
+        Some(envir.drop_dir()),
+    )));
+    let world = Arc::new(tokio::sync::Mutex::new(world));
+
+    let config = Arc::new(mir_server::ServerConfig {
+        map_root: "resource/不存在的目录".to_owned(),
+        language_dir: "config/不存在的目录".to_owned(),
+        load_game_data: false,
+        ..mir_server::ServerConfig::default()
+    });
+    let pack = Arc::new(mir_core::i18n::LanguageLibrary::embedded());
+    let (out, mut out_rx) = mpsc::unbounded_channel();
+    let mut session = mir_server::session::Session::new(
+        1,
+        "test".to_owned(),
+        config,
+        Arc::clone(&store),
+        Arc::clone(&world),
+        out,
+        Arc::clone(&pack),
+    );
+    session
+        .handle(mir_protocol::ClientPacket::ClientVersion(
+            c::ClientVersion {
+                version_hash: Vec::new(),
+            },
+        ))
+        .await
+        .expect("版本校验");
+    session
+        .handle(mir_protocol::ClientPacket::Login(c::Login {
+            account_id: "qinv".to_owned(),
+            password: "secret".to_owned(),
+        }))
+        .await
+        .expect("登录");
+    session
+        .handle(mir_protocol::ClientPacket::StartGame(c::StartGame {
+            character_index: i32::try_from(character.id).unwrap_or(0),
+        }))
+        .await
+        .expect("进世界");
+    let mut object_id = None;
+    while let Ok(frame) = out_rx.try_recv() {
+        let index = i16::from_le_bytes([frame[2], frame[3]]);
+        if let ServerPacket::UserInformation(info) =
+            ServerPacket::decode(index, &frame[4..]).expect("解码")
+        {
+            // 登录下发的是**存档里的真实任务物品栏**，不是空栏。
+            assert!(
+                info.quest_inventory.as_ref().is_some_and(|slots| slots
+                    .iter()
+                    .flatten()
+                    .any(|i| i.unique_id == QUEST_ITEM_UID || i.item_index == QUEST_ITEM)),
+                "UserInformation 必须下发存档里的任务物品栏"
+            );
+            object_id = Some(info.object_id);
+        }
+    }
+    let object_id = object_id.expect("进世界应下发 UserInformation");
+    {
+        let guard = world.lock().await;
+        let loaded = guard
+            .quest_inventory(object_id)
+            .expect("登录应装载任务物品栏");
+        assert!(
+            loaded
+                .slots()
+                .iter()
+                .flatten()
+                .any(|item| item.unique_id == QUEST_ITEM_UID),
+            "世界侧任务物品栏应装载存档内容"
+        );
+    }
+
+    // 商城购买：走 `flush_gameshop` → `Session::character_snapshot`（角色行整行落盘）。
+    session
+        .handle(mir_protocol::ClientPacket::GameshopBuy(c::GameshopBuy {
+            g_index: G_POTION,
+            quantity: 1,
+            p_type: 0,
+        }))
+        .await
+        .expect("处理购买");
+
+    // 直接读库：任务物品栏还在（没有被写回登录值/空栏）。
+    let row = store
+        .find_character(account.id, character.id)
+        .await
+        .expect("查角色")
+        .expect("角色存在");
+    let saved =
+        mir_server::quest_inventory::QuestInventory::decode(&row.quest_inventory).expect("解码");
+    assert!(
+        saved
+            .slots()
+            .iter()
+            .flatten()
+            .any(|item| item.unique_id == QUEST_ITEM_UID),
+        "商城落盘不能覆盖任务物品栏"
+    );
+
+    // 下线（再落一次角色行）→ 重新登录：任务物品仍在。
+    session.leave_world().await;
+    let row = store
+        .find_character(account.id, character.id)
+        .await
+        .expect("查角色")
+        .expect("角色存在");
+    let saved =
+        mir_server::quest_inventory::QuestInventory::decode(&row.quest_inventory).expect("解码");
+    assert!(
+        saved
+            .slots()
+            .iter()
+            .flatten()
+            .any(|item| item.unique_id == QUEST_ITEM_UID),
+        "下线存盘不能丢任务物品"
+    );
+
+    // 重新登录：新会话把存档里的任务物品栏装回世界。
+    let (out, mut out_rx) = mpsc::unbounded_channel();
+    let mut again = mir_server::session::Session::new(
+        2,
+        "test".to_owned(),
+        Arc::new(mir_server::ServerConfig {
+            map_root: "resource/不存在的目录".to_owned(),
+            language_dir: "config/不存在的目录".to_owned(),
+            load_game_data: false,
+            ..mir_server::ServerConfig::default()
+        }),
+        Arc::clone(&store),
+        Arc::clone(&world),
+        out,
+        pack,
+    );
+    again
+        .handle(mir_protocol::ClientPacket::ClientVersion(
+            c::ClientVersion {
+                version_hash: Vec::new(),
+            },
+        ))
+        .await
+        .expect("版本校验");
+    again
+        .handle(mir_protocol::ClientPacket::Login(c::Login {
+            account_id: "qinv".to_owned(),
+            password: "secret".to_owned(),
+        }))
+        .await
+        .expect("登录");
+    again
+        .handle(mir_protocol::ClientPacket::StartGame(c::StartGame {
+            character_index: i32::try_from(character.id).unwrap_or(0),
+        }))
+        .await
+        .expect("再次进世界");
+    let mut relogin_id = None;
+    while let Ok(frame) = out_rx.try_recv() {
+        let index = i16::from_le_bytes([frame[2], frame[3]]);
+        if let ServerPacket::UserInformation(info) =
+            ServerPacket::decode(index, &frame[4..]).expect("解码")
+        {
+            relogin_id = Some(info.object_id);
+        }
+    }
+    let relogin_id = relogin_id.expect("重登应下发 UserInformation");
+    let guard = world.lock().await;
+    let reloaded = guard
+        .quest_inventory(relogin_id)
+        .expect("重登应装载任务物品栏");
+    assert!(
+        reloaded
+            .slots()
+            .iter()
+            .flatten()
+            .any(|item| item.unique_id == QUEST_ITEM_UID),
+        "重登后任务物品栏必须还在"
+    );
+}

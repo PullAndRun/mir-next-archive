@@ -549,8 +549,8 @@ Crystal 把挂单写在 `Server.MirADB` 的全局段（`Envir.cs:2591-2594`）�
 | `:1083`、`:1091` | 拍卖赢家邮件、卖家提前成交提示 |
 | `:1365`、`:1389` | 下架退款邮件、收款提示 |
 
-这与 `AGENTS.md`「玩家可见文本一律走 `mir-core::i18n`」的约定不符；**第 3 轮已完成
-i18n 收口**：上述文本全部迁移到 `TextKey`（`market_label_*` / `market_*` / `gameshop_*`
+当时这不符合 `AGENTS.md`「玩家可见文本一律走 `mir-core::i18n`」的约定；**第 3 轮已补齐**：
+上述文本全部迁移到 `TextKey`（`market_label_*` / `market_*` / `gameshop_*`
 键，中英语言包齐全），在线玩家按各自语言渲染，离线系统邮件用服务器默认 `zh-cn`
 （异步查 `accounts.language` 未做，见 `mail.rs::language_for_character`）。
 逐条键名与替换后调用点见 [`docs/i18n.md`](../i18n.md) §7.2；复跑命令见 §7.6。

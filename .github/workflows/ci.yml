@@ -21,13 +21,14 @@ jobs:
       # `mir-client` 用 winit + softbuffer，Linux 上需要 X11/Wayland 的头文件才能编译
       # （CI 不创建窗口，只是把 bin 编出来）。音频走 rodio → cpal → alsa-sys，
       # 需要 libasound2-dev 的头文件，否则 build script 直接失败。
-      - name: 安装 winit/softbuffer/音频的系统依赖
+      - name: 安装 winit/softbuffer/音频/字体的系统依赖
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libxkbcommon-dev libx11-dev libxcursor-dev libxrandr-dev \
             libxi-dev libxinerama-dev libwayland-dev \
-            libasound2-dev pkg-config
+            libasound2-dev pkg-config \
+            fonts-noto-cjk
       - name: rustfmt
         run: cargo fmt --all --check
       - name: clippy

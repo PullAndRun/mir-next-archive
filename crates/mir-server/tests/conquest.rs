@@ -1142,7 +1142,9 @@ fn war_zone_paints_names_green_and_protects_killers() {
     // 走到攻城区中心：WarZone = true（`Map.GetConquest` + `EnterSabuk`）。
     harness.teleport(guilds.alpha_leader, MAP, CONQUEST_CENTER);
     assert!(harness.world.in_war_zone(guilds.alpha_leader), "在战区里");
-    harness.world.tick();
+    // 显式时间驱动：`tick()` 的攻城调度读**真实挂钟**，在 UTC 18:30 之后会把战争
+    // 自动结束掉（本用例只在 18:00–18:30 窗口内稳定）。同文件其它时间表用例都用固定时刻。
+    harness.world.process_conquests_at(MONDAY_18 + MINUTE);
     assert_eq!(
         harness.world.name_colour_for(guilds.alpha_leader),
         mir_server::world::NAME_COLOUR_WAR_ZONE,
@@ -1156,6 +1158,23 @@ fn war_zone_paints_names_green_and_protects_killers() {
     );
 
     // 战区里杀死对方不加 PK 值，只给凶手一条「受到法律保护」的提示（`:603-606`）。
+    // 击杀循环要靠 `tick()` 驱动 300ms 延迟伤害，而 `tick()` 的攻城调度读真实挂钟，
+    // 会按 18:00–18:30 的窗口把上面按显式时间开起来的战争结束掉。切成 `Forced`：
+    // `start_war` 会写 `war_end_time = wall_now + WarLength`，循环内不会再被自动结束。
+    harness.world.toggle_conquest_war(CONQUEST).expect("先停战");
+    assert!(
+        !harness.world.conquest(CONQUEST).unwrap().war_is_on,
+        "停战成功"
+    );
+    harness
+        .world
+        .toggle_conquest_war(CONQUEST)
+        .expect("强制开战");
+    assert_eq!(
+        harness.world.name_colour_for(guilds.alpha_leader),
+        mir_server::world::NAME_COLOUR_WAR_ZONE,
+        "强制开战后战区名字仍为绿色"
+    );
     harness.teleport(
         guilds.beta_leader,
         MAP,

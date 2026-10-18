@@ -696,6 +696,8 @@ struct MemoryState {
     fail_next_gameshop_update: bool,
     /// **仅测试**：让下一次 `apply_market_update` 失败（模拟数据库事务失败）。
     fail_next_market_update: bool,
+    /// **仅测试**：让下一次 `save_character` 失败（模拟角色行落盘失败）。
+    fail_next_save_character: bool,
     next_account_id: i64,
     next_character_id: i64,
     next_guild_id: i32,
@@ -718,6 +720,7 @@ impl MemoryStore {
                 gameshop_purchases: Vec::new(),
                 fail_next_gameshop_update: false,
                 fail_next_market_update: false,
+                fail_next_save_character: false,
                 next_account_id: 1,
                 next_character_id: 1,
                 next_guild_id: 1,
@@ -793,6 +796,13 @@ impl MemoryStore {
     /// 只影响一次调用，之后自动复位。
     pub async fn fail_next_market_update(&self) {
         self.state.lock().await.fail_next_market_update = true;
+    }
+
+    /// **仅测试**：让下一次 [`AccountStore::save_character`] 返回错误。
+    ///
+    /// 用来测「登录每日重置落盘失败仍继续登录」。只影响一次调用，之后自动复位。
+    pub async fn fail_next_save_character(&self) {
+        self.state.lock().await.fail_next_save_character = true;
     }
 }
 
@@ -889,6 +899,13 @@ impl AccountStore for MemoryStore {
 
     async fn save_character(&self, character: Character) -> Result<(), StoreError> {
         let mut state = self.state.lock().await;
+        // 仅测试：注入一次落盘失败（见 [MemoryStore::fail_next_save_character]）。
+        if state.fail_next_save_character {
+            state.fail_next_save_character = false;
+            return Err(StoreError::Internal(
+                "injected save_character failure (test hook)".to_owned(),
+            ));
+        }
         if let Some(existing) = state
             .characters
             .iter_mut()

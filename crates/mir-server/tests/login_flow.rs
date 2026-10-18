@@ -349,6 +349,42 @@ fn gm_config() -> Arc<ServerConfig> {
     })
 }
 
+/// 只做「连接 → 版本 → 登录 → 进世界」，账号/角色由测试自己预先建好。
+///
+/// `character_index` 是角色**主键**（服务端 `find_character(account, id)` 用它）。
+async fn login_existing(
+    address: std::net::SocketAddr,
+    account: &str,
+    character_index: i32,
+) -> TestClient {
+    let mut client = TestClient::connect(address).await;
+    client.expect_index(s::Connected::INDEX).await;
+    client
+        .send(ClientPacket::ClientVersion(c::ClientVersion {
+            version_hash: Vec::new(),
+        }))
+        .await;
+    client.expect_index(s::ClientVersion::INDEX).await;
+    client
+        .send(ClientPacket::Login(c::Login {
+            account_id: account.to_owned(),
+            password: "secret".to_owned(),
+        }))
+        .await;
+    client.expect_index(s::LoginSuccess::INDEX).await;
+    client
+        .send(ClientPacket::StartGame(c::StartGame { character_index }))
+        .await;
+    loop {
+        match client.expect().await {
+            ServerPacket::StartGame(response) => assert_eq!(response.result, 4, "进世界应成功"),
+            ServerPacket::UserInformation(_) => break,
+            _ => {}
+        }
+    }
+    client
+}
+
 /// 完整走「连接 → 版本 → 注册 → 登录 → 建角 → 进世界」，返回在游戏里的客户端。
 async fn enter_world(address: std::net::SocketAddr, account: &str) -> TestClient {
     let mut client = TestClient::connect(address).await;
@@ -469,4 +505,211 @@ async fn gm_chat_is_silent_for_normal_accounts_and_works_for_gm() {
     let leveled = leveled.expect("GM 应收到 S.LevelChanged");
     assert_eq!(leveled.level, 50);
     assert!(leveled.max_experience > 0, "下一级经验上限要按新等级重算");
+}
+
+// ---------------------------------------------------------------------------
+// 登录每日重置的落盘（t40 / 刑部第 5 轮 F1）
+// ---------------------------------------------------------------------------
+
+/// 登录命中每日重置时，必须在 `world.enter` 之前把角色行写库（不等下线）。
+#[tokio::test]
+async fn daily_reset_persists_before_entering_world() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("绑定临时端口");
+    let address = listener.local_addr().expect("取端口");
+    let store = Arc::new(MemoryStore::new());
+    tokio::spawn(serve_forever(listener, test_config(), Arc::clone(&store)));
+
+    let account = store
+        .create_account("resetuser", "secret", "")
+        .await
+        .expect("建账号");
+    let mut character = store
+        .create_character(
+            account.id,
+            "重置者",
+            MirClass::Warrior,
+            MirGender::Male,
+            "0",
+            (330, 270),
+        )
+        .await
+        .expect("建角色");
+    // `0` = 从未重置过 → 下次登录必然命中每日重置。
+    character.last_daily_reset_at = 0;
+    store
+        .save_character(character.clone())
+        .await
+        .expect("预置角色");
+
+    let _client = login_existing(address, "resetuser", i32::try_from(character.id).unwrap()).await;
+
+    // 关键断言：还在游戏里（未下线、未走任何快照路径），库里已经是新时间戳。
+    let row = store
+        .find_character(account.id, character.id)
+        .await
+        .expect("查角色")
+        .expect("角色存在");
+    assert!(
+        row.last_daily_reset_at > 0,
+        "登录命中每日重置后应立即落盘（不等下线），实际 {}",
+        row.last_daily_reset_at
+    );
+}
+
+/// 落盘失败不能把玩家挡在门外：登录仍成功，库里保持旧值（下次登录幂等重做）。
+#[tokio::test]
+async fn daily_reset_save_failure_does_not_block_login() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("绑定临时端口");
+    let address = listener.local_addr().expect("取端口");
+    let store = Arc::new(MemoryStore::new());
+    tokio::spawn(serve_forever(listener, test_config(), Arc::clone(&store)));
+
+    let account = store
+        .create_account("failuser", "secret", "")
+        .await
+        .expect("建账号");
+    let mut character = store
+        .create_character(
+            account.id,
+            "失败者",
+            MirClass::Warrior,
+            MirGender::Male,
+            "0",
+            (330, 270),
+        )
+        .await
+        .expect("建角色");
+    character.last_daily_reset_at = 0;
+    // 等级 ≥ 1：跳过 on_start_game 里「首次建角补 1 级」的那次 save_character，
+    // 保证注入的失败正好落在每日重置那次写入上。
+    character.level = 10;
+    // 预置一件普通背包内容，用于断言资源没被清掉。
+    character.inventory = mir_server::items::encode_slots(&[Some(mir_protocol::data::UserItem {
+        unique_id: 4_321,
+        item_index: 1,
+        count: 1,
+        ..Default::default()
+    })]);
+    store
+        .save_character(character.clone())
+        .await
+        .expect("预置角色");
+
+    // 让登录时那一次 `save_character` 失败（`login_existing` 之前先武装）。
+    store.fail_next_save_character().await;
+    let _client = login_existing(address, "failuser", i32::try_from(character.id).unwrap()).await;
+
+    // 登录成功（能走到这里说明收到了 UserInformation）且库里的角色行没被写坏。
+    let row = store
+        .find_character(account.id, character.id)
+        .await
+        .expect("查角色")
+        .expect("角色存在");
+    assert_eq!(
+        row.last_daily_reset_at, 0,
+        "落盘失败时库里保持旧值（下次登录幂等重做）"
+    );
+    let slots = mir_server::decode_slots(&row.inventory).expect("背包字节块");
+    assert!(
+        slots.iter().flatten().any(|item| item.unique_id == 4_321),
+        "落盘失败不能丢背包内容"
+    );
+}
+
+/// `market::character_snapshot` 必须透传 `last_daily_reset_at`（否则市场/商城落盘会写回旧值）。
+#[test]
+fn character_snapshot_carries_daily_reset_timestamp() {
+    use mir_core::Point;
+    use mir_core::enums::{AttackMode, MirDirection};
+    use mir_server::world::Player;
+    use mir_server::{MagicState, NpcState, TradeState};
+
+    let base = mir_server::store::Character {
+        last_daily_reset_at: 1_700_000_000_123,
+        ..mir_server::store::Character::new(
+            7,
+            1,
+            "快照者",
+            MirClass::Warrior,
+            MirGender::Male,
+            "0",
+            (10, 10),
+        )
+    };
+    let (sender, _receiver) = tokio::sync::mpsc::unbounded_channel();
+    let player = Player {
+        object_id: 1,
+        session_id: 1,
+        character_id: 7,
+        name: "快照者".to_owned(),
+        map: "0".to_owned(),
+        position: Point::new(10, 10),
+        direction: MirDirection::Down,
+        level: 10,
+        experience: 0,
+        max_experience: 0,
+        class: MirClass::Warrior,
+        gender: MirGender::Male,
+        hair: 1,
+        hp: 10,
+        mp: 10,
+        stats: mir_server::combat::player_base_stats(10, MirClass::Warrior),
+        action_time: 0,
+        attack_time: 0,
+        struck_time: 0,
+        regen_time: i64::MAX,
+        death_time: 0,
+        revive_time: 0,
+        cell_time: 0,
+        step_counter: 0,
+        run_counter: 0,
+        run_time: 0,
+        dead: false,
+        attack_mode: AttackMode::Peace,
+        pk_points: 0,
+        brown_time: 0,
+        pk_point_time: 0,
+        last_hitter: None,
+        last_hit_time: 0,
+        name_colour: mir_core::Color(-1),
+        visible_monsters: std::collections::BTreeSet::new(),
+        visible_npcs: std::collections::BTreeSet::new(),
+        visible_items: std::collections::BTreeSet::new(),
+        movement_time: 0,
+        inventory: mir_server::items::new_inventory(),
+        equipment: mir_server::items::new_equipment(),
+        storage: mir_server::storage::new_storage(),
+        magics: Vec::new(),
+        magic: MagicState::default(),
+        gold: 0,
+        credit: 0,
+        quests: Vec::new(),
+        completed_quests: std::collections::BTreeSet::new(),
+        mail: mir_server::MailState::default(),
+        buffs: Vec::new(),
+        pot_health_amount: 0,
+        pot_mana_amount: 0,
+        pot_time: 0,
+        unlock_curse: false,
+        npc: NpcState::default(),
+        group_id: None,
+        group_invitation: None,
+        group_invite_time: 0,
+        allow_group: true,
+        guild: None,
+        trade: TradeState::default(),
+        trade_invitation: None,
+        next_trade_time: 0,
+        allow_trade: true,
+        sender,
+    };
+    let snapshot = mir_server::market::character_snapshot(&base, &player);
+    assert_eq!(
+        snapshot.last_daily_reset_at, 1_700_000_000_123,
+        "市场/商城的角色行快照必须带上每日重置时间戳"
+    );
 }

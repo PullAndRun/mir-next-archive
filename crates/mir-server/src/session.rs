@@ -680,17 +680,35 @@ impl<S: AccountStore> Session<S> {
         }
 
         // 每日任务惰性重置：必须在**解码 `character.quests` 之前**作用在角色记录上，
-        // 这样重置结果随本次登录的 `Player` 生效、并随登录存档写回。
+        // 这样重置结果随本次登录的 `Player` 生效。
         // Crystal 是服务器 0 点对全角色 `ClearDailyQuests`（`Envir.cs:4856-4866`）；
         // 本作按角色 24h 惰性补，差异见 `docs/world/quests.md`。
+        //
+        // **立即落盘**（刑部第 5 轮 F1）：只改内存的话，崩溃/被踢会让这次重置丢失，
+        // 且 `characters.last_daily_reset_at` 会停在旧值直到下线；所以命中重置就在
+        // `world.enter` 之前写一次角色行。写失败只 warn、**不阻断登录**：
+        // 重置是幂等的（下次登录会重做），把玩家挡在门外更糟。
         let reset_now = {
             let world = self.world.lock().await;
             world.wall_now()
         };
-        {
+        let reset_done = {
             let world = self.world.lock().await;
-            if world.apply_daily_reset(&mut character, reset_now) {
-                tracing::debug!(session = self.id, "登录时补做每日任务重置");
+            world.apply_daily_reset(&mut character, reset_now)
+        };
+        if reset_done {
+            match self.store.save_character(character.clone()).await {
+                Ok(()) => tracing::debug!(
+                    session = self.id,
+                    character = character.id,
+                    "登录时补做每日任务重置并立即落盘"
+                ),
+                Err(error) => tracing::warn!(
+                    session = self.id,
+                    character = character.id,
+                    %error,
+                    "每日重置落盘失败，本次仍继续登录（重置幂等，下次登录会重做）"
+                ),
             }
         }
 

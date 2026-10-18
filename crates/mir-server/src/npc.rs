@@ -647,13 +647,24 @@ impl World {
             self.fill_npc_quest_links(&mut npc);
             let frame = ServerPacket::ObjectNPC(npc.object_packet()).encode_frame();
             self.npcs.push(npc.clone());
-            for player in self.players.values() {
-                if player.map == map_info.file_name
-                    && player
-                        .position
-                        .in_range(info.location, crate::world::VIEW_RANGE)
-                    && npc_visible_to(player, &npc)
-                {
+            // AOI：NPC 刷出即登记（Crystal `Map.Load` 的 `AddObject`，`Map.cs:490-496`），
+            // 广播只查落点视野内的玩家。
+            self.aoi_insert(
+                &map_info.file_name,
+                object_id,
+                crate::aoi::AoiKind::Npc,
+                info.location,
+            );
+            for player_id in self.aoi_ids_in_radius(
+                &map_info.file_name,
+                info.location,
+                crate::world::VIEW_RANGE,
+                crate::aoi::AoiKind::Player,
+            ) {
+                let Some(player) = self.players.get(&player_id) else {
+                    continue;
+                };
+                if player.map == map_info.file_name && npc_visible_to(player, &npc) {
                     let _ = player.sender.send(frame.clone());
                 }
             }
@@ -679,6 +690,8 @@ impl World {
         let mut npc = Npc::from_info(info, map_file, object_id, MirDirection::Down);
         self.fill_npc_quest_links(&mut npc);
         self.npcs.push(npc);
+        // AOI：NPC 是静态对象，刷出后不再移动（Crystal `Map.Load` 后只随地图销毁）。
+        self.aoi_insert(map_file, object_id, crate::aoi::AoiKind::Npc, info.location);
         Some(object_id)
     }
 
@@ -793,14 +806,20 @@ impl World {
     /// 返回 `(S.ObjectNPC 帧, NPC 对象 ID)`，调用方负责真正发送并记录可见集合。
     /// 不可见的 NPC（等级/职业/标记位不符）**不发**，与 `CheckVisible` 的结论一致。
     pub(crate) fn visible_npc_frames(&self, player: &Player) -> Vec<(Vec<u8>, u32)> {
-        let mut frames = Vec::new();
-        for npc in &self.npcs {
-            if npc.map == player.map
-                && npc
-                    .position
-                    .in_range(player.position, crate::world::VIEW_RANGE)
-                && npc_visible_to(player, npc)
-            {
+        // 视野内 NPC 走 AOI 网格；按对象 ID 升序输出（= 刷出顺序，保持既有包序）。
+        let mut ids = self.aoi_ids_in_radius(
+            &player.map,
+            player.position,
+            crate::world::VIEW_RANGE,
+            crate::aoi::AoiKind::Npc,
+        );
+        ids.sort_unstable();
+        let mut frames = Vec::with_capacity(ids.len());
+        for object_id in ids {
+            let Some(npc) = self.npc(object_id) else {
+                continue;
+            };
+            if npc.map == player.map && npc_visible_to(player, npc) {
                 frames.push((
                     ServerPacket::ObjectNPC(npc.object_packet()).encode_frame(),
                     npc.object_id,

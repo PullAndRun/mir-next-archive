@@ -40,6 +40,7 @@ use mir_core::enums::{DamageType, DefenceType, MirDirection, Monster as MonsterI
 use mir_protocol::ServerPacket;
 use mir_protocol::packets::server::{ObjectAttack, ObjectDied, ObjectTurn, ObjectWalk};
 
+use crate::aoi::AoiKind;
 use crate::combat::{CombatStats, PendingHit};
 use crate::world::{RED_NAME_PK_POINTS, VIEW_RANGE, World, monster_info_frame};
 
@@ -394,8 +395,10 @@ impl World {
         while index < self.monsters.len() {
             if self.monsters[index].dead && now >= self.monsters[index].dead_time {
                 let monster_id = self.monsters[index].object_id;
+                // `forget_monster` 同时把怪物从 AOI 网格摘掉。
                 self.forget_monster(monster_id);
                 self.monsters.remove(index);
+                self.rebuild_monster_slots();
                 continue;
             }
             index += 1;
@@ -468,11 +471,20 @@ impl World {
             return;
         }
         monster.alone_time = now + ALONE_DELAY_MS;
-        monster.alone = !self.players.values().any(|player| {
-            player.map == monster.map
-                && !player.dead
-                && monster.position.in_range(player.position, VIEW_RANGE * 2)
-        });
+        monster.alone = self
+            .aoi_ids_in_radius(
+                &monster.map,
+                monster.position,
+                VIEW_RANGE * 2,
+                AoiKind::Player,
+            )
+            .iter()
+            .all(|player_id| {
+                // Crystal 只看「这张图上有没有活着的玩家」（`MonsterObject.cs:1735-1763`）。
+                self.players
+                    .get(player_id)
+                    .is_none_or(|player| player.dead || player.map != monster.map)
+            });
     }
 
     /// Crystal `MonsterObject.ProcessStacking`（`MonsterObject.cs:1765-1802`）。
@@ -613,7 +625,18 @@ impl World {
             return;
         }
         let mut best: Option<(i32, i32, i32, u32)> = None;
-        for player in self.players.values() {
+        // Crystal `for (int d = 0; d <= Info.ViewRange; d++)` 逐环扫格子（`MonsterObject.cs:1922`）；
+        // 这里用 AOI 网格取半径内的玩家，顺序按 `(y, x, ID)`，与逐格扫描一致。
+        let candidates = self.aoi_ids_in_radius_spatial(
+            &monster.map,
+            monster.position,
+            monster.kind.view_range,
+            AoiKind::Player,
+        );
+        for player_id in candidates {
+            let Some(player) = self.players.get(&player_id) else {
+                continue;
+            };
             if player.map != monster.map || player.dead {
                 continue;
             }
@@ -695,7 +718,11 @@ impl World {
         if !self.walkable_on(&monster.map, location) || !self.monster_cell_free(monster, location) {
             return false;
         }
+        let old_position = monster.position;
         monster.position = location;
+        // AOI：Crystal `HumanObject/MonsterObject.Walk` 的 `GetCell(...).Remove/Add`
+        // （`MonsterObject.cs:2103-2119`），这里同步搬格。
+        self.aoi_move(&monster.map, AoiKind::Monster, monster.object_id, location);
         monster.direction = direction;
         monster.cell_time = now + MONSTER_CELL_GRACE_MS;
         monster.action_time = now + MONSTER_WALK_ACTION_MS;
@@ -718,8 +745,15 @@ impl World {
             monster.object_id,
         );
         // 位置变了，重新算一次这只怪在其它玩家视野里的进出（Crystal `AddObjects/RemoveObjects`）。
+        // 传旧坐标：候选玩家 = 旧位置与新位置两个视野矩形的并集，不会漏掉「刚走出视野」的人。
         let info = monster_info_frame(monster);
-        self.sync_monster_view(monster.object_id, &monster.map, location, &info);
+        self.sync_monster_view(
+            monster.object_id,
+            &monster.map,
+            Some(old_position),
+            location,
+            &info,
+        );
         true
     }
 
@@ -910,31 +944,50 @@ impl World {
 
     /// 目标格上是否已有别的阻挡对象（怪物 `Walk` 的占格判定，`MonsterObject.cs:2105-2112`）。
     fn monster_cell_free(&self, monster: &Monster, cell: Point) -> bool {
-        if self
-            .players
-            .values()
-            .any(|player| player.map == monster.map && !player.dead && player.position == cell)
-        {
-            return false;
+        // 只查目标格（Crystal `CurrentMap.GetCell(location).Objects`，`MonsterObject.cs:2105-2112`）。
+        for entry in self.aoi_in_cell(&monster.map, cell) {
+            let blocked = match entry.kind {
+                AoiKind::Player => self
+                    .players
+                    .get(&entry.object_id)
+                    .is_some_and(|player| !player.dead && player.position == cell),
+                AoiKind::Monster => {
+                    entry.object_id != monster.object_id
+                        && self
+                            .monster(entry.object_id)
+                            .is_some_and(|other| !other.dead && other.position == cell)
+                }
+                // 既有语义：怪物走位只被玩家与其它怪物挡住（NPC 由地图可走性负责）。
+                AoiKind::Npc | AoiKind::Item => false,
+            };
+            if blocked {
+                return false;
+            }
         }
-        !self.monsters.iter().any(|other| {
-            other.map == monster.map
-                && !other.dead
-                && other.object_id != monster.object_id
-                && other.position == cell
-        })
+        true
     }
 
     /// 自己脚下是否还踩着别的对象（Crystal `CheckStacked`）。
     fn monster_cell_stacked(&self, monster: &Monster) -> bool {
-        self.players.values().any(|player| {
-            player.map == monster.map && !player.dead && player.position == monster.position
-        }) || self.monsters.iter().any(|other| {
-            other.map == monster.map
-                && !other.dead
-                && other.object_id != monster.object_id
-                && other.position == monster.position
-        })
+        for entry in self.aoi_in_cell(&monster.map, monster.position) {
+            let stacked = match entry.kind {
+                AoiKind::Player => self
+                    .players
+                    .get(&entry.object_id)
+                    .is_some_and(|player| !player.dead && player.position == monster.position),
+                AoiKind::Monster => {
+                    entry.object_id != monster.object_id
+                        && self
+                            .monster(entry.object_id)
+                            .is_some_and(|other| !other.dead && other.position == monster.position)
+                }
+                AoiKind::Npc | AoiKind::Item => false,
+            };
+            if stacked {
+                return true;
+            }
+        }
+        false
     }
 
     /// 怪物死亡：Crystal `MonsterObject.Die`（`MonsterObject.cs:966-1006`）。

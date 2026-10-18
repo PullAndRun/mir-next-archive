@@ -245,9 +245,16 @@ fn test_monster() -> MonsterKind {
 /// 把玩家挪到怪左边、一击必杀（伤害 300ms 后落地，与 Crystal 的延迟结算一致）。
 fn kill_monster(harness: &mut Harness, player: u32, monster: u32) {
     let target = harness.world.monster(monster).expect("怪物还在").position;
+    let map = harness
+        .world
+        .monster(monster)
+        .expect("怪物还在")
+        .map
+        .clone();
     let from = Point::new(target.x - 1, target.y);
+    // 走 `place_player` 同步 AOI：否则广播/索敌会按旧坐标找人。
+    assert!(harness.world.place_player(player, &map, from), "玩家还在");
     if let Some(p) = harness.world.player_mut(player) {
-        p.position = from;
         p.direction = MirDirection::Right;
         p.stats.min_dc = 100;
         p.stats.max_dc = 100;
@@ -385,7 +392,7 @@ fn ground_item_enters_and_leaves_view_following_player_movement() {
     let player = harness.add_player(1, Point::new(20, 20));
     harness.packets(player);
 
-    // 放在视野内（距离 2 ≤ VIEW_RANGE 10）。
+    // 放在视野内（距离 2 ≤ VIEW_RANGE 16，Crystal `Globals.DataRange`，`Globals.cs:37`）。
     harness
         .world
         .spawn_ground_item(MAP, Point::new(22, 20), None, 500, None);
@@ -397,8 +404,9 @@ fn ground_item_enters_and_leaves_view_following_player_movement() {
         "视野内应收到 ObjectGold"
     );
 
-    // 走出视野（10 格切比雪夫距离）：坐标 20,20 → 9,20 之后距离 13。
-    for _ in 0..11 {
+    // 走出视野：切比雪夫距离要超过 16（`MapObject.Broadcast`，`MapObject.cs:408-420`）。
+    // 从 (20,20) 向左走 17 步到 (3,20)，与金币 (22,20) 相距 19。
+    for _ in 0..17 {
         harness.ready_player(player);
         harness.world.walk(player, MirDirection::Left).expect("走");
     }

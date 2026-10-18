@@ -438,13 +438,13 @@ fn player_entering_world_receives_nearby_monsters() {
 #[test]
 fn walking_out_of_range_removes_monster_and_walking_back_adds_it() {
     let mut harness = Harness::new(18);
-    // 玩家在 (20,20)，怪物在 (28,20)：距离 8，在广播半径（10）内。
+    // 玩家在 (20,20)，怪物在 (28,20)：距离 8，在广播半径（16，`Globals.cs:37`）内。
     let player = harness.add_player(1, Point::new(20, 20));
     harness.spawn(test_monster(10, 1, 2), Point::new(28, 20));
     harness.packets(player);
 
-    // 向左走两格到 (18,20)：距离 10，仍然可见。
-    for _ in 0..2 {
+    // 向左走 7 格到 (13,20)：距离 15 ≤ 16，仍然可见。
+    for _ in 0..7 {
         harness.ready_player(player);
         harness.world.walk(player, MirDirection::Left).expect("走");
     }
@@ -453,10 +453,10 @@ fn walking_out_of_range_removes_monster_and_walking_back_adds_it() {
             packet,
             ServerPacket::ObjectRemove(_)
         )),
-        "距离 10 时还不该移除"
+        "距离 15（≤ 16）时还不该移除"
     );
 
-    // 再走两格到 (16,20)：距离 12 > 10 → 应发 ObjectRemove。
+    // 再走 2 格到 (11,20)：距离 17 > 16 → 应发 ObjectRemove。
     for _ in 0..2 {
         harness.ready_player(player);
         harness.world.walk(player, MirDirection::Left).expect("走");
@@ -469,8 +469,8 @@ fn walking_out_of_range_removes_monster_and_walking_back_adds_it() {
         "走出视野应收到 ObjectRemove"
     );
 
-    // 走回来 → 重新收到 ObjectMonster。
-    for _ in 0..4 {
+    // 走回来 2 格到 (13,20)（距离 15）→ 重新收到 ObjectMonster。
+    for _ in 0..2 {
         harness.ready_player(player);
         harness.world.walk(player, MirDirection::Right).expect("走");
     }

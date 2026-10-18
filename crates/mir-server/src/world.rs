@@ -48,8 +48,8 @@ use std::time::Instant;
 use mir_core::MirRng;
 use mir_core::Point;
 use mir_core::enums::{
-    AttackMode, ChatType, DamageType, DefenceType, MirClass, MirDirection, MirGender, MonsterType,
-    PoisonType, Spell, SpellEffect, Stat,
+    AttackMode, ChatType, DamageType, DefenceType, DoorState, MirClass, MirDirection, MirGender,
+    MonsterType, PoisonType, Spell, SpellEffect, Stat,
 };
 use mir_protocol::ServerPacket;
 use mir_protocol::data::UserItem;
@@ -57,10 +57,11 @@ use mir_protocol::packets::server::{
     ChangeAMode, ColourChanged, DamageIndicator, Death, GainExperience, HealthChanged,
     LevelChanged, ObjectAttack, ObjectColourChanged, ObjectDied, ObjectEffect, ObjectHealth,
     ObjectLeveled, ObjectMonster, ObjectPlayer, ObjectRemove, ObjectRevived, ObjectRun,
-    ObjectStruck, ObjectTurn, ObjectWalk, RefreshItem, Revived, Struck, UserLocation,
+    ObjectStruck, ObjectTurn, ObjectWalk, Opendoor, RefreshItem, Revived, Struck, UserLocation,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
+use crate::aoi::{AoiEntry, AoiGrid, AoiKind};
 use crate::buffs::{ActiveBuff, BuffKind, MAGIC_SHIELD_MS_PER_DAMAGE};
 use crate::combat::{self, CombatStats, PendingHit};
 use crate::exp::ExpTable;
@@ -71,15 +72,25 @@ use crate::maps::{PendingMapMove, map_cache_limit_from_env};
 use crate::monster::{Monster, MonsterKind};
 use crate::npc::{Npc, NpcState};
 
-/// 视野半径。
+/// 视野半径：Crystal `Globals.DataRange = 16`（`Shared/Globals.cs:37`，源码注释写着 `Was 24`）。
 ///
-/// 简化：Crystal 的 `Globals.DataRange` 是 **16**（`Shared/Globals.cs:37`），
-/// mir-next 沿用既有实现的 10，以免改动已经通过的移动/聊天测试；
-/// 怪物自己的索敌视野是 `MonsterKind::view_range`（Crystal `MonsterInfo.ViewRange`，默认 7），
-/// 与这个广播半径无关。
-pub const VIEW_RANGE: i32 = 10;
-/// 聊天广播半径。
-pub const CHAT_RANGE: i32 = 20;
+/// 服务器上所有「看得见/广播得到」的判定都用它：
+///
+/// * 进图/切图补视野：`PlayerObject.GetObjects` 扫 `±DataRange`（`PlayerObject.cs:1741-1768`）；
+/// * 移动后的进出视野差分：`HumanObject.RemoveObjects/AddObjects`（`HumanObject.cs:7864-8440`）；
+/// * 广播：`MapObject.Broadcast` 用 `Functions.InRange(..., Globals.DataRange)`（`MapObject.cs:408-420`）；
+/// * 怪物脱战距离：`MonsterObject.Process` 的 `Functions.InRange(..., Globals.DataRange)`（`MonsterObject.cs:1198`）。
+///
+/// 怪物自己的**索敌**视野是另一套：`MonsterKind::view_range`（Crystal `MonsterInfo.ViewRange`，
+/// 默认 7，`Server/MirDatabase/MonsterInfo.cs:27`），与这个广播半径无关。
+pub const VIEW_RANGE: i32 = 16;
+/// 聊天广播半径：与 [`VIEW_RANGE`] 相同。
+///
+/// Crystal 的普通聊天走 `MapObject.Broadcast`（`PlayerObject.cs:2001-2013`），
+/// 判定就是 `Functions.InRange(..., Globals.DataRange)`（`MapObject.cs:408-420`），
+/// 所以聊天半径 = `DataRange` = 16（`Shared/Globals.cs:37`）。
+/// 保留这个别名只为兼容早期公开 API；[`World::chat`] 走的是 [`World::broadcast`]（即 `VIEW_RANGE`）。
+pub const CHAT_RANGE: i32 = VIEW_RANGE;
 /// 走/跑一次动作的耗时（Crystal `HumanObject.MoveDelay`）。
 pub const MOVE_DELAY_MS: i64 = 600;
 /// 转身耗时（Crystal `Turn` 里的 350ms）。
@@ -165,6 +176,10 @@ pub const RESPAWN_FAIL_DELAY_MS: i64 = MINUTE_MS;
 /// 刷怪点连续失败多少次后写一条日志：Crystal 在 `ErrorCount` 到 6 时打日志
 /// （`Server/MirEnvir/Map.cs:771-785`）。
 pub const RESPAWN_ERROR_LOG_THRESHOLD: u8 = 6;
+/// 门打开后自动关闭的等待时间：Crystal `Map.Process` 里
+/// `if ((Doors[i].DoorState == DoorState.Open) && (Doors[i].LastTick + 5000 < Envir.Time))`
+/// （`Server/MirEnvir/Map.cs:657-665`）。
+pub const DOOR_OPEN_MS: i64 = 5_000;
 
 /// 一个在线玩家。
 #[derive(Debug, Clone)]
@@ -441,6 +456,16 @@ pub enum MoveError {
         /// 目标 Y。
         y: i32,
     },
+    /// 目标格上的门没开（Crystal `Map.CheckDoorOpen`，`Server/MirEnvir/Map.cs:646-651`）。
+    #[error("目标格 ({x}, {y}) 的门 {index} 未开")]
+    DoorClosed {
+        /// 目标 X。
+        x: i32,
+        /// 目标 Y。
+        y: i32,
+        /// 门索引。
+        index: u8,
+    },
 }
 
 /// 攻击失败原因。
@@ -546,6 +571,21 @@ pub struct RespawnState {
     pub alive: usize,
     /// 下一次补怪的绝对时刻（毫秒）；`None` 表示不缺怪、没有排程。
     pub next_spawn_at: Option<i64>,
+}
+
+/// 一扇门的运行时状态。
+///
+/// Crystal 的 `Door` 带 `DoorState` / `LastTick`（`Server/MirEnvir/Map.cs:61-71`），
+/// 状态枚举见 `Shared/Enums.cs:1910-1916`（`Closed=0, Opening=1, Open=2, Closing=3`）。
+/// 地图文件里每格只记录 `door_index`（`MapCell::door_index`），运行时状态由本结构维护。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DoorRuntime {
+    /// 该门第一次出现的格子（Crystal `AddDoor` 的 `Location`，`Map.cs:56`）。
+    location: Point,
+    /// 开关状态。
+    state: DoorState,
+    /// 打开时刻：`LastTick + 5000 < now` 时自动关（`Map.cs:659`）。
+    last_tick: i64,
 }
 
 /// 刷怪组的运行状态（[`RespawnState`] 的内部版本，带模板与失败计数）。
@@ -705,6 +745,32 @@ pub struct World {
     /// 每个玩家的市场浏览状态（Crystal `PlayerObject.Search`/`PageSent`/`MatchName` 等，
     /// `PlayerObject.cs:132-139`）：对象 ID → 状态，下线即清。
     pub(crate) market_searches: HashMap<u32, crate::market::MarketSearchState>,
+    /// 每张地图的 AOI 网格（Crystal 每张 `Map` 的 `Cells[x, y].Objects`，
+    /// `Server/MirEnvir/Map.cs:2475-2518`；见 [`crate::aoi`]）。
+    ///
+    /// 地图名 → 网格。玩家/怪物/NPC/地面物品的生成、移动、消失都必须同步维护，
+    /// 否则查询会读到旧坐标（维护点见各 `aoi_*` 调用处）。
+    pub(crate) aoi: HashMap<String, AoiGrid>,
+    /// 玩家**已经看见**的其它玩家：对象 ID → 可见的玩家 ID 集合。
+    ///
+    /// Crystal 用 `AddObjects/RemoveObjects` 在移动时双向维护（`HumanObject.cs:7864-8440`），
+    /// 进入视野的双方各收一次 `S.ObjectPlayer`、离开视野的双方各收一次 `S.ObjectRemove`
+    /// （`HumanObject.Add/Remove`，`HumanObject.cs:8440-8457`）。
+    ///
+    /// 简化：Crystal 把可见集合隐含在客户端的对象表里，本作显式保存一份用于差分；
+    /// 下线/切图时由 [`World::leave`] / `change_map` 清理，避免发重复的移除包。
+    pub(crate) visible_players: HashMap<u32, BTreeSet<u32>>,
+    /// 怪物 ID → 在 [`World::monsters`] 里的下标，避免按 ID 查询时线性扫描
+    /// （地图上怪物数量远大于视野内数量）。
+    pub(crate) monster_slots: HashMap<u32, usize>,
+    /// 地面物品 ID → 在 [`World::ground_items`] 里的下标，理由同 [`World::monster_slots`]。
+    pub(crate) ground_item_slots: HashMap<u32, usize>,
+    /// 每张地图的门的运行时状态：地图名 → (门索引 → 状态)。
+    ///
+    /// 地图文件只给出每格的 `door_index`（[`mir_world::MapCell::door_index`]），
+    /// 运行时状态照 Crystal `Map.Doors`（`Server/MirEnvir/Map.cs:50-71`）由世界维护；
+    /// 见 [`World::register_map_doors`] / [`World::open_door`] / `tick_doors`。
+    pub(crate) doors: HashMap<String, HashMap<u8, DoorRuntime>>,
 }
 
 /// 一条待落盘的行会变更（见 `World::guild_writes`）。
@@ -788,6 +854,11 @@ impl World {
             auctions: Vec::new(),
             next_auction_id: 0,
             market_searches: HashMap::new(),
+            aoi: HashMap::new(),
+            visible_players: HashMap::new(),
+            monster_slots: HashMap::new(),
+            ground_item_slots: HashMap::new(),
+            doors: HashMap::new(),
         }
     }
 
@@ -847,6 +918,11 @@ impl World {
             auctions: Vec::new(),
             next_auction_id: 0,
             market_searches: HashMap::new(),
+            aoi: HashMap::new(),
+            visible_players: HashMap::new(),
+            monster_slots: HashMap::new(),
+            ground_item_slots: HashMap::new(),
+            doors: HashMap::new(),
         }
     }
 
@@ -979,12 +1055,284 @@ impl World {
     /// 按对象 ID 取怪物。
     #[must_use]
     pub fn monster(&self, object_id: u32) -> Option<&Monster> {
-        self.monsters.iter().find(|m| m.object_id == object_id)
+        let index = *self.monster_slots.get(&object_id)?;
+        self.monsters
+            .get(index)
+            .filter(|monster| monster.object_id == object_id)
     }
 
     /// 按对象 ID 取怪物（可变）。
     pub fn monster_mut(&mut self, object_id: u32) -> Option<&mut Monster> {
-        self.monsters.iter_mut().find(|m| m.object_id == object_id)
+        let index = *self.monster_slots.get(&object_id)?;
+        self.monsters
+            .get_mut(index)
+            .filter(|monster| monster.object_id == object_id)
+    }
+
+    /// 重建「怪物 ID → 下标」表。
+    ///
+    /// 只在 `monsters` 删除元素（尸体到期）后调用：`Vec::remove` 会让后面的下标整体前移，
+    /// 与其逐个修补，不如 O(N) 重建一次；删除远少于查询。
+    pub(crate) fn rebuild_monster_slots(&mut self) {
+        self.monster_slots.clear();
+        for (index, monster) in self.monsters.iter().enumerate() {
+            self.monster_slots.insert(monster.object_id, index);
+        }
+    }
+
+    /// 重建「地面物品 ID → 下标」表（理由同 [`World::rebuild_monster_slots`]）。
+    pub(crate) fn rebuild_ground_item_slots(&mut self) {
+        self.ground_item_slots.clear();
+        for (index, ground) in self.ground_items.iter().enumerate() {
+            self.ground_item_slots.insert(ground.object_id, index);
+        }
+    }
+
+    /// 把对象登记进某张图的 AOI 网格。
+    pub(crate) fn aoi_insert(&mut self, map: &str, object_id: u32, kind: AoiKind, position: Point) {
+        self.aoi
+            .entry(map.to_owned())
+            .or_default()
+            .insert(AoiEntry {
+                object_id,
+                kind,
+                position,
+            });
+    }
+
+    /// 把对象从某张图的 AOI 网格里删除。
+    pub(crate) fn aoi_remove(&mut self, map: &str, kind: AoiKind, object_id: u32) {
+        if let Some(grid) = self.aoi.get_mut(map) {
+            grid.remove(kind, object_id);
+        }
+    }
+
+    /// 把对象在 AOI 网格里移动到新坐标；对象未登记时返回 `false`。
+    pub(crate) fn aoi_move(
+        &mut self,
+        map: &str,
+        kind: AoiKind,
+        object_id: u32,
+        position: Point,
+    ) -> bool {
+        self.aoi
+            .get_mut(map)
+            .is_some_and(|grid| grid.move_to(kind, object_id, position))
+    }
+
+    /// 查询切比雪夫半径内的全部对象（按 `(y, x, ID)` 排序，等价 Crystal 逐格扫描顺序）。
+    #[must_use]
+    pub(crate) fn aoi_in_radius(&self, map: &str, center: Point, radius: i32) -> Vec<AoiEntry> {
+        self.aoi
+            .get(map)
+            .map_or_else(Vec::new, |grid| grid.query_radius(center, radius))
+    }
+
+    /// 查询某一格上的全部对象。
+    #[must_use]
+    pub(crate) fn aoi_in_cell(&self, map: &str, cell: Point) -> Vec<AoiEntry> {
+        self.aoi
+            .get(map)
+            .map_or_else(Vec::new, |grid| grid.query_cell(cell))
+    }
+
+    /// 半径内某一类对象的 ID（升序，去重）。
+    #[must_use]
+    pub(crate) fn aoi_ids_in_radius(
+        &self,
+        map: &str,
+        center: Point,
+        radius: i32,
+        kind: AoiKind,
+    ) -> Vec<u32> {
+        let mut ids: Vec<u32> = self
+            .aoi_in_radius(map, center, radius)
+            .into_iter()
+            .filter(|entry| entry.kind == kind)
+            .map(|entry| entry.object_id)
+            .collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// 半径内某一类对象的 ID（按 `(y, x, ID)` 排序）。
+    #[must_use]
+    pub(crate) fn aoi_ids_in_radius_spatial(
+        &self,
+        map: &str,
+        center: Point,
+        radius: i32,
+        kind: AoiKind,
+    ) -> Vec<u32> {
+        self.aoi_in_radius(map, center, radius)
+            .into_iter()
+            .filter(|entry| entry.kind == kind)
+            .map(|entry| entry.object_id)
+            .collect()
+    }
+
+    /// 某一格上某一类对象的 ID（升序）。
+    #[must_use]
+    pub(crate) fn aoi_ids_in_cell(&self, map: &str, cell: Point, kind: AoiKind) -> Vec<u32> {
+        let mut ids: Vec<u32> = self
+            .aoi_in_cell(map, cell)
+            .into_iter()
+            .filter(|entry| entry.kind == kind)
+            .map(|entry| entry.object_id)
+            .collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// 玩家已经看见的其它玩家（只读）。
+    #[must_use]
+    pub fn visible_players_of(&self, player_id: u32) -> Option<&BTreeSet<u32>> {
+        self.visible_players.get(&player_id)
+    }
+
+    /// 测试/GM 辅助：把玩家瞬移到指定地图的指定坐标，并同步 AOI 网格。
+    ///
+    /// **不在玩家链路调用**——正常移动请走 [`World::walk`]/[`World::run`]/`change_map`，
+    /// 它们会自己维护索引与视野。本函数只为测试直接摆位（以及 GM 命令）准备：
+    /// `aoi_remove(old)` → 改 `map`/`position` → `aoi_insert(new)`，跨图也安全。
+    ///
+    /// 返回玩家是否存在于世界里。
+    pub fn place_player(&mut self, player_id: u32, map: &str, position: Point) -> bool {
+        let Some(old) = self
+            .players
+            .get(&player_id)
+            .map(|player| (player.map.clone(), player.position))
+        else {
+            return false;
+        };
+        self.aoi_remove(&old.0, AoiKind::Player, player_id);
+        if let Some(player) = self.players.get_mut(&player_id) {
+            map.clone_into(&mut player.map);
+            player.position = position;
+        }
+        self.aoi_insert(map, player_id, AoiKind::Player, position);
+        true
+    }
+
+    /// 测试/GM 辅助：把怪物瞬移到指定地图的指定坐标，并同步 AOI 网格。
+    ///
+    /// **不在玩家链路调用**；返回怪物是否存在。
+    pub fn place_monster(&mut self, monster_id: u32, map: &str, position: Point) -> bool {
+        let Some(old) = self
+            .monster(monster_id)
+            .map(|monster| (monster.map.clone(), monster.position))
+        else {
+            return false;
+        };
+        self.aoi_remove(&old.0, AoiKind::Monster, monster_id);
+        if let Some(monster) = self.monster_mut(monster_id) {
+            map.clone_into(&mut monster.map);
+            monster.position = position;
+        }
+        self.aoi_insert(map, monster_id, AoiKind::Monster, position);
+        true
+    }
+
+    /// 把地图文件里的门表登记进运行时状态（Crystal `Map.Load` 里的 `AddDoor`，
+    /// `Server/MirEnvir/Map.cs:50-59`、`:143`）。每张图只登记一次。
+    pub(crate) fn register_map_doors(&mut self, map_file: &str) {
+        let Some(map) = self.map_of(map_file) else {
+            return;
+        };
+        let doors: Vec<(u8, Point)> = map
+            .doors
+            .iter()
+            .map(|door| (door.index, door.location))
+            .collect();
+        let entry = self.doors.entry(map_file.to_owned()).or_default();
+        for (index, location) in doors {
+            entry.entry(index).or_insert(DoorRuntime {
+                location,
+                state: DoorState::Closed,
+                last_tick: 0,
+            });
+        }
+    }
+
+    /// 某个门当前是否开着：Crystal `Map.CheckDoorOpen`（`Map.cs:646-651`）。
+    ///
+    /// 格子上没有登记门（`DoorIndex[x, y] == null`）时视为可通过（Crystal 返回 `true`）。
+    #[must_use]
+    pub fn door_is_open(&self, map_file: &str, door_index: u8) -> bool {
+        self.doors
+            .get(map_file)
+            .and_then(|doors| doors.get(&door_index))
+            .is_none_or(|door| door.state == DoorState::Open)
+    }
+
+    /// 某扇门的运行时状态（测试/运维观察用）。
+    #[must_use]
+    pub fn door_state_of(&self, map_file: &str, door_index: u8) -> Option<DoorState> {
+        self.doors
+            .get(map_file)
+            .and_then(|doors| doors.get(&door_index))
+            .map(|door| door.state)
+    }
+
+    /// 开一扇门：Crystal `PlayerObject.Opendoor`（`Server/MirObjects/PlayerObject.cs:7818-7826`）。
+    ///
+    /// ```csharp
+    /// if (CurrentMap.OpenDoor(Doorindex))
+    /// {
+    ///     Enqueue(new S.Opendoor { DoorIndex = Doorindex });
+    ///     Broadcast(new S.Opendoor { DoorIndex = Doorindex });
+    /// }
+    /// ```
+    ///
+    /// 本人收一条、同图视野内的其它玩家收一条；5 秒后由 `tick_doors` 自动关并广播
+    /// `S.Opendoor { Close = true }`（`Map.cs:657-665`）。
+    /// 返回是否找到了这扇门。
+    pub fn open_door(&mut self, player_id: u32, door_index: u8) -> bool {
+        let Some(player) = self.players.get(&player_id) else {
+            return false;
+        };
+        let map = player.map.clone();
+        let now = self.now();
+        let Some(door) = self
+            .doors
+            .get_mut(&map)
+            .and_then(|doors| doors.get_mut(&door_index))
+        else {
+            return false;
+        };
+        door.state = DoorState::Open;
+        door.last_tick = now;
+        let location = door.location;
+        let packet = ServerPacket::Opendoor(Opendoor {
+            close: false,
+            door_index,
+        })
+        .encode_frame();
+        self.send_to_player(player_id, &packet);
+        self.broadcast(&map, location, Some(player_id), &packet, player_id);
+        true
+    }
+
+    /// 门自动关闭：Crystal `Map.Process`（`Server/MirEnvir/Map.cs:657-665`）：
+    /// `if ((Doors[i].DoorState == DoorState.Open) && (Doors[i].LastTick + 5000 < Envir.Time))`。
+    fn tick_doors(&mut self, now: i64) {
+        let mut closing: Vec<(String, u8, Point)> = Vec::new();
+        for (map, doors) in &mut self.doors {
+            for (index, door) in doors.iter_mut() {
+                if door.state == DoorState::Open && door.last_tick + DOOR_OPEN_MS < now {
+                    door.state = DoorState::Closed;
+                    closing.push((map.clone(), *index, door.location));
+                }
+            }
+        }
+        for (map, door_index, location) in closing {
+            let packet = ServerPacket::Opendoor(Opendoor {
+                close: true,
+                door_index,
+            })
+            .encode_frame();
+            self.broadcast(&map, location, None, &packet, 0);
+        }
     }
 
     /// 所有怪物（生成顺序）。
@@ -1032,11 +1380,12 @@ impl World {
             let _ = player.sender.send(frame.clone());
         }
 
-        for other in self.players.values() {
-            if other.map == player.map
-                && other.position.in_range(player.position, VIEW_RANGE)
-                && other.object_id != player.object_id
-            {
+        // 周围玩家收到新玩家的外观（Crystal `MapObject.Add(HumanObject)` 的
+        // `player.Enqueue(GetInfoEx(player))`，`HumanObject.cs:8447-8457`；用 AOI 网格取半径内玩家）。
+        let nearby_players =
+            self.aoi_ids_in_radius(&player.map, player.position, VIEW_RANGE, AoiKind::Player);
+        for other_id in &nearby_players {
+            if let Some(other) = self.players.get(other_id) {
                 let _ = other.sender.send(appearance.clone());
             }
         }
@@ -1055,12 +1404,26 @@ impl World {
         player.visible_monsters = view.monster_ids();
         player.visible_npcs = view.npc_ids();
         player.visible_items = view.item_ids();
+        let visible_players = view.player_ids();
         // 让后续 `allocate_object_id` 不会撞上这个玩家的 ID
         // （生产路径是先分配再 `enter`，但测试会直接构造对象 ID）。
         self.next_object_id = self.next_object_id.max(player.object_id.wrapping_add(1));
         let object_id = player.object_id;
+        let map_name = player.map.clone();
+        let position = player.position;
         let has_equipment = player.equipment.iter().any(Option::is_some);
         self.players.insert(object_id, player);
+        // AOI：新玩家登记进网格，并把他写进周围玩家的「已看见玩家」集合
+        // （Crystal 的 `AddObjects` 是双向的，`HumanObject.cs:8447-8457`）。
+        self.aoi_insert(&map_name, object_id, AoiKind::Player, position);
+        self.visible_players
+            .insert(object_id, visible_players.clone());
+        for other_id in visible_players {
+            self.visible_players
+                .entry(other_id)
+                .or_default()
+                .insert(object_id);
+        }
         // 带着装备登录时要立刻把装备加成算进去（Crystal 登录/换装都会走
         // `RefreshStats`，`HumanObject.cs:1730-1769`）；空装备就不动，避免覆盖测试
         // 直接塞进 `Player::stats` 的自定义数值。
@@ -1082,14 +1445,21 @@ impl World {
         let map = player.map.clone();
         let position = player.position;
         let removal = object_remove_frame(object_id);
-        for other in self.players.values() {
-            if other.object_id != object_id
-                && other.map == map
-                && other.position.in_range(position, VIEW_RANGE)
-            {
+        let nearby = self.aoi_ids_in_radius(&map, position, VIEW_RANGE, AoiKind::Player);
+        for other_id in nearby {
+            if other_id == object_id {
+                continue;
+            }
+            if let Some(other) = self.players.get(&other_id) {
                 let _ = other.sender.send(removal.clone());
             }
+            // 对方已经收到 `ObjectRemove`，同步从「已看见」集合里删掉，避免下次移动重复发移除包。
+            if let Some(seen) = self.visible_players.get_mut(&other_id) {
+                seen.remove(&object_id);
+            }
         }
+        self.aoi_remove(&map, AoiKind::Player, object_id);
+        self.visible_players.remove(&object_id);
         // `Despawn(); LeaveGroup();`（`PlayerObject.cs:405-406`）。
         self.leave_group(object_id);
         // 行会成员标记离线（Crystal `PlayerObject.cs:397` 的 `MyGuild.PlayerLogged(this, false)`）。
@@ -1200,6 +1570,9 @@ impl World {
             player.cell_time = now + CELL_GRACE_MS;
             player.action_time = now + MOVE_DELAY_MS;
         }
+        // Crystal `GetCell(CurrentLocation).Remove(this); … GetCell(CurrentLocation).Add(this);`
+        // （`HumanObject.cs:2468-2474`）：AOI 网格随落格同步移动。
+        self.aoi_move(&map, AoiKind::Player, object_id, to);
         // `Moved()`（`PlayerObject.cs:568-574`）在 `S.UserLocation`/`S.ObjectWalk` 之前中止交易
         // （Crystal `HumanObject.cs:2491-2497`）。
         self.trade_cancel(object_id);
@@ -1211,8 +1584,9 @@ impl World {
         .encode_frame();
         self.broadcast(&map, to, Some(object_id), &packet, object_id);
         self.send_user_location(object_id);
-        // 走完之后刷新自己的怪物/地面物品视野（Crystal `AddObjects/RemoveObjects`，
-        // `HumanObject.cs:2500-2510`、`:7864`、`:8152`）。
+        // 走完之后刷新自己的视野（Crystal `AddObjects/RemoveObjects`，
+        // `HumanObject.cs:2470-2476`、`:7864`、`:8152`）：玩家 → 怪物 → 地面物品的进入/离开包。
+        self.sync_player_players(object_id);
         self.sync_player_monsters(object_id);
         self.sync_player_ground_items(object_id);
         Ok(to)
@@ -1279,6 +1653,8 @@ impl World {
                 player.run_time = now + RUN_COUNTER_DECAY_MS;
             }
         }
+        // 跑动同样先摘旧格再挂新格（Crystal `HumanObject.cs:2596-2602`）。
+        self.aoi_move(&map, AoiKind::Player, object_id, destination);
         // `Moved()`（`PlayerObject.cs:568-574`）在 `S.UserLocation`/`S.ObjectRun` 之前中止交易
         // （Crystal `HumanObject.cs:2547`）。
         self.trade_cancel(object_id);
@@ -1404,15 +1780,28 @@ impl World {
     /// * 玩家：交给 [`World::is_attack_target_player`]（安全区、攻击模式、红棕名等）；
     /// * 怪物：守卫永远不可攻击（`Monsters/Guard.cs:54-55`），其余野生怪可以。
     fn melee_target(&self, attacker_id: u32, map: &str, cell: Point) -> Option<u32> {
+        // 只查目标格（Crystal `CurrentMap.GetCell(target).Objects`，`HumanObject.cs:3029`）。
         let mut candidates: Vec<(u32, bool)> = Vec::new();
-        for player in self.players.values() {
-            if player.map == map && !player.dead && player.position == cell {
-                candidates.push((player.object_id, true));
-            }
-        }
-        for monster in &self.monsters {
-            if monster.map == map && !monster.dead && monster.position == cell {
-                candidates.push((monster.object_id, false));
+        for entry in self.aoi_in_cell(map, cell) {
+            match entry.kind {
+                AoiKind::Player => {
+                    if self
+                        .players
+                        .get(&entry.object_id)
+                        .is_some_and(|player| !player.dead)
+                    {
+                        candidates.push((entry.object_id, true));
+                    }
+                }
+                AoiKind::Monster => {
+                    if self
+                        .monster(entry.object_id)
+                        .is_some_and(|monster| !monster.dead)
+                    {
+                        candidates.push((entry.object_id, false));
+                    }
+                }
+                AoiKind::Npc | AoiKind::Item => {}
             }
         }
         candidates.sort_unstable();
@@ -1509,6 +1898,8 @@ impl World {
         // 攻城：Crystal 在 `Envir.Process` 里每 10 秒跑一次 `ConquestObject.Process`
         // （`Envir.cs:2339-2346`），见 [`crate::conquest`]。
         self.tick_conquests(now);
+        // 门自动关闭：Crystal `Map.Process`（`Server/MirEnvir/Map.cs:657-665`）。
+        self.tick_doors(now);
         // 寄售/拍卖过期：Crystal 在 `Envir.Process` 里逐条标记 `Expired`
         // （`Envir.cs:2396`），见 [`crate::market`]。
         self.tick_market();
@@ -2352,13 +2743,13 @@ impl World {
             .players
             .get(&player_id)
             .map(|player| self.appearance_packet(player));
-        for other in self.players.values() {
-            if other.object_id == player_id
-                || other.map != map
-                || !other.position.in_range(position, VIEW_RANGE)
-            {
+        for other_id in self.aoi_ids_in_radius(&map, position, VIEW_RANGE, AoiKind::Player) {
+            if other_id == player_id {
                 continue;
             }
+            let Some(other) = self.players.get(&other_id) else {
+                continue;
+            };
             let _ = other.sender.send(remove.clone());
             let _ = other.sender.send(revived.clone());
             if let Some(frame) = &appearance {
@@ -2696,9 +3087,15 @@ impl World {
             if !self.walkable_on(&group.map, cell) {
                 continue;
             }
-            if self.monsters.iter().any(|monster| {
-                monster.map == group.map && !monster.dead && monster.position == cell
-            }) {
+            // 占格判定只看这一格（沿用既有语义：有活怪就换一格）；用 AOI 网格
+            // 代替遍历全部怪物。
+            let occupied = self.aoi_in_cell(&group.map, cell).into_iter().any(|entry| {
+                entry.kind == AoiKind::Monster
+                    && self
+                        .monster(entry.object_id)
+                        .is_some_and(|monster| !monster.dead)
+            });
+            if occupied {
                 continue;
             }
             placed = Some(cell);
@@ -2849,24 +3246,39 @@ impl World {
         let monster = Monster::new(object_id, Arc::new(kind), map, position, now, &mut self.rng);
         let packet = monster_info_frame(&monster);
         self.monsters.push(monster);
-        // Crystal `Spawn()` → `Spawned()` → `BroadcastInfo()`（`MapObject.cs:353`）。
-        self.sync_monster_view(object_id, map, position, &packet);
+        let index = self.monsters.len() - 1;
+        self.monster_slots.insert(object_id, index);
+        // Crystal `Map.Load` 把怪物挂进地图（`Map.cs:473-488`）后再 `BroadcastInfo()`（`MapObject.cs:353`）。
+        self.aoi_insert(map, object_id, AoiKind::Monster, position);
+        self.sync_monster_view(object_id, map, None, position, &packet);
         object_id
     }
 
-    /// 怪物位置/可见性变化后，刷新所有玩家对**这一只**怪的视野。
+    /// 怪物位置/可见性变化后，刷新受影响的玩家的视野。
     ///
     /// 等价于 Crystal 的 `AddObjects/RemoveObjects`（`HumanObject.cs:7864`、`:8152`）：
     /// 新进入视野发 `ObjectMonster`，离开视野发 `ObjectRemove`。
+    ///
+    /// 候选玩家取**旧位置与新位置两个半径矩形的并集**（Crystal 移动时扫的就是
+    /// 进出视野的条带，`HumanObject.cs:2470-2476`）：只查这两个矩形，不遍历全服玩家。
     pub(crate) fn sync_monster_view(
         &mut self,
         object_id: u32,
         map: &str,
+        old_position: Option<Point>,
         position: Point,
         frame: &[u8],
     ) {
         let removal = object_remove_frame(object_id);
-        for player in self.players.values_mut() {
+        let mut candidates: BTreeSet<u32> = BTreeSet::new();
+        if let Some(old) = old_position {
+            candidates.extend(self.aoi_ids_in_radius(map, old, VIEW_RANGE, AoiKind::Player));
+        }
+        candidates.extend(self.aoi_ids_in_radius(map, position, VIEW_RANGE, AoiKind::Player));
+        for player_id in candidates {
+            let Some(player) = self.players.get_mut(&player_id) else {
+                continue;
+            };
             let visible = player.map == map && player.position.in_range(position, VIEW_RANGE);
             if visible && !player.visible_monsters.contains(&object_id) {
                 player.visible_monsters.insert(object_id);
@@ -2879,16 +3291,32 @@ impl World {
 
     /// 怪物消失（尸体到期）：给所有「看见过它」的玩家发 `ObjectRemove`
     /// （Crystal `Despawn` 里的 `Broadcast(S.ObjectRemove)`，`MapObject.cs:363`）。
+    ///
+    /// 调用方必须在把怪物从 [`World::monsters`] 移除**之前**调用；本函数顺带把它从 AOI 网格摘掉。
     pub(crate) fn forget_monster(&mut self, object_id: u32) {
+        let Some((map, position)) = self
+            .monster(object_id)
+            .map(|monster| (monster.map.clone(), monster.position))
+        else {
+            return;
+        };
         let removal = object_remove_frame(object_id);
-        for player in self.players.values_mut() {
+        for player_id in self.aoi_ids_in_radius(&map, position, VIEW_RANGE, AoiKind::Player) {
+            let Some(player) = self.players.get_mut(&player_id) else {
+                continue;
+            };
             if player.visible_monsters.remove(&object_id) {
                 let _ = player.sender.send(removal.clone());
             }
         }
+        self.aoi_remove(&map, AoiKind::Monster, object_id);
     }
 
     /// 玩家移动后刷新自己的怪物视野（先发移除、再发新增，顺序同 Crystal `Walk`）。
+    ///
+    /// 新可见集合由 AOI 网格按 `(y,x,ID)` 查出（等价 Crystal 的 33×33 逐格扫描），
+    /// 再与上一轮集合做差分：只有真正进出视野的怪物才发一次包
+    /// （`HumanObject.RemoveObjects/AddObjects`，`HumanObject.cs:2470-2476`）。
     fn sync_player_monsters(&mut self, player_id: u32) {
         let Some(player) = self.players.get(&player_id) else {
             return;
@@ -2896,24 +3324,17 @@ impl World {
         let map = player.map.clone();
         let position = player.position;
         let visible: BTreeSet<u32> = self
-            .monsters
-            .iter()
-            .filter(|monster| monster.map == map && monster.position.in_range(position, VIEW_RANGE))
-            .map(|monster| monster.object_id)
+            .aoi_ids_in_radius(&map, position, VIEW_RANGE, AoiKind::Monster)
+            .into_iter()
             .collect();
         let removals: Vec<u32> = player
             .visible_monsters
             .difference(&visible)
             .copied()
             .collect();
-        let adds: Vec<Vec<u8>> = self
-            .monsters
-            .iter()
-            .filter(|monster| {
-                visible.contains(&monster.object_id)
-                    && !player.visible_monsters.contains(&monster.object_id)
-            })
-            .map(monster_info_frame)
+        let adds: Vec<Vec<u8>> = visible
+            .difference(&player.visible_monsters)
+            .filter_map(|object_id| self.monster(*object_id).map(monster_info_frame))
             .collect();
 
         let Some(player) = self.players.get_mut(&player_id) else {
@@ -2926,6 +3347,68 @@ impl World {
             let _ = player.sender.send(frame);
         }
         player.visible_monsters = visible;
+    }
+
+    /// 玩家移动后刷新「我能看见哪些玩家」，并做**双向**差分。
+    ///
+    /// Crystal `HumanObject.Add/Remove(HumanObject)`（`HumanObject.cs:8440-8457`）：
+    /// 进入视野时双方各收一条 `S.ObjectPlayer`，离开视野时双方各收一条 `S.ObjectRemove`。
+    /// 这里用 [`World::visible_players`] 保存上一轮集合，保证每个对象只发一次进出包。
+    fn sync_player_players(&mut self, player_id: u32) {
+        let Some(player) = self.players.get(&player_id) else {
+            return;
+        };
+        let map = player.map.clone();
+        let position = player.position;
+        let self_frame = self.appearance_packet(player);
+        let visible: BTreeSet<u32> = self
+            .aoi_ids_in_radius(&map, position, VIEW_RANGE, AoiKind::Player)
+            .into_iter()
+            .filter(|object_id| *object_id != player_id)
+            .collect();
+        let previous = self
+            .visible_players
+            .get(&player_id)
+            .cloned()
+            .unwrap_or_default();
+        let removals: Vec<u32> = previous.difference(&visible).copied().collect();
+        let add_frames: Vec<(u32, Vec<u8>)> = visible
+            .difference(&previous)
+            .filter_map(|other_id| {
+                self.players
+                    .get(other_id)
+                    .map(|other| (*other_id, self.appearance_packet(other)))
+            })
+            .collect();
+
+        // 1) 本人：离开视野的玩家发 `ObjectRemove`，进入视野的玩家发 `ObjectPlayer`。
+        if let Some(player) = self.players.get(&player_id) {
+            for other_id in &removals {
+                let _ = player.sender.send(object_remove_frame(*other_id));
+            }
+            for (_, frame) in &add_frames {
+                let _ = player.sender.send(frame.clone());
+            }
+        }
+        // 2) 对方：双向维护（Crystal 的 `Add/Remove` 两边各收一条）。
+        for other_id in &removals {
+            if let Some(other) = self.players.get(other_id) {
+                let _ = other.sender.send(object_remove_frame(player_id));
+            }
+            if let Some(seen) = self.visible_players.get_mut(other_id) {
+                seen.remove(&player_id);
+            }
+        }
+        for (other_id, _) in &add_frames {
+            if let Some(other) = self.players.get(other_id) {
+                let _ = other.sender.send(self_frame.clone());
+            }
+            self.visible_players
+                .entry(*other_id)
+                .or_default()
+                .insert(player_id);
+        }
+        self.visible_players.insert(player_id, visible);
     }
 
     /// 聊天广播，返回实际接收人数（含本人）。
@@ -3053,41 +3536,48 @@ impl World {
                     y: cell.y,
                 });
             }
+            // 门：`CheckDoorOpen(location)`（`Map.cs:646-651`；走/跑各自在
+            // `HumanObject.cs:2420`、`:2559` 判一次）。门格在地图文件里带 `door_index`。
+            if let Some(index) = map_data
+                .cell(cell.x, cell.y)
+                .and_then(|map_cell| map_cell.door_index)
+                && !self.door_is_open(map, index)
+            {
+                return Err(MoveError::DoorClosed {
+                    x: cell.x,
+                    y: cell.y,
+                    index,
+                });
+            }
         }
-        // Crystal：刚移动过的对象有 500ms 宽限（`CellTime >= Envir.Time` 时不算阻挡）。
-        let occupied = self.players.values().any(|other| {
-            other.map == map
-                && other.position == cell
-                && other.object_id != mover
-                && other.cell_time < now
-        });
-        if occupied {
-            return Err(MoveError::Occupied {
-                x: cell.x,
-                y: cell.y,
-            });
-        }
-        // 怪物也是阻挡物（Crystal `MapObject.Blocking`，怪物为 `!Dead`）。
-        let blocked_by_monster = self
-            .monsters
-            .iter()
-            .any(|monster| monster.map == map && !monster.dead && monster.position == cell);
-        if blocked_by_monster {
-            return Err(MoveError::Occupied {
-                x: cell.x,
-                y: cell.y,
-            });
-        }
-        // NPC 也挡路：Crystal `NPCObject.Blocking => Visible`（`NPCObject.cs:418-421`）。
-        let blocked_by_npc = self
-            .npcs
-            .iter()
-            .any(|npc| npc.map == map && npc.position == cell);
-        if blocked_by_npc {
-            return Err(MoveError::Occupied {
-                x: cell.x,
-                y: cell.y,
-            });
+        // 占格：只查目标格（Crystal `CurrentMap.GetCell(target).Objects`，
+        // `HumanObject.cs:2427-2447`）。用 AOI 网格代替遍历全服玩家/怪物/NPC。
+        for entry in self.aoi_in_cell(map, cell) {
+            let blocked = match entry.kind {
+                // 玩家：刚移动过的对象有 500ms 宽限（`CellTime >= Envir.Time` 时不算阻挡）。
+                AoiKind::Player => {
+                    entry.object_id != mover
+                        && self
+                            .players
+                            .get(&entry.object_id)
+                            .is_some_and(|other| other.position == cell && other.cell_time < now)
+                }
+                // 怪物也是阻挡物（Crystal `MapObject.Blocking`，怪物为 `!Dead`）。
+                AoiKind::Monster => self
+                    .monster(entry.object_id)
+                    .is_some_and(|monster| !monster.dead && monster.position == cell),
+                // NPC 也挡路：Crystal `NPCObject.Blocking => Visible`（`NPCObject.cs:418-421`）。
+                AoiKind::Npc => self
+                    .npc(entry.object_id)
+                    .is_some_and(|npc| npc.map == map && npc.position == cell),
+                AoiKind::Item => false,
+            };
+            if blocked {
+                return Err(MoveError::Occupied {
+                    x: cell.x,
+                    y: cell.y,
+                });
+            }
         }
         Ok(())
     }
@@ -3123,13 +3613,18 @@ impl World {
         actor: u32,
     ) -> usize {
         let mut sent = 0;
-        for other in self.players.values() {
-            if other.map != map || !other.position.in_range(position, VIEW_RANGE) {
+        // 只查广播点 ±VIEW_RANGE 的玩家（Crystal `Broadcast` 用 `Functions.InRange`，
+        // `MapObject.cs:408-420`；这里用 AOI 网格代替遍历全服玩家）。
+        for entry in self.aoi_in_radius(map, position, VIEW_RANGE) {
+            if entry.kind != AoiKind::Player {
                 continue;
             }
-            if exclude == Some(other.object_id) || other.object_id == actor {
+            if exclude == Some(entry.object_id) || entry.object_id == actor {
                 continue;
             }
+            let Some(other) = self.players.get(&entry.object_id) else {
+                continue;
+            };
             if other.sender.send(packet.to_vec()).is_ok() {
                 sent += 1;
             }

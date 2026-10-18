@@ -366,14 +366,16 @@ impl Harness {
     }
 
     /// 把玩家挪出安全区（测试地图的安全区在 (10,10)，半径 10）。
+    ///
+    /// 走 `World::place_player`：同步 AOI 网格，避免查询按旧坐标找人。
     fn move_outside_safe_zone(&mut self, object_id: u32) {
-        let player = self.world.player_mut(object_id).expect("玩家");
-        player.position = Point::new(50, 50);
+        let map = self.world.player(object_id).expect("玩家").map.clone();
+        assert!(self.world.place_player(object_id, &map, Point::new(50, 50)));
     }
 
     fn move_into_safe_zone(&mut self, object_id: u32) {
-        let player = self.world.player_mut(object_id).expect("玩家");
-        player.position = Point::new(10, 10);
+        let map = self.world.player(object_id).expect("玩家").map.clone();
+        assert!(self.world.place_player(object_id, &map, Point::new(10, 10)));
     }
 
     /// 把世界积压的行会写入落到 `MemoryStore`。

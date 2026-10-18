@@ -1125,10 +1125,12 @@ fn killer_can_pick_up_death_drops() {
         .expect("红名死亡必掉背包")
         .clone();
     assert_eq!(ground.owner, None, "死亡掉落没有归属保护");
-    // 凶手走到掉落格上（服务端权威，直接改坐标即可）。
-    if let Some(player) = harness.world.player_mut(attacker) {
-        player.position = ground.position;
-    }
+    // 凶手走到掉落格上（服务端权威；`place_player` 同时同步 AOI 网格）。
+    assert!(
+        harness
+            .world
+            .place_player(attacker, &ground.map, ground.position)
+    );
     let report = harness.world.pickup(attacker).expect("凶手应能拾取");
     assert_eq!(report.ground, ground.object_id);
     let dropped_uid = ground.item.as_ref().map(|item| item.unique_id);
@@ -1226,9 +1228,13 @@ fn guard_walks_back_home_when_idle() {
     let mut harness = Harness::new(32);
     let guard = harness.spawn(guard_kind(), Point::new(30, 30));
     // 模拟守卫沿路线走开（Crystal 的 `Route`，本作用 `home` 出生点近似）。
-    if let Some(monster) = harness.world.monster_mut(guard) {
-        monster.position = Point::new(33, 30);
-    }
+    // 走 `place_monster` 同步 AOI 网格，否则索敌/广播还会按旧坐标找它。
+    let guard_map = harness.world.monster(guard).expect("守卫还在").map.clone();
+    assert!(
+        harness
+            .world
+            .place_monster(guard, &guard_map, Point::new(33, 30))
+    );
     harness.world.tick();
     assert_eq!(
         harness.world.monster(guard).unwrap().position,

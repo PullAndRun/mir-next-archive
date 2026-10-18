@@ -17,6 +17,7 @@
 //! **攻城/城主任命**（见 [`conquest`] 与 `docs/world/conquest.md`；城门/城墙/旗子等建筑未做）
 //! 以及 **玩家间交易**（见 [`trade`] 与 `docs/world/trade.md`）。
 
+pub mod aoi;
 pub mod buffs;
 pub mod combat;
 pub mod config;
@@ -101,8 +102,9 @@ pub use storage::{
     STORAGE_MAX_SIZE, STORAGE_SIZE, StorageError, decode_storage, encode_storage, new_storage,
 };
 pub use store::{
-    Account, AccountStore, Character, ConquestRecord, GuildBuffRecord, GuildMemberRecord,
-    GuildRankRecord, GuildRecord, GuildStorageRecord, MailRecord, MemoryStore, StoreError,
+    Account, AccountStore, AuctionRecord, Character, ConquestRecord, GuildBuffRecord,
+    GuildMemberRecord, GuildRankRecord, GuildRecord, GuildStorageRecord, MailRecord, MemoryStore,
+    StoreError,
 };
 pub use trade::{
     TRADE_DELAY_MS, TRADE_RANGE, TRADE_SLOTS, TradeError, TradeReplyOutcome, TradeState,

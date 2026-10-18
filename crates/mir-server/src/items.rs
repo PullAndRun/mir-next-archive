@@ -64,6 +64,7 @@ use mir_protocol::packets::server::{
 };
 use mir_protocol::{PacketReader, PacketWriter, ProtocolError, ServerPacket};
 
+use crate::aoi::AoiKind;
 use crate::buffs::{BuffKind, minutes_to_ms};
 use crate::combat::{self, CombatStats};
 use crate::gamedata::GameData;
@@ -976,12 +977,13 @@ impl World {
         &self.ground_items
     }
 
-    /// 按对象 ID 取地面物品。
+    /// 按对象 ID 取地面物品（用 `ground_item_slots` 下标，避免线性扫描）。
     #[must_use]
     pub fn ground_item(&self, object_id: u32) -> Option<&GroundItem> {
+        let index = *self.ground_item_slots.get(&object_id)?;
         self.ground_items
-            .iter()
-            .find(|item| item.object_id == object_id)
+            .get(index)
+            .filter(|item| item.object_id == object_id)
     }
 
     /// 玩家的背包总重（Crystal `HumanObject.CurrentBagWeight`，`HumanObject.cs:1782-1794`）。
@@ -1229,6 +1231,11 @@ impl World {
         };
         let frame = self.ground_item_frame(&ground);
         self.ground_items.push(ground);
+        let index = self.ground_items.len() - 1;
+        self.ground_item_slots.insert(object_id, index);
+        // AOI：Crystal `ItemObject` 生成即挂进 `CurrentMap.GetCell(CurrentLocation)` 的对象表
+        // （`ItemObject.cs:53-58`、`MapObject.cs:339-357`）。
+        self.aoi_insert(map, object_id, AoiKind::Item, position);
         self.sync_ground_item_view(object_id, map, position, &frame);
         object_id
     }
@@ -1244,9 +1251,16 @@ impl World {
         position: Point,
         frame: &[u8],
     ) {
-        for player in self.players.values_mut() {
-            let visible = player.map == map && player.position.in_range(position, VIEW_RANGE);
-            if visible && player.visible_items.insert(object_id) {
+        // 只查落点 ±VIEW_RANGE 内的玩家（Crystal `MapObject.Spawned` → `BroadcastInfo`，
+        // `MapObject.cs:339-357`；不再遍历全服玩家）。
+        for player_id in self.aoi_ids_in_radius(map, position, VIEW_RANGE, AoiKind::Player) {
+            let Some(player) = self.players.get_mut(&player_id) else {
+                continue;
+            };
+            if player.map == map
+                && player.position.in_range(position, VIEW_RANGE)
+                && player.visible_items.insert(object_id)
+            {
                 let _ = player.sender.send(frame.to_vec());
             }
         }
@@ -1254,24 +1268,34 @@ impl World {
 
     /// 地面物品消失：给所有「看见过它」的玩家发 `ObjectRemove`
     /// （Crystal `Despawn` 里的 `Broadcast(S.ObjectRemove)`，`MapObject.cs:363`）。
-    pub(crate) fn forget_ground_item(&mut self, object_id: u32) {
+    ///
+    /// 同时把物品从 AOI 网格摘掉。
+    pub(crate) fn forget_ground_item(&mut self, object_id: u32, map: &str, position: Point) {
         let removal =
             ServerPacket::ObjectRemove(mir_protocol::packets::server::ObjectRemove { object_id })
                 .encode_frame();
-        for player in self.players.values_mut() {
+        for player_id in self.aoi_ids_in_radius(map, position, VIEW_RANGE, AoiKind::Player) {
+            let Some(player) = self.players.get_mut(&player_id) else {
+                continue;
+            };
             if player.visible_items.remove(&object_id) {
                 let _ = player.sender.send(removal.clone());
             }
         }
+        self.aoi_remove(map, AoiKind::Item, object_id);
     }
 
     /// 从世界里删掉一件地面物品（拾取、到期、被顶掉），并广播 `ObjectRemove`。
     pub(crate) fn remove_ground_item(&mut self, object_id: u32) {
-        let before = self.ground_items.len();
+        let Some((map, position)) = self
+            .ground_item(object_id)
+            .map(|ground| (ground.map.clone(), ground.position))
+        else {
+            return;
+        };
         self.ground_items.retain(|item| item.object_id != object_id);
-        if self.ground_items.len() != before {
-            self.forget_ground_item(object_id);
-        }
+        self.rebuild_ground_item_slots();
+        self.forget_ground_item(object_id, &map, position);
     }
 
     /// 地面物品的周期维护：到期消失、归属保护过期。
@@ -1302,21 +1326,19 @@ impl World {
         };
         let map = player.map.clone();
         let position = player.position;
+        // AOI 网格按 `(y,x,ID)` 返回视野内的地面物品（等价 Crystal 33×33 逐格扫描）；
+        // ID 升序与地面物品的生成顺序一致，保持既有发包顺序。
         let visible: BTreeSet<u32> = self
-            .ground_items
-            .iter()
-            .filter(|ground| ground.map == map && ground.position.in_range(position, VIEW_RANGE))
-            .map(|ground| ground.object_id)
+            .aoi_ids_in_radius(&map, position, VIEW_RANGE, AoiKind::Item)
+            .into_iter()
             .collect();
         let removals: Vec<u32> = player.visible_items.difference(&visible).copied().collect();
-        let adds: Vec<Vec<u8>> = self
-            .ground_items
-            .iter()
-            .filter(|ground| {
-                visible.contains(&ground.object_id)
-                    && !player.visible_items.contains(&ground.object_id)
+        let adds: Vec<Vec<u8>> = visible
+            .difference(&player.visible_items)
+            .filter_map(|object_id| {
+                self.ground_item(*object_id)
+                    .map(|ground| self.ground_item_frame(ground))
             })
-            .map(|ground| self.ground_item_frame(ground))
             .collect();
 
         let Some(player) = self.players.get_mut(&player_id) else {
@@ -1500,12 +1522,15 @@ impl World {
         }
         let cell = player.position;
         let map = player.map.clone();
-        // 只有**站在物品上**才能捡（Crystal 的扫描范围就是当前格）。
+        // 只有**站在物品上**才能捡（Crystal `CurrentMap.GetCell(CurrentLocation).Objects`，
+        // `PlayerObject.cs:7491-7497`）；用 AOI 网格查当前格，ID 升序 = 生成顺序。
         let candidates: Vec<u32> = self
-            .ground_items
-            .iter()
-            .filter(|ground| ground.map == map && ground.position == cell)
-            .map(|ground| ground.object_id)
+            .aoi_ids_in_cell(&map, cell, AoiKind::Item)
+            .into_iter()
+            .filter(|object_id| {
+                self.ground_item(*object_id)
+                    .is_some_and(|ground| ground.map == map && ground.position == cell)
+            })
             .collect();
         if candidates.is_empty() {
             return Err(ItemError::NoGroundItem);
@@ -2842,15 +2867,22 @@ impl World {
                 while x <= center.x + distance {
                     let cell = Point::new(x, y);
                     if x >= 0 && x <= max_x && self.walkable_on(map, cell) {
-                        let count = self
-                            .ground_items
+                        // Crystal `ItemObject.Drop` 逐格看 `cell.Objects`（`ItemObject.cs:190-275`）；
+                        // 这里只查这一格，不遍历全部地面物品/玩家/怪物。
+                        let entries = self.aoi_in_cell(map, cell);
+                        let count = entries
                             .iter()
-                            .filter(|ground| ground.map == map && ground.position == cell)
+                            .filter(|entry| entry.kind == AoiKind::Item)
                             .count();
-                        let blocked = self.monsters.iter().any(|monster| {
-                            monster.map == map && !monster.dead && monster.position == cell
-                        }) || self.players.values().any(|player| {
-                            player.map == map && !player.dead && player.position == cell
+                        let blocked = entries.iter().any(|entry| match entry.kind {
+                            AoiKind::Monster => self
+                                .monster(entry.object_id)
+                                .is_some_and(|monster| !monster.dead && monster.position == cell),
+                            AoiKind::Player => self
+                                .players
+                                .get(&entry.object_id)
+                                .is_some_and(|player| !player.dead && player.position == cell),
+                            AoiKind::Npc | AoiKind::Item => false,
                         });
                         if !blocked && count < DROP_STACK_SIZE {
                             if count == 0 {

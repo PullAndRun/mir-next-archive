@@ -672,7 +672,12 @@ fn dead_players_and_distant_npcs_are_rejected() {
     );
 
     // 走近之后可以对话，但死了就不行（Crystal `if (Dead) return;`，`PlayerObject.cs:7902`）。
-    harness.world.player_mut(player).unwrap().position = Point::new(100, 101);
+    let map = harness.world.player(player).expect("玩家").map.clone();
+    assert!(
+        harness
+            .world
+            .place_player(player, &map, Point::new(100, 101))
+    );
     harness
         .world
         .call_npc(player, npc_id, "@main")

@@ -757,7 +757,7 @@ fn monster_death_advances_the_killer_quest() {
     let player = harness.add_player(1, Point::new(100, 101));
     harness.world.accept_quest(player, giver, 8).expect("接取");
     // 接完任务再走到空地上（接取要求离 NPC 不超过 16 格）。
-    harness.world.player_mut(player).unwrap().position = Point::new(20, 20);
+    assert!(harness.world.place_player(player, MAP, Point::new(20, 20)));
     harness.packets(player);
 
     // 一只 1 点血、名字叫 Hen 的怪，站在玩家正前方。
@@ -928,7 +928,11 @@ fn finish_requires_the_finisher_npc_nearby() {
         harness.world.advance_quest_kills(player, "Hen");
     }
     // 走开（Crystal 在 `:11358-11366` 里要求交付 NPC 在同图 16 格内）。
-    harness.world.player_mut(player).unwrap().position = Point::new(400, 400);
+    assert!(
+        harness
+            .world
+            .place_player(player, MAP, Point::new(400, 400))
+    );
     assert_eq!(
         harness.world.finish_quest(player, 1, -1),
         Err(QuestError::NoFinisherNearby(1))

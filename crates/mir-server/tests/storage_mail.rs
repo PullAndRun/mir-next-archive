@@ -568,7 +568,8 @@ fn store_item_requires_storage_dialog_npc_and_range() {
 
     // ---- 在仓库页，但玩家离开了 NPC 的可交互范围（`Functions.InRange`，`:5393`）----
     harness.open_storage_dialog(player);
-    harness.world.player_mut(player).expect("玩家").position = Point::new(50, 50);
+    let map = harness.world.player(player).expect("玩家").map.clone();
+    assert!(harness.world.place_player(player, &map, Point::new(50, 50)));
     harness.packets(player);
     assert_eq!(
         harness.world.storage_store_item(player, 0, 0),
@@ -579,7 +580,8 @@ fn store_item_requires_storage_dialog_npc_and_range() {
     );
 
     // ---- 在仓库页、在范围内，但 NPCObjectID 指向一个不存在的 NPC ----
-    harness.world.player_mut(player).expect("玩家").position = Point::new(10, 10);
+    let map = harness.world.player(player).expect("玩家").map.clone();
+    assert!(harness.world.place_player(player, &map, Point::new(10, 10)));
     harness
         .world
         .player_mut(player)

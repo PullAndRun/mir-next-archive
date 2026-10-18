@@ -347,11 +347,14 @@ impl Harness {
     }
 
     /// 把某个玩家移到攻城区中心（或指定坐标）。
+    ///
+    /// 走 `World::place_player`：它在改坐标的同时同步 AOI 网格
+    /// （否则广播/索敌会按旧坐标找人）。
     fn teleport(&mut self, object_id: u32, map: &str, point: Point) {
-        if let Some(player) = self.world.player_mut(object_id) {
-            map.clone_into(&mut player.map);
-            player.position = point;
-        }
+        assert!(
+            self.world.place_player(object_id, map, point),
+            "玩家 {object_id} 不在世界里"
+        );
     }
 
     async fn flush(&mut self, store: &MemoryStore) {

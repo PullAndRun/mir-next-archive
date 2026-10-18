@@ -73,6 +73,7 @@ use mir_protocol::packets::server::{
 };
 use mir_protocol::{PacketReader, PacketWriter, ProtocolError, ServerPacket};
 
+use crate::aoi::AoiKind;
 use crate::buffs::{
     BuffKind, ENERGY_SHIELD_MIN_CHANCE, PendingBuff, SECOND_MS, SHIELD_AREA_RADIUS,
 };
@@ -1506,12 +1507,16 @@ impl World {
     /// 目标是否还能吃这一发单体魔法：同图、未死亡、且还在施法落点 ±2 格内
     /// （`HumanObject.cs:5928`）。
     fn magic_target_hittable(&self, map: &str, target_id: u32, location: Point) -> bool {
-        self.monsters.iter().any(|monster| {
-            monster.object_id == target_id
-                && !monster.dead
-                && monster.map == map
-                && monster.position.in_range(location, MAGIC_HIT_TOLERANCE)
-        })
+        // 只查落点 ±MAGIC_HIT_TOLERANCE 内的怪物（Crystal `HumanObject.cs:5928`），
+        // 用 AOI 网格代替遍历全部怪物。
+        self.aoi_ids_in_radius(map, location, MAGIC_HIT_TOLERANCE, AoiKind::Monster)
+            .into_iter()
+            .any(|object_id| {
+                object_id == target_id
+                    && self
+                        .monster(object_id)
+                        .is_some_and(|monster| !monster.dead && monster.map == map)
+            })
     }
 
     /// 对一只怪结算一次魔法伤害，返回实际扣血值。
@@ -1548,24 +1553,27 @@ impl World {
         targets
     }
 
-    /// 某一格上的全部存活怪物（生成顺序）。
+    /// 某一格上的全部存活怪物（生成顺序；用 AOI 网格查单格）。
     fn monsters_on_cell(&self, map: &str, cell: Point) -> Vec<u32> {
-        self.monsters
-            .iter()
-            .filter(|monster| monster.map == map && !monster.dead && monster.position == cell)
-            .map(|monster| monster.object_id)
+        self.aoi_ids_in_cell(map, cell, AoiKind::Monster)
+            .into_iter()
+            .filter(|object_id| {
+                self.monster(*object_id)
+                    .is_some_and(|monster| !monster.dead && monster.position == cell)
+            })
             .collect()
     }
 
     /// 3×3 区域里的玩家（`Map.cs:1259-1290`），按对象 ID 升序保证可回放。
     fn players_in_area(&self, map: &str, center: Point) -> Vec<u32> {
         let mut targets: Vec<u32> = self
-            .players
-            .values()
-            .filter(|player| {
-                player.map == map && !player.dead && player.position.in_range(center, AREA_RADIUS)
+            .aoi_ids_in_radius(map, center, AREA_RADIUS, AoiKind::Player)
+            .into_iter()
+            .filter(|object_id| {
+                self.players
+                    .get(object_id)
+                    .is_some_and(|player| !player.dead && player.map == map)
             })
-            .map(|player| player.object_id)
             .collect();
         targets.sort_unstable();
         targets

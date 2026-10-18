@@ -61,6 +61,7 @@ use mir_db::MovementInfo;
 use mir_protocol::ServerPacket;
 use mir_protocol::packets::server::MapChanged;
 
+use crate::aoi::AoiKind;
 use crate::world::{Player, VIEW_RANGE, World, object_remove_frame};
 
 /// 传送点切图后的移动冷却：Crystal `PlayerObject.MovementDelay = 2000`
@@ -195,6 +196,11 @@ pub(crate) struct ViewFrames {
 }
 
 impl ViewFrames {
+    /// 其它玩家对象 ID 集合（写回 `World::visible_players`）。
+    pub(crate) fn player_ids(&self) -> BTreeSet<u32> {
+        self.players.iter().map(|(_, id)| *id).collect()
+    }
+
     /// 怪物对象 ID 集合（写回 `Player::visible_monsters`）。
     pub(crate) fn monster_ids(&self) -> BTreeSet<u32> {
         self.monsters.iter().map(|(_, id)| *id).collect()
@@ -264,7 +270,10 @@ impl World {
     pub fn insert_map(&mut self, map_file: impl Into<String>, map: Arc<mir_world::Map>) {
         let map_file = map_file.into();
         self.missing_maps.remove(&map_file);
-        self.maps.insert(map_file, map);
+        self.maps.insert(map_file.clone(), map);
+        // 门表随地形一起就位（`register_map_doors` 是幂等 `or_insert`），
+        // 避免缓存淘汰后重插地图时丢掉门的运行时状态。
+        self.register_map_doors(&map_file);
         self.evict_maps();
     }
 
@@ -400,6 +409,8 @@ impl World {
             return MapInitReport::default();
         }
         self.initialized_maps.insert(map_file.to_owned());
+        // 门（Crystal `Map.Load` 里 `AddDoor`，`Map.cs:50-59`、`:143`）。
+        self.register_map_doors(map_file);
         // 传送点（`MapInfo.Movements`，`Server/MirDatabase/MovementInfo.cs`）。
         // 已经由测试/工具用 `set_map_movements` 设过的表优先，数据库不覆盖。
         if let Some(info) = self
@@ -466,17 +477,25 @@ impl World {
         let (landing, fallback_from) = self.resolve_landing(map_file, point);
 
         // 4) 旧图视野内的玩家收到 `ObjectRemove`（`PlayerObject.cs:4506-4507`）。
+        //    用旧图的 AOI 网格取视野内玩家，并同步把 mover 从对方的「已看见」集合里删掉。
         let removal = object_remove_frame(player_id);
-        for other in self.players.values() {
-            if other.object_id != player_id
-                && other.map == from_map
-                && other.position.in_range(from_position, VIEW_RANGE)
-            {
+        for other_id in
+            self.aoi_ids_in_radius(&from_map, from_position, VIEW_RANGE, AoiKind::Player)
+        {
+            if other_id == player_id {
+                continue;
+            }
+            if let Some(other) = self.players.get(&other_id) {
                 let _ = other.sender.send(removal.clone());
+            }
+            if let Some(seen) = self.visible_players.get_mut(&other_id) {
+                seen.remove(&player_id);
             }
         }
 
         // 5) 换图 + 冷却 + 清空旧图视野（`PlayerObject.cs:4558-4564`）。
+        //    AOI 也要跟着搬图：先摘旧图，再按落点挂新图（同图传送等于 move）。
+        self.aoi_remove(&from_map, AoiKind::Player, player_id);
         if let Some(player) = self.players.get_mut(&player_id) {
             map_file.clone_into(&mut player.map);
             player.position = landing;
@@ -489,6 +508,8 @@ impl World {
             // （`Client/MirScenes/GameScene.cs:3970-4009`）。
             player.npc.close();
         }
+        self.aoi_insert(map_file, player_id, AoiKind::Player, landing);
+        self.visible_players.remove(&player_id);
         // 6) 丢弃以该玩家为发起者/目标的延迟伤害与延迟魔法：Crystal 的 `ActionList`
         //    挂在地图/对象上，切图不会丢；本作队列里只记对象 ID 与坐标，留着会在新图上错位结算。
         self.pending_hits
@@ -502,13 +523,20 @@ impl World {
             .get(&player_id)
             .map(|player| self.appearance_packet(player));
         if let Some(appearance) = appearance {
-            for other in self.players.values() {
-                if other.object_id != player_id
-                    && other.map == map_file
-                    && other.position.in_range(landing, VIEW_RANGE)
-                {
+            // 新图视野内的玩家收到自己的外观；他们同时把 mover 记进「已看见」集合
+            // （Crystal `CurrentMap.AddObject(this)` → `MapObject.Add(HumanObject)`，
+            // `PlayerObject.cs:4562`、`HumanObject.cs:8447-8457`）。
+            for other_id in self.aoi_ids_in_radius(map_file, landing, VIEW_RANGE, AoiKind::Player) {
+                if other_id == player_id {
+                    continue;
+                }
+                if let Some(other) = self.players.get(&other_id) {
                     let _ = other.sender.send(appearance.clone());
                 }
+                self.visible_players
+                    .entry(other_id)
+                    .or_default()
+                    .insert(player_id);
             }
         }
 
@@ -573,44 +601,40 @@ impl World {
     pub(crate) fn gather_view(&self, viewer: &Player) -> ViewFrames {
         let map = viewer.map.as_str();
         let position = viewer.position;
-        let in_view = |cell: Point| cell.in_range(position, VIEW_RANGE);
 
-        let mut others: Vec<&Player> = self
-            .players
-            .values()
-            .filter(|other| {
-                other.object_id != viewer.object_id && other.map == map && in_view(other.position)
-            })
-            .collect();
-        others.sort_by_key(|other| (other.position.y, other.position.x, other.object_id));
-        let players = others
-            .into_iter()
-            .map(|other| (self.appearance_packet(other), other.object_id))
-            .collect();
-
-        let mut monsters: Vec<&crate::monster::Monster> = self
-            .monsters
-            .iter()
-            .filter(|monster| monster.map == map && in_view(monster.position))
-            .collect();
-        monsters.sort_by_key(|monster| (monster.position.y, monster.position.x, monster.object_id));
-        let monsters = monsters
-            .into_iter()
-            .map(|monster| (crate::world::monster_info_frame(monster), monster.object_id))
-            .collect();
+        // AOI 网格一次查出视野内全部对象（Crystal `GetObjects` 的 33×33 逐格扫描，
+        // `PlayerObject.cs:1741-1768`；网格返回顺序已按 `(y, x, 对象 ID)` 排好）。
+        let mut players = Vec::new();
+        let mut monsters = Vec::new();
+        let mut items = Vec::new();
+        for entry in self.aoi_in_radius(map, position, VIEW_RANGE) {
+            match entry.kind {
+                AoiKind::Player => {
+                    if entry.object_id == viewer.object_id {
+                        continue;
+                    }
+                    if let Some(other) = self.players.get(&entry.object_id) {
+                        players.push((self.appearance_packet(other), other.object_id));
+                    }
+                }
+                AoiKind::Monster => {
+                    if let Some(monster) = self.monster(entry.object_id) {
+                        monsters
+                            .push((crate::world::monster_info_frame(monster), monster.object_id));
+                    }
+                }
+                AoiKind::Item => {
+                    if let Some(ground) = self.ground_item(entry.object_id) {
+                        items.push((self.ground_item_frame(ground), ground.object_id));
+                    }
+                }
+                // NPC 的可见性还受等级/职业/标记位过滤（`NPCObject.CheckVisible`，
+                // `NPCObject.cs:424-462`），交给 `visible_npc_frames` 统一处理。
+                AoiKind::Npc => {}
+            }
+        }
 
         let npcs = self.visible_npc_frames(viewer);
-
-        let mut items: Vec<&crate::items::GroundItem> = self
-            .ground_items
-            .iter()
-            .filter(|ground| ground.map == map && in_view(ground.position))
-            .collect();
-        items.sort_by_key(|ground| (ground.position.y, ground.position.x, ground.object_id));
-        let items = items
-            .into_iter()
-            .map(|ground| (self.ground_item_frame(ground), ground.object_id))
-            .collect();
 
         ViewFrames {
             players,
@@ -636,12 +660,14 @@ impl World {
             let _ = player.sender.send(frame.clone());
         }
         let counts = view.counts();
+        let player_ids = view.player_ids();
         let Some(player) = self.players.get_mut(&player_id) else {
             return counts;
         };
         player.visible_monsters = view.monster_ids();
         player.visible_npcs = view.npc_ids();
         player.visible_items = view.item_ids();
+        self.visible_players.insert(player_id, player_ids);
         counts
     }
 

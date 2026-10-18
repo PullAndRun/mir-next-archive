@@ -168,10 +168,13 @@ impl Harness {
 
     /// 把玩家挪到怪物左边一格，返回攻击方向。
     fn stand_next_to(&mut self, player: u32, monster: u32) -> MirDirection {
-        let target = self.world.monster(monster).expect("怪物还在").position;
+        let monster_state = self.world.monster(monster).expect("怪物还在");
+        let target = monster_state.position;
+        let map = monster_state.map.clone();
         let from = Point::new(target.x - 1, target.y);
+        // 走 `place_player` 同步 AOI，避免按旧坐标广播/索敌。
+        assert!(self.world.place_player(player, &map, from), "玩家还在");
         if let Some(p) = self.world.player_mut(player) {
-            p.position = from;
             p.direction = MirDirection::Right;
         }
         from.direction_to(target)

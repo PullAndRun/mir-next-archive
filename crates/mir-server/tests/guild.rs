@@ -1337,7 +1337,7 @@ fn last_leader_cannot_leave_while_others_remain() {
 async fn last_member_leaving_disbands_and_deletes_row() {
     let store = MemoryStore::new();
     let account = store
-        .create_account("diana", "secret", "")
+        .create_account("tester", "secret", "")
         .await
         .expect("建号");
     let character = store
@@ -1394,7 +1394,7 @@ async fn last_member_leaving_disbands_and_deletes_row() {
 async fn character_guild_index_round_trips_through_store() {
     let store = MemoryStore::new();
     let account = store
-        .create_account("diana", "secret", "")
+        .create_account("tester", "secret", "")
         .await
         .expect("建号");
     let character = store

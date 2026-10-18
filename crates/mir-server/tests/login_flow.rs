@@ -102,7 +102,7 @@ async fn full_login_character_and_world_flow() {
     // 3. 注册账号：成功码是 8。
     client
         .send(ClientPacket::NewAccount(c::NewAccount {
-            account_id: "diana".to_owned(),
+            account_id: "tester".to_owned(),
             password: "secret".to_owned(),
             birth_date: mir_core::DateTimeBinary(0),
             user_name: String::new(),
@@ -120,7 +120,7 @@ async fn full_login_character_and_world_flow() {
     // 4. 登录：服务端直接回 LoginSuccess（空角色列表）。
     client
         .send(ClientPacket::Login(c::Login {
-            account_id: "diana".to_owned(),
+            account_id: "tester".to_owned(),
             password: "secret".to_owned(),
         }))
         .await;
@@ -277,7 +277,7 @@ async fn full_login_character_and_world_flow() {
     again.expect_index(s::ClientVersion::INDEX).await;
     again
         .send(ClientPacket::Login(c::Login {
-            account_id: "diana".to_owned(),
+            account_id: "tester".to_owned(),
             password: "secret".to_owned(),
         }))
         .await;
@@ -318,13 +318,13 @@ async fn wrong_password_is_rejected_with_result_4() {
 
     store
         .as_ref()
-        .create_account("diana", "secret", "")
+        .create_account("tester", "secret", "")
         .await
         .expect("准备账号");
 
     client
         .send(ClientPacket::Login(c::Login {
-            account_id: "diana".to_owned(),
+            account_id: "tester".to_owned(),
             password: "wrong".to_owned(),
         }))
         .await;

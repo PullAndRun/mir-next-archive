@@ -1769,7 +1769,7 @@ fn kicked_member_cannot_retrieve_but_another_member_can() {
 async fn storage_and_buffs_survive_a_store_roundtrip() {
     let store = MemoryStore::new();
     let account = store
-        .create_account("diana", "secret", "")
+        .create_account("tester", "secret", "")
         .await
         .expect("建号");
     let character = store

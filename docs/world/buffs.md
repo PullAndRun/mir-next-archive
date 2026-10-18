@@ -1,7 +1,7 @@
 # 增益（buff）容器：登记 / 属性叠加 / 到期 / 包
 
 > 对应代码：`crates/mir-server/src/buffs.rs`、`Player.buffs`；规则逐条对照 Crystal
-> （参考根目录 `C:\Users\diana\ref\Crystal`，下文只写相对路径）。
+> （参考根目录 `github/Crystal`，下文只写相对路径）。
 
 ---
 

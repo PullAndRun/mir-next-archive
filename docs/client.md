@@ -18,7 +18,7 @@
 
 ```powershell
 cargo run -p mir-client -- --connect 127.0.0.1:7000 `
-  --account diana --password secret --character 裁决者 `
+  --account tester --password secret --character 裁决者 `
   --create-character 裁决者 --class 0 --gender male
 ```
 

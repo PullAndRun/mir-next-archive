@@ -19,7 +19,7 @@ edition = "2024"
 rust-version = "1.85"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/PullAndRun/mir-next"
-authors = ["diana and contributors"]
+authors = ["PullAndRun"]
 
 [workspace.dependencies]
 mir-asset = { path = "crates/mir-asset" }

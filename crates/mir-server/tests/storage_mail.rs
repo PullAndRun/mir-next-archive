@@ -1498,7 +1498,7 @@ fn mail_locked_item_is_echoed() {
 async fn mail_writes_persist_and_reload_through_memory_store() {
     let store = MemoryStore::new();
     let account = store
-        .create_account("diana", "secret", "")
+        .create_account("tester", "secret", "")
         .await
         .expect("建号");
     let recipient_character = store
@@ -1582,7 +1582,7 @@ impl Live {
         let (world, envir) = build_world(seed, tag);
         let store = Arc::new(MemoryStore::new());
         let account = store
-            .create_account("diana", "secret", "")
+            .create_account("tester", "secret", "")
             .await
             .expect("建号");
         let sender = store
@@ -1632,7 +1632,7 @@ impl Live {
             .expect("版本");
         session
             .handle(ClientPacket::Login(c::Login {
-                account_id: "diana".to_owned(),
+                account_id: "tester".to_owned(),
                 password: "secret".to_owned(),
             }))
             .await

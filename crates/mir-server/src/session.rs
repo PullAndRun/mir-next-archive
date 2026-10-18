@@ -2507,9 +2507,9 @@ mod tests {
 
     #[test]
     fn account_rules_match_crystal() {
-        assert!(is_valid_account_id("diana"));
+        assert!(is_valid_account_id("tester"));
         assert!(!is_valid_account_id("di"), "至少 3 位");
-        assert!(!is_valid_account_id("diana_1"), "只允许字母数字");
+        assert!(!is_valid_account_id("tester_1"), "只允许字母数字");
         assert!(!is_valid_account_id(&"a".repeat(16)), "最多 15 位");
         assert!(is_valid_password("secret"));
         assert!(!is_valid_password("1234"), "口令至少 5 位");

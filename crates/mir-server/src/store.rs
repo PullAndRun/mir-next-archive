@@ -1278,7 +1278,7 @@ mod tests {
     async fn account_and_character_lifecycle() {
         let store = MemoryStore::new();
         let account = store
-            .create_account("diana", "secret", "diana@example.com")
+            .create_account("tester", "secret", "tester@example.com")
             .await
             .expect("建号");
         assert_eq!(account.salt.len(), SALT_LEN);
@@ -1310,9 +1310,9 @@ mod tests {
     #[tokio::test]
     async fn account_names_are_case_insensitive() {
         let store = MemoryStore::new();
-        store.create_account("Diana", "secret", "").await.unwrap();
-        assert!(store.find_account("diana").await.unwrap().is_some());
-        assert!(store.create_account("dIANA", "secret", "").await.is_err());
+        store.create_account("Tester", "secret", "").await.unwrap();
+        assert!(store.find_account("tester").await.unwrap().is_some());
+        assert!(store.create_account("tESTer", "secret", "").await.is_err());
     }
 
     /// 商城事务失败时**一行都不能写**（角色行/计数都没变），会话据此回滚内存状态。

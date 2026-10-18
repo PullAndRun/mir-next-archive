@@ -243,7 +243,7 @@ python tools/protocol-gen/generate.py
 
 ## 许可证
 
-Copyright (C) 2026 diana and contributors.
+Copyright (C) 2026 PullAndRun.
 
 本项目采用 [GNU General Public License v3.0 or later](LICENSE)，SPDX 标识为 `GPL-3.0-or-later`。
 

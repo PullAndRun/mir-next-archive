@@ -37,7 +37,7 @@ use std::sync::Arc;
 use mir_core::MirRng;
 use mir_core::Point;
 use mir_core::enums::{
-    AttackMode, DamageType, DefenceType, MirDirection, Monster as MonsterImage, Spell,
+    AttackMode, DamageType, DefenceType, MirDirection, Monster as MonsterImage, PetMode, Spell,
 };
 use mir_protocol::ServerPacket;
 use mir_protocol::packets::server::{ObjectAttack, ObjectDied, ObjectTurn, ObjectWalk};
@@ -849,18 +849,39 @@ impl World {
         if master_dead {
             return;
         }
-        if master_map != monster.map || !monster.position.in_range(master_position, VIEW_RANGE) {
+        // `C.ChangePMode`：命令存在主人身上（Crystal `HumanObject.PMode`，
+        // `MonsterObject.cs:1706`），宠物每 tick 读取。
+        let mode = self.pet_mode(master_id);
+        if mode == PetMode::None {
+            // 休息：不索敌、不跟随（`ProcessAI` 的 None 分支 + `ProcessRoam` 返回）。
+            monster.pet_target = None;
+            return;
+        }
+        // 只有「会跟随」的命令在主人跨图/超出 DataRange 时召回
+        // （`MonsterObject.cs:1710-1715`；AttackOnly/None 不召回）。
+        if matches!(
+            mode,
+            PetMode::Both | PetMode::MoveOnly | PetMode::FocusMasterTarget
+        ) && (master_map != monster.map
+            || !monster.position.in_range(master_position, VIEW_RANGE))
+        {
             self.recall_pet_monster(monster);
             return;
         }
 
-        if let Some(target_id) = monster.pet_target
-            && !self.pet_target_valid(monster, master_id, target_id)
-        {
+        // MoveOnly / None 不攻击：目标清空（`MonsterObject.cs:1717-1720`）。
+        if matches!(mode, PetMode::MoveOnly | PetMode::None) {
             monster.pet_target = None;
-        }
-        if monster.pet_target.is_none() {
-            monster.pet_target = self.find_pet_target(monster, master_id);
+        } else {
+            if let Some(target_id) = monster.pet_target
+                && !self.pet_target_valid(monster, master_id, target_id)
+            {
+                monster.pet_target = None;
+            }
+            if monster.pet_target.is_none() {
+                monster.pet_target =
+                    self.find_pet_target(monster, master_id, mode == PetMode::FocusMasterTarget);
+            }
         }
 
         if let Some(target_id) = monster.pet_target {
@@ -876,14 +897,24 @@ impl World {
                 self.pet_attack(monster, target_id, now);
                 return;
             }
-            self.monster_move_to(monster, target_position, now);
+            // AttackOnly 不能移动（Crystal `CanMove` 只放行 MoveOnly/Both/Focus，
+            // `MonsterObject.cs:643`）：够不到就站着。
+            if mode != PetMode::AttackOnly {
+                self.monster_move_to(monster, target_position, now);
+            }
             return;
         }
 
         // `ProcessRoam`：`if (Master != null) { MoveTo(Master.Back); return; }`（`MonsterObject.cs:1821-1825`）。
-        let back = master_position.moved(master_direction, -1);
-        if monster.position != back {
-            self.monster_move_to(monster, back, now);
+        // AttackOnly 不跟随（Crystal `CanMove` 不放行 AttackOnly，`:643`）。
+        if matches!(
+            mode,
+            PetMode::Both | PetMode::MoveOnly | PetMode::FocusMasterTarget
+        ) {
+            let back = master_position.moved(master_direction, -1);
+            if monster.position != back {
+                self.monster_move_to(monster, back, now);
+            }
         }
     }
 
@@ -931,7 +962,12 @@ impl World {
     /// 召唤物选目标：先打主人最近一次攻击/施法的目标，否则打视野内最近的野生怪
     /// （Crystal 的召唤物用 `FindTarget` 自己索敌，`MonsterObject.cs:1918-1997`；
     /// 这里加上「主人目标」优先，见任务书要求）。
-    fn find_pet_target(&mut self, monster: &Monster, master_id: u32) -> Option<u32> {
+    fn find_pet_target(
+        &mut self,
+        monster: &Monster,
+        master_id: u32,
+        focus_master: bool,
+    ) -> Option<u32> {
         if let Some(last_target) = self
             .players
             .get(&master_id)
@@ -941,6 +977,11 @@ impl World {
             && self.pet_target_valid(monster, master_id, last_target)
         {
             return Some(last_target);
+        }
+        // `FocusMasterTarget`：只打主人的目标，不回落到最近的野生怪
+        // （Crystal `HumanObject.cs:2769/3038/3479` 的 PMode 分支）。
+        if focus_master {
+            return None;
         }
         let mut best: Option<(i32, i32, i32, u32)> = None;
         for target_id in self.aoi_ids_in_radius_spatial(
@@ -1514,6 +1555,10 @@ impl World {
         // `MonsterObject.cs:982`、`:997`）。
         let master = monster.master;
         monster.master = None;
+        // 宠物死亡后命令重置为默认（下一次召唤 `spawn_pet` 也会重置）。
+        if let Some(master_id) = master {
+            self.pet_modes.remove(&master_id);
+        }
         self.unregister_pet(monster_id);
 
         let packet = ServerPacket::ObjectDied(ObjectDied {

@@ -13,7 +13,7 @@ use std::sync::Arc;
 use mir_core::Point;
 use mir_core::enums::{
     AttackMode, BuffType, ItemType, MirClass, MirDirection, MirGender, Monster as MonsterImage,
-    PoisonType, RequiredClass, RequiredType, Spell,
+    PetMode, PoisonType, RequiredClass, RequiredType, Spell,
 };
 use mir_core::{Language, TextKey};
 use mir_db::{MagicInfo, MapInfo, MirDb};
@@ -1708,5 +1708,196 @@ fn players_cannot_attack_pets_without_all_mode() {
     assert_ne!(
         harness.world.monster(pet).expect("宠物").pet_target,
         Some(master)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 宠物命令（C.ChangePMode）与宠物互不攻击
+// ---------------------------------------------------------------------------
+
+#[test]
+fn move_only_pet_follows_without_attacking() {
+    let mut harness = Harness::new(40);
+    let master = harness.add_player(1, MirClass::Taoist, 30, Point::new(20, 20));
+    let pet = harness.summon_skeleton(master);
+    let target = harness.spawn_passive(monster_kind("训练木桩", 5_000, 1, 0), Point::new(20, 22));
+    harness.world.set_pet_mode(master, PetMode::MoveOnly);
+    harness.wake_monster(pet);
+
+    harness.elapse(600);
+    assert_eq!(
+        harness.world.monster(pet).expect("宠物").pet_target,
+        None,
+        "MoveOnly 不索敌"
+    );
+    assert_eq!(harness.hp(target), 5_000, "MoveOnly 不攻击");
+}
+
+#[test]
+fn both_mode_pet_attacks_nearest_wild() {
+    let mut harness = Harness::new(41);
+    let master = harness.add_player(1, MirClass::Taoist, 30, Point::new(20, 20));
+    let pet = harness.summon_skeleton(master);
+    let target = harness.spawn_passive(monster_kind("训练木桩", 5_000, 1, 0), Point::new(20, 22));
+    // 默认 Both：跟随 + 攻击。
+    assert_eq!(harness.world.pet_mode(master), PetMode::Both);
+    harness.wake_monster(pet);
+
+    harness.elapse(1_000);
+    harness.elapse(400);
+    assert!(
+        harness.hp(target) < 5_000,
+        "Both 模式宠物应攻击视野内最近的野生怪"
+    );
+}
+
+#[test]
+fn attack_only_pet_locks_the_masters_target() {
+    let mut harness = Harness::new(42);
+    let master = harness.add_player(1, MirClass::Taoist, 30, Point::new(20, 20));
+    let pet = harness.summon_skeleton(master);
+    // 远处是主人目标，近处是干扰目标：必须锁主人目标。
+    let far = harness.spawn_passive(monster_kind("主人目标", 5_000, 1, 0), Point::new(20, 25));
+    let near = harness.spawn_passive(monster_kind("干扰目标", 5_000, 1, 0), Point::new(20, 22));
+    harness
+        .world
+        .player_mut(master)
+        .expect("玩家")
+        .magic
+        .last_target = Some(far);
+    harness.world.set_pet_mode(master, PetMode::AttackOnly);
+    harness.wake_monster(pet);
+
+    harness.elapse(0);
+    assert_eq!(
+        harness.world.monster(pet).expect("宠物").pet_target,
+        Some(far),
+        "AttackOnly 应锁主人当前目标"
+    );
+    harness.elapse(600);
+    assert_eq!(harness.hp(near), 5_000, "不应改打更近的干扰目标");
+}
+
+#[test]
+fn rest_mode_pet_does_not_search_or_follow() {
+    let mut harness = Harness::new(43);
+    let master = harness.add_player(1, MirClass::Taoist, 30, Point::new(20, 20));
+    let pet = harness.summon_skeleton(master);
+    let target = harness.spawn_passive(monster_kind("训练木桩", 5_000, 1, 0), Point::new(20, 22));
+    let rest_position = harness.world.monster(pet).expect("宠物").position;
+    harness.world.set_pet_mode(master, PetMode::None);
+    harness.wake_monster(pet);
+
+    // 主人走开，休息态宠物不跟、不索敌。
+    {
+        let player = harness.world.player_mut(master).expect("玩家");
+        player.action_time = 0;
+        player.attack_time = 0;
+        player.movement_time = 0;
+    }
+    harness
+        .world
+        .walk(master, MirDirection::Left)
+        .expect("主人走一步");
+    harness.elapse(3_000);
+    assert_eq!(
+        harness.world.monster(pet).expect("宠物").pet_target,
+        None,
+        "休息态不索敌"
+    );
+    assert_eq!(
+        harness.world.monster(pet).expect("宠物").position,
+        rest_position,
+        "休息态不跟随"
+    );
+    assert_eq!(harness.hp(target), 5_000);
+}
+
+#[test]
+fn pets_do_not_attack_each_other() {
+    let mut harness = Harness::new(44);
+    let first = harness.add_player(1, MirClass::Taoist, 30, Point::new(20, 20));
+    let first_pet = harness.summon_skeleton(first);
+    let second = harness.add_player(3, MirClass::Taoist, 30, Point::new(20, 23));
+    harness
+        .world
+        .player_mut(second)
+        .expect("第二个玩家")
+        .direction = MirDirection::Up;
+    let second_pet = harness.summon_skeleton(second);
+    // 两只宠物相邻；双方主人 All 模式（即使敌对，宠物也不互攻）。
+    for master in [first, second] {
+        harness.world.player_mut(master).expect("主人").attack_mode = AttackMode::All;
+    }
+    let first_hp = harness.hp(first_pet);
+    let second_hp = harness.hp(second_pet);
+    harness
+        .world
+        .monster_mut(first_pet)
+        .expect("宠物1")
+        .pet_target = Some(second_pet);
+    harness
+        .world
+        .monster_mut(second_pet)
+        .expect("宠物2")
+        .pet_target = Some(first_pet);
+    harness.wake_monster(first_pet);
+    harness.wake_monster(second_pet);
+
+    harness.elapse(1_000);
+    assert_eq!(harness.hp(first_pet), first_hp, "宠物之间不互相攻击");
+    assert_eq!(harness.hp(second_pet), second_hp);
+    assert_ne!(
+        harness.world.monster(first_pet).expect("宠物1").pet_target,
+        Some(second_pet)
+    );
+    assert_ne!(
+        harness.world.monster(second_pet).expect("宠物2").pet_target,
+        Some(first_pet)
+    );
+}
+
+#[test]
+fn pet_mode_resets_on_recall_and_pet_death() {
+    let mut harness = Harness::new(45);
+    let master = harness.add_player(1, MirClass::Taoist, 30, Point::new(20, 20));
+    let pet = harness.summon_skeleton(master);
+    harness.world.set_pet_mode(master, PetMode::AttackOnly);
+    assert_eq!(harness.world.pet_mode(master), PetMode::AttackOnly);
+
+    // 同名召唤 = 召回：命令重置为 Both。
+    harness.ready_all(master);
+    harness
+        .cast(
+            master,
+            Spell::SummonSkeleton,
+            MirDirection::Down,
+            0,
+            Point::new(0, 0),
+        )
+        .expect("召回施法");
+    harness.elapse(500);
+    assert_eq!(
+        harness.world.pet_mode(master),
+        PetMode::Both,
+        "重召唤后命令重置"
+    );
+
+    // 宠物死亡：命令同样重置。
+    harness.world.set_pet_mode(master, PetMode::None);
+    let mut killer_kind = monster_kind("斩宠者", 5_000, 10, 0);
+    killer_kind.stats.min_dc = 100;
+    killer_kind.stats.max_dc = 100;
+    killer_kind.stats.accuracy = 100;
+    let killer = harness.spawn_active(killer_kind, Point::new(20, 18));
+    harness.world.monster_mut(killer).expect("杀手").target = Some(pet);
+    harness.world.monster_mut(pet).expect("宠物").hp = 10;
+    harness.elapse(0);
+    harness.elapse(300);
+    assert!(harness.world.pets_of(master).is_empty(), "宠物应死亡");
+    assert_eq!(
+        harness.world.pet_mode(master),
+        PetMode::Both,
+        "宠物死亡后命令重置"
     );
 }

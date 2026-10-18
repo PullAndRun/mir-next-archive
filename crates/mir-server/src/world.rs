@@ -49,7 +49,7 @@ use mir_core::MirRng;
 use mir_core::Point;
 use mir_core::enums::{
     AttackMode, ChatType, DamageType, DefenceType, DoorState, MirClass, MirDirection, MirGender,
-    MonsterType, PoisonType, Spell, SpellEffect, Stat,
+    MonsterType, PetMode, PoisonType, Spell, SpellEffect, Stat,
 };
 use mir_core::i18n::LanguageLibrary;
 use mir_core::{Language, TextKey};
@@ -659,6 +659,11 @@ pub struct World {
     /// 本作单独维护一份索引，主人下线/死亡、召唤物死亡时 O(1) 找到需要清理的对象，
     /// 不必遍历全部怪物。
     pub(crate) pets: HashMap<u32, Vec<u32>>,
+    /// 每个在线玩家的宠物命令（`object_id → PetMode`，Crystal `HumanObject.PMode`）。
+    ///
+    /// 不放在 [`Player`] 上（理由同 `player_languages`）：`C.ChangePMode` 由 `session.rs`
+    /// 调 [`World::set_pet_mode`] 写入；召唤新宠时重置为 `PetMode::Both`。
+    pub(crate) pet_modes: HashMap<u32, PetMode>,
     /// 每个在线玩家的当前语言（`object_id → Language`）。
     ///
     /// 不放在 [`Player`] 上是为了避免改动 30+ 处 `Player {}` 字面量（测试/会话层）；
@@ -876,6 +881,7 @@ impl World {
             spell_fields: Vec::new(),
             next_spell_cast_id: 1,
             pets: HashMap::new(),
+            pet_modes: HashMap::new(),
             player_languages: HashMap::new(),
             quest_inventories: HashMap::new(),
             languages: None,
@@ -946,6 +952,7 @@ impl World {
             spell_fields: Vec::new(),
             next_spell_cast_id: 1,
             pets: HashMap::new(),
+            pet_modes: HashMap::new(),
             player_languages: HashMap::new(),
             quest_inventories: HashMap::new(),
             languages: None,
@@ -1608,6 +1615,7 @@ impl World {
         self.market_searches.remove(&object_id);
         // 语言映射随对象销毁：对象 ID 会被复用，不清掉会让新玩家继承旧语言。
         self.player_languages.remove(&object_id);
+        self.pet_modes.remove(&object_id);
         self.players.remove(&object_id)
     }
 
@@ -3543,11 +3551,32 @@ impl World {
             monster_frame = Some(monster_info_frame(monster));
         }
         self.pets.entry(master_id).or_default().push(object_id);
+        // 新宠物的命令重置为默认「跟随 + 攻击」（任务要求：重召唤后重置）。
+        self.pet_modes.insert(master_id, PetMode::Both);
         // 重新广播一次外观：`spawn_monster` 那一帧还不知道主人（`MasterObjectId = 0`）。
         if let Some(frame) = monster_frame {
             self.broadcast(map, position, None, &frame, object_id);
         }
         object_id
+    }
+
+    /// 设置玩家宠物命令（Crystal `MirConnection.ChangePMode` → `Player.PMode`，
+    /// `MirNetwork/MirConnection.cs:1440-1447`）；玩家不在世界里返回 false。
+    pub fn set_pet_mode(&mut self, master_id: u32, mode: PetMode) -> bool {
+        if !self.players.contains_key(&master_id) {
+            return false;
+        }
+        self.pet_modes.insert(master_id, mode);
+        true
+    }
+
+    /// 玩家当前宠物命令；未设置时按 Crystal 默认 `PetMode::Both`（跟随 + 攻击）。
+    #[must_use]
+    pub fn pet_mode(&self, master_id: u32) -> PetMode {
+        self.pet_modes
+            .get(&master_id)
+            .copied()
+            .unwrap_or(PetMode::Both)
     }
 
     /// 某个主人的召唤物 ID 列表（按召唤顺序；测试/运维观察用）。
@@ -3571,11 +3600,13 @@ impl World {
             self.monster_died(pet_id);
         }
         self.pets.remove(&master_id);
+        self.pet_modes.remove(&master_id);
     }
 
     /// 主人下线/死亡时清掉全部召唤物（Crystal `PlayerObject.Die` 的宠物清理，
     /// `PlayerObject.cs:624-633`；`StopGame` 的 `Despawn` 同理）。
     pub(crate) fn despawn_pets(&mut self, master_id: u32) {
+        self.pet_modes.remove(&master_id);
         let Some(pets) = self.pets.remove(&master_id) else {
             return;
         };
@@ -3600,6 +3631,10 @@ impl World {
         let Some(mut monster) = self.monster(pet_id).cloned() else {
             return;
         };
+        // 同名召唤的「召回」等同重新召唤：命令重置为默认（任务要求）。
+        if let Some(master_id) = monster.master {
+            self.pet_modes.insert(master_id, PetMode::Both);
+        }
         self.recall_pet_monster(&mut monster);
         if let Some(slot) = self.monster_mut(pet_id) {
             *slot = monster;

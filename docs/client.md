@@ -157,7 +157,7 @@ buff 倒计时都基于它，所以无头测试可以任意拨表。
 | Shift + 方向 | 与朝向相同 → `C.Run`（服务端仍校验跑步计数） |
 | Space | 有锁定目标 → 朝目标攻击（相邻）或朝目标走一步靠近；没有目标 → `C.Attack { direction: 当前朝向 }` |
 | Tab | `C.PickUp`（Crystal 的 `KeybindOptions.Pickup = Keys.Tab`，`KeyBindSettings.cs:334`；`P` 让给组队窗口） |
-| T | 打开聊天输入；回车 `C.Chat`，Esc 取消；`!!` 前缀 = 组队频道（§5.14） |
+| T | 打开聊天输入；回车 `C.Chat`，Esc 取消；`!!` 前缀 = 组队频道（§5.14）；`@` 开头原样发送（不解析/不本地化，GM/脚本回复按服务端原文显示） |
 | Y | 发起交易 `C.TradeRequest`（Crystal 是 `T`，`KeyBindSettings.cs:340`；本作 `T` 已用于聊天，见 §5.13） |
 | I | 开关背包 |
 | E | 开关装备纸娃娃面板 |
@@ -167,6 +167,7 @@ buff 倒计时都基于它，所以无头测试可以任意拨表。
 | N | 开关邮件面板（`ui::mail`，见 §5.10） |
 | G | 开关行会面板（`ui::guild`，见 §5.11）；打开时自动拉公告/成员/仓库/增益 |
 | P | 开关组队面板（`ui::group`，见 §5.14；Crystal `KeybindOptions.Group = Keys.P`，`KeyBindSettings.cs:225`） |
+| V | 宠物模式三态循环：跟随 → 攻击 → 休息 → 跟随（`C.ChangePMode`，index 45；`P` 已被组队占用，`V` 是本作扩展键）。没有宠物时只提示 `Label::NoPetHint`、不发包；服务端回执 `S.ChangePMode`(63) 覆盖本地模式 |
 | F3 | 开关技能列表 |
 | 1..9 | 施法（未绑定技能会先发 `C.MagicKey`） |
 | 商店打开时 ↑/↓ | 滚动货架（不移动角色） |
@@ -504,7 +505,13 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 * `S.UserInformation.quest_inventory`：整栏快照，`Some` 替换、`None` 保留旧数据，
   40 格里的空格忽略；
 * 聊天提示：`Label::SystemQuestItemGained`（获得任务物品 {} ×{}）/ `Label::SystemQuestItemLost`
-  （失去任务物品 {} ×{}），按玩家语言渲染。
+  （失去任务物品 {} ×{}），按玩家语言渲染；
+* **YouFound**：`S.SendOutputMessage{Type=Quest}`（223）显示为系统聊天行（「你找到了 X」，
+  文本由服务端按玩家语言渲染，客户端不二次翻译）；
+* **滚轮翻页（第 5 轮）**：鼠标悬停在「任务物品」条上滚动翻页；滚轮在面板其它区域仍是
+  滚任务列表。条右侧显示「当前页/总页 · 滚轮翻页」（`Label::QuestItemsScrollHint`）。
+  按面板宽度自动分页：320 宽每页 5 件（40 格 = 8 页）、800 宽每页 10 件（4 页），
+  滚到末页会夹住；未占用 ←/→（方向键用于走路）。
 
 测试：`tests/round2_panels.rs` 的 `quest_items_track_gained_and_deleted_items`、
 `quest_panel_shows_quest_items_and_fits_small_screens`，截图
@@ -609,6 +616,8 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 |---|---|---|---|
 | 任务列表 | ← `S.NewQuestInfo` / `S.ChangeQuest` / `S.CompleteQuest` / `S.ShareQuest` | `quests.rs` | `quest_infos` / `quests` / `completed_quests` |
 | 任务物品栏 | ← `S.GainedQuestItem{Item}`（205）/ `S.DeleteQuestItem{UniqueID,Count}`（206）/ `S.UserInformation.quest_inventory` | `quest_inventory.rs` | `quest_items` / `quest_items_version` |
+| 宠物模式 | `C.ChangePMode{Mode}`（45）→ `S.ChangePMode{Mode}`（63） | `World::set_pet_mode` / `pet_mode`（`world.rs`） | `pet_mode` |
+| 浮动输出 | ← `S.SendOutputMessage{Message,Type}`（223）：`Quest` → 系统色、`Guild` → 行会频道、`Normal` → 提示色 | 服务端系统消息（如 YouFound、行会/公告） | `chat` |
 | 放弃任务 | `C.AbandonQuest{QuestIndex}` → `S.ChangeQuest{Remove}` | `World::abandon_quest`（`quests.rs`） | `quests` 移除 |
 | 仓库打开 | ← `S.UserStorage{Storage[80]}` + `S.NPCStorage` | `storage.rs` | `storage` / `storage_open` / `storage_open_version` |
 | 存物品 | `C.StoreItem{From,To}` → `S.StoreItem{From,To,Success}` | `World::storage_store_item` | 背包 ↔ `storage` |

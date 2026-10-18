@@ -44,20 +44,21 @@
 | 怪物 AI 与战斗 | ✅ | 索敌/追击/巡逻、两段式攻击（动作包立即、伤害 300ms 后结算）、护甲与闪避、暴击、死亡与尸体回收、经验升级、死亡复活、自然回血，RNG 顺序与 Crystal 一致；第 4 轮补了野生怪索敌/反击召唤物（守卫与箭塔的例外同 Crystal，见 `docs/world/magic.md` §6.6） |
 | PK 与攻击模式 | ✅ | Peace/Group/Guild/RedBrown/All 判定、安全区与 NoFight 禁打、PvP 300ms 结算与暴击、PK 值（击杀 +100、红名 200/黄名 100、12 秒衰减、棕名 60 秒）、名字颜色广播、死亡掉落（红名背包全掉）、守卫只打红名并可回位 |
 | 攻城（沙巴克） | 🟡 | 申请校验、时间表开战/停战、四种城主判定（Classic/KingOfHill/ControlPoints/CapturePalace）、夺城广播与城主税收、战区名字色与 PK 保护、攻城传送点城主专属、箭塔只射敌对行会、迁移 0008 持久化；城门/城墙/器械实体与旗子对象未做 |
-| 技能（魔法） | 🟡 | 技能数据/用书学习/施法校验/延迟结算/修炼值升级/存档；已实现 15 个伤害/治疗/位移/召唤/中毒技能（火球系列/HellFire/FireBang/治疗/火墙/雷电/瞬息移动/隐身/召唤骷髅/召唤神兽/施毒）与 9 个增益技能（护盾/加速/魔法盾…），其余登记未实现（`docs/world/magic.md` §9） |
+| 技能（魔法） | 🟡 | 技能数据/用书学习/施法校验/延迟结算/修炼值升级/存档；已实现 15 个伤害/治疗/位移/召唤/中毒技能（火球系列/HellFire/FireBang/治疗/火墙/雷电/瞬息移动/隐身/召唤骷髅/召唤神兽/施毒）与 9 个增益技能（护盾/加速/魔法盾…）；**宠物命令** `C.ChangePMode`（5 种 `PetMode`，客户端 `V` 键三态循环；`pet_modes` 为 World 侧表、不随角色存档）；其余登记未实现（`docs/world/magic.md` §9） |
 | 物品与背包 | ✅ | 掉落、地面物品与过期、拾取/丢弃、46 格背包、14 装备槽、装备加成、药水/卷轴/丢金币、`UserItem[]` 存档；仓库见「玩家仓库与邮件」 |
 | Buff | ✅ | 带到期时间的属性修饰层、`AddBuff`/`RemoveBuff` 广播、魔法盾按伤害扣时、到期重算属性并补发血量 |
 | NPC 对话与商店 | ✅ | `Envir/NPCs` 脚本解析（`#INSERT`/`#INCLUDE`/条件/动作/按钮）、NPC 刷出与 `ObjectNPC`、`NewMapInfo` 下发、对话跳转、买/卖/修（Crystal 定价公式与价格倍率）；NPC 营业时段可见性未做 |
-| 任务 | ✅ | `Envir/Quests` 脚本解析（13 个段）、接取前置（等级/职业/前置任务链/上限）、击杀·收集·标记目标、交付领奖（金币/经验/元宝/固定/任选）、限时超时、放弃、NPC `CHECKQUEST` 与 `[Quests]` 关联、`characters.quests` 存档往返；**任务物品栏**（40 格、`S.GainedQuestItem`/`S.DeleteQuestItem`、掉落截胡、`characters.quest_inventory` 迁移 0012）；每日任务重置未做（见 `docs/world/quests.md`） |
+| 任务 | ✅ | `Envir/Quests` 脚本解析（13 个段）、接取前置（等级/职业/前置任务链/上限）、击杀·收集·标记目标、交付领奖（金币/经验/元宝/固定/任选）、限时超时、放弃、NPC `CHECKQUEST` 与 `[Quests]` 关联、`characters.quests` 存档往返；**任务物品栏**（40 格、`S.GainedQuestItem`/`S.DeleteQuestItem`、掉落截胡、`characters.quest_inventory` 迁移 0012）、**YouFound 提示**（205 → `quest_item_found` → `S.ChangeQuest`）、**`Q` 标记掉落**（先截胡、无人需要才不落地）、**每日任务重置**（迁移 0013 `last_daily_reset_at`，按角色 24h 惰性；Crystal 是服务器 0 点 `ProcessNewDay`）；见 `docs/world/quests.md` |
 | 组队 | ✅ | 邀请/接受/拒绝/退队/踢人、队长顺延、组内 `!!` 聊天、16 格内按人数与等级分配经验、组队任务击杀共享、切图通知；PK 与地图准入规则未做 |
 | 多地图与传送 | ✅ | 按地图文件惰性加载与缓存、`MovementInfo` 传送点（含 `need_hole`/`need_move`）、`S.MapChanged` 包序、NPC `MOVE`/`MAPMOVE`/`ENTERMAP`；客户端地形仍是启动时加载（见 `docs/client.md` §8） |
 | 行会 | ✅ | 创建（NPC `[@CREATEGUILD]`）、邀请/加入、职位与权限位、升降职/踢人、公告、`!~` 行会聊天、行会经验与等级、行会仓库（112 格物品 + 资金）、行会 buff（购买/激活/到期/全员加成）、迁移 0005/0006 持久化；攻城与领地未做 |
 | 玩家仓库与邮件 | ✅ | 80 格仓库（`[@STORAGE]` 页，`characters.storage` 持久化）、邮件发送（附件/邮票/邮费/限速）、阅读/锁定/领取/删除、迁移 0007、离线按名投递与 30 天过期 |
 | 玩家交易 | ✅ | 面朝格发起/回应、10 格交易栏、金币、双方确认后互换、放物品即清双方确认、取消/走跑转身切图下线死亡中止、背包满时取消改寄邮件（`docs/world/trade.md`） |
+| GM 命令 | ✅ | `@level/@exp/@gold/@credit/@item/@map/@heal/@kill/@who/@kick/@recall/@help` 12 条；权限 `accounts.admin` 或 `MIR2_GM_ACCOUNTS`；非 GM 的 `@…` 静默走普通聊天；英文回复（不进玩家 i18n 词表）+ `tracing::info!` 审计；`@kill` 是最小死亡（见 `docs/world/gm.md`） |
 | 寄售 / 拍卖市场 | ✅ | NPC `[@CONSIGN]`/`[@MARKET]` 上架、搜索/翻页/买断/出价/提前成交/取回、5% 佣金与手续费、7 天过期、**到期自动成交**（`process_auctions` 每 60s；买家收物品邮件、卖家收「成交价 − 5%」金币邮件）、启动时清理未成交过期单、迁移 0009 持久化与同事务/幂等重试；Crystal 的「卖家上线 `MarketGetBack` 领钱」改为邮件直达（见 `docs/world/market.md` §9） |
 | 商城（GameShop）与元宝 | 🟡 | 市场面板商城页签、`C.GameshopBuy` 真实扣元宝/金币、职业等级与库存校验、背包优先/放不下转商城邮件、库存计数迁移 0011 单事务持久化；独立商城面板与 `S.GameShopInfo`/`S.GameShopStock` 下发未做（`docs/world/gameshop.md`） |
 | 攻城与领地 | ⏳ | `ConquestInfo` 数据已可读，城门/城墙/旗子与领地租借待做 |
-| Rust 客户端（渲染与 UI） | 🟡 | 等距地图 + 联机 + 实体精灵 + 装备分层外观 + 逐帧动画（站立/走/跑/攻击/受击/死亡）+ 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能/buff/小地图/大地图/任务/任务物品栏/邮件/仓库/行会/组队/交易/市场/商城页签/设置面板/服务器与角色选择）+ 技能表现（火墙/雷电/瞬息移动/隐身/召唤）+ 伤害数字 + 头顶血条 + 目标锁定 + 拖拽穿脱 + 点地走路 + 音效与背景音乐（rodio，可无声降级）；HUD 天气随切图显示（`S.MapChanged.weather`），时间/昼夜因服务端未下发 `S.TimeOfDay` 暂不显示；坐骑/翅膀精确素材、移动插值、寻路待做（见 [`docs/client.md`](docs/client.md) §8） |
+| Rust 客户端（渲染与 UI） | 🟡 | 等距地图 + 联机 + 实体精灵 + 装备分层外观 + 逐帧动画（站立/走/跑/攻击/受击/死亡）+ 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能/buff/小地图/大地图/任务/任务物品栏（滚轮翻页）/邮件/仓库/行会/组队/交易/市场/商城页签/设置面板/服务器与角色选择）+ 技能表现（火墙/雷电/瞬息移动/隐身/召唤）+ 宠物命令（`V` 键三态）+ `@` 命令原样发送 + 伤害数字 + 头顶血条 + 目标锁定 + 拖拽穿脱 + 点地走路 + 音效与背景音乐（rodio，可无声降级）；HUD 天气随切图显示（`S.MapChanged.weather`），时间/昼夜因服务端未下发 `S.TimeOfDay` 暂不显示；坐骑/翅膀精确素材、移动插值、寻路待做（见 [`docs/client.md`](docs/client.md) §8） |
 | 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计、MirDB 报告、图库查看/导出；素材库编辑器未做 |
 | 素材索引（`mir2_dev`） | ✅ | `tools/asset-index/` 把 `resource/` 的 233 万文件登记进 PostgreSQL，按名字/扩展名/仓库查询 |
 
@@ -227,6 +228,7 @@ python tools/protocol-gen/generate.py
 | [`docs/world/trade.md`](docs/world/trade.md) | 玩家交易：发起/接受/交易格/金币/确认/取消、距离与朝向、包序 |
 | [`docs/world/market.md`](docs/world/market.md) | NPC 寄售/拍卖：上架/搜索/翻页/买断/出价/取回/过期、佣金与持久化 |
 | [`docs/world/gameshop.md`](docs/world/gameshop.md) | 商城（GameShop）与元宝：商品数据、购买校验、发货与邮件兜底、库存计数与页签包序 |
+| [`docs/world/gm.md`](docs/world/gm.md) | GM 命令：权限（admin / `MIR2_GM_ACCOUNTS`）、12 条命令、错误口径与审计 |
 | [`docs/client.md`](docs/client.md) | 客户端：协议流程、按键/鼠标、面板与字体 |
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |
 | [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文、游戏内切换与 i18n 收口清单（逐条 TextKey 表） |

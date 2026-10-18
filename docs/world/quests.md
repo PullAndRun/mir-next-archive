@@ -388,6 +388,17 @@ ALTER TABLE characters ADD COLUMN quest_inventory BYTEA NOT NULL DEFAULT '\x'::b
 `quest_inventories`）→ `S.UserInformation.quest_inventory` 下发整栏；下线
 `leave_world` 调 `World::take_quest_inventory` 编码回 `Character::quest_inventory`。
 
+### 8.2 每日重置时间戳（`characters.last_daily_reset_at`，迁移 0013）
+
+```sql
+-- crates/mir-store/migrations/0013_character_daily_reset.sql
+ALTER TABLE characters ADD COLUMN last_daily_reset_at BIGINT NOT NULL DEFAULT 0;
+```
+
+`0` = 从未重置（新角色/旧存档），首次登录即视为到期；更新时间由
+`World::apply_daily_reset` 写回，随 `character_snapshot` 落盘（`market::character_snapshot`
+克隆 base 时自带）。重置语义与 Crystal 差异见 §10。
+
 ---
 
 ## 9. Crystal 的异常行为 / 本作的差异
@@ -453,15 +464,27 @@ ALTER TABLE characters ADD COLUMN quest_inventory BYTEA NOT NULL DEFAULT '\x'::b
 
 * **收集进度统计口径**：Crystal 只统计 `Info.QuestInventory`（`ProcessItem`）；
   本作额外把**普通背包**也计入（兼容旧存档/交易来的任务物品）；
-* **未发** Crystal 的 `S.SendOutputMessage{YouFound}`（「你找到了 X」）提示
-  （i18n 键表没有这条）；
-* **未做** `drop.QuestRequired`（掉落表数据层还没有该字段；Crystal 用它让「任务物品只给任务、
-  绝不落地」）；
+* **YouFound 提示已实现（第 5 轮）**：截胡成功时按 Crystal 顺序发
+  `S.GainedQuestItem`(205) → `S.SendOutputMessage{Type=Quest, "你找到了 X"}`
+  （`TextKey::QuestItemFound`，键名 `quest_item_found`，TextKey 201）→
+  `S.ChangeQuest{Update}`（Crystal `PlayerObject.cs:11546-11556`）。只对**被截胡**的物品发；
+  接取任务发 `[@CARRYITEMS]` 不发 YouFound；
+* **`drop.QuestRequired` 已实现（第 5 轮）**：`DropReward::quest_required` 与
+  `reward.items` 一一对应（组掉落子规则同样对齐），掉落顺序是「生成掉落 →
+  `check_group_quest_item` 截胡 → 截不到且标 `Q` 才 `continue`」——**Q 物品会先进任务
+  物品栏，无人需要时直接消失（不落地）**（Crystal `MonsterObject.cs:1130-1140`）；
 * `add` 是**原子**的：放不下整件拒绝并保持原样；Crystal 假定调用方先 `CanGainQuestItem`，
   放不下时会把剩余堆叠悄悄丢掉；
-* **每日重置未做**：Crystal 的 `QuestInventory` 本身没有每日重置，任务重置逻辑本作也没有；
-  `QuestType.Daily` 的日切本作未实现（未核对 Crystal 是否有日切），任务物品栏只随交付/放弃的
-  `RecalculateQuestBag` 清理。
+* **每日任务重置已实现（第 5 轮）**：迁移 `0013_character_daily_reset.sql` 增
+  `characters.last_daily_reset_at`（Unix 毫秒）；本作**按角色惰性**判断
+  `now - last_daily_reset_at >= DAILY_RESET_INTERVAL_MS`（24h），在**登录**与
+  **接取/交付/放弃任务**前补做（`World::apply_daily_reset` /
+  `Session::maybe_reset_daily_quests`），清掉 `QuestType.Daily` 的完成记录
+  （`completed_quests` + 保留的 `state = Completed` 进度），**进行中的每日任务不打断**，
+  清完发 `S.CompleteQuest` 整表；新角色/旧存档 `last_daily_reset_at = 0` 首次登录即视为到期
+  （重置幂等）。**与 Crystal 的差异**：Crystal 在服务器**本地 0 点**跨天时对全部角色
+  （含离线）执行 `ClearDailyQuests`（`Envir.ProcessNewDay`，`Envir.cs:2311-2315`、
+  `:4856-4866`、`:5009-5024`）；本作没有服务器定时器，改为滚动 24h + 按角色惰性补做。
 
 **存档**：`characters.quest_inventory`（迁移 `0012_character_quest_inventory.sql`），
 见 §8.1；登录/下线由 `Session` 读写（`on_start_game` 解码 → `set_quest_inventory`；
@@ -477,12 +500,10 @@ ALTER TABLE characters ADD COLUMN quest_inventory BYTEA NOT NULL DEFAULT '\x'::b
 - **`CallDefaultNPC`**（`OnAcceptQuest` / `OnFinishQuest`）。
 - **`Settings.DropRate` / `ExpRate` 的可配置化**（现在固定 1.0）。
 - **NPC 任务图标的 `VisibleLog`**（`NPCObject.cs`）：接取时不复查可见性。
-- **每日任务重置**（`QuestType.Daily` 的日切逻辑）：本作未做（未核对 Crystal 是否有日切；
-  见 §10 的差异清单）。
 
 ---
 
-## 12. 测试清单（`crates/mir-server/tests/quests.rs`，35 个用例）
+## 12. 测试清单（`crates/mir-server/tests/quests.rs`，36 个用例）
 
 | 用例 | 覆盖 |
 |---|---|
@@ -505,6 +526,7 @@ ALTER TABLE characters ADD COLUMN quest_inventory BYTEA NOT NULL DEFAULT '\x'::b
 | `carry_items_are_given_on_accept_and_taken_on_finish` | `[@CARRYITEMS]` 发放/收回 + 标记位目标（任务物品栏 + `S.GainedQuestItem`/`S.DeleteQuestItem`） |
 | `quest_items_are_intercepted_only_for_unfinished_collect_tasks` | 截胡只在「有未完成收集任务」时发生；收满/完成任务/没接任务都不截胡，收集进度立即重算 |
 | `quest_inventory_roundtrips_through_world_and_store_blob` | 任务物品栏存档往返（`characters.quest_inventory` + 世界侧表，下线→重登后物品还在） |
+| `you_found_hint_is_sent_after_gained_quest_item` | YouFound 顺序：`S.GainedQuestItem`(205) → `S.SendOutputMessage{Type=Quest}` → `S.ChangeQuest{Update}`；接取携带不发 |
 | `npc_checkquest_reads_the_real_state` | `CHECKQUEST … ACTIVE` 三分支 + 数字写法的 `COMPLETE` 怪癖 |
 | `npc_finishquest_action_completes_the_quest` | `ACCEPTQUEST` / `FINISHQUEST` / `ABANDONQUEST` 三个动作 |
 | `quest_progress_round_trips_through_the_byte_block` | 存档往返（含超时时刻、完成列表） |
@@ -520,7 +542,9 @@ ALTER TABLE characters ADD COLUMN quest_inventory BYTEA NOT NULL DEFAULT '\x'::b
 `npc_script.rs` 2 个 `[Quests]` / 任务动作用例；
 `mir-server/src/quests.rs` 5 个单元测试（存档往返、空块、名字匹配、
 目标完成判定、状态值往返）；`quest_inventory.rs` 11 个单元测试（40 格、堆叠、
-原子性、跨格扣减、清不需要物品、编解码、帧号、截胡判定）。
+原子性、跨格扣减、清不需要物品、编解码、帧号、截胡判定）；
+`tests/quest_daily.rs` 4 条（24h 边界 23:59/24:01、记录级重置保留普通任务、离线跨天、
+进行中不打断）。
 
 ### 真实数据冒烟结果
 

@@ -29,7 +29,7 @@ Crystal 的掉落**不在 `Server.MirDB` 里**：怪物模板只记一个文件�
 | 概率写法 | `1/N`，**前两个字符被直接砍掉**（`parts[0].Substring(2)`），所以必须保留 `1/` 前缀，数字才能被解析成 `N` |
 | 金币 | `Gold <基准值>`，实际掉落区间 `[基准/2, 基准 + 基准/2)`（`AttemptDrop`） |
 | 分组 | 组内的行是**独立再掷一次**的规则；`^` 命中第一条即停止，`*` 不影响行为 |
-| `Q` 标记 | `QuestRequired`：没有对应任务时不掉（服务端实现掉落时要检查） |
+| `Q` 标记 | `QuestRequired`：先尝试截胡进任务物品栏，**无人需要时直接不落地**（`MonsterObject.cs:1130-1140`） |
 | `#INSERT` | 被包含文件的行会**追加到末尾**，并且是相对 `Envir/Drops/` 的路径 |
 | 排序 | Crystal `Load` 末尾会按「金币最后、其余按物品类型」排序（`MonsterInfo.cs:421-435`），这只影响掉落顺序，不影响概率 |
 
@@ -63,10 +63,14 @@ python tools/asset-index/find_asset.py --name Drops --top community
 
 ## 还没做的
 
-- `QuestRequired` 的任务判定（掉落时会直接跳过带 `Q` 的行，见 `docs/world/items.md`）；
 - 全局掉率倍率 `Settings.DropRate`、会员掉率偏移的配置来源（现在是常量 `DROP_RATE = 1`）。
 
 已经做完的（原本列在这里的）：
+
+- **`QuestRequired`（`Q` 标记）的任务判定**：`DropReward::quest_required` 与 `items`
+  一一对应；掉落循环里先生成掉落 → `check_group_quest_item` 截胡 → 截不到且标 `Q` 才
+  `continue`（不落地）。即 **Q 物品会先进任务物品栏，无人需要时直接消失**（Crystal
+  `MonsterObject.cs:1130-1140`），见 `docs/world/quests.md` §10。
 
 - **掉落物落地成地面物品与拾取**：见 `docs/world/items.md`（`World::drop_monster_loot` /
   `World::pickup`，`crates/mir-server/src/items.rs`）；

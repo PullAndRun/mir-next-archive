@@ -481,9 +481,39 @@ Crystal 的隐身消耗 **1 张护身符**（`GetAmulet(1)`），本作消耗品
 > * 宠物永不攻击自己的主人（`pet_target_valid` 显式排除）；没有「互相锁死」定时器：双方
 >   锁定后只追击/攻击，目标死亡或出视野（宠物 8 格、野怪 `VIEW_RANGE` 16）即解除；
 >   宠物死亡 `monster_died` 注销、主人死亡 `player_died` 清宠物；
-> * **已知差异（未做）**：**宠物 vs 宠物未做**——`find_pet_target` 只扫野生怪
->   （`master.is_none()`），Crystal 在 `Master != null` 时会优先改选「主人玩家目标的宠物」
->   （`MonsterObject.cs:1978-1988`），本轮未实现。
+> * **有意差异：宠物之间不互相攻击**——`find_pet_target` 只收 `master.is_none()` 的野生怪
+>   （`monster.rs:965`），`pet_target_valid` 对 `target.master.is_some()` 直接返回 false
+>   （`:932`）。Crystal 允许敌对主人的宠物互攻（`FindTarget` 的 Pet Vs Pet 分支，
+>   `MonsterObject.cs:1978-1988`），本作按任务要求不实现，**不算已对齐**。
+>
+> **宠物命令（第 5 轮）**：客户端 `V` 键循环发 `C.ChangePMode`(45)（`P` 已被 Crystal 的
+> 组队窗口占用）。`mir_core::enums::PetMode` 五态（wire 值）：
+>
+> | 模式 | 值 | 语义 |
+> |---|---|---|
+> | `Both` | 0 | 跟随 + 攻击（默认） |
+> | `MoveOnly` | 1 | 只跟随，不攻击（清目标） |
+> | `AttackOnly` | 2 | 只攻击，不跟随/不移动 |
+> | `None` | 3 | 休息：不索敌、不跟随 |
+> | `FocusMasterTarget` | 4 | 跟随，且只打主人当前目标 |
+>
+> 服务端：`World::set_pet_mode`（`world.rs:3565`）/ `pet_mode`（`:3575`）写**旁置表**
+> `pet_modes`；`spawn_pet`、同名召回 `recall_pet`、宠物死亡（`monster.rs:1558-1561` 移除该
+> 主人的模式、即回到默认 `Both`）、`kill_pets`/`despawn_pets`/`leave` 都会清理或重置。AI 在
+> `monster.rs:832 process_pet_ai`：`None` 直接休息（`:855`）、`MoveOnly` 清目标（`:873`）、
+> `AttackOnly` 不移动（`:902`）、仅 `Both/MoveOnly/Focus` 跟随（`:908-916`）；
+> 服务端收到 `C.ChangePMode` 后写模式并无条件回 `S.ChangePMode`(63)
+> （Crystal `MirConnection.cs:1441-1448`）。
+>
+> **存档差异**：`pet_modes` 是 **World 侧表、不随角色存档**；Crystal 的
+> `CharacterInfo.PMode` 会落盘（重登后模式保留）。本作重登/召回后回到 `Both`。
+> 客户端只暴露「跟随 / 攻击 / 休息」三态循环（`V` 键），`MoveOnly` 与
+> `FocusMasterTarget` 服务端支持但暂无客户端入口。
+>
+> 测试：`tests/skills.rs` 的 `move_only_pet_follows_without_attacking`、
+> `both_mode_pet_attacks_nearest_wild`、`attack_only_pet_locks_the_masters_target`、
+> `rest_mode_pet_does_not_search_or_follow`、`pets_do_not_attack_each_other`、
+> `pet_mode_resets_on_recall_and_pet_death`。
 >
 > 测试：`tests/skills.rs` 的 `wild_monster_targets_and_attacks_a_pet_then_pet_retaliates`、
 > `pet_death_to_a_wild_monster_does_not_panic_the_master`、`guards_ignore_pets`、
@@ -706,7 +736,8 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 23. **野生怪反击召唤物（第 4 轮已实现，不再是差异）**：野生怪会在 `find_target` 里主动把
     宠物当目标，宠物被咬（或被玩家攻击）后下一 tick 反击（Crystal `MonsterObject.cs:2481-2484`、
     `:1940-1963`、`:2601-2610`）；守卫/箭塔的例外、玩家 `All` 模式限制与「宠物不咬主人」
-    等细节见 §6.6。**仍需登记的差异**：宠物 vs 宠物未做（`find_pet_target` 只扫野生怪）。
+    等细节见 §6.6。**有意差异**：宠物之间不互相攻击（`find_pet_target` 只扫野生怪；
+    Crystal 的 Pet Vs Pet 分支不实现，见 §6.6）。
 
 ---
 

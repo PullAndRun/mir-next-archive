@@ -50,26 +50,33 @@
 //!
 //! * `spell_target_lock`（`C.Magic.SpellTargetLock`）未实现：落点始终取包里的 `location`。
 //! * `CanFly`（目标格是否允许飞行道具）未实现——地图层没有飞行属性，只按距离判定。
-//! * PK 未实现：攻击类技能**只认怪物**为目标，目标玩家一律 `InvalidTarget`。
+//! * PK：`Bolt` 一族仍只认怪物（既有简化）；`FireWall`/`Lightning`/`Poisoning`
+//!   用 [`World::is_attack_target_player`] 判定玩家目标，与物理攻击的 PK 规则一致。
 //! * 目标合法性在扣蓝之前严格校验（Crystal 是扣蓝后才发现目标无效，仍算一次施法）。
 //! * 增益类技能由 [`SpellKind::Buff`] 实现（9 个），效果、时长与包序见 [`crate::buffs`]；
 //!   仍然「只登记、不生效」的少数技能见 [`REGISTERED_UNSUPPORTED`]。
 //! * 施法者死亡后已排入队列的延迟效果仍会结算（Crystal 只检查对象是否还在图上，
 //!   同样不检查 `Dead`）。
-//! * 护身符/毒药消耗未实现（`SoulFireBall` 与 `SoulShield` 在 Crystal 里都要消耗 1 个护身符，
-//!   `HumanObject.cs:4382-4396`、`:4515`），原因是本作的护身符还没有接到技能上。
+//! * 护身符/毒药消耗未实现（`SoulFireBall`、`SoulShield`、`Hiding`、`Summon*`、`Poisoning`
+//!   在 Crystal 里都要消耗护身符/毒药，`HumanObject.cs:4382-4396`、`:4515`、`:4489-4498`、
+//!   `:4419-4426`、`:4369-4377`），原因是本作的护身符/毒药还没有接到技能上。
+//! * 第 2 轮新增的 7 个技能见 [`SpellKind`]：`FireWall`/`Lightning`/`Teleport`/`Hiding`/
+//!   `Summon`/`Poison`；逐条差异（无 bind 点的传送、绿→红的施毒策略、火墙的轻量场等）
+//!   都写在各自方法文档里。
 
 use std::collections::HashMap;
 
 use mir_core::MirRng;
 use mir_core::Point;
 use mir_core::enums::{
-    DefenceType, ItemType, MirClass, MirDirection, MirGridType, RequiredClass, Spell, Stat,
+    BuffType, DamageType, DefenceType, ItemType, MirClass, MirDirection, MirGridType, PoisonType,
+    RequiredClass, Spell, Stat,
 };
 use mir_db::MagicInfo;
-use mir_protocol::data::{ClientMagic, Stats, UserItem};
+use mir_protocol::data::{ClientBuff, ClientMagic, Stats, UserItem};
 use mir_protocol::packets::server::{
-    Magic, MagicDelay, MagicLeveled, NewMagic, ObjectMagic, UseItem,
+    AddBuff, Magic, MagicDelay, MagicLeveled, NewMagic, ObjectHidden, ObjectMagic, ObjectPoisoned,
+    ObjectRemove, ObjectSpell, ObjectTeleportIn, ObjectTeleportOut, Poisoned, RemoveBuff, UseItem,
 };
 use mir_protocol::{PacketReader, PacketWriter, ProtocolError, ServerPacket};
 
@@ -78,7 +85,8 @@ use crate::buffs::{
     BuffKind, ENERGY_SHIELD_MIN_CHANCE, PendingBuff, SECOND_MS, SHIELD_AREA_RADIUS,
 };
 use crate::combat::PendingHit;
-use crate::world::{PLAYER_REGEN_DELAY_MS, World};
+use crate::monster::MonsterKind;
+use crate::world::{PLAYER_REGEN_DELAY_MS, Player, VIEW_RANGE, World};
 /// 技能最高等级：Crystal 的 `MagicInfo` 只有 `Level1`/`Level2`/`Level3` 三档
 /// （`MagicInfo.cs:16`），`LevelMagic` 的 `default:` 分支对 3 级直接返回
 /// （`HumanObject.cs:6968-6969`）。
@@ -116,6 +124,51 @@ pub const MAGIC_TARGET_SEARCH_RANGE: i32 = 10;
 /// `InRange(target.CurrentLocation, targetLocation, 2)`（`HumanObject.cs:5928`）。
 pub const MAGIC_HIT_TOLERANCE: i32 = 2;
 
+/// 火墙的伤害间隔：Crystal `SpellObject.TickSpeed = 2000`（`Map.cs:1134`）。
+pub const FIREWALL_TICK_MS: i64 = 2_000;
+
+/// 火墙基础持续秒数：`ExpireTime = now + (10 + Value / 2) * 1000`（`Map.cs:1133`）。
+pub const FIREWALL_BASE_SECONDS: i64 = 10;
+
+/// 一次火墙施法铺开的格子数：落点 + 上/右/下/左（`Map.cs:1145-1149`）。
+pub const FIREWALL_CELLS: usize = 5;
+
+/// 雷电的贯穿格数：`for (int i = 0; i < 6; i++)`（`Map.cs:1194`）。
+pub const LIGHTNING_RANGE: i32 = 6;
+
+/// 雷电的固定延迟：`DelayedAction(..., Envir.Time + 500, ...)`（`HumanObject.cs:4213`）。
+pub const LIGHTNING_DELAY_MS: i64 = 500;
+
+/// 瞬息移动的延迟：`DelayedAction(..., Envir.Time + 200, ...)`（`HumanObject.cs:3539`）。
+pub const TELEPORT_DELAY_MS: i64 = 200;
+
+/// 瞬息移动最多尝试的随机落点数（`PlayerObject.cs:4639`）。
+pub const TELEPORT_ATTEMPTS: u32 = 200;
+
+/// 瞬息移动后的「传送法力惩罚」时长：30 秒（`HumanObject.cs:6106`）。
+pub const TELEPORT_PENALTY_MS: i64 = 30_000;
+
+/// 传送法力惩罚百分比（`HumanObject.cs:6106` 的 `TemporalFlux` → `TeleportManaPenaltyPercent = 30`）。
+pub const TELEPORT_MANA_PENALTY_PERCENT: i32 = 30;
+
+/// 隐身生效延迟（`HumanObject.cs:4496`）。
+pub const HIDING_DELAY_MS: i64 = 500;
+
+/// 召唤生效延迟（`HumanObject.cs:4437`、`:4486`）。
+pub const SUMMON_DELAY_MS: i64 = 500;
+
+/// 一个主人最多同时拥有的怪物类召唤物数量（`HumanObject.cs:4417`、`:4466`）。
+pub const MAX_MONSTER_PETS: usize = 2;
+
+/// 施毒的生效延迟（`HumanObject.cs:4374`）。
+pub const POISON_DELAY_MS: i64 = 500;
+
+/// 中毒每跳间隔：`TickSpeed = 2000`（`HumanObject.cs:6058`、`:6068`）。
+pub const POISON_TICK_MS: i64 = 2_000;
+
+/// 雷电术对不死系的伤害倍率：`damage * 1.5F`（`HumanObject.cs:4126`）。
+pub const UNDEAD_DAMAGE_PERCENT: i32 = 150;
+
 /// 刚读档、还没施过法时的 `CastTime`：Crystal 读档后强制写成 `int.MinValue`
 /// （`Server/MirDatabase/CharacterInfo.cs:232`），因此第一次施法永远不触发冷却。
 pub const INITIAL_CAST_TIME: i64 = i32::MIN as i64;
@@ -140,9 +193,8 @@ pub const REGISTERED_UNSUPPORTED: &[Spell] = &[
     // 战士：狂暴 / 金刚不坏（`HumanObject.cs:4964-4973`、`:6171-6182`）。
     Spell::Rage,
     Spell::ImmortalSkin,
-    // 道士：强化术 / 隐身 / 神兽强化。
+    // 道士：强化术 / 神兽强化。
     Spell::UltimateEnhancer,
-    Spell::Hiding,
     Spell::PetEnhancer,
     // 法师：元素护盾。
     Spell::ElementalBarrier,
@@ -313,6 +365,102 @@ pub struct MagicState {
     pub heal_amount: u32,
     /// 下一次结算治疗分段的时刻：Crystal `HumanObject.HealTime`（`HumanObject.cs:187`）。
     pub heal_time: i64,
+    /// 是否隐身：Crystal `MapObject.Hidden`（`Server/MirObjects/MapObject.cs:78-92`）。
+    ///
+    /// 放在 [`MagicState`] 而不是 [`crate::world::Player`] 上，避免给玩家结构加字段
+    ///（17 个测试与 `session.rs` 都直接构造 `Player`）。
+    pub hidden: bool,
+    /// 隐身到期时刻（Crystal `Buff.ExpireTime`，`BuffType.Hiding`）。
+    pub hidden_until: i64,
+    /// 传送法力惩罚到期时刻（Crystal `BuffType.TemporalFlux`，
+    /// `HumanObject.cs:6106`；耗蓝公式见 `:3379-3385`）。
+    pub teleport_penalty_until: i64,
+    /// 玩家身上的毒（Crystal `HumanObject.PoisonList`，`MapObject.cs:74`）。
+    ///
+    /// **与 buffs 分开**：毒有独立的 tick / 时长 / 施毒者，不参与 `Stats` 加成。
+    pub poisons: Vec<PoisonState>,
+    /// 最近一次物理攻击/攻击魔法的目标（本作扩展）：召唤物优先打主人的目标
+    /// （Crystal 由召唤物自己 `FindTarget`，见 `MonsterObject.cs:1918-1997`）。
+    pub last_target: Option<u32>,
+}
+
+/// 一条中毒状态（Crystal `Poison`，`Server/MirObjects/MapObject.cs:74`）。
+///
+/// 字段与 Crystal 一一对应：
+/// * `kind` → `PoisonType`（本作只做 `Green`/`Red`）；
+/// * `value` → `Value`（绿毒每跳扣血；红毒为 0）；
+/// * `duration`/`ticks` → `Duration`/`Time`（**单位是跳数**，不是毫秒）；
+/// * `tick_at` → `TickTime`（本作存绝对时刻，Crystal 存下一次 tick 的时刻）；
+/// * `owner_id` → `Owner`（毒主下线后整条毒移除，`MonsterObject.cs:1464-1474`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PoisonState {
+    /// 毒类型。
+    pub kind: PoisonType,
+    /// 绿毒每跳伤害（红毒为 0）。
+    pub value: i32,
+    /// 总跳数。
+    pub duration: u32,
+    /// 已经跳过的次数。
+    pub ticks: u32,
+    /// 下一次结算时刻。
+    pub tick_at: i64,
+    /// 施毒者对象 ID（0 = 无主）。
+    pub owner_id: u32,
+}
+
+impl PoisonState {
+    /// 新建一条毒；第一跳在 `tick_at` 时刻结算（Crystal `TickTime` 初值 0 → 首跳立即）。
+    #[must_use]
+    pub const fn new(
+        kind: PoisonType,
+        value: i32,
+        duration: u32,
+        tick_at: i64,
+        owner_id: u32,
+    ) -> Self {
+        Self {
+            kind,
+            value,
+            duration,
+            ticks: 0,
+            tick_at,
+            owner_id,
+        }
+    }
+}
+
+/// 地图上的一片持续法术场（Crystal `SpellObject`，`Server/MirObjects/SpellObject.cs`）。
+///
+/// 本作没有 `ObjectType.Spell` 这一层对象：火墙用「中心 + 半径 + 到期 + 伤害间隔」表示。
+/// Crystal 一次火墙施法铺 5 格（`Map.cs:1145-1181`），本作对应 5 个半径 0 的场；
+/// 每 tick 用 AOI 查半径内的玩家/怪物结算伤害。
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpellField {
+    /// 客户端对象 ID（`S.ObjectSpell.ObjectID`）。
+    pub object_id: u32,
+    /// 地图名。
+    pub map: String,
+    /// 中心格。
+    pub center: Point,
+    /// 作用半径（火墙为 0：只烧同格）。
+    pub radius: i32,
+    /// 每次结算的伤害（Crystal `SpellObject.Value`）。
+    pub damage: i32,
+    /// 施法者对象 ID（下线/换图后整片火墙消失，`SpellObject.cs:57`、`:82-90`）。
+    pub caster_id: u32,
+    /// 到期时刻（`ExpireTime`）。
+    pub expire_at: i64,
+    /// 下一次结算时刻（`TickTime`）。
+    pub next_tick: i64,
+    /// 结算间隔（`TickSpeed = 2000`，`Map.cs:1134`）。
+    pub tick_ms: i64,
+    /// 法术编号（目前只有 `FireWall`）。
+    pub spell: Spell,
+    /// 客户端朝向（`S.ObjectSpell.Direction`）。
+    pub direction: MirDirection,
+    /// 施法实例号（Crystal `CastInstanceId`，用于 `FireWallLimit` 按实例回收，
+    /// `HumanObject.cs:4151-4175`、`:4183-4207`）。
+    pub cast_id: u32,
 }
 
 /// 技能类别：决定施法时走哪条效果分支。
@@ -334,6 +482,18 @@ pub enum SpellKind {
     /// 包括 `ProtectionField`/`MagicShield`/`SoulShield`/`BlessedArmour`/`EnergyShield`/
     /// `Haste`/`LightBody`/`Fury`/`MagicBooster`，效果见 [`crate::buffs`]。
     Buff,
+    /// 火墙（`HumanObject.cs:4149-4182` + `Map.cs:1101-1183` + `SpellObject.cs:128-135`）。
+    FireWall,
+    /// 雷电（`HumanObject.cs:4209-4215` + `Map.cs:1187-1218`）：前方 6 格逐格命中。
+    Lightning,
+    /// 瞬息移动（`HumanObject.cs:3537-3539` + `:6095-6109` + `PlayerObject.cs:4633-4648`）。
+    Teleport,
+    /// 隐身（`HumanObject.cs:4489-4498` + `:6133-6145`）。
+    Hiding,
+    /// 召唤骷髅/神兽（`HumanObject.cs:4399-4488` + `Map.cs:914-933`）。
+    Summon,
+    /// 施毒（`HumanObject.cs:4365-4378` + `:6041-6077`）。
+    Poison,
     /// 已登记、但本作没有效果（见 [`REGISTERED_UNSUPPORTED`]）。
     Unsupported,
 }
@@ -357,6 +517,12 @@ pub const fn spell_kind(spell: Spell) -> SpellKind {
         | Spell::LightBody
         | Spell::Fury
         | Spell::MagicBooster => SpellKind::Buff,
+        Spell::FireWall => SpellKind::FireWall,
+        Spell::Lightning => SpellKind::Lightning,
+        Spell::Teleport => SpellKind::Teleport,
+        Spell::Hiding => SpellKind::Hiding,
+        Spell::SummonSkeleton | Spell::SummonShinsu => SpellKind::Summon,
+        Spell::Poisoning => SpellKind::Poison,
         _ => SpellKind::Unsupported,
     }
 }
@@ -425,6 +591,45 @@ pub enum MagicEffect {
         duration_ms: i64,
         /// 加成落在哪个防御属性上（`Stat.MaxAC` 或 `Stat.MaxMAC`，`Map.cs:1082`）。
         stat: Stat,
+    },
+    /// 火墙落地（`Map.cs:1101-1183`）：在 `location` 周围铺 5 格持续伤害场。
+    FireWall {
+        /// 施法时的地图（施法者 500ms 内换图时仍落在原图，Crystal 的 `ActionList` 挂在地图上）。
+        map: String,
+        /// 落点（五格的中心）。
+        location: Point,
+        /// 每格每次结算的伤害。
+        damage: i32,
+        /// 施法实例号（`FireWallLimit` 回收用）。
+        cast_id: u32,
+    },
+    /// 雷电（`Map.cs:1187-1218`）：从 `origin` 沿 `direction` 推进 6 格，每格打第一个可攻击对象。
+    Lightning {
+        /// 施法者施法时所在格。
+        origin: Point,
+        /// 方向。
+        direction: MirDirection,
+        /// 已经抽好的伤害。
+        damage: i32,
+    },
+    /// 瞬息移动（`HumanObject.cs:6095-6109`）。
+    Teleport,
+    /// 隐身（`HumanObject.cs:6133-6145`）。
+    Hiding {
+        /// 持续时长（毫秒）：`GetAttackPower(MinSC, MaxSC) + (Level + 1) * 5` **秒**。
+        duration_ms: i64,
+    },
+    /// 召唤骷髅/神兽（`Map.cs:914-933`）。
+    Summon {
+        /// 召唤技能（决定模板与上限）。
+        spell: Spell,
+    },
+    /// 施毒（`HumanObject.cs:6041-6077`）。
+    Poison {
+        /// 目标对象 ID。
+        target_id: u32,
+        /// `magic.GetDamage(GetAttackPower(MinSC, MaxSC))` 的结果。
+        power: i32,
     },
 }
 
@@ -920,6 +1125,48 @@ impl World {
                 }
                 target_id = 0;
             }
+            SpellKind::Poison => {
+                // `Poisoning(target, magic)`：目标必须是可攻击对象（`HumanObject.cs:4367`）。
+                if target_id == 0 || target_id == object_id {
+                    return Err(MagicError::InvalidTarget);
+                }
+                let Some(target_position) = self.magic_attack_position(&map, object_id, target_id)
+                else {
+                    return Err(MagicError::InvalidTarget);
+                };
+                if position.max_distance(target_position) > MAGIC_TARGET_SEARCH_RANGE {
+                    return Err(MagicError::InvalidTarget);
+                }
+                if target_location.x == 0 && target_location.y == 0 {
+                    target_location = target_position;
+                }
+            }
+            SpellKind::FireWall => {
+                // `FireWall(magic, spellTargetLock ? target.CurrentLocation : location)`（`:3565-3566`）。
+                if target_location.x == 0 && target_location.y == 0 {
+                    target_location = position;
+                }
+                target_id = 0;
+            }
+            SpellKind::Lightning => {
+                // `Lightning(magic)` 只用到方向（`HumanObject.cs:3568-3569`、`:4209-4215`）。
+                if target_location.x == 0 && target_location.y == 0 {
+                    target_location = position;
+                }
+                target_id = 0;
+            }
+            SpellKind::Teleport | SpellKind::Hiding | SpellKind::Summon => {
+                // `Teleport/Blink` 用包里的 location 只做射程预检（`:3537-3539`）；
+                // 隐身/召唤都作用在自己身上（`:3534-3542`、`:3605-3606`）。
+                if target_location.x == 0 && target_location.y == 0 {
+                    target_location = position;
+                }
+                if matches!(kind, SpellKind::Hiding | SpellKind::Summon) {
+                    target_id = object_id;
+                } else {
+                    target_id = 0;
+                }
+            }
             SpellKind::Buff => {
                 // 增益的落点为空时退回自己脚下（同样按 `:3416` 的放行规则）。
                 if target_location.x == 0 && target_location.y == 0 {
@@ -981,7 +1228,12 @@ impl World {
         // --- 蓝量（`HumanObject.cs:3442-3448`） -------------------------------------
         // `MagicCost`：基础耗蓝 + `Stat.ManaPenaltyPercent` 惩罚（`:3375-3398`）。
         let mana_penalty = self.players[&object_id].stats.mana_penalty_percent;
-        let cost = magic.cost_with_penalty(&info, mana_penalty);
+        let mut cost = magic.cost_with_penalty(&info, mana_penalty);
+        // 传送类技能的额外惩罚：`if (spell == Teleport && Stats[TeleportManaPenaltyPercent] > 0)
+        //     cost += cost * percent / 100;`（`:3379-3385`；值来自 TemporalFlux，`:6106`）。
+        if spell == Spell::Teleport && now < self.players[&object_id].magic.teleport_penalty_until {
+            cost += cost * TELEPORT_MANA_PENALTY_PERCENT / 100;
+        }
         let mp = self.players.get(&object_id).map_or(0, |player| player.mp);
         if cost > mp {
             self.send_user_location(object_id);
@@ -992,6 +1244,13 @@ impl World {
 
         // --- 施法回显（`HumanObject.cs:3456-3458`） ---------------------------------
         self.send_user_location(object_id);
+        // 记下最近一次攻击目标（召唤物优先打主人的目标，本作扩展）。
+        if target_id != 0
+            && matches!(kind, SpellKind::Bolt | SpellKind::Poison)
+            && let Some(player) = self.players.get_mut(&object_id)
+        {
+            player.magic.last_target = Some(target_id);
+        }
 
         // --- 效果（`HumanObject.cs:3499-3771` + `Map.cs:856-`） ---------------------
         let stats = self.players[&object_id].stats;
@@ -1005,11 +1264,25 @@ impl World {
                 // `magic.GetDamage(GetAttackPower(Stats[MinMC], Stats[MaxMC]))`
                 // （`Fireball`，`HumanObject.cs:3943`；`ThunderBolt`，`:4124`）。
                 let base = stats.attack_power(stats.min_mc, stats.max_mc, &mut self.rng);
-                let value = magic.damage(&info, base, &mut self.rng);
+                let mut value = magic.damage(&info, base, &mut self.rng);
+                // `if (target.Undead) damage = (int)(damage * 1.5F);`（`:4126`）。
+                if spell == Spell::ThunderBolt
+                    && self
+                        .monster(target_id)
+                        .is_some_and(|monster| monster.undead)
+                {
+                    // `(int)(damage * 1.5F)` 的整数等价（正伤害截断一致）。
+                    value = value.saturating_mul(UNDEAD_DAMAGE_PERCENT) / 100;
+                }
                 damage = Some(value);
+                // `ThunderBolt` 固定 500ms（`:4128`）；其余单体魔法是
                 // `delay = MaxDistance(CurrentLocation, target.CurrentLocation) * 50 + 500`
                 // （`HumanObject.cs:3945`，注释「50 MS per Step」）。
-                let travel = i64::from(position.max_distance(target_location)) * 50 + 500;
+                let travel = if spell == Spell::ThunderBolt {
+                    LIGHTNING_DELAY_MS
+                } else {
+                    i64::from(position.max_distance(target_location)) * 50 + 500
+                };
                 effects.push((
                     now + travel,
                     MagicEffect::Damage {
@@ -1105,6 +1378,81 @@ impl World {
                     },
                     &mut effects,
                 );
+            }
+            SpellKind::FireWall => {
+                // `FireWall(magic, location)`（`HumanObject.cs:4149-4182`）：
+                // 伤害在这里抽好，500ms 后由 `Map.CompleteMagic` 铺 5 格火墙。
+                let base = stats.attack_power(stats.min_mc, stats.max_mc, &mut self.rng);
+                let value = magic.damage(&info, base, &mut self.rng);
+                damage = Some(value);
+                // `FireWallLimit` 在施法瞬间检查：超限且无法回收 → `ReceiveChat` 后
+                // 不排延迟动作（`:4151-4175`）。Crystal 此时 `cast` 仍为 true，
+                // 所以蓝已扣、`S.Magic` 照发、`CastTime` 照记。
+                if self.can_cast_fire_wall(&map, object_id) {
+                    let cast_id = self.next_spell_cast_id;
+                    self.next_spell_cast_id = self.next_spell_cast_id.wrapping_add(1).max(1);
+                    effects.push((
+                        now + 500,
+                        MagicEffect::FireWall {
+                            map: map.clone(),
+                            location: target_location,
+                            damage: value,
+                            cast_id,
+                        },
+                    ));
+                }
+            }
+            SpellKind::Lightning => {
+                // `Lightning(magic)`：`DelayedAction(..., now + 500, this, magic, damage,
+                // CurrentLocation, Direction)`（`HumanObject.cs:4209-4215`）。
+                let base = stats.attack_power(stats.min_mc, stats.max_mc, &mut self.rng);
+                let value = magic.damage(&info, base, &mut self.rng);
+                damage = Some(value);
+                effects.push((
+                    now + LIGHTNING_DELAY_MS,
+                    MagicEffect::Lightning {
+                        origin: position,
+                        direction,
+                        damage: value,
+                    },
+                ));
+            }
+            SpellKind::Teleport => {
+                // `case Spell.Teleport: ActionList.Add(DelayedAction(Magic, now + 200, magic, location))`
+                // （`HumanObject.cs:3537-3539`）；实际落点由 `CompleteMagic` 决定（`:6095-6109`）。
+                effects.push((now + TELEPORT_DELAY_MS, MagicEffect::Teleport));
+            }
+            SpellKind::Hiding => {
+                // `Hiding(magic)`：`DelayedAction(..., now + 500, magic,
+                //     GetAttackPower(MinSC, MaxSC) + (magic.Level + 1) * 5)`（`:4489-4498`）。
+                let seconds = stats
+                    .attack_power(stats.min_sc, stats.max_sc, &mut self.rng)
+                    .saturating_add((i32::from(magic.level) + 1) * 5)
+                    .max(0);
+                effects.push((
+                    now + HIDING_DELAY_MS,
+                    MagicEffect::Hiding {
+                        duration_ms: i64::from(seconds) * SECOND_MS,
+                    },
+                ));
+            }
+            SpellKind::Summon => {
+                // `SummonSkeleton/SummonShinsu` 在施法阶段只做「能不能召唤」的判定，
+                // 真正的落点/生成延迟 500ms（`HumanObject.cs:4437`、`:4486`）。
+                effects.push((now + SUMMON_DELAY_MS, MagicEffect::Summon { spell }));
+            }
+            SpellKind::Poison => {
+                // `int power = magic.GetDamage(GetAttackPower(MinSC, MaxSC));`
+                // 延迟 500ms（`HumanObject.cs:4372-4374`）。
+                let base = stats.attack_power(stats.min_sc, stats.max_sc, &mut self.rng);
+                let value = magic.damage(&info, base, &mut self.rng);
+                effects.push((
+                    now + POISON_DELAY_MS,
+                    MagicEffect::Poison {
+                        target_id,
+                        power: value,
+                    },
+                ));
             }
             SpellKind::Unsupported => unreachable!("上面已经分派过"),
         }
@@ -1357,6 +1705,22 @@ impl World {
             .map(|monster| monster.position)
     }
 
+    /// 攻击类技能（含玩家目标的 `Poisoning`）能命中的目标位置：
+    /// 未死亡的同图怪物，或按 PK 规则可以攻击的玩家（Crystal `IsAttackTarget`）。
+    fn magic_attack_position(&self, map: &str, caster_id: u32, target_id: u32) -> Option<Point> {
+        if let Some(position) = self.attack_target_position(map, target_id) {
+            return Some(position);
+        }
+        self.players
+            .get(&target_id)
+            .filter(|player| {
+                !player.dead
+                    && player.map == map
+                    && self.is_attack_target_player(caster_id, target_id)
+            })
+            .map(|player| player.position)
+    }
+
     /// 结算到期的延迟魔法效果（Crystal `DelayedType.Magic`，`Map.cs:730-737` 的
     /// `ActionList` 循环 + `Map.CompleteMagic`/`HumanObject.CompleteMagic`）。
     pub(crate) fn resolve_pending_magic(&mut self, now: i64) {
@@ -1488,6 +1852,46 @@ impl World {
                     }
                 }
                 if trained {
+                    self.level_magic(action.caster_id, action.spell);
+                }
+            }
+            MagicEffect::FireWall {
+                map: field_map,
+                location,
+                damage,
+                cast_id,
+            } => {
+                // `Map.cs:1101-1183`：先 `LevelMagic`（`:1110`，落点非法也升级），
+                // 再在落点 + 上/右/下/左铺 5 格（`:1145-1149`）。
+                self.level_magic(action.caster_id, action.spell);
+                self.create_fire_wall(action.caster_id, &field_map, location, damage, cast_id, now);
+            }
+            MagicEffect::Lightning {
+                origin,
+                direction,
+                damage,
+            } => {
+                if self.resolve_lightning(action.caster_id, &map, origin, direction, damage) {
+                    self.level_magic(action.caster_id, action.spell);
+                }
+            }
+            MagicEffect::Teleport => {
+                if self.teleport_caster(action.caster_id) {
+                    self.level_magic(action.caster_id, action.spell);
+                }
+            }
+            MagicEffect::Hiding { duration_ms } => {
+                self.start_hiding(action.caster_id, duration_ms, now);
+                self.level_magic(action.caster_id, action.spell);
+            }
+            MagicEffect::Summon { spell } => {
+                if self.summon_pet(action.caster_id, spell).is_some() {
+                    self.level_magic(action.caster_id, action.spell);
+                }
+            }
+            MagicEffect::Poison { target_id, power } => {
+                if self.apply_poisoning(action.caster_id, &map, target_id, power, action.spell, now)
+                {
                     self.level_magic(action.caster_id, action.spell);
                 }
             }
@@ -1744,11 +2148,875 @@ impl World {
         );
     }
 
-    /// 目标格是否在地图范围内（Crystal `Map.ValidPoint` 的边界判定，
-    /// `Server/MirEnvir/Map.cs:881`：`if (!ValidPoint(location)) return;`）。
+    /// 火墙施法瞬间的上限检查（Crystal `HumanObject.cs:4151-4175`）。
     ///
-    /// 与 [`World::walkable_on`] 的区别：这里**不看地形**——Crystal 的 `ValidPoint`
-    /// 只要求坐标合法，火焰可以推进到不能站的格子上。
+    /// `FireWallLimit` 为真且 `FireWallCount > 0` 时，按**施法实例**（`CastInstanceId`）
+    /// 统计当前仍在场上的火墙；达到上限则回收最老一次施法的全部格子
+    /// （`TryReplaceOldestFireWallCast`，`:4183-4207`）；没有可回收的才返回 `false`
+    /// （调用方据此不排延迟动作，但蓝/冷却/`S.Magic` 已经发生，与 Crystal 一致）。
+    fn can_cast_fire_wall(&mut self, map: &str, caster_id: u32) -> bool {
+        let Some((true, count)) = self
+            .game_data()
+            .and_then(|data| data.map_info(map))
+            .map(|info| (info.firewall_limit, info.firewall_count))
+        else {
+            return true;
+        };
+        if count <= 0 {
+            return true;
+        }
+        let mut casts: Vec<u32> = self
+            .spell_fields
+            .iter()
+            .filter(|field| {
+                field.map == map && field.spell == Spell::FireWall && field.caster_id == caster_id
+            })
+            .map(|field| field.cast_id)
+            .collect();
+        casts.sort_unstable();
+        casts.dedup();
+        if casts.len() < usize::try_from(count).unwrap_or(usize::MAX) {
+            return true;
+        }
+        if self.recycle_oldest_fire_wall(map, caster_id) {
+            true
+        } else {
+            self.send_system_chat(caster_id, "火墙数量已达上限，请稍后再试。");
+            false
+        }
+    }
+
+    /// 铺一片火墙（Crystal `Map.cs:1101-1183` + `SpellObject` 构造）。
+    ///
+    /// 落点 + 上/右/下/左共 5 格（`:1145-1149`），每格独立到期（`ExpireTime =
+    /// now + (10 + damage / 2) * 1000`，`:1133`）、独立 tick（`TickSpeed = 2000`，`:1134`）。
+    /// 同格已有火墙则跳过（`:1116-1126`、`:1154-1166`）。
+    ///
+    /// 每格都先做 `ValidPoint`（`:1112-1113`、`:1151`）：边界 + 地形可走
+    /// （`Map.cs:637-640`），本作对应 [`World::walkable_on`]。
+    fn create_fire_wall(
+        &mut self,
+        caster_id: u32,
+        map: &str,
+        location: Point,
+        damage: i32,
+        cast_id: u32,
+        now: i64,
+    ) {
+        let expire_at = now + (FIREWALL_BASE_SECONDS + i64::from(damage.max(0) / 2)) * SECOND_MS;
+        let mut direction = MirDirection::Up;
+        for index in 0..FIREWALL_CELLS {
+            let cell = if index == 0 {
+                location
+            } else {
+                direction = if index == 1 {
+                    MirDirection::Up
+                } else {
+                    rotate_direction(direction, 2)
+                };
+                location.moved(direction, 1)
+            };
+            if !self.walkable_on(map, cell) {
+                continue;
+            }
+            let occupied = self.spell_fields.iter().any(|field| {
+                field.map == map
+                    && field.spell == Spell::FireWall
+                    && field.radius == 0
+                    && field.center == cell
+            });
+            if occupied {
+                continue;
+            }
+            let object_id = self.allocate_object_id();
+            let frame = ServerPacket::ObjectSpell(ObjectSpell {
+                object_id,
+                location: cell,
+                spell: Spell::FireWall,
+                direction: MirDirection::Up,
+                param: false,
+            })
+            .encode_frame();
+            self.broadcast(map, cell, None, &frame, object_id);
+            self.spell_fields.push(SpellField {
+                object_id,
+                map: map.to_owned(),
+                center: cell,
+                radius: 0,
+                damage,
+                caster_id,
+                expire_at,
+                // Crystal 的 `TickTime` 初值 0 → 首跳立即（`SpellObject.cs:111-112`）。
+                next_tick: now,
+                tick_ms: FIREWALL_TICK_MS,
+                spell: Spell::FireWall,
+                direction: MirDirection::Up,
+                cast_id,
+            });
+        }
+    }
+
+    /// 回收最老的一次火墙施法（Crystal `TryReplaceOldestFireWallCast`，
+    /// `HumanObject.cs:4183-4207`）。
+    fn recycle_oldest_fire_wall(&mut self, map: &str, caster_id: u32) -> bool {
+        let Some(oldest) = self
+            .spell_fields
+            .iter()
+            .filter(|field| {
+                field.map == map && field.spell == Spell::FireWall && field.caster_id == caster_id
+            })
+            .map(|field| field.cast_id)
+            .min()
+        else {
+            return false;
+        };
+        let mut index = 0;
+        while index < self.spell_fields.len() {
+            let field = &self.spell_fields[index];
+            if field.map == map && field.caster_id == caster_id && field.cast_id == oldest {
+                let packet = ServerPacket::ObjectRemove(ObjectRemove {
+                    object_id: field.object_id,
+                })
+                .encode_frame();
+                let (field_map, center, object_id) =
+                    (field.map.clone(), field.center, field.object_id);
+                self.broadcast(&field_map, center, None, &packet, object_id);
+                self.spell_fields.remove(index);
+                continue;
+            }
+            index += 1;
+        }
+        true
+    }
+
+    /// 每 tick 推进持续法术场：到期/施法者换图或下线就移除；到点用 AOI 结算伤害
+    /// （Crystal `SpellObject.Process`，`SpellObject.cs:51-122`）。
+    pub(crate) fn tick_spell_fields(&mut self, now: i64) {
+        let mut index = 0;
+        while index < self.spell_fields.len() {
+            let field = self.spell_fields[index].clone();
+            let caster_gone = self
+                .players
+                .get(&field.caster_id)
+                .is_none_or(|caster| caster.map != field.map);
+            if now >= field.expire_at || caster_gone {
+                let packet = ServerPacket::ObjectRemove(ObjectRemove {
+                    object_id: field.object_id,
+                })
+                .encode_frame();
+                self.broadcast(&field.map, field.center, None, &packet, field.object_id);
+                self.spell_fields.remove(index);
+                continue;
+            }
+            if now >= field.next_tick {
+                self.spell_fields[index].next_tick = now + field.tick_ms;
+                self.apply_fire_wall_tick(&field);
+            }
+            index += 1;
+        }
+    }
+
+    /// 火墙一次 tick 的伤害（Crystal `SpellObject.ProcessSpell` 的 `FireWall` 分支，
+    /// `SpellObject.cs:128-135`）：同格内玩家/怪物，`DefenceType.MAC`。
+    fn apply_fire_wall_tick(&mut self, field: &SpellField) {
+        let Some(caster_stats) = self
+            .players
+            .get(&field.caster_id)
+            .map(|caster| caster.stats)
+        else {
+            return;
+        };
+        // 半径 0 = 只烧中心格；用 AOI 查这一格（Crystal `GetCell(...).Objects`，`SpellObject.cs:114-119`）。
+        for entry in self.aoi_in_radius(&field.map, field.center, field.radius) {
+            match entry.kind {
+                AoiKind::Player => {
+                    let target_id = entry.object_id;
+                    if target_id == field.caster_id {
+                        continue;
+                    }
+                    let alive = self.players.get(&target_id).is_some_and(|player| {
+                        !player.dead && player.map == field.map && player.position == field.center
+                    });
+                    if !alive || !self.is_attack_target_player(field.caster_id, target_id) {
+                        continue;
+                    }
+                    self.damage_player_from_player(
+                        PendingHit {
+                            at: 0,
+                            attacker_id: field.caster_id,
+                            target_id,
+                            damage: field.damage,
+                            defence: DefenceType::MAC,
+                        },
+                        &caster_stats,
+                    );
+                }
+                AoiKind::Monster => {
+                    let target_id = entry.object_id;
+                    let hittable = self.monster(target_id).is_some_and(|monster| {
+                        !monster.dead
+                            && monster.map == field.map
+                            && monster.position == field.center
+                            && monster.master != Some(field.caster_id)
+                    });
+                    if hittable {
+                        self.damage_magic_target(field.caster_id, target_id, field.damage);
+                    }
+                }
+                AoiKind::Npc | AoiKind::Item => {}
+            }
+        }
+    }
+
+    /// 雷电结算（Crystal `Map.CompleteMagic` 的 `Lightning` 分支，`Map.cs:1187-1218`）：
+    /// 从施法者位置沿方向推进最多 6 格，每格命中**第一个**可攻击对象（内层 `break`），
+    /// 然后继续下一格；`ValidPoint` 失败或空格只是 `continue`，**没有遇阻停止**。
+    ///
+    /// 返回是否至少打出了有效伤害（决定 `LevelMagic`，`:1210-1211`）。
+    fn resolve_lightning(
+        &mut self,
+        caster_id: u32,
+        map: &str,
+        origin: Point,
+        direction: MirDirection,
+        damage: i32,
+    ) -> bool {
+        let Some(caster_stats) = self.players.get(&caster_id).map(|caster| caster.stats) else {
+            return false;
+        };
+        let mut trained = false;
+        let mut location = origin;
+        for _ in 0..LIGHTNING_RANGE {
+            location = location.moved(direction, 1);
+            // Crystal `ValidPoint` = 边界 + 地形可走（`Map.cs:637-640`）；失败只是 continue。
+            if !self.walkable_on(map, location) {
+                continue;
+            }
+            // 单格对象按 (y, x, 对象 ID) 排序，等价 Crystal `cell.Objects` 的加入顺序。
+            for entry in self.aoi_in_cell(map, location) {
+                match entry.kind {
+                    AoiKind::Monster => {
+                        let target_id = entry.object_id;
+                        let attackable = self.monster(target_id).is_some_and(|monster| {
+                            !monster.dead
+                                && monster.map == map
+                                && monster.position == location
+                                && !monster.kind.is_guard()
+                        });
+                        if !attackable {
+                            continue;
+                        }
+                        if self.damage_magic_target(caster_id, target_id, damage) > 0 {
+                            trained = true;
+                        }
+                        break;
+                    }
+                    AoiKind::Player => {
+                        let target_id = entry.object_id;
+                        let attackable = self.players.get(&target_id).is_some_and(|player| {
+                            !player.dead
+                                && player.map == map
+                                && player.position == location
+                                && target_id != caster_id
+                        });
+                        if !attackable || !self.is_attack_target_player(caster_id, target_id) {
+                            continue;
+                        }
+                        let before = self.players.get(&target_id).map_or(0, |player| player.hp);
+                        self.damage_player_from_player(
+                            PendingHit {
+                                at: 0,
+                                attacker_id: caster_id,
+                                target_id,
+                                damage,
+                                defence: DefenceType::MAC,
+                            },
+                            &caster_stats,
+                        );
+                        let after = self.players.get(&target_id).map_or(0, |player| player.hp);
+                        if after < before {
+                            trained = true;
+                        }
+                        break;
+                    }
+                    AoiKind::Npc | AoiKind::Item => {}
+                }
+            }
+        }
+        trained
+    }
+
+    /// 瞬息移动（Crystal `PlayerObject.MagicTeleport`，`PlayerObject.cs:4633-4648`）。
+    ///
+    /// **偏差**：Crystal 以 `BindMapIndex` + `BindLocation` 为中心；本作的 `Player` 没有
+    /// 建模 bind 点（`session.rs` 归户部），改用**当前地图 + 当前坐标**为中心，
+    /// 矩形半径仍是 `Width / (Level + 1)`、`Height / (Level + 1)`，最多 200 次，
+    /// 只校验可走点（`MapObject.cs:780-782`）。
+    ///
+    /// 返回是否成功传送；成功时加 30 秒传送法力惩罚（`HumanObject.cs:6106`）。
+    fn teleport_caster(&mut self, caster_id: u32) -> bool {
+        let Some((map, position, direction, level)) = self.players.get(&caster_id).map(|player| {
+            (
+                player.map.clone(),
+                player.position,
+                player.direction,
+                player.level,
+            )
+        }) else {
+            return false;
+        };
+        if self
+            .game_data()
+            .and_then(|data| data.map_info(&map))
+            .is_some_and(|info| info.no_teleport)
+        {
+            self.send_system_chat(caster_id, "这张地图不能使用瞬息移动。");
+            return false;
+        }
+        let (max_x, max_y) = self.map_bounds(&map);
+        let divisor = i32::from(level) + 1;
+        let size_x = ((max_x + 1) / divisor).max(1);
+        let size_y = ((max_y + 1) / divisor).max(1);
+        let mut landing = None;
+        for _ in 0..TELEPORT_ATTEMPTS {
+            let cell = Point::new(
+                position.x + self.rng.next_range(-size_x, size_x),
+                position.y + self.rng.next_range(-size_y, size_y),
+            );
+            if self.walkable_on(&map, cell) {
+                landing = Some(cell);
+                break;
+            }
+        }
+        let Some(landing) = landing else {
+            return false;
+        };
+        let now = self.now();
+        let out = ServerPacket::ObjectTeleportOut(ObjectTeleportOut {
+            object_id: caster_id,
+            type_: 0,
+        })
+        .encode_frame();
+        self.broadcast(&map, position, Some(caster_id), &out, caster_id);
+        if self
+            .change_map(caster_id, &map, landing, direction)
+            .is_err()
+        {
+            return false;
+        }
+        let enter = ServerPacket::ObjectTeleportIn(ObjectTeleportIn {
+            object_id: caster_id,
+            type_: 0,
+        })
+        .encode_frame();
+        self.broadcast(&map, landing, Some(caster_id), &enter, caster_id);
+        if let Some(player) = self.players.get_mut(&caster_id) {
+            player.magic.teleport_penalty_until = now + TELEPORT_PENALTY_MS;
+        }
+        true
+    }
+
+    /// 进入隐身（Crystal `AddBuff(BuffType.Hiding, ...)` + `MapObject.Hidden` setter，
+    /// `HumanObject.cs:7460-7488`、`MapObject.cs:80-92`、`:662-666`）。
+    ///
+    /// 包序：
+    /// 1. `S.ObjectHidden{true}` 广播给周围玩家（`Hidden` setter，`MapObject.cs:90`；
+    ///    `Broadcast` 不发给本人，`MapObject.cs:408-420`）；
+    /// 2. `S.AddBuff` **只发本人**（`Hiding` 的 `BuffInfo.Visible == false`，
+    ///    `BuffInfo.cs:20`、`HumanObject.cs:7474-7481`）；
+    /// 3. 让范围内正锁定自己的怪脱战（`HideFromTargets`，`MapObject.cs:737-763`）。
+    fn start_hiding(&mut self, player_id: u32, duration_ms: i64, now: i64) {
+        let Some((map, position, level, already_hidden)) =
+            self.players.get(&player_id).map(|player| {
+                (
+                    player.map.clone(),
+                    player.position,
+                    player.level,
+                    player.magic.hidden,
+                )
+            })
+        else {
+            return;
+        };
+        if let Some(player) = self.players.get_mut(&player_id) {
+            player.magic.hidden = true;
+            player.magic.hidden_until = now + duration_ms.max(0);
+        }
+        // 已经隐身：`BuffStackType.ResetDuration` 只重置时长，不再重发包
+        // （`MapObject.cs:591-595`；`Hidden` setter 在值未变时也直接 return，`MapObject.cs:88`）。
+        if already_hidden {
+            return;
+        }
+        let frame = ServerPacket::ObjectHidden(ObjectHidden {
+            object_id: player_id,
+            hidden: true,
+        })
+        .encode_frame();
+        self.broadcast(&map, position, Some(player_id), &frame, player_id);
+        // `HideFromTargets`：`if (ob.Target == this && (!ob.CoolEye || ob.Level < Level))
+        //     ob.Target = null;`（`MapObject.cs:754-760`）。
+        for monster_id in self.aoi_ids_in_radius(&map, position, VIEW_RANGE, AoiKind::Monster) {
+            let Some(monster) = self.monster_mut(monster_id) else {
+                continue;
+            };
+            if monster.target == Some(player_id)
+                && (!monster.cool_eye || monster.kind.level < level)
+            {
+                monster.target = None;
+            }
+        }
+        let buff = ClientBuff {
+            buff_type: BuffType::Hiding,
+            visible: false,
+            object_id: player_id,
+            expire_time: duration_ms.max(0),
+            infinite: false,
+            paused: false,
+            stats: Stats::default(),
+            values: Vec::new(),
+        };
+        self.send_to_player(
+            player_id,
+            &ServerPacket::AddBuff(AddBuff { buff }).encode_frame(),
+        );
+    }
+
+    /// 解除隐身（Crystal `RemoveBuff(BuffType.Hiding)` → `Hidden = false` 广播，
+    /// `HumanObject.cs:462-468`、`MapObject.cs:672-694`）。
+    pub(crate) fn remove_hiding(&mut self, player_id: u32) {
+        let Some((map, position, hidden)) = self
+            .players
+            .get(&player_id)
+            .map(|player| (player.map.clone(), player.position, player.magic.hidden))
+        else {
+            return;
+        };
+        if !hidden {
+            return;
+        }
+        if let Some(player) = self.players.get_mut(&player_id) {
+            player.magic.hidden = false;
+            player.magic.hidden_until = 0;
+        }
+        let frame = ServerPacket::ObjectHidden(ObjectHidden {
+            object_id: player_id,
+            hidden: false,
+        })
+        .encode_frame();
+        self.broadcast(&map, position, Some(player_id), &frame, player_id);
+        // 本人收到 `S.RemoveBuff` 清掉客户端 buff 列表（`HumanObject.cs:452-458`）。
+        self.send_to_player(
+            player_id,
+            &ServerPacket::RemoveBuff(RemoveBuff {
+                type_: BuffType::Hiding,
+                object_id: player_id,
+            })
+            .encode_frame(),
+        );
+    }
+
+    /// 隐身到期（Crystal `ProcessBuffs` 里 `BuffType.Hiding` 到期 → `Hidden = false`，
+    /// `HumanObject.cs:462-468`）。
+    pub(crate) fn tick_player_hiding(&mut self, player_id: u32, now: i64) {
+        let expired = self
+            .players
+            .get(&player_id)
+            .is_some_and(|player| player.magic.hidden && now >= player.magic.hidden_until);
+        if expired {
+            self.remove_hiding(player_id);
+        }
+    }
+
+    /// 召唤骷髅/神兽（Crystal `SummonSkeleton`/`SummonShinsu` + `Map.CompleteMagic`，
+    /// `HumanObject.cs:4399-4488`、`Map.cs:914-933`）。
+    ///
+    /// 规则：
+    /// * 地图 `NoPets` → 拒绝（`:4401-4405`、`:4450-4454`）；
+    /// * 同名活宠 → 只召回、不重复召唤（`:4408-4415`、`:4457-4464`）；
+    /// * 存活的怪物类召唤物最多 2 只（`:4417`、`:4466`；Crystal 的 `Pets` 列表含未移除的尸体，
+    ///   本作在召唤物死亡时就从索引摘掉，所以口径是「存活上限 2」）；
+    /// * 落点 Front 不合法时落主人脚下；主人已死则放弃（`Map.cs:925-932`）。
+    ///
+    /// 简化：护身符消耗未实现（Crystal 骷髅 1 符、神兽 5 符，`:4419-4426`、`:4468-4475`）。
+    fn summon_pet(&mut self, caster_id: u32, spell: Spell) -> Option<u32> {
+        let (map, position, direction, pet_level, master_dead) =
+            self.players.get(&caster_id).map(|player| {
+                let level = self
+                    .player_magic(caster_id, spell)
+                    .map_or(0, |magic| magic.level);
+                (
+                    player.map.clone(),
+                    player.position,
+                    player.direction,
+                    level,
+                    player.dead,
+                )
+            })?;
+        // `Map.cs:925`：`if (monster.Master.Dead) return;`——500ms 内主人死了就不召唤。
+        if master_dead {
+            return None;
+        }
+        if self
+            .game_data()
+            .and_then(|data| data.map_info(&map))
+            .is_some_and(|info| info.no_pets)
+        {
+            self.send_system_chat(caster_id, "这张地图不能召唤宠物。");
+            return None;
+        }
+        // 同名活宠：只召回（Crystal 比较 `Settings.SkeletonName`/`ShinsuName`）。
+        if let Some(pet_id) = self.pets_of(caster_id).into_iter().find(|pet_id| {
+            self.monster(*pet_id)
+                .is_some_and(|pet| !pet.dead && pet.summon_spell == Some(spell))
+        }) {
+            self.recall_pet(pet_id);
+            return None;
+        }
+        if self.pets_of(caster_id).len() >= MAX_MONSTER_PETS {
+            return None;
+        }
+        let (template_name, fallback, max_pet_level) = match spell {
+            Spell::SummonSkeleton => ("BoneFamiliar", MonsterKind::bone_familiar(), 4 + pet_level),
+            Spell::SummonShinsu => ("Shinsu", MonsterKind::shinsu(), 1 + pet_level * 2),
+            _ => return None,
+        };
+        let kind = self
+            .game_data()
+            .and_then(|data| data.monster_info_by_name(template_name))
+            .map_or(fallback, crate::gamedata::kind_from_monster_info);
+        let front = position.moved(direction, 1);
+        let at = if self.walkable_on(&map, front) {
+            front
+        } else {
+            position
+        };
+        Some(self.spawn_pet(&map, kind, at, caster_id, pet_level, max_pet_level, spell))
+    }
+
+    /// 施毒落地（Crystal `CompleteMagic` 的 `Poisoning` 分支，`HumanObject.cs:6041-6077`）。
+    ///
+    /// **本作玩法决策**：Crystal 由装备栏毒药物品的 `Shape`（1 绿 / 2 红）决定毒型
+    /// （`:6050-6070`）；本作没有毒药消耗品，改为「目标没有绿毒就施绿毒，已经有绿毒就施红毒」，
+    /// 两段都能在测试里确定性复现。绿毒公式逐字照抄：
+    /// `Duration = power * 2 + (Level + 1) * 7`、`Value = power / 15 + Level + 1`
+    /// （`PoisonAttack` 属性本作没有，省略该项）。
+    fn apply_poisoning(
+        &mut self,
+        caster_id: u32,
+        map: &str,
+        target_id: u32,
+        power: i32,
+        spell: Spell,
+        now: i64,
+    ) -> bool {
+        if self
+            .magic_attack_position(map, caster_id, target_id)
+            .is_none()
+        {
+            return false;
+        }
+        let level = i32::from(
+            self.player_magic(caster_id, spell)
+                .map_or(0, |magic| magic.level),
+        );
+        let duration = u32::try_from(power.max(0) * 2 + (level + 1) * 7).unwrap_or(u32::MAX);
+        let (has_green, has_red) = if let Some(monster) = self.monster(target_id) {
+            (
+                monster.poisons.iter().any(|p| p.kind == PoisonType::Green),
+                monster.poisons.iter().any(|p| p.kind == PoisonType::Red),
+            )
+        } else if let Some(player) = self.players.get(&target_id) {
+            (
+                player
+                    .magic
+                    .poisons
+                    .iter()
+                    .any(|p| p.kind == PoisonType::Green),
+                player
+                    .magic
+                    .poisons
+                    .iter()
+                    .any(|p| p.kind == PoisonType::Red),
+            )
+        } else {
+            return false;
+        };
+        let poison = if has_green && !has_red {
+            PoisonState::new(PoisonType::Red, 0, duration, now, caster_id)
+        } else {
+            let value = power / 15 + level + 1;
+            PoisonState::new(PoisonType::Green, value, duration, now, caster_id)
+        };
+        let applied = if self.monster(target_id).is_some() {
+            self.apply_poison_to_monster(target_id, poison)
+        } else {
+            self.apply_poison_to_player(target_id, poison)
+        };
+        if applied {
+            // `target.OperateTime = 0;`（`:6072`）：中毒的怪立刻重新思考。
+            if let Some(monster) = self.monster_mut(target_id) {
+                monster.operate_time = 0;
+                if monster.target.is_none() {
+                    monster.target = Some(caster_id);
+                }
+            }
+        }
+        // `LevelMagic(magic)` 在目标有效时总会执行（`HumanObject.cs:6074`），
+        // 即使新毒被「更强/更久的旧毒」挡住。
+        true
+    }
+
+    /// 给怪物上毒（Crystal `MonsterObject.ApplyPoison`，`MonsterObject.cs:2782-2836`）。
+    ///
+    /// 同类型毒：绿毒只接受更高伤害、红毒只接受更长时长，否则忽略（`:2805-2813`）。
+    fn apply_poison_to_monster(&mut self, target_id: u32, poison: PoisonState) -> bool {
+        let Some((map, position)) = self
+            .monster(target_id)
+            .map(|monster| (monster.map.clone(), monster.position))
+        else {
+            return false;
+        };
+        let Some(monster) = self.monster_mut(target_id) else {
+            return false;
+        };
+        if monster.dead {
+            return false;
+        }
+        if let Some(existing) = monster
+            .poisons
+            .iter_mut()
+            .find(|existing| existing.kind == poison.kind)
+        {
+            if poison.kind == PoisonType::Green && existing.value > poison.value {
+                return false;
+            }
+            if poison.kind != PoisonType::Green
+                && existing.duration.saturating_sub(existing.ticks) > poison.duration
+            {
+                return false;
+            }
+            *existing = poison;
+        } else {
+            monster.poisons.push(poison);
+        }
+        self.sync_monster_poison(&map, target_id, position);
+        true
+    }
+
+    /// 给玩家上毒（Crystal `HumanObject.ApplyPoison`，`HumanObject.cs:7380-7425`）。
+    fn apply_poison_to_player(&mut self, target_id: u32, poison: PoisonState) -> bool {
+        let Some((map, position)) = self
+            .players
+            .get(&target_id)
+            .map(|player| (player.map.clone(), player.position))
+        else {
+            return false;
+        };
+        let Some(player) = self.players.get_mut(&target_id) else {
+            return false;
+        };
+        if player.dead {
+            return false;
+        }
+        if let Some(existing) = player
+            .magic
+            .poisons
+            .iter_mut()
+            .find(|existing| existing.kind == poison.kind)
+        {
+            if poison.kind == PoisonType::Green && existing.value > poison.value {
+                return false;
+            }
+            if poison.kind != PoisonType::Green
+                && existing.duration.saturating_sub(existing.ticks) > poison.duration
+            {
+                return false;
+            }
+            *existing = poison;
+        } else {
+            player.magic.poisons.push(poison);
+        }
+        self.sync_player_poison(target_id, &map, position);
+        true
+    }
+
+    /// 广播某一格的毒类型变化（Crystal `S.ObjectPoisoned`，`MonsterObject.cs:1568`、
+    /// `HumanObject.cs:730`）。
+    fn sync_monster_poison(&self, map: &str, object_id: u32, position: Point) {
+        let Some(kind) = self
+            .monster(object_id)
+            .map(crate::monster::Monster::poison_type)
+        else {
+            return;
+        };
+        let frame = ServerPacket::ObjectPoisoned(ObjectPoisoned {
+            object_id,
+            poison: kind,
+        })
+        .encode_frame();
+        self.broadcast(map, position, Some(object_id), &frame, object_id);
+    }
+
+    /// 玩家毒类型变化：本人 `S.Poisoned` + 周围 `S.ObjectPoisoned`
+    /// （Crystal `HumanObject.cs:727-732`）。
+    fn sync_player_poison(&self, object_id: u32, map: &str, position: Point) {
+        let Some(kind) = self.players.get(&object_id).map(Player::poison_type) else {
+            return;
+        };
+        self.send_to_player(
+            object_id,
+            &ServerPacket::Poisoned(Poisoned { poison: kind }).encode_frame(),
+        );
+        let frame = ServerPacket::ObjectPoisoned(ObjectPoisoned {
+            object_id,
+            poison: kind,
+        })
+        .encode_frame();
+        self.broadcast(map, position, Some(object_id), &frame, object_id);
+    }
+
+    /// 玩家中毒每 tick 结算（Crystal `HumanObject.ProcessPoison`，`HumanObject.cs:650-733`）。
+    ///
+    /// 人类口径：**最后一跳仍然结算**（先扣血再移除，`:668-693`）。
+    pub(crate) fn tick_player_poison(&mut self, player_id: u32, now: i64) {
+        let Some(player) = self.players.get(&player_id) else {
+            return;
+        };
+        if player.dead || player.magic.poisons.is_empty() {
+            return;
+        }
+        let map = player.map.clone();
+        let position = player.position;
+        let mut changed = false;
+        let mut index = 0;
+        while index
+            < self
+                .players
+                .get(&player_id)
+                .map_or(0, |player| player.magic.poisons.len())
+        {
+            let poison = self.players[&player_id].magic.poisons[index];
+            // 毒主下线 → 整条毒移除（`MonsterObject.cs:1464-1474` 的等价语义）。
+            if poison.owner_id != 0 && !self.players.contains_key(&poison.owner_id) {
+                self.players
+                    .get_mut(&player_id)
+                    .map(|player| player.magic.poisons.remove(index));
+                changed = true;
+                continue;
+            }
+            if now > poison.tick_at {
+                let mut poison = poison;
+                poison.ticks = poison.ticks.saturating_add(1);
+                poison.tick_at = now + POISON_TICK_MS;
+                if let Some(player) = self.players.get_mut(&player_id) {
+                    if let Some(slot) = player.magic.poisons.get_mut(index) {
+                        *slot = poison;
+                    }
+                }
+                if poison.kind == PoisonType::Green {
+                    if let Some(player) = self.players.get_mut(&player_id) {
+                        player.last_hitter = (poison.owner_id != 0).then_some(poison.owner_id);
+                        player.last_hit_time = now + 10_000;
+                        player.regen_time = now + PLAYER_REGEN_DELAY_MS;
+                    }
+                    self.change_player_hp(player_id, -poison.value);
+                    self.emit_damage_indicator(
+                        &map,
+                        position,
+                        player_id,
+                        -poison.value,
+                        DamageType::Hit,
+                    );
+                    if self
+                        .players
+                        .get(&player_id)
+                        .is_some_and(|player| player.dead)
+                    {
+                        break;
+                    }
+                }
+                if poison.ticks >= poison.duration {
+                    self.players
+                        .get_mut(&player_id)
+                        .map(|player| player.magic.poisons.remove(index));
+                    changed = true;
+                    continue;
+                }
+            }
+            index += 1;
+        }
+        if changed {
+            self.sync_player_poison(player_id, &map, position);
+        }
+    }
+
+    /// 怪物中毒每 tick 结算（Crystal `MonsterObject.ProcessPoison`，`MonsterObject.cs:1453-1569`）。
+    ///
+    /// 怪物口径：`Time++` 后若 `Time >= Duration` 先移除再 `continue`，
+    /// **最后一跳不结算**（`:1476-1491`）。
+    pub(crate) fn tick_monster_poison(&mut self, monster: &mut crate::monster::Monster, now: i64) {
+        if monster.dead || monster.poisons.is_empty() {
+            return;
+        }
+        let map = monster.map.clone();
+        let position = monster.position;
+        let object_id = monster.object_id;
+        let mut changed = false;
+        let mut index = 0;
+        while index < monster.poisons.len() {
+            let poison = monster.poisons[index];
+            if poison.owner_id != 0 && !self.players.contains_key(&poison.owner_id) {
+                monster.poisons.remove(index);
+                changed = true;
+                continue;
+            }
+            if now > poison.tick_at {
+                let mut poison = poison;
+                poison.ticks = poison.ticks.saturating_add(1);
+                poison.tick_at = now + POISON_TICK_MS;
+                if poison.ticks >= poison.duration {
+                    monster.poisons.remove(index);
+                    changed = true;
+                    continue;
+                }
+                monster.poisons[index] = poison;
+                if poison.kind == PoisonType::Green {
+                    if monster.expo_owner.is_none() && poison.owner_id != 0 {
+                        monster.expo_owner = Some(poison.owner_id);
+                    }
+                    monster.hp = (monster.hp - poison.value).max(0);
+                    self.emit_damage_indicator(
+                        &map,
+                        position,
+                        object_id,
+                        -poison.value,
+                        DamageType::Hit,
+                    );
+                    if monster.hp == 0 {
+                        // 死亡由 `tick_monsters` 在回写后统一结算（避免覆盖世界里的副本）。
+                        break;
+                    }
+                }
+            }
+            index += 1;
+        }
+        if changed {
+            let kind = monster.poison_type();
+            let frame = ServerPacket::ObjectPoisoned(ObjectPoisoned {
+                object_id,
+                poison: kind,
+            })
+            .encode_frame();
+            self.broadcast(&map, position, Some(object_id), &frame, object_id);
+        }
+    }
+
+    /// 目标格是否在地图边界内（**既有简化**，只给 `HellFire` 用）。
+    ///
+    /// Crystal 的 `Map.ValidPoint`（`Map.cs:637-640`）是「边界 **且** `Cell.Valid`（地形可走）」；
+    /// 本作的 `HellFire` 从 milestone 1 起就只做边界判定（火焰可以推进到不能站的格子上），
+    /// 这是有意保留的偏差。新写的技能（火墙/雷电）一律用 [`World::walkable_on`] 对齐
+    /// `ValidPoint`。
     fn in_bounds(&self, map: &str, cell: Point) -> bool {
         let (max_x, max_y) = self.map_bounds(map);
         cell.x >= 0 && cell.y >= 0 && cell.x <= max_x && cell.y <= max_y
@@ -2088,6 +3356,29 @@ mod tests {
         for spell in REGISTERED_UNSUPPORTED {
             assert_eq!(spell_kind(*spell), SpellKind::Unsupported);
         }
+        // 第 2 轮补齐的 7 个技能（火墙/雷电/瞬息移动/隐身/召唤/施毒）。
+        for spell in [
+            Spell::FireWall,
+            Spell::Lightning,
+            Spell::Teleport,
+            Spell::Hiding,
+            Spell::SummonSkeleton,
+            Spell::SummonShinsu,
+            Spell::Poisoning,
+        ] {
+            assert_ne!(
+                spell_kind(spell),
+                SpellKind::Unsupported,
+                "{spell:?} 应该已经有实现"
+            );
+        }
+        assert_eq!(spell_kind(Spell::FireWall), SpellKind::FireWall);
+        assert_eq!(spell_kind(Spell::Lightning), SpellKind::Lightning);
+        assert_eq!(spell_kind(Spell::Teleport), SpellKind::Teleport);
+        assert_eq!(spell_kind(Spell::Hiding), SpellKind::Hiding);
+        assert_eq!(spell_kind(Spell::SummonSkeleton), SpellKind::Summon);
+        assert_eq!(spell_kind(Spell::SummonShinsu), SpellKind::Summon);
+        assert_eq!(spell_kind(Spell::Poisoning), SpellKind::Poison);
         assert_eq!(spell_kind(Spell::Rage), SpellKind::Unsupported);
         // 增益技能不能和已实现的伤害/治疗技能重叠。
         assert!(!REGISTERED_UNSUPPORTED.contains(&Spell::MagicShield));

@@ -409,6 +409,31 @@ impl Player {
     pub fn can_attack(&self, now: i64) -> bool {
         !self.dead && now >= self.action_time && now >= self.attack_time
     }
+
+    /// 红毒造成的防御倍率（Crystal `ArmourRate`，`HumanObject.cs:714-715`）。
+    ///
+    /// Crystal 每中一次红毒 `ArmourRate -= 0.10F`；结算时 `armour * ArmourRate`
+    /// （`HumanObject.cs:7241`）。本作把倍率夹到 `0.0..=1.0`，避免负防御。
+    #[must_use]
+    pub fn armour_rate(&self) -> f32 {
+        let mut rate = 1.0_f32;
+        for poison in &self.magic.poisons {
+            if poison.kind == PoisonType::Red {
+                rate -= 0.10;
+            }
+        }
+        rate.clamp(0.0, 1.0)
+    }
+
+    /// 当前中毒类型（Crystal `MapObject.CurrentPoison`，用于 `S.ObjectPlayer.Poison`）。
+    #[must_use]
+    pub fn poison_type(&self) -> PoisonType {
+        let mut kind = PoisonType::None;
+        for poison in &self.magic.poisons {
+            kind |= poison.kind;
+        }
+        kind
+    }
 }
 
 /// 移动失败原因。
@@ -616,6 +641,22 @@ pub struct World {
     pub(crate) pending_hits: Vec<PendingHit>,
     /// 已到期但还没结算的延迟魔法效果（Crystal `DelayedType.Magic`，见 [`crate::magic`]）。
     pub(crate) pending_magic: Vec<PendingMagic>,
+    /// 地图上的持续法术场（Crystal 的 `SpellObject`，`Server/MirObjects/SpellObject.cs`）。
+    ///
+    /// 本作没有 `ObjectType.Spell` 这一层对象，火墙用「中心 + 半径 + 到期 + 伤害间隔」
+    /// 的轻量结构表示；每 tick 用 AOI 查半径内的玩家/怪物结算伤害（见 [`crate::magic`]）。
+    pub(crate) spell_fields: Vec<crate::magic::SpellField>,
+    /// 下一次火墙「施法实例」编号（Crystal `_fireWallCastSeq`，`HumanObject.cs:4178`）。
+    ///
+    /// 地图配置 `FireWallLimit/FireWallCount` 按施法实例计数，超限时一次回收最老实例的
+    /// **全部格子**（`HumanObject.cs:4151-4175`、`:4183-4207`）。
+    pub(crate) next_spell_cast_id: u32,
+    /// 召唤物索引：主人（玩家对象 ID）→ 召唤物对象 ID 列表（按召唤顺序）。
+    ///
+    /// Crystal 把召唤物挂在 `HumanObject.Pets` 列表上（`HumanObject.cs:317-321`）；
+    /// 本作单独维护一份索引，主人下线/死亡、召唤物死亡时 O(1) 找到需要清理的对象，
+    /// 不必遍历全部怪物。
+    pub(crate) pets: HashMap<u32, Vec<u32>>,
     /// 刷怪组运行状态（Crystal 每张 `Map` 的 `Respawns` 列表，`Server/MirEnvir/Map.cs:473-488`）。
     respawn_groups: Vec<RespawnGroupState>,
     /// 地面物品（Crystal `Envir.Objects` 里 `ObjectType.Item` 的那部分，见 `crate::items`）。
@@ -811,6 +852,9 @@ impl World {
             npcs: Vec::new(),
             pending_hits: Vec::new(),
             pending_magic: Vec::new(),
+            spell_fields: Vec::new(),
+            next_spell_cast_id: 1,
+            pets: HashMap::new(),
             respawn_groups: Vec::new(),
             ground_items: Vec::new(),
             game_data: None,
@@ -875,6 +919,9 @@ impl World {
             npcs: Vec::new(),
             pending_hits: Vec::new(),
             pending_magic: Vec::new(),
+            spell_fields: Vec::new(),
+            next_spell_cast_id: 1,
+            pets: HashMap::new(),
             respawn_groups: Vec::new(),
             ground_items: Vec::new(),
             game_data: None,
@@ -1460,6 +1507,8 @@ impl World {
         }
         self.aoi_remove(&map, AoiKind::Player, object_id);
         self.visible_players.remove(&object_id);
+        // 召唤物随主人下线消失（简化：不做 Crystal 的 PetSave/登录重召，见 docs 差异）。
+        self.despawn_pets(object_id);
         // `Despawn(); LeaveGroup();`（`PlayerObject.cs:405-406`）。
         self.leave_group(object_id);
         // 行会成员标记离线（Crystal `PlayerObject.cs:397` 的 `MyGuild.PlayerLogged(this, false)`）。
@@ -1554,6 +1603,8 @@ impl World {
         }
         // 落格前先更新朝向（Crystal `HumanObject.Walk` 的 `Direction = dir` 在
         // `CheckMovement(location)` 之前，`Server/MirObjects/HumanObject.cs:2465-2466`）。
+        // 隐身也在这里解除（`:2460-2463`，在 `Direction = dir` 之前）。
+        self.remove_hiding(object_id);
         if let Some(player) = self.players.get_mut(&object_id) {
             player.direction = direction;
         }
@@ -1623,6 +1674,8 @@ impl World {
         let mut destination = from;
         // Crystal 在跑之前就把朝向改掉（`HumanObject.cs:2549`），逐格检查里命中
         // 传送点会整次作废（`:2584` 的 `if (CheckMovement(location)) return false;`）。
+        // 隐身先解除（`:2540-2545`，`if (Hidden && !Sneaking)`）。
+        self.remove_hiding(object_id);
         if let Some(player) = self.players.get_mut(&object_id) {
             player.direction = direction;
         }
@@ -1758,6 +1811,11 @@ impl World {
         let Some(target_id) = self.melee_target(object_id, &map, target_cell) else {
             return Ok(None);
         };
+        // 记录最近一次攻击目标：召唤物优先打主人的目标（`MonsterObject.cs:1978-1988` 的
+        // 反向——本作由 `pet_target` 读取这里）。
+        if let Some(player) = self.players.get_mut(&object_id) {
+            player.magic.last_target = Some(target_id);
+        }
         self.pending_hits.push(PendingHit {
             at: now + PLAYER_ATTACK_DAMAGE_DELAY_MS,
             attacker_id: object_id,
@@ -1887,6 +1945,8 @@ impl World {
         self.tick_quests(self.wall_now());
         self.resolve_pending_hits(now);
         self.resolve_pending_magic(now);
+        // 持续法术场（火墙）：Crystal 的 `SpellObject.Process`（`SpellObject.cs:51-122`）。
+        self.tick_spell_fields(now);
         self.tick_respawns(now);
         self.tick_monsters(now);
         // 地面物品到期（Crystal `ItemObject.Process`，`ItemObject.cs:129-142`）。
@@ -1927,8 +1987,12 @@ impl World {
                 player.step_counter = 0;
             }
             // `HumanObject.Process` 的调用顺序：先 `ProcessRegen()`，再 `ProcessPoison()`
-            // （`HumanObject.cs:323-325`）。毒还没实现，这里只做回复。
+            // （`HumanObject.cs:323-325`）。毒的 tick 在回复之后。
             self.process_player_regen(object_id, now);
+            // 隐身到期（Crystal `ProcessBuffs` 的 `BuffType.Hiding` 分支，
+            // `HumanObject.cs:462-468`）。
+            self.tick_player_hiding(object_id, now);
+            self.tick_player_poison(object_id, now);
             // Crystal 没有服务端复活计时器；到点自动复活是本作的扩展（见 `PLAYER_REVIVE_DELAY_MS`）。
             let due = self.players.get(&object_id).is_some_and(|player| {
                 player.dead && player.revive_time > 0 && now >= player.revive_time
@@ -2458,7 +2522,11 @@ impl World {
     /// 棕名（`:7199-7200`）：**受害者**既不是棕名也没有红名、且双方不在战争中时，
     /// 攻方 `BrownTime = now + Settings.Minute`。注意判定用的是受害者的
     /// `BrownTime` / `PKPoints`，不是攻方的。
-    fn damage_player_from_player(&mut self, hit: PendingHit, attacker_stats: &CombatStats) {
+    pub(crate) fn damage_player_from_player(
+        &mut self,
+        hit: PendingHit,
+        attacker_stats: &CombatStats,
+    ) {
         let now = self.now();
         let Some((stats, map, dead, position, direction)) = self.player_snapshot(hit.target_id)
         else {
@@ -2602,6 +2670,9 @@ impl World {
         let last_hitter = player.last_hitter;
         // 死亡掉落用 `!InSafeZone` 判定（`:640`），必须在 `Dead = true` 之前取。
         let was_in_safe_zone = self.in_safe_zone(player_id);
+        // 死亡立刻现形：先发 `S.ObjectHidden{false}` / `S.RemoveBuff`，避免旁人客户端
+        // 保留「尸体还在隐身」的状态。
+        self.remove_hiding(player_id);
 
         // 1) PK（`PlayerObject.cs:599-622`）。
         //    注意判定用的是**受害者**的 `BrownTime` / `PKPoints`（源码里的无限定字段），
@@ -2656,7 +2727,12 @@ impl World {
             player.death_time = now;
             player.revive_time = now + PLAYER_REVIVE_DELAY_MS;
             player.brown_time = now;
+            // `PoisonList.Clear()`（`PlayerObject.cs:661`）；隐身状态也随死亡清除。
+            player.magic.poisons.clear();
+            player.magic.hidden = false;
         }
+        // `for (int i = 0; i < Pets.Count; i++) Pets[i].Die();`（`PlayerObject.cs:629-633`）。
+        self.kill_pets(player_id);
         // 本作扩展：死亡即中止交易并退货。Crystal 的 `Die()` 不清交易状态
         // （`PlayerObject.cs:578-667` 里没有 `TradeCancel`），只靠随后的移动/切图取消；
         // 需求要求死亡中断交易，见 `docs/world/trade.md` 的差异 3。
@@ -3243,7 +3319,16 @@ impl World {
     pub fn spawn_monster(&mut self, map: &str, kind: MonsterKind, position: Point) -> u32 {
         let now = self.now();
         let object_id = self.allocate_object_id();
-        let monster = Monster::new(object_id, Arc::new(kind), map, position, now, &mut self.rng);
+        // 不死系标记来自数据库的 `MonsterInfo.Undead`（Crystal `MapObject.Undead`），
+        // 本作没有给 `MonsterKind` 加字段，刷怪时按名字回查一次（`ThunderBolt` 用，`HumanObject.cs:4126`）。
+        let undead = self
+            .game_data
+            .as_ref()
+            .and_then(|data| data.monster_info_by_name(&kind.name))
+            .is_some_and(|info| info.undead);
+        let mut monster =
+            Monster::new(object_id, Arc::new(kind), map, position, now, &mut self.rng);
+        monster.undead = undead;
         let packet = monster_info_frame(&monster);
         self.monsters.push(monster);
         let index = self.monsters.len() - 1;
@@ -3252,6 +3337,155 @@ impl World {
         self.aoi_insert(map, object_id, AoiKind::Monster, position);
         self.sync_monster_view(object_id, map, None, position, &packet);
         object_id
+    }
+
+    /// 刷一只召唤物：怪物实例 + 主人归属（Crystal `SummonSkeleton`/`SummonShinsu`，
+    /// `HumanObject.cs:4399-4440`、`:4448-4488`；`Map.cs:914-933` 的 `Spawn` + `Pets.Add`）。
+    ///
+    /// `pet_level` 是施法时的技能等级；属性加成与提速照 `MonsterObject.RefreshAll`
+    /// （`MonsterObject.cs:811-827`）：
+    /// `HP + 20L`、`AC/MAC + 2L`、`DC + L`，移动/攻击间隔各减 `MaxPetLevel × 130 / 70`（下限 400ms）。
+    #[allow(clippy::too_many_arguments)] // 与 Crystal `Spawn` + `Pets.Add` 的入参一一对应，拆结构体反而更难读。
+    pub(crate) fn spawn_pet(
+        &mut self,
+        map: &str,
+        kind: MonsterKind,
+        position: Point,
+        master_id: u32,
+        pet_level: u8,
+        max_pet_level: u8,
+        summon_spell: Spell,
+    ) -> u32 {
+        let now = self.now();
+        let object_id = self.spawn_monster(map, kind, position);
+        let level = i32::from(pet_level);
+        let mut monster_frame = None;
+        if let Some(monster) = self.monster_mut(object_id) {
+            monster.master = Some(master_id);
+            monster.pet_level = pet_level;
+            monster.max_pet_level = max_pet_level;
+            monster.summon_spell = Some(summon_spell);
+            monster.stats.hp += level * 20;
+            monster.stats.min_ac += level * 2;
+            monster.stats.max_ac += level * 2;
+            monster.stats.min_mac += level * 2;
+            monster.stats.max_mac += level * 2;
+            monster.stats.min_dc += level;
+            monster.stats.max_dc += level;
+            monster.hp = monster.stats.hp;
+            let reduction = i64::from(max_pet_level);
+            monster.move_speed_ms = (monster.move_speed_ms - reduction * 130).max(400);
+            monster.attack_speed_ms = (monster.attack_speed_ms - reduction * 70).max(400);
+            // `SummonSkeleton` 的 `ActionTime = Envir.Time + 1000`（`HumanObject.cs:4432`）。
+            monster.action_time = now + 1_000;
+            monster.move_time = now + 1_000;
+            monster.attack_time = now + 1_000;
+            monster.search_time = now;
+            monster_frame = Some(monster_info_frame(monster));
+        }
+        self.pets.entry(master_id).or_default().push(object_id);
+        // 重新广播一次外观：`spawn_monster` 那一帧还不知道主人（`MasterObjectId = 0`）。
+        if let Some(frame) = monster_frame {
+            self.broadcast(map, position, None, &frame, object_id);
+        }
+        object_id
+    }
+
+    /// 某个主人的召唤物 ID 列表（按召唤顺序；测试/运维观察用）。
+    #[must_use]
+    pub fn pets_of(&self, master_id: u32) -> Vec<u32> {
+        self.pets.get(&master_id).cloned().unwrap_or_default()
+    }
+
+    /// 从召唤物索引里摘掉一只（召唤物死亡/尸体到期时调用）。
+    pub(crate) fn unregister_pet(&mut self, pet_id: u32) {
+        self.pets.retain(|_, pets| {
+            pets.retain(|id| *id != pet_id);
+            !pets.is_empty()
+        });
+    }
+
+    /// 主人死亡：所有召唤物一起死（Crystal `PlayerObject.cs:629-633`）。
+    pub(crate) fn kill_pets(&mut self, master_id: u32) {
+        let pets = self.pets_of(master_id);
+        for pet_id in pets {
+            self.monster_died(pet_id);
+        }
+        self.pets.remove(&master_id);
+    }
+
+    /// 主人下线/死亡时清掉全部召唤物（Crystal `PlayerObject.Die` 的宠物清理，
+    /// `PlayerObject.cs:624-633`；`StopGame` 的 `Despawn` 同理）。
+    pub(crate) fn despawn_pets(&mut self, master_id: u32) {
+        let Some(pets) = self.pets.remove(&master_id) else {
+            return;
+        };
+        if pets.is_empty() {
+            return;
+        }
+        for pet_id in &pets {
+            // 广播 `ObjectRemove` 并从 AOI 摘掉。
+            self.forget_monster(*pet_id);
+        }
+        self.monsters
+            .retain(|monster| !pets.contains(&monster.object_id));
+        self.rebuild_monster_slots();
+    }
+
+    /// 召回召唤物：跨图/离主人太远时传送到主人身后一格（Crystal `PetRecall`，
+    /// `MonsterObject.cs:1334-1375`；触发点 `:1713-1714`）。
+    ///
+    /// 落点取 `Master.Back`，不可走时退回主人脚下（`Teleport(Master.CurrentMap, Master.Back)`，
+    /// 失败再 `Teleport(Master.CurrentMap, Master.CurrentLocation)`，`:1366-1367`）。
+    pub(crate) fn recall_pet(&mut self, pet_id: u32) {
+        let Some(mut monster) = self.monster(pet_id).cloned() else {
+            return;
+        };
+        self.recall_pet_monster(&mut monster);
+        if let Some(slot) = self.monster_mut(pet_id) {
+            *slot = monster;
+        }
+    }
+
+    /// 召回一只召唤物（就地版本：调用方持有 `Monster` 副本时用，见
+    /// `tick_monsters` 的「克隆处理再回写」）。
+    pub(crate) fn recall_pet_monster(&mut self, monster: &mut Monster) {
+        let Some(master_id) = monster.master else {
+            return;
+        };
+        let Some((master_map, master_position, master_direction)) = self
+            .players
+            .get(&master_id)
+            .map(|master| (master.map.clone(), master.position, master.direction))
+        else {
+            return;
+        };
+        let back = master_position.moved(master_direction, -1);
+        let landing = if self.walkable_on(&master_map, back) {
+            back
+        } else {
+            master_position
+        };
+        // 先让旧位置的玩家收到移除（`Teleport` 的 `ObjectRemove`，`MapObject.cs:784-786`）。
+        self.forget_monster(monster.object_id);
+        let now = self.now();
+        monster.map.clone_from(&master_map);
+        monster.position = landing;
+        monster.target = None;
+        monster.pet_target = None;
+        monster.action_time = now + 300;
+        monster.move_time = now + 300;
+        monster.attack_time = now + 300;
+        monster.search_time = now;
+        let frame = monster_info_frame(monster);
+        self.aoi_insert(&master_map, monster.object_id, AoiKind::Monster, landing);
+        self.sync_monster_view(monster.object_id, &master_map, None, landing, &frame);
+    }
+
+    /// 地图上的持续法术场（火墙），测试/运维观察用。
+    #[must_use]
+    pub fn spell_fields(&self) -> &[crate::magic::SpellField] {
+        &self.spell_fields
     }
 
     /// 怪物位置/可见性变化后，刷新受影响的玩家的视野。
@@ -3638,8 +3872,10 @@ impl World {
         object_id: u32,
     ) -> Option<(CombatStats, String, bool, Point, MirDirection)> {
         self.players.get(&object_id).map(|player| {
+            let mut stats = player.stats;
+            scale_armour(&mut stats, player.armour_rate());
             (
-                player.stats,
+                stats,
                 player.map.clone(),
                 player.dead,
                 player.position,
@@ -3649,13 +3885,16 @@ impl World {
     }
 
     /// 取一份怪物快照，理由同 [`World::player_snapshot`]。
+    /// 红毒会按 `ArmourRate` 降低防御（`MonsterObject.cs:2581`）。
     fn monster_snapshot(
         &self,
         object_id: u32,
     ) -> Option<(CombatStats, bool, String, Point, MirDirection)> {
         self.monster(object_id).map(|monster| {
+            let mut stats = monster.stats;
+            scale_armour(&mut stats, monster.armour_rate());
             (
-                monster.stats,
+                stats,
                 monster.dead,
                 monster.map.clone(),
                 monster.position,
@@ -3663,6 +3902,17 @@ impl World {
             )
         })
     }
+}
+
+/// 按红毒倍率缩放四项防御（Crystal `armour * ArmourRate`，`HumanObject.cs:7241`）。
+fn scale_armour(stats: &mut CombatStats, rate: f32) {
+    if (rate - 1.0).abs() < f32::EPSILON {
+        return;
+    }
+    stats.min_ac = (f64::from(stats.min_ac) * f64::from(rate)) as i32;
+    stats.max_ac = (f64::from(stats.max_ac) * f64::from(rate)) as i32;
+    stats.min_mac = (f64::from(stats.min_mac) * f64::from(rate)) as i32;
+    stats.max_mac = (f64::from(stats.max_mac) * f64::from(rate)) as i32;
 }
 
 /// 两个玩家是否在同一支队伍里（Crystal `GroupMembers.Contains(attacker)`，`PlayerObject.cs:4662`）。
@@ -3753,7 +4003,13 @@ impl World {
             armour: looks.armour,
             wing_effect: looks.wings,
             dead: player.dead,
-            hidden: false,
+            hidden: player.magic.hidden,
+            poison: player.poison_type(),
+            buffs: if player.magic.hidden {
+                vec![mir_core::enums::BuffType::Hiding]
+            } else {
+                Vec::new()
+            },
             extra: false,
             riding_mount: false,
             fishing: false,
@@ -3784,13 +4040,13 @@ pub(crate) fn monster_info_frame(monster: &Monster) -> Vec<u8> {
         light: 0,
         dead: monster.dead,
         skeleton: false,
-        poison: PoisonType::None,
+        poison: monster.poison_type(),
         hidden: false,
         extra: false,
         extra_byte: 0,
         shock_time: 0,
         binding_shot_center: false,
-        master_object_id: 0,
+        master_object_id: monster.master.unwrap_or(0),
         rarity: MonsterType::Normal,
         buffs: Vec::new(),
     })

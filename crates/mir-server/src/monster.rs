@@ -44,6 +44,16 @@ use crate::aoi::AoiKind;
 use crate::combat::{CombatStats, PendingHit};
 use crate::world::{RED_NAME_PK_POINTS, VIEW_RANGE, World, monster_info_frame};
 
+/// 隐身玩家对这只怪是否「不可见」：Crystal `ob.Hidden && (!CoolEye || Level < ob.Level)`
+/// （`MonsterObject.cs:1974`）。
+///
+/// * 没隐身 → 可见；
+/// * 隐身 + 怪没有破隐（`CoolEye`）→ 不可见；
+/// * 隐身 + 破隐但怪等级低于玩家 → 不可见。
+fn hidden_from(magic: &crate::magic::MagicState, monster: &Monster, player_level: u16) -> bool {
+    magic.hidden && (!monster.cool_eye || monster.kind.level < player_level)
+}
+
 /// 搜索间隔：Crystal `MonsterObject.SearchDelay`（`Server/MirObjects/MonsterObject.cs:602`）。
 pub const SEARCH_DELAY_MS: i64 = 3_000;
 /// 漫游间隔：Crystal `MonsterObject.RoamDelay`（`Server/MirObjects/MonsterObject.cs:602`）。
@@ -218,6 +228,60 @@ impl MonsterKind {
             ..Self::new("稻草人", MonsterImage::Scarecrow)
         }
     }
+
+    /// 召唤骷髅（`SummonSkeleton`）在数据库缺模板时的兜底种类。
+    ///
+    /// Crystal 从 `Settings.SkeletonName = "BoneFamiliar"` 的 `MonsterInfo` 取
+    /// （`Settings.cs:162`、`HumanObject.cs:4422`）；本作优先查库，查不到才用这组占位数值。
+    #[must_use]
+    pub fn bone_familiar() -> Self {
+        Self {
+            name: "骷髅".to_owned(),
+            image: MonsterImage::BoneFamiliar,
+            ai: 5,
+            level: 8,
+            experience: 0,
+            stats: CombatStats {
+                hp: 45,
+                min_dc: 2,
+                max_dc: 6,
+                min_ac: 1,
+                max_ac: 2,
+                accuracy: 6,
+                agility: 3,
+                ..CombatStats::default()
+            },
+            ..Self::new("骷髅", MonsterImage::BoneFamiliar)
+        }
+    }
+
+    /// 召唤神兽（`SummonShinsu`）在数据库缺模板时的兜底种类。
+    ///
+    /// Crystal 从 `Settings.ShinsuName = "Shinsu"` 的 `MonsterInfo` 取（`Settings.cs:163`、
+    /// `HumanObject.cs:4471`）；本作优先查库，查不到才用这组占位数值。
+    #[must_use]
+    pub fn shinsu() -> Self {
+        Self {
+            name: "神兽".to_owned(),
+            image: MonsterImage::Shinsu,
+            ai: 5,
+            level: 12,
+            experience: 0,
+            stats: CombatStats {
+                hp: 80,
+                min_dc: 3,
+                max_dc: 8,
+                min_ac: 2,
+                max_ac: 3,
+                min_mac: 2,
+                max_mac: 3,
+                accuracy: 8,
+                agility: 4,
+                ..CombatStats::default()
+            },
+            ..Self::new("神兽", MonsterImage::Shinsu)
+        }
+    }
 }
 
 /// 一只有状态怪物。
@@ -282,6 +346,46 @@ pub struct Monster {
     /// `None` = 普通怪物。由 [`World::spawn_conquest_archer`] 设置；
     /// 它决定箭塔在开战时只射非城主行会的玩家。
     pub conquest: Option<i32>,
+    /// 召唤物的主人（Crystal `MonsterObject.Master`，`Server/MirObjects/MonsterObject.cs:608`）。
+    ///
+    /// `None` = 野生怪物。主人的对象 ID 一定是玩家：召唤物跟随主人、攻击主人的目标、
+    /// 主人下线/死亡时消失（见 `docs/world/magic.md` 的召唤物一节）。
+    pub master: Option<u32>,
+    /// 召唤物等级（Crystal `MonsterObject.PetLevel`，`MonsterObject.cs:609`）。
+    ///
+    /// 取施法时的技能等级；召唤物属性按这个值加成（`RefreshAll`，`:815-821`）。
+    pub pet_level: u8,
+    /// 召唤物能升到的最高等级（Crystal `MonsterObject.MaxPetLevel`，`MonsterObject.cs:611`）。
+    ///
+    /// 只用来算移动/攻击间隔（`RefreshAll`，`:825-826`）：骷髅 `4 + Level`、
+    /// 神兽 `1 + Level * 2`（`HumanObject.cs:4431`、`:4480`）。
+    pub max_pet_level: u8,
+    /// 召唤物的当前目标（Crystal `MonsterObject.Target` 同时可以指向玩家或怪物）。
+    ///
+    /// 野生怪的 [`Monster::target`] 只可能是玩家，所以另开一个字段给召唤物用：
+    /// 它可以是玩家的目标（`master.magic.last_target`），也可以是附近的野生怪。
+    pub pet_target: Option<u32>,
+    /// 召唤这只宠物的技能（`SummonSkeleton` / `SummonShinsu`）。
+    ///
+    /// 用来做「同名活宠只召回、不重复召唤」的判定（Crystal 比的是
+    /// `Settings.SkeletonName`/`ShinsuName`，`HumanObject.cs:4408-4415`、`:4457-4464`）。
+    pub summon_spell: Option<Spell>,
+    /// 中毒状态（Crystal `MapObject.PoisonList`，`Server/MirObjects/MapObject.cs:74`）。
+    ///
+    /// **与 buffs 分开**：Crystal 的毒是独立列表，有自己的 tick / 时长 / 施毒者，
+    /// 不参与 `Stats` 加成（红毒只改 `ArmourRate`，绿毒每 tick 直接扣血）。
+    pub poisons: Vec<crate::magic::PoisonState>,
+    /// 是否不死系（Crystal `MapObject.Undead`，`MapObject.cs:69`）。
+    ///
+    /// 由 `MonsterInfo.Undead` 推导（`World::spawn_monster` 查 `GameData`），
+    /// 只影响 `ThunderBolt` 的 ×1.5 伤害（`HumanObject.cs:4126`）。
+    pub undead: bool,
+    /// 本实例的移动间隔（Crystal `MonsterObject.MoveSpeed`；默认取模板值，
+    /// 召唤物按 `MaxPetLevel` 缩短，`MonsterObject.cs:825`）。
+    pub move_speed_ms: i64,
+    /// 本实例的攻击间隔（Crystal `MonsterObject.AttackSpeed`；召唤物加快，
+    /// `MonsterObject.cs:826`）。
+    pub attack_speed_ms: i64,
 }
 
 impl Monster {
@@ -307,6 +411,8 @@ impl Monster {
         let roam_time = now + i64::from(rng.next_bounded(ROAM_DELAY_MS as u32));
         // `MapObject.cs:351`：`OperateTime = Envir.Time + Envir.Random.Next(OperateDelay)`。
         let operate_time = now + i64::from(rng.next_bounded(MONSTER_OPERATE_JITTER_MS));
+        let move_speed_ms = kind.move_speed_ms;
+        let attack_speed_ms = kind.attack_speed_ms;
 
         Self {
             object_id,
@@ -335,6 +441,15 @@ impl Monster {
             alone: false,
             alone_time: 0,
             conquest: None,
+            master: None,
+            pet_level: 0,
+            max_pet_level: 0,
+            pet_target: None,
+            summon_spell: None,
+            poisons: Vec::new(),
+            undead: false,
+            move_speed_ms,
+            attack_speed_ms,
         }
     }
 
@@ -358,6 +473,44 @@ impl Monster {
         }
         let percent = self.hp * 100 / self.stats.hp;
         u8::try_from(percent.clamp(0, 100)).unwrap_or(0)
+    }
+
+    /// 是否是召唤物（Crystal `Master != null`）。
+    #[must_use]
+    pub const fn is_pet(&self) -> bool {
+        self.master.is_some()
+    }
+
+    /// 红毒造成的防御倍率（Crystal `ArmourRate`，`MonsterObject.cs:1536-1537`）。
+    ///
+    /// Crystal 每中一次红毒 `ArmourRate -= 0.5F`，结算时 `armour * ArmourRate`
+    /// （`MonsterObject.cs:2581`）。本作把倍率夹到 `0.0..=1.0`，避免负防御。
+    #[must_use]
+    pub fn armour_rate(&self) -> f32 {
+        let mut rate = 1.0_f32;
+        for poison in &self.poisons {
+            if poison.kind == mir_core::enums::PoisonType::Red {
+                rate -= 0.5;
+            }
+        }
+        rate.clamp(0.0, 1.0)
+    }
+
+    /// 当前中毒类型（Crystal `MapObject.CurrentPoison`，用于 `S.ObjectMonster.Poison`）。
+    #[must_use]
+    pub fn poison_type(&self) -> mir_core::enums::PoisonType {
+        let mut kind = mir_core::enums::PoisonType::None;
+        for poison in &self.poisons {
+            kind |= poison.kind;
+        }
+        kind
+    }
+
+    /// 下一次中毒结算时刻（`SetOperateTime` 要把毒 tick 算进调度，
+    /// `MonsterObject.cs:1232-1310`）。
+    #[must_use]
+    pub fn next_poison_tick(&self) -> Option<i64> {
+        self.poisons.iter().map(|poison| poison.tick_at).min()
     }
 }
 
@@ -385,7 +538,13 @@ impl World {
             // 同时借用；世界是单线程的，处理期间没有其它代码会看到这份旧副本。
             let mut monster = self.monsters[index].clone();
             self.process_monster(&mut monster, now);
+            let object_id = monster.object_id;
             self.monsters[index] = monster;
+            // 毒（或其它不经过 `damage_monster` 的掉血）可能把血打到 0：在**回写之后**
+            // 统一结算死亡，避免死亡状态被循环末尾的 `self.monsters[index] = monster` 覆盖。
+            if self.monsters[index].hp <= 0 && !self.monsters[index].dead {
+                self.monster_died(object_id);
+            }
         }
     }
 
@@ -397,6 +556,7 @@ impl World {
                 let monster_id = self.monsters[index].object_id;
                 // `forget_monster` 同时把怪物从 AOI 网格摘掉。
                 self.forget_monster(monster_id);
+                self.unregister_pet(monster_id);
                 self.monsters.remove(index);
                 self.rebuild_monster_slots();
                 continue;
@@ -416,6 +576,9 @@ impl World {
                 !player.dead
                     && player.map == monster.map
                     && monster.position.in_range(player.position, VIEW_RANGE)
+                    // 隐身玩家不再被锁定（`MonsterObject.cs:1974`；破隐（CoolEye）
+                    // 且等级不低于对方时仍可锁定）。
+                    && !hidden_from(&player.magic, monster, player.level)
                     // 守卫只对红名动手（`PlayerObject.IsAttackTarget(MonsterObject)`，
                     // `PlayerObject.cs:4679`）：对方洗白后立即脱战。
                     && (!monster.kind.is_guard() || player.pk_points >= RED_NAME_PK_POINTS)
@@ -427,11 +590,21 @@ impl World {
 
         self.process_ai(monster, now);
         self.process_monster_regen(monster, now);
+        // Crystal `MonsterObject.Process`：`ProcessAI → ProcessBuffs → ProcessRegen → ProcessPoison`
+        // （`MonsterObject.cs:1225-1229`）。
+        self.tick_monster_poison(monster, now);
         monster.operate_time = Self::monster_operate_time(monster, now);
     }
 
     /// Crystal `MonsterObject.ProcessAI`（`MonsterObject.cs:1671-1733`）。
     fn process_ai(&mut self, monster: &mut Monster, now: i64) {
+        // 召唤物（`Master != null`）：跟随主人、攻击主人的目标（`MonsterObject.cs:1704-1721`、
+        // `:1821-1825`）。走路逻辑与野生怪共用，所以单独分支，不参与 `CheckAlone` 的省电。
+        if monster.master.is_some() {
+            monster.alone = false;
+            self.process_pet_ai(monster, now);
+            return;
+        }
         // 守卫：`Guard.CheckAlone` 在 `Route.Count > 0` 时恒为 false
         // （`MonsterObject.cs:1741-1745`、`Monsters/Guard.cs:14-17`），所以不走「附近没人就不思考」
         // 的省电分支，也不随机漫游。
@@ -605,6 +778,194 @@ impl World {
         self.monster_move_to(monster, target_position, now);
     }
 
+    /// 召唤物 AI：跟随主人、攻击主人的目标（Crystal `MonsterObject.ProcessAI` 的
+    /// `Master != null` 分支，`MonsterObject.cs:1704-1721`；跟随 `:1821-1825`；
+    /// 目标选择与「优先打主人的目标」见 `:1974-1988`）。
+    ///
+    /// 与野生怪的区别：
+    /// * 不做 `CheckAlone` 省电（主人就在附近，且召唤物必须持续跟随）；
+    /// * 主人跨图/超出 `Globals.DataRange`（本作用 `VIEW_RANGE`）时召回
+    ///   （`PetRecall`，`MonsterObject.cs:1334-1375`、`:1713-1714`）；
+    /// * 没有目标时走回主人身后一格（`Master.Back`）。
+    fn process_pet_ai(&mut self, monster: &mut Monster, now: i64) {
+        let Some(master_id) = monster.master else {
+            return;
+        };
+        let Some((master_map, master_position, master_direction, master_dead)) =
+            self.players.get(&master_id).map(|master| {
+                (
+                    master.map.clone(),
+                    master.position,
+                    master.direction,
+                    master.dead,
+                )
+            })
+        else {
+            return;
+        };
+        // 主人已死：`player_died` 会统一清掉召唤物；这里不再行动。
+        if master_dead {
+            return;
+        }
+        if master_map != monster.map || !monster.position.in_range(master_position, VIEW_RANGE) {
+            self.recall_pet_monster(monster);
+            return;
+        }
+
+        if let Some(target_id) = monster.pet_target
+            && !self.pet_target_valid(monster, master_id, target_id)
+        {
+            monster.pet_target = None;
+        }
+        if monster.pet_target.is_none() {
+            monster.pet_target = self.find_pet_target(monster, master_id);
+        }
+
+        if let Some(target_id) = monster.pet_target {
+            if !monster.can_attack(now) {
+                return;
+            }
+            let Some(target_position) = self.attackable_position(&monster.map, target_id) else {
+                monster.pet_target = None;
+                return;
+            };
+            if target_position != monster.position && monster.position.in_range(target_position, 1)
+            {
+                self.pet_attack(monster, target_id, now);
+                return;
+            }
+            self.monster_move_to(monster, target_position, now);
+            return;
+        }
+
+        // `ProcessRoam`：`if (Master != null) { MoveTo(Master.Back); return; }`（`MonsterObject.cs:1821-1825`）。
+        let back = master_position.moved(master_direction, -1);
+        if monster.position != back {
+            self.monster_move_to(monster, back, now);
+        }
+    }
+
+    /// 可攻击对象的位置（玩家或怪物，必须同图且存活）。
+    fn attackable_position(&self, map: &str, target_id: u32) -> Option<Point> {
+        if let Some(player) = self.players.get(&target_id) {
+            return (!player.dead && player.map == map).then_some(player.position);
+        }
+        self.monster(target_id)
+            .filter(|monster| !monster.dead && monster.map == map)
+            .map(|monster| monster.position)
+    }
+
+    /// 召唤物的目标是否仍然合法。
+    fn pet_target_valid(&self, monster: &Monster, master_id: u32, target_id: u32) -> bool {
+        if let Some(player) = self.players.get(&target_id) {
+            return !player.dead
+                && player.map == monster.map
+                && monster
+                    .position
+                    .in_range(player.position, monster.kind.view_range)
+                && !hidden_from(&player.magic, monster, player.level)
+                && self.is_attack_target_player(master_id, target_id);
+        }
+        self.monster(target_id).is_some_and(|target| {
+            !target.dead
+                && target.map == monster.map
+                && target.master.is_none()
+                && !target.kind.is_guard()
+                && monster
+                    .position
+                    .in_range(target.position, monster.kind.view_range)
+        })
+    }
+
+    /// 召唤物选目标：先打主人最近一次攻击/施法的目标，否则打视野内最近的野生怪
+    /// （Crystal 的召唤物用 `FindTarget` 自己索敌，`MonsterObject.cs:1918-1997`；
+    /// 这里加上「主人目标」优先，见任务书要求）。
+    fn find_pet_target(&mut self, monster: &Monster, master_id: u32) -> Option<u32> {
+        if let Some(last_target) = self
+            .players
+            .get(&master_id)
+            .and_then(|master| master.magic.last_target)
+            && last_target != monster.object_id
+            && self.pet_target_valid(monster, master_id, last_target)
+        {
+            return Some(last_target);
+        }
+        let mut best: Option<(i32, i32, i32, u32)> = None;
+        for target_id in self.aoi_ids_in_radius_spatial(
+            &monster.map,
+            monster.position,
+            monster.kind.view_range,
+            AoiKind::Monster,
+        ) {
+            let Some(target) = self.monster(target_id) else {
+                continue;
+            };
+            if target.dead
+                || target.map != monster.map
+                || target.master.is_some()
+                || target.kind.is_guard()
+            {
+                continue;
+            }
+            let distance = monster.position.max_distance(target.position);
+            let key = (distance, target.position.y, target.position.x);
+            if best.is_none_or(|(best_d, best_y, best_x, _)| key < (best_d, best_y, best_x)) {
+                best = Some((key.0, key.1, key.2, target_id));
+            }
+        }
+        best.map(|(_, _, _, object_id)| object_id)
+    }
+
+    /// 召唤物攻击（Crystal `MonsterObject.Attack`，`MonsterObject.cs:2150-2173`）。
+    ///
+    /// 与野生怪相同：广播 `ObjectAttack`、`ActionTime = now + 300`、
+    /// 伤害延迟 300ms 结算。目标可以是野生怪或玩家。
+    fn pet_attack(&mut self, monster: &mut Monster, target_id: u32, now: i64) {
+        let Some(target_position) = self.attackable_position(&monster.map, target_id) else {
+            monster.pet_target = None;
+            return;
+        };
+        monster.direction = monster.position.direction_to(target_position);
+        let packet = ServerPacket::ObjectAttack(ObjectAttack {
+            object_id: monster.object_id,
+            location: monster.position,
+            direction: monster.direction,
+            spell: Spell::None,
+            level: 0,
+            type_: 0,
+        })
+        .encode_frame();
+        self.broadcast(
+            &monster.map,
+            monster.position,
+            Some(monster.object_id),
+            &packet,
+            monster.object_id,
+        );
+
+        monster.action_time = now + MONSTER_ATTACK_ACTION_MS;
+        monster.attack_time = now + monster.attack_speed_ms;
+        let damage = monster.stats.physical_attack(&mut self.rng);
+        if damage == 0 {
+            return;
+        }
+        // 怪物目标：经验归主人（Crystal `GetAttacker` 会把宠物的主人当作 `EXPOwner`，
+        // `MonsterObject.cs:1008-1016`、`:2627-2630`）。先占住 `EXPOwner`，
+        // `damage_monster` 就不会把宠物自己记成经验归属。
+        if let Some(target) = self.monster_mut(target_id)
+            && target.expo_owner.is_none()
+        {
+            target.expo_owner = monster.master;
+        }
+        self.pending_hits.push(PendingHit {
+            at: now + MONSTER_ATTACK_DAMAGE_DELAY_MS,
+            attacker_id: monster.object_id,
+            target_id,
+            damage,
+            defence: DefenceType::ACAgility,
+        });
+    }
+
     /// Crystal `MonsterObject.FindTarget`（`MonsterObject.cs:1918-1997`）。
     ///
     /// 环形扫描：`d` 从 0 递增到视野半径，同环内按 `y`、`x` 升序取第一个可攻击对象。
@@ -638,6 +999,10 @@ impl World {
                 continue;
             };
             if player.map != monster.map || player.dead {
+                continue;
+            }
+            // 隐身：`MonsterObject.cs:1974` 的 `ob.Hidden && (!CoolEye || Level < ob.Level)`。
+            if hidden_from(&player.magic, monster, player.level) {
                 continue;
             }
             // 守卫只攻击红名（`PlayerObject.IsAttackTarget(MonsterObject)`，
@@ -726,7 +1091,7 @@ impl World {
         monster.direction = direction;
         monster.cell_time = now + MONSTER_CELL_GRACE_MS;
         monster.action_time = now + MONSTER_WALK_ACTION_MS;
-        monster.move_time = now + monster.kind.move_speed_ms;
+        monster.move_time = now + monster.move_speed_ms;
         if monster.move_time > monster.attack_time {
             monster.attack_time = monster.move_time;
         }
@@ -813,7 +1178,7 @@ impl World {
         );
 
         monster.action_time = now + MONSTER_ATTACK_ACTION_MS;
-        monster.attack_time = now + monster.kind.attack_speed_ms;
+        monster.attack_time = now + monster.attack_speed_ms;
 
         let damage = monster.stats.physical_attack(&mut self.rng);
         // `MonsterObject.cs:2169`：`if (damage == 0) return;`（0 伤害连动作都不排）。
@@ -882,7 +1247,7 @@ impl World {
         );
 
         monster.action_time = now + GUARD_ATTACK_ACTION_MS;
-        monster.attack_time = now + monster.kind.attack_speed_ms;
+        monster.attack_time = now + monster.attack_speed_ms;
 
         let damage = monster.stats.physical_attack(&mut self.rng);
         // `if (damage == 0) return;`（`Monsters/Guard.cs:83`）。
@@ -938,6 +1303,13 @@ impl World {
             if deadline < time && deadline > now {
                 time = deadline;
             }
+        }
+        // 中毒：下一跳必须准时被调度，否则 `tick_monsters` 会隔 2 秒才轮一次。
+        if let Some(poison_tick) = monster.next_poison_tick()
+            && poison_tick < time
+            && poison_tick > now
+        {
+            time = poison_tick;
         }
         time
     }
@@ -1012,6 +1384,7 @@ impl World {
         monster.hp = 0;
         monster.dead_time = now + CORPSE_DELAY_MS;
         monster.target = None;
+        monster.pet_target = None;
         let map = monster.map.clone();
         let position = monster.position;
         let direction = monster.direction;
@@ -1020,6 +1393,11 @@ impl World {
         let experience = monster.kind.experience;
         let monster_level = monster.kind.level;
         let monster_name = monster.kind.name.clone();
+        // 召唤物不产经验、不掉落、不算击杀任务（Crystal `Master == null` 三个条件，
+        // `MonsterObject.cs:982`、`:997`）。
+        let master = monster.master;
+        monster.master = None;
+        self.unregister_pet(monster_id);
 
         let packet = ServerPacket::ObjectDied(ObjectDied {
             object_id: monster_id,
@@ -1032,7 +1410,9 @@ impl World {
 
         // `if (EXPOwner != null && ... ) EXPOwner.WinExp(Experience, Level);`（`MonsterObject.cs:982-992`）。
         // 简化：`EXPOwner.Race == ObjectType.Player` 恒成立（本作只有玩家能打怪）。
-        if let Some(owner) = expo_owner {
+        if master.is_none()
+            && let Some(owner) = expo_owner
+        {
             self.win_experience(owner, experience, monster_level);
             // `playerObj.CheckGroupQuestKill(Info);`（`:986-990`）——击杀任务计数。
             // 组队时同图、`Globals.DataRange` 内、活着的队友一起记（`PlayerObject.cs:11494-11508`）。
@@ -1049,7 +1429,7 @@ impl World {
         // `if (Master == null && EXPOwner != null) Drop();`（`MonsterObject.cs:997-998`）——
         // 顺序照抄：经验 → 刷怪计数 → 掉落。
         // 「没有击杀者就不掉」这一条在 `drop_monster_loot` 里用 `expo_owner` 再判一次。
-        if expo_owner.is_some() {
+        if master.is_none() && expo_owner.is_some() {
             self.drop_monster_loot(monster_id);
         }
     }

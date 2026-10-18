@@ -46,8 +46,10 @@
 | 任务 | ✅ | `Envir/Quests` 脚本解析（13 个段）、接取前置（等级/职业/前置任务链/上限）、击杀·收集·标记目标、交付领奖（金币/经验/元宝/固定/任选）、限时超时、放弃、NPC `CHECKQUEST` 与 `[Quests]` 关联、`characters.quests` 存档往返；任务物品栏与每日重置未做（见 `docs/world/quests.md`） |
 | 组队 | ✅ | 邀请/接受/拒绝/退队/踢人、队长顺延、组内 `!!` 聊天、16 格内按人数与等级分配经验、组队任务击杀共享、切图通知；PK 与地图准入规则未做 |
 | 多地图与传送 | ✅ | 按地图文件惰性加载与缓存、`MovementInfo` 传送点（含 `need_hole`/`need_move`）、`S.MapChanged` 包序、NPC `MOVE`/`MAPMOVE`/`ENTERMAP`、客户端切图重载地形 |
-| 行会与攻城 | ⏳ | |
-| Rust 客户端（渲染与 UI） | 🟡 | 等距地图渲染 + 联机 + 实体精灵 + 装备分层外观（身体/武器/头发）+ 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能栏/buff 栏/伤害数字）+ 拖拽穿脱 + 点地走路；行走/攻击逐帧动画、坐骑翅膀与音效待做 |
+| 行会 | ✅ | 创建（NPC `[@CREATEGUILD]`）、邀请/加入、职位与权限位、升降职/踢人、公告、`!~` 行会聊天、行会经验与等级、行会仓库（112 格物品 + 资金）、行会 buff（购买/激活/到期/全员加成）、迁移 0005/0006 持久化；攻城与领地未做 |
+| 玩家仓库与邮件 | ✅ | 80 格仓库（`[@STORAGE]` 页，`characters.storage` 持久化）、邮件发送（附件/邮票/邮费/限速）、阅读/锁定/领取/删除、迁移 0007、离线按名投递与 30 天过期 |
+| 攻城与领地 | ⏳ | `ConquestInfo` 数据已可读，待行会城战流程 |
+| Rust 客户端（渲染与 UI） | 🟡 | 等距地图 + 联机 + 实体精灵 + 装备分层外观 + 逐帧动画（站立/走/跑/攻击/受击/死亡）+ 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能/buff/小地图/大地图）+ 伤害数字 + 头顶血条 + 目标锁定 + 拖拽穿脱 + 点地走路 + 音效（rodio，可无声降级）；坐骑/翅膀/背景音乐/寻路待做 |
 | 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计、MirDB 报告、图库查看/导出；素材库编辑器未做 |
 | 素材索引（`mir2_dev`） | ✅ | `tools/asset-index/` 把 `resource/` 的 233 万文件登记进 PostgreSQL，按名字/扩展名/仓库查询 |
 
@@ -201,6 +203,11 @@ python tools/protocol-gen/generate.py
 | [`docs/world/npc.md`](docs/world/npc.md) | NPC 脚本格式、条件/动作支持矩阵、商店与修理公式 |
 | [`docs/world/quests.md`](docs/world/quests.md) | 任务系统：脚本段、接取/交付流程、奖励与存档 |
 | [`docs/world/buffs.md`](docs/world/buffs.md) | Buff 容器：到期、属性叠加、药水与增益技能 |
+| [`docs/world/maps.md`](docs/world/maps.md) | 多地图与传送：加载缓存、传送点、切图包序 |
+| [`docs/world/group.md`](docs/world/group.md) | 组队：状态模型、包序、经验共享公式 |
+| [`docs/world/guild.md`](docs/world/guild.md) | 行会：创建/职位/公告/聊天/经验、仓库与 buff、持久化 |
+| [`docs/world/storage.md`](docs/world/storage.md) | 玩家仓库：80 格、存取校验与存档 |
+| [`docs/world/mail.md`](docs/world/mail.md) | 邮件：发送/领取/锁定/删除、附件与邮费、过期 |
 | [`docs/client.md`](docs/client.md) | 客户端：协议流程、按键/鼠标、面板与字体 |
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |
 | [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文与游戏内切换 |

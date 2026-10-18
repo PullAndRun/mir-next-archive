@@ -107,8 +107,9 @@ use anyhow::{Context, Result, anyhow, bail};
 use mir_core::Point;
 use mir_core::enums::{
     BuffType, ChatType, DamageType, ItemGrade, ItemType, LightSetting, MarketCollectionMode,
-    MarketItemType, MarketPanelType, MirClass, MirDirection, MirGender, MirGridType, PanelType,
-    QuestState, QuestType, RequiredType, Spell, SpellEffect, Stat, WeatherSetting,
+    MarketItemType, MarketPanelType, MirClass, MirDirection, MirGender, MirGridType,
+    OutputMessageType, PanelType, PetMode, QuestState, QuestType, RequiredType, Spell, SpellEffect,
+    Stat, WeatherSetting,
 };
 use mir_protocol::codec::FrameBuffer;
 use mir_protocol::data::guild_rank::{GuildMember, GuildRank};
@@ -291,6 +292,8 @@ pub enum NetCommand {
     Attack(MirDirection),
     /// 捡起脚下物品（`C.PickUp`）。
     PickUp,
+    /// 切换宠物模式（`C.ChangePMode`，index 45）：跟随 / 攻击 / 休息。
+    ChangePetMode(PetMode),
     /// 聊天（`C.Chat`）。
     Chat(String),
     /// 点 NPC 按钮（`C.CallNPC`）；`key = "@exit"` 关闭对话。
@@ -1160,6 +1163,13 @@ pub enum SystemChat {
         /// 数量。
         count: u16,
     },
+    /// 宠物模式切换成功（客户端按 `V` 循环后提示）。
+    PetModeChanged {
+        /// 新模式。
+        mode: PetMode,
+    },
+    /// 没有宠物时按宠物模式键的提示。
+    NoPet,
 }
 
 /// 一条聊天记录。
@@ -2401,6 +2411,10 @@ pub struct WorldSnapshot {
     pub lights: Option<LightSetting>,
     /// 天气（`S.MapChanged.weather`）。协议没有独立的 `S.Weather`，天气随切图下发。
     pub weather: Option<WeatherSetting>,
+    /// 宠物当前模式（`S.ChangePMode`；默认 `Both` = 跟随）。
+    pub pet_mode: PetMode,
+    /// 宠物对象编号 → 主人对象编号（`S.ObjectMonster.master_object_id` 非 0 的怪物）。
+    pub pet_masters: BTreeMap<u32, u32>,
     /// 收到过多少页 NPC 对话（版本号来源）。
     pub npc_dialog_version: u64,
     /// 收到过多少次商店货架（版本号来源）。
@@ -2466,6 +2480,8 @@ impl Default for WorldSnapshot {
             quest_items_version: 0,
             lights: None,
             weather: None,
+            pet_mode: PetMode::Both,
+            pet_masters: BTreeMap::new(),
             npc_dialog_version: 0,
             npc_goods_version: 0,
             packet_counts: BTreeMap::new(),
@@ -2480,6 +2496,36 @@ impl WorldSnapshot {
     #[must_use]
     pub fn is_ready(&self) -> bool {
         self.status == NetStatus::InGame && self.self_player.is_some()
+    }
+
+    /// 自己的宠物对象编号（`S.ObjectMonster.master_object_id` 指向自己）。
+    ///
+    /// 可能有多个（召唤/骷髅），取第一个即可判断「有没有宠物」。
+    #[must_use]
+    pub fn pet_object_id(&self) -> Option<u32> {
+        let me = self.self_player.as_ref()?.object_id;
+        self.pet_masters
+            .iter()
+            .find_map(|(pet, master)| (*master == me).then_some(*pet))
+    }
+
+    /// 当前是否有宠物（决定宠物模式键是否发包）。
+    #[must_use]
+    pub fn has_pet(&self) -> bool {
+        self.pet_object_id().is_some()
+    }
+
+    /// 追加一条客户端本地系统提示（按玩家语言渲染，见 [`crate::ui::labels`]）。
+    pub fn notify(&mut self, message: SystemChat) {
+        push_chat(
+            self,
+            ChatLine {
+                speaker: None,
+                text: String::new(),
+                kind: ChatType::System,
+                system: Some(message),
+            },
+        );
     }
 
     /// 收到 `S.MapChanged` 后要不要重载本地地形：返回请求（地图文件路径 + 新相机中心）。
@@ -3421,6 +3467,9 @@ fn handle_command(
             spell: mir_core::enums::Spell::None,
         }),
         NetCommand::PickUp => ClientPacket::PickUp(c::PickUp {}),
+        // 宠物模式（`C.ChangePMode`，index 45；Crystal `GameScene.ChangePetMode`，
+        // `Client/MirScenes/GameScene.cs` 的 `ChangePMode` 发送处）。
+        NetCommand::ChangePetMode(mode) => ClientPacket::ChangePMode(c::ChangePMode { mode }),
         NetCommand::Chat(message) => {
             if message.trim().is_empty() {
                 return Ok(());
@@ -3801,6 +3850,8 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
         ServerPacket::GroupInvite(_) => "GroupInvite",
         ServerPacket::GroupMembersMap(_) => "GroupMembersMap",
         ServerPacket::SendMemberLocation(_) => "SendMemberLocation",
+        ServerPacket::ChangePMode(_) => "ChangePMode",
+        ServerPacket::SendOutputMessage(_) => "SendOutputMessage",
         ServerPacket::TimeOfDay(_) => "TimeOfDay",
         ServerPacket::GainedQuestItem(_) => "GainedQuestItem",
         ServerPacket::DeleteQuestItem(_) => "DeleteQuestItem",
@@ -4052,6 +4103,15 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                     )
                 },
             );
+            // 宠物识别：`S.ObjectMonster.master_object_id` 指向主人（Crystal
+            // `MonsterObject.Master`）。非 0 就记下映射，供 `P`/`V` 判断有没有宠物。
+            if monster.master_object_id == 0 {
+                snapshot.pet_masters.remove(&monster.object_id);
+            } else {
+                snapshot
+                    .pet_masters
+                    .insert(monster.object_id, monster.master_object_id);
+            }
         }
         ServerPacket::ObjectNPC(npc) => {
             upsert_entity(
@@ -4105,6 +4165,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
         ServerPacket::ObjectRemove(remove) => {
             snapshot.entities.remove(&remove.object_id);
             snapshot.gold_piles.remove(&remove.object_id);
+            snapshot.pet_masters.remove(&remove.object_id);
         }
         ServerPacket::ObjectTurn(turn) => {
             update_entity(snapshot, turn.object_id, |entity| {
@@ -4177,6 +4238,31 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             update_entity(snapshot, hidden.object_id, |entity| {
                 entity.hidden = hidden.hidden;
             });
+        }
+        ServerPacket::ChangePMode(mode) => {
+            // 服务端回执的宠物模式（Crystal `GameScene.ChangePMode`，index 63）；
+            // 按键切换时客户端已乐观更新，这里以服务端为准（多端/宠物更换时同步）。
+            snapshot.pet_mode = mode.mode;
+        }
+        ServerPacket::SendOutputMessage(output) => {
+            // 服务端浮动输出（Crystal `ServerPackets.SendOutputMessage`，index 223；
+            // `GameScene.OutputMessage` 在屏幕上方弹 5 秒）。这里落到聊天行：
+            // Quest（如「你找到了 X」）走系统色、Guild 走行会频道、Normal 走提示色。
+            // 文本已按玩家语言本地化，客户端原样显示，不二次翻译。
+            let kind = match output.type_ {
+                OutputMessageType::Quest => ChatType::System,
+                OutputMessageType::Guild => ChatType::Guild,
+                OutputMessageType::Normal => ChatType::Hint,
+            };
+            push_chat(
+                snapshot,
+                ChatLine {
+                    speaker: None,
+                    text: output.message.clone(),
+                    kind,
+                    system: None,
+                },
+            );
         }
         ServerPacket::Magic(magic) => {
             // 自己的施法回执（Crystal `GameScene.Magic`，`GameScene.cs:3238-3260`）：
@@ -5518,6 +5604,17 @@ fn update_entity(
             me.action_started_ms = temporary.action_started_ms;
             me.looks = temporary.looks;
         }
+    }
+}
+
+/// 宠物模式三态循环：跟随（`Both`）→ 攻击（`AttackOnly`）→ 休息（`None`）。
+#[must_use]
+pub const fn next_pet_mode(mode: PetMode) -> PetMode {
+    match mode {
+        PetMode::Both => PetMode::AttackOnly,
+        PetMode::AttackOnly => PetMode::None,
+        // `None` / `MoveOnly` / `FocusMasterTarget` 都回到「跟随」。
+        _ => PetMode::Both,
     }
 }
 
@@ -6922,5 +7019,115 @@ mod tests {
         // 空 NPC 页会关掉仓库面板。
         snapshot.apply_packet(&ServerPacket::NPCResponse(NPCResponse { page: Vec::new() }));
         assert!(!snapshot.storage_open);
+    }
+
+    #[test]
+    fn change_pet_mode_frame_has_index_45_and_mode_byte() {
+        use mir_protocol::packets::client as c;
+        // `C.ChangePMode`(45) 的负载只有一个字节（`PetMode`）。
+        for (mode, byte) in [
+            (PetMode::Both, 0u8),
+            (PetMode::MoveOnly, 1),
+            (PetMode::AttackOnly, 2),
+            (PetMode::None, 3),
+            (PetMode::FocusMasterTarget, 4),
+        ] {
+            let frame =
+                mir_protocol::ClientPacket::ChangePMode(c::ChangePMode { mode }).encode_frame();
+            assert_eq!(i16::from_le_bytes([frame[2], frame[3]]), 45, "包序号");
+            assert_eq!(frame[4], byte, "{mode:?} 的负载字节");
+            assert_eq!(frame.len(), 5, "只有 1 字节负载");
+        }
+    }
+
+    #[test]
+    fn send_output_message_follows_quest_item_and_keeps_server_text() {
+        // 服务端顺序：205（任务物品）→ 223（「你找到了 X」），两条都要进聊天日志。
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.apply_packet(&ServerPacket::GainedQuestItem(
+            mir_protocol::packets::server::GainedQuestItem {
+                item: test_item(501, 100, 1),
+            },
+        ));
+        let after_item = snapshot.chat.len();
+        snapshot.apply_packet(&ServerPacket::SendOutputMessage(
+            mir_protocol::packets::server::SendOutputMessage {
+                message: "你找到了 鹿肉".to_owned(),
+                type_: OutputMessageType::Quest,
+            },
+        ));
+        assert_eq!(
+            snapshot.chat.len(),
+            after_item + 1,
+            "223 不能被 wildcard 丢掉"
+        );
+        let line = snapshot.chat.last().expect("输出消息");
+        assert_eq!(line.text, "你找到了 鹿肉", "服务端文本原样显示");
+        assert_eq!(line.kind, ChatType::System, "Quest 类型走系统频道");
+        assert!(matches!(
+            snapshot.chat[after_item - 1].system,
+            Some(SystemChat::QuestItemGained { .. })
+        ));
+
+        // 其它 OutputMessageType 也走同一文本路径（不 panic、不丢消息）。
+        for (type_, kind) in [
+            (OutputMessageType::Normal, ChatType::Hint),
+            (OutputMessageType::Guild, ChatType::Guild),
+        ] {
+            snapshot.apply_packet(&ServerPacket::SendOutputMessage(
+                mir_protocol::packets::server::SendOutputMessage {
+                    message: format!("{type_:?} 输出"),
+                    type_,
+                },
+            ));
+            let line = snapshot.chat.last().expect("输出消息");
+            assert_eq!(line.kind, kind, "{type_:?} 的频道");
+        }
+    }
+
+    #[test]
+    fn pet_mode_cycles_three_states_and_tracks_owner() {
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.apply_packet(&ServerPacket::UserInformation(UserInformation {
+            object_id: 7,
+            real_id: 7,
+            ..UserInformation::default()
+        }));
+        assert!(!snapshot.has_pet(), "没有带主人的怪物时不算有宠物");
+        // 主人的怪物 = 宠物（`S.ObjectMonster.master_object_id`）。
+        snapshot.apply_packet(&ServerPacket::ObjectMonster(ObjectMonster {
+            object_id: 42,
+            master_object_id: 7,
+            name: "神兽".to_owned(),
+            ..ObjectMonster::default()
+        }));
+        assert!(snapshot.has_pet());
+        assert_eq!(snapshot.pet_object_id(), Some(42));
+        // 别人的宠物不算。
+        snapshot.apply_packet(&ServerPacket::ObjectMonster(ObjectMonster {
+            object_id: 43,
+            master_object_id: 99,
+            ..ObjectMonster::default()
+        }));
+        assert_eq!(snapshot.pet_object_id(), Some(42));
+
+        // 三态循环：跟随 → 攻击 → 休息 → 跟随。
+        assert_eq!(snapshot.pet_mode, PetMode::Both);
+        assert_eq!(next_pet_mode(PetMode::Both), PetMode::AttackOnly);
+        assert_eq!(next_pet_mode(PetMode::AttackOnly), PetMode::None);
+        assert_eq!(next_pet_mode(PetMode::None), PetMode::Both);
+
+        // 服务端回执覆盖本地模式。
+        snapshot.apply_packet(&ServerPacket::ChangePMode(
+            mir_protocol::packets::server::ChangePMode {
+                mode: PetMode::None,
+            },
+        ));
+        assert_eq!(snapshot.pet_mode, PetMode::None);
+        // 移除对象后不再是宠物。
+        snapshot.apply_packet(&ServerPacket::ObjectRemove(
+            mir_protocol::packets::server::ObjectRemove { object_id: 42 },
+        ));
+        assert!(!snapshot.has_pet());
     }
 }

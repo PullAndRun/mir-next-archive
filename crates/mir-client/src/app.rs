@@ -414,6 +414,23 @@ fn load_world_scene(map_name: &str, map_dir: &Path, data_dir: &Path) -> MapScene
     })
 }
 
+/// 聊天框提交 → 网络命令。
+///
+/// * `!!` 前缀是组队频道（Crystal `PlayerObject.cs:2001-2013`），仍包成 `C.Chat`，
+///   由服务端按前缀转组队广播；
+/// * `@` 开头是 GM/脚本命令，**原样**走 `C.Chat`，客户端不翻译、不解析、不维护命令列表；
+/// * 空白输入不发送。
+#[must_use]
+fn chat_submit_command(message: &str) -> Option<NetCommand> {
+    if message.trim().is_empty() {
+        return None;
+    }
+    Some(
+        mir_client::ui::group::group_chat_command(message)
+            .unwrap_or_else(|| NetCommand::Chat(message.to_owned())),
+    )
+}
+
 /// 把网络层错误文案归类成登录页的提示类别（原始详情只进控制台/日志）。
 ///
 /// `NetClient` 的错误是 `anyhow` 文本（例如「登录失败（result = 5）」、
@@ -798,14 +815,8 @@ impl ClientApp {
         match &event.logical_key {
             Key::Named(NamedKey::Enter) => {
                 if let Some(message) = live.chat_input.take() {
-                    if !message.trim().is_empty() {
-                        // `!!` 前缀是组队频道（Crystal `PlayerObject.cs:2001-2013`）：
-                        // 客户端只发普通 `C.Chat`，服务端按前缀转成组队广播。
-                        if let Some(command) = mir_client::ui::group::group_chat_command(&message) {
-                            live.send(command);
-                        } else {
-                            live.send(NetCommand::Chat(message));
-                        }
+                    if let Some(command) = chat_submit_command(&message) {
+                        live.send(command);
                     }
                 }
             }
@@ -1797,6 +1808,31 @@ impl ClientApp {
         }
     }
 
+    /// 宠物模式三态循环（`C.ChangePMode`，index 45）。
+    ///
+    /// 键位用 `V`（`P` 已被 Crystal 的组队窗口占用，见 `KeybindSettings.cs:225`）。
+    /// 没有宠物时只发一条本地系统提示；有宠物时乐观更新 + 发包 + 聊天行提示。
+    fn live_cycle_pet_mode(&mut self) {
+        let mut redraw = false;
+        if let Mode::Live(live) = &mut self.mode {
+            if live.snapshot.is_ready() {
+                if live.snapshot.has_pet() {
+                    let mode = mir_client::net::next_pet_mode(live.snapshot.pet_mode);
+                    live.snapshot.pet_mode = mode;
+                    live.send(NetCommand::ChangePetMode(mode));
+                    live.snapshot
+                        .notify(mir_client::net::SystemChat::PetModeChanged { mode });
+                } else {
+                    live.snapshot.notify(mir_client::net::SystemChat::NoPet);
+                }
+                redraw = true;
+            }
+        }
+        if redraw {
+            self.request_redraw();
+        }
+    }
+
     /// `N`：开关邮件面板（Crystal 的邮件窗口没有默认键，本作按需求绑 `N`）。
     fn live_toggle_mail(&mut self) {
         let mut redraw = false;
@@ -2298,6 +2334,12 @@ impl ClientApp {
                     self.open_settings();
                     return;
                 }
+                // `V`：宠物模式三态循环（`C.ChangePMode`）。`P` 是 Crystal 的组队窗口，
+                // 不能占用；`V` 在 Crystal 里没有默认绑定，作为本作扩展键。
+                "v" => {
+                    self.live_cycle_pet_mode();
+                    return;
+                }
                 _ => {}
             }
             if lower == "d" && self.live_inventory_open() && self.live_drop_selected() {
@@ -2591,6 +2633,29 @@ mod tests {
         let name = path.file_name().expect("文件名").to_string_lossy();
         assert!(name.starts_with("screenshot-"));
         assert!(name.ends_with(".png"));
+    }
+
+    #[test]
+    fn chat_submit_keeps_gm_and_group_prefixes() {
+        // `@` 是 GM/脚本命令：原样走 `C.Chat`，客户端不解析、不本地化、不泄漏命令列表。
+        assert_eq!(
+            chat_submit_command("@help"),
+            Some(NetCommand::Chat("@help".to_owned()))
+        );
+        assert_eq!(
+            chat_submit_command("@language en"),
+            Some(NetCommand::Chat("@language en".to_owned()))
+        );
+        // `!!` 组队前缀也只是 `C.Chat`（服务端按前缀转频道）。
+        assert_eq!(
+            chat_submit_command("!!集合"),
+            Some(NetCommand::Chat("!!集合".to_owned()))
+        );
+        assert_eq!(
+            chat_submit_command("你好"),
+            Some(NetCommand::Chat("你好".to_owned()))
+        );
+        assert_eq!(chat_submit_command("   "), None);
     }
 
     #[test]

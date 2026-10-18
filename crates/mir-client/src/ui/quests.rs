@@ -45,6 +45,10 @@ pub const FOOTER_HEIGHT: u32 = 18;
 pub const QUEST_ITEMS_HEIGHT: u32 = 34;
 /// 任务物品图标边长。
 pub const QUEST_ITEM_ICON: u32 = 24;
+/// 任务物品条左侧标题预留宽度（「任务物品」/「Quest items」）。
+pub const QUEST_ITEMS_LABEL_WIDTH: u32 = 96;
+/// 每个任务物品占用的横向步进（图标 + 间距）。
+pub const QUEST_ITEM_STEP: u32 = 32;
 /// 内边距。
 pub const PADDING: u32 = 8;
 /// 「放弃」按钮宽度。
@@ -80,6 +84,8 @@ pub struct QuestLayout {
     pub footer: Rect,
     /// 「任务物品」区（`S.GainedQuestItem` / `S.DeleteQuestItem` 的列表）。
     pub items: Rect,
+    /// 任务物品区一屏能放几个（按面板宽度算；40 格时需要滚动）。
+    pub item_capacity: usize,
     /// 最大滚动行数（0 = 不需要滚动）。
     pub max_scroll: usize,
 }
@@ -154,6 +160,10 @@ pub fn quest_layout(frame: Rect, quest_count: usize, scroll: usize) -> QuestLayo
         panel.width.saturating_sub(PADDING * 2),
         QUEST_ITEMS_HEIGHT,
     );
+    let item_capacity =
+        usize::try_from(items.width.saturating_sub(QUEST_ITEMS_LABEL_WIDTH + 8) / QUEST_ITEM_STEP)
+            .unwrap_or(1)
+            .max(1);
     let footer = Rect::new(
         panel.x + i32::try_from(PADDING).unwrap_or(0),
         panel.bottom() - i32::try_from(FOOTER_HEIGHT + 4).unwrap_or(0),
@@ -166,6 +176,7 @@ pub fn quest_layout(frame: Rect, quest_count: usize, scroll: usize) -> QuestLayo
         first_index,
         footer,
         items,
+        item_capacity,
         max_scroll,
     }
 }
@@ -231,6 +242,7 @@ pub fn draw(
     hover: Option<usize>,
     mouse: mir_core::Point,
     now_ms: u64,
+    item_scroll: usize,
     icon: &mut dyn FnMut(u16) -> Option<Image>,
 ) {
     let text = context.text;
@@ -383,7 +395,7 @@ pub fn draw(
             );
         }
     }
-    draw_quest_items(frame, layout, snapshot, text, language, icon);
+    draw_quest_items(frame, layout, snapshot, text, language, item_scroll, icon);
     text.draw_clipped(
         frame,
         layout.footer.x,
@@ -406,12 +418,16 @@ pub fn draw(
 }
 
 /// 画「任务物品」区：标题 + 图标 + 数量（图标来自 `items.wzl`，与背包共用图库）。
+///
+/// 40 格任务物品栏放不下一屏：`item_scroll` 指定从第几件开始画，
+/// 右侧显示 `当前页/总页` 和「滚轮翻页」提示（`MouseWheel` 在物品条上时翻页）。
 fn draw_quest_items(
     frame: &mut Frame,
     layout: &QuestLayout,
     snapshot: &WorldSnapshot,
     text: &UiText,
     language: Language,
+    item_scroll: usize,
     icon: &mut dyn FnMut(u16) -> Option<Image>,
 ) {
     let strip = layout.items;
@@ -451,8 +467,13 @@ fn draw_quest_items(
         );
         return;
     }
-    for item in &snapshot.quest_items {
-        if x + i32::try_from(QUEST_ITEM_ICON).unwrap_or(24) > strip.right() - 20 {
+    // 40 格放不下一屏：按容量分页，`item_scroll` 是起始下标（页首）。
+    let capacity = layout.item_capacity.max(1);
+    let max_scroll = snapshot.quest_items.len().saturating_sub(capacity);
+    let first = item_scroll.min(max_scroll);
+    let right_limit = strip.right() - if max_scroll > 0 { 110 } else { 20 };
+    for item in snapshot.quest_items.iter().skip(first).take(capacity) {
+        if x + i32::try_from(QUEST_ITEM_ICON).unwrap_or(24) > right_limit {
             break;
         }
         let loaded = snapshot.item_image(item.item_index).and_then(&mut *icon);
@@ -494,6 +515,22 @@ fn draw_quest_items(
             );
         }
         x += i32::try_from(QUEST_ITEM_ICON).unwrap_or(24) + 8;
+    }
+    if max_scroll > 0 {
+        let pages = snapshot.quest_items.len().div_ceil(capacity);
+        let page = first / capacity + 1;
+        let hint = format!(
+            "{page}/{pages} {}",
+            Label::QuestItemsScrollHint.text(language)
+        );
+        text.draw_right(
+            frame,
+            strip.right() - 6,
+            strip.y + 9,
+            &hint,
+            SIZE_SMALL,
+            MUTED_COLOR,
+        );
     }
 }
 
@@ -546,6 +583,9 @@ mod tests {
             "底部提示越界"
         );
         assert!(layout.items.bottom() <= layout.footer.y);
+        // 320 宽一屏放得下 5 件（40 格需要 8 页）；800 宽更多。
+        assert!(layout.item_capacity >= 3);
+        assert!(quest_layout(Rect::screen(800, 600), 3, 0).item_capacity > layout.item_capacity);
     }
 
     #[test]

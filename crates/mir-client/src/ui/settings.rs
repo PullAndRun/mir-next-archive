@@ -52,8 +52,8 @@ pub const SCALES: [u32; 3] = [1, 2, 3];
 ///
 /// 与 `app.rs` 的实际绑定一一对应（方向键/WASD、Shift 跑、Space 攻击、Tab 拾取、
 /// `T` 聊天、`I` 背包、`E` 装备、`F3` 技能、`M` 小地图、`B` 大地图、`Q` 任务、
-/// `N` 邮件、`G` 行会、`P` 组队、`Y` 交易、`O` 设置、`Esc` 关面板、`F10` 退出）。
-pub const KEY_BINDINGS: [(&str, Label); 18] = [
+/// `N` 邮件、`G` 行会、`P` 组队、`Y` 交易、`O` 设置、`V` 宠物模式、`Esc` 关面板、`F10` 退出）。
+pub const KEY_BINDINGS: [(&str, Label); 19] = [
     ("WASD / \u{2190}\u{2191}\u{2193}\u{2192}", Label::KeyMove),
     // 键名只用 ASCII（"Shift + WASD"），动作文案走 `Label::KeyRun`。
     ("Shift + WASD", Label::KeyRun),
@@ -71,6 +71,8 @@ pub const KEY_BINDINGS: [(&str, Label); 18] = [
     ("P", Label::Group),
     ("Y", Label::Trade),
     ("O", Label::Settings),
+    // `V` 是宠物模式循环（`C.ChangePMode`；`P` 已被组队占用）。
+    ("V", Label::PetMode),
     ("Esc", Label::KeyEscape),
     ("F10", Label::Quit),
 ];

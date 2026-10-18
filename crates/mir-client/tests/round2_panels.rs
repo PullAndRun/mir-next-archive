@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 
 use mir_client::geom::Rect;
 use mir_client::net::{
-    CharacterInfo, InventoryItem, NetCommand, QuestView, SystemChat, WorldSnapshot,
+    CharacterInfo, InventoryItem, NetCommand, QuestView, SystemChat, WorldSnapshot, next_pet_mode,
 };
 use mir_client::settings::ClientSettings;
 use mir_client::ui::labels;
@@ -27,15 +27,16 @@ use mir_client::ui::settings::{self as settings_ui, SettingsAction};
 use mir_client::ui::{self, UiAction, UiState, UiText, hud, market, quests, select};
 use mir_core::enums::{
     ChatType, ItemType, LightSetting, MarketItemType, MarketPanelType, MirClass, MirDirection,
-    MirGender, Spell, WeatherSetting,
+    MirGender, OutputMessageType, PetMode, Spell, WeatherSetting,
 };
 use mir_core::{DateTimeBinary, Language, Point};
 use mir_protocol::ServerPacket;
 use mir_protocol::data::{ClientAuction, ClientMail, ItemInfo, SelectInfo, UserItem};
 use mir_protocol::packets::server::{
     Chat, DeleteQuestItem, GainedGold, GainedItem, GainedQuestItem, LoginSuccess, Magic,
-    MapChanged, MarketFail, NPCMarket, NewItemInfo, ObjectHidden, ObjectMagic, ObjectSpell,
-    ReceiveMail, StartGame, TimeOfDay, TradeConfirm, UserInformation,
+    MapChanged, MarketFail, NPCMarket, NewItemInfo, ObjectHidden, ObjectMagic, ObjectMonster,
+    ObjectSpell, ReceiveMail, SendOutputMessage, StartGame, TimeOfDay, TradeConfirm,
+    UserInformation,
 };
 use mir_render::{Frame, MapScene, TileLibraries, Viewport};
 use mir_world::{Map, MapCell, MapVersion};
@@ -1347,4 +1348,173 @@ fn time_and_weather_follow_server_packets() {
     );
     en.save_png(screenshot("time-weather"))
         .expect("保存时间天气截图");
+}
+
+// ===== 第 5 轮：宠物模式 / 任务物品滚动 / @ 命令 =====
+
+#[test]
+fn pet_mode_cycles_and_prints_localized_chat() {
+    let text = text();
+    let mut snapshot = snapshot_with_player(0, &[]);
+    // `S.ObjectMonster.master_object_id` 指向自己 = 宠物。
+    snapshot.apply_packet(&ServerPacket::ObjectMonster(ObjectMonster {
+        object_id: 42,
+        master_object_id: 7,
+        name: "神兽".to_owned(),
+        ..ObjectMonster::default()
+    }));
+    assert!(snapshot.has_pet());
+    assert_eq!(snapshot.pet_object_id(), Some(42));
+
+    // 三态循环：跟随 → 攻击 → 休息 → 跟随（`C.ChangePMode` 的三种）。
+    let mode = next_pet_mode(snapshot.pet_mode);
+    assert_eq!(mode, PetMode::AttackOnly);
+    snapshot.pet_mode = mode;
+    snapshot.notify(SystemChat::PetModeChanged { mode });
+    let line = snapshot.chat.last().expect("宠物模式提示");
+    assert_eq!(
+        labels::chat_line_text(line, Language::ZhCn),
+        "宠物模式：攻击"
+    );
+    assert_eq!(
+        labels::chat_line_text(line, Language::En),
+        "Pet mode: Attack"
+    );
+
+    // 无宠物时给提示（客户端只提示，不发包）。
+    let mut no_pet = snapshot_with_player(0, &[]);
+    assert!(!no_pet.has_pet());
+    no_pet.notify(SystemChat::NoPet);
+    assert_eq!(
+        labels::chat_line_text(no_pet.chat.last().expect("无宠物提示"), Language::En),
+        "No pet to command."
+    );
+
+    // 截图：HUD + 聊天行（中英各一张）。
+    let mut state = UiState::new(Language::ZhCn);
+    state.sync(&snapshot);
+    let zh = frame_with_language(&mut state, &snapshot, &text, Language::ZhCn);
+    let en = frame_with_language(&mut state, &snapshot, &text, Language::En);
+    let chat = hud::chat_layout(Rect::screen(800, 600));
+    assert!(
+        changed_pixels(&zh, &en, chat) > 20,
+        "宠物模式提示要随语言变化"
+    );
+    zh.save_png(screenshot("pet-mode-zh"))
+        .expect("保存宠物模式截图");
+    en.save_png(screenshot("pet-mode-en"))
+        .expect("保存宠物模式英文截图");
+}
+
+#[test]
+fn quest_items_strip_scrolls_with_wheel_and_pages() {
+    let text = text();
+    let mut snapshot = snapshot_with_player(0, &[]);
+    for index in 0..40u64 {
+        snapshot.quest_items.push(InventoryItem {
+            unique_id: 1_000 + index,
+            item_index: 1000,
+            // 数量不同，翻页截图/像素对比能看出内容变了（图标是同一占位方块）。
+            count: u16::try_from(index % 4).unwrap_or(0) + 2,
+            current_dura: 0,
+            max_dura: 0,
+        });
+    }
+    let mut state = UiState::new(Language::ZhCn);
+    state.sync(&snapshot);
+    state.show_quests = true;
+
+    // 先画一帧：绘制会把「任务物品」条矩形与容量写回 UiState。
+    let (mut scene, mut frame, center) = scene_and_frame(800, 600);
+    let entities = snapshot.entity_views(0);
+    scene.render_with_entities(&mut frame, center, &entities);
+    ui::draw(
+        &mut state, &mut frame, &mut scene, &snapshot, &text, None, center,
+    );
+    let capacity = state.quest_item_capacity;
+    assert!(capacity > 0 && capacity < 40, "40 格需要分页");
+    let items_rect = state.quest_items_rect;
+    let layout = quests::quest_layout(Rect::screen(800, 600), 0, 0);
+    assert_eq!(items_rect, layout.items);
+
+    // 滚轮落在物品条上：翻物品页，不动任务列表。
+    state.mouse = Point::new(items_rect.x + 2, items_rect.y + 2);
+    assert!(state.on_wheel(&snapshot, 1));
+    assert_eq!(state.quest_item_scroll, 1);
+    assert_eq!(state.quest_scroll, 0);
+
+    // 往下滚到底会被夹到 max（40 - capacity）。
+    for _ in 0..60 {
+        state.on_wheel(&snapshot, 1);
+    }
+    assert_eq!(state.quest_item_scroll, 40 - capacity);
+
+    // 两页都画出来：物品条像素必须不同（分页生效），并保存截图。
+    state.quest_item_scroll = 0;
+    let first = frame_with_language(&mut state, &snapshot, &text, Language::ZhCn);
+    state.quest_item_scroll = 40 - capacity;
+    let last = frame_with_language(&mut state, &snapshot, &text, Language::ZhCn);
+    assert!(
+        changed_pixels(&first, &last, items_rect) > 20,
+        "翻页后任务物品条应当重绘"
+    );
+    first
+        .save_png(screenshot("quest-items-page1"))
+        .expect("保存任务物品第一页");
+    last.save_png(screenshot("quest-items-page2"))
+        .expect("保存任务物品最后一页");
+
+    // 滚轮不在物品条上时仍滚任务列表（任务列表为空时返回 false）。
+    state.mouse = Point::new(items_rect.x + 2, items_rect.y - 40);
+    assert!(!state.on_wheel(&snapshot, 1));
+}
+
+#[test]
+fn at_prefixed_commands_are_sent_as_plain_chat() {
+    // 客户端不解析 `@`：原样作为 `C.Chat` 发送（真正的命令列表只在服务端）。
+    // 这里复用 app 的单测口径；集成侧确认 `@help` 的服务端回复按原文显示。
+    let mut snapshot = snapshot_with_player(0, &[]);
+    snapshot.apply_packet(&ServerPacket::Chat(Chat {
+        message: "@help → /language, @move, @level".to_owned(),
+        type_: ChatType::System,
+    }));
+    let line = snapshot.chat.last().expect("@help 回复");
+    assert_eq!(
+        labels::chat_line_text(line, Language::En),
+        "@help → /language, @move, @level",
+        "服务端回复原样显示，不二次翻译"
+    );
+}
+
+#[test]
+fn quest_output_message_is_visible_after_quest_item_gained() {
+    // 服务端 t34 顺序：205（任务物品）→ 223（SendOutputMessage{type=Quest}）。
+    let text = text();
+    let mut snapshot = snapshot_with_player(0, &[]);
+    snapshot.apply_packet(&ServerPacket::GainedQuestItem(GainedQuestItem {
+        item: user_item(900, 1000, 1),
+    }));
+    snapshot.apply_packet(&ServerPacket::SendOutputMessage(SendOutputMessage {
+        message: "你找到了 鹿肉".to_owned(),
+        type_: OutputMessageType::Quest,
+    }));
+    assert_eq!(snapshot.chat.len(), 2, "205 和 223 都要进聊天日志");
+    let output = snapshot.chat.last().expect("223 输出");
+    assert_eq!(output.text, "你找到了 鹿肉", "服务端文本原样显示");
+    assert_eq!(output.kind, ChatType::System);
+    assert!(matches!(
+        snapshot.chat[0].system,
+        Some(SystemChat::QuestItemGained { .. })
+    ));
+    assert!(matches!(
+        &snapshot.chat[0].system,
+        Some(SystemChat::QuestItemGained { name: Some(name), .. }) if name == "元宝商品"
+    ));
+
+    // 英文界面下服务端文本同样原样显示（不二次翻译），聊天面板能画出来。
+    let mut state = UiState::new(Language::En);
+    state.sync(&snapshot);
+    let en = frame_with_language(&mut state, &snapshot, &text, Language::En);
+    en.save_png(screenshot("quest-found"))
+        .expect("保存任务物品获得提示截图");
 }

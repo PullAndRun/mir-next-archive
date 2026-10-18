@@ -856,6 +856,12 @@ pub struct UiState {
     pub selected_quest: Option<i32>,
     /// 任务面板滚动行。
     pub quest_scroll: usize,
+    /// 任务物品条起始下标（40 格放不下一屏，按页滚动）。
+    pub quest_item_scroll: usize,
+    /// 任务物品条一屏容量（每次绘制按面板宽度更新，滚轮翻页用）。
+    pub quest_item_capacity: usize,
+    /// 任务物品条矩形（滚轮命中测试用，每次绘制更新）。
+    pub quest_items_rect: Rect,
     /// 个人仓库面板是否打开（服务端 `S.NPCStorage` 自动打开）。
     pub show_storage: bool,
     /// 邮件面板是否打开（`N`）。
@@ -1012,6 +1018,9 @@ impl UiState {
             show_quests: false,
             selected_quest: None,
             quest_scroll: 0,
+            quest_item_scroll: 0,
+            quest_item_capacity: 0,
+            quest_items_rect: Rect::new(0, 0, 0, 0),
             show_storage: false,
             show_mail: false,
             mail_tab: mail::MailTab::Inbox,
@@ -1861,6 +1870,13 @@ impl UiState {
         if self.show_group && self.scroll_group(snapshot, delta) {
             return true;
         }
+        // 任务面板：滚轮落在「任务物品」条上翻物品页，否则滚任务列表。
+        if self.show_quests
+            && self.quest_items_rect.contains(self.mouse)
+            && self.scroll_quest_items(snapshot, delta)
+        {
+            return true;
+        }
         if self.show_quests && self.scroll_quests(snapshot, delta) {
             return true;
         }
@@ -1910,6 +1926,26 @@ impl UiState {
         }
         .min(max_scroll);
         self.quest_scroll != before
+    }
+
+    /// 翻任务物品条（40 格放不下一屏；滚轮在物品条上时调用）。
+    pub fn scroll_quest_items(&mut self, snapshot: &WorldSnapshot, delta: i32) -> bool {
+        if delta == 0 {
+            return false;
+        }
+        let capacity = self.quest_item_capacity.max(1);
+        let max_scroll = snapshot.quest_items.len().saturating_sub(capacity);
+        if max_scroll == 0 {
+            return false;
+        }
+        let before = self.quest_item_scroll;
+        self.quest_item_scroll = if delta < 0 {
+            self.quest_item_scroll.saturating_sub(1)
+        } else {
+            self.quest_item_scroll.saturating_add(1)
+        }
+        .min(max_scroll);
+        self.quest_item_scroll != before
     }
 
     /// 翻邮件页（滚轮 / 上下键）。
@@ -3556,6 +3592,15 @@ pub fn draw(
         let selected_quest = state.selected_quest;
         let mouse = state.mouse;
         let time_millis = u64::try_from(state.time_millis).unwrap_or(0);
+        // 记录任务物品条几何与容量：滚轮在条上时翻页（见 `on_wheel`）。
+        state.quest_item_capacity = layout.item_capacity.max(1);
+        state.quest_items_rect = layout.items;
+        let max_item_scroll = snapshot
+            .quest_items
+            .len()
+            .saturating_sub(state.quest_item_capacity);
+        state.quest_item_scroll = state.quest_item_scroll.min(max_item_scroll);
+        let item_scroll = state.quest_item_scroll;
         let UiState { icons, .. } = state;
         let mut icon_fn = |image: u16| -> Option<Image> { load_icon(scene, icons, image) };
         quests::draw(
@@ -3567,6 +3612,7 @@ pub fn draw(
             hover_index,
             mouse,
             time_millis,
+            item_scroll,
             &mut icon_fn,
         );
     }

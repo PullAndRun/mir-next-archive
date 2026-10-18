@@ -5,7 +5,7 @@
 
 use mir_core::Language;
 use mir_core::enums::{
-    BuffType, ChatType, EquipmentSlot, ItemGrade, ItemType, LightSetting, RequiredType,
+    BuffType, ChatType, EquipmentSlot, ItemGrade, ItemType, LightSetting, PetMode, RequiredType,
     WeatherSetting,
 };
 
@@ -586,6 +586,20 @@ pub enum Label {
     SystemQuestItemGained,
     /// 客户端系统消息：失去任务物品。
     SystemQuestItemLost,
+    /// 宠物模式：跟随。
+    PetModeFollow,
+    /// 宠物模式：攻击。
+    PetModeAttack,
+    /// 宠物模式：休息。
+    PetModeRest,
+    /// 宠物模式切换提示（`宠物模式：跟随`）。
+    PetModeChanged,
+    /// 没有宠物时的提示。
+    NoPetHint,
+    /// 任务物品区翻页提示。
+    QuestItemsScrollHint,
+    /// 设置面板按键表：宠物模式。
+    PetMode,
 }
 
 impl Label {
@@ -881,6 +895,13 @@ impl Label {
         Self::WeatherLeaves,
         Self::SystemQuestItemGained,
         Self::SystemQuestItemLost,
+        Self::PetModeFollow,
+        Self::PetModeAttack,
+        Self::PetModeRest,
+        Self::PetModeChanged,
+        Self::NoPetHint,
+        Self::QuestItemsScrollHint,
+        Self::PetMode,
     ];
 }
 
@@ -958,7 +979,7 @@ impl Label {
             (Self::Durability, Language::En) => "Durability",
             (Self::Stack, Language::ZhCn) => "堆叠",
             (Self::Stack, Language::En) => "Stack",
-            (Self::Attack | Self::KeyAttack, Language::ZhCn) => "攻击",
+            (Self::Attack | Self::KeyAttack | Self::PetModeAttack, Language::ZhCn) => "攻击",
             (Self::Attack, Language::En) => "DC",
             (Self::Defence, Language::ZhCn) => "防御",
             (Self::Defence, Language::En) => "AC",
@@ -1354,7 +1375,7 @@ impl Label {
             (Self::KeyMove, Language::En) => "Walk / turn",
             (Self::KeyRun, Language::ZhCn) => "跑",
             (Self::KeyRun, Language::En) => "Run",
-            (Self::KeyAttack, Language::En) => "Attack",
+            (Self::KeyAttack | Self::PetModeAttack, Language::En) => "Attack",
             (Self::KeyPickUp, Language::ZhCn) => "拾取",
             (Self::KeyPickUp, Language::En) => "Pick up",
             (Self::KeyChat, Language::ZhCn) => "聊天输入",
@@ -1459,6 +1480,18 @@ impl Label {
             (Self::SystemQuestItemGained, Language::En) => "Quest item gained: {} ×{}",
             (Self::SystemQuestItemLost, Language::ZhCn) => "失去任务物品 {} ×{}",
             (Self::SystemQuestItemLost, Language::En) => "Quest item lost: {} ×{}",
+            (Self::PetModeFollow, Language::ZhCn) => "跟随",
+            (Self::PetModeFollow, Language::En) => "Follow",
+            (Self::PetModeRest, Language::ZhCn) => "休息",
+            (Self::PetModeRest, Language::En) => "Rest",
+            (Self::PetModeChanged, Language::ZhCn) => "宠物模式：{}",
+            (Self::PetModeChanged, Language::En) => "Pet mode: {}",
+            (Self::NoPetHint, Language::ZhCn) => "没有宠物，无法切换模式。",
+            (Self::NoPetHint, Language::En) => "No pet to command.",
+            (Self::QuestItemsScrollHint, Language::ZhCn) => "滚轮翻页",
+            (Self::QuestItemsScrollHint, Language::En) => "Wheel to page",
+            (Self::PetMode, Language::ZhCn) => "宠物模式",
+            (Self::PetMode, Language::En) => "Pet mode",
         }
     }
 
@@ -1819,6 +1852,11 @@ pub fn system_chat_text(message: &SystemChat, language: Language) -> String {
                 &[&name, &count.to_string()],
             )
         }
+        SystemChat::PetModeChanged { mode } => fill_template(
+            Label::PetModeChanged.text(language),
+            &[pet_mode_label(*mode).text(language)],
+        ),
+        SystemChat::NoPet => Label::NoPetHint.text(language).to_owned(),
     }
 }
 
@@ -1876,6 +1914,18 @@ pub const fn weather_label(setting: WeatherSetting) -> Label {
         WeatherSetting::Leaves | WeatherSetting::FireyLeaves | WeatherSetting::PurpleLeaves => {
             Label::WeatherLeaves
         }
+    }
+}
+
+/// 宠物模式文案（`S.ChangePMode` / `C.ChangePMode`）：
+/// `Both` = 跟随、`AttackOnly` = 攻击、`None` = 休息；其余值按跟随显示。
+#[must_use]
+pub const fn pet_mode_label(mode: PetMode) -> Label {
+    match mode {
+        PetMode::AttackOnly => Label::PetModeAttack,
+        PetMode::None => Label::PetModeRest,
+        // `Both` / `MoveOnly` / `FocusMasterTarget` 都按「跟随」显示。
+        _ => Label::PetModeFollow,
     }
 }
 
@@ -1968,7 +2018,7 @@ mod tests {
     #[test]
     fn every_label_has_both_languages() {
         // `Label::ALL` 是手工维护的清单：数量对不上说明加了变体没同步。
-        assert_eq!(Label::ALL.len(), 286, "新增 Label 后请同步 Label::ALL");
+        assert_eq!(Label::ALL.len(), 293, "新增 Label 后请同步 Label::ALL");
         for label in Label::ALL {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);
@@ -2157,6 +2207,13 @@ mod tests {
             Label::WeatherLeaves,
             Label::SystemQuestItemGained,
             Label::SystemQuestItemLost,
+            Label::PetModeFollow,
+            Label::PetModeAttack,
+            Label::PetModeRest,
+            Label::PetModeChanged,
+            Label::NoPetHint,
+            Label::QuestItemsScrollHint,
+            Label::PetMode,
         ] {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);

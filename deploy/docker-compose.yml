@@ -1,0 +1,48 @@
+# 传奇-Next：服务端 + PostgreSQL 一键起
+#
+#   cp mir2.env.example mir2.env
+#   docker compose up -d
+#
+# 素材目录（`resource/`）与语言包（`config/`）以只读方式挂载，不进镜像。
+# 首次启动时 `sqlx` 会把内嵌的迁移（0001..）自动跑到 `mir2` 库里。
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mir2
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mir2}
+      POSTGRES_DB: mir2
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mir2 -d mir2"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://mir2:${POSTGRES_PASSWORD:-mir2}@postgres:5432/mir2
+      MIR2_LISTEN: 0.0.0.0:7000
+      # 指向 Crystal 的 Server.MirDB（真实怪物/物品/刷怪点）；没有就保持空，服务端照常可跑。
+      MIR2_DB_PATH: ${MIR2_DB_PATH:-}
+      # 0 = 不加载 MirDB，只刷演示怪（调试用）。
+      MIR2_LOAD_GAME_DATA: ${MIR2_LOAD_GAME_DATA:-1}
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - "${MIR2_PORT:-7000}:7000"
+    volumes:
+      - ../resource:/app/resource:ro
+      - ../config:/app/config:ro
+    restart: unless-stopped
+
+volumes:
+  pgdata:

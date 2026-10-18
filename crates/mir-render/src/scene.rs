@@ -691,22 +691,18 @@ mod tests {
         frame.clear([9, 9, 9, 255]);
         let entities = [
             EntityView {
-                position: Point::new(4, 4),
-                direction: MirDirection::Down,
-                kind: EntityKind::Player,
-                image: 0,
                 name: Some("自己".to_owned()),
-                dead: false,
-                hp_percent: None,
+                ..EntityView::new(Point::new(4, 4), MirDirection::Down, EntityKind::Player, 0)
             },
             EntityView {
-                position: Point::new(5, 5),
-                direction: MirDirection::Down,
-                kind: EntityKind::Monster,
-                image: 27,
                 name: Some("稻草人".to_owned()),
-                dead: false,
                 hp_percent: Some(50),
+                ..EntityView::new(
+                    Point::new(5, 5),
+                    MirDirection::Down,
+                    EntityKind::Monster,
+                    27,
+                )
             },
         ];
         scene.render_with_entities(&mut frame, Point::new(4, 4), &entities);

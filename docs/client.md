@@ -72,7 +72,8 @@ Crystal 的版本哈希是客户端 exe 的 MD5（`Client/MirScenes/LoginScene.c
   `S.EquipItem` / `S.RemoveItem` 用本地物品数据补全背包 ↔ 装备槽的搬运
   （Crystal `PlayerObject.EquipItem`，`PlayerObject.cs:5674-5678`）；
 * `item_infos`：`S.NewItemInfo` 的物品模板，除名字/图标/价格外还有 `ItemType`、
-  `RequiredType`/`RequiredAmount`、耐久上限与 `ItemInfo.stats`（tooltip 的攻防属性来源）；
+  `RequiredType`/`RequiredAmount`、耐久上限、`ItemInfo.stats`（tooltip 的攻防属性来源）
+  与 `ItemInfo.shape`（纸娃娃外观号，见第 6 节）；
 * `buffs`：`S.AddBuff` / `S.RemoveBuff` 的 `ClientBuff` 子集；`ExpireTime` 是 Unix 毫秒，
   由 UI 用本地时钟倒计时（Crystal `Client/MirScenes/Dialogs/BuffDialog.cs:166-171,368-376`）；
 * `damage_events`：`S.ObjectStruck`（无伤害值，画受击标记）与 `S.DamageIndicator`
@@ -85,6 +86,10 @@ Crystal 的版本哈希是客户端 exe 的 MD5（`Client/MirScenes/LoginScene.c
 * `Chat`、`ObjectChat` 进聊天记录（最多 100 条）；`NPCResponse` 存对话页，
   `NPCGoods` 记货架；`GainedItem/GainedGold` 写一条系统消息并更新金币；
 * `ObjectRemove`/`MapChanged` 清理实体；
+* `self_player.looks` / `entities[].looks`（`PlayerLooks`）：纸娃娃外观（衣服/武器/发型/
+  盾牌）。自己的由装备槽 + 物品模板推导（Crystal `UserObject.RefreshEquipmentStats`，
+  `Client/MirObjects/UserObject.cs:205-250`），别人的直接取 `S.ObjectPlayer` /
+  `S.PlayerUpdate` 的外观号；每处理完一个包重算一次，所以装备与模板谁先到都能收敛；
 * `packet_counts` 记录包种类次数，供测试断言。
 
 客户端每批包处理完把快照整体克隆给 UI；UI 侧 `poll_network` 用最新快照重绘。
@@ -155,11 +160,13 @@ Crystal 客户端的键盘移动不是逐键发 `C.Walk`：`GameScene.CheckInput
 
 ### 装备纸娃娃（E）
 
-`ui::equipment` 画 14 个装备槽的图标 + 名称，并在下方汇总
+`ui::equipment` 画 14 个装备槽的**实际装备图标**（`items.wzl` 里该物品的 `Image`，
+缺失时只显示模板编号）+ 名称，并在下方汇总
 DC/AC/MAC/魔法/道术/准确/敏捷/攻速/幸运。数据来自
 `UserInformation.equipment` 与 `NewItemInfo`；槽位顺序与 Crystal
 `EquipmentSlot`（`Shared/Enums.cs`）一致，角色面板同款布局见
 `Client/MirScenes/Dialogs/CharacterDialog.cs:227-320`。悬停装备槽同样弹 tooltip。
+**地图上**的纸娃娃（身体/武器/头发分层）见 §6.1；面板中央的角色小预览还没做（§8）。
 
 ### 物品 tooltip
 
@@ -197,7 +204,10 @@ Crystal 的商店同样用滚轮翻页（`Client/MirScenes/Dialogs/NPCDialogs.cs
 
 | 实体 | 文件 | 图像号 → 帧号 | Crystal 出处 |
 |---|---|---|---|
-| 玩家 | `hum.wzl` | `appearance*600 + direction*8 + n`（站立 4 帧，步长 8） | 外观选择 `PlayerObject.cs:553`；帧号 `PlayerObject.cs:761`；玩家帧集合 `Frames.cs:157-171`；身体绘制 `PlayerObject.cs:5045` |
+| 玩家身体 | `hum.wzl` / `hum2.wzl` / `hum3.wzl` | `block*600 + direction*8 + n`（站立 4 帧，步长 8） | 外观选择 `PlayerObject.cs:553`；帧号 `PlayerObject.cs:761`；玩家帧集合 `Frames.cs:157-171`；身体绘制 `PlayerObject.cs:5045` |
+| 玩家武器 | `weapon.wzl` / `weapon2.wzl` / `weapon3.wzl` | 同上（与身体**同步**） | `PlayerObject.cs:415-431`、`:5062-5073` |
+| 玩家头发 | `hair.wzl` / `hair2..4.wzl` | 同上（与身体**同步**） | `PlayerObject.cs:554`、`:5054` |
+| 玩家盾牌 | `shield.wzl`（语料里**没有**） | 同上 | Crystal 没有盾牌层（见 §6.2） |
 | 怪物 | `mon{image/10+1}.wzl` | `(image%10)*430 + direction*8 + n`（站立 4 帧） | 图像 → 图库 `MonsterObject.cs:208`；默认怪物帧集合 `Frames.cs:25-31`；绘制 `MonsterObject.cs:4307-4309` |
 | NPC | `npc.wzl`、`npc2.wzl`…（每 100 个图像换库） | `(image%100)*60`，取站立首帧 | 图像 → 图库 `NPCObject.cs:77-80`；帧号 `NPCObject.cs:101`；默认 NPC 帧集合 `Frames.cs:18-19` |
 | 物品 | `items.wzl`（缺失时 `dnitems.wzl`） | 帧号 = `ObjectItem.image`；金币按数量用 112..116 | `ItemObject.cs:32,37`（物品）、`:49,55-64`（金币）、`:72-73`（绘制） |
@@ -205,13 +215,64 @@ Crystal 的商店同样用滚轮翻页（`Client/MirScenes/Dialogs/NPCDialogs.cs
 几何锚点：
 
 * 玩家/怪物/NPC：格原点 + 图像头里的 `offset_x/offset_y`（`MLibrary.cs:658-665`，
-  `PlayerObject.cs:5045` 的 `offSet: true`）；
+  `PlayerObject.cs:5045` 的 `offSet: true`）；玩家的**四层**共用同一个格原点，各自叠加
+  自己的图像偏移，所以不需要额外的层间偏移常量；
 * 物品：在格子里居中（`ItemObject.cs:78-79`），不叠加图像偏移（`:72-73` 的默认 `offSet: false`）；
 * 绘制顺序：地图 Y 升序、同一行 X 升序（`GameScene.cs:10798-11008`）。
 * 精灵缺失：画 12×18 的彩色方块（玩家蓝、怪物红、NPC 绿、物品黄；死亡为灰色），
   物件有 `ObjectHealth` 时额外画 3px 血条。无 `resource/` 的 CI 也能得到非空画面。
 
-### 已知的素材/枚举偏差
+### 6.1 玩家装备分层（纸娃娃）
+
+`mir_render::EntityView` 带五个外观字段，`EntityRenderer` 按 Crystal 的顺序逐层叠加：
+
+```text
+朝 Left/Up/UpLeft/DownLeft：武器 → 身体 → 头发 → 盾牌
+朝 UpRight/Right/DownRight/Down：身体 → 头发 → 盾牌 → 武器
+```
+
+顺序来自 `PlayerObject.Draw`（`Client/MirObjects/PlayerObject.cs:4877-4926`）：
+
+| 步骤 | Crystal | 说明 |
+|---|---|---|
+| 1 | `:4884` `DrawMount()` | 坐骑，本作未做 |
+| 2 | `:4886-4892` 方向∈{Left,Up,UpLeft,DownLeft} → `DrawWeapon()`（身体**之前**） | 朝左上/上/左下/左时武器被身体挡住 |
+| 3 | `:4894` `DrawBody()` | 身体层 |
+| 4 | `:4896-4911` `DrawHead()` | 头发层（`DrawWings` 在中间，本作未做翅膀） |
+| 5 | `:4914-4923` 方向∈{UpRight,Right,DownRight,Down} → `DrawWeapon()`（身体**之后**） | 朝右上/右/右下/下时武器在最前面 |
+| 6 | `:4921-4922` 弓箭手 `DrawWeapon2()` | 双持/职业武器，本作未做 |
+
+帧公式（三层完全一致）：
+
+```text
+DrawFrame = block * 600 + direction * 8 + n     // n = 0..=3（站立 4 帧）
+```
+
+* `block` 是**图库内**的外观块号，不是 `ItemInfo.Shape` 的原始值：
+  * 衣服：`Shape` 0..23 → `hum.wzl`，24..53 → `hum2.wzl`，54..99 → `hum3.wzl`（实测块数
+    `HUM_BLOCKS = [24, 30, 46]`，越界落在最后一库的最后一块）；
+  * 武器：`Shape / 100 + 1` 选库（`weapon.wzl`/`weapon2.wzl`/`weapon3.wzl`）、
+    `Shape % 100` 是块号。Crystal 用同一套 100 分段区分普通/刺客/弓箭手武器
+    （`PlayerObject.cs:41-55,402-409,497-502`）；
+  * 头发：`hair` 0..5 → `hair.wzl`、6..27 → `hair2.wzl`、28..32 → `hair3.wzl`、
+    33.. → `hair4.wzl`（`HAIR_BLOCKS = [6, 22, 5, 152]`）。
+* 素材实测（`cargo test -p mir-render --test player_layers -- --nocapture`）：
+  `hum.wzx` 14400 帧 = 24×600、`hum2.wzx` 18000 = 30×600、`hum3.wzx` 27600 = 46×600、
+  `weapon.wzx` 45600 = 76×600、`weapon2.wzx` 25200 = 42×600、`hair.wzx` 3600 = 6×600、
+  `hair2.wzx` 13200 = 22×600、`hair3.wzx` 3000 = 5×600；每块内 `方向*8 + 0..3` 有图、
+  `+4..+7` 是空位（与 `PLAYER_DIRECTION_STRIDE = 8` 一致）。
+* 男/女偏移（Crystal `ArmourOffSet = 808`、`WeaponOffSet = 416`、`HairOffSet = 808`，
+  `PlayerObject.cs:584-587`）**不适用**于扁平语料：Crystal 的 `.Lib` 把男女塞在同一个
+  文件的两个偏移里，而扁平语料把男女编成**不同的块号**。所以这里不加偏移。
+* 头发**不染色**：Crystal 的 `DrawHead` 用的 `DrawColour` 只随中毒状态变化
+  （`PlayerObject.cs:865-883,5042-5054`），没有发色参数，也没有 `Settings.DrawBlack`。
+* 缺层降级：`weapon/hair/shield == NO_LAYER` 时不画该层；精确帧为空时先退回该外观块的
+  站立段首帧（含「站立段整体后移 8 帧」的武器块补偿，见 §9.14），仍为空就跳过该层；
+  身体层缺失才画占位方块。
+* 持久度为 0 的装备不算外观（`Client/MirObjects/UserObject.cs:234`），所以武器/衣服
+  损坏后角色会变回空手/裸体——与 Crystal 一致。
+
+### 6.2 已知的素材/枚举偏差
 
 本作服务端协议里的 `Monster` 枚举是 Crystal 的**紧凑枚举**（例如 `Scarecrow = 5`、
 `Skeleton = 22`），而 `resource/data/mon1..mon53.wzl` 是经典 Mir2/盛大布局（怪物图像按
@@ -241,8 +302,32 @@ Crystal 的商店同样用滚轮翻页（`Client/MirScenes/Dialogs/NPCDialogs.cs
 5. buff 文本含剩余秒数（`魔法盾 8秒`）且状态栏下方有文字像素；
 6. 输出 `target/client-interact.png`。
 
+`crates/mir-client/tests/player_looks.rs`：**注入式纸娃娃测试**（不连服务器）。用
+`WorldSnapshot::apply_packet` 注入 `S.NewItemInfo`（带 `shape` 的武器/衣服模板）、
+`S.UserInformation`（14 槽装备 + 发型）、两个 `S.ObjectPlayer`（朝上的路人甲、朝下的
+路人乙），断言：
+
+1. 快照推导出 `armour = 2`、`weapon = weapon_shape = 36`、`hair = 2`；
+2. `entity_views()` 把同样的层号交给渲染层（`EntityView` 是唯一接口）；
+3. `S.EquipItem`（换 210 段武器）后 `weapon` 刷新成 `10`、`weapon_shape` 变成 `210`，
+   且重绘后角色区域**有像素变化**；
+4. 整帧非空白（非黑像素 > 5000、颜色 > 20 种）、装备面板区域有内容；
+5. 输出 `target/client-looks.png`（真实素材：人物站在 `0.map` 上，装备面板同时打开）。
+
+`crates/mir-render/tests/player_layers.rs`：**真实素材冒烟**。缺 `resource/` 时打印
+跳过原因；有素材时断言 `hum.wzl`/`weapon.wzl`/`hair.wzl` 的帧总数（14400/45600/3600）、
+若干 (外观块, 方向) 的站立帧能解码、语料里**没有** `shield.wzl`，并把
+「裸体 / 衣服+头发 / 衣服+武器+头发」三种外观 × 8 方向渲染到
+`target/players-layers.png`，断言每多一层画面都会变。
+
+`crates/mir-render` 单元测试（`src/entities.rs` 的 `mod tests`）用合成 `.wzl`/`.wzx`
+（RGB24 纯色）验证层合成：带装备的帧与裸体帧不同、武器/头发颜色确实出现在身体区域、
+**朝下时武器盖住身体、朝上时身体盖住武器**（层顺序画反就会被抓出来）、缺层时安静降级。
+
 ```powershell
 cargo test -p mir-client --test ui_interaction -- --nocapture
+cargo test -p mir-client --test player_looks -- --nocapture
+cargo test -p mir-render --test player_layers -- --nocapture
 cargo test -p mir-client -p mir-render
 cargo clippy -p mir-client -p mir-render --all-targets -- -D warnings
 cargo fmt --all -- --check
@@ -250,13 +335,16 @@ cargo fmt --all -- --check
 
 ## 8. 尚未实现
 
-* 玩家头发、武器、坐骑、翅膀、装备外观（`EntityView` 只带一个外观号）；
-* 行走/跑步/攻击帧动画（只按动画计数播放站立帧），以及移动插值；
+* 坐骑、翅膀、武器发光（`CHumEffect`/`WeaponEffect`）、中毒染色与等级特效；
+* 行走/跑步/攻击/受击的逐帧动画（只按动画计数播放站立 4 帧，`Frames.cs:157`），
+  以及移动插值；死亡的 `Dead` 帧也还没接（死亡时停在第 0 帧 + 灰色标记）；
+* 刺客双持（`WeaponLibrary2`）与弓箭手第二遍武器（`PlayerObject.cs:4921-4922`）；
+* 装备面板里的角色小预览（面板目前只有 14 个槽的图标 + 名称 + 属性汇总）；
 * A\* 寻路（点地走路只有「朝目标方向一步」）；拾取/攻击的鼠标目标选择；
 * 地图切换后的素材重载（服务端 `MapChanged` 会更新快照地图名，窗口仍用启动时加载的地形）；
 * 声音、天气、光照、小地图/大地图；聊天频道切换与物品链接；
 * 交易/仓库/摆摊/邮件/任务面板；装备升级/镶嵌/觉醒等数值系统；
-* `!Mon.dat` 精确怪物外观映射（见上一节）。
+* `!Mon.dat` 精确怪物外观映射（见 §6.2）。
 
 ## 9. 对拍 Crystal 时发现的怪癖
 
@@ -286,3 +374,13 @@ cargo fmt --all -- --check
 11. **`S.DamageIndicator` 才是伤害数字的来源**，`S.ObjectStruck` 只带受击动作
     （`GameScene.cs:3452-3510` 对比 `:3511-3540` 的 `DamageIndicator`）；本作两者都会
     生成飘字，`ObjectStruck` 用「✕」标记。
+12. **扁平语料把男/女外观编成不同块号**，而 Crystal 的 `.Lib` 用 `ArmourOffSet = 808` /
+    `WeaponOffSet = 416` / `HairOffSet = 808`（`PlayerObject.cs:584-587`）在同一个文件里
+    翻页。所以本作**不**加这些偏移：`ItemInfo.Shape` 直接就是 `hum*.wzl` 的块号。
+13. **`weapon.wzl` 的前两块、`hair.wzl` 的前两块都是空的**（武器形状 0/1 = 空手，
+    发型 0/1 = 光头）。`EntityView::weapon == NO_LAYER` 与「块号落到空块」都会让该层
+    安静消失，不会画出别人的帧。
+14. **`weapon.wzl` 的块内相位不整齐**：76 个武器外观块里有 25 个的站立段整体**后移 8 帧**
+    （块首 8 帧全空；`weapon2.wzl`/`weapon3.wzl` 与 `hum*`/`hair*` 都是对齐的）。
+    渲染器用「块首 4 帧里有没有图」判断相位并按块缓存补偿（`EntityRenderer::phase_offset`），
+    否则朝上（方向 0）的武器会整层消失、其他方向会取到隔壁方向的帧。

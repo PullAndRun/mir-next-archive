@@ -13,7 +13,10 @@
 //!
 //! | 实体 | 图库文件 | 图像号规则 | Crystal 出处 |
 //! |---|---|---|---|
-//! | 玩家 | `hum.wzl` | 外观 `appearance` 占 600 帧；站立帧 `appearance*600 + direction*8 + n` | 外观选择 `PlayerObject.cs:553`；帧号 `PlayerObject.cs:761`；站立帧集合 `Frames.cs:157` |
+//! | 玩家身体 | `hum.wzl` / `hum2.wzl` / `hum3.wzl` | 块号 `armour`；站立帧 `block*600 + direction*8 + n` | 外观选择 `PlayerObject.cs:553`；帧号 `PlayerObject.cs:761`；站立帧集合 `Frames.cs:157` |
+//! | 玩家武器 | `weapon.wzl` / `weapon2.wzl` / `weapon3.wzl` | 块号 `weapon`；帧号与身体**同步** | `PlayerObject.cs:415-431`、`:5062` |
+//! | 玩家头发 | `hair.wzl` / `hair2..4.wzl` | 块号 `hair`；帧号与身体**同步** | `PlayerObject.cs:554`、`:5054` |
+//! | 玩家盾牌 | `shield.wzl`（语料里没有） | 同上 | Crystal 没有盾牌层，见下文 |
 //! | 怪物 | `mon{image/10+1}.wzl` | `image` 每 10 个一组对应一个 `Mon1..MonN.wzl`；每个图像占 430 帧 | 图像 → 图库 `MonsterObject.cs:208`；默认帧集合 `Frames.cs:25-31` |
 //! | NPC | `npc.wzl`、`npc2.wzl`… | `image` 每 100 个换一个库；每个图像占 60 帧 | `NPCObject.cs:77-80`；默认 NPC 帧集合 `Frames.cs:18-19` |
 //! | 物品 | `items.wzl`（缺省回退 `dnitems.wzl`） | 图像号就是物品的 `Image` | `ItemObject.cs:32,37,49` |
@@ -26,11 +29,47 @@
 //! 只有 1086 帧）；因此绘制时按「精确帧 → 该图像的站立帧 → 库首帧」逐级回退，
 //! 实在没有素材就画占位方块。`!Mon.dat` 里存有每只怪的精确动作帧表，本模块尚未解析。
 //!
+//! # 玩家装备分层（纸娃娃）
+//!
+//! Crystal 的玩家对象把外观拆成四层，`PlayerObject.Draw` 按方向决定武器画在身体
+//! **前**还是**后**（`PlayerObject.cs:4877-4926`）：
+//!
+//! ```text
+//! DrawMount();                                        // 本作未做坐骑
+//! if (dir ∈ {Left, Up, UpLeft, DownLeft}) DrawWeapon(); else DrawWeapon2();
+//! DrawBody();                                         // PlayerObject.cs:4894
+//! DrawHead();                                         // 头发，PlayerObject.cs:4896-4911
+//! if (dir ∈ {UpRight, Right, DownRight, Down}) DrawWeapon(); else DrawWeapon2();
+//!                                                     // PlayerObject.cs:4914-4923
+//! ```
+//!
+//! 也就是说朝左上/上/左下/左时武器在身体**后面**，朝右上/右/右下/下时武器在身体
+//! **前面**；`DrawWeapon2` 是另一只手的武器（刺客双持），普通职业的
+//! `WeaponLibrary2` 恒为 `null`（`PlayerObject.cs:413-431`），所以本作不同时画两把。
+//! 本模块用 [`PlayerLayer`] + [`player_layer_plan`] 把这套顺序表达成数据，绘制与
+//! 测试共用同一份顺序表。
+//!
+//! 三层的帧号与身体**完全相同**：`block*600 + direction*8 + n`（`n = 0..=3` 站立帧）。
+//! Crystal 里武器/头发也是 `DrawFrame + WeaponOffSet / HairOffSet`（`PlayerObject.cs:5054`、
+//! `:5062`），`DrawFrame` 就是身体的帧号（`:761`）。男/女偏移（`ArmourOffSet = 808`、
+//! `WeaponOffSet = 416`、`HairOffSet = 808`，`PlayerObject.cs:584-587`）只存在于
+//! Crystal 的 `.Lib` 布局里；扁平语料把男/女外观编成**不同的块号**，因此这里不加偏移。
+//!
+//! 头发的颜色：Crystal **没有**单独的头发调色，`DrawHead` 用的是与身体/武器同一个
+//! `DrawColour`（`PlayerObject.cs:5042,5054`），而 `DrawColour` 只随中毒状态变化
+//! （`:865-883`，橙色=延迟爆炸、灰色=麻痹、蓝色=冰冻……）。所以本模块也不给头发染色。
+//! 仓库里也没有 `Settings.DrawBlack` 之类的开关。
+//!
+//! 盾牌：Crystal 的玩家对象**没有**盾牌层（全仓库没有 `DrawShield`），本作保留
+//! [`EntityView::shield`] 字段并在 `shield.wzl` 存在时画一层，位于头发之后、前向武器
+//! 之前；本素材语料没有 `shield.wzl`，所以这一层实际总是退化成「跳过」。
+//!
 //! # 锚点
 //!
 //! * 玩家/怪物/NPC：与 Crystal 一样以**格原点**为锚点，再叠加图像头里的
 //!   `offset_x/offset_y`（`MLibrary.Draw(..., offSet: true)`，`MLibrary.cs:658-665`；
-//!   角色 `BodyLibrary.Draw(..., DrawLocation, ..., true)`，`PlayerObject.cs:5045`）。
+//!   角色各层 `BodyLibrary.Draw(..., DrawLocation, ..., true)`，`PlayerObject.cs:5045`）
+//!   ——四层共用同一个格原点与各自的图像偏移，所以不需要额外的层间偏移。
 //! * 物品：Crystal 把物品在格子里居中（`ItemObject.cs:78-79`），不叠加图像偏移
 //!   （`ItemObject.cs:72-73` 的 `Draw` 使用默认 `offSet: false`）。
 //!
@@ -39,10 +78,12 @@
 //!
 //! # 与 Crystal 的差异
 //!
-//! * 不画头发、武器、坐骑、翅膀、光效、中毒/等级特效（这些需要额外的外观字段，
-//!   `EntityView` 只带一个 `image`）。
+//! * 不画坐骑、翅膀、光效、中毒/等级特效（`EntityView` 没有这些字段）。
 //! * 不画名字文字；`name` 字段保留给调试叠层/以后加字体时使用。
-//! * 不做行走/跑步的逐帧插值与动画，只按 `animation_frame` 播放站立帧。
+//! * 不做行走/跑步/攻击的逐帧插值与动画，只按 `animation_frame` 播放站立帧
+//!   （`Frames.cs:157` 的站立集合共有 4 帧、间隔 500 ms）。
+//! * 刺客双持（`WeaponLibrary2`）与弓箭手的第二遍武器（`PlayerObject.cs:4921-4922`）
+//!   没有实现：只画一把武器。
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -55,18 +96,31 @@ use crate::Frame;
 use crate::geometry::{self, CELL_HEIGHT, CELL_WIDTH, Viewport};
 use crate::scene::remove_black;
 
-/// 玩家每个外观占的帧数（`hum.wzx` 的 14400 帧 / 24 个外观）。
+/// 每个玩家外观（身体/武器/头发）在扁平 `.wzl` 里占的帧数。
+///
+/// 语料实测：`hum.wzx` 14400 帧 = 24×600，`hum2.wzx` 18000 = 30×600，
+/// `weapon.wzx` 45600 = 76×600，`hair.wzx` 3600 = 6×600。
 pub const PLAYER_FRAMES_PER_APPEARANCE: u32 = 600;
 /// 玩家每个方向占的帧数：4 帧站立 + 4 帧空位（本素材语料的布局）。
 pub const PLAYER_DIRECTION_STRIDE: u32 = 8;
+/// 站立动画每方向的有效帧数（`Frames.cs:157` 的 `Frame(0, 4, 0, 500)`）。
+pub const PLAYER_STANDING_FRAMES: u32 = 4;
 /// 怪物每个图像占的帧数（经典 Mir2 布局）。
 pub const MONSTER_FRAMES_PER_IMAGE: u32 = 430;
 /// 怪物每个方向占的帧数：4 帧站立 + 4 帧空位。
 pub const MONSTER_DIRECTION_STRIDE: u32 = 8;
 /// NPC 每个图像占的帧数。
 pub const NPC_FRAMES_PER_IMAGE: u32 = 60;
+/// 「这一层没有」的哨兵值（空手、没有盾牌、没有头发）。
+pub const NO_LAYER: u16 = u16::MAX;
+/// `hum*.wzl` 每个库里的外观块数（实测：`hum` 24、`hum2` 30、`hum3` 46）。
+pub const HUM_BLOCKS: [u16; 3] = [24, 30, 46];
+/// `hair*.wzl` 每个库里的发型块数（实测：`hair` 6、`hair2` 22、`hair3` 5、`hair4` 152）。
+pub const HAIR_BLOCKS: [u16; 4] = [6, 22, 5, 152];
 /// 实体解码缓存上限（张）。一张 64×80 的 RGBA 图约 20 KiB。
-pub const MAX_ENTITY_CACHED_IMAGES: usize = 512;
+///
+/// 一个玩家最多占 4 层（身体/武器/头发/盾牌），所以上限比单层时翻了倍。
+pub const MAX_ENTITY_CACHED_IMAGES: usize = 1024;
 
 /// 实体类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -115,9 +169,32 @@ pub struct EntityView {
     pub direction: MirDirection,
     /// 实体类型。
     pub kind: EntityKind,
-    /// 图像号：玩家是外观（盔甲）编号，怪物是 `Monster` 枚举值，NPC 是 `Image`，
-    /// 物品是物品的 `Image`。
+    /// 图像号：玩家与 `armour` 同义（保留给怪物/NPC/物品），怪物是 `Monster` 枚举值，
+    /// NPC 是 `Image`，物品是物品的 `Image`。
     pub image: u16,
+    /// 衣服外观号（装备槽 `Armour` 的 `ItemInfo.Shape`）→ `hum*.wzl` 的块号。
+    ///
+    /// `0` 是「没穿衣服」的裸体外观（语料 `hum.wzl` 块 0），也是 Crystal 的缺省值
+    /// （`Client/MirObjects/UserObject.cs:209`）。非玩家实体忽略这个字段。
+    pub armour: u16,
+    /// 武器外观号（装备槽 `Weapon` 的 `ItemInfo.Shape % 100`）→ `weapon*.wzl` 的块号。
+    ///
+    /// [`NO_LAYER`] 表示空手，此时不画武器层。
+    pub weapon: u16,
+    /// 武器形状的原始值（`ItemInfo.Shape`，含 100/200 段位）。
+    ///
+    /// Crystal 用 `Weapon / Globals.ClassWeaponCount` 区分普通/刺客/弓箭手武器
+    /// （`PlayerObject.cs:41-55`），本模块用 `weapon_shape / 100` 选
+    /// `weapon.wzl` / `weapon2.wzl` / `weapon3.wzl`。
+    pub weapon_shape: u16,
+    /// 发型号（`S.UserInformation.hair` / `S.ObjectPlayer.hair`）→ `hair*.wzl` 的块号。
+    ///
+    /// [`NO_LAYER`] 表示光头，不画头发层。
+    pub hair: u16,
+    /// 盾牌外观号 → `shield.wzl` 的块号；[`NO_LAYER`] 表示没有盾牌。
+    ///
+    /// Crystal 的玩家没有盾牌层，本作保留这一层以便以后接自定义素材。
+    pub shield: u16,
     /// 名字（本里程碑不画文字，保留给调试与后续 UI）。
     pub name: Option<String>,
     /// 是否死亡。
@@ -126,11 +203,70 @@ pub struct EntityView {
     pub hp_percent: Option<u8>,
 }
 
+impl EntityView {
+    /// 一个只有最基本字段的实体（非玩家用）。
+    #[must_use]
+    pub fn new(position: Point, direction: MirDirection, kind: EntityKind, image: u16) -> Self {
+        Self {
+            position,
+            direction,
+            kind,
+            image,
+            armour: 0,
+            weapon: NO_LAYER,
+            weapon_shape: NO_LAYER,
+            hair: NO_LAYER,
+            shield: NO_LAYER,
+            name: None,
+            dead: false,
+            hp_percent: None,
+        }
+    }
+
+    /// 玩家外观层里是否画武器。
+    #[must_use]
+    pub fn has_weapon(&self) -> bool {
+        self.weapon != NO_LAYER && self.weapon_shape != NO_LAYER
+    }
+}
+
+/// 玩家身体的图层。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum PlayerLayer {
+    /// 武器（`weapon*.wzl`）。
+    Weapon,
+    /// 身体（`hum*.wzl`）。
+    Body,
+    /// 头发（`hair*.wzl`）。
+    Hair,
+    /// 盾牌（`shield.wzl`；Crystal 没有这一层）。
+    Shield,
+}
+
+impl PlayerLayer {
+    /// 稳定的小写名字（测试/日志用）。
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Weapon => "weapon",
+            Self::Body => "body",
+            Self::Hair => "hair",
+            Self::Shield => "shield",
+        }
+    }
+}
+
 /// 精灵图库标识：决定去哪个 `.wzl` 找图。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-enum SpriteLibrary {
-    /// `hum.wzl`。
-    Hum,
+pub enum SpriteLibrary {
+    /// `hum.wzl`（1）/ `hum2.wzl`（2）/ `hum3.wzl`（3）。
+    Hum(u8),
+    /// `weapon.wzl`（1）/ `weapon2.wzl`（2）/ `weapon3.wzl`（3）。
+    Weapon(u8),
+    /// `hair.wzl`（1）/ `hair2.wzl`（2）/ `hair3.wzl`（3）/ `hair4.wzl`（4）。
+    Hair(u8),
+    /// `shield.wzl`。
+    Shield,
     /// `npc.wzl` / `npc2.wzl` / `npc3.wzl` / `npc4.wzl`。
     Npc(u8),
     /// `mon1.wzl` … `monN.wzl`。
@@ -141,9 +277,16 @@ enum SpriteLibrary {
 
 impl SpriteLibrary {
     /// 图库的主文件名（不含扩展名）。
-    fn stem(self) -> String {
+    #[must_use]
+    pub fn stem(self) -> String {
         match self {
-            Self::Hum => "hum".to_owned(),
+            Self::Hum(1) => "hum".to_owned(),
+            Self::Hum(index) => format!("hum{index}"),
+            Self::Weapon(1) => "weapon".to_owned(),
+            Self::Weapon(index) => format!("weapon{index}"),
+            Self::Hair(1) => "hair".to_owned(),
+            Self::Hair(index) => format!("hair{index}"),
+            Self::Shield => "shield".to_owned(),
             Self::Npc(1) => "npc".to_owned(),
             Self::Npc(index) => format!("npc{index}"),
             Self::Monster(index) => format!("mon{index}"),
@@ -152,10 +295,216 @@ impl SpriteLibrary {
     }
 }
 
+/// 一层精灵的绘制计划。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LayerFrame {
+    /// 图层。
+    pub layer: PlayerLayer,
+    /// 去哪张图库找。
+    pub library: SpriteLibrary,
+    /// 精确帧号。
+    pub frame: u32,
+}
+
+impl LayerFrame {
+    /// 该外观块的首帧：精确帧缺失时回退到这里。
+    #[must_use]
+    pub fn block_start(self) -> u32 {
+        self.frame / PLAYER_FRAMES_PER_APPEARANCE * PLAYER_FRAMES_PER_APPEARANCE
+    }
+}
+
+/// 一个玩家的最多 4 层绘制计划（按绘制先后排列）。
+///
+/// 用定长数组而不是 `Vec`，避免每帧每个玩家都分配一次堆内存。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlayerLayerPlan {
+    /// 定长缓冲。
+    layers: [LayerFrame; 4],
+    /// 有效长度。
+    len: usize,
+}
+
+impl PlayerLayerPlan {
+    /// 有效层（按绘制先后）。
+    #[must_use]
+    pub fn layers(&self) -> &[LayerFrame] {
+        &self.layers[..self.len]
+    }
+
+    /// 层数。
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// 是否一层都没有（身体层总会入计划，所以实际不会为空）。
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// 是否有某一层。
+    #[must_use]
+    pub fn contains(&self, layer: PlayerLayer) -> bool {
+        self.layers().iter().any(|item| item.layer == layer)
+    }
+
+    /// 追加一层（内部用；超过 4 层时忽略）。
+    fn push(&mut self, frame: LayerFrame) {
+        if self.len < self.layers.len() {
+            self.layers[self.len] = frame;
+            self.len += 1;
+        }
+    }
+}
+
+/// 衣服外观号 → (`hum*.wzl` 库序号 1..=3, 库内块号)。
+///
+/// 语料实测块数：[`HUM_BLOCKS`]。超出语料范围的外观号落在最后一个库的最后一块
+/// （宁可撞外观，也不越界取到别人的帧）。
+#[must_use]
+pub fn player_library(armour: u16) -> (u8, u16) {
+    let mut remaining = armour;
+    for (index, count) in HUM_BLOCKS.iter().enumerate() {
+        if remaining < *count {
+            return (u8::try_from(index + 1).unwrap_or(1), remaining);
+        }
+        remaining -= count;
+    }
+    let last = HUM_BLOCKS.len();
+    (
+        u8::try_from(last).unwrap_or(3),
+        HUM_BLOCKS[last - 1].saturating_sub(1),
+    )
+}
+
+/// 发型号 → (`hair*.wzl` 库序号 1..=4, 库内块号)。
+///
+/// 语料实测块数：[`HAIR_BLOCKS`]。
+#[must_use]
+pub fn hair_library(hair: u16) -> (u8, u16) {
+    let mut remaining = hair;
+    for (index, count) in HAIR_BLOCKS.iter().enumerate() {
+        if remaining < *count {
+            return (u8::try_from(index + 1).unwrap_or(1), remaining);
+        }
+        remaining -= count;
+    }
+    let last = HAIR_BLOCKS.len();
+    (
+        u8::try_from(last).unwrap_or(4),
+        HAIR_BLOCKS[last - 1].saturating_sub(1),
+    )
+}
+
+/// 武器形状 → (`weapon*.wzl` 库序号 1..=3, 库内块号)。
+///
+/// Crystal 把 0..99 的 `Shape` 放 `CWeapons`、100..199 放 `AWeaponsL/R`（刺客）、
+/// 200.. 放 `ARWeapons`（弓箭手），块号是 `Shape - 100` / `Shape - 200`
+/// （`PlayerObject.cs:402-409,497-502`、`MirGameShopCell.cs:505-547`）。
+/// 扁平语料把这三段分别放在 `weapon.wzl`、`weapon2.wzl`、`weapon3.wzl`，
+/// 所以库序号 = `shape / 100 + 1`，块号 = `shape % 100`。
+#[must_use]
+pub fn weapon_library(weapon_shape: u16) -> (u8, u16) {
+    let series = (weapon_shape / 100).min(2);
+    (u8::try_from(series + 1).unwrap_or(1), weapon_shape % 100)
+}
+
+/// 某个方向是否把武器画在身体**前面**。
+///
+/// Crystal：`Direction == UpRight || Right || DownRight || Down` 时身体之后画武器
+/// （`PlayerObject.cs:4916`）；其余四个方向（Left/Up/UpLeft/DownLeft）在身体之前画
+/// （`:4888`）。
+#[must_use]
+pub const fn weapon_drawn_in_front(direction: MirDirection) -> bool {
+    matches!(
+        direction,
+        MirDirection::UpRight | MirDirection::Right | MirDirection::DownRight | MirDirection::Down
+    )
+}
+
+/// 一个玩家的层绘制计划（顺序即绘制先后）。
+///
+/// 顺序表与 Crystal `PlayerObject.Draw`（`:4877-4926`）一致：
+///
+/// * 朝 Left/Up/UpLeft/DownLeft：武器 → 身体 → 头发 → 盾牌；
+/// * 朝 UpRight/Right/DownRight/Down：身体 → 头发 → 盾牌 → 武器。
+///
+/// 空图层（`NO_LAYER`）不会出现在计划里；`dead` 时按第 0 帧画（Crystal 死亡后停在
+/// `Dead` 动作的固定帧，本作不退化成动画）。
+#[must_use]
+pub fn player_layer_plan(entity: &EntityView, animation: u32) -> PlayerLayerPlan {
+    let mut plan = PlayerLayerPlan {
+        layers: [LayerFrame {
+            layer: PlayerLayer::Body,
+            library: SpriteLibrary::Hum(1),
+            frame: 0,
+        }; 4],
+        len: 0,
+    };
+    let animation = if entity.dead { 0 } else { animation };
+    let direction = entity.direction;
+
+    let (body_library, body_block) = player_library(entity.armour);
+    let body = LayerFrame {
+        layer: PlayerLayer::Body,
+        library: SpriteLibrary::Hum(body_library),
+        frame: player_standing_frame(body_block, direction, animation),
+    };
+    let weapon = entity.has_weapon().then(|| {
+        let (library, block) = weapon_library(entity.weapon_shape);
+        LayerFrame {
+            layer: PlayerLayer::Weapon,
+            library: SpriteLibrary::Weapon(library),
+            frame: player_standing_frame(block, direction, animation),
+        }
+    });
+    let hair = (entity.hair != NO_LAYER).then(|| {
+        let (library, block) = hair_library(entity.hair);
+        LayerFrame {
+            layer: PlayerLayer::Hair,
+            library: SpriteLibrary::Hair(library),
+            frame: player_standing_frame(block, direction, animation),
+        }
+    });
+    let shield = (entity.shield != NO_LAYER).then(|| LayerFrame {
+        layer: PlayerLayer::Shield,
+        library: SpriteLibrary::Shield,
+        frame: player_standing_frame(entity.shield, direction, animation),
+    });
+
+    if weapon_drawn_in_front(direction) {
+        plan.push(body);
+        if let Some(hair) = hair {
+            plan.push(hair);
+        }
+        if let Some(shield) = shield {
+            plan.push(shield);
+        }
+        if let Some(weapon) = weapon {
+            plan.push(weapon);
+        }
+    } else {
+        if let Some(weapon) = weapon {
+            plan.push(weapon);
+        }
+        plan.push(body);
+        if let Some(hair) = hair {
+            plan.push(hair);
+        }
+        if let Some(shield) = shield {
+            plan.push(shield);
+        }
+    }
+    plan
+}
+
 /// 实体图库集合：按需打开 `resource/data` 里的 `.wzl`，只缓存打开过的库。
 ///
 /// 与 [`crate::TileLibraries`] 不同，这里不预先打开任何文件：`resource/data` 里有
-/// 800 多个 `.wzl`，全部打开会浪费句柄；实体只用得到 `hum`、`npc*`、`mon*`、`items`。
+/// 800 多个 `.wzl`，全部打开会浪费句柄；实体只用得到 `hum*`、`weapon*`、`hair*`、
+/// `npc*`、`mon*`、`items`。
 #[derive(Debug, Default)]
 pub struct EntityLibraries {
     /// 素材目录（诊断用）。
@@ -219,6 +568,12 @@ impl EntityLibraries {
         self.files.len()
     }
 
+    /// 是否找到了某个图库文件（不要求已打开）。
+    #[must_use]
+    pub fn has(&self, library: SpriteLibrary) -> bool {
+        self.files.contains_key(&library.stem())
+    }
+
     /// 已尝试打开（成功或失败）的图库数量。
     #[must_use]
     pub fn opened_count(&self) -> usize {
@@ -251,6 +606,15 @@ impl EntityLibraries {
         self.opened.get(stem).and_then(Option::as_ref)
     }
 
+    /// 某一帧是否存在：只读记录头，不解码像素。
+    fn has_frame(&mut self, library: SpriteLibrary, index: u32) -> bool {
+        let Ok(index) = usize::try_from(index) else {
+            return false;
+        };
+        self.library(&library.stem())
+            .is_some_and(|library| library.info(index).is_ok_and(|info| !info.is_empty()))
+    }
+
     /// 解码单张图。
     fn image(&mut self, library: SpriteLibrary, index: u32) -> Option<Image> {
         let index = usize::try_from(index).ok()?;
@@ -268,6 +632,12 @@ pub struct EntityRenderer {
     libraries: EntityLibraries,
     /// `(图库, 帧号) → 解码结果`；`None` 表示该帧不存在或解码失败。
     cache: BTreeMap<(SpriteLibrary, u32), Option<Image>>,
+    /// `(图库, 外观块首帧) → 站立段的实际起点偏移`（`0` 或 [`PLAYER_DIRECTION_STRIDE`]）。
+    ///
+    /// `weapon.wzl` 里有 25/76 个武器外观块的站立段整体**后移 8 帧**（块首 8 帧是空的，
+    /// 见 `tests/player_layers.rs` 与 `docs/client.md` §9.14）。身体/头发库全部对齐，
+    /// 所以这个探测对它们总是得到 0。
+    phase: BTreeMap<(SpriteLibrary, u32), u32>,
 }
 
 impl EntityRenderer {
@@ -277,6 +647,7 @@ impl EntityRenderer {
         Self {
             libraries,
             cache: BTreeMap::new(),
+            phase: BTreeMap::new(),
         }
     }
 
@@ -340,6 +711,9 @@ impl EntityRenderer {
         origin_y: i32,
         animation_frame: u32,
     ) -> Option<i32> {
+        if entity.kind == EntityKind::Player {
+            return self.draw_player(frame, entity, origin_x, origin_y, animation_frame);
+        }
         let animation = if entity.dead { 0 } else { animation_frame };
         let (library, exact, base, item) = sprite_target(entity, animation);
         let candidates = [exact, base, 0];
@@ -363,6 +737,68 @@ impl EntityRenderer {
         // 素材缺失：画一个小方块，至少让测试与无素材客户端看到"这里有个东西"。
         draw_placeholder(frame, origin_x, origin_y, entity);
         None
+    }
+
+    /// 画一个玩家：按 [`player_layer_plan`] 的顺序叠身体/头发/盾牌/武器。
+    ///
+    /// 每层都共用一个格原点与各自的图像偏移（Crystal `PlayerObject.cs:5045-5089`）；
+    /// 某一层的精确帧缺失时先回退到该外观块的站立段首帧，仍缺就跳过这一层。身体层是唯一
+    /// 必需层：身体也缺失时退回占位方块。
+    fn draw_player(
+        &mut self,
+        frame: &mut Frame,
+        entity: &EntityView,
+        origin_x: i32,
+        origin_y: i32,
+        animation_frame: u32,
+    ) -> Option<i32> {
+        let plan = player_layer_plan(entity, animation_frame);
+        let mut top = None;
+        let mut body_drawn = false;
+        for item in plan.layers() {
+            let offset = self.phase_offset(item.library, item.block_start());
+            let candidates = [
+                item.frame.saturating_add(offset),
+                item.block_start().saturating_add(offset),
+                0,
+            ];
+            let mut drawn = None;
+            for index in candidates {
+                if let Some(image) = self.image(item.library, index) {
+                    let x = origin_x + i32::from(image.info.offset_x);
+                    let y = origin_y + i32::from(image.info.offset_y);
+                    frame.blit(&image, x, y);
+                    drawn = Some(y);
+                    break;
+                }
+            }
+            if item.layer == PlayerLayer::Body {
+                body_drawn = drawn.is_some();
+                top = drawn;
+            }
+        }
+        if !body_drawn {
+            draw_placeholder(frame, origin_x, origin_y, entity);
+        }
+        top
+    }
+
+    /// 一个外观块的站立段起点偏移：`0`（对齐）或 [`PLAYER_DIRECTION_STRIDE`]（整体后移）。
+    ///
+    /// 判据：站立段第 0 个方向的前 4 帧里只要有一帧有图，就认为块是对齐的；否则
+    /// （块首 8 帧全空、`块首+8` 有图）认为站立段整体后移了一个方向（8 帧）。
+    /// 本素材语料里 `weapon.wzl` 有 25/76 个块是后一种，身体/头发库全部对齐。
+    /// 结果按块缓存，所以每个外观块最多扫 8 个记录头。
+    fn phase_offset(&mut self, library: SpriteLibrary, block_start: u32) -> u32 {
+        let key = (library, block_start);
+        if let Some(offset) = self.phase.get(&key) {
+            return *offset;
+        }
+        let aligned = (0..PLAYER_STANDING_FRAMES)
+            .any(|frame| self.libraries.has_frame(library, block_start + frame));
+        let offset = if aligned { 0 } else { PLAYER_DIRECTION_STRIDE };
+        self.phase.insert(key, offset);
+        offset
     }
 
     /// 取一张物品图标（`items.wzl`，缺失时回退 `dnitems.wzl`）。
@@ -392,16 +828,13 @@ impl EntityRenderer {
     }
 }
 
-/// 计算一个实体要用的图库、精确帧与「该图像首帧」。
+/// 计算一个非玩家实体要用的图库、精确帧与「该图像首帧」。
 ///
 /// `item` 为真时调用方按物品居中规则定位。
 fn sprite_target(entity: &EntityView, animation: u32) -> (SpriteLibrary, u32, u32, bool) {
     match entity.kind {
-        EntityKind::Player => {
-            let base = u32::from(entity.image) * PLAYER_FRAMES_PER_APPEARANCE;
-            let exact = player_standing_frame(entity.image, entity.direction, animation);
-            (SpriteLibrary::Hum, exact, base, false)
-        }
+        // 玩家走 `draw_player`，不会到这里；给一个不会命中的组合兜底。
+        EntityKind::Player => (SpriteLibrary::Hum(1), 0, 0, false),
         EntityKind::Monster => {
             let library = monster_library(entity.image);
             let base = u32::from(entity.image % 10) * MONSTER_FRAMES_PER_IMAGE;
@@ -419,7 +852,7 @@ fn sprite_target(entity: &EntityView, animation: u32) -> (SpriteLibrary, u32, u3
     }
 }
 
-/// 玩家/怪物/NPC 的图像号 → 图库与首帧。
+/// NPC 图像号 → 图库与首帧。
 ///
 /// * NPC：`image < 100` 用 `npc.wzl`，`100..200` 用 `npc2.wzl`，依此类推
 ///   （`NPCObject.cs:77-80` 的 `Libraries.NPCs[Image]` 在本项目扁平语料里的对应）；
@@ -440,12 +873,15 @@ pub const fn monster_library(image: u16) -> u16 {
     image / 10 + 1
 }
 
-/// 玩家站立帧号（供测试与本模块文档使用）。
+/// 玩家（及武器/头发/盾牌层）的站立帧号：`block*600 + direction*8 + n`。
+///
+/// `block` 是**图库内**的外观块号（`player_library` / `weapon_library` /
+/// `hair_library` 的第二个返回值），不是 `ItemInfo.Shape` 的原始值。
 #[must_use]
-pub fn player_standing_frame(appearance: u16, direction: MirDirection, animation: u32) -> u32 {
-    u32::from(appearance) * PLAYER_FRAMES_PER_APPEARANCE
+pub fn player_standing_frame(block: u16, direction: MirDirection, animation: u32) -> u32 {
+    u32::from(block) * PLAYER_FRAMES_PER_APPEARANCE
         + u32::from(direction_index(direction)) * PLAYER_DIRECTION_STRIDE
-        + animation % (PLAYER_DIRECTION_STRIDE / 2)
+        + animation % PLAYER_STANDING_FRAMES
 }
 
 /// 怪物站立帧号（供测试与本模块文档使用）。
@@ -507,18 +943,369 @@ fn draw_dead_marker(frame: &mut Frame, origin_x: i32, origin_y: i32) {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write as _;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use flate2::Compression;
+    use flate2::write::ZlibEncoder;
+
     use super::*;
 
-    fn view(kind: EntityKind, image: u16) -> EntityView {
-        EntityView {
-            position: Point::new(2, 3),
-            direction: MirDirection::Down,
-            kind,
-            image,
-            name: None,
-            dead: false,
-            hp_percent: None,
+    /// 自动清理的临时目录。
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            static NEXT: AtomicU32 = AtomicU32::new(0);
+            let index = NEXT.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "mir-render-entities-{}-{tag}-{index}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&path).expect("创建临时目录");
+            Self(path)
         }
+
+        fn join(&self, name: &str) -> PathBuf {
+            self.0.join(name)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// 合成素材里的一帧：尺寸、相对格原点的偏移、纯色。
+    struct SyntheticFrame {
+        /// 帧号。
+        index: u32,
+        /// 宽。
+        width: u16,
+        /// 高。
+        height: u16,
+        /// 绘制偏移 X。
+        offset_x: i16,
+        /// 绘制偏移 Y。
+        offset_y: i16,
+        /// 颜色（RGB24，alpha 恒 255）。
+        color: [u8; 3],
+    }
+
+    fn zlib(data: &[u8]) -> Vec<u8> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(data).expect("写 zlib");
+        encoder.finish().expect("收尾 zlib")
+    }
+
+    /// 写一对合成 `.wzl`/`.wzx`：只填 `frames` 里列出的帧，其余帧是空记录。
+    fn write_library(dir: &TempDir, stem: &str, frames: &[SyntheticFrame]) {
+        let count = frames
+            .iter()
+            .map(|frame| frame.index as usize + 1)
+            .max()
+            .unwrap_or(1);
+        let mut offsets = vec![0u32; count];
+        let mut wzl = vec![0u8; 48];
+        for frame in frames {
+            let width = usize::from(frame.width);
+            let height = usize::from(frame.height);
+            // RGB24；每行按 4 字节对齐（`WeMadeLibrary.cs:231-234`）。
+            let row = (width * 3).div_ceil(4) * 4;
+            let mut raw = vec![0u8; row * height];
+            for line in 0..height {
+                for column in 0..width {
+                    let at = line * row + column * 3;
+                    raw[at..at + 3].copy_from_slice(&frame.color);
+                }
+            }
+            let payload = zlib(&raw);
+            let offset = u32::try_from(wzl.len()).expect("偏移放得下");
+            offsets[frame.index as usize] = offset;
+            wzl.push(6); // `format::RGB24`
+            wzl.extend_from_slice(&[0, 0, 0]);
+            wzl.extend_from_slice(&frame.width.to_le_bytes());
+            wzl.extend_from_slice(&frame.height.to_le_bytes());
+            wzl.extend_from_slice(&frame.offset_x.to_le_bytes());
+            wzl.extend_from_slice(&frame.offset_y.to_le_bytes());
+            wzl.extend_from_slice(
+                &u32::try_from(payload.len())
+                    .expect("长度放得下")
+                    .to_le_bytes(),
+            );
+            wzl.extend_from_slice(&payload);
+        }
+        let mut wzx = vec![0u8; 48];
+        let declared = u32::try_from(offsets.len()).expect("数量放得下");
+        wzx[44..48].copy_from_slice(&declared.to_le_bytes());
+        for offset in offsets {
+            wzx.extend_from_slice(&offset.to_le_bytes());
+        }
+        std::fs::write(dir.join(&format!("{stem}.wzl")), wzl).expect("写 .wzl");
+        std::fs::write(dir.join(&format!("{stem}.wzx")), wzx).expect("写 .wzx");
+    }
+
+    /// 身体颜色（红）、武器颜色（绿）、头发颜色（蓝）。
+    const BODY_COLOR: [u8; 3] = [200, 60, 60];
+    const WEAPON_COLOR: [u8; 3] = [60, 200, 60];
+    const HAIR_COLOR: [u8; 3] = [60, 60, 200];
+    /// 武器层覆盖身体的位置（相对格原点）：两者的公共区域。
+    const OVERLAP: (i32, i32) = (22, -30);
+
+    /// 一套带身体/武器/头发的合成素材目录。
+    fn synthetic_assets() -> TempDir {
+        let dir = TempDir::new("assets");
+        // 身体：块 0（`hum.wzl`），8 个方向各 1 帧站立，40×60 盖住格子上方。
+        let body: Vec<SyntheticFrame> = (0..8u32)
+            .map(|direction| SyntheticFrame {
+                index: direction * PLAYER_DIRECTION_STRIDE,
+                width: 40,
+                height: 60,
+                offset_x: 0,
+                offset_y: -58,
+                color: BODY_COLOR,
+            })
+            .collect();
+        write_library(&dir, "hum", &body);
+        // 武器：块 3（`weapon.wzl`）第 2 段，20×20 与身体重叠。
+        let weapon: Vec<SyntheticFrame> = (0..8u32)
+            .map(|direction| SyntheticFrame {
+                index: 3 * PLAYER_FRAMES_PER_APPEARANCE + direction * PLAYER_DIRECTION_STRIDE,
+                width: 20,
+                height: 20,
+                offset_x: 12,
+                offset_y: -40,
+                color: WEAPON_COLOR,
+            })
+            .collect();
+        write_library(&dir, "weapon", &weapon);
+        // 头发：块 2（`hair.wzl`），24×10 压在头顶。
+        let hair: Vec<SyntheticFrame> = (0..8u32)
+            .map(|direction| SyntheticFrame {
+                index: 2 * PLAYER_FRAMES_PER_APPEARANCE + direction * PLAYER_DIRECTION_STRIDE,
+                width: 24,
+                height: 10,
+                offset_x: 8,
+                offset_y: -66,
+                color: HAIR_COLOR,
+            })
+            .collect();
+        write_library(&dir, "hair", &hair);
+        // 第二套武器库：块 3 的站立段**整体后移 8 帧**（语料里 25/76 个武器块是这样），
+        // 并且每个方向用不同颜色，用来验证「取到的是这个方向的帧」而不只是「有图」。
+        let shifted: Vec<SyntheticFrame> = (0..8u32)
+            .map(|direction| SyntheticFrame {
+                index: 3 * PLAYER_FRAMES_PER_APPEARANCE
+                    + PLAYER_DIRECTION_STRIDE
+                    + direction * PLAYER_DIRECTION_STRIDE,
+                width: 20,
+                height: 20,
+                offset_x: 12,
+                offset_y: -40,
+                color: shifted_color(direction),
+            })
+            .collect();
+        write_library(&dir, "weapon2", &shifted);
+        dir
+    }
+
+    /// 后移块里第 `direction` 个方向的颜色（每个方向都不同）。
+    fn shifted_color(direction: u32) -> [u8; 3] {
+        [60, 200, u8::try_from(20 + direction * 20).unwrap_or(0)]
+    }
+
+    fn equipped_player(direction: MirDirection) -> EntityView {
+        let mut player = EntityView::new(Point::new(2, 3), direction, EntityKind::Player, 0);
+        player.armour = 0;
+        player.weapon = 3;
+        player.weapon_shape = 3;
+        player.hair = 2;
+        player.shield = NO_LAYER;
+        player.name = Some("装备测试".to_owned());
+        player
+    }
+
+    /// 渲染一个实体到 200×200 的帧，返回帧与格原点。
+    fn render_one(renderer: &mut EntityRenderer, player: &EntityView) -> (Frame, i32, i32) {
+        let mut frame = Frame::new(200, 200);
+        frame.clear([0, 0, 0, 255]);
+        let viewport = Viewport::new(200, 200);
+        let center = player.position;
+        renderer.render(
+            &mut frame,
+            viewport,
+            center,
+            std::slice::from_ref(player),
+            0,
+        );
+        let (origin_x, origin_y) = geometry::world_to_screen(viewport, center, player.position);
+        (frame, origin_x, origin_y)
+    }
+
+    fn differing_pixels(left: &Frame, right: &Frame) -> usize {
+        left.pixels
+            .chunks_exact(4)
+            .zip(right.pixels.chunks_exact(4))
+            .filter(|(a, b)| a != b)
+            .count()
+    }
+
+    fn has_color(frame: &Frame, color: [u8; 3]) -> bool {
+        frame.pixels.chunks_exact(4).any(|pixel| {
+            pixel[0] == color[0] && pixel[1] == color[1] && pixel[2] == color[2] && pixel[3] != 0
+        })
+    }
+
+    #[test]
+    fn equipment_layers_change_the_rendered_frame() {
+        let dir = synthetic_assets();
+        let mut renderer = EntityRenderer::new(EntityLibraries::open_dir(&dir.0));
+        assert_eq!(renderer.libraries().file_count(), 4);
+
+        let bare = EntityView::new(Point::new(2, 3), MirDirection::Down, EntityKind::Player, 0);
+        let (bare_frame, _, _) = render_one(&mut renderer, &bare);
+        let (dressed_frame, _, _) = render_one(&mut renderer, &equipped_player(MirDirection::Down));
+
+        assert!(
+            differing_pixels(&bare_frame, &dressed_frame) > 200,
+            "带装备的帧必须与裸体帧不同（实际差异 {} 像素）",
+            differing_pixels(&bare_frame, &dressed_frame)
+        );
+        assert!(
+            has_color(&dressed_frame, BODY_COLOR),
+            "身体层像素应出现在帧里"
+        );
+        assert!(
+            has_color(&dressed_frame, WEAPON_COLOR),
+            "武器层像素应出现在帧里"
+        );
+        assert!(
+            has_color(&dressed_frame, HAIR_COLOR),
+            "头发层像素应出现在帧里"
+        );
+        assert_eq!(
+            renderer.cache_len(),
+            3,
+            "身体/武器/头发各缓存一张（第二次渲染复用同一张身体帧）"
+        );
+    }
+
+    #[test]
+    fn shifted_weapon_block_is_compensated() {
+        // 合成素材里 `weapon2.wzl` 块 3 的站立段整体后移 8 帧，且每个方向颜色不同：
+        // 不补偿的话会取到**隔壁方向**的帧（颜色不对）或空帧（整层消失）。
+        let dir = synthetic_assets();
+        let mut renderer = EntityRenderer::new(EntityLibraries::open_dir(&dir.0));
+        let mut player = equipped_player(MirDirection::Down);
+        player.weapon_shape = 103; // 100 段 → weapon2.wzl
+        player.weapon = 3;
+        let (frame, origin_x, origin_y) = render_one(&mut renderer, &player);
+        let pixel = frame
+            .pixel(
+                u32::try_from(origin_x + OVERLAP.0).expect("x"),
+                u32::try_from(origin_y + OVERLAP.1).expect("y"),
+            )
+            .expect("重叠点应在帧内");
+        // 朝下是 `MirDirection::Down` = 4，武器在身体之后画 → 重叠处是第 4 个方向的颜色。
+        assert_eq!(
+            &pixel[..3],
+            &shifted_color(4),
+            "后移块必须取到当前方向的帧（不是隔壁方向）"
+        );
+
+        // 朝上（方向 0）时武器在身体之后 → 被身体盖住，颜色是身体色。
+        let mut behind = equipped_player(MirDirection::Up);
+        behind.weapon_shape = 103;
+        behind.weapon = 3;
+        let (frame, origin_x, origin_y) = render_one(&mut renderer, &behind);
+        let pixel = frame
+            .pixel(
+                u32::try_from(origin_x + OVERLAP.0).expect("x"),
+                u32::try_from(origin_y + OVERLAP.1).expect("y"),
+            )
+            .expect("重叠点应在帧内");
+        assert_eq!(
+            &pixel[..3],
+            &BODY_COLOR,
+            "相位补偿不能改层顺序（朝上时武器仍被身体挡住）"
+        );
+    }
+
+    #[test]
+    fn weapon_is_drawn_behind_the_body_when_facing_up_or_left() {
+        let dir = synthetic_assets();
+        let mut renderer = EntityRenderer::new(EntityLibraries::open_dir(&dir.0));
+
+        // 朝下：武器在身体之后画 → 重叠处是武器色。
+        let (front, origin_x, origin_y) =
+            render_one(&mut renderer, &equipped_player(MirDirection::Down));
+        let pixel = front
+            .pixel(
+                u32::try_from(origin_x + OVERLAP.0).expect("x"),
+                u32::try_from(origin_y + OVERLAP.1).expect("y"),
+            )
+            .expect("重叠点应在帧内");
+        assert_eq!(
+            &pixel[..3],
+            &WEAPON_COLOR,
+            "朝下时武器应盖在身体上（层顺序：身体→头发→武器）"
+        );
+
+        // 朝上：武器在身体之前画 → 重叠处是身体色。
+        let (behind, origin_x, origin_y) =
+            render_one(&mut renderer, &equipped_player(MirDirection::Up));
+        let pixel = behind
+            .pixel(
+                u32::try_from(origin_x + OVERLAP.0).expect("x"),
+                u32::try_from(origin_y + OVERLAP.1).expect("y"),
+            )
+            .expect("重叠点应在帧内");
+        assert_eq!(
+            &pixel[..3],
+            &BODY_COLOR,
+            "朝上时武器应被身体挡住（层顺序：武器→身体→头发）"
+        );
+        assert_ne!(
+            behind.pixel(
+                u32::try_from(origin_x + OVERLAP.0).expect("x"),
+                u32::try_from(origin_y + OVERLAP.1).expect("y")
+            ),
+            front.pixel(
+                u32::try_from(origin_x + OVERLAP.0).expect("x"),
+                u32::try_from(origin_y + OVERLAP.1).expect("y")
+            ),
+            "层顺序画反时这个断言会失败"
+        );
+    }
+
+    #[test]
+    fn missing_layer_frames_degrade_to_the_bare_body() {
+        let dir = synthetic_assets();
+        let mut renderer = EntityRenderer::new(EntityLibraries::open_dir(&dir.0));
+        let bare = EntityView::new(Point::new(2, 3), MirDirection::Down, EntityKind::Player, 0);
+        let (bare_frame, _, _) = render_one(&mut renderer, &bare);
+
+        // 武器块 9 在合成素材里没有帧；头发号也不存在 → 只剩身体层。
+        let mut player = equipped_player(MirDirection::Down);
+        player.weapon = 9;
+        player.weapon_shape = 9;
+        player.hair = 5;
+        let (frame, _, _) = render_one(&mut renderer, &player);
+        assert_eq!(
+            differing_pixels(&bare_frame, &frame),
+            0,
+            "缺层的素材必须安静降级，不能画错层"
+        );
+
+        // 连身体库都不存在：退回占位方块。
+        let mut empty = EntityRenderer::empty();
+        let (placeholder, _, _) = render_one(&mut empty, &equipped_player(MirDirection::Down));
+        assert!(placeholder.distinct_color_count() >= 2);
+    }
+
+    fn view(kind: EntityKind, image: u16) -> EntityView {
+        EntityView::new(Point::new(2, 3), MirDirection::Down, kind, image)
     }
 
     #[test]
@@ -551,6 +1338,141 @@ mod tests {
             monster_standing_frame(27, MirDirection::Down, 3),
             7 * 430 + 4 * 8 + 3
         );
+    }
+
+    #[test]
+    fn player_and_layer_libraries_follow_the_flat_corpus() {
+        // 身体：hum 0..23、hum2 24..53、hum3 54..99。
+        assert_eq!(player_library(0), (1, 0));
+        assert_eq!(player_library(23), (1, 23));
+        assert_eq!(player_library(24), (2, 0));
+        assert_eq!(player_library(53), (2, 29));
+        assert_eq!(player_library(54), (3, 0));
+        assert_eq!(player_library(99), (3, 45));
+        // 超出语料范围 → 最后一个库的最后一块。
+        assert_eq!(player_library(200), (3, 45));
+        // 武器：shape/100 选库，shape%100 是块号。
+        assert_eq!(weapon_library(0), (1, 0));
+        assert_eq!(weapon_library(37), (1, 37));
+        assert_eq!(weapon_library(106), (2, 6));
+        assert_eq!(weapon_library(218), (3, 18));
+        // 头发：hair 0..5、hair2 6..27、hair3 28..32、hair4 33..。
+        assert_eq!(hair_library(0), (1, 0));
+        assert_eq!(hair_library(5), (1, 5));
+        assert_eq!(hair_library(6), (2, 0));
+        assert_eq!(hair_library(27), (2, 21));
+        assert_eq!(hair_library(28), (3, 0));
+        assert_eq!(hair_library(33), (4, 0));
+        assert_eq!(hair_library(999), (4, 151));
+        assert_eq!(SpriteLibrary::Hum(1).stem(), "hum");
+        assert_eq!(SpriteLibrary::Hum(3).stem(), "hum3");
+        assert_eq!(SpriteLibrary::Weapon(2).stem(), "weapon2");
+        assert_eq!(SpriteLibrary::Hair(4).stem(), "hair4");
+        assert_eq!(SpriteLibrary::Shield.stem(), "shield");
+    }
+
+    #[test]
+    fn layer_plan_puts_the_weapon_behind_for_left_facing_directions() {
+        let mut player = view(EntityKind::Player, 0);
+        player.armour = 3;
+        player.hair = 2;
+        player.weapon = 7;
+        player.weapon_shape = 7;
+
+        // 朝下：武器在身体之后（最前面）。
+        let plan = player_layer_plan(&player, 0);
+        assert_eq!(
+            plan.layers()
+                .iter()
+                .map(|item| item.layer)
+                .collect::<Vec<_>>(),
+            vec![PlayerLayer::Body, PlayerLayer::Hair, PlayerLayer::Weapon]
+        );
+        assert_eq!(plan.layers()[0].library, SpriteLibrary::Hum(1));
+        assert_eq!(plan.layers()[0].frame, 3 * 600 + 4 * 8);
+        assert_eq!(plan.layers()[1].library, SpriteLibrary::Hair(1));
+        assert_eq!(plan.layers()[1].frame, 2 * 600 + 4 * 8);
+        assert_eq!(plan.layers()[2].library, SpriteLibrary::Weapon(1));
+        assert_eq!(plan.layers()[2].frame, 7 * 600 + 4 * 8);
+
+        // 朝上：武器在身体之前（被身体挡住）。
+        player.direction = MirDirection::Up;
+        let plan = player_layer_plan(&player, 0);
+        assert_eq!(
+            plan.layers()
+                .iter()
+                .map(|item| item.layer)
+                .collect::<Vec<_>>(),
+            vec![PlayerLayer::Weapon, PlayerLayer::Body, PlayerLayer::Hair]
+        );
+        assert_eq!(plan.layers()[0].frame, 7 * 600);
+    }
+
+    #[test]
+    fn layer_plan_skips_missing_layers() {
+        let mut player = view(EntityKind::Player, 0);
+        player.armour = 30; // → hum2 块 6
+        player.hair = NO_LAYER;
+        player.weapon = NO_LAYER;
+        player.weapon_shape = NO_LAYER;
+        player.shield = NO_LAYER;
+        let plan = player_layer_plan(&player, 3);
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan.layers()[0].layer, PlayerLayer::Body);
+        assert_eq!(plan.layers()[0].library, SpriteLibrary::Hum(2));
+        assert_eq!(plan.layers()[0].frame, 6 * 600 + 4 * 8 + 3);
+        assert!(!player.has_weapon());
+
+        // 盾牌层排在头发之后、前向武器之前。
+        player.direction = MirDirection::DownRight;
+        player.hair = 0;
+        player.shield = 1;
+        player.weapon = 2;
+        player.weapon_shape = 2;
+        let plan = player_layer_plan(&player, 0);
+        assert_eq!(
+            plan.layers()
+                .iter()
+                .map(|item| item.layer)
+                .collect::<Vec<_>>(),
+            vec![
+                PlayerLayer::Body,
+                PlayerLayer::Hair,
+                PlayerLayer::Shield,
+                PlayerLayer::Weapon
+            ]
+        );
+        assert_eq!(plan.layers()[2].library, SpriteLibrary::Shield);
+    }
+
+    #[test]
+    fn block_start_is_the_first_frame_of_the_appearance() {
+        let frame = LayerFrame {
+            layer: PlayerLayer::Weapon,
+            library: SpriteLibrary::Weapon(1),
+            frame: 7 * 600 + 5 * 8 + 2,
+        };
+        assert_eq!(frame.block_start(), 7 * 600);
+    }
+
+    #[test]
+    fn weapon_front_matches_crystals_direction_split() {
+        for direction in [
+            MirDirection::UpRight,
+            MirDirection::Right,
+            MirDirection::DownRight,
+            MirDirection::Down,
+        ] {
+            assert!(weapon_drawn_in_front(direction), "{direction:?}");
+        }
+        for direction in [
+            MirDirection::Up,
+            MirDirection::UpLeft,
+            MirDirection::Left,
+            MirDirection::DownLeft,
+        ] {
+            assert!(!weapon_drawn_in_front(direction), "{direction:?}");
+        }
     }
 
     #[test]

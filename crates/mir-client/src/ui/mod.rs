@@ -1160,6 +1160,7 @@ mod tests {
                 hair: 0,
                 gold: 4_321,
                 dead: false,
+                looks: crate::net::PlayerLooks::default(),
             }),
             map: Some(MapSnapshot {
                 title: "比奇省".to_owned(),
@@ -1207,6 +1208,7 @@ mod tests {
                 position: Point::new(11, 11),
                 direction: MirDirection::Down,
                 image: 1,
+                looks: crate::net::PlayerLooks::default(),
                 dead: false,
                 hp_percent: None,
             },

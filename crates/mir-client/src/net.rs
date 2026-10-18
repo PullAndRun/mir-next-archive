@@ -43,8 +43,9 @@
 //!
 //! | 包 | 快照字段 / 用途 |
 //! |---|---|
-//! | `S.UserInformation` | 自己、`inventory`、`magics`、金币、HP/MP |
-//! | `S.NewItemInfo` | `item_infos`：物品名/图标号/价格/堆叠上限/类型/需求/属性表 |
+//! | `S.UserInformation` | 自己、`inventory`、`magics`、金币、HP/MP、纸娃娃外观 |
+//! | `S.ObjectPlayer` / `S.PlayerUpdate` | 其他玩家的坐标/朝向/外观（`PlayerLooks`） |
+//! | `S.NewItemInfo` | `item_infos`：物品名/图标号/**外观号 `shape`**/价格/堆叠上限/类型/需求/属性表 |
 //! | `S.GainedItem` | 并入背包（可堆叠物品先并堆）；系统聊天 |
 //! | `S.MoveItem` | 背包内交换（`grid = Inventory` 且 `success`） |
 //! | `S.EquipItem` / `S.RemoveItem` | 背包 ↔ 装备槽（按唯一编号搬运） |
@@ -73,6 +74,10 @@
 //!   （[`WorldSnapshot::nearest_npc`]）；世界点击 NPC 时会直接记下被点的对象。
 //! * **最大 HP/MP 不在协议里**：状态栏进度条用「本次会话见过的最高值」近似，
 //!   数字显示为 `当前/高水位`，见 [`SelfPlayer::hp_max`]。
+//! * **自己的外观要客户端算**：`S.UserInformation` 只给发型，衣服/武器外观来自装备槽里
+//!   物品模板的 `Shape`（Crystal 服务器算好再塞进 `S.ObjectPlayer`，见
+//!   `Client/MirObjects/UserObject.cs:205-250`）。所以快照在**每个包之后**重算一次
+//!   [`PlayerLooks`]，让「装备先到、`S.NewItemInfo` 后到」也能收敛。
 
 use std::collections::BTreeMap;
 use std::io::{ErrorKind, Read, Write};
@@ -332,6 +337,158 @@ pub struct MapReloadRequest {
     pub path: PathBuf,
 }
 
+/// 玩家外观（纸娃娃层）：身体/武器/头发/盾牌的图库外观号。
+///
+/// 与 Crystal `PlayerObject.Armour / Weapon / Hair` 一一对应，但拆成了「图库内块号」
+/// 与「原始形状」两部分，因为本项目的素材是扁平 `.wzl`（几个外观塞在一个文件里）：
+///
+/// | 字段 | 含义 | 来源 | 图库 |
+/// |---|---|---|---|
+/// | [`Self::armour`] | 衣服外观号 | 装备槽 `Armour` 的 `ItemInfo.Shape` | `hum.wzl` / `hum2.wzl` / `hum3.wzl` |
+/// | [`Self::weapon`] | 武器外观号 | 装备槽 `Weapon` 的 `ItemInfo.Shape % 100` | `weapon*.wzl` |
+/// | [`Self::weapon_shape`] | 武器形状原始值 | 装备槽 `Weapon` 的 `ItemInfo.Shape` | 决定用哪一张 `weapon*.wzl` |
+/// | [`Self::hair`] | 发型号 | `S.UserInformation.hair` / `S.ObjectPlayer.hair` | `hair*.wzl` |
+/// | [`Self::shield`] | 盾牌外观号 | 本作没有盾牌物品类型，恒为 [`mir_render::NO_LAYER`] | `shield.wzl`（语料里没有） |
+///
+/// 武器为什么要两个字段：Crystal 的武器 `Shape` 分三段（0..=99 普通、100..=199 刺客、
+/// 200.. 弓箭手，见 `Client/MirObjects/PlayerObject.cs:41-55,402-409`），扁平语料把三段
+/// 分别放在 `weapon.wzl`、`weapon2.wzl`、`weapon3.wzl`。所以「原始值」决定图库，
+/// 「块号」决定图库内的位置。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlayerLooks {
+    /// 职业（武器分段的判断依据，Crystal `PlayerObject.HasClassWeapon`）。
+    pub class: MirClass,
+    /// 性别（Crystal 用它加 `ArmourOffSet`；扁平语料把男女编成不同块号，这里只记录）。
+    pub gender: MirGender,
+    /// 发型号 → `hair*.wzl` 块号；[`mir_render::NO_LAYER`] 表示光头。
+    pub hair: u16,
+    /// 衣服外观号 → `hum*.wzl` 块号；`0` 是裸体（语料 `hum.wzl` 块 0）。
+    pub armour: u16,
+    /// 武器外观号 → `weapon*.wzl` 块号；[`mir_render::NO_LAYER`] 表示空手。
+    pub weapon: u16,
+    /// 武器形状原始值（含 100/200 段位）；[`mir_render::NO_LAYER`] 表示空手。
+    pub weapon_shape: u16,
+    /// 盾牌外观号；[`mir_render::NO_LAYER`] 表示没有盾牌。
+    pub shield: u16,
+}
+
+impl Default for PlayerLooks {
+    /// 缺省外观：裸体（`armour = 0`）、空手、无盾牌、光头。
+    ///
+    /// 与 Crystal 的缺省值一致：`Armour = 0`、`Weapon = -1`（`UserObject.cs:207-211`）。
+    fn default() -> Self {
+        Self {
+            class: MirClass::Warrior,
+            gender: MirGender::Male,
+            hair: mir_render::NO_LAYER,
+            armour: 0,
+            weapon: mir_render::NO_LAYER,
+            weapon_shape: mir_render::NO_LAYER,
+            shield: mir_render::NO_LAYER,
+        }
+    }
+}
+
+impl PlayerLooks {
+    /// 从装备槽与物品模板推出外观（Crystal `UserObject.RefreshEquipmentStats`，
+    /// `Client/MirObjects/UserObject.cs:205-250`）。
+    ///
+    /// 规则（逐条对拍 Crystal）：
+    ///
+    /// 1. 只认 `ItemType::Armour` 与 `ItemType::Weapon` 两类；其余槽位不影响外观
+    ///    （`:236-245`）；
+    /// 2. 持久度为 0 的装备当作没穿（`if (temp.CurrentDura == 0 && realItem.Durability > 0) continue;`
+    ///    `:234`）；
+    /// 3. 没有模板（`S.NewItemInfo` 还没到）的槽位跳过，外观保持旧值。
+    #[must_use]
+    pub fn from_equipment(
+        equipment: &[Option<InventoryItem>],
+        items: &BTreeMap<i32, ItemInfoView>,
+        class: MirClass,
+        gender: MirGender,
+        hair: u8,
+    ) -> Self {
+        let mut looks = Self {
+            class,
+            gender,
+            hair: u16::from(hair),
+            ..Self::default()
+        };
+        for item in equipment.iter().flatten() {
+            let Some(info) = items.get(&item.item_index) else {
+                continue;
+            };
+            if item.current_dura == 0 && info.durability > 0 {
+                // 持久度归零的装备在 Crystal 里不参与外观（`UserObject.cs:234`）。
+                continue;
+            }
+            match info.item_type {
+                ItemType::Armour => looks.armour = shape_block(info.shape),
+                ItemType::Weapon => {
+                    let shape = shape_block(info.shape);
+                    looks.weapon_shape = shape;
+                    looks.weapon = shape % 100;
+                }
+                _ => {}
+            }
+        }
+        looks
+    }
+
+    /// 从 `S.ObjectPlayer` / `S.PlayerUpdate` 的外观字段直接构造。
+    ///
+    /// 服务端已经把 `Armour = ItemInfo.Shape`、`Weapon = ItemInfo.Shape` 算好了
+    /// （`Server/MirObjects/HumanObject.cs:1840-1846`），所以这里只做「非负 + 拆段位」。
+    #[must_use]
+    pub fn from_server(
+        class: MirClass,
+        gender: MirGender,
+        hair: u8,
+        armour: i16,
+        weapon: i16,
+    ) -> Self {
+        let weapon_shape = i16_to_layer(weapon);
+        let (weapon_block, weapon_shape) = if weapon_shape == mir_render::NO_LAYER {
+            (mir_render::NO_LAYER, mir_render::NO_LAYER)
+        } else {
+            (weapon_shape % 100, weapon_shape)
+        };
+        Self {
+            class,
+            gender,
+            hair: u16::from(hair),
+            armour: shape_block(armour),
+            weapon: weapon_block,
+            weapon_shape,
+            shield: mir_render::NO_LAYER,
+        }
+    }
+
+    /// 是否拿着武器（`Weapon >= 0`，Crystal `PlayerObject.cs:558`）。
+    #[must_use]
+    pub fn has_weapon(&self) -> bool {
+        self.weapon != mir_render::NO_LAYER && self.weapon_shape != mir_render::NO_LAYER
+    }
+}
+
+/// `ItemInfo.Shape` / 服务端 `Armour` 字段 → 图库块号（负数与 `NO_LAYER` 都算 0）。
+fn shape_block(shape: i16) -> u16 {
+    if shape < 0 {
+        0
+    } else {
+        u16::try_from(shape).unwrap_or(0)
+    }
+}
+
+/// 服务端的 `Weapon` 字段（`-1` 表示空手）→ 图库块号或 [`mir_render::NO_LAYER`]。
+fn i16_to_layer(value: i16) -> u16 {
+    if value < 0 {
+        mir_render::NO_LAYER
+    } else {
+        u16::try_from(value).unwrap_or(mir_render::NO_LAYER)
+    }
+}
+
 /// 自己的角色状态。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelfPlayer {
@@ -357,12 +514,14 @@ pub struct SelfPlayer {
     pub class: MirClass,
     /// 性别。
     pub gender: MirGender,
-    /// 发型（暂未用于绘制）。
+    /// 发型（原始值；外观号见 [`Self::looks`]）。
     pub hair: u8,
     /// 金币。
     pub gold: u32,
     /// 是否死亡。
     pub dead: bool,
+    /// 纸娃娃外观（身体/武器/头发/盾牌）；装备变化后由快照重新推导。
+    pub looks: PlayerLooks,
 }
 
 /// 世界里的其他对象。
@@ -380,10 +539,37 @@ pub struct WorldEntity {
     pub direction: MirDirection,
     /// 图像号（含义随 `kind` 变化，见 `mir_render::EntityView`）。
     pub image: u16,
+    /// 纸娃娃外观（只有玩家有意义；服务端在 `S.ObjectPlayer` 里直接给外观号）。
+    pub looks: PlayerLooks,
     /// 是否死亡。
     pub dead: bool,
     /// 生命百分比（`S.ObjectHealth`；怪物才有）。
     pub hp_percent: Option<u8>,
+}
+
+impl WorldEntity {
+    /// 只有最基本字段的实体（怪物/NPC/物品）：外观取 [`PlayerLooks::default`]。
+    #[must_use]
+    pub fn new(
+        object_id: u32,
+        kind: EntityKind,
+        name: String,
+        position: Point,
+        direction: MirDirection,
+        image: u16,
+    ) -> Self {
+        Self {
+            object_id,
+            kind,
+            name,
+            position,
+            direction,
+            image,
+            looks: PlayerLooks::default(),
+            dead: false,
+            hp_percent: None,
+        }
+    }
 }
 
 /// 一条聊天记录。
@@ -446,12 +632,15 @@ impl InventoryItem {
 /// （`ItemInfo.stats`，Crystal `Shared/Data/Stat.cs` 的 `Stats`）。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ItemInfoView {
-    /// 模板编号。
+    /// 物品模板编号。
     pub index: i32,
     /// 名称（服务端已本地化）。
     pub name: String,
     /// `items.wzl` 图像号。
     pub image: u16,
+    /// 外观编号（`ItemInfo.Shape`）；装备的外观层就取自这里：
+    /// 衣服 → `hum*.wzl` 块号，武器 → `weapon*.wzl` 块号（见 [`PlayerLooks`]）。
+    pub shape: i16,
     /// 基础价格。
     pub price: u32,
     /// 最大堆叠数（1 表示不可堆叠）。
@@ -478,6 +667,7 @@ impl ItemInfoView {
             index: info.index,
             name: info.name.clone(),
             image: info.image,
+            shape: info.shape,
             price: info.price,
             stack_size: info.stack_size,
             item_type: info.item_type,
@@ -901,9 +1091,10 @@ impl WorldSnapshot {
 
     /// 转成渲染层的实体列表：自己 + 其他对象。
     ///
-    /// 自己的外观暂时固定为 0 号身体（`UserInformation` 不带装备外观；等号角/装备
-    /// 外观表接进来后再填）。自己的实体 ID 如果同时也出现在 `entities` 里，会被跳过，
-    /// 避免画两遍。
+    /// 玩家的外观来自 [`PlayerLooks`]：自己由装备槽推导（[`PlayerLooks::from_equipment`]，
+    /// 装备变化后快照会重新算），其他人直接用 `S.ObjectPlayer` / `S.PlayerUpdate` 里的
+    /// 外观号（[`PlayerLooks::from_server`]）。自己的实体 ID 如果同时也出现在 `entities`
+    /// 里，会被跳过，避免画两遍。
     #[must_use]
     pub fn entity_views(&self) -> Vec<EntityView> {
         let mut views = Vec::with_capacity(self.entities.len() + 1);
@@ -913,7 +1104,12 @@ impl WorldSnapshot {
                 position: me.position,
                 direction: me.direction,
                 kind: EntityKind::Player,
-                image: 0,
+                image: me.looks.armour,
+                armour: me.looks.armour,
+                weapon: me.looks.weapon,
+                weapon_shape: me.looks.weapon_shape,
+                hair: me.looks.hair,
+                shield: me.looks.shield,
                 name: Some(me.name.clone()),
                 dead: me.dead,
                 hp_percent: None,
@@ -928,12 +1124,39 @@ impl WorldSnapshot {
                 direction: entity.direction,
                 kind: entity.kind,
                 image: entity.image,
+                armour: entity.looks.armour,
+                weapon: entity.looks.weapon,
+                weapon_shape: entity.looks.weapon_shape,
+                hair: entity.looks.hair,
+                shield: entity.looks.shield,
                 name: Some(entity.name.clone()),
                 dead: entity.dead,
                 hp_percent: entity.hp_percent,
             });
         }
         views
+    }
+
+    /// 重新推导自己的纸娃娃外观（装备/模板/职业/发型变化后调用）。
+    ///
+    /// Crystal 在 `UserObject.RefreshEquipmentStats`（`Client/MirObjects/UserObject.cs:205-250`）
+    /// 里做同一件事：清空 `Weapon/Armour`，再遍历装备槽按物品类型取 `Shape`。这里在
+    /// **每处理完一个服务端包**后调用一次——14 个槽位的开销可以忽略，却能让
+    /// 「装备先到、`S.NewItemInfo` 后到」这种顺序也最终收敛到正确外观。
+    pub fn refresh_self_looks(&mut self) {
+        let Some(me) = self.self_player.as_ref() else {
+            return;
+        };
+        let looks = PlayerLooks::from_equipment(
+            &self.equipment,
+            &self.item_infos,
+            me.class,
+            me.gender,
+            me.hair,
+        );
+        if let Some(me) = self.self_player.as_mut() {
+            me.looks = looks;
+        }
     }
 }
 
@@ -1554,16 +1777,14 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
                 }
                 snapshot.entities.insert(
                     npc.object_id,
-                    WorldEntity {
-                        object_id: npc.object_id,
-                        kind: EntityKind::Npc,
-                        name: npc.name.clone(),
-                        position: npc.location,
-                        direction: MirDirection::Down,
-                        image: npc.image,
-                        dead: false,
-                        hp_percent: None,
-                    },
+                    WorldEntity::new(
+                        npc.object_id,
+                        EntityKind::Npc,
+                        npc.name.clone(),
+                        npc.location,
+                        MirDirection::Down,
+                        npc.image,
+                    ),
                 );
             }
         }
@@ -1586,6 +1807,27 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
             }
         }
         ServerPacket::UserInformation(info) => {
+            // `Inventory = null` 表示「客户端保留旧数据」（Crystal 的语义）。
+            if let Some(inventory) = &info.inventory {
+                snapshot.inventory = inventory
+                    .iter()
+                    .map(|item| item.as_ref().map(InventoryItem::from_user_item))
+                    .collect();
+            }
+            // 装备同理：`null` 表示保留旧数据。先落装备再算外观，`looks` 才是新值。
+            if let Some(equipment) = &info.equipment {
+                snapshot.equipment = equipment
+                    .iter()
+                    .map(|item| item.as_ref().map(InventoryItem::from_user_item))
+                    .collect();
+            }
+            let looks = PlayerLooks::from_equipment(
+                &snapshot.equipment,
+                &snapshot.item_infos,
+                info.class,
+                info.gender,
+                info.hair,
+            );
             snapshot.self_player = Some(SelfPlayer {
                 object_id: info.object_id,
                 name: info.name.clone(),
@@ -1601,21 +1843,8 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
                 hair: info.hair,
                 gold: info.gold,
                 dead: false,
+                looks,
             });
-            // `Inventory = null` 表示「客户端保留旧数据」（Crystal 的语义）。
-            if let Some(inventory) = &info.inventory {
-                snapshot.inventory = inventory
-                    .iter()
-                    .map(|item| item.as_ref().map(InventoryItem::from_user_item))
-                    .collect();
-            }
-            // 装备同理：`null` 表示保留旧数据。
-            if let Some(equipment) = &info.equipment {
-                snapshot.equipment = equipment
-                    .iter()
-                    .map(|item| item.as_ref().map(InventoryItem::from_user_item))
-                    .collect();
-            }
             snapshot.magics = info
                 .magics
                 .iter()
@@ -1629,7 +1858,15 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
             }
         }
         ServerPacket::ObjectPlayer(player) => {
-            let image = u16::try_from(player.armour.max(0)).unwrap_or(0);
+            // 服务端已经把外观算好（`Armour = ItemInfo.Shape`、`Weapon = ItemInfo.Shape`，
+            // `Server/MirObjects/HumanObject.cs:1840-1846`），客户端直接拿来分层。
+            let looks = PlayerLooks::from_server(
+                player.class,
+                player.gender,
+                player.hair,
+                player.armour,
+                player.weapon,
+            );
             upsert_entity(
                 snapshot,
                 WorldEntity {
@@ -1638,7 +1875,8 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
                     name: player.name.clone(),
                     position: player.location,
                     direction: player.direction,
-                    image,
+                    image: looks.armour,
+                    looks,
                     dead: player.dead,
                     hp_percent: None,
                 },
@@ -1648,45 +1886,42 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
             upsert_entity(
                 snapshot,
                 WorldEntity {
-                    object_id: monster.object_id,
-                    kind: EntityKind::Monster,
-                    name: monster.name.clone(),
-                    position: monster.location,
-                    direction: monster.direction,
-                    image: u16::from(monster.image),
                     dead: monster.dead,
-                    hp_percent: None,
+                    ..WorldEntity::new(
+                        monster.object_id,
+                        EntityKind::Monster,
+                        monster.name.clone(),
+                        monster.location,
+                        monster.direction,
+                        u16::from(monster.image),
+                    )
                 },
             );
         }
         ServerPacket::ObjectNPC(npc) => {
             upsert_entity(
                 snapshot,
-                WorldEntity {
-                    object_id: npc.object_id,
-                    kind: EntityKind::Npc,
-                    name: npc.name.clone(),
-                    position: npc.location,
-                    direction: npc.direction,
-                    image: npc.image,
-                    dead: false,
-                    hp_percent: None,
-                },
+                WorldEntity::new(
+                    npc.object_id,
+                    EntityKind::Npc,
+                    npc.name.clone(),
+                    npc.location,
+                    npc.direction,
+                    npc.image,
+                ),
             );
         }
         ServerPacket::ObjectItem(item) => {
             upsert_entity(
                 snapshot,
-                WorldEntity {
-                    object_id: item.object_id,
-                    kind: EntityKind::Item,
-                    name: item.name.clone(),
-                    position: item.location,
-                    direction: MirDirection::Down,
-                    image: item.image,
-                    dead: false,
-                    hp_percent: None,
-                },
+                WorldEntity::new(
+                    item.object_id,
+                    EntityKind::Item,
+                    item.name.clone(),
+                    item.location,
+                    MirDirection::Down,
+                    item.image,
+                ),
             );
         }
         ServerPacket::ObjectGold(gold) => {
@@ -1700,16 +1935,14 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
             };
             upsert_entity(
                 snapshot,
-                WorldEntity {
-                    object_id: gold.object_id,
-                    kind: EntityKind::Item,
-                    name: format!("金币 {}", gold.gold),
-                    position: gold.location,
-                    direction: MirDirection::Down,
+                WorldEntity::new(
+                    gold.object_id,
+                    EntityKind::Item,
+                    format!("金币 {}", gold.gold),
+                    gold.location,
+                    MirDirection::Down,
                     image,
-                    dead: false,
-                    hp_percent: None,
-                },
+                ),
             );
         }
         ServerPacket::ObjectRemove(remove) => {
@@ -2025,8 +2258,19 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
             });
         }
         ServerPacket::PlayerUpdate(update) => {
+            // `S.PlayerUpdate` 只在换装后发（Crystal `PlayerObject.Update`，
+            // `Client/MirObjects/PlayerObject.cs:170-180`），带的就是新的外观号。
             update_entity(snapshot, update.object_id, |entity| {
-                entity.image = u16::try_from(update.armour.max(0)).unwrap_or(0);
+                entity.looks.armour = shape_block(update.armour);
+                let weapon_shape = i16_to_layer(update.weapon);
+                if weapon_shape == mir_render::NO_LAYER {
+                    entity.looks.weapon = mir_render::NO_LAYER;
+                    entity.looks.weapon_shape = mir_render::NO_LAYER;
+                } else {
+                    entity.looks.weapon_shape = weapon_shape;
+                    entity.looks.weapon = weapon_shape % 100;
+                }
+                entity.image = entity.looks.armour;
             });
         }
         ServerPacket::Disconnect(disconnect) => {
@@ -2035,6 +2279,9 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
         }
         _ => {}
     }
+    // 装备/模板/职业任一处变化都会影响自己的外观；每包重算一次（14 个槽位，开销可忽略），
+    // 「装备先到、模板后到」这类顺序也能最终收敛。
+    snapshot.refresh_self_looks();
 }
 
 /// 插入或更新一个实体。
@@ -2056,14 +2303,16 @@ fn update_entity(
         if me.object_id == object_id {
             // 用一个临时实体承接更新，再写回自己（字段集合不同，简单映射坐标/朝向）。
             let mut temporary = WorldEntity {
-                object_id,
-                kind: EntityKind::Player,
-                name: me.name.clone(),
-                position: me.position,
-                direction: me.direction,
-                image: 0,
                 dead: me.dead,
-                hp_percent: None,
+                looks: me.looks,
+                ..WorldEntity::new(
+                    object_id,
+                    EntityKind::Player,
+                    me.name.clone(),
+                    me.position,
+                    me.direction,
+                    0,
+                )
             };
             update(&mut temporary);
             me.position = temporary.position;
@@ -2254,12 +2503,14 @@ fn push_effect_event(snapshot: &mut WorldSnapshot, object_id: u32, effect: Spell
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mir_core::enums::EquipmentSlot;
     use mir_core::enums::Monster as MonsterImage;
     use mir_protocol::data::{ClientBuff, ClientMagic, ItemInfo, SelectInfo, Stats, UserItem};
     use mir_protocol::packets::server::{
         AddBuff, DamageIndicator, DeleteItem, EquipItem, MoveItem, NPCGoods, NPCResponse,
-        NewItemInfo, ObjectEffect, ObjectItem, ObjectMonster, ObjectNPC, ObjectStruck, ObjectWalk,
-        RemoveBuff, RemoveItem, UserInformation, UserLocation,
+        NewItemInfo, ObjectEffect, ObjectItem, ObjectMonster, ObjectNPC, ObjectPlayer,
+        ObjectStruck, ObjectWalk, PlayerUpdate, RemoveBuff, RemoveItem, UserInformation,
+        UserLocation,
     };
 
     fn test_item(unique_id: u64, item_index: i32, count: u16) -> UserItem {
@@ -2622,5 +2873,185 @@ mod tests {
         assert_eq!(snapshot.effects[0].object_id, 8);
         assert_eq!(snapshot.packet_count("DamageIndicator"), 1);
         assert_eq!(snapshot.packet_count("ObjectEffect"), 1);
+    }
+
+    /// 带外观字段（`shape`）与类型的物品模板。
+    fn equipment_info(index: i32, name: &str, item_type: ItemType, shape: i16) -> ItemInfo {
+        ItemInfo {
+            index,
+            name: name.to_owned(),
+            image: u16::try_from(index).unwrap_or(0),
+            item_type,
+            shape,
+            durability: 5_000,
+            ..ItemInfo::default()
+        }
+    }
+
+    /// 14 个槽位的空装备表。
+    fn empty_equipment() -> Vec<Option<UserItem>> {
+        vec![None; EQUIPMENT_SLOTS]
+    }
+
+    /// 一件有持久度的物品：Crystal 会把「持久度 0 且模板有持久度」的装备当成没穿
+    /// （`UserObject.cs:234`），所以测试里的装备必须带持久度。
+    fn worn_item(unique_id: u64, item_index: i32) -> UserItem {
+        UserItem {
+            current_dura: 5_000,
+            max_dura: 5_000,
+            ..test_item(unique_id, item_index, 1)
+        }
+    }
+
+    #[test]
+    fn equipment_drives_the_paper_doll_appearance() {
+        let mut snapshot = WorldSnapshot::default();
+        let mut information = user_information();
+        information.class = MirClass::Taoist;
+        information.gender = MirGender::Female;
+        information.hair = 3;
+        let mut equipment = empty_equipment();
+        equipment[EquipmentSlot::Weapon as usize] = Some(worn_item(31, 10));
+        equipment[EquipmentSlot::Armour as usize] = Some(worn_item(32, 11));
+        information.equipment = Some(equipment);
+        snapshot.apply_packet(&ServerPacket::UserInformation(information));
+
+        // 模板还没到：外观退化成裸体 + 空手，但发型已经来自 UserInformation。
+        let looks = snapshot.self_player.as_ref().expect("自己").looks;
+        assert_eq!(looks.armour, 0, "没有模板时不该瞎猜外观");
+        assert!(!looks.has_weapon());
+        assert_eq!(looks.hair, 3);
+        assert_eq!(looks.class, MirClass::Taoist);
+        assert_eq!(looks.gender, MirGender::Female);
+
+        // `S.NewItemInfo` 到达 → 外观自动重算（不依赖包序）。
+        snapshot.apply_packet(&ServerPacket::NewItemInfo(NewItemInfo {
+            info: equipment_info(10, "炼狱", ItemType::Weapon, 36),
+        }));
+        snapshot.apply_packet(&ServerPacket::NewItemInfo(NewItemInfo {
+            info: equipment_info(11, "重盔甲", ItemType::Armour, 2),
+        }));
+        let looks = snapshot.self_player.as_ref().expect("自己").looks;
+        assert_eq!(looks.armour, 2, "衣服外观号 = ItemInfo.Shape");
+        assert_eq!(looks.weapon, 36, "武器块号 = Shape");
+        assert_eq!(looks.weapon_shape, 36, "普通武器的原始形状与块号相同");
+        assert_eq!(looks.hair, 3);
+        assert!(looks.has_weapon());
+        assert_eq!(looks.shield, mir_render::NO_LAYER, "本作没有盾牌物品类型");
+
+        // 渲染层拿到的是同一套外观。
+        let views = snapshot.entity_views();
+        let me = views.first().expect("自己永远排第一");
+        assert_eq!(me.kind, EntityKind::Player);
+        assert_eq!(me.armour, 2);
+        assert_eq!(me.weapon, 36);
+        assert_eq!(me.weapon_shape, 36);
+        assert_eq!(me.hair, 3);
+    }
+
+    #[test]
+    fn equipping_and_broken_equipment_refresh_the_appearance() {
+        let mut snapshot = WorldSnapshot::default();
+        let mut information = user_information();
+        information.hair = 1;
+        information.inventory = Some(vec![Some(worn_item(41, 20)), None]);
+        information.equipment = Some(empty_equipment());
+        snapshot.apply_packet(&ServerPacket::UserInformation(information));
+        // 弓箭手武器（200 段）→ `weapon2.wzl` 之类的高段位图库，块号取 `% 100`。
+        snapshot.apply_packet(&ServerPacket::NewItemInfo(NewItemInfo {
+            info: equipment_info(20, "屠龙", ItemType::Weapon, 210),
+        }));
+        snapshot.apply_packet(&ServerPacket::NewItemInfo(NewItemInfo {
+            info: equipment_info(21, "布衣", ItemType::Armour, 0),
+        }));
+        assert!(!snapshot.self_player.as_ref().unwrap().looks.has_weapon());
+
+        // 穿上武器（背包 0 → 武器槽 0）：外观立刻刷新。
+        snapshot.apply_packet(&ServerPacket::EquipItem(EquipItem {
+            grid: MirGridType::Inventory,
+            unique_id: 41,
+            to: EquipmentSlot::Weapon as i32,
+            success: true,
+        }));
+        let looks = snapshot.self_player.as_ref().unwrap().looks;
+        assert_eq!(looks.weapon_shape, 210);
+        assert_eq!(
+            looks.weapon, 10,
+            "200 段武器在 weapon*.wzl 里的块号是 Shape % 100"
+        );
+
+        // 持久度归零的装备在 Crystal 里不参与外观（`UserObject.cs:234`）。
+        if let Some(item) = snapshot.equipment_item(0) {
+            let mut broken = item.clone();
+            broken.current_dura = 0;
+            snapshot.equipment[0] = Some(broken);
+        }
+        snapshot.apply_packet(&ServerPacket::HealthChanged(
+            mir_protocol::packets::server::HealthChanged { hp: 1, mp: 1 },
+        ));
+        assert!(
+            !snapshot.self_player.as_ref().unwrap().looks.has_weapon(),
+            "持久度为 0 的武器不算外观"
+        );
+
+        // 脱下来 → 又回到空手。
+        snapshot.equipment[0] = None;
+        snapshot.apply_packet(&ServerPacket::RemoveItem(RemoveItem {
+            grid: MirGridType::Equipment,
+            unique_id: 41,
+            to: 0,
+            success: true,
+        }));
+        assert!(!snapshot.self_player.as_ref().unwrap().looks.has_weapon());
+        assert_eq!(snapshot.self_player.as_ref().unwrap().looks.armour, 0);
+    }
+
+    #[test]
+    fn other_players_appearance_comes_from_object_player_and_player_update() {
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.apply_packet(&ServerPacket::ObjectPlayer(ObjectPlayer {
+            object_id: 5,
+            name: "路人".to_owned(),
+            class: MirClass::Archer,
+            gender: MirGender::Female,
+            level: 30,
+            location: Point::new(12, 13),
+            direction: MirDirection::Right,
+            hair: 4,
+            weapon: 218,
+            armour: 37,
+            ..ObjectPlayer::default()
+        }));
+        let view = snapshot
+            .entity_views()
+            .into_iter()
+            .find(|view| view.kind == EntityKind::Player)
+            .expect("路人玩家");
+        assert_eq!(view.armour, 37);
+        assert_eq!(view.weapon_shape, 218);
+        assert_eq!(view.weapon, 18);
+        assert_eq!(view.hair, 4);
+        let looks = snapshot.entities[&5].looks;
+        assert_eq!(looks.class, MirClass::Archer);
+        assert_eq!(looks.gender, MirGender::Female);
+
+        // 换装后服务端发 `S.PlayerUpdate`，客户端跟着换外观。
+        snapshot.apply_packet(&ServerPacket::PlayerUpdate(PlayerUpdate {
+            object_id: 5,
+            light: 0,
+            weapon: -1,
+            weapon_effect: 0,
+            armour: 6,
+            wing_effect: 0,
+        }));
+        let view = snapshot
+            .entity_views()
+            .into_iter()
+            .find(|view| view.kind == EntityKind::Player)
+            .expect("路人玩家");
+        assert_eq!(view.armour, 6);
+        assert_eq!(view.weapon, mir_render::NO_LAYER, "Weapon = -1 表示空手");
+        assert_eq!(view.weapon_shape, mir_render::NO_LAYER);
+        assert_eq!(view.hair, 4, "PlayerUpdate 不改发型");
     }
 }

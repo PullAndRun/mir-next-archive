@@ -270,6 +270,7 @@ mod tests {
                 position: Point::new(10, 10),
                 direction: mir_core::enums::MirDirection::Down,
                 image: 0,
+                looks: crate::net::PlayerLooks::default(),
                 dead: false,
                 hp_percent: None,
             },

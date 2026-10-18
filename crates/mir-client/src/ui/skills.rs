@@ -365,6 +365,7 @@ mod tests {
                 hair: 0,
                 gold: 0,
                 dead: false,
+                looks: crate::net::PlayerLooks::default(),
             }),
             ..WorldSnapshot::default()
         }
@@ -428,6 +429,7 @@ mod tests {
                     position: Point::new(x, 10),
                     direction: MirDirection::Left,
                     image: 0,
+                    looks: crate::net::PlayerLooks::default(),
                     dead: false,
                     hp_percent: Some(100),
                 },

@@ -33,7 +33,8 @@
 | 技能 | ✅ | 用书学习、施法校验、15 个伤害/治疗/位移/召唤/中毒技能 + 9 个增益技能（火墙/雷电/瞬息移动/隐身/召唤骷髅/召唤神兽/施毒；护盾/加速/减伤…）；第 4 轮补了野生怪索敌/反击召唤物（守卫/箭塔例外同 Crystal）；第 5 轮补宠物命令 `C.ChangePMode`（5 种 PetMode、客户端 V 键三态）；护身符消耗、开关型技能与部分地图级技能未做（见 `docs/world/magic.md`） |
 | Buff | ✅ | 带到期时间的属性修饰层、`S.AddBuff`/`S.RemoveBuff`、药水增益（见 `docs/world/buffs.md`） |
 | 任务 | ✅ | `Envir/Quests` 13 段脚本解析（真实 154/154 份）、接取前置、击杀/收集/标记目标、交付领奖、限时超时、放弃、NPC `[Quests]` 关联与三个任务动作、`characters.quests` 存档；第 4 轮补任务物品栏（40 格、205/206 包、掉落截胡、迁移 0012）；第 5 轮补 YouFound（205 → `quest_item_found` → `S.ChangeQuest`）、`Q` 标记掉落（先截胡、无人需要不落地）、每日重置（迁移 0013、按角色 24h 惰性）（见 `docs/world/quests.md`） |
-| GM 命令 | ✅ | `@level/@exp/@gold/@credit/@item/@map/@heal/@kill/@who/@kick/@recall/@help`，权限 admin 或 `MIR2_GM_ACCOUNTS`，英文回复 + 审计（见 `docs/world/gm.md`） |
+| GM 命令 | ✅ | 20 条：12 条基础 + `@mob/@clearitem/@revive/@setpk/@warp/@mapinfo/@clearbag/@reboot`；权限 admin 或 `MIR2_GM_ACCOUNTS`，英文回复 + 审计（见 `docs/world/gm.md`） |
+| 抗刷与连接限制 | ✅ | 单 IP 并发 5、连接速率 10/秒、空闲超时 60s、单会话包速率 200/秒（`MIR2_MAX_CONN_PER_IP` 等，`0`=关闭）；`@reboot` 倒计时优雅停机（见 [`docs/server/limits.md`](server/limits.md)） |
 | 组队 | ✅ | 邀请/接受/拒绝/踢人/退队、`!!` 组队聊天、同图同范围经验共享与任务杀怪共享、入队血条与切图地图名同步（见 `docs/world/group.md`） |
 | 行会 | 🟡 | 创建/邀请/接受、职位（升/降/踢/职位名/权限）、公告、`!~` 行会聊天、行会经验与升级、行会仓库（物品 + 金币）、行会 buff、退出/转让/解散、五张表持久化（见 `docs/world/guild.md`）；攻城建筑、联盟未做 |
 | 玩家仓库 | ✅ | `[@STORAGE]` 页面、`C.StoreItem`/`C.TakeBackItem`、80 格、`S.UserStorage`/`S.NPCStorage`、`characters.storage` 持久化；扩充仓库/仓库密码未做，个人仓库**没有金币功能**（见 `docs/world/storage.md`） |
@@ -48,8 +49,9 @@
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
-| 图库解码 | ✅ | `.Lib`（4 种变体）与 `.wzl+.wzx`；调色板/565/RGB24/DXT1/gzip RGBA |
-| 等距地图渲染 | ✅ | Crystal 几何常量与图层映射，真实 `0.map` 出图 |
+| 图库解码 | ✅ | `.Lib`（4 种变体）、`.wzl+.wzx` 与第 6 轮新增 `.wil+.wix`（WEMADE `#ILIB`/`#INDX`）；调色板/565/RGB24/DXT1/gzip RGBA |
+| 等距地图渲染 | ✅ | Crystal 几何常量与图层映射，真实 `0.map` 出图；视口内瓦片解码 + 4096 张缓存，release 800×600 行走 ≈1.17 ms/帧 |
+| 真实素材渲染 | ✅ | `resource/data`（`--data-dir` 可指定）；28 个 wzl + 5 个可打开 WIL；玩家/怪物/NPC/物品按真实图库与帧渲染，缺资源占位回退 |
 | 联机 | ✅ | 登录/建角/进世界、30+ 包快照、KeepAlive |
 | 实体渲染 | ✅ | 玩家/怪物/NPC/物品精灵（`hum`/`monN`/`npc`/`items` 映射表） |
 | 操作 | ✅ | 走/跑/转向/攻击/拾取/聊天 |
@@ -77,7 +79,8 @@
 - [`docs/world/trade.md`](world/trade.md) — 玩家交易状态机、包序与 Crystal 异常
 - [`docs/world/market.md`](world/market.md) — 寄售/拍卖流程、佣金与手续费、过期与持久化
 - [`docs/world/gameshop.md`](world/gameshop.md) — 商城与元宝：商品数据、购买校验、发货/邮件、库存计数与页签包序
-- [`docs/world/gm.md`](world/gm.md) — GM 命令：权限、12 条命令、错误口径与审计
+- [`docs/world/gm.md`](world/gm.md) — GM 命令：权限、20 条命令、错误口径与审计
+- [`docs/server/limits.md`](server/limits.md) — 抗刷与连接限制：单 IP 并发/连接速率、心跳超时、包速率
 - [`docs/world/magic.md`](world/magic.md) — 技能支持矩阵、15 个伤害/位移/召唤技能与 20 条异常
 - [`docs/client.md`](client.md) — 客户端协议流程与 7 条怪癖
 - [`docs/store/mirdb-format.md`](store/mirdb-format.md) — 数据库格式与版本门

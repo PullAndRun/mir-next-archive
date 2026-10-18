@@ -33,12 +33,21 @@
 | `@who` | — | 逐行输出在线玩家：`  name lvN @map (#objectId)`，首行 `N player(s) online:` |
 | `@kick <账号\|角色>` | 目标必须是已登记会话或在线角色 | 立刻断开（`server.rs` 读循环用 `select!` 监听踢线通道）；未登记会话标待踢，下一条包生效（`SessionError::Kicked`） |
 | `@recall <角色名>` | 目标必须在线 | 把目标传送到自己身边；失败回 `Cannot move …` |
+| `@mob <名称\|索引> [数量]` | 数量 `1..=50`（`MAX_SPAWN_BATCH`）；名称支持唯一片段匹配 | 在 GM 脚下 3×3 邻格轮流刷怪（不设归属、不计入刷怪点），回 `Spawned N x …`；未知怪回 `Monster not found` |
+| `@clearitem` | — | 清掉 GM 当前地图的**地面物品与金币堆**，回 `Cleared N ground item(s) on <map>.` |
+| `@revive [角色名]` | 目标必须在线且已死亡（缺省自己） | `revive_player`；未死亡回 `… is not dead.` |
+| `@setpk <点数>` | `>= 0` | 设 PK 值并立即 `refresh_name_colour`（红/黄/棕名同步广播） |
+| `@warp <角色> <地图> [x y]` | 目标在线；地图名/索引 + 可选整数坐标 | 把**别的**角色传送到指定地图（GM 自己用 `@map`），回 `Warped …` |
+| `@mapinfo` | — | 当前地图/坐标/站立格可走性 + 本图怪物/玩家/地面物品数（多行） |
+| `@clearbag` | — | 清空背包（**不碰装备栏/仓库**），逐件 `S.DeleteItem`，回 `Cleared N item stack(s) from the bag.` |
+| `@reboot <秒>` | `0..=86400` | 安排优雅停机：广播倒计时（每个整秒只喊一次）→ 到点踢掉全部会话并停止 accept；`0` = 立即重启 |
 | `@help` | — | 命令表（`help_lines()`） |
 
 ## 3. 错误与回执口径
 
 * 非法参数 → `Usage: …`；
 * 找不到物品 → `Item not found: '<query>'.`；
+* 找不到怪物 → `Monster not found: '<query>'.`；
 * 找不到玩家 → `Player not found: '<query>'.`；
 * 找不到地图 → `Map not found: '<query>'.`；
 * 未知命令 → `Unknown GM command '@x'. Type @help for the command list.`；
@@ -63,8 +72,10 @@ info!(gm = %gm_name, object_id, command = %command, args = ?args, "GM command")
 3. **`@kill` 是最小死亡**：不发死亡掉落、不中断交易，10 秒后自动复活；
    Crystal 的 `@KILL` 走完整 `Die()`。
 4. **`@level` 显式刷新属性与下一级经验**（Crystal `RefreshLevelStats` 同款行为，这里写明）。
-5. **命令集是最小可用集**：Crystal 还有 `@MOVE/@GIVE/@SET/@CLEARBUFFS…` 未实现。
-6. `@who` 是本作扩展（Crystal 无同名命令）。
+5. **命令集**：12 条基础命令 + 8 条第 6 轮扩展（`@mob/@clearitem/@revive/@setpk/@warp/@mapinfo/@clearbag/@reboot`），
+   共 **20 条**；Crystal 还有 `@MOVE/@GIVE/@SET/@CLEARBUFFS…` 未实现。
+6. `@who` / `@mob` / `@clearitem` / `@mapinfo` / `@clearbag` / `@reboot` 是本作扩展
+   （Crystal 无同名命令）；`@reboot` 的倒计时广播与优雅停机也是本作新增。
 
 ## 6. 宠物命令的 dispatch（同一轮顺带）
 
@@ -74,6 +85,8 @@ info!(gm = %gm_name, object_id, command = %command, args = ?args, "GM command")
 
 ## 7. 测试
 
-* `crates/mir-server/tests/gm.rs`（13 条）：权限判定、未知命令、各命令成功/失败分支、
+* `crates/mir-server/tests/gm.rs`（23 条）：权限判定、未知命令、各命令成功/失败分支、
+  `@mob/@clearitem/@mapinfo/@revive/@setpk/@warp/@clearbag/@reboot` 的新用例、
   `@kick` 待踢、`@who` 多行；
+* `crates/mir-server/tests/reboot.rs`：`@reboot` 倒计时与优雅停机（踢线 + 停止 accept）；
 * `crates/mir-server/tests/login_flow.rs` 的 GM e2e（登录后 `@help` / `@level`）。

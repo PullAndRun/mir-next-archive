@@ -505,15 +505,22 @@ Crystal 的隐身消耗 **1 张护身符**（`GetAmulet(1)`），本作消耗品
 > 服务端收到 `C.ChangePMode` 后写模式并无条件回 `S.ChangePMode`(63)
 > （Crystal `MirConnection.cs:1441-1448`）。
 >
-> **存档差异**：`pet_modes` 是 **World 侧表、不随角色存档**；Crystal 的
-> `CharacterInfo.PMode` 会落盘（重登后模式保留）。本作重登/召回后回到 `Both`。
+> **存档（与 Crystal 对齐）**：运行时模式在 World 侧表 `pet_modes`（按主人 object id），
+> **下线时写回角色行** `characters.pet_mode: SMALLINT`（Crystal `CharacterInfo.PMode`；
+> 该列在**迁移 0001** 就有，不是本轮新增）；登录时
+> `PetMode::from_value(character.pet_mode)` 写回世界侧表（`session.rs`），
+> `market::character_snapshot(base, player, pet_mode)` 也带该字段，所以市场/商城落盘
+> 不会把登录时的旧值写回去。重登后模式保留；召回/新召唤/宠物死亡仍重置为 `Both`
+> （与 Crystal 一致）。旧存档列默认 0 = `Both`。
 > 客户端只暴露「跟随 / 攻击 / 休息」三态循环（`V` 键），`MoveOnly` 与
 > `FocusMasterTarget` 服务端支持但暂无客户端入口。
 >
 > 测试：`tests/skills.rs` 的 `move_only_pet_follows_without_attacking`、
 > `both_mode_pet_attacks_nearest_wild`、`attack_only_pet_locks_the_masters_target`、
 > `rest_mode_pet_does_not_search_or_follow`、`pets_do_not_attack_each_other`、
-> `pet_mode_resets_on_recall_and_pet_death`。
+> `pet_mode_resets_on_recall_and_pet_death`；`tests/pet_mode.rs` 的
+> `pet_mode_values_match_crystal_byte_column`、`pet_mode_survives_character_logout_and_login`、
+> `old_characters_default_to_both`。
 >
 > 测试：`tests/skills.rs` 的 `wild_monster_targets_and_attacks_a_pet_then_pet_retaliates`、
 > `pet_death_to_a_wild_monster_does_not_panic_the_master`、`guards_ignore_pets`、

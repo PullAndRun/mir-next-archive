@@ -17,7 +17,8 @@
 > **Crystal 自己的 `Server.MirDB` 数据库**（真实怪物属性 + 刷怪点），已能索敌、追击、出手、
 > 掉血、掉落、拾取、升级、死亡复活并广播全套战斗与物品包；NPC 商店、任务、组队、行会、
 > 玩家仓库、邮件、玩家间交易与 NPC 寄售/拍卖市场均已在服务端落地，其中仓库、邮件与市场挂单
-> 可持久化；客户端素材层能解码 `.Lib`/`.wzl` 图库（已用真实素材验证），联机渲染与中文 UI
+> 可持久化；客户端素材层能解码 `.Lib`/`.wzl+.wzx`/`.wil+.wix` 图库并**用真实素材渲染**
+> 等距地图与实体（800×600 release ≈1.17 ms/帧），联机渲染与中文 UI
 > 已覆盖状态栏、聊天、背包、纸娃娃、商店、对话、技能、buff、小地图/大地图、邮件、仓库、
 > 任务与任务物品栏、行会、组队、交易与市场面板。AOI 网格化、视野 16 与门状态机已落地，待刑部全量验收；攻城建筑、
 > 部分高级玩法与客户端细节（见 [`docs/client.md`](docs/client.md) §8）尚未完成。
@@ -54,11 +55,12 @@
 | 行会 | ✅ | 创建（NPC `[@CREATEGUILD]`）、邀请/加入、职位与权限位、升降职/踢人、公告、`!~` 行会聊天、行会经验与等级、行会仓库（112 格物品 + 资金）、行会 buff（购买/激活/到期/全员加成）、迁移 0005/0006 持久化；攻城与领地未做 |
 | 玩家仓库与邮件 | ✅ | 80 格仓库（`[@STORAGE]` 页，`characters.storage` 持久化）、邮件发送（附件/邮票/邮费/限速）、阅读/锁定/领取/删除、迁移 0007、离线按名投递与 30 天过期 |
 | 玩家交易 | ✅ | 面朝格发起/回应、10 格交易栏、金币、双方确认后互换、放物品即清双方确认、取消/走跑转身切图下线死亡中止、背包满时取消改寄邮件（`docs/world/trade.md`） |
-| GM 命令 | ✅ | `@level/@exp/@gold/@credit/@item/@map/@heal/@kill/@who/@kick/@recall/@help` 12 条；权限 `accounts.admin` 或 `MIR2_GM_ACCOUNTS`；非 GM 的 `@…` 静默走普通聊天；英文回复（不进玩家 i18n 词表）+ `tracing::info!` 审计；`@kill` 是最小死亡（见 `docs/world/gm.md`） |
+| GM 命令 | ✅ | 20 条：`@level/@exp/@gold/@credit/@item/@map/@heal/@kill/@who/@kick/@recall/@help` + 第 6 轮扩展 `@mob/@clearitem/@revive/@setpk/@warp/@mapinfo/@clearbag/@reboot`；权限 `accounts.admin` 或 `MIR2_GM_ACCOUNTS`；非 GM 的 `@…` 静默走普通聊天；英文回复（不进玩家 i18n 词表）+ `tracing::info!` 审计；`@kill` 是最小死亡、`@reboot` 倒计时优雅停机（见 `docs/world/gm.md`） |
+| 抗刷与连接限制 | ✅ | 单 IP 并发 5、连接速率 10 次/秒、空闲超时 60s、单会话包速率 200/秒（均可配置，`0`=关闭）；超限分别关闭连接/丢弃包，见 [`docs/server/limits.md`](docs/server/limits.md) |
 | 寄售 / 拍卖市场 | ✅ | NPC `[@CONSIGN]`/`[@MARKET]` 上架、搜索/翻页/买断/出价/提前成交/取回、5% 佣金与手续费、7 天过期、**到期自动成交**（`process_auctions` 每 60s；买家收物品邮件、卖家收「成交价 − 5%」金币邮件）、启动时清理未成交过期单、迁移 0009 持久化与同事务/幂等重试；Crystal 的「卖家上线 `MarketGetBack` 领钱」改为邮件直达（见 `docs/world/market.md` §9） |
 | 商城（GameShop）与元宝 | 🟡 | 市场面板商城页签、`C.GameshopBuy` 真实扣元宝/金币、职业等级与库存校验、背包优先/放不下转商城邮件、库存计数迁移 0011 单事务持久化；独立商城面板与 `S.GameShopInfo`/`S.GameShopStock` 下发未做（`docs/world/gameshop.md`） |
 | 攻城与领地 | ⏳ | `ConquestInfo` 数据已可读，城门/城墙/旗子与领地租借待做 |
-| Rust 客户端（渲染与 UI） | 🟡 | 等距地图 + 联机 + 实体精灵 + 装备分层外观 + 逐帧动画（站立/走/跑/攻击/受击/死亡）+ 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能/buff/小地图/大地图/任务/任务物品栏（滚轮翻页）/邮件/仓库/行会/组队/交易/市场/商城页签/设置面板/服务器与角色选择）+ 技能表现（火墙/雷电/瞬息移动/隐身/召唤）+ 宠物命令（`V` 键三态）+ `@` 命令原样发送 + 伤害数字 + 头顶血条 + 目标锁定 + 拖拽穿脱 + 点地走路 + 音效与背景音乐（rodio，可无声降级）；HUD 天气随切图显示（`S.MapChanged.weather`），时间/昼夜因服务端未下发 `S.TimeOfDay` 暂不显示；坐骑/翅膀精确素材、移动插值、寻路待做（见 [`docs/client.md`](docs/client.md) §8） |
+| Rust 客户端（渲染与 UI） | 🟡 | **真实素材渲染**：`.Lib`/`.wzl+.wzx`/`.wil+.wix`（第 6 轮新增）、数据目录 `resource/data`（`--data-dir`）、视口内瓦片解码 + 4096 张缓存（release 800×600 行走 ≈1.17 ms/帧）、缺资源占位回退；等距地图 + 联机 + 实体精灵 + 装备分层外观 + 逐帧动画（站立/走/跑/攻击/受击/死亡）+ 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能/buff/小地图/大地图/任务/任务物品栏（滚轮翻页）/邮件/仓库/行会/组队/交易/市场/商城页签/设置面板/服务器与角色选择）+ 技能表现（火墙/雷电/瞬息移动/隐身/召唤）+ 宠物命令（`V` 键三态）+ `@` 命令原样发送 + 伤害数字 + 头顶血条 + 目标锁定 + 拖拽穿脱 + 点地走路 + 音效与背景音乐（rodio，可无声降级）；HUD 天气随切图显示（`S.MapChanged.weather`），时间/昼夜因服务端未下发 `S.TimeOfDay` 暂不显示；坐骑/翅膀精确素材、移动插值、寻路待做（见 [`docs/client.md`](docs/client.md) §8） |
 | 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计、MirDB 报告、图库查看/导出；素材库编辑器未做 |
 | 素材索引（`mir2_dev`） | ✅ | `tools/asset-index/` 把 `resource/` 的 233 万文件登记进 PostgreSQL，按名字/扩展名/仓库查询 |
 
@@ -131,8 +133,9 @@ python tools/asset-index/find_asset.py --ext .wzl --top data --limit 20
 - **游戏内切换**：聊天框输入 `/language en` 切换英文、`/language zh-cn` 切回中文，
   服务端回一条该语言的系统提示，并把选择写回 `accounts.language`（迁移 `0002`）。
 - **服务端玩家可见文本全部走 `TextKey`**：聊天/系统提示/邮件/市场回执/攻城公告等
-  200 个键都有中英模板；按**收件人自己的语言**渲染（全服公告逐收件人编码），
-  `/language en` 后系统提示立刻跟随。
+  **201 个键**都有中英模板；按**收件人自己的语言**渲染（全服公告逐收件人编码），
+  `/language en` 后系统提示立刻跟随。第 6 轮把 261 条 `#[error]` Display 日志文本
+  英文化，扫描器 `--no-test --strict` 从 46 降到 **14 处**（剩余为职业名/演示模板名/启动日志）。
 - **内容也跟随语言**：地图标题（`MapInformation.Title`）等文本从语言包的
   `maps` 段取，未收录时用文件名兜底。
 - **客户端本地语言**：`cargo run -p mir-client -- --lang en`（设置存本地，断网也能切）。
@@ -228,7 +231,8 @@ python tools/protocol-gen/generate.py
 | [`docs/world/trade.md`](docs/world/trade.md) | 玩家交易：发起/接受/交易格/金币/确认/取消、距离与朝向、包序 |
 | [`docs/world/market.md`](docs/world/market.md) | NPC 寄售/拍卖：上架/搜索/翻页/买断/出价/取回/过期、佣金与持久化 |
 | [`docs/world/gameshop.md`](docs/world/gameshop.md) | 商城（GameShop）与元宝：商品数据、购买校验、发货与邮件兜底、库存计数与页签包序 |
-| [`docs/world/gm.md`](docs/world/gm.md) | GM 命令：权限（admin / `MIR2_GM_ACCOUNTS`）、12 条命令、错误口径与审计 |
+| [`docs/world/gm.md`](docs/world/gm.md) | GM 命令：权限（admin / `MIR2_GM_ACCOUNTS`）、20 条命令、错误口径与审计 |
+| [`docs/server/limits.md`](docs/server/limits.md) | 抗刷与连接限制：单 IP 并发/连接速率、心跳超时、单会话包速率与默认值 |
 | [`docs/client.md`](docs/client.md) | 客户端：协议流程、按键/鼠标、面板与字体 |
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |
 | [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文、游戏内切换与 i18n 收口清单（逐条 TextKey 表） |

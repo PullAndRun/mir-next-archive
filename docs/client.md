@@ -838,6 +838,65 @@ UI 按三类画简化表现（没有逐帧贴图素材）：
 
 
 
+## 6. 素材加载与渲染
+
+### 6.0 真实素材渲染（第 6 轮）
+
+**数据目录**
+
+* 默认 `resource/data`（相对启动目录），可用 `--data-dir <目录>` 指定；
+* 指定目录不存在时依次回退 `resource/data` → `resource/ld/data`；都不存在则保留原值并报错；
+* 启动日志：`素材目录：resource/data`、`地图 0：700×700 · 图库 28 个（+WIL 5 个）`；
+  联机进图同样打印。
+
+**支持的图库格式**
+
+| 格式 | 编码/说明 | 状态 |
+|---|---|---|
+| `.lib`（v2/v3） | gzip RGBA32 / DXT1 | 支持 |
+| `.wzl` + `.wzx` | zlib；8 位调色板 / RGB565 / RGB24 | 支持 |
+| `.wil` + `.wix` | WEMADE `#ILIB`/`#INDX`；16 位 RGB565，`0x0000` = 透明 | **第 6 轮新增** |
+
+`resource/data` 实测：28 个 `.wzl` 地图库 + 9 个 `.wil` 中 **5 个可打开**
+（另 4 个是非 `#INDX` 头的变体，warn 后跳过，不影响渲染）。
+
+**地图瓦片**
+
+* 按 `.map` 的 back/middle/front 图像号解码，等距（isometric）CPU 渲染；
+* **只解码视口内瓦片**；解码后的图像缓存上限 **4096 张**，库头信息单独缓存；
+* 缓存观察：暖机 177 张瓦片，连续走 30 格后 296 张，未触发上限清空；
+* 切图（`S.MapChanged`）时按新地图文件**重载地形**（失败保留当前地形并打印原因）。
+
+**实体**
+
+* 玩家：`hum*`/`hair*`/`weapon*`/坐骑/翅膀分层（§6.1），动画复用 `ActorAnimation`；
+* 怪物 `mon*`、NPC `npc*`、地面物品 `items` 按 `image`/`look`/`hair`/`weapon` 选库与帧；
+* `.wzl` 没有 alpha：纯黑像素统一置透明（修复角色头发/武器的黑框）。
+
+**缺资源回退**
+
+素材目录缺失/图库打不开 → 空图库 + 空白地形（登录窗仍可开），`warn` 一次；
+缺帧 → 站立帧 → 库首帧 → 彩色占位方块，**不 panic、不黑屏**。
+
+**性能（800×600，release 实测）**
+
+| 场景 | 耗时 |
+|---|---|
+| 首帧（含解码） | 13.0 ms |
+| 连续行走 30 帧平均 | **1.17 ms/帧（≈856 FPS）** |
+| debug 构建 | 约 38–41 ms/帧（≈25–26 FPS） |
+
+启动日志每 120 帧打印一次「渲染统计」。
+
+**截图与测试**
+
+* 截图：`target/client-render-world.png`（真实地砖 + 玩家 + 路人 + 怪物鸡 + NPC 商人）、
+  `target/client-render-animation-a.png` / `-b.png`（走路两帧）；
+* 测试：`cargo test -p mir-client -p mir-render -p mir-asset` 453 用例全绿；
+  `real_assets` 3 例（真实地图+实体、动画换帧、缺素材回退）、`render_map` 走路性能、
+  `mir-asset` 的 WIL 合成/真实 `Objects81` 解码；
+* `cargo check -p mir-tools` 通过（WIL 只扩了 `LibraryKind`，无破坏性签名变更）。
+
 扁平素材（`resource/data/*.wzl`）与 Crystal 的「一个外观一个 `.Lib`」不同，因此用文件名
 + 固定步长定位；映射表如下：
 
@@ -1227,7 +1286,6 @@ cargo fmt --all -- --check
   大地图点击寻路（`BigMapDialog.cs:612-628`）仍只吃掉点击；
 * 大地图面板的 NPC 列表/滚动条/世界地图按钮/「传送到 NPC」/搜索框（`BigMapDialog.cs:101-255,320-432`），
   以及坐标行跟随鼠标（本作显示自己的坐标）；玩家蓝条（`MapObject.cs:500`）暂未画；
-* 地图切换后的素材重载（服务端 `MapChanged` 会更新快照地图名，窗口仍用启动时加载的地形）；
 * **音效/音乐**：循环音（`LoopProvider`）、怪物各自的 `BaseSound`、按地块选择脚步音、
   按武器选择受击音、按距离衰减、Crystal 的滑杆式音量条 UI（`MainDialogs.cs:2864-2887`；
   本作设置面板改用 ±10% 按钮）、解码缓存与回收

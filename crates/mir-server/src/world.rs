@@ -198,6 +198,9 @@ pub struct Player {
     pub inventory: Vec<Option<UserItem>>,
     /// 装备（Crystal `CharacterInfo.Equipment`，14 槽；见 [`crate::items::EQUIPMENT_SLOTS`]）。
     pub equipment: Vec<Option<UserItem>>,
+    /// 仓库（Crystal `AccountInfo.Storage = new UserItem[80]`，`Server/MirDatabase/AccountInfo.cs:69`；
+    /// 本作落在角色行的 `characters.storage`，见 [`crate::storage`]）。
+    pub storage: Vec<Option<UserItem>>,
     /// 已学技能（Crystal `CharacterInfo.Magics`，见 [`crate::magic`]）。
     pub magics: Vec<UserMagic>,
     /// 施法相关的计时状态（`SpellTime`、每个技能的 `CastTime`、待生效治疗量）。
@@ -220,6 +223,12 @@ pub struct Player {
     ///
     /// 可重复任务（`QuestType.Repeatable`）**不**计入这里（Crystal `PlayerObject.cs:11428-11432`）。
     pub completed_quests: BTreeSet<i32>,
+    /// 邮箱状态（Crystal `CharacterInfo.Mail` + `PlayerObject.NextMailTime`/`NewMail`，
+    /// `Server/MirDatabase/CharacterInfo.cs:85`、`PlayerObject.cs:21`、`:91`；见 [`crate::mail`]）。
+    ///
+    /// 登录时由会话从 `mail` 表装入（再过一遍过期过滤）；下线不写回这里——
+    /// 邮件是独立的行，世界只产生 [`crate::mail::MailWrite`] 让会话落库。
+    pub mail: crate::mail::MailState,
     /// 生效中的增益（Crystal `MapObject.Buffs`，见 [`crate::buffs`]）。
     ///
     /// Crystal 把 `Buffs` 放在 `MapObject` 上（`Server/MirObjects/MapObject.cs:49`），
@@ -566,6 +575,18 @@ pub struct World {
     /// 由会话（[`crate::session::Session`]）在包处理完后取走写库；测试可以直接
     /// [`World::take_guild_writes`] 检查/应用。
     pub(crate) guild_writes: Vec<GuildWrite>,
+    /// 已经把仓库列表（`S.UserStorage`）发给过的玩家。
+    ///
+    /// Crystal 用每个连接上的 `MirConnection.StorageSent`（`Server/MirNetwork/MirConnection.cs:70`）：
+    /// `PlayerObject.SendStorage` 里有 `if (Connection.StorageSent) return;`（`PlayerObject.cs:8169-8170`），
+    /// 所以**每个连接只下发一次**仓库列表。本作按对象 ID 记，下线即随对象销毁。
+    pub(crate) storage_sent: BTreeSet<u32>,
+    /// 待落盘的邮件写入队列（见 [`crate::mail::MailWrite`]）。
+    pub(crate) mail_writes: Vec<crate::mail::MailWrite>,
+    /// 下一个邮件编号（Crystal `Envir.NextMailID`，`Server/MirEnvir/Envir.cs:149`）。
+    ///
+    /// 第一次用到时按「Unix 毫秒 << 20」起跳，见 [`World::allocate_mail_id`]。
+    pub(crate) next_mail_id: u64,
 }
 
 /// 一条待落盘的行会变更（见 `World::guild_writes`）。
@@ -640,6 +661,9 @@ impl World {
             guild_buff_info_sent: BTreeSet::new(),
             next_guild_buff_tick: 0,
             guild_writes: Vec::new(),
+            storage_sent: BTreeSet::new(),
+            mail_writes: Vec::new(),
+            next_mail_id: 0,
         }
     }
 
@@ -690,6 +714,9 @@ impl World {
             guild_buff_info_sent: BTreeSet::new(),
             next_guild_buff_tick: 0,
             guild_writes: Vec::new(),
+            storage_sent: BTreeSet::new(),
+            mail_writes: Vec::new(),
+            next_mail_id: 0,
         }
     }
 
@@ -1272,6 +1299,9 @@ impl World {
             if due {
                 self.revive_player(object_id);
             }
+            // 新邮件提示：Crystal 在 `PlayerObject.Process` 里检查 `NewMail`
+            // （`PlayerObject.cs:499-503`），本作跟着每 tick 的玩家簿记一起做。
+            self.process_new_mail(object_id);
         }
     }
 
@@ -2667,6 +2697,7 @@ mod tests {
                 movement_time: 0,
                 inventory: crate::items::new_inventory(),
                 equipment: crate::items::new_equipment(),
+                storage: crate::storage::new_storage(),
                 magics: Vec::new(),
                 magic: crate::magic::MagicState::default(),
                 gold: 0,
@@ -2674,6 +2705,7 @@ mod tests {
                 visible_items: BTreeSet::new(),
                 quests: Vec::new(),
                 completed_quests: BTreeSet::new(),
+                mail: crate::mail::MailState::default(),
                 buffs: Vec::new(),
                 pot_health_amount: 0,
                 pot_mana_amount: 0,

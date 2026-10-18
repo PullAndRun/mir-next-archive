@@ -814,13 +814,22 @@ pub fn encode_slots(slots: &[Option<UserItem>]) -> Vec<u8> {
 /// （`:198`、`:209`、`:220`），本作把「模板缺失」留给上层处理（[`World::pickup`] 之类的
 /// 地方会跳过），解码器只保证字节层正确。
 pub fn decode_slots(bytes: &[u8]) -> Result<Vec<Option<UserItem>>, ItemCodecError> {
+    decode_slots_with_limit(bytes, MAX_INVENTORY_SIZE)
+}
+
+/// 同 [`decode_slots`]，但允许调用方指定槽位上限。
+///
+/// 背包/装备用 [`MAX_INVENTORY_SIZE`]（86）；仓库的存档可能是扩建后的 160 格
+/// （Crystal `AccountInfo.ExpandStorage`，`AccountInfo.cs:266-275`），
+/// 因此 [`crate::storage::decode_storage`] 用 160 的上限解码、再裁到 80。
+pub fn decode_slots_with_limit(
+    bytes: &[u8],
+    limit: usize,
+) -> Result<Vec<Option<UserItem>>, ItemCodecError> {
     let mut reader = PacketReader::new(bytes);
     let count = reader.read_count()?;
-    if count > MAX_INVENTORY_SIZE {
-        return Err(ItemCodecError::TooManySlots {
-            count,
-            limit: MAX_INVENTORY_SIZE,
-        });
+    if count > limit {
+        return Err(ItemCodecError::TooManySlots { count, limit });
     }
     let mut slots = Vec::with_capacity(count);
     for _ in 0..count {

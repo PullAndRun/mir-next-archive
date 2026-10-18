@@ -9,9 +9,10 @@
 //! **增益容器**（见 [`buffs`] 与 `docs/world/buffs.md`）、
 //! **任务系统**（见 [`quests`]、[`mir_db::quest_script`] 与 `docs/world/quests.md`）、
 //! **多地图与传送**（见 [`maps`] 与 `docs/world/maps.md`）、
-//! **组队**（见 [`group`] 与 `docs/world/group.md`）以及
+//! **组队**（见 [`group`] 与 `docs/world/group.md`）、
 //! **行会**（见 [`guild`]、[`guild_storage`]、[`guild_buffs`] 与 `docs/world/guild.md`；
-//! 攻城/联盟/投票未做）。
+//! 攻城/联盟/投票未做）、**玩家仓库**（见 [`storage`] 与 `docs/world/storage.md`）以及
+//! **邮件**（见 [`mail`] 与 `docs/world/mail.md`）。
 
 pub mod buffs;
 pub mod combat;
@@ -24,6 +25,7 @@ pub mod guild_buffs;
 pub mod guild_storage;
 pub mod items;
 pub mod magic;
+pub mod mail;
 pub mod maps;
 pub mod monster;
 pub mod npc;
@@ -31,6 +33,7 @@ pub mod pg_store;
 pub mod quests;
 pub mod server;
 pub mod session;
+pub mod storage;
 pub mod store;
 pub mod world;
 
@@ -52,11 +55,17 @@ pub use guild::{
 };
 pub use items::{
     GroundItem, ItemError, ItemUidGenerator, Looks, PickupReport, decode_equipment,
-    decode_inventory, decode_slots, encode_slots,
+    decode_inventory, decode_slots, decode_slots_with_limit, encode_slots,
 };
 pub use magic::{
     CastReport, LearnedMagic, MagicError, MagicState, SpellKind, UserMagic, decode_magics,
     encode_magics, spell_kind,
+};
+pub use mail::{
+    MAIL_ATTACHMENTS_WITHOUT_STAMP, MAIL_AUTO_SEND_GOLD, MAIL_AUTO_SEND_ITEMS, MAIL_CAPACITY,
+    MAIL_COST_PER_1K_GOLD, MAIL_EXPIRE_DAYS, MAIL_FREE_WITH_STAMP, MAIL_ITEM_INSURANCE_PERCENT,
+    MAIL_MAX_ATTACHMENTS, MAIL_RATE_MS, MAIL_RECIPIENT_LIMIT, MAIL_TEXT_MAX, Mail, MailError,
+    MailRecipient, MailState, MailWrite, persist_mail_writes,
 };
 pub use maps::{
     DEFAULT_MAP_CACHE_LIMIT, MAP_CACHE_ENV, MOVEMENT_DELAY_MS, MapChangeError, MapChangeReport,
@@ -71,9 +80,12 @@ pub use quests::{
     is_objectives_complete, monster_matches_task,
 };
 pub use server::{run, serve_forever};
+pub use storage::{
+    STORAGE_MAX_SIZE, STORAGE_SIZE, StorageError, decode_storage, encode_storage, new_storage,
+};
 pub use store::{
     Account, AccountStore, Character, GuildBuffRecord, GuildMemberRecord, GuildRankRecord,
-    GuildRecord, GuildStorageRecord, MemoryStore, StoreError,
+    GuildRecord, GuildStorageRecord, MailRecord, MemoryStore, StoreError,
 };
 pub use world::{
     AttackReport, CombatError, GuildWrite, MoveError, Player, RespawnState, SpawnGroup, World,

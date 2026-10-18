@@ -34,9 +34,10 @@
 | Buff | ✅ | 带到期时间的属性修饰层、`S.AddBuff`/`S.RemoveBuff`、药水增益（见 `docs/world/buffs.md`） |
 | 任务 | ✅ | `Envir/Quests` 13 段脚本解析（真实 154/154 份）、接取前置、击杀/收集/标记目标、交付领奖、限时超时、放弃、NPC `[Quests]` 关联与三个任务动作、`characters.quests` 存档（见 `docs/world/quests.md`） |
 | 组队 | ✅ | 邀请/接受/拒绝/踢人/退队、`!!` 组队聊天、同图同范围经验共享与任务杀怪共享、入队血条与切图地图名同步（见 `docs/world/group.md`） |
-| 行会 | 🟡 | 创建/邀请/接受、职位（升/降/踢/职位名/权限）、公告、`!~` 行会聊天、行会经验与升级、退出/转让/解散、三张表持久化（见 `docs/world/guild.md`）；攻城、仓库、buff、联盟未做 |
-| 行会 / 攻城 | ⏳ | 协议与数据类已就绪 |
-| 仓库 / 邮件 / 拍卖 | ⏳ | 协议与数据结构已就绪 |
+| 行会 | 🟡 | 创建/邀请/接受、职位（升/降/踢/职位名/权限）、公告、`!~` 行会聊天、行会经验与升级、行会仓库（物品 + 金币）、行会 buff、退出/转让/解散、五张表持久化（见 `docs/world/guild.md`）；攻城、联盟未做 |
+| 玩家仓库 | ✅ | `[@STORAGE]` 页面、`C.StoreItem`/`C.TakeBackItem`、80 格、`S.UserStorage`/`S.NPCStorage`、`characters.storage` 持久化；扩充仓库/仓库密码未做，个人仓库**没有金币功能**（见 `docs/world/storage.md`） |
+| 邮件 | ✅ | 发送（金币/物品附件、邮票、邮费、10 秒限速）、阅读、邮局受理、领取附件、锁定/删除、`mail` 表持久化、30 天过期（扩展）；行会邮件/商城邮件/系统邮件/物品找回未做（见 `docs/world/mail.md`） |
+| 拍卖 | ⏳ | 协议与数据结构已就绪 |
 
 ## 三、客户端
 
@@ -63,6 +64,8 @@
 - [`docs/world/quests.md`](world/quests.md) — 任务脚本格式、接取/交付流程与 17 条 Crystal 异常
 - [`docs/world/group.md`](world/group.md) — 组队状态机、包序、经验共享公式与 Crystal 异常
 - [`docs/world/guild.md`](world/guild.md) — 行会状态机、职位权限、经验表、持久化与 Crystal 异常
+- [`docs/world/storage.md`](world/storage.md) — 个人仓库存取、容量、包序与 Crystal 异常
+- [`docs/world/mail.md`](world/mail.md) — 邮件发送/领取/过期、邮费公式与 Crystal 异常
 - [`docs/world/magic.md`](world/magic.md) — 技能支持矩阵与 11 条异常
 - [`docs/client.md`](client.md) — 客户端协议流程与 7 条怪癖
 - [`docs/store/mirdb-format.md`](store/mirdb-format.md) — 数据库格式与版本门

@@ -19,7 +19,7 @@
 > * `crates/mir-server/src/{session.rs,npc.rs}`（客户端包与 NPC 页面）
 > * `crates/mir-store/migrations/{0005_guilds.sql,0006_guild_storage.sql}` + `crates/mir-store/src/{models.rs,repo.rs}`（持久化）
 > * `crates/mir-server/src/{store.rs,pg_store.rs}`（`AccountStore` 的行会函数）
-> * 测试：`crates/mir-server/tests/guild.rs`（27 个）、`crates/mir-server/tests/guild_storage.rs`（21 个，
+> * 测试：`crates/mir-server/tests/guild.rs`（27 个）、`crates/mir-server/tests/guild_storage.rs`（22 个，
 >   含真实 `GuildSettings.ini` 冒烟）、`crates/mir-store/tests/guild_roundtrip.rs` 与
 >   `crates/mir-server/tests/postgres_guild.rs`（需要 `MIR2_TEST_DATABASE_URL`，默认跳过）
 >
@@ -514,7 +514,7 @@ Crystal 的行会 buff **没有暂停机制**（`GuildObject.Process` 不看安�
 | 26 | `npc_createguild_action_creates_the_guild` | 脚本动作 `CREATEGUILD <名字>` |
 | 27 | `real_data_guild_scripts_and_creation_flow` | 真实数据冒烟（§11） |
 
-### 10.2 `crates/mir-server/tests/guild_storage.rs`（21 个，仓库 + buff）
+### 10.2 `crates/mir-server/tests/guild_storage.rs`（22 个，仓库 + buff）
 
 | # | 用例 | 覆盖 |
 |---|---|---|
@@ -537,8 +537,9 @@ Crystal 的行会 buff **没有暂停机制**（`GuildObject.Process` 不看安�
 | 17 | `joining_a_guild_pushes_its_active_buffs` | 加入行会下发 `ActiveBuffs` + `RefreshStats` |
 | 18 | `kicked_member_cannot_retrieve_but_another_member_can` | 被踢者取回拒绝、物品留在仓库、其他成员可取 |
 | 19 | `storage_and_buffs_survive_a_store_roundtrip` | `MemoryStore` + `GuildRecord` 编解码往返：仓库格子、`stored_at`、buff 激活状态、重登后属性 |
-| 20 | `guild_settings_parses_buff_sections_with_crystal_defaults` | 合成 `[Buff-N]`：`TotalBuffs`、字段/属性映射、缺段默认项、未知键忽略 |
-| 21 | `real_guild_settings_buff_list_can_be_activated` | 真实 `GuildSettings.ini` 冒烟（§11） |
+| 20 | `storage_move_swaps_items_and_requires_permission` | 仓库内交换、`Type=2` 包带「移动后目标格」、无 `CanStoreItem` 时 `Type=5` + 聊天 |
+| 21 | `guild_settings_parses_buff_sections_with_crystal_defaults` | 合成 `[Buff-N]`：`TotalBuffs`、字段/属性映射、缺段默认项、未知键忽略 |
+| 22 | `real_guild_settings_buff_list_can_be_activated` | 真实 `GuildSettings.ini` 冒烟（§11） |
 
 数据库侧另有：
 

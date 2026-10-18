@@ -24,6 +24,10 @@ pub enum StoreError {
     #[error("角色 {0} 已经在行会中")]
     GuildMemberExists(i64),
 
+    /// 邮件编号已存在（`mail_pkey` 冲突；服务器显式写号时可能撞上历史数据）。
+    #[error("邮件 {0} 已存在")]
+    MailExists(i64),
+
     /// 目标记录不存在，或已被标记删除；参数是实体名（例如「账号」「角色」）。
     #[error("找不到{0}：记录不存在或已被标记删除")]
     NotFound(&'static str),

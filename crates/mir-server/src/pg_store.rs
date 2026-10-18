@@ -1,15 +1,13 @@
 //! PostgreSQL 存储实现（把 `mir-store` 的仓储适配成服务端的 [`AccountStore`]）。
 
-#[cfg(test)]
-use chrono::TimeZone;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use mir_core::DateTimeBinary;
 use mir_core::enums::{MirClass, MirDirection, MirGender};
 use mir_store::PgPool;
 
 use crate::store::{
     Account, AccountStore, Character, GuildBuffRecord, GuildMemberRecord, GuildRankRecord,
-    GuildRecord, GuildStorageRecord, StoreError,
+    GuildRecord, GuildStorageRecord, MailRecord, StoreError,
 };
 
 /// 基于 PostgreSQL 的账号/角色存储。
@@ -51,7 +49,9 @@ fn map_store_error(error: mir_store::StoreError) -> StoreError {
     }
 }
 
-#[cfg(test)]
+/// Unix 秒 → `DateTime<Utc>`；越界或未设置（0）时返回 `None`。
+///
+/// 用于 `created`/`expiry` 与邮件时间这类「可能为空」的列。
 fn to_datetime(value: DateTimeBinary) -> Option<DateTime<Utc>> {
     if value.is_unset() {
         return None;
@@ -105,6 +105,7 @@ fn from_store_character(character: mir_store::Character) -> Character {
         credit: character.credit,
         inventory: character.inventory,
         equipment: character.equipment,
+        storage: character.storage,
         magics: character.magics,
         quests: character.quests,
         guild_index: character.guild_index,
@@ -133,6 +134,8 @@ fn apply_to_store_character(character: &Character, target: &mut mir_store::Chara
     target.credit = character.credit;
     target.inventory.clone_from(&character.inventory);
     target.equipment.clone_from(&character.equipment);
+    // 仓库：`characters.storage`（Crystal 挂在账号上的那块 `UserItem[80]`）。
+    target.storage.clone_from(&character.storage);
     target.magics.clone_from(&character.magics);
     target.quests.clone_from(&character.quests);
     target.guild_index = character.guild_index;
@@ -254,6 +257,45 @@ fn from_store_guild(guild: mir_store::Guild) -> GuildRecord {
                 active_time_remaining: buff.active_time_remaining,
             })
             .collect(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 邮件：服务端视图 ↔ `mir-store` 行
+// ---------------------------------------------------------------------------
+
+/// `mir-store` 的邮件行 → 服务端视图。
+fn from_store_mail(mail: mir_store::Mail) -> MailRecord {
+    MailRecord {
+        id: u64::try_from(mail.id).unwrap_or(0),
+        character_id: mail.character_id,
+        sender_name: mail.sender_name,
+        subject: mail.subject,
+        message: mail.message,
+        items: mail.items,
+        gold: u32::try_from(mail.gold).unwrap_or(u32::MAX),
+        date_sent: from_datetime(Some(mail.date_sent)),
+        opened: mail.opened,
+        locked: mail.locked,
+        collected: mail.collected,
+    }
+}
+
+/// 服务端的邮件视图 → `mir-store` 的行。
+fn to_store_mail(mail: &MailRecord) -> mir_store::Mail {
+    mir_store::Mail {
+        id: i64::try_from(mail.id).unwrap_or(0),
+        character_id: mail.character_id,
+        sender_name: mail.sender_name.clone(),
+        subject: mail.subject.clone(),
+        message: mail.message.clone(),
+        items: mail.items.clone(),
+        gold: i64::from(mail.gold),
+        // 未设置的时间落成纪元（`DateTime::<Utc>::default()`），不 panic。
+        date_sent: to_datetime(mail.date_sent).unwrap_or_default(),
+        opened: mail.opened,
+        locked: mail.locked,
+        collected: mail.collected,
     }
 }
 
@@ -484,6 +526,88 @@ impl AccountStore for PgAccountStore {
                 .await
                 .map_err(|error| StoreError::Internal(error.to_string()))?;
             mir_store::set_character_guild(&mut connection, character_id, guild_id)
+                .await
+                .map_err(map_store_error)
+        }
+    }
+
+    fn find_character_by_name<'a>(
+        &'a self,
+        name: &'a str,
+    ) -> impl std::future::Future<Output = Result<Option<Character>, StoreError>> + Send + 'a {
+        async move {
+            let character = mir_store::find_character_by_name(&self.pool, name)
+                .await
+                .map_err(map_store_error)?;
+            Ok(character.map(from_store_character))
+        }
+    }
+
+    fn create_mail(
+        &self,
+        mail: MailRecord,
+    ) -> impl std::future::Future<Output = Result<MailRecord, StoreError>> + Send + '_ {
+        async move {
+            let mut connection = self
+                .pool
+                .acquire()
+                .await
+                .map_err(|error| StoreError::Internal(error.to_string()))?;
+            let row = to_store_mail(&mail);
+            let stored = mir_store::create_mail(&mut connection, &row)
+                .await
+                .map_err(map_store_error)?;
+            Ok(from_store_mail(stored))
+        }
+    }
+
+    fn list_mail(
+        &self,
+        character_id: i64,
+    ) -> impl std::future::Future<Output = Result<Vec<MailRecord>, StoreError>> + Send + '_ {
+        async move {
+            let mut connection = self
+                .pool
+                .acquire()
+                .await
+                .map_err(|error| StoreError::Internal(error.to_string()))?;
+            let mails = mir_store::list_mail(&mut connection, character_id)
+                .await
+                .map_err(map_store_error)?;
+            Ok(mails.into_iter().map(from_store_mail).collect())
+        }
+    }
+
+    fn save_mail(
+        &self,
+        mail: MailRecord,
+    ) -> impl std::future::Future<Output = Result<(), StoreError>> + Send + '_ {
+        async move {
+            let mut connection = self
+                .pool
+                .acquire()
+                .await
+                .map_err(|error| StoreError::Internal(error.to_string()))?;
+            let row = to_store_mail(&mail);
+            mir_store::save_mail(&mut connection, &row)
+                .await
+                .map_err(map_store_error)
+        }
+    }
+
+    fn delete_mail(
+        &self,
+        mail_id: u64,
+    ) -> impl std::future::Future<Output = Result<(), StoreError>> + Send + '_ {
+        async move {
+            let mut connection = self
+                .pool
+                .acquire()
+                .await
+                .map_err(|error| StoreError::Internal(error.to_string()))?;
+            let id = i64::try_from(mail_id)
+                .map_err(|_| StoreError::Internal(format!("邮件 ID {mail_id} 超出 i64")))?;
+            mir_store::delete_mail(&mut connection, id)
                 .await
                 .map_err(map_store_error)
         }

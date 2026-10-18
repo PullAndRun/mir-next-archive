@@ -242,6 +242,7 @@ impl Harness {
             movement_time: 0,
             inventory: mir_server::items::new_inventory(),
             equipment: mir_server::items::new_equipment(),
+            storage: mir_server::storage::new_storage(),
             magics: Vec::new(),
             magic: mir_server::MagicState::default(),
             gold,
@@ -249,6 +250,7 @@ impl Harness {
             visible_items: BTreeSet::new(),
             quests: Vec::new(),
             completed_quests: BTreeSet::new(),
+            mail: mir_server::MailState::default(),
             buffs: Vec::new(),
             pot_health_amount: 0,
             pot_mana_amount: 0,
@@ -856,7 +858,85 @@ fn retrieve_when_inventory_is_full_is_rejected() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. 仓库列表与节流
+// 3. 仓库内移动
+// ---------------------------------------------------------------------------
+
+#[test]
+fn storage_move_swaps_items_and_requires_permission() {
+    let mut harness = Harness::new(22);
+    let leader = harness.add_player(1, "阿甲", LEADER_LEVEL, 2_000_000);
+    let bob = harness.add_player(2, "Bob", 10, 0);
+    let guild_id = harness.create_guild(leader, "测试行会");
+    harness.invite_and_join(leader, bob);
+    harness.give_item(leader, 0, ITEM_INDEX);
+    harness
+        .world
+        .guild_storage_item_change(leader, 0, 0, 0)
+        .expect("存入 A");
+    harness.give_item(leader, 0, ITEM_INDEX);
+    harness
+        .world
+        .guild_storage_item_change(leader, 0, 0, 1)
+        .expect("存入 B");
+    let uid_a = harness
+        .world
+        .guild(guild_id)
+        .and_then(|guild| guild.storage_slot(0))
+        .map(|slot| slot.item.item.unique_id)
+        .expect("第 0 格 A");
+    let uid_b = harness
+        .world
+        .guild(guild_id)
+        .and_then(|guild| guild.storage_slot(1))
+        .map(|slot| slot.item.item.unique_id)
+        .expect("第 1 格 B");
+
+    // Bob 的职位没有 `CanStoreItem` → `NoGuildStorageMovePermission` + `Type=5` 失败包（`:10226-10231`）。
+    harness.clear(bob);
+    assert_eq!(
+        harness.world.guild_storage_item_change(bob, 2, 0, 1),
+        Err(GuildError::NoStorageMovePermission)
+    );
+    let packets = harness.packets(bob);
+    let failures = item_changes(&packets);
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].change_type, 5);
+    assert!(
+        chats(&packets)
+            .iter()
+            .any(|(text, kind)| *kind == ChatType::System && text.contains("整理"))
+    );
+
+    // 会长可以交换：`StoredItems[to] = StoredItems[from]; StoredItems[from] = q`（`:10252-10258`）。
+    harness.clear(leader);
+    assert_eq!(
+        harness.world.guild_storage_item_change(leader, 2, 0, 1),
+        Ok(())
+    );
+    let guild = harness.world.guild(guild_id).expect("行会");
+    assert_eq!(
+        guild.storage_slot(0).map(|slot| slot.item.item.unique_id),
+        Some(uid_b),
+        "目标格原来的物品被换到来源格"
+    );
+    assert_eq!(
+        guild.storage_slot(1).map(|slot| slot.item.item.unique_id),
+        Some(uid_a),
+        "来源格的物品移动到目标格"
+    );
+    let packets = harness.packets(leader);
+    let changes = item_changes(&packets);
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].change_type, 2);
+    assert_eq!(
+        changes[0].item.as_ref().map(|item| item.item.unique_id),
+        Some(uid_a),
+        "移动包带的是「移动后目标格」的物品（`:10264`）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 4. 仓库列表与节流
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -919,7 +999,7 @@ fn storage_list_request_is_throttled_until_rejoin() {
 }
 
 // ---------------------------------------------------------------------------
-// 4. 金币：存入 / 取出 / 上限
+// 5. 金币：存入 / 取出 / 上限
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1092,7 +1172,7 @@ fn gold_withdrawal_respects_the_player_gold_cap() {
 }
 
 // ---------------------------------------------------------------------------
-// 5. 行会 buff：权限 / 等级 / 点数 / 金币
+// 6. 行会 buff：权限 / 等级 / 点数 / 金币
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1269,7 +1349,7 @@ fn guild_level_up_awards_spare_points_that_buffs_consume() {
 }
 
 // ---------------------------------------------------------------------------
-// 6. 行会 buff：全员加成 / 到期 / 重新激活
+// 7. 行会 buff：全员加成 / 到期 / 重新激活
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1445,7 +1525,7 @@ fn guild_buff_reactivation_charges_gold_again() {
 }
 
 // ---------------------------------------------------------------------------
-// 7. 登录 / 加入行会时的增益列表
+// 8. 登录 / 加入行会时的增益列表
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1540,7 +1620,7 @@ fn joining_a_guild_pushes_its_active_buffs() {
 }
 
 // ---------------------------------------------------------------------------
-// 8. 被踢出后仓库物品的归属
+// 9. 被踢出后仓库物品的归属
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1631,7 +1711,7 @@ fn kicked_member_cannot_retrieve_but_another_member_can() {
 }
 
 // ---------------------------------------------------------------------------
-// 9. 重启：仓库与增益从存储恢复（MemoryStore + 编解码往返）
+// 10. 重启：仓库与增益从存储恢复（MemoryStore + 编解码往返）
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -1722,7 +1802,7 @@ async fn storage_and_buffs_survive_a_store_roundtrip() {
 }
 
 // ---------------------------------------------------------------------------
-// 10. `[Buff-N]` 解析（合成文本 + 真实数据冒烟）
+// 11. `[Buff-N]` 解析（合成文本 + 真实数据冒烟）
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1765,7 +1845,7 @@ fn guild_settings_parses_buff_sections_with_crystal_defaults() {
 }
 
 // ---------------------------------------------------------------------------
-// 11. 真实数据冒烟：Configs/GuildSettings.ini 的 buff 列表
+// 12. 真实数据冒烟：Configs/GuildSettings.ini 的 buff 列表
 // ---------------------------------------------------------------------------
 
 #[test]

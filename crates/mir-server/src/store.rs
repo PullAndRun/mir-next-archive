@@ -137,6 +137,14 @@ pub struct Character {
     pub inventory: Vec<u8>,
     /// 装备（同样的字节块格式，见 [`crate::items::decode_equipment`]）。
     pub equipment: Vec<u8>,
+    /// 仓库（`characters.storage`；Crystal `AccountInfo.Storage` 的 `UserItem[80]`，
+    /// `Server/MirDatabase/AccountInfo.cs:69`，编解码见 [`crate::storage`]）。
+    ///
+    /// **与 Crystal 的差异**：Crystal 把仓库挂在**账号**上（同账号的多角色共用一个仓库）；
+    /// 本作按任务要求落在角色行的 `storage` 列上（`migrations/0001_init.sql:101`），
+    /// 即每个角色各有一个仓库。扩充仓库（`AccountInfo.ExpandStorage`，`:266-275`）
+    /// 与本作的仓库密码都没有做，见 `docs/world/storage.md`。
+    pub storage: Vec<u8>,
     /// 已学技能（Crystal `CharacterInfo.Magics` 的字节块，编解码见
     /// [`crate::magic::encode_magics`] / [`crate::magic::decode_magics`]）。
     pub magics: Vec<u8>,
@@ -183,6 +191,7 @@ impl Character {
             credit: 0,
             inventory: Vec::new(),
             equipment: Vec::new(),
+            storage: Vec::new(),
             magics: Vec::new(),
             quests: Vec::new(),
             // Crystal 的 `CharacterInfo.GuildIndex` 默认 -1（没有行会）。
@@ -276,6 +285,40 @@ pub struct GuildBuffRecord {
     pub active_time_remaining: i32,
 }
 
+/// 一封邮件的存储视图（`mail` 表；Crystal `MailInfo`，`Server/MirDatabase/MailInfo.cs:5-167`）。
+///
+/// 与 [`GuildRecord`] 一样，服务端不直接依赖 `mir-store` 的结构：`AccountStore`
+/// 只认这里的 [`MailRecord`]，PostgreSQL 实现负责互转
+/// （[`PgAccountStore`](crate::PgAccountStore)）。
+///
+/// `items` 是 [`crate::items::encode_slots`] 的字节块
+/// （`encode_slots(&[Some(UserItem), …])`），由 [`crate::mail`] 负责编解码。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MailRecord {
+    /// Crystal `MailInfo.MailID`（`ulong`）。
+    pub id: u64,
+    /// Crystal `MailInfo.RecipientIndex`：收件角色主键。
+    pub character_id: i64,
+    /// Crystal `MailInfo.Sender`。
+    pub sender_name: String,
+    /// **本作扩展**：主题（Crystal 无此字段，玩家邮件恒为空串）。
+    pub subject: String,
+    /// Crystal `MailInfo.Message`。
+    pub message: String,
+    /// `encode_slots(&[Some(UserItem), …])` 字节块。
+    pub items: Vec<u8>,
+    /// 附件金币（Crystal `MailInfo.Gold`，`uint`）。
+    pub gold: u32,
+    /// 发送时间（Crystal `MailInfo.DateSent`）。
+    pub date_sent: DateTimeBinary,
+    /// 是否已读（Crystal `MailInfo.Opened`）。
+    pub opened: bool,
+    /// 是否锁定（Crystal `MailInfo.Locked`）。
+    pub locked: bool,
+    /// 包裹是否已被邮局受理（Crystal `MailInfo.Collected`）。
+    pub collected: bool,
+}
+
 /// 存储边界。
 ///
 /// 返回类型写成 `impl Future + Send`（而不是裸 `async fn`）是为了让泛型调用方
@@ -364,6 +407,39 @@ pub trait AccountStore: Send + Sync + 'static {
         character_id: i64,
         guild_id: i32,
     ) -> impl Future<Output = Result<(), StoreError>> + Send + '_;
+
+    /// 按角色名查角色（大小写不敏感），邮件收件人允许离线。
+    ///
+    /// 对应 Crystal `Envir.GetCharacterInfo(string)`（`Server/MirEnvir/Envir.cs:4712-4719`）。
+    fn find_character_by_name<'a>(
+        &'a self,
+        name: &'a str,
+    ) -> impl Future<Output = Result<Option<Character>, StoreError>> + Send + 'a;
+
+    /// 插入一封邮件（收件箱）。
+    ///
+    /// 对应 Crystal `MailInfo.Send` 的 `RecipientInfo.Mail.Add(this)`
+    /// （`Server/MirDatabase/MailInfo.cs:135`）。
+    fn create_mail(
+        &self,
+        mail: MailRecord,
+    ) -> impl Future<Output = Result<MailRecord, StoreError>> + Send + '_;
+
+    /// 列出某个角色的全部邮件，按 `MailID` 升序（Crystal 的 `CharacterInfo.Mail` 追加序）。
+    fn list_mail(
+        &self,
+        character_id: i64,
+    ) -> impl Future<Output = Result<Vec<MailRecord>, StoreError>> + Send + '_;
+
+    /// 回写一封邮件的可变状态（已读/锁定/包裹受理/附件与金币被领走）。
+    fn save_mail(
+        &self,
+        mail: MailRecord,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send + '_;
+
+    /// 删除一封邮件。
+    fn delete_mail(&self, mail_id: u64)
+    -> impl Future<Output = Result<(), StoreError>> + Send + '_;
 }
 
 /// 内存实现：用于测试与无数据库的本地试玩。
@@ -378,9 +454,12 @@ struct MemoryState {
     characters: Vec<Character>,
     /// 行会（本作扩展：`MemoryStore` 在本进程里扮演 `guilds`/`guild_ranks`/`guild_members` 三张表）。
     guilds: Vec<GuildRecord>,
+    /// 邮件（`mail` 表；Crystal `CharacterInfo.Mail`）。
+    mails: Vec<MailRecord>,
     next_account_id: i64,
     next_character_id: i64,
     next_guild_id: i32,
+    next_mail_id: u64,
 }
 
 impl MemoryStore {
@@ -392,9 +471,11 @@ impl MemoryStore {
                 accounts: Vec::new(),
                 characters: Vec::new(),
                 guilds: Vec::new(),
+                mails: Vec::new(),
                 next_account_id: 1,
                 next_character_id: 1,
                 next_guild_id: 1,
+                next_mail_id: 1,
             }),
         }
     }
@@ -413,6 +494,22 @@ impl MemoryStore {
             .iter()
             .find(|character| character.id == character_id)
             .map(|character| character.guild_index)
+    }
+
+    /// 邮件表快照（测试用来断言「写库」的结果）。
+    pub async fn mails(&self) -> Vec<MailRecord> {
+        self.state.lock().await.mails.clone()
+    }
+
+    /// 直接读某个角色的仓库字节块（等价于数据库里的 `characters.storage`）。
+    pub async fn character_storage(&self, character_id: i64) -> Option<Vec<u8>> {
+        self.state
+            .lock()
+            .await
+            .characters
+            .iter()
+            .find(|character| character.id == character_id)
+            .map(|character| character.storage.clone())
     }
 }
 
@@ -588,6 +685,64 @@ impl AccountStore for MemoryStore {
             return Err(StoreError::NotFound("角色"));
         };
         character.guild_index = guild_id;
+        Ok(())
+    }
+
+    async fn find_character_by_name(&self, name: &str) -> Result<Option<Character>, StoreError> {
+        let state = self.state.lock().await;
+        Ok(state
+            .characters
+            .iter()
+            .find(|character| character.name.eq_ignore_ascii_case(name))
+            .cloned())
+    }
+
+    async fn create_mail(&self, mail: MailRecord) -> Result<MailRecord, StoreError> {
+        let mut state = self.state.lock().await;
+        if !state
+            .characters
+            .iter()
+            .any(|character| character.id == mail.character_id)
+        {
+            return Err(StoreError::NotFound("角色"));
+        }
+        let mut stored = mail;
+        if stored.id == 0 {
+            stored.id = state.next_mail_id;
+            state.next_mail_id += 1;
+        } else {
+            state.next_mail_id = state.next_mail_id.max(stored.id + 1);
+        }
+        state.mails.push(stored.clone());
+        Ok(stored)
+    }
+
+    async fn list_mail(&self, character_id: i64) -> Result<Vec<MailRecord>, StoreError> {
+        let mut mails: Vec<MailRecord> = self
+            .state
+            .lock()
+            .await
+            .mails
+            .iter()
+            .filter(|mail| mail.character_id == character_id)
+            .cloned()
+            .collect();
+        mails.sort_by_key(|mail| mail.id);
+        Ok(mails)
+    }
+
+    async fn save_mail(&self, mail: MailRecord) -> Result<(), StoreError> {
+        let mut state = self.state.lock().await;
+        let Some(existing) = state.mails.iter_mut().find(|row| row.id == mail.id) else {
+            return Err(StoreError::NotFound("邮件"));
+        };
+        *existing = mail;
+        Ok(())
+    }
+
+    async fn delete_mail(&self, mail_id: u64) -> Result<(), StoreError> {
+        let mut state = self.state.lock().await;
+        state.mails.retain(|mail| mail.id != mail_id);
         Ok(())
     }
 }

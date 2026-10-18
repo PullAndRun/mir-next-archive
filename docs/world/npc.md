@@ -270,6 +270,11 @@ Rust：`npc::item_price` / `npc::repair_price`（`f32` 运算 + 向零截断，�
 | S→C | `NPCSell` | 103 | 打开 `[@SELL]` / `[@BUYSELL]` | `:949-951`、`:968-970` |
 | S→C | `NPCRepair` | 104 | 打开 `[@REPAIR]`（带 `Rate`） | `:971-973` |
 | S→C | `NPCSRepair` | 105 | 打开 `[@SREPAIR]` | `:974-976` |
+| S→C | `UserStorage` | 130 | 打开 `[@STORAGE]`（**每个连接只发一次**） | `PlayerObject.SendStorage`，`:8161-8181` |
+| S→C | `NPCStorage` | 110 | 打开 `[@STORAGE]` | `NPCScript.cs:1002-1006` |
+| S→C | `MailSendRequest` | 233 | 打开 `[@SENDPARCEL]` | `NPCScript.cs:1078-1080` |
+| S→C | `ParcelCollected` | 235 | 打开 `[@COLLECTPARCEL]` | `NPCScript.cs:1081-1098` |
+| S→C | `ReceiveMail` | 231 | 打开 `[@COLLECTPARCEL]` 后补发邮箱 | `PlayerObject.GetMail`，`:11959-11988` |
 | S→C | `LoseGold` | 68 | 买/修扣钱、`TAKEGOLD` | `NPCScript.cs:1209`、`PlayerObject.cs:8149` |
 | S→C | `GainedGold` | 67 | 卖东西、`GIVEGOLD` | `PlayerObject.cs:8084`（`GainGold`） |
 | S→C | `SellItem` | 111 | 卖东西（成功/失败都发） | `PlayerObject.cs:7990-8090` |
@@ -361,9 +366,6 @@ Blacksmith_Smith 的商品数：19
 
 ## 10. 未做清单（TODO）
 
-* **仓库**（`[@STORAGE]` / `C.StoreItem` / `C.TakeBackItem` / `C.DepositGold` / `S.NPCStorage` /
-  `S.UserStorage` / `S.StorageGold`）：需要账号级存储与密码逻辑
-  （`PlayerObject.cs:8161-8266`），本作还没有账号存储模型。
 * **二手货 / 回购**（`Envir/Goods/<序号>.msd` 二进制 + `callingNPC.BuyBack` +
   `Settings.GoodsBuyBackTime`）：`NPCScript.LoadGoods`（`:180-217`）、`NPCObject.ProcessGoods`（`:68-134`）。
 * **特修**（`[@SREPAIR]`，`C.SRepairItem`，费用 ×3）：`PlayerObject.cs:8092-8160` 的 `special` 分支。

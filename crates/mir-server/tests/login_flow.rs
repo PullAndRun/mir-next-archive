@@ -196,6 +196,13 @@ async fn full_login_character_and_world_flow() {
         }
         other => panic!("期望 GuildBuffList，收到 {other:?}"),
     }
+    // 邮箱：Crystal 在 `GetCompletedQuests()` 之后调 `GetMail()`
+    // （`Server/MirObjects/PlayerObject.cs:1190`），新角色邮箱是空的。
+    let packet = client.expect_index(s::ReceiveMail::INDEX).await;
+    match packet {
+        ServerPacket::ReceiveMail(mail) => assert!(mail.mail.is_empty(), "新角色没有邮件"),
+        other => panic!("期望 ReceiveMail，收到 {other:?}"),
+    }
     let packet = client.expect_index(s::Chat::INDEX).await;
     match packet {
         ServerPacket::Chat(chat) => {

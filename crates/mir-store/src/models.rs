@@ -461,6 +461,49 @@ pub struct GuildBuffRow {
     pub active_time_remaining: i32,
 }
 
+// ---------------------------------------------------------------------------
+// 邮件（Crystal `MailInfo`）
+// ---------------------------------------------------------------------------
+
+/// 一条邮件（`mail` 表；Crystal `MailInfo`，`Server/MirDatabase/MailInfo.cs:5-167`）。
+///
+/// Crystal 把收件箱挂在角色上（`CharacterInfo.Mail`，`CharacterInfo.cs:85`），
+/// 落盘顺序见 `CharacterInfo.cs:500-503`（`i32 count` + 逐条 `MailInfo.Save`）。
+/// 本作拆成一张表，字段对照见 `migrations/0007_mail.sql` 的文件头。
+///
+/// `items` 是 **`crates/mir-server/src/items.rs` 的 `encode_slots` 字节块**：
+/// `encode_slots(&[Some(item), …])`，与背包/装备/行会仓库共用同一套 `UserItem[]` 编解码。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, FromRow)]
+pub struct Mail {
+    /// Crystal `MailInfo.MailID`（`ulong`，`++Envir.NextMailID`）。
+    ///
+    /// 数据库列是 `BIGSERIAL`，但服务器层会**显式写号**
+    /// （`crates/mir-server/src/mail.rs` 的 `World::allocate_mail_id`），
+    /// 与行会 ID 的做法一致；`create_mail` 会在显式写号后推进序列。
+    pub id: i64,
+    /// Crystal `MailInfo.RecipientIndex`：收件角色主键。
+    pub character_id: i64,
+    /// Crystal `MailInfo.Sender`：发件人角色名。
+    pub sender_name: String,
+    /// **本作扩展**：主题。Crystal 的 `C.SendMail` 只有收件人/正文
+    /// （`Shared/ClientPackets.cs:2126-2128`），所以玩家邮件恒为空串。
+    pub subject: String,
+    /// Crystal `MailInfo.Message`。
+    pub message: String,
+    /// `encode_slots(&[Some(UserItem), …])` 字节块；空附件是零长度。
+    pub items: Vec<u8>,
+    /// Crystal `MailInfo.Gold`（`uint`）：附件金币，**不含**发送时扣掉的邮费。
+    pub gold: i64,
+    /// Crystal `MailInfo.DateSent`（发送时的 `Envir.Now`）。
+    pub date_sent: DateTime<Utc>,
+    /// Crystal `MailInfo.Opened`（`DateOpened > DateTime.MinValue`）。
+    pub opened: bool,
+    /// Crystal `MailInfo.Locked`。
+    pub locked: bool,
+    /// Crystal `MailInfo.Collected`：包裹是否已被邮局受理（见 `MailInfo.cs:99-143`）。
+    pub collected: bool,
+}
+
 /// `guilds` 表的一行（不加联表信息，[`Guild`] 是它的展开版）。
 #[derive(Debug, Clone, FromRow)]
 pub(crate) struct GuildRow {

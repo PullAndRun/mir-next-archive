@@ -79,8 +79,18 @@ pub const SELL_KEY: &str = "[@SELL]";
 pub const REPAIR_KEY: &str = "[@REPAIR]";
 /// 特修（`SRepairKey`，`:49`）。
 pub const SPECIAL_REPAIR_KEY: &str = "[@SREPAIR]";
-/// 仓库（`StorageKey`，`:55`）。仓库功能本作未实现，只是不把页面当错误。
+/// 仓库（`StorageKey`，`:55`）。
+///
+/// 点这个按钮时服务端发 `S.UserStorage` + `S.NPCStorage`（`NPCScript.cs:1002-1006`），
+/// 见 [`crate::storage`]。
 pub const STORAGE_KEY: &str = "[@STORAGE]";
+/// 写信（`SendParcelKey`，`NPCScript.cs:62`）：服务端回一个空的 `S.MailSendRequest`
+/// （`:1078-1080`），客户端据此打开写信窗口。见 [`crate::mail`]。
+pub const SEND_PARCEL_KEY: &str = "[@SENDPARCEL]";
+/// 邮局受理包裹（`CollectParcelKey`，`NPCScript.cs:63`）。
+///
+/// 服务端把**所有包裹**标记为已受理并回 `S.ParcelCollected`（`:1081-1098`）。
+pub const COLLECT_PARCEL_KEY: &str = "[@COLLECTPARCEL]";
 /// 创建行会的页面（`GuildCreateKey`，`NPCScript.cs:60`）。
 ///
 /// 点这个按钮时服务端**不打开面板**，而是发 `S.GuildNameRequest` 让客户端弹输入框
@@ -1611,8 +1621,24 @@ impl World {
                 opened.push("srepair");
             }
             STORAGE_KEY => {
-                // `:1002-1006` 会发 `S.UserStorage` + `S.NPCStorage`；仓库功能未实现（TODO）。
-                tracing::debug!("[@STORAGE] 仓库功能未实现，跳过");
+                // `case StorageKey:`（`NPCScript.cs:1002-1006`）：
+                // `ResetStorageUnlock(); SendStorage(); Enqueue(new S.NPCStorage());`
+                // `SendStorage` 每个连接只在下一次打开时不再发 `S.UserStorage`（见 [`crate::storage`]）。
+                self.send_storage_panels(player_id);
+                opened.push("storage");
+            }
+            SEND_PARCEL_KEY => {
+                // `case SendParcelKey: player.Enqueue(new S.MailSendRequest());`（`:1078-1080`）。
+                self.mail_open_send_page(player_id);
+                opened.push("sendmail");
+            }
+            COLLECT_PARCEL_KEY => {
+                // `case CollectParcelKey:`（`:1081-1098`）：标记包裹已受理 → `S.ParcelCollected`
+                // → `GetMail()`（`S.ReceiveMail`）。
+                if let Err(error) = self.mail_collect_parcel_page(player_id) {
+                    tracing::debug!(player = player_id, %error, "邮局受理包裹失败");
+                }
+                opened.push("collectmail");
             }
             GUILD_CREATE_KEY => {
                 // `case GuildCreateKey:`（`NPCScript.cs:1050-1062`）：

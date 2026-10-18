@@ -439,7 +439,8 @@ bool IsShopItem, bool SealedInfo?, bool GMMade
 
 ## 14. 还没做的
 
-- 堆叠拆分（`C.SplitItem`）、合并（`C.MergeItem`）、仓库/交易/商城/邮件；
+- 堆叠拆分（`C.SplitItem`）、合并（`C.MergeItem`）、交易、商城（仓库与邮件已实现，
+  见 `docs/world/storage.md`、`docs/world/mail.md`）；
 - 传送/回城/随机传送/祝福油/修复油卷轴（`Scroll` 的 shape 0-5、7-15 等，需要传送与修理子系统）；
 - 变身卷/怪物召唤/宠物粮（`ItemType.Transform`/`MonsterSpawn`/`Pets`）；
 - 装备诅咒/封印/租借/婚戒/灵魂绑定、觉醒与镶嵌、套装效果；

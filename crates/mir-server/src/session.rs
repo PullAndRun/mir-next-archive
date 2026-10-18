@@ -29,8 +29,10 @@ use crate::items::{
     decode_equipment, decode_inventory, encode_slots, new_equipment, new_inventory,
 };
 use crate::magic::{decode_magics, encode_magics};
+use crate::mail::{Mail, MailRecipient, MailState};
 use crate::npc::NpcState;
 use crate::quests::{decode_quests, encode_quests};
+use crate::storage::{decode_storage, encode_storage, new_storage};
 use crate::store::{Account, AccountStore, Character, StoreError};
 use crate::world::{Player, World};
 
@@ -153,6 +155,14 @@ impl<S: AccountStore> Session<S> {
             ClientPacket::MoveItem(packet) => {
                 self.on_move_item(packet.grid, packet.from, packet.to).await;
             }
+            // 玩家仓库：`C.StoreItem` / `C.TakeBackItem`（Crystal `MirConnection.cs:346-347`、
+            // `:485` → `PlayerObject.cs:5376-5526`，见 [`crate::storage`]）。
+            ClientPacket::StoreItem(packet) => {
+                self.on_store_item(packet.from, packet.to).await;
+            }
+            ClientPacket::TakeBackItem(packet) => {
+                self.on_take_back_item(packet.from, packet.to).await;
+            }
             ClientPacket::CallNPC(packet) => {
                 self.on_call_npc(packet.object_id, &packet.key).await;
             }
@@ -261,6 +271,32 @@ impl<S: AccountStore> Session<S> {
             }
             ClientPacket::GuildBuffUpdate(packet) => {
                 self.on_guild_buff_update(packet.action, packet.id).await;
+            }
+            // 邮件：`C.SendMail` / `C.ReadMail` / `C.CollectParcel` / `C.DeleteMail` /
+            // `C.LockMail` / `C.MailLockedItem` / `C.MailCost`
+            // （Crystal `MirConnection.cs:652-672`、`:2003-2052`，见 [`crate::mail`]）。
+            ClientPacket::SendMail(packet) => {
+                self.on_send_mail(packet).await;
+            }
+            ClientPacket::ReadMail(packet) => {
+                self.on_read_mail(packet.mail_id).await;
+            }
+            ClientPacket::CollectParcel(packet) => {
+                self.on_collect_parcel(packet.mail_id).await;
+            }
+            ClientPacket::DeleteMail(packet) => {
+                self.on_delete_mail(packet.mail_id).await;
+            }
+            ClientPacket::LockMail(packet) => {
+                self.on_lock_mail(packet.mail_id, packet.lock).await;
+            }
+            ClientPacket::MailLockedItem(packet) => {
+                self.on_mail_locked_item(packet.unique_id, packet.locked)
+                    .await;
+            }
+            ClientPacket::MailCost(packet) => {
+                self.on_mail_cost(packet.gold, &packet.items_idx, packet.stamped)
+                    .await;
             }
             // 尚未实现的行会子功能：攻城、联盟/敌对（见 `docs/world/guild.md`）。
             ClientPacket::GuildWarReturn(packet) => {
@@ -568,6 +604,18 @@ impl<S: AccountStore> Session<S> {
                 crate::quests::QuestSave::default()
             }
         };
+        // 仓库：Crystal `AccountInfo.Storage` 的 `UserItem[80]`（`AccountInfo.cs:69`），
+        // 本作存在角色行的 `characters.storage` 上；空块（新角色）解成 80 格空仓库。
+        let storage = match decode_storage(&character.storage) {
+            Ok(storage) => storage,
+            Err(error) => {
+                tracing::warn!(session = self.id, %error, "仓库字节块解析失败，按空仓库处理");
+                new_storage()
+            }
+        };
+        // 邮箱：Crystal 在登录流程末尾调 `GetMail()`（`PlayerObject.cs:1190`）。
+        // 本作从 `mail` 表装载，并按扩展的 30 天上限过滤+删除过期邮件（见 `crate::mail`）。
+        let mailbox = self.load_mailbox(character.id).await;
 
         let mut world = self.world.lock().await;
         // 读档里出现过的 UUID 要计入发生器，否则新掉的物品可能撞号
@@ -618,6 +666,7 @@ impl<S: AccountStore> Session<S> {
             movement_time: 0,
             inventory: inventory.clone(),
             equipment: equipment.clone(),
+            storage: storage.clone(),
             magics: magics.clone(),
             magic: crate::magic::MagicState::default(),
             gold: character.gold,
@@ -625,6 +674,12 @@ impl<S: AccountStore> Session<S> {
             visible_items: std::collections::BTreeSet::new(),
             quests: quest_save.quests.clone(),
             completed_quests: quest_save.completed_quests.clone(),
+            // 邮箱：登录时从 `mail` 表装入（Crystal `GetMail()`，`PlayerObject.cs:1190`）。
+            mail: MailState {
+                mails: mailbox,
+                next_send_time: 0,
+                new_mail: false,
+            },
             // buff 不持久化（Crystal 的 `CharacterInfo` 存档里没有 buff 块），登录即空。
             buffs: Vec::new(),
             pot_health_amount: 0,
@@ -722,6 +777,15 @@ impl<S: AccountStore> Session<S> {
         // 任务表（`PlayerObject.cs:1185-1212`）：全套 `S.NewQuestInfo` → `S.CompleteQuest` →
         // 每条已接任务的 `S.ChangeQuest{Add}`。
         for packet in quest_packets {
+            self.send(packet);
+        }
+        // 邮箱：Crystal `GetMail()` 排在 `GetCompletedQuests()` 之后（`PlayerObject.cs:1190`），
+        // 本作同样放在任务包后面、行会状态包之前。
+        let mail_packet = {
+            let world = self.world.lock().await;
+            world.mail_list_packet(object_id)
+        };
+        if let Some(packet) = mail_packet {
             self.send(packet);
         }
         // 行会：`MyGuild.PlayerLogged(this, true)` → `S.GuildMemberChange{Status=1}` 给所有
@@ -1403,6 +1467,215 @@ impl<S: AccountStore> Session<S> {
         }
     }
 
+    /// 客户端把物品放进仓库：`C.StoreItem`（Crystal `PlayerObject.StoreItem`，
+    /// `Server/MirObjects/PlayerObject.cs:5376-5456`）。
+    ///
+    /// 成败都由世界层直接回 `S.StoreItem{Success}`（Crystal 每条拒绝分支只 `Enqueue(p)`），
+    /// 这里只记日志。
+    async fn on_store_item(&mut self, from: i32, to: i32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let result = {
+            let mut world = self.world.lock().await;
+            world.storage_store_item(object_id, from, to)
+        };
+        match result {
+            Ok(()) => tracing::debug!(session = self.id, from, to, "物品已存入仓库"),
+            Err(error) => tracing::debug!(session = self.id, from, to, %error, "存仓库被拒绝"),
+        }
+    }
+
+    /// 客户端从仓库取回物品：`C.TakeBackItem`（Crystal `PlayerObject.TakeBackItem`，
+    /// `PlayerObject.cs:5457-5526`）。
+    async fn on_take_back_item(&mut self, from: i32, to: i32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let result = {
+            let mut world = self.world.lock().await;
+            world.storage_take_back_item(object_id, from, to)
+        };
+        match result {
+            Ok(()) => tracing::debug!(session = self.id, from, to, "物品已从仓库取出"),
+            Err(error) => tracing::debug!(session = self.id, from, to, %error, "取仓库被拒绝"),
+        }
+    }
+
+    /// `C.SendMail`：Crystal `MirConnection.SendMail`（`MirConnection.cs:2003-2015`）→
+    /// `PlayerObject.SendMail(name, message, gold, items, stamped)`（`:11727-11845`）。
+    ///
+    /// 收件人由会话按角色名查（大小写不敏感、允许离线），世界层只做游戏规则。
+    async fn on_send_mail(&mut self, packet: mir_protocol::packets::client::SendMail) {
+        if self.stage != Stage::Game {
+            return;
+        }
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let recipient = match self.store.find_character_by_name(&packet.name).await {
+            Ok(Some(character)) => {
+                let mail_count = match self.store.list_mail(character.id).await {
+                    Ok(mails) => mails.len(),
+                    Err(error) => {
+                        tracing::warn!(session = self.id, %error, "读收件人邮箱失败，按 0 封处理");
+                        0
+                    }
+                };
+                Some(MailRecipient {
+                    character_id: character.id,
+                    name: character.name,
+                    mail_count,
+                })
+            }
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(session = self.id, %error, "按名查角色失败");
+                None
+            }
+        };
+        {
+            let mut world = self.world.lock().await;
+            if let Err(error) = world.mail_send(
+                object_id,
+                recipient,
+                &packet.message,
+                packet.gold,
+                &packet.items_idx,
+                packet.stamped,
+            ) {
+                tracing::debug!(session = self.id, %error, "发送邮件被拒绝");
+            }
+        }
+        self.flush_mail_writes().await;
+    }
+
+    /// `C.ReadMail`：标记已读并重发邮箱（Crystal `PlayerObject.ReadMail`，`:11847-11856`）。
+    async fn on_read_mail(&mut self, mail_id: u64) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let result = {
+            let mut world = self.world.lock().await;
+            world.mail_read(object_id, mail_id)
+        };
+        if let Err(error) = result {
+            tracing::debug!(session = self.id, mail_id, %error, "阅读邮件失败");
+        }
+        self.flush_mail_writes().await;
+    }
+
+    /// `C.CollectParcel`：领取附件（Crystal `PlayerObject.CollectMail`，`:11858-11902`）。
+    async fn on_collect_parcel(&mut self, mail_id: u64) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let result = {
+            let mut world = self.world.lock().await;
+            world.mail_collect(object_id, mail_id)
+        };
+        if let Err(error) = result {
+            tracing::debug!(session = self.id, mail_id, %error, "领取邮件附件失败");
+        }
+        self.flush_mail_writes().await;
+    }
+
+    /// `C.DeleteMail`：删除邮件（Crystal `PlayerObject.DeleteMail`，`:11904-11913`）。
+    async fn on_delete_mail(&mut self, mail_id: u64) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let result = {
+            let mut world = self.world.lock().await;
+            world.mail_delete(object_id, mail_id)
+        };
+        if let Err(error) = result {
+            tracing::debug!(session = self.id, mail_id, %error, "删除邮件失败");
+        }
+        self.flush_mail_writes().await;
+    }
+
+    /// `C.LockMail`：锁定/解锁（Crystal `PlayerObject.LockMail`，`:11915-11924`）。
+    async fn on_lock_mail(&mut self, mail_id: u64, lock: bool) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let result = {
+            let mut world = self.world.lock().await;
+            world.mail_lock(object_id, mail_id, lock)
+        };
+        if let Err(error) = result {
+            tracing::debug!(session = self.id, mail_id, lock, %error, "锁定邮件失败");
+        }
+        self.flush_mail_writes().await;
+    }
+
+    /// `C.MailLockedItem`：写信界面的附件格子锁，原样回显（`MirConnection.cs:667-669`）。
+    async fn on_mail_locked_item(&mut self, unique_id: u64, locked: bool) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        world.mail_locked_item(object_id, unique_id, locked);
+    }
+
+    /// `C.MailCost`：报价（Crystal `MirConnection.MailCost`，`MirConnection.cs:2045-2052`）。
+    async fn on_mail_cost(&mut self, gold: u32, items_idx: &[u64; 5], stamped: bool) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        world.mail_cost_request(object_id, items_idx, gold, stamped);
+    }
+
+    /// 从 `mail` 表装载邮箱，并过滤/删除过期邮件（扩展，见 [`crate::mail`]）。
+    async fn load_mailbox(&self, character_id: i64) -> Vec<Mail> {
+        let records = match self.store.list_mail(character_id).await {
+            Ok(records) => records,
+            Err(error) => {
+                tracing::warn!(session = self.id, %error, "读邮箱失败，按空邮箱处理");
+                return Vec::new();
+            }
+        };
+        let now = now_unix();
+        let mut mails = Vec::with_capacity(records.len());
+        for record in records {
+            match Mail::from_record(&record) {
+                Ok(mail) if !mail.is_expired(now) => mails.push(mail),
+                Ok(mail) => {
+                    // `// 扩展：` Crystal 没有邮件过期；本作查询时顺手删掉过期邮件。
+                    tracing::debug!(session = self.id, mail_id = mail.id, "邮件已过期，删除");
+                    if let Err(error) = self.store.delete_mail(mail.id).await {
+                        tracing::warn!(session = self.id, %error, "删除过期邮件失败");
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        session = self.id,
+                        mail_id = record.id,
+                        %error,
+                        "邮件附件解析失败，跳过这封邮件"
+                    );
+                }
+            }
+        }
+        mails
+    }
+
+    /// 把世界上积压的邮件写入落盘（见 [`crate::mail::persist_mail_writes`]）。
+    async fn flush_mail_writes(&self) {
+        let writes = {
+            let mut world = self.world.lock().await;
+            world.take_mail_writes()
+        };
+        if writes.is_empty() {
+            return;
+        }
+        if let Err(error) = crate::mail::persist_mail_writes(self.store.as_ref(), writes).await {
+            tracing::warn!(session = self.id, %error, "邮件落盘失败");
+        }
+    }
+
     /// 如果是因为「动作还没结束」被拒，等到 `ActionTime` 之后再试一次。
     ///
     /// 返回 `true` 表示值得重试。等待时长有上限，避免异常状态把连接卡死。
@@ -1497,6 +1770,9 @@ impl<S: AccountStore> Session<S> {
             if let Some(character) = &mut self.character {
                 character.inventory = encode_slots(&player.inventory);
                 character.equipment = encode_slots(&player.equipment);
+                // 仓库块：Crystal `AccountInfo.Save` 的「`Storage.Length` + 每槽 bool/`UserItem`」
+                // （`Server/MirDatabase/AccountInfo.cs:241-248`），本作存 `characters.storage`。
+                character.storage = encode_storage(&player.storage);
                 // 技能块：`CharacterInfo.Save` 的「`Magics.Count` + 逐条 `UserMagic.Save`」
                 // （`CharacterInfo.cs:458-463`）。
                 character.magics = encode_magics(&player.magics);
@@ -1530,6 +1806,8 @@ impl<S: AccountStore> Session<S> {
         }
         // 下线期间可能还积压着行会写入（成员离线、行会经验……），一起落盘。
         self.flush_guild_writes().await;
+        // 邮件的状态变更（已读/锁定/领取/删除）同样补齐。
+        self.flush_mail_writes().await;
         self.stage = Stage::Select;
     }
 

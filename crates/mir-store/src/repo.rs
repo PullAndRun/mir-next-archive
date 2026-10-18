@@ -19,6 +19,8 @@
 //! | [`delete_character`] | 软删除，写 `deleted`/`delete_date`，保留行 |
 //! | [`mark_login`] | 记录最后登录时间并清零错误口令计数 |
 //! | [`set_last_login_ip`] | 记录最后登录 IP |
+//! | [`find_character_by_name`] | 按角色名（大小写不敏感）查角色，邮件收件人允许离线 |
+//! | [`create_mail`] / [`load_mail`] / [`list_mail`] / [`save_mail`] / [`delete_mail`] | 邮件表读写（Crystal `MailInfo`） |
 //!
 //! 界面语言（`accounts.language`）的校验与归一化是纯函数，不查库：
 //! [`normalize_language`] 把 `zh`/`cn`/`chs`/`en-us` 之类的别名归一成 `zh-cn`/`en`，
@@ -31,7 +33,7 @@ use sqlx::{PgConnection, PgExecutor};
 use crate::error::{Result, StoreError};
 use crate::models::{
     Account, Character, CharacterSummary, DEFAULT_LANGUAGE, Guild, GuildBuffRow, GuildMemberRow,
-    GuildRankRow, GuildRow, GuildStorageRow, NewAccount, NewCharacter,
+    GuildRankRow, GuildRow, GuildStorageRow, Mail, NewAccount, NewCharacter,
 };
 use crate::password::{generate_salt, hash_password};
 
@@ -290,6 +292,24 @@ where
         .await
         .map_err(StoreError::Database)?
         .ok_or(StoreError::NotFound("角色"))
+}
+
+/// 按角色名查一个完整角色，大小写不敏感。
+///
+/// 对应 Crystal `Envir.GetCharacterInfo(string name)`（`Server/MirEnvir/Envir.cs:4712-4719`）：
+/// `string.Compare(Name, name, OrdinalIgnoreCase) == 0`，**不看是否在线**——邮件收件人
+/// 允许离线。已软删除的角色不返回（Crystal 的 `CharacterList` 里也没有它们）。
+pub async fn find_character_by_name<'e, E>(executor: E, name: &str) -> Result<Option<Character>>
+where
+    E: PgExecutor<'e>,
+{
+    let sql = character_select("lower(name) = lower($1) AND NOT deleted");
+
+    sqlx::query_as::<_, Character>(&sql)
+        .bind(name)
+        .fetch_optional(executor)
+        .await
+        .map_err(StoreError::Database)
 }
 
 /// 回写角色的可变状态。
@@ -997,6 +1017,143 @@ pub async fn set_character_guild(
         return Err(StoreError::NotFound("角色"));
     }
 
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// 邮件（Crystal `MailInfo`）
+// ---------------------------------------------------------------------------
+//
+// 与行会函数同一套约定：显式收 `&mut PgConnection`，调用方负责事务
+// （`create_mail` 需要「插入 + 推进序列」两条语句）。
+
+/// `mail` 表的列（[`Mail`] 的 `FromRow` 按名字匹配）。
+const MAIL_COLUMNS: &str = "id, character_id, sender_name, subject, message, items, gold, \
+                            date_sent, opened, locked, collected";
+
+/// 插入一封邮件，返回落库后的行。
+///
+/// 对应 Crystal `MailInfo.Send` 把邮件 `Add` 进收件箱（`Server/MirDatabase/MailInfo.cs:135`）。
+/// 发件箱不存在——Crystal 只有收件人的 `CharacterInfo.Mail`。
+///
+/// `mail.id > 0` 时按调用方给的号写入（对应 Crystal 的 `++Envir.NextMailID`，
+/// `PlayerObject.cs:11835`），并像 [`create_guild`] 一样把 `mail_id_seq` 推到当前最大值，
+/// 避免之后自动分配撞号；`id <= 0` 交给 `BIGSERIAL` 分配。
+pub async fn create_mail(conn: &mut PgConnection, mail: &Mail) -> Result<Mail> {
+    let columns = "character_id, sender_name, subject, message, items, gold, date_sent, \
+                   opened, locked, collected";
+    let (sql, explicit_id) = if mail.id > 0 {
+        (
+            format!(
+                "INSERT INTO mail (id, {columns}) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING {MAIL_COLUMNS}"
+            ),
+            Some(mail.id),
+        )
+    } else {
+        (
+            format!(
+                "INSERT INTO mail ({columns}) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING {MAIL_COLUMNS}"
+            ),
+            None,
+        )
+    };
+
+    let mut query = sqlx::query_as::<_, Mail>(&sql);
+    if let Some(id) = explicit_id {
+        query = query.bind(id);
+    }
+    let row = query
+        .bind(mail.character_id)
+        .bind(mail.sender_name.as_str())
+        .bind(mail.subject.as_str())
+        .bind(mail.message.as_str())
+        .bind(mail.items.as_slice())
+        .bind(mail.gold)
+        .bind(mail.date_sent)
+        .bind(mail.opened)
+        .bind(mail.locked)
+        .bind(mail.collected)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(|error| StoreError::map_insert(error, StoreError::MailExists(mail.id), "角色"))?;
+
+    if explicit_id.is_some() {
+        sqlx::query(
+            "SELECT setval(pg_get_serial_sequence('mail', 'id'), \
+             GREATEST((SELECT COALESCE(MAX(id), 0) FROM mail), $1))",
+        )
+        .bind(row.id)
+        .execute(&mut *conn)
+        .await
+        .map_err(StoreError::Database)?;
+    }
+
+    Ok(row)
+}
+
+/// 读一封邮件；不存在返回 [`StoreError::NotFound`]。
+pub async fn load_mail(conn: &mut PgConnection, mail_id: i64) -> Result<Mail> {
+    let sql = format!("SELECT {MAIL_COLUMNS} FROM mail WHERE id = $1");
+
+    sqlx::query_as::<_, Mail>(&sql)
+        .bind(mail_id)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(StoreError::Database)?
+        .ok_or(StoreError::NotFound("邮件"))
+}
+
+/// 列出某个角色的全部邮件，按 `MailID` 升序（= Crystal 的 `List<MailInfo>` 追加序）。
+///
+/// 过期过滤由服务端做（Crystal 没有邮件过期，见 `migrations/0007_mail.sql` 的文件头）。
+pub async fn list_mail(conn: &mut PgConnection, character_id: i64) -> Result<Vec<Mail>> {
+    let sql = format!("SELECT {MAIL_COLUMNS} FROM mail WHERE character_id = $1 ORDER BY id");
+
+    sqlx::query_as::<_, Mail>(&sql)
+        .bind(character_id)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(StoreError::Database)
+}
+
+/// 回写一封邮件的可变状态（已读、锁定、包裹受理、附件被领走后的空附件）。
+///
+/// 可改字段：`opened` / `locked` / `collected` / `items` / `gold`。收件人与发件人不可改
+/// （Crystal 的 `MailInfo` 也没有转发语义）。目标行不存在返回 [`StoreError::NotFound`]。
+pub async fn save_mail(conn: &mut PgConnection, mail: &Mail) -> Result<()> {
+    const SQL: &str = "UPDATE mail SET items = $2, gold = $3, opened = $4, locked = $5, \
+                       collected = $6, message = $7, subject = $8 \
+                       WHERE id = $1";
+
+    let result = sqlx::query(SQL)
+        .bind(mail.id)
+        .bind(mail.items.as_slice())
+        .bind(mail.gold)
+        .bind(mail.opened)
+        .bind(mail.locked)
+        .bind(mail.collected)
+        .bind(mail.message.as_str())
+        .bind(mail.subject.as_str())
+        .execute(&mut *conn)
+        .await
+        .map_err(StoreError::Database)?;
+
+    if result.rows_affected() == 0 {
+        return Err(StoreError::NotFound("邮件"));
+    }
+
+    Ok(())
+}
+
+/// 删除一封邮件（领取完附件后由玩家主动删除，或过期清理）。
+pub async fn delete_mail(conn: &mut PgConnection, mail_id: i64) -> Result<()> {
+    sqlx::query("DELETE FROM mail WHERE id = $1")
+        .bind(mail_id)
+        .execute(&mut *conn)
+        .await
+        .map_err(StoreError::Database)?;
     Ok(())
 }
 

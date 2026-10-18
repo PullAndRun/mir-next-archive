@@ -11,9 +11,11 @@
 
 use chrono::{DateTime, Utc};
 use mir_store::{
-    LoginGate, NewAccount, NewCharacter, SALT_LEN, StoreError, create_account, create_character,
-    delete_character, find_account, list_characters, load_character, mark_login, save_account,
-    save_character, set_account_language, set_last_login_ip, verify_password,
+    LoginGate, Mail, NewAccount, NewCharacter, SALT_LEN, StoreError, create_account,
+    create_character, create_mail, delete_character, delete_mail, find_account,
+    find_character_by_name, list_characters, list_mail, load_character, load_mail, mark_login,
+    save_account, save_character, save_mail, set_account_language, set_last_login_ip,
+    verify_password,
 };
 
 #[tokio::test]
@@ -345,4 +347,118 @@ async fn account_and_character_lifecycle_rolls_back() {
             .is_none(),
         "回滚后账号不应存在于数据库中"
     );
+}
+
+/// 邮件表（`migrations/0007_mail.sql`）的 CRUD 往返，同样在事务里回滚。
+///
+/// 需要 `MIR2_TEST_DATABASE_URL`；没有就跳过。
+// 与文件里其它用例保持一致：`&mut *tx` 显式解引用事务（部分函数收 `&mut PgConnection`，
+// 部分收泛型 `PgExecutor`，统一写法更不容易出错）。
+#[allow(clippy::explicit_auto_deref)]
+#[tokio::test]
+async fn mail_crud_roundtrip_rolls_back() {
+    let Ok(database_url) = std::env::var("MIR2_TEST_DATABASE_URL") else {
+        println!("跳过集成测试：未设置 MIR2_TEST_DATABASE_URL");
+        return;
+    };
+
+    let pool = mir_store::connect(&database_url)
+        .await
+        .expect("应能连接 MIR2_TEST_DATABASE_URL 指向的数据库");
+    mir_store::migrate(&pool).await.expect("迁移应当成功");
+
+    let mut tx = pool.begin().await.expect("应能开启事务");
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("系统时间应晚于 UNIX_EPOCH")
+        .as_nanos();
+    let account = create_account(
+        &mut *tx,
+        &NewAccount::new(format!("mail_{suffix}"), "secret123"),
+    )
+    .await
+    .expect("创建账号应当成功");
+    let character = create_character(
+        &mut *tx,
+        &NewCharacter::new(account.id, format!("Mail{suffix}"), 0, 0),
+    )
+    .await
+    .expect("创建角色应当成功");
+
+    // 按名查角色（大小写不敏感、允许离线）：邮件收件人走这条。
+    let found = find_character_by_name(&mut *tx, &character.name.to_uppercase())
+        .await
+        .expect("按名查角应当成功")
+        .expect("角色应当存在");
+    assert_eq!(found.id, character.id);
+
+    let date_sent = DateTime::<Utc>::from_timestamp(1_700_000_000, 123_456_000).expect("固定时间");
+    let mail = Mail {
+        id: 0,
+        character_id: character.id,
+        sender_name: "阿甲".to_owned(),
+        subject: String::new(),
+        message: "附件给你".to_owned(),
+        // 这里用 `UserItem[]` 字节块；真正的编解码在 mir-server，存储层只当成 BYTEA。
+        items: vec![0x01, 0x02, 0x03],
+        gold: 500,
+        date_sent,
+        opened: false,
+        locked: false,
+        collected: false,
+    };
+    let created = create_mail(&mut *tx, &mail)
+        .await
+        .expect("插入邮件应当成功");
+    assert!(created.id > 0, "邮件应当拿到自增主键");
+    assert_eq!(created.character_id, character.id);
+    assert_eq!(created.items, vec![0x01, 0x02, 0x03]);
+    assert_eq!(created.gold, 500);
+    assert!(!created.opened && !created.locked && !created.collected);
+
+    let loaded = load_mail(&mut *tx, created.id)
+        .await
+        .expect("读邮件应当成功");
+    assert_eq!(loaded, created);
+
+    let listed = list_mail(&mut *tx, character.id)
+        .await
+        .expect("列邮件应当成功");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, created.id);
+
+    // 回写已读/锁定/受理 + 附件被领走后的状态。
+    let mut updated = created.clone();
+    updated.opened = true;
+    updated.locked = true;
+    updated.collected = true;
+    updated.items.clear();
+    updated.gold = 0;
+    save_mail(&mut *tx, &updated)
+        .await
+        .expect("回写邮件应当成功");
+    let reloaded = load_mail(&mut *tx, created.id).await.expect("再读邮件");
+    assert!(reloaded.opened && reloaded.locked && reloaded.collected);
+    assert!(reloaded.items.is_empty() && reloaded.gold == 0);
+
+    // 显式写号：对应 Crystal 的 `++Envir.NextMailID`（服务器自己分配 ID）。
+    let mut explicit = mail.clone();
+    explicit.id = created.id + 1_000_000;
+    let explicit_created = create_mail(&mut *tx, &explicit)
+        .await
+        .expect("显式写号应当成功");
+    assert_eq!(explicit_created.id, explicit.id);
+
+    delete_mail(&mut *tx, created.id)
+        .await
+        .expect("删除邮件应当成功");
+    assert!(
+        matches!(
+            load_mail(&mut *tx, created.id).await,
+            Err(StoreError::NotFound(_))
+        ),
+        "删除后不应再读出邮件"
+    );
+
+    tx.rollback().await.expect("回滚应当成功");
 }

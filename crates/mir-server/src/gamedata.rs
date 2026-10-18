@@ -34,7 +34,8 @@ use mir_core::enums::{Spell, Stat};
 use mir_db::npc_script::NpcScript;
 use mir_db::quest_script::QuestScript;
 use mir_db::{
-    DropTable, ItemInfo, MagicInfo, MapInfo, MirDb, MirDbError, MonsterInfo, NpcInfo, QuestInfo,
+    DropTable, GameShopItem, ItemInfo, MagicInfo, MapInfo, MirDb, MirDbError, MonsterInfo, NpcInfo,
+    QuestInfo,
 };
 
 use crate::combat::CombatStats;
@@ -74,6 +75,13 @@ pub struct GameData {
     /// Crystal 的 `Envir.MagicInfoList` 按 `Spell` **去重**（`Envir.cs:2903` 的
     /// `if (!MagicExists(m.Spell))`，先出现的胜出），这里的映射同样只记第一次出现的那条。
     magic_by_spell: HashMap<u8, usize>,
+    /// 商城商品（Crystal `Envir.GameShopList`，`Envir.cs:119`、`:2911-2923`）。
+    ///
+    /// 每条的 `info` 已由 [`GameData::from_parts`] 绑定到物品模板（Crystal
+    /// `Main.BindGameShop`，`Envir.cs:4550-4561`：模板不存在的条目**直接丢弃**，
+    /// 与 `GameShopList` 的加载逻辑一致）。数据库没有商城段时是空列表，
+    /// 服务器照常启动（商城页签空列表、购买回「商城里没有商品」）。
+    game_shop: Vec<GameShopItem>,
     /// `Envir/Drops` 目录；数据库不在文件系统上（内存构造）时为 `None`。
     drop_dir: Option<PathBuf>,
     /// `Envir/` 根目录（NPC 脚本与 `#INSERT` 的相对路径都从这里算）。
@@ -158,6 +166,25 @@ impl GameData {
             // `Envir.cs:2899-2905`：重复的 `Spell` 只保留文件里第一次出现的那条。
             magic_by_spell.entry(info.spell).or_insert(position);
         }
+        // 商城：Crystal `Envir.cs:2911-2923` + `Main.BindGameShop`（`:4550-4561`）
+        // ——按 `ItemIndex` 回填 `Info`，找不到模板的条目丢弃（Crystal 同样 `continue`）。
+        // 找不到商城数据（旧版数据库没有这一段）时静默降级为空列表，**不**让启动失败。
+        let mut game_shop = Vec::with_capacity(db.gameshop.len());
+        for mut item in db.gameshop.clone() {
+            let Some(info) = item_by_index
+                .get(&item.item_index)
+                .and_then(|position| db.items.get(*position))
+            else {
+                tracing::warn!(
+                    g_index = item.g_index,
+                    item_index = item.item_index,
+                    "商城商品引用了不存在的物品模板，已跳过"
+                );
+                continue;
+            };
+            item.info = info.clone();
+            game_shop.push(item);
+        }
         Self {
             db,
             monsters,
@@ -165,6 +192,7 @@ impl GameData {
             item_by_name,
             monster_drops,
             magic_by_spell,
+            game_shop,
             drop_dir,
             envir_dir,
             drop_cache: Mutex::new(HashMap::new()),
@@ -421,6 +449,30 @@ impl GameData {
     #[must_use]
     pub fn distinct_magic_count(&self) -> usize {
         self.magic_by_spell.len()
+    }
+
+    /// 全部商城商品（Crystal `Envir.GameShopList`，`Envir.cs:119`）。
+    ///
+    /// 条目的 `info` 已绑定到物品模板（见 [`GameData::from_parts`]）；数据库没有商城段
+    /// 时返回空切片，服务器照常启动（商城页签空列表、购买提示「商城里没有商品」）。
+    #[must_use]
+    pub fn game_shop(&self) -> &[GameShopItem] {
+        &self.game_shop
+    }
+
+    /// 商城商品数量（真实数据冒烟用）。
+    #[must_use]
+    pub fn game_shop_count(&self) -> usize {
+        self.game_shop.len()
+    }
+
+    /// 按商品 `GIndex` 取一条（Crystal `Envir.GameShopList` 的线性查找，
+    /// `PlayerObject.cs:13740-13747`）。
+    #[must_use]
+    pub fn game_shop_item(&self, g_index: i32) -> Option<&GameShopItem> {
+        self.game_shop
+            .iter()
+            .find(|product| product.g_index == g_index)
     }
 
     /// 某只怪的掉落表（Crystal `MonsterInfo.Drops`，`Envir.cs:5405-5419` 加载）。

@@ -41,6 +41,7 @@
 //! | 购买/出价 | `C.MarketBuy{AuctionID, BidPrice}`（74） | `S.LoseGold` → `S.GainedItem` → `S.MarketSuccess`（159），失败 `S.MarketFail{Reason}`（158） | `PlayerObject.cs:8450-8589` |
 //! | 提前成交拍卖 | `C.MarketSellNow{AuctionID}`（76） | `S.MarketSuccess` | `PlayerObject.cs:8591-8666` |
 //! | 下架/收款 | `C.MarketGetBack{Mode, AuctionID}`（75） | `S.GainedItem`/`S.GainedGold` → `S.MarketSuccess` | `PlayerObject.cs:8668-8793` |
+//! | 商城购买 | `C.GameshopBuy{GIndex, Quantity, PType}`（133） | `S.LoseCredit`/`S.LoseGold` → `S.GainedItem`（背包满转邮件 → `S.Chat{Hint}`） | `PlayerObject.cs:13725-13911` |
 //!
 //! # 与 Crystal 的**有意**差异
 //!
@@ -53,17 +54,45 @@
 //!    启动时会调用 [`World::purge_expired_auctions`] 把已过期挂单清掉（物品/最高出价按
 //!    系统邮件退回）；Crystal 只把 `Expired` 置真、等卖家 `MarketGetBack` 取回
 //!    （`Envir.cs:2396`、`PlayerObject.cs:8668-8793`）。
-//! 2. **没有商城（GameShop）**：Crystal 的 `MarketPanelType.GameShop` 读 `Envir.GameShopList`
-//!    （`PlayerObject.cs:8385-8390` 里那段还被注释掉了）。本作没有商城数据，游戏商城页签
-//!    永远返回空列表。
-//! 3. **`Envir.MessageAccount` 只给在线角色发**：Crystal 是写进账号的消息队列
+//! 2. **商城（GameShop）走市场面板页签**：Crystal 有两条商城入口——独立的
+//!    `GameshopDialog`（`S.GameShopInfo`/`S.GameShopStock` 下发目录，`PlayerObject.GetGameShop`，
+//!    `PlayerObject.cs:13913-13944`）和市场面板的 `MarketPanelType.GameShop` 页签
+//!    （`GetMarket` 里的分支被注释掉了，`:8385-8390`，页签原本永远空白）。本作按任务要求
+//!    只做**页签**：`S.NPCMarket` 的每条 `ClientAuction` 里 `auction_id = 商品 GIndex`、
+//!    `item_type = GameShop`、`price = CreditPrice`，每页 [`MARKET_PAGE_SIZE`] 条。
+//!    购买主路径是 `C.GameshopBuy`（包 133）；页签打开时也接受 `C.MarketBuy`（数量 1、
+//!    元宝支付），回 `S.MarketSuccess`/`S.MarketFail`——等价于 Crystal 那段被注释掉的设计。
+//!    商品目录来自 `Server.MirDB` 的商城段（`GameData::game_shop`，Crystal `Envir.GameShopList`，
+//!    `Envir.cs:2911-2923`）；没有数据库时是空列表，购买回「商城里没有商品」。
+//! 3. **商城的投递方式**：Crystal 买什么都是**整单寄邮件**（`PlayerObject.cs:13900-13907`），
+//!    本作按任务要求「背包有空位就直接进背包（`S.GainedItem`），放不下的才转系统邮件」。
+//!    元宝余额沿用角色行的 `credit`（Crystal 存在账号 `AccountInfo.Credit` 上，见
+//!    `migrations/0011_gameshop.sql` 的「元宝」一节）。
+//! 4. **`Envir.MessageAccount` 只给在线角色发**：Crystal 是写进账号的消息队列
 //!    （`Envir.MessageAccount`），离线也能收到；本作只给在线角色发系统聊天，离线丢弃。
-//! 4. **`ConsignItem` 末尾的重复回执**：Crystal 在成功分支 `Enqueue(p)` 之后，函数末尾
+//! 5. **`ConsignItem` 末尾的重复回执**：Crystal 在成功分支 `Enqueue(p)` 之后，函数末尾
 //!    又 `Enqueue(p)` 一次（`PlayerObject.cs:8304-8305`、`:8315`）。本作只发一次。
-//! 5. **「搜索」状态放在世界层**：Crystal 的 `Search` / `PageSent` / `MatchName` / `MatchType` /
+//! 6. **「搜索」状态放在世界层**：Crystal 的 `Search` / `PageSent` / `MatchName` / `MatchType` /
 //!    `UserMatch` / `MinShapes` / `MaxShapes` / `MarketPanelType` / `SearchTime` 是
 //!    `PlayerObject` 的字段（`PlayerObject.cs:132-139`）；本作放在
 //!    [`World::market_searches`]，下线即清（与 Crystal 随对象销毁等价）。
+//! 7. **商城购买文案是中文硬编码**：`TextKey`（`mir-core`）里还没有商城相关键，与市场同类
+//!    提示（成交/退款）同一口径；i18n 收口时统一补键。
+//!
+//! # 商城链路的几条约定
+//!
+//! * **`C.MarketBuy` 的商城分支只在会话层**：`session::on_market_buy` 看到当前面板是
+//!   `GameShop` 时把 `AuctionID` 当 `GIndex`、按「1 份 + 元宝」转发到
+//!   [`World::gameshop_buy`]（Crystal `PlayerObject.cs:8458-8486` 的设计）。直接调
+//!   `World::market_buy` 不会走商城——它只处理 `Envir.Auctions` 里的挂单。
+//! * **不发 `S.GameShopInfo` / `S.GameShopStock`**：本作只做市场面板页签，页签不显示库存；
+//!   库存不足时按 Crystal 回聊天提示（`YouBuyMoreThanAvailable`，`:13776`），不推
+//!   `S.GameShopStock`（客户端的独立商城窗口不在本轮范围）。
+//! * **`Count`/`StackSize` 为 0 时按 1 处理**：Crystal 直接拿 `Product.Count` 算数量，
+//!   0 会算出一封空邮件；本作 `max(1)` 兜底。
+//! * **落盘失败要回滚**：`gameshop_buy` 先扣款发货、会话随后在单事务里落盘；事务失败时
+//!   会话调 [`World::rollback_gameshop_purchase`] 把内存状态退回，保证「事务成功 ⇔
+//!   内存变更保留」（计数只由该事务写，只记日志会导致库存回退后超卖）。
 //!
 //! # 持久化不变量（刑部 t7 F1/F2/F3 修复后）
 //!
@@ -89,17 +118,23 @@
 //!   本作先把名字与关键字都去掉空格再 `contains`（大小写不敏感），对中文与英文等价。
 
 use mir_core::DateTimeBinary;
-use mir_core::enums::{BindMode, ItemType, MarketCollectionMode, MarketItemType, MarketPanelType};
+use mir_core::enums::{
+    BindMode, ItemType, MarketCollectionMode, MarketItemType, MarketPanelType, RequiredType,
+};
 use mir_protocol::ServerPacket;
-use mir_protocol::data::{ClientAuction, UserItem};
+use mir_protocol::data::{ClientAuction, GameShopItem, UserItem};
 use mir_protocol::packets::server::{
-    ConsignItem, MarketFail, MarketSuccess, NPCConsign, NPCMarket, NPCMarketPage,
+    ConsignItem, GainedCredit, GainedGold, LoseCredit, LoseGold, MarketFail, MarketSuccess,
+    NPCConsign, NPCMarket, NPCMarketPage,
 };
 
 use mir_db::ItemInfo;
 
 use crate::items::{decode_slots, encode_slots, friendly_name};
-use crate::store::{AccountStore, AuctionRecord, Character, MarketUpdate, StoreError};
+use crate::store::{
+    AccountStore, AuctionRecord, Character, GameShopPurchaseRecord, GameShopStockRecord,
+    GameShopUpdate, MarketUpdate, StoreError,
+};
 use crate::world::{Player, World};
 
 pub use crate::npc::MARKET_KEY;
@@ -137,6 +172,333 @@ pub const MARKET_PAGE_SIZE: usize = 10;
 
 /// 打开寄售（丢物品定价）面板的 NPC 页面键：`NPCScript.ConsignKey = "[@CONSIGN]"`（`NPCScript.cs:56`）。
 pub const CONSIGN_KEY: &str = "[@CONSIGN]";
+
+/// 商城单次购买的数量上限：`C.GameshopBuy.Quantity` 是 `byte`，Crystal 只拒 `0` 与 `> 99`
+/// （`PlayerObject.cs:13727` 的 `if (Quantity < 1 || Quantity > 99) return;`）。
+pub const GAMESHOP_MAX_QUANTITY: u8 = 99;
+
+/// 单次购买最多占用的堆叠数：Crystal `if (((decimal)(Quantity * Product.Count) / StackSize) > 5) return;`
+/// （`PlayerObject.cs:13756`）。
+pub const GAMESHOP_MAX_STACKS: u64 = 5;
+
+/// 商城支付方式（`C.GameshopBuy.PType`，Crystal `PlayerObject.cs:13791`、`:13800`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GameShopPayment {
+    /// `PType == 0`：元宝（Crystal `AccountInfo.Credit`，回包 `S.LoseCredit`）。
+    Credit,
+    /// `PType == 1`：金币（Crystal `AccountInfo.Gold`，回包 `S.LoseGold`）。
+    Gold,
+}
+
+impl GameShopPayment {
+    /// 线上编号 → 支付方式；`None` 表示客户端发了非法值（Crystal 回「钱不够」提示）。
+    #[must_use]
+    pub const fn from_wire(p_type: i32) -> Option<Self> {
+        match p_type {
+            0 => Some(Self::Credit),
+            1 => Some(Self::Gold),
+            _ => None,
+        }
+    }
+}
+
+/// 商城已购计数快照（Crystal `CharacterInfo.GSpurchases` + `Envir.GameshopLog`）。
+///
+/// 世界层不缓存这两份计数（Crystal 存在 `PlayerObject.Info` 与 `Envir` 上）：每次购买前由
+/// 会话从存储层读一份，连同购买请求一起交给 [`World::gameshop_buy`]，成功后再和角色行
+/// 同一个事务写回（见 [`flush_gameshop_update`]）。这样「重启后库存正确」只依赖数据库，
+/// 不依赖进程内状态。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GameShopPurchases {
+    /// 按角色记的已购数量（Crystal `Info.GSpurchases`）：`GIndex` → 已购。
+    pub individual: std::collections::HashMap<i32, i64>,
+    /// 全服已购数量（Crystal `Envir.GameshopLog`）：`GIndex` → 已购。
+    pub server: std::collections::HashMap<i32, i64>,
+}
+
+impl GameShopPurchases {
+    /// 用存储层读到的两份计数构造。
+    #[must_use]
+    pub fn from_records(
+        stock: &[GameShopStockRecord],
+        purchases: &[GameShopPurchaseRecord],
+    ) -> Self {
+        Self {
+            individual: purchases
+                .iter()
+                .map(|row| (row.g_index, row.quantity))
+                .collect(),
+            server: stock
+                .iter()
+                .map(|row| (row.g_index, row.purchased))
+                .collect(),
+        }
+    }
+
+    /// 某件商品在本玩家视角下已购多少（Crystal `GameShopStock`，`PlayerObject.cs:13708-13715`）：
+    /// `iStock` 为真按角色算，否则按全服算。
+    #[must_use]
+    pub fn purchased(&self, product: &GameShopItem) -> i64 {
+        let table = if product.i_stock {
+            &self.individual
+        } else {
+            &self.server
+        };
+        table.get(&product.g_index).copied().unwrap_or(0)
+    }
+
+    /// 剩余库存；`None` 表示不限量（`GameShopItem.Stock == 0`，`PlayerObject.cs:13782-13785`）。
+    #[must_use]
+    pub fn remaining(&self, product: &GameShopItem) -> Option<i64> {
+        (product.stock != 0).then(|| i64::from(product.stock) - self.purchased(product))
+    }
+}
+
+/// 一次成功购买的结算结果（会话层据此把「角色行 + 元宝 + 库存计数」写进同一个事务）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GameShopPurchaseReport {
+    /// 商品 `GIndex`。
+    pub g_index: i32,
+    /// 商品名（物品模板的友好名，日志与提示用）。
+    pub product_name: String,
+    /// 购买份数。
+    pub quantity: u8,
+    /// 支付方式。
+    pub payment: GameShopPayment,
+    /// 总价（`单价 × 份数`）。
+    pub cost: u32,
+    /// 全服已购累计（Crystal `GameshopLog[gIndex]`；Crystal 每次购买都推进它，`:13851-13859`）。
+    pub server_purchased: i64,
+    /// 按角色已购累计；只在 `iStock && Stock != 0` 时才是 `Some`（`PlayerObject.cs:13838-13849`）。
+    pub individual_purchased: Option<i64>,
+    /// 剩余库存（`None` = 不限量）。
+    pub remaining: Option<i64>,
+    /// 直接进背包的份数。
+    pub gained: usize,
+    /// 改寄系统邮件的份数（背包放不下，`PlayerObject.cs:13900-13907` 的同款兜底）。
+    pub mailed: usize,
+    /// 直接进背包的投递明细（落盘失败时 [`World::rollback_gameshop_purchase`] 按它撤回）。
+    ///
+    /// **不记 `UniqueID`**：`gain_item` 会把可堆叠物品并进已有堆
+    /// （`crates/mir-server/src/items.rs:1411-1435`），新物品的 `UniqueID` 根本不会出现在
+    /// 背包里；回滚只能按「模板 + 数量」反向扣减。
+    pub delivered: Vec<GameShopDelivery>,
+    /// 商城邮件编号（背包满时才有；落盘失败时按它撤回邮件）。
+    pub mail_id: Option<u64>,
+}
+
+/// 一件商城投递明细（回滚用）：从哪个模板放进了多少数量。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GameShopDelivery {
+    /// 物品模板 ID。
+    pub item_index: i32,
+    /// 实际放进背包的数量（可堆叠物品会并进已有堆，所以按数量而不是 `UniqueID` 记账）。
+    pub count: u16,
+}
+
+impl GameShopPurchaseReport {
+    /// 转成存储层的两组计数行（角色行与邮件由 [`flush_gameshop_update`] 补齐）。
+    #[must_use]
+    pub fn to_records(
+        &self,
+        character_id: i64,
+    ) -> (Vec<GameShopPurchaseRecord>, Vec<GameShopStockRecord>) {
+        let purchases = self.individual_purchased.map_or_else(Vec::new, |quantity| {
+            vec![GameShopPurchaseRecord {
+                character_id,
+                g_index: self.g_index,
+                quantity,
+            }]
+        });
+        let stock = vec![GameShopStockRecord {
+            g_index: self.g_index,
+            purchased: self.server_purchased,
+        }];
+        (purchases, stock)
+    }
+}
+
+/// 商城购买被拒绝的原因（提示包由会话层发，世界层只返回原因）。
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum GameShopError {
+    /// 对象不在世界里。
+    #[error("对象 {0} 不在世界里")]
+    NotInWorld(u32),
+    /// 没有加载 `Server.MirDB`（或数据库里没有商城段）。
+    #[error("商城数据未加载")]
+    NoGameData,
+    /// 商城里没有这个 `GIndex`。
+    #[error("商城里没有商品 {g_index}")]
+    ProductNotFound {
+        /// 客户端给的 `GIndex`。
+        g_index: i32,
+    },
+    /// 数量不在 `1..=99`。
+    #[error("购买数量 {0} 不合法（1..=99）")]
+    InvalidQuantity(u8),
+    /// 超过单次 5 组的上限（`PlayerObject.cs:13756`）。
+    #[error("一次最多买 {stacks} 组")]
+    TooManyStacks {
+        /// 本次会占用的堆叠数。
+        stacks: u64,
+    },
+    /// 职业不符（`ItemInfo.RequiredClass`，`PlayerObject.cs:13725` 之前由客户端过滤，
+    /// 本作在服务端也校验一次）。
+    #[error("职业不符：{class}")]
+    WrongClass {
+        /// 需要的职业描述。
+        class: String,
+    },
+    /// 等级不符（`ItemInfo.RequiredType == Level/MaxLevel` + `RequiredAmount`）。
+    #[error("等级不符：需要 {required}，当前 {level}")]
+    WrongLevel {
+        /// 模板里的等级要求。
+        required: u8,
+        /// 角色当前等级。
+        level: u16,
+    },
+    /// 库存不足。
+    #[error("库存不足：还剩 {remaining}")]
+    OutOfStock {
+        /// 剩余数量（可能为负，表示已经超卖）。
+        remaining: i64,
+    },
+    /// 该商品不允许用元宝购买（`GameShopItem.CanBuyCredit == false`，`:13794`）。
+    #[error("这件商品不能用元宝购买")]
+    CreditNotAllowed,
+    /// 该商品不允许用金币购买（`GameShopItem.CanBuyGold == false`，`:13803`）。
+    #[error("这件商品不能用金币购买")]
+    GoldNotAllowed,
+    /// 元宝不够。
+    #[error("元宝不足：需要 {needed}，只有 {held}")]
+    NotEnoughCredit {
+        /// 需要。
+        needed: u64,
+        /// 持有。
+        held: i64,
+    },
+    /// 金币不够。
+    #[error("金币不足：需要 {needed}，只有 {held}")]
+    NotEnoughGold {
+        /// 需要。
+        needed: u64,
+        /// 持有。
+        held: i64,
+    },
+    /// `PType` 不是 0/1（Crystal 回「钱不够」，`:13810-13813`）。
+    #[error("不支持的支付方式 {0}")]
+    UnsupportedPayment(i32),
+    /// 背包既放不下、也寄不了邮件（理论上不会发生，留作兜底）。
+    #[error("背包放不下")]
+    CannotGain,
+}
+
+impl GameShopError {
+    /// 面向玩家的提示文案（Crystal 用 `ServerTextKeys` 本地化，本作暂用中文硬编码，
+    /// 见模块文档第 7 条）。
+    #[must_use]
+    pub fn message(&self) -> String {
+        match self {
+            Self::NotInWorld(_) => "你不在游戏世界里。".to_owned(),
+            Self::NoGameData => "商城暂未开放。".to_owned(),
+            Self::ProductNotFound { .. } => "商城里没有这件商品。".to_owned(),
+            Self::InvalidQuantity(_) => "购买数量不对。".to_owned(),
+            Self::TooManyStacks { stacks } => {
+                format!("一次最多买 {GAMESHOP_MAX_STACKS} 组物品（这次要 {stacks} 组）。")
+            }
+            Self::WrongClass { .. } => "你的职业不能购买这件商品。".to_owned(),
+            Self::WrongLevel { required, .. } => format!("等级不够：需要 {required} 级。"),
+            Self::OutOfStock { .. } => "库存不足。".to_owned(),
+            Self::CreditNotAllowed | Self::GoldNotAllowed => {
+                "这件商品不能用这种方式购买。".to_owned()
+            }
+            Self::NotEnoughCredit { .. } => "元宝不足。".to_owned(),
+            Self::NotEnoughGold { .. } => "金币不足。".to_owned(),
+            Self::UnsupportedPayment(_) => "不支持的支付方式。".to_owned(),
+            Self::CannotGain => "背包放不下。".to_owned(),
+        }
+    }
+
+    /// `C.GameshopBuy` 路径上这个失败**是否静默**（不发任何包、不聊天）。
+    ///
+    /// 照抄 Crystal：数量越界与超过 5 组是静默 `return`（`PlayerObject.cs:13727`、`:13756`），
+    /// 余额不足 / `CanBuyCredit`、`CanBuyGold` 为假同样是静默（`canAfford == false` →
+    /// `:13863-13866`）。只有「商品不存在」（`:13751`）、「库存不足」（`:13776`）、
+    /// 「支付方式非法」（`:13811`）才 `ReceiveChat`。
+    ///
+    /// 职业/等级是本作扩展的校验（Crystal 服务端不查），失败给一条提示更便于排查。
+    #[must_use]
+    pub const fn is_silent(&self) -> bool {
+        matches!(
+            self,
+            Self::InvalidQuantity(_)
+                | Self::TooManyStacks { .. }
+                | Self::NotEnoughCredit { .. }
+                | Self::NotEnoughGold { .. }
+                | Self::CreditNotAllowed
+                | Self::GoldNotAllowed
+        )
+    }
+
+    /// 走市场面板（`C.MarketBuy`）时对应的 `S.MarketFail` 编号。
+    ///
+    /// Crystal 的商城分支只用 4（金币不足）/5（背包满）两个（`PlayerObject.cs:8465-8474`）；
+    /// 本作把「找不到商品/库存不足/职业等级不符」归到 7（`TooFar`，语义是「列表里没有这条」）。
+    #[must_use]
+    pub const fn market_reason(&self) -> MarketFailReason {
+        match self {
+            Self::NotEnoughCredit { .. } | Self::NotEnoughGold { .. } => MarketFailReason::LowGold,
+            Self::CannotGain => MarketFailReason::NoSpace,
+            Self::NotInWorld(_)
+            | Self::NoGameData
+            | Self::ProductNotFound { .. }
+            | Self::InvalidQuantity(_)
+            | Self::TooManyStacks { .. }
+            | Self::WrongClass { .. }
+            | Self::WrongLevel { .. }
+            | Self::OutOfStock { .. }
+            | Self::CreditNotAllowed
+            | Self::GoldNotAllowed
+            | Self::UnsupportedPayment(_) => MarketFailReason::TooFar,
+        }
+    }
+}
+
+/// 商城商品的职业限制（`GameShopItem.Class`）。
+///
+/// Crystal 的商城职业限定是**商品级**字段：客户端按它分组过滤
+/// （`Client/MirScenes/Dialogs/GameshopDialog.cs:288-373`，`:508` 用
+/// `GameScene.User.Class.ToString()` 选中自己职业的页签），取值是 `"Warrior"` /
+/// `"Wizard"` / `"Taoist"` / `"Assassin"` / `"Archer"` / `"All"`。
+/// 服务端**不查**（`PlayerObject.GameshopBuy` 里没有任何职业判断）。
+///
+/// 本作在服务端补这一道（防改包），口径：
+/// * 空串 / `All` / `None` → 不限职业（`None` 是管理工具新建商品的默认值，
+///   `Server.MirForms/Database/GameShop.cs:432`，按「没填」处理）；
+/// * 其它值按职业名大小写不敏感比较（中文职业名也认，方便本地化数据）。
+#[must_use]
+pub fn game_shop_class_allows(product: &GameShopItem, class: mir_core::enums::MirClass) -> bool {
+    let wanted = product.class.trim();
+    if wanted.is_empty()
+        || wanted.eq_ignore_ascii_case("all")
+        || wanted.eq_ignore_ascii_case("none")
+    {
+        return true;
+    }
+    let english = crate::npc::class_name(class);
+    if wanted.eq_ignore_ascii_case(english) {
+        return true;
+    }
+    // 中文职业名（`npc::class_name` 是英文，这里补一张小表）。
+    let chinese = match class {
+        mir_core::enums::MirClass::Warrior => "战士",
+        mir_core::enums::MirClass::Wizard => "法师",
+        mir_core::enums::MirClass::Taoist => "道士",
+        mir_core::enums::MirClass::Assassin => "刺客",
+        mir_core::enums::MirClass::Archer => "弓箭手",
+    };
+    wanted == chinese
+}
 
 /// 一条市场条目（Crystal `AuctionInfo`，`Server/MirDatabase/AuctionInfo.cs:5-117`）。
 ///
@@ -861,14 +1223,27 @@ impl World {
         }
         // `for (int i = 0; i < 10; i++) { if (i + page * 10 >= Search.Count) break; … }`（`:8356-8360`）
         let start = usize::try_from(page.max(0)).unwrap_or(0) * MARKET_PAGE_SIZE;
-        let listings: Vec<ClientAuction> = state
-            .listings
-            .iter()
-            .skip(start)
-            .take(MARKET_PAGE_SIZE)
-            .filter_map(|auction_id| self.auction(*auction_id))
-            .map(|auction| auction.to_client_auction(state.user_match))
-            .collect();
+        let listings: Vec<ClientAuction> = if state.panel == MarketPanelType::GameShop {
+            // 商城页签：`Search` 里存的是商品 `GIndex`（见 [`World::get_market`]），
+            // 这里换成商城条目的线格式（`ClientAuction.item_type = GameShop`）。
+            state
+                .listings
+                .iter()
+                .skip(start)
+                .take(MARKET_PAGE_SIZE)
+                .filter_map(|g_index| i32::try_from(*g_index).ok())
+                .filter_map(|g_index| self.game_shop_client_auction(g_index))
+                .collect()
+        } else {
+            state
+                .listings
+                .iter()
+                .skip(start)
+                .take(MARKET_PAGE_SIZE)
+                .filter_map(|auction_id| self.auction(*auction_id))
+                .map(|auction| auction.to_client_auction(state.user_match))
+                .collect()
+        };
         state.page_sent = page;
         self.market_searches.insert(player_id, state);
         // `Enqueue(new S.NPCMarketPage { Listings = clientListings });`（`:8373`）
@@ -993,7 +1368,7 @@ impl World {
                 Ok(())
             }
             // 拍卖出价（`:8556-8581`）
-            MarketItemType::Auction | MarketItemType::GameShop => {
+            MarketItemType::Auction => {
                 if auction.current_bid > bid_price {
                     self.send_market_fail(player_id, MarketFailReason::BidTooLow);
                     return Err(MarketError::BidTooLow {
@@ -1036,6 +1411,12 @@ impl World {
                 );
                 let _ = self.market_refresh(player_id);
                 Ok(())
+            }
+            // 商城条目不会进 `World::auctions`（它们来自 `GameData::game_shop`），
+            // 这里只是让 match 保持穷尽：真出现就当「列表里没有」处理。
+            MarketItemType::GameShop => {
+                self.send_market_fail(player_id, MarketFailReason::TooFar);
+                Err(MarketError::ListingNotFound(auction_id))
             }
         }
     }
@@ -1214,11 +1595,15 @@ impl World {
     }
 
     /// `GetMarket`：搜索 + 首页 `S.NPCMarket`（Crystal `PlayerObject.cs:8376-8422`）。
+    ///
+    /// 商城页签分支对应 Crystal 里被注释掉的那段（`:8385-8390`）：`Search` 换成
+    /// `Envir.GameShopList` 的过滤结果，条目 ID 是商品 `GIndex`（`u64` 承载）。
     fn get_market(&mut self, player_id: u32, match_text: &str, item_type: ItemType) {
         let Some(player) = self.players.get(&player_id) else {
             return;
         };
         let character_id = player.character_id;
+        let class = player.class;
         let mut state = self.market_searches.remove(&player_id).unwrap_or_default();
         // `MatchName = name.Replace(" ", ""); MatchType = type; PageSent = 0;`（`:8379-8381`）
         state.match_name = match_text.replace(' ', "");
@@ -1226,7 +1611,16 @@ impl World {
         state.page_sent = 0;
         // 搜索结果：`UserMatch ? Account.Auctions : Envir.Auctions`（`:8393-8399`）
         let mut listings = Vec::new();
-        if state.panel != MarketPanelType::GameShop {
+        if state.panel == MarketPanelType::GameShop {
+            // 商城页签：过滤规则与 `Match` 同构（物品类型 / 名字关键字），外加
+            // 「职业可用」这一条（本作扩展，见 [`Self::game_shop_matches`]）。
+            for product in self.game_shop() {
+                if !Self::game_shop_matches(&state, product, class) {
+                    continue;
+                }
+                listings.push(u64::from(u32::try_from(product.g_index).unwrap_or(0)));
+            }
+        } else {
             for auction in &self.auctions {
                 if state.user_match && auction.seller_character_id != character_id {
                     continue;
@@ -1243,12 +1637,21 @@ impl World {
                 listings.push(auction.id);
             }
         }
-        let shown: Vec<ClientAuction> = listings
-            .iter()
-            .take(MARKET_PAGE_SIZE)
-            .filter_map(|id| self.auction(*id))
-            .map(|auction| auction.to_client_auction(state.user_match))
-            .collect();
+        let shown: Vec<ClientAuction> = if state.panel == MarketPanelType::GameShop {
+            listings
+                .iter()
+                .take(MARKET_PAGE_SIZE)
+                .filter_map(|g_index| i32::try_from(*g_index).ok())
+                .filter_map(|g_index| self.game_shop_client_auction(g_index))
+                .collect()
+        } else {
+            listings
+                .iter()
+                .take(MARKET_PAGE_SIZE)
+                .filter_map(|id| self.auction(*id))
+                .map(|auction| auction.to_client_auction(state.user_match))
+                .collect()
+        };
         // `Pages = (Search.Count - 1) / 10 + 1`（`:8419`）
         let pages = (i32::try_from(listings.len()).unwrap_or(i32::MAX) - 1) / 10 + 1;
         state.listings = listings;
@@ -1264,6 +1667,59 @@ impl World {
             })
             .encode_frame(),
         );
+    }
+
+    /// 商城商品是不是这次搜索想要的（Crystal `Match` 的商城版，`:8322-8324` + `:8387-8389`）。
+    ///
+    /// * 物品类型：`MatchType != Nothing` 时必须相等（Crystal 注释里那条过滤）；
+    /// * 名字：去空格、大小写不敏感地包含关键字（与 [`Self::market_item_matches`] 同口径）；
+    /// * 职业：`GameShopItem.Class` 必须匹配本职业（**本作扩展**，Crystal 只在客户端过滤，
+    ///   见 [`game_shop_class_allows`]）；
+    /// * 外观区间（`MinShapes`/`MaxShapes`）不参与：商城页签没有这个筛选 UI，默认值 0/0
+    ///   会把所有商品都滤掉。
+    fn game_shop_matches(
+        state: &MarketSearchState,
+        product: &GameShopItem,
+        class: mir_core::enums::MirClass,
+    ) -> bool {
+        let info = &product.info;
+        if state.match_type != ItemType::Nothing && info.item_type != state.match_type {
+            return false;
+        }
+        if !game_shop_class_allows(product, class) {
+            return false;
+        }
+        if !state.match_name.is_empty() {
+            let name = info.name.replace(' ', "").to_lowercase();
+            if !name.contains(&state.match_name.to_lowercase()) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// 一件商城商品的线上条目（`S.NPCMarket` 的 `ClientAuction`）。
+    ///
+    /// 字段映射：
+    /// * `auction_id` = 商品 `GIndex`（购买时原样回填 `C.GameshopBuy.g_index`）；
+    /// * `item` = 模板 ID + 每份数量（`unique_id`/耐久为 0，仅供客户端显示图标与名字）；
+    /// * `price` = **元宝**单价 `CreditPrice`（金币价不在列表里展示，Crystal 的
+    ///   `TrustMerchantDialog` 商城页也只显示 Credit，`TrustMerchantDialog.cs:979`）；
+    /// * `seller` 空串、`item_type = GameShop`、`consignment_date` = 上架时间。
+    fn game_shop_client_auction(&self, g_index: i32) -> Option<ClientAuction> {
+        let product = self.game_shop_item(g_index)?;
+        Some(ClientAuction {
+            auction_id: u64::from(u32::try_from(product.g_index).ok()?),
+            item: UserItem {
+                item_index: product.item_index,
+                count: product.count.max(1),
+                ..UserItem::default()
+            },
+            seller: String::new(),
+            price: product.credit_price,
+            consignment_date: product.date,
+            item_type: MarketItemType::GameShop,
+        })
     }
 
     /// `Match(AuctionInfo)`：Crystal `PlayerObject.cs:8318-8325`。
@@ -1444,6 +1900,363 @@ impl World {
     }
 }
 
+// ---------------------------------------------------------------------------
+// 世界层：商城（GameShop，Crystal `PlayerObject.cs:13701-13946`）
+// ---------------------------------------------------------------------------
+
+impl World {
+    /// 商城商品目录（Crystal `Envir.GameShopList`，`Envir.cs:119`）。
+    ///
+    /// 数据来自 `Server.MirDB` 的商城段，由 [`crate::gamedata::GameData`] 在启动时绑定
+    /// 物品模板（Crystal `Main.BindGameShop`，`Envir.cs:4550-4561`：模板不存在的条目直接丢弃）。
+    /// 没有加载数据库（或数据库里没有商城段）时是空列表——服务器照常启动，
+    /// 购买回 [`GameShopError::NoGameData`] / [`GameShopError::ProductNotFound`]。
+    #[must_use]
+    pub fn game_shop(&self) -> &[GameShopItem] {
+        match self.game_data() {
+            Some(data) => data.game_shop(),
+            None => &[],
+        }
+    }
+
+    /// 按 `GIndex` 取一件商城商品（只读）。
+    #[must_use]
+    pub fn game_shop_item(&self, g_index: i32) -> Option<&GameShopItem> {
+        self.game_shop()
+            .iter()
+            .find(|product| product.g_index == g_index)
+    }
+
+    /// 商城购买：`C.GameshopBuy`，Crystal `PlayerObject.GameshopBuy`
+    /// （`Server/MirObjects/PlayerObject.cs:13725-13911`）。
+    ///
+    /// 校验顺序照抄 Crystal，并在服务端补一道职业/等级检查（Crystal 只在客户端按
+    /// `GameShopItem.Class` 分组过滤，服务端不查；本作按**物品模板**的
+    /// `RequiredClass` / `RequiredType::Level` 防改包）：
+    ///
+    /// 1. 商品存在（`:13749-13754`）；
+    /// 2. 数量 `1..=99`（`:13727`）；
+    /// 3. 单次不超过 [`GAMESHOP_MAX_STACKS`] 组（`:13756`）；
+    /// 4. 职业/等级（本作扩展，见上）；
+    /// 5. 库存：`Stock != 0` 时 `Stock - 已购 >= Quantity`（`:13758-13785`）；
+    /// 6. 支付：`PType == 0` 元宝 / `1` 金币，且 `CanBuyCredit`/`CanBuyGold` 必须为真、
+    ///    余额够（`:13791-13819`）；扣款并发 `S.LoseCredit`/`S.LoseGold`（`:13821-13836`）；
+    /// 7. 发货：每份物品先看背包，放得下就 `gain_item`（`S.GainedItem`），
+    ///    放不下的**攒成一封商城邮件**（Crystal 一律寄邮件，`:13900-13907`；本作见模块文档
+    ///    第 3 条）。
+    ///
+    /// `purchases` 是本次校验用的已购计数快照，成功时返回的
+    /// [`GameShopPurchaseReport`] 带**累加后**的计数值，由会话层与角色行同一事务写库
+    /// （[`flush_gameshop_update`]）。
+    ///
+    /// # Errors
+    /// 任何一项校验失败都返回 [`GameShopError`]，此时**不改任何状态、不发任何包**。
+    pub fn gameshop_buy(
+        &mut self,
+        player_id: u32,
+        g_index: i32,
+        quantity: u8,
+        p_type: i32,
+        purchases: &GameShopPurchases,
+    ) -> Result<GameShopPurchaseReport, GameShopError> {
+        let Some(player) = self.players.get(&player_id) else {
+            return Err(GameShopError::NotInWorld(player_id));
+        };
+        let character_id = player.character_id;
+        let class = player.class;
+        let level = player.level;
+        let credit = player.credit;
+        let gold = player.gold;
+        // `if (Quantity < 1 || Quantity > 99) return;`（`:13727`）——Crystal 的第一步校验。
+        if quantity == 0 || quantity > GAMESHOP_MAX_QUANTITY {
+            return Err(GameShopError::InvalidQuantity(quantity));
+        }
+        if self.game_data().is_none() {
+            return Err(GameShopError::NoGameData);
+        }
+        // `if (Product == null) { ReceiveChat(YouBuyItemNotInShop…); return; }`（`:13749-13754`）
+        let Some(product) = self.game_shop_item(g_index).cloned() else {
+            return Err(GameShopError::ProductNotFound { g_index });
+        };
+        let info = product.info.clone();
+        // `if (((decimal)(Quantity * Product.Count) / StackSize) > 5) return;`（`:13756`）
+        let total = u64::from(quantity) * u64::from(product.count.max(1));
+        let stack_size = u64::from(info.stack_size.max(1));
+        let stack_count = total.div_ceil(stack_size);
+        if stack_count > GAMESHOP_MAX_STACKS {
+            return Err(GameShopError::TooManyStacks {
+                stacks: stack_count,
+            });
+        }
+        // 职业（**本作扩展**：Crystal 服务端不查，只在客户端按 `GameShopItem.Class` 分组过滤；
+        // 见 [`game_shop_class_allows`]）。
+        if !game_shop_class_allows(&product, class) {
+            return Err(GameShopError::WrongClass {
+                class: product.class.clone(),
+            });
+        }
+        // 等级（**本作扩展**）：商品没有等级字段，用物品模板的
+        // `RequiredType::Level`/`MaxLevel` + `RequiredAmount`，与穿戴同一口径
+        // （`crate::items::World::equip_item`）。
+        match info.required_type {
+            RequiredType::Level if level < u16::from(info.required_amount) => {
+                return Err(GameShopError::WrongLevel {
+                    required: info.required_amount,
+                    level,
+                });
+            }
+            RequiredType::MaxLevel if level > u16::from(info.required_amount) => {
+                return Err(GameShopError::WrongLevel {
+                    required: info.required_amount,
+                    level,
+                });
+            }
+            _ => {}
+        }
+        // 库存（`:13758-13785`）
+        let remaining = purchases.remaining(&product);
+        if let Some(remaining) = remaining
+            && remaining < i64::from(quantity)
+        {
+            return Err(GameShopError::OutOfStock { remaining });
+        }
+        // 支付方式与余额（`:13791-13819`）
+        let Some(payment) = GameShopPayment::from_wire(p_type) else {
+            return Err(GameShopError::UnsupportedPayment(p_type));
+        };
+        let unit_price = match payment {
+            GameShopPayment::Credit => product.credit_price,
+            GameShopPayment::Gold => product.gold_price,
+        };
+        let cost = u64::from(unit_price) * u64::from(quantity);
+        let cost_u32 = u32::try_from(cost).unwrap_or(u32::MAX);
+        match payment {
+            GameShopPayment::Credit => {
+                // `if (Product.CanBuyCredit && cost <= Account.Credit)`（`:13794`）
+                if !product.can_buy_credit {
+                    return Err(GameShopError::CreditNotAllowed);
+                }
+                let held = credit.max(0);
+                if u64::try_from(held).unwrap_or(0) < cost {
+                    return Err(GameShopError::NotEnoughCredit { needed: cost, held });
+                }
+            }
+            GameShopPayment::Gold => {
+                // `if (Product.CanBuyGold && goldcost <= Account.Gold)`（`:13803`）
+                if !product.can_buy_gold {
+                    return Err(GameShopError::GoldNotAllowed);
+                }
+                let held = gold.max(0);
+                if u64::try_from(held).unwrap_or(0) < cost {
+                    return Err(GameShopError::NotEnoughGold { needed: cost, held });
+                }
+            }
+        }
+        // 扣款（`:13824-13836`）：`Account.Credit -= CreditCost` + `if (CreditCost != 0) S.LoseCredit`
+        let deduction = i64::try_from(cost).unwrap_or(i64::MAX);
+        if let Some(player) = self.players.get_mut(&player_id) {
+            match payment {
+                GameShopPayment::Credit => player.credit -= deduction,
+                GameShopPayment::Gold => player.gold -= deduction,
+            }
+        }
+        // Crystal 只在金额非 0 时发扣款包（`PlayerObject.cs:13826-13835`）。
+        if cost != 0 {
+            let lose_frame = match payment {
+                GameShopPayment::Credit => {
+                    ServerPacket::LoseCredit(LoseCredit { credit: cost_u32 }).encode_frame()
+                }
+                GameShopPayment::Gold => {
+                    ServerPacket::LoseGold(LoseGold { gold: cost_u32 }).encode_frame()
+                }
+            };
+            self.send_to_player(player_id, &lose_frame);
+        }
+        // 发货（`:13870-13910`）：先背包，放不下的攒一封商城邮件。
+        let stacks = game_shop_stacks(self, &product, quantity);
+        let mut gained = 0usize;
+        let mut delivered = Vec::new();
+        let mut mail_items = Vec::new();
+        for item in stacks {
+            if self.can_gain_item(player_id, &info, item.count) {
+                delivered.push(GameShopDelivery {
+                    item_index: item.item_index,
+                    count: item.count,
+                });
+                let _ = self.gain_item(player_id, item);
+                gained += 1;
+            } else {
+                mail_items.push(item);
+            }
+        }
+        let mailed = mail_items.len();
+        let mail_id = if mailed > 0 {
+            let mail_id = self.mail_gameshop_to_character(character_id, mail_items);
+            self.send_system_chat(
+                player_id,
+                &format!("背包放不下的 {mailed} 份物品已寄到邮箱，请到邮局领取。"),
+            );
+            Some(mail_id)
+        } else {
+            None
+        };
+        // 计数（`:13838-13861`）：全服计数每次购买都推进；按角色计数只在「个人库存」时推进。
+        let server_purchased =
+            purchases.server.get(&product.g_index).copied().unwrap_or(0) + i64::from(quantity);
+        let individual_purchased = (product.i_stock && product.stock != 0).then(|| {
+            purchases
+                .individual
+                .get(&product.g_index)
+                .copied()
+                .unwrap_or(0)
+                + i64::from(quantity)
+        });
+        Ok(GameShopPurchaseReport {
+            g_index: product.g_index,
+            product_name: friendly_name(&info.name),
+            quantity,
+            payment,
+            cost: cost_u32,
+            server_purchased,
+            individual_purchased,
+            remaining: remaining.map(|remaining| remaining - i64::from(quantity)),
+            gained,
+            mailed,
+            delivered,
+            mail_id,
+        })
+    }
+
+    /// 商城面板当前是否「已在商城页签」（`C.MarketBuy` 的分派要用）。
+    #[must_use]
+    pub fn market_panel_of(&self, player_id: u32) -> MarketPanelType {
+        self.market_searches
+            .get(&player_id)
+            .map_or(MarketPanelType::Market, |state| state.panel)
+    }
+
+    /// 扣元宝并发 `S.LoseCredit`（Crystal `NPCSegment.cs:3297-3305` 的 `TAKECREDIT`；
+    /// 商城购买内部的扣款也走同一套算术，见 [`World::gameshop_buy`]）。
+    ///
+    /// 与 Crystal 一致：`credit` 超过持有量时按持有量扣
+    /// （`if (credit >= player.Account.Credit) credit = player.Account.Credit;`），
+    /// 返回**实际**扣掉的数额；0 时不发包。
+    pub fn lose_credit(&mut self, player_id: u32, credit: u32) -> u32 {
+        let Some(player) = self.players.get_mut(&player_id) else {
+            return 0;
+        };
+        let held = u32::try_from(player.credit.max(0)).unwrap_or(0);
+        let deducted = credit.min(held);
+        if deducted == 0 {
+            return 0;
+        }
+        player.credit -= i64::from(deducted);
+        let _ = player
+            .sender
+            .send(ServerPacket::LoseCredit(LoseCredit { credit: deducted }).encode_frame());
+        deducted
+    }
+
+    /// 商城购买落盘失败时的回滚：把 [`World::gameshop_buy`] 的内存副作用原样撤回。
+    ///
+    /// 触发条件见 `session::on_gameshop_buy`：`apply_gameshop_update` 事务失败时，客户端
+    /// 虽然已经收到 `S.LoseCredit` / `S.GainedItem`，但数据库里一行都没变。若只记日志，
+    /// 玩家下线时**角色行（扣款+背包）会落盘而库存计数不会**（计数只有
+    /// `apply_gameshop_update` 写），重新登录后库存回退，等于凭空多卖。
+    ///
+    /// 本函数把状态恢复到购买前：
+    /// * 元宝/金币加回，并发 `S.GainedCredit` / `S.GainedGold`；
+    /// * 已进背包的物品按「模板 + 数量」（[`GameShopPurchaseReport::delivered`]）反向扣减
+    ///   （可堆叠物品可能并进了旧堆，不能按 `UniqueID` 删）；
+    /// * 商城邮件从运行期邮箱与待写队列（[`crate::mail::MailWrite`]）里删掉；
+    /// * **不发**聊天：提示由会话层的失败分支统一发，避免连发两条。
+    ///
+    /// 客户端会看到物品「进来又消失」，但服务端状态与数据库完全一致——这是
+    /// 「事务成功 ⇔ 内存变更保留」这条不变量的代价，见模块文档。
+    pub fn rollback_gameshop_purchase(&mut self, player_id: u32, report: &GameShopPurchaseReport) {
+        let Some(player) = self.players.get_mut(&player_id) else {
+            return;
+        };
+        match report.payment {
+            GameShopPayment::Credit => player.credit += i64::from(report.cost),
+            GameShopPayment::Gold => player.gold += i64::from(report.cost),
+        }
+        if report.cost != 0 {
+            let refund = match report.payment {
+                GameShopPayment::Credit => ServerPacket::GainedCredit(GainedCredit {
+                    credit: report.cost,
+                })
+                .encode_frame(),
+                GameShopPayment::Gold => {
+                    ServerPacket::GainedGold(GainedGold { gold: report.cost }).encode_frame()
+                }
+            };
+            let _ = player.sender.send(refund);
+        }
+        // 按「模板 + 数量」反向扣减：可堆叠物品可能并进了购买前就有的堆，
+        // 按 `UniqueID` 删会删不到（那样退款后玩家净赚一份）。
+        for delivery in &report.delivered {
+            let mut remaining = delivery.count;
+            for slot in player.inventory.iter_mut().rev() {
+                if remaining == 0 {
+                    break;
+                }
+                let Some(item) = slot else { continue };
+                if item.item_index != delivery.item_index {
+                    continue;
+                }
+                let take = item.count.min(remaining);
+                item.count -= take;
+                remaining -= take;
+                if item.count == 0 {
+                    *slot = None;
+                }
+            }
+        }
+        if let Some(mail_id) = report.mail_id {
+            player.mail.mails.retain(|mail| mail.id != mail_id);
+            self.mail_writes.retain(|write| {
+                !matches!(write, crate::mail::MailWrite::Create(mail) if mail.id == mail_id)
+            });
+        }
+        // 提示由会话层发（`session::on_gameshop_buy` 的失败分支），这里不重复聊天。
+    }
+}
+
+/// 把一次购买拆成待投递的物品（Crystal `PlayerObject.cs:13870-13898`）。
+///
+/// * `StackSize <= 1` 或总数只有 1：每份一个物品（Crystal 在这一支忽略 `Product.Count`）；
+/// * 否则按 `StackSize` 切成若干堆，最后一堆可能不满。
+fn game_shop_stacks(
+    world: &World,
+    product: &GameShopItem,
+    quantity: u8,
+) -> Vec<mir_protocol::data::UserItem> {
+    let info = &product.info;
+    let total = u64::from(quantity) * u64::from(product.count.max(1));
+    let stack_size = info.stack_size.max(1);
+    let mut stacks = Vec::new();
+    if stack_size <= 1 || total == 1 {
+        // `for (int i = 0; i < Quantity; i++) mailItems.Add(Envir.CreateFreshItem(...));`
+        for _ in 0..quantity {
+            stacks.push(world.create_fresh_item(info));
+        }
+        return stacks;
+    }
+    // `while (quantity > 0) { … 每堆最多 StackSize 个 … }`
+    let mut remaining = total;
+    while remaining > 0 {
+        let mut item = world.create_fresh_item(info);
+        item.count = u16::try_from(remaining.min(u64::from(stack_size))).unwrap_or(u16::MAX);
+        if item.count == 0 {
+            break;
+        }
+        remaining -= u64::from(item.count);
+        stacks.push(item);
+    }
+    stacks
+}
+
 /// 串行化「取最新挂单快照 + 落库」的进程级锁（刑部 t7 F1）。
 ///
 /// 世界层是同步的、存储层是异步的：如果每个会话各自「先取快照、释放 world 锁、再 await
@@ -1451,6 +2264,20 @@ impl World {
 /// 本锁把「取最新快照 + 单事务落库」整段串行化；锁在拿 world 锁之前获取、写库期间
 /// 不持有 world 锁（不会阻塞 tick/其它会话）。
 static MARKET_FLUSH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// 串行化「读已购计数 → 校验/扣款/发货 → 落盘」的进程级锁（商城）。
+///
+/// 已购计数存在数据库里（`gameshop_stock` / `gameshop_purchases`），世界层不缓存：
+/// 如果两个会话各自「先读计数、再校验」，就会拿着同一份旧计数通过库存检查，把最后一件
+/// 卖给两个人。会话层在处理一次商城购买的**整个**流程（含写库）里持有本锁；
+/// 锁顺序固定为 `GAMESHOP_LOCK` → [`MARKET_FLUSH_LOCK`]（见 [`flush_gameshop_update`]），
+/// 不会与市场链路互相死锁。
+static GAMESHOP_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// 取 [`GAMESHOP_LOCK`] 的守卫（会话层在商城购买流程里持有到落盘结束）。
+pub async fn lock_game_shop() -> tokio::sync::MutexGuard<'static, ()> {
+    GAMESHOP_LOCK.lock().await
+}
 
 /// 单测专用：让**下一次** flush 在「取快照 → 落库」之间停顿，用来确定性复现 F1 交错。
 #[cfg(test)]
@@ -1511,10 +2338,54 @@ pub async fn flush_market_update<S: AccountStore>(
     world: &tokio::sync::Mutex<World>,
     character: Option<Character>,
 ) -> Result<(), StoreError> {
+    commit_market_like(store, world, character, None).await
+}
+
+/// 原子落盘一次商城购买：角色行（含元宝）+ 商城邮件 + 已购计数同一事务。
+///
+/// 与 [`flush_market_update`] 共用 [`MARKET_FLUSH_LOCK`] 与邮件的回灌逻辑，区别只有
+/// 事务里写的是 `gameshop_purchases` / `gameshop_stock`（见
+/// [`AccountStore::apply_gameshop_update`]）而不是挂单快照——商城购买不会改挂单，
+/// 也就不需要把整张 `market_auctions` 重写一遍。
+///
+/// `update` 里只带本次购买的计数行（[`GameShopPurchaseReport::to_records`]），
+/// 角色行快照与待写邮件由本函数补齐（邮件先 drain 再随事务提交，失败时回灌队列）。
+///
+/// # Errors
+/// 存储层失败时返回错误，**调用方必须回滚**：此时客户端已经收到扣款/到货，但数据库里
+/// 一行都没变；`gameshop_stock` / `gameshop_purchases` 只由这个事务写，只记日志的话
+/// 玩家下线时角色行会落盘而库存计数不会，重新登录后库存回退 → 超卖。
+/// `session::on_gameshop_buy` 在失败分支调用 [`World::rollback_gameshop_purchase`]。
+pub async fn flush_gameshop_update<S: AccountStore>(
+    store: &S,
+    world: &tokio::sync::Mutex<World>,
+    character: Option<Character>,
+    update: GameShopUpdate,
+) -> Result<(), StoreError> {
+    commit_market_like(store, world, character, Some(update)).await
+}
+
+/// [`flush_market_update`] 与 [`flush_gameshop_update`] 的共用实现。
+///
+/// `gameshop` 为 `None` 时走「挂单全量快照」事务；为 `Some` 时走「商城计数」事务。
+/// 两条路都串行化在 [`MARKET_FLUSH_LOCK`] 下：它们都会写当前角色行，若交错提交，
+/// 旧快照可能覆盖新快照（F1 的同类问题）。
+async fn commit_market_like<S: AccountStore>(
+    store: &S,
+    world: &tokio::sync::Mutex<World>,
+    character: Option<Character>,
+    gameshop: Option<GameShopUpdate>,
+) -> Result<(), StoreError> {
     let _flush_guard = MARKET_FLUSH_LOCK.lock().await;
     let (auctions, mut mail_writes) = {
         let mut world = world.lock().await;
-        (world.auction_snapshot(), world.take_mail_writes())
+        // 商城事务不写挂单：省掉一次整表快照克隆。
+        let auctions = if gameshop.is_some() {
+            Vec::new()
+        } else {
+            world.auction_snapshot()
+        };
+        (auctions, world.take_mail_writes())
     };
     // 仅单测：把「取快照 → 落库」窗口拉长，让并发用例能确定性复现 F1 的交错。
     // 集成测试链接的是正常编译的库，不会走这里。
@@ -1523,13 +2394,26 @@ pub async fn flush_market_update<S: AccountStore>(
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
     let pending = mail_writes.clone();
-    let result = store
-        .apply_market_update(MarketUpdate {
-            character,
-            mail_writes: pending,
-            auctions,
-        })
-        .await;
+    let result = match gameshop {
+        Some(update) => {
+            store
+                .apply_gameshop_update(GameShopUpdate {
+                    character,
+                    mail_writes: pending,
+                    ..update
+                })
+                .await
+        }
+        None => {
+            store
+                .apply_market_update(MarketUpdate {
+                    character,
+                    mail_writes: pending,
+                    auctions,
+                })
+                .await
+        }
+    };
     if let Err(error) = &result {
         // t12：事务失败 → 邮件没有落库，必须放回队列，等待下一次 flush 重试。
         // 期间别的路径可能往队尾追加了新邮件；把本次 drain 的放在前面，保持原顺序。

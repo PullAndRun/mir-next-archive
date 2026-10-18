@@ -22,6 +22,8 @@
 //! | [`find_character_by_name`] | 按角色名（大小写不敏感）查角色，邮件收件人允许离线 |
 //! | [`create_mail`] / [`load_mail`] / [`list_mail`] / [`save_mail`] / [`delete_mail`] | 邮件表读写（Crystal `MailInfo`） |
 //! | [`list_conquests`] / [`load_conquest`] / [`save_conquest`] | 攻城区运行期状态（Crystal `ConquestGuildInfo`） |
+//! | [`list_gameshop_stock`] / [`save_gameshop_stock`] | 商城全服已购计数（Crystal `Envir.GameshopLog`） |
+//! | [`list_gameshop_purchases`] / [`save_gameshop_purchases`] | 商城按角色已购计数（Crystal `CharacterInfo.GSpurchases`） |
 //!
 //! 界面语言（`accounts.language`）的校验与归一化是纯函数，不查库：
 //! [`normalize_language`] 把 `zh`/`cn`/`chs`/`en-us` 之类的别名归一成 `zh-cn`/`en`，
@@ -33,9 +35,9 @@ use sqlx::{PgConnection, PgExecutor};
 
 use crate::error::{Result, StoreError};
 use crate::models::{
-    Account, Character, CharacterSummary, Conquest, DEFAULT_LANGUAGE, Guild, GuildBuffRow,
-    GuildMemberRow, GuildRankRow, GuildRow, GuildStorageRow, Mail, MarketAuction, NewAccount,
-    NewCharacter,
+    Account, Character, CharacterSummary, Conquest, DEFAULT_LANGUAGE, GameShopPurchase,
+    GameShopStock, Guild, GuildBuffRow, GuildMemberRow, GuildRankRow, GuildRow, GuildStorageRow,
+    Mail, MarketAuction, NewAccount, NewCharacter,
 };
 use crate::password::{encode_hash, generate_salt, hash_password};
 
@@ -1222,6 +1224,101 @@ pub async fn save_auctions(conn: &mut PgConnection, auctions: &[MarketAuction]) 
             .bind(auction.expired)
             .bind(auction.sold)
             .bind(auction.item_type)
+            .execute(&mut *conn)
+            .await
+            .map_err(StoreError::Database)?;
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// 商城（Crystal `GameshopLog` / `CharacterInfo.GSpurchases`）
+// ---------------------------------------------------------------------------
+//
+// Crystal 把「全服已购」放进 MirADB 存档的全局段（`Envir.GameshopLog`，
+// `Server/MirEnvir/Envir.cs:2598-2599` 写、`:3054` 读），把「按角色已购」随角色存档
+// （`CharacterInfo.GSpurchases`）。本作落两张表，字段对照见
+// `migrations/0011_gameshop.sql`。元宝余额不在这里——它沿用 `characters.credit`。
+
+/// `gameshop_stock` 表的列（[`GameShopStock`] 的 `FromRow` 按名字匹配）。
+const GAMESHOP_STOCK_COLUMNS: &str = "g_index, purchased";
+
+/// `gameshop_purchases` 表的列。
+const GAMESHOP_PURCHASE_COLUMNS: &str = "character_id, g_index, quantity";
+
+/// 读出**全服**已购计数（Crystal `Envir.GameshopLog`，`Envir.cs:3054`）。
+///
+/// 服务端每次商城购买前读一次：剩余库存 = `GameShopItem.Stock - purchased`
+/// （`PlayerObject.cs:13712-13717`）。表为空表示没有任何限量商品被买过。
+pub async fn list_gameshop_stock<'e, E>(executor: E) -> Result<Vec<GameShopStock>>
+where
+    E: PgExecutor<'e>,
+{
+    let sql = format!("SELECT {GAMESHOP_STOCK_COLUMNS} FROM gameshop_stock ORDER BY g_index");
+
+    sqlx::query_as::<_, GameShopStock>(&sql)
+        .fetch_all(executor)
+        .await
+        .map_err(StoreError::Database)
+}
+
+/// 读出某个角色的**个人**已购计数（Crystal `CharacterInfo.GSpurchases`）。
+pub async fn list_gameshop_purchases<'e, E>(
+    executor: E,
+    character_id: i64,
+) -> Result<Vec<GameShopPurchase>>
+where
+    E: PgExecutor<'e>,
+{
+    let sql = format!(
+        "SELECT {GAMESHOP_PURCHASE_COLUMNS} FROM gameshop_purchases \
+         WHERE character_id = $1 ORDER BY g_index"
+    );
+
+    sqlx::query_as::<_, GameShopPurchase>(&sql)
+        .bind(character_id)
+        .fetch_all(executor)
+        .await
+        .map_err(StoreError::Database)
+}
+
+/// 写入（插入或更新）一批全服已购计数。
+///
+/// 用 `ON CONFLICT ... DO UPDATE`：同一件商品反复购买只更新一行，
+/// 与 Crystal 直接改 `Dictionary` 再整段重写存档等价。调用方应放进事务。
+pub async fn save_gameshop_stock(conn: &mut PgConnection, rows: &[GameShopStock]) -> Result<()> {
+    const SQL: &str = "INSERT INTO gameshop_stock (g_index, purchased) VALUES ($1, $2) \
+                       ON CONFLICT (g_index) DO UPDATE SET \
+                       purchased = EXCLUDED.purchased, updated_at = now()";
+
+    for row in rows {
+        sqlx::query(SQL)
+            .bind(row.g_index)
+            .bind(row.purchased)
+            .execute(&mut *conn)
+            .await
+            .map_err(StoreError::Database)?;
+    }
+
+    Ok(())
+}
+
+/// 写入（插入或更新）一批按角色的已购计数。
+pub async fn save_gameshop_purchases(
+    conn: &mut PgConnection,
+    rows: &[GameShopPurchase],
+) -> Result<()> {
+    const SQL: &str = "INSERT INTO gameshop_purchases (character_id, g_index, quantity) \
+                       VALUES ($1, $2, $3) \
+                       ON CONFLICT (character_id, g_index) DO UPDATE SET \
+                       quantity = EXCLUDED.quantity, updated_at = now()";
+
+    for row in rows {
+        sqlx::query(SQL)
+            .bind(row.character_id)
+            .bind(row.g_index)
+            .bind(row.quantity)
             .execute(&mut *conn)
             .await
             .map_err(StoreError::Database)?;

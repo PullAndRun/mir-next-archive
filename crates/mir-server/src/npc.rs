@@ -1128,9 +1128,11 @@ impl World {
             }
             NpcActionKind::Unsupported | NpcActionKind::Unknown => {
                 // `mir-db` 只把少数动作认到具体种类（见 `crates/mir-db/src/npc_script.rs`
-                // 的 `parse_action`）；切图类动作在这里按关键字补上，
-                // 与 Crystal `NPCSegment.ParseAct`/`Act` 对齐（见 [`World::run_map_action`]）。
-                if !self.run_map_action(player_id, npc, action) {
+                // 的 `parse_action`）；其余按关键字在这里补上：切图类动作
+                // （见 [`World::run_map_action`]）与元宝增减（[`World::run_credit_action`]）。
+                if !self.run_map_action(player_id, npc, action)
+                    && !self.run_credit_action(player_id, action)
+                {
                     run.unsupported_actions.push(action.source.clone());
                 }
             }
@@ -1366,6 +1368,45 @@ impl World {
         }
     }
 
+    /// 元宝类 NPC 动作：`GIVECREDIT <n>` / `TAKECREDIT <n>`。
+    ///
+    /// Crystal 解析在 `Server/MirObjects/NPC/NPCSegment.cs:488-497`，执行在 `:3286-3306`：
+    /// * `GIVECREDIT`：溢出时截到 `uint.MaxValue - Account.Credit`，再 `GainCredit`
+    ///   （回 `S.GainedCredit`）；
+    /// * `TAKECREDIT`：不够就扣光，不报错（回 `S.LoseCredit`）。
+    ///
+    /// 返回 `true` 表示「认识这个关键字」（即使参数缺失/非法）。元宝在本作是角色行的
+    /// `credit`（见 `migrations/0011_gameshop.sql` 的「元宝」一节）。
+    fn run_credit_action(&mut self, player_id: u32, action: &NpcAction) -> bool {
+        let keyword = action
+            .source
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_uppercase();
+        match keyword.as_str() {
+            "GIVECREDIT" => {
+                let Some(amount) = parse_u32(&action.params, 0) else {
+                    return true;
+                };
+                // `:3290-3291`：`if (credit + player.Account.Credit >= uint.MaxValue) credit = uint.MaxValue - player.Account.Credit;`
+                let current = u32::try_from(self.players[&player_id].credit.max(0)).unwrap_or(0);
+                let capped = amount.min(u32::MAX.saturating_sub(current));
+                self.gain_credit(player_id, capped);
+                true
+            }
+            "TAKECREDIT" => {
+                let Some(amount) = parse_u32(&action.params, 0) else {
+                    return true;
+                };
+                // `:3301`：不够就扣光（`lose_credit` 内部夹到持有量并发 `S.LoseCredit`）。
+                self.lose_credit(player_id, amount);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// NPC 脚本里的地图参数。
     fn resolve_script_map(&self, arg: &str) -> Option<String> {
         let file = arg
@@ -1525,11 +1566,42 @@ impl World {
                 (self.rng.next_bounded(bound as u32) == 0).into()
             }
             NpcCheckKind::Unsupported | NpcCheckKind::Unknown => {
+                // 关键字分派：`mir-db` 把没实现的条件统一标成 `Unsupported` 并保留原始
+                // 参数，这里按关键字补上少数几条（目前只有元宝的 `CHECKCREDIT`）。
+                if let Some(outcome) = self.evaluate_extra_check(player_id, check) {
+                    return outcome;
+                }
                 unsupported.push(check.source.clone());
                 // 不支持的条件按「不满足」处理：走 else 分支，绝不让没验证过的分支放行。
                 CheckOutcome::Fail
             }
         }
+    }
+
+    /// 按关键字补做的条件：`CHECKCREDIT <op> <n>`（Crystal `CheckType.CheckCredit`，
+    /// `Server/MirObjects/NPC/NPCSegment.cs:135-139` 解析、`:2158-2174` 执行）。
+    ///
+    /// Crystal 比较的是 `player.Account.Credit`；本作的元宝在角色行
+    /// （`characters.credit`，见 `migrations/0011_gameshop.sql`），读同一个值。
+    /// 返回 `None` 表示「不是这条扩展条件」，交回调用方记 `unsupported_checks`。
+    fn evaluate_extra_check(&self, player_id: u32, check: &NpcCheck) -> Option<CheckOutcome> {
+        let keyword = check
+            .source
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_uppercase();
+        if keyword != "CHECKCREDIT" {
+            return None;
+        }
+        let Some(op) = param_compare_op(&check.params, 0) else {
+            return Some(CheckOutcome::InvalidOperator);
+        };
+        let Some(value) = parse_u32(&check.params, 1) else {
+            return Some(CheckOutcome::Fail);
+        };
+        let credit = u32::try_from(self.players.get(&player_id)?.credit).unwrap_or(0);
+        Some(op.compare(&credit, &value).into())
     }
 
     /// `CHECKITEM <名字> [数量] [持久(秒)]`（Crystal `:2176-2207`）。
@@ -1625,6 +1697,8 @@ impl World {
             "MP" => player.mp.to_string(),
             "MAXMP" => player.stats.mp.to_string(),
             "GAMEGOLD" => player.gold.to_string(),
+            // Crystal `ReplaceValue` 的 `CREDIT` 分支（`NPCSegment.cs:1495-1497`）。
+            "CREDIT" => player.credit.to_string(),
             "PKPOINT" => "0".to_owned(),
             "USERCOUNT" => self.players.len().to_string(),
             "ARMOUR" | "WEAPON" | "RING_L" | "RING_R" | "BRACELET_L" | "BRACELET_R"

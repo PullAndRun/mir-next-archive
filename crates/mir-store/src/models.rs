@@ -552,6 +552,41 @@ pub struct MarketAuction {
 }
 
 // ---------------------------------------------------------------------------
+// 商城（Crystal `GameShopList` / `GameshopLog` / `GSpurchases`）
+// ---------------------------------------------------------------------------
+
+/// 一行「全服已购数量」（`gameshop_stock` 表；Crystal `Envir.GameshopLog`，
+/// `Server/MirEnvir/Envir.cs:133`）。
+///
+/// 键是商品的 **`GIndex`**（`GameShopItem.GIndex`，不是物品模板 `ItemIndex`）。
+/// 只在 `GameShopItem.Stock != 0` 且 `iStock == false`（全服库存）时参与剩余库存计算：
+/// `剩余 = Stock - purchased`（`PlayerObject.GameShopStock`，`PlayerObject.cs:13712-13717`）。
+///
+/// `Stock == 0` 表示不限量（`PlayerObject.cs:13782-13785`），不会产生本表的行。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, FromRow)]
+pub struct GameShopStock {
+    /// Crystal `GameShopItem.GIndex`。
+    pub g_index: i32,
+    /// 全服已购数量（Crystal `GameshopLog[gIndex]`）。
+    pub purchased: i64,
+}
+
+/// 一行「某个角色已购数量」（`gameshop_purchases` 表；Crystal
+/// `CharacterInfo.GSpurchases`）。
+///
+/// 与 [`GameShopStock`] 的区别只在计数口径：`iStock == true` 的个人库存按角色算
+/// （`PlayerObject.cs:13708-13711`、`:13838-13849`），全服库存按全服算。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, FromRow)]
+pub struct GameShopPurchase {
+    /// 购买者角色主键。
+    pub character_id: i64,
+    /// Crystal `GameShopItem.GIndex`。
+    pub g_index: i32,
+    /// 该角色已购数量。
+    pub quantity: i64,
+}
+
+// ---------------------------------------------------------------------------
 // 攻城（Crystal `ConquestGuildInfo`）
 // ---------------------------------------------------------------------------
 

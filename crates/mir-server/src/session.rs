@@ -18,8 +18,9 @@ use mir_protocol::manual::server::{MapInformation, UserInformation};
 use mir_protocol::packets::server::{
     ChangeAMode, ClientVersion as ClientVersionResponse, Connected,
     DeleteCharacter as DeleteCharacterResult, DeleteCharacterSuccess, LogOutSuccess,
-    Login as LoginResult, LoginBanned, LoginSuccess, NewAccount as NewAccountResult,
-    NewCharacter as NewCharacterResult, NewCharacterSuccess, StartGame,
+    Login as LoginResult, LoginBanned, LoginSuccess, MarketFail, MarketSuccess,
+    NewAccount as NewAccountResult, NewCharacter as NewCharacterResult, NewCharacterSuccess,
+    StartGame,
 };
 use mir_protocol::{ClientPacket, ServerPacket};
 use tokio::sync::Mutex;
@@ -29,11 +30,25 @@ use crate::config::ServerConfig;
 use crate::items::{decode_equipment, decode_inventory, new_equipment, new_inventory};
 use crate::magic::decode_magics;
 use crate::mail::{Mail, MailRecipient, MailState};
+use crate::market::GameShopPurchases;
 use crate::npc::NpcState;
 use crate::quests::decode_quests;
 use crate::storage::{decode_storage, new_storage};
-use crate::store::{Account, AccountStore, Character, StoreError};
+use crate::store::{
+    Account, AccountStore, Character, GameShopPurchaseRecord, GameShopStockRecord, GameShopUpdate,
+    StoreError,
+};
 use crate::world::{Player, World};
+
+/// 商城购买的失败/成功回包风格：`C.GameshopBuy` 用系统聊天（Crystal 的 `ReceiveChat`），
+/// 商城页签发的 `C.MarketBuy` 用 `S.MarketSuccess`/`S.MarketFail`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GameShopReply {
+    /// `C.GameshopBuy`：失败用系统聊天（静默类失败不发包）。
+    Chat,
+    /// 商城页签上的 `C.MarketBuy`：失败 `S.MarketFail`，成功 `S.MarketSuccess`。
+    Market,
+}
 
 /// 会话阶段。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -358,6 +373,17 @@ impl<S: AccountStore> Session<S> {
             ClientPacket::MarketGetBack(packet) => {
                 self.on_market_get_back(packet.mode, packet.auction_id)
                     .await;
+            }
+            // 商城购买：`C.GameshopBuy{GIndex, Quantity, PType}`（包 133，Crystal
+            // `PlayerObject.GameshopBuy`，`PlayerObject.cs:13725-13911`，见 [`crate::market`]）。
+            ClientPacket::GameshopBuy(packet) => {
+                self.on_gameshop_buy(
+                    packet.g_index,
+                    packet.quantity,
+                    packet.p_type,
+                    GameShopReply::Chat,
+                )
+                .await;
             }
             // 开门：`C.Opendoor`（Crystal `PlayerObject.Opendoor`，`PlayerObject.cs:7818-7826`）。
             // 世界层负责发包（本人 `S.Opendoor` + 同图视野广播）与 5 秒后自动关门。
@@ -1992,10 +2018,26 @@ impl<S: AccountStore> Session<S> {
     }
 
     /// 购买/出价：`C.MarketBuy{AuctionID,BidPrice}`（`PlayerObject.cs:8450-8589`）。
+    ///
+    /// **商城页签**（`MarketPanelType::GameShop`）下 Crystal 走另一条分支
+    /// （`:8458-8486`）：`AuctionID` 其实是商品 `GIndex`，只按元宝买 1 份。本作把它转发给
+    /// [`Session::on_gameshop_buy`]，与 `C.GameshopBuy` 共用同一套校验/扣款/发货/落盘，
+    /// 只是回包换成 `S.MarketSuccess`/`S.MarketFail`。
     async fn on_market_buy(&mut self, auction_id: u64, bid_price: u32) {
         let Some(object_id) = self.object_id else {
             return;
         };
+        let panel = {
+            let world = self.world.lock().await;
+            world.market_panel_of(object_id)
+        };
+        if panel == MarketPanelType::GameShop {
+            // 编号超出 `i32`（不可能是合法 GIndex）：按「列表里没有这条」处理。
+            let g_index = i32::try_from(auction_id).unwrap_or(-1);
+            self.on_gameshop_buy(g_index, 1, 0, GameShopReply::Market)
+                .await;
+            return;
+        }
         let mut world = self.world.lock().await;
         match world.market_buy(object_id, auction_id, bid_price) {
             Ok(()) => tracing::debug!(session = self.id, auction_id, bid_price, "市场成交/出价"),
@@ -2025,6 +2067,169 @@ impl<S: AccountStore> Session<S> {
             Ok(count) => tracing::debug!(session = self.id, auction_id, count, "从市场取回"),
             Err(error) => tracing::debug!(session = self.id, %error, "从市场取回被拒绝"),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // 商城（见 [`crate::market`] 的「商城（GameShop）」一节）
+    // -----------------------------------------------------------------------
+
+    /// 商城购买：`C.GameshopBuy{GIndex, Quantity, PType}`（Crystal
+    /// `PlayerObject.GameshopBuy`，`PlayerObject.cs:13725-13911`）。
+    ///
+    /// 流程（整个流程持有 [`crate::market::lock_game_shop`]，见那里的说明）：
+    /// 1. 从存储层读「全服已购 + 本角色已购」两份计数（Crystal 的 `Envir.GameshopLog` /
+    ///    `Info.GSpurchases`），世界层不缓存它们，所以重启后库存天然正确；
+    /// 2. 世界层校验并扣元宝/金币、发货（背包优先，放不下的攒一封商城邮件）；
+    /// 3. 成功时把「角色行（含元宝）+ 邮件 + 两组计数」放进**同一个事务**落盘
+    ///    （[`crate::market::flush_gameshop_update`]）。
+    ///
+    /// 失败回包按 Crystal 的语义分两类（[`crate::market::GameShopError::is_silent`]）：
+    /// 数量越界/余额不足/不允许该支付方式是**静默**的；商品不存在/库存不足/职业等级不符
+    /// 回一条系统聊天。`reply == Market`（商城页签发的 `C.MarketBuy`）时改回
+    /// `S.MarketFail{Reason}` + 成功时的 `S.MarketSuccess`。
+    async fn on_gameshop_buy(
+        &mut self,
+        g_index: i32,
+        quantity: u8,
+        p_type: i32,
+        reply: GameShopReply,
+    ) {
+        if self.stage != Stage::Game {
+            return;
+        }
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let Some(character_id) = self.character.as_ref().map(|character| character.id) else {
+            return;
+        };
+        // 串行化「读计数 → 校验/扣款/发货 → 落盘」：两个会话并发购买时不能拿着同一份
+        // 旧计数各自通过库存检查。
+        let _guard = crate::market::lock_game_shop().await;
+        let purchases = match self.load_game_shop_counts(character_id).await {
+            Ok(purchases) => purchases,
+            Err(error) => {
+                // 读不到计数就不能判断库存：直接拒绝（按「没买过」放行会超卖限量商品）。
+                tracing::warn!(session = self.id, %error, "读商城已购计数失败，拒绝本次购买");
+                match reply {
+                    GameShopReply::Market => {
+                        self.send_market_fail(crate::market::MarketFailReason::TooFar);
+                    }
+                    GameShopReply::Chat => {
+                        self.send_system_chat("商城暂时不可用，请稍后再试。");
+                    }
+                }
+                return;
+            }
+        };
+        let result = {
+            let mut world = self.world.lock().await;
+            world.gameshop_buy(object_id, g_index, quantity, p_type, &purchases)
+        };
+        match result {
+            Ok(report) => {
+                tracing::info!(
+                    session = self.id,
+                    g_index,
+                    quantity,
+                    cost = report.cost,
+                    gained = report.gained,
+                    mailed = report.mailed,
+                    "商城购买成功，开始落盘"
+                );
+                let (purchases, stock) = report.to_records(character_id);
+                match self.flush_gameshop(purchases, stock).await {
+                    Ok(()) => {
+                        if reply == GameShopReply::Market {
+                            self.send(ServerPacket::MarketSuccess(MarketSuccess {
+                                message: format!(
+                                    "你购买了 {} × {}。",
+                                    report.product_name, report.quantity
+                                ),
+                            }));
+                        }
+                    }
+                    Err(error) => {
+                        // 事务失败 = 数据库里没有任何变更：把世界层的扣款/发货原样撤回，
+                        // 否则下线时角色行会落盘而库存计数不会（计数只由这个事务写）。
+                        tracing::warn!(
+                            session = self.id,
+                            g_index,
+                            %error,
+                            "商城购买落盘失败，回滚本次购买"
+                        );
+                        {
+                            let mut world = self.world.lock().await;
+                            world.rollback_gameshop_purchase(object_id, &report);
+                        }
+                        match reply {
+                            GameShopReply::Market => {
+                                self.send_market_fail(crate::market::MarketFailReason::TooFar);
+                            }
+                            GameShopReply::Chat => {
+                                self.send_system_chat(
+                                    "商城购买失败：已退回支付的货币与物品，请稍后再试。",
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::debug!(session = self.id, g_index, %error, "商城购买被拒绝");
+                match reply {
+                    GameShopReply::Market => self.send_market_fail(error.market_reason()),
+                    // Crystal：数量/组数越界、余额不足、`CanBuy*` 为假都是静默 return。
+                    GameShopReply::Chat if !error.is_silent() => {
+                        self.send_system_chat(&error.message());
+                    }
+                    GameShopReply::Chat => {}
+                }
+            }
+        }
+    }
+
+    /// 读一次商城已购计数（全服 + 本角色），供 [`World::gameshop_buy`](crate::World) 校验库存。
+    async fn load_game_shop_counts(
+        &self,
+        character_id: i64,
+    ) -> Result<GameShopPurchases, StoreError> {
+        let stock = self.store.load_game_shop_stock().await?;
+        let purchases = self.store.load_game_shop_purchases(character_id).await?;
+        Ok(GameShopPurchases::from_records(&stock, &purchases))
+    }
+
+    /// 把一次商城购买原子落盘：角色行（含元宝）+ 商城邮件 + 两组已购计数。
+    ///
+    /// 失败时**不吞错**：调用方（[`Session::on_gameshop_buy`]）必须回滚世界层的扣款/发货，
+    /// 否则角色行会在下线时落盘而计数不会（计数只由这个事务写）。
+    async fn flush_gameshop(
+        &self,
+        purchases: Vec<GameShopPurchaseRecord>,
+        stock: Vec<GameShopStockRecord>,
+    ) -> Result<(), StoreError> {
+        let character = {
+            let world = self.world.lock().await;
+            self.object_id
+                .and_then(|object_id| world.player(object_id))
+                .and_then(|player| self.character_snapshot(player))
+        };
+        let update = GameShopUpdate {
+            // 角色行与待写邮件由 `flush_gameshop_update` 补齐（它以最新的邮件队列为准）。
+            character: None,
+            mail_writes: Vec::new(),
+            purchases,
+            stock,
+        };
+        crate::market::flush_gameshop_update(self.store.as_ref(), &self.world, character, update)
+            .await
+    }
+
+    /// 商城页签路径上的 `S.MarketFail`（Crystal `MarketBuy` 的商城分支，`:8458-8486`）。
+    fn send_market_fail(&self, reason: crate::market::MarketFailReason) {
+        self.send(ServerPacket::MarketFail(MarketFail {
+            reason: reason.reason(),
+        }));
     }
 
     /// 开门：`C.Opendoor{DoorIndex}`（Crystal `PlayerObject.Opendoor`，`PlayerObject.cs:7818-7826`）。

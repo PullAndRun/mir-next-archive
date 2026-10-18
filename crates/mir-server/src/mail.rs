@@ -21,6 +21,7 @@
 //! | [`World::mail_lock`] | `PlayerObject.LockMail`（`:11915-11924`） |
 //! | [`World::mail_cost`] | `PlayerObject.GetMailCost`（`:11926-11957`） |
 //! | [`World::mail_list_packet`] | `PlayerObject.GetMail`（`:11959-11988`） |
+//! | [`World::mail_gameshop_to_character`] | 商城购买的投递邮件（`Sender = "Gameshop"`，`PlayerObject.cs:13900-13907`） |
 //! | [`World::mail_collect_parcel_page`] | `NPCScript.cs` 的 `case CollectParcelKey:`（`:1081-1098`） |
 //! | [`World::mail_open_send_page`] | `NPCScript.cs` 的 `case SendParcelKey:`（`:1078-1080`） |
 //! | [`MailRecord`] | `Server/MirDatabase/MailInfo.cs:5-167`（落 `mail` 表，见 `migrations/0007_mail.sql`） |
@@ -56,8 +57,11 @@
 //! 5. **好友黑名单**：Crystal 发送前会检查双方好友里的 `Blocked`（`:11704-11714`）；
 //!    本作没有好友系统，跳过。
 //! 6. **金币在角色上**：Crystal 的 `Account.Gold` 挂在账号上，本作在角色行（`characters.gold`）。
-//! 7. **系统邮件没做**：`Envir.MailCharacter`（拍卖/租借/GM 补发，`:13900-13910`、
-//!    `Envir.cs:5069` 一带）不在本次范围，`can_reply` 因此恒为真。
+//! 7. **系统邮件已实现，但 `can_reply` 恒真**：`Envir.MailCharacter` 的对应物是
+//!    [`World::mail_system_to_character`]（交易退货/拍卖退款/过期退回）与
+//!    [`World::mail_gameshop_to_character`]（商城投递）。Crystal 的系统邮件
+//!    `new MailInfo(index, false)` 会把 `can_reply` 置假，本作还没有把「玩家邮件 / 系统邮件」
+//!    区分到落盘层（`mail` 表没有这一列），所以 `S.ReceiveMail` 的 `can_reply` 仍是 `true`。
 
 use mir_core::DateTimeBinary;
 use mir_core::enums::{BindMode, ItemType};
@@ -214,8 +218,9 @@ impl Mail {
             message: self.message.clone(),
             opened: self.opened,
             locked: self.locked,
-            // 只有玩家之间发送的邮件（`new MailInfo(index, true)`，`PlayerObject.cs:11833`）；
-            // 系统邮件本作不做，见模块文档差异 7。
+            // 只有玩家之间发送的邮件（`new MailInfo(index, true)`，`PlayerObject.cs:11833`）
+            // 在 Crystal 里 `can_reply = true`；系统邮件是 `false`。本作的 `mail` 表还没有
+            // 「是否系统邮件」这一列，因此恒为真，见模块文档差异 7。
             can_reply: true,
             collected: self.collected,
             date_sent: self.date_sent,
@@ -784,6 +789,43 @@ impl World {
             &ServerPacket::MailSent(MailSent { result: 1 }).encode_frame(),
         );
         Ok(())
+    }
+
+    /// 商城购物的投递邮件（Crystal `PlayerObject.GameshopBuy` 里的 `MailInfo`，
+    /// `Server/MirObjects/PlayerObject.cs:13900-13907`）。
+    ///
+    /// 与 [`World::mail_system_to_character`] 的区别只有发件人与正文：
+    /// Crystal 的发件人是 `"Gameshop"`、正文是
+    /// `ServerTextKeys.ThankYouPurchaseGameshop`（「感谢您购买商城商品。」），
+    /// 一次购买**只发一封**、附件是本次所有放不进背包的堆叠。
+    ///
+    /// 返回邮件编号（测试用来断言「邮件真的生成了」）。
+    pub(crate) fn mail_gameshop_to_character(
+        &mut self,
+        character_id: i64,
+        items: Vec<UserItem>,
+    ) -> u64 {
+        let mail_id = self.allocate_mail_id();
+        let has_item = !items.is_empty();
+        let mail = Mail {
+            id: mail_id,
+            character_id,
+            // Crystal：`Sender = "Gameshop"`（`:13903`），本作中文化。
+            sender_name: "商城".to_owned(),
+            subject: String::new(),
+            message: "感谢您购买商城商品。".to_owned(),
+            items,
+            gold: 0,
+            date_sent: DateTimeBinary::from_unix_seconds(self.wall_now().max(0) / 1000),
+            opened: false,
+            locked: false,
+            // 包裹：`MailAutoSendItems` 默认 false → 需要先去邮局受理（`Settings.cs:243`）。
+            collected: collected_on_send(false, has_item),
+        };
+        self.mail_writes
+            .push(MailWrite::Create(Box::new(mail.to_record())));
+        self.deliver_mail(mail);
+        mail_id
     }
 
     /// 把一封新邮件放进收件人的运行期邮箱（在线时）；离线邮件只落库。

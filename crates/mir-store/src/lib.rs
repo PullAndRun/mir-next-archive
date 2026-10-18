@@ -11,7 +11,8 @@
 //! `migrations/0004_character_quests.sql` 加上任务字节块，`migrations/0005_guilds.sql`
 //! 加上行会三张表，`migrations/0006_guild_storage.sql` 加上行会仓库与增益，
 //! `migrations/0007_mail.sql` 加上邮件表，`migrations/0008_conquests.sql` 加上攻城区表，
-//! `migrations/0009_market.sql` 加上市场挂单表（迁移是只追加的，旧文件不再改动）：
+//! `migrations/0009_market.sql` 加上市场挂单表，`migrations/0011_gameshop.sql` 加上
+//! 商城库存/购买计数两张表（迁移是只追加的，旧文件不再改动）：
 //!
 //! - `accounts`：登录名（大小写不敏感唯一）、口令散列与 24 字节盐、邮箱、注册 IP/时间、
 //!   封禁（标志 + 原因 + 到期时间）、强制改密、错误口令计数、最后登录 IP/时间、GM 标志、
@@ -79,9 +80,9 @@ mod repo;
 
 pub use error::{Result, StoreError};
 pub use models::{
-    Account, Character, CharacterSummary, Conquest, DEFAULT_LANGUAGE, Guild, GuildBuffRow,
-    GuildMemberRow, GuildRankRow, GuildStorageRow, LoginGate, Mail, MarketAuction, NewAccount,
-    NewCharacter,
+    Account, Character, CharacterSummary, Conquest, DEFAULT_LANGUAGE, GameShopPurchase,
+    GameShopStock, Guild, GuildBuffRow, GuildMemberRow, GuildRankRow, GuildStorageRow, LoginGate,
+    Mail, MarketAuction, NewAccount, NewCharacter,
 };
 pub use password::{
     HASH_LEN, ITERATIONS, SALT_LEN, encode_hash, generate_salt, hash_password, verify_password,
@@ -89,9 +90,10 @@ pub use password::{
 pub use repo::{
     create_account, create_character, create_guild, create_mail, delete_character, delete_guild,
     delete_mail, find_account, find_character_by_name, is_supported_language, list_auctions,
-    list_characters, list_conquests, list_guilds, list_mail, load_character, load_conquest,
-    load_guild, load_guild_by_name, load_mail, mark_login, normalize_language, save_account,
-    save_auctions, save_character, save_conquest, save_guild, save_mail, set_account_language,
+    list_characters, list_conquests, list_gameshop_purchases, list_gameshop_stock, list_guilds,
+    list_mail, load_character, load_conquest, load_guild, load_guild_by_name, load_mail,
+    mark_login, normalize_language, save_account, save_auctions, save_character, save_conquest,
+    save_gameshop_purchases, save_gameshop_stock, save_guild, save_mail, set_account_language,
     set_character_guild, set_last_login_ip,
 };
 pub use sqlx::PgPool;

@@ -420,6 +420,54 @@ pub struct MarketUpdate {
     pub auctions: Vec<AuctionRecord>,
 }
 
+/// 一行「全服已购数量」（`gameshop_stock` 表；Crystal `Envir.GameshopLog`）。
+///
+/// 键是商品 `GIndex`；`Stock == 0`（不限量）的商品不会产生行。见
+/// `migrations/0011_gameshop.sql`。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct GameShopStockRecord {
+    /// Crystal `GameShopItem.GIndex`。
+    pub g_index: i32,
+    /// 全服已购数量。
+    pub purchased: i64,
+}
+
+/// 一行「某个角色已购数量」（`gameshop_purchases` 表；Crystal
+/// `CharacterInfo.GSpurchases`）。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct GameShopPurchaseRecord {
+    /// 购买者角色主键。
+    pub character_id: i64,
+    /// Crystal `GameShopItem.GIndex`。
+    pub g_index: i32,
+    /// 该角色已购数量。
+    pub quantity: i64,
+}
+
+/// 一次商城购买要原子落库的内容（与 [`MarketUpdate`] 同一风格）。
+///
+/// **不变量**：角色行（背包 + 元宝/金币）、商城邮件、两组已购计数要么一起提交、
+/// 要么一起回滚——客户端已经收到的物品不会在崩溃窗口里复制或丢失，「重启后元宝与库存」
+/// 也不会出现「扣了钱没减库存」的一半状态。
+///
+/// 与 [`MarketUpdate`] 分开的原因：商城购买**不动**挂单表，把整张 `market_auctions`
+/// 重写一遍既浪费又会让「商城写库」与「市场写库」互相覆盖。
+///
+/// **失败处理**：本事务是计数表的**唯一**写入点。`apply_gameshop_update` 返回错误时，
+/// 调用方（`session::on_gameshop_buy`）必须回滚世界层已经扣掉的元宝与已经发出的物品
+/// （`World::rollback_gameshop_purchase`），否则内存与数据库会永久不一致。
+#[derive(Debug, Clone, Default)]
+pub struct GameShopUpdate {
+    /// 购买者角色行（世界当前状态快照，含扣款后的 `credit`/`gold` 与背包）。
+    pub character: Option<Character>,
+    /// 本次购买产生的商城邮件（背包放不下时一封，Crystal `PlayerObject.cs:13900-13907`）。
+    pub mail_writes: Vec<crate::mail::MailWrite>,
+    /// 按角色已购计数（`GameShopItem.iStock` 为真时才有）。
+    pub purchases: Vec<GameShopPurchaseRecord>,
+    /// 全服已购计数。
+    pub stock: Vec<GameShopStockRecord>,
+}
+
 /// 存储边界。
 ///
 /// 返回类型写成 `impl Future + Send`（而不是裸 `async fn`）是为了让泛型调用方
@@ -587,6 +635,27 @@ pub trait AccountStore: Send + Sync + 'static {
         &self,
         update: MarketUpdate,
     ) -> impl Future<Output = Result<(), StoreError>> + Send + '_;
+
+    /// 读出全服已购计数（Crystal `Envir.GameshopLog`，`Envir.cs:3054`）。
+    ///
+    /// 商城购买前读一次，用来算剩余库存（`PlayerObject.cs:13712-13717`）；
+    /// 表为空表示没有任何限量商品被买过。
+    fn load_game_shop_stock(
+        &self,
+    ) -> impl Future<Output = Result<Vec<GameShopStockRecord>, StoreError>> + Send + '_;
+
+    /// 读出某个角色的已购计数（Crystal `CharacterInfo.GSpurchases`）。
+    fn load_game_shop_purchases(
+        &self,
+        character_id: i64,
+    ) -> impl Future<Output = Result<Vec<GameShopPurchaseRecord>, StoreError>> + Send + '_;
+
+    /// 原子地应用一次商城购买：[`GameShopUpdate::character`]（含元宝）
+    /// + [`GameShopUpdate::mail_writes`] + 两组已购计数在同一事务里提交。
+    fn apply_gameshop_update(
+        &self,
+        update: GameShopUpdate,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send + '_;
 }
 
 /// 内存实现：用于测试与无数据库的本地试玩。
@@ -607,6 +676,12 @@ struct MemoryState {
     conquests: Vec<ConquestRecord>,
     /// 市场挂单（`market_auctions` 表；Crystal 全局 `Envir.Auctions`）。
     auctions: Vec<AuctionRecord>,
+    /// 商城全服已购计数（`gameshop_stock` 表；Crystal `Envir.GameshopLog`）。
+    gameshop_stock: Vec<GameShopStockRecord>,
+    /// 商城按角色已购计数（`gameshop_purchases` 表；Crystal `CharacterInfo.GSpurchases`）。
+    gameshop_purchases: Vec<GameShopPurchaseRecord>,
+    /// **仅测试**：让下一次 `apply_gameshop_update` 失败（模拟数据库事务失败）。
+    fail_next_gameshop_update: bool,
     next_account_id: i64,
     next_character_id: i64,
     next_guild_id: i32,
@@ -625,6 +700,9 @@ impl MemoryStore {
                 mails: Vec::new(),
                 conquests: Vec::new(),
                 auctions: Vec::new(),
+                gameshop_stock: Vec::new(),
+                gameshop_purchases: Vec::new(),
+                fail_next_gameshop_update: false,
                 next_account_id: 1,
                 next_character_id: 1,
                 next_guild_id: 1,
@@ -673,6 +751,24 @@ impl MemoryStore {
             .iter()
             .find(|character| character.id == character_id)
             .map(|character| character.storage.clone())
+    }
+
+    /// 商城全服已购计数快照（测试用来断言「写库」的结果）。
+    pub async fn gameshop_stock(&self) -> Vec<GameShopStockRecord> {
+        self.state.lock().await.gameshop_stock.clone()
+    }
+
+    /// 商城按角色已购计数快照（测试用来断言「写库」的结果）。
+    pub async fn gameshop_purchases(&self) -> Vec<GameShopPurchaseRecord> {
+        self.state.lock().await.gameshop_purchases.clone()
+    }
+
+    /// **仅测试**：让下一次 [`AccountStore::apply_gameshop_update`] 返回错误。
+    ///
+    /// 用来测「商城事务失败 → 会话回滚内存扣款/发货」这条路径（真实 PostgreSQL 没法
+    /// 在集成测试里稳定制造事务失败）。只影响一次调用，之后自动复位。
+    pub async fn fail_next_gameshop_update(&self) {
+        self.state.lock().await.fail_next_gameshop_update = true;
     }
 }
 
@@ -1023,6 +1119,128 @@ impl AccountStore for MemoryStore {
         state.auctions = auctions;
         Ok(())
     }
+
+    async fn load_game_shop_stock(&self) -> Result<Vec<GameShopStockRecord>, StoreError> {
+        let mut rows = self.state.lock().await.gameshop_stock.clone();
+        rows.sort_by_key(|row| row.g_index);
+        Ok(rows)
+    }
+
+    async fn load_game_shop_purchases(
+        &self,
+        character_id: i64,
+    ) -> Result<Vec<GameShopPurchaseRecord>, StoreError> {
+        let mut rows: Vec<GameShopPurchaseRecord> = self
+            .state
+            .lock()
+            .await
+            .gameshop_purchases
+            .iter()
+            .filter(|row| row.character_id == character_id)
+            .cloned()
+            .collect();
+        rows.sort_by_key(|row| row.g_index);
+        Ok(rows)
+    }
+
+    async fn apply_gameshop_update(&self, update: GameShopUpdate) -> Result<(), StoreError> {
+        let GameShopUpdate {
+            character,
+            mail_writes,
+            purchases,
+            stock,
+        } = update;
+        let mut state = self.state.lock().await;
+        // 仅测试：注入一次事务失败（见 [`MemoryStore::fail_next_gameshop_update`]）。
+        if state.fail_next_gameshop_update {
+            state.fail_next_gameshop_update = false;
+            return Err(StoreError::Internal(
+                "注入的商城事务失败（测试）".to_owned(),
+            ));
+        }
+
+        // ---- 预校验：内存存储用「先检查、后修改」模拟事务的全有或全无。 ----
+        if let Some(character) = &character
+            && !state.characters.iter().any(|row| row.id == character.id)
+        {
+            return Err(StoreError::NotFound("角色"));
+        }
+        for write in &mail_writes {
+            match write {
+                crate::mail::MailWrite::Create(mail) => {
+                    if !state
+                        .characters
+                        .iter()
+                        .any(|row| row.id == mail.character_id)
+                    {
+                        return Err(StoreError::NotFound("角色"));
+                    }
+                }
+                crate::mail::MailWrite::Save(mail) => {
+                    if !state.mails.iter().any(|row| row.id == mail.id) {
+                        return Err(StoreError::NotFound("邮件"));
+                    }
+                }
+                crate::mail::MailWrite::Delete { .. } => {}
+            }
+        }
+        for row in &purchases {
+            if !state.characters.iter().any(|c| c.id == row.character_id) {
+                return Err(StoreError::NotFound("角色"));
+            }
+        }
+
+        // ---- 应用：到这里不会再失败。 ----
+        if let Some(character) = character
+            && let Some(existing) = state
+                .characters
+                .iter_mut()
+                .find(|row| row.id == character.id)
+        {
+            *existing = character;
+        }
+        for write in mail_writes {
+            match write {
+                crate::mail::MailWrite::Create(mut mail) => {
+                    if mail.id == 0 {
+                        mail.id = state.next_mail_id;
+                        state.next_mail_id += 1;
+                    } else {
+                        state.next_mail_id = state.next_mail_id.max(mail.id + 1);
+                    }
+                    state.mails.push(*mail);
+                }
+                crate::mail::MailWrite::Save(mail) => {
+                    if let Some(existing) = state.mails.iter_mut().find(|row| row.id == mail.id) {
+                        *existing = *mail;
+                    }
+                }
+                crate::mail::MailWrite::Delete { mail_id } => {
+                    state.mails.retain(|row| row.id != mail_id);
+                }
+            }
+        }
+        // 两组计数都是「绝对值 upsert」（与 PostgreSQL 的 ON CONFLICT DO UPDATE 一致）。
+        for row in stock {
+            match state
+                .gameshop_stock
+                .iter_mut()
+                .find(|existing| existing.g_index == row.g_index)
+            {
+                Some(existing) => *existing = row,
+                None => state.gameshop_stock.push(row),
+            }
+        }
+        for row in purchases {
+            match state.gameshop_purchases.iter_mut().find(|existing| {
+                existing.character_id == row.character_id && existing.g_index == row.g_index
+            }) {
+                Some(existing) => *existing = row,
+                None => state.gameshop_purchases.push(row),
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1069,5 +1287,69 @@ mod tests {
         store.create_account("Diana", "secret", "").await.unwrap();
         assert!(store.find_account("diana").await.unwrap().is_some());
         assert!(store.create_account("dIANA", "secret", "").await.is_err());
+    }
+
+    /// 商城事务失败时**一行都不能写**（角色行/计数都没变），会话据此回滚内存状态。
+    #[tokio::test]
+    async fn gameshop_update_failure_writes_nothing() {
+        let store = MemoryStore::new();
+        let account = store.create_account("gsfail", "secret", "").await.unwrap();
+        let mut character = store
+            .create_character(
+                account.id,
+                "回滚者",
+                MirClass::Warrior,
+                MirGender::Male,
+                "0",
+                (0, 0),
+            )
+            .await
+            .unwrap();
+        character.credit = 900;
+        store.save_character(character.clone()).await.unwrap();
+
+        store.fail_next_gameshop_update().await;
+        let result = store
+            .apply_gameshop_update(GameShopUpdate {
+                character: Some(character.clone()),
+                mail_writes: Vec::new(),
+                purchases: vec![GameShopPurchaseRecord {
+                    character_id: character.id,
+                    g_index: 7,
+                    quantity: 1,
+                }],
+                stock: vec![GameShopStockRecord {
+                    g_index: 7,
+                    purchased: 1,
+                }],
+            })
+            .await;
+        assert!(result.is_err(), "注入的事务失败必须原样返回");
+        assert!(store.gameshop_stock().await.is_empty(), "计数不能被写");
+        assert!(
+            store.gameshop_purchases().await.is_empty(),
+            "按角色计数不能被写"
+        );
+        let reloaded = store
+            .find_character(account.id, character.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(reloaded.credit, 900, "角色行不能被写");
+
+        // 只失败一次：下一次正常提交。
+        store
+            .apply_gameshop_update(GameShopUpdate {
+                character: None,
+                mail_writes: Vec::new(),
+                purchases: Vec::new(),
+                stock: vec![GameShopStockRecord {
+                    g_index: 7,
+                    purchased: 1,
+                }],
+            })
+            .await
+            .expect("第二次应该成功");
+        assert_eq!(store.gameshop_stock().await.len(), 1);
     }
 }

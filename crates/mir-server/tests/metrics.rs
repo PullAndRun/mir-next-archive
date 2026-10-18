@@ -5,11 +5,90 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use mir_core::Point;
+use mir_core::enums::{AttackMode, MirClass, MirDirection, MirGender};
+use mir_server::combat::{self, CombatStats};
+use mir_server::items;
+use mir_server::world::Player;
+use mir_server::{MagicState, NpcState, TradeState};
+
 use mir_server::metrics::{Metrics, Ring, bind_metrics, metrics};
 use mir_server::world::World;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
+
+/// 往世界里放一个确定性的玩家（只用到 `world.enter`，不进网络）。
+fn enter_player(world: &mut World, object_id: u32, map: &str) {
+    let base: CombatStats = combat::player_base_stats(10, MirClass::Warrior);
+    let (sender, _receiver) = tokio::sync::mpsc::unbounded_channel();
+    world.enter(Player {
+        object_id,
+        session_id: u64::from(object_id),
+        character_id: i64::from(object_id),
+        name: format!("player{object_id}"),
+        map: map.to_owned(),
+        position: Point::new(10, 10),
+        direction: MirDirection::Down,
+        level: 10,
+        experience: 0,
+        max_experience: 0,
+        class: MirClass::Warrior,
+        gender: MirGender::Male,
+        hair: 1,
+        hp: base.hp,
+        mp: base.mp,
+        stats: base,
+        action_time: 0,
+        attack_time: 0,
+        struck_time: 0,
+        regen_time: i64::MAX,
+        death_time: 0,
+        revive_time: 0,
+        cell_time: 0,
+        step_counter: 0,
+        run_counter: 0,
+        run_time: 0,
+        dead: false,
+        attack_mode: AttackMode::Peace,
+        pk_points: 0,
+        brown_time: 0,
+        pk_point_time: 0,
+        last_hitter: None,
+        last_hit_time: 0,
+        name_colour: mir_core::Color(-1),
+        visible_monsters: std::collections::BTreeSet::new(),
+        visible_npcs: std::collections::BTreeSet::new(),
+        visible_items: std::collections::BTreeSet::new(),
+        movement_time: 0,
+        inventory: items::new_inventory(),
+        equipment: items::new_equipment(),
+        storage: mir_server::storage::new_storage(),
+        magics: Vec::new(),
+        magic: MagicState::default(),
+        gold: 0,
+        credit: 0,
+        quests: Vec::new(),
+        completed_quests: std::collections::BTreeSet::new(),
+        mail: mir_server::MailState::default(),
+        buffs: Vec::new(),
+        pot_health_amount: 0,
+        pot_mana_amount: 0,
+        pot_time: 0,
+        unlock_curse: false,
+        npc: NpcState::default(),
+        group_id: None,
+        group_invitation: None,
+        group_invite_time: 0,
+        allow_group: true,
+        guild: None,
+        trade: TradeState::default(),
+        trade_invitation: None,
+        next_trade_time: 0,
+        allow_trade: true,
+        sender,
+    });
+}
 
 /// 发一次最简 HTTP GET，返回 `(状态行, body)`。
 async fn http_get(address: std::net::SocketAddr, path: &str) -> (String, String) {
@@ -91,10 +170,38 @@ async fn metrics_endpoint_lists_players_per_map() {
         .await
         .expect("绑定 metrics 端口");
 
-    // 没有玩家时也要有 `mir2_players_online 0`，且不会崩。
+    // 1) 空世界：只有 `mir2_players_online`，没有任何 `mir2_players_on_map{...}` 行。
     let (status, body) = http_get(address, "/metrics").await;
     assert!(status.contains("200"), "{status}");
     assert!(body.contains("mir2_players_online "), "{body}");
+    assert!(
+        !body.contains("mir2_players_on_map{"),
+        "没有玩家时不应出现每图人数行：\n{body}"
+    );
+
+    // 2) 放一个玩家进 map 0：`mir2_players_on_map{map="0"} 1`。
+    {
+        let mut world = world.lock().await;
+        enter_player(&mut world, 1, "0");
+    }
+    let (status, body) = http_get(address, "/metrics").await;
+    assert!(status.contains("200"), "{status}");
+    assert!(
+        body.contains("mir2_players_on_map{map=\"0\"} 1"),
+        "map 0 应恰好 1 人：\n{body}"
+    );
+
+    // 3) 玩家离开后回到 0（渲染时不再列出该图）。
+    {
+        let mut world = world.lock().await;
+        world.leave(1);
+    }
+    let (status, body) = http_get(address, "/metrics").await;
+    assert!(status.contains("200"), "{status}");
+    assert!(
+        !body.contains("mir2_players_on_map{map=\"0\"} 1"),
+        "玩家离开后 map 0 不应再是 1：\n{body}"
+    );
 }
 
 #[tokio::test]

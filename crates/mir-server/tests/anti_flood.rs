@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use mir_protocol::codec::FrameBuffer;
 use mir_protocol::packets::client as c;
+use mir_protocol::packets::server as s;
 use mir_protocol::{ClientPacket, ServerPacket};
 use mir_server::server::{ConnReject, ConnectionLimiter};
 use mir_server::{MemoryStore, ServerConfig, serve_forever};
@@ -212,10 +213,73 @@ fn connection_limiter_enforces_both_limits() {
 
 #[tokio::test]
 async fn zero_thresholds_disable_the_limits() {
-    // 全部 0 = 不限制：连续三条连接都应在（不因限流被关）。
+    // ---- 1) 纯逻辑：并发/每秒都是 0 = 不限制，同 IP 连开 11 条都不被拒、也不记账。
+    let ip: IpAddr = "198.51.100.9".parse().expect("IP");
+    let mut limiter = ConnectionLimiter::new(0, 0);
+    for attempt in 1..=11 {
+        assert_eq!(
+            limiter.try_acquire(ip, 100),
+            None,
+            "阈值 0 时同 IP 第 {attempt} 条连接不应被限流"
+        );
+    }
+    assert_eq!(limiter.concurrent_for(ip), 0, "阈值 0 时不应记录并发数");
+
+    // ---- 2) e2e：11 条真连接每条都能拿到 `S.Connected`（限流全关）。
     let address = start(base_config()).await;
-    let (first, _f1) = connect(address).await;
-    let (second, _f2) = connect(address).await;
-    let (third, _f3) = connect(address).await;
-    drop((first, second, third));
+    let mut sockets = Vec::new();
+    for attempt in 1..=11 {
+        let (stream, mut frames) = connect(address).await;
+        let (index, _payload) = frames
+            .next_frame()
+            .expect("帧格式")
+            .expect("应收到 Connected");
+        assert_eq!(
+            index,
+            s::Connected::INDEX,
+            "阈值 0 时第 {attempt} 条同 IP 连接应被正常接受"
+        );
+        sockets.push(stream);
+    }
+
+    // ---- 3) 包速率 0 = 不限制：300 个 `KeepAlive` 应几乎全部回包、且不断线。
+    let (mut stream, mut frames) = connect(address).await;
+    stream
+        .write_all(
+            &ClientPacket::ClientVersion(c::ClientVersion {
+                version_hash: Vec::new(),
+            })
+            .encode_frame(),
+        )
+        .await
+        .expect("发送版本");
+    for _ in 0..300 {
+        stream
+            .write_all(&ClientPacket::KeepAlive(c::KeepAlive { time: 0 }).encode_frame())
+            .await
+            .expect("发送 KeepAlive");
+    }
+    let mut replies = 0_usize;
+    let mut chunk = [0u8; 8192];
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    while tokio::time::Instant::now() < deadline && replies < 250 {
+        while let Some((index, payload)) = frames.next_frame().expect("帧格式") {
+            let packet = ServerPacket::decode(index, &payload).expect("解析服务端包");
+            if matches!(packet, ServerPacket::KeepAlive(_)) {
+                replies += 1;
+            }
+        }
+        match tokio::time::timeout(Duration::from_millis(200), stream.read(&mut chunk)).await {
+            Ok(Ok(0)) => panic!("包速率上限为 0 时不应断开连接"),
+            Ok(Ok(read)) => frames.push(&chunk[..read]),
+            Ok(Err(error)) => panic!("连接被关闭：{error}"),
+            Err(_) => {}
+        }
+    }
+    assert!(
+        replies >= 250,
+        "包速率上限 0（不限制）时 300 个 KeepAlive 应几乎全部回包，实际只有 {replies}"
+    );
+
+    drop(sockets);
 }

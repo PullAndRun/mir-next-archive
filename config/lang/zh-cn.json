@@ -2,6 +2,12 @@
   "language": "zh-cn",
   "server": {
     "account_banned": "该账号已被封禁。",
+    "ally_accepted": "结盟成功。",
+    "ally_failed": "联盟操作失败。",
+    "ally_guild_not_found": "找不到该行会。",
+    "ally_removed": "已解除联盟。",
+    "ally_requested": "结盟申请已发送，等待对方会长同意。",
+    "ally_usage": "用法：/ally request|accept|remove <行会名或ID>",
     "character_name_invalid": "角色名不合法：3-15 个汉字、字母、数字或下划线。",
     "character_name_taken": "该角色名已被占用。",
     "conquest_already_owner": "你的行会已经是这座城的城主",

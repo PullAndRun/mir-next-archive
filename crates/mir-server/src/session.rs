@@ -1544,16 +1544,19 @@ impl<S: AccountStore> Session<S> {
         let Some(object_id) = self.object_id else {
             return;
         };
+        let language = self.language.language();
+        let usage = mir_core::i18n::text(language, mir_core::i18n::TextKey::AllyUsage);
         let mut parts = rest.split_whitespace();
         let Some(action) = parts.next() else {
-            self.send_system_chat("usage: /ally request|accept|remove <guild>");
+            self.send_system_chat(usage);
             return;
         };
         let mut world = self.world.lock().await;
+        let success;
         let result = match action {
             "request" | "remove" => {
                 let Some(query) = parts.next() else {
-                    self.send_system_chat("usage: /ally request|accept|remove <guild>");
+                    self.send_system_chat(usage);
                     return;
                 };
                 let target = query
@@ -1561,8 +1564,14 @@ impl<S: AccountStore> Session<S> {
                     .ok()
                     .or_else(|| world.guild_id_by_name(query));
                 let Some(target) = target else {
-                    self.send_system_chat("ally: guild not found");
+                    let message = world.text(object_id, mir_core::i18n::TextKey::AllyGuildNotFound);
+                    self.send_system_chat(&message);
                     return;
+                };
+                success = if action == "request" {
+                    mir_core::i18n::TextKey::AllyRequested
+                } else {
+                    mir_core::i18n::TextKey::AllyRemoved
                 };
                 if action == "request" {
                     world.request_guild_ally(object_id, target)
@@ -1570,16 +1579,24 @@ impl<S: AccountStore> Session<S> {
                     world.remove_guild_ally(object_id, target)
                 }
             }
-            "accept" => world.accept_guild_ally(object_id).map(|_| ()),
+            "accept" => {
+                success = mir_core::i18n::TextKey::AllyAccepted;
+                world.accept_guild_ally(object_id).map(|_| ())
+            }
             _ => {
-                self.send_system_chat("usage: /ally request|accept|remove <guild>");
+                self.send_system_chat(usage);
                 return;
             }
         };
         match result {
-            Ok(()) => self.send_system_chat("ally: ok"),
+            Ok(()) => {
+                let message = world.text(object_id, success);
+                self.send_system_chat(&message);
+            }
             Err(error) => {
-                let message = format!("ally: {error}");
+                // 详细错误（`GuildAllyError` 的英文 Display）只进日志，玩家看到本地化提示。
+                tracing::debug!(session = self.id, %error, "联盟命令失败");
+                let message = world.text(object_id, mir_core::i18n::TextKey::AllyFailed);
                 self.send_system_chat(&message);
             }
         }

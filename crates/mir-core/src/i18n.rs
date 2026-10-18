@@ -472,6 +472,18 @@ pub enum TextKey {
     /// `CheckNeedQuestItem` → `S.SendOutputMessage{Type=Quest}`，`PlayerObject.cs:11549-11550`）；
     /// 模板：`你找到了 {item}`；参数：`{item}`。
     QuestItemFound,
+    /// 场景：`/ally` 用法提示（`session.rs` 联盟命令，本作扩展）；模板：`用法：/ally request|accept|remove <行会名或ID>`；参数：无。
+    AllyUsage,
+    /// 场景：`/ally` 找不到目标行会；模板：`找不到该行会。`；参数：无。
+    AllyGuildNotFound,
+    /// 场景：`/ally request` 成功；模板：`结盟申请已发送，等待对方会长同意。`；参数：无。
+    AllyRequested,
+    /// 场景：`/ally accept` 成功；模板：`结盟成功。`；参数：无。
+    AllyAccepted,
+    /// 场景：`/ally remove` 成功；模板：`已解除联盟。`；参数：无。
+    AllyRemoved,
+    /// 场景：`/ally` 操作失败；模板：`联盟操作失败。`；参数：无（详细错误只进日志）。
+    AllyFailed,
     /// 场景：`on_gameshop_buy 读计数失败`（`session.rs:487`）；模板：`商城暂时不可用，请稍后再试。`；参数：无。
     GameshopStoreUnavailable,
     /// 场景：`on_gameshop_buy 市场页签成功回执`（`session.rs:488`）；模板：`你购买了 {item} × {count}。`；参数：`{item}`、`{count}`。
@@ -700,6 +712,12 @@ impl TextKey {
         Self::QuestTaskItem,
         Self::QuestTaskFlag,
         Self::QuestItemFound,
+        Self::AllyUsage,
+        Self::AllyGuildNotFound,
+        Self::AllyRequested,
+        Self::AllyAccepted,
+        Self::AllyRemoved,
+        Self::AllyFailed,
         Self::GameshopStoreUnavailable,
         Self::GameshopBoughtMarketSuccess,
         Self::GameshopRolledBack,
@@ -907,6 +925,12 @@ impl TextKey {
             Self::QuestTaskItem => "quest_task_item",
             Self::QuestTaskFlag => "quest_task_flag",
             Self::QuestItemFound => "quest_item_found",
+            Self::AllyUsage => "ally_usage",
+            Self::AllyGuildNotFound => "ally_guild_not_found",
+            Self::AllyRequested => "ally_requested",
+            Self::AllyAccepted => "ally_accepted",
+            Self::AllyRemoved => "ally_removed",
+            Self::AllyFailed => "ally_failed",
             Self::GameshopStoreUnavailable => "gameshop_store_unavailable",
             Self::GameshopBoughtMarketSuccess => "gameshop_bought_market_success",
             Self::GameshopRolledBack => "gameshop_rolled_back",
@@ -1119,6 +1143,12 @@ impl TextKey {
             Self::QuestTaskItem => &["item", "count", "total"],
             Self::QuestTaskFlag => &["number", "done_suffix"],
             Self::QuestItemFound => &["item"],
+            Self::AllyUsage => &[],
+            Self::AllyGuildNotFound => &[],
+            Self::AllyRequested => &[],
+            Self::AllyAccepted => &[],
+            Self::AllyRemoved => &[],
+            Self::AllyFailed => &[],
             Self::GameshopStoreUnavailable => &[],
             Self::GameshopBoughtMarketSuccess => &["item", "count"],
             Self::GameshopRolledBack => &[],
@@ -1478,6 +1508,12 @@ const fn text_zh(key: TextKey) -> &'static str {
         TextKey::QuestTaskItem => "收集 {item} {count}/{total}",
         TextKey::QuestTaskFlag => "激活标记 {number}{done_suffix}",
         TextKey::QuestItemFound => "你找到了 {item}",
+        TextKey::AllyUsage => "用法：/ally request|accept|remove <行会名或ID>",
+        TextKey::AllyGuildNotFound => "找不到该行会。",
+        TextKey::AllyRequested => "结盟申请已发送，等待对方会长同意。",
+        TextKey::AllyAccepted => "结盟成功。",
+        TextKey::AllyRemoved => "已解除联盟。",
+        TextKey::AllyFailed => "联盟操作失败。",
         TextKey::GameshopStoreUnavailable => "商城暂时不可用，请稍后再试。",
         TextKey::GameshopBoughtMarketSuccess => "你购买了 {item} × {count}。",
         TextKey::GameshopRolledBack => "商城购买失败：已退回支付的货币与物品，请稍后再试。",
@@ -1772,6 +1808,14 @@ const fn text_en(key: TextKey) -> &'static str {
         TextKey::QuestTaskItem => "Collect {item} {count}/{total}",
         TextKey::QuestTaskFlag => "Activate flag {number}{done_suffix}",
         TextKey::QuestItemFound => "You found {item}",
+        TextKey::AllyUsage => "Usage: /ally request|accept|remove <guild name or id>",
+        TextKey::AllyGuildNotFound => "Guild not found.",
+        TextKey::AllyRequested => {
+            "Ally request sent; waiting for the other guild leader's approval."
+        }
+        TextKey::AllyAccepted => "Alliance formed.",
+        TextKey::AllyRemoved => "Alliance dissolved.",
+        TextKey::AllyFailed => "Ally operation failed.",
         TextKey::GameshopStoreUnavailable => {
             "The shop is temporarily unavailable. Please try again later."
         }
@@ -2153,7 +2197,7 @@ mod tests {
         //
         // 新增变体时必须同时登记 `TextKey::ALL`，否则这条会挡住——`ALL` 是
         // 语言包校验与参数核对的唯一入口，漏登记等于漏测试。
-        assert_eq!(TextKey::ALL.len(), 201, "新增/删除键时同步更新数量");
+        assert_eq!(TextKey::ALL.len(), 207, "新增/删除键时同步更新数量");
     }
 
     #[test]

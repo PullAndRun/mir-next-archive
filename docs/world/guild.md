@@ -728,7 +728,9 @@ Crystal 本版 `GuildInfo.AllyGuilds`（`GuildObject.cs:63`）**字段未被任�
 | `/ally remove <行会名\|ID>` | 只有会长 | 解除联盟（双向删除并落盘） |
 
 错误枚举 `GuildAllyError`：`AlreadyAllied` / `AllyLimitReached` / `NoPendingRequest` /
-`NotAllied`（英文 Display，只进日志/GM 可见）。
+`NotAllied`（英文 Display **只进日志**；玩家侧统一走 TextKey：`ally_usage` /
+`ally_guild_not_found` / `ally_requested` / `ally_accepted` / `ally_removed` / `ally_failed`，
+按玩家语言渲染）。
 
 ### 15.3 盟友 PK 豁免（本作扩展）
 

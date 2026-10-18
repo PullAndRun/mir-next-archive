@@ -2,6 +2,12 @@
   "language": "en",
   "server": {
     "account_banned": "This account is banned.",
+    "ally_accepted": "Alliance formed.",
+    "ally_failed": "Ally operation failed.",
+    "ally_guild_not_found": "Guild not found.",
+    "ally_removed": "Alliance dissolved.",
+    "ally_requested": "Ally request sent; waiting for the other guild leader's approval.",
+    "ally_usage": "Usage: /ally request|accept|remove <guild name or id>",
     "character_name_invalid": "Invalid character name: 3-15 CJK characters, letters, digits or underscores.",
     "character_name_taken": "That character name is already taken.",
     "conquest_already_owner": "Your guild already owns this castle.",

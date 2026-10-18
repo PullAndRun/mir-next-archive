@@ -66,6 +66,12 @@ EXTENSION_KEYS = (
     "guild_not_allowed_change_rank",
     "guild_not_allowed_change_notice",
     "quest_item_found",
+    "ally_usage",
+    "ally_guild_not_found",
+    "ally_requested",
+    "ally_accepted",
+    "ally_removed",
+    "ally_failed",
 )
 
 #: 允许带参数的扩展键（Crystal `ServerTextKeys.YouFound` 是 `You found {0}`）。

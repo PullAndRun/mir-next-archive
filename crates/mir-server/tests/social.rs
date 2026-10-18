@@ -318,3 +318,41 @@ fn guild_ally_limit_zero_means_unlimited() {
     }
     assert_eq!(world.guild_allies(1).len(), 7);
 }
+
+#[test]
+fn ally_replies_are_localized() {
+    use mir_core::i18n::{Language, TextKey};
+
+    let mut world = world();
+    add_player(&mut world, 1, 10, None);
+    world.set_player_language(1, Language::ZhCn);
+    assert_eq!(
+        world.text(1, TextKey::AllyUsage),
+        "用法：/ally request|accept|remove <行会名或ID>"
+    );
+    assert_eq!(world.text(1, TextKey::AllyGuildNotFound), "找不到该行会。");
+    assert_eq!(
+        world.text(1, TextKey::AllyRequested),
+        "结盟申请已发送，等待对方会长同意。"
+    );
+    assert_eq!(world.text(1, TextKey::AllyAccepted), "结盟成功。");
+    assert_eq!(world.text(1, TextKey::AllyRemoved), "已解除联盟。");
+    assert_eq!(world.text(1, TextKey::AllyFailed), "联盟操作失败。");
+
+    world.set_player_language(1, Language::En);
+    assert_eq!(
+        world.text(1, TextKey::AllyUsage),
+        "Usage: /ally request|accept|remove <guild name or id>"
+    );
+    assert_eq!(
+        world.text(1, TextKey::AllyGuildNotFound),
+        "Guild not found."
+    );
+    assert_eq!(
+        world.text(1, TextKey::AllyRequested),
+        "Ally request sent; waiting for the other guild leader's approval."
+    );
+    assert_eq!(world.text(1, TextKey::AllyAccepted), "Alliance formed.");
+    assert_eq!(world.text(1, TextKey::AllyRemoved), "Alliance dissolved.");
+    assert_eq!(world.text(1, TextKey::AllyFailed), "Ally operation failed.");
+}

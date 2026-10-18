@@ -12,7 +12,8 @@
 //! **组队**（见 [`group`] 与 `docs/world/group.md`）、
 //! **行会**（见 [`guild`]、[`guild_storage`]、[`guild_buffs`] 与 `docs/world/guild.md`；
 //! 攻城/联盟/投票未做）、**玩家仓库**（见 [`storage`] 与 `docs/world/storage.md`）以及
-//! **邮件**（见 [`mail`] 与 `docs/world/mail.md`）。
+//! **邮件**（见 [`mail`] 与 `docs/world/mail.md`）以及
+//! **玩家对玩家（PK）**（攻击模式、PK 值/红棕名、死亡掉落与守卫，见 `docs/world/pk.md`）。
 
 pub mod buffs;
 pub mod combat;

@@ -7,18 +7,18 @@
 use std::sync::Arc;
 
 use mir_core::enums::{
-    ChatType, HeroBehaviour, IntelligentCreatureType, LightSetting, MirClass, MirDirection,
-    MirGridType, PanelType, WeatherSetting,
+    AttackMode, ChatType, HeroBehaviour, IntelligentCreatureType, LightSetting, MirClass,
+    MirDirection, MirGridType, PanelType, WeatherSetting,
 };
 use mir_core::i18n::LanguageLibrary;
 use mir_core::{DateTimeBinary, LanguageCatalog, Point, TextKey};
 use mir_protocol::data::{ClientMagic, SelectInfo, UserItem};
 use mir_protocol::manual::server::{MapInformation, UserInformation};
 use mir_protocol::packets::server::{
-    ClientVersion as ClientVersionResponse, Connected, DeleteCharacter as DeleteCharacterResult,
-    DeleteCharacterSuccess, LogOutSuccess, Login as LoginResult, LoginBanned, LoginSuccess,
-    NewAccount as NewAccountResult, NewCharacter as NewCharacterResult, NewCharacterSuccess,
-    StartGame,
+    ChangeAMode, ClientVersion as ClientVersionResponse, Connected,
+    DeleteCharacter as DeleteCharacterResult, DeleteCharacterSuccess, LogOutSuccess,
+    Login as LoginResult, LoginBanned, LoginSuccess, NewAccount as NewAccountResult,
+    NewCharacter as NewCharacterResult, NewCharacterSuccess, StartGame,
 };
 use mir_protocol::{ClientPacket, ServerPacket};
 use tokio::sync::Mutex;
@@ -147,6 +147,8 @@ impl<S: AccountStore> Session<S> {
             ClientPacket::Walk(packet) => self.on_move(packet.direction, false).await,
             ClientPacket::Run(packet) => self.on_move(packet.direction, true).await,
             ClientPacket::Attack(packet) => self.on_attack(packet.direction).await,
+            // 攻击模式：`C.ChangeAMode`（Crystal `MirConnection.cs:1432-1439`）。
+            ClientPacket::ChangeAMode(packet) => self.on_change_attack_mode(packet.mode).await,
             ClientPacket::Chat(packet) => self.on_chat(&packet.message).await,
             ClientPacket::PickUp(_) => self.on_pickup().await,
             ClientPacket::DropItem(packet) => {
@@ -661,6 +663,16 @@ impl<S: AccountStore> Session<S> {
             run_counter: 0,
             run_time: 0,
             dead: false,
+            // 攻击模式/PK 状态：Crystal 的 `AMode` 与 `PKPoints` 都存在 `CharacterInfo`
+            // （`CharacterInfo.cs:66`、`:249`）。本作还没有把这两项写进角色库，
+            // 登录时从默认值开始（偏差见 `docs/world/pk.md`）。
+            attack_mode: AttackMode::Peace,
+            pk_points: 0,
+            brown_time: 0,
+            pk_point_time: 0,
+            last_hitter: None,
+            last_hit_time: 0,
+            name_colour: crate::world::NAME_COLOUR_WHITE,
             visible_monsters: std::collections::BTreeSet::new(),
             visible_npcs: std::collections::BTreeSet::new(),
             movement_time: 0,
@@ -763,6 +775,15 @@ impl<S: AccountStore> Session<S> {
             &equipment,
             &client_magics,
         )));
+        // `Enqueue(new S.ChangeAMode { Mode = AMode });`（`PlayerObject.cs:1217`）：
+        // 排在 `TimeOfDay` 之后、`SwitchGroup` 之前；本作没有 `TimeOfDay`，所以直接紧跟
+        // `UserInformation`。
+        let attack_mode = {
+            let world = self.world.lock().await;
+            world.attack_mode_of(object_id)
+        }
+        .unwrap_or_default();
+        self.send(ServerPacket::ChangeAMode(ChangeAMode { mode: attack_mode }));
         // `Enqueue(new S.SwitchGroup { AllowGroup = AllowGroup });`（`PlayerObject.cs:1219`）。
         self.send(ServerPacket::SwitchGroup(
             mir_protocol::packets::server::SwitchGroup { allow_group },
@@ -923,6 +944,27 @@ impl<S: AccountStore> Session<S> {
                 continue;
             }
             return;
+        }
+    }
+
+    /// 切换攻击模式（`C.ChangeAMode`）。
+    ///
+    /// Crystal `MirConnection.ChangeAMode`（`Server/MirNetwork/MirConnection.cs:1432-1439`）：
+    ///
+    /// ```csharp
+    /// if (Stage != GameStage.Game) return;
+    /// Player.AMode = p.Mode;
+    /// Enqueue(new S.ChangeAMode { Mode = Player.AMode });
+    /// ```
+    ///
+    /// 没有额外校验（未知值在协议解码时已经落回 `AttackMode::Peace`），也不广播。
+    async fn on_change_attack_mode(&mut self, mode: AttackMode) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        if world.change_attack_mode(object_id, mode) {
+            tracing::debug!(session = self.id, ?mode, "切换攻击模式");
         }
     }
 

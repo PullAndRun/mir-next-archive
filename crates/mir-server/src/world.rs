@@ -34,6 +34,12 @@
 //! | 回血回蓝 | `process_player_regen` | `HumanObject.ProcessRegen`（`HumanObject.cs:550-649`） |
 //!
 //! 每个常量的出处见 `docs/world/combat.md` 的常量表。
+//!
+//! # 玩家对玩家（PK）
+//!
+//! 攻击模式、PvP 结算、PK 值/红棕黄名、死亡掉落与守卫的完整规则见 `docs/world/pk.md`。
+//! 本模块里对应的入口是 [`World::change_attack_mode`]、[`World::is_attack_target_player`]、
+//! `damage_player_from_player`、`process_pk_points`、`refresh_name_colour` 与 `player_died`。
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
@@ -42,15 +48,16 @@ use std::time::Instant;
 use mir_core::MirRng;
 use mir_core::Point;
 use mir_core::enums::{
-    ChatType, DamageType, DefenceType, MirClass, MirDirection, MirGender, MonsterType, PoisonType,
-    Spell, SpellEffect,
+    AttackMode, ChatType, DamageType, DefenceType, MirClass, MirDirection, MirGender, MonsterType,
+    PoisonType, Spell, SpellEffect, Stat,
 };
 use mir_protocol::ServerPacket;
 use mir_protocol::data::UserItem;
 use mir_protocol::packets::server::{
-    DamageIndicator, Death, GainExperience, HealthChanged, LevelChanged, ObjectAttack, ObjectDied,
-    ObjectEffect, ObjectHealth, ObjectLeveled, ObjectMonster, ObjectPlayer, ObjectRemove,
-    ObjectRevived, ObjectRun, ObjectStruck, ObjectTurn, ObjectWalk, Revived, Struck, UserLocation,
+    ChangeAMode, ColourChanged, DamageIndicator, Death, GainExperience, HealthChanged,
+    LevelChanged, ObjectAttack, ObjectColourChanged, ObjectDied, ObjectEffect, ObjectHealth,
+    ObjectLeveled, ObjectMonster, ObjectPlayer, ObjectRemove, ObjectRevived, ObjectRun,
+    ObjectStruck, ObjectTurn, ObjectWalk, RefreshItem, Revived, Struck, UserLocation,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -118,6 +125,32 @@ pub const POT_REGEN_BASE: i32 = 5;
 /// **原地**复活（等价 `HumanObject.Revive`，`HumanObject.cs:1690-1721`），
 /// 时长取客户端「死亡动画 + 弹窗」的量级 10 秒。
 pub const PLAYER_REVIVE_DELAY_MS: i64 = 10_000;
+/// PK 值：击杀一个「非红名、非棕名」玩家给凶手加的点数
+/// （Crystal `PlayerObject.cs:611`：`hitter.PKPoints = Math.Min(int.MaxValue, LastHitter.PKPoints + 100)`）。
+pub const PK_POINTS_PER_KILL: i32 = 100;
+/// 红名阈值：`PKPoints >= 200`（Crystal `PlayerObject.cs:1855`、`:4670`、`:4679`）。
+pub const RED_NAME_PK_POINTS: i32 = 200;
+/// 黄名阈值：`PKPoints >= 100`（Crystal `PlayerObject.cs:1886`）。
+pub const YELLOW_NAME_PK_POINTS: i32 = 100;
+/// PK 值自然衰减的间隔：Crystal `Settings.PKDelay = 12` 秒（`Server/Settings.cs:119`），
+/// 每过一个间隔 `PKPoints--`（`Server/MirObjects/MapObject.cs:212-216`）。
+pub const PK_DELAY_MS: i64 = 12_000;
+/// 攻击白名玩家后攻方变棕名的时长：Crystal `attacker.BrownTime = Envir.Time + Settings.Minute`
+/// （`Server/MirObjects/HumanObject.cs:7199-7200`）。
+pub const BROWN_NAME_DURATION_MS: i64 = MINUTE_MS;
+/// `LastHitter` 的保留时长：Crystal `LastHitTime = Envir.Time + 10000`
+/// （`Server/MirObjects/HumanObject.cs:7195`，超时后 `MapObject.cs:218-221` 清空）。
+pub const LAST_HITTER_TIMEOUT_MS: i64 = 10_000;
+/// 白名（Crystal `Color.White.ToArgb() = -1`，`System.Drawing.Color.White`）。
+pub const NAME_COLOUR_WHITE: mir_core::Color = mir_core::Color(-1);
+/// 红名（Crystal `PlayerObject.cs:1856`、`Color.Red`）。
+pub const NAME_COLOUR_RED: mir_core::Color = mir_core::Color::from_rgb(0xFF, 0x00, 0x00);
+/// 棕名（Crystal `PlayerObject.cs:1859`、`Color.SaddleBrown`）。
+pub const NAME_COLOUR_BROWN: mir_core::Color = mir_core::Color::from_rgb(0x8B, 0x45, 0x13);
+/// 黄名（Crystal `PlayerObject.cs:1887`、`Color.Yellow`）。
+pub const NAME_COLOUR_YELLOW: mir_core::Color = mir_core::Color::from_rgb(0xFF, 0xFF, 0x00);
+/// 守卫的名字颜色（Crystal `Server/MirObjects/Monsters/Guard.cs:27`、`Color.SkyBlue`）。
+pub const NAME_COLOUR_GUARD: mir_core::Color = mir_core::Color::from_rgb(0x87, 0xCE, 0xEB);
 /// 刷怪失败（找不到空位）后的重试冷却：Crystal `respawn.RespawnTime = Envir.Time + 1 * Settings.Minute`
 /// （`Server/MirEnvir/Map.cs:770`）。
 pub const RESPAWN_FAIL_DELAY_MS: i64 = MINUTE_MS;
@@ -184,6 +217,41 @@ pub struct Player {
     pub run_time: i64,
     /// 是否已死亡（`Death` 包已发，等 [`World::revive_player`] 复活）。
     pub dead: bool,
+    /// 攻击模式（Crystal `HumanObject.AMode` → `CharacterInfo.AMode`，`HumanObject.cs:69-73`）。
+    ///
+    /// 由 `C.ChangeAMode` 修改（`MirConnection.cs:1432-1439`），判定见
+    /// [`World::is_attack_target_player`]。默认 [`AttackMode::Peace`]（`AttackMode` 的判别值 0）。
+    pub attack_mode: AttackMode,
+    /// PK 值（Crystal `CharacterInfo.PKPoints`，`Server/MirDatabase/CharacterInfo.cs:66`）。
+    ///
+    /// * 击杀白名玩家 +100（`PlayerObject.cs:611`）；
+    /// * 每 12 秒自然 -1（`MapObject.cs:212-216`，`Settings.PKDelay = 12`，`Settings.cs:119`）；
+    /// * `>= 100` 黄名、`>= 200` 红名（`PlayerObject.cs:1855-1887`）；
+    /// * 死亡不清零（`Info.PKPoints` 是存档字段，`CharacterInfo.cs:187`）。
+    ///
+    /// 简化：本作还没有把 PK 值写进 `mir-store`（不在本轮范围内），所以**重启后归零**；
+    /// 同一进程内死亡/复活都保留。
+    pub pk_points: i32,
+    /// 棕名到期时刻（Crystal `MapObject.BrownTime`，`MapObject.cs:59-64`）。
+    ///
+    /// 攻击非红非棕的玩家时由受害者把攻方设成 `now + Settings.Minute`
+    /// （`HumanObject.cs:7199-7200`）；死亡时清成当前时刻（`PlayerObject.cs:647`）。
+    pub brown_time: i64,
+    /// 下一次 PK 值自然衰减的时刻（Crystal `MapObject.PKPointTime`，`MapObject.cs:66`、`:212-216`）。
+    pub pk_point_time: i64,
+    /// 最后一个造成伤害的对象 ID（Crystal `MapObject.LastHitter`，`MapObject.cs:153`）。
+    ///
+    /// 死亡时用它区分「被玩家杀死」与「被怪杀死」（`PlayerObject.cs:599`），
+    /// 并在 [`LAST_HITTER_TIMEOUT_MS`] 后清空（`MapObject.cs:218-221`）。
+    pub last_hitter: Option<u32>,
+    /// `last_hitter` 的保留截止时刻（Crystal `MapObject.LastHitTime`，`MapObject.cs:66`）。
+    pub last_hit_time: i64,
+    /// 当前名字颜色（Crystal `MapObject.NameColour`，`MapObject.cs:67`）。
+    ///
+    /// 由 [`World::refresh_name_colour`] 每个 tick 重算，变化时发
+    /// `S.ColourChanged`（本人）与 `S.ObjectColourChanged`（周围玩家）
+    /// （`PlayerObject.RefreshNameColour`，`PlayerObject.cs:1838-1847`）。
+    pub name_colour: mir_core::Color,
     /// 自己**已经看见**的怪物，用于 `ObjectMonster`/`ObjectRemove` 的增量下发。
     pub visible_monsters: BTreeSet<u32>,
     /// 自己**已经看见**的 NPC（`S.ObjectNPC`）。目前只在进图/切图时整批下发，
@@ -880,6 +948,11 @@ impl World {
             );
         }
         let now = self.now();
+        let mut player = player;
+        // `RefreshNameColour()` 的初值：新进世界时按 PK 值/棕名时间算一次
+        // （Crystal 在 `Load` 之后的第一次 `Process` 里做，这里提前到广播外观之前，
+        // 否则周围玩家会先看到一帧白色名字）。
+        player.name_colour = Self::computed_name_colour(&player, now);
         let appearance = self.appearance_packet(&player);
         // 先让新玩家看到周围的人，再把自己的外观发给别人
         // （Crystal 对视野内每个对象调用 `Add(player)` 下发 `GetInfo()`，`MapObject.cs:286-308`）。
@@ -906,7 +979,6 @@ impl World {
             }
         }
 
-        let mut player = player;
         player.action_time = now;
         // 刚进世界还没移动过，`cell_time` 保持 0 → 会正常阻挡别人。
         player.cell_time = 0;
@@ -1148,13 +1220,28 @@ impl World {
         Ok(destination)
     }
 
+    /// 尚未结算的延迟伤害队列（只读）。
+    ///
+    /// 对应 Crystal 挂在每个对象 `ActionList` 上的 `DelayedType.Damage`
+    /// （`Server/MirObjects/MapObject.cs:228-233`）；测试与运维用它观察「动作已广播、
+    /// 伤害还没落地」的中间状态。
+    #[must_use]
+    pub fn pending_hits(&self) -> &[PendingHit] {
+        &self.pending_hits
+    }
+
     /// 玩家物理攻击（Crystal `HumanObject.Attack` 的近战分支，`HumanObject.cs:2848-3204`）。
     ///
     /// 流程：`CanAttack` → 本人 `UserLocation` + 周围 `ObjectAttack` → 计时 →
     /// 抽伤害 → 前方一格取第一个可攻击对象 → 排入 300ms 后的延迟伤害。
     ///
-    /// 简化：不处理技能（`Spell`）、幸运/诅咒开关、`Fencing`/`MoonLight` 等加成；
-    /// PK 未实现，所以近战**只打怪物**（Crystal 还会按 PK 规则打玩家）。
+    /// 目标可以是怪物（现有分支）或玩家（PK，见 [`World::is_attack_target_player`]），
+    /// 选择顺序照抄 Crystal：遍历格子里的对象，第一个 `IsAttackTarget` 为真的对象被选中
+    /// （`HumanObject.cs:3029-3035`、`:3201-3203`）；对象按创建顺序排列，等价于本作的
+    /// 「对象 ID 升序」。守卫不可被攻击（`Guard.IsAttackTarget` 恒为 false，
+    /// `Monsters/Guard.cs:54-55`）。
+    ///
+    /// 简化：不处理技能（`Spell`）、幸运/诅咒开关、`Fencing`/`MoonLight` 等加成。
     ///
     /// # Errors
     /// 对象不在世界里、已死亡或还在动作/攻击冷却里时返回 [`CombatError`]。
@@ -1217,7 +1304,7 @@ impl World {
         if !self.walkable_on(&map, target_cell) {
             return Ok(None);
         }
-        let Some(target_id) = self.melee_target(&map, target_cell) else {
+        let Some(target_id) = self.melee_target(object_id, &map, target_cell) else {
             return Ok(None);
         };
         self.pending_hits.push(PendingHit {
@@ -1233,15 +1320,93 @@ impl World {
         }))
     }
 
-    /// 前方格子上第一个可攻击的怪物。
+    /// 前方格子上第一个可攻击的对象（玩家或怪物）。
     ///
-    /// Crystal 遍历 `cell.Objects` 并在第一个可攻击对象上 `break`（`HumanObject.cs:3029-3203`）。
-    /// 简化：PK 未实现，这里只挑怪物（按生成顺序取第一个）。
-    fn melee_target(&self, map: &str, cell: Point) -> Option<u32> {
-        self.monsters
-            .iter()
-            .find(|monster| monster.map == map && !monster.dead && monster.position == cell)
-            .map(|monster| monster.object_id)
+    /// Crystal 遍历 `cell.Objects` 并在第一个 `IsAttackTarget` 为真的对象上 `break`
+    /// （`HumanObject.cs:3029-3203`）。对象在格子里按加入顺序排列，而对象 ID 是全局
+    /// 递增分配的，所以这里按 **对象 ID 升序**合并玩家与怪物，等价于 Crystal 的格子顺序。
+    ///
+    /// * 玩家：交给 [`World::is_attack_target_player`]（安全区、攻击模式、红棕名等）；
+    /// * 怪物：守卫永远不可攻击（`Monsters/Guard.cs:54-55`），其余野生怪可以。
+    fn melee_target(&self, attacker_id: u32, map: &str, cell: Point) -> Option<u32> {
+        let mut candidates: Vec<(u32, bool)> = Vec::new();
+        for player in self.players.values() {
+            if player.map == map && !player.dead && player.position == cell {
+                candidates.push((player.object_id, true));
+            }
+        }
+        for monster in &self.monsters {
+            if monster.map == map && !monster.dead && monster.position == cell {
+                candidates.push((monster.object_id, false));
+            }
+        }
+        candidates.sort_unstable();
+        for (object_id, is_player) in candidates {
+            if is_player {
+                if self.is_attack_target_player(attacker_id, object_id) {
+                    return Some(object_id);
+                }
+                continue;
+            }
+            // 守卫：`Guard.IsAttackTarget(HumanObject)` 返回 false（`Monsters/Guard.cs:54`）。
+            let guard = self
+                .monster(object_id)
+                .is_some_and(|monster| monster.kind.is_guard());
+            if !guard {
+                return Some(object_id);
+            }
+        }
+        None
+    }
+
+    /// 玩家能否攻击另一个玩家：Crystal `PlayerObject.IsAttackTarget(HumanObject)`
+    /// （`Server/MirObjects/PlayerObject.cs:4650-4674`）。
+    ///
+    /// ```csharp
+    /// if (Dead || InSafeZone || attacker.InSafeZone || attacker == this || GMGameMaster) return false;
+    /// if (CurrentMap.Info.NoFight) return false;
+    /// switch (attacker.AMode) {
+    ///     case All:        return true;
+    ///     case Group:      return GroupMembers == null || !GroupMembers.Contains(attacker);
+    ///     case Guild:      return MyGuild == null || MyGuild != attacker.MyGuild;
+    ///     case EnemyGuild: return MyGuild != null && MyGuild.IsEnemy(attacker.MyGuild);
+    ///     case Peace:      return false;
+    ///     case RedBrown:   return PKPoints >= 200 || Envir.Time < BrownTime;
+    /// }
+    /// ```
+    ///
+    /// * 安全区判定是**双方**都要在区外（`InSafeZone` 是目标，`attacker.InSafeZone` 是攻方）；
+    /// * `NoFight` 地图同样禁止（`Server/MirDatabase/MapInfo.cs` 的 `NoFight`）；
+    /// * 行会战争（`GuildObject` 的 `WarringGuilds` / `IsEnemy`）尚未实现，所以
+    ///   `EnemyGuild` 恒为 false、`Guild` 只按「是否同一行会」判定——
+    ///   见 `docs/world/pk.md` 的异常清单。
+    #[must_use]
+    pub fn is_attack_target_player(&self, attacker_id: u32, target_id: u32) -> bool {
+        let Some(attacker) = self.players.get(&attacker_id) else {
+            return false;
+        };
+        let Some(target) = self.players.get(&target_id) else {
+            return false;
+        };
+        if target.dead || attacker_id == target_id {
+            return false;
+        }
+        if self.in_safe_zone(attacker_id) || self.in_safe_zone(target_id) {
+            return false;
+        }
+        if self.map_no_fight(&target.map) {
+            return false;
+        }
+        match attacker.attack_mode {
+            AttackMode::All => true,
+            AttackMode::Group => !same_group(attacker, target),
+            AttackMode::Guild => !same_guild(attacker, target),
+            // 行会战争未实现（没有「敌对行会」可言）；和平模式恒 false。
+            AttackMode::EnemyGuild | AttackMode::Peace => false,
+            AttackMode::RedBrown => {
+                target.pk_points >= RED_NAME_PK_POINTS || self.now() < target.brown_time
+            }
+        }
     }
 
     /// 世界 tick：玩家簿记 → 到期伤害 → 到期魔法 → 刷怪点 → 怪物 AI。
@@ -1302,6 +1467,10 @@ impl World {
             // 新邮件提示：Crystal 在 `PlayerObject.Process` 里检查 `NewMail`
             // （`PlayerObject.cs:499-503`），本作跟着每 tick 的玩家簿记一起做。
             self.process_new_mail(object_id);
+            // `MapObject.Process` 的 PK 值衰减与 `LastHitter` 过期（`MapObject.cs:212-221`），
+            // 再 `RefreshNameColour()`（`HumanObject.cs:358-360`）。
+            self.process_pk_points(object_id, now);
+            self.refresh_name_colour(object_id);
         }
     }
 
@@ -1428,6 +1597,119 @@ impl World {
         }
     }
 
+    /// PK 值的自然衰减与 `LastHitter` 过期：Crystal `MapObject.Process`
+    /// （`Server/MirObjects/MapObject.cs:212-221`）。
+    ///
+    /// ```csharp
+    /// if (PKPoints > 0 && Envir.Time > PKPointTime) {
+    ///     PKPointTime = Envir.Time + Settings.PKDelay * Settings.Second;   // 12 秒
+    ///     PKPoints--;
+    /// }
+    /// if (LastHitter != null && Envir.Time > LastHitTime) LastHitter = null;
+    /// ```
+    fn process_pk_points(&mut self, object_id: u32, now: i64) {
+        let Some(player) = self.players.get_mut(&object_id) else {
+            return;
+        };
+        if player.pk_points > 0 && now > player.pk_point_time {
+            player.pk_point_time = now + PK_DELAY_MS;
+            player.pk_points -= 1;
+        }
+        if player.last_hitter.is_some() && now > player.last_hit_time {
+            player.last_hitter = None;
+        }
+    }
+
+    /// 计算玩家的名字颜色：Crystal `PlayerObject.GetNameColour`（`PlayerObject.cs:1849-1891`）。
+    ///
+    /// 判定顺序：红名（`PKPoints >= 200`）→ 棕名（`Envir.Time < BrownTime`）→
+    /// WarZone/行会色（未实现）→ 黄名（`PKPoints >= 100`）→ 白名。
+    fn computed_name_colour(player: &Player, now: i64) -> mir_core::Color {
+        if player.pk_points >= RED_NAME_PK_POINTS {
+            NAME_COLOUR_RED
+        } else if now < player.brown_time {
+            NAME_COLOUR_BROWN
+        } else if player.pk_points >= YELLOW_NAME_PK_POINTS {
+            NAME_COLOUR_YELLOW
+        } else {
+            NAME_COLOUR_WHITE
+        }
+    }
+
+    /// 某个玩家当前应有的名字颜色（供登录/测试查询）。
+    #[must_use]
+    pub fn name_colour_for(&self, player_id: u32) -> mir_core::Color {
+        self.players
+            .get(&player_id)
+            .map_or(NAME_COLOUR_WHITE, |player| {
+                Self::computed_name_colour(player, self.now())
+            })
+    }
+
+    /// 重算并广播名字颜色：Crystal `PlayerObject.RefreshNameColour`（`PlayerObject.cs:1838-1847`）
+    /// 与 `HumanObject.BroadcastColourChange`（`HumanObject.cs:2351-2363`）。
+    ///
+    /// 颜色变化时：
+    ///
+    /// * 本人收 `S.ColourChanged { NameColour }`（`PlayerObject.cs:1845`）；
+    /// * 同图视野内的其它玩家收 `S.ObjectColourChanged { ObjectID, NameColour }`
+    ///   （`HumanObject.cs:2361`）。
+    ///
+    /// 没有变化时什么也不发（Crystal 在 `prevColor == NameColour` 时直接 return）。
+    fn refresh_name_colour(&mut self, object_id: u32) {
+        let Some(player) = self.players.get(&object_id) else {
+            return;
+        };
+        let colour = Self::computed_name_colour(player, self.now());
+        if player.name_colour == colour {
+            return;
+        }
+        let map = player.map.clone();
+        let position = player.position;
+        if let Some(player) = self.players.get_mut(&object_id) {
+            player.name_colour = colour;
+        }
+        self.send_to_player(
+            object_id,
+            &ServerPacket::ColourChanged(ColourChanged {
+                name_colour: colour,
+            })
+            .encode_frame(),
+        );
+        let packet = ServerPacket::ObjectColourChanged(ObjectColourChanged {
+            object_id,
+            name_colour: colour,
+        })
+        .encode_frame();
+        self.broadcast(&map, position, Some(object_id), &packet, object_id);
+    }
+
+    /// `C.ChangeAMode`（Crystal `Server/MirNetwork/MirConnection.cs:1432-1439`）。
+    ///
+    /// Crystal 只校验阶段（`Stage != GameStage.Game`），不校验模式值本身；
+    /// 然后 `Player.AMode = p.Mode` 并给**本人**回一条 `S.ChangeAMode`。
+    /// **不广播**给周围玩家——攻击模式是私有状态，源码里没有 `Broadcast`。
+    ///
+    /// 返回是否找到了玩家。
+    pub fn change_attack_mode(&mut self, object_id: u32, mode: AttackMode) -> bool {
+        let Some(player) = self.players.get_mut(&object_id) else {
+            return false;
+        };
+        player.attack_mode = mode;
+        let _ = player
+            .sender
+            .send(ServerPacket::ChangeAMode(ChangeAMode { mode }).encode_frame());
+        true
+    }
+
+    /// 当前攻击模式（登录时补发 `S.ChangeAMode` 用，`PlayerObject.cs:1217`）。
+    #[must_use]
+    pub fn attack_mode_of(&self, object_id: u32) -> Option<AttackMode> {
+        self.players
+            .get(&object_id)
+            .map(|player| player.attack_mode)
+    }
+
     /// 结算到期的延迟伤害（Crystal 每个对象 `ActionList` 里的 `DelayedType.Damage`，
     /// `MapObject.cs:228-233`：`if (Envir.Time < ActionList[i].Time) continue;`）。
     fn resolve_pending_hits(&mut self, now: i64) {
@@ -1459,8 +1741,13 @@ impl World {
             self.damage_monster(hit, &attacker_stats);
             return;
         }
-        // 简化：PK 未实现（玩家不会排入打玩家的延迟伤害），走到这里的必然是「怪物打玩家」。
-        self.damage_player(hit, &attacker_stats);
+        // 目标不是怪物 ⇒ 玩家。攻方是玩家 ⇒ PK 分支（`HumanObject.Attacked(HumanObject)`），
+        // 否则是怪物打玩家（`HumanObject.Attacked(MonsterObject)`）。
+        if self.players.contains_key(&hit.attacker_id) {
+            self.damage_player_from_player(hit, &attacker_stats);
+        } else {
+            self.damage_player(hit, &attacker_stats);
+        }
     }
 
     /// 怪物被打：Crystal `MonsterObject.Attacked(HumanObject)`（`MonsterObject.cs:2569-2684`）。
@@ -1468,6 +1755,15 @@ impl World {
     /// 返回实际扣掉的血量（`damage - armour`，未命中时 0）：魔法伤害要靠它决定
     /// 是否给技能加经验（`HumanObject.cs:5929` 的 `if (target.Attacked(...) > 0) LevelMagic(magic)`）。
     pub(crate) fn damage_monster(&mut self, hit: PendingHit, attacker_stats: &CombatStats) -> i32 {
+        // 守卫不可被攻击：`Guard.IsAttackTarget(...)` 恒 false、`Guard.Attacked(...)` 直接抛异常
+        // （`Server/MirObjects/Monsters/Guard.cs:54-57`）。物理攻击在 `melee_target` 里已经过滤，
+        // 这里兜住技能/其它入口。
+        if self
+            .monster(hit.target_id)
+            .is_some_and(|monster| monster.kind.is_guard())
+        {
+            return 0;
+        }
         let Some((stats, dead, map, position, direction)) = self.monster_snapshot(hit.target_id)
         else {
             return 0;
@@ -1567,8 +1863,13 @@ impl World {
         if dead {
             return;
         }
-        let result =
-            combat::resolve_monster_attack(attacker_stats, &stats, hit.damage, &mut self.rng);
+        let result = combat::resolve_monster_attack(
+            attacker_stats,
+            &stats,
+            hit.damage,
+            hit.defence,
+            &mut self.rng,
+        );
         if result.miss {
             self.emit_damage_indicator(&map, position, hit.target_id, 0, DamageType::Miss);
             return;
@@ -1601,8 +1902,11 @@ impl World {
             i64::from(dealt) * MAGIC_SHIELD_MS_PER_DAMAGE,
         );
 
-        // `RegenTime = Envir.Time + RegenDelay;`（`HumanObject.cs:7295`，在 `S.Struck` 之前）。
+        // `LastHitter = attacker.Master ?? attacker; LastHitTime = now + 10000;
+        //  RegenTime = now + RegenDelay;`（`HumanObject.cs:7293-7296`）。
         if let Some(player) = self.players.get_mut(&hit.target_id) {
+            player.last_hitter = Some(hit.attacker_id);
+            player.last_hit_time = now + LAST_HITTER_TIMEOUT_MS;
             player.regen_time = now + PLAYER_REGEN_DELAY_MS;
         }
 
@@ -1653,38 +1957,229 @@ impl World {
         self.change_player_hp(hit.target_id, -result.damage);
     }
 
-    /// 玩家死亡：Crystal `PlayerObject.Die`（`PlayerObject.cs:578-667`）的 MVP 实现。
+    /// 玩家被玩家打中：Crystal `HumanObject.Attacked(HumanObject)`
+    /// （`Server/MirObjects/HumanObject.cs:7092-7221`）。
     ///
-    /// 照抄的部分：`HP = 0`、`Dead = true`、`LogTime/BrownTime = Envir.Time`（`:643-647`）、
-    /// 本人 `S.Death`（`:649`）、周围玩家 `S.ObjectDied`（`:650`）。
+    /// 包序（照抄源码；若气功波触发，会先在第 1 步之前发一条 `S.HealthChanged`，
+    /// `HumanObject.cs:7145-7154`）：
     ///
-    /// 简化（都在源码里标了 `// 简化：`）：装备复活戒指（`:580-597`）、PK 红名与掉落
-    /// （`:599-641`）、buff/毒清理（`:652-662`）、`CallDefaultNPC(Die)` 与统计（`:664-666`）。
+    /// | # | 包 | 收件人 | 出处 |
+    /// |---|---|---|---|
+    /// | 1 | `ObjectEffect{Critical}` | 周围玩家 | `:7158` |
+    /// | 2 | `DamageIndicator{Critical, 0}` | 周围玩家 | `:7160` |
+    /// | 3 | `Struck` | 受害者本人 | `:7214`（**无** 500ms 节流） |
+    /// | 4 | `ObjectStruck` | 周围玩家（含攻击者） | `:7215` |
+    /// | 5 | `DamageIndicator{Hit, armour - damage}` | 本人 + 周围玩家 | `:7217` |
+    /// | 6 | `HealthChanged` | 本人（+ 同图队友的 `ObjectHealth`） | `ChangeHP` → `SendHealthChanged`（`:7219`） |
     ///
+    /// 棕名（`:7199-7200`）：**受害者**既不是棕名也没有红名、且双方不在战争中时，
+    /// 攻方 `BrownTime = now + Settings.Minute`。注意判定用的是受害者的
+    /// `BrownTime` / `PKPoints`，不是攻方的。
+    fn damage_player_from_player(&mut self, hit: PendingHit, attacker_stats: &CombatStats) {
+        let now = self.now();
+        let Some((stats, map, dead, position, direction)) = self.player_snapshot(hit.target_id)
+        else {
+            return;
+        };
+        if dead {
+            return;
+        }
+        let pvp = combat::resolve_player_vs_player(
+            attacker_stats,
+            &stats,
+            hit.damage,
+            hit.defence,
+            &mut self.rng,
+        );
+        if pvp.result.miss {
+            self.emit_damage_indicator(&map, position, hit.target_id, 0, DamageType::Miss);
+            return;
+        }
+
+        // 气功波（`:7145-7154`）：`if (HP + Gain >= Stats[HP]) SetHP(Stats[HP]) else ChangeHP(Gain)`。
+        // 注意它在暴击**之前**，会先发一条 `S.HealthChanged`。
+        if pvp.energy_shield {
+            let gain = stats.energy_shield_hp_gain;
+            if gain > 0 {
+                let (hp, max_hp) = {
+                    let player = &self.players[&hit.target_id];
+                    (player.hp, player.stats.hp)
+                };
+                if hp + gain >= max_hp {
+                    self.set_player_hp(hit.target_id, max_hp);
+                } else {
+                    self.change_player_hp(hit.target_id, gain);
+                }
+            }
+        }
+
+        // 暴击：`CurrentMap.Broadcast(new S.ObjectEffect { Effect = Critical })` +
+        // `BroadcastDamageIndicator(DamageType.Critical)`（`HumanObject.cs:7156-7161`）。
+        if pvp.result.critical {
+            let effect = ServerPacket::ObjectEffect(ObjectEffect {
+                object_id: hit.target_id,
+                effect: SpellEffect::Critical,
+                ..ObjectEffect::default()
+            })
+            .encode_frame();
+            self.broadcast(&map, position, Some(hit.target_id), &effect, hit.target_id);
+            self.emit_damage_indicator(&map, position, hit.target_id, 0, DamageType::Critical);
+        }
+
+        // 魔法盾：每点实际伤害扣 60ms（`:7163-7167`；ElementalBarrier 未实现）。
+        let dealt = pvp.result.damage.max(0);
+        self.shave_buff(
+            hit.target_id,
+            BuffKind::MagicShield,
+            i64::from(dealt) * MAGIC_SHIELD_MS_PER_DAMAGE,
+        );
+
+        // `LastHitter = attacker; LastHitTime = now + 10000; RegenTime = now + RegenDelay;`
+        // （`:7194-7197`）。
+        if let Some(player) = self.players.get_mut(&hit.target_id) {
+            player.last_hitter = Some(hit.attacker_id);
+            player.last_hit_time = now + LAST_HITTER_TIMEOUT_MS;
+            player.regen_time = now + PLAYER_REGEN_DELAY_MS;
+        }
+
+        // 棕名（`:7199-7200`）：`if (Envir.Time > BrownTime && PKPoints < 200 && !AtWar(attacker))`。
+        let (victim_brown, victim_pk) = self
+            .players
+            .get(&hit.target_id)
+            .map_or((0, 0), |player| (player.brown_time, player.pk_points));
+        if now > victim_brown
+            && victim_pk < RED_NAME_PK_POINTS
+            && !self.at_war(hit.target_id, hit.attacker_id)
+            && let Some(attacker) = self.players.get_mut(&hit.attacker_id)
+        {
+            attacker.brown_time = now + BROWN_NAME_DURATION_MS;
+        }
+
+        // 受害者本人 `S.Struck`（`HumanObject.cs:7214`，没有 StruckTime 节流）。
+        self.send_to_player(
+            hit.target_id,
+            &ServerPacket::Struck(Struck {
+                attacker_id: hit.attacker_id,
+            })
+            .encode_frame(),
+        );
+
+        // 周围玩家 `S.ObjectStruck`（`HumanObject.cs:7215`）：Broadcast 只排除受害者本人，
+        // 所以攻方也能看到自己打中的动画。
+        let struck = ServerPacket::ObjectStruck(ObjectStruck {
+            object_id: hit.target_id,
+            attacker_id: hit.attacker_id,
+            location: position,
+            direction,
+        })
+        .encode_frame();
+        self.broadcast(&map, position, Some(hit.target_id), &struck, hit.target_id);
+
+        // `BroadcastDamageIndicator(DamageType.Hit, armour - damage)`（`:7217`）。
+        self.emit_damage_indicator(
+            &map,
+            position,
+            hit.target_id,
+            -pvp.result.damage,
+            DamageType::Hit,
+        );
+
+        // `ChangeHP(armour - damage)`（`:7219`）。
+        self.change_player_hp(hit.target_id, -pvp.result.damage);
+    }
+
+    /// 玩家死亡：Crystal `PlayerObject.Die`（`PlayerObject.cs:578-667`）。
+    ///
+    /// 顺序（照抄源码）：
+    ///
+    /// 1. 击杀者是玩家时结算 PK：`hitter.PKPoints = min(int.MaxValue, PKPoints + 100)`，
+    ///    并按 `Random.Next(4) == 0` 给凶手的武器加诅咒（`:599-622`）；
+    /// 2. 移除魔法盾/元素屏障（`:635-636`，本作只实现魔法盾）；
+    /// 3. 掉落（`:638-641`）：`PKPoints > 200` → `RedDeathDrop`，
+    ///    否则**不在安全区** → `DeathDrop`；
+    /// 4. `HP = 0; Dead = true; LogTime = BrownTime = Envir.Time`（`:643-647`）；
+    /// 5. 本人 `S.Death`（`:649`）、周围玩家 `S.ObjectDied`（`:650`）。
+    ///
+    /// 简化：复活戒指（`:580-597`）、宠物/英雄清理（`:624-633`）、`RemoveOnDeath` 增益全清
+    /// （`:652-659`）、毒清理（`:661`）、`CallDefaultNPC(Die)` 与统计（`:664-666`）。
     /// 复活计时是本作扩展：Crystal 服务端没有自动复活（见 [`PLAYER_REVIVE_DELAY_MS`]）。
     fn player_died(&mut self, player_id: u32) {
         let now = self.now();
-        let Some(player) = self.players.get_mut(&player_id) else {
+        let Some(player) = self.players.get(&player_id) else {
             return;
         };
         if player.dead {
             return;
         }
-        player.dead = true;
-        player.hp = 0;
-        player.death_time = now;
-        player.revive_time = now + PLAYER_REVIVE_DELAY_MS;
         let position = player.position;
         let direction = player.direction;
         let map = player.map.clone();
-        let _ = player.sender.send(
-            ServerPacket::Death(Death {
+        let victim_pk = player.pk_points;
+        let victim_brown = player.brown_time;
+        let last_hitter = player.last_hitter;
+        // 死亡掉落用 `!InSafeZone` 判定（`:640`），必须在 `Dead = true` 之前取。
+        let was_in_safe_zone = self.in_safe_zone(player_id);
+
+        // 1) PK（`PlayerObject.cs:599-622`）。
+        //    注意判定用的是**受害者**的 `BrownTime` / `PKPoints`（源码里的无限定字段），
+        //    所以杀死红名/棕名玩家不会给凶手加 PK 值。
+        if let Some(hitter_id) = last_hitter
+            && hitter_id != player_id
+            && self.players.contains_key(&hitter_id)
+            && !self.at_war(player_id, hitter_id)
+            && now > victim_brown
+            && victim_pk < RED_NAME_PK_POINTS
+        {
+            let mut cursed = None;
+            if let Some(hitter) = self.players.get_mut(&hitter_id) {
+                hitter.pk_points = hitter.pk_points.saturating_add(PK_POINTS_PER_KILL);
+                // `if (weapon != null && weapon.AddedStats[Luck] > (Settings.MaxLuck * -1)
+                //      && Envir.Random.Next(4) == 0) { weapon.AddedStats[Luck]--; … }`
+                // （`PlayerObject.cs:609-620`）。
+                if let Some(weapon) = hitter.equipment.first_mut().and_then(Option::as_mut) {
+                    let luck = weapon.added_stats.get(Stat::Luck);
+                    if luck > -combat::MAX_LUCK && self.rng.next_bounded(4) == 0 {
+                        weapon.added_stats.set(Stat::Luck, luck - 1);
+                        cursed = Some(weapon.clone());
+                    }
+                }
+            }
+            if let Some(item) = cursed {
+                self.send_to_player(
+                    hitter_id,
+                    &ServerPacket::RefreshItem(RefreshItem { item }).encode_frame(),
+                );
+            }
+        }
+
+        // 2) `RemoveBuff(BuffType.MagicShield); RemoveBuff(BuffType.ElementalBarrier);`（`:635-636`）。
+        self.remove_buff(player_id, BuffKind::MagicShield);
+
+        // 3) 死亡掉落（`:638-641`）。`PKPoints > 200` 是**严格大于**：等于 200 时仍走普通掉落。
+        if victim_pk > RED_NAME_PK_POINTS {
+            self.drop_player_death_loot(player_id, true);
+        } else if !was_in_safe_zone {
+            self.drop_player_death_loot(player_id, false);
+        }
+
+        // 4) `HP = 0; Dead = true; LogTime = Envir.Time; BrownTime = Envir.Time;`（`:643-647`）。
+        if let Some(player) = self.players.get_mut(&player_id) {
+            player.hp = 0;
+            player.dead = true;
+            player.death_time = now;
+            player.revive_time = now + PLAYER_REVIVE_DELAY_MS;
+            player.brown_time = now;
+        }
+
+        // 5) `S.Death` + `S.ObjectDied`（`:649-650`）。
+        self.send_to_player(
+            player_id,
+            &ServerPacket::Death(Death {
                 location: position,
                 direction,
             })
             .encode_frame(),
         );
-
         let died = ServerPacket::ObjectDied(ObjectDied {
             object_id: player_id,
             location: position,
@@ -2389,8 +2884,7 @@ impl World {
     }
 
     /// 目标格是否在这张地图内且可走（怪物的 `Walk` 只做这一层判定，
-    /// `Server/MirObjects/MonsterObject.cs:2101` 的 `CurrentMap.ValidPoint(location)`）。
-    ///
+    /// `Server/MirObjects/MonsterObject.cs:2101` 的 `CurrentMap.ValidPoint(location)`）。    ///
     /// 地图名只是「这张图的键」：世界没加载过它时退回坐标上界 `bound`
     /// （无地形世界，绝大多数单元测试用的就是这种）。
     pub(crate) fn walkable_on(&self, map: &str, cell: Point) -> bool {
@@ -2400,6 +2894,47 @@ impl World {
         }
         self.map_of(map)
             .is_none_or(|data| data.walkable(cell.x, cell.y))
+    }
+
+    /// 地图是否禁止战斗：Crystal `MapInfo.NoFight`（`Server/MirDatabase/MapInfo.cs`），
+    /// 在 `PlayerObject.IsAttackTarget(HumanObject)` 里检查（`PlayerObject.cs:4655`）。
+    #[must_use]
+    pub fn map_no_fight(&self, map: &str) -> bool {
+        self.game_data()
+            .and_then(|data| data.map_info(map))
+            .is_some_and(|info| info.no_fight)
+    }
+
+    /// 地图是否强制行会战：Crystal `MapInfo.Fight`，
+    /// 在 `PlayerObject.AtWar` 的第一行返回 true（`PlayerObject.cs:10331`）。
+    #[must_use]
+    pub fn map_fight(&self, map: &str) -> bool {
+        self.game_data()
+            .and_then(|data| data.map_info(map))
+            .is_some_and(|info| info.fight)
+    }
+
+    /// 两个玩家是否处于「战争状态」：Crystal `PlayerObject.AtWar`
+    /// （`PlayerObject.cs:10329-10343`）。
+    ///
+    /// ```csharp
+    /// if (CurrentMap.Info.Fight) return true;
+    /// if (MyGuild == null) return false;
+    /// if (attacker is PlayerObject playerAttacker) {
+    ///     if (attacker == null || playerAttacker.MyGuild == null) return false;
+    ///     if (!MyGuild.WarringGuilds.Contains(playerAttacker.MyGuild)) return false;
+    /// }
+    /// return true;
+    /// ```
+    ///
+    /// 简化：本作没有行会攻城战（`WarringGuilds` 未实现），所以只剩地图的 `Fight` 标记。
+    #[must_use]
+    fn at_war(&self, victim_id: u32, _attacker_id: u32) -> bool {
+        let Some(victim) = self.players.get(&victim_id) else {
+            return false;
+        };
+        // `MyGuild == null → false` / `WarringGuilds` 未实现 → 恒 false。
+        self.map_fight(&victim.map)
     }
 
     /// 检查目标格是否可进入：边界、地形、占格。
@@ -2535,6 +3070,22 @@ impl World {
     }
 }
 
+/// 两个玩家是否在同一支队伍里（Crystal `GroupMembers.Contains(attacker)`，`PlayerObject.cs:4662`）。
+fn same_group(attacker: &Player, target: &Player) -> bool {
+    matches!(
+        (attacker.group_id, target.group_id),
+        (Some(left), Some(right)) if left == right
+    )
+}
+
+/// 两个玩家是否在同一行会（Crystal `MyGuild == attacker.MyGuild`，`PlayerObject.cs:4664`）。
+fn same_guild(attacker: &Player, target: &Player) -> bool {
+    matches!(
+        (attacker.guild, target.guild),
+        (Some(left), Some(right)) if left.guild_id == right.guild_id
+    )
+}
+
 /// 从药水池里取一批：Crystal `ProcessRegen` 的 `PotHealthAmount > PerTickRegen ? … : …`
 /// （`HumanObject.cs:579-599`）。
 ///
@@ -2594,6 +3145,7 @@ impl World {
         ServerPacket::ObjectPlayer(ObjectPlayer {
             object_id: player.object_id,
             name: player.name.clone(),
+            name_colour: player.name_colour,
             class: player.class,
             gender: player.gender,
             level: player.level,
@@ -2622,8 +3174,13 @@ pub(crate) fn monster_info_frame(monster: &Monster) -> Vec<u8> {
     ServerPacket::ObjectMonster(ObjectMonster {
         object_id: monster.object_id,
         name: monster.kind.name.clone(),
-        // Crystal `MapObject.NameColour = Color.White`（`MapObject.cs:67`）。
-        name_colour: mir_core::Color(-1),
+        // Crystal `MapObject.NameColour = Color.White`（`MapObject.cs:67`）；
+        // 守卫在构造函数里改成 `Color.SkyBlue`（`Monsters/Guard.cs:24-28`）。
+        name_colour: if monster.kind.is_guard() {
+            NAME_COLOUR_GUARD
+        } else {
+            NAME_COLOUR_WHITE
+        },
         location: monster.position,
         image: monster.kind.image,
         direction: monster.direction,
@@ -2692,6 +3249,13 @@ mod tests {
                 run_counter: 0,
                 run_time: 0,
                 dead: false,
+                attack_mode: AttackMode::Peace,
+                pk_points: 0,
+                brown_time: 0,
+                pk_point_time: 0,
+                last_hitter: None,
+                last_hit_time: 0,
+                name_colour: NAME_COLOUR_WHITE,
                 visible_monsters: BTreeSet::new(),
                 visible_npcs: BTreeSet::new(),
                 movement_time: 0,

@@ -13,6 +13,7 @@
 > 测试：`crates/mir-server/tests/monster_combat.rs`（9 个端到端用例）、
 > `crates/mir-server/tests/world_lifecycle.rs`（12 个生命周期用例）、
 > `crates/mir-server/src/exp.rs` 的单测（5 个）。
+> 玩家对玩家（PK）、攻击模式、PK 值与死亡掉落见 `docs/world/pk.md`。
 
 ---
 

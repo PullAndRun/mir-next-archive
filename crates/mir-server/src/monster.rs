@@ -41,7 +41,7 @@ use mir_protocol::ServerPacket;
 use mir_protocol::packets::server::{ObjectAttack, ObjectDied, ObjectTurn, ObjectWalk};
 
 use crate::combat::{CombatStats, PendingHit};
-use crate::world::{VIEW_RANGE, World, monster_info_frame};
+use crate::world::{RED_NAME_PK_POINTS, VIEW_RANGE, World, monster_info_frame};
 
 /// 搜索间隔：Crystal `MonsterObject.SearchDelay`（`Server/MirObjects/MonsterObject.cs:602`）。
 pub const SEARCH_DELAY_MS: i64 = 3_000;
@@ -66,6 +66,10 @@ pub const MONSTER_CELL_GRACE_MS: i64 = 500;
 /// 出生后的动作锁定：Crystal `MonsterObject.Spawned` 里的 `ActionTime = now + 2000`
 /// （`Server/MirObjects/MonsterObject.cs:736`）。
 pub const MONSTER_SPAWN_ACTION_MS: i64 = 2_000;
+/// 守卫攻击后的动作锁定：Crystal `Monsters/Guard.cs:76`（`ActionTime = Envir.Time + 500`）。
+pub const GUARD_ATTACK_ACTION_MS: i64 = 500;
+/// 守卫攻击到伤害结算的延迟：Crystal `Monsters/Guard.cs:85`（`DelayedAction(..., now + 300, ...)`）。
+pub const GUARD_ATTACK_DAMAGE_DELAY_MS: i64 = 300;
 /// 对象调度上限：Crystal `SetOperateTime` 的 `Envir.Time + 2000`（`MonsterObject.cs:1234`）。
 pub const MONSTER_OPERATE_DELAY_MS: i64 = 2_000;
 /// 出生时随机打散的调度抖动：Crystal `MapObject.Spawned` 的 `OperateDelay = 100`
@@ -110,6 +114,23 @@ pub struct MonsterKind {
 }
 
 impl MonsterKind {
+    /// 是否是守卫类怪物（Crystal `MonsterObject.GetMonster` 的 `Guard` / `ArcherGuard`，
+    /// `Server/MirObjects/MonsterObject.cs:30-31`、`:141-142`、`:261-262`）。
+    ///
+    /// AI 编号：`6` / `58` = `Guard`，`113` = `ArcherGuard`（后者的父类也是 `Guard`，
+    /// `Server/MirObjects/Monsters/ArcherGuard.cs:6`）。
+    ///
+    /// 守卫的行为与其他怪不同：
+    /// * `Guard.IsAttackTarget` 恒 false → 玩家打不到它（`Monsters/Guard.cs:54-55`）；
+    /// * 只把**红名**玩家（`PKPoints >= 200`）当目标（`PlayerObject.IsAttackTarget(MonsterObject)`，
+    ///   `PlayerObject.cs:4679`）；
+    /// * 攻击距离是视野半径、防御类型是 `AC`（`Monsters/Guard.cs:40-45`、`:85`）；
+    /// * 攻击动作广播在目标的**背后一格**（`Monsters/Guard.cs:70-74`）。
+    #[must_use]
+    pub const fn is_guard(&self) -> bool {
+        matches!(self.ai, 6 | 58 | 113)
+    }
+
     /// 用默认值构造一个种类（视野 7、攻击 2500ms、移动 1800ms）。
     #[must_use]
     pub fn new(name: impl Into<String>, image: MonsterImage) -> Self {
@@ -190,6 +211,13 @@ pub struct Monster {
     pub map: String,
     /// 坐标。
     pub position: Point,
+    /// 出生点（守卫的「原位」）。
+    ///
+    /// Crystal 的守卫靠 `RespawnInfo.RoutePath` 巡逻并走回路线点（`Guard.CanMove` 要求
+    /// `Route.Count > 0`，`Monsters/Guard.cs:14-17`、`MonsterObject.ProcessRoute`，
+    /// `MonsterObject.cs:1999-2025`）。本作没有路线表，用出生点近似「唯一路线点」：
+    /// 守卫没有目标且不在出生点时走回去，见 `World::process_guard`。
+    pub home: Point,
     /// 朝向。
     pub direction: MirDirection,
     /// 当前血量（Crystal `MonsterObject.HP`）。
@@ -262,6 +290,7 @@ impl Monster {
             kind,
             map: map.into(),
             position,
+            home: position,
             direction,
             cool_eye,
             dead: false,
@@ -359,6 +388,9 @@ impl World {
                 !player.dead
                     && player.map == monster.map
                     && monster.position.in_range(player.position, VIEW_RANGE)
+                    // 守卫只对红名动手（`PlayerObject.IsAttackTarget(MonsterObject)`，
+                    // `PlayerObject.cs:4679`）：对方洗白后立即脱战。
+                    && (!monster.kind.is_guard() || player.pk_points >= RED_NAME_PK_POINTS)
             });
             if !still_valid {
                 monster.target = None;
@@ -372,6 +404,16 @@ impl World {
 
     /// Crystal `MonsterObject.ProcessAI`（`MonsterObject.cs:1671-1733`）。
     fn process_ai(&mut self, monster: &mut Monster, now: i64) {
+        // 守卫：`Guard.CheckAlone` 在 `Route.Count > 0` 时恒为 false
+        // （`MonsterObject.cs:1741-1745`、`Monsters/Guard.cs:14-17`），所以不走「附近没人就不思考」
+        // 的省电分支，也不随机漫游。
+        if monster.kind.is_guard() {
+            monster.alone = false;
+            self.process_search(monster, now);
+            self.process_guard_return(monster, now);
+            self.process_target(monster, now);
+            return;
+        }
         self.check_alone(monster, now);
         // `Settings.MonsterProcessWhenAlone` 默认 false（`Server/Settings.cs:51`）：
         // 附近（`DataRange * 2`）没有玩家时，怪物完全不思考。
@@ -462,6 +504,19 @@ impl World {
         }
     }
 
+    /// 守卫没有目标时走回出生点。
+    ///
+    /// Crystal 的守卫沿 `Route` 巡逻（`Guard.CanMove` 要求 `Route.Count > 0`，
+    /// `Monsters/Guard.cs:14-17`；`MonsterObject.ProcessRoute`，`MonsterObject.cs:1999-2025`）。
+    /// 本作没有路线表，把出生点当作只有一站的路線：[`Monster::home`]。
+    fn process_guard_return(&mut self, monster: &mut Monster, now: i64) {
+        if monster.target.is_some() || monster.position == monster.home {
+            return;
+        }
+        let home = monster.home;
+        self.monster_move_to(monster, home, now);
+    }
+
     /// Crystal `MonsterObject.ProcessTarget`（`MonsterObject.cs:1842-1870`）。
     fn process_target(&mut self, monster: &mut Monster, now: i64) {
         let Some(target_id) = monster.target else {
@@ -476,6 +531,21 @@ impl World {
         };
         let target_position = target.position;
         let same_map = target.map == monster.map;
+
+        if monster.kind.is_guard() {
+            // `Guard.InAttackRange`：同图、不同格、切比雪夫距离 <= 视野半径
+            // （`Monsters/Guard.cs:40-45`）。够不到就站着：`Guard.CanMove` 要求
+            // `Route.Count > 0`，没有路线时不会追（`:14-17`）。
+            if same_map
+                && target_position != monster.position
+                && monster
+                    .position
+                    .in_range(target_position, monster.kind.view_range)
+            {
+                self.guard_attack(monster, target_id, now);
+            }
+            return;
+        }
 
         if same_map
             && target_position != monster.position
@@ -499,6 +569,11 @@ impl World {
         let mut best: Option<(i32, i32, i32, u32)> = None;
         for player in self.players.values() {
             if player.map != monster.map || player.dead {
+                continue;
+            }
+            // 守卫只攻击红名（`PlayerObject.IsAttackTarget(MonsterObject)`，
+            // `PlayerObject.cs:4679`：`AI == 6 || 58 || 113 → return PKPoints >= 200`）。
+            if monster.kind.is_guard() && player.pk_points < RED_NAME_PK_POINTS {
                 continue;
             }
             let distance = monster.position.max_distance(player.position);
@@ -662,9 +737,80 @@ impl World {
         });
     }
 
+    /// 守卫攻击：Crystal `Guard.Attack`（`Server/MirObjects/Monsters/Guard.cs:66-87`）。
+    ///
+    /// 三个与野生怪不同的地方，全部照抄：
+    ///
+    /// 1. 攻击动作的坐标是**目标的背后一格**（`Target.Back`，`:70`），
+    ///    方向是从「背后」指向目标（也就是目标朝向的反方向，`:71`）；
+    /// 2. 紧跟一条 `S.ObjectTurn` 把守卫自己的朝向/位置再同步一次（`:74`）；
+    /// 3. 延迟 300ms、以 `DefenceType.AC` 结算（不掷闪避，`:85`）。
+    ///
+    /// 动作锁定 `ActionTime = now + 500`（`:76`），攻击冷却 `now + AttackSpeed`（`:77`）。
+    fn guard_attack(&mut self, monster: &mut Monster, target_id: u32, now: i64) {
+        let Some(target) = self.players.get(&target_id) else {
+            monster.target = None;
+            return;
+        };
+        if target.dead || target.map != monster.map {
+            monster.target = None;
+            return;
+        }
+        let target_position = target.position;
+        let behind = target_position.moved(target.direction, -1);
+
+        let packet = ServerPacket::ObjectAttack(ObjectAttack {
+            object_id: monster.object_id,
+            location: behind,
+            direction: behind.direction_to(target_position),
+            spell: Spell::None,
+            level: 0,
+            type_: 0,
+        })
+        .encode_frame();
+        self.broadcast(
+            &monster.map,
+            monster.position,
+            Some(monster.object_id),
+            &packet,
+            monster.object_id,
+        );
+        let turn = ServerPacket::ObjectTurn(ObjectTurn {
+            object_id: monster.object_id,
+            location: monster.position,
+            direction: monster.direction,
+        })
+        .encode_frame();
+        self.broadcast(
+            &monster.map,
+            monster.position,
+            Some(monster.object_id),
+            &turn,
+            monster.object_id,
+        );
+
+        monster.action_time = now + GUARD_ATTACK_ACTION_MS;
+        monster.attack_time = now + monster.kind.attack_speed_ms;
+
+        let damage = monster.stats.physical_attack(&mut self.rng);
+        // `if (damage == 0) return;`（`Monsters/Guard.cs:83`）。
+        if damage == 0 {
+            return;
+        }
+        self.pending_hits.push(PendingHit {
+            at: now + GUARD_ATTACK_DAMAGE_DELAY_MS,
+            attacker_id: monster.object_id,
+            target_id,
+            damage,
+            defence: DefenceType::AC,
+        });
+    }
+
     /// Crystal `MonsterObject.ProcessRegen`（`MonsterObject.cs:1414-1452`）。
+    ///
+    /// 守卫覆盖成空实现（`Monsters/Guard.cs:19-22`、`:47`）。
     fn process_monster_regen(&mut self, monster: &mut Monster, now: i64) {
-        if monster.dead || now < monster.regen_time {
+        if monster.kind.is_guard() || monster.dead || now < monster.regen_time {
             return;
         }
         monster.regen_time = now + REGEN_DELAY_MS;

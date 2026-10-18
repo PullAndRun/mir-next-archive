@@ -324,29 +324,34 @@ pub fn resolve_player_attack(
 ///
 /// 与 [`resolve_player_attack`] 的三点不同（都是 Crystal 的原样行为）：
 ///
-/// 1. 进门先掷**反射**（`HumanObject.cs:7231`），本作 `reflect` 恒为 0，但抽签照做；
-/// 2. **没有暴击判定**——Crystal 只在「与玩家交锋」的 `Attacked(HumanObject)` 里判暴击
+/// 1. **没有暴击判定**——Crystal 只在「与玩家交锋」的 `Attacked(HumanObject)` 里判暴击
 ///    （`HumanObject.cs:7156`），怪物打玩家永远不暴击；
-/// 3. 护甲之前先过一次**魔法盾减伤**：`damage -= (damage * DamageReductionPercent) / 100`
-///    （`HumanObject.cs:7244-7248`）。
+/// 2. 护甲之前先过一次**魔法盾减伤**：`damage -= (damage * DamageReductionPercent) / 100`
+///    （`HumanObject.cs:7244-7248`）；
+/// 3. 抽签顺序是 `GetArmour`（`:7224`）→ **反射**（`:7231`）→ 护甲比较（`:7250`）。
+///    反射在伤害减免之前，但**在命中判定之后**。
 ///
 /// 气功波（`Stat.EnergyShieldPercent`）要改血量、还要抽一次 `Random.Next(100)`，
 /// 所以不在这里做，交给 `World::damage_player`（顺序保持一致：在「未命中」判定之后）。
+///
+/// `defence` 由攻击方指定：野生怪用 `ACAgility`（`MonsterObject.cs:2169` 附近），
+/// 守卫用 `AC`（`Server/MirObjects/Monsters/Guard.cs:85`）。
 #[must_use]
 pub fn resolve_monster_attack(
     attacker: &CombatStats,
     defender: &CombatStats,
     damage: i32,
+    defence: DefenceType,
     rng: &mut MirRng,
 ) -> HitResult {
-    if (rng.next_bounded(100) as i32) < defender.reflect {
-        // 反射：Crystal 会再对攻击方结算一次伤害并广播 `SpellEffect.Reflect`。
-        // 简化：没有装备/魔法，`reflect` 恒为 0，这里只保留抽签位置。
+    let (armour, hit) = defender.get_armour(attacker, defence, rng);
+    if !hit {
         return HitResult::missed();
     }
 
-    let (armour, hit) = defender.get_armour(attacker, DefenceType::ACAgility, rng);
-    if !hit {
+    if (rng.next_bounded(100) as i32) < defender.reflect {
+        // 反射：Crystal 会再对攻击方结算一次伤害并广播 `SpellEffect.Reflect`。
+        // 简化：没有装备/魔法，`reflect` 恒为 0，这里只保留抽签位置。
         return HitResult::missed();
     }
 
@@ -366,6 +371,104 @@ pub fn resolve_monster_attack(
         armour,
         critical: false,
         miss: false,
+    }
+}
+
+/// 玩家打玩家的结算结果（Crystal `HumanObject.Attacked(HumanObject)` 的返回值语义）。
+///
+/// 与 [`HitResult`] 的区别只有 `energy_shield`：气功波的回血要落到世界里的真实血量，
+/// 但它的**抽签位置**必须在暴击之前（`HumanObject.cs:7145-7161`），所以由本函数判定，
+/// 再由 `World::damage_player_from_player` 执行回血。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PvpHit {
+    /// 伤害结算结果（`damage` 已是 `damage - armour`）。
+    pub result: HitResult,
+    /// 气功波是否触发（`Random.Next(100) < Stats[Stat.EnergyShieldPercent]`）。
+    pub energy_shield: bool,
+}
+
+/// 玩家打玩家的伤害结算：Crystal `HumanObject.Attacked(HumanObject)`
+/// （`Server/MirObjects/HumanObject.cs:7092-7221`）。
+///
+/// 抽签顺序（与 Crystal 逐行一致）：
+///
+/// 1. `GetArmour`：先掷闪避（`Random.Next(Agility + 1) > attacker.Accuracy`），再掷护甲
+///    （`:7101`，实现见 [`CombatStats::get_armour`]）；
+/// 2. 未命中直接返回（`:7103-7106`）；
+/// 3. **反射**：`Random.Next(100) < defender.Reflect`（`:7116`）——无论 `reflect` 是否为 0
+///    都会抽签，保持随机序列；
+/// 4. 魔法盾减伤：`damage -= damage * DamageReductionPercent / 100`（`:7127-7130`）；
+/// 5. 护甲够高 → Miss（`:7132-7136`）；
+/// 6. 气功波：`Random.Next(100) < EnergyShieldPercent`（`:7145-7154`，只有 `> 0` 才抽）；
+/// 7. **暴击**：`Random.Next(100) < CriticalRate * CriticalRateWeight`（`:7156-7161`）。
+///
+/// 简化（都在 `docs/world/pk.md` 的异常清单里）：
+/// * `ArmourRate` / `DamageRate`（`:7108-7109`）恒为 1，不建模；
+/// * `Stats[Stat.AttackBonus]`（`:7114`）本作没有这个装备属性；
+/// * `DamageWeapon` / `HPDrainRatePercent` / 毒与麻痹（`:7112`、`:7175-7192`、`:7204`）
+///   未接入，因此不抽它们对应的随机数；
+/// * 反射伤害与 `SpellEffect.Reflect` 只保留抽签（`reflect` 恒为 0）。
+#[must_use]
+pub fn resolve_player_vs_player(
+    attacker: &CombatStats,
+    defender: &CombatStats,
+    damage: i32,
+    defence: DefenceType,
+    rng: &mut MirRng,
+) -> PvpHit {
+    let (armour, hit) = defender.get_armour(attacker, defence, rng);
+    if !hit {
+        return PvpHit {
+            result: HitResult::missed(),
+            energy_shield: false,
+        };
+    }
+
+    if (rng.next_bounded(100) as i32) < defender.reflect {
+        // 反射：Crystal 会对攻击方再结算一次 `attacker.Attacked(this, damage, type, false)`。
+        // 简化：`reflect` 恒为 0（没有反射类装备），这里只保留抽签位置。
+        return PvpHit {
+            result: HitResult::missed(),
+            energy_shield: false,
+        };
+    }
+
+    let mut damage = damage;
+    // `if (Stats[Stat.DamageReductionPercent] > 0) damage -= (damage * …) / 100;`（`:7127-7130`）
+    if defender.damage_reduction_percent > 0 {
+        damage -= damage * defender.damage_reduction_percent / 100;
+    }
+
+    if armour >= damage {
+        return PvpHit {
+            result: HitResult::missed(),
+            energy_shield: false,
+        };
+    }
+
+    // 气功波（`:7145-7154`）：只有 `> 0` 才会抽 `Random.Next(100)`。
+    let mut energy_shield = false;
+    if defender.energy_shield_percent > 0 {
+        energy_shield = (rng.next_bounded(100) as i32) < defender.energy_shield_percent;
+    }
+
+    // 暴击（`:7156-7161`）：与 `MonsterObject.Attacked` 的公式相同。
+    let mut critical = false;
+    if (rng.next_bounded(100) as i32) < attacker.critical_rate * CRITICAL_RATE_WEIGHT {
+        critical = true;
+        let bonus = i64::from(damage) * i64::from(attacker.critical_damage) * 10
+            / i64::from(CRITICAL_DAMAGE_WEIGHT);
+        damage = i32::try_from(i64::from(damage) + bonus).unwrap_or(i32::MAX);
+    }
+
+    PvpHit {
+        result: HitResult {
+            damage: damage - armour,
+            armour,
+            critical,
+            miss: false,
+        },
+        energy_shield,
     }
 }
 
@@ -606,7 +709,8 @@ mod tests {
             max_ac: 2,
             ..CombatStats::default()
         };
-        let result = resolve_monster_attack(&attacker, &defender, 10, &mut rng);
+        let result =
+            resolve_monster_attack(&attacker, &defender, 10, DefenceType::ACAgility, &mut rng);
         assert!(!result.miss);
         assert_eq!(result.armour, 2);
         assert_eq!(result.damage, 8);

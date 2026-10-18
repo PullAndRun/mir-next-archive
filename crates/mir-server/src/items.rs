@@ -58,9 +58,9 @@ use mir_core::enums::{
 };
 use mir_protocol::data::{ItemInfo, UserItem};
 use mir_protocol::packets::server::{
-    DropItem as DropItemPacket, EquipItem as EquipItemPacket, GainedGold, GainedItem, LoseGold,
-    MoveItem as MoveItemPacket, ObjectGold, ObjectItem, PlayerUpdate,
-    RemoveItem as RemoveItemPacket, UseItem as UseItemPacket,
+    DeleteItem as DeleteItemPacket, DropItem as DropItemPacket, EquipItem as EquipItemPacket,
+    GainedGold, GainedItem, LoseGold, MoveItem as MoveItemPacket, ObjectGold, ObjectItem,
+    PlayerUpdate, RemoveItem as RemoveItemPacket, UseItem as UseItemPacket,
 };
 use mir_protocol::{PacketReader, PacketWriter, ProtocolError, ServerPacket};
 
@@ -95,6 +95,12 @@ pub const MAX_INVENTORY_SIZE: usize = 86;
 /// `ItemObject` 构造函数里 `ExpireTime = Envir.Time + Settings.ItemTimeOut * Settings.Minute`
 /// （`ItemObject.cs:56-58`、`:85`、`:112`、`:121`）。3 分钟是本项目的调试友好默认值。
 pub const ITEM_EXPIRE_MS: i64 = 3 * MINUTE_MS;
+/// 玩家死亡掉落物的存活时间：Crystal `Settings.PlayerDiedItemTimeOut = 120` 分钟
+/// （`Server/Settings.cs:116`），`ItemObject` 的 `deathDrop` 构造用它
+/// （`Server/MirObjects/ItemObject.cs:53-56`）。
+///
+/// 这个值**不**跟随 [`World::set_item_expire_ms`]：Crystal 的死亡掉落与普通掉落是两套时限。
+pub const PLAYER_DIED_ITEM_EXPIRE_MS: i64 = 120 * MINUTE_MS;
 /// 掉落物的归属保护期：Crystal `OwnerTime = Envir.Time + Settings.Minute`
 /// （`MonsterObject.cs:1152-1156`）；过期后 `ItemObject.Process` 清空 `Owner`（`ItemObject.cs:138-139`）。
 pub const GROUND_ITEM_OWNER_MS: i64 = MINUTE_MS;
@@ -1189,6 +1195,22 @@ impl World {
         gold: u32,
         owner: Option<u32>,
     ) -> u32 {
+        self.spawn_ground_item_with_expire(map, position, item, gold, owner, self.item_expire_ms)
+    }
+
+    /// 同 [`World::spawn_ground_item`]，但指定存活时长。
+    ///
+    /// 玩家死亡掉落用 [`PLAYER_DIED_ITEM_EXPIRE_MS`]（Crystal `ItemObject(dropper, item, deathDrop: true)`，
+    /// `ItemObject.cs:53-58`）；其余路径沿用 `item_expire_ms`。
+    fn spawn_ground_item_with_expire(
+        &mut self,
+        map: &str,
+        position: Point,
+        item: Option<UserItem>,
+        gold: u32,
+        owner: Option<u32>,
+        expire_ms: i64,
+    ) -> u32 {
         let now = self.now();
         let object_id = self.allocate_object_id();
         let ground = GroundItem {
@@ -1197,7 +1219,7 @@ impl World {
             gold,
             position,
             map: map.to_owned(),
-            expire_time: now + self.item_expire_ms,
+            expire_time: now + expire_ms,
             owner,
             owner_time: if owner.is_some() {
                 now + GROUND_ITEM_OWNER_MS
@@ -2538,6 +2560,206 @@ impl World {
         }
     }
 
+    /// 玩家死亡掉落：Crystal `HumanObject.DeathDrop`（`HumanObject.cs:1391-1567`）与
+    /// `PlayerObject.RedDeathDrop`（`PlayerObject.cs:668-793`）。
+    ///
+    /// 两套规则（`PlayerObject.Die`，`:638-641`）：
+    ///
+    /// ```csharp
+    /// if (PKPoints > 200) RedDeathDrop(LastHitter);
+    /// else if (!InSafeZone) DeathDrop(LastHitter);
+    /// ```
+    ///
+    /// * **普通死亡掉落**（`DeathDrop`）：
+    ///   - 装备：堆叠 > 1 时按 `RandomomRange(10, 8)` 抽掉 `ceil(Count / 10 * 百分比)` 件；
+    ///     单件按 `Random.Next(30) == 0`（1/30）掉；
+    ///   - 背包：堆叠 > 1 时 `RandomomRange(10, 8)`（抽到 0 就跳过）；单件按 `Random.Next(10) == 0`。
+    /// * **红名死亡掉落**（`RedDeathDrop`，`PKPoints > 200`）：
+    ///   - 装备：堆叠 `RandomomRange(10, 4)`、单件 `Random.Next(10) == 0`（1/10）；
+    ///   - 背包：**全部无条件掉光**（`PlayerObject.cs:750-790` 没有任何随机判定）。
+    ///
+    /// 两种掉落都跳过 `BindMode.DontDeathdrop`、婚戒、封印中与租借物品。
+    ///
+    /// 归属：Crystal 的 `ItemObject(dropper, item, deathDrop: true)` **不设置 `Owner`**
+    /// （`ItemObject.cs:53-82`），所以死亡掉落的物品谁都能捡（凶手也可以）。
+    /// 存活时长是 `Settings.PlayerDiedItemTimeOut = 120` 分钟（`ItemObject.cs:55-56`）。
+    ///
+    /// 简化（详见 `docs/world/pk.md` 的异常清单）：
+    /// * `WeddingRing`、`SealedInfo`、租借物品一律跳过（Crystal 会按具体条件单独处理/邮寄）；
+    /// * `BreakOnDeath` 的物品直接删除（Crystal 删完后还会继续走掉落分支，属于 bug）；
+    /// * `GlobalDropNotify` 全服公告与 `Report.ItemChanged` 统计未接。
+    pub(crate) fn drop_player_death_loot(&mut self, player_id: u32, red: bool) {
+        let Some(player) = self.players.get(&player_id) else {
+            return;
+        };
+        if player.dead {
+            return;
+        }
+        let map = player.map.clone();
+        let position = player.position;
+
+        for slot in 0..EQUIPMENT_SLOTS {
+            let Some(item) = self.slots_item(player_id, slot, true) else {
+                continue;
+            };
+            let Some(info) = self.item_info(item.item_index).cloned() else {
+                continue;
+            };
+            if !death_drop_allowed(&info, &item) {
+                continue;
+            }
+            if info.bind.contains(BindMode::BreakOnDeath) {
+                self.remove_death_drop_item(player_id, slot, true, &item, item.count);
+                continue;
+            }
+            let count = if item.count > 1 {
+                let percent = self.randomom_range(10, if red { 4 } else { 8 });
+                count_for_percent(item.count, percent)
+            } else {
+                let chance = if red { 10 } else { 30 };
+                if self.rng.next_bounded(chance) == 0 {
+                    item.count
+                } else {
+                    0
+                }
+            };
+            if count == 0 {
+                continue;
+            }
+            self.death_drop_one(player_id, slot, true, &map, position, &item, &info, count);
+        }
+
+        for slot in 0..INVENTORY_SIZE {
+            let Some(item) = self.slots_item(player_id, slot, false) else {
+                continue;
+            };
+            let Some(info) = self.item_info(item.item_index).cloned() else {
+                continue;
+            };
+            if !death_drop_allowed(&info, &item) {
+                continue;
+            }
+            let count = if red {
+                // `RedDeathDrop` 的背包分支没有任何随机判定：全部掉光（`PlayerObject.cs:750-790`）。
+                item.count
+            } else if item.count > 1 {
+                let percent = self.randomom_range(10, 8);
+                if percent == 0 {
+                    continue;
+                }
+                count_for_percent(item.count, percent)
+            } else if self.rng.next_bounded(10) == 0 {
+                item.count
+            } else {
+                0
+            };
+            if count == 0 {
+                continue;
+            }
+            self.death_drop_one(player_id, slot, false, &map, position, &item, &info, count);
+        }
+
+        // `RefreshStats()`（`HumanObject.cs:1566`）：装备掉了要重算属性。
+        self.refresh_stats(player_id);
+    }
+
+    /// 死亡掉落的通用排除条件（`BindMode.DontDeathdrop`、婚戒、封印、租借）见
+    /// [`death_drop_allowed`]。
+    fn slots_item(&self, player_id: u32, slot: usize, equipment: bool) -> Option<UserItem> {
+        let player = self.players.get(&player_id)?;
+        let slots = if equipment {
+            &player.equipment
+        } else {
+            &player.inventory
+        };
+        slots.get(slot)?.clone()
+    }
+
+    /// 从背包/装备里移除死亡掉落的一部分并通知本人。
+    fn remove_death_drop_item(
+        &mut self,
+        player_id: u32,
+        slot: usize,
+        equipment: bool,
+        item: &UserItem,
+        count: u16,
+    ) {
+        if let Some(player) = self.players.get_mut(&player_id) {
+            let slots = if equipment {
+                &mut player.equipment
+            } else {
+                &mut player.inventory
+            };
+            let remove = slots
+                .get(slot)
+                .and_then(Option::as_ref)
+                .is_some_and(|stored| count >= stored.count);
+            if remove {
+                if let Some(target) = slots.get_mut(slot) {
+                    *target = None;
+                }
+            } else if let Some(stored) = slots.get_mut(slot).and_then(Option::as_mut) {
+                stored.count -= count;
+            }
+        }
+        // `Enqueue(new S.DeleteItem { UniqueID = item.UniqueID, Count = count })`。
+        self.send_to_player(
+            player_id,
+            &ServerPacket::DeleteItem(DeleteItemPacket {
+                unique_id: item.unique_id,
+                count,
+            })
+            .encode_frame(),
+        );
+    }
+
+    /// 把一件（或一部分）死亡掉落物放到地上。
+    #[allow(clippy::too_many_arguments)]
+    fn death_drop_one(
+        &mut self,
+        player_id: u32,
+        slot: usize,
+        equipment: bool,
+        map: &str,
+        position: Point,
+        item: &UserItem,
+        info: &ItemInfo,
+        count: u16,
+    ) {
+        let Some(cell) = self.drop_cell(map, position) else {
+            // `if (!DropItem(...)) continue;`（`HumanObject.cs:1473`）：找不到落点就保住这件物品。
+            return;
+        };
+        let dropped = if count >= item.count {
+            item.clone()
+        } else {
+            let mut fresh = self.create_fresh_item(info);
+            fresh.count = count;
+            fresh
+        };
+        self.spawn_ground_item_with_expire(
+            map,
+            cell,
+            Some(dropped),
+            0,
+            None,
+            PLAYER_DIED_ITEM_EXPIRE_MS,
+        );
+        self.remove_death_drop_item(player_id, slot, equipment, item, count);
+    }
+
+    /// Crystal `Envir.RandomomRange`（`Server/MirEnvir/Envir.cs:4531-4536`）：
+    /// 掷 `count` 次 `Random.Next(rate)`，统计命中 0 的次数。
+    fn randomom_range(&mut self, count: u32, rate: u32) -> u32 {
+        let mut hits = 0;
+        for _ in 0..count {
+            if self.rng.next_bounded(rate) == 0 {
+                hits += 1;
+            }
+        }
+        hits
+    }
+
     /// 掉落落点：Crystal `ItemObject.Drop(distance)`（`ItemObject.cs:190-275`）。
     ///
     /// 原文的扫描方式（物品掉落用 `distance = Settings.DropRange = 4`，
@@ -2613,6 +2835,27 @@ impl World {
         }
         best.map(|(cell, _)| cell)
     }
+}
+
+/// 死亡掉落的通用排除条件：`BindMode.DontDeathdrop`（`HumanObject.cs:1407`、`:1502`
+/// 与 `PlayerObject.cs:679`、`:757`）、婚戒、封印中、租借物品。
+///
+/// 简化：Crystal 对婚戒只跳过「左戒指槽那枚」、封印只看是否过期、租借会先邮寄给出租人；
+/// 本作没有这三套系统，统一按「不参与死亡掉落」处理（物品留在身上）。
+fn death_drop_allowed(info: &ItemInfo, item: &UserItem) -> bool {
+    !info.bind.contains(BindMode::DontDeathdrop)
+        && item.wedding_ring == -1
+        && item.sealed_info.is_none()
+        && item.rental_information.is_none()
+}
+
+/// 死亡掉落的数量：Crystal `(ushort)Math.Ceiling(item.Count / 10F * percent)`
+/// （`HumanObject.cs:1441`、`:1518`，`PlayerObject.cs:700`）。
+///
+/// 用整数 `ceil(count * percent / 10)` 精确复现（`percent ∈ 0..=8`），再夹到 `count`。
+fn count_for_percent(count: u16, percent: u32) -> u16 {
+    let raw = u32::from(count) * percent;
+    u16::try_from(raw.div_ceil(10).min(u32::from(count))).unwrap_or(count)
 }
 
 #[cfg(test)]

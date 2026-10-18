@@ -179,6 +179,15 @@ async fn full_login_character_and_world_flow() {
         }
         other => panic!("期望 UserInformation，收到 {other:?}"),
     };
+    // 攻击模式：Crystal 在进世界序列里补一条 `S.ChangeAMode { Mode = AMode }`
+    // （`Server/MirObjects/PlayerObject.cs:1217`）。新角色默认和平模式。
+    let packet = client.expect_index(s::ChangeAMode::INDEX).await;
+    match packet {
+        ServerPacket::ChangeAMode(changed) => {
+            assert_eq!(changed.mode, mir_core::enums::AttackMode::Peace);
+        }
+        other => panic!("期望 ChangeAMode，收到 {other:?}"),
+    }
     // 组队开关的初值（Crystal `Enqueue(new S.SwitchGroup { AllowGroup = AllowGroup });`，
     // `PlayerObject.cs:1219`）。本作不持久化 `AllowGroup`，进世界默认允许组队。
     let packet = client.expect_index(s::SwitchGroup::INDEX).await;

@@ -202,26 +202,52 @@ impl TextRenderer {
 
     /// 按本模块文档列出的顺序自动寻找字体。
     ///
+    /// 本项目默认全中文，所以**优先选带中文字形的字体**：常见 Linux 发行版把 `DejaVu` 排在
+    /// 系统字体扫描结果前面，而它没有 CJK 字形，直接用会让界面中文全变方块。只有在所有
+    /// 候选都不含中文字形时才退回第一个能解析的字体（并打印警告）。
+    ///
     /// # Errors
     /// 没有任何候选字体、或候选字体全部无法解析时返回错误。
     pub fn discover() -> Result<Self, TextError> {
         let mut last_error = None;
+        let mut fallback = None;
         for path in font_candidates() {
             if !path.is_file() {
                 continue;
             }
             match Self::new(&path) {
-                Ok(renderer) => return Ok(renderer),
+                Ok(renderer) => {
+                    if renderer.covers_cjk() {
+                        return Ok(renderer);
+                    }
+                    if fallback.is_none() {
+                        fallback = Some(renderer);
+                    }
+                }
                 Err(error) => {
                     eprintln!("警告：字体 {} 不可用：{error}", path.display());
                     last_error = Some(error);
                 }
             }
         }
+        if let Some(renderer) = fallback {
+            eprintln!(
+                "警告：没有找到含中文字形的字体，退回 {}（界面中文会显示为方块；\
+                 可把中文字体放进 resource/fonts 或安装 fonts-noto-cjk）",
+                renderer.path.display()
+            );
+            return Ok(renderer);
+        }
         match last_error {
             Some(error) => Err(error),
             None => Err(TextError::NoFont),
         }
+    }
+
+    /// 该字体是否真的带中文字形（`中` 的 glyph id 不是 `.notdef`）。
+    #[must_use]
+    pub fn covers_cjk(&self) -> bool {
+        self.font.glyph_id('中') != ab_glyph::GlyphId(0)
     }
 
     /// 当前使用的字体路径。
@@ -524,18 +550,23 @@ fn windows_font_candidates() -> Vec<PathBuf> {
 }
 
 /// Linux 常见字体路径 + `/usr/share/fonts` 递归扫描。
+///
+/// 顺序很重要：本项目默认全中文，**优先选带 CJK 字形的字体**，再把 DejaVu 作为兜底
+/// （它没有中文字形，一旦排在前面，界面中文会全变成方块）。
 #[cfg(target_os = "linux")]
 fn linux_font_candidates() -> Vec<PathBuf> {
     let known = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/TTF/DejaVuSans.ttf",
-        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansSC-Regular.otf",
         "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
         "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
     ];
     let mut candidates: Vec<PathBuf> = known.into_iter().map(PathBuf::from).collect();
     collect_font_files(Path::new("/usr/share/fonts"), 0, &mut candidates);

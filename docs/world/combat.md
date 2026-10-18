@@ -564,7 +564,7 @@ if (MP == Stats[MP]) PotManaAmount = 0;                             // :648
 |---|---|
 | 广播半径沿用 `VIEW_RANGE = 10`（Crystal `DataRange = 16`） | 避免改动已通过的移动/聊天测试；索敌视野（7）不受影响 |
 | 只有「野生敌对怪物」一条 AI 分支 | 没有巡逻路线（`Route`）、毒/麻痹/buff、`ShockTime`、`Rage`、隐身、传送；第 2 轮补了宠物 AI（`Monster.master` + `process_pet_ai`，见 `docs/world/magic.md` §6.6） |
-| 怪物只打玩家，不打怪物 | 野生怪物之间 `IsAttackTarget` 返回 false（`MonsterObject.cs:2537-2539`），本来就不会互殴；**宠物除外（本作当前不反击，本轮有意不做、下一轮补）**：Crystal 的野生怪会把宠物当目标（`MonsterObject.cs:2481-2484`、`FindTarget` `:1918-1963`、`Attacked` `:2601-2610`），本作的 `World::find_target` 只扫玩家，所以召唤物不会被野怪索敌/反击 |
+| 怪物只打玩家，不打怪物（宠物除外，已实现） | 野生怪物之间 `IsAttackTarget` 返回 false（`MonsterObject.cs:2537-2539`），本来就不会互殴；**宠物是可攻击目标（第 4 轮已实现）**：野生怪在 `find_target` 主动把宠物当候选、宠物被咬后下一 tick 反击（Crystal `MonsterObject.cs:2481-2484`、`FindTarget` `:1940-1963`、`Attacked` `:2601-2610`；本作 `monster.rs:1037`/`:763`/`:982`、`world.rs:2442`）。玩家只有 `All` 模式能打自己的宠物、宠物被玩家打也会反击；守卫 AI 6/113 只打红名主人的宠物、Tao Guard 不打和平模式主人的宠物、箭塔不把宠物当目标；宠物永不攻击自己的主人。**未做**：宠物 vs 宠物（`find_pet_target` 只扫野生怪），见 `docs/world/magic.md` §6.6 |
 | 玩家近战可打玩家（PK 模式，见 `docs/world/pk.md`），攻击**魔法**对玩家按技能区分 | `HumanObject.Attack` 的技能分支（Slaying/Thrusting/HalfMoon/…）全部跳过；魔法侧：`Bolt` 类只认怪物（目标玩家 `InvalidTarget`），`Poisoning` 可对 PK 规则允许的玩家施毒，`FireWall`/`Lightning` 的范围结算可命中玩家（见 `docs/world/magic.md` §5.1） |
 | 没有 buff 容器之外的属性来源，玩家属性=等级曲线基础值 + 装备加成 + **生效中的 buff** | 装备见 `docs/world/items.md`；9 个增益技能与药水增益见 `docs/world/buffs.md` |
 | `reflect`/`CriticalRate` 等属性基础值恒 0（但抽签保留） | 只影响装备加成，抽签保留才能保证随机序列与 Crystal 一致 |

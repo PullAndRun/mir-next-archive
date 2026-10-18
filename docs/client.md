@@ -112,6 +112,13 @@ Crystal 的版本哈希是客户端 exe 的 MD5（`Client/MirScenes/LoginScene.c
   `S.MapChanged.Music`（`GameScene.cs:3985`），窗口每帧用它切背景音乐；
 * `quest_infos` / `quests` / `completed_quests`：任务定义（`S.NewQuestInfo`）、进行中任务
   （`S.ChangeQuest` 的进度文本 + 本地接取时刻）、已交付任务编号（`S.CompleteQuest`）；
+* `quest_items` / `quest_items_version`：**任务物品栏**（40 格）。`S.GainedQuestItem`(205)
+  按 `unique_id` 整堆替换/并堆、`S.DeleteQuestItem`(206) 按 `unique_id`+`count` 扣减；
+  `S.UserInformation.quest_inventory` 是整栏快照（`Some` = 替换、`None` = 保留），
+  版本号用于 UI 增量重绘（见 §5.8）；
+* `lights` / `weather`：`S.TimeOfDay{lights}`（协议 index 61）与
+  `S.MapChanged.weather`（没有独立的 `S.Weather`）。客户端已接包，天气随切图显示在 HUD；
+  服务端目前**不发** `S.TimeOfDay`，所以当前版本只显示天气、不显示昼夜（见 §5.19）；
 * `storage` / `storage_open` / `storage_open_version`：个人仓库 80 格（`S.UserStorage`）与
   「该不该显示仓库面板」（`S.NPCStorage`）；`S.StoreItem`/`S.TakeBackItem` 的回执直接
   搬动背包/仓库里的物品；
@@ -487,6 +494,22 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 * 「可接取任务」不做：服务端没有「可接任务列表」包，可接任务只能从 NPC 对话页里点
   （`C.AcceptQuest` 由 NPC 脚本触发），所以面板只列进行中任务。
 
+**任务物品栏（第 4 轮新增）**：面板底部固定一条「任务物品」栏（`Label::QuestItems`），
+横向显示 `WorldSnapshot.quest_items` 的物品图标（复用 `items.wzl`）+ 数量 `×N`；
+空栏显示 `Label::Empty`（中文「空」/ 英文 `-`），素材缺失时画占位方块。数据来源：
+
+* `S.GainedQuestItem`(205)（`{item: UserItem}`）→ 同 `unique_id` 整堆替换；可堆叠按模板
+  堆叠上限并堆，剩余入新条目（Crystal `GameScene.AddQuestItem`，`GameScene.cs:6559-6586`）；
+* `S.DeleteQuestItem`(206)（`{unique_id, count}`）→ 按 `unique_id` 扣 `count`，扣到 0 移除；
+* `S.UserInformation.quest_inventory`：整栏快照，`Some` 替换、`None` 保留旧数据，
+  40 格里的空格忽略；
+* 聊天提示：`Label::SystemQuestItemGained`（获得任务物品 {} ×{}）/ `Label::SystemQuestItemLost`
+  （失去任务物品 {} ×{}），按玩家语言渲染。
+
+测试：`tests/round2_panels.rs` 的 `quest_items_track_gained_and_deleted_items`、
+`quest_panel_shows_quest_items_and_fits_small_screens`，截图
+`target/client-quest-items-{320x240,800x600}.png`。
+
 ### 5.9 仓库面板（服务端自动打开）
 
 `ui::storage`。流程与 Crystal 一致：
@@ -585,6 +608,7 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 | 面板 / 功能 | 客户端包 → 服务端包 | 服务端实现 | 快照字段 |
 |---|---|---|---|
 | 任务列表 | ← `S.NewQuestInfo` / `S.ChangeQuest` / `S.CompleteQuest` / `S.ShareQuest` | `quests.rs` | `quest_infos` / `quests` / `completed_quests` |
+| 任务物品栏 | ← `S.GainedQuestItem{Item}`（205）/ `S.DeleteQuestItem{UniqueID,Count}`（206）/ `S.UserInformation.quest_inventory` | `quest_inventory.rs` | `quest_items` / `quest_items_version` |
 | 放弃任务 | `C.AbandonQuest{QuestIndex}` → `S.ChangeQuest{Remove}` | `World::abandon_quest`（`quests.rs`） | `quests` 移除 |
 | 仓库打开 | ← `S.UserStorage{Storage[80]}` + `S.NPCStorage` | `storage.rs` | `storage` / `storage_open` / `storage_open_version` |
 | 存物品 | `C.StoreItem{From,To}` → `S.StoreItem{From,To,Success}` | `World::storage_store_item` | 背包 ↔ `storage` |
@@ -678,6 +702,10 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
   3 已过期、4 金币不足、5 背包已满、6 不能买自己的、7 商人太远/条目不存在、
   8 金币超上限、9 出价太低、10 拍卖已结束；未知编号回「操作失败」。
 * `S.MarketSuccess.Message` 是服务端文案，直接显示在面板底部绿字 + 聊天系统行。
+* **拍卖到期自动成交**：成交/过期的提示由服务端下发的系统聊天 + 邮件承载
+  （`market_bought` / `market_sold_now` / `market_mail_auction_won` /
+  `market_mail_sold_commission`），客户端原样显示（聊天系统行 + 邮件面板），
+  本轮未新增 Market 相关 `Label`；服务端语义见 `docs/world/market.md` §9。
 * 寄售 / 拍卖页签有「上架」表单：背包选中物品 + 价格 + 上架 → `C.ConsignItem`；
   价格输入框按页签校验（寄售 5000..=50,000,000，拍卖 0..=50,000）。
 * 实际行为：市场面板打开时会把背包一起显示（Crystal `TrustMerchantDialog.Show()` 同样会
@@ -785,6 +813,19 @@ UI 按三类画简化表现（没有逐帧贴图素材）：
 测试：`crates/mir-client/tests/round2_panels.rs`
 （`spell_packets_create_visible_effects`、`object_hidden_hides_entities_everywhere`），
 以及服务端 `tests/magic.rs` 的包序断言。
+
+### 5.19 HUD 时间与天气
+
+* **时间（昼夜）**：协议有 `S.TimeOfDay{lights}`（index 61），客户端已接
+  （`net.rs` 写 `lights`），收到后在 HUD 顶部右侧显示黎明/白天/黄昏/夜晚；但**服务端
+  目前不下发**这个包（`mir-server/src/session.rs` 注明「本作没有 TimeOfDay」），所以当前版本
+  实际看不到时间。
+* **天气**：没有独立的 `S.Weather` 包；天气随 `S.MapChanged.weather`
+  （`WeatherSetting`）下发，客户端已接（`net.rs` 写 `weather`），在 HUD 顶部右侧与时间同一行
+  显示晴/雾/余烬/火星/雪/雨/落叶，例如「黄昏 · 雨」/“Evening · Rain”。窗口宽度 < 560 时
+  顶部空间不足，不显示这一行。
+* 测试：`tests/round2_panels.rs` 的 `time_and_weather_follow_server_packets`，截图
+  `target/client-time-weather.png`。
 
 
 
@@ -1188,7 +1229,9 @@ cargo fmt --all -- --check
   不支持像 Crystal `KeyBindSettings.cs` 那样改键；`F12`/`O` 是固定的面板快捷键；
 * **小地图**：NPC 任务感叹号（`MainDialogs.cs:1963-2010`）、两档尺寸/底部按钮
   （邮件/大地图/亮度）、滚轮缩放的「大地图搜索」；大地图面板本体见 §5.7（已实现）；
-* 天气、光照（`LightSetting`/`MapDarkLight`）、聊天频道切换与物品链接；
+* **光照/时间**：`S.TimeOfDay{lights}`（协议 index 61）客户端已接，但**服务端未下发**，
+  因此不画昼夜光照；`MapDarkLight` 的明暗渲染也未做。天气已接（随 `S.MapChanged.weather`
+  显示在 HUD，见 §5.19），但天气粒子特效（雨滴/雪花）没有画；聊天频道切换与物品链接未做；
 * **摆摊/拍卖/商城的剩余项**：NPC 市场（寄售/拍卖/搜索/翻页/买断/出价/提前成交/取回）面板已在
   §5.14 实现，商城页签在 §5.16 实现；仍缺 Crystal 的**独立商城面板**（`S.GameShopInfo`/
   `S.GameShopStock` 下发、库存实时刷新、`Class`/`Category` 二级筛选页签）、

@@ -455,12 +455,41 @@ Crystal 的隐身消耗 **1 张护身符**（`GetAmulet(1)`），本作消耗品
 > 召唤物优先打主人最近攻击的目标（`MagicState::last_target`，本作扩展；
 > Crystal 由召唤物自己 `FindTarget`，`MonsterObject.cs:1918-1997`）。
 >
-> **野生怪不反击召唤物**（玩法差异，**本轮有意不做、下一轮补**）：Crystal 的
-> `MonsterObject.IsAttackTarget(MonsterObject)` 会把「目标是宠物 + 攻击者是野生怪」判为可攻击
-> （`MonsterObject.cs:2481-2484`），`FindTarget` 的 Monster 分支也会把宠物纳入索敌
-> （`:1918-1963`）、`Attacked` 会反击（`:2601-2610`）；本作 `World::find_target` 只扫玩家，
-> 怪物不会把召唤物当目标，召唤物挨打后怪物也不反击。
-> 影响：召唤物对野怪基本无敌，只有主人死亡/下线、玩家攻击或 AoE（火墙/雷电）才会消失。
+> **野生怪反击召唤物（第 4 轮已实现，对齐 Crystal）**：
+> 野生怪在 `World::find_target`（`monster.rs:1037`）里**主动**把宠物当候选
+> （AOI `AoiKind::Monster` + `master.is_some()` 分支，`:1100-1110`；Crystal `FindTarget` 的 Monster
+> 候选 `MonsterObject.cs:1940-1963`）；宠物被咬时 `World::damage_monster`（`world.rs:2442`）
+> 再把 `pet_target = Some(attacker)` 并清 `operate_time`（`:2498`），下一 tick 由
+> `process_target`（`monster.rs:763`）走近、`attack_monster`（`:982`）反击
+> （Crystal `Attacked` → `Target = attacker`，`:2601-2610`）。
+>
+> 限制/差异（照 Crystal）：
+> * **玩家也能打宠物、宠物会反击**：`World::damage_monster`（`world.rs:2442`）的
+>   `pet_target` 写回不区分攻击者类型，是否合法交给 `pet_target_valid`（`monster.rs:901`：
+>   主人 Peace/安全区/同组同会/主人自己都会拒绝；Crystal `Attacked(HumanObject)` 只在
+>   `Target == null` 时设，`:2571-2574`）；和平模式主人的宠物不反击玩家；
+> * **玩家打宠物受主人攻击模式限制**：`monster_is_attack_target_of_player`
+>   （`world.rs:1982`）接入了 `melee_target` 与 `attack_target_position`（Bolt）/
+>   `magic_attack_position`（Poisoning）：守卫不可打；宠物受主人 `AttackMode`/安全区/
+>   同组同会/红棕名限制，**主人只有 `All` 模式才能打自己的宠物**，Peace 玩家不能打宠物
+>   （Crystal `MonsterObject.cs:2430-2463`）；
+> * 守卫 AI 6/113 只攻击**红名主人**（`PKPoints >= 200`）的宠物（Crystal `:2471-2475`）；
+>   Tao Guard AI 58 不攻击**和平模式主人**的宠物（`:2476-2479`）；攻城箭塔 AI 80 不把宠物当目标；
+> * 其余野生怪对**任何**宠物都可攻击，包括和平模式主人的宠物（Crystal `:2481-2484` 无条件 true）；
+> * **野生怪目标覆盖**：非宠物目标被**怪物**攻击时无条件 `target = attacker`
+>   （`world.rs:2502-2505` 注释；Crystal `:2601-2610`）；玩家攻击仍只在 `target` 为空时设置；
+> * 宠物永不攻击自己的主人（`pet_target_valid` 显式排除）；没有「互相锁死」定时器：双方
+>   锁定后只追击/攻击，目标死亡或出视野（宠物 8 格、野怪 `VIEW_RANGE` 16）即解除；
+>   宠物死亡 `monster_died` 注销、主人死亡 `player_died` 清宠物；
+> * **已知差异（未做）**：**宠物 vs 宠物未做**——`find_pet_target` 只扫野生怪
+>   （`master.is_none()`），Crystal 在 `Master != null` 时会优先改选「主人玩家目标的宠物」
+>   （`MonsterObject.cs:1978-1988`），本轮未实现。
+>
+> 测试：`tests/skills.rs` 的 `wild_monster_targets_and_attacks_a_pet_then_pet_retaliates`、
+> `pet_death_to_a_wild_monster_does_not_panic_the_master`、`guards_ignore_pets`、
+> `peaceful_masters_pet_does_not_attack_players`、`pet_never_targets_its_own_master`、
+> `pet_retaliates_when_attacked_by_a_player`、`peaceful_master_pet_does_not_retaliate_against_players`、
+> `players_cannot_attack_pets_without_all_mode`、`wild_monster_switches_target_to_the_pet_that_bites_it`。
 
 ### 6.7 施毒（`Poisoning`）
 
@@ -674,10 +703,10 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 22. **不死系标记在刷怪时回填**：`MonsterKind` 没有加字段，`Monster.undead` 在
     `World::spawn_monster` 里从 `MonsterInfo.Undead` 回查填入（`ThunderBolt` 用它）；
     `monster_kind` 夹具默认 `false`。
-23. **野生怪不反击召唤物**（§6.6，本轮有意不做、下一轮补）：Crystal 的野生怪会把宠物
-    纳入索敌并反击（`MonsterObject.cs:2481-2484`、`:1918-1963`、`:2601-2610`）；
-    本作 `World::find_target` 只扫玩家，召唤物不会被野怪攻击/反击，
-    只有玩家攻击或 AoE 才会掉血。
+23. **野生怪反击召唤物（第 4 轮已实现，不再是差异）**：野生怪会在 `find_target` 里主动把
+    宠物当目标，宠物被咬（或被玩家攻击）后下一 tick 反击（Crystal `MonsterObject.cs:2481-2484`、
+    `:1940-1963`、`:2601-2610`）；守卫/箭塔的例外、玩家 `All` 模式限制与「宠物不咬主人」
+    等细节见 §6.6。**仍需登记的差异**：宠物 vs 宠物未做（`find_pet_target` 只扫野生怪）。
 
 ---
 

@@ -65,7 +65,7 @@
 | 卖家/买家名 | `SellerInfo` / `CurrentBuyerInfo` 引用 | `seller_name` / `current_buyer_name` 名字快照 |
 | 持久化 | 写进 MirADB 的全局 `Auctions` 段（`Envir.cs:2591-2594`、`:3018-3029`） | PostgreSQL `market_auctions`（迁移 `0009`），整表快照 |
 | 页大小 | 固定 10（`:8356`、`:8405`） | `MARKET_PAGE_SIZE = 10` |
-| 到期 | `ProcessAuction` 每 10 分钟：有高于起拍价的出价就自动成交，否则置 `Expired` | `tick_market` 每 tick 置 `Expired`；启动时清理已过期挂单（见 §11） |
+| 到期 | `ProcessAuction` 每 10 分钟：有高于起拍价的出价就自动成交，否则置 `Expired` | **已实现**：`process_auctions` 每 60s（`AUCTION_SCAN_INTERVAL_MS`）结算，`current_bid > price` 自动成交（邮件发货/收款），否则置 `expired`；启动时先结算再清理（见 §9） |
 | 商城页签 | `MarketPanelType.GameShop` 读 `Envir.GameShopList`（代码被注释掉） | **已实现**（第 2 轮）：页签列出 `Server.MirDB` 商城段，`auction_id = GIndex`、`price = 元宝单价`；见 [`docs/world/gameshop.md`](gameshop.md) |
 
 ---
@@ -390,27 +390,72 @@ MarketSearch(…)
 
 ---
 
-## 9. 过期
+## 9. 过期与到期自动成交
 
-* **运行期**：`World::tick` 每 tick 调 `tick_market`，把
-  `!expired && !sold && now >= consignment_date + 7 天` 的条目标成 `expired`；
-* **重启清理**：`server.rs` 启动时 `store.load_auctions()` → `World::load_auctions(records)` →
-  `World::purge_expired_auctions(wall_now)`：已过期挂单**先把物品寄回卖家、把最高出价寄回
-  买家**（系统邮件，`Collected = false`），再删除挂单；返回被清理的挂单 ID。清理后的
-  挂单快照 + 退回邮件装进同一个 `MarketUpdate`，由 `store.apply_market_update(cleanup)`
-  在**一个事务**里落库（见 §11.2）；
-* **持久化**：`expired` 会写回 `market_auctions.expired`，运行期已标记的过期状态在重启后
-  仍能被 `purge_expired_auctions` 识别。
+第 4 轮已对齐 Crystal 的 `Envir.ProcessAuction`（`Envir.cs:2388-2418`）：到期时**有高于起拍价
+的出价就自动成交**，否则置过期等卖家取回。
 
-**与 Crystal 的差异**：Crystal 的 `Envir.ProcessAuction` 每 10 分钟扫描一次
-（`Envir.cs:2354-2358`、`:2388-2418`），到期时：
+**运行期扫描**
 
-* 拍卖已有高于起拍价的出价 → **自动成交**（物品寄给买家、卖家收钱）；
-* 否则 → 只把 `Expired` 置真，物品继续挂在列表里，等卖家 `MarketGetBack` 取回。
+* `World::tick_market`（`market.rs:1668`）已是 **O(1) 空壳**：到期标记与自动成交都并入
+  60s 的 `process_auctions`，100ms 的 `World::tick` 不再全表扫描（合同要求）。代价是
+  `Expired` 标记最多晚一个扫描周期（≤60s）；期间卖家仍可用 `MarketGetBack{Any}` 取回
+  （`Any` 模式不依赖 `expired` 标志），批量 `Expired` 模式要等标记，部分路径由
+  `auction_expired_at` 兜底；
+* `World::process_auctions(now_ms)`（`market.rs:1712`）是 Crystal `ProcessAuction` 的对应物；
+  `server.rs` 的 tick 任务用 `market::AUCTION_SCAN_INTERVAL_MS = 60_000`（`market.rs:202`）
+  做闸门（`next_auction_scan` 状态放在 tick 任务局部变量，不污染 `World`）。Crystal 是每
+  10 分钟扫一次（`Envir.cs:2354-2358`），本作 60s 更及时，同时把「全表扫描 + 邮件生成/落盘」
+  限制到每分钟最多一次；
+* 成交判定 `World::auction_will_sell`（`market.rs:1676`）：`item_type == Auction` 且
+  `current_bid > price`（**严格大于，等于不成交**，Crystal `:2398`）且
+  `current_buyer_character_id.is_some()`；
+* 单条收尾 `World::sell_auction_on_expiry`（`market.rs:1748`）：从 `World.auctions` 移除挂单，
+  给买家一封**物品邮件**（正文 `market_mail_auction_won`）、给卖家一封**金币邮件**
+  （金额 `Auction::after_commission(current_bid)` = 成交价 − 5% 佣金，向下取整；正文
+  `market_mail_sold_commission`，把「成交价 `{cost}`」与「扣佣金后到手 `{gold}`」分开写）；
+  在线双方另收聊天提示（买家 `market_bought`、卖家 `market_sold_now`）。
+  **不写卖家角色行**——市场的不变量是「对手方只经 `mail_writes` 收款收货」；
+* 未成交：置 `expired = true`（由 `process_auctions` 统一置，幂等），列表里仍可见，
+  卖家可 `MarketGetBack{Mode=Expired}` 取回；真正删单由**启动时**
+  `World::purge_expired_auctions`（`market.rs:975`）完成（物品退回卖家、最高出价退回买家、
+  删挂单），运行期不再调用 `purge`；
+* **取回窗口**：到期后到下一轮扫描之间（≤ `AUCTION_SCAN_INTERVAL_MS`，Crystal 是 10 分钟）
+  卖家仍可 `MarketGetBack{Any}` 取回（买家当场退款），取回即删挂单、不再成交；
+* **启动顺序**：`server.rs:89-90` 固定先 `process_auctions` 再 `purge_expired_auctions`，
+  即「到期先成交、剩下的才清理」，否则停机期间到期的挂单会被当普通过期退款退货。
 
-本作不做「自动成交」：运行期只置 `expired`；真正清理由**重启时的 `purge_expired_auctions`**
-完成（物品/退款走系统邮件后删单），避免过期挂单永远占着列表、也避免吞掉买家已出的金币。
-玩家在运行期仍可通过 `MarketGetBack{Mode=Expired}` 提前取回。
+**事务与幂等**
+
+* 成交只在内存发生一次：`process_auctions` 把挂单移出 `World.auctions` 并生成两封邮件，
+  同一挂单再扫不会再出现（测试 `repeated_scan_sells_an_auction_only_once`）；
+* 落盘：`market::flush_auction_sales`（`market.rs:2693`）→ `flush_market_update`
+  （`MARKET_FLUSH_LOCK` 串行化）→ `AccountStore::apply_market_update`，**同一事务**写
+  「买家物品邮件 + 卖家金币邮件 + 挂单全量快照（已不含成交条目）」；`character: None`
+  （定时任务没有发起会话的角色行）；
+* 失败语义：事务一行未写 → 已 drain 的邮件按原顺序回灌 `World.mail_writes`，**内存成交结果
+  保留（不回滚挂单）**；tick 任务用 `sale_flush_pending` + 5s 退避重试同一 flush。故意不回滚
+  的原因：其它会话的市场操作也会 flush 整个邮件队列与快照，回滚挂单可能与「邮件已被别的
+  会话提交」叠成二次成交/双发；
+* 崩溃窗口：内存改了、事务未提交 → 重启后库里挂单仍在且已过期，启动路径
+  `process_auctions → purge_expired_auctions` 重新结算，邮件只在那一次事务里写，不双发
+  （测试 `auto_sale_crash_window_is_consistent`）；
+* 并发：`flush_market_update` 与 `flush_auction_sales` 共用 `MARKET_FLUSH_LOCK`，
+  不会出现两个事务各写一半快照。
+
+**与 Crystal 的差异**
+
+* 扫描周期 60s（Crystal 10 分钟，`Envir.cs:2354-2358`）——更及时，且同样限制到每分钟一次；
+* Crystal 的卖家要等在线后 `MarketGetBack` 领取成交款；本作自动成交后**直接寄金币邮件**，
+  离线也能到账，挂单当场删除；
+* Crystal 到期无出价只置 `Expired` 等卖家取回；本作运行期同样置 `expired`，但**重启时**
+  由 `purge_expired_auctions` 退货退款并删单（避免过期挂单永远占列表）。
+
+**测试**（`tests/market_persistence.rs`，MemoryStore 与 PostgreSQL 同一组 run 函数）：
+`expired_auction_with_bid_sells_automatically`、`expired_auction_without_bid_only_expires`、
+`repeated_scan_sells_an_auction_only_once`、`failed_sale_flush_retries_without_double_delivery`、
+`auto_sale_crash_window_is_consistent`；另有 `market.rs` 单测
+`tick_market_leaves_sellable_auctions_to_process_auctions`。
 
 ---
 
@@ -431,10 +476,14 @@ MarketSearch(…)
 5. **刷新复用关键字**：本作用上次的 `MatchName` 重新搜索；Crystal 的 `MarketRefresh`
    清空关键字只保留类型（`MirConnection.cs:1696`）。本作的行为更符合玩家直觉，但与参考实现
    在「刷新后是否保留搜索词」上不同。
-6. **过期的处理方式不同**：Crystal `ProcessAuction` 在到期时若有高价出价会自动成交，否则只置
-   `Expired` 等卖家取回；本作运行期只置 `expired`，服务端**重启时**由
-   `World::purge_expired_auctions` 把物品寄回卖家、最高出价寄回买家后删除挂单。因此
-   「拍卖到期后买家自动收到物品」在本作不存在；玩家在运行期可主动 `MarketGetBack` 取回。
+6. **过期的处理方式（部分对齐）**：Crystal `ProcessAuction` 到期有高价出价则自动成交、否则只置
+   `Expired` 等卖家取回；本作同样自动成交，但有三点不同：① 扫描周期 **60s**（Crystal 10 分钟）；
+   ② 成交后**用系统邮件把「成交价 − 5% 佣金」寄给卖家**（离线也能到账），**不直接写卖家角色行
+   金币**——Crystal 要等卖家在线后 `MarketGetBack` 领取；③ 未成交的过期挂单在**重启时**由
+   `World::purge_expired_auctions` 退货退款并删单（Crystal 不清理）。运行期内卖家仍可
+   `MarketGetBack{Mode=Expired}` 取回。
+   ② 的理由：离线卖家也能收款；避免跨会话整行覆盖（成交发生在定时任务里、没有发起会话的
+   角色行）；与既有「退款/退货走系统邮件」口径一致；邮件与挂单快照在同一事务提交、不双发。
 7. **`ConsignItem` 只发一次回执**：Crystal 在成功分支 `Enqueue(p)` 后，函数末尾又
    `Enqueue(p)` 一次（`:8304-8305`、`:8315`），成功时会收到两个 `S.ConsignItem`；本作只发一次。
 8. **挂单 ID 续号**：Crystal 持久化 `NextAuctionID`（`Envir.cs:2591`）；本作不存计数器，
@@ -577,10 +626,12 @@ Crystal 把挂单写在 `Server.MirADB` 的全局段（`Envir.cs:2591-2594`）�
    `MarketBuy` 的 GameShop 分支仍引用 `Account.Credit`。本作**已实现**商城页签与
    `C.GameshopBuy`（`docs/world/gameshop.md`），这里保留 Crystal 的原状描述作对照。
 9. **到期自动成交**：`ProcessAuction` 在 7 天到期时若有 `CurrentBid > Price`，会直接把物品
-   邮寄给最高出价者并给双方消息（`Envir.cs:2398-2409`），不是简单的「过期」。本作未实现，
-   见 §10 第 6 条。
+   邮寄给最高出价者并给双方消息（`Envir.cs:2398-2409`），不是简单的「过期」。
+   **本作已实现**（`process_auctions` / `sell_auction_on_expiry`，见 §9）；差异是卖家直接收
+   金币邮件、扫描 60s、未成交过期单重启时清理。
 10. **`ProcessAuction` 每 10 分钟才跑一次**：`Envir.cs:2354-2358`，所以 Crystal 的过期最多
-    延迟 10 分钟；本作每 tick 比较，过期更及时。
+    延迟 10 分钟；本作 `process_auctions` 每 **60s** 跑一次（`AUCTION_SCAN_INTERVAL_MS`），
+    `tick_market` 是 O(1) 空壳、不再每 tick 全表扫描。
 11. **`MarketGetBack` 批量模式可能什么都不发**：`count == 0` 时最终回 Reason 7；
     本作相同。
 12. **`MarketSellNow` 的佣金是 `uint` 截断**：`(uint)Math.Max(0, cost - cost * 0.05F)`
@@ -648,7 +699,7 @@ Crystal 把挂单写在 `Server.MirADB` 的全局段（`Envir.cs:2591-2594`）�
 
 * **商城（GameShop）**：已实现（第 2 轮），见 [`docs/world/gameshop.md`](gameshop.md)；
   独立商城面板（`S.GameShopInfo`/`S.GameShopStock`）与 `Category` 二级筛选仍未做。
-* **拍卖到期自动成交**：见 §10 第 6 条。
+* **拍卖到期自动成交**：已实现（第 4 轮），见 §9；差异见 §10 第 6 条。
 * **出价历史 / 一口价买断拍卖**：Crystal 也没有。
 * **离线消息队列**：`MessageAccount` 只发给在线角色；退款/成交走邮件。
 * **跨服/多世界**：单进程世界，`Envir.Auctions` 的设计就是全服一个列表。

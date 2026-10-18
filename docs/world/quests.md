@@ -47,6 +47,9 @@
 - **超时 = 放弃**：Crystal 在接取时排一个 `DelayedAction(DelayedType.Quest, …, TimeExpired, true)`，
   到点调 `AbandonQuest`（`QuestProgressInfo.cs:538-559`、`PlayerObject.cs:4364-4385`）。
   本作改成每 tick 比对 `expires_at`。
+- **任务物品栏用既有的两个包**：`S.GainedQuestItem`(205) / `S.DeleteQuestItem`(206)
+  协议里本来就有，第 4 轮只是接上服务端/客户端语义（40 格、掉落截胡、`characters.quest_inventory`
+  存档，见 §10）。
 - **空目标任务天然可交**：`CheckCompleted` 在三张目标表都为空时直接返回 true
   （`QuestProgressInfo.cs:321-348`）。真实样本里有 55 个这种纯剧情任务。
 
@@ -144,12 +147,16 @@ pub struct Player {
 | `taken_at` | 接取时刻（Unix 毫秒） | `StartDateTime` |
 | `expires_at` | 超时时刻（Unix 毫秒，`0` = 不限时） | `StartDateTime + TimeLimitInSeconds` |
 | `kill_count` | `Vec<(归一化怪物名, 已击杀)>` | `KillTaskCount[i].Count` + `MonsterID` |
-| `item_collected` | `Vec<(归一化物品名, 背包现有数)>` | `ItemTaskCount[i].Count` + `ItemID` |
+| `item_collected` | `Vec<(归一化物品名, 任务物品栏 + 背包现有数)>` | `ItemTaskCount[i].Count` + `ItemID` |
 | `flags` | 已点亮的标记号 | `FlagTaskSet[i].State` |
 
 键用**归一化模板名**（小写 + 去空白，`mir_server::gamedata::normalize_item_name`）而不是
 Crystal 的模板 ID：本作没有「怪物/物品模板的稳定数字 ID」这条约束，
 名字归一化在中文/英文数据上都稳定（`Forest Yeti` / `forestyeti` 命中同一条）。
+
+> **任务物品栏不在 `Player` 上**：它是 World 侧旁置表
+> `World.quest_inventories: HashMap<u32, QuestInventory>`（登录时 `set_quest_inventory`
+> 装入、下线 `take_quest_inventory` 取走存盘），40 格 + 掉落截胡的细节见 §10。
 
 ### 3.2 目标判定
 
@@ -208,7 +215,11 @@ Crystal 的模板 ID：本作没有「怪物/物品模板的稳定数字 ID」�
 | `World::advance_quest_kills(player, monster_name)` | 击杀推进（`CheckNeedQuestKill`，`:11578-11590`） |
 | `World::refresh_quest_items(player)` | 收集重算（`CheckNeedQuestItem`，`:11539-11561`）+ 变化时发 `S.ChangeQuest{Update}` |
 | `World::sync_quest_items(player)` | 同上但**不发包**（登录/存档前用） |
-| `World::inventory_item_counts(player)` | 背包按模板名聚合的数量表 |
+| `World::inventory_item_counts(player)` | 背包按模板名聚合的数量表（**不含**任务物品栏） |
+| `World::quest_item_counts(player)` | 任务物品栏按模板名聚合的数量表（§10） |
+| `World::set_quest_inventory` / `quest_inventory` / `take_quest_inventory` | 世界侧任务物品栏的装入/只读/取走（登录、下线、快照） |
+| `World::check_need_quest_item` / `gain_quest_item` / `take_quest_items` | 截胡判定 / 入栏并发 205 / 扣除并发 206（§10） |
+| `World::check_group_quest_item` | 掉落截胡的组队入口（掉落循环调用） |
 | `World::tick_quests(now)` | 超时检查（`tick()` 内调用） |
 | `World::quest_login_packets(player)` | 进世界时要发的任务包（`Vec<ServerPacket>`） |
 | `World::send_completed_quests(player)` | 单独发一条 `S.CompleteQuest` |
@@ -240,9 +251,10 @@ Crystal 的判定顺序（`PlayerObject.AcceptQuest`，`:11251-11348`），本�
 | 7 | 同时进行数 `< Globals.MaxConcurrentQuests`（20） | `TooManyQuests` |
 | 8 | 已完成过的任务不能再接（可重复任务除外） | `AlreadyCompleted` |
 | 9 | 前置任务链（`RequiredQuest` 一路往上，最多 64 跳防环） | `PrerequisiteMissing` |
-| 10 | 发放 `[@CARRYITEMS]`（本作进普通背包；背包放不下就整体失败） | `InventoryFull` |
+| 10 | 发放 `[@CARRYITEMS]`（本作进**任务物品栏**，§10；栏位放不下就整体失败） | `InventoryFull` |
 
-成功后：建进度 → 按背包重算收集目标 → 发 `S.ChangeQuest { QuestState = Add, TrackQuest = true }`
+成功后：建进度 → 按任务物品栏（+普通背包，见 §10）重算收集目标 → 发
+`S.ChangeQuest { QuestState = Add, TrackQuest = true }`
 （`:11345`；`trackQuest = true` 只在接取时为真，登录重放时是 `false`）。
 
 **简化**：Crystal 还查 `npc.VisibleLog[Info.Index]` 与 `npc.Visible`（`:11269`）——
@@ -266,7 +278,7 @@ Crystal 的判定顺序（`PlayerObject.AcceptQuest`，`:11251-11348`），本�
 |---|---|---|
 | 1 | `S.CompleteQuest { CompletedQuests }` | `:11430-11431`（仅非可重复任务） |
 | 2 | `S.ChangeQuest { QuestState = Remove }` | `:11434` |
-| 3 | `S.DeleteItem` × 扣掉的携带物品/收集物品 | `:11436-11447`（Crystal 是 `S.DeleteQuestItem`） |
+| 3 | `S.DeleteQuestItem` × 任务物品栏扣除；`S.DeleteItem` × 背包兜底 | `:11436-11447`（Crystal 只有 `S.DeleteQuestItem`；背包兜底是本作兼容旧存档的扩展） |
 | 4 | `S.GainedItem` × 每件奖励 | `:11449-11452` |
 | 5 | `S.GainedGold` | `:11456`（`GoldReward * Settings.DropRate`，默认 1.0） |
 | 6 | `S.GainExperience` | `:11457`（`ExpReward * Settings.ExpRate`，默认 1.0） |
@@ -358,6 +370,24 @@ i32    已完成任务条数 + 每条 i32
 读写时机：`Session::on_start_game` 解码 → `Player { quests, completed_quests }` →
 `World::sync_quest_items`；`Session::leave_world` 编码回 `Character::quests` → `save_character`。
 
+### 8.1 任务物品栏（`characters.quest_inventory`，迁移 0012）
+
+任务物品栏与背包分开存一列（Crystal 是把 `QuestInventory` 和背包/装备/仓库一起写进角色块，
+`CharacterInfo.cs:449-456`；本作沿用 `characters.*` 一列一块的约定，便于迁移与排障）：
+
+```sql
+-- crates/mir-store/migrations/0012_character_quest_inventory.sql
+ALTER TABLE characters ADD COLUMN quest_inventory BYTEA NOT NULL DEFAULT '\x'::bytea;
+```
+
+编码/解码：`mir_server::quest_inventory::QuestInventory::encode/decode`，布局与
+`characters.storage` 同风格（`int32 槽位数` + 每槽 `bool 有物品?` + `UserItem`）；
+空块 = 空栏，槽位数超过 40 时截断、不足补齐。
+
+读写时机：`Session::on_start_game` 解码 → `World::set_quest_inventory`（世界侧旁置表
+`quest_inventories`）→ `S.UserInformation.quest_inventory` 下发整栏；下线
+`leave_world` 调 `World::take_quest_inventory` 编码回 `Character::quest_inventory`。
+
 ---
 
 ## 9. Crystal 的异常行为 / 本作的差异
@@ -374,7 +404,7 @@ i32    已完成任务条数 + 每条 i32
 | 8 | `Count >= Info.Count`：坏数据里数量 0 的目标天然算完成 | 照抄 |
 | 9 | `ProcessKill` 只给**第一个**名字匹配的任务条目 `++`，而且不看它是否已完成 → 同一任务里两条同怪物目标时第二条永远涨不上去 | 改成「第一个**未完成**的匹配项」 |
 | 10 | 奖励按堆叠上限拆分，`StackSize == 0` 时 `count -= 0` **死循环** | 用 `stack_size.max(1)` 兜底 |
-| 11 | 任务物品走独立的 40 格 `QuestInventory`，怪物掉落会“截胡”（`MonsterObject.cs:1130-1138`），另有 `S.GainedQuestItem`/`S.DeleteQuestItem` | 走普通背包：收集进度 = 背包实时数量，交付时扣背包（见 §10） |
+| 11 | 任务物品走独立的 40 格 `QuestInventory`，怪物掉落会“截胡”（`MonsterObject.cs:1130-1138`），另有 `S.GainedQuestItem`/`S.DeleteQuestItem` | **已实现（第 4 轮）**：见 §10。截胡**时机与 Crystal 一致**（掉落时、落地前）；差异是组队截胡每个队员拿独立克隆（Crystal 共享同一 `UniqueID`，属 bug）、收集进度额外统计普通背包 |
 | 12 | 超时是接取时排的 `DelayedAction`（`QuestProgressInfo.cs:538-559`） | 每 tick 比对 `expires_at`（结果等价；`ignoreIfComplete = true` 也照抄：已完成的不会被清） |
 | 13 | 登录时把**全库任务**的 `ClientQuestInfo` 推一遍（`:1185-1187`） | 照抄；但**没有任何任务数据时一个包都不发**（避免给空世界塞 `S.CompleteQuest{[]}`） |
 | 14 | `ShareQuest` 需要组队，没队伍只回一条系统提示（`:11485-11491`） | 照抄：只发给同图 `DataRange` 内活着的队友，一个都没发出去时提示（`QuestError::NotShared`），见 `docs/world/group.md` |
@@ -384,20 +414,75 @@ i32    已完成任务条数 + 每条 i32
 
 ---
 
-## 10. 明确未做（TODO）
+## 10. 任务物品栏（`QuestInventory`，40 格）
 
-- **任务物品栏**（`QuestInventory` 40 格、`S.GainedQuestItem` / `S.DeleteQuestItem`、
-  怪物掉落的“截胡”）：见 §9 第 11 条。
+第 4 轮实现，模块 `crates/mir-server/src/quest_inventory.rs`，与普通背包（46 格）分开。
+
+**结构**：固定 `QUEST_INVENTORY_SIZE = 40`（Crystal `CharacterInfo.cs:75`），
+`QuestInventory` 用 `Vec<Option<UserItem>>`；`add` 先补已有堆叠、再找第一个空位，
+**原子**（放不下整件拒绝并保持原样；Crystal 假定调用方先 `CanGainQuestItem`，放不下时
+会把剩余堆叠悄悄丢掉）；`take` 跨格扣减并逐条返回 `(unique_id, count)`。
+
+**协议**（`crates/mir-protocol/src/packets/server.rs`）：
+
+| 包 | index | 字段 | 时机 |
+|---|---|---|---|
+| `S.GainedQuestItem` | **205** | `{item: UserItem}` | 任务物品入栏（接取携带、掉落截胡；交付奖励走普通背包 `S.GainedItem`） |
+| `S.DeleteQuestItem` | **206** | `{unique_id, count}` | 交付/放弃时扣任务物品 |
+| `S.UserInformation.quest_inventory` | — | `Option<Vec<Option<UserItem>>>` | 登录时整栏下发（40 格） |
+
+**掉落截胡**（`World::check_group_quest_item`，`quest_inventory.rs`）：
+怪物掉落循环在 `World::drop_monster_loot`（`items.rs`）里、`drop_cell` 落地**之前**逐件调用；
+命中时物品**不落地**、直接进任务物品栏——**与 Crystal 同时机**（`MonsterObject.Drop` 在
+`DropItem` 之前调 `EXPOwner.CheckGroupQuestItem`，`MonsterObject.cs:1093-1145`、`:1130-1138`；
+`PlayerObject.CheckNeedQuestItem` 是这条调用链的内部判定，`:11539-11561`，不是拾取入口）。
+
+* **只对「有未完成收集任务」的物品生效**：`task_needs_item` 要求任务 `InProgress`、
+  脚本里有匹配的收集目标、且该目标 `item_collected < count`（已收满/已完成/没接任务都不截胡）；
+* **任务物品栏满时不截胡**：物品照旧落地（Crystal 同样先 `CanGainQuestItem` 再决定）；
+* 单人只查击杀者；组队查同图、16 格内、活着的队员（含本人）——任一队员需要就截胡，
+  每个队员各拿一件**独立克隆**（新 `UniqueID`，保留掉落 `count`/耐久/附加属性）；
+  Crystal 把同一个 `UserItem` 实例塞进多个队员的任务栏（共享 `UniqueID`，属于 bug）；
+* 逐件下发 `S.GainedQuestItem`(205)；扣除逐条下发 `S.DeleteQuestItem`(206)。
+
+**收集进度**：入栏后立即 `World::refresh_quest_items` 重算 `item_collected` 并发
+`S.ChangeQuest{Update}`；交付时 `World::take_quest_items`（`quest_inventory.rs`）
+先扣任务物品栏、不足再扣普通背包（兼容旧存档/交易来的物品）。
+
+**与 Crystal 的差异 / 未做**：
+
+* **收集进度统计口径**：Crystal 只统计 `Info.QuestInventory`（`ProcessItem`）；
+  本作额外把**普通背包**也计入（兼容旧存档/交易来的任务物品）；
+* **未发** Crystal 的 `S.SendOutputMessage{YouFound}`（「你找到了 X」）提示
+  （i18n 键表没有这条）；
+* **未做** `drop.QuestRequired`（掉落表数据层还没有该字段；Crystal 用它让「任务物品只给任务、
+  绝不落地」）；
+* `add` 是**原子**的：放不下整件拒绝并保持原样；Crystal 假定调用方先 `CanGainQuestItem`，
+  放不下时会把剩余堆叠悄悄丢掉；
+* **每日重置未做**：Crystal 的 `QuestInventory` 本身没有每日重置，任务重置逻辑本作也没有；
+  `QuestType.Daily` 的日切本作未实现（未核对 Crystal 是否有日切），任务物品栏只随交付/放弃的
+  `RecalculateQuestBag` 清理。
+
+**存档**：`characters.quest_inventory`（迁移 `0012_character_quest_inventory.sql`），
+见 §8.1；登录/下线由 `Session` 读写（`on_start_game` 解码 → `set_quest_inventory`；
+`leave_world` 先 `take_quest_inventory` 再 `save_character`）。`Session::character_snapshot`
+用世界里的**活值**覆写 `quest_inventory`，避免市场/商城落盘把任务栏写回登录值。
+
+---
+
+## 11. 明确未做（TODO）
+
 - **地图/区域类目标**（Crystal 的 `//TODO: ZoneTasks`，`QuestInfo.cs:71`）与护送任务
   （`//TODO: EscortTasks`，`:72`）——Crystal 自己也没做。
 - **`CallDefaultNPC`**（`OnAcceptQuest` / `OnFinishQuest`）。
 - **`Settings.DropRate` / `ExpRate` 的可配置化**（现在固定 1.0）。
 - **NPC 任务图标的 `VisibleLog`**（`NPCObject.cs`）：接取时不复查可见性。
-- **每日任务重置**（`QuestType.Daily` 的日切逻辑）：Crystal 侧也没有实现，只有图标区分。
+- **每日任务重置**（`QuestType.Daily` 的日切逻辑）：本作未做（未核对 Crystal 是否有日切；
+  见 §10 的差异清单）。
 
 ---
 
-## 11. 测试清单（`crates/mir-server/tests/quests.rs`，26 个用例）
+## 12. 测试清单（`crates/mir-server/tests/quests.rs`，35 个用例）
 
 | 用例 | 覆盖 |
 |---|---|
@@ -417,7 +502,9 @@ i32    已完成任务条数 + 每条 i32
 | `finish_rejects_unfinished_quests` | 未达成 / 未接取时的交付与放弃 |
 | `timed_quest_expires_and_is_abandoned` | 限时 10 秒：9 秒不触发、11 秒清进度 + `S.ChangeQuest{Remove}` |
 | `abandon_quest_clears_the_progress` | 放弃清进度 |
-| `carry_items_are_given_on_accept_and_taken_on_finish` | `[@CARRYITEMS]` 发放/收回 + 标记位目标 |
+| `carry_items_are_given_on_accept_and_taken_on_finish` | `[@CARRYITEMS]` 发放/收回 + 标记位目标（任务物品栏 + `S.GainedQuestItem`/`S.DeleteQuestItem`） |
+| `quest_items_are_intercepted_only_for_unfinished_collect_tasks` | 截胡只在「有未完成收集任务」时发生；收满/完成任务/没接任务都不截胡，收集进度立即重算 |
+| `quest_inventory_roundtrips_through_world_and_store_blob` | 任务物品栏存档往返（`characters.quest_inventory` + 世界侧表，下线→重登后物品还在） |
 | `npc_checkquest_reads_the_real_state` | `CHECKQUEST … ACTIVE` 三分支 + 数字写法的 `COMPLETE` 怪癖 |
 | `npc_finishquest_action_completes_the_quest` | `ACCEPTQUEST` / `FINISHQUEST` / `ABANDONQUEST` 三个动作 |
 | `quest_progress_round_trips_through_the_byte_block` | 存档往返（含超时时刻、完成列表） |
@@ -432,7 +519,8 @@ i32    已完成任务条数 + 每条 i32
 坏行告警、未知段、双引号消息、数量缺省/写坏、标记位边界、路径拼接）、
 `npc_script.rs` 2 个 `[Quests]` / 任务动作用例；
 `mir-server/src/quests.rs` 5 个单元测试（存档往返、空块、名字匹配、
-目标完成判定、状态值往返）。
+目标完成判定、状态值往返）；`quest_inventory.rs` 11 个单元测试（40 格、堆叠、
+原子性、跨格扣减、清不需要物品、编解码、帧号、截胡判定）。
 
 ### 真实数据冒烟结果
 

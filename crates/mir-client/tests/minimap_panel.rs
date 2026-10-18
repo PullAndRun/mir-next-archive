@@ -11,6 +11,8 @@
 //! 有真实素材时用 `resource/map/0.map` + `resource/data/mmap.wzl`（真实小地图，
 //! 帧号换成真实存在的 7 号帧）；没有素材时用合成地图 + 合成小地图图库，测试照样跑。
 
+mod common;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -240,7 +242,7 @@ fn renders_minimap_panel_to_png() {
     scene.render_with_entities(&mut frame, center, &entities);
     let world_only = frame.clone();
 
-    let text = UiText::load(None);
+    let text = common::load_text();
     let mut state = UiState::new(Language::ZhCn);
     state.minimap_scene = std::mem::replace(&mut minimap_scene, MinimapScene::empty());
     state.show_minimap = true;

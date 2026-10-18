@@ -12,6 +12,8 @@
 //! 测试不需要窗口、字体或 `resource/`：没有字体时用 3×5 点阵兜底，没有地图素材时
 //! 用合成空地图。所有等待都有超时。
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,7 +21,7 @@ use std::time::Duration;
 use mir_client::geom::Rect;
 use mir_client::net::{ConnectOptions, CreateCharacter, NetClient, WorldSnapshot};
 use mir_client::ui::dialog::ParsedPage;
-use mir_client::ui::{self, UiAction, UiState, UiText, hud, inventory, shop};
+use mir_client::ui::{self, UiAction, UiState, hud, inventory, shop};
 use mir_core::Language;
 use mir_core::enums::{ChatType, MirClass, MirDirection, MirGender, PanelType, Spell};
 use mir_protocol::ServerPacket;
@@ -330,7 +332,7 @@ fn headless_ui_renders_all_panels_and_dispatches_clicks() {
     scene.render_with_entities(&mut frame, center, &entities);
     let world_only = frame.clone();
 
-    let text = UiText::load(None);
+    let text = common::load_text();
     let mut state = UiState::new(Language::ZhCn);
     state.show_inventory = true;
     state.show_skills = true;

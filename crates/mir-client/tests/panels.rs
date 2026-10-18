@@ -12,6 +12,8 @@
 //!
 //! 不依赖真实素材：没有地图时用合成空地图，没有字体时 `UiText::load` 自动退回点阵。
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use mir_client::geom::Rect;
@@ -261,7 +263,7 @@ fn quest_panel_renders_progress_and_abandons_the_selected_quest() {
         Some(3_540)
     );
 
-    let text = UiText::load(None);
+    let text = common::load_text();
     let mut state = UiState::new(Language::ZhCn);
     state.show_quests = true;
     state.set_time(61_000);
@@ -328,7 +330,7 @@ fn storage_snapshot() -> WorldSnapshot {
 #[test]
 fn storage_panel_opens_from_npc_storage_and_moves_items_both_ways() {
     let snapshot = storage_snapshot();
-    let text = UiText::load(None);
+    let text = common::load_text();
     let mut state = UiState::new(Language::ZhCn);
     state.sync(&snapshot);
     assert!(state.show_storage, "S.NPCStorage 应自动打开仓库");
@@ -455,7 +457,7 @@ fn mail_snapshot() -> WorldSnapshot {
 #[test]
 fn mail_panel_reads_collects_locks_deletes_and_sends() {
     let snapshot = mail_snapshot();
-    let text = UiText::load(None);
+    let text = common::load_text();
     let mut state = UiState::new(Language::ZhCn);
     state.show_mail = true;
     state.sync(&snapshot);
@@ -707,7 +709,7 @@ fn guild_panel_shows_members_storage_buffs_and_notice_actions() {
         Some(10_000)
     );
 
-    let text = UiText::load(None);
+    let text = common::load_text();
     let mut state = UiState::new(Language::ZhCn);
     state.show_guild = true;
     // 行会仓库的拖拽存取需要背包一起可见（Crystal 的仓库页也是和背包并排用）。

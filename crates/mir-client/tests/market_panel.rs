@@ -13,6 +13,8 @@
 //! 4. 交互：搜索、翻页、买断、出价预填、寄售上架、取回、一键收款、提前成交；
 //! 5. `UiAction` 与 `NetCommand` 一一对应。
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use mir_client::geom::Rect;
@@ -318,7 +320,7 @@ fn market_snapshot_tracks_listings_pages_and_messages() {
     assert_eq!(paged.packet_count("NPCMarketPage"), 1);
 
     // UI sync：打开时显示背包、当前页按列表长度回落。
-    let text = UiText::load(None);
+    let text = common::load_text();
     let mut state = UiState::new(Language::ZhCn);
     state.sync(&paged);
     assert!(state.show_market);
@@ -449,7 +451,7 @@ fn market_fail_reason_shows_localized_text() {
 
 #[test]
 fn market_panel_search_page_buy_bid_and_consign() {
-    let text = UiText::load(None);
+    let text = common::load_text();
     let screen = Rect::screen(800, 600);
     let snapshot = listings_snapshot();
     let mut state = UiState::new(Language::ZhCn);
@@ -674,7 +676,7 @@ fn market_panel_search_page_buy_bid_and_consign() {
 
 #[test]
 fn market_panel_pages_with_buttons_and_only_requests_unfetched_pages() {
-    let text = UiText::load(None);
+    let text = common::load_text();
     let screen = Rect::screen(800, 600);
     let mut snapshot = paged_snapshot();
     let mut state = UiState::new(Language::ZhCn);
@@ -738,7 +740,7 @@ fn market_panel_pages_with_buttons_and_only_requests_unfetched_pages() {
 
 #[test]
 fn market_panel_renders_and_saves_png() {
-    let text = UiText::load(None);
+    let text = common::load_text();
     let snapshot = listings_snapshot();
     let mut state = UiState::new(Language::ZhCn);
     state.sync(&snapshot);
@@ -758,13 +760,16 @@ fn market_panel_renders_and_saves_png() {
     );
 
     // 失败提示画在底部：同一帧注入失败前后像素不同。
+    // 提示与失败原因都是中文：无 CJK 字形的环境两者都为空，像素差恒为 0，跳过并打印原因。
     let mut failed = snapshot.clone();
     failed.apply_packet(&ServerPacket::MarketFail(MarketFail { reason: 4 }));
     let (_, failed_frame) = render(&mut state, &failed, &text);
-    assert!(
-        changed_pixels(&frame, &failed_frame, layout.footer) > 5,
-        "失败原因应显示在底部"
-    );
+    if !common::skip_if_no_cjk(&text, "市场失败提示") {
+        assert!(
+            changed_pixels(&frame, &failed_frame, layout.footer) > 5,
+            "失败原因应显示在底部"
+        );
+    }
 
     let output = workspace_root().join("target/client-market.png");
     frame

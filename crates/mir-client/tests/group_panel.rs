@@ -14,6 +14,8 @@
 //! 5. 组队邀请弹窗 → `NetCommand::GroupReply{accept}`；
 //! 6. `!!` 前缀聊天走 `C.Chat`，服务端回显为 `ChatType::Group`。
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use mir_client::geom::Rect;
@@ -282,7 +284,7 @@ fn group_panel_shows_members_health_and_sends_group_packets() {
         "S.SendMemberLocation 应记录队员坐标"
     );
 
-    let text = UiText::load(None);
+    let text = common::load_text();
     let mut state = UiState::new(Language::ZhCn);
     state.show_group = true;
     state.sync(&snapshot);

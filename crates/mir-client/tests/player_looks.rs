@@ -13,11 +13,13 @@
 //! * 换装前后的两帧在角色区域**不同**（说明装备层真的被重画）；
 //! * 整帧不是空白（有真实素材时是 sprite，没有素材时是占位方块）。
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use mir_client::geom::Rect;
 use mir_client::net::{EQUIPMENT_SLOTS, WorldSnapshot};
-use mir_client::ui::{self, UiState, UiText};
+use mir_client::ui::{self, UiState};
 use mir_core::Language;
 use mir_core::enums::{EquipmentSlot, ItemType, MirClass, MirDirection, MirGender};
 use mir_protocol::ServerPacket;
@@ -152,7 +154,7 @@ fn render(snapshot: &WorldSnapshot, root: &Path) -> Frame {
     let mut frame = Frame::new(640, 480);
     let entities = snapshot.entity_views(0);
     scene.render_with_entities(&mut frame, POSITION, &entities);
-    let text = UiText::load(None);
+    let text = common::load_text();
     let mut state = UiState::new(Language::ZhCn);
     state.show_equipment = true;
     state.mouse = mir_core::Point::new(1, 1);

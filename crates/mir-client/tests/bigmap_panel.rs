@@ -13,6 +13,8 @@
 //! 有真实素材时用 `resource/map/0.map` + `resource/data/mmap.wzl`（302 号帧）；
 //! 没有素材时用合成地图 + 合成大地图，测试照样跑。
 
+mod common;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -198,7 +200,7 @@ fn pressing_b_renders_the_big_map_panel_and_escape_closes_it() {
     scene.render_with_entities(&mut frame, center, &entities);
     let world_only = frame.clone();
 
-    let text = UiText::load(None);
+    let text = common::load_text();
     let mut state = UiState::new(Language::ZhCn);
     state.minimap_scene = std::mem::replace(&mut big_map_scene, MinimapScene::empty());
     assert!(!state.show_bigmap, "默认关闭");

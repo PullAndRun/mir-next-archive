@@ -15,6 +15,8 @@
 //!
 //! 截图写到 `target/client-*.png`。
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use mir_client::geom::Rect;
@@ -80,7 +82,7 @@ fn scene_and_frame(width: u32, height: u32) -> (MapScene, Frame, Point) {
 }
 
 fn text() -> UiText {
-    UiText::load(None)
+    common::load_text()
 }
 
 fn user_item(unique_id: u64, item_index: i32, count: u16) -> UserItem {

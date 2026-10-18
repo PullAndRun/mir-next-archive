@@ -12,6 +12,8 @@
 //!    `NetCommand::MoveItem{grid: Inventory, …}`、buff 栏显示剩余秒数；
 //! 5. 输出 `target/client-interact.png`。
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,7 +22,7 @@ use mir_client::geom::Rect;
 use mir_client::net::{
     ConnectOptions, CreateCharacter, EQUIPMENT_SLOTS, NetClient, NetCommand, WorldSnapshot,
 };
-use mir_client::ui::{self, UiAction, UiState, UiText, buffs, equipment, inventory, tooltip};
+use mir_client::ui::{self, UiAction, UiState, buffs, equipment, inventory, tooltip};
 use mir_core::Language;
 use mir_core::Point;
 use mir_core::enums::{
@@ -352,7 +354,7 @@ fn interaction_tooltip_use_drag_damage_and_buffs() {
     scene.render_with_entities(&mut frame, center, &entities);
     let world_only = frame.clone();
 
-    let text = UiText::load(None);
+    let text = common::load_text();
     let mut state = UiState::new(Language::ZhCn);
     state.set_time(NOW);
     state.show_inventory = true;

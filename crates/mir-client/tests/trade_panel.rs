@@ -15,6 +15,8 @@
 //! 6. 「取消交易」→ `NetCommand::TradeCancel` 且面板收起；
 //! 7. 对方改报价（`S.TradeItem`）会把自己的准备状态清掉（服务端 `TradeUnlock()` 的镜像）。
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use mir_client::geom::Rect;
@@ -199,7 +201,7 @@ fn trade_panel_accepts_items_gold_and_confirm() {
     );
     assert!(snapshot.inventory_item(0).is_none(), "背包 0 号格应已空");
 
-    let text = UiText::load(None);
+    let text = common::load_text();
     let mut state = UiState::new(Language::ZhCn);
     state.sync(&snapshot);
     assert!(state.show_trade, "S.TradeAccept 应自动打开交易面板");
@@ -223,13 +225,17 @@ fn trade_panel_accepts_items_gold_and_confirm() {
     assert_eq!(layout.partner_grid.slots.len(), 10);
 
     // 「对方：已准备」与「未准备」两种状态的像素不同（注入字段直接验证）。
+    // 这组文案只有中文：字体没有 CJK 字形时两者都画不出来，像素差恒为 0，
+    // 此时跳过断言并打印原因（正常 Noto CJK / 微软雅黑 下保持严格断言）。
     let mut not_ready = snapshot.clone();
     not_ready.trade.partner_ready = false;
     let (_, not_ready_frame) = render(&mut state, &not_ready, &text);
-    assert!(
-        changed_pixels(&not_ready_frame, &frame, layout.partner_state) > 5,
-        "对方状态行应随 partner_ready 变化"
-    );
+    if !common::skip_if_no_cjk(&text, "对方已准备/未准备") {
+        assert!(
+            changed_pixels(&not_ready_frame, &frame, layout.partner_state) > 5,
+            "对方状态行应随 partner_ready 变化"
+        );
+    }
 
     let output = workspace_root().join("target/client-trade.png");
     frame

@@ -153,67 +153,67 @@ impl Default for TradeState {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TradeError {
     /// 对象不在世界里。
-    #[error("对象 {0} 不在世界里")]
+    #[error("object {0} is not in the world")]
     NotInWorld(u32),
     /// 交易请求太频繁（`Envir.Time < NextTradeTime`，静默，`PlayerObject.cs:10625`）。
-    #[error("交易请求太频繁")]
+    #[error("trade request too frequent")]
     Cooldown,
     /// 自己已经在交易中（`ServerTextKeys.AlreadyTrading`，`:10628-10632`）。
-    #[error("你已经在交易中")]
+    #[error("you are already trading")]
     AlreadyTrading,
     /// 面朝格上没有可以交易的玩家（`ServerTextKeys.FaceToTrade`，`:10640-10658`）。
-    #[error("请面对你要交易的对象")]
+    #[error("face the trade target")]
     NoTarget,
     /// 双方没有面对面（`ServerTextKeys.FaceToTrade`，`:10662-10666`）。
-    #[error("交易双方必须面对面")]
+    #[error("both traders must face each other")]
     NotFacing,
     /// 不能和自己交易（`ServerTextKeys.CannotTradeWithSelf`，`:10668-10672`）。
-    #[error("不能和自己交易")]
+    #[error("you cannot trade with yourself")]
     SelfTrade,
     /// 自己或对方已经死亡（`ServerTextKeys.CannotTradeWhenDead`，`:10674-10678`）。
-    #[error("死亡状态不能交易")]
+    #[error("trading is not allowed while dead")]
     Dead,
     /// 对方已经收到别人的交易邀请（`PlayerAlreadyHasTradeInvitation`，`:10680-10684`）。
-    #[error("{0} 已经收到了交易邀请")]
+    #[error("{0} has already received a trade invitation")]
     TargetInvited(String),
     /// 对方关掉了「允许交易」（`PlayerNotAllowingTrade`，`:10686-10690`）。
-    #[error("{0} 不允许交易")]
+    #[error("{0} does not allow trading")]
     TargetNotAllowingTrade(String),
     /// 对方不在同一张图，或超出 [`TRADE_RANGE`]（`PlayerNotInTradeRange`，`:10692-10696`、`:10803`）。
-    #[error("{0} 不在交易范围内")]
+    #[error("{0} is out of trade range")]
     OutOfRange(String),
     /// 对方已经在交易中（`PlayerAlreadyTrading`，`:10698-10702`）。
-    #[error("{0} 已经在交易中")]
+    #[error("{0} is already trading")]
     TargetTrading(String),
     /// 没有待接受的交易邀请（静默，`:10710-10714`）。
-    #[error("你没有收到交易邀请")]
+    #[error("you have no trade invitation")]
     NoInvitation,
     /// 邀请者已经下线（`TradeInvitation.Info == null`，静默，`:10710-10714`）。
-    #[error("邀请者已经下线")]
+    #[error("the inviter has gone offline")]
     InviterGone,
     /// 没有交易对象（`TradePartner == null`，静默）。
-    #[error("你没有在交易中")]
+    #[error("you are not trading")]
     NoPartner,
     /// 格子下标越界（`PlayerObject.cs:10534-10544`、`:10586-10596`）。
-    #[error("格子下标 {0} 越界")]
+    #[error("slot index {0} out of range")]
     InvalidSlot(i32),
     /// 背包/交易格里没有这件物品（`:10546-10552`、`:10598-10604`）。
-    #[error("格子里没有物品")]
+    #[error("the slot is empty")]
     NoItem,
     /// 物品绑定「禁止交易」（`BindMode.DontTrade`，`:10554-10564`）。
-    #[error("这件物品不能交易")]
+    #[error("this item cannot be traded")]
     ItemBound,
     /// 目标交易格已经被占用（`:10566`）。
-    #[error("目标交易格已经被占用")]
+    #[error("the target trade slot is occupied")]
     SlotOccupied,
     /// 目标背包格已经被占用（`:10606`）。
-    #[error("目标背包格已经被占用")]
+    #[error("the target inventory slot is occupied")]
     InventorySlotOccupied,
     /// 放入的金币小于 1（`:10750`）。
-    #[error("放入的金币必须大于 0")]
+    #[error("the gold amount must be greater than 0")]
     InvalidGold,
     /// 金币不够（`:10750`）。
-    #[error("金币不够：需要 {requested}，只有 {held}")]
+    #[error("insufficient gold: requires {requested}, holding {held}")]
     NotEnoughGold {
         /// 想放进去的数量。
         requested: u32,

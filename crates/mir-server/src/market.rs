@@ -128,7 +128,8 @@
 use mir_core::DateTimeBinary;
 use mir_core::TextKey;
 use mir_core::enums::{
-    BindMode, ItemType, MarketCollectionMode, MarketItemType, MarketPanelType, RequiredType,
+    BindMode, ItemType, MarketCollectionMode, MarketItemType, MarketPanelType, PetMode,
+    RequiredType,
 };
 use mir_core::i18n::{format_text, text};
 use mir_protocol::ServerPacket;
@@ -361,35 +362,35 @@ impl GameShopPurchaseReport {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum GameShopError {
     /// 对象不在世界里。
-    #[error("对象 {0} 不在世界里")]
+    #[error("object {0} is not in the world")]
     NotInWorld(u32),
     /// 没有加载 `Server.MirDB`（或数据库里没有商城段）。
-    #[error("商城数据未加载")]
+    #[error("game shop data is not loaded")]
     NoGameData,
     /// 商城里没有这个 `GIndex`。
-    #[error("商城里没有商品 {g_index}")]
+    #[error("game shop has no product {g_index}")]
     ProductNotFound {
         /// 客户端给的 `GIndex`。
         g_index: i32,
     },
     /// 数量不在 `1..=99`。
-    #[error("购买数量 {0} 不合法（1..=99）")]
+    #[error("invalid purchase quantity {0} (1..=99)")]
     InvalidQuantity(u8),
     /// 超过单次 5 组的上限（`PlayerObject.cs:13756`）。
-    #[error("一次最多买 {stacks} 组")]
+    #[error("at most {stacks} stacks per purchase")]
     TooManyStacks {
         /// 本次会占用的堆叠数。
         stacks: u64,
     },
     /// 职业不符（`ItemInfo.RequiredClass`，`PlayerObject.cs:13725` 之前由客户端过滤，
     /// 本作在服务端也校验一次）。
-    #[error("职业不符：{class}")]
+    #[error("class mismatch: {class}")]
     WrongClass {
         /// 需要的职业描述。
         class: String,
     },
     /// 等级不符（`ItemInfo.RequiredType == Level/MaxLevel` + `RequiredAmount`）。
-    #[error("等级不符：需要 {required}，当前 {level}")]
+    #[error("level mismatch: requires {required}, current {level}")]
     WrongLevel {
         /// 模板里的等级要求。
         required: u8,
@@ -397,19 +398,19 @@ pub enum GameShopError {
         level: u16,
     },
     /// 库存不足。
-    #[error("库存不足：还剩 {remaining}")]
+    #[error("out of stock: {remaining} remaining")]
     OutOfStock {
         /// 剩余数量（可能为负，表示已经超卖）。
         remaining: i64,
     },
     /// 该商品不允许用元宝购买（`GameShopItem.CanBuyCredit == false`，`:13794`）。
-    #[error("这件商品不能用元宝购买")]
+    #[error("this item cannot be purchased with credits")]
     CreditNotAllowed,
     /// 该商品不允许用金币购买（`GameShopItem.CanBuyGold == false`，`:13803`）。
-    #[error("这件商品不能用金币购买")]
+    #[error("this item cannot be purchased with gold")]
     GoldNotAllowed,
     /// 元宝不够。
-    #[error("元宝不足：需要 {needed}，只有 {held}")]
+    #[error("insufficient credits: requires {needed}, holding {held}")]
     NotEnoughCredit {
         /// 需要。
         needed: u64,
@@ -417,7 +418,7 @@ pub enum GameShopError {
         held: i64,
     },
     /// 金币不够。
-    #[error("金币不足：需要 {needed}，只有 {held}")]
+    #[error("insufficient gold: requires {needed}, holding {held}")]
     NotEnoughGold {
         /// 需要。
         needed: u64,
@@ -425,10 +426,10 @@ pub enum GameShopError {
         held: i64,
     },
     /// `PType` 不是 0/1（Crystal 回「钱不够」，`:13810-13813`）。
-    #[error("不支持的支付方式 {0}")]
+    #[error("unsupported payment method {0}")]
     UnsupportedPayment(i32),
     /// 背包既放不下、也寄不了邮件（理论上不会发生，留作兜底）。
-    #[error("背包放不下")]
+    #[error("item does not fit in the inventory")]
     CannotGain,
 }
 
@@ -801,22 +802,22 @@ impl MarketFailReason {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum MarketError {
     /// 对象不在世界里。
-    #[error("对象 {0} 不在世界里")]
+    #[error("object {0} is not in the world")]
     NotInWorld(u32),
     /// 死亡状态。
-    #[error("死亡状态不能用市场")]
+    #[error("the market cannot be used while dead")]
     Dead,
     /// 没通过 NPC 打开对应面板（Crystal `NPCPage == null` / 键不对）。
-    #[error("没有通过 NPC 打开市场面板")]
+    #[error("the market panel was not opened through an NPC")]
     NoDialog,
     /// 当前地图上找不到对话过的 NPC。
-    #[error("找不到对话的 NPC {object_id}")]
+    #[error("NPC {object_id} in dialogue not found")]
     NoSuchNpc {
         /// NPC 对象 ID。
         object_id: u32,
     },
     /// 离 NPC 太远。
-    #[error("离 NPC {object_id} 太远（上限 {range}）")]
+    #[error("too far from NPC {object_id} (max {range})")]
     OutOfRange {
         /// NPC 对象 ID。
         object_id: u32,
@@ -824,10 +825,10 @@ pub enum MarketError {
         range: i32,
     },
     /// 面板类型不对（`MarketPanelType::Market` 不能用来上架）。
-    #[error("面板类型 {0:?} 不能上架")]
+    #[error("panel type {0:?} cannot list items")]
     InvalidPanel(MarketPanelType),
     /// 价格越界。
-    #[error("价格 {price} 不在 [{min}, {max}] 内")]
+    #[error("price {price} is outside [{min}, {max}]")]
     PriceOutOfRange {
         /// 给定价格。
         price: u32,
@@ -837,7 +838,7 @@ pub enum MarketError {
         max: u32,
     },
     /// 金币不够（手续费/购买）。
-    #[error("金币不够：需要 {needed}，只有 {held}")]
+    #[error("insufficient gold: requires {needed}, holding {held}")]
     NotEnoughGold {
         /// 需要。
         needed: u32,
@@ -845,28 +846,28 @@ pub enum MarketError {
         held: i64,
     },
     /// 背包里找不到这件物品。
-    #[error("背包里找不到物品 {0}")]
+    #[error("item {0} not found in the inventory")]
     ItemNotFound(u64),
     /// 物品绑定「禁止出售」（`BindMode.DontSell`，`PlayerObject.cs:8288`）。
-    #[error("这件物品不能出售")]
+    #[error("this item cannot be sold")]
     ItemUnsellable,
     /// 背包/金币收不下。
-    #[error("收不下")]
+    #[error("cannot receive")]
     CannotGain,
     /// 搜索列表里没有这条拍卖（没搜过/已被买走）。
-    #[error("搜索列表里没有拍卖 {0}")]
+    #[error("auction {0} not found in the search list")]
     ListingNotFound(u64),
     /// 已经卖出。
-    #[error("拍卖 {0} 已经卖出")]
+    #[error("auction {0} has been sold")]
     ListingSold(u64),
     /// 已经过期。
-    #[error("拍卖 {0} 已经过期")]
+    #[error("auction {0} has expired")]
     ListingExpired(u64),
     /// 自己的挂单。
-    #[error("不能买自己挂的东西")]
+    #[error("you cannot buy your own auction")]
     OwnListing,
     /// 出价低于当前最高价。
-    #[error("出价 {bid} 低于当前价 {current}")]
+    #[error("bid {bid} is below the current price {current}")]
     BidTooLow {
         /// 当前价。
         current: u32,
@@ -874,16 +875,16 @@ pub enum MarketError {
         bid: u32,
     },
     /// 拍卖还没有人出价。
-    #[error("拍卖还没有人出价")]
+    #[error("no bids on this auction yet")]
     NoBid,
     /// 拍卖已结束。
-    #[error("拍卖已经结束")]
+    #[error("the auction has ended")]
     AuctionEnded,
     /// 节流（`Globals.SearchDelay`）。
-    #[error("搜索太频繁")]
+    #[error("searching too frequently")]
     Throttled,
     /// 这个面板还没做（商城）。
-    #[error("商城面板未实现")]
+    #[error("the game shop panel is not implemented")]
     UnsupportedPanel,
 }
 
@@ -2537,7 +2538,7 @@ static SLOW_NEXT_FLUSH: std::sync::atomic::AtomicBool = std::sync::atomic::Atomi
 /// 金币/HP/MP/等级/经验/坐标/地图/行会归属逐字段同步。市场操作改了背包与金币，
 /// 必须把这份快照和挂单放进同一个事务（F3）。
 #[must_use]
-pub fn character_snapshot(base: &Character, player: &Player) -> Character {
+pub fn character_snapshot(base: &Character, player: &Player, pet_mode: PetMode) -> Character {
     let mut character = base.clone();
     character.inventory = encode_slots(&player.inventory);
     character.equipment = encode_slots(&player.equipment);
@@ -2558,6 +2559,8 @@ pub fn character_snapshot(base: &Character, player: &Player) -> Character {
     character.direction = player.direction;
     character.map.clone_from(&player.map);
     character.guild_index = player.guild.map_or(-1, |reference| reference.guild_id);
+    // 宠物命令模式（Crystal `CharacterInfo.PMode`，单字节；运行时在 World 侧表）。
+    character.pet_mode = i16::from(pet_mode.value());
     character
 }
 

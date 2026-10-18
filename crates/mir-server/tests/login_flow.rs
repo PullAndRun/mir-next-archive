@@ -339,6 +339,16 @@ async fn wrong_password_is_rejected_with_result_4() {
 // GM 命令的权限门（t33）：`@...` 只有 GM 账号才被消费
 // ---------------------------------------------------------------------------
 
+/// 等 `S.LogOutSuccess`：进世界序列里还会夹着 `ChangeAMode` / `SwitchGroup` 等包，跳过即可。
+async fn expect_logout(client: &mut TestClient) {
+    for _ in 0..40 {
+        if let ServerPacket::LogOutSuccess(_) = client.expect().await {
+            return;
+        }
+    }
+    panic!("没收到 LogOutSuccess");
+}
+
 /// 起一个测试服务器，`gm_accounts` 里放 `"gmuser"`。
 fn gm_config() -> Arc<ServerConfig> {
     Arc::new(ServerConfig {
@@ -707,9 +717,75 @@ fn character_snapshot_carries_daily_reset_timestamp() {
         allow_trade: true,
         sender,
     };
-    let snapshot = mir_server::market::character_snapshot(&base, &player);
+    let snapshot =
+        mir_server::market::character_snapshot(&base, &player, mir_core::enums::PetMode::Both);
     assert_eq!(
         snapshot.last_daily_reset_at, 1_700_000_000_123,
         "市场/商城的角色行快照必须带上每日重置时间戳"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 宠物命令模式的登录/下线往返（t44/t45：`characters.pet_mode`，迁移 0001）
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn pet_mode_survives_logout_and_relogin() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("绑定临时端口");
+    let address = listener.local_addr().expect("取端口");
+    let store = Arc::new(MemoryStore::new());
+    tokio::spawn(serve_forever(listener, test_config(), Arc::clone(&store)));
+
+    // 第一次进世界：把宠物命令切到 `MoveOnly`（Crystal `C.ChangePMode`）。
+    let mut client = enter_world(address, "petuser").await;
+    client
+        .send(ClientPacket::ChangePMode(c::ChangePMode {
+            mode: mir_core::enums::PetMode::MoveOnly,
+        }))
+        .await;
+    // 服务端会无条件回一条 `S.ChangePMode`（`MirConnection.cs:1441-1448`）。
+    loop {
+        if let ServerPacket::ChangePMode(response) = client.expect().await {
+            assert_eq!(response.mode, mir_core::enums::PetMode::MoveOnly);
+            break;
+        }
+    }
+    client.send(ClientPacket::LogOut(c::LogOut {})).await;
+    expect_logout(&mut client).await;
+
+    // 下线存盘：角色行的 `pet_mode` 应该是 `MoveOnly`（1）。
+    let account = store
+        .find_account("petuser")
+        .await
+        .expect("查账号")
+        .expect("账号存在");
+    let saved = store.list_characters(account.id).await.expect("角色列表");
+    let character = saved.first().expect("有一个角色").clone();
+    assert_eq!(
+        character.pet_mode,
+        i16::from(mir_core::enums::PetMode::MoveOnly.value()),
+        "下线应把宠物命令写进 characters.pet_mode"
+    );
+
+    // 重登再下线：若登录没有恢复存档里的模式，这次快照会把它写回 Both（0）。
+    let mut again = login_existing(
+        address,
+        "petuser",
+        i32::try_from(character.id).unwrap_or_default(),
+    )
+    .await;
+    again.send(ClientPacket::LogOut(c::LogOut {})).await;
+    expect_logout(&mut again).await;
+    let reloaded = store
+        .find_character(account.id, character.id)
+        .await
+        .expect("查角色")
+        .expect("角色存在");
+    assert_eq!(
+        reloaded.pet_mode,
+        i16::from(mir_core::enums::PetMode::MoveOnly.value()),
+        "重登后应恢复存档里的宠物命令，而不是回落 Both"
     );
 }

@@ -111,6 +111,7 @@ fn from_store_character(character: mir_store::Character) -> Character {
         quests: character.quests,
         quest_inventory: character.quest_inventory,
         last_daily_reset_at: character.last_daily_reset_at,
+        pet_mode: character.pet_mode,
         guild_index: character.guild_index,
         last_access: from_datetime(character.last_login_date),
     }
@@ -146,6 +147,7 @@ fn apply_to_store_character(character: &Character, target: &mut mir_store::Chara
         .quest_inventory
         .clone_from(&character.quest_inventory);
     target.last_daily_reset_at = character.last_daily_reset_at;
+    target.pet_mode = character.pet_mode;
     target.guild_index = character.guild_index;
 }
 
@@ -528,7 +530,7 @@ impl AccountStore for PgAccountStore {
                 Ok(row) => row,
                 Err(mir_store::StoreError::NotFound(_)) => {
                     return Err(StoreError::Internal(format!(
-                        "角色 {} 不存在，无法保存",
+                        "character {} not found; cannot save",
                         character.id
                     )));
                 }
@@ -714,7 +716,7 @@ impl AccountStore for PgAccountStore {
                 .await
                 .map_err(|error| StoreError::Internal(error.to_string()))?;
             let id = i64::try_from(mail_id)
-                .map_err(|_| StoreError::Internal(format!("邮件 ID {mail_id} 超出 i64")))?;
+                .map_err(|_| StoreError::Internal(format!("mail id {mail_id} exceeds i64")))?;
             mir_store::delete_mail(&mut connection, id)
                 .await
                 .map_err(map_store_error)
@@ -837,7 +839,7 @@ impl AccountStore for PgAccountStore {
                     }
                     crate::mail::MailWrite::Delete { mail_id } => {
                         let id = i64::try_from(mail_id).map_err(|_| {
-                            StoreError::Internal(format!("邮件 ID {mail_id} 超出 i64"))
+                            StoreError::Internal(format!("mail id {mail_id} exceeds i64"))
                         })?;
                         mir_store::delete_mail(&mut tx, id)
                             .await
@@ -951,7 +953,7 @@ impl AccountStore for PgAccountStore {
                     }
                     crate::mail::MailWrite::Delete { mail_id } => {
                         let id = i64::try_from(mail_id).map_err(|_| {
-                            StoreError::Internal(format!("邮件 ID {mail_id} 超出 i64"))
+                            StoreError::Internal(format!("mail id {mail_id} exceeds i64"))
                         })?;
                         mir_store::delete_mail(&mut tx, id)
                             .await

@@ -226,31 +226,31 @@ impl QuestProgress {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum QuestError {
     /// 玩家不在世界里。
-    #[error("玩家 {0} 不在世界里")]
+    #[error("player {0} is not in the world")]
     NotInWorld(u32),
     /// 玩家已死亡（Crystal 的 NPC 入口一律先 `if (Dead) return;`）。
-    #[error("玩家 {player} 已死亡")]
+    #[error("player {player} is dead")]
     Dead {
         /// 玩家对象 ID。
         player: u32,
     },
     /// 数据库里没有这个任务。
-    #[error("任务 {0} 不存在")]
+    #[error("quest {0} does not exist")]
     NoSuchQuest(i32),
     /// 已经接过这个任务。
-    #[error("任务 {0} 已经在进行中")]
+    #[error("quest {0} is already in progress")]
     AlreadyTaken(i32),
     /// 已经完成过这个任务（非可重复任务）。
-    #[error("任务 {0} 已经完成过")]
+    #[error("quest {0} has already been completed")]
     AlreadyCompleted(i32),
     /// 没接这个任务（交付/放弃时）。
-    #[error("任务 {0} 没有接取")]
+    #[error("quest {0} is not accepted")]
     NotTaken(i32),
     /// 目标还没达成。
-    #[error("任务 {0} 的目标还没达成")]
+    #[error("quest {0} objectives are not complete")]
     NotCompleted(i32),
     /// 等级不够。
-    #[error("等级 {level} 不满足任务要求（{min}..={max}）")]
+    #[error("level {level} does not meet the quest requirement ({min}..={max})")]
     LevelOutOfRange {
         /// 玩家等级。
         level: u16,
@@ -260,22 +260,22 @@ pub enum QuestError {
         max: i32,
     },
     /// 职业不符。
-    #[error("职业 {class} 不能接这个任务")]
+    #[error("class {class} cannot accept this quest")]
     WrongClass {
         /// 玩家职业。
         class: &'static str,
     },
     /// 前置任务没完成。
-    #[error("前置任务 {0} 没有完成")]
+    #[error("prerequisite quest {0} is not complete")]
     PrerequisiteMissing(i32),
     /// 同时进行的任务太多。
-    #[error("最多同时进行 {limit} 个任务")]
+    #[error("at most {limit} quests can be active")]
     TooManyQuests {
         /// 上限。
         limit: usize,
     },
     /// 这个 NPC 不发布该任务。
-    #[error("NPC {npc} 不发布任务 {quest}")]
+    #[error("NPC {npc} does not offer quest {quest}")]
     NotAQuestPublisher {
         /// NPC 对象 ID。
         npc: u32,
@@ -283,7 +283,7 @@ pub enum QuestError {
         quest: i32,
     },
     /// 这个 NPC 不交付该任务。
-    #[error("NPC {npc} 不能交付任务 {quest}")]
+    #[error("NPC {npc} cannot finish quest {quest}")]
     NotAQuestFinisher {
         /// NPC 对象 ID。
         npc: u32,
@@ -291,13 +291,13 @@ pub enum QuestError {
         quest: i32,
     },
     /// 附近没有能交付这个任务的 NPC。
-    #[error("附近没有可以交付任务 {0} 的 NPC")]
+    #[error("no NPC nearby can finish quest {0}")]
     NoFinisherNearby(i32),
     /// NPC 不存在或不在同图。
-    #[error("NPC {0} 不在当前地图上")]
+    #[error("NPC {0} is not on the current map")]
     NoSuchNpc(u32),
     /// 离 NPC 太远。
-    #[error("离 NPC {object_id} 太远（上限 {range} 格）")]
+    #[error("too far from NPC {object_id} (max {range} cells)")]
     OutOfRange {
         /// NPC 对象 ID。
         object_id: u32,
@@ -305,11 +305,11 @@ pub enum QuestError {
         range: i32,
     },
     /// 背包放不下携带物品或奖励。
-    #[error("背包放不下任务物品")]
+    #[error("quest items do not fit in the inventory")]
     InventoryFull,
     /// 没有可以分享的对象：不在队伍里或附近没有队友
     /// （Crystal `ServerTextKeys.QuestNotShared`，`PlayerObject.cs:11488-11491`）。
-    #[error("任务无法分享（需要同图附近的队友）")]
+    #[error("quest cannot be shared (requires a nearby group member on the same map)")]
     NotShared,
 }
 
@@ -1698,10 +1698,10 @@ pub fn class_flag(class: mir_core::enums::MirClass) -> RequiredClass {
 #[derive(Debug, thiserror::Error)]
 pub enum QuestCodecError {
     /// 字节流不符合格式。
-    #[error("任务字节块解析失败：{0}")]
+    #[error("failed to parse quest blob: {0}")]
     Protocol(#[from] ProtocolError),
     /// 任务条数超过上限。
-    #[error("任务条数 {count} 超过上限 {limit}")]
+    #[error("quest count {count} exceeds limit {limit}")]
     TooManyQuests {
         /// 存档里的条数。
         count: usize,
@@ -1709,7 +1709,7 @@ pub enum QuestCodecError {
         limit: usize,
     },
     /// 状态字节非法。
-    #[error("任务状态字节 {0} 非法")]
+    #[error("invalid quest state byte {0}")]
     InvalidState(u8),
 }
 

@@ -175,28 +175,28 @@ impl GroundItem {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ItemError {
     /// 对象不在世界里。
-    #[error("对象 {0} 不在世界里")]
+    #[error("object {0} is not in the world")]
     NotInWorld(u32),
     /// 对象已死亡（Crystal `PickUp`/`DropItem` 的第一道门，`PlayerObject.cs:7485-7489`、`:7362-7366`）。
-    #[error("对象 {object_id} 已死亡")]
+    #[error("object {object_id} is dead")]
     Dead {
         /// 对象 ID。
         object_id: u32,
     },
     /// 脚下没有可拾取的地面物品。
-    #[error("脚下没有可拾取的地面物品")]
+    #[error("no ground item to pick up here")]
     NoGroundItem,
     /// 地面物品属于别人（Crystal `CannotPickupNotOwner`，`PlayerObject.cs:7501-7505`）。
-    #[error("地面物品属于玩家 {owner}")]
+    #[error("the ground item belongs to player {owner}")]
     NotOwner {
         /// 归属玩家。
         owner: u32,
     },
     /// 背包没有空位（Crystal `CanGainItem` 为假，`HumanObject.cs:7586-7628`）。
-    #[error("背包已满")]
+    #[error("inventory is full")]
     InventoryFull,
     /// 背包超重（**本作扩展**，Crystal 拾取时不查重量）。
-    #[error("超重：{weight} > 上限 {limit}")]
+    #[error("overweight: {weight} > limit {limit}")]
     TooHeavy {
         /// 拾取后的背包总重。
         weight: u32,
@@ -204,13 +204,13 @@ pub enum ItemError {
         limit: u32,
     },
     /// 背包里找不到这个 UUID 的物品。
-    #[error("背包里没有 UUID {unique_id} 的物品")]
+    #[error("no item with UUID {unique_id} in the inventory")]
     ItemNotFound {
         /// 物品 UUID。
         unique_id: u64,
     },
     /// 数量非法（Crystal `count < 1 || count > item.Count`，`PlayerObject.cs:7410-7414`）。
-    #[error("数量非法：{count}（持有 {available}）")]
+    #[error("invalid count: {count} (holding {available})")]
     BadCount {
         /// 请求数量。
         count: u16,
@@ -218,7 +218,7 @@ pub enum ItemError {
         available: u16,
     },
     /// 下标越界。
-    #[error("{grid:?} 的下标 {index} 越界")]
+    #[error("{grid:?} index {index} out of range")]
     SlotOutOfRange {
         /// 网格。
         grid: MirGridType,
@@ -226,7 +226,7 @@ pub enum ItemError {
         index: i32,
     },
     /// 格子是空的。
-    #[error("{grid:?} 的 {index} 号格是空的")]
+    #[error("{grid:?} slot {index} is empty")]
     EmptySlot {
         /// 网格。
         grid: MirGridType,
@@ -234,7 +234,7 @@ pub enum ItemError {
         index: i32,
     },
     /// 目标格已经被占用（装备脱下到有物品的背包格）。
-    #[error("{grid:?} 的 {index} 号格已被占用")]
+    #[error("{grid:?} slot {index} is occupied")]
     SlotOccupied {
         /// 网格。
         grid: MirGridType,
@@ -242,7 +242,7 @@ pub enum ItemError {
         index: i32,
     },
     /// 物品不能装备到这个槽（Crystal `CanEquipItem` 返回 false）。
-    #[error("物品 {item_index} 不能装备到 {slot} 号槽")]
+    #[error("item {item_index} cannot be equipped in slot {slot}")]
     CannotEquip {
         /// 物品模板编号。
         item_index: i32,
@@ -250,25 +250,25 @@ pub enum ItemError {
         slot: i32,
     },
     /// 物品模板不存在（掉落/拾取时数据缺失）。
-    #[error("物品模板 {0} 不存在")]
+    #[error("item template {0} does not exist")]
     UnknownItem(i32),
     /// 物品不允许丢弃（Crystal `BindMode.DontDrop`，`PlayerObject.cs:7416-7420`）。
-    #[error("物品 {unique_id} 不允许丢弃")]
+    #[error("item {unique_id} cannot be dropped")]
     CannotDrop {
         /// 物品 UUID。
         unique_id: u64,
     },
     /// 不支持的操作网格。
-    #[error("不支持的物品网格 {0:?}")]
+    #[error("unsupported item grid {0:?}")]
     UnsupportedGrid(MirGridType),
     /// 附近找不到可放置的空格（Crystal `ItemObject.Drop` 返回 false）。
-    #[error("附近没有可放置的空格")]
+    #[error("no free cell nearby")]
     NoDropCell,
     /// 金币数量溢出（Crystal `CanGainGold`，`PlayerObject.cs:7638-7641`）。
-    #[error("金币数量溢出")]
+    #[error("gold amount overflow")]
     GoldOverflow,
     /// 金币不够（Crystal `if (Account.Gold < gold) return;`，`PlayerObject.cs:7475`）。
-    #[error("金币不够：想丢 {requested}，只有 {held}")]
+    #[error("insufficient gold: trying to drop {requested}, holding {held}")]
     NotEnoughGold {
         /// 想丢的数量。
         requested: u32,
@@ -276,10 +276,10 @@ pub enum ItemError {
         held: u32,
     },
     /// 性别不符（Crystal `HumanObject.CanUseItem`，`HumanObject.cs:1024-1040`）。
-    #[error("性别不符")]
+    #[error("gender mismatch")]
     WrongGender,
     /// 职业不符（`HumanObject.cs:1042-1079`）。
-    #[error("职业不符：需要 {required:?}，当前 {class:?}")]
+    #[error("class mismatch: requires {required:?}, current {class:?}")]
     WrongClass {
         /// 物品要求的职业位。
         required: RequiredClass,
@@ -287,7 +287,7 @@ pub enum ItemError {
         class: MirClass,
     },
     /// 等级不满足 `RequiredType::Level` / `MaxLevel`（`HumanObject.cs:1081-1131`）。
-    #[error("等级不符：要求 {required} 级，当前 {level} 级")]
+    #[error("level mismatch: requires {required}, current {level}")]
     LowLevel {
         /// 要求等级。
         required: u8,
@@ -299,10 +299,10 @@ pub enum ItemError {
     /// **本作扩展**：Crystal 在满血时照样把药水喝掉（`PotHealthAmount` 会在下一次
     /// `ProcessRegen` 里被清零，`HumanObject.cs:641-645`），等于白白浪费一瓶；
     /// 这里直接拒绝并提示，见 `docs/world/items.md` 的「与 Crystal 的差异」。
-    #[error("药水没有效果：生命/魔法已满")]
+    #[error("potion has no effect: HP/MP already full")]
     PotionNoEffect,
     /// 本作还不支持的物品类型/形状（传送卷、马粮、变身卷…）。
-    #[error("物品 {item_index}（shape {shape}）的效果尚未实现")]
+    #[error("effect of item {item_index} (shape {shape}) is not implemented")]
     UnsupportedItem {
         /// 物品模板编号。
         item_index: i32,
@@ -310,7 +310,7 @@ pub enum ItemError {
         shape: i16,
     },
     /// 用书失败（转自技能系统的 [`MagicError`]）。
-    #[error("用书失败：{0}")]
+    #[error("failed to use book: {0}")]
     MagicBook(#[from] MagicError),
 }
 
@@ -772,10 +772,10 @@ pub fn equipment_slot_for(item_type: ItemType) -> Option<usize> {
 #[derive(Debug, thiserror::Error)]
 pub enum ItemCodecError {
     /// 协议层错误（读到文件尾、计数非法、字符串非法……）。
-    #[error("物品块解析失败：{0}")]
+    #[error("failed to parse item blob: {0}")]
     Protocol(#[from] ProtocolError),
     /// 槽位数量超过本作支持的上限。
-    #[error("物品块的槽位数 {count} 超过上限 {limit}")]
+    #[error("item blob slot count {count} exceeds limit {limit}")]
     TooManySlots {
         /// 声明/解出的槽位数。
         count: usize,

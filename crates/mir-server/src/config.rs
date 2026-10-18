@@ -54,6 +54,25 @@ pub struct ServerConfig {
     /// 即使 `admin = false` 也能用 `@` 命令（运维临时授权）。判定见
     /// [`crate::gm::is_gm`]。默认空 = 只认 `accounts.admin`。
     pub gm_accounts: Vec<String>,
+    /// **抗刷**：同一个 IP 允许的并发连接数（默认 5）。超限的连接会被立刻关闭。
+    ///
+    /// Crystal 没有这一层（`Server.cs` 只做 accept）；本作加上是为了挡掉端口扫描与
+    /// 单机多开刷号。`0` = 不限制。
+    pub max_connections_per_ip: usize,
+    /// **抗刷**：同一个 IP 每秒最多新建多少条连接（默认 10）。超限的连接会被立刻关闭。
+    ///
+    /// `0` = 不限制。
+    pub max_connections_per_second: usize,
+    /// **心跳超时**：多少秒收不到客户端的**任何**包就断开（默认 60）。
+    ///
+    /// Crystal 的客户端每分钟发一次 `C.KeepAlive`（`MirConnection.cs`），所以「有包」
+    /// 就等于「客户端还活着」；`0` = 不超时。
+    pub idle_timeout_secs: u64,
+    /// 单会话每秒最多处理多少个客户端包（默认 200）。
+    ///
+    /// 超限的包**丢弃并记一条 warn**，不踢人（避免误伤网络抖动时的重发包）。
+    /// `0` = 不限制。
+    pub max_packets_per_second: u32,
 }
 
 impl Default for ServerConfig {
@@ -86,6 +105,10 @@ impl Default for ServerConfig {
             gm_accounts: std::env::var(crate::gm::GM_ACCOUNTS_ENV)
                 .map(|raw| crate::gm::parse_gm_accounts(&raw))
                 .unwrap_or_default(),
+            max_connections_per_ip: 5,
+            max_connections_per_second: 10,
+            idle_timeout_secs: 60,
+            max_packets_per_second: 200,
         }
     }
 }
@@ -118,7 +141,31 @@ impl ServerConfig {
         if let Ok(value) = std::env::var(crate::gm::GM_ACCOUNTS_ENV) {
             config.gm_accounts = crate::gm::parse_gm_accounts(&value);
         }
+        if let Some(value) = parse_env_usize("MIR2_MAX_CONN_PER_IP") {
+            config.max_connections_per_ip = value;
+        }
+        if let Some(value) = parse_env_usize("MIR2_MAX_CONN_PER_SEC") {
+            config.max_connections_per_second = value;
+        }
+        if let Some(value) = parse_env_usize("MIR2_IDLE_TIMEOUT_SECS") {
+            config.idle_timeout_secs = u64::try_from(value).unwrap_or(u64::MAX);
+        }
+        if let Some(value) = parse_env_usize("MIR2_MAX_PACKETS_PER_SEC") {
+            config.max_packets_per_second = u32::try_from(value).unwrap_or(u32::MAX);
+        }
         config
+    }
+}
+
+/// 读一个无符号环境变量；缺失/非法返回 `None` 并记一条 warn。
+fn parse_env_usize(name: &str) -> Option<usize> {
+    let raw = std::env::var(name).ok()?;
+    match raw.parse::<usize>() {
+        Ok(value) => Some(value),
+        Err(error) => {
+            tracing::warn!(%name, %raw, %error, "环境变量不是合法整数，沿用默认值");
+            None
+        }
     }
 }
 

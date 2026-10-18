@@ -442,25 +442,25 @@ impl Player {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum MoveError {
     /// 对象不在世界里。
-    #[error("对象 {0} 不在世界里")]
+    #[error("object {0} is not in the world")]
     NotInWorld(u32),
     /// 对象已死亡，不能行动。
-    #[error("对象 {object_id} 已死亡")]
+    #[error("object {object_id} is dead")]
     Dead {
         /// 对象 ID。
         object_id: u32,
     },
     /// 上一个动作还没结束。
-    #[error("动作未结束，最早 {until}ms 之后才能动")]
+    #[error("action not finished; cannot move before {until} ms")]
     Busy {
         /// 可以开始下一个动作的时刻。
         until: i64,
     },
     /// 还没走过路，不能跑（Crystal `_stepCounter > 0`）。
-    #[error("需要先走一步才能跑")]
+    #[error("walk one step before running")]
     CannotRunYet,
     /// 目标格被占用。
-    #[error("目标格 ({x}, {y}) 已被占用")]
+    #[error("target cell ({x}, {y}) is occupied")]
     Occupied {
         /// 目标 X。
         x: i32,
@@ -468,7 +468,7 @@ pub enum MoveError {
         y: i32,
     },
     /// 越界。
-    #[error("目标格 ({x}, {y}) 越界")]
+    #[error("target cell ({x}, {y}) is out of bounds")]
     OutOfBounds {
         /// 目标 X。
         x: i32,
@@ -476,7 +476,7 @@ pub enum MoveError {
         y: i32,
     },
     /// 地形不可走（墙）。
-    #[error("目标格 ({x}, {y}) 是墙")]
+    #[error("target cell ({x}, {y}) is a wall")]
     Blocked {
         /// 目标 X。
         x: i32,
@@ -484,7 +484,7 @@ pub enum MoveError {
         y: i32,
     },
     /// 目标格上的门没开（Crystal `Map.CheckDoorOpen`，`Server/MirEnvir/Map.cs:646-651`）。
-    #[error("目标格 ({x}, {y}) 的门 {index} 未开")]
+    #[error("door {index} at target cell ({x}, {y}) is closed")]
     DoorClosed {
         /// 目标 X。
         x: i32,
@@ -499,16 +499,16 @@ pub enum MoveError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum CombatError {
     /// 对象不在世界里。
-    #[error("对象 {0} 不在世界里")]
+    #[error("object {0} is not in the world")]
     NotInWorld(u32),
     /// 对象已死亡。
-    #[error("对象 {object_id} 已死亡，不能攻击")]
+    #[error("object {object_id} is dead and cannot be attacked")]
     Dead {
         /// 对象 ID。
         object_id: u32,
     },
     /// 动作或攻击冷却还没结束。
-    #[error("动作未结束，最早 {until}ms 之后才能攻击")]
+    #[error("action not finished; cannot attack before {until} ms")]
     Busy {
         /// 可以攻击的最早时刻。
         until: i64,

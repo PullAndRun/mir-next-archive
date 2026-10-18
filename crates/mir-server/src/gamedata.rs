@@ -121,7 +121,7 @@ impl GameData {
     /// 用内存里的数据库构造（测试、工具用）：不读文件，掉落表从 `drop_dir` 惰性加载。
     #[must_use]
     pub fn from_db(db: MirDb, drop_dir: Option<PathBuf>) -> Self {
-        let path = PathBuf::from("<内存数据库>");
+        let path = PathBuf::from("<in-memory database>");
         let envir_dir = drop_dir
             .as_ref()
             .and_then(|dir| dir.parent().map(Path::to_path_buf));
@@ -224,7 +224,7 @@ impl GameData {
             path: PathBuf::from("resource/community/<repo>/Server.MirDB"),
             source: std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                "没有找到任何 Server.MirDB（用 tools/asset-index/find_asset.py --name Server.MirDB 查询）",
+                "no Server.MirDB found (use tools/asset-index/find_asset.py --name Server.MirDB)",
             ),
         }))
     }

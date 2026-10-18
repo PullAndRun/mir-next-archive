@@ -267,22 +267,22 @@ pub struct MailRecipient {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum MailError {
     /// 玩家不在世界里。
-    #[error("玩家 {0} 不在世界里")]
+    #[error("player {0} is not in the world")]
     NotInWorld(u32),
     /// 发送太频繁（Crystal 静默丢弃，`:11676-11680`）。
-    #[error("发送邮件太快")]
+    #[error("sending mail too frequently")]
     RateLimited,
     /// 正文超过 [`MAIL_TEXT_MAX`]（`ServerTextKeys.TextExceedsMailSizeLimit`，`:11737-11741`）。
-    #[error("邮件正文超过 500 字")]
+    #[error("mail body exceeds 500 characters")]
     TextTooLong,
     /// 收件人不存在（`ServerTextKeys.CouldNotFindPlayer`，`:11743-11749`）。
-    #[error("找不到收件人")]
+    #[error("recipient not found")]
     RecipientMissing,
     /// 收件人邮箱已满（`ServerTextKeys.RecipientsMailboxFull`，`:11751-11755`）。
-    #[error("收件人邮箱已满")]
+    #[error("the recipient's mailbox is full")]
     RecipientMailboxFull,
     /// 金币不够付「附件 + 邮费」（`S.MailSent{Result=-1}`，`:11763-11767`）。
-    #[error("金币不够：需要 {needed}，只有 {held}")]
+    #[error("insufficient gold: requires {needed}, holding {held}")]
     NotEnoughGold {
         /// 附件金币 + 邮费。
         needed: i64,
@@ -290,37 +290,37 @@ pub enum MailError {
         held: i64,
     },
     /// 物品不允许邮寄（`BindMode.DontTrade` / `BindMode.NoMail`，`:11800-11817`）。
-    #[error("物品 {unique_id} 不允许邮寄")]
+    #[error("item {unique_id} cannot be mailed")]
     CannotMail {
         /// 物品 UUID。
         unique_id: u64,
     },
     /// 附件数量超过协议上限（`ItemsIdx[5]`；本作 API 的防线）。
-    #[error("附件数量 {count} 超过上限 5")]
+    #[error("attachment count {count} exceeds limit 5")]
     TooManyAttachments {
         /// 请求的附件数。
         count: usize,
     },
     /// 邮件不存在（Crystal 静默返回，`:11851`、`:11862`）。
-    #[error("找不到邮件 {mail_id}")]
+    #[error("mail {mail_id} not found")]
     NotFound {
         /// 邮件编号。
         mail_id: u64,
     },
     /// 包裹还没在邮局受理（`ServerTextKeys.MailCollectFromPostOffice`，`:11864-11868`）。
-    #[error("请先到邮局受理包裹")]
+    #[error("visit the post office to collect parcels first")]
     NotCollected,
     /// 背包放不下附件（`ServerTextKeys.CannotCollectWhenBagFull`，`:11870-11876`）。
-    #[error("背包已满，无法领取附件")]
+    #[error("inventory is full; cannot claim attachments")]
     InventoryFull,
     /// 邮件已锁定，不能删除（**本作扩展**，Crystal 不拦）。
-    #[error("邮件已锁定")]
+    #[error("the mail is locked")]
     Locked,
     /// 附件还没领取，不能删除（**本作扩展**，Crystal 不拦）。
-    #[error("附件还没领取")]
+    #[error("attachments have not been claimed")]
     UncollectedAttachments,
     /// 附件字节块损坏（本作解码器防线）。
-    #[error("邮件附件解析失败：{0}")]
+    #[error("failed to parse mail attachments: {0}")]
     Codec(String),
 }
 

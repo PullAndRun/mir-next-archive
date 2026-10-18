@@ -52,6 +52,13 @@ fn database() -> MirDb {
     MirDb {
         items: vec![item_info(POTION, "金创药", 20), item_info(SWORD, "木剑", 1)],
         // @map <索引> 走 MapInfo，所以测试库要有一张地图（文件名与 MAP 一致）。
+        // `@mob` 按名字查模板，`@mapinfo` 数本图怪物，所以库里要有一只怪。
+        monsters: vec![mir_db::MonsterInfo {
+            index: 300,
+            name: "鸡".to_owned(),
+            image: 1,
+            ..mir_db::MonsterInfo::default()
+        }],
         maps: vec![MapInfo {
             index: 0,
             file_name: MAP.to_owned(),
@@ -351,4 +358,184 @@ fn non_command_chat_is_not_consumed() {
     let _rx = add_player(&mut world, 1, "gm");
     assert!(!world.run_gm_command(1, "hello world"), "普通聊天不被消费");
     assert!(!world.run_gm_command(1, "@"), "单独的 @ 不是命令");
+}
+
+// ---------------------------------------------------------------------------
+// t44：GM 扩展命令
+// ---------------------------------------------------------------------------
+
+#[test]
+fn mob_command_spawns_monsters_at_the_gm() {
+    let mut world = build_world();
+    let mut rx = add_player(&mut world, 1, "gm");
+    assert!(world.run_gm_command(1, "@mob 鸡 3"));
+    let reply = anyone(&mut rx);
+    assert!(reply.contains("Spawned 3 x 鸡"), "回复：{reply}");
+    // `@mapinfo` 顺带验证世界里的怪物数：本图应正好 3 只。
+    assert!(world.run_gm_command(1, "@mapinfo"));
+    let joined = chat_lines(&mut rx).join("\n");
+    assert!(joined.contains("monsters on map: 3"), "{joined}");
+}
+
+#[test]
+fn mob_command_reports_unknown_monster_and_bad_count() {
+    let mut world = build_world();
+    let mut rx = add_player(&mut world, 1, "gm");
+    assert!(world.run_gm_command(1, "@mob 不存在"));
+    assert!(world.run_gm_command(1, "@mob 鸡 0"));
+    let lines = chat_lines(&mut rx);
+    assert!(lines.iter().any(|line| line.contains("Monster not found")));
+    assert!(lines.iter().any(|line| line.contains("Usage: @mob")));
+}
+
+#[test]
+fn clearitem_command_removes_ground_items() {
+    let mut world = build_world();
+    let mut rx = add_player(&mut world, 1, "gm");
+    let item = mir_protocol::data::UserItem {
+        unique_id: 9_001,
+        item_index: POTION,
+        count: 1,
+        ..Default::default()
+    };
+    world.spawn_ground_item(MAP, Point::new(11, 11), Some(item), 0, None);
+    world.spawn_ground_item(MAP, Point::new(12, 11), None, 500, None);
+    assert_eq!(world.ground_items().len(), 2, "预置两堆地面物品");
+    assert!(world.run_gm_command(1, "@clearitem"));
+    assert!(world.ground_items().is_empty(), "清空后不应再有地面物品");
+    let reply = anyone(&mut rx);
+    assert!(reply.contains("Cleared 2 ground item(s)"), "回复：{reply}");
+}
+
+#[test]
+fn mapinfo_command_reports_position_and_counts() {
+    let mut world = build_world();
+    let mut rx = add_player(&mut world, 1, "gm");
+    add_player(&mut world, 2, "other");
+    assert!(world.run_gm_command(1, "@mapinfo"));
+    let joined = chat_lines(&mut rx).join("\n");
+    assert!(joined.contains("map 0 at (10, 10)"), "{joined}");
+    assert!(joined.contains("players on map: 2"), "{joined}");
+    assert!(joined.contains("monsters on map: 0"), "{joined}");
+}
+
+#[test]
+fn revive_command_revives_dead_player() {
+    let mut world = build_world();
+    let _gm = add_player(&mut world, 1, "gm");
+    let _victim = add_player(&mut world, 2, "victim");
+    assert!(world.run_gm_command(1, "@kill victim"));
+    assert!(world.player(2).expect("目标在").dead);
+    assert!(world.run_gm_command(1, "@revive victim"));
+    assert!(!world.player(2).expect("目标在").dead, "@revive 应复活目标");
+}
+
+#[test]
+fn setpk_command_sets_pk_points() {
+    let mut world = build_world();
+    let _rx = add_player(&mut world, 1, "gm");
+    assert!(world.run_gm_command(1, "@setpk 120"));
+    assert_eq!(world.player(1).expect("玩家在").pk_points, 120);
+    assert!(world.run_gm_command(1, "@setpk -1"), "负数应被拒绝");
+    assert_eq!(world.player(1).expect("玩家在").pk_points, 120);
+}
+
+#[test]
+fn warp_command_moves_another_player() {
+    let mut world = build_world();
+    let _gm = add_player(&mut world, 1, "gm");
+    let _scout = add_player(&mut world, 2, "scout");
+    assert!(world.run_gm_command(1, "@warp scout 0 41 42"));
+    let scout = world.player(2).expect("目标在");
+    assert_eq!(scout.position, Point::new(41, 42));
+    assert_eq!(scout.map, MAP);
+}
+
+#[test]
+fn clearbag_command_empties_the_inventory() {
+    let mut world = build_world();
+    let mut rx = add_player(&mut world, 1, "gm");
+    assert!(world.run_gm_command(1, "@item 木剑"));
+    assert!(
+        world
+            .player(1)
+            .expect("玩家在")
+            .inventory
+            .iter()
+            .flatten()
+            .any(|item| item.item_index == SWORD)
+    );
+    assert!(world.run_gm_command(1, "@clearbag"));
+    assert!(
+        world
+            .player(1)
+            .expect("玩家在")
+            .inventory
+            .iter()
+            .all(Option::is_none),
+        "清空后背包应为空"
+    );
+    let lines = chat_lines(&mut rx);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("Cleared 1 item stack(s)"))
+    );
+}
+
+#[test]
+fn reboot_command_schedules_countdown_and_validates_seconds() {
+    mir_server::gm::clear_reboot();
+    let mut world = build_world();
+    let mut rx = add_player(&mut world, 1, "gm");
+    assert!(world.run_gm_command(1, "@reboot 30"));
+    // GM 自己也会收到全服公告（`broadcast_system` 遍历所有在线玩家），所以按「所有行里找」断言。
+    let lines = chat_lines(&mut rx);
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("reboot scheduled in 30 second(s)"),
+        "GM 回执：{joined}"
+    );
+    assert!(
+        joined.contains("Server is rebooting in 30 second(s)"),
+        "全服公告：{joined}"
+    );
+    assert!(mir_server::gm::reboot_scheduled());
+    let deadline = mir_server::gm::reboot_deadline().expect("应有截止时刻");
+    assert!(deadline > mir_server::gm::unix_now_secs());
+    // 参数校验
+    assert!(world.run_gm_command(1, "@reboot abc"));
+    let lines = chat_lines(&mut rx);
+    assert!(lines.iter().any(|line| line.contains("Usage: @reboot")));
+    // 倒计时节奏（纯函数）：10 秒内每秒喊，60 秒内每 10 秒喊
+    assert!(mir_server::gm::reboot_should_announce(5));
+    assert!(mir_server::gm::reboot_should_announce(60));
+    assert!(!mir_server::gm::reboot_should_announce(59));
+    assert!(mir_server::gm::reboot_should_announce(0));
+    // 到点只触发一次通知
+    let now = deadline + 1;
+    assert_eq!(mir_server::gm::poll_reboot(now), Some(0));
+    assert_eq!(mir_server::gm::poll_reboot(now), None, "同一秒只喊一次");
+    mir_server::gm::clear_reboot();
+    assert!(!mir_server::gm::reboot_scheduled());
+}
+
+#[test]
+fn help_lists_the_extended_commands() {
+    let mut world = build_world();
+    let mut rx = add_player(&mut world, 1, "gm");
+    assert!(world.run_gm_command(1, "@help"));
+    let joined = chat_lines(&mut rx).join("\n");
+    for command in [
+        "@mob",
+        "@clearitem",
+        "@revive",
+        "@setpk",
+        "@warp",
+        "@mapinfo",
+        "@clearbag",
+        "@reboot",
+    ] {
+        assert!(joined.contains(command), "@help 应列出 {command}：{joined}");
+    }
 }

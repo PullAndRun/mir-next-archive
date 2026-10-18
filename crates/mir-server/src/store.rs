@@ -14,25 +14,25 @@ use mir_store::{encode_hash, generate_salt, hash_password};
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     /// 账号已存在。
-    #[error("账号 {0} 已存在")]
+    #[error("account {0} already exists")]
     AccountExists(String),
     /// 角色名已存在。
-    #[error("角色名 {0} 已存在")]
+    #[error("character name {0} already exists")]
     CharacterExists(String),
     /// 行会名已存在。
-    #[error("行会名 {0} 已存在")]
+    #[error("guild name {0} already exists")]
     GuildExists(String),
     /// 账号不存在。
-    #[error("账号 {0} 不存在")]
+    #[error("account {0} does not exist")]
     AccountMissing(String),
     /// 不支持的界面语言代码。
-    #[error("不支持的界面语言代码 {0}（支持 zh-cn / en）")]
+    #[error("unsupported UI language code {0} (supported: zh-cn / en)")]
     InvalidLanguage(String),
     /// 目标记录不存在。
-    #[error("找不到{0}")]
+    #[error("{0} not found")]
     NotFound(&'static str),
     /// 内部错误。
-    #[error("存储错误：{0}")]
+    #[error("storage error: {0}")]
     Internal(String),
 }
 
@@ -157,6 +157,9 @@ pub struct Character {
     /// 编解码见 [`crate::quest_inventory::QuestInventory::encode`] /
     /// [`crate::quest_inventory::QuestInventory::decode`]；迁移 0012）。
     pub quest_inventory: Vec<u8>,
+    /// 宠物命令模式（Crystal `CharacterInfo.PMode`；列 `characters.pet_mode`，迁移 0001，
+    /// `PetMode::Both = 0`）。登录时写进世界侧表，下线时回写。
+    pub pet_mode: i16,
     /// 上次每日任务重置时间（Unix 毫秒；0 = 从未重置过；迁移 0013
     /// `characters.last_daily_reset_at`）。
     ///
@@ -207,6 +210,7 @@ impl Character {
             magics: Vec::new(),
             quests: Vec::new(),
             quest_inventory: Vec::new(),
+            pet_mode: 0,
             last_daily_reset_at: 0,
             // Crystal 的 `CharacterInfo.GuildIndex` 默认 -1（没有行会）。
             guild_index: -1,
@@ -956,7 +960,7 @@ impl AccountStore for MemoryStore {
         let before = state.guilds.len();
         state.guilds.retain(|guild| guild.id != guild_id);
         if state.guilds.len() == before {
-            return Err(StoreError::NotFound("行会"));
+            return Err(StoreError::NotFound("guild"));
         }
         // 外键级联的等价物：把还指着它的角色行清回 -1。
         for character in &mut state.characters {
@@ -982,7 +986,7 @@ impl AccountStore for MemoryStore {
             .iter_mut()
             .find(|candidate| candidate.id == character_id)
         else {
-            return Err(StoreError::NotFound("角色"));
+            return Err(StoreError::NotFound("character"));
         };
         character.guild_index = guild_id;
         Ok(())
@@ -1004,7 +1008,7 @@ impl AccountStore for MemoryStore {
             .iter()
             .any(|character| character.id == mail.character_id)
         {
-            return Err(StoreError::NotFound("角色"));
+            return Err(StoreError::NotFound("character"));
         }
         let mut stored = mail;
         if stored.id == 0 {
@@ -1034,7 +1038,7 @@ impl AccountStore for MemoryStore {
     async fn save_mail(&self, mail: MailRecord) -> Result<(), StoreError> {
         let mut state = self.state.lock().await;
         let Some(existing) = state.mails.iter_mut().find(|row| row.id == mail.id) else {
-            return Err(StoreError::NotFound("邮件"));
+            return Err(StoreError::NotFound("mail"));
         };
         *existing = mail;
         Ok(())
@@ -1099,7 +1103,7 @@ impl AccountStore for MemoryStore {
         if let Some(character) = &character
             && !state.characters.iter().any(|row| row.id == character.id)
         {
-            return Err(StoreError::NotFound("角色"));
+            return Err(StoreError::NotFound("character"));
         }
         for write in &mail_writes {
             match write {
@@ -1109,12 +1113,12 @@ impl AccountStore for MemoryStore {
                         .iter()
                         .any(|row| row.id == mail.character_id)
                     {
-                        return Err(StoreError::NotFound("角色"));
+                        return Err(StoreError::NotFound("character"));
                     }
                 }
                 crate::mail::MailWrite::Save(mail) => {
                     if !state.mails.iter().any(|row| row.id == mail.id) {
-                        return Err(StoreError::NotFound("邮件"));
+                        return Err(StoreError::NotFound("mail"));
                     }
                 }
                 crate::mail::MailWrite::Delete { .. } => {}
@@ -1127,12 +1131,12 @@ impl AccountStore for MemoryStore {
                 .iter()
                 .any(|row| row.id == auction.seller_character_id)
             {
-                return Err(StoreError::NotFound("角色"));
+                return Err(StoreError::NotFound("character"));
             }
             if let Some(buyer) = auction.current_buyer_character_id
                 && !state.characters.iter().any(|row| row.id == buyer)
             {
-                return Err(StoreError::NotFound("角色"));
+                return Err(StoreError::NotFound("character"));
             }
         }
 
@@ -1205,7 +1209,7 @@ impl AccountStore for MemoryStore {
         if state.fail_next_gameshop_update {
             state.fail_next_gameshop_update = false;
             return Err(StoreError::Internal(
-                "注入的商城事务失败（测试）".to_owned(),
+                "injected gameshop transaction failure (test)".to_owned(),
             ));
         }
 
@@ -1213,7 +1217,7 @@ impl AccountStore for MemoryStore {
         if let Some(character) = &character
             && !state.characters.iter().any(|row| row.id == character.id)
         {
-            return Err(StoreError::NotFound("角色"));
+            return Err(StoreError::NotFound("character"));
         }
         for write in &mail_writes {
             match write {
@@ -1223,12 +1227,12 @@ impl AccountStore for MemoryStore {
                         .iter()
                         .any(|row| row.id == mail.character_id)
                     {
-                        return Err(StoreError::NotFound("角色"));
+                        return Err(StoreError::NotFound("character"));
                     }
                 }
                 crate::mail::MailWrite::Save(mail) => {
                     if !state.mails.iter().any(|row| row.id == mail.id) {
-                        return Err(StoreError::NotFound("邮件"));
+                        return Err(StoreError::NotFound("mail"));
                     }
                 }
                 crate::mail::MailWrite::Delete { .. } => {}
@@ -1236,7 +1240,7 @@ impl AccountStore for MemoryStore {
         }
         for row in &purchases {
             if !state.characters.iter().any(|c| c.id == row.character_id) {
-                return Err(StoreError::NotFound("角色"));
+                return Err(StoreError::NotFound("character"));
             }
         }
 

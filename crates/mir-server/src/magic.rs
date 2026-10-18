@@ -655,28 +655,28 @@ pub struct PendingMagic {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum MagicError {
     /// 对象不在世界里。
-    #[error("对象 {0} 不在世界里")]
+    #[error("object {0} is not in the world")]
     NotInWorld(u32),
     /// 对象已死亡（施法与用书都要求活着，`HumanObject.cs:156`、`PlayerObject.cs:5820`）。
-    #[error("对象 {object_id} 已死亡")]
+    #[error("object {object_id} is dead")]
     Dead {
         /// 对象 ID。
         object_id: u32,
     },
     /// 动作时间或技能间隔还没结束（`CanCast`，`HumanObject.cs:152-158`）。
-    #[error("动作未结束，最早 {until}ms 之后才能施法")]
+    #[error("action not finished; cannot cast before {until} ms")]
     Busy {
         /// 可以施法的最早时刻。
         until: i64,
     },
     /// 数据库里没有这个技能的模板（`magic.Info == null`，`HumanObject.cs:3410-3414`）。
-    #[error("技能 {0:?} 没有模板")]
+    #[error("spell {0:?} has no template")]
     UnknownSpell(Spell),
     /// 没有学会这个技能。
-    #[error("没有学会技能 {0:?}")]
+    #[error("spell {0:?} not learned")]
     NotLearned(Spell),
     /// 落点超出 `MagicInfo.Range`（`HumanObject.cs:3416`）。
-    #[error("目标距离 {distance} 超过施法距离 {range}")]
+    #[error("target distance {distance} exceeds cast range {range}")]
     OutOfRange {
         /// 实际距离（切比雪夫）。
         distance: i32,
@@ -684,13 +684,13 @@ pub enum MagicError {
         range: i32,
     },
     /// 冷却中：`now < CastTime + GetDelay()`（`HumanObject.cs:3436-3440`）。
-    #[error("技能冷却中，最早 {until}ms 之后才能再施法")]
+    #[error("spell on cooldown; cannot cast again before {until} ms")]
     CoolingDown {
         /// 冷却结束时刻。
         until: i64,
     },
     /// 蓝不够：`cost > MP`（`HumanObject.cs:3444-3448`，注意等于时允许，MP 会变成 0）。
-    #[error("魔法不足：需要 {cost}，当前 {mp}")]
+    #[error("insufficient mana: requires {cost}, current {mp}")]
     NotEnoughMana {
         /// 本次耗蓝。
         cost: i32,
@@ -698,25 +698,25 @@ pub enum MagicError {
         mp: i32,
     },
     /// 目标不合法（死亡/不在同图/攻击类技能打到玩家等）。
-    #[error("目标不合法")]
+    #[error("invalid target")]
     InvalidTarget,
     /// 已登记但本作没有效果（见 [`REGISTERED_UNSUPPORTED`]）。
-    #[error("技能 {0:?} 尚未实现效果")]
+    #[error("spell {0:?} effect is not implemented")]
     UnsupportedSpell(Spell),
     /// 不支持的物品网格（Crystal 的 `UseItem` 只处理角色背包）。
-    #[error("不支持的物品网格 {0:?}")]
+    #[error("unsupported item grid {0:?}")]
     UnsupportedGrid(MirGridType),
     /// 背包里没有这个 UUID 的物品。
-    #[error("背包里没有 UUID {unique_id} 的物品")]
+    #[error("no item with UUID {unique_id} in the inventory")]
     ItemNotFound {
         /// 物品 UUID。
         unique_id: u64,
     },
     /// 物品模板缺失。
-    #[error("物品模板 {0} 不存在")]
+    #[error("item template {0} does not exist")]
     UnknownItem(i32),
     /// 用的不是书。
-    #[error("物品 {item_index} 不是技能书")]
+    #[error("item {item_index} is not a spell book")]
     NotABook {
         /// 物品模板编号。
         item_index: i32,
@@ -726,10 +726,10 @@ pub enum MagicError {
     /// 简化：Crystal 的书籍分支**不查重**（`PlayerObject.cs:6077-6089` 直接
     /// `Info.Magics.Add(magic)`），连用两本同样的书会得到两条同 `Spell` 的记录。
     /// 本作拒绝并提示，见 `docs/world/magic.md` 的「与 Crystal 差异」。
-    #[error("已经学会技能 {0:?}")]
+    #[error("spell {0:?} already learned")]
     AlreadyLearned(Spell),
     /// 职业不符（Crystal `CanUseItem`，`HumanObject.cs:1042-1079`）。
-    #[error("职业不符：需要 {required:?}，当前 {class:?}")]
+    #[error("class mismatch: requires {required:?}, current {class:?}")]
     WrongClass {
         /// 物品要求的职业位。
         required: RequiredClass,
@@ -737,10 +737,10 @@ pub enum MagicError {
         class: MirClass,
     },
     /// 性别不符（`HumanObject.cs:1024-1040`）。
-    #[error("性别不符")]
+    #[error("gender mismatch")]
     WrongGender,
     /// 等级不够（`HumanObject.cs:1081-1089`）。
-    #[error("等级不够：需要 {required} 级，当前 {level} 级")]
+    #[error("level too low: requires {required}, current {level}")]
     LowLevel {
         /// 需要的等级。
         required: u8,
@@ -786,10 +786,10 @@ pub struct LearnedMagic {
 #[derive(Debug, thiserror::Error)]
 pub enum MagicCodecError {
     /// 协议层错误（读到文件尾、计数非法……）。
-    #[error("技能块解析失败：{0}")]
+    #[error("failed to parse spell blob: {0}")]
     Protocol(#[from] ProtocolError),
     /// 技能条数超过上限。
-    #[error("技能条数 {count} 超过上限 {limit}")]
+    #[error("spell count {count} exceeds limit {limit}")]
     TooManyMagics {
         /// 声明的条数。
         count: usize,
@@ -1193,7 +1193,7 @@ impl World {
                     target_id = 0;
                 }
             }
-            SpellKind::Unsupported => unreachable!("上面已经分派过"),
+            SpellKind::Unsupported => unreachable!("already dispatched above"),
         }
         // `if ((location.X != 0) && (location.Y != 0) && magic.Info.Range != 0
         //      && !Functions.InRange(CurrentLocation, location, magic.Info.Range)) return;`
@@ -1458,7 +1458,7 @@ impl World {
                     },
                 ));
             }
-            SpellKind::Unsupported => unreachable!("上面已经分派过"),
+            SpellKind::Unsupported => unreachable!("already dispatched above"),
         }
         for (at, effect) in effects {
             self.pending_magic.push(PendingMagic {

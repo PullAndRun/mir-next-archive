@@ -16,15 +16,20 @@
 //! 命令表与 Crystal 的对应关系见 [`World::run_gm_command`] 的文档。
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use mir_core::Point;
 use mir_protocol::ServerPacket;
 use mir_protocol::data::UserItem;
-use mir_protocol::packets::server::{Death, LevelChanged, ObjectDied};
+use mir_protocol::packets::server::{
+    Death, DeleteItem as DeleteItemPacket, LevelChanged, ObjectDied,
+};
+use tokio::sync::Notify;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::config::ServerConfig;
+use crate::monster::MonsterKind;
 use crate::store::Account;
 use crate::world::{PLAYER_REVIVE_DELAY_MS, Player, World};
 
@@ -33,6 +38,25 @@ pub const GM_ACCOUNTS_ENV: &str = "MIR2_GM_ACCOUNTS";
 
 /// 角色等级上限（Crystal `Globals.MaxLevel = 255`）。
 const MAX_LEVEL: u16 = 255;
+
+/// `@mob` 单次最多刷多少只（防止手滑把地图刷爆）。
+const MAX_SPAWN_BATCH: u32 = 50;
+
+/// `@mob` 的落点偏移：脚下 → 右 → 右前 → 前 …（3×3 一格一格排，占满就叠在脚下）。
+const SPAWN_OFFSETS: [(i32, i32); 9] = [
+    (0, 0),
+    (1, 0),
+    (1, 1),
+    (0, 1),
+    (-1, 1),
+    (-1, 0),
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+];
+
+/// `@reboot` 允许的最大倒计时（秒）：一天。
+const MAX_REBOOT_SECONDS: u32 = 86_400;
 
 /// 解析 `MIR2_GM_ACCOUNTS`：逗号分隔的账号名；空白项忽略，大小写不敏感去重。
 ///
@@ -156,6 +180,147 @@ pub fn take_pending_kick(session_id: u64) -> bool {
     lock(pending_kicks()).remove(&session_id)
 }
 
+/// 踢掉所有已登记的会话（`@reboot` 到点时用）。
+///
+/// 返回被通知的会话数；未登记会话不在统计里（它们本来就不在跑读循环）。
+pub fn kick_all_sessions() -> usize {
+    let ids: Vec<u64> = lock(session_registry()).keys().copied().collect();
+    let mut kicked = 0;
+    for id in ids {
+        if kick_session(id) {
+            kicked += 1;
+        }
+    }
+    kicked
+}
+
+// ---------------------------------------------------------------------------
+// 优雅停机（@reboot）
+// ---------------------------------------------------------------------------
+
+/// 重启倒计时的截止时刻（Unix 秒；`None` = 没有安排重启）。
+fn reboot_deadline_slot() -> &'static Mutex<Option<i64>> {
+    static DEADLINE: OnceLock<Mutex<Option<i64>>> = OnceLock::new();
+    DEADLINE.get_or_init(|| Mutex::new(None))
+}
+
+/// accept/读循环用的「该停下来了」通知：`@reboot` 到点时触发。
+fn reboot_notify() -> &'static Notify {
+    static NOTIFY: OnceLock<Notify> = OnceLock::new();
+    NOTIFY.get_or_init(Notify::new)
+}
+
+/// 已经广播过的倒计时秒数（避免每个 tick 重复喊同一句）。
+fn reboot_announced() -> &'static Mutex<Option<i64>> {
+    static ANNOUNCED: OnceLock<Mutex<Option<i64>>> = OnceLock::new();
+    ANNOUNCED.get_or_init(|| Mutex::new(None))
+}
+
+/// 是否已经安排了重启（`@reboot` 可重复执行，以最后一次为准）。
+static REBOOTING: AtomicBool = AtomicBool::new(false);
+
+/// 当前 Unix 秒（倒计时用墙上时钟，不依赖 `World` 的单调时钟）。
+#[must_use]
+pub fn unix_now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX)
+        })
+}
+
+/// 安排一次重启，返回截止的 Unix 秒（`seconds = 0` 表示立即）。
+pub fn schedule_reboot(seconds: u32) -> i64 {
+    let deadline = unix_now_secs().saturating_add(i64::from(seconds));
+    *lock(reboot_deadline_slot()) = Some(deadline);
+    *lock(reboot_announced()) = None;
+    REBOOTING.store(true, Ordering::Release);
+    deadline
+}
+
+/// 当前重启截止时刻（Unix 秒）。
+#[must_use]
+pub fn reboot_deadline() -> Option<i64> {
+    *lock(reboot_deadline_slot())
+}
+
+/// 清掉重启状态（测试与「重启被取消」用）。
+pub fn clear_reboot() {
+    *lock(reboot_deadline_slot()) = None;
+    *lock(reboot_announced()) = None;
+    REBOOTING.store(false, Ordering::Release);
+}
+
+/// 是否已经安排了重启。
+#[must_use]
+pub fn reboot_scheduled() -> bool {
+    REBOOTING.load(Ordering::Acquire)
+}
+
+/// 全服公告文案（英文：与 GM 回执同一类「运维可见」文本）。
+#[must_use]
+pub fn reboot_message(seconds: u32) -> String {
+    if seconds == 0 {
+        "Server is rebooting now.".to_owned()
+    } else {
+        format!("Server is rebooting in {seconds} second(s). Please log out safely.")
+    }
+}
+
+/// 倒计时的广播节奏：`remaining` 秒时是否需要喊话。
+///
+/// 规则：≤10 秒每秒喊；≤60 秒每 10 秒喊；再往上只在 120/300/600 秒喊。
+#[must_use]
+pub fn reboot_should_announce(remaining: i64) -> bool {
+    if remaining <= 0 {
+        return true;
+    }
+    if remaining <= 10 {
+        return true;
+    }
+    if remaining <= 60 {
+        return remaining % 10 == 0;
+    }
+    matches!(remaining, 120 | 300 | 600)
+}
+
+/// tick 侧的重启推进：返回本 tick 要广播的剩余秒数（`None` = 还没到点/已经喊过）。
+///
+/// 到点（`remaining == 0`）时唤醒 accept/读循环；调用方负责发公告与
+/// [`kick_all_sessions`]。
+pub fn poll_reboot(now: i64) -> Option<i64> {
+    let deadline = reboot_deadline()?;
+    let remaining = deadline.saturating_sub(now).max(0);
+    if remaining == 0 {
+        let mut announced = lock(reboot_announced());
+        if *announced == Some(0) {
+            return None;
+        }
+        *announced = Some(0);
+        drop(announced);
+        // `notify_waiters` 叫醒已在等的人；`notify_one` 留一张「许可」给还没进入
+        // `select!` 的 accept/读循环（`Notify` 的语义：无等待者时许可会被保留）。
+        reboot_notify().notify_waiters();
+        reboot_notify().notify_one();
+        return Some(0);
+    }
+    if !reboot_should_announce(remaining) {
+        return None;
+    }
+    // 同一秒只喊一次：按「上次喊的秒数」去重（tick 是 100ms，会重复进来）。
+    let mut announced = lock(reboot_announced());
+    if *announced == Some(remaining) {
+        return None;
+    }
+    *announced = Some(remaining);
+    Some(remaining)
+}
+
+/// 等重启到点（`serve_forever` 的 accept 循环 select 它）。
+pub async fn wait_for_reboot() {
+    reboot_notify().notified().await;
+}
+
 impl World {
     /// 执行一条 GM 命令。返回 `true` 表示这条聊天文本已被 GM 命令消费（调用方不要再走
     /// 普通聊天）；`false` 表示不是命令（不以 `@` 开头 / 发话者不在世界里），按普通聊天处理。
@@ -178,6 +343,14 @@ impl World {
     /// | `@who` | 在线玩家列表 |
     /// | `@kick <账号\|角色>` | 断开会话 |
     /// | `@recall <角色名>` | 把目标传送到自己身边 |
+    /// | `@mob <名称\|索引> [数量]` | 在脚下刷怪 |
+    /// | `@clearitem` | 清掉本图地面物品 |
+    /// | `@revive [角色名]` | 复活自己/指定角色 |
+    /// | `@setpk <点数>` | 设置 PK 值并刷新名字颜色 |
+    /// | `@warp <角色名> <地图> [x y]` | 把别的角色传走 |
+    /// | `@mapinfo` | 当前地图/坐标/怪物数 |
+    /// | `@clearbag` | 清空背包（不碰装备） |
+    /// | `@reboot <秒>` | 倒计时后优雅停机 |
     /// | `@help` | 命令列表 |
     pub fn run_gm_command(&mut self, object_id: u32, text: &str) -> bool {
         let text = text.trim();
@@ -223,6 +396,14 @@ impl World {
             "who" => self.gm_who(object_id),
             "kick" => vec![self.gm_kick(args)],
             "recall" => vec![self.gm_recall(object_id, args)],
+            "mob" => vec![self.gm_spawn_monsters(object_id, args)],
+            "clearitem" => vec![self.gm_clear_ground_items(object_id)],
+            "revive" => vec![self.gm_revive(object_id, args)],
+            "setpk" => vec![self.gm_set_pk_points(object_id, args)],
+            "warp" => vec![self.gm_warp(object_id, args)],
+            "mapinfo" => self.gm_map_info(object_id),
+            "clearbag" => vec![self.gm_clear_bag(object_id)],
+            "reboot" => vec![self.gm_reboot(args)],
             other => vec![format!(
                 "Unknown GM command '@{other}'. Type @help for the command list."
             )],
@@ -468,10 +649,242 @@ impl World {
         data.map_info(query).map(|info| info.file_name.clone())
     }
 
+    /// `@mob <名称|索引> [数量]`：在 GM 脚下（3×3 邻格轮着放）刷怪。
+    ///
+    /// Crystal 的 `@MOB`（`PlayerObject.Chat`）同样是「在施法者附近生成」；本作只做最小实现：
+    /// 不设归属、不计入刷怪点，怪物按自己的 AI 立刻开始活动。
+    fn gm_spawn_monsters(&mut self, object_id: u32, args: &[&str]) -> String {
+        let Some(query) = args.first() else {
+            return "Usage: @mob <name|index> [count]".to_owned();
+        };
+        let count = match args.get(1) {
+            None => 1_u32,
+            Some(raw) => match raw.parse::<u32>() {
+                Ok(count) if (1..=MAX_SPAWN_BATCH).contains(&count) => count,
+                _ => return format!("Usage: @mob <name|index> [count 1..{MAX_SPAWN_BATCH}]"),
+            },
+        };
+        let Some(kind) = self.find_monster_kind(query) else {
+            return format!("Monster not found: '{query}'.");
+        };
+        let Some((map, position, name)) = self
+            .player(object_id)
+            .map(|player| (player.map.clone(), player.position, player.name.clone()))
+        else {
+            return "ERR: you are not in the world.".to_owned();
+        };
+        let kind_name = kind.name.clone();
+        for step in 0..count {
+            let offset = SPAWN_OFFSETS[usize::try_from(step).unwrap_or(0) % SPAWN_OFFSETS.len()];
+            let cell = Point::new(position.x + offset.0, position.y + offset.1);
+            self.spawn_monster(&map, kind.clone(), cell);
+        }
+        format!("Spawned {count} x {kind_name} near {name} on {map}.")
+    }
+
+    /// `@clearitem`：清掉 GM 当前地图上的所有地面物品（物品堆 + 金币堆）。
+    fn gm_clear_ground_items(&mut self, object_id: u32) -> String {
+        let Some(map) = self.player(object_id).map(|player| player.map.clone()) else {
+            return "ERR: you are not in the world.".to_owned();
+        };
+        let ids: Vec<u32> = self
+            .ground_items()
+            .iter()
+            .filter(|ground| ground.map == map)
+            .map(|ground| ground.object_id)
+            .collect();
+        let cleared = ids.len();
+        for object_id in ids {
+            self.remove_ground_item(object_id);
+        }
+        format!("Cleared {cleared} ground item(s) on {map}.")
+    }
+
+    /// `@revive [角色]`：复活自己或指定角色（Crystal `RevivePlayer` 的手动入口）。
+    fn gm_revive(&mut self, object_id: u32, args: &[&str]) -> String {
+        let target_id = match args.first() {
+            None => object_id,
+            Some(name) => match self.player_id_by_name(name) {
+                Some(target_id) => target_id,
+                None => return format!("Player not found: '{name}'."),
+            },
+        };
+        let Some((name, dead)) = self
+            .player(target_id)
+            .map(|player| (player.name.clone(), player.dead))
+        else {
+            return "ERR: you are not in the world.".to_owned();
+        };
+        if !dead {
+            return format!("{name} is not dead.");
+        }
+        if self.revive_player(target_id) {
+            format!("Revived {name}.")
+        } else {
+            format!("Cannot revive {name}.")
+        }
+    }
+
+    /// `@setpk <点数>`：设置 PK 值并立即刷新名字颜色（Crystal `RefreshNameColour`）。
+    fn gm_set_pk_points(&mut self, object_id: u32, args: &[&str]) -> String {
+        let Some(points) = parse_bounded::<i32>(args.first().copied(), &0, &i32::MAX) else {
+            return "Usage: @setpk <points >= 0>".to_owned();
+        };
+        let Some(player) = self.player_mut(object_id) else {
+            return "ERR: you are not in the world.".to_owned();
+        };
+        player.pk_points = points;
+        let name = player.name.clone();
+        self.refresh_name_colour(object_id);
+        tracing::info!(gm = %name, object_id, points, "GM setpk");
+        format!("PK points set to {points}.")
+    }
+
+    /// `@warp <角色> <地图> [x y]`：把**别的**角色传送到指定地图（GM 自己用 `@map`）。
+    fn gm_warp(&mut self, _object_id: u32, args: &[&str]) -> String {
+        let (Some(name), Some(map_query)) = (args.first(), args.get(1)) else {
+            return "Usage: @warp <character> <map> [x y]".to_owned();
+        };
+        let Some(target_id) = self.player_id_by_name(name) else {
+            return format!("Player not found: '{name}'.");
+        };
+        let Some(map) = self.resolve_map_name(map_query) else {
+            return format!("Map not found: '{map_query}'.");
+        };
+        let position = match (args.get(2), args.get(3)) {
+            (None, None) => self.player(target_id).map(|player| player.position),
+            (Some(x), Some(y)) => match (x.parse::<i32>(), y.parse::<i32>()) {
+                (Ok(x), Ok(y)) => Some(Point::new(x, y)),
+                _ => {
+                    return "Usage: @warp <character> <map> [x y] (x/y must be integers)"
+                        .to_owned();
+                }
+            },
+            _ => return "Usage: @warp <character> <map> [x y]".to_owned(),
+        };
+        let Some(position) = position else {
+            return "ERR: target is not in the world.".to_owned();
+        };
+        let target_name = self
+            .player(target_id)
+            .map_or_else(String::new, |player| player.name.clone());
+        if self.place_player(target_id, &map, position) {
+            tracing::info!(
+                target = %target_name,
+                %map,
+                x = position.x,
+                y = position.y,
+                "GM warp"
+            );
+            format!(
+                "Warped {target_name} to {map} ({}, {}).",
+                position.x, position.y
+            )
+        } else {
+            format!("Cannot warp {target_name} to {map}.")
+        }
+    }
+
+    /// `@mapinfo`：当前地图/坐标/站立格是否可走/本图怪物、玩家与地面物品数。
+    fn gm_map_info(&mut self, object_id: u32) -> Vec<String> {
+        let Some(player) = self.player(object_id) else {
+            return vec!["ERR: you are not in the world.".to_owned()];
+        };
+        let (map, position, name) = (player.map.clone(), player.position, player.name.clone());
+        let walkable = self
+            .map_of(&map)
+            .is_some_and(|map| map.walkable(position.x, position.y));
+        let monsters = self
+            .monsters
+            .iter()
+            .filter(|monster| monster.map == map)
+            .count();
+        let players = self
+            .players
+            .values()
+            .filter(|player| player.map == map)
+            .count();
+        let ground = self
+            .ground_items()
+            .iter()
+            .filter(|ground| ground.map == map)
+            .count();
+        vec![
+            format!("Map info for {name}:"),
+            format!("  map {map} at ({}, {})", position.x, position.y),
+            format!("  walkable: {}", if walkable { "yes" } else { "no" }),
+            format!("  monsters on map: {monsters}"),
+            format!("  players on map: {players}"),
+            format!("  ground items on map: {ground}"),
+        ]
+    }
+
+    /// `@clearbag`：清空背包（不碰装备栏/仓库），逐件下发 `S.DeleteItem`。
+    fn gm_clear_bag(&mut self, object_id: u32) -> String {
+        let items: Vec<mir_protocol::data::UserItem> = self
+            .player(object_id)
+            .map(|player| player.inventory.iter().flatten().cloned().collect())
+            .unwrap_or_default();
+        let cleared = items.len();
+        if let Some(player) = self.player_mut(object_id) {
+            player.inventory.fill(None);
+        }
+        for item in items {
+            self.send_to_player(
+                object_id,
+                &ServerPacket::DeleteItem(DeleteItemPacket {
+                    unique_id: item.unique_id,
+                    count: item.count,
+                })
+                .encode_frame(),
+            );
+        }
+        format!("Cleared {cleared} item stack(s) from the bag.")
+    }
+
+    /// `@reboot <秒>`：安排一次优雅停机（倒计时广播 + 到点踢线 + 停止 accept）。
+    fn gm_reboot(&mut self, args: &[&str]) -> String {
+        let Some(seconds) = parse_bounded::<u32>(args.first().copied(), &0, &MAX_REBOOT_SECONDS)
+        else {
+            return format!("Usage: @reboot <seconds 0..{MAX_REBOOT_SECONDS}>");
+        };
+        let deadline = schedule_reboot(seconds);
+        let message = reboot_message(seconds);
+        self.broadcast_system(&message);
+        tracing::info!(seconds, deadline, "GM reboot scheduled");
+        if seconds == 0 {
+            "Server rebooting now.".to_owned()
+        } else {
+            format!("Server reboot scheduled in {seconds} second(s).")
+        }
+    }
+
     fn player_id_by_name(&self, name: &str) -> Option<u32> {
         self.players
             .iter()
             .find_map(|(id, player)| player.name.eq_ignore_ascii_case(name).then_some(*id))
+    }
+
+    /// 怪物模板查找：先按索引，再按精确名（大小写不敏感），最后按唯一片段匹配。
+    fn find_monster_kind(&self, query: &str) -> Option<MonsterKind> {
+        let data = self.game_data()?;
+        if let Ok(index) = query.parse::<i32>()
+            && let Some(kind) = data.monster(index)
+        {
+            return Some(kind.clone());
+        }
+        if let Some(info) = data.monster_info_by_name(query) {
+            return Some(crate::gamedata::kind_from_monster_info(info));
+        }
+        let needle = query.to_ascii_lowercase();
+        let limit = data.monster_count();
+        (0..=limit).find_map(|index| {
+            let kind = data.monster(i32::try_from(index).ok()?)?;
+            kind.name
+                .to_ascii_lowercase()
+                .contains(&needle)
+                .then(|| kind.clone())
+        })
     }
 
     /// 把当前等级/经验/下一级经验同步给客户端（Crystal `S.LevelChanged`）。
@@ -551,6 +964,14 @@ fn help_lines() -> Vec<String> {
         "  @who                  list online players".to_owned(),
         "  @kick <account|character>    disconnect a client".to_owned(),
         "  @recall <character>   bring a player to you".to_owned(),
+        "  @mob <name|index> [count]    spawn monsters at your feet".to_owned(),
+        "  @clearitem            clear ground items on your map".to_owned(),
+        "  @revive [character]   revive a dead player (default: you)".to_owned(),
+        "  @setpk <points>       set PK points (refreshes name colour)".to_owned(),
+        "  @warp <character> <map> [x y]  send another player elsewhere".to_owned(),
+        "  @mapinfo              current map / position / counts".to_owned(),
+        "  @clearbag             clear your bag (equipment stays)".to_owned(),
+        "  @reboot <seconds>     graceful shutdown with countdown".to_owned(),
         "  @help                 this list".to_owned(),
     ]
 }

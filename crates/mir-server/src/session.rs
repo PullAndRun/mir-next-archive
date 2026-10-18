@@ -66,11 +66,11 @@ pub enum Stage {
 /// 会话错误：一律导致连接关闭。
 #[derive(Debug, thiserror::Error)]
 pub enum SessionError {
-    /// 协议错误。
-    #[error("协议错误：{0}")]
+    /// 协议错误（开发者可见，统一英文）。
+    #[error("protocol error: {0}")]
     Protocol(#[from] mir_protocol::ProtocolError),
-    /// 存储错误。
-    #[error("存储错误：{0}")]
+    /// 存储错误（开发者可见，统一英文）。
+    #[error("store error: {0}")]
     Store(#[from] StoreError),
     /// 被 GM `@kick` 踢下线（错误串是开发者可见的日志文本，用英文）。
     #[error("kicked by GM")]
@@ -95,6 +95,12 @@ pub struct Session<S: AccountStore> {
     language: LanguageCatalog,
     /// 语言包（服务端文本与地图标题的运行时覆盖层）。
     languages: Arc<LanguageLibrary>,
+    /// 包速率限流的窗口起点（每秒重置一次，见 [`Session::rate_allows_packet`]）。
+    rate_window_start: std::time::Instant,
+    /// 当前窗口内已处理的包数。
+    rate_window_count: u32,
+    /// 本窗口是否已经因为超速记过 warn（每个窗口只喊一次，避免日志刷屏）。
+    rate_warned: bool,
 }
 
 impl<S: AccountStore> Session<S> {
@@ -123,6 +129,9 @@ impl<S: AccountStore> Session<S> {
             // 项目要求默认全中文化；玩家可以在游戏内用 `/language en` 切换。
             language: LanguageCatalog::new(),
             languages,
+            rate_window_start: std::time::Instant::now(),
+            rate_window_count: 0,
+            rate_warned: false,
         }
     }
 
@@ -146,7 +155,43 @@ impl<S: AccountStore> Session<S> {
 
     /// 处理一个客户端包。
     #[allow(clippy::needless_pass_by_value)] // 包按值传入，内部按需移动字段
+    /// 包速率限制：每秒最多 `config.max_packets_per_second` 个包（0 = 不限制）。
+    ///
+    /// 用单调时钟做「一秒窗口」，窗口内超限返回 `false`（调用方丢弃该包）。
+    /// 每个窗口只记一条 warn，避免被刷屏时日志自己压垮磁盘。
+    fn rate_allows_packet(&mut self) -> bool {
+        let limit = self.config.max_packets_per_second;
+        if limit == 0 {
+            return true;
+        }
+        let now = std::time::Instant::now();
+        if now.duration_since(self.rate_window_start) >= std::time::Duration::from_secs(1) {
+            self.rate_window_start = now;
+            self.rate_window_count = 0;
+            self.rate_warned = false;
+        }
+        self.rate_window_count = self.rate_window_count.saturating_add(1);
+        if self.rate_window_count > limit {
+            if !self.rate_warned {
+                self.rate_warned = true;
+                tracing::warn!(
+                    session = self.id,
+                    peer = %self.peer,
+                    limit,
+                    "客户端包速率超限：本秒余下的包丢弃（不踢线）"
+                );
+            }
+            return false;
+        }
+        true
+    }
+
     pub async fn handle(&mut self, packet: ClientPacket) -> Result<(), SessionError> {
+        // 包速率限制（抗刷）：超限的包直接丢弃并记一次 warn，**不踢人**
+        // （网络抖动时客户端会把积压的包一起发上来，踢掉反而是误伤）。
+        if !self.rate_allows_packet() {
+            return Ok(());
+        }
         // GM `@kick` 的兜底路径：连接建立时登记过通道的会话由读循环直接断开；
         // 没登记的（测试/裸 Session）在这里退出。
         if crate::gm::take_pending_kick(self.id) {
@@ -872,6 +917,13 @@ impl<S: AccountStore> Session<S> {
         world.set_player_language(object_id, self.language.language());
         // 任务物品栏：装进世界侧表，下线时由 `leave_world` 取走存盘。
         world.set_quest_inventory(object_id, quest_inventory.clone());
+        // 宠物命令模式（Crystal `CharacterInfo.PMode`，列 `characters.pet_mode`；迁移 0001）。
+        // 越界/老存档按 `Both`（Crystal 默认）。
+        world.set_pet_mode(
+            object_id,
+            mir_core::enums::PetMode::from_value(u8::try_from(character.pet_mode).unwrap_or(0))
+                .unwrap_or(mir_core::enums::PetMode::Both),
+        );
         // 进图资料：Crystal `PlayerObject.CheckMapInfo`（`PlayerObject.cs:1009-1056`）。
         // 必须在释放世界锁之前取，Npc 列表与传送点都来自世界内的实时状态。
         let map_index = world
@@ -1747,7 +1799,11 @@ impl<S: AccountStore> Session<S> {
             let world = self.world.lock().await;
             self.object_id.and_then(|object_id| {
                 let player = world.player(object_id)?;
-                self.character_snapshot(player, world.quest_inventory(object_id))
+                self.character_snapshot(
+                    player,
+                    world.quest_inventory(object_id),
+                    world.pet_mode(object_id),
+                )
             })
         };
         if let Err(error) =
@@ -1765,13 +1821,17 @@ impl<S: AccountStore> Session<S> {
     /// `quest_inventory` 是**世界里当前**的任务物品栏：`market::character_snapshot` 从
     /// 登录时的 base 克隆，不覆写的话市场/商城任何一次落盘都会把
     /// `characters.quest_inventory` 写回登录值（丢任务物品）。
+    ///
+    /// `pet_mode` 同理：世界里的宠物命令才是活值，市场/商城落盘不能把登录时那一字节写回去。
     fn character_snapshot(
         &self,
         player: &Player,
         quest_inventory: Option<&crate::quest_inventory::QuestInventory>,
+        pet_mode: mir_core::enums::PetMode,
     ) -> Option<Character> {
         self.character.as_ref().map(|base| {
-            let mut snapshot = crate::market::character_snapshot(base, player);
+            // `pet_mode` 由 `market::character_snapshot` 一起写进行（市场/商城/下线口径统一）。
+            let mut snapshot = crate::market::character_snapshot(base, player, pet_mode);
             if let Some(inventory) = quest_inventory {
                 snapshot.quest_inventory = inventory.encode();
             }
@@ -2357,7 +2417,11 @@ impl<S: AccountStore> Session<S> {
             let world = self.world.lock().await;
             self.object_id.and_then(|object_id| {
                 let player = world.player(object_id)?;
-                self.character_snapshot(player, world.quest_inventory(object_id))
+                self.character_snapshot(
+                    player,
+                    world.quest_inventory(object_id),
+                    world.pet_mode(object_id),
+                )
             })
         };
         let update = GameShopUpdate {
@@ -2498,16 +2562,19 @@ impl<S: AccountStore> Session<S> {
         let Some(object_id) = self.object_id.take() else {
             return;
         };
-        let (leaving, quest_inventory) = {
+        let (leaving, quest_inventory, pet_mode) = {
             let mut world = self.world.lock().await;
-            // 先取走任务物品栏，再 `leave`（`World::leave` 会兜底清理侧表）。
+            // 先取走任务物品栏与宠物命令（`leave` 会清理侧表，取晚了就只剩默认值）。
             let quest_inventory = world.take_quest_inventory(object_id);
-            (world.leave(object_id), quest_inventory)
+            let pet_mode = world.pet_mode(object_id);
+            (world.leave(object_id), quest_inventory, pet_mode)
         };
         if let Some(player) = leaving {
             // 世界 → 角色行的映射与市场落盘共用 `market::character_snapshot`，
             // 保证「下线存盘」与「市场事务落盘」不会写出两套不同的背包/金币语义。
-            if let Some(character) = self.character_snapshot(&player, Some(&quest_inventory)) {
+            if let Some(character) =
+                self.character_snapshot(&player, Some(&quest_inventory), pet_mode)
+            {
                 self.character = Some(character);
             }
         }

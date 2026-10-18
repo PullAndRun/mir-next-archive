@@ -334,19 +334,19 @@ impl Npc {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NpcError {
     /// 玩家不在世界里。
-    #[error("玩家 {0} 不在世界里")]
+    #[error("player {0} is not in the world")]
     NotInWorld(u32),
     /// 玩家已死亡：Crystal 的所有 NPC 入口第一行都是 `if (Dead) return;`。
-    #[error("玩家 {player} 已死亡，不能与 NPC 交互")]
+    #[error("player {player} is dead and cannot interact with NPCs")]
     Dead {
         /// 玩家对象 ID。
         player: u32,
     },
     /// 找不到这个 NPC（同图范围内）。
-    #[error("NPC {0} 不在当前地图上")]
+    #[error("NPC {0} is not on the current map")]
     NoSuchNpc(u32),
     /// 距离太远（Crystal `Functions.InRange(..., Globals.DataRange)`）。
-    #[error("离 NPC {object_id} 太远（上限 {range} 格）")]
+    #[error("too far from NPC {object_id} (max {range} cells)")]
     OutOfRange {
         /// NPC 对象 ID。
         object_id: u32,
@@ -354,7 +354,7 @@ pub enum NpcError {
         range: i32,
     },
     /// NPC 对这个玩家不可见（等级/职业/标记位限制，Crystal `NPCObject.CheckVisible`，`:424-462`）。
-    #[error("NPC {object_id} 对玩家不可见：{reason}")]
+    #[error("NPC {object_id} is not visible to the player: {reason}")]
     NotVisible {
         /// NPC 对象 ID。
         object_id: u32,
@@ -362,37 +362,37 @@ pub enum NpcError {
         reason: &'static str,
     },
     /// 没有打开任何 NPC 对话窗口。
-    #[error("玩家不在 NPC 对话中")]
+    #[error("the player is not in an NPC dialogue")]
     NoDialog,
     /// 点了一个当前页面没有展示的按钮（Crystal 会记一条 `PlayerPreventedNpcAccess` 日志）。
-    #[error("当前页面没有按钮 {key}")]
+    #[error("the current page has no button {key}")]
     NotACurrentButton {
         /// 被拒绝的 key。
         key: String,
     },
     /// 脚本找不到或解析失败。
-    #[error("NPC 脚本 {file} 不可用")]
+    #[error("NPC script {file} is unavailable")]
     NoScript {
         /// 脚本文件名。
         file: String,
     },
     /// 当前页面不允许这个操作（例如不在 `[@BUY]` 里点买）。
-    #[error("当前页面 {page} 不允许该操作")]
+    #[error("page {page} does not allow this action")]
     NotShopPage {
         /// 当前页面 key。
         page: String,
     },
     /// 客户端给的 `PanelType` 与本作实现的入口不符。
-    #[error("不支持的交易面板 {0:?}")]
+    #[error("unsupported trade panel {0:?}")]
     UnsupportedPanel(PanelType),
     /// 商品编号不在这个 NPC 的商品表里。
-    #[error("商品 {item_index} 不在商品表里")]
+    #[error("item {item_index} is not in the goods list")]
     NoSuchGoods {
         /// 商品编号（Crystal `UserItem.UniqueID`，即脚本行号）。
         item_index: u64,
     },
     /// 数量非法（0 或超过堆叠上限）。
-    #[error("数量 {count} 非法（堆叠上限 {stack}）")]
+    #[error("invalid count {count} (stack limit {stack})")]
     InvalidCount {
         /// 请求数量。
         count: u16,
@@ -400,7 +400,7 @@ pub enum NpcError {
         stack: u16,
     },
     /// 钱不够。
-    #[error("金币不足：需要 {cost}，只有 {gold}")]
+    #[error("insufficient gold: requires {cost}, holding {gold}")]
     NotEnoughGold {
         /// 需要的金币。
         cost: u32,
@@ -408,10 +408,10 @@ pub enum NpcError {
         gold: i64,
     },
     /// 背包满。
-    #[error("背包已满")]
+    #[error("inventory is full")]
     InventoryFull,
     /// 超重（本作扩展，见 [`World::enforce_bag_weight`]）。
-    #[error("超重：{weight} > {limit}")]
+    #[error("overweight: {weight} > {limit}")]
     TooHeavy {
         /// 交易后的总重量。
         weight: u32,
@@ -419,19 +419,19 @@ pub enum NpcError {
         limit: u32,
     },
     /// 背包里没有这件物品。
-    #[error("背包里没有物品 {0}")]
+    #[error("item {0} is not in the inventory")]
     NoSuchItem(u64),
     /// 这件物品被绑定禁止出售（`BindMode.DontSell`）。
-    #[error("物品 {0} 不可出售")]
+    #[error("item {0} cannot be sold")]
     CannotSell(u64),
     /// 这件物品被绑定禁止修理（`BindMode.DontRepair`）。
-    #[error("物品 {0} 不可修理")]
+    #[error("item {0} cannot be repaired")]
     CannotRepair(u64),
     /// 这个 NPC 的 `[Types]` 不允许交易该物品类型。
-    #[error("这个 NPC 不收购该类型的物品")]
+    #[error("this NPC does not buy items of that type")]
     TypeNotAllowed,
     /// 物品没有损耗，不需要修理（Crystal 仍走完流程，但费用为 0）。
-    #[error("物品 {0} 不需要修理")]
+    #[error("item {0} does not need repair")]
     NothingToRepair(u64),
 }
 
@@ -1011,13 +1011,13 @@ impl World {
             return Ok(());
         }
         let reason = if npc.flag_needed != 0 && !player.npc.flags.contains(&npc.flag_needed) {
-            "缺少所需标记位"
+            "missing required flag"
         } else if npc.min_lev != 0 && i32::from(player.level) < i32::from(npc.min_lev) {
-            "等级低于下限"
+            "level below minimum"
         } else if npc.max_lev != 0 && i32::from(player.level) > i32::from(npc.max_lev) {
-            "等级高于上限"
+            "level above maximum"
         } else {
-            "职业不符"
+            "class mismatch"
         };
         Err(NpcError::NotVisible {
             object_id: npc.object_id,
@@ -1155,7 +1155,7 @@ impl World {
                         tracing::debug!(npc = %npc.name, %error, "NPC 动作接取任务被拒绝");
                         // 让脚本知道结果，便于写 `<提示/@...>`。
                         run.quest_events
-                            .push(format!("ACCEPTQUEST {index} 失败：{error}"));
+                            .push(format!("ACCEPTQUEST {index} failed: {error}"));
                     }
                 }
             }
@@ -1177,7 +1177,7 @@ impl World {
                     Err(error) => {
                         tracing::debug!(npc = %npc.name, %error, "NPC 动作交付任务被拒绝");
                         run.quest_events
-                            .push(format!("FINISHQUEST {index} 失败：{error}"));
+                            .push(format!("FINISHQUEST {index} failed: {error}"));
                     }
                 }
             }
@@ -1189,7 +1189,7 @@ impl World {
                 if let Err(error) = self.abandon_quest(player_id, index) {
                     tracing::debug!(npc = %npc.name, %error, "NPC 动作放弃任务被拒绝");
                     run.quest_events
-                        .push(format!("ABANDONQUEST {index} 失败：{error}"));
+                        .push(format!("ABANDONQUEST {index} failed: {error}"));
                 }
             }
             NpcActionKind::CreateGuild => {
@@ -1213,7 +1213,7 @@ impl World {
                             &error.message(self.player_language(player_id)),
                         );
                         run.quest_events
-                            .push(format!("CREATEGUILD {name} 失败：{error}"));
+                            .push(format!("CREATEGUILD {name} failed: {error}"));
                     }
                 }
             }

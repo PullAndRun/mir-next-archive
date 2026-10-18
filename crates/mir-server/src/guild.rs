@@ -1013,27 +1013,27 @@ pub enum GuildJoinOutcome {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum GuildError {
     /// 对象不在世界里。
-    #[error("对象 {0} 不在世界里")]
+    #[error("object {0} is not in the world")]
     NotInWorld(u32),
     /// 自己不在行会（`ServerTextKeys.NotInGuild`，`PlayerObject.cs:9844`）。
-    #[error("你不在行会中")]
+    #[error("you are not in a guild")]
     NotInGuild(u32),
     /// 已经在一个行会里（`CreateGuild` 的 `if ((MyGuild != null) || (Info.GuildIndex != -1))`，
     /// `PlayerObject.cs:9710`）。
-    #[error("你已经在行会中")]
+    #[error("you are already in a guild")]
     AlreadyInGuild,
     /// 行会名已被占用（`ServerTextKeys.GuildAlreadyExists`，`:10051-10055`）。
-    #[error("行会 {0} 已经存在")]
+    #[error("guild {0} already exists")]
     NameTaken(String),
     /// 行会名太短/太长（`ServerTextKeys.GuildNameTooLong` / `GuildNameRestrictedLength`，
     /// `:10033-10037`）。
-    #[error("行会名长度必须是 {GUILD_NAME_MIN_LEN}-{GUILD_NAME_MAX_LEN} 个字符")]
+    #[error("guild name length must be {GUILD_NAME_MIN_LEN}-{GUILD_NAME_MAX_LEN} characters")]
     NameLength,
     /// 行会名含非法字符（`Name.Contains('\\')`，`:10039-10043`）。
-    #[error("行会名不能包含反斜杠或换行")]
+    #[error("guild name must not contain backslashes or newlines")]
     NameInvalid,
     /// 等级不够创建（`ServerTextKeys.LevelNotEnoughCreateGuild`，`:9713-9717`）。
-    #[error("创建行会需要 {required} 级（你当前 {level} 级）")]
+    #[error("creating a guild requires level {required} (you are {level})")]
     LevelTooLow {
         /// 需要的等级。
         required: u16,
@@ -1041,7 +1041,7 @@ pub enum GuildError {
         level: u16,
     },
     /// 金币不够创建（`ServerTextKeys.InsufficientGoldCreateGuild`，`:9733-9736`）。
-    #[error("创建行会需要 {required} 金币（你只有 {gold}）")]
+    #[error("creating a guild requires {required} gold (you have {gold})")]
     NotEnoughGold {
         /// 需要的金币。
         required: u32,
@@ -1049,99 +1049,99 @@ pub enum GuildError {
         gold: i64,
     },
     /// 自己的职位没有这项权限（`ServerTextKeys.NotAllowed*`，`PlayerObject.cs:9850-9947`）。
-    #[error("你的职位没有 {0} 权限")]
+    #[error("your rank lacks permission {0}")]
     Permission(&'static str),
     /// 找不到这个成员（`GuildObject.ChangeRank`/`DeleteMember` 返回 false，`:254`、`:456`）。
-    #[error("行会里没有成员 {0}")]
+    #[error("guild has no member {0}")]
     MemberNotFound(String),
     /// 目标已经在行会里（`ServerTextKeys.AlreadyInGuild`，`:9864-9868`）。
-    #[error("{0} 已经在行会中")]
+    #[error("{0} is already in a guild")]
     TargetAlreadyInGuild(String),
     /// 目标正被邀请（`ServerTextKeys.GuildInvitePending`，`:9874-9878`）。
-    #[error("{0} 已经收到一个行会邀请")]
+    #[error("{0} has already received a guild invitation")]
     TargetAlreadyInvited(String),
     /// 不能邀请自己（**本作扩展**：Crystal 只会在接受时因为已入会而失败）。
-    #[error("不能邀请自己")]
+    #[error("you cannot invite yourself")]
     CannotInviteSelf,
     /// 行会人数已满（`ServerTextKeys.GuildInviteFull`，`:9990-9994`）。
-    #[error("行会人数已满")]
+    #[error("the guild is full")]
     GuildFull,
     /// 没有待接受的行会邀请（`ServerTextKeys.GuildNotInvited`，`:9980-9984`）。
-    #[error("没有待接受的行会邀请")]
+    #[error("no pending guild invitation")]
     NoInvitation,
     /// 升成会长需要目标达到行会要求等级（`ServerTextKeys.GuildLeaderMinLevel`，`GuildObject.cs:258-262`）。
-    #[error("对方等级不足以成为会长（需要 {required} 级）")]
+    #[error("target level is too low to become leader (requires {required})")]
     LeaderLevelTooLow {
         /// 需要的等级。
         required: u16,
     },
     /// 会长职位至少要保留两个会长（`ServerTextKeys.GuildNeedsTwoLeaders`，`GuildObject.cs:267-271`）。
-    #[error("行会至少要有两个会长才能降职")]
+    #[error("the guild needs at least two leaders to demote one")]
     GuildNeedsTwoLeaders,
     /// 降职会长时必须还有一个会长在线（`ServerTextKeys.NeedOneLeaderOnline`，`:272-279`）。
-    #[error("需要至少一个会长在线")]
+    #[error("at least one leader must be online")]
     NeedOneLeaderOnline,
     /// 职位序号不存在（`ServerTextKeys.RankNotFound`，`GuildObject.cs:356-360`）。
-    #[error("职位 {0} 不存在")]
+    #[error("rank {0} does not exist")]
     RankNotFound(u8),
     /// 职位名太短（`ServerTextKeys.RankNameTooShort`，`PlayerObject.cs:9917-9921`）。
-    #[error("职位名至少 {GUILD_RANK_NAME_MIN_LEN} 个字符")]
+    #[error("rank name must be at least {GUILD_RANK_NAME_MIN_LEN} characters")]
     RankNameTooShort,
     /// 职位名太长（`:9922-9925`）。
-    #[error("职位名最多 {GUILD_RANK_NAME_MAX_LEN} 个字符")]
+    #[error("rank name must be at most {GUILD_RANK_NAME_MAX_LEN} characters")]
     RankNameTooLong,
     /// 不能改自己职位的权限（`ServerTextKeys.CannotChangeOwnRankOptions`，`GuildObject.cs:361-365`）。
-    #[error("不能修改自己职位的权限")]
+    #[error("you cannot change your own rank's permissions")]
     CannotChangeOwnRankOptions,
     /// 职位数量已达上限（`ServerTextKeys.NoMoreRankSlotsAvailable`，`PlayerObject.cs:9935-9939`）。
-    #[error("职位数量已达上限")]
+    #[error("the rank limit has been reached")]
     TooManyRanks,
     /// 职位不够高（`ServerTextKeys.YourRankNotAdequate`，`GuildObject.cs:395-399`、`:457-461`）。
-    #[error("你的职位不够高")]
+    #[error("your rank is not high enough")]
     RankNotAdequate,
     /// 公告行数超限（`ServerTextKeys.GuildNoticeMaxLines`，`PlayerObject.cs:9971-9975`）。
-    #[error("公告最多 {GUILD_NOTICE_MAX_LINES} 行")]
+    #[error("the notice may have at most {GUILD_NOTICE_MAX_LINES} lines")]
     NoticeTooLong,
     /// 不在安全区（`ServerTextKeys.GuildStorageOutsideSafezone` / `CannotUseGuildStorageOutsideSafezones`，
     /// `PlayerObject.cs:10069-10073`、`:10131-10136`）。
-    #[error("只能在安全区内使用行会仓库")]
+    #[error("the guild storage can only be used in a safe zone")]
     NotInSafeZone,
     /// 职位没有 `CanStoreItem`（8）权限（`ServerTextKeys.NoPermissionGuildStorage`，`:10141-10146`）。
-    #[error("你的职位没有往行会仓库存物品的权限")]
+    #[error("your rank cannot store items in the guild storage")]
     NoStorePermission,
     /// 职位没有 `CanRetrieveItem`（16）权限（`ServerTextKeys.NoPermissionGuildStorageRetrieve`，
     /// `:10186-10191`）。
-    #[error("你的职位没有从行会仓库取物品的权限")]
+    #[error("your rank cannot retrieve items from the guild storage")]
     NoRetrievePermission,
     /// 职位没有整理仓库的权限（Crystal 复用 `CanStoreItem`，`ServerTextKeys.NoGuildStorageMovePermission`，
     /// `:10226-10231`）。
-    #[error("你的职位没有整理行会仓库的权限")]
+    #[error("your rank cannot tidy the guild storage")]
     NoStorageMovePermission,
     /// 背包/仓库格子序号越界（Crystal 只回一条失败包，没有文字提示，`:10147-10156`）。
-    #[error("格子序号不在范围内")]
+    #[error("slot index out of range")]
     InvalidStorageSlot,
     /// 来源格子是空的（Crystal 同样只回失败包，`:10157-10161`、`:10208-10212`）。
-    #[error("格子里没有物品")]
+    #[error("the slot is empty")]
     EmptySlot,
     /// 目标格子已经有物品（`ServerTextKeys.TargetSlotNotEmpty`，`:10172-10177`）。
-    #[error("目标格子不是空的")]
+    #[error("the target slot is not empty")]
     TargetSlotNotEmpty,
     /// 同一分钟内重复拉取仓库列表（Crystal `GuildCanRequestItems == false`，`:10268-10269`；
     /// 静默丢弃）。
-    #[error("仓库列表请求过于频繁")]
+    #[error("storage list requested too frequently")]
     StorageRequestThrottled,
     /// 物品标记了 `BindMode.DontStore`，不能进出仓库（`:10162-10171`、`:10213-10217`）。
-    #[error("这件物品不能存入行会仓库")]
+    #[error("this item cannot be stored in the guild storage")]
     ItemCannotBeStored,
     /// 行会资金已达 `uint.MaxValue`（`ServerTextKeys.GuildGoldLimitReached`，`:10083-10087`）。
-    #[error("行会资金已达上限")]
+    #[error("the guild funds have reached the limit")]
     GuildGoldLimitReached,
     /// 玩家金币已达 `uint.MaxValue`（`ServerTextKeys.GoldLimitReached` + `CanGainGold`，
     /// `:10103-10107`、`PlayerObject.cs:7638-7641`）。
-    #[error("你的金币已达上限")]
+    #[error("your gold has reached the limit")]
     PlayerGoldLimitReached,
     /// 行会资金不足（`ServerTextKeys.InsufficientGold`，`:10097-10101`）。
-    #[error("行会资金不足（需要 {required}，现有 {gold}）")]
+    #[error("insufficient guild funds (requires {required}, has {gold})")]
     GuildBankNotEnough {
         /// 需要的金币。
         required: u32,
@@ -1149,23 +1149,23 @@ pub enum GuildError {
         gold: u32,
     },
     /// 取金币需要会长职位（`if (MyGuildRank.Index != 0)`，`ServerTextKeys.InsufficientRank`，`:10109-10113`）。
-    #[error("只有会长可以从行会仓库取金币")]
+    #[error("only the guild leader can withdraw gold from the guild storage")]
     LeaderOnly,
     /// 职位没有 `CanActivateBuff`（128）权限（`ServerTextKeys.NoCorrectGuildRank` / `IncorrectGuildRank`，
     /// `PlayerObject.cs:10362-10366`、`:10421-10425`）。
-    #[error("你的职位没有激活行会增益的权限")]
+    #[error("your rank cannot activate guild buffs")]
     NoBuffPermission,
     /// 增益编号不在 `GuildSettings.ini` 里（`ServerTextKeys.BuffNotExist`，`:10367-10372`）。
-    #[error("行会增益 {0} 不存在")]
+    #[error("guild buff {0} does not exist")]
     BuffNotExist(i32),
     /// 行会已经拥有这个增益（`ServerTextKeys.BuffAlreadyObtained`，`:10373-10377`）。
-    #[error("行会已经拥有增益 {0}")]
+    #[error("the guild already owns buff {0}")]
     BuffAlreadyObtained(i32),
     /// 行会还没买过这个增益（`ServerTextKeys.BuffNotObtained`，`:10426-10431`）。
-    #[error("行会还没有购买增益 {0}")]
+    #[error("the guild has not purchased buff {0}")]
     BuffNotObtained(i32),
     /// 行会等级不足（`ServerTextKeys.GuildLevelRequirementNotMet`，`:10378-10382`）。
-    #[error("行会等级不足（需要 {required} 级，当前 {level} 级）")]
+    #[error("guild level too low (requires {required}, current {level})")]
     GuildLevelTooLow {
         /// 需要的行会等级。
         required: u8,
@@ -1173,7 +1173,7 @@ pub enum GuildError {
         level: u8,
     },
     /// 行会升级点不足（`ServerTextKeys.GuildSparePointsInsufficient`，`:10383-10387`）。
-    #[error("行会升级点不足（需要 {required} 点，现有 {remaining} 点）")]
+    #[error("insufficient guild points (requires {required}, has {remaining})")]
     SparePointsInsufficient {
         /// 需要的升级点。
         required: u8,
@@ -1182,7 +1182,7 @@ pub enum GuildError {
     },
     /// 会长退出/被删时行会里没有别的会长可接管（`ServerTextKeys.YouNeedLastLeaderToDisbandGuild`，
     /// `GuildObject.cs:474`）。
-    #[error("你是最后一个会长：请先转让会长或解散行会")]
+    #[error("you are the last leader: transfer leadership or disband the guild first")]
     LastLeaderCannotLeave,
 }
 

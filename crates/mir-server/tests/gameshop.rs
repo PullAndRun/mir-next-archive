@@ -1096,7 +1096,11 @@ async fn restart_keeps_credit_and_stock() {
     assert_eq!(report.cost, 300);
     let snapshot = {
         let world = world.lock().await;
-        mir_server::market::character_snapshot(&character, world.player(player).expect("玩家"))
+        mir_server::market::character_snapshot(
+            &character,
+            world.player(player).expect("玩家"),
+            world.pet_mode(player),
+        )
     };
     let (purchases, stock) = report.to_records(character.id);
     mir_server::market::flush_gameshop_update(
@@ -1598,7 +1602,11 @@ async fn postgres_gameshop_purchase_persists() {
     assert_eq!(report.individual_purchased, Some(2));
     let snapshot = {
         let world = world.lock().await;
-        mir_server::market::character_snapshot(&character, world.player(object_id).expect("玩家"))
+        mir_server::market::character_snapshot(
+            &character,
+            world.player(object_id).expect("玩家"),
+            world.pet_mode(object_id),
+        )
     };
     let (purchases, stock) = report.to_records(character.id);
     mir_server::market::flush_gameshop_update(

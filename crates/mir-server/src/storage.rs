@@ -85,26 +85,26 @@ pub const STORAGE_MAX_SIZE: usize = 160;
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum StorageError {
     /// 玩家不在世界里。
-    #[error("玩家 {0} 不在世界里")]
+    #[error("player {0} is not in the world")]
     NotInWorld(u32),
     /// 玩家已死亡（Crystal 的 `C.StoreItem` 入口不单独查 `Dead`，但 NPC 对话本身要求活着）。
-    #[error("玩家 {player} 已死亡")]
+    #[error("player {player} is dead")]
     Dead {
         /// 玩家对象 ID。
         player: u32,
     },
     /// 当前不在 `[@STORAGE]` 页面（Crystal `NPCPage == null || NPCPage.Key != StorageKey`，
     /// `PlayerObject.cs:5380-5384`、`:5461-5465`）。
-    #[error("玩家不在仓库对话中")]
+    #[error("the player is not in a storage dialogue")]
     NoStorageDialog,
     /// `NPCObjectID` 指向的 NPC 不在当前地图上（`PlayerObject.cs:5386-5396`）。
-    #[error("NPC {object_id} 不在当前地图上")]
+    #[error("NPC {object_id} is not on the current map")]
     NoSuchNpc {
         /// NPC 对象 ID。
         object_id: u32,
     },
     /// 离仓库 NPC 太远（`PlayerObject.cs:5393`，`Globals.DataRange = 16`）。
-    #[error("离仓库 NPC {object_id} 太远（上限 {range} 格）")]
+    #[error("too far from storage NPC {object_id} (max {range} cells)")]
     OutOfRange {
         /// NPC 对象 ID。
         object_id: u32,
@@ -112,7 +112,7 @@ pub enum StorageError {
         range: i32,
     },
     /// 背包下标越界（`from < 0 || from >= Info.Inventory.Length`，`PlayerObject.cs:5405`、`:5498`）。
-    #[error("背包下标 {index} 越界（共 {size} 格）")]
+    #[error("inventory index {index} out of range ({size} slots)")]
     InventoryIndex {
         /// 请求的下标。
         index: i32,
@@ -120,7 +120,7 @@ pub enum StorageError {
         size: usize,
     },
     /// 仓库下标越界（`to < 0 || to >= Account.Storage.Length`，`PlayerObject.cs:5411`、`:5486`）。
-    #[error("仓库下标 {index} 越界（共 {size} 格）")]
+    #[error("storage index {index} out of range ({size} slots)")]
     StorageIndex {
         /// 请求的下标。
         index: i32,
@@ -128,13 +128,13 @@ pub enum StorageError {
         size: usize,
     },
     /// 仓库格已被占用（`Account.Storage[to] != null`，`PlayerObject.cs:5443-5455`）。
-    #[error("仓库 {index} 号格已被占用")]
+    #[error("storage slot {index} is occupied")]
     TargetOccupied {
         /// 仓库格。
         index: i32,
     },
     /// 源格是空的（`temp == null`，`PlayerObject.cs:5425-5429`、`:5506-5510`）。
-    #[error("{grid} 的 {index} 号格是空的")]
+    #[error("{grid} slot {index} is empty")]
     EmptySlot {
         /// `"Inventory"` 或 `"Storage"`（只用于日志 Display）。
         grid: &'static str,
@@ -142,13 +142,13 @@ pub enum StorageError {
         index: i32,
     },
     /// 物品被标记为不能进仓库（`BindMode.DontStore`，`PlayerObject.cs:5431-5441`）。
-    #[error("物品 {unique_id} 不允许存入仓库")]
+    #[error("item {unique_id} cannot be stored in the storage")]
     CannotStore {
         /// 物品 UUID。
         unique_id: u64,
     },
     /// 仓库字节块解析失败（本作解码器的防线，Crystal 不会遇到）。
-    #[error("仓库字节块解析失败：{0}")]
+    #[error("failed to parse storage blob: {0}")]
     Codec(String),
 }
 

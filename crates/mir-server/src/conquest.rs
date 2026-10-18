@@ -332,30 +332,30 @@ pub fn check_day(conquest: &Conquest, unix_ms: i64) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ConquestError {
     /// 对象不在世界里。
-    #[error("对象 {0} 不在世界里")]
+    #[error("object {0} is not in the world")]
     NotInWorld(u32),
     /// 自己不在行会（`CheckType.ConquestAvailable` 要求 `player.MyGuild != null`，
     /// `NPCSegment.cs:2764-2767`）。
-    #[error("你不在行会中")]
+    #[error("you are not in a guild")]
     NotInGuild,
     /// 不是会长（NPC 脚本 `[@REQUESTWAR]` 的门槛，`NPCScript.cs:1066-1069`）。
-    #[error("只有会长才能申请攻城")]
+    #[error("only the guild leader can request a conquest")]
     NotLeader,
     /// 找不到这个攻城区（`ServerTextKeys.ConquestNotFound`，`NPCSegment.cs:1438`）。
-    #[error("找不到攻城区域 {0}")]
+    #[error("conquest area {0} not found")]
     NotFound(i32),
     /// 自己已经是城主（`NPCSegment.cs:4293` 的 `Guildindex != Owner`）。
-    #[error("你的行会已经是这座城的城主")]
+    #[error("your guild already owns this city")]
     AlreadyOwner,
     /// 已经在开战中（`NPCSegment.cs:4293` 的 `!conquest.WarIsOn`）。
-    #[error("这座城正在开战，无法申请")]
+    #[error("a war is in progress for this city")]
     AtWar,
     /// 已经有人申请了（`CheckType.ConquestAvailable` 把 `AttackerID != -1` 判为不可用，
     /// `NPCSegment.cs:2764-2765`）。
-    #[error("已经有一个行会申请了这座城的攻城")]
+    #[error("another guild has already requested this city's conquest")]
     AlreadyScheduled,
     /// 行会等级不够（**本作扩展**的门槛，Crystal 无此校验）。
-    #[error("申请攻城需要行会等级 {required}（当前 {level}）")]
+    #[error("requesting a conquest requires guild level {required} (current {level})")]
     LevelTooLow {
         /// 需要的行会等级。
         required: u8,
@@ -363,7 +363,7 @@ pub enum ConquestError {
         level: u8,
     },
     /// 行会资金不够（**本作扩展**的收费，Crystal 无此校验）。
-    #[error("申请攻城需要 {required} 金币（行会现有 {gold}）")]
+    #[error("requesting a conquest requires {required} gold (guild has {gold})")]
     NotEnoughGold {
         /// 需要的金币。
         required: u32,
@@ -371,7 +371,7 @@ pub enum ConquestError {
         gold: u32,
     },
     /// 不是城主行会（`NPCSegment.cs:4229`、`:4244` 的 `Guildindex == Owner`）。
-    #[error("只有城主行会才能执行这个操作")]
+    #[error("only the owning guild can perform this action")]
     NotOwnerGuild,
 }
 

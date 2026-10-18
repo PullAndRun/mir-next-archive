@@ -156,10 +156,10 @@ pub struct MapChangeReport {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum MapChangeError {
     /// 玩家不在世界里。
-    #[error("对象 {0} 不在世界里")]
+    #[error("object {0} is not in the world")]
     NotInWorld(u32),
     /// 目标地图的地形加载失败（文件缺失/损坏，Crystal `Envir.GetMap` 返回 `null`）。
-    #[error("地图 {map} 不存在或无法加载")]
+    #[error("map {map} does not exist or cannot be loaded")]
     MapNotFound {
         /// 地图文件名。
         map: String,

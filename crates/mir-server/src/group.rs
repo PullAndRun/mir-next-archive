@@ -160,61 +160,61 @@ pub struct GroupInvite {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum GroupError {
     /// 对象不在世界里。
-    #[error("对象 {0} 不在世界里")]
+    #[error("object {0} is not in the world")]
     NotInWorld(u32),
     /// 自己不在队伍里（Crystal `ServerTextKeys.NotInGroup`，`PlayerObject.cs:9342-9346`）。
-    #[error("你不在队伍中")]
+    #[error("you are not in a group")]
     NotInGroup(u32),
     /// 不是队长（`ServerTextKeys.NotGroupLeader`，`:9278-9282`、`:9347-9351`）。
-    #[error("只有队长可以这么做")]
+    #[error("only the group leader can do this")]
     NotLeader(u32),
     /// 队伍已满（`ServerTextKeys.YouGroupMaxMembers`，`:9284-9288`）。
-    #[error("队伍人数已满")]
+    #[error("the group is full")]
     GroupFull,
     /// 邀请冷却中（Crystal 是**静默** `return`，`:9275`）。
-    #[error("邀请太频繁")]
+    #[error("invitation sent too frequently")]
     InviteCooldown,
     /// 找不到这个名字的在线玩家（`ServerTextKeys.CouldNotBeFound`，`:9299-9303`）。
-    #[error("找不到玩家 {0}")]
+    #[error("player {0} not found")]
     NotFound(String),
     /// 不能邀请自己（`ServerTextKeys.CannotGroupSelf`，`:9304-9308`）。
-    #[error("不能邀请自己")]
+    #[error("you cannot invite yourself")]
     CannotInviteSelf,
     /// 对方关闭了组队开关（`ServerTextKeys.NotAllowGroup`，`:9310-9314`）。
-    #[error("{0} 不允许组队")]
+    #[error("{0} does not allow grouping")]
     TargetNotAllowGroup(String),
     /// 对方已经在别的队伍里（`ServerTextKeys.AlreadyInAnotherGroup`，`:9316-9320`）。
-    #[error("{0} 已经在队伍中")]
+    #[error("{0} is already in a group")]
     TargetAlreadyInGroup(String),
     /// 对方正被其他人邀请（`ServerTextKeys.AlreadyReceivingInviteFromOtherPlayer`，`:9322-9326`）。
-    #[error("{0} 正在接收其他人的组队邀请")]
+    #[error("{0} is already receiving another group invitation")]
     TargetAlreadyInvited(String),
     /// 邀请者在禁止组队的地图上（`ServerTextKeys.YouCannotInviteOnSoloMaps`，`:9291-9295`）。
-    #[error("地图 {0} 上不能组队")]
+    #[error("grouping is not allowed on map {0}")]
     InviterOnSoloMap(String),
     /// 被邀请者在禁止组队的地图上（`ServerTextKeys.SoloMapTargetCannotAccept`，`:9328-9333`）。
-    #[error("目标在地图 {0} 上，无法组队")]
+    #[error("target is on map {0}; grouping is not allowed")]
     TargetOnSoloMap(String),
     /// 没有待接受的邀请（`ServerTextKeys.NotInvitedToGroup`，`:9374-9378`）。
-    #[error("没有待接受的组队邀请")]
+    #[error("no pending group invitation")]
     NoInvitation(u32),
     /// 邀请已过期（**本作扩展**，见 [`GROUP_INVITE_EXPIRE_MS`]）。
-    #[error("邀请已过期")]
+    #[error("the invitation has expired")]
     InvitationExpired,
     /// 接受时自己已经在队伍里（`ServerTextKeys.CannotJoinGroup`，`:9387-9392`）。
-    #[error("你已经在队伍中")]
+    #[error("you are already in a group")]
     AlreadyInGroup(u32),
     /// 邀请者不再是队长（`ServerTextKeys.NoLongerGroupLeader`，`:9394-9399`）。
-    #[error("邀请者已经不是队长")]
+    #[error("the inviter is no longer the group leader")]
     InviterNotLeader,
     /// 邀请者关掉了组队开关（`ServerTextKeys.NotInAllowGroup`，`:9407-9412`）。
-    #[error("邀请者不再允许组队")]
+    #[error("the inviter no longer allows grouping")]
     InviterNotAllowGroup,
     /// 邀请者已下线（`ServerTextKeys.PlayerNoLongerOnline`，`:9413-9418`）。
-    #[error("邀请者已经下线")]
+    #[error("the inviter has gone offline")]
     InviterOffline,
     /// 目标不在自己的队伍里（`ServerTextKeys.NotInYourGroup`，`:9362-9366`）。
-    #[error("{0} 不在你的队伍中")]
+    #[error("{0} is not in your group")]
     NotInYourGroup(String),
 }
 

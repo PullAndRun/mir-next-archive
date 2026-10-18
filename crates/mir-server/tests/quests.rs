@@ -1343,8 +1343,11 @@ fn market_snapshot_must_use_live_quest_inventory() {
         (105, 101),
     );
     base.quest_inventory = mir_server::quest_inventory::QuestInventory::new().encode();
-    let base_snapshot =
-        mir_server::market::character_snapshot(&base, harness.world.player(player).unwrap());
+    let base_snapshot = mir_server::market::character_snapshot(
+        &base,
+        harness.world.player(player).unwrap(),
+        harness.world.pet_mode(player),
+    );
     assert!(
         mir_server::quest_inventory::QuestInventory::decode(&base_snapshot.quest_inventory)
             .expect("空栏存档合法")

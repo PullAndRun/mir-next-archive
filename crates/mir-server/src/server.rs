@@ -1,5 +1,7 @@
 //! TCP 监听与连接循环。
 
+use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -15,6 +17,87 @@ use crate::config::ServerConfig;
 use crate::session::Session;
 use crate::store::AccountStore;
 use crate::world::World;
+
+/// 连接被拒的原因（只用于日志/测试断言）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnReject {
+    /// 同一个 IP 的并发连接数已达上限。
+    TooManyConcurrent,
+    /// 同一个 IP 这一秒新建的连接数已达上限。
+    TooFast,
+}
+
+/// 每 IP 的连接限流器（抗刷）：并发连接数 + 每秒新建连接数。
+///
+/// Crystal 的 `Server.cs` 只做 `AcceptSocket`，没有这一层；本作加上它是为了挡掉端口扫描
+/// 与「一个脚本开几百条连接」的刷号行为。阈值来自 [`ServerConfig`]（`0` = 不限制）。
+#[derive(Debug)]
+pub struct ConnectionLimiter {
+    max_per_ip: usize,
+    max_per_second: usize,
+    concurrent: HashMap<IpAddr, usize>,
+    /// (Unix 秒, 该秒内新建的连接数)
+    window: HashMap<IpAddr, (u64, usize)>,
+}
+
+impl ConnectionLimiter {
+    /// 用配置里的两个上限建一个限流器。
+    #[must_use]
+    pub fn new(max_per_ip: usize, max_per_second: usize) -> Self {
+        Self {
+            max_per_ip,
+            max_per_second,
+            concurrent: HashMap::new(),
+            window: HashMap::new(),
+        }
+    }
+
+    /// 尝试占用一个连接槽；返回 `None` = 放行，`Some(reason)` = 拒绝。
+    ///
+    /// `second` 是当前的 Unix 秒（测试里显式传入，生产用 [`crate::gm::unix_now_secs`]）。
+    pub fn try_acquire(&mut self, ip: IpAddr, second: u64) -> Option<ConnReject> {
+        // 先判定、后记账：被拒的连接不占用配额（否则手滑重连几次就把自己锁死一整秒）。
+        if self.max_per_second != 0
+            && let Some(&(window, count)) = self.window.get(&ip)
+            && window == second
+            && count >= self.max_per_second
+        {
+            return Some(ConnReject::TooFast);
+        }
+        if self.max_per_ip != 0 && self.concurrent_for(ip) >= self.max_per_ip {
+            return Some(ConnReject::TooManyConcurrent);
+        }
+        if self.max_per_second != 0 {
+            let entry = self.window.entry(ip).or_insert((second, 0));
+            if entry.0 == second {
+                entry.1 = entry.1.saturating_add(1);
+            } else {
+                *entry = (second, 1);
+            }
+        }
+        if self.max_per_ip != 0 {
+            let count = self.concurrent.entry(ip).or_insert(0);
+            *count = count.saturating_add(1);
+        }
+        None
+    }
+
+    /// 连接结束时释放并发槽（每秒窗口不需要释放）。
+    pub fn release(&mut self, ip: IpAddr) {
+        if let Some(count) = self.concurrent.get_mut(&ip) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                self.concurrent.remove(&ip);
+            }
+        }
+    }
+
+    /// 某个 IP 现在的并发连接数（测试/诊断用）。
+    #[must_use]
+    pub fn concurrent_for(&self, ip: IpAddr) -> usize {
+        self.concurrent.get(&ip).copied().unwrap_or(0)
+    }
+}
 
 /// 启动服务端，永久运行。
 ///
@@ -79,7 +162,7 @@ pub async fn serve_forever<S: AccountStore>(
     let auctions = store
         .load_auctions()
         .await
-        .context("读取市场挂单失败，拒绝以空市场启动")?;
+        .context("failed to load market listings; refusing to start with an empty market")?;
     let (auction_count, sold, purged, market_cleanup) = {
         let mut world = world.lock().await;
         let loaded = world.load_auctions(auctions);
@@ -108,10 +191,9 @@ pub async fn serve_forever<S: AccountStore>(
         );
     }
     if let Some(cleanup) = market_cleanup {
-        store
-            .apply_market_update(cleanup)
-            .await
-            .context("过期市场挂单清理（成交/退回邮件+删除挂单）事务失败")?;
+        store.apply_market_update(cleanup).await.context(
+            "expired auction cleanup transaction failed (sale/return mail + listing delete)",
+        )?;
     }
     tracing::info!(
         loaded = auction_count,
@@ -159,6 +241,18 @@ pub async fn serve_forever<S: AccountStore>(
                         sale_flush_pending = true;
                     }
                 }
+                // `@reboot` 倒计时：到点时先全服公告再踢掉所有会话，accept 循环随后退出。
+                if let Some(remaining) = crate::gm::poll_reboot(now_ms / 1000) {
+                    let message =
+                        crate::gm::reboot_message(u32::try_from(remaining).unwrap_or_default());
+                    world.broadcast_system(&message);
+                    let kicked = if remaining == 0 {
+                        crate::gm::kick_all_sessions()
+                    } else {
+                        0
+                    };
+                    tracing::info!(remaining, kicked, "重启倒计时");
+                }
                 (
                     now_ms,
                     world.take_guild_writes(),
@@ -198,19 +292,44 @@ pub async fn serve_forever<S: AccountStore>(
         }
     });
 
+    // 抗刷：每 IP 并发 + 每秒新建连接数，超限直接关连接并计数。
+    let limiter = Arc::new(std::sync::Mutex::new(ConnectionLimiter::new(
+        config.max_connections_per_ip,
+        config.max_connections_per_second,
+    )));
+    let mut rejected = 0_u64;
     loop {
-        let (stream, peer) = match listener.accept().await {
+        let accepted = tokio::select! {
+            accepted = listener.accept() => accepted,
+            () = crate::gm::wait_for_reboot() => {
+                tracing::info!("GM @reboot 到点：停止 accept，服务端退出");
+                break;
+            }
+        };
+        let (stream, peer) = match accepted {
             Ok(accepted) => accepted,
             Err(error) => {
                 tracing::warn!(%error, "accept 失败");
                 continue;
             }
         };
+        let ip = peer.ip();
+        let verdict = limiter
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .try_acquire(ip, u64::try_from(crate::gm::unix_now_secs()).unwrap_or(0));
+        if let Some(reason) = verdict {
+            rejected += 1;
+            tracing::warn!(%ip, ?reason, rejected, "连接被限流拒绝");
+            drop(stream);
+            continue;
+        }
         let id = next_session.fetch_add(1, Ordering::Relaxed);
         let config = Arc::clone(&config);
         let store = Arc::clone(&store);
         let world = Arc::clone(&world);
         let languages = Arc::clone(&languages);
+        let session_limiter = Arc::clone(&limiter);
         tokio::spawn(async move {
             if let Err(error) = serve(
                 stream,
@@ -225,8 +344,14 @@ pub async fn serve_forever<S: AccountStore>(
             {
                 tracing::warn!(session = id, %peer, %error, "连接结束");
             }
+            session_limiter
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .release(ip);
         });
     }
+    tracing::info!(rejected, "服务端已停止接受新连接");
+    Ok(())
 }
 
 /// 加载语言包：目录不存在或解析失败时退回内置语言包（默认中文仍然可用）。
@@ -353,6 +478,17 @@ fn spawn_demo_monsters(world: &mut World, config: &ServerConfig) {
     }
 }
 
+/// 心跳超时的等待器：`secs == 0` 表示不超时（永远 pending）。
+///
+/// 放在 `select!` 里是 cancel-safe 的：每位客户端的「无包时长」按每帧重新计时。
+async fn idle_wait(secs: u64) {
+    if secs == 0 {
+        std::future::pending::<()>().await;
+    } else {
+        tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+    }
+}
+
 async fn serve<S: AccountStore>(
     stream: TcpStream,
     peer: String,
@@ -406,6 +542,22 @@ async fn serve<S: AccountStore>(
             },
             Some(()) = kick_rx.recv() => {
                 tracing::info!(session = id, %peer, "GM @kick：断开连接");
+                break 'read;
+            },
+            // 心跳超时（抗刷）：`MIR2_IDLE_TIMEOUT_SECS` 秒内没收到**任何**客户端包就断开。
+            // Crystal 客户端每分钟发一次 `C.KeepAlive`，所以「有包」=「客户端还活着」。
+            () = idle_wait(config.idle_timeout_secs) => {
+                tracing::info!(
+                    session = id,
+                    %peer,
+                    secs = config.idle_timeout_secs,
+                    "心跳超时：断开空闲连接"
+                );
+                break 'read;
+            },
+            // 服务端重启：`@reboot` 到点时也把读循环收掉（踢线通道之外的第二条路径）。
+            () = crate::gm::wait_for_reboot() => {
+                tracing::info!(session = id, %peer, "服务端重启：断开连接");
                 break 'read;
             }
         };

@@ -588,7 +588,8 @@ async fn run_market_update_is_atomic<S: AccountStore>(store: &S, tag: &str) {
         .expect("查买家")
         .expect("买家存在");
     let buyer_player = world.player(BUYER).expect("买家在线");
-    let character = mir_server::market::character_snapshot(&base, buyer_player);
+    let character =
+        mir_server::market::character_snapshot(&base, buyer_player, mir_core::enums::PetMode::Both);
     store
         .apply_market_update(MarketUpdate {
             character: Some(character),
@@ -964,7 +965,11 @@ async fn bid_on_only_auction<S: AccountStore>(
     let buyer = world.player(BUYER).expect("买家在线");
     store
         .apply_market_update(MarketUpdate {
-            character: Some(mir_server::market::character_snapshot(&base, buyer)),
+            character: Some(mir_server::market::character_snapshot(
+                &base,
+                buyer,
+                mir_core::enums::PetMode::Both,
+            )),
             mail_writes: world.take_mail_writes(),
             auctions: world.auction_snapshot(),
         })

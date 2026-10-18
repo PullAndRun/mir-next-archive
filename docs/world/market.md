@@ -582,8 +582,19 @@ Crystal 把挂单写在 `Server.MirADB` 的全局段（`Envir.cs:2591-2594`）�
 |---|---|---|
 | 1 | `market_search_round_trips_over_the_wire` | `C.MarketSearch(71)` → `S.NPCMarket(155)`；空列表 `Pages=1` |
 | 2 | `market_page_and_refresh_round_trip` | `C.MarketPage(73)` → `S.NPCMarketPage(156)`；`C.MarketRefresh(72)` → `S.NPCMarket` |
-| 3 | `market_operations_on_missing_listing_report_failure` | 缺失挂单时 `C.MarketBuy(74)`/`GetBack(75)`/`SellNow(76)` 都回 `S.MarketFail(158){Reason=7}`，且不破坏世界状态 |
+| 3 | `market_operations_on_missing_listing_report_failure` | 缺失挂单时：`C.MarketBuy(74)` → `S.MarketFail(158){Reason=7 TooFar}`；`C.MarketGetBack(75)` / `C.MarketSellNow(76)` → `S.MarketFail{Reason=1 NoDialog}`（测试世界没有 NPC 对话，先卡在面板前置）；三者都不破坏世界状态 |
 | 4 | `consign_without_npc_dialog_is_rejected` | 没和 NPC 对话时 `C.ConsignItem(70)` → `S.ConsignItem(157){Success=false}` |
+
+> **为什么 Buy=7、GetBack/SellNow=1**：`market_flow.rs` 的测试世界没有让角色与市场 NPC
+> 对话（`NPCPage == null`）。三个包的前置不同：
+>
+> * `C.MarketBuy`：测试先发了一次 `MarketSearch{MarketType=GameShop}`，商城分支**跳过**
+>   NPC 检查（`PlayerObject.cs:8458-8486`），随后在上次搜索结果里找不到挂单 → `TooFar(7)`
+>   （`:8502`、`:8588`）；
+> * `C.MarketGetBack` / `C.MarketSellNow`：不看搜索面板，直接要求 `[@MARKET]` 页面，
+>   没有对话就先回 `NoDialog(1)`（`:8737-8747`、`:8599-8609`）。
+>
+> 这与生产路径的优先级一致，不是测试漏断言。
 
 > **仍未覆盖**：真实的「上架 → 搜索 → 买断/出价 → 提前成交 → 取回」全链路包序
 > （需要 NPC 对话与多角色/多连接），以及 `MarketGetBack` 的批量收款/退货分支；

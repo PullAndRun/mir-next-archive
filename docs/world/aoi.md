@@ -55,6 +55,10 @@ Crystal 的 `Globals.DataRange = 16`（`Shared/Globals.cs:37`，注释写着 `//
 
 本作把原来的 10 改为 `VIEW_RANGE = 16`，并让以下路径统一用它：
 
+> **常量核对（与代码一致）**：`VIEW_RANGE: i32 = 16`（`world.rs:86`）、
+> `AOI_CELL_SIZE: i32 = 8`（`aoi.rs:60`）、`DOOR_OPEN_MS: i64 = 5_000`（`world.rs:182`）。
+> 门关闭条件是 `last_tick + DOOR_OPEN_MS < now`（严格小于），与 Crystal `Map.cs:659` 一致。
+
 | 路径 | 位置 |
 |---|---|
 | 实体广播（走/跑/攻击/死亡/聊天…） | `World::broadcast` |
@@ -107,21 +111,29 @@ pub struct AoiGrid {
 
 ## 4. 索引维护点（漏一个就会出现「幽灵对象」）
 
-| 事件 | 维护函数 | 位置 |
+| 事件 | 实际调用链 | 位置 |
 |---|---|---|
 | 玩家进入世界 | `enter` → `aoi_insert(Player)` | `world.rs` |
-| 玩家离开世界 | `leave` → `aoi_remove` | `world.rs` |
-| 玩家走/跑 | `walk`/`run` → `place_player`（先 remove 再改坐标再 insert） | `world.rs` |
-| 玩家切图 | `complete_map_move` → 旧图 remove、新图 insert | `maps.rs` |
-| 怪物刷出 | `spawn_monster` → `aoi_insert(Monster)` | `world.rs`/`monster.rs` |
-| 怪物移动 | `monster_move_to`/`monster_walk` → `place_monster` | `world.rs`/`monster.rs` |
-| 怪物死亡/尸体回收 | `forget_monster` / `remove_expired_corpses` → `aoi_remove` | `world.rs` |
-| NPC 刷出 | `spawn_npc` → `aoi_insert(Npc)` | `npc.rs` |
-| 地面物品生成/拾取/过期 | `spawn_ground_item` / `remove_ground_item` / `tick_ground_items` | `items.rs`/`world.rs` |
-| 地图缓存淘汰 | `evict_maps` → `aoi.remove_map` | `world.rs` |
+| 玩家离开世界 | `leave` → `aoi_remove(Player)` | `world.rs` |
+| 玩家走一步 | `walk` → `aoi_move(Player, to)` | `world.rs` |
+| 玩家跑 | `run` → `aoi_move(Player, destination)` | `world.rs` |
+| 玩家切图/传送 | `complete_map_move` → 旧图 `aoi_remove(Player)` + 新图 `aoi_insert(Player)`（不是 `aoi_move`） | `maps.rs` |
+| 怪物刷出 | `spawn_monster` → `aoi_insert(Monster)` | `world.rs` |
+| 怪物移动 | `Monster` 移动路径 → `aoi_move(Monster)` | `monster.rs` |
+| 怪物消失/尸体回收 | `forget_monster` → `aoi_remove(Monster)` | `world.rs` |
+| NPC 刷出 | `spawn_npc` / `spawn_npcs` → `aoi_insert(Npc)` | `npc.rs` |
+| 地面物品生成 | `spawn_ground_item` → `aoi_insert(Item)` | `items.rs` |
+| 地面物品移除/过期 | `remove_ground_item`（含 `tick_ground_items` 调用）→ `aoi_remove(Item)` | `items.rs` |
+| 测试/GM 瞬移 | `place_player` / `place_monster` → `aoi_remove(old)` + `aoi_insert(new)` | `world.rs` |
+| 地图缓存淘汰 | `evict_maps` **不操作 AOI**：只移除「没有玩家/怪物/NPC/地面物品」的地图数据，AOI 条目本来就是空桶 | `maps.rs` |
 
-`World::place_player` / `place_monster` 是对外可见的「改坐标并同步索引」入口，
-测试与传送路径都走它，避免只改坐标忘了索引。
+`World::aoi_insert` / `aoi_remove` / `aoi_move` 是唯一的三个写入口（都在 `world.rs`）：
+新增对象用 `insert`，删除对象用 `remove`，同一张图内改坐标用 `move`，跨图用
+`remove` + `insert`。
+
+`World::place_player` / `place_monster` 是**测试/GM 瞬移**入口（内部 remove → 改坐标 →
+insert，跨图也安全）；正常玩家走/跑走 `aoi_move`，切图走 `complete_map_move` 的
+`remove` + `insert`，都不会调用 `place_*`。
 
 ---
 

@@ -551,7 +551,7 @@ fn windows_font_candidates() -> Vec<PathBuf> {
 
 /// Linux 常见字体路径 + `/usr/share/fonts` 递归扫描。
 ///
-/// 顺序很重要：本项目默认全中文，**优先选带 CJK 字形的字体**，再把 DejaVu 作为兜底
+/// 顺序很重要：本项目默认全中文，**优先选带 CJK 字形的字体**，再把 `DejaVu` 作为兜底
 /// （它没有中文字形，一旦排在前面，界面中文会全变成方块）。
 #[cfg(target_os = "linux")]
 fn linux_font_candidates() -> Vec<PathBuf> {

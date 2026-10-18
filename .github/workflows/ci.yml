@@ -33,6 +33,18 @@ jobs:
       - name: test
         # 素材目录（resource/）不进仓库，依赖真实素材的测试会自行跳过。
         run: cargo test --workspace
+      # 无头渲染测试会把截图写到 target/，失败时这些 PNG 是最有用的证据。
+      - name: 归档客户端渲染截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-screenshots
+          path: |
+            target/client-*.png
+            target/minimap-real.png
+            target/players-layers.png
+          if-no-files-found: ignore
+          retention-days: 14
 
   protocol-codegen:
     name: 协议生成器与生成结果一致

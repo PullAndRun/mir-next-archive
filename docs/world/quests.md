@@ -204,7 +204,7 @@ Crystal 的模板 ID：本作没有「怪物/物品模板的稳定数字 ID」�
 | `World::accept_quest(player, npc_object_id, index)` | 接取（`PlayerObject.AcceptQuest`，`:11251-11348`） |
 | `World::finish_quest(player, index, selected_item_index)` | 交付（`:11350-11461`） |
 | `World::abandon_quest(player, index)` | 放弃（`:11462-11471`） |
-| `World::share_quest(player, index)` | 分享（`:11472-11492`，没有组队 → 恒失败 + 系统提示） |
+| `World::share_quest(player, index)` | 分享给同图队友（`:11472-11492`，见 `docs/world/group.md`） |
 | `World::advance_quest_kills(player, monster_name)` | 击杀推进（`CheckNeedQuestKill`，`:11578-11590`） |
 | `World::refresh_quest_items(player)` | 收集重算（`CheckNeedQuestItem`，`:11539-11561`）+ 变化时发 `S.ChangeQuest{Update}` |
 | `World::sync_quest_items(player)` | 同上但**不发包**（登录/存档前用） |
@@ -377,7 +377,7 @@ i32    已完成任务条数 + 每条 i32
 | 11 | 任务物品走独立的 40 格 `QuestInventory`，怪物掉落会“截胡”（`MonsterObject.cs:1130-1138`），另有 `S.GainedQuestItem`/`S.DeleteQuestItem` | 走普通背包：收集进度 = 背包实时数量，交付时扣背包（见 §10） |
 | 12 | 超时是接取时排的 `DelayedAction`（`QuestProgressInfo.cs:538-559`） | 每 tick 比对 `expires_at`（结果等价；`ignoreIfComplete = true` 也照抄：已完成的不会被清） |
 | 13 | 登录时把**全库任务**的 `ClientQuestInfo` 推一遍（`:1185-1187`） | 照抄；但**没有任何任务数据时一个包都不发**（避免给空世界塞 `S.CompleteQuest{[]}`） |
-| 14 | `ShareQuest` 需要组队，没队伍只回一条系统提示（`:11485-11491`） | 本作没有组队 → 恒回提示（`QuestError::NotShared`） |
+| 14 | `ShareQuest` 需要组队，没队伍只回一条系统提示（`:11485-11491`） | 照抄：只发给同图 `DataRange` 内活着的队友，一个都没发出去时提示（`QuestError::NotShared`），见 `docs/world/group.md` |
 | 15 | 奖励金币/经验乘 `Settings.DropRate` / `ExpRate`（默认 1.0） | 固定 1.0，直接按配置值发放 |
 | 16 | 交付后把进度从 `CurrentQuests` **删掉**，只留 `CompletedQuests` | 保留一条 `state = Completed` 的记录（可查询/可存档），同时维护同语义的 `completed_quests`；可重复任务再接受时会覆盖它 |
 | 17 | `CallDefaultNPC(OnAcceptQuest/OnFinishQuest)` 会跑默认 NPC 脚本（`:11347`、`:11460`） | 未实现（本作没有默认 NPC 脚本机制） |
@@ -391,7 +391,6 @@ i32    已完成任务条数 + 每条 i32
 - **地图/区域类目标**（Crystal 的 `//TODO: ZoneTasks`，`QuestInfo.cs:71`）与护送任务
   （`//TODO: EscortTasks`，`:72`）——Crystal 自己也没做。
 - **`CallDefaultNPC`**（`OnAcceptQuest` / `OnFinishQuest`）。
-- **组队分享**（`ShareQuest` 的组成员分发）：等组队系统。
 - **`Settings.DropRate` / `ExpRate` 的可配置化**（现在固定 1.0）。
 - **NPC 任务图标的 `VisibleLog`**（`NPCObject.cs`）：接取时不复查可见性。
 - **每日任务重置**（`QuestType.Daily` 的日切逻辑）：Crystal 侧也没有实现，只有图标区分。

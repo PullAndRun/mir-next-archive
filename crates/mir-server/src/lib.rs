@@ -7,14 +7,16 @@
 //! **NPC 与商店**（见 [`npc`]、[`mir_db::npc_script`] 与 `docs/world/npc.md`）、
 //! **技能/魔法**（含 9 个增益技能，见 [`magic`] 与 `docs/world/magic.md`）、
 //! **增益容器**（见 [`buffs`] 与 `docs/world/buffs.md`）、
-//! **任务系统**（见 [`quests`]、[`mir_db::quest_script`] 与 `docs/world/quests.md`）以及
-//! **多地图与传送**（见 [`maps`] 与 `docs/world/maps.md`）。
+//! **任务系统**（见 [`quests`]、[`mir_db::quest_script`] 与 `docs/world/quests.md`）、
+//! **多地图与传送**（见 [`maps`] 与 `docs/world/maps.md`）以及
+//! **组队**（见 [`group`] 与 `docs/world/group.md`）。
 
 pub mod buffs;
 pub mod combat;
 pub mod config;
 pub mod exp;
 pub mod gamedata;
+pub mod group;
 pub mod items;
 pub mod magic;
 pub mod maps;
@@ -32,6 +34,10 @@ pub use combat::{CombatStats, HitResult};
 pub use config::ServerConfig;
 pub use exp::{ExpSource, ExpTable};
 pub use gamedata::GameData;
+pub use group::{
+    GROUP_EXP_RANGE, GROUP_INVITE_DELAY_MS, GROUP_INVITE_EXPIRE_MS, Group, GroupError, GroupInvite,
+    GroupJoinOutcome, MAX_GROUP, PARTY_EXP_RATE,
+};
 pub use items::{
     GroundItem, ItemError, ItemUidGenerator, Looks, PickupReport, decode_equipment,
     decode_inventory, decode_slots, encode_slots,

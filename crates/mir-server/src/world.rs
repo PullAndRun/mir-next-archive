@@ -241,6 +241,26 @@ pub struct Player {
     /// （Crystal 上是 `PlayerObject.NPCObjectID` / `NPCPage` / `NPCSuccess` / `Info.Flags` 几处分散的字段，
     /// 见 [`NpcState`]）。
     pub npc: NpcState,
+    /// 所在队伍的 ID（Crystal `MapObject.GroupMembers != null`，`Server/MirObjects/MapObject.cs:162`）。
+    ///
+    /// 队伍本体在 [`World::groups`] 里；组队是临时状态，不持久化
+    /// （Crystal 的 `CharacterInfo` 存档里没有队伍块）。见 [`crate::group`] 与 `docs/world/group.md`。
+    pub group_id: Option<u32>,
+    /// 收到的组队邀请（Crystal `PlayerObject.GroupInvitation`，`PlayerObject.cs:173`）。
+    ///
+    /// Crystal 只在 `Process` 里检查邀请者是否还在线（`:480-481`），没有超时；
+    /// 本作额外加了一条 TTL，见 [`crate::group::GROUP_INVITE_EXPIRE_MS`]。
+    pub group_invitation: Option<crate::group::GroupInvite>,
+    /// 下一次允许邀请的时刻（Crystal `PlayerObject.NextGroupInviteTime`，`PlayerObject.cs:15`、
+    /// `Settings.GroupInviteDelay = 2000`，`Server/Settings.cs:336`）。
+    pub group_invite_time: i64,
+    /// 是否允许组队（Crystal `PlayerObject.AllowGroup` → `CharacterInfo.AllowGroup`，
+    /// `Server/MirDatabase/CharacterInfo.cs:62`）。
+    ///
+    /// 简化：Crystal 把它存在角色存档里（`CharacterInfo.cs:249`、`:476`）；本作不改 `mir-store`，
+    /// 所以不持久化，进世界时默认 `true`，可以用 `C.SwitchGroup` 关闭
+    /// （偏差说明见 `docs/world/group.md`）。
+    pub allow_group: bool,
     /// 发包通道。
     pub sender: UnboundedSender<Vec<u8>>,
 }
@@ -505,6 +525,11 @@ pub struct World {
     clock_offset: i64,
     /// 时钟是否被 [`World::advance_clock`] 冻结（冻结后不再叠加真实流逝时间）。
     clock_frozen: bool,
+    /// 所有队伍（Crystal 里每支队伍就是一个被成员共享的 `List<PlayerObject>`，
+    /// `Server/MirObjects/PlayerObject.cs:9437`；本作用「队伍 ID → 成员列表」表示，见 [`crate::group`]）。
+    pub(crate) groups: HashMap<u32, crate::group::Group>,
+    /// 下一个队伍 ID（Crystal 没有这个字段，靠对象引用区分）。
+    pub(crate) next_group_id: u32,
 }
 
 impl Default for World {
@@ -550,6 +575,8 @@ impl World {
             started_unix_ms: unix_now_ms(),
             clock_offset: 0,
             clock_frozen: false,
+            groups: HashMap::new(),
+            next_group_id: 1,
         }
     }
 
@@ -590,6 +617,8 @@ impl World {
             started_unix_ms: unix_now_ms(),
             clock_offset: 0,
             clock_frozen: false,
+            groups: HashMap::new(),
+            next_group_id: 1,
         }
     }
 
@@ -809,15 +838,25 @@ impl World {
     }
 
     /// 把玩家移出世界，并通知周围玩家移除。
+    ///
+    /// 顺序照抄 Crystal `PlayerObject.StopGame`：广播 `S.ObjectRemove`（`:403`）→ `LeaveGroup()`
+    /// （`:406`，下线即退队，见 [`World::leave_group`]）→ 清理对象。
     pub fn leave(&mut self, object_id: u32) -> Option<Player> {
-        let player = self.players.remove(&object_id)?;
+        let player = self.players.get(&object_id)?;
+        let map = player.map.clone();
+        let position = player.position;
         let removal = object_remove_frame(object_id);
         for other in self.players.values() {
-            if other.map == player.map && other.position.in_range(player.position, VIEW_RANGE) {
+            if other.object_id != object_id
+                && other.map == map
+                && other.position.in_range(position, VIEW_RANGE)
+            {
                 let _ = other.sender.send(removal.clone());
             }
         }
-        Some(player)
+        // `Despawn(); LeaveGroup();`（`PlayerObject.cs:405-406`）。
+        self.leave_group(object_id);
+        self.players.remove(&object_id)
     }
 
     /// 转身。
@@ -1622,6 +1661,10 @@ impl World {
             }
         }
         self.send_to_player(player_id, &ServerPacket::Revived(Revived {}).encode_frame());
+        // `GroupMemberMapNameChanged(); GetPlayerLocation();`（`PlayerObject.cs:1389-1390`，
+        // 原地复活同见 `:1448-1449`）：复活后把「我在哪张图/哪个坐标」重新同步给队友。
+        self.group_member_map_name_changed(player_id);
+        self.group_player_location(player_id);
         true
     }
 
@@ -1699,12 +1742,12 @@ impl World {
         self.send_health_changed(object_id);
     }
 
-    /// `HumanObject.SendHealthChanged`（`HumanObject.cs:870-874`）：只给本人发 `S.HealthChanged{HP,MP}`。
+    /// `HumanObject.SendHealthChanged`（`HumanObject.cs:870-874`）：先给本人发 `S.HealthChanged{HP,MP}`，
+    /// 再走 `BroadcastHealthChange()`（`MapObject.cs:841-914`）。
     ///
-    /// 简化：Crystal 还会调 `BroadcastHealthChange()`（`MapObject.cs:841-914`），
-    /// 把 `S.ObjectHealth` 发给队友/宠物主人；本作没有队伍与宠物，玩家侧这一路在
-    /// `change`/`set` 里不发，只有**上限变化**时由
-    /// [`World::broadcast_health_change`](crate::buffs::World::broadcast_health_change) 补一条。
+    /// 玩家的 `BroadcastHealthChange` 只发给**同图 `Globals.DataRange` 内的队友**
+    /// （`MapObject.cs:856-871`，包是 `S.ObjectHealth`），见
+    /// [`World::broadcast_health_to_group`]；不在队伍里就什么也不发（Crystal 也不广播给周围人）。
     pub(crate) fn send_health_changed(&self, object_id: u32) {
         if let Some(player) = self.players.get(&object_id) {
             let _ = player.sender.send(
@@ -1715,21 +1758,38 @@ impl World {
                 .encode_frame(),
             );
         }
+        self.broadcast_health_to_group(object_id);
     }
 
     /// 击杀经验结算入口：Crystal `MonsterObject.Die` →
     /// `EXPOwner.WinExp(Experience, Level)`（`Server/MirObjects/MonsterObject.cs:982-984`）。
     ///
     /// `amount` 是怪物模板的经验（[`MonsterKind::experience`]），`target_level` 是怪物等级。
-    /// Crystal 的 `WinExp` 还要过 `ReduceExp` 与 `Settings.ExpRate`（`PlayerObject.cs:794-845`）；
-    /// 简化：组队分摊（`:807-833`）、英雄（`:839-844`）、地图 `NoExperience`、夫妻/师徒/行会加成
-    /// 全部未实现——本作没有这些系统。`Settings.ExpRate` 默认 1.0（`Server/Settings.cs:112`）。
+    /// Crystal 的 `WinExp` 先过 `ReduceExp` 与 `Settings.ExpRate`（`PlayerObject.cs:794-845`），
+    /// 再按「是否组队」分流：
+    ///
+    /// * **不在队伍里**：`GainExp(expPoint)`（`:834-837`）；
+    /// * **在队伍里**：按 [`World::group_exp_shares`] 算出的分配表逐个 `GainExp`
+    ///   （`:807-833`）——同图、`Globals.DataRange = 16` 内、活着的成员按等级比例分，
+    ///   并乘上人数加成 [`crate::group::PARTY_EXP_RATE`]。
+    ///
+    /// 简化：`Settings.ExpRate` 默认 1.0（`Server/Settings.cs:112`），没有接入配置；
+    /// 英雄（`:839-844`）、地图 `NoExperience`、夫妻/师徒/行会加成仍未实现。
     pub fn win_experience(&mut self, object_id: u32, amount: u32, target_level: u16) {
         let Some(player) = self.players.get(&object_id) else {
             return;
         };
         let exp = reduce_exp(player.level, amount, target_level);
-        self.gain_experience(object_id, u32::try_from(exp).unwrap_or(0));
+        let exp_point = u32::try_from(exp).unwrap_or(0);
+        match self.group_exp_shares(object_id, exp_point) {
+            Some(shares) => {
+                // `for (...) player.GainExp(...)`（`:824-832`）：按队伍成员顺序逐个发。
+                for (member_id, share) in shares {
+                    self.gain_experience(member_id, share);
+                }
+            }
+            None => self.gain_experience(object_id, exp_point),
+        }
     }
 
     /// Crystal `PlayerObject.GainExp`（`PlayerObject.cs:846-931`）。
@@ -2163,7 +2223,18 @@ impl World {
     ///
     /// Crystal 的普通聊天是 `Enqueue(p)` + `Broadcast(p)`：本人与附近玩家都会收到
     /// `ObjectChat`，所以这里先把同一帧发给本人，再广播给其它人。
+    ///
+    /// 以 `!!` 开头的消息是**组队聊天**（Crystal `PlayerObject.Chat`，`PlayerObject.cs:2001-2013`），
+    /// 只发给队员、不走本地图广播，见 [`World::group_chat`]（不在队伍里则静默丢弃，返回 0）。
     pub fn chat(&mut self, object_id: u32, message: &str) -> Result<usize, MoveError> {
+        if !self.players.contains_key(&object_id) {
+            return Err(MoveError::NotInWorld(object_id));
+        }
+        // `else if (message.StartsWith("!!"))`（`PlayerObject.cs:2001`）：
+        // 这一支在 Crystal 的 `if/else if` 链里，所以**不会**再走到普通聊天广播。
+        if message.starts_with("!!") {
+            return Ok(self.group_chat(object_id, message));
+        }
         let (map, position) = {
             let player = self
                 .players
@@ -2520,6 +2591,10 @@ mod tests {
                 pot_time: 0,
                 unlock_curse: false,
                 npc: crate::npc::NpcState::default(),
+                group_id: None,
+                group_invitation: None,
+                group_invite_time: 0,
+                allow_group: true,
                 sender,
             },
             receiver,

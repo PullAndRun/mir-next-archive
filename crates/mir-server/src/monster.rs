@@ -777,7 +777,10 @@ impl World {
         if let Some(owner) = expo_owner {
             self.win_experience(owner, experience, monster_level);
             // `playerObj.CheckGroupQuestKill(Info);`（`:986-990`）——击杀任务计数。
-            self.advance_quest_kills(owner, &monster_name);
+            // 组队时同图、`Globals.DataRange` 内、活着的队友一起记（`PlayerObject.cs:11494-11508`）。
+            for member in self.quest_kill_recipients(owner) {
+                self.advance_quest_kills(member, &monster_name);
+            }
         }
 
         // `if (Respawn != null) Respawn.Count--;`（`MonsterObject.cs:994-995`）。

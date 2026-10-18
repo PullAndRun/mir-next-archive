@@ -211,6 +211,20 @@ impl<S: AccountStore> Session<S> {
                     "忽略 SpellToggle（开关型技能未实现）"
                 );
             }
+            // 组队：`C.SwitchGroup` / `C.AddMember` / `C.DelMember` / `C.GroupInvite`
+            // （Crystal `MirConnection.cs:1583-1605` → `PlayerObject.cs:9217-9485`，见 [`crate::group`]）。
+            ClientPacket::SwitchGroup(packet) => {
+                self.on_switch_group(packet.allow_group).await;
+            }
+            ClientPacket::AddMember(packet) => {
+                self.on_add_member(&packet.name).await;
+            }
+            ClientPacket::DelMember(packet) => {
+                self.on_del_member(&packet.name).await;
+            }
+            ClientPacket::GroupInvite(packet) => {
+                self.on_group_invite(packet.accept_invite).await;
+            }
             ClientPacket::Disconnect(_) => {
                 self.leave_world().await;
             }
@@ -567,6 +581,14 @@ impl<S: AccountStore> Session<S> {
             pot_time: 0,
             unlock_curse: false,
             npc: NpcState::default(),
+            // 组队是临时状态（Crystal 的 `CharacterInfo` 没有队伍块）：进世界时不在任何队伍里，
+            // 也没有待接受的邀请。`AllowGroup` 在 Crystal 里随存档持久化
+            // （`CharacterInfo.cs:62`、`:249`、`:476`），本作不改 `mir-store`，所以默认允许组队
+            // （偏差说明见 `docs/world/group.md`）。
+            group_id: None,
+            group_invitation: None,
+            group_invite_time: 0,
+            allow_group: true,
             sender: self.out.clone(),
         });
         // 进图资料：Crystal `PlayerObject.CheckMapInfo`（`PlayerObject.cs:1009-1056`）。
@@ -584,6 +606,9 @@ impl<S: AccountStore> Session<S> {
         let client_magics = world.client_magics(object_id);
         // 收集类任务目标按读档后的背包重算一次（**不发包**：此时还没进世界）。
         world.sync_quest_items(object_id);
+        // 组队开关的当前值：Crystal 在登录流程里会补一条 `S.SwitchGroup { AllowGroup }`
+        // （`PlayerObject.cs:1219`），客户端组队窗口据此点亮开关。
+        let allow_group = world.allow_group_of(object_id).unwrap_or(true);
         // 任务下发（Crystal `GetQuestInfo` / `GetCompletedQuests` / 逐条 `ChangeQuest{Add}`，
         // `PlayerObject.cs:1185-1212`）。这些包要排在 `UserInformation` 之后，
         // 所以先收集，等会话自己的包发完再发。
@@ -630,6 +655,10 @@ impl<S: AccountStore> Session<S> {
             &equipment,
             &client_magics,
         )));
+        // `Enqueue(new S.SwitchGroup { AllowGroup = AllowGroup });`（`PlayerObject.cs:1219`）。
+        self.send(ServerPacket::SwitchGroup(
+            mir_protocol::packets::server::SwitchGroup { allow_group },
+        ));
         // 任务表（`PlayerObject.cs:1185-1212`）：全套 `S.NewQuestInfo` → `S.CompleteQuest` →
         // 每条已接任务的 `S.ChangeQuest{Add}`。
         for packet in quest_packets {
@@ -1048,7 +1077,8 @@ impl<S: AccountStore> Session<S> {
 
     /// 分享任务（`C.ShareQuest`，Crystal `PlayerObject.ShareQuest`，`:11472-11492`）。
     ///
-    /// 本作没有组队系统，`World::share_quest` 会走 Crystal 的失败分支（系统提示）。
+    /// 组队系统的范围校验在 `World::share_quest` 里（同图 + `Globals.DataRange` + 活着），
+    /// 不在队伍里会走 Crystal 的失败分支（系统提示）。
     async fn on_share_quest(&mut self, quest_index: i32) {
         let Some(object_id) = self.object_id else {
             return;
@@ -1064,6 +1094,58 @@ impl<S: AccountStore> Session<S> {
                 );
             }
             Err(error) => tracing::debug!(session = self.id, %error, "分享任务失败"),
+        }
+    }
+
+    /// 开关组队（`C.SwitchGroup`，Crystal `PlayerObject.SwitchGroup`，`PlayerObject.cs:9217-9227`）。
+    async fn on_switch_group(&mut self, allow: bool) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.switch_group(object_id, allow) {
+            Ok(changed) => {
+                tracing::debug!(session = self.id, allow, changed, "切换组队开关");
+            }
+            Err(error) => tracing::debug!(session = self.id, %error, "切换组队开关失败"),
+        }
+    }
+
+    /// 邀请组队（`C.AddMember`，Crystal `PlayerObject.AddMember`，`PlayerObject.cs:9273-9338`）。
+    async fn on_add_member(&mut self, name: &str) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.group_invite(object_id, name) {
+            Ok(target) => tracing::debug!(session = self.id, target, "已发出组队邀请"),
+            Err(error) => tracing::debug!(session = self.id, %error, "组队邀请失败"),
+        }
+    }
+
+    /// 踢人/退队（`C.DelMember`，Crystal `PlayerObject.DelMember`，`PlayerObject.cs:9340-9370`）。
+    async fn on_del_member(&mut self, name: &str) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.group_kick(object_id, name) {
+            Ok(removed) => tracing::debug!(session = self.id, removed, "移除队员"),
+            Err(error) => tracing::debug!(session = self.id, %error, "移除队员失败"),
+        }
+    }
+
+    /// 接受/拒绝组队邀请（`C.GroupInvite`，Crystal `PlayerObject.GroupInvite`，`PlayerObject.cs:9372-9485`）。
+    async fn on_group_invite(&mut self, accept: bool) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.group_join(object_id, accept) {
+            Ok(outcome) => {
+                tracing::debug!(session = self.id, accept, ?outcome, "处理组队邀请");
+            }
+            Err(error) => tracing::debug!(session = self.id, %error, "接受组队邀请失败"),
         }
     }
 

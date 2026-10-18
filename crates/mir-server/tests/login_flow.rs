@@ -147,7 +147,7 @@ async fn full_login_character_and_world_flow() {
     assert_eq!(character.name, "裁决者");
     assert_eq!(character.level, 0, "Crystal 建角时等级是 0，进世界才补 1");
 
-    // 6. 进世界：StartGame{Result=4} → MapInformation → UserInformation → 欢迎语。
+    // 6. 进世界：StartGame{Result=4} → MapInformation → UserInformation → SwitchGroup → 欢迎语。
     client
         .send(ClientPacket::StartGame(c::StartGame {
             character_index: character.index,
@@ -179,6 +179,13 @@ async fn full_login_character_and_world_flow() {
         }
         other => panic!("期望 UserInformation，收到 {other:?}"),
     };
+    // 组队开关的初值（Crystal `Enqueue(new S.SwitchGroup { AllowGroup = AllowGroup });`，
+    // `PlayerObject.cs:1219`）。本作不持久化 `AllowGroup`，进世界默认允许组队。
+    let packet = client.expect_index(s::SwitchGroup::INDEX).await;
+    match packet {
+        ServerPacket::SwitchGroup(switch) => assert!(switch.allow_group),
+        other => panic!("期望 SwitchGroup，收到 {other:?}"),
+    }
     let packet = client.expect_index(s::Chat::INDEX).await;
     match packet {
         ServerPacket::Chat(chat) => {

@@ -104,6 +104,10 @@ impl Harness {
             pot_time: 0,
             unlock_curse: false,
             npc: mir_server::NpcState::default(),
+            group_id: None,
+            group_invitation: None,
+            group_invite_time: 0,
+            allow_group: true,
             sender,
         });
         // 关掉自然回血，免得 10 秒一次的 +3% 混进药水/治疗断言。

@@ -401,6 +401,10 @@ impl Harness {
             pot_time: 0,
             unlock_curse: false,
             npc: NpcState::default(),
+            group_id: None,
+            group_invitation: None,
+            group_invite_time: 0,
+            allow_group: true,
             sender,
         });
         self.receivers.insert(object_id, receiver);
@@ -1449,6 +1453,10 @@ fn real_quest_can_be_completed_end_to_end() {
         pot_time: 0,
         unlock_curse: false,
         npc: NpcState::default(),
+        group_id: None,
+        group_invitation: None,
+        group_invite_time: 0,
+        allow_group: true,
         sender,
     });
 
@@ -1540,6 +1548,10 @@ fn real_luke_script_gates_the_dialog_on_quest_completion() {
         pot_time: 0,
         unlock_curse: false,
         npc: NpcState::default(),
+        group_id: None,
+        group_invitation: None,
+        group_invite_time: 0,
+        allow_group: true,
         sender,
     });
 
@@ -1657,6 +1669,10 @@ fn login_packets_carry_the_quest_catalogue() {
         pot_time: 0,
         unlock_curse: false,
         npc: NpcState::default(),
+        group_id: None,
+        group_invitation: None,
+        group_invite_time: 0,
+        allow_group: true,
         sender,
     });
     assert!(empty.quest_login_packets(9).is_empty());

@@ -537,6 +537,13 @@ impl World {
         // 9) 补齐新图视野（Crystal `GetObjects()`，`PlayerObject.cs:4583` → `:1741-1768`）。
         let visible = self.refresh_own_view(player_id);
 
+        // 10) 组队：切图后把「我在哪张图」通知队友（Crystal `GroupMemberMapNameChanged`，
+        //     `PlayerObject.cs:1568`），再把坐标同步一遍（`GetPlayerLocation`，`:4601`）。
+        //     队伍**保留**：Crystal 只有进入 `NoGroup` 地图才会解散队伍
+        //     （`PlayerObject.cs:1509-1513`，属于「地图进入规则」，本作未实现，见 `docs/world/group.md`）。
+        self.group_member_map_name_changed(player_id);
+        self.group_player_location(player_id);
+
         Ok(MapChangeReport {
             player_id,
             from_map,

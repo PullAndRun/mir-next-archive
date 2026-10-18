@@ -96,6 +96,10 @@ impl Harness {
             pot_time: 0,
             unlock_curse: false,
             npc: mir_server::NpcState::default(),
+            group_id: None,
+            group_invitation: None,
+            group_invite_time: 0,
+            allow_group: true,
             sender,
         });
         self.receivers.insert(object_id, receiver);

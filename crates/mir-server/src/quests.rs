@@ -7,7 +7,7 @@
 //! | [`World::accept_quest`] | `PlayerObject.AcceptQuest`（`PlayerObject.cs:11251-11348`） | 前置校验、发携带物品、`S.ChangeQuest{Add}` |
 //! | [`World::finish_quest`] | `PlayerObject.FinishQuest`（`:11350-11461`） | 目标校验、发奖励、`S.CompleteQuest` + `S.ChangeQuest{Remove}` |
 //! | [`World::abandon_quest`] | `PlayerObject.AbandonQuest`（`:11462-11471`） | 清进度 |
-//! | [`World::share_quest`] | `PlayerObject.ShareQuest`（`:11472-11492`） | 组队分享（本作没有组队，恒失败） |
+//! | [`World::share_quest`] | `PlayerObject.ShareQuest`（`:11472-11492`） | 组队分享 |
 //! | [`World::advance_quest_kills`] | `PlayerObject.CheckNeedQuestKill`（`:11578-11590`）+ `QuestProgressInfo.ProcessKill`（`QuestProgressInfo.cs:385-396`） | 击杀计数 |
 //! | [`World::refresh_quest_items`] | `PlayerObject.CheckNeedQuestItem`（`:11539-11561`）+ `ProcessItem`（`QuestProgressInfo.cs:398-408`） | 收集计数 |
 //! | `tick_quests` | `QuestProgressInfo.SetTimer` + `PlayerObject.CompleteQuest`（`:538-573`、`:4364-4385`） | 超时 → 放弃 |
@@ -45,7 +45,7 @@ use mir_db::quest_script::QuestScript;
 use mir_protocol::data::{ClientQuestInfo, ClientQuestProgress, QuestItemReward};
 use mir_protocol::packets::server::{
     ChangeQuest, CompleteQuest, DeleteItem, GainedCredit, GainedItem, NewQuestInfo,
-    SendOutputMessage,
+    SendOutputMessage, ShareQuest,
 };
 use mir_protocol::{PacketReader, PacketWriter, ProtocolError, ServerPacket};
 
@@ -292,8 +292,9 @@ pub enum QuestError {
     /// 背包放不下携带物品或奖励。
     #[error("背包放不下任务物品")]
     InventoryFull,
-    /// 没有组队，分享不了任务（Crystal `ServerTextKeys.QuestNotShared`）。
-    #[error("任务无法分享（没有组队）")]
+    /// 没有可以分享的对象：不在队伍里或附近没有队友
+    /// （Crystal `ServerTextKeys.QuestNotShared`，`PlayerObject.cs:11488-11491`）。
+    #[error("任务无法分享（需要同图附近的队友）")]
     NotShared,
 }
 
@@ -978,17 +979,48 @@ impl World {
 
     /// 分享任务（`C.ShareQuest`，Crystal `PlayerObject.ShareQuest`，`:11472-11492`）。
     ///
-    /// 本作没有组队系统，所以永远走 Crystal 的失败分支：给本人一条系统提示
-    /// （`ServerTextKeys.QuestNotShared`），返回接收人数 0。
+    /// 只发给队伍里**同图 + `Globals.DataRange = 16` 内 + 活着 + 不是自己**的成员
+    /// （`:11476-11486`），包是 `S.ShareQuest{QuestIndex, SharerName}`。
+    /// 一个都没发出去时给本人一条系统提示（`ServerTextKeys.QuestNotShared`，`:11488-11491`）。
+    ///
+    /// 返回实际分享到的人数。
     ///
     /// # Errors
-    /// 没在队伍里时恒返回 [`QuestError::NotShared`]；玩家不在世界返回 [`QuestError::NotInWorld`]。
-    pub fn share_quest(&mut self, player_id: u32, _quest_index: i32) -> Result<usize, QuestError> {
-        if !self.players.contains_key(&player_id) {
+    /// 没在队伍里或附近没有队友时返回 [`QuestError::NotShared`]；玩家不在世界返回 [`QuestError::NotInWorld`]。
+    pub fn share_quest(&mut self, player_id: u32, quest_index: i32) -> Result<usize, QuestError> {
+        let Some(player) = self.players.get(&player_id) else {
             return Err(QuestError::NotInWorld(player_id));
+        };
+        let sharer_name = player.name.clone();
+        let map = player.map.clone();
+        let position = player.position;
+        let members = self.group_members(player_id).to_vec();
+        let recipients: Vec<u32> = members
+            .into_iter()
+            .filter(|member_id| *member_id != player_id)
+            .filter(|member_id| {
+                self.players.get(member_id).is_some_and(|member| {
+                    member.map == map
+                        && member
+                            .position
+                            .in_range(position, crate::group::GROUP_EXP_RANGE)
+                        && !member.dead
+                })
+            })
+            .collect();
+        if recipients.is_empty() {
+            self.send_system_chat(player_id, "组队并且附近有队友时才能分享任务。");
+            return Err(QuestError::NotShared);
         }
-        self.send_system_chat(player_id, "组队状态下才能分享任务。");
-        Err(QuestError::NotShared)
+        let frame = ServerPacket::ShareQuest(ShareQuest {
+            quest_index,
+            sharer_name,
+        })
+        .encode_frame();
+        for member_id in &recipients {
+            self.send_to_player(*member_id, &frame);
+        }
+        Ok(recipients.len())
     }
 
     /// 加元宝（Crystal `PlayerObject.GainCredit`；包是 `S.GainedCredit`，`ServerPackets.cs`）。

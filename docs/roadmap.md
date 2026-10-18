@@ -24,7 +24,7 @@
 | `.map` 地形（9 个版本） | ✅ | 可走性、门/光照/矿区字段解析 |
 | 行走 / 跑步 / 转身 | ✅ | Crystal 计时（600/600/350ms）、先走后跑、`CellTime` 宽限 |
 | 视野与广播 | 🟡 | 玩家/怪物/物品/NPC 的进出同步；半径已对齐 Crystal 16 格，接入 8×8 桶 AOI 网格、进出视野双向差分与门状态机（5 秒自动关），端到端用例见 `tests/aoi.rs`；待刑部全量验收 |
-| 怪物 / 刷新点 | ✅ | 从 `Server.MirDB` 读 555 个模板，比奇省 359 组刷出 1922 只；死亡后按 `delay+random` 补刷 |
+| 怪物 / 刷新点 | ✅ | 从 `Server.MirDB` 读 555 个模板，比奇省 359 组刷出 1922 只；死亡后按 `delay+random` 补刷；第 7 轮补远程攻击（弓手/守卫/箭塔）与目标丢失回位（见 [`docs/world/monster-ai.md`](world/monster-ai.md)） |
 | 战斗 | ✅ | 两段式攻击、护甲/闪避/暴击、RNG 顺序照抄；PK 未做 |
 | 经验 / 升级 | ✅ | `ExpList.ini` 真表、高等级衰减、属性重算、包与 Crystal 一致 |
 | 死亡 / 复活 / 回血 | ✅ | 10 秒原地复活（Crystal 走客户端 `C.TownRevive`，本作先自动）、10 秒 3% 回血 |
@@ -35,8 +35,10 @@
 | 任务 | ✅ | `Envir/Quests` 13 段脚本解析（真实 154/154 份）、接取前置、击杀/收集/标记目标、交付领奖、限时超时、放弃、NPC `[Quests]` 关联与三个任务动作、`characters.quests` 存档；第 4 轮补任务物品栏（40 格、205/206 包、掉落截胡、迁移 0012）；第 5 轮补 YouFound（205 → `quest_item_found` → `S.ChangeQuest`）、`Q` 标记掉落（先截胡、无人需要不落地）、每日重置（迁移 0013、按角色 24h 惰性）（见 `docs/world/quests.md`） |
 | GM 命令 | ✅ | 20 条：12 条基础 + `@mob/@clearitem/@revive/@setpk/@warp/@mapinfo/@clearbag/@reboot`；权限 admin 或 `MIR2_GM_ACCOUNTS`，英文回复 + 审计（见 `docs/world/gm.md`） |
 | 抗刷与连接限制 | ✅ | 单 IP 并发 5、连接速率 10/秒、空闲超时 60s、单会话包速率 200/秒（`MIR2_MAX_CONN_PER_IP` 等，`0`=关闭）；`@reboot` 倒计时优雅停机（见 [`docs/server/limits.md`](server/limits.md)） |
+| 可观测性 | ✅ | `/metrics`（`MIR2_METRICS_LISTEN`）：在线/连接/限流拒绝/丢包/tick 分位数/拍卖扫描/邮件队列/DB 耗时 + 30 秒汇总日志（见 [`docs/server/metrics.md`](server/metrics.md)） |
 | 组队 | ✅ | 邀请/接受/拒绝/踢人/退队、`!!` 组队聊天、同图同范围经验共享与任务杀怪共享、入队血条与切图地图名同步（见 `docs/world/group.md`） |
-| 行会 | 🟡 | 创建/邀请/接受、职位（升/降/踢/职位名/权限）、公告、`!~` 行会聊天、行会经验与升级、行会仓库（物品 + 金币）、行会 buff、退出/转让/解散、五张表持久化（见 `docs/world/guild.md`）；攻城建筑、联盟未做 |
+| 行会 | 🟡 | 创建/邀请/接受、职位（升/降/踢/职位名/权限）、公告、`!~` 行会聊天、行会经验与升级、行会仓库（物品 + 金币）、行会 buff、退出/转让/解散、五张表持久化、**行会联盟**（`/ally`、上限 5、盟友 PK 豁免、迁移 0015）；行会敌对/行会战、攻城建筑未做（见 `docs/world/guild.md`） |
+| 好友与黑名单 | ✅ | 加/删/拉黑/备注、`S.FriendUpdate`(245)、上限 100、`characters.friends` 持久化（迁移 0015）；只支持在线角色（见 [`docs/world/social.md`](world/social.md)） |
 | 玩家仓库 | ✅ | `[@STORAGE]` 页面、`C.StoreItem`/`C.TakeBackItem`、80 格、`S.UserStorage`/`S.NPCStorage`、`characters.storage` 持久化；扩充仓库/仓库密码未做，个人仓库**没有金币功能**（见 `docs/world/storage.md`） |
 | 邮件 | ✅ | 发送（金币/物品附件、邮票、邮费、10 秒限速）、阅读、邮局受理、领取附件、锁定/删除、`mail` 表持久化、30 天过期（扩展）、系统邮件（交易退货/市场退款）与商城邮件（背包溢出）；行会邮件、物品找回未做（见 `docs/world/mail.md`） |
 | 玩家交易 | ✅ | 面朝格发起、接受/拒绝、10 格交易栏、金币、双方确认、取消与动作中止、背包满寄邮件；28 个端到端用例（见 `docs/world/trade.md`） |
@@ -55,7 +57,7 @@
 | 联机 | ✅ | 登录/建角/进世界、30+ 包快照、KeepAlive |
 | 实体渲染 | ✅ | 玩家/怪物/NPC/物品精灵（`hum`/`monN`/`npc`/`items` 映射表） |
 | 操作 | ✅ | 走/跑/转向/攻击/拾取/聊天 |
-| UI（状态栏/聊天/背包/商店/技能/任务/任务物品栏/邮件/仓库/行会/组队/交易/市场/商城页签/设置面板/服务器选择） | ✅ | 主要面板已可用；第 2 轮补了设置面板（音效/音乐/语言/分辨率/按键说明）、登录窗口与服务器/角色选择、市场商城页签与技能表现（火墙/雷电/瞬息移动/隐身/召唤）；第 4 轮补任务物品栏（40 格图标 + 数量）与 HUD 天气；第 5 轮补宠物模式 V 键、任务物品滚轮翻页、`@` 命令原样发送与 `S.SendOutputMessage` 三频道；细节缺口见 [`docs/client.md`](client.md) §8 |
+| UI（状态栏/聊天/背包/商店/技能/任务/任务物品栏/邮件/仓库/行会/组队/交易/市场/商城页签/设置面板/服务器选择） | ✅ | 主要面板已可用；第 2 轮补了设置面板（音效/音乐/语言/分辨率/按键说明）、登录窗口与服务器/角色选择、市场商城页签与技能表现（火墙/雷电/瞬息移动/隐身/召唤）；第 4 轮补任务物品栏（40 格图标 + 数量）与 HUD 天气；第 5 轮补宠物模式 V 键、任务物品滚轮翻页、`@` 命令原样发送与 `S.SendOutputMessage` 三频道；第 7 轮补攻击 300ms 节奏、挥砍/技能命中特效、音效 100ms 节流与 BGM 按地图切换；细节缺口见 [`docs/client.md`](client.md) §8 |
 | 汉字字体 | ✅ | `ab_glyph` + 系统 TrueType 字体回退；找不到字体时退回点阵（中文会显示为空白并打印警告） |
 | 地图切换 / 小地图 / 音效 / 背景音乐 | ✅ | 小地图/大地图/任务/邮件/仓库/行会/交易面板、rodio 音效与背景音乐 |
 | 移动插值 / 寻路 / 天气粒子 / 光照 | ⏳ | 格间平滑、大地图点击寻路、天气粒子特效、光照待做；天气类型已随 `S.MapChanged.weather` 显示在 HUD，时间因服务端未下发 `S.TimeOfDay` 不显示 |
@@ -66,6 +68,7 @@
 
 - [`docs/world/movement.md`](world/movement.md) — 移动与动作计时
 - [`docs/world/combat.md`](world/combat.md) — 战斗公式、RNG 顺序、18 条 Crystal 异常
+- [`docs/world/monster-ai.md`](world/monster-ai.md) — 怪物远程攻击/回位、掉落组概率语义
 - [`docs/world/items.md`](world/items.md) — 背包/装备/掉落/使用物品/丢金币/持久化差异
 - [`docs/world/buffs.md`](world/buffs.md) — 增益容器、到期语义、9 个增益技能与 5 条异常
 - [`docs/world/npc.md`](world/npc.md) — 脚本支持矩阵与 12 条异常
@@ -81,6 +84,8 @@
 - [`docs/world/gameshop.md`](world/gameshop.md) — 商城与元宝：商品数据、购买校验、发货/邮件、库存计数与页签包序
 - [`docs/world/gm.md`](world/gm.md) — GM 命令：权限、20 条命令、错误口径与审计
 - [`docs/server/limits.md`](server/limits.md) — 抗刷与连接限制：单 IP 并发/连接速率、心跳超时、包速率
+- [`docs/server/metrics.md`](server/metrics.md) — `/metrics` 字段、Prometheus 抓取与 30 秒汇总日志
+- [`docs/world/social.md`](world/social.md) — 好友与黑名单：数据、包号、上限与持久化
 - [`docs/world/magic.md`](world/magic.md) — 技能支持矩阵、15 个伤害/位移/召唤技能与 20 条异常
 - [`docs/client.md`](client.md) — 客户端协议流程与 7 条怪癖
 - [`docs/store/mirdb-format.md`](store/mirdb-format.md) — 数据库格式与版本门
@@ -103,4 +108,4 @@
 7. **客户端表现**：格间移动插值、大地图点击寻路、天气/光照、坐骑/翅膀精确素材映射、
    小地图 NPC 任务标记。
 8. **任务补全**：✅ 任务物品栏、YouFound、`Q` 标记掉落、每日任务重置均已完成；剩余 `CallDefaultNPC`。
-9. **行会补全**：新建职位/权限编辑/邀请入会界面、行会投票、联盟。
+9. **行会补全**：新建职位/权限编辑/邀请入会界面、行会投票、联盟 UI（联盟命令 `/ally` 已实现，缺客户端界面）。

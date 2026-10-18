@@ -892,9 +892,11 @@ UI 按三类画简化表现（没有逐帧贴图素材）：
 
 * 截图：`target/client-render-world.png`（真实地砖 + 玩家 + 路人 + 怪物鸡 + NPC 商人）、
   `target/client-render-animation-a.png` / `-b.png`（走路两帧）；
-* 测试：`cargo test -p mir-client -p mir-render -p mir-asset` 453 用例全绿；
-  `real_assets` 3 例（真实地图+实体、动画换帧、缺素材回退）、`render_map` 走路性能、
-  `mir-asset` 的 WIL 合成/真实 `Objects81` 解码；
+  第 7 轮另有 `target/client-fx-attack.png`（挥砍）、`client-fx-attack-magic.png`
+  （挥砍 + 雷电命中）、`client-fx-plain.png`（对照）；
+* 测试：`cargo test -p mir-client -p mir-render -p mir-asset` **460 用例全绿**
+  （`resource/` 改名后重跑仍全绿，验证缺素材回退）；`real_assets` 3 例、`render_map`
+  走路性能、`mir-asset` 的 WIL 合成/真实 `Objects81` 解码；
 * `cargo check -p mir-tools` 通过（WIL 只扩了 `LibraryKind`，无破坏性签名变更）。
 
 扁平素材（`resource/data/*.wzl`）与 Crystal 的「一个外观一个 `.Lib`」不同，因此用文件名
@@ -1017,22 +1019,25 @@ Crystal 的 `Frame` 是 `Start / Count / Skip / Interval`（`Client/MirObjects/F
 | 动作 | `ActorAction` | Start | Count | Skip | 步长 | Interval | 时长 |
 |---|---|---|---|---|---|---|---|
 | 站立 | `Standing` | 0 | 4 | 4 | 8 | 500 ms | 循环 |
-| 行走 | `Walking` | 64 | 6 | 2 | 8 | 100 ms | 600 ms |
-| 跑步 | `Running` | 128 | 6 | 2 | 8 | 100 ms | 600 ms |
-| 攻击 1 | `Attacking` | 200 | 6 | 2 | 8 | 100 ms | 600 ms |
-| 攻击 2 | （未选择） | 264 | 6 | 2 | 8 | 100 ms | 600 ms |
-| 攻击 3（双手） | （未选择） | 328 | 8 | 0 | 8 | 100 ms | 800 ms |
-| 受击 | `Struck` | 472 | 3 | 5 | 8 | 100 ms | 300 ms |
-| 死亡 | `Dying` | 536 | 4 | 4 | 8 | 100 ms | 400 ms |
+| 行走 | `Walking` | 64 | 6 | 2 | 8 | 100 ms | **600 ms** |
+| 跑步 | `Running` | 128 | 6 | 2 | 8 | 100 ms | **600 ms** |
+| 攻击 1 | `Attacking` | 200 | 6 | 2 | 8 | **50 ms** | **300 ms** |
+| 攻击 2 | （未选择） | 264 | 6 | 2 | 8 | 50 ms | 300 ms |
+| 攻击 3（双手） | （未选择） | 328 | 8 | 0 | 8 | 50 ms | 400 ms |
+| 受击 | `Struck` | 472 | 3 | 5 | 8 | 100 ms | **300 ms** |
+| 死亡 | `Dying` | 536 | 4 | 4 | 8 | 100 ms | **400 ms** |
 | 尸体 | `Dead` | 539 | 1 | 7 | 8 | 1000 ms | 保持 |
 
 * 192~199 是 8 个方向的 1 帧姿态，所以攻击 1 从 200 开始；这些起点由
   `tests/animation_assets.rs` 对真实 `hum.wzl` 逐帧解码验证。
-* 攻击的**输入间隔**在 Crystal 里另由 `User.AttackSpeed` 控制
-  （`UserObject.cs:173-174`：`1400 - AttackSpeed*60 - min(370, Level*14)`，最低 550 ms）；
-  本作只播放 `Frames` 的可见动作（6 帧 × 100 ms），不模拟攻击输入冷却。
-* 攻击统一用 `Attack1`；Crystal 的 `Attack2/Attack3/Attack4`（刺客/双手/随机变招，
-  `PlayerObject.cs:1055-1075`）尚未按职业/武器选择。
+* **攻击间隔取 50 ms（6 帧 = 300 ms）是第 7 轮校准**：服务端
+  `PLAYER_ATTACK_DAMAGE_DELAY_MS = 300`（`HumanObject.cs:3201` 的 `DelayedAction`），
+  挥砍要在伤害落地时正好播完；Crystal 帧表写的是 100 ms，本作有意不同。跑步保持
+  6 × 100 ms = 600 ms，与服务端跑动一致。
+* 攻击的**输入间隔**另由 `User.AttackSpeed` 控制（`UserObject.cs:173-174`：
+  `1400 - AttackSpeed*60 - min(370, Level*14)`，最低 550 ms）；本作只播放可见动作，
+  不模拟输入冷却。
+* 攻击统一用 `Attack1`；Crystal 的 `Attack2/Attack3/Attack4` 尚未按职业/武器选择。
 * 播放规则：站立循环 4 帧；走/跑播完回 Standing 第 0 帧；攻击/受击/死亡播完保持
   最后一帧；`Dead` 永远停尸体帧（`PlayerObject.cs:2317-2323,2500-2508`）。
 
@@ -1076,12 +1081,73 @@ Crystal 的 `Frame` 是 `Start / Count / Skip / Interval`（`Client/MirObjects/F
 受击 2×200、死亡 10×100、尸体 1×1000）。扁平 `monN.wzl` 没有 Crystal `.Lib` 的
 逐怪物 `Frames` 数据（`MonsterObject.cs:276`），所以按 `mon1.wzl` 图像 0 实测布局
 保守映射为：站立 0、行走 64、攻击 128、受击 280、死亡 344、尸体 349；
-除死亡段按素材实测取 6 帧外，`Count/Interval` 取 Crystal 默认表。未收录怪物至少能
-正确播放站立 4 帧 + 走 6 帧；
+`Count/Interval` 取 Crystal 默认表，**攻击与死亡段按素材/服务端节奏校准**：
+攻击 6×50ms=**300ms**（对齐服务端 300ms 伤害延迟）、受击 2×200ms=400ms、
+死亡 6×100ms=600ms。未收录怪物至少能正确播放站立 4 帧 + 走 6 帧；
 `!Mon.dat` 的逐怪物精确帧表尚未解析。NPC 只有站立 4×450（`Frames.cs:18-19`），
 其它动作回退到站立。
 
-### 6.4 渲染接口
+### 6.4 攻击/技能特效与音效（第 7 轮）
+
+#### 攻击挥砍光效
+
+`EntityRenderer::draw_attack_swing`（`mir-render/src/entities.rs`）：只对**玩家**、
+动作 `Attacking` 时绘制；6 帧挥砍映射到 3 张光效（0~1 起手、2~3 挥出、4~5 收招），
+取自 `magic2.wzl` 第 0~2 帧（`FxKind::Swing`），按方向偏移
+（`swing_offset`：上 `(0,-20)`、右 `(24,0)`、左 `(-24,0)`、斜向 ±16/±14）。
+
+#### 技能命中闪光
+
+`ui::spellfx::draw_sprites` 在色块表现层（§5.18）之上再叠精灵：
+
+* `magic.wzl` 前 **10 帧 × 60 ms = 600 ms**（`MAGIC_FX_FRAMES` / `MAGIC_FX_FRAME_MS`）；
+* 雷电/雷电术改用 `magic2.wzl` 第 **20~29 帧**（`FxKind::Bolt`）；
+* 特效按格居中；缺 `magic*.wzl` 或帧时**静默跳过**（`MapScene::effect_image` 返回 `None`）。
+
+色块层的时长不变：瞬发 `CAST_MS = 700ms`、区域 `AREA_MS = 4000ms`、
+自身增益/召唤 `AURA_MS = 1200ms`。
+
+#### `S.ObjectRangeAttack`（143）
+
+`net.rs` 的 `ObjectRangeAttack` 分支：更新实体坐标/朝向 + `Attacking` 动作 +
+`SoundId::Swing`；若 `spell != None`，在命中格推一条技能表现事件。没有这个分支时
+远程怪开火会被 wildcard 丢弃，玩家只会在 300ms 后看到伤害。
+
+#### 音效映射
+
+| `SoundId` | Crystal `SoundList` | 播放文件 |
+|---|---|---|
+| `Walk` | `WalkGroundL` | `1.wav` |
+| `Run` | `RunGroundL` | `3.wav` |
+| `Swing` | `SwingShort` | `50.wav` |
+| `Hit` | `StruckBodySword` | `70.wav` |
+| `Struck` | `MaleFlinch` / `FemaleFlinch` | `138.wav` / `139.wav` |
+| `Die` | `MaleDie` / `FemaleDie` | `144.wav` / `145.wav` |
+| `LevelUp` | `LevelUp` | `levelup.wav` |
+| `Pickup` | `PetPickup` | `pet_pickup.wav` |
+| `Drink` | `ClickDrug` | `108.wav` |
+| `Cast` | 技能音 `20000 + Spell × 10` | `M<技能号>-0.wav`（缺省 `M31-0.wav`） |
+
+**节流**：同一文件在 `SOUND_COOLDOWN_MS = 100ms` 内只播一次
+（`SoundThrottle`，每文件一张表），避免走路音效糊成一片。
+
+**缺失/无声回退**：音频设备打不开时只 warn 一次，之后所有播放是空操作，窗口与渲染
+照常；单个音效文件缺失/解码失败时安静跳过（`warned` 集合保证同类只警告一次）。
+
+#### BGM 切换规则
+
+`app.rs::sync_music` 每帧检查：
+
+1. 优先用服务端 `S.MapInformation.Music` / `S.MapChanged.Music` 的编号
+   （`mir_render::music_for_index`）；
+2. 编号为 0（示例数据库全部为 0）时按地图文件名/标题兜底
+   （`music_for_map`，经典地图有主题曲映射）；
+3. 同一个文件已经在播时**不重新起播**；换曲先 `stop_music` 再循环播放
+   （Crystal `SoundManager.PlayMusic` 同款）；
+4. 没有可用曲目 → 停止；设置面板的「背景音乐」开关关闭时立即停止，
+   音量独立（默认 `0.5`，`--music-volume` / `settings.json`）。
+
+### 6.5 渲染接口
 
 * `EntityView` 新增 `action: ActorAction`（默认 `Standing`）、`action_started_ms: u64`、
   `mount: u16`（0 = 没有）与 `wings: u16`（0 = 没有）；

@@ -181,7 +181,7 @@
 | `CanKick` | 4 | 踢人 |
 | `CanStoreItem` | 8 | 存仓库 / 仓库内移动（`PlayerObject.cs:10141`、`:10226`） |
 | `CanRetrieveItem` | 16 | 取仓库（`:10186`） |
-| `CanAlterAlliance` | 32 | 联盟/敌对（**未做**） |
+| `CanAlterAlliance` | 32 | 联盟/敌对（**联盟已实现**，见 §15；敌对未做） |
 | `CanChangeNotice` | 64 | 改公告 |
 | `CanActivateBuff` | 128 | 买/激活行会 buff（`:10362`、`:10421`） |
 
@@ -691,8 +691,8 @@ Crystal 的行会 buff **没有暂停机制**（`GuildObject.Process` 不看安�
   也不落库。
   注意这两项与**攻城**无关：攻城（`ConquestObject`）已经实现，见
   [`docs/world/conquest.md`](conquest.md)。
-* **行会联盟/敌对**：`AllyGuilds`/`WarringGuilds`（`GuildObject.cs:59-64`）、
-  `CanAlterAlliance` 权限未实现。
+* **行会敌对**：`WarringGuilds`（`GuildObject.cs:59-64`）未实现；联盟已在 §15 实现
+  （Crystal 本版 `AllyGuilds` 字段未被逻辑使用，本作按任务书补全并加盟友 PK 豁免）。
 * **投票**：`GuildInfo.Votes`/`Voting`/`LastVoteAttempt`（`:16-19`）未实现，
   `S.GuildStatus.Voting` 固定 `false`。
 * **战旗**：`FlagImage`/`FlagColour`（`GuildInfo.cs:29-30`）未实现。
@@ -702,3 +702,46 @@ Crystal 的行会 buff **没有暂停机制**（`GuildObject.Process` 不看安�
 * **`NewbieGuildBuffEnabled` / `NewbieGuildExpBuff`**（`Settings.cs:325-326`）：
   新手行会的额外 buff 未实现。
 * **地图进入规则里的行会限制**（`RequiredGuild`/`NoGuild`）属于地图进入规则系统，未实现。
+
+---
+
+## 15. 行会联盟（第 7 轮扩展）
+
+Crystal 本版 `GuildInfo.AllyGuilds`（`GuildObject.cs:63`）**字段未被任何逻辑使用**，
+本作按任务书补全，并加了一条 Crystal 没有的「盟友 PK 豁免」。
+
+### 15.1 数据与上限
+
+| 项 | 本作 | Crystal |
+|---|---|---|
+| 存储 | `guilds.allies`（BYTEA；`int32 count + int32 每个盟友行会 ID`，空块 = 无盟友） | `AllyGuilds` 字段（未使用） |
+| 编解码 | `mir_store::{encode_i32_list, decode_i32_list}` | — |
+| 上限 | **5**（`guild::MAX_GUILD_ALLIES`） | 无显式上限（`Globals` 也没有 `MaxGuildAllies`） |
+| 关系 | **双向**：A 的列表含 B、B 的列表含 A | — |
+
+### 15.2 聊天命令
+
+| 命令 | 权限 | 语义 |
+|---|---|---|
+| `/ally request <行会名\|ID>` | 只有会长 | 发结盟申请（内存待确认；重复/已结盟/任一方满 5 个都会拒绝） |
+| `/ally accept` | 只有会长 | 接受待处理申请：双向写入并立即登记两条 `GuildWrite::Save` 落盘 |
+| `/ally remove <行会名\|ID>` | 只有会长 | 解除联盟（双向删除并落盘） |
+
+错误枚举 `GuildAllyError`：`AlreadyAllied` / `AllyLimitReached` / `NoPendingRequest` /
+`NotAllied`（英文 Display，只进日志/GM 可见）。
+
+### 15.3 盟友 PK 豁免（本作扩展）
+
+`World::players_are_allied(a, b)` 在**棕名**与 **PK 点**两个分支都加了判断：
+盟友互杀**不加 PK 点、不给棕名**（`world.rs` 的两处 `players_are_allied` 调用）。
+Crystal 原版没有盟友 PK 豁免逻辑，这是本作按任务书新增的行为。
+
+### 15.4 未做
+
+* 盟友聊天频道；
+* 敌对行会（`WarringGuilds`）、行会战。
+
+### 15.5 测试
+
+`crates/mir-server/tests/social.rs` 7 条覆盖：联盟双向写入与记录往返、上限、盟友判定、
+`S.FriendUpdate` 包；`tests/postgres_guild.rs` 的 `GuildRecord` 已带 `allies` 构造。

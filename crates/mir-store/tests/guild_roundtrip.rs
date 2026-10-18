@@ -13,9 +13,9 @@
 
 use chrono::{DateTime, Utc};
 use mir_store::{
-    Guild, GuildMemberRow, GuildRankRow, NewAccount, NewCharacter, StoreError, create_account,
-    create_character, create_guild, delete_guild, list_guilds, load_guild, load_guild_by_name,
-    save_guild, set_character_guild,
+    Guild, GuildBuffRow, GuildMemberRow, GuildRankRow, GuildStorageRow, NewAccount, NewCharacter,
+    StoreError, create_account, create_character, create_guild, delete_guild, list_guilds,
+    load_guild, load_guild_by_name, save_guild, set_character_guild,
 };
 
 #[tokio::test]
@@ -81,6 +81,29 @@ async fn guild_repository_roundtrip_rolls_back() {
             rank_index: 0,
             joined_at,
         }],
+        // 仓库格子：`item` 列对仓储层是透明字节块（世界层用 `encode_slots` 生成）。
+        storage: vec![GuildStorageRow {
+            guild_id: 0,
+            slot: 3,
+            item: vec![1, 0, 0, 0, 1, 0xAA],
+            user_id: leader.id,
+            stored_at: joined_at,
+        }],
+        // 行会增益：按 `buff_id` 升序（读库时 ORDER BY buff_id）。
+        buffs: vec![
+            GuildBuffRow {
+                guild_id: 0,
+                buff_id: 1,
+                active: true,
+                active_time_remaining: 42,
+            },
+            GuildBuffRow {
+                guild_id: 0,
+                buff_id: 7,
+                active: false,
+                active_time_remaining: 0,
+            },
+        ],
     };
     let created = create_guild(&mut *tx, &guild).await.expect("建行会");
     assert!(created.id > 0, "应由数据库分配主键");
@@ -135,6 +158,13 @@ async fn guild_repository_roundtrip_rolls_back() {
     // ---- 读 ----
     let loaded = load_guild(&mut *tx, created.id).await.expect("读行会");
     assert_eq!(loaded, created);
+    assert_eq!(loaded.storage.len(), 1, "仓库格子应落库");
+    assert_eq!(loaded.storage[0].slot, 3);
+    assert_eq!(loaded.storage[0].user_id, leader.id);
+    assert_eq!(loaded.storage[0].item, vec![1, 0, 0, 0, 1, 0xAA]);
+    assert_eq!(loaded.buffs.len(), 2, "行会增益应落库");
+    assert!(loaded.buffs[0].active, "激活状态应原样往返");
+    assert_eq!(loaded.buffs[0].active_time_remaining, 42);
     // `Envir.GetGuild` 的比较语义：去空格 + 忽略大小写（`Envir.cs:4836`）。
     let by_name = load_guild_by_name(&mut *tx, &format!(" {}", guild.name.to_uppercase()))
         .await
@@ -168,10 +198,22 @@ async fn guild_repository_roundtrip_rolls_back() {
         rank_index: 1,
         joined_at,
     });
+    // 仓库与增益也是整份替换：新增一格、把第一条增益改成未激活。
+    updated.storage.push(GuildStorageRow {
+        guild_id: updated.id,
+        slot: 9,
+        item: vec![1, 0, 0, 0, 0],
+        user_id: member.id,
+        stored_at: joined_at,
+    });
+    updated.buffs[0].active = false;
     save_guild(&mut *tx, &updated).await.expect("回写行会");
 
     let reloaded = load_guild(&mut *tx, updated.id).await.expect("重读");
     assert_eq!(reloaded, updated);
+    assert_eq!(reloaded.storage.len(), 2, "新增的仓库格子应写入");
+    assert_eq!(reloaded.storage[1].slot, 9);
+    assert!(!reloaded.buffs[0].active, "增益的激活状态应被回写");
     assert_eq!(
         reloaded.notice,
         vec!["第一行".to_owned(), "第二行".to_owned()]

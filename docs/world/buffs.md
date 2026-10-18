@@ -14,6 +14,7 @@
 | 属性怎么叠加？ | `World::refresh_stats` 里**装备之后、`apply_caps` 之前**把每个 buff 的 `Stats` 累加（Crystal `RefreshBuffs`，`HumanObject.cs:2320-2350`） |
 | 到期会发包吗？ | `S.RemoveBuff` 给本人（可见的再广播）；上限变化时补 `S.HealthChanged` + `S.ObjectHealth` |
 | 谁会上线？ | 9 个增益技能 + 11 种药水增益；**不持久化**（Crystal 的 `CharacterInfo` 存档里没有 buff 块） |
+| 行会 buff 在这个模块吗？ | **不在**。行会增益由 `Guild::buffs` 持有、`World::refresh_stats` 里的 `apply_guild_buffs` 叠加，没有 `S.AddBuff`；见 `docs/world/guild.md` §8。 |
 | 新增的协议包？ | **没有**。`S.AddBuff`/`S.RemoveBuff`/`S.ObjectEffect` 在 `mir-protocol` 里早就存在 |
 
 ---
@@ -219,6 +220,11 @@ base(等级/职业) → 装备 → **buff** → apply_caps → 夹当前 HP/MP
 
 ## 10. 还没做的
 
+- **行会增益（guild buff）不属于本模块**：它由 `Guild::buffs` + `GuildSettings::buff_list`
+  驱动（`crates/mir-server/src/guild_buffs.rs`），通过 `PlayerObject.RefreshGuildBuffs`
+  等价路径叠加属性，**不**创建 `Player.buffs`、**不**发 `S.AddBuff`。
+  详见 `docs/world/guild.md` §8。这里之后可能会复用 `Stats`/`apply_caps` 的顺序，
+  但生命周期（分钟级、行会级、可持久化）与个人 buff 完全不同。
 - 其余增益技能：`Rage`、`ImmortalSkin`、`UltimateEnhancer`、`Hiding`、`PetEnhancer`、
   `ElementalBarrier`（见 `magic::REGISTERED_UNSUPPORTED`）。
 - 怪物/英雄的 buff（`MonsterObject.AddBuff`，`MonsterObject.cs:2838-2852`）。

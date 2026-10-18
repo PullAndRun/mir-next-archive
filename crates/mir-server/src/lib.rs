@@ -10,7 +10,8 @@
 //! **任务系统**（见 [`quests`]、[`mir_db::quest_script`] 与 `docs/world/quests.md`）、
 //! **多地图与传送**（见 [`maps`] 与 `docs/world/maps.md`）、
 //! **组队**（见 [`group`] 与 `docs/world/group.md`）以及
-//! **行会**（见 [`guild`] 与 `docs/world/guild.md`；攻城/仓库/buff 未做）。
+//! **行会**（见 [`guild`]、[`guild_storage`]、[`guild_buffs`] 与 `docs/world/guild.md`；
+//! 攻城/联盟/投票未做）。
 
 pub mod buffs;
 pub mod combat;
@@ -19,6 +20,8 @@ pub mod exp;
 pub mod gamedata;
 pub mod group;
 pub mod guild;
+pub mod guild_buffs;
+pub mod guild_storage;
 pub mod items;
 pub mod magic;
 pub mod maps;
@@ -45,7 +48,7 @@ pub use guild::{
     GUILD_EXP_UPDATE_MS, GUILD_LEADER_OPTIONS, GUILD_LEADER_RANK_NAME, GUILD_MAX_RANKS,
     GUILD_NAME_MAX_LEN, GUILD_NAME_MIN_LEN, GUILD_NOTICE_MAX_LINES, GUILD_REQUIRED_LEVEL_DEFAULT,
     GUILD_STORAGE_SLOTS, Guild, GuildError, GuildJoinOutcome, GuildMemberEdit, GuildMemberState,
-    GuildRef, GuildSettings, has_option, validate_guild_name,
+    GuildRef, GuildSettings, GuildStorageSlot, has_option, validate_guild_name,
 };
 pub use items::{
     GroundItem, ItemError, ItemUidGenerator, Looks, PickupReport, decode_equipment,
@@ -69,8 +72,8 @@ pub use quests::{
 };
 pub use server::{run, serve_forever};
 pub use store::{
-    Account, AccountStore, Character, GuildMemberRecord, GuildRankRecord, GuildRecord, MemoryStore,
-    StoreError,
+    Account, AccountStore, Character, GuildBuffRecord, GuildMemberRecord, GuildRankRecord,
+    GuildRecord, GuildStorageRecord, MemoryStore, StoreError,
 };
 pub use world::{
     AttackReport, CombatError, GuildWrite, MoveError, Player, RespawnState, SpawnGroup, World,

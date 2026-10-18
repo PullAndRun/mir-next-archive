@@ -546,6 +546,20 @@ pub struct World {
     pub(crate) guild_invites: HashMap<u32, i32>,
     /// 行会相关配置（Crystal `Settings.Guild_*` + `Configs/GuildSettings.ini`）。
     pub(crate) guild_settings: crate::guild::GuildSettings,
+    /// 已请求过「仓库列表」的玩家（Crystal `PlayerObject.GuildCanRequestItems == false`，
+    /// `PlayerObject.cs:146`）。
+    ///
+    /// Crystal 把标志放在玩家对象上：请求一次后置 false，加入/创建行会时重置 true
+    /// （`:9831`、`:10006`），下线即随对象销毁。本作同样不持久化，放在世界上按对象 ID 记，
+    /// 避免给 [`Player`] 增加只给行会用的一次性字段（与 [`World::guild_invites`] 同一做法）。
+    pub(crate) guild_storage_requested: BTreeSet<u32>,
+    /// 已经收到过「行会 buff 可选列表」的玩家（Crystal `PlayerObject.RequestedGuildBuffInfo`，
+    /// `PlayerObject.cs:147`）：登录时发一次（`:1223-1224`），之后 `C.GuildBuffUpdate{Action=0}`
+    /// 不再回（`:10358`）。下线即失效（Crystal 里标志随对象销毁）。
+    pub(crate) guild_buff_info_sent: BTreeSet<u32>,
+    /// 下一次处理行会 buff 到期的时刻（Crystal `guildTime = Time + Settings.Minute`，
+    /// `Envir.cs:2330-2337`；行会 `Process` 每分钟跑一次，`ActiveTimeRemaining` 每次减 1 分钟）。
+    pub(crate) next_guild_buff_tick: i64,
     /// 待落盘的行会写入队列。
     ///
     /// 世界层是同步的，而存储层是异步的：行会操作只把「要写什么」记在这里，
@@ -557,7 +571,7 @@ pub struct World {
 /// 一条待落盘的行会变更（见 `World::guild_writes`）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GuildWrite {
-    /// 整份保存一个行会（含职位与成员）。
+    /// 整份保存一个行会（含职位、成员、仓库与行会增益）。
     Save(Box<crate::store::GuildRecord>),
     /// 删除一个行会（解散，或最后一个成员退出）。
     Delete {
@@ -622,6 +636,9 @@ impl World {
             next_guild_id: 1,
             guild_invites: HashMap::new(),
             guild_settings: crate::guild::GuildSettings::default(),
+            guild_storage_requested: BTreeSet::new(),
+            guild_buff_info_sent: BTreeSet::new(),
+            next_guild_buff_tick: 0,
             guild_writes: Vec::new(),
         }
     }
@@ -669,6 +686,9 @@ impl World {
             next_guild_id: 1,
             guild_invites: HashMap::new(),
             guild_settings: crate::guild::GuildSettings::default(),
+            guild_storage_requested: BTreeSet::new(),
+            guild_buff_info_sent: BTreeSet::new(),
+            next_guild_buff_tick: 0,
             guild_writes: Vec::new(),
         }
     }
@@ -1216,6 +1236,9 @@ impl World {
         // 地面物品到期（Crystal `ItemObject.Process`，`ItemObject.cs:129-142`）。
         // 放在最后：本 tick 新生成/拾取的物品不会在同一 tick 里被判过期。
         self.tick_ground_items(now);
+        // 行会 buff 到期：Crystal 在 `Envir.Process` 里每分钟跑一次 `GuildObject.Process`
+        // （`Envir.cs:2330-2337`），见 [`crate::guild_buffs`]。
+        self.tick_guild_buffs(now);
     }
 
     /// 玩家侧簿记：跑步计数衰减、停顿后清零 `step_counter`、自然回血回蓝、到点复活。

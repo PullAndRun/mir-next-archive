@@ -30,8 +30,8 @@ use sqlx::{PgConnection, PgExecutor};
 
 use crate::error::{Result, StoreError};
 use crate::models::{
-    Account, Character, CharacterSummary, DEFAULT_LANGUAGE, Guild, GuildMemberRow, GuildRankRow,
-    GuildRow, NewAccount, NewCharacter,
+    Account, Character, CharacterSummary, DEFAULT_LANGUAGE, Guild, GuildBuffRow, GuildMemberRow,
+    GuildRankRow, GuildRow, GuildStorageRow, NewAccount, NewCharacter,
 };
 use crate::password::{generate_salt, hash_password};
 
@@ -526,6 +526,12 @@ pub async fn create_guild(conn: &mut PgConnection, guild: &Guild) -> Result<Guil
         )
         .await?;
     }
+    for item in &guild.storage {
+        insert_storage(&mut *conn, id, item).await?;
+    }
+    for buff in &guild.buffs {
+        insert_buff(&mut *conn, id, buff).await?;
+    }
 
     Ok(Guild {
         id,
@@ -551,6 +557,22 @@ pub async fn create_guild(conn: &mut PgConnection, guild: &Guild) -> Result<Guil
             .map(|member| GuildMemberRow {
                 guild_id: id,
                 ..member.clone()
+            })
+            .collect(),
+        storage: guild
+            .storage
+            .iter()
+            .map(|item| GuildStorageRow {
+                guild_id: id,
+                ..item.clone()
+            })
+            .collect(),
+        buffs: guild
+            .buffs
+            .iter()
+            .map(|buff| GuildBuffRow {
+                guild_id: id,
+                ..buff.clone()
             })
             .collect(),
     })
@@ -602,10 +624,49 @@ async fn insert_member(
     Ok(())
 }
 
-/// 整份回写一个行会（`guilds` 一行 + 职位与成员全量替换）。
+/// 插入一行仓库格子。
 ///
-/// 对应 Crystal `GuildInfo.Save`（`Server/MirDatabase/GuildInfo.cs:189-255`），
-/// 但只写核心字段（仓库/buff/投票/攻城租期见 [`Guild`] 的文档）。
+/// `item` 是 `encode_slots(&[Some(UserItem)])` 的字节块（见
+/// `migrations/0006_guild_storage.sql`）；`guild_id` 由调用方给（入参里的那份只作占位）。
+async fn insert_storage(
+    conn: &mut PgConnection,
+    guild_id: i32,
+    item: &GuildStorageRow,
+) -> Result<()> {
+    const SQL: &str = "INSERT INTO guild_storage (guild_id, slot, item, user_id, stored_at) \
+                       VALUES ($1, $2, $3, $4, $5)";
+
+    sqlx::query(SQL)
+        .bind(guild_id)
+        .bind(item.slot)
+        .bind(item.item.as_slice())
+        .bind(item.user_id)
+        .bind(item.stored_at)
+        .execute(conn)
+        .await
+        .map_err(StoreError::Database)?;
+    Ok(())
+}
+
+/// 插入一行行会增益。
+async fn insert_buff(conn: &mut PgConnection, guild_id: i32, buff: &GuildBuffRow) -> Result<()> {
+    const SQL: &str = "INSERT INTO guild_buffs (guild_id, buff_id, active, active_time_remaining) \
+                       VALUES ($1, $2, $3, $4)";
+
+    sqlx::query(SQL)
+        .bind(guild_id)
+        .bind(buff.buff_id)
+        .bind(buff.active)
+        .bind(buff.active_time_remaining)
+        .execute(conn)
+        .await
+        .map_err(StoreError::Database)?;
+    Ok(())
+}
+
+/// 整份回写一个行会（`guilds` 一行 + 职位/成员/仓库/增益全量替换）。
+///
+/// 对应 Crystal `GuildInfo.Save`（`Server/MirDatabase/GuildInfo.cs:189-255`）。
 ///
 /// **简化**：Crystal 只保存「有成员的职位」（`:197-203`）；本作全量保存，
 /// 因为客户端可以新建空职位（`GuildObject.NewRank`，`Server/MirObjects/GuildObject.cs:334-352`），
@@ -646,6 +707,16 @@ pub async fn save_guild(conn: &mut PgConnection, guild: &Guild) -> Result<()> {
         .execute(&mut *conn)
         .await
         .map_err(StoreError::Database)?;
+    sqlx::query("DELETE FROM guild_storage WHERE guild_id = $1")
+        .bind(guild.id)
+        .execute(&mut *conn)
+        .await
+        .map_err(StoreError::Database)?;
+    sqlx::query("DELETE FROM guild_buffs WHERE guild_id = $1")
+        .bind(guild.id)
+        .execute(&mut *conn)
+        .await
+        .map_err(StoreError::Database)?;
 
     for rank in &guild.ranks {
         insert_rank(
@@ -666,6 +737,12 @@ pub async fn save_guild(conn: &mut PgConnection, guild: &Guild) -> Result<()> {
             member.joined_at,
         )
         .await?;
+    }
+    for item in &guild.storage {
+        insert_storage(&mut *conn, guild.id, item).await?;
+    }
+    for buff in &guild.buffs {
+        insert_buff(&mut *conn, guild.id, buff).await?;
     }
 
     Ok(())
@@ -705,6 +782,8 @@ pub async fn load_guild(conn: &mut PgConnection, guild_id: i32) -> Result<Guild>
 
     let ranks = load_ranks(&mut *conn, guild_id).await?;
     let members = load_members(&mut *conn, guild_id).await?;
+    let storage = load_storage(&mut *conn, guild_id).await?;
+    let buffs = load_buffs(&mut *conn, guild_id).await?;
 
     Ok(Guild {
         id: row.id,
@@ -717,6 +796,8 @@ pub async fn load_guild(conn: &mut PgConnection, guild_id: i32) -> Result<Guild>
         notice: Guild::split_notice(&row.notice),
         ranks,
         members,
+        storage,
+        buffs,
     })
 }
 
@@ -739,6 +820,8 @@ pub async fn load_guild_by_name(conn: &mut PgConnection, name: &str) -> Result<O
 
     let ranks = load_ranks(&mut *conn, row.id).await?;
     let members = load_members(&mut *conn, row.id).await?;
+    let storage = load_storage(&mut *conn, row.id).await?;
+    let buffs = load_buffs(&mut *conn, row.id).await?;
 
     Ok(Some(Guild {
         id: row.id,
@@ -751,12 +834,14 @@ pub async fn load_guild_by_name(conn: &mut PgConnection, name: &str) -> Result<O
         notice: Guild::split_notice(&row.notice),
         ranks,
         members,
+        storage,
+        buffs,
     }))
 }
 
 /// 读出全部行会（启动时灌进世界，对应 Crystal `Envir.LoadGuilds`，`Envir.cs:3089-3117`）。
 ///
-/// 三条查询（行会 / 职位 / 成员）后在内存里拼装，避免 O(行会数) 次往返。
+/// 五条查询（行会 / 职位 / 成员 / 仓库 / 增益）后在内存里拼装，避免 O(行会数) 次往返。
 pub async fn list_guilds(conn: &mut PgConnection) -> Result<Vec<Guild>> {
     let sql = format!("SELECT {GUILD_COLUMNS} FROM guilds ORDER BY id");
 
@@ -783,6 +868,22 @@ pub async fn list_guilds(conn: &mut PgConnection) -> Result<Vec<Guild>> {
     .await
     .map_err(StoreError::Database)?;
 
+    let storage_rows: Vec<GuildStorageRow> = sqlx::query_as(
+        "SELECT guild_id, slot, item, user_id, stored_at FROM guild_storage \
+         ORDER BY guild_id, slot",
+    )
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(StoreError::Database)?;
+
+    let buff_rows: Vec<GuildBuffRow> = sqlx::query_as(
+        "SELECT guild_id, buff_id, active, active_time_remaining FROM guild_buffs \
+         ORDER BY guild_id, buff_id",
+    )
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(StoreError::Database)?;
+
     let mut guilds: Vec<Guild> = rows
         .into_iter()
         .map(|row| Guild {
@@ -796,6 +897,8 @@ pub async fn list_guilds(conn: &mut PgConnection) -> Result<Vec<Guild>> {
             notice: Guild::split_notice(&row.notice),
             ranks: Vec::new(),
             members: Vec::new(),
+            storage: Vec::new(),
+            buffs: Vec::new(),
         })
         .collect();
 
@@ -807,6 +910,16 @@ pub async fn list_guilds(conn: &mut PgConnection) -> Result<Vec<Guild>> {
     for member in member_rows {
         if let Some(guild) = guilds.iter_mut().find(|guild| guild.id == member.guild_id) {
             guild.members.push(member);
+        }
+    }
+    for item in storage_rows {
+        if let Some(guild) = guilds.iter_mut().find(|guild| guild.id == item.guild_id) {
+            guild.storage.push(item);
+        }
+    }
+    for buff in buff_rows {
+        if let Some(guild) = guilds.iter_mut().find(|guild| guild.id == buff.guild_id) {
+            guild.buffs.push(buff);
         }
     }
 
@@ -832,6 +945,30 @@ async fn load_members(conn: &mut PgConnection, guild_id: i32) -> Result<Vec<Guil
                 m.joined_at \
          FROM guild_members m LEFT JOIN characters c ON c.id = m.character_id \
          WHERE m.guild_id = $1 ORDER BY m.joined_at, m.character_id",
+    )
+    .bind(guild_id)
+    .fetch_all(conn)
+    .await
+    .map_err(StoreError::Database)
+}
+
+/// 读某行会的仓库格子（按 `slot` 升序）。
+async fn load_storage(conn: &mut PgConnection, guild_id: i32) -> Result<Vec<GuildStorageRow>> {
+    sqlx::query_as(
+        "SELECT guild_id, slot, item, user_id, stored_at FROM guild_storage \
+         WHERE guild_id = $1 ORDER BY slot",
+    )
+    .bind(guild_id)
+    .fetch_all(conn)
+    .await
+    .map_err(StoreError::Database)
+}
+
+/// 读某行会的增益。
+async fn load_buffs(conn: &mut PgConnection, guild_id: i32) -> Result<Vec<GuildBuffRow>> {
+    sqlx::query_as(
+        "SELECT guild_id, buff_id, active, active_time_remaining FROM guild_buffs \
+         WHERE guild_id = $1 ORDER BY buff_id",
     )
     .bind(guild_id)
     .fetch_all(conn)

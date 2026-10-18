@@ -14,6 +14,9 @@
 //! |---|---|
 //! | `Envir.Guilds`（`List<GuildObject>`，`Envir.cs:147`） | `World::guilds`：`HashMap<行会 ID, Guild>` |
 //! | `GuildObject.Ranks`（`List<GuildRank>`，成员嵌在职位里） | [`Guild::ranks`]（只管职位）+ [`Guild::members`]（角色 ID → 成员），**单一事实来源** |
+//! | `GuildInfo.StoredItems`（`GuildStorageItem[112]`，`:22`） | [`Guild::storage`]（见 [`crate::guild_storage`]） |
+//! | `GuildInfo.BuffList`（`:23`） | [`Guild::buffs`]（见 [`crate::guild_buffs`]） |
+//! | `PlayerObject.GuildCanRequestItems` / `RequestedGuildBuffInfo`（`:146-147`） | `World::guild_storage_requested` / `guild_buff_info_sent` |
 //! | `PlayerObject.PendingGuildInvite`（`PlayerObject.cs:143`） | `World::guild_invites`：对象 ID → 行会 ID |
 //! | `GuildInfo.NeedSave` | 每次变更都往 `World::guild_writes` 里塞一条「待落盘」 |
 //!
@@ -36,26 +39,28 @@
 //! | 拉取公告/成员 | `C.RequestGuildInfo{Type}`（83） | `S.GuildNoticeChange{Notice}` / `S.GuildMemberChange{Status=255}`（`PlayerObject.cs:10012-10028`） |
 //! | 行会聊天 | `C.Chat{"!~…"}` | `S.Chat{ChatType.Guild}`（`:2014-2024`） |
 //! | 行会经验 | 成员 `GainExp` | `S.GuildExpGain{Amount}`（170，`GuildObject.cs:701`）/ 升级时 `S.GuildStatus`（`:685-694`） |
+//! | 仓库 / 金币 / buff | `C.GuildStorageItemChange`（85）/ `C.GuildStorageGoldChange`（84）/ `C.GuildBuffUpdate`（131） | 见 [`crate::guild_storage`] 与 [`crate::guild_buffs`] 的模块文档 |
 //!
 //! # 未做（见 `docs/world/guild.md`）
 //!
 //! 攻城（`C.GuildRequestWar` / `C.PurchaseGuildTerritory` / `C.GuildTerritoryPage`）、
-//! 行会仓库（物品 + 金币，`C.GuildStorageGoldChange` / `C.GuildStorageItemChange`）、
-//! 行会 buff（`C.GuildBuffUpdate`）、行会联盟/敌对、行会投票（`GuildInfo.Votes`）。
-//! 这些包收到后只记日志，不改变任何状态。
+//! 行会联盟/敌对、行会投票（`GuildInfo.Votes`）。这些包收到后只记日志，不改变任何状态。
 
 use std::collections::HashMap;
 
 use mir_core::DateTimeBinary;
-use mir_core::enums::{ChatType, GuildRankOptions};
+use mir_core::enums::{ChatType, GuildRankOptions, Stat};
 use mir_protocol::ServerPacket;
 use mir_protocol::data::guild_rank::{GuildMember, GuildRank};
+use mir_protocol::data::{GuildBuff, GuildBuffInfo, GuildStorageItem, Stats};
 use mir_protocol::packets::server::{
     Chat, GuildExpGain, GuildInvite as GuildInvitePacket, GuildMemberChange, GuildNameRequest,
     GuildNoticeChange, GuildStatus,
 };
 
-use crate::store::{GuildMemberRecord, GuildRankRecord, GuildRecord};
+use crate::store::{
+    GuildBuffRecord, GuildMemberRecord, GuildRankRecord, GuildRecord, GuildStorageRecord,
+};
 use crate::world::World;
 
 // ---------------------------------------------------------------------------
@@ -164,6 +169,11 @@ pub struct GuildSettings {
     ///
     /// `0` 表示不限（`HasRoom` 只在非 0 时比较，`GuildObject.cs:632-643`）。
     pub member_cap_list: Vec<i32>,
+    /// 全部可选的行会增益（`Settings.Guild_BuffList`，`Server/Settings.cs:335`）。
+    ///
+    /// 来自 `GuildSettings.ini` 的 `[Guilds] TotalBuffs=N` + `[Buff-0] … [Buff-(N-1)]`
+    /// （`Settings.cs:1371-1375`、`Shared/Data/GuildData.cs:122-151`）。空列表 = 没有行会 buff。
+    pub buff_list: Vec<GuildBuffInfo>,
 }
 
 impl Default for GuildSettings {
@@ -178,6 +188,9 @@ impl Default for GuildSettings {
             // （`GuildInfo.cs:63`、`:159`），实际效果同样是「不升级」。
             experience_list: vec![0; GUILD_LEVEL_COUNT],
             member_cap_list: vec![0; GUILD_LEVEL_COUNT],
+            // `Settings.Guild_BuffList = new List<GuildBuffInfo>()`（`Server/Settings.cs:335`）：
+            // 没有配置文件时没有任何可选 buff。
+            buff_list: Vec::new(),
         }
     }
 }
@@ -185,99 +198,88 @@ impl Default for GuildSettings {
 impl GuildSettings {
     /// 从 `GuildSettings.ini` 的文本解析。
     ///
-    /// 只认本作需要的几项（`[Guilds]` 的 `MinimumLevel`/`ExpRate`/`PointPerLevel`、
-    /// `[Exp]`/`[Cap]` 的 `Level-N`、`[Required-*]` 里 `ItemName` 为空的金币项）；
-    /// 缺失项沿用 [`GuildSettings::default`]。
+    /// 认的段/键（全部来自 Crystal `Settings.LoadGuildSettings`，`Server/Settings.cs:1331-1376`）：
+    ///
+    /// | 段 | 键 | 字段 |
+    /// |---|---|---|
+    /// | `[Guilds]` | `MinimumLevel` / `ExpRate` / `PointPerLevel` | [`Self::required_level`] / [`Self::exp_rate`] / [`Self::point_per_level`] |
+    /// | `[Exp]` | `Level-<n>` | [`Self::experience_list`] |
+    /// | `[Cap]` | `Level-<n>` | [`Self::member_cap_list`] |
+    /// | `[Required-<n>]` | `ItemName` + `Amount` | [`Self::creation_gold`]（只取 `ItemName` 为空的金币项） |
+    /// | `[Guilds]` | `TotalBuffs` | 后面的 `[Buff-<i>]` 条数 |
+    /// | `[Buff-<i>]` | `Id`/`Icon`/`Name`/`LevelReq`/`PointsReq`/`TimeLimit`/`ActivationCost` + 18 个属性键 | [`Self::buff_list`] |
+    ///
+    /// 缺失项沿用 [`GuildSettings::default`]。段的匹配**不区分大小写**（Crystal 的
+    /// `InIReader` 是序数比较，本作沿用现有解析器的宽松行为）。
     #[must_use]
     pub fn parse_ini(text: &str) -> Self {
         let mut settings = Self::default();
-        // 先把两张表清空：文件里有 [Exp] 就以文件为准（Crystal 每次都是整表重建）。
-        let mut exp: HashMap<usize, i64> = HashMap::new();
-        let mut cap: HashMap<usize, i32> = HashMap::new();
-        let mut section = String::new();
+        let sections = parse_ini_sections(text);
+
+        if let Some(guilds) = sections.get("guilds") {
+            if let Some(level) = guilds.get("minimumlevel").and_then(|v| v.parse().ok()) {
+                settings.required_level = level;
+            }
+            if let Some(rate) = guilds.get("exprate").and_then(|v| v.parse().ok()) {
+                settings.exp_rate = rate;
+            }
+            if let Some(points) = guilds.get("pointperlevel").and_then(|v| v.parse().ok()) {
+                settings.point_per_level = points;
+            }
+        }
+
+        // `[Exp]` / `[Cap]` 的 `Level-N`：文件里有就以文件为准（Crystal 每次整表重建，
+        // `Settings.cs:1359-1370` 用 `while (Read(..., -1) != -1)` 一直读到缺项为止）。
+        if let Some(exp) = sections.get("exp") {
+            let table: HashMap<usize, i64> = collect_level_table(exp);
+            if !table.is_empty() {
+                settings.experience_list = (0..GUILD_LEVEL_COUNT)
+                    .map(|index| table.get(&index).copied().unwrap_or(0))
+                    .collect();
+            }
+        }
+        if let Some(cap) = sections.get("cap") {
+            let table: HashMap<usize, i32> = collect_level_table(cap);
+            if !table.is_empty() {
+                settings.member_cap_list = (0..GUILD_LEVEL_COUNT)
+                    .map(|index| table.get(&index).copied().unwrap_or(0))
+                    .collect();
+            }
+        }
+
+        // `[Required-N]`：Crystal 从 0 开始读，`Amount == 0` 就停（`Settings.cs:1348-1358`）。
         let mut creation_gold: Option<u32> = None;
-        let mut current_required_item = false;
-
-        for raw in text.lines() {
-            let line = raw.trim();
-            if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
-                continue;
-            }
-            if let Some(name) = line
-                .strip_prefix('[')
-                .and_then(|rest| rest.strip_suffix(']'))
-            {
-                name.trim().clone_into(&mut section);
-                // `[Required-N]` 段里 `ItemName=` 为空才表示「要金币」。
-                current_required_item = section.to_ascii_lowercase().starts_with("required-");
-                continue;
-            }
-            let Some((key, value)) = line.split_once('=') else {
-                continue;
+        for index in 0.. {
+            let Some(section) = sections.get(&format!("required-{index}")) else {
+                break;
             };
-            let key = key.trim();
-            let value = value.trim();
-            let lower_section = section.to_ascii_lowercase();
-            match lower_section.as_str() {
-                "guilds" => match key.to_ascii_lowercase().as_str() {
-                    "minimumlevel" => {
-                        if let Ok(level) = value.parse::<u16>() {
-                            settings.required_level = level;
-                        }
-                    }
-                    "exprate" => {
-                        if let Ok(rate) = value.parse::<f64>() {
-                            settings.exp_rate = rate;
-                        }
-                    }
-                    "pointperlevel" => {
-                        if let Ok(points) = value.parse::<u8>() {
-                            settings.point_per_level = points;
-                        }
-                    }
-                    _ => {}
-                },
-                "exp" => {
-                    if let Some(index) = ini_level_index(key) {
-                        if let Ok(amount) = value.parse::<i64>() {
-                            exp.insert(index, amount);
-                        }
-                    }
-                }
-                "cap" => {
-                    if let Some(index) = ini_level_index(key) {
-                        if let Ok(amount) = value.parse::<i32>() {
-                            cap.insert(index, amount);
-                        }
-                    }
-                }
-                _ => {
-                    if current_required_item {
-                        if key.eq_ignore_ascii_case("itemname") && value.is_empty() {
-                            // 这一项是「金币」；金额在同一个段的 Amount 里。
-                            creation_gold = Some(0);
-                        } else if key.eq_ignore_ascii_case("amount") && creation_gold == Some(0) {
-                            if let Ok(amount) = value.parse::<u32>() {
-                                creation_gold = Some(amount);
-                            }
-                        }
-                    }
-                }
+            let amount = section
+                .get("amount")
+                .and_then(|value| value.parse::<u32>().ok())
+                .unwrap_or(0);
+            if amount == 0 {
+                break;
+            }
+            let item_name = section.get("itemname").map_or("", String::as_str);
+            // 只取金币项（`ItemName == ""`）；物品项见 `docs/world/guild.md` 的「未做」。
+            if item_name.is_empty() && creation_gold.is_none() {
+                creation_gold = Some(amount);
             }
         }
-
-        if !exp.is_empty() {
-            settings.experience_list = (0..GUILD_LEVEL_COUNT)
-                .map(|index| exp.get(&index).copied().unwrap_or(0))
-                .collect();
-        }
-        if !cap.is_empty() {
-            settings.member_cap_list = (0..GUILD_LEVEL_COUNT)
-                .map(|index| cap.get(&index).copied().unwrap_or(0))
-                .collect();
-        }
-        if let Some(gold) = creation_gold.filter(|gold| *gold > 0) {
+        if let Some(gold) = creation_gold {
             settings.creation_gold = gold;
+        }
+
+        // `[Guilds] TotalBuffs` → `for (i = 0; i < TotalBuffs; i++) Guild_BuffList.Add(new GuildBuffInfo(reader, i))`
+        // （`Server/Settings.cs:1371-1375`）。
+        let total_buffs = sections
+            .get("guilds")
+            .and_then(|guilds| guilds.get("totalbuffs"))
+            .and_then(|value| value.parse::<u8>().ok())
+            .unwrap_or(0);
+        for index in 0..usize::from(total_buffs) {
+            let section = sections.get(&format!("buff-{index}"));
+            settings.buff_list.push(parse_guild_buff_info(section));
         }
 
         settings
@@ -305,6 +307,7 @@ impl GuildSettings {
                     path = candidate,
                     required_level = settings.required_level,
                     creation_gold = settings.creation_gold,
+                    buff_count = settings.buff_list.len(),
                     "已加载行会配置"
                 );
                 return settings;
@@ -333,6 +336,136 @@ impl GuildSettings {
             .copied()
             .unwrap_or(0)
     }
+
+    /// 按编号查行会增益定义（Crystal `Envir.FindGuildBuffInfo`，`Server/MirEnvir/Envir.cs:5026-5037`）。
+    ///
+    /// 找不到返回 `None`；`GuildObject.Process` 对 `Info == null` 的增益**不扣时**、
+    /// `NewBuff` 直接失败（`GuildObject.cs:803`、`:914-919`）。
+    #[must_use]
+    pub fn guild_buff_info(&self, id: i32) -> Option<&GuildBuffInfo> {
+        self.buff_list.iter().find(|info| info.id == id)
+    }
+}
+
+/// 把 INI 文本解析成「段（小写）→ 键（小写）→ 值」。
+///
+/// 同名键只保留第一次出现的值：Crystal 的 `InIReader.FindValue` 找到第一条就返回
+/// （`Shared/Functions/IniReader.cs:33-43`）。段名/键名在这里统一小写，
+/// 解析方就不必逐处 `eq_ignore_ascii_case`（Crystal 是序数比较，见
+/// `GuildSettings::parse_ini` 的说明）。
+fn parse_ini_sections(text: &str) -> HashMap<String, HashMap<String, String>> {
+    let mut sections: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let mut current = String::new();
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+            continue;
+        }
+        if let Some(name) = line
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+        {
+            name.trim().to_ascii_lowercase().clone_into(&mut current);
+            sections.entry(current.clone()).or_default();
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if current.is_empty() {
+            continue;
+        }
+        sections
+            .entry(current.clone())
+            .or_default()
+            .entry(key.trim().to_ascii_lowercase())
+            .or_insert_with(|| value.trim().to_owned());
+    }
+    sections
+}
+
+/// 把 `[Exp]` / `[Cap]` 段的 `Level-<n>` 键收集成「等级 → 值」。
+fn collect_level_table<T: std::str::FromStr>(
+    section: &HashMap<String, String>,
+) -> HashMap<usize, T> {
+    let mut table = HashMap::new();
+    for (key, value) in section {
+        let Some(index) = ini_level_index(key) else {
+            continue;
+        };
+        if let Ok(parsed) = value.parse::<T>() {
+            table.insert(index, parsed);
+        }
+    }
+    table
+}
+
+/// 解析一个 `[Buff-<i>]` 段（Crystal `GuildBuffInfo(InIReader reader, int i)`，
+/// `Shared/Data/GuildData.cs:122-151`）。
+///
+/// 缺段时返回一个默认值——Crystal 也是这么做的：`ReadXxx` 全部走默认值，
+/// 然后照样 `Guild_BuffList.Add(...)`（`Server/Settings.cs:1372-1375`）。
+fn parse_guild_buff_info(section: Option<&HashMap<String, String>>) -> GuildBuffInfo {
+    let mut info = GuildBuffInfo::default();
+    let Some(section) = section else {
+        return info;
+    };
+    let read_i32 = |key: &str, default: i32| -> i32 {
+        section
+            .get(key)
+            .and_then(|value| value.parse::<i32>().ok())
+            .unwrap_or(default)
+    };
+    // Crystal 的 `ReadByte`：解析失败就取默认值（`IniReader.cs:96-108`）；
+    // 这些属性键的默认值全是 0。
+    let read_u8 = |key: &str, default: u8| -> u8 {
+        section
+            .get(key)
+            .and_then(|value| value.parse::<u8>().ok())
+            .unwrap_or(default)
+    };
+    info.id = read_i32("id", 0);
+    info.icon = read_i32("icon", 0);
+    info.name = section.get("name").cloned().unwrap_or_default();
+    info.level_requirement = read_u8("levelreq", 0);
+    info.points_requirement = read_u8("pointsreq", 1);
+    info.time_limit = read_i32("timelimit", 0);
+    info.activation_cost = read_i32("activationcost", 0);
+
+    // 18 个属性键：前 16 个走 `ReadByte`，HP/MP 是 `ReadInt32`（`GuildData.cs:133-150`）。
+    let mut stats = Stats::default();
+    stats.set(Stat::MaxAC, i32::from(read_u8("buffac", 0)));
+    stats.set(Stat::MaxMAC, i32::from(read_u8("buffmac", 0)));
+    stats.set(Stat::MaxDC, i32::from(read_u8("buffdc", 0)));
+    stats.set(Stat::MaxMC, i32::from(read_u8("buffmc", 0)));
+    stats.set(Stat::MaxSC, i32::from(read_u8("buffsc", 0)));
+    stats.set(Stat::HP, read_i32("buffmaxhp", 0));
+    stats.set(Stat::MP, read_i32("buffmaxmp", 0));
+    stats.set(Stat::MineRatePercent, i32::from(read_u8("buffminerate", 0)));
+    stats.set(Stat::GemRatePercent, i32::from(read_u8("buffgemrate", 0)));
+    stats.set(Stat::FishRatePercent, i32::from(read_u8("bufffishrate", 0)));
+    stats.set(Stat::ExpRatePercent, i32::from(read_u8("buffexprate", 0)));
+    stats.set(
+        Stat::CraftRatePercent,
+        i32::from(read_u8("buffcraftrate", 0)),
+    );
+    stats.set(
+        Stat::SkillGainMultiplier,
+        i32::from(read_u8("buffskillrate", 0)),
+    );
+    stats.set(Stat::HealthRecovery, i32::from(read_u8("buffhpregen", 0)));
+    stats.set(Stat::SpellRecovery, i32::from(read_u8("buffmpregen", 0)));
+    stats.set(Stat::AttackBonus, i32::from(read_u8("buffattack", 0)));
+    stats.set(
+        Stat::ItemDropRatePercent,
+        i32::from(read_u8("buffdroprate", 0)),
+    );
+    stats.set(
+        Stat::GoldDropRatePercent,
+        i32::from(read_u8("buffgoldrate", 0)),
+    );
+    info.stats = stats;
+    info
 }
 
 /// `GuildSettings.ini` 的候选路径（按优先级）。
@@ -391,6 +524,19 @@ pub struct GuildMemberState {
     pub online: Option<u32>,
 }
 
+/// 行会仓库里的一格（Crystal `GuildStorageItem`，`Shared/Data/GuildData.cs:44-60`）。
+///
+/// Crystal 的 `GuildStorageItem` 只有「物品 + 存放者」；`stored_at` 是**本作扩展**
+/// （持久化列 `guild_storage.stored_at`，见 `migrations/0006_guild_storage.sql`），
+/// 只用于审计，不参与任何判定。
+#[derive(Debug, Clone, PartialEq)]
+pub struct GuildStorageSlot {
+    /// 物品与存放者（线上 `S.GuildStorageList` / `S.GuildStorageItemChange` 直接用这个结构）。
+    pub item: GuildStorageItem,
+    /// 存放时间（Unix 毫秒；本作扩展）。
+    pub stored_at: i64,
+}
+
 /// 一个行会（Crystal `GuildInfo` + `GuildObject` 的合并视图）。
 ///
 /// 只派生 `PartialEq`（不派生 `Eq`）：`ranks` 里是协议层的 [`GuildRank`]，
@@ -424,6 +570,15 @@ pub struct Guild {
     pub member_cap: i32,
     /// 下一次允许发 `S.GuildExpGain` 的时刻（`GuildObject.NextExpUpdate`，`:58`）。
     pub next_exp_update: i64,
+    /// 行会仓库（Crystal `GuildInfo.StoredItems`，`:22`；固定 [`GUILD_STORAGE_SLOTS`] 格）。
+    ///
+    /// 下标就是格子号，`None` = 空格子。Crystal 用数组本身表达容量，没有「总格数」配置项。
+    pub storage: Vec<Option<GuildStorageSlot>>,
+    /// 已购买的行会增益（Crystal `GuildInfo.BuffList`，`:23`；顺序 = 购买顺序）。
+    ///
+    /// 物品定义（`Info`）不在结构里，按 `id` 从
+    /// [`GuildSettings::guild_buff_info`] 查（Crystal `GuildBuff.Info` 也是运行时查出来的）。
+    pub buffs: Vec<GuildBuff>,
 }
 
 impl Guild {
@@ -473,6 +628,10 @@ impl Guild {
             max_experience: 0,
             member_cap: 0,
             next_exp_update: 0,
+            // `StoredItems = new GuildStorageItem[112]`（`GuildInfo.cs:22`）——新行会全是空格子。
+            storage: vec![None; GUILD_STORAGE_SLOTS],
+            // `BuffList = new List<GuildBuff>()`（`:23`）。
+            buffs: Vec::new(),
         };
         guild.refresh_limits(settings);
         guild
@@ -600,11 +759,45 @@ impl Guild {
             // 投票系统没做（`GuildInfo.Voting`，`:18`）。
             voting: false,
             item_count: u8::try_from(GUILD_STORAGE_SLOTS).unwrap_or(u8::MAX),
-            // buff 没做（`GuildInfo.BuffList`，`:23`）。
+            // Crystal `SendGuildStatus` 把 `BuffList.Count` 注释掉了，恒写 0
+            // （`GuildObject.cs:216`：`BuffCount = (byte)0,//(byte)BuffList.Count`）——照抄。
             buff_count: 0,
             my_options: GuildRankOptions(rank.map_or(0, |rank| rank.options)),
             my_rank_id: rank_index.map_or(256, i32::from),
         }
+    }
+
+    /// 一格仓库（越界/空格子都是 `None`；等价于 Crystal 的数组下标访问前的边界检查）。
+    #[must_use]
+    pub fn storage_slot(&self, slot: usize) -> Option<&GuildStorageSlot> {
+        self.storage.get(slot)?.as_ref()
+    }
+
+    /// 某个增益是否已获得（Crystal `GetBuff(int)`，`GuildObject.cs:900-910`）。
+    #[must_use]
+    pub fn buff(&self, id: i32) -> Option<&GuildBuff> {
+        self.buffs.iter().find(|buff| buff.id == id)
+    }
+
+    /// 全部 `Active == true` 的 `Info.Stats` 之和（Crystal `RefreshGuildBuffs` 的循环，
+    /// `PlayerObject.cs:1824-1836`）。
+    ///
+    /// `Info == null`（配置里删掉了这个增益）与未激活的都跳过。
+    #[must_use]
+    pub fn active_buff_stats(&self, settings: &GuildSettings) -> Stats {
+        let mut stats = Stats::default();
+        for buff in &self.buffs {
+            if !buff.active {
+                continue;
+            }
+            let Some(info) = settings.guild_buff_info(buff.id) else {
+                continue;
+            };
+            for (&stat, &value) in info.stats.values() {
+                stats.add(stat, value);
+            }
+        }
+        stats
     }
 
     /// 转成存储视图。
@@ -636,6 +829,30 @@ impl Guild {
                     name: member.name.clone(),
                     rank_index: member.rank_index,
                     joined_at: member.joined_at,
+                })
+                .collect(),
+            storage: self
+                .storage
+                .iter()
+                .enumerate()
+                .filter_map(|(slot, entry)| {
+                    let entry = entry.as_ref()?;
+                    Some(GuildStorageRecord {
+                        slot: u8::try_from(slot).unwrap_or(0),
+                        // 与角色背包同一套「单格字节块」：`encode_slots(&[Some(item)])`。
+                        item: crate::items::encode_slots(&[Some(entry.item.item.clone())]),
+                        user_id: entry.item.user_id,
+                        stored_at: entry.stored_at,
+                    })
+                })
+                .collect(),
+            buffs: self
+                .buffs
+                .iter()
+                .map(|buff| GuildBuffRecord {
+                    id: buff.id,
+                    active: buff.active,
+                    active_time_remaining: buff.active_time_remaining,
                 })
                 .collect(),
         }
@@ -692,6 +909,50 @@ impl Guild {
             );
         }
 
+        let mut storage: Vec<Option<GuildStorageSlot>> = vec![None; GUILD_STORAGE_SLOTS];
+        for entry in &record.storage {
+            let slot = usize::from(entry.slot);
+            if slot >= GUILD_STORAGE_SLOTS {
+                tracing::warn!(
+                    guild = record.id,
+                    slot,
+                    "行会仓库格子的序号超出数组长度，已忽略（Crystal `j < StoredItems.Length`，`GuildInfo.cs:129`）"
+                );
+                continue;
+            }
+            match crate::items::decode_slots(&entry.item) {
+                Ok(slots) => {
+                    if let Some(item) = slots.into_iter().flatten().next() {
+                        storage[slot] = Some(GuildStorageSlot {
+                            item: GuildStorageItem {
+                                item,
+                                user_id: entry.user_id,
+                            },
+                            stored_at: entry.stored_at,
+                        });
+                    } else {
+                        tracing::warn!(
+                            guild = record.id,
+                            slot,
+                            "仓库格子的字节块里没有物品，已忽略"
+                        );
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(guild = record.id, slot, %error, "仓库格子的字节块解析失败，已忽略");
+                }
+            }
+        }
+        let buffs: Vec<GuildBuff> = record
+            .buffs
+            .iter()
+            .map(|buff| GuildBuff {
+                id: buff.id,
+                active: buff.active,
+                active_time_remaining: buff.active_time_remaining,
+            })
+            .collect();
+
         let mut guild = Self {
             id: record.id,
             name: record.name,
@@ -706,6 +967,8 @@ impl Guild {
             max_experience: 0,
             member_cap: 0,
             next_exp_update: 0,
+            storage,
+            buffs,
         };
         guild.refresh_limits(settings);
         guild
@@ -838,6 +1101,84 @@ pub enum GuildError {
     /// 公告行数超限（`ServerTextKeys.GuildNoticeMaxLines`，`PlayerObject.cs:9971-9975`）。
     #[error("公告最多 {GUILD_NOTICE_MAX_LINES} 行")]
     NoticeTooLong,
+    /// 不在安全区（`ServerTextKeys.GuildStorageOutsideSafezone` / `CannotUseGuildStorageOutsideSafezones`，
+    /// `PlayerObject.cs:10069-10073`、`:10131-10136`）。
+    #[error("只能在安全区内使用行会仓库")]
+    NotInSafeZone,
+    /// 职位没有 `CanStoreItem`（8）权限（`ServerTextKeys.NoPermissionGuildStorage`，`:10141-10146`）。
+    #[error("你的职位没有往行会仓库存物品的权限")]
+    NoStorePermission,
+    /// 职位没有 `CanRetrieveItem`（16）权限（`ServerTextKeys.NoPermissionGuildStorageRetrieve`，
+    /// `:10186-10191`）。
+    #[error("你的职位没有从行会仓库取物品的权限")]
+    NoRetrievePermission,
+    /// 职位没有整理仓库的权限（Crystal 复用 `CanStoreItem`，`ServerTextKeys.NoGuildStorageMovePermission`，
+    /// `:10226-10231`）。
+    #[error("你的职位没有整理行会仓库的权限")]
+    NoStorageMovePermission,
+    /// 背包/仓库格子序号越界（Crystal 只回一条失败包，没有文字提示，`:10147-10156`）。
+    #[error("格子序号不在范围内")]
+    InvalidStorageSlot,
+    /// 来源格子是空的（Crystal 同样只回失败包，`:10157-10161`、`:10208-10212`）。
+    #[error("格子里没有物品")]
+    EmptySlot,
+    /// 目标格子已经有物品（`ServerTextKeys.TargetSlotNotEmpty`，`:10172-10177`）。
+    #[error("目标格子不是空的")]
+    TargetSlotNotEmpty,
+    /// 同一分钟内重复拉取仓库列表（Crystal `GuildCanRequestItems == false`，`:10268-10269`；
+    /// 静默丢弃）。
+    #[error("仓库列表请求过于频繁")]
+    StorageRequestThrottled,
+    /// 物品标记了 `BindMode.DontStore`，不能进出仓库（`:10162-10171`、`:10213-10217`）。
+    #[error("这件物品不能存入行会仓库")]
+    ItemCannotBeStored,
+    /// 行会资金已达 `uint.MaxValue`（`ServerTextKeys.GuildGoldLimitReached`，`:10083-10087`）。
+    #[error("行会资金已达上限")]
+    GuildGoldLimitReached,
+    /// 玩家金币已达 `uint.MaxValue`（`ServerTextKeys.GoldLimitReached` + `CanGainGold`，
+    /// `:10103-10107`、`PlayerObject.cs:7638-7641`）。
+    #[error("你的金币已达上限")]
+    PlayerGoldLimitReached,
+    /// 行会资金不足（`ServerTextKeys.InsufficientGold`，`:10097-10101`）。
+    #[error("行会资金不足（需要 {required}，现有 {gold}）")]
+    GuildBankNotEnough {
+        /// 需要的金币。
+        required: u32,
+        /// 行会现有金币。
+        gold: u32,
+    },
+    /// 取金币需要会长职位（`if (MyGuildRank.Index != 0)`，`ServerTextKeys.InsufficientRank`，`:10109-10113`）。
+    #[error("只有会长可以从行会仓库取金币")]
+    LeaderOnly,
+    /// 职位没有 `CanActivateBuff`（128）权限（`ServerTextKeys.NoCorrectGuildRank` / `IncorrectGuildRank`，
+    /// `PlayerObject.cs:10362-10366`、`:10421-10425`）。
+    #[error("你的职位没有激活行会增益的权限")]
+    NoBuffPermission,
+    /// 增益编号不在 `GuildSettings.ini` 里（`ServerTextKeys.BuffNotExist`，`:10367-10372`）。
+    #[error("行会增益 {0} 不存在")]
+    BuffNotExist(i32),
+    /// 行会已经拥有这个增益（`ServerTextKeys.BuffAlreadyObtained`，`:10373-10377`）。
+    #[error("行会已经拥有增益 {0}")]
+    BuffAlreadyObtained(i32),
+    /// 行会还没买过这个增益（`ServerTextKeys.BuffNotObtained`，`:10426-10431`）。
+    #[error("行会还没有购买增益 {0}")]
+    BuffNotObtained(i32),
+    /// 行会等级不足（`ServerTextKeys.GuildLevelRequirementNotMet`，`:10378-10382`）。
+    #[error("行会等级不足（需要 {required} 级，当前 {level} 级）")]
+    GuildLevelTooLow {
+        /// 需要的行会等级。
+        required: u8,
+        /// 当前行会等级。
+        level: u8,
+    },
+    /// 行会升级点不足（`ServerTextKeys.GuildSparePointsInsufficient`，`:10383-10387`）。
+    #[error("行会升级点不足（需要 {required} 点，现有 {remaining} 点）")]
+    SparePointsInsufficient {
+        /// 需要的升级点。
+        required: u8,
+        /// 行会现有升级点。
+        remaining: u8,
+    },
     /// 会长退出/被删时行会里没有别的会长可接管（`ServerTextKeys.YouNeedLastLeaderToDisbandGuild`，
     /// `GuildObject.cs:474`）。
     #[error("你是最后一个会长：请先转让会长或解散行会")]
@@ -994,7 +1335,7 @@ impl World {
     }
 
     /// 找一个行会，顺便校验「我在行会里」并返回（行会 ID、自己的职位序号）。
-    fn my_guild(&self, player_id: u32) -> Result<(i32, u8), GuildError> {
+    pub(crate) fn my_guild(&self, player_id: u32) -> Result<(i32, u8), GuildError> {
         if !self.players.contains_key(&player_id) {
             return Err(GuildError::NotInWorld(player_id));
         }
@@ -1018,7 +1359,7 @@ impl World {
     }
 
     /// 给行会的**在线**成员发一帧（Crystal `GuildObject.SendServerPacket`，`:602-615`）。
-    fn send_to_guild(&self, guild_id: i32, frame: &[u8]) {
+    pub(crate) fn send_to_guild(&self, guild_id: i32, frame: &[u8]) {
         if let Some(guild) = self.guilds.get(&guild_id) {
             for object_id in guild.online_members() {
                 self.send_to_player(object_id, frame);
@@ -1027,7 +1368,7 @@ impl World {
     }
 
     /// 给某个人发行会状态；`rank_index` 用他自己的职位。
-    fn send_guild_status(&self, player_id: u32) {
+    pub(crate) fn send_guild_status(&self, player_id: u32) {
         let Some(guild_ref) = self.players.get(&player_id).and_then(|player| player.guild) else {
             return;
         };
@@ -1041,7 +1382,7 @@ impl World {
     }
 
     /// 把行会状态发给所有在线成员（Crystal `GuildObject.cs:685-694`）。
-    fn send_guild_status_to_all(&self, guild_id: i32) {
+    pub(crate) fn send_guild_status_to_all(&self, guild_id: i32) {
         let Some(guild) = self.guilds.get(&guild_id) else {
             return;
         };
@@ -1056,12 +1397,12 @@ impl World {
     }
 
     /// 给某个玩家发一条系统提示。
-    fn guild_error_to(&self, player_id: u32, error: &GuildError) {
+    pub(crate) fn guild_error_to(&self, player_id: u32, error: &GuildError) {
         self.send_system_chat(player_id, &error.message());
     }
 
     /// 给某个玩家发一条**行会频道**消息（Crystal `ReceiveChat(..., ChatType.Guild)`）。
-    fn send_guild_chat_to(&self, player_id: u32, message: &str) {
+    pub(crate) fn send_guild_chat_to(&self, player_id: u32, message: &str) {
         self.send_to_player(
             player_id,
             &ServerPacket::Chat(Chat {
@@ -1073,7 +1414,7 @@ impl World {
     }
 
     /// 记一条「该行会要落盘」。
-    fn mark_guild_dirty(&mut self, guild_id: i32) {
+    pub(crate) fn mark_guild_dirty(&mut self, guild_id: i32) {
         let Some(guild) = self.guilds.get(&guild_id) else {
             return;
         };
@@ -1159,10 +1500,33 @@ impl World {
     ///
     /// 必须排在 `S.UserInformation` 之后（会话在 `on_start_game` 里显式调用）：
     ///
-    /// 1. 先 [`World::guild_bind_player`] 把状态接上；
-    /// 2. 给所有在线成员发 `S.GuildMemberChange{Status=1}`，再给本人发 `S.GuildStatus`。
+    /// 1. 先发 `S.GuildBuffList{GuildBuffs=全部可选}`（Crystal `StartGame`，`:1223-1224`）；
+    /// 2. 再 [`World::guild_bind_player`] 把状态接上；
+    /// 3. 给所有在线成员发 `S.GuildMemberChange{Status=1}`，再给本人发 `S.GuildStatus`；
+    /// 4. 有已激活增益时补一条 `S.GuildBuffList{ActiveBuffs=…}`（**本作修正**，见文档）。
     pub fn guild_player_online(&mut self, object_id: u32) {
+        // `Enqueue(new S.GuildBuffList { GuildBuffs = Settings.Guild_BuffList });
+        //  RequestedGuildBuffInfo = true;`（`PlayerObject.cs:1223-1224`）——
+        // 这一步对**没有行会**的玩家也发，所以放在行会判断之前。
+        // 会话在 `SwitchGroup` 之后已经调过一次（见 `Session::on_start_game`）；
+        // 这里兜底，避免世界层测试漏掉登录包。
+        if !self.guild_buff_info_sent.contains(&object_id) {
+            self.send_guild_buff_info(object_id);
+        }
         self.guild_bind_player(object_id);
+        // Crystal 在 `PlayerObject` 构造里就 `RefreshStats()` 一次（`:232-240`），
+        // 那时 `MyGuild` 已从 `Info.GuildIndex` 接上，所以行会 buff 的属性在登录时就生效。
+        // 只有「行会有激活增益」时才重算：空装备 + 没有增益时 `World::enter` 已经算好了，
+        // 再算一次会把存档里 15/15 的初始 HP/MP 夹到基础值（14 MP）并多发一条 `S.HealthChanged`。
+        let has_active_guild_buffs = self
+            .players
+            .get(&object_id)
+            .and_then(|player| player.guild)
+            .and_then(|reference| self.guilds.get(&reference.guild_id))
+            .is_some_and(|guild| guild.buffs.iter().any(|buff| buff.active));
+        if has_active_guild_buffs {
+            self.refresh_stats(object_id);
+        }
         let Some(reference) = self.players.get(&object_id).and_then(|player| player.guild) else {
             return;
         };
@@ -1176,10 +1540,17 @@ impl World {
         let frame = member_change_frame(&name, 1, reference.rank_index, Vec::new());
         self.send_to_guild(reference.guild_id, &frame);
         self.send_guild_status(object_id);
+        // Crystal 只在**加入行会**时下发已激活增益（`PlayerObject.cs:10009-10010`）；
+        // 登录时补一条，否则重登后客户端不知道哪些增益还开着（**本作修正**，见文档）。
+        self.send_active_guild_buffs(object_id);
     }
 
     /// 玩家离开世界：成员标记离线（Crystal `PlayerLogged(member, false)`，`GuildObject.cs:162-192`）。
     pub fn guild_player_offline(&mut self, object_id: u32) {
+        // Crystal 的 `GuildCanRequestItems` / `RequestedGuildBuffInfo` 是玩家对象上的字段，
+        // 下线即随对象销毁（`PlayerObject.cs:146-147`）；本作把它们放在世界上，要显式清掉。
+        self.guild_storage_requested.remove(&object_id);
+        self.guild_buff_info_sent.remove(&object_id);
         let Some(player) = self.players.get(&object_id) else {
             return;
         };
@@ -1293,6 +1664,8 @@ impl World {
                 member.online = Some(player_id);
             }
         }
+        // `GuildCanRequestItems = true;`（`PlayerObject.cs:9831`）——新行会允许立刻拉仓库列表。
+        self.guild_storage_requested.remove(&player_id);
 
         // 写库：整份行会 + 角色的 `guild_index`。
         self.mark_guild_dirty(id);
@@ -1434,6 +1807,12 @@ impl World {
         let frame = member_change_frame(&name, 2, rank_index, Vec::new());
         self.send_to_guild(guild_id, &frame);
         self.send_guild_status(player_id);
+        // `GuildCanRequestItems = true;`（`:10006`）、`RefreshStats();`（`:10008`）、
+        // `if (MyGuild.BuffList.Count > 0) Enqueue(new S.GuildBuffList { ActiveBuffs = MyGuild.BuffList });`
+        // （`:10009-10010`）——顺序照抄：状态 → 刷新属性 → 激活列表。
+        self.guild_storage_requested.remove(&player_id);
+        self.refresh_stats(player_id);
+        self.send_active_guild_buffs(player_id);
         self.mark_guild_dirty(guild_id);
         self.guild_writes
             .push(crate::world::GuildWrite::SetCharacterGuild {
@@ -1754,7 +2133,6 @@ impl World {
             if let Some(player) = self.players.get_mut(&object_id) {
                 player.guild = None;
             }
-            self.send_to_player(object_id, &status_frame(&Guild::placeholder_status()));
             // `ReceiveChat(kickSelf ? YouHaveLeftGuild : YouRemovedFromGuild, ChatType.Guild)`
             // （`GuildObject.cs:559`）：**行会频道**，不是系统频道。
             self.send_guild_chat_to(
@@ -1765,6 +2143,9 @@ impl World {
                     "你被移出了行会。"
                 },
             );
+            // `formerMember.RefreshStats();`（`:560`）——把行会 buff 的属性撤掉。
+            self.refresh_stats(object_id);
+            self.send_to_player(object_id, &status_frame(&Guild::placeholder_status()));
             self.guild_writes
                 .push(crate::world::GuildWrite::SetCharacterGuild {
                     character_id,

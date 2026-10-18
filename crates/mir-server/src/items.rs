@@ -626,7 +626,9 @@ impl Default for ItemUidGenerator {
 ///
 /// Crystal 里这是一次 `Stats.Add(realItem.Stats)`（`HumanObject.cs:1858`）——
 /// 那个 `Stats` 是「所有属性的字典」，本作只建模了参与战斗/负重的那部分。
-fn add_stat(target: &mut CombatStats, stat: Stat, value: i32) {
+///
+/// `pub(crate)`：行会增益（`crate::guild_buffs`）复用同一张映射表。
+pub(crate) fn add_stat(target: &mut CombatStats, stat: Stat, value: i32) {
     match stat {
         Stat::HP => target.hp += value,
         Stat::MP => target.mp += value,
@@ -1042,15 +1044,15 @@ impl World {
         looks
     }
 
-    /// 重算玩家属性：基础值（等级/职业曲线）+ 装备加成 + buff 加成 + 职业上限。
+    /// 重算玩家属性：基础值（等级/职业曲线）+ 装备加成 + buff 加成 + 行会 buff 加成 + 职业上限。
     ///
     /// 对应 Crystal `HumanObject.RefreshStats`（`HumanObject.cs:1730-1769`）里
     /// `RefreshLevelStats()`（`:1740`）→ `RefreshEquipmentStats()`（`:1742`）→
-    /// `RefreshBuffs()`（`:1746`）→ `RefreshStatCaps()`（`:1761`）→
-    /// `if (HP > Stats[HP]) SetHP(...)`（`:1763-1764`）几步。
+    /// `RefreshBuffs()`（`:1746`）→ `RefreshGuildBuffs()`（`:1747`）→
+    /// `RefreshStatCaps()`（`:1761`）→ `if (HP > Stats[HP]) SetHP(...)`（`:1763-1764`）几步。
     ///
-    /// 简化：跳过 `RefreshItemSetStats`（套装）、`RefreshMirSetStats`、`RefreshSkills`、
-    /// `RefreshGuildBuffs`（`:1743-1747`）以及末尾的百分比加成（`:1751-1759`）——
+    /// 简化：跳过 `RefreshItemSetStats`（套装）、`RefreshMirSetStats`、`RefreshSkills`
+    /// （`:1743-1745`）以及末尾的百分比加成（`:1751-1759`）——
     /// 这些系统本作都还没有；它们只影响数值，不影响属性刷新的**时机**。
     ///
     /// 上限（`Stat.HP`/`Stat.MP`）变化时补发 `S.HealthChanged` 与 `S.ObjectHealth`：
@@ -1076,6 +1078,9 @@ impl World {
                 add_stat(&mut stats, stat, value);
             }
         }
+        // `RefreshGuildBuffs`：行会已激活增益的属性（`PlayerObject.cs:1824-1836`），
+        // 排在 `RefreshBuffs` 之后、上限夹取之前（`HumanObject.cs:1746-1751`）。
+        crate::guild_buffs::apply_guild_buffs(self, player.guild, &mut stats);
         stats.apply_caps();
         let max_changed = stats.hp != player.stats.hp || stats.mp != player.stats.mp;
         if let Some(player) = self.players.get_mut(&object_id) {

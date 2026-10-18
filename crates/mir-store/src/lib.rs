@@ -65,8 +65,8 @@ mod repo;
 
 pub use error::{Result, StoreError};
 pub use models::{
-    Account, Character, CharacterSummary, DEFAULT_LANGUAGE, Guild, GuildMemberRow, GuildRankRow,
-    LoginGate, NewAccount, NewCharacter,
+    Account, Character, CharacterSummary, DEFAULT_LANGUAGE, Guild, GuildBuffRow, GuildMemberRow,
+    GuildRankRow, GuildStorageRow, LoginGate, NewAccount, NewCharacter,
 };
 pub use password::{HASH_LEN, ITERATIONS, SALT_LEN, generate_salt, hash_password, verify_password};
 pub use repo::{

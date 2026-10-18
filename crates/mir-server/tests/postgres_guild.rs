@@ -66,6 +66,8 @@ async fn postgres_guild_persistence_roundtrip() {
             rank_index: 0,
             joined_at: suffix_to_millis(suffix),
         }],
+        storage: Vec::new(),
+        buffs: Vec::new(),
     };
     let guild_id = store.save_guild(guild.clone()).await.expect("写行会");
     assert!(guild_id > 0, "应由数据库分配主键");

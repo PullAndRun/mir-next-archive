@@ -58,6 +58,8 @@ fn test_settings() -> GuildSettings {
         point_per_level: 1,
         experience_list: vec![100, 200, -1],
         member_cap_list: vec![5, 5, 10],
+        // 本轮不测行会 buff，保持「没有可选增益」。
+        buff_list: Vec::new(),
     }
 }
 

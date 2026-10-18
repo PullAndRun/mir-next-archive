@@ -219,6 +219,10 @@ pub struct GuildRecord {
     pub ranks: Vec<GuildRankRecord>,
     /// 成员（跨职位平铺）。
     pub members: Vec<GuildMemberRecord>,
+    /// 仓库格子（只含非空格子，按 `slot` 升序；Crystal `GuildInfo.StoredItems`，112 格）。
+    pub storage: Vec<GuildStorageRecord>,
+    /// 行会增益（Crystal `GuildInfo.BuffList`）。
+    pub buffs: Vec<GuildBuffRecord>,
 }
 
 /// 行会里的一行职位。
@@ -243,6 +247,33 @@ pub struct GuildMemberRecord {
     pub rank_index: u8,
     /// 入会时间（Unix 毫秒；本作扩展，用来稳定成员顺序）。
     pub joined_at: i64,
+}
+
+/// 一格行会仓库（Crystal `GuildStorageItem`，`Shared/Data/GuildData.cs:44-60`）。
+///
+/// `item` 是 [`crate::items::encode_slots`] 的「单格字节块」
+/// （`encode_slots(&[Some(UserItem)])`），与角色背包/装备用同一套编解码。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct GuildStorageRecord {
+    /// 格子序号（0..=111，`GuildInfo.cs:22`）。
+    pub slot: u8,
+    /// 物品字节块。
+    pub item: Vec<u8>,
+    /// 存放者的角色主键（Crystal `GuildStorageItem.UserId`）。
+    pub user_id: i64,
+    /// 存放时间（Unix 毫秒；本作扩展，Crystal 无此字段）。
+    pub stored_at: i64,
+}
+
+/// 一条行会增益（Crystal `GuildBuff`，`Shared/Data/GuildData.cs:217-243`）。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct GuildBuffRecord {
+    /// 增益编号。
+    pub id: i32,
+    /// 是否已激活。
+    pub active: bool,
+    /// 剩余生效时间，单位**分钟**。
+    pub active_time_remaining: i32,
 }
 
 /// 存储边界。

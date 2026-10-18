@@ -249,30 +249,20 @@ impl<S: AccountStore> Session<S> {
             ClientPacket::GuildNameReturn(packet) => {
                 self.on_guild_name_return(&packet.name).await;
             }
-            // 尚未实现的行会子功能：攻城、仓库、buff、联盟/敌对（见 `docs/world/guild.md`）。
+            // 行会仓库与行会 buff：Crystal `PlayerObject.cs:10061-10282`、`:10350-10436`，
+            // 见 [`crate::guild_storage`] 与 [`crate::guild_buffs`]。
             ClientPacket::GuildStorageGoldChange(packet) => {
-                tracing::debug!(
-                    session = self.id,
-                    type_ = packet.type_,
-                    amount = packet.amount,
-                    "忽略 C.GuildStorageGoldChange（行会仓库未实现）"
-                );
+                self.on_guild_storage_gold_change(packet.type_, packet.amount)
+                    .await;
             }
             ClientPacket::GuildStorageItemChange(packet) => {
-                tracing::debug!(
-                    session = self.id,
-                    type_ = packet.type_,
-                    "忽略 C.GuildStorageItemChange（行会仓库未实现）"
-                );
+                self.on_guild_storage_item_change(packet.type_, packet.from, packet.to)
+                    .await;
             }
             ClientPacket::GuildBuffUpdate(packet) => {
-                tracing::debug!(
-                    session = self.id,
-                    action = packet.action,
-                    id = packet.id,
-                    "忽略 C.GuildBuffUpdate（行会 buff 未实现）"
-                );
+                self.on_guild_buff_update(packet.action, packet.id).await;
             }
+            // 尚未实现的行会子功能：攻城、联盟/敌对（见 `docs/world/guild.md`）。
             ClientPacket::GuildWarReturn(packet) => {
                 tracing::debug!(
                     session = self.id,
@@ -722,6 +712,13 @@ impl<S: AccountStore> Session<S> {
         self.send(ServerPacket::SwitchGroup(
             mir_protocol::packets::server::SwitchGroup { allow_group },
         ));
+        // 行会 buff 的可选列表：Crystal 在 `SwitchGroup` 之后、`DefaultNPC` 之后发
+        // `S.GuildBuffList { GuildBuffs = Settings.Guild_BuffList }`（`PlayerObject.cs:1223-1224`），
+        // 而且**不看有没有行会**。本作的 `DefaultNPC` 还没实现，所以紧跟 `SwitchGroup`。
+        {
+            let mut world = self.world.lock().await;
+            world.send_guild_buff_info(object_id);
+        }
         // 任务表（`PlayerObject.cs:1185-1212`）：全套 `S.NewQuestInfo` → `S.CompleteQuest` →
         // 每条已接任务的 `S.ChangeQuest{Add}`。
         for packet in quest_packets {
@@ -1299,6 +1296,56 @@ impl<S: AccountStore> Session<S> {
             Ok(()) => tracing::debug!(session = self.id, type_, "行会信息已下发"),
             Err(error) => tracing::debug!(session = self.id, %error, "行会信息下发失败"),
         }
+    }
+
+    /// 行会仓库金币存取（`C.GuildStorageGoldChange`，Crystal `PlayerObject.GuildStorageGoldChange`，
+    /// `PlayerObject.cs:10061-10120`）。
+    async fn on_guild_storage_gold_change(&mut self, type_: u8, amount: u32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        {
+            let mut world = self.world.lock().await;
+            match world.guild_storage_gold_change(object_id, type_, amount) {
+                Ok(()) => tracing::debug!(session = self.id, type_, amount, "行会仓库金币变动"),
+                Err(error) => tracing::debug!(session = self.id, %error, "行会仓库金币变动被拒绝"),
+            }
+        }
+        self.flush_guild_writes().await;
+    }
+
+    /// 行会仓库物品存取（`C.GuildStorageItemChange`，Crystal
+    /// `PlayerObject.GuildStorageItemChange`，`PlayerObject.cs:10121-10282`）。
+    async fn on_guild_storage_item_change(&mut self, type_: u8, from: i32, to: i32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        {
+            let mut world = self.world.lock().await;
+            match world.guild_storage_item_change(object_id, type_, from, to) {
+                Ok(()) => tracing::debug!(session = self.id, type_, from, to, "行会仓库物品变动"),
+                Err(error) => {
+                    tracing::debug!(session = self.id, %error, "行会仓库物品变动被拒绝");
+                }
+            }
+        }
+        self.flush_guild_writes().await;
+    }
+
+    /// 行会增益（`C.GuildBuffUpdate`，Crystal `PlayerObject.GuildBuffUpdate`，
+    /// `PlayerObject.cs:10350-10436`）。
+    async fn on_guild_buff_update(&mut self, action: u8, id: i32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        {
+            let mut world = self.world.lock().await;
+            match world.guild_buff_update(object_id, action, id) {
+                Ok(()) => tracing::debug!(session = self.id, action, id, "行会增益请求已处理"),
+                Err(error) => tracing::debug!(session = self.id, %error, "行会增益请求被拒绝"),
+            }
+        }
+        self.flush_guild_writes().await;
     }
 
     /// 客户端把行会名送回来（`C.GuildNameReturn`，Crystal `PlayerObject.GuildNameReturn`，

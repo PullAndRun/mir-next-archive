@@ -186,6 +186,16 @@ async fn full_login_character_and_world_flow() {
         ServerPacket::SwitchGroup(switch) => assert!(switch.allow_group),
         other => panic!("期望 SwitchGroup，收到 {other:?}"),
     }
+    // 行会 buff 的可选列表：Crystal `StartGame` 无条件发（`PlayerObject.cs:1223-1224`）；
+    // 这个测试的世界用默认行会配置（没有 `[Buff-N]`），所以列表是空的。
+    let packet = client.expect_index(s::GuildBuffList::INDEX).await;
+    match packet {
+        ServerPacket::GuildBuffList(list) => {
+            assert!(list.guild_buffs.is_empty());
+            assert!(list.active_buffs.is_empty());
+        }
+        other => panic!("期望 GuildBuffList，收到 {other:?}"),
+    }
     let packet = client.expect_index(s::Chat::INDEX).await;
     match packet {
         ServerPacket::Chat(chat) => {

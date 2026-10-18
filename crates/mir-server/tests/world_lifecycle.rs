@@ -29,6 +29,11 @@ impl Harness {
     fn new(seed: u64) -> Self {
         let mut world = World::new(999);
         world.seed_rng(seed);
+        // 先把时钟冻结在「世界创建瞬间」：`World::enter` 里 `regen_time = now + 10s`，
+        // 而 `advance_clock(9999)` 会先读一次实时推进过几毫秒的 `now()`；不冻结的话
+        // 「入场后立刻快进 9999ms」在繁忙的 CI/并行测试里可能刚好越过 10s 触发回血
+        // （断言「未到点不回血」偶发失败）。冻结后 `now()` 只由偏移决定，完全可复现。
+        world.advance_clock(0);
         Self {
             world,
             receivers: HashMap::new(),

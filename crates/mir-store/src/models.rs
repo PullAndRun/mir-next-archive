@@ -323,8 +323,8 @@ impl Character {
 /// 行会（Crystal `GuildInfo`，`Server/MirDatabase/GuildInfo.cs:7-38`）。
 ///
 /// Crystal 把整个行会（职位、成员、仓库、buff、公告、攻城租期）序列化成一个
-/// `Guilds/<GuildIndex>.mgd` 文件（`GuildInfo.Save`，`:189-255`）。本作只迁移
-/// **核心行会**所需的部分，落成三张表（`migrations/0005_guilds.sql`）：
+/// `Guilds/<GuildIndex>.mgd` 文件（`GuildInfo.Save`，`:189-255`）。本作把它拆成
+/// 五张表（`migrations/0005_guilds.sql` + `migrations/0006_guild_storage.sql`）：
 ///
 /// | 本结构字段 | 表 | Crystal 来源 |
 /// |---|---|---|
@@ -335,9 +335,14 @@ impl Character {
 /// | `notice` | `guilds.notice`（`\n` 连接） | `Notice`（`:24`） |
 /// | [`GuildRankRow`] | `guild_ranks` | `Ranks`（`:21`） |
 /// | [`GuildMemberRow`] | `guild_members` | `GuildRank.Members`（`Shared/Data/GuildData.cs:1-43`） |
+/// | [`GuildStorageRow`] | `guild_storage` | `StoredItems`（`:22`，112 格） |
+/// | [`GuildBuffRow`] | `guild_buffs` | `BuffList`（`:23`） |
 ///
-/// 仓库（`StoredItems`，112 格，`:22`）、行会 buff（`:23`）、投票（`:16-19`）、
-/// 战旗与攻城租期（`:29-37`）**没有**迁移，见 `docs/world/guild.md` 的「未做」。
+/// 金币只有一份：Crystal 的 `GuildInfo.Gold` 既是行会资金也是「仓库金币」，
+/// 本作的 `gold` 列同样一份（见 `migrations/0006_guild_storage.sql` 的说明）。
+///
+/// 投票（`:16-19`）、战旗与攻城租期（`:29-37`）**没有**迁移，
+/// 见 `docs/world/guild.md` 的「未做」。
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Guild {
     /// 行会主键（Crystal `GuildInfo.GuildIndex`）。
@@ -360,6 +365,10 @@ pub struct Guild {
     pub ranks: Vec<GuildRankRow>,
     /// 成员（跨职位平铺；每个角色的 `rank_index` 指回 [`GuildRankRow::rank_index`]）。
     pub members: Vec<GuildMemberRow>,
+    /// 仓库（只存非空格子，按 `slot` 升序）。
+    pub storage: Vec<GuildStorageRow>,
+    /// 行会增益（按写入顺序；Crystal `List<GuildBuff>`）。
+    pub buffs: Vec<GuildBuffRow>,
 }
 
 impl Guild {
@@ -413,6 +422,43 @@ pub struct GuildMemberRow {
     pub rank_index: i16,
     /// 入会时间（Crystal 没有这个字段，本作扩展；用来稳定成员列表顺序）。
     pub joined_at: DateTime<Utc>,
+}
+
+/// 一格行会仓库（`guild_storage`）。
+///
+/// 对应 Crystal `GuildStorageItem`（`Shared/Data/GuildData.cs:44-60`）：
+/// `Item`（这里是 `encode_slots(&[Some(item)])` 的字节块，见
+/// `migrations/0006_guild_storage.sql`）+ `UserId`。
+/// `stored_at` 是本作扩展（Crystal 没有存放时间）。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, FromRow)]
+pub struct GuildStorageRow {
+    /// 所属行会。
+    pub guild_id: i32,
+    /// 格子序号（Crystal `GuildInfo.StoredItems` 的数组下标，0..=111）。
+    pub slot: i16,
+    /// `encode_slots(&[Some(UserItem)])` 字节块。
+    pub item: Vec<u8>,
+    /// 存放者的角色主键（Crystal `GuildStorageItem.UserId`）。
+    pub user_id: i64,
+    /// 存放时间（本作扩展）。
+    pub stored_at: DateTime<Utc>,
+}
+
+/// 一条行会增益（`guild_buffs`）。
+///
+/// 对应 Crystal `GuildBuff`（`Shared/Data/GuildData.cs:217-243`）：
+/// `Id` / `Active` / `ActiveTimeRemaining`。`Info` 不在库里，
+/// 运行时按 `buff_id` 从 `GuildSettings.ini` 的 `[Buff-N]` 段（`Server/Settings.cs:1371-1375`）查。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, FromRow)]
+pub struct GuildBuffRow {
+    /// 所属行会。
+    pub guild_id: i32,
+    /// 增益编号（`GuildBuff.Id`）。
+    pub buff_id: i32,
+    /// 是否已激活（`GuildBuff.Active`）。
+    pub active: bool,
+    /// 剩余生效时间，单位**分钟**（`GuildBuff.ActiveTimeRemaining`）。
+    pub active_time_remaining: i32,
 }
 
 /// `guilds` 表的一行（不加联表信息，[`Guild`] 是它的展开版）。

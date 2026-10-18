@@ -8,7 +8,8 @@ use mir_core::enums::{MirClass, MirDirection, MirGender};
 use mir_store::PgPool;
 
 use crate::store::{
-    Account, AccountStore, Character, GuildMemberRecord, GuildRankRecord, GuildRecord, StoreError,
+    Account, AccountStore, Character, GuildBuffRecord, GuildMemberRecord, GuildRankRecord,
+    GuildRecord, GuildStorageRecord, StoreError,
 };
 
 /// 基于 PostgreSQL 的账号/角色存储。
@@ -141,8 +142,10 @@ fn apply_to_store_character(character: &Character, target: &mut mir_store::Chara
 // 行会：服务端视图 ↔ `mir-store` 行
 // ---------------------------------------------------------------------------
 
-/// 入会时间：Unix 毫秒 → `DateTime<Utc>`（越界值退到纪元，不 panic）。
-fn joined_at_to_datetime(millis: i64) -> DateTime<Utc> {
+/// Unix 毫秒 → `DateTime<Utc>`（越界值退到纪元，不 panic）。
+///
+/// 用于成员的 `joined_at`、仓库格子的 `stored_at`（都是本作扩展的毫秒时间戳）。
+fn millis_to_datetime(millis: i64) -> DateTime<Utc> {
     DateTime::<Utc>::from_timestamp_millis(millis).unwrap_or_default()
 }
 
@@ -175,7 +178,28 @@ fn to_store_guild(guild: &GuildRecord) -> mir_store::Guild {
                 character_id: member.character_id,
                 name: member.name.clone(),
                 rank_index: i16::from(member.rank_index),
-                joined_at: joined_at_to_datetime(member.joined_at),
+                joined_at: millis_to_datetime(member.joined_at),
+            })
+            .collect(),
+        storage: guild
+            .storage
+            .iter()
+            .map(|item| mir_store::GuildStorageRow {
+                guild_id: guild.id,
+                slot: i16::from(item.slot),
+                item: item.item.clone(),
+                user_id: item.user_id,
+                stored_at: millis_to_datetime(item.stored_at),
+            })
+            .collect(),
+        buffs: guild
+            .buffs
+            .iter()
+            .map(|buff| mir_store::GuildBuffRow {
+                guild_id: guild.id,
+                buff_id: buff.id,
+                active: buff.active,
+                active_time_remaining: buff.active_time_remaining,
             })
             .collect(),
     }
@@ -209,6 +233,25 @@ fn from_store_guild(guild: mir_store::Guild) -> GuildRecord {
                 name: member.name,
                 rank_index: u8::try_from(member.rank_index).unwrap_or(0),
                 joined_at: member.joined_at.timestamp_millis(),
+            })
+            .collect(),
+        storage: guild
+            .storage
+            .into_iter()
+            .map(|item| GuildStorageRecord {
+                slot: u8::try_from(item.slot).unwrap_or(0),
+                item: item.item,
+                user_id: item.user_id,
+                stored_at: item.stored_at.timestamp_millis(),
+            })
+            .collect(),
+        buffs: guild
+            .buffs
+            .into_iter()
+            .map(|buff| GuildBuffRecord {
+                id: buff.buff_id,
+                active: buff.active,
+                active_time_remaining: buff.active_time_remaining,
             })
             .collect(),
     }

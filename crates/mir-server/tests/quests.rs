@@ -405,6 +405,7 @@ impl Harness {
             group_invitation: None,
             group_invite_time: 0,
             allow_group: true,
+            guild: None,
             sender,
         });
         self.receivers.insert(object_id, receiver);
@@ -1457,6 +1458,7 @@ fn real_quest_can_be_completed_end_to_end() {
         group_invitation: None,
         group_invite_time: 0,
         allow_group: true,
+        guild: None,
         sender,
     });
 
@@ -1552,6 +1554,7 @@ fn real_luke_script_gates_the_dialog_on_quest_completion() {
         group_invitation: None,
         group_invite_time: 0,
         allow_group: true,
+        guild: None,
         sender,
     });
 
@@ -1673,6 +1676,7 @@ fn login_packets_carry_the_quest_catalogue() {
         group_invitation: None,
         group_invite_time: 0,
         allow_group: true,
+        guild: None,
         sender,
     });
     assert!(empty.quest_login_packets(9).is_empty());

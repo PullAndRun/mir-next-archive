@@ -107,6 +107,7 @@ impl Harness {
             group_invitation: None,
             group_invite_time: 0,
             allow_group: true,
+            guild: None,
             sender,
         });
         // `World::enter` 会把 `RegenTime` 推到「一个回复周期之后」；测试里直接关掉，

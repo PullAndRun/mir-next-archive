@@ -8,7 +8,8 @@
 //!
 //! `migrations/0001_init.sql` 建两张表，`migrations/0002_account_language.sql` 再给账号
 //! 加上界面语言列，`migrations/0003_character_magics.sql` 给角色加上技能字节块，
-//! `migrations/0004_character_quests.sql` 加上任务字节块（迁移是只追加的，旧文件不再改动）：
+//! `migrations/0004_character_quests.sql` 加上任务字节块，`migrations/0005_guilds.sql`
+//! 加上行会三张表（迁移是只追加的，旧文件不再改动）：
 //!
 //! - `accounts`：登录名（大小写不敏感唯一）、口令散列与 24 字节盐、邮箱、注册 IP/时间、
 //!   封禁（标志 + 原因 + 到期时间）、强制改密、错误口令计数、最后登录 IP/时间、GM 标志、
@@ -17,6 +18,9 @@
 //!   等级/职业/性别/发型、建号信息、封禁、登录/登出时间、软删除、位置与朝向、回城点、
 //!   HP/MP/经验/金币/点数、模式与权限、行会、五个字节块（背包/装备/技能/任务/仓库，`BYTEA`）、
 //!   婚姻与师徒关系。
+//! - `guilds` / `guild_ranks` / `guild_members`：行会本体（名字大小写不敏感唯一）、
+//!   职位（`GuildRankOptions` 位掩码）与成员（**一个角色只能在一个行会**，
+//!   由 `guild_members.character_id` 主键保证）。见 [`Guild`] 与 `docs/world/guild.md`。
 //!
 //! # 与 Crystal 的取舍
 //!
@@ -61,13 +65,15 @@ mod repo;
 
 pub use error::{Result, StoreError};
 pub use models::{
-    Account, Character, CharacterSummary, DEFAULT_LANGUAGE, LoginGate, NewAccount, NewCharacter,
+    Account, Character, CharacterSummary, DEFAULT_LANGUAGE, Guild, GuildMemberRow, GuildRankRow,
+    LoginGate, NewAccount, NewCharacter,
 };
 pub use password::{HASH_LEN, ITERATIONS, SALT_LEN, generate_salt, hash_password, verify_password};
 pub use repo::{
-    create_account, create_character, delete_character, find_account, is_supported_language,
-    list_characters, load_character, mark_login, normalize_language, save_account, save_character,
-    set_account_language, set_last_login_ip,
+    create_account, create_character, create_guild, delete_character, delete_guild, find_account,
+    is_supported_language, list_characters, list_guilds, load_character, load_guild,
+    load_guild_by_name, mark_login, normalize_language, save_account, save_character, save_guild,
+    set_account_language, set_character_guild, set_last_login_ip,
 };
 pub use sqlx::PgPool;
 

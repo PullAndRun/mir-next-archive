@@ -261,6 +261,13 @@ pub struct Player {
     /// 所以不持久化，进世界时默认 `true`，可以用 `C.SwitchGroup` 关闭
     /// （偏差说明见 `docs/world/group.md`）。
     pub allow_group: bool,
+    /// 所属行会与自己的职位序号（Crystal `PlayerObject.MyGuild` + `MyGuildRank`，
+    /// `Server/MirObjects/PlayerObject.cs:232-235`、`:983-986`，见 [`crate::guild`]）。
+    ///
+    /// 进世界时由 [`World::guild_bind_player`] 按成员表校正（行会已被解散/自己已被踢
+    /// 就清空），上线/下线的广播由 [`World::guild_player_online`] /
+    /// [`World::guild_player_offline`] 负责。
+    pub guild: Option<crate::guild::GuildRef>,
     /// 发包通道。
     pub sender: UnboundedSender<Vec<u8>>,
 }
@@ -530,6 +537,40 @@ pub struct World {
     pub(crate) groups: HashMap<u32, crate::group::Group>,
     /// 下一个队伍 ID（Crystal 没有这个字段，靠对象引用区分）。
     pub(crate) next_group_id: u32,
+    /// 所有行会（Crystal `Envir.Guilds`，`Server/MirEnvir/Envir.cs:147`；见 [`crate::guild`]）。
+    pub(crate) guilds: HashMap<i32, crate::guild::Guild>,
+    /// 下一个行会 ID（Crystal `Envir.NextGuildID`，`Envir.cs:126`）。
+    pub(crate) next_guild_id: i32,
+    /// 待接受的行会邀请：玩家对象 ID → 行会 ID
+    /// （Crystal `PlayerObject.PendingGuildInvite`，`PlayerObject.cs:143`）。
+    pub(crate) guild_invites: HashMap<u32, i32>,
+    /// 行会相关配置（Crystal `Settings.Guild_*` + `Configs/GuildSettings.ini`）。
+    pub(crate) guild_settings: crate::guild::GuildSettings,
+    /// 待落盘的行会写入队列。
+    ///
+    /// 世界层是同步的，而存储层是异步的：行会操作只把「要写什么」记在这里，
+    /// 由会话（[`crate::session::Session`]）在包处理完后取走写库；测试可以直接
+    /// [`World::take_guild_writes`] 检查/应用。
+    pub(crate) guild_writes: Vec<GuildWrite>,
+}
+
+/// 一条待落盘的行会变更（见 `World::guild_writes`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GuildWrite {
+    /// 整份保存一个行会（含职位与成员）。
+    Save(Box<crate::store::GuildRecord>),
+    /// 删除一个行会（解散，或最后一个成员退出）。
+    Delete {
+        /// 行会 ID。
+        guild_id: i32,
+    },
+    /// 写角色的行会归属（`-1` = 退出）。
+    SetCharacterGuild {
+        /// 角色 ID。
+        character_id: i64,
+        /// 行会 ID；`-1` 表示没有行会。
+        guild_id: i32,
+    },
 }
 
 impl Default for World {
@@ -577,6 +618,11 @@ impl World {
             clock_frozen: false,
             groups: HashMap::new(),
             next_group_id: 1,
+            guilds: HashMap::new(),
+            next_guild_id: 1,
+            guild_invites: HashMap::new(),
+            guild_settings: crate::guild::GuildSettings::default(),
+            guild_writes: Vec::new(),
         }
     }
 
@@ -619,6 +665,11 @@ impl World {
             clock_frozen: false,
             groups: HashMap::new(),
             next_group_id: 1,
+            guilds: HashMap::new(),
+            next_guild_id: 1,
+            guild_invites: HashMap::new(),
+            guild_settings: crate::guild::GuildSettings::default(),
+            guild_writes: Vec::new(),
         }
     }
 
@@ -835,6 +886,10 @@ impl World {
         if has_equipment {
             self.refresh_stats(object_id);
         }
+        // 行会：接上成员状态（**不发包**：`S.GuildStatus` 要排在 `UserInformation`
+        // 之后，由会话在 `on_start_game` 里调 `guild_player_online` 补发；
+        // Crystal `PlayerObject.cs:1309`）。
+        self.guild_bind_player(object_id);
     }
 
     /// 把玩家移出世界，并通知周围玩家移除。
@@ -856,6 +911,8 @@ impl World {
         }
         // `Despawn(); LeaveGroup();`（`PlayerObject.cs:405-406`）。
         self.leave_group(object_id);
+        // 行会成员标记离线（Crystal `PlayerObject.cs:397` 的 `MyGuild.PlayerLogged(this, false)`）。
+        self.guild_player_offline(object_id);
         self.players.remove(&object_id)
     }
 
@@ -1822,6 +1879,10 @@ impl World {
             player.max_experience = max_experience;
         }
 
+        // `if (MyGuild != null && MyGuild.Name != Settings.NewbieGuild) MyGuild.GainExp(amount);`
+        // （`PlayerObject.cs:902-903`）：行会经验在「判定升级之前」结算，见 [`crate::guild`]。
+        self.guild_gain_exp(object_id, amount);
+
         // `if (Experience < MaxExperience) return; if (Level >= ushort.MaxValue) return;`（`:905-906`）
         if experience < max_experience || level == u16::MAX {
             return;
@@ -2235,6 +2296,11 @@ impl World {
         if message.starts_with("!!") {
             return Ok(self.group_chat(object_id, message));
         }
+        // `else if (message.StartsWith("!~"))`（`PlayerObject.cs:2014`）：行会聊天，
+        // 只发给在线成员，不走本地图广播（见 [`crate::guild`] 的 `guild_chat`）。
+        if let Some(text) = message.strip_prefix("!~") {
+            return Ok(self.guild_chat(object_id, text));
+        }
         let (map, position) = {
             let player = self
                 .players
@@ -2595,6 +2661,7 @@ mod tests {
                 group_invitation: None,
                 group_invite_time: 0,
                 allow_group: true,
+                guild: None,
                 sender,
             },
             receiver,

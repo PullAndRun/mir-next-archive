@@ -81,6 +81,12 @@ pub const REPAIR_KEY: &str = "[@REPAIR]";
 pub const SPECIAL_REPAIR_KEY: &str = "[@SREPAIR]";
 /// 仓库（`StorageKey`，`:55`）。仓库功能本作未实现，只是不把页面当错误。
 pub const STORAGE_KEY: &str = "[@STORAGE]";
+/// 创建行会的页面（`GuildCreateKey`，`NPCScript.cs:60`）。
+///
+/// 点这个按钮时服务端**不打开面板**，而是发 `S.GuildNameRequest` 让客户端弹输入框
+/// （`NPCScript.cs:1050-1062`），玩家回 `C.GuildNameReturn{Name}` 后再创建
+/// （`PlayerObject.cs:10029-10060`）。见 [`crate::guild`]。
+pub const GUILD_CREATE_KEY: &str = "[@CREATEGUILD]";
 
 /// 可以「买」的页面（Crystal `PlayerObject.BuyItem`，`:7948-7955`）。
 pub const BUY_PAGES: &[&str] = &[
@@ -135,6 +141,11 @@ pub struct NpcState {
     pub move_map: Option<String>,
     /// 见 [`NpcState::move_map`]（Crystal `NPCData["NPCMoveCoord"]`，`:4498`）。
     pub move_coord: Option<Point>,
+    /// 是否已经答应「可以创建行会」（Crystal `PlayerObject.CanCreateGuild`，`PlayerObject.cs:141`）。
+    ///
+    /// 只有点了 `[@CREATEGUILD]` 页面之后才置位，随后 `C.GuildNameReturn` 才被接受；
+    /// 创建成功/失败都会清掉（`PlayerObject.cs:10031`、`:10059`）。
+    pub can_create_guild: bool,
 }
 
 impl NpcState {
@@ -1133,6 +1144,26 @@ impl World {
                         .push(format!("ABANDONQUEST {index} 失败：{error}"));
                 }
             }
+            NpcActionKind::CreateGuild => {
+                // 本作扩展（Crystal 只有 `[@CREATEGUILD]` 页面 + `C.GuildNameReturn`）。
+                let Some(name) = action.params.first() else {
+                    tracing::debug!(npc = %npc.name, "CREATEGUILD 缺参数：{}", action.source);
+                    return;
+                };
+                match self.create_guild(player_id, name) {
+                    Ok(guild_id) => {
+                        // 成功提示照 `PlayerObject.cs:3299` 的 GM 命令写法。
+                        self.send_system_chat(player_id, &format!("行会 {name} 创建成功。"));
+                        tracing::info!(npc = %npc.name, guild = guild_id, %name, "NPC 动作创建行会");
+                    }
+                    Err(error) => {
+                        tracing::debug!(npc = %npc.name, %error, "NPC 动作创建行会被拒绝");
+                        self.send_system_chat(player_id, &error.message());
+                        run.quest_events
+                            .push(format!("CREATEGUILD {name} 失败：{error}"));
+                    }
+                }
+            }
         }
     }
 
@@ -1530,8 +1561,9 @@ impl World {
 
     /// 打开服务端面板（Crystal `ProcessSpecial`，`NPCScript.cs:919-1136`）。
     ///
-    /// 只实现买卖/修理三个面板；其余内建页面（仓库、锻造、行会…）本作没有，静默跳过。
-    fn open_npc_panel(&self, player_id: u32, npc: &Npc, page_key: &str) -> Vec<&'static str> {
+    /// 只实现买卖/修理三个面板与「创建行会」的名字请求；其余内建页面（仓库、锻造、
+    /// 攻城…）本作没有，静默跳过。
+    fn open_npc_panel(&mut self, player_id: u32, npc: &Npc, page_key: &str) -> Vec<&'static str> {
         let rate = self.price_rate(npc);
         let mut opened = Vec::new();
         match page_key {
@@ -1581,6 +1613,27 @@ impl World {
             STORAGE_KEY => {
                 // `:1002-1006` 会发 `S.UserStorage` + `S.NPCStorage`；仓库功能未实现（TODO）。
                 tracing::debug!("[@STORAGE] 仓库功能未实现，跳过");
+            }
+            GUILD_CREATE_KEY => {
+                // `case GuildCreateKey:`（`NPCScript.cs:1050-1062`）：
+                // 等级不够只提示；已在行会里也只提示；否则置 `CanCreateGuild` 并发
+                // `S.GuildNameRequest`（`:1057-1058`）。
+                match self.request_guild_name(player_id) {
+                    Ok(()) => {
+                        if let Some(player) = self.players.get_mut(&player_id) {
+                            player.npc.can_create_guild = true;
+                        }
+                        opened.push("guild");
+                    }
+                    Err(error) => {
+                        tracing::debug!(
+                            npc = %npc.name,
+                            %error,
+                            "请求创建行会被拒绝"
+                        );
+                        self.send_system_chat(player_id, &error.message());
+                    }
+                }
             }
             _ => {}
         }

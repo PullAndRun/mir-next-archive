@@ -316,6 +316,126 @@ impl Character {
     }
 }
 
+// ---------------------------------------------------------------------------
+// 行会（Crystal `GuildInfo` / `GuildRank` / `GuildMember`）
+// ---------------------------------------------------------------------------
+
+/// 行会（Crystal `GuildInfo`，`Server/MirDatabase/GuildInfo.cs:7-38`）。
+///
+/// Crystal 把整个行会（职位、成员、仓库、buff、公告、攻城租期）序列化成一个
+/// `Guilds/<GuildIndex>.mgd` 文件（`GuildInfo.Save`，`:189-255`）。本作只迁移
+/// **核心行会**所需的部分，落成三张表（`migrations/0005_guilds.sql`）：
+///
+/// | 本结构字段 | 表 | Crystal 来源 |
+/// |---|---|---|
+/// | `id` | `guilds.id` | `GuildIndex`（`:9`） |
+/// | `name` | `guilds.name` | `Name`（`:10`） |
+/// | `leader_character_id` | `guilds.leader_character_id` | rank 0 的第一个成员（`:54-57`） |
+/// | `level` / `experience` / `gold` / `spare_points` | `guilds` 同名列 | `:11-14` |
+/// | `notice` | `guilds.notice`（`\n` 连接） | `Notice`（`:24`） |
+/// | [`GuildRankRow`] | `guild_ranks` | `Ranks`（`:21`） |
+/// | [`GuildMemberRow`] | `guild_members` | `GuildRank.Members`（`Shared/Data/GuildData.cs:1-43`） |
+///
+/// 仓库（`StoredItems`，112 格，`:22`）、行会 buff（`:23`）、投票（`:16-19`）、
+/// 战旗与攻城租期（`:29-37`）**没有**迁移，见 `docs/world/guild.md` 的「未做」。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Guild {
+    /// 行会主键（Crystal `GuildInfo.GuildIndex`）。
+    pub id: i32,
+    /// 行会名（唯一性不区分大小写）。
+    pub name: String,
+    /// 会长角色主键。
+    pub leader_character_id: i64,
+    /// 行会等级（Crystal `Level`，`byte`）。
+    pub level: i16,
+    /// 行会经验（Crystal `Experience`，`long`）。
+    pub experience: i64,
+    /// 行会资金（Crystal `Gold`，`uint`；这里用 `i64` 以免每处都要 `try_into`）。
+    pub gold: i64,
+    /// 行会升级点（Crystal `SparePoints`，`byte`）。
+    pub spare_points: i16,
+    /// 公告的每一行（Crystal `Notice`，`List<string>`）。
+    pub notice: Vec<String>,
+    /// 职位（按 `index` 升序；`index == 0` 是会长职位）。
+    pub ranks: Vec<GuildRankRow>,
+    /// 成员（跨职位平铺；每个角色的 `rank_index` 指回 [`GuildRankRow::rank_index`]）。
+    pub members: Vec<GuildMemberRow>,
+}
+
+impl Guild {
+    /// 公告全文：按行用 `\n` 连接（空行也保留，与 Crystal 的 `List<string>` 一致）。
+    #[must_use]
+    pub fn notice_text(&self) -> String {
+        self.notice.join("\n")
+    }
+
+    /// 从公告全文拆行。
+    ///
+    /// 空串解成 0 行（Crystal 里没有公告就是空 `List`，而不是一个空行）。
+    #[must_use]
+    pub fn split_notice(text: &str) -> Vec<String> {
+        if text.is_empty() {
+            return Vec::new();
+        }
+        text.split('\n').map(str::to_owned).collect()
+    }
+}
+
+/// 一行职位（`guild_ranks`）。
+///
+/// 对应 Crystal `GuildRank`（`Shared/Data/GuildData.cs:1`）的 `Index` / `Name` / `Options`；
+/// 成员在 Crystal 里嵌在职位对象内，本作单独成表（见 [`GuildMemberRow`]）。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, FromRow)]
+pub struct GuildRankRow {
+    /// 所属行会。
+    pub guild_id: i32,
+    /// 职位序号（`0` = 会长）。
+    pub rank_index: i16,
+    /// 职位名。
+    pub name: String,
+    /// 权限位掩码（`GuildRankOptions`，`Shared/Enums.cs:1897-1908`）。
+    pub options: i16,
+}
+
+/// 一行成员（`guild_members`）。
+///
+/// 角色名来自 `characters.name` 的联表查询（Crystal 把名字抄在 `GuildMember.Name` 里，
+/// `Shared/Data/GuildData.cs:34`；本作不冗余存名字，改名后行会列表自动跟着变）。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, FromRow)]
+pub struct GuildMemberRow {
+    /// 所属行会。
+    pub guild_id: i32,
+    /// 角色主键。
+    pub character_id: i64,
+    /// 角色名（联表读出）。
+    pub name: String,
+    /// 所属职位序号。
+    pub rank_index: i16,
+    /// 入会时间（Crystal 没有这个字段，本作扩展；用来稳定成员列表顺序）。
+    pub joined_at: DateTime<Utc>,
+}
+
+/// `guilds` 表的一行（不加联表信息，[`Guild`] 是它的展开版）。
+#[derive(Debug, Clone, FromRow)]
+pub(crate) struct GuildRow {
+    /// 主键。
+    pub id: i32,
+    /// 行会名。
+    pub name: String,
+    /// 会长角色主键。
+    pub leader_character_id: i64,
+    /// 等级。
+    pub level: i16,
+    /// 经验。
+    pub experience: i64,
+    /// 资金。
+    pub gold: i64,
+    /// 升级点。
+    pub spare_points: i16,
+    /// 公告全文（`\n` 分隔）。
+    pub notice: String,
+}
+
 /// 选角列表的一行（Crystal `SelectInfo`）。
 ///
 /// 只带客户端选角需要的字段，避免把三个物品大块一起读出来。

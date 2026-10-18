@@ -225,6 +225,64 @@ impl<S: AccountStore> Session<S> {
             ClientPacket::GroupInvite(packet) => {
                 self.on_group_invite(packet.accept_invite).await;
             }
+            // 行会：`C.EditGuildMember` / `C.EditGuildNotice` / `C.GuildInvite` /
+            // `C.RequestGuildInfo` / `C.GuildNameReturn`
+            // （Crystal `MirConnection.cs:1256-1270` → `PlayerObject.cs:9840-10060`，见 [`crate::guild`]）。
+            ClientPacket::EditGuildMember(packet) => {
+                self.on_edit_guild_member(
+                    packet.change_type,
+                    packet.rank_index,
+                    &packet.name,
+                    &packet.rank_name,
+                )
+                .await;
+            }
+            ClientPacket::EditGuildNotice(packet) => {
+                self.on_edit_guild_notice(packet.notice).await;
+            }
+            ClientPacket::GuildInvite(packet) => {
+                self.on_guild_invite(packet.accept_invite).await;
+            }
+            ClientPacket::RequestGuildInfo(packet) => {
+                self.on_request_guild_info(packet.type_).await;
+            }
+            ClientPacket::GuildNameReturn(packet) => {
+                self.on_guild_name_return(&packet.name).await;
+            }
+            // 尚未实现的行会子功能：攻城、仓库、buff、联盟/敌对（见 `docs/world/guild.md`）。
+            ClientPacket::GuildStorageGoldChange(packet) => {
+                tracing::debug!(
+                    session = self.id,
+                    type_ = packet.type_,
+                    amount = packet.amount,
+                    "忽略 C.GuildStorageGoldChange（行会仓库未实现）"
+                );
+            }
+            ClientPacket::GuildStorageItemChange(packet) => {
+                tracing::debug!(
+                    session = self.id,
+                    type_ = packet.type_,
+                    "忽略 C.GuildStorageItemChange（行会仓库未实现）"
+                );
+            }
+            ClientPacket::GuildBuffUpdate(packet) => {
+                tracing::debug!(
+                    session = self.id,
+                    action = packet.action,
+                    id = packet.id,
+                    "忽略 C.GuildBuffUpdate（行会 buff 未实现）"
+                );
+            }
+            ClientPacket::GuildWarReturn(packet) => {
+                tracing::debug!(
+                    session = self.id,
+                    name = %packet.name,
+                    "忽略 C.GuildWarReturn（行会攻城战未实现）"
+                );
+            }
+            ClientPacket::PurchaseGuildTerritory(_) | ClientPacket::GuildTerritoryPage(_) => {
+                tracing::debug!(session = self.id, "忽略攻城领地相关包（未实现）");
+            }
             ClientPacket::Disconnect(_) => {
                 self.leave_world().await;
             }
@@ -527,6 +585,9 @@ impl<S: AccountStore> Session<S> {
         world.observe_item_uids(inventory.iter().chain(equipment.iter()).flatten());
         let object_id = world.allocate_object_id();
         let position = Point::new(character.x, character.y);
+        // 行会：按角色 ID 反查成员表（`Character.guild_index` 只是反向指针，
+        // 行会的成员表才是事实来源）。`World::enter` 会再校正一次。
+        let guild_ref = world.guild_ref_of_character(character.id);
         world.enter(Player {
             object_id,
             session_id: self.id,
@@ -589,6 +650,8 @@ impl<S: AccountStore> Session<S> {
             group_invitation: None,
             group_invite_time: 0,
             allow_group: true,
+            // 行会：由上面的 `guild_ref` 传入（`World::enter` 会校正并在行会里标记上线）。
+            guild: guild_ref,
             sender: self.out.clone(),
         });
         // 进图资料：Crystal `PlayerObject.CheckMapInfo`（`PlayerObject.cs:1009-1056`）。
@@ -663,6 +726,13 @@ impl<S: AccountStore> Session<S> {
         // 每条已接任务的 `S.ChangeQuest{Add}`。
         for packet in quest_packets {
             self.send(packet);
+        }
+        // 行会：`MyGuild.PlayerLogged(this, true)` → `S.GuildMemberChange{Status=1}` 给所有
+        // 在线成员，再给自己一条 `S.GuildStatus`（`PlayerObject.cs:1309-1316`）。
+        // 必须排在 `S.UserInformation` 之后，所以放在这里补发。
+        {
+            let mut world = self.world.lock().await;
+            world.guild_player_online(object_id);
         }
         let welcome = self.language.text_with(&self.languages, TextKey::Welcome);
         self.send_system_chat(&welcome);
@@ -1149,6 +1219,143 @@ impl<S: AccountStore> Session<S> {
         }
     }
 
+    /// 行会成员编辑（`C.EditGuildMember`，Crystal `PlayerObject.EditGuildMember`，
+    /// `PlayerObject.cs:9840-9957`）。
+    ///
+    /// 世界层按 `ChangeType` 分派并负责发包/提示，这里只管日志与落盘。
+    async fn on_edit_guild_member(
+        &mut self,
+        change_type: u8,
+        rank_index: u8,
+        name: &str,
+        rank_name: &str,
+    ) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let edit = crate::guild::GuildMemberEdit {
+            change_type,
+            rank_index,
+            name: name.to_owned(),
+            rank_name: rank_name.to_owned(),
+        };
+        {
+            let mut world = self.world.lock().await;
+            match world.guild_edit_member(object_id, &edit) {
+                Ok(()) => tracing::debug!(
+                    session = self.id,
+                    change_type,
+                    rank_index,
+                    name,
+                    "行会成员编辑"
+                ),
+                Err(error) => {
+                    tracing::debug!(session = self.id, %error, "行会成员编辑被拒绝");
+                }
+            }
+        }
+        self.flush_guild_writes().await;
+    }
+
+    /// 改公告（`C.EditGuildNotice`，Crystal `PlayerObject.EditGuildNotice`，`PlayerObject.cs:9958-9977`）。
+    async fn on_edit_guild_notice(&mut self, notice: Vec<String>) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        {
+            let mut world = self.world.lock().await;
+            match world.guild_edit_notice(object_id, notice) {
+                Ok(()) => tracing::debug!(session = self.id, "行会公告已更新"),
+                Err(error) => tracing::debug!(session = self.id, %error, "行会公告更新被拒绝"),
+            }
+        }
+        self.flush_guild_writes().await;
+    }
+
+    /// 接受/拒绝行会邀请（`C.GuildInvite`，Crystal `PlayerObject.GuildInvite`，
+    /// `PlayerObject.cs:9978-10011`）。
+    async fn on_guild_invite(&mut self, accept: bool) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        {
+            let mut world = self.world.lock().await;
+            match world.guild_join(object_id, accept) {
+                Ok(outcome) => tracing::debug!(session = self.id, accept, ?outcome, "处理行会邀请"),
+                Err(error) => tracing::debug!(session = self.id, %error, "接受行会邀请失败"),
+            }
+        }
+        self.flush_guild_writes().await;
+    }
+
+    /// 拉取行会公告/成员表（`C.RequestGuildInfo`，Crystal `PlayerObject.RequestGuildInfo`，
+    /// `PlayerObject.cs:10012-10028`）。
+    async fn on_request_guild_info(&mut self, type_: u8) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.guild_request_info(object_id, type_) {
+            Ok(()) => tracing::debug!(session = self.id, type_, "行会信息已下发"),
+            Err(error) => tracing::debug!(session = self.id, %error, "行会信息下发失败"),
+        }
+    }
+
+    /// 客户端把行会名送回来（`C.GuildNameReturn`，Crystal `PlayerObject.GuildNameReturn`，
+    /// `PlayerObject.cs:10029-10060`）。
+    ///
+    /// 只有点过 NPC 的 `[@CREATEGUILD]` 页面（`Player.npc.can_create_guild`）才接受，
+    /// 与 Crystal 的 `CanCreateGuild` 一致；无论成败都清掉这个标记（`:10031`、`:10059`）。
+    async fn on_guild_name_return(&mut self, name: &str) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        let allowed = world
+            .player(object_id)
+            .is_some_and(|player| player.npc.can_create_guild);
+        if !allowed {
+            tracing::debug!(
+                session = self.id,
+                "忽略 C.GuildNameReturn（没有申请创建行会）"
+            );
+            return;
+        }
+        if name.is_empty() {
+            if let Some(player) = world.player_mut(object_id) {
+                player.npc.can_create_guild = false;
+            }
+            return;
+        }
+        let result = world.create_guild(object_id, name);
+        if let Some(player) = world.player_mut(object_id) {
+            player.npc.can_create_guild = false;
+        }
+        drop(world);
+        match &result {
+            Ok(guild_id) => tracing::info!(session = self.id, guild = guild_id, %name, "创建行会"),
+            Err(error) => {
+                tracing::debug!(session = self.id, %error, "创建行会被拒绝");
+                self.send_system_chat(&error.message());
+            }
+        }
+        self.flush_guild_writes().await;
+    }
+
+    /// 把世界上积压的行会写入落盘（见 [`crate::guild::persist_guild_writes`]）。
+    async fn flush_guild_writes(&self) {
+        let writes = {
+            let mut world = self.world.lock().await;
+            world.take_guild_writes()
+        };
+        if writes.is_empty() {
+            return;
+        }
+        if let Err(error) = crate::guild::persist_guild_writes(self.store.as_ref(), writes).await {
+            tracing::warn!(session = self.id, %error, "行会落盘失败");
+        }
+    }
+
     /// 如果是因为「动作还没结束」被拒，等到 `ActionTime` 之后再试一次。
     ///
     /// 返回 `true` 表示值得重试。等待时长有上限，避免异常状态把连接卡死。
@@ -1264,6 +1471,9 @@ impl<S: AccountStore> Session<S> {
                 // 切图后角色要在新图上重登，地图名必须一起落盘
                 // （Crystal `CharacterInfo` 存的是当前地图，`Envir.SaveAccounts`）。
                 character.map.clone_from(&player.map);
+                // 行会归属：世界里的成员表才是事实来源（`guild` 在进世界时已校正过），
+                // 存档只记 `characters.guild_index`（Crystal `CharacterInfo.GuildIndex`）。
+                character.guild_index = player.guild.map_or(-1, |reference| reference.guild_id);
             }
         }
         if let Some(character) = self.character.clone() {
@@ -1271,6 +1481,8 @@ impl<S: AccountStore> Session<S> {
                 tracing::warn!(session = self.id, %error, "下线存盘失败");
             }
         }
+        // 下线期间可能还积压着行会写入（成员离线、行会经验……），一起落盘。
+        self.flush_guild_writes().await;
         self.stage = Stage::Select;
     }
 

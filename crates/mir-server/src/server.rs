@@ -38,17 +38,38 @@ pub async fn serve_forever<S: AccountStore>(
     store: Arc<S>,
 ) -> anyhow::Result<()> {
     let world = Arc::new(Mutex::new(build_world(&config)));
+    // 行会：启动时把库里的行会灌进世界（Crystal `Envir.LoadGuilds`，`Envir.cs:3089-3117`）。
+    match store.list_guilds().await {
+        Ok(guilds) => {
+            let mut world = world.lock().await;
+            let loaded = world.load_guilds(guilds);
+            tracing::info!(count = loaded, "已载入行会");
+        }
+        Err(error) => tracing::warn!(%error, "读取行会失败：从空行会列表启动"),
+    }
     let languages = Arc::new(build_language_library(&config));
     let next_session = Arc::new(AtomicU64::new(1));
 
     // 世界 tick：每 100ms 推进一次（跑步计数衰减、停顿清零；怪物 AI 之后也挂这里）。
     let tick_world = Arc::clone(&world);
+    let tick_store = Arc::clone(&store);
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             interval.tick().await;
-            tick_world.lock().await.tick();
+            let writes = {
+                let mut world = tick_world.lock().await;
+                world.tick();
+                // 行会经验来自怪物击杀（tick 里结算），写入由这里定期落盘。
+                world.take_guild_writes()
+            };
+            if !writes.is_empty()
+                && let Err(error) =
+                    crate::guild::persist_guild_writes(tick_store.as_ref(), writes).await
+            {
+                tracing::warn!(%error, "tick 里的行会落盘失败");
+            }
         }
     });
 
@@ -110,6 +131,9 @@ fn build_world(config: &ServerConfig) -> World {
     // 等级经验表：`config/ExpList.ini` → 素材索引里的 `Configs/ExpList.ini` → 近似曲线。
     // `World` 的默认表是兜底曲线（保证测试确定性），生产路径必须显式换成真表。
     world.set_exp_table(crate::exp::ExpTable::discover());
+    // 行会配置：`config/GuildSettings.ini` → 素材里的 `Configs/GuildSettings.ini` → 代码默认值。
+    // 与经验表同理：测试用默认值保证确定性，生产路径显式 discover。
+    world.set_guild_settings(crate::guild::GuildSettings::discover());
     attach_game_data(&mut world, config);
     if config.demo_monsters {
         spawn_demo_monsters(&mut world, config);

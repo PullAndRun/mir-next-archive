@@ -19,12 +19,18 @@ pub enum StoreError {
     /// 角色名已存在。
     #[error("角色名 {0} 已存在")]
     CharacterExists(String),
+    /// 行会名已存在。
+    #[error("行会名 {0} 已存在")]
+    GuildExists(String),
     /// 账号不存在。
     #[error("账号 {0} 不存在")]
     AccountMissing(String),
     /// 不支持的界面语言代码。
     #[error("不支持的界面语言代码 {0}（支持 zh-cn / en）")]
     InvalidLanguage(String),
+    /// 目标记录不存在。
+    #[error("找不到{0}")]
+    NotFound(&'static str),
     /// 内部错误。
     #[error("存储错误：{0}")]
     Internal(String),
@@ -137,6 +143,11 @@ pub struct Character {
     /// 任务进度 + 已完成任务（Crystal `CharacterInfo.CurrentQuests` / `CompletedQuests` 的字节块，
     /// 编解码见 [`crate::quests::encode_quests`] / [`crate::quests::decode_quests`]）。
     pub quests: Vec<u8>,
+    /// 所属行会的主键，`-1` 表示没有行会（Crystal `CharacterInfo.GuildIndex`）。
+    ///
+    /// 行会本体走 [`GuildRecord`]（`guilds` / `guild_ranks` / `guild_members` 三张表），
+    /// 这一列只是角色侧的反向指针，登录时用它（或行会成员表）决定要不要把玩家挂进行会。
+    pub guild_index: i32,
     /// 最后登录时间。
     pub last_access: DateTimeBinary,
 }
@@ -174,9 +185,64 @@ impl Character {
             equipment: Vec::new(),
             magics: Vec::new(),
             quests: Vec::new(),
+            // Crystal 的 `CharacterInfo.GuildIndex` 默认 -1（没有行会）。
+            guild_index: -1,
             last_access: DateTimeBinary(0),
         }
     }
+}
+
+/// 行会一行（与 `mir-store` 的 `Guild` 同构的存储视图）。
+///
+/// 服务端刻意不依赖 `mir-store` 的具体结构：`AccountStore` 只认这里的
+/// [`GuildRecord`]，PostgreSQL 实现负责与 `mir_store::Guild` 互转
+/// （[`PgAccountStore`](crate::PgAccountStore)），测试用的 [`MemoryStore`] 直接存。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct GuildRecord {
+    /// 行会主键；`<= 0` 表示「还没入库」，保存时由存储层分配。
+    pub id: i32,
+    /// 行会名。
+    pub name: String,
+    /// 会长角色主键。
+    pub leader_character_id: i64,
+    /// 等级。
+    pub level: i16,
+    /// 经验。
+    pub experience: i64,
+    /// 资金。
+    pub gold: i64,
+    /// 升级点。
+    pub spare_points: i16,
+    /// 公告行。
+    pub notice: Vec<String>,
+    /// 职位。
+    pub ranks: Vec<GuildRankRecord>,
+    /// 成员（跨职位平铺）。
+    pub members: Vec<GuildMemberRecord>,
+}
+
+/// 行会里的一行职位。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct GuildRankRecord {
+    /// 职位序号（`0` = 会长）。
+    pub index: u8,
+    /// 职位名。
+    pub name: String,
+    /// 权限位掩码（`GuildRankOptions`）。
+    pub options: u8,
+}
+
+/// 行会里的一名成员。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct GuildMemberRecord {
+    /// 角色主键。
+    pub character_id: i64,
+    /// 角色名。
+    pub name: String,
+    /// 所属职位序号。
+    pub rank_index: u8,
+    /// 入会时间（Unix 毫秒；本作扩展，用来稳定成员顺序）。
+    pub joined_at: i64,
 }
 
 /// 存储边界。
@@ -242,6 +308,31 @@ pub trait AccountStore: Send + Sync + 'static {
         account_id: i64,
         language: String,
     ) -> impl Future<Output = Result<(), StoreError>> + Send + '_;
+
+    /// 写一个行会（职位与成员整份替换），返回存储层分配的主键。
+    ///
+    /// 对应 Crystal `GuildInfo.Save`（`Server/MirDatabase/GuildInfo.cs:189-255`）。
+    fn save_guild(
+        &self,
+        guild: GuildRecord,
+    ) -> impl Future<Output = Result<i32, StoreError>> + Send + '_;
+
+    /// 删除一个行会（职位与成员一起删）。
+    fn delete_guild(
+        &self,
+        guild_id: i32,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send + '_;
+
+    /// 读出全部行会（服务端启动时灌进 [`World`](crate::World)）。
+    fn list_guilds(&self)
+    -> impl Future<Output = Result<Vec<GuildRecord>, StoreError>> + Send + '_;
+
+    /// 写角色的行会归属（`-1` = 退出行会）。
+    fn set_character_guild(
+        &self,
+        character_id: i64,
+        guild_id: i32,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send + '_;
 }
 
 /// 内存实现：用于测试与无数据库的本地试玩。
@@ -254,8 +345,11 @@ pub struct MemoryStore {
 struct MemoryState {
     accounts: Vec<Account>,
     characters: Vec<Character>,
+    /// 行会（本作扩展：`MemoryStore` 在本进程里扮演 `guilds`/`guild_ranks`/`guild_members` 三张表）。
+    guilds: Vec<GuildRecord>,
     next_account_id: i64,
     next_character_id: i64,
+    next_guild_id: i32,
 }
 
 impl MemoryStore {
@@ -266,10 +360,28 @@ impl MemoryStore {
             state: tokio::sync::Mutex::new(MemoryState {
                 accounts: Vec::new(),
                 characters: Vec::new(),
+                guilds: Vec::new(),
                 next_account_id: 1,
                 next_character_id: 1,
+                next_guild_id: 1,
             }),
         }
+    }
+
+    /// 行会表快照（测试用来断言「写库」的结果）。
+    pub async fn guilds(&self) -> Vec<GuildRecord> {
+        self.state.lock().await.guilds.clone()
+    }
+
+    /// 直接读某个角色的行会归属（等价于数据库里的 `characters.guild_index`）。
+    pub async fn character_guild_index(&self, character_id: i64) -> Option<i32> {
+        self.state
+            .lock()
+            .await
+            .characters
+            .iter()
+            .find(|character| character.id == character_id)
+            .map(|character| character.guild_index)
     }
 }
 
@@ -385,6 +497,66 @@ impl AccountStore for MemoryStore {
         {
             account.language = language;
         }
+        Ok(())
+    }
+
+    async fn save_guild(&self, guild: GuildRecord) -> Result<i32, StoreError> {
+        let mut state = self.state.lock().await;
+        // 行会名唯一（忽略大小写），与 `guilds_name_ci_key` 等价。
+        if state.guilds.iter().any(|existing| {
+            existing.id != guild.id && existing.name.eq_ignore_ascii_case(&guild.name)
+        }) {
+            return Err(StoreError::GuildExists(guild.name));
+        }
+        if guild.id > 0 {
+            if let Some(existing) = state.guilds.iter_mut().find(|row| row.id == guild.id) {
+                *existing = guild.clone();
+                return Ok(guild.id);
+            }
+            // 有主键但库里没有：按「新建」处理，避免会话拿到半个行会。
+        }
+        let id = state.next_guild_id;
+        state.next_guild_id += 1;
+        let mut stored = guild;
+        stored.id = id;
+        state.guilds.push(stored);
+        Ok(id)
+    }
+
+    async fn delete_guild(&self, guild_id: i32) -> Result<(), StoreError> {
+        let mut state = self.state.lock().await;
+        let before = state.guilds.len();
+        state.guilds.retain(|guild| guild.id != guild_id);
+        if state.guilds.len() == before {
+            return Err(StoreError::NotFound("行会"));
+        }
+        // 外键级联的等价物：把还指着它的角色行清回 -1。
+        for character in &mut state.characters {
+            if character.guild_index == guild_id {
+                character.guild_index = -1;
+            }
+        }
+        Ok(())
+    }
+
+    async fn list_guilds(&self) -> Result<Vec<GuildRecord>, StoreError> {
+        Ok(self.state.lock().await.guilds.clone())
+    }
+
+    async fn set_character_guild(
+        &self,
+        character_id: i64,
+        guild_id: i32,
+    ) -> Result<(), StoreError> {
+        let mut state = self.state.lock().await;
+        let Some(character) = state
+            .characters
+            .iter_mut()
+            .find(|candidate| candidate.id == character_id)
+        else {
+            return Err(StoreError::NotFound("角色"));
+        };
+        character.guild_index = guild_id;
         Ok(())
     }
 }

@@ -230,6 +230,7 @@ impl Harness {
             group_invitation: None,
             group_invite_time: 0,
             allow_group: true,
+            guild: None,
             sender,
         });
         self.receivers.insert(object_id, receiver);

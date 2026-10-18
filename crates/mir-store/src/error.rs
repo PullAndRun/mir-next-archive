@@ -16,6 +16,14 @@ pub enum StoreError {
     #[error("角色名 {0} 已被占用")]
     CharacterNameTaken(String),
 
+    /// 行会名已存在（`guilds_name_ci_key` 冲突）。
+    #[error("行会名 {0} 已存在")]
+    GuildExists(String),
+
+    /// 该角色已经在某个行会里（`guild_members_pkey` 冲突）。
+    #[error("角色 {0} 已经在行会中")]
+    GuildMemberExists(i64),
+
     /// 目标记录不存在，或已被标记删除；参数是实体名（例如「账号」「角色」）。
     #[error("找不到{0}：记录不存在或已被标记删除")]
     NotFound(&'static str),

@@ -8,8 +8,9 @@
 //! **技能/魔法**（含 9 个增益技能，见 [`magic`] 与 `docs/world/magic.md`）、
 //! **增益容器**（见 [`buffs`] 与 `docs/world/buffs.md`）、
 //! **任务系统**（见 [`quests`]、[`mir_db::quest_script`] 与 `docs/world/quests.md`）、
-//! **多地图与传送**（见 [`maps`] 与 `docs/world/maps.md`）以及
-//! **组队**（见 [`group`] 与 `docs/world/group.md`）。
+//! **多地图与传送**（见 [`maps`] 与 `docs/world/maps.md`）、
+//! **组队**（见 [`group`] 与 `docs/world/group.md`）以及
+//! **行会**（见 [`guild`] 与 `docs/world/guild.md`；攻城/仓库/buff 未做）。
 
 pub mod buffs;
 pub mod combat;
@@ -17,6 +18,7 @@ pub mod config;
 pub mod exp;
 pub mod gamedata;
 pub mod group;
+pub mod guild;
 pub mod items;
 pub mod magic;
 pub mod maps;
@@ -37,6 +39,13 @@ pub use gamedata::GameData;
 pub use group::{
     GROUP_EXP_RANGE, GROUP_INVITE_DELAY_MS, GROUP_INVITE_EXPIRE_MS, Group, GroupError, GroupInvite,
     GroupJoinOutcome, MAX_GROUP, PARTY_EXP_RATE,
+};
+pub use guild::{
+    GUILD_CREATION_GOLD_DEFAULT, GUILD_DEFAULT_RANK_NAME, GUILD_EXP_RATE_DEFAULT,
+    GUILD_EXP_UPDATE_MS, GUILD_LEADER_OPTIONS, GUILD_LEADER_RANK_NAME, GUILD_MAX_RANKS,
+    GUILD_NAME_MAX_LEN, GUILD_NAME_MIN_LEN, GUILD_NOTICE_MAX_LINES, GUILD_REQUIRED_LEVEL_DEFAULT,
+    GUILD_STORAGE_SLOTS, Guild, GuildError, GuildJoinOutcome, GuildMemberEdit, GuildMemberState,
+    GuildRef, GuildSettings, has_option, validate_guild_name,
 };
 pub use items::{
     GroundItem, ItemError, ItemUidGenerator, Looks, PickupReport, decode_equipment,
@@ -59,5 +68,10 @@ pub use quests::{
     is_objectives_complete, monster_matches_task,
 };
 pub use server::{run, serve_forever};
-pub use store::{Account, AccountStore, Character, MemoryStore, StoreError};
-pub use world::{AttackReport, CombatError, MoveError, Player, RespawnState, SpawnGroup, World};
+pub use store::{
+    Account, AccountStore, Character, GuildMemberRecord, GuildRankRecord, GuildRecord, MemoryStore,
+    StoreError,
+};
+pub use world::{
+    AttackReport, CombatError, GuildWrite, MoveError, Player, RespawnState, SpawnGroup, World,
+};

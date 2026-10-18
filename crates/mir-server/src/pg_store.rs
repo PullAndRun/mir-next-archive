@@ -7,7 +7,9 @@ use mir_core::DateTimeBinary;
 use mir_core::enums::{MirClass, MirDirection, MirGender};
 use mir_store::PgPool;
 
-use crate::store::{Account, AccountStore, Character, StoreError};
+use crate::store::{
+    Account, AccountStore, Character, GuildMemberRecord, GuildRankRecord, GuildRecord, StoreError,
+};
 
 /// 基于 PostgreSQL 的账号/角色存储。
 #[derive(Debug, Clone)]
@@ -41,7 +43,9 @@ fn map_store_error(error: mir_store::StoreError) -> StoreError {
     match error {
         mir_store::StoreError::AccountExists(username) => StoreError::AccountExists(username),
         mir_store::StoreError::CharacterNameTaken(name) => StoreError::CharacterExists(name),
+        mir_store::StoreError::GuildExists(name) => StoreError::GuildExists(name),
         mir_store::StoreError::InvalidLanguage(code) => StoreError::InvalidLanguage(code),
+        mir_store::StoreError::NotFound(entity) => StoreError::NotFound(entity),
         other => StoreError::Internal(other.to_string()),
     }
 }
@@ -102,6 +106,7 @@ fn from_store_character(character: mir_store::Character) -> Character {
         equipment: character.equipment,
         magics: character.magics,
         quests: character.quests,
+        guild_index: character.guild_index,
         last_access: from_datetime(character.last_login_date),
     }
 }
@@ -129,6 +134,84 @@ fn apply_to_store_character(character: &Character, target: &mut mir_store::Chara
     target.equipment.clone_from(&character.equipment);
     target.magics.clone_from(&character.magics);
     target.quests.clone_from(&character.quests);
+    target.guild_index = character.guild_index;
+}
+
+// ---------------------------------------------------------------------------
+// 行会：服务端视图 ↔ `mir-store` 行
+// ---------------------------------------------------------------------------
+
+/// 入会时间：Unix 毫秒 → `DateTime<Utc>`（越界值退到纪元，不 panic）。
+fn joined_at_to_datetime(millis: i64) -> DateTime<Utc> {
+    DateTime::<Utc>::from_timestamp_millis(millis).unwrap_or_default()
+}
+
+/// 服务端的行会视图 → `mir-store` 的行会。
+fn to_store_guild(guild: &GuildRecord) -> mir_store::Guild {
+    mir_store::Guild {
+        id: guild.id,
+        name: guild.name.clone(),
+        leader_character_id: guild.leader_character_id,
+        level: guild.level,
+        experience: guild.experience,
+        gold: guild.gold,
+        spare_points: guild.spare_points,
+        notice: guild.notice.clone(),
+        ranks: guild
+            .ranks
+            .iter()
+            .map(|rank| mir_store::GuildRankRow {
+                guild_id: guild.id,
+                rank_index: i16::from(rank.index),
+                name: rank.name.clone(),
+                options: i16::from(rank.options),
+            })
+            .collect(),
+        members: guild
+            .members
+            .iter()
+            .map(|member| mir_store::GuildMemberRow {
+                guild_id: guild.id,
+                character_id: member.character_id,
+                name: member.name.clone(),
+                rank_index: i16::from(member.rank_index),
+                joined_at: joined_at_to_datetime(member.joined_at),
+            })
+            .collect(),
+    }
+}
+
+/// `mir-store` 的行会 → 服务端的行会视图。
+fn from_store_guild(guild: mir_store::Guild) -> GuildRecord {
+    GuildRecord {
+        id: guild.id,
+        name: guild.name,
+        leader_character_id: guild.leader_character_id,
+        level: guild.level,
+        experience: guild.experience,
+        gold: guild.gold,
+        spare_points: guild.spare_points,
+        notice: guild.notice,
+        ranks: guild
+            .ranks
+            .into_iter()
+            .map(|rank| GuildRankRecord {
+                index: u8::try_from(rank.rank_index).unwrap_or(0),
+                name: rank.name,
+                options: u8::try_from(rank.options).unwrap_or(0),
+            })
+            .collect(),
+        members: guild
+            .members
+            .into_iter()
+            .map(|member| GuildMemberRecord {
+                character_id: member.character_id,
+                name: member.name,
+                rank_index: u8::try_from(member.rank_index).unwrap_or(0),
+                joined_at: member.joined_at.timestamp_millis(),
+            })
+            .collect(),
+    }
 }
 
 // 返回类型写成 `impl Future + Send` 是为了满足 trait 的 Send 契约（见 `store.rs`），
@@ -272,6 +355,92 @@ impl AccountStore for PgAccountStore {
     ) -> impl std::future::Future<Output = Result<(), StoreError>> + Send + '_ {
         async move {
             mir_store::set_account_language(&self.pool, account_id, &language)
+                .await
+                .map_err(map_store_error)
+        }
+    }
+
+    fn save_guild(
+        &self,
+        guild: GuildRecord,
+    ) -> impl std::future::Future<Output = Result<i32, StoreError>> + Send + '_ {
+        async move {
+            // 一条 `guilds` 语句 + 两张子表的批量替换 → 放同一个事务里。
+            let mut tx = self
+                .pool
+                .begin()
+                .await
+                .map_err(|error| StoreError::Internal(error.to_string()))?;
+            let row = to_store_guild(&guild);
+            let id = if row.id > 0 {
+                match mir_store::save_guild(&mut tx, &row).await {
+                    Ok(()) => row.id,
+                    // 有主键但库里没有这一行（例如内存里的行会还没落过盘）：改成插入。
+                    Err(mir_store::StoreError::NotFound(_)) => {
+                        mir_store::create_guild(&mut tx, &row)
+                            .await
+                            .map_err(map_store_error)?
+                            .id
+                    }
+                    Err(error) => return Err(map_store_error(error)),
+                }
+            } else {
+                mir_store::create_guild(&mut tx, &row)
+                    .await
+                    .map_err(map_store_error)?
+                    .id
+            };
+            tx.commit()
+                .await
+                .map_err(|error| StoreError::Internal(error.to_string()))?;
+            Ok(id)
+        }
+    }
+
+    fn delete_guild(
+        &self,
+        guild_id: i32,
+    ) -> impl std::future::Future<Output = Result<(), StoreError>> + Send + '_ {
+        async move {
+            let mut connection = self
+                .pool
+                .acquire()
+                .await
+                .map_err(|error| StoreError::Internal(error.to_string()))?;
+            mir_store::delete_guild(&mut connection, guild_id)
+                .await
+                .map_err(map_store_error)
+        }
+    }
+
+    fn list_guilds(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<GuildRecord>, StoreError>> + Send + '_ {
+        async move {
+            let mut connection = self
+                .pool
+                .acquire()
+                .await
+                .map_err(|error| StoreError::Internal(error.to_string()))?;
+            let guilds = mir_store::list_guilds(&mut connection)
+                .await
+                .map_err(map_store_error)?;
+            Ok(guilds.into_iter().map(from_store_guild).collect())
+        }
+    }
+
+    fn set_character_guild(
+        &self,
+        character_id: i64,
+        guild_id: i32,
+    ) -> impl std::future::Future<Output = Result<(), StoreError>> + Send + '_ {
+        async move {
+            let mut connection = self
+                .pool
+                .acquire()
+                .await
+                .map_err(|error| StoreError::Internal(error.to_string()))?;
+            mir_store::set_character_guild(&mut connection, character_id, guild_id)
                 .await
                 .map_err(map_store_error)
         }

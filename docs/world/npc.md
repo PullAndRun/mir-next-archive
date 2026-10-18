@@ -150,7 +150,14 @@ Crystal `Path.Combine(Settings.NPCPath, FileName + ".txt")`，`NPCScript.cs:142`
 | `ACCEPTQUEST <序号>` | ✅（本作扩展） | 替玩家接取任务；Crystal **没有**这个动作（`NPCActions` 里搜不到），见 `docs/world/quests.md` |
 | `FINISHQUEST <序号>` | ✅（本作扩展） | 替玩家交付任务（可选奖励固定发 `-1`，即不选） |
 | `ABANDONQUEST <序号>` | ✅（本作扩展） | 替玩家放弃任务 |
+| `CREATEGUILD <行会名>` | ✅（本作扩展） | 替玩家创建行会（同一套校验与包序，见 `docs/world/guild.md`）；Crystal **没有**这个动作 |
 | `GIVEITEM` / `TAKEITEM` / `GIVEEXP` / `MOVE` / `MOV` / `CALC` / `MONGEN` / `CALL` / `TIMERECALL` / 行会/攻城/邮件/婚姻/英雄… | ❌ | 记为「不支持」，写进 `NpcReply::unsupported_actions`，不执行 |
+
+> 行会的**正式**写法是页面 `[@CREATEGUILD]`（`GuildCreateKey`，`NPCScript.cs:60`）：
+> 点它时服务端发 `S.GuildNameRequest`（`NPCScript.cs:1050-1062`），客户端再发
+> `C.GuildNameReturn{Name}` 完成创建（`PlayerObject.cs:10029-10060`）。
+> 脚本里必须真的存在 `[@CREATEGUILD]` 页面（可以是空页），否则 `ProcessSpecial` 不会触发
+> ——`ProcessSpecial` 只在页面被处理时调用（`NPCScript.cs:895-900`）。见 `docs/world/guild.md`。
 
 ---
 

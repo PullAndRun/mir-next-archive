@@ -202,6 +202,15 @@ pub enum NpcActionKind {
     FinishQuest,
     /// `ABANDONQUEST <任务序号>`：**本作扩展**，替玩家放弃任务（Crystal 无此动作）。
     AbandonQuest,
+    /// `CREATEGUILD <行会名>`：替玩家创建一个行会。
+    ///
+    /// Crystal 的 `NPCActions` 里**没有**这个动作：正式流程是脚本里放一个
+    /// `[@CREATEGUILD]` 页面（`NPCScript.cs:60` 的 `GuildCreateKey`），玩家点它时
+    /// 服务端发 `S.GuildNameRequest`（`NPCScript.cs:1050-1062`），客户端把名字用
+    /// `C.GuildNameReturn` 发回来再调 `PlayerObject.CreateGuild`（`PlayerObject.cs:10029-10060`）。
+    /// 本作按任务书要求额外支持脚本直接写死名字的写法（服务端 `World::create_guild`），
+    /// 两条路都走同一套校验，见 `docs/world/guild.md`。
+    CreateGuild,
     /// 认识关键字但本作没实现（例如 `GIVEITEM`、`MONGEN`、`MOV`）。
     Unsupported,
     /// 不认识的关键字。
@@ -907,6 +916,9 @@ fn parse_action(line: &str) -> NpcAction {
         "ACCEPTQUEST" => NpcActionKind::AcceptQuest,
         "FINISHQUEST" => NpcActionKind::FinishQuest,
         "ABANDONQUEST" => NpcActionKind::AbandonQuest,
+        // 本作扩展：Crystal 只用 `[@CREATEGUILD]` 页面 + `C.GuildNameReturn`
+        // （见 [`NpcActionKind::CreateGuild`]）。
+        "CREATEGUILD" => NpcActionKind::CreateGuild,
         "" => NpcActionKind::Unknown,
         _ => NpcActionKind::Unsupported,
     };

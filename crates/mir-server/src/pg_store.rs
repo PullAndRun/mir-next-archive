@@ -2,12 +2,12 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mir_core::DateTimeBinary;
-use mir_core::enums::{MirClass, MirDirection, MirGender};
+use mir_core::enums::{MarketItemType, MirClass, MirDirection, MirGender};
 use mir_store::PgPool;
 
 use crate::store::{
-    Account, AccountStore, Character, ConquestRecord, GuildBuffRecord, GuildMemberRecord,
-    GuildRankRecord, GuildRecord, GuildStorageRecord, MailRecord, StoreError,
+    Account, AccountStore, AuctionRecord, Character, ConquestRecord, GuildBuffRecord,
+    GuildMemberRecord, GuildRankRecord, GuildRecord, GuildStorageRecord, MailRecord, StoreError,
 };
 
 /// 基于 PostgreSQL 的账号/角色存储。
@@ -357,6 +357,48 @@ fn from_store_conquest(conquest: mir_store::Conquest) -> ConquestRecord {
     }
 }
 
+// ---------------------------------------------------------------------------
+// 市场：服务端视图 ↔ `mir-store` 行
+// ---------------------------------------------------------------------------
+
+/// `mir-store` 的市场挂单行 → 服务端视图。
+fn from_store_auction(auction: mir_store::MarketAuction) -> AuctionRecord {
+    AuctionRecord {
+        id: u64::try_from(auction.id).unwrap_or(0),
+        item: auction.item,
+        consignment_date: from_datetime(Some(auction.consignment_date)),
+        price: u32::try_from(auction.price).unwrap_or(0),
+        current_bid: u32::try_from(auction.current_bid).unwrap_or(0),
+        seller_character_id: auction.seller_character_id,
+        seller_name: auction.seller_name,
+        current_buyer_character_id: auction.current_buyer_character_id,
+        current_buyer_name: auction.current_buyer_name,
+        expired: auction.expired,
+        sold: auction.sold,
+        item_type: MarketItemType::from_value(u8::try_from(auction.item_type).unwrap_or(u8::MAX))
+            .unwrap_or_default(),
+    }
+}
+
+/// 服务端的市场挂单视图 → `mir-store` 的行。
+fn to_store_auction(auction: &AuctionRecord) -> mir_store::MarketAuction {
+    mir_store::MarketAuction {
+        id: i64::try_from(auction.id).unwrap_or(0),
+        item: auction.item.clone(),
+        // 上架时间恒有值；未设置时落成纪元（`DateTime::<Utc>::default()`），不 panic。
+        consignment_date: to_datetime(auction.consignment_date).unwrap_or_default(),
+        price: i64::from(auction.price),
+        current_bid: i64::from(auction.current_bid),
+        seller_character_id: auction.seller_character_id,
+        seller_name: auction.seller_name.clone(),
+        current_buyer_character_id: auction.current_buyer_character_id,
+        current_buyer_name: auction.current_buyer_name.clone(),
+        expired: auction.expired,
+        sold: auction.sold,
+        item_type: i16::from(u8::from(auction.item_type)),
+    }
+}
+
 // 返回类型写成 `impl Future + Send` 是为了满足 trait 的 Send 契约（见 `store.rs`），
 // 因此这里不能用 `async fn` 语法糖。
 #[allow(clippy::manual_async_fn)]
@@ -702,6 +744,45 @@ impl AccountStore for PgAccountStore {
             mir_store::save_conquest(&mut connection, &row)
                 .await
                 .map_err(map_store_error)
+        }
+    }
+
+    fn load_auctions(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<AuctionRecord>, StoreError>> + Send + '_ {
+        async move {
+            let mut connection = self
+                .pool
+                .acquire()
+                .await
+                .map_err(|error| StoreError::Internal(error.to_string()))?;
+            let rows = mir_store::list_auctions(&mut connection)
+                .await
+                .map_err(map_store_error)?;
+            Ok(rows.into_iter().map(from_store_auction).collect())
+        }
+    }
+
+    fn save_auctions(
+        &self,
+        auctions: Vec<AuctionRecord>,
+    ) -> impl std::future::Future<Output = Result<(), StoreError>> + Send + '_ {
+        async move {
+            // 全表替换 = DELETE + 多条 INSERT，必须同一个事务：中途失败要回滚，
+            // 否则「旧行已删、新行没插」会让市场凭空清空。
+            let mut tx = self
+                .pool
+                .begin()
+                .await
+                .map_err(|error| StoreError::Internal(error.to_string()))?;
+            let rows: Vec<mir_store::MarketAuction> =
+                auctions.iter().map(to_store_auction).collect();
+            mir_store::save_auctions(&mut tx, &rows)
+                .await
+                .map_err(map_store_error)?;
+            tx.commit()
+                .await
+                .map_err(|error| StoreError::Internal(error.to_string()))
         }
     }
 }

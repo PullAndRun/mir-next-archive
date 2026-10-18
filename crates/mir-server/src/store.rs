@@ -7,7 +7,7 @@
 use std::future::Future;
 
 use mir_core::DateTimeBinary;
-use mir_core::enums::{MirClass, MirDirection, MirGender};
+use mir_core::enums::{MarketItemType, MirClass, MirDirection, MirGender};
 use mir_store::{generate_salt, hash_password};
 
 /// 存储层错误。
@@ -362,6 +362,43 @@ pub struct MailRecord {
     pub collected: bool,
 }
 
+/// 一条市场挂单的存储视图（`market_auctions` 表；Crystal `AuctionInfo`，
+/// `Server/MirDatabase/AuctionInfo.cs:5-117`）。
+///
+/// 与 [`MailRecord`] 一样，服务端不直接依赖 `mir-store` 的结构：`AccountStore`
+/// 只认这里的 [`AuctionRecord`]，PostgreSQL 实现负责互转
+/// （[`PgAccountStore`](crate::PgAccountStore)）。
+///
+/// `item` 是 [`crate::items::encode_slots`] 的**单格**字节块
+/// （`encode_slots(&[Some(item)])`），由 [`crate::market`] 负责编解码。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AuctionRecord {
+    /// Crystal `AuctionInfo.AuctionID`（`ulong`）。
+    pub id: u64,
+    /// `encode_slots(&[Some(item)])` 单格字节块。
+    pub item: Vec<u8>,
+    /// Crystal `AuctionInfo.ConsignmentDate`。
+    pub consignment_date: DateTimeBinary,
+    /// Crystal `AuctionInfo.Price`（`uint`）。
+    pub price: u32,
+    /// Crystal `AuctionInfo.CurrentBid`（`uint`）。
+    pub current_bid: u32,
+    /// Crystal `AuctionInfo.SellerIndex`：卖家角色主键。
+    pub seller_character_id: i64,
+    /// Crystal `SellerInfo.Name`：卖家名字快照。
+    pub seller_name: String,
+    /// Crystal `AuctionInfo.CurrentBuyerIndex`：最高出价者。
+    pub current_buyer_character_id: Option<i64>,
+    /// Crystal `CurrentBuyerInfo.Name`：最高出价者名字快照。
+    pub current_buyer_name: Option<String>,
+    /// Crystal `AuctionInfo.Expired`。
+    pub expired: bool,
+    /// Crystal `AuctionInfo.Sold`。
+    pub sold: bool,
+    /// Crystal `AuctionInfo.ItemType`（`MarketItemType`）。
+    pub item_type: MarketItemType,
+}
+
 /// 存储边界。
 ///
 /// 返回类型写成 `impl Future + Send`（而不是裸 `async fn`）是为了让泛型调用方
@@ -499,6 +536,23 @@ pub trait AccountStore: Send + Sync + 'static {
         &self,
         conquest: ConquestRecord,
     ) -> impl Future<Output = Result<(), StoreError>> + Send + '_;
+
+    /// 读出全部市场挂单（服务端启动时灌进 [`World`](crate::World)）。
+    ///
+    /// 对应 Crystal `Envir.LoadAccounts` 里重建全局 `Auctions` 的那段
+    /// （`Server/MirEnvir/Envir.cs:3018-3029`）。顺序为新 → 旧（`id` 降序）。
+    fn load_auctions(
+        &self,
+    ) -> impl Future<Output = Result<Vec<AuctionRecord>, StoreError>> + Send + '_;
+
+    /// 用给定快照**整表替换**市场挂单（新增/改价/成交/下架/过期清理都传当前快照）。
+    ///
+    /// 对应 Crystal 每次 `SaveAccounts` 重写整个 `Auctions` 段
+    /// （`Envir.cs:2591-2594`）；传空列表等价于清空。
+    fn save_auctions(
+        &self,
+        auctions: Vec<AuctionRecord>,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send + '_;
 }
 
 /// 内存实现：用于测试与无数据库的本地试玩。
@@ -517,6 +571,8 @@ struct MemoryState {
     mails: Vec<MailRecord>,
     /// 攻城区（`conquests` 表；Crystal `ConquestGuildInfo`）。
     conquests: Vec<ConquestRecord>,
+    /// 市场挂单（`market_auctions` 表；Crystal 全局 `Envir.Auctions`）。
+    auctions: Vec<AuctionRecord>,
     next_account_id: i64,
     next_character_id: i64,
     next_guild_id: i32,
@@ -534,6 +590,7 @@ impl MemoryStore {
                 guilds: Vec::new(),
                 mails: Vec::new(),
                 conquests: Vec::new(),
+                auctions: Vec::new(),
                 next_account_id: 1,
                 next_character_id: 1,
                 next_guild_id: 1,
@@ -566,6 +623,11 @@ impl MemoryStore {
     /// 邮件表快照（测试用来断言「写库」的结果）。
     pub async fn mails(&self) -> Vec<MailRecord> {
         self.state.lock().await.mails.clone()
+    }
+
+    /// 市场挂单表快照（测试用来断言「写库」的结果）。
+    pub async fn auctions(&self) -> Vec<AuctionRecord> {
+        self.state.lock().await.auctions.clone()
     }
 
     /// 直接读某个角色的仓库字节块（等价于数据库里的 `characters.storage`）。
@@ -829,6 +891,19 @@ impl AccountStore for MemoryStore {
             Some(existing) => *existing = conquest,
             None => state.conquests.push(conquest),
         }
+        Ok(())
+    }
+
+    async fn load_auctions(&self) -> Result<Vec<AuctionRecord>, StoreError> {
+        let mut rows = self.state.lock().await.auctions.clone();
+        // 与 PostgreSQL 的 `ORDER BY id DESC` 一致：新 → 旧。
+        rows.sort_by_key(|row| std::cmp::Reverse(row.id));
+        Ok(rows)
+    }
+
+    async fn save_auctions(&self, auctions: Vec<AuctionRecord>) -> Result<(), StoreError> {
+        // 全量快照替换（与 `mir_store::save_auctions` 的 DELETE + INSERT 等价）。
+        self.state.lock().await.auctions = auctions;
         Ok(())
     }
 }

@@ -73,6 +73,45 @@ pub async fn serve_forever<S: AccountStore>(
         }
         Err(error) => tracing::warn!(%error, "读取攻城状态失败：从空状态启动"),
     }
+    // 市场：把库里的挂单灌进世界，并清理已过期挂单（物品/最高出价按系统邮件退回）。
+    // 读取失败直接中止启动——绝不能让运行期用「空挂单」的快照把库里的行覆盖掉。
+    let auctions = store
+        .load_auctions()
+        .await
+        .context("读取市场挂单失败，拒绝以空市场启动")?;
+    let (auction_count, purged, refund_mails) = {
+        let mut world = world.lock().await;
+        let loaded = world.load_auctions(auctions);
+        let now_ms = world.wall_now();
+        let purged = world.purge_expired_auctions(now_ms);
+        // 退回邮件先留在写队列里，出锁后统一落库（MemoryStore/Pg 均支持离线收件人）。
+        let mails = if purged.is_empty() {
+            Vec::new()
+        } else {
+            world.take_mail_writes()
+        };
+        (loaded, purged, mails)
+    };
+    if !refund_mails.is_empty() {
+        crate::mail::persist_mail_writes(store.as_ref(), refund_mails)
+            .await
+            .context("市场过期退回邮件落盘失败")?;
+    }
+    if !purged.is_empty() {
+        let snapshot = {
+            let world = world.lock().await;
+            world.auction_snapshot()
+        };
+        store
+            .save_auctions(snapshot)
+            .await
+            .context("清理过期市场挂单落盘失败")?;
+    }
+    tracing::info!(
+        loaded = auction_count,
+        purged = purged.len(),
+        "已载入市场挂单"
+    );
     let languages = Arc::new(build_language_library(&config));
     let next_session = Arc::new(AtomicU64::new(1));
 

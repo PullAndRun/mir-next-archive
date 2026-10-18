@@ -131,6 +131,16 @@ impl<S: AccountStore> Session<S> {
     /// 处理一个客户端包。
     #[allow(clippy::needless_pass_by_value)] // 包按值传入，内部按需移动字段
     pub async fn handle(&mut self, packet: ClientPacket) -> Result<(), SessionError> {
+        // 市场变更包（上架/买断/提前成交/取回）成功后要整表快照落盘；搜索/翻页只改
+        // 会话里的浏览状态，不写库。判断放在 match 之前、落盘放在 match 之后，
+        // 七个市场分派分支与 handler 保持队长提交时的原样（见 t4 合同）。
+        let market_mutation = matches!(
+            &packet,
+            ClientPacket::ConsignItem(_)
+                | ClientPacket::MarketBuy(_)
+                | ClientPacket::MarketSellNow(_)
+                | ClientPacket::MarketGetBack(_)
+        );
         match packet {
             ClientPacket::ClientVersion(packet) => self.on_client_version(&packet),
             ClientPacket::KeepAlive(packet) => {
@@ -351,6 +361,9 @@ impl<S: AccountStore> Session<S> {
                 self.on_market_get_back(packet.mode, packet.auction_id)
                     .await;
             }
+            // 开门：`C.Opendoor`（Crystal `PlayerObject.Opendoor`，`PlayerObject.cs:7818-7826`）。
+            // 世界层负责发包（本人 `S.Opendoor` + 同图视野广播）与 5 秒后自动关门。
+            ClientPacket::Opendoor(packet) => self.on_opendoor(packet.door_index).await,
             // 行会战（`C.GuildWarReturn`，`PlayerObject.cs:10283-10327`）与行会领地
             // （`GuildTerritoryPage`/`PurchaseGuildTerritory`，`:10438-10525`）仍未实现：
             // 前者需要 `GuildObject.WarringGuilds`，后者需要 `Envir.GTMapList`（另一套数据表），
@@ -371,6 +384,9 @@ impl<S: AccountStore> Session<S> {
             _ => {
                 tracing::debug!(session = self.id, "忽略未实现的客户端包");
             }
+        }
+        if market_mutation {
+            self.flush_auction_writes().await;
         }
         Ok(())
     }
@@ -1567,6 +1583,21 @@ impl<S: AccountStore> Session<S> {
         }
     }
 
+    /// 把世界里的全部市场挂单按**整表快照**落盘（见 [`crate::market::persist_auctions`]）。
+    ///
+    /// 只在上架/买断/提前成交/取回这些变更包处理完之后由 [`Session::handle`] 的统一钩子
+    /// 调用；下线时再补一次，保证「服务器关闭前不丢」。世界层没有市场写入队列
+    /// （不新增 `World` 字段），快照就是当前 `World::auctions` 的全部内容。
+    async fn flush_auction_writes(&self) {
+        let snapshot = {
+            let world = self.world.lock().await;
+            world.auction_snapshot()
+        };
+        if let Err(error) = crate::market::persist_auctions(self.store.as_ref(), snapshot).await {
+            tracing::warn!(session = self.id, %error, "市场挂单落盘失败");
+        }
+    }
+
     /// 客户端把物品放进仓库：`C.StoreItem`（Crystal `PlayerObject.StoreItem`，
     /// `Server/MirObjects/PlayerObject.cs:5376-5456`）。
     ///
@@ -1979,6 +2010,19 @@ impl<S: AccountStore> Session<S> {
         }
     }
 
+    /// 开门：`C.Opendoor{DoorIndex}`（Crystal `PlayerObject.Opendoor`，`PlayerObject.cs:7818-7826`）。
+    ///
+    /// 成败都不回失败包（Crystal 找不到门时静默返回）；世界层在成功时给本人与同图视野内
+    /// 的玩家发 `S.Opendoor`，并安排 5 秒后自动关门（`Map.cs:657-665`）。
+    async fn on_opendoor(&mut self, door_index: u8) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        let opened = world.open_door(object_id, door_index);
+        tracing::debug!(session = self.id, door_index, opened, "开门请求");
+    }
+
     /// 如果是因为「动作还没结束」被拒，等到 `ActionTime` 之后再试一次。
     ///
     /// 返回 `true` 表示值得重试。等待时长有上限，避免异常状态把连接卡死。
@@ -2111,6 +2155,8 @@ impl<S: AccountStore> Session<S> {
         self.flush_guild_writes().await;
         // 邮件的状态变更（已读/锁定/领取/删除）同样补齐。
         self.flush_mail_writes().await;
+        // 市场挂单再补一次全量快照（含 tick 里刚标记的过期状态）。
+        self.flush_auction_writes().await;
         self.stage = Stage::Select;
     }
 

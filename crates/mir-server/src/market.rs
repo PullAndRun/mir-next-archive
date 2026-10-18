@@ -44,9 +44,15 @@
 //!
 //! # 与 Crystal 的**有意**差异
 //!
-//! 1. **不落盘**：Crystal 把拍卖条目存在 `Account.Auctions` + `Envir.Auctions`，并写进存档
-//!    （`AuctionInfo.Save`，`AuctionInfo.cs:71-87`；`CharacterInfo` 整行存盘）。本作没有
-//!    新增数据库表，拍卖条目只在内存里，**服务器重启后消失**（见 `docs/world/market.md`）。
+//! 1. **落盘方式**：Crystal 把挂单写进 `MirADB` 的全局 `Auctions` 段
+//!    （`Envir.SaveAccounts`，`Server/MirEnvir/Envir.cs:2591-2594`；`AuctionInfo.Save`，
+//!    `AuctionInfo.cs:71-87`），读档时靠 `BindCharacter` 重新绑定卖家/买家
+//!    （`Envir.cs:3018-3029`）。本作落 `market_auctions` 表（`migrations/0009_market.sql`）：
+//!    启动时 [`World::load_auctions`]、每次市场操作成功后整表快照回写
+//!    （[`persist_auctions`]）、下线再补一次；卖家/买家名字随条目冗余保存。
+//!    启动时会调用 [`World::purge_expired_auctions`] 把已过期挂单清掉（物品/最高出价按
+//!    系统邮件退回）；Crystal 只把 `Expired` 置真、等卖家 `MarketGetBack` 取回
+//!    （`Envir.cs:2396`、`PlayerObject.cs:8668-8793`）。
 //! 2. **没有商城（GameShop）**：Crystal 的 `MarketPanelType.GameShop` 读 `Envir.GameShopList`
 //!    （`PlayerObject.cs:8385-8390` 里那段还被注释掉了）。本作没有商城数据，游戏商城页签
 //!    永远返回空列表。
@@ -77,7 +83,8 @@ use mir_protocol::packets::server::{
 
 use mir_db::ItemInfo;
 
-use crate::items::friendly_name;
+use crate::items::{decode_slots, encode_slots, friendly_name};
+use crate::store::{AccountStore, AuctionRecord, StoreError};
 use crate::world::World;
 
 pub use crate::npc::MARKET_KEY;
@@ -212,6 +219,54 @@ impl Auction {
         let cost_f = f64::from(cost);
         let net = cost_f - cost_f * COMMISSION;
         if net <= 0.0 { 0 } else { net as u32 }
+    }
+
+    /// 转成数据库行：物品编成 `encode_slots(&[Some(item)])` 单格字节块
+    /// （与背包/邮件/行会仓库共用同一套 `UserItem[]` 编解码）。
+    ///
+    /// 对应 Crystal `AuctionInfo.Save`（`AuctionInfo.cs:71-87`）逐字段写 `BinaryWriter`
+    /// 的那一段。
+    #[must_use]
+    fn to_record(&self) -> AuctionRecord {
+        AuctionRecord {
+            id: self.id,
+            item: encode_slots(&[Some(self.item.clone())]),
+            consignment_date: self.consignment_date,
+            price: self.price,
+            current_bid: self.current_bid,
+            seller_character_id: self.seller_character_id,
+            seller_name: self.seller_name.clone(),
+            current_buyer_character_id: self.current_buyer_character_id,
+            current_buyer_name: self.current_buyer_name.clone(),
+            expired: self.expired,
+            sold: self.sold,
+            item_type: self.item_type,
+        }
+    }
+
+    /// 从数据库行还原；物品块解不出来时返回 `None`（调用方跳过并记日志）。
+    ///
+    /// 对应 Crystal `AuctionInfo(BinaryReader, …)`（`AuctionInfo.cs:47-69`）逐字段读回。
+    fn from_record(record: AuctionRecord) -> Option<Self> {
+        let mut slots = decode_slots(&record.item).ok()?;
+        if slots.len() != 1 {
+            return None;
+        }
+        let item = slots.pop().flatten()?;
+        Some(Self {
+            id: record.id,
+            item,
+            consignment_date: record.consignment_date,
+            price: record.price,
+            current_bid: record.current_bid,
+            seller_character_id: record.seller_character_id,
+            seller_name: record.seller_name,
+            current_buyer_character_id: record.current_buyer_character_id,
+            current_buyer_name: record.current_buyer_name,
+            expired: record.expired,
+            sold: record.sold,
+            item_type: record.item_type,
+        })
     }
 }
 
@@ -428,6 +483,102 @@ impl World {
             .filter(|auction| auction.seller_character_id == character_id)
             .map(|auction| auction.id)
             .collect()
+    }
+
+    /// 启动时把数据库里的市场挂单灌进世界（对应 Crystal `Envir.LoadAccounts` 重建
+    /// `Envir.Auctions` 的那段，`Server/MirEnvir/Envir.cs:3018-3029`）。
+    ///
+    /// 重复调用会**整份替换**当前列表（与存储层的全量快照语义一致）。解码失败的条目
+    /// 只记日志跳过（Crystal 的 `BindItem` 失败同样静默丢弃，`Envir.cs:3025`）；
+    /// 但它的 ID 仍会推进 `next_auction_id`，避免之后复用旧号。
+    /// `next_auction_id` 按 `max(id) + 1` 续号（Crystal 直接存 `NextAuctionID`，
+    /// `Envir.cs:2591`；本作没有单独的计数表）。
+    ///
+    /// 返回成功载入的条数。
+    pub fn load_auctions(&mut self, records: Vec<AuctionRecord>) -> usize {
+        self.auctions.clear();
+        let mut loaded = 0;
+        for record in records {
+            let id = record.id;
+            self.next_auction_id = self.next_auction_id.max(id.saturating_add(1));
+            if let Some(auction) = Auction::from_record(record) {
+                self.auctions.push(auction);
+                loaded += 1;
+            } else {
+                tracing::warn!(auction = id, "市场挂单的物品块无法解码，跳过");
+            }
+        }
+        // 新 → 旧，等价于 Crystal `AddFirst` 的链表顺序（`PlayerObject.cs:8302`）。
+        self.auctions
+            .sort_by_key(|auction| std::cmp::Reverse(auction.id));
+        loaded
+    }
+
+    /// 当前全部挂单的存储快照（新 → 旧），用于全量回写 `market_auctions`。
+    #[must_use]
+    pub fn auction_snapshot(&self) -> Vec<AuctionRecord> {
+        self.auctions.iter().map(Auction::to_record).collect()
+    }
+
+    /// 启动清理：把已过期（`expired == true` 或已到
+    /// [`CONSIGNMENT_LENGTH_DAYS`] 天）且未售出的挂单**退回并删除**。
+    ///
+    /// 对应 Crystal `Envir.ProcessAuction` 的过期判定（`Server/MirEnvir/Envir.cs:2396`：
+    /// `!Expired && !Sold && Now >= ConsignmentDate.AddDays(ConsignmentLength)`），
+    /// 但清理时机与收尾不同：Crystal 只置 `Expired`，等卖家 `MarketGetBack` 取回
+    /// （`PlayerObject.cs:8668-8793`）；本作在服务器启动时处理积压的过期挂单：
+    ///
+    /// * 物品按系统邮件退回卖家（`Envir.MailCharacter`，`PlayerObject.cs:8652` 同款）；
+    /// * 已有最高出价的，把 `current_bid` 按系统邮件退回买家（`PlayerObject.cs:8564-8569`）；
+    /// * 从 `World::auctions` 移除（调用方随后回写快照）。
+    ///
+    /// 不直接删行是为了**不吞物品/金币**；退回邮件走 `World::mail_writes`，启动方负责
+    /// 用 [`crate::mail::persist_mail_writes`] 落库。
+    ///
+    /// 返回被清理的挂单 ID（新 → 旧）。
+    pub fn purge_expired_auctions(&mut self, now_ms: i64) -> Vec<u64> {
+        let expired: Vec<Auction> = self
+            .auctions
+            .iter()
+            .filter(|auction| {
+                !auction.sold && (auction.expired || Self::auction_expired_at(auction, now_ms))
+            })
+            .cloned()
+            .collect();
+        if expired.is_empty() {
+            return Vec::new();
+        }
+
+        let mut purged = Vec::with_capacity(expired.len());
+        for auction in &expired {
+            let item_name = friendly_name(&self.item_info(auction.item.item_index).map_or_else(
+                || auction.item.item_index.to_string(),
+                |info| info.name.clone(),
+            ));
+            // 先把最高出价退回买家，再把物品退回卖家（与 `TakeAuction` 的收尾顺序一致）。
+            if auction.current_bid > 0
+                && let Some(buyer) = auction.current_buyer_character_id
+            {
+                let message = format!(
+                    "你在 {item_name} 上的出价已退回：拍卖已过期（{} 金币）。",
+                    auction.current_bid
+                );
+                self.mail_system_to_character(buyer, None, auction.current_bid, &message);
+            }
+            let message = format!("你挂出的 {item_name} 已过期，物品已通过邮件退回。");
+            self.mail_system_to_character(
+                auction.seller_character_id,
+                Some(auction.item.clone()),
+                0,
+                &message,
+            );
+            purged.push(auction.id);
+        }
+
+        self.auctions
+            .retain(|auction| !purged.contains(&auction.id));
+        tracing::info!(count = purged.len(), "已清理过期的市场挂单");
+        purged
     }
 
     /// 打开市场列表：`NPCScript.cs` 的 `case MarketKey:`（`:1046-1049`）。
@@ -1272,6 +1423,22 @@ impl World {
     }
 }
 
+/// 把当前挂单快照落到存储层（整表替换）。
+///
+/// 会话在上架/买断/提前成交/取回成功后调用（见 `session.rs` 的统一 flush 钩子），
+/// 服务器启动清理过期挂单后也用它落盘。世界层是同步的、存储层是异步的，所以由调用方
+/// 先取 [`World::auction_snapshot`]，再在包处理之外 `await` 本函数。
+///
+/// # Errors
+/// 存储层失败时返回错误，调用方只记日志：下一轮操作会拿新快照重试整份写入，
+/// 不需要补偿事务。
+pub async fn persist_auctions<S: AccountStore>(
+    store: &S,
+    snapshot: Vec<AuctionRecord>,
+) -> Result<(), StoreError> {
+    store.save_auctions(snapshot).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1348,5 +1515,44 @@ mod tests {
         assert_eq!(MarketFailReason::CannotHoldGold.reason(), 8);
         assert_eq!(MarketFailReason::BidTooLow.reason(), 9);
         assert_eq!(MarketFailReason::AuctionEnded.reason(), 10);
+    }
+
+    #[test]
+    fn auction_record_roundtrip_keeps_every_field() {
+        // 一条带出价、带买家名字的拍卖：字段与 `AuctionInfo.Save`（`AuctionInfo.cs:71-87`）一致。
+        let auction = Auction {
+            id: 42,
+            item: UserItem {
+                unique_id: 7,
+                item_index: 3,
+                count: 2,
+                ..UserItem::default()
+            },
+            consignment_date: DateTimeBinary::from_unix_seconds(1_700_000_000),
+            price: 5_000,
+            current_bid: 6_000,
+            seller_character_id: 11,
+            seller_name: "卖家".to_owned(),
+            current_buyer_character_id: Some(22),
+            current_buyer_name: Some("买家".to_owned()),
+            expired: false,
+            sold: false,
+            item_type: MarketItemType::Auction,
+        };
+
+        let record = auction.to_record();
+        assert!(!record.item.is_empty(), "物品应序列化成非空字节块");
+        let loaded = Auction::from_record(record).expect("记录应能还原");
+        assert_eq!(loaded, auction);
+    }
+
+    #[test]
+    fn corrupt_item_blob_is_rejected() {
+        let record = AuctionRecord {
+            id: 1,
+            item: vec![0xFF, 0xFF, 0xFF, 0xFF],
+            ..AuctionRecord::default()
+        };
+        assert!(Auction::from_record(record).is_none());
     }
 }

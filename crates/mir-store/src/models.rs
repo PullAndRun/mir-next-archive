@@ -505,6 +505,49 @@ pub struct Mail {
 }
 
 // ---------------------------------------------------------------------------
+// 市场（Crystal `AuctionInfo`）
+// ---------------------------------------------------------------------------
+
+/// 一条寄售/拍卖挂单（`market_auctions` 表；Crystal `AuctionInfo`，
+/// `Server/MirDatabase/AuctionInfo.cs:5-117`）。
+///
+/// Crystal 把挂单存在 **`MirADB` 全局段**（`Envir.Auctions`，`Server/MirEnvir/Envir.cs:131`；
+/// 存档 `:2591-2594`、读档 `:3018-3029`），不是角色行——本表同样是全局表。
+///
+/// `item` 是 **`crates/mir-server/src/items.rs` 的 `encode_slots` 字节块**：
+/// `encode_slots(&[Some(item)])`（单格），与背包/装备/邮件/行会仓库共用同一套
+/// `UserItem[]` 编解码。`seller_name` / `current_buyer_name` 是名字快照
+/// （Crystal 通过 `SellerInfo`/`CurrentBuyerInfo` 引用拿名字，`AuctionInfo.cs:19`、`:96`）。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, FromRow)]
+pub struct MarketAuction {
+    /// Crystal `AuctionInfo.AuctionID`（`ulong`，`++Envir.NextAuctionID`，`:12`、`:33`）。
+    pub id: i64,
+    /// Crystal `AuctionInfo.Item`（`:14`）：`encode_slots(&[Some(item)])` 单格字节块。
+    pub item: Vec<u8>,
+    /// Crystal `AuctionInfo.ConsignmentDate`（`:15`，`Envir.Now`）。
+    pub consignment_date: DateTime<Utc>,
+    /// Crystal `AuctionInfo.Price`（`:16`，`uint`）：寄售一口价 / 拍卖起拍价。
+    pub price: i64,
+    /// Crystal `AuctionInfo.CurrentBid`（`:16`，`uint`）：当前最高出价；寄售恒为 0。
+    pub current_bid: i64,
+    /// Crystal `AuctionInfo.SellerIndex`（`:18`）：卖家角色主键。
+    pub seller_character_id: i64,
+    /// Crystal `SellerInfo.Name`（`:19`、`:96`）：卖家名字快照。
+    pub seller_name: String,
+    /// Crystal `AuctionInfo.CurrentBuyerIndex`（`:18`）：当前最高出价者；`None` = 没人出价。
+    pub current_buyer_character_id: Option<i64>,
+    /// Crystal `CurrentBuyerInfo.Name`（`:19`）：最高出价者名字快照。
+    pub current_buyer_name: Option<String>,
+    /// Crystal `AuctionInfo.Expired`（`:21`）：是否已过期（`Envir.ProcessAuction`，
+    /// `Envir.cs:2396`）。
+    pub expired: bool,
+    /// Crystal `AuctionInfo.Sold`（`:21`）：是否已成交。
+    pub sold: bool,
+    /// Crystal `AuctionInfo.ItemType`（`:23`）：0 `Consign` / 1 `Auction` / 2 `GameShop`。
+    pub item_type: i16,
+}
+
+// ---------------------------------------------------------------------------
 // 攻城（Crystal `ConquestGuildInfo`）
 // ---------------------------------------------------------------------------
 

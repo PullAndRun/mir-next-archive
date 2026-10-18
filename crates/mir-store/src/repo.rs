@@ -34,7 +34,8 @@ use sqlx::{PgConnection, PgExecutor};
 use crate::error::{Result, StoreError};
 use crate::models::{
     Account, Character, CharacterSummary, Conquest, DEFAULT_LANGUAGE, Guild, GuildBuffRow,
-    GuildMemberRow, GuildRankRow, GuildRow, GuildStorageRow, Mail, NewAccount, NewCharacter,
+    GuildMemberRow, GuildRankRow, GuildRow, GuildStorageRow, Mail, MarketAuction, NewAccount,
+    NewCharacter,
 };
 use crate::password::{generate_salt, hash_password};
 
@@ -1155,6 +1156,75 @@ pub async fn delete_mail(conn: &mut PgConnection, mail_id: i64) -> Result<()> {
         .execute(&mut *conn)
         .await
         .map_err(StoreError::Database)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// 市场（Crystal `AuctionInfo`）
+// ---------------------------------------------------------------------------
+//
+// Crystal 把挂单写进 MirADB 的全局段（`Envir.SaveAccounts`，`Server/MirEnvir/Envir.cs:2591-2594`；
+// 读入 `:3018-3029`），不是角色行——本表同样是全局表。字段对照见
+// `migrations/0009_market.sql`。
+
+/// `market_auctions` 表的列（[`MarketAuction`] 的 `FromRow` 按名字匹配）。
+const MARKET_AUCTION_COLUMNS: &str = "id, item, consignment_date, price, current_bid, \
+                                      seller_character_id, seller_name, \
+                                      current_buyer_character_id, current_buyer_name, \
+                                      expired, sold, item_type";
+
+/// 列出全部市场挂单，按 `id` 降序（新 → 旧，等价于 Crystal `Envir.Auctions` 的 `AddFirst` 顺序，
+/// `PlayerObject.cs:8302`）。
+///
+/// 对应 Crystal `Envir.LoadAccounts` 里按存档顺序重建 `Auctions` 的那段
+/// （`Envir.cs:3018-3029`）。服务端启动时一次读全表，再灌进 `World`。
+pub async fn list_auctions(conn: &mut PgConnection) -> Result<Vec<MarketAuction>> {
+    let sql = format!("SELECT {MARKET_AUCTION_COLUMNS} FROM market_auctions ORDER BY id DESC");
+
+    sqlx::query_as::<_, MarketAuction>(&sql)
+        .fetch_all(conn)
+        .await
+        .map_err(StoreError::Database)
+}
+
+/// 用给定快照**整表替换**市场挂单（先 `DELETE` 再逐条 `INSERT`）。
+///
+/// 服务端世界层持有全部挂单（`World::auctions`），所以每次落盘都是一次全量快照：
+/// 新增/改价/成交/下架/过期清理都只需传当前快照，不需要增量写入队列。
+/// `save_auctions(&mut tx, &[])` 等价于清空表。
+///
+/// 对应 Crystal 每次 `SaveAccounts` 重写整个 `Auctions` 段（`Envir.cs:2591-2594`）。
+/// 调用方应把本函数放进事务（`&mut *tx` 可以直接传进来），避免删完还没插入时进程退出。
+pub async fn save_auctions(conn: &mut PgConnection, auctions: &[MarketAuction]) -> Result<()> {
+    const SQL: &str = "INSERT INTO market_auctions (id, item, consignment_date, price, \
+                       current_bid, seller_character_id, seller_name, \
+                       current_buyer_character_id, current_buyer_name, expired, sold, item_type) \
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)";
+
+    sqlx::query("DELETE FROM market_auctions")
+        .execute(&mut *conn)
+        .await
+        .map_err(StoreError::Database)?;
+
+    for auction in auctions {
+        sqlx::query(SQL)
+            .bind(auction.id)
+            .bind(auction.item.as_slice())
+            .bind(auction.consignment_date)
+            .bind(auction.price)
+            .bind(auction.current_bid)
+            .bind(auction.seller_character_id)
+            .bind(auction.seller_name.as_str())
+            .bind(auction.current_buyer_character_id)
+            .bind(auction.current_buyer_name.as_deref())
+            .bind(auction.expired)
+            .bind(auction.sold)
+            .bind(auction.item_type)
+            .execute(&mut *conn)
+            .await
+            .map_err(StoreError::Database)?;
+    }
+
     Ok(())
 }
 

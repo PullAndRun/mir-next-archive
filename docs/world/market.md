@@ -434,7 +434,9 @@ MarketSearch(…)
   「买家物品邮件 + 卖家金币邮件 + 挂单全量快照（已不含成交条目）」；`character: None`
   （定时任务没有发起会话的角色行）；
 * 失败语义：事务一行未写 → 已 drain 的邮件按原顺序回灌 `World.mail_writes`，**内存成交结果
-  保留（不回滚挂单）**；tick 任务用 `sale_flush_pending` + 5s 退避重试同一 flush。故意不回滚
+  保留（不回滚挂单）**；`sale_flush_pending` 时按 `SALE_FLUSH_RETRY_MS`（`market.rs:210`，
+  **5s**）退避重试同一 `flush_auction_sales`，成功后清零；DB 故障期间不会按 100ms tick
+  频率重试（成交扫描仍按 60s 周期，新成交只把 pending 置真、并入下一次 flush）。故意不回滚
   的原因：其它会话的市场操作也会 flush 整个邮件队列与快照，回滚挂单可能与「邮件已被别的
   会话提交」叠成二次成交/双发；
 * 崩溃窗口：内存改了、事务未提交 → 重启后库里挂单仍在且已过期，启动路径

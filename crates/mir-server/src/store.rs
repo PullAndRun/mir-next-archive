@@ -1063,10 +1063,11 @@ impl AccountStore for MemoryStore {
         let mut state = self.state.lock().await;
 
         // 仅测试：注入一次事务失败（见 [`MemoryStore::fail_next_market_update`]）。
+        // 错误串只进日志（开发者可见），用英文以免计入中文硬编码扫描。
         if state.fail_next_market_update {
             state.fail_next_market_update = false;
             return Err(StoreError::Internal(
-                "注入的市场事务失败（测试）".to_owned(),
+                "injected market transaction failure (test hook)".to_owned(),
             ));
         }
 

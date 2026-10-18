@@ -201,6 +201,14 @@ pub const MARKET_PAGE_SIZE: usize = 10;
 ///   [`World::auction_expired_at`] 兜底，功能不缺）。
 pub const AUCTION_SCAN_INTERVAL_MS: i64 = 60_000;
 
+/// 拍卖成交落盘失败后的重试退避（毫秒）。
+///
+/// 成交在内存里已经发生（挂单删除 + 两封邮件入队），`server.rs` 的 tick 任务用
+/// `sale_flush_pending` 继续重试 [`flush_auction_sales`]，直到事务提交。这个闸门保证
+/// **DB 故障时不会按 100ms tick 的频率捶库**：第一次尝试是即时的，失败后等
+/// [`SALE_FLUSH_RETRY_MS`] 再试（与 `docs/world/market.md` 写的「5 秒退避」一致）。
+pub const SALE_FLUSH_RETRY_MS: i64 = 5_000;
+
 /// 打开寄售（丢物品定价）面板的 NPC 页面键：`NPCScript.ConsignKey = "[@CONSIGN]"`（`NPCScript.cs:56`）。
 pub const CONSIGN_KEY: &str = "[@CONSIGN]";
 
@@ -2743,14 +2751,14 @@ mod tests {
             price: 5_000,
             current_bid: 0,
             seller_character_id: 1,
-            seller_name: "甲".to_owned(),
+            seller_name: "seller_a".to_owned(),
             current_buyer_character_id: None,
             current_buyer_name: None,
             expired: false,
             sold: false,
             item_type: MarketItemType::Consign,
         };
-        assert_eq!(auction.seller_label(false, zh), "甲");
+        assert_eq!(auction.seller_label(false, zh), "seller_a");
         assert_eq!(
             auction.seller_label(true, zh),
             text(zh, TextKey::MarketLabelOnSale)
@@ -2837,17 +2845,20 @@ mod tests {
             price: 5_000,
             current_bid: 6_000,
             seller_character_id: 11,
-            seller_name: "卖家".to_owned(),
+            seller_name: "seller".to_owned(),
             current_buyer_character_id: Some(22),
-            current_buyer_name: Some("买家".to_owned()),
+            current_buyer_name: Some("buyer".to_owned()),
             expired: false,
             sold: false,
             item_type: MarketItemType::Auction,
         };
 
         let record = auction.to_record();
-        assert!(!record.item.is_empty(), "物品应序列化成非空字节块");
-        let loaded = Auction::from_record(record).expect("记录应能还原");
+        assert!(
+            !record.item.is_empty(),
+            "item must serialize to a non-empty blob"
+        );
+        let loaded = Auction::from_record(record).expect("record round-trips");
         assert_eq!(loaded, auction);
     }
 
@@ -2869,7 +2880,7 @@ mod tests {
             price: 5_000,
             current_bid: 0,
             seller_character_id: 1,
-            seller_name: "卖家".to_owned(),
+            seller_name: "seller".to_owned(),
             current_buyer_character_id: None,
             current_buyer_name: None,
             expired: false,
@@ -2903,20 +2914,28 @@ mod tests {
         // 每 tick 的入口不再扫描：到期标记不会在这里发生。
         world.tick_market();
         assert!(
-            !world.auction(1).expect("1 号在").expired
-                && !world.auction(2).expect("2 号在").expired,
-            "tick_market 是 O(1) 空壳，不逐条翻标志"
+            !world.auction(1).expect("auction 1 exists").expired
+                && !world.auction(2).expect("auction 2 exists").expired,
+            "tick_market must stay O(1): it does not scan the auction table"
         );
 
         // 节流的扫描：成交一条、另一条置过期。
         let sold = world.process_auctions(now);
-        assert_eq!(sold.len(), 1, "有有效出价的到期拍卖应成交");
-        assert!(world.auction(1).is_none(), "成交后从列表移除");
-        assert!(
-            world.auction(2).expect("2 号在").expired,
-            "没有出价的到期拍卖置过期"
+        assert_eq!(
+            sold.len(),
+            1,
+            "an expired auction with a higher bid must sell"
         );
-        assert_eq!(world.pending_mail_writes(), 2, "买家物品 + 卖家金币");
+        assert!(world.auction(1).is_none(), "a sold auction leaves the list");
+        assert!(
+            world.auction(2).expect("auction 2 exists").expired,
+            "an expired auction without a qualifying bid is only marked expired"
+        );
+        assert_eq!(
+            world.pending_mail_writes(),
+            2,
+            "one mail for the buyer item and one for the seller gold"
+        );
     }
 
     /// F1：两个会话交错 flush 时，后提交的必须是**最新**快照。
@@ -2936,7 +2955,7 @@ mod tests {
         let account = store
             .create_account("f1", "secret", "")
             .await
-            .expect("建测试账号");
+            .expect("create test account");
         store
             .create_character(
                 account.id,
@@ -2947,7 +2966,7 @@ mod tests {
                 (0, 0),
             )
             .await
-            .expect("建测试角色");
+            .expect("create test character");
         let world = Arc::new(tokio::sync::Mutex::new(World::new(999)));
         world.lock().await.auctions.push(sample_auction(1));
 
@@ -2973,10 +2992,14 @@ mod tests {
             )
         };
 
-        first.await.expect("任务 1 可 join").expect("任务 1 落盘");
-        second.await.expect("任务 2 可 join").expect("任务 2 落盘");
+        first.await.expect("task 1 joins").expect("task 1 flushes");
+        second.await.expect("task 2 joins").expect("task 2 flushes");
 
         let ids: Vec<u64> = store.auctions().await.iter().map(|row| row.id).collect();
-        assert_eq!(ids, vec![2, 1], "最新快照必须胜出，不能被旧快照覆盖");
+        assert_eq!(
+            ids,
+            vec![2, 1],
+            "the latest snapshot must win over a stale one"
+        );
     }
 }

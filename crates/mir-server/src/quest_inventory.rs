@@ -666,7 +666,7 @@ mod tests {
                     count: 2
                 },
             ],
-            "先整格扣完，再扣第二格的一部分"
+            "drain the whole stack first, then part of the next"
         );
         assert_eq!(inventory.count_of(100), 3);
         assert_eq!(inventory.slot(0), None);

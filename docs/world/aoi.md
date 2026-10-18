@@ -117,7 +117,7 @@ pub struct AoiGrid {
 | 玩家离开世界 | `leave` → `aoi_remove(Player)` | `world.rs` |
 | 玩家走一步 | `walk` → `aoi_move(Player, to)` | `world.rs` |
 | 玩家跑 | `run` → `aoi_move(Player, destination)` | `world.rs` |
-| 玩家切图/传送 | `complete_map_move` → 旧图 `aoi_remove(Player)` + 新图 `aoi_insert(Player)`（不是 `aoi_move`） | `maps.rs` |
+| 玩家切图/传送 | `change_map` → 旧图 `aoi_remove(Player)` + 新图 `aoi_insert(Player)`（不是 `aoi_move`） | `maps.rs:451` |
 | 怪物刷出 | `spawn_monster` → `aoi_insert(Monster)` | `world.rs` |
 | 怪物移动 | `Monster` 移动路径 → `aoi_move(Monster)` | `monster.rs` |
 | 怪物消失/尸体回收 | `forget_monster` → `aoi_remove(Monster)` | `world.rs` |
@@ -132,7 +132,7 @@ pub struct AoiGrid {
 `remove` + `insert`。
 
 `World::place_player` / `place_monster` 是**测试/GM 瞬移**入口（内部 remove → 改坐标 →
-insert，跨图也安全）；正常玩家走/跑走 `aoi_move`，切图走 `complete_map_move` 的
+insert，跨图也安全）；正常玩家走/跑走 `aoi_move`，切图走 `change_map` 的
 `remove` + `insert`，都不会调用 `place_*`。
 
 ---

@@ -511,9 +511,35 @@ if (string.CompareOrdinal(account.Password, p.Password) != 0)
 1. 从旧文件按 §2 读出 `Salt`（24 字节）与 `password`（那个乱码字符串，**原样保留**，不要试图 "修复"）。
 2. 登录校验：`pbkdf2_hmac::<Sha1>(password, salt, 50, 24)` 得到 24 字节 → 用**与 .NET 完全一致的 UTF-8 替换解码**转成字符串 → 与存档字符串做字节级比较。
    Rust 的 `String::from_utf8_lossy` 与 .NET 的替换策略在「一个非法序列产出几个 U+FFFD」上可能不同（.NET 按最长非法前缀替换、Rust 按 Unicode 最大子部分替换）。**必须用真实样本对拍**，否则老账号会全部登录失败。
-3. 新数据：不要再走「哈希转字符串」这条路。PostgreSQL 直接存 `salt bytea` + `password_hash bytea`（24 字节），或升级到 Argon2id。若要保留老口令可用性，可加一列 `legacy_password text`，登录成功后按新算法重算并回填（渐进迁移）。
+3. 新数据：**保持 Crystal 的「哈希 → UTF-8 替换解码」语义，落库前再做一次标准 Base64**。
+   当前实现（`crates/mir-store/src/password.rs`、迁移 `0010_password_hash_base64.sql`）：
 
-安全提示（照抄即可，不必照抄漏洞）：50 次 SHA1-PBKDF2 + 24 字节输出 + 序数比较，在今天属于弱配置；Rust 版建议 Argon2id 并将 `WrongPasswordCount` 落库（原版不落盘，见 §7.4）。
+   * `accounts.salt BYTEA`：24 字节盐（与 Crystal 相同）；
+   * `accounts.password_hash TEXT`：`base64(hash_password(password, salt).as_bytes())`，
+     其中 `hash_password` 返回的仍是 Crystal 的 lossy 字符串（`String::from_utf8_lossy`
+     对 24 字节 PBKDF2 派生值做替换解码）；标准 Base64 只含 `A-Z a-z 0-9 + / =`，
+     不会出现 NUL；
+   * 登录校验：用账号自带的 salt 重算 → `encode_hash` → 常量时间比较（`verify_password`）；
+   * 迁移 0010 把旧行转换一次：`encode(convert_to(password_hash, 'UTF8'), 'base64')`，
+     旧值里的 U+FFFD 与 NUL 都按原字节保留在 Base64 解码结果里，老账号无需重置口令。
+
+   **为什么选 Base64 TEXT 而不是 BYTEA**：
+
+   1. **不需要版本列/兼容分支**：旧行的「lossy 字符串」和新代码的「重算后 Base64」在
+      同一列、同一验证语义下比较；如果改成 `BYTEA`，旧行是 lossy 字符串、新行是 24 字节
+      派生值，必须加 `password_version` 列或按长度猜格式，才能决定怎么比较。
+   2. **不引入新依赖/新存储类型**：`mir-store` 自带标准 Base64 编码（与 PostgreSQL
+      `encode(bytea,'base64')` 逐字符一致），迁移也只是文本变换；`BYTEA` 需要额外处理
+      `Vec<u8>` 与 ORM/查询参数的类型映射，收益仅是少 8 字节/行。
+   3. **避免原问题的根因**：直接存 lossy 字符串会因 24 个随机字节里出现 `0x00`
+      （合法 UTF-8 但 PostgreSQL TEXT 拒绝）触发 `22021 invalid byte sequence`；Base64
+      把任意字节映射成 ASCII，彻底绕开该错误，同时保留全部原始字节供验证。
+
+   将来若要升级到 Argon2id，可以新增 `password_algo` 列并渐进回填；那是**新算法迁移**，
+   与本次「不破坏老 Crystal 口令」的目标分开做。
+
+   安全提示（照抄即可，不必照抄漏洞）：50 次 SHA1-PBKDF2 + 24 字节输出 + 序数比较，在今天
+   属于弱配置；Rust 版建议 Argon2id 并将 `WrongPasswordCount` 落库（原版不落盘，见 §7.4）。
 
 ---
 

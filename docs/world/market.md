@@ -33,9 +33,10 @@
 > * `crates/mir-server/src/npc.rs`（两个 NPC 页面 `:1737-1749`，对话距离 `NPC_TALK_RANGE = 16` `:55`）
 > * `crates/mir-server/src/server.rs`（启动加载/过期清理 `:76-114`）
 > * `crates/mir-store/migrations/0009_market.sql` + `crates/mir-store/src/{models.rs,repo.rs}`
->   （`MarketAuction`、`list_auctions` / `save_auctions`）
+>   （`MarketAuction`、`list_auctions` / 低层 `save_auctions`）
+> * `crates/mir-server/src/store.rs` / `pg_store.rs`（`MarketUpdate` + `apply_market_update` 单事务）
 > * 测试：`crates/mir-server/src/market.rs` 内 4 个单元测试；
->   `crates/mir-server/tests/market_persistence.rs`（落盘/重启 6 个）；
+>   `crates/mir-server/tests/market_persistence.rs`（落盘/重启/原子性 8 个）；
 >   `crates/mir-server/tests/market_flow.rs`（真实 TCP 端到端 4 个）
 >
 > **`mir-protocol` 没有改动**：`C.ConsignItem` / `C.MarketSearch` / `C.MarketRefresh` /
@@ -395,8 +396,9 @@ MarketSearch(…)
   `!expired && !sold && now >= consignment_date + 7 天` 的条目标成 `expired`；
 * **重启清理**：`server.rs` 启动时 `store.load_auctions()` → `World::load_auctions(records)` →
   `World::purge_expired_auctions(wall_now)`：已过期挂单**先把物品寄回卖家、把最高出价寄回
-  买家**（系统邮件，`Collected = false`），再删除挂单；返回被清理的挂单 ID。
-  随后把清理后的快照 `market::persist_auctions(&store, snapshot)` 写回数据库；
+  买家**（系统邮件，`Collected = false`），再删除挂单；返回被清理的挂单 ID。清理后的
+  挂单快照 + 退回邮件装进同一个 `MarketUpdate`，由 `store.apply_market_update(cleanup)`
+  在**一个事务**里落库（见 §11.2）；
 * **持久化**：`expired` 会写回 `market_auctions.expired`，运行期已标记的过期状态在重启后
   仍能被 `purge_expired_auctions` 识别。
 
@@ -470,24 +472,42 @@ MarketSearch(…)
 
 * `models::MarketAuction`（与列一一对应；服务端侧对应 `store::AuctionRecord` 转换）；
 * `repo::list_auctions(conn)`：`SELECT … ORDER BY id DESC`（新 → 旧，等价 `AddFirst`）；
-* `repo::save_auctions(conn, auctions)`：事务内 `DELETE FROM market_auctions` + 逐条 `INSERT`，
-  整表快照。调用方应放在事务里，避免「删完还没插入」时进程退出丢数据。
+* `repo::save_auctions(conn, auctions)`：**低层**整表替换（`DELETE` + 批量 `INSERT`），
+  供工具/测试或 `MarketUpdate` 事务内部调用；正常市场链路不直接调它。
+* 服务端 `store::MarketUpdate { character, mail_writes, auctions }` +
+  `AccountStore::apply_market_update(update)`：把角色行、系统邮件、挂单快照放进**同一个**
+  存储事务（`pg_store.rs` 里一次 `begin` → 更新角色 → 写邮件 → 整表替换挂单 → `commit`）。
 
-### 11.2 运行期
+### 11.2 运行期：`MarketUpdate` 单事务 + 串行 flush
 
-世界层持有全部挂单（`World::auctions`）。接线点（按 t4 最终代码）：
+世界层持有全部挂单（`World::auctions`）。持久化入口统一为
+`store::MarketUpdate { character, mail_writes, auctions }` 与
+`AccountStore::apply_market_update(update)`：**当前角色行 + 系统邮件 + 挂单全量快照**
+在同一个存储事务里提交（PostgreSQL 见 `pg_store.rs`；`MemoryStore` 按相同语义实现）。
+对手方（卖家/被超价的买家）只通过邮件收款/收货，不需要跨会话写对方角色行。
 
-| 时机 | 调用 | 说明 |
+| 时机 | 实际调用链 | 说明 |
 |---|---|---|
 | 服务器启动 | `store.load_auctions()` → `World::load_auctions(records)` | 读取失败直接中止启动，避免空市场覆盖库；按 `id DESC` 还原全局列表 |
-| 启动清理 | `World::purge_expired_auctions(now_ms)` | 过期挂单：最高出价寄回买家、物品寄回卖家 → 删除；退回邮件先落库 |
-| 启动落盘 | `store.save_auctions(world.auction_snapshot())` | 清理后写回（全量替换） |
-| 市场包处理 | `Session::handle` 的市场分支置 `market_mutation`，包处理完统一 `flush_auction_writes()` | 覆盖上架/买断/出价/提前成交/取回的成功分支；失败分支不会改快照 |
-| 下线 | `leave_world` → `flush_auction_writes()` | 补一次，兜住动作路径遗漏 |
+| 启动清理 | `World::purge_expired_auctions(now_ms)` → 构造 `MarketUpdate{character:None, mail_writes: world.take_mail_writes(), auctions: world.auction_snapshot()}` → `store.apply_market_update(cleanup)` | 退回邮件与删除挂单**同一事务**；失败整组回滚，重试不会重复退款 |
+| 市场包成功 | `Session::handle` 的市场分支置 `market_mutation`，包处理完统一走 `Session::flush_auction_writes` → `market::flush_market_update(store, &world, Some(character_snapshot))` | 覆盖上架/买断/出价/提前成交/取回的成功分支；失败分支不改快照 |
+| 下线 | `leave_world` → `Session::flush_auction_writes` | 补一次，兜住动作路径遗漏 |
 
-`World::auction_snapshot()` 生成 `Vec<AuctionRecord>`；`market::persist_auctions` 负责把
-记录写进 store（内存实现与 PostgreSQL 实现共用同一组断言）。
-`next_auction_id` 在 `World::load_auctions` 时按 `max(id) + 1` 续号。
+`market::flush_market_update` 的并发契约（刑部 t7 F1）：
+
+1. 先拿进程级 `MARKET_FLUSH_LOCK`（独立于 world 锁，串行化所有会话的市场落盘）；
+2. 再拿 world 锁，取**最新**的 `auction_snapshot()` 与待写邮件队列，随即释放 world 锁；
+3. 调 `apply_market_update` 在单事务里写角色行/邮件/挂单。
+
+因此不会出现「旧快照后提交、整表覆盖新状态」；写库期间不持有 world 锁，不阻塞 tick
+或其它会话。`Session::flush_auction_writes` 负责生成当前角色的 `Character` 快照
+（`market::character_snapshot`：背包/装备/仓库/技能/任务 + 金币/HP/MP/等级/经验/坐标/
+地图/行会），保证「客户端看到的市场背包/金币变化」与挂单、邮件同事务落地。
+
+`World::auction_snapshot()` 生成 `Vec<AuctionRecord>`；`market::persist_auctions` 仍保留为
+**低层工具**（只写挂单、不写角色行/邮件），正常市场链路使用 `flush_market_update`。
+`next_auction_id` 在 `World::load_auctions` 时按 `max(id) + 1` 续号（含解码失败但 id 有效的
+记录，避免覆盖旧挂单）。
 
 ### 11.3 与 Crystal 存档的对照
 
@@ -565,7 +585,7 @@ Crystal 把挂单写在 `Server.MirADB` 的全局段（`Envir.cs:2591-2594`）�
 | 3 | `market_state_defaults_match_crystal` | `MinShapes/MaxShapes=0`、`MatchType=Nothing`、`UserMarket=false`、面板默认 `Market` |
 | 4 | `market_fail_reasons_match_crystal_numbers` | Reason 0..10 的编号 |
 
-`crates/mir-server/tests/market_persistence.rs`（户部本轮新增，重启/落盘）：
+`crates/mir-server/tests/market_persistence.rs`（户部本轮新增，重启/落盘/原子性 8 个）：
 
 | # | 用例 | 覆盖点 |
 |---|---|---|
@@ -573,8 +593,10 @@ Crystal 把挂单写在 `Server.MirADB` 的全局段（`Envir.cs:2591-2594`）�
 | 2 | `market_buyout_survives_restart` | 寄售买断后 `sold` 落盘、卖家收款；寄售的买家字段恒 `None`（拍卖买家归属见下一条） |
 | 3 | `market_bid_attribution_survives_restart` | 拍卖出价者/最高价落盘，重启后归属正确 |
 | 4 | `expired_auctions_are_purged_on_restart` | 过期挂单启动清理：物品寄回卖家、出价寄回买家、列表删除 |
-| 5 | `reload_advances_next_auction_id_from_max_id` | `max(id)+1` 续号，不覆盖旧挂单 |
-| 6 | `postgres_market_persistence_roundtrip` | 同一组断言走 MemoryStore 与 PgStore；Pg 按 `MIR2_TEST_DATABASE_URL` 条件跳过 |
+| 5 | `market_update_persists_character_and_auctions_atomically` | `MarketUpdate` 把角色行与挂单快照同事务写入；中途失败不出现「角色已改、挂单没写」 |
+| 6 | `market_cleanup_refund_is_at_most_once` | 启动清理的退邮件+删除挂单同事务，崩溃重试不会重复退款 |
+| 7 | `reload_advances_next_auction_id_from_max_id` | `max(id)+1` 续号（含坏行 id），不覆盖旧挂单 |
+| 8 | `postgres_market_persistence_roundtrip` | 同一组断言走 MemoryStore 与 PgStore；Pg 按 `MIR2_TEST_DATABASE_URL` 条件跳过（CI/本地已实测） |
 
 `crates/mir-server/tests/market_flow.rs`（本轮新增，真实 TCP 端到端）：
 

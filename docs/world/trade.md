@@ -25,7 +25,7 @@
 > * `crates/mir-server/src/trade.rs`（`TradeState`、全部交易流程、`CanGainItems`/`CanGainGold`）
 > * `crates/mir-server/src/world.rs`（`Player::trade` / `trade_invitation` / `next_trade_time` /
 >   `allow_trade`；`World::leave` / `walk` / `run` / `turn` / `player_died` 五处中止挂点）
-> * `crates/mir-server/src/maps.rs`（`World::complete_map_move` 里切图中止交易）
+> * `crates/mir-server/src/maps.rs`（`World::change_map` 里切图中止交易）
 > * `crates/mir-server/src/session.rs`（包分派 `:314-330`，处理器 `:1809-1908`）
 > * `crates/mir-server/src/mail.rs`（取消交易时背包满 → `World::mail_item_to_self`）
 > * 测试：`crates/mir-server/tests/trade.rs`（28 个端到端用例，另有 `trade.rs` 内 3 个单元测试）
@@ -261,7 +261,7 @@ stackOffset = 0
 | 走一步 | `HumanObject.cs:2491-2497` → `PlayerObject.Moved()`（`:568-574`） | `World::walk` |
 | 跑 | `HumanObject.cs:2547` | `World::run` |
 | 转身 | `PlayerObject.cs:4300-4301`（在广播 `ObjectTurn` 之前） | `World::turn` |
-| 切图 | `PlayerObject.cs:1477` | `World::complete_map_move`（`maps.rs`） |
+| 切图 | `PlayerObject.cs:1477` | `World::change_map`（`maps.rs`） |
 | 死亡 | **没有**（`Die()` 不清交易状态，见 `PlayerObject.cs:578-667`） | `World::player_died`（**本作扩展**） |
 | 主动取消 | `C.TradeCancel` → `TradeCancel()` | `Session::on_trade_cancel` → `World::trade_cancel` |
 

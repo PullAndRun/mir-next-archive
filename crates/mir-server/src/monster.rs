@@ -131,6 +131,25 @@ impl MonsterKind {
         matches!(self.ai, 6 | 58 | 113)
     }
 
+    /// 是否是攻城箭塔（Crystal `ConquestArcher`，AI 80）。
+    ///
+    /// `Server/MirObjects/MonsterObject.cs:189-190` 把 AI 80 映射到 `ConquestArcher`；
+    /// 它是 `TownArcher` 的子类（`Server/MirObjects/Monsters/ConquestArcher.cs:6`），
+    /// 只在攻城期间射击**非城主行会**的玩家：
+    ///
+    /// * `FindTarget` 跳过「本行会已经拥有这座城」的玩家、跳过隐身、要求 `WarIsOn`
+    ///   （`ConquestArcher.cs:53`）；
+    /// * 攻击距离是 `TownArcher.AttackRange = 10`（`TownArcher.cs:10`）；
+    /// * 站桩不动（`CanMove` 要求 `Route.Count > 0`，`ConquestArcher.cs:11-14`）。
+    ///
+    /// 简化：Crystal 走 `S.ObjectRangeAttack` + `ProjectileAttack`（`TownArcher.cs:39`、`:47`），
+    /// 本作没有远程抛射物协议（`ObjectRangeAttack` 未移植），箭塔按普通近战广播结算，
+    /// 伤害仍然按「同图 + 视野半径内」判定，见 `docs/world/conquest.md`。
+    #[must_use]
+    pub const fn is_conquest_archer(&self) -> bool {
+        self.ai == 80
+    }
+
     /// 用默认值构造一个种类（视野 7、攻击 2500ms、移动 1800ms）。
     #[must_use]
     pub fn new(name: impl Into<String>, image: MonsterImage) -> Self {
@@ -257,6 +276,11 @@ pub struct Monster {
     pub alone: bool,
     /// 下次检查 `alone` 的时刻（Crystal `AloneTime`）。
     pub alone_time: i64,
+    /// 所属攻城区（Crystal `ConquestArcher.Conquest`，`ConquestArcher.cs:8`）。
+    ///
+    /// `None` = 普通怪物。由 [`World::spawn_conquest_archer`] 设置；
+    /// 它决定箭塔在开战时只射非城主行会的玩家。
+    pub conquest: Option<i32>,
 }
 
 impl Monster {
@@ -309,6 +333,7 @@ impl Monster {
             respawn_group: None,
             alone: false,
             alone_time: 0,
+            conquest: None,
         }
     }
 
@@ -411,6 +436,14 @@ impl World {
             monster.alone = false;
             self.process_search(monster, now);
             self.process_guard_return(monster, now);
+            self.process_target(monster, now);
+            return;
+        }
+        // 攻城箭塔：`ConquestArcher.CanMove` 要求 `Route.Count > 0`（`ConquestArcher.cs:11-14`），
+        // 本作没有路线表 → 站桩：只索敌 + 攻击，不漫游、不追击。
+        if monster.kind.is_conquest_archer() {
+            monster.alone = false;
+            self.process_search(monster, now);
             self.process_target(monster, now);
             return;
         }
@@ -532,10 +565,13 @@ impl World {
         let target_position = target.position;
         let same_map = target.map == monster.map;
 
-        if monster.kind.is_guard() {
+        if monster.kind.is_guard() || monster.kind.is_conquest_archer() {
             // `Guard.InAttackRange`：同图、不同格、切比雪夫距离 <= 视野半径
             // （`Monsters/Guard.cs:40-45`）。够不到就站着：`Guard.CanMove` 要求
             // `Route.Count > 0`，没有路线时不会追（`:14-17`）。
+            //
+            // 攻城箭塔同理（`TownArcher.AttackRange = 10`，`TownArcher.cs:10`、
+            // `ConquestArcher.cs:11-14`），本作用视野半径代替固定 10。
             if same_map
                 && target_position != monster.position
                 && monster
@@ -566,6 +602,16 @@ impl World {
         if monster.target.is_some() {
             return;
         }
+        // 攻城箭塔：`ConquestArcher.cs:53` 的三条过滤（本会已拥城 / 隐身 / 未开战）。
+        let archer_owner = monster
+            .conquest
+            .and_then(|index| self.conquest(index))
+            .filter(|conquest| conquest.war_is_on)
+            .map(|conquest| conquest.owner);
+        if monster.kind.is_conquest_archer() && archer_owner.is_none() {
+            // 没在开战的攻城箭塔不索敌（`!Conquest.WarIsOn → continue`，`ConquestArcher.cs:53`）。
+            return;
+        }
         let mut best: Option<(i32, i32, i32, u32)> = None;
         for player in self.players.values() {
             if player.map != monster.map || player.dead {
@@ -575,6 +621,18 @@ impl World {
             // `PlayerObject.cs:4679`：`AI == 6 || 58 || 113 → return PKPoints >= 200`）。
             if monster.kind.is_guard() && player.pk_points < RED_NAME_PK_POINTS {
                 continue;
+            }
+            if monster.kind.is_conquest_archer() {
+                // `playerob.MyGuild != null && playerob.MyGuild.Conquest != null
+                //  && Conquest.Info.Index == playerob.MyGuild.Conquest.Info.Index → continue`
+                // （`ConquestArcher.cs:53`）：城主行会的人在城里不会被射。
+                if let Some(owner) = archer_owner
+                    && player
+                        .guild
+                        .is_some_and(|reference| reference.guild_id == owner)
+                {
+                    continue;
+                }
             }
             let distance = monster.position.max_distance(player.position);
             if distance > monster.kind.view_range {

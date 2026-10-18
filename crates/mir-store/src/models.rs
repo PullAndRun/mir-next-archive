@@ -504,6 +504,60 @@ pub struct Mail {
     pub collected: bool,
 }
 
+// ---------------------------------------------------------------------------
+// 攻城（Crystal `ConquestGuildInfo`）
+// ---------------------------------------------------------------------------
+
+/// 一个攻城区的运行期状态（`conquests` 表；Crystal `ConquestGuildInfo`，
+/// `Server/MirDatabase/ConquestGuildInfo.cs:7-92`）。
+///
+/// Crystal 把这份状态存成 `Conquests/<index>.mcd` 一个二进制文件
+/// （`Envir.SaveConquests`，`Server/MirEnvir/Envir.cs:2734-2747`；
+/// `Envir.LoadConquests`，`:3119-3170`）。字段对照与「为什么静态配表不进本表」
+/// 见 `migrations/0008_conquests.sql` 的文件头。
+///
+/// 静态数据（名字、地图、时间表、守卫/城门/城墙坐标）仍然来自 `Server.MirDB` 的
+/// `ConquestInfo` 段；本结构只存会变的那些。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, FromRow)]
+pub struct Conquest {
+    /// Crystal `ConquestInfo.Index`（也是 `.mcd` 的文件名）。
+    pub conquest_index: i32,
+    /// Crystal `ConquestGuildInfo.Owner`：城主行会，`None` 表示无主（C# 里是 `-1`）。
+    pub owner_guild_id: Option<i32>,
+    /// Crystal `ConquestGuildInfo.AttackerID`：已排队的攻打方，`None` 表示没人申请。
+    pub attacker_guild_id: Option<i32>,
+    /// Crystal `ConquestGuildInfo.GoldStorage`（`uint`）：城主税收池。
+    pub gold_storage: i64,
+    /// Crystal `ConquestGuildInfo.NPCRate`（`byte`）：城主设置的加价百分比。
+    pub npc_rate: i16,
+    /// Crystal `ConquestObject.WarIsOn`：是否正在开战。
+    pub war_is_on: bool,
+    /// Crystal `ConquestObject.WarStartTime`。
+    pub war_start_time: Option<DateTime<Utc>>,
+    /// Crystal `ConquestObject.WarEndTime`。
+    pub war_end_time: Option<DateTime<Utc>>,
+    /// Crystal `ConquestObject.StartType`（`ConquestType`）。
+    pub start_type: i16,
+    /// Crystal `ConquestObject.GameType`（`ConquestGame`）。
+    pub game_type: i16,
+    /// 时间表快照：Crystal `ConquestInfo.StartHour`。
+    pub schedule_start_hour: i16,
+    /// 时间表快照：Crystal `ConquestInfo.WarLength`（分钟）。
+    pub schedule_war_length: i32,
+    /// 时间表快照：Crystal `ConquestInfo.Monday`…`Sunday` 的位掩码（周一 = 位 0）。
+    pub schedule_days: i16,
+    /// Crystal `ConquestObject.KingPoints`（`ConquestObject.cs:77`）：`行会ID:分数` 逗号分隔。
+    ///
+    /// Crystal 用 `Dictionary<GuildObject, int>` 存运行期引用，落盘时没有对应字段；
+    /// 本作为了「重启后王者之城的比分不丢」额外存一份文本，格式见
+    /// `crates/mir-server/src/conquest.rs` 的 `encode_points`。
+    pub king_points: String,
+    /// Crystal `ConquestObject.ControlPoints` 的归属部分（`:52-56`）：`控制点ID:行会ID` 逗号分隔。
+    pub flag_owners: String,
+    /// **本作扩展**：下一次自动开战时刻（Crystal 每分钟现算，不落盘）。
+    pub next_war_at: Option<DateTime<Utc>>,
+}
+
 /// `guilds` 表的一行（不加联表信息，[`Guild`] 是它的展开版）。
 #[derive(Debug, Clone, FromRow)]
 pub(crate) struct GuildRow {

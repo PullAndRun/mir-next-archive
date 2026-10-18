@@ -21,6 +21,7 @@
 //! | [`set_last_login_ip`] | 记录最后登录 IP |
 //! | [`find_character_by_name`] | 按角色名（大小写不敏感）查角色，邮件收件人允许离线 |
 //! | [`create_mail`] / [`load_mail`] / [`list_mail`] / [`save_mail`] / [`delete_mail`] | 邮件表读写（Crystal `MailInfo`） |
+//! | [`list_conquests`] / [`load_conquest`] / [`save_conquest`] | 攻城区运行期状态（Crystal `ConquestGuildInfo`） |
 //!
 //! 界面语言（`accounts.language`）的校验与归一化是纯函数，不查库：
 //! [`normalize_language`] 把 `zh`/`cn`/`chs`/`en-us` 之类的别名归一成 `zh-cn`/`en`，
@@ -32,8 +33,8 @@ use sqlx::{PgConnection, PgExecutor};
 
 use crate::error::{Result, StoreError};
 use crate::models::{
-    Account, Character, CharacterSummary, DEFAULT_LANGUAGE, Guild, GuildBuffRow, GuildMemberRow,
-    GuildRankRow, GuildRow, GuildStorageRow, Mail, NewAccount, NewCharacter,
+    Account, Character, CharacterSummary, Conquest, DEFAULT_LANGUAGE, Guild, GuildBuffRow,
+    GuildMemberRow, GuildRankRow, GuildRow, GuildStorageRow, Mail, NewAccount, NewCharacter,
 };
 use crate::password::{generate_salt, hash_password};
 
@@ -1151,6 +1152,99 @@ pub async fn save_mail(conn: &mut PgConnection, mail: &Mail) -> Result<()> {
 pub async fn delete_mail(conn: &mut PgConnection, mail_id: i64) -> Result<()> {
     sqlx::query("DELETE FROM mail WHERE id = $1")
         .bind(mail_id)
+        .execute(&mut *conn)
+        .await
+        .map_err(StoreError::Database)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// 攻城（Crystal `ConquestGuildInfo`）
+// ---------------------------------------------------------------------------
+//
+// Crystal 把每个攻城区的运行期状态写成 `Conquests/<index>.mcd` 一个二进制文件
+// （`Envir.SaveConquests`，`Server/MirEnvir/Envir.cs:2734-2747`），读入见
+// `Envir.LoadConquests`（`:3119-3170`）。本作落一张 `conquests` 表，
+// 字段对照见 `migrations/0008_conquests.sql`。
+
+/// `conquests` 表的列（[`Conquest`] 的 `FromRow` 按名字匹配）。
+const CONQUEST_COLUMNS: &str = "conquest_index, owner_guild_id, attacker_guild_id, gold_storage, \
+                                npc_rate, war_is_on, war_start_time, war_end_time, start_type, \
+                                game_type, schedule_start_hour, schedule_war_length, \
+                                schedule_days, king_points, flag_owners, next_war_at";
+
+/// 列出全部攻城区的运行期状态（服务端启动时灌进世界）。
+///
+/// 对应 Crystal `Envir.LoadConquests`（`Envir.cs:3119-3170`）遍历 `ConquestInfoList`
+/// 逐个读 `<index>.mcd` 的做法；本作一次查完全表。
+pub async fn list_conquests(conn: &mut PgConnection) -> Result<Vec<Conquest>> {
+    let sql = format!("SELECT {CONQUEST_COLUMNS} FROM conquests ORDER BY conquest_index");
+
+    sqlx::query_as::<_, Conquest>(&sql)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(StoreError::Database)
+}
+
+/// 读一个攻城区的状态；不存在返回 [`StoreError::NotFound`]。
+pub async fn load_conquest(conn: &mut PgConnection, conquest_index: i32) -> Result<Conquest> {
+    let sql = format!("SELECT {CONQUEST_COLUMNS} FROM conquests WHERE conquest_index = $1");
+
+    sqlx::query_as::<_, Conquest>(&sql)
+        .bind(conquest_index)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(StoreError::Database)?
+        .ok_or(StoreError::NotFound("攻城"))
+}
+
+/// 写入（插入或整行更新）一个攻城区的状态。
+///
+/// 用 `ON CONFLICT ... DO UPDATE` 而不是「先查再更新」：Crystal 的 `SaveConquests`
+/// 只写 `NeedSave` 的那些（`Envir.cs:2739`），新建的攻城区第一次落盘时文件还不存在
+/// （`:3156` 的 `NeedSave = true`），本作把两种情况合并成一条语句。
+pub async fn save_conquest(conn: &mut PgConnection, conquest: &Conquest) -> Result<()> {
+    const SQL: &str = "INSERT INTO conquests (conquest_index, owner_guild_id, attacker_guild_id, \
+                       gold_storage, npc_rate, war_is_on, war_start_time, war_end_time, \
+                       start_type, game_type, schedule_start_hour, schedule_war_length, \
+                       schedule_days, king_points, flag_owners, next_war_at) \
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, \
+                               $15, $16) \
+                       ON CONFLICT (conquest_index) DO UPDATE SET \
+                       owner_guild_id = EXCLUDED.owner_guild_id, \
+                       attacker_guild_id = EXCLUDED.attacker_guild_id, \
+                       gold_storage = EXCLUDED.gold_storage, \
+                       npc_rate = EXCLUDED.npc_rate, \
+                       war_is_on = EXCLUDED.war_is_on, \
+                       war_start_time = EXCLUDED.war_start_time, \
+                       war_end_time = EXCLUDED.war_end_time, \
+                       start_type = EXCLUDED.start_type, \
+                       game_type = EXCLUDED.game_type, \
+                       schedule_start_hour = EXCLUDED.schedule_start_hour, \
+                       schedule_war_length = EXCLUDED.schedule_war_length, \
+                       schedule_days = EXCLUDED.schedule_days, \
+                       king_points = EXCLUDED.king_points, \
+                       flag_owners = EXCLUDED.flag_owners, \
+                       next_war_at = EXCLUDED.next_war_at, \
+                       updated_at = now()";
+
+    sqlx::query(SQL)
+        .bind(conquest.conquest_index)
+        .bind(conquest.owner_guild_id)
+        .bind(conquest.attacker_guild_id)
+        .bind(conquest.gold_storage)
+        .bind(conquest.npc_rate)
+        .bind(conquest.war_is_on)
+        .bind(conquest.war_start_time)
+        .bind(conquest.war_end_time)
+        .bind(conquest.start_type)
+        .bind(conquest.game_type)
+        .bind(conquest.schedule_start_hour)
+        .bind(conquest.schedule_war_length)
+        .bind(conquest.schedule_days)
+        .bind(conquest.king_points.as_str())
+        .bind(conquest.flag_owners.as_str())
+        .bind(conquest.next_war_at)
         .execute(&mut *conn)
         .await
         .map_err(StoreError::Database)?;

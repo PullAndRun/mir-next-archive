@@ -150,7 +150,15 @@ pub const NAME_COLOUR_BROWN: mir_core::Color = mir_core::Color::from_rgb(0x8B, 0
 /// 黄名（Crystal `PlayerObject.cs:1887`、`Color.Yellow`）。
 pub const NAME_COLOUR_YELLOW: mir_core::Color = mir_core::Color::from_rgb(0xFF, 0xFF, 0x00);
 /// 守卫的名字颜色（Crystal `Server/MirObjects/Monsters/Guard.cs:27`、`Color.SkyBlue`）。
+/// 守卫名的颜色（Crystal `ObjectMonster` 的 `NameColour`，见 `World::monster_snapshot`）。
 pub const NAME_COLOUR_GUARD: mir_core::Color = mir_core::Color::from_rgb(0x87, 0xCE, 0xEB);
+
+/// 战区里的名字颜色：Crystal `Color.Green`（`PlayerObject.cs:1865`、`:1868`）。
+///
+/// Crystal 在战区里按**观察者**给色（同会/无行会 → 绿，敌对行会 → 橙，`:1861-1870`）；
+/// 本作只发「自己视角」的颜色（`RefreshNameColour` 用自己当观察者，恒为绿），
+/// 见 `docs/world/conquest.md`。
+pub const NAME_COLOUR_WAR_ZONE: mir_core::Color = mir_core::Color::from_rgb(0x00, 0xFF, 0x00);
 /// 刷怪失败（找不到空位）后的重试冷却：Crystal `respawn.RespawnTime = Envir.Time + 1 * Settings.Minute`
 /// （`Server/MirEnvir/Map.cs:770`）。
 pub const RESPAWN_FAIL_DELAY_MS: i64 = MINUTE_MS;
@@ -655,6 +663,17 @@ pub struct World {
     ///
     /// 第一次用到时按「Unix 毫秒 << 20」起跳，见 [`World::allocate_mail_id`]。
     pub(crate) next_mail_id: u64,
+    /// 全部攻城区（Crystal `Envir.Conquests`，`Server/MirEnvir/Envir.cs:148`；
+    /// 见 [`crate::conquest`]）。
+    ///
+    /// 由 [`World::init_conquests`] 从 `db.conquests` 建出来，再由
+    /// [`World::load_conquests`] 用库里的状态覆盖。
+    pub(crate) conquests: Vec<crate::conquest::Conquest>,
+    /// 攻城配置（**本作扩展**，Crystal 没有攻城的等级/金币门槛，
+    /// 见 [`crate::conquest::ConquestSettings`]）。
+    pub(crate) conquest_settings: crate::conquest::ConquestSettings,
+    /// 下一次跑攻城处理（`Envir.Process` 每 10 秒一次，`Envir.cs:2339-2346`）的时刻。
+    pub(crate) next_conquest_tick: i64,
 }
 
 /// 一条待落盘的行会变更（见 `World::guild_writes`）。
@@ -732,6 +751,9 @@ impl World {
             storage_sent: BTreeSet::new(),
             mail_writes: Vec::new(),
             next_mail_id: 0,
+            conquests: Vec::new(),
+            conquest_settings: crate::conquest::ConquestSettings::default(),
+            next_conquest_tick: 0,
         }
     }
 
@@ -785,6 +807,9 @@ impl World {
             storage_sent: BTreeSet::new(),
             mail_writes: Vec::new(),
             next_mail_id: 0,
+            conquests: Vec::new(),
+            conquest_settings: crate::conquest::ConquestSettings::default(),
+            next_conquest_tick: 0,
         }
     }
 
@@ -952,7 +977,7 @@ impl World {
         // `RefreshNameColour()` 的初值：新进世界时按 PK 值/棕名时间算一次
         // （Crystal 在 `Load` 之后的第一次 `Process` 里做，这里提前到广播外观之前，
         // 否则周围玩家会先看到一帧白色名字）。
-        player.name_colour = Self::computed_name_colour(&player, now);
+        player.name_colour = self.computed_name_colour(&player, now);
         let appearance = self.appearance_packet(&player);
         // 先让新玩家看到周围的人，再把自己的外观发给别人
         // （Crystal 对视野内每个对象调用 `Add(player)` 下发 `GetInfo()`，`MapObject.cs:286-308`）。
@@ -1431,6 +1456,9 @@ impl World {
         // 行会 buff 到期：Crystal 在 `Envir.Process` 里每分钟跑一次 `GuildObject.Process`
         // （`Envir.cs:2330-2337`），见 [`crate::guild_buffs`]。
         self.tick_guild_buffs(now);
+        // 攻城：Crystal 在 `Envir.Process` 里每 10 秒跑一次 `ConquestObject.Process`
+        // （`Envir.cs:2339-2346`），见 [`crate::conquest`]。
+        self.tick_conquests(now);
     }
 
     /// 玩家侧簿记：跑步计数衰减、停顿后清零 `step_counter`、自然回血回蓝、到点复活。
@@ -1623,12 +1651,23 @@ impl World {
     /// 计算玩家的名字颜色：Crystal `PlayerObject.GetNameColour`（`PlayerObject.cs:1849-1891`）。
     ///
     /// 判定顺序：红名（`PKPoints >= 200`）→ 棕名（`Envir.Time < BrownTime`）→
-    /// WarZone/行会色（未实现）→ 黄名（`PKPoints >= 100`）→ 白名。
-    fn computed_name_colour(player: &Player, now: i64) -> mir_core::Color {
+    /// 战区绿名（`WarZone`）→ 黄名（`PKPoints >= 100`）→ 白名。
+    ///
+    /// 战区分支的简化：Crystal 在 `WarZone` 里对**观察者**返回绿色（同会/无行会）或橙色
+    /// （敌对行会）（`PlayerObject.cs:1861-1870`），而 `RefreshNameColour` 用自己当观察者
+    /// 算出的缓存值恒为绿色（`:1840-1846`）。本作只发「自己视角」的颜色，因此战区里
+    /// 一律是绿色，敌人看到的也是绿色（见 `docs/world/conquest.md`）。
+    fn computed_name_colour(&self, player: &Player, now: i64) -> mir_core::Color {
         if player.pk_points >= RED_NAME_PK_POINTS {
             NAME_COLOUR_RED
         } else if now < player.brown_time {
             NAME_COLOUR_BROWN
+        } else if self
+            .conquests
+            .iter()
+            .any(|conquest| conquest.covers_player(player))
+        {
+            NAME_COLOUR_WAR_ZONE
         } else if player.pk_points >= YELLOW_NAME_PK_POINTS {
             NAME_COLOUR_YELLOW
         } else {
@@ -1642,7 +1681,7 @@ impl World {
         self.players
             .get(&player_id)
             .map_or(NAME_COLOUR_WHITE, |player| {
-                Self::computed_name_colour(player, self.now())
+                self.computed_name_colour(player, self.now())
             })
     }
 
@@ -1656,11 +1695,11 @@ impl World {
     ///   （`HumanObject.cs:2361`）。
     ///
     /// 没有变化时什么也不发（Crystal 在 `prevColor == NameColour` 时直接 return）。
-    fn refresh_name_colour(&mut self, object_id: u32) {
+    pub(crate) fn refresh_name_colour(&mut self, object_id: u32) {
         let Some(player) = self.players.get(&object_id) else {
             return;
         };
-        let colour = Self::computed_name_colour(player, self.now());
+        let colour = self.computed_name_colour(player, self.now());
         if player.name_colour == colour {
             return;
         }
@@ -2123,32 +2162,36 @@ impl World {
         // 1) PK（`PlayerObject.cs:599-622`）。
         //    注意判定用的是**受害者**的 `BrownTime` / `PKPoints`（源码里的无限定字段），
         //    所以杀死红名/棕名玩家不会给凶手加 PK 值。
+        //
+        //    攻城期间在战区里杀死对手**不加 PK 值**，只给凶手一条「受到法律保护」的提示
+        //    （`if (AtWar(hitter) || WarZone) hitter.ReceiveChat(ProtectedByLaw)`，`:603-606`）。
         if let Some(hitter_id) = last_hitter
             && hitter_id != player_id
             && self.players.contains_key(&hitter_id)
-            && !self.at_war(player_id, hitter_id)
-            && now > victim_brown
-            && victim_pk < RED_NAME_PK_POINTS
         {
-            let mut cursed = None;
-            if let Some(hitter) = self.players.get_mut(&hitter_id) {
-                hitter.pk_points = hitter.pk_points.saturating_add(PK_POINTS_PER_KILL);
-                // `if (weapon != null && weapon.AddedStats[Luck] > (Settings.MaxLuck * -1)
-                //      && Envir.Random.Next(4) == 0) { weapon.AddedStats[Luck]--; … }`
-                // （`PlayerObject.cs:609-620`）。
-                if let Some(weapon) = hitter.equipment.first_mut().and_then(Option::as_mut) {
-                    let luck = weapon.added_stats.get(Stat::Luck);
-                    if luck > -combat::MAX_LUCK && self.rng.next_bounded(4) == 0 {
-                        weapon.added_stats.set(Stat::Luck, luck - 1);
-                        cursed = Some(weapon.clone());
+            if self.at_war(player_id, hitter_id) || self.in_war_zone(player_id) {
+                self.send_system_chat(hitter_id, "你受到了法律的保护。");
+            } else if now > victim_brown && victim_pk < RED_NAME_PK_POINTS {
+                let mut cursed = None;
+                if let Some(hitter) = self.players.get_mut(&hitter_id) {
+                    hitter.pk_points = hitter.pk_points.saturating_add(PK_POINTS_PER_KILL);
+                    // `if (weapon != null && weapon.AddedStats[Luck] > (Settings.MaxLuck * -1)
+                    //      && Envir.Random.Next(4) == 0) { weapon.AddedStats[Luck]--; … }`
+                    // （`PlayerObject.cs:609-620`）。
+                    if let Some(weapon) = hitter.equipment.first_mut().and_then(Option::as_mut) {
+                        let luck = weapon.added_stats.get(Stat::Luck);
+                        if luck > -combat::MAX_LUCK && self.rng.next_bounded(4) == 0 {
+                            weapon.added_stats.set(Stat::Luck, luck - 1);
+                            cursed = Some(weapon.clone());
+                        }
                     }
                 }
-            }
-            if let Some(item) = cursed {
-                self.send_to_player(
-                    hitter_id,
-                    &ServerPacket::RefreshItem(RefreshItem { item }).encode_frame(),
-                );
+                if let Some(item) = cursed {
+                    self.send_to_player(
+                        hitter_id,
+                        &ServerPacket::RefreshItem(RefreshItem { item }).encode_frame(),
+                    );
+                }
             }
         }
 

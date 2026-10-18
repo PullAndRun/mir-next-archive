@@ -214,6 +214,10 @@ pub struct Npc {
     pub max_lev: i16,
     /// 可见所需职业（`NpcInfo.ClassRequired`，空 = 不限制；取值是 `MirClass` 的名字）。
     pub class_required: String,
+    /// 所属攻城区（`NpcInfo.Conquest`，`Server/MirDatabase/NPCInfo.cs:34`；`0` = 不属于任何
+    /// 攻城区）。Crystal 用它在 `ConquestObject.LoadNPCs`（`:265-306`）把 NPC 绑到
+    /// `ConquestNPCs` 上，城主加价/收税都靠这条绑定（见 [`crate::conquest`]）。
+    pub conquest: i32,
     /// 这个 NPC 能接/交的任务编号（`NpcInfo.CollectQuestIndexes ∪ FinishQuestIndexes`，
     /// Crystal 在 `S.ObjectNPC` 里叫 `QuestIDs`，`NPCObject.cs:392-393`）。
     pub quest_indexes: Vec<i32>,
@@ -255,6 +259,7 @@ impl Npc {
             min_lev: info.min_lev,
             max_lev: info.max_lev,
             class_required: info.class_required.clone(),
+            conquest: info.conquest,
             quest_indexes,
             collect_quest_indexes: info.collect_quest_indexes.clone(),
             finish_quest_indexes: info.finish_quest_indexes.clone(),
@@ -1265,16 +1270,73 @@ impl World {
                 }
                 true
             }
+            // 攻城：Crystal `NPCSegment.Act` 的四个攻城动作
+            // （`ActionType.ScheduleConquest` 等，`:4223-4298`）。
+            // 见 [`crate::conquest`]。
+            "SCHEDULECONQUEST" => {
+                let Some(index) = parse_i32(&action.params, 0) else {
+                    return true;
+                };
+                match self.request_conquest_war(player_id, index) {
+                    Ok(report) => tracing::debug!(
+                        npc = %npc.name,
+                        conquest = index,
+                        guild = report.guild_id,
+                        started = report.war_started,
+                        "NPC 动作：申请攻城"
+                    ),
+                    Err(error) => self.send_system_chat(player_id, &error.message()),
+                }
+                true
+            }
+            "TAKECONQUESTGOLD" => {
+                let Some(index) = parse_i32(&action.params, 0) else {
+                    return true;
+                };
+                match self.take_conquest_gold(player_id, index) {
+                    Ok(0) => self.send_system_chat(player_id, "城里没有可收取的金币。"),
+                    Ok(amount) => tracing::debug!(
+                        npc = %npc.name,
+                        conquest = index,
+                        amount,
+                        "NPC 动作：收取城主税金"
+                    ),
+                    Err(error) => self.send_system_chat(player_id, &error.message()),
+                }
+                true
+            }
+            "SETCONQUESTRATE" => {
+                let (Some(index), Some(rate)) =
+                    (parse_i32(&action.params, 0), parse_u32(&action.params, 1))
+                else {
+                    return true;
+                };
+                let rate = u8::try_from(rate).unwrap_or(u8::MAX);
+                if let Err(error) = self.set_conquest_rate(player_id, index, rate) {
+                    self.send_system_chat(player_id, &error.message());
+                }
+                true
+            }
+            "STARTCONQUEST" => {
+                let Some(index) = parse_i32(&action.params, 0) else {
+                    return true;
+                };
+                match self.toggle_conquest_war(index) {
+                    Ok(started) => tracing::debug!(
+                        npc = %npc.name,
+                        conquest = index,
+                        started,
+                        "NPC 动作：开战/停战"
+                    ),
+                    Err(error) => self.send_system_chat(player_id, &error.message()),
+                }
+                true
+            }
             _ => false,
         }
     }
 
     /// NPC 脚本里的地图参数。
-    ///
-    /// Crystal 的脚本写的是**地图文件名**（`Envir.GetMapByNameAndInstance(param[0])`，
-    /// `Server/MirEnvir/Envir.cs:4607-4614`），所以**先按文件名查**；查不到再按
-    /// `MapInfo.Index` 查（**本作扩展**，方便写 `MOVE 20 10 10`）。
-    /// 顺序不能反：Mir2 的地图文件名全是数字，按主键优先会把 `MOVE 1 ...` 解析成错误的地图。
     fn resolve_script_map(&self, arg: &str) -> Option<String> {
         let file = arg
             .strip_suffix(".map")
@@ -1574,7 +1636,7 @@ impl World {
     /// 只实现买卖/修理三个面板与「创建行会」的名字请求；其余内建页面（仓库、锻造、
     /// 攻城…）本作没有，静默跳过。
     fn open_npc_panel(&mut self, player_id: u32, npc: &Npc, page_key: &str) -> Vec<&'static str> {
-        let rate = self.price_rate(npc);
+        let rate = self.price_rate(npc, player_id);
         let mut opened = Vec::new();
         match page_key {
             BUY_KEY | BUY_SELL_KEY => {
@@ -1668,10 +1730,34 @@ impl World {
 
     /// 价格倍率：Crystal `NPCScript.PriceRate`（`NPCScript.cs:111-133`）。
     ///
-    /// `callingNPC.Info.Rate / 100F`；没有攻城系统，所以分支恒定。找不到 NPC 时返回 1.0。
+    /// 攻城区的 NPC 对**非城主行会**成员按「城主加价」乘一次（`NPCRate`），
+    /// 见 [`World::conquest_price_rate`]；没有攻城区绑定时就是 `Rate / 100F`。
     #[must_use]
-    pub fn price_rate(&self, npc: &Npc) -> f32 {
+    pub fn price_rate(&self, npc: &Npc, player_id: u32) -> f32 {
+        self.conquest_price_rate(npc, player_id, false)
+    }
+
+    /// 基础价倍率（忽略城主加价）：Crystal `PriceRate(player, baseRate: true)`。
+    ///
+    /// 用来算「差价」——多收的那部分进城主金库（`NPCScript.cs:1211-1214`）。
+    #[must_use]
+    pub fn base_price_rate(&self, npc: &Npc) -> f32 {
         f32::from(npc.rate) / 100.0
+    }
+
+    /// 把这次交易里「城主加价」的部分记进城主金库：
+    /// Crystal `callingNPC.Conq.GuildInfo.GoldStorage += (cost - baseCost)`
+    /// （`NPCScript.cs:1211-1214`；修理是 `PlayerObject.cs:8150`）。
+    ///
+    /// `base_cost` 是按**基础倍率**（不吃城主加价）算出来的同一个价格。
+    fn collect_conquest_tax(&mut self, npc: &Npc, cost: u32, base_cost: u32) {
+        let Some(conquest) = self.npc_conquest(npc) else {
+            return;
+        };
+        let index = conquest.info.index;
+        // C# 的 `uint` 相减，负数会回绕成天文数字；这里夹到 0。
+        let tax = cost.saturating_sub(base_cost);
+        self.add_conquest_tax(index, tax);
     }
 }
 
@@ -1779,7 +1865,10 @@ impl World {
             count,
             ..goods.clone()
         };
-        let cost = apply_price_rate(item_price(&info, &priced), self.price_rate(&npc));
+        let price = item_price(&info, &priced);
+        let cost = apply_price_rate(price, self.price_rate(&npc, player_id));
+        // 城主加价的那部分进城主金库（`NPCScript.cs:1211-1214`）。
+        let base_cost = apply_price_rate(price, self.base_price_rate(&npc));
         let gold = self.players[&player_id].gold;
         if i64::from(cost) > gold {
             return Err(NpcError::NotEnoughGold { cost, gold });
@@ -1808,6 +1897,7 @@ impl World {
         // `:1208-1209`：扣钱 + `S.LoseGold`。
         self.lose_gold(player_id, cost)
             .map_err(|_| NpcError::NotEnoughGold { cost, gold })?;
+        self.collect_conquest_tax(&npc, cost, base_cost);
         // `:1217`：`GainItem(item)` → `S.GainedItem`。
         self.send_to_player(
             player_id,
@@ -2004,7 +2094,9 @@ impl World {
                 return Err(NpcError::TypeNotAllowed);
             }
         }
-        let cost = apply_price_rate(repair_price(&info, &item), self.price_rate(&npc));
+        let repair = repair_price(&info, &item);
+        let cost = apply_price_rate(repair, self.price_rate(&npc, player_id));
+        let base_cost = apply_price_rate(repair, self.base_price_rate(&npc));
         let gold = self.players[&player_id].gold;
         if i64::from(cost) > gold {
             return Err(NpcError::NotEnoughGold { cost, gold });
@@ -2012,6 +2104,8 @@ impl World {
         if cost > 0 {
             self.lose_gold(player_id, cost)
                 .map_err(|_| NpcError::NotEnoughGold { cost, gold })?;
+            // `PlayerObject.cs:8150`：`if (ob.Conq != null) Conq.GuildInfo.GoldStorage += cost - baseCost;`
+            self.collect_conquest_tax(&npc, cost, base_cost);
         }
         // `:8152`：`MaxDura = Math.Max(0, MaxDura - (MaxDura - CurrentDura) / 30)`。
         let wear = item.max_dura.saturating_sub(item.current_dura) / 30;

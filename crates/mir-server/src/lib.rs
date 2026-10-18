@@ -11,13 +11,15 @@
 //! **多地图与传送**（见 [`maps`] 与 `docs/world/maps.md`）、
 //! **组队**（见 [`group`] 与 `docs/world/group.md`）、
 //! **行会**（见 [`guild`]、[`guild_storage`]、[`guild_buffs`] 与 `docs/world/guild.md`；
-//! 攻城/联盟/投票未做）、**玩家仓库**（见 [`storage`] 与 `docs/world/storage.md`）以及
-//! **邮件**（见 [`mail`] 与 `docs/world/mail.md`）以及
-//! **玩家对玩家（PK）**（攻击模式、PK 值/红棕名、死亡掉落与守卫，见 `docs/world/pk.md`）。
+//! 联盟/投票未做）、**玩家仓库**（见 [`storage`] 与 `docs/world/storage.md`）、
+//! **邮件**（见 [`mail`] 与 `docs/world/mail.md`）、
+//! **玩家对玩家（PK）**（攻击模式、PK 值/红棕名、死亡掉落与守卫，见 `docs/world/pk.md`）以及
+//! **攻城/城主任命**（见 [`conquest`] 与 `docs/world/conquest.md`；城门/城墙/旗子等建筑未做）。
 
 pub mod buffs;
 pub mod combat;
 pub mod config;
+pub mod conquest;
 pub mod exp;
 pub mod gamedata;
 pub mod group;
@@ -41,6 +43,12 @@ pub mod world;
 pub use buffs::{ActiveBuff, BuffKind, PendingBuff};
 pub use combat::{CombatStats, HitResult};
 pub use config::ServerConfig;
+pub use conquest::{
+    CONQUEST_PROCESS_INTERVAL_MS, CONQUEST_SCHEDULE_INTERVAL_MS, CONTROL_POINT_RANGE, Conquest,
+    ConquestError, ConquestSettings, ConquestTickReport, ControlPointState, MAX_CONTROL_POINTS,
+    MAX_KING_POINTS, MINUTES_PER_DAY, WarRequestReport, check_day, decode_points, encode_points,
+    minute_of_day, weekday_index,
+};
 pub use exp::{ExpSource, ExpTable};
 pub use gamedata::GameData;
 pub use group::{
@@ -85,8 +93,8 @@ pub use storage::{
     STORAGE_MAX_SIZE, STORAGE_SIZE, StorageError, decode_storage, encode_storage, new_storage,
 };
 pub use store::{
-    Account, AccountStore, Character, GuildBuffRecord, GuildMemberRecord, GuildRankRecord,
-    GuildRecord, GuildStorageRecord, MailRecord, MemoryStore, StoreError,
+    Account, AccountStore, Character, ConquestRecord, GuildBuffRecord, GuildMemberRecord,
+    GuildRankRecord, GuildRecord, GuildStorageRecord, MailRecord, MemoryStore, StoreError,
 };
 pub use world::{
     AttackReport, CombatError, GuildWrite, MoveError, Player, RespawnState, SpawnGroup, World,

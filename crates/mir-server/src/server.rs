@@ -47,6 +47,32 @@ pub async fn serve_forever<S: AccountStore>(
         }
         Err(error) => tracing::warn!(%error, "读取行会失败：从空行会列表启动"),
     }
+    // 攻城：先按配表建出攻城区（Crystal `Envir.LoadConquests`，`Envir.cs:3119-3170`），
+    // 再用库里的运行期状态覆盖（城主/攻打方/税收/战争状态），最后刷出箭塔。
+    {
+        let mut world = world.lock().await;
+        let built = world.init_conquests();
+        if built > 0 {
+            let indices: Vec<i32> = world
+                .conquests()
+                .iter()
+                .map(|conquest| conquest.info.index)
+                .collect();
+            let archers: usize = indices
+                .into_iter()
+                .map(|index| world.spawn_conquest_archers(index).len())
+                .sum();
+            tracing::info!(count = built, archers, "已载入攻城区域");
+        }
+    }
+    match store.list_conquests().await {
+        Ok(records) => {
+            let mut world = world.lock().await;
+            let loaded = world.load_conquests(records);
+            tracing::info!(count = loaded, "已载入攻城状态");
+        }
+        Err(error) => tracing::warn!(%error, "读取攻城状态失败：从空状态启动"),
+    }
     let languages = Arc::new(build_language_library(&config));
     let next_session = Arc::new(AtomicU64::new(1));
 
@@ -58,17 +84,25 @@ pub async fn serve_forever<S: AccountStore>(
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             interval.tick().await;
-            let writes = {
+            let (writes, conquest_writes) = {
                 let mut world = tick_world.lock().await;
                 world.tick();
                 // 行会经验来自怪物击杀（tick 里结算），写入由这里定期落盘。
-                world.take_guild_writes()
+                // 攻城状态（开战/停战/城主/税收）同样在 tick 里变化。
+                (world.take_guild_writes(), world.take_conquest_writes())
             };
             if !writes.is_empty()
                 && let Err(error) =
                     crate::guild::persist_guild_writes(tick_store.as_ref(), writes).await
             {
                 tracing::warn!(%error, "tick 里的行会落盘失败");
+            }
+            if !conquest_writes.is_empty()
+                && let Err(error) =
+                    crate::conquest::persist_conquest_writes(tick_store.as_ref(), conquest_writes)
+                        .await
+            {
+                tracing::warn!(%error, "tick 里的攻城状态落盘失败");
             }
         }
     });

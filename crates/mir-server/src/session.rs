@@ -300,16 +300,19 @@ impl<S: AccountStore> Session<S> {
                 self.on_mail_cost(packet.gold, &packet.items_idx, packet.stamped)
                     .await;
             }
-            // 尚未实现的行会子功能：攻城、联盟/敌对（见 `docs/world/guild.md`）。
+            // 行会战（`C.GuildWarReturn`，`PlayerObject.cs:10283-10327`）与行会领地
+            // （`GuildTerritoryPage`/`PurchaseGuildTerritory`，`:10438-10525`）仍未实现：
+            // 前者需要 `GuildObject.WarringGuilds`，后者需要 `Envir.GTMapList`（另一套数据表），
+            // 都不属于本轮「攻城」范围。见 `docs/world/conquest.md` 的「未做」。
             ClientPacket::GuildWarReturn(packet) => {
                 tracing::debug!(
                     session = self.id,
                     name = %packet.name,
-                    "忽略 C.GuildWarReturn（行会攻城战未实现）"
+                    "忽略 C.GuildWarReturn（行会战未实现；攻城走 NPC 脚本）"
                 );
             }
             ClientPacket::PurchaseGuildTerritory(_) | ClientPacket::GuildTerritoryPage(_) => {
-                tracing::debug!(session = self.id, "忽略攻城领地相关包（未实现）");
+                tracing::debug!(session = self.id, "忽略行会领地租赁包（未实现）");
             }
             ClientPacket::Disconnect(_) => {
                 self.leave_world().await;

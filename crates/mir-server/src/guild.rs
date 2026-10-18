@@ -1267,6 +1267,15 @@ impl World {
         self.guilds.get(&guild_id)
     }
 
+    /// 按 ID 找行会（可变）。
+    ///
+    /// 直接改字段**不会**自动排队落盘：调用方改完要自己调
+    /// [`World::mark_guild_dirty`]（本作几乎所有行会改动都走这条约定，
+    /// 见 [`crate::guild_buffs`] 的 `guild_buff_update`）。
+    pub fn guild_mut(&mut self, guild_id: i32) -> Option<&mut Guild> {
+        self.guilds.get_mut(&guild_id)
+    }
+
     /// 全部行会（按 ID 升序，便于确定性测试与日志）。
     pub fn guilds(&self) -> Vec<&Guild> {
         let mut guilds: Vec<&Guild> = self.guilds.values().collect();

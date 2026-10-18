@@ -19,7 +19,7 @@
 //! 2. 遍历 `CurrentMap.Info.Movements`，只看 `Source == location` 的条目（`:4474-4478`）；
 //! 3. `NeedHole` 要求同格有「挖开的洞」（`:4480-4487`，Crystal 检查同格的法术对象
 //!    `Spell.DigOutZombie` / `Spell.DigOutArmadillo`；本作没有挖洞技能，用 [`World::set_hole`] 的集合代替）；
-//! 4. `ConquestIndex > 0` 要求行会占领对应攻城区域（`:4489-4493`），本作没有行会/攻城 → 一律不通过；
+//! 4. `ConquestIndex > 0` 要求**行会拥有**对应的攻城区（`:4489-4493`），见 [`crate::conquest`]；
 //! 5. `NeedMove` 只把目的地记进 `NPCData`（`:4495-4500`），真正切图由 NPC 动作 `ENTERMAP`
 //!    （`Server/MirObjects/NPC/NPCSegment.cs:4065-4074`）执行；
 //! 6. 其余情况：目标图存在且落点合法才传送（`:4502-4510`）。
@@ -543,6 +543,10 @@ impl World {
         //     （`PlayerObject.cs:1509-1513`，属于「地图进入规则」，本作未实现，见 `docs/world/group.md`）。
         self.group_member_map_name_changed(player_id);
         self.group_player_location(player_id);
+        // 11) 攻城：走进皇宫就算占领（`CapturePalace` 玩法）。
+        //     Crystal 在 `CompleteMapMovement` 末尾调 `CheckConquest(true)`（`PlayerObject.cs:4617`），
+        //     见 `crate::conquest`。
+        self.check_conquest_after_map_change(player_id);
 
         Ok(MapChangeReport {
             player_id,
@@ -674,9 +678,25 @@ impl World {
             if info.need_hole && !self.has_hole(&map, cell) {
                 continue;
             }
-            // `ConquestIndex > 0`（`:4489-4493`）：没有行会/攻城系统，一律不通过。
+            // `ConquestIndex > 0`（`PlayerObject.cs:4489-4493`）：只有**拥有这座城**的行会
+            // 成员能过。
+            //
+            // ```csharp
+            // if (info.ConquestIndex > 0) {
+            //     if (MyGuild == null || MyGuild.Conquest == null) continue;
+            //     if (MyGuild.Conquest.Info.Index != info.ConquestIndex) continue;
+            // }
+            // ```
             if info.conquest_index > 0 {
-                continue;
+                let owner = self
+                    .players
+                    .get(&player_id)
+                    .and_then(|player| player.guild)
+                    .and_then(|reference| self.guild_conquest(reference.guild_id))
+                    .map(|conquest| conquest.info.index);
+                if owner != Some(info.conquest_index) {
+                    continue;
+                }
             }
             let Some(target_map) = self.resolve_movement_target(&map, &info) else {
                 continue;

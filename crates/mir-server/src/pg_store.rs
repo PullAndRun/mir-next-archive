@@ -6,8 +6,8 @@ use mir_core::enums::{MirClass, MirDirection, MirGender};
 use mir_store::PgPool;
 
 use crate::store::{
-    Account, AccountStore, Character, GuildBuffRecord, GuildMemberRecord, GuildRankRecord,
-    GuildRecord, GuildStorageRecord, MailRecord, StoreError,
+    Account, AccountStore, Character, ConquestRecord, GuildBuffRecord, GuildMemberRecord,
+    GuildRankRecord, GuildRecord, GuildStorageRecord, MailRecord, StoreError,
 };
 
 /// 基于 PostgreSQL 的账号/角色存储。
@@ -296,6 +296,64 @@ fn to_store_mail(mail: &MailRecord) -> mir_store::Mail {
         opened: mail.opened,
         locked: mail.locked,
         collected: mail.collected,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 攻城：服务端视图 ↔ `mir-store` 行
+// ---------------------------------------------------------------------------
+
+/// Unix 毫秒 → 可空时间列；`0`（未设置）落成 `NULL`。
+fn optional_millis(millis: i64) -> Option<DateTime<Utc>> {
+    (millis > 0).then(|| millis_to_datetime(millis))
+}
+
+/// 可空时间列 → Unix 毫秒；`NULL` 落成 `0`（= 未设置）。
+fn millis_or_zero(value: Option<DateTime<Utc>>) -> i64 {
+    value.map_or(0, |date| date.timestamp_millis())
+}
+
+/// 服务端的攻城视图 → `mir-store` 的行。
+fn to_store_conquest(conquest: &ConquestRecord) -> mir_store::Conquest {
+    mir_store::Conquest {
+        conquest_index: conquest.conquest_index,
+        owner_guild_id: conquest.owner,
+        attacker_guild_id: conquest.attacker,
+        gold_storage: i64::from(conquest.gold_storage),
+        npc_rate: i16::from(conquest.npc_rate),
+        war_is_on: conquest.war_is_on,
+        war_start_time: optional_millis(conquest.war_start_time),
+        war_end_time: optional_millis(conquest.war_end_time),
+        start_type: i16::from(conquest.start_type),
+        game_type: i16::from(conquest.game_type),
+        schedule_start_hour: i16::from(conquest.schedule_start_hour),
+        schedule_war_length: conquest.schedule_war_length,
+        schedule_days: i16::from(conquest.schedule_days),
+        king_points: conquest.king_points.clone(),
+        flag_owners: conquest.flag_owners.clone(),
+        next_war_at: optional_millis(conquest.next_war_at),
+    }
+}
+
+/// `mir-store` 的攻城行 → 服务端视图。
+fn from_store_conquest(conquest: mir_store::Conquest) -> ConquestRecord {
+    ConquestRecord {
+        conquest_index: conquest.conquest_index,
+        owner: conquest.owner_guild_id,
+        attacker: conquest.attacker_guild_id,
+        gold_storage: u32::try_from(conquest.gold_storage).unwrap_or(u32::MAX),
+        npc_rate: u8::try_from(conquest.npc_rate).unwrap_or(u8::MAX),
+        war_is_on: conquest.war_is_on,
+        war_start_time: millis_or_zero(conquest.war_start_time),
+        war_end_time: millis_or_zero(conquest.war_end_time),
+        start_type: u8::try_from(conquest.start_type).unwrap_or(0),
+        game_type: u8::try_from(conquest.game_type).unwrap_or(0),
+        schedule_start_hour: u8::try_from(conquest.schedule_start_hour).unwrap_or(0),
+        schedule_war_length: conquest.schedule_war_length,
+        schedule_days: u8::try_from(conquest.schedule_days).unwrap_or(0),
+        king_points: conquest.king_points,
+        flag_owners: conquest.flag_owners,
+        next_war_at: millis_or_zero(conquest.next_war_at),
     }
 }
 
@@ -608,6 +666,40 @@ impl AccountStore for PgAccountStore {
             let id = i64::try_from(mail_id)
                 .map_err(|_| StoreError::Internal(format!("邮件 ID {mail_id} 超出 i64")))?;
             mir_store::delete_mail(&mut connection, id)
+                .await
+                .map_err(map_store_error)
+        }
+    }
+
+    fn list_conquests(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<ConquestRecord>, StoreError>> + Send + '_
+    {
+        async move {
+            let mut connection = self
+                .pool
+                .acquire()
+                .await
+                .map_err(|error| StoreError::Internal(error.to_string()))?;
+            let rows = mir_store::list_conquests(&mut connection)
+                .await
+                .map_err(map_store_error)?;
+            Ok(rows.into_iter().map(from_store_conquest).collect())
+        }
+    }
+
+    fn save_conquest(
+        &self,
+        conquest: ConquestRecord,
+    ) -> impl std::future::Future<Output = Result<(), StoreError>> + Send + '_ {
+        async move {
+            let mut connection = self
+                .pool
+                .acquire()
+                .await
+                .map_err(|error| StoreError::Internal(error.to_string()))?;
+            let row = to_store_conquest(&conquest);
+            mir_store::save_conquest(&mut connection, &row)
                 .await
                 .map_err(map_store_error)
         }

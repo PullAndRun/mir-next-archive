@@ -398,6 +398,25 @@ impl GameData {
         self.db.magics.len()
     }
 
+    /// 全部攻城区配表（Crystal `Envir.ConquestInfoList`，`Server/MirEnvir/Envir.cs:122`；
+    /// 见 [`crate::conquest`]）。
+    #[must_use]
+    pub fn conquests(&self) -> &[mir_db::ConquestInfo] {
+        &self.db.conquests
+    }
+
+    /// 按主键取攻城区配表（Crystal `ConquestObject` 的 `Info`）。
+    #[must_use]
+    pub fn conquest(&self, index: i32) -> Option<&mir_db::ConquestInfo> {
+        self.db.conquests.iter().find(|info| info.index == index)
+    }
+
+    /// 攻城区配表数量（真实数据冒烟用）。
+    #[must_use]
+    pub fn conquest_count(&self) -> usize {
+        self.db.conquests.len()
+    }
+
     /// 去重后能按 `Spell` 查到模板的数量（Crystal `MagicInfoList.Count`）。
     #[must_use]
     pub fn distinct_magic_count(&self) -> usize {

@@ -234,6 +234,49 @@ pub struct GuildRecord {
     pub buffs: Vec<GuildBuffRecord>,
 }
 
+/// 一个攻城区的运行期状态（与 `mir-store` 的 `Conquest` 同构的存储视图）。
+///
+/// 对应 Crystal `ConquestGuildInfo`（`Server/MirDatabase/ConquestGuildInfo.cs:7-92`），
+/// 那边存成 `Conquests/<index>.mcd`（`Envir.SaveConquests`，`Envir.cs:2734-2747`）。
+/// 静态配表（名字/地图/时间表/守卫坐标）不进这个结构，仍然来自 `Server.MirDB`。
+///
+/// 时间字段统一用 **Unix 毫秒**，`0` 表示「未设置」（`pg_store` 转成 `NULL`）。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ConquestRecord {
+    /// Crystal `ConquestInfo.Index`（也是 `.mcd` 文件名）。
+    pub conquest_index: i32,
+    /// Crystal `ConquestGuildInfo.Owner`（`-1` 落成 `None`）。
+    pub owner: Option<i32>,
+    /// Crystal `ConquestGuildInfo.AttackerID`（`-1` 落成 `None`）。
+    pub attacker: Option<i32>,
+    /// Crystal `ConquestGuildInfo.GoldStorage`（`uint`）。
+    pub gold_storage: u32,
+    /// Crystal `ConquestGuildInfo.NPCRate`（`byte`）。
+    pub npc_rate: u8,
+    /// Crystal `ConquestObject.WarIsOn`。
+    pub war_is_on: bool,
+    /// Crystal `ConquestObject.WarStartTime`（Unix 毫秒）。
+    pub war_start_time: i64,
+    /// Crystal `ConquestObject.WarEndTime`（Unix 毫秒）。
+    pub war_end_time: i64,
+    /// Crystal `ConquestObject.StartType`（`ConquestType`）。
+    pub start_type: u8,
+    /// Crystal `ConquestObject.GameType`（`ConquestGame`）。
+    pub game_type: u8,
+    /// 时间表快照：`ConquestInfo.StartHour`。
+    pub schedule_start_hour: u8,
+    /// 时间表快照：`ConquestInfo.WarLength`（分钟）。
+    pub schedule_war_length: i32,
+    /// 时间表快照：`ConquestInfo.Monday`…`Sunday` 的位掩码（周一 = 位 0）。
+    pub schedule_days: u8,
+    /// 「王者之城」计分文本（`行会ID:分数`，逗号分隔）。
+    pub king_points: String,
+    /// 控制点归属文本（`控制点ID:行会ID`，逗号分隔）。
+    pub flag_owners: String,
+    /// **本作扩展**：下一次自动开战时刻（Unix 毫秒）。
+    pub next_war_at: i64,
+}
+
 /// 行会里的一行职位。
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GuildRankRecord {
@@ -440,6 +483,22 @@ pub trait AccountStore: Send + Sync + 'static {
     /// 删除一封邮件。
     fn delete_mail(&self, mail_id: u64)
     -> impl Future<Output = Result<(), StoreError>> + Send + '_;
+
+    /// 读出全部攻城区的运行期状态（服务端启动时灌进 [`World`](crate::World)）。
+    ///
+    /// 对应 Crystal `Envir.LoadConquests`（`Server/MirEnvir/Envir.cs:3119-3170`）
+    /// 逐个读 `Conquests/<index>.mcd` 的做法。
+    fn list_conquests(
+        &self,
+    ) -> impl Future<Output = Result<Vec<ConquestRecord>, StoreError>> + Send + '_;
+
+    /// 写入一个攻城区的运行期状态（插入或整行更新）。
+    ///
+    /// 对应 Crystal `Envir.SaveConquests`（`Envir.cs:2734-2749`）。
+    fn save_conquest(
+        &self,
+        conquest: ConquestRecord,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send + '_;
 }
 
 /// 内存实现：用于测试与无数据库的本地试玩。
@@ -456,6 +515,8 @@ struct MemoryState {
     guilds: Vec<GuildRecord>,
     /// 邮件（`mail` 表；Crystal `CharacterInfo.Mail`）。
     mails: Vec<MailRecord>,
+    /// 攻城区（`conquests` 表；Crystal `ConquestGuildInfo`）。
+    conquests: Vec<ConquestRecord>,
     next_account_id: i64,
     next_character_id: i64,
     next_guild_id: i32,
@@ -472,6 +533,7 @@ impl MemoryStore {
                 characters: Vec::new(),
                 guilds: Vec::new(),
                 mails: Vec::new(),
+                conquests: Vec::new(),
                 next_account_id: 1,
                 next_character_id: 1,
                 next_guild_id: 1,
@@ -483,6 +545,11 @@ impl MemoryStore {
     /// 行会表快照（测试用来断言「写库」的结果）。
     pub async fn guilds(&self) -> Vec<GuildRecord> {
         self.state.lock().await.guilds.clone()
+    }
+
+    /// 攻城区表快照（测试用来断言「写库」的结果）。
+    pub async fn conquests(&self) -> Vec<ConquestRecord> {
+        self.state.lock().await.conquests.clone()
     }
 
     /// 直接读某个角色的行会归属（等价于数据库里的 `characters.guild_index`）。
@@ -743,6 +810,25 @@ impl AccountStore for MemoryStore {
     async fn delete_mail(&self, mail_id: u64) -> Result<(), StoreError> {
         let mut state = self.state.lock().await;
         state.mails.retain(|mail| mail.id != mail_id);
+        Ok(())
+    }
+
+    async fn list_conquests(&self) -> Result<Vec<ConquestRecord>, StoreError> {
+        let mut rows = self.state.lock().await.conquests.clone();
+        rows.sort_by_key(|row| row.conquest_index);
+        Ok(rows)
+    }
+
+    async fn save_conquest(&self, conquest: ConquestRecord) -> Result<(), StoreError> {
+        let mut state = self.state.lock().await;
+        match state
+            .conquests
+            .iter_mut()
+            .find(|row| row.conquest_index == conquest.conquest_index)
+        {
+            Some(existing) => *existing = conquest,
+            None => state.conquests.push(conquest),
+        }
         Ok(())
     }
 }

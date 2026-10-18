@@ -683,7 +683,17 @@ mod tests {
             path.to_string_lossy().replace('\\', "/"),
             "C:/mir/Envir/Quests/BichonProvince/BichonWall/1.txt"
         );
-        let absolute = resolve_script_path(Path::new("C:/x/y.txt"), Path::new("C:/mir/Envir"));
-        assert_eq!(absolute.to_string_lossy(), "C:/x/y.txt");
+        // 绝对路径要原样返回：Windows 用 `C:/x/y.txt`，Unix 上它不算绝对路径，用 `/x/y.txt`。
+        let (absolute_input, absolute_expected) = if cfg!(windows) {
+            ("C:/x/y.txt", "C:/x/y.txt")
+        } else {
+            ("/x/y.txt", "/x/y.txt")
+        };
+        let absolute = resolve_script_path(Path::new(absolute_input), Path::new("C:/mir/Envir"));
+        assert_eq!(
+            absolute.to_string_lossy().replace('\\', "/"),
+            absolute_expected
+        );
+        assert!(absolute.is_absolute(), "绝对路径应保持绝对：{absolute:?}");
     }
 }

@@ -109,6 +109,7 @@ fn from_store_character(character: mir_store::Character) -> Character {
         storage: character.storage,
         magics: character.magics,
         quests: character.quests,
+        quest_inventory: character.quest_inventory,
         guild_index: character.guild_index,
         last_access: from_datetime(character.last_login_date),
     }
@@ -139,6 +140,10 @@ fn apply_to_store_character(character: &Character, target: &mut mir_store::Chara
     target.storage.clone_from(&character.storage);
     target.magics.clone_from(&character.magics);
     target.quests.clone_from(&character.quests);
+    // 任务物品栏：`characters.quest_inventory`（迁移 0012，Crystal `CharacterInfo.QuestInventory`）。
+    target
+        .quest_inventory
+        .clone_from(&character.quest_inventory);
     target.guild_index = character.guild_index;
 }
 

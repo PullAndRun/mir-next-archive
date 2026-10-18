@@ -1095,7 +1095,8 @@ impl World {
                 if target_id == 0 || target_id == object_id {
                     return Err(MagicError::InvalidTarget);
                 }
-                let Some(target_position) = self.attack_target_position(&map, target_id) else {
+                let Some(target_position) = self.attack_target_position(&map, object_id, target_id)
+                else {
                     return Err(MagicError::InvalidTarget);
                 };
                 // `FindObject(targetID, 10)` 的搜索半径（`:3468`）。
@@ -1697,21 +1698,24 @@ impl World {
         }
     }
 
-    /// 攻击类技能能命中的目标位置：只认**未死亡的同图怪物**。
-    ///
-    /// 简化：PK 未实现，玩家不能成为攻击目标（Crystal 的 `IsAttackTarget` 会按
-    /// PK/行会战规则放行，`Server/MirObjects/MapObject.cs:422-`）。
-    fn attack_target_position(&self, map: &str, target_id: u32) -> Option<Point> {
+    /// 攻击类技能（Bolt）能命中的怪物位置：必须按 Crystal
+    /// `MonsterObject.IsAttackTarget(HumanObject)` 可攻击（宠物受主人/Peace/安全区限制）。
+    fn attack_target_position(&self, map: &str, caster_id: u32, target_id: u32) -> Option<Point> {
         self.monsters
             .iter()
-            .find(|monster| monster.object_id == target_id && !monster.dead && monster.map == map)
+            .find(|monster| {
+                monster.object_id == target_id
+                    && !monster.dead
+                    && monster.map == map
+                    && self.monster_is_attack_target_of_player(caster_id, target_id)
+            })
             .map(|monster| monster.position)
     }
 
     /// 攻击类技能（含玩家目标的 `Poisoning`）能命中的目标位置：
     /// 未死亡的同图怪物，或按 PK 规则可以攻击的玩家（Crystal `IsAttackTarget`）。
     fn magic_attack_position(&self, map: &str, caster_id: u32, target_id: u32) -> Option<Point> {
-        if let Some(position) = self.attack_target_position(map, target_id) {
+        if let Some(position) = self.attack_target_position(map, caster_id, target_id) {
             return Some(position);
         }
         self.players

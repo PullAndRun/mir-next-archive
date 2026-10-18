@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 use mir_core::Point;
 use mir_core::enums::{
-    BuffType, ItemType, MirClass, MirDirection, MirGender, Monster as MonsterImage, PoisonType,
-    RequiredClass, RequiredType, Spell,
+    AttackMode, BuffType, ItemType, MirClass, MirDirection, MirGender, Monster as MonsterImage,
+    PoisonType, RequiredClass, RequiredType, Spell,
 };
 use mir_core::{Language, TextKey};
 use mir_db::{MagicInfo, MapInfo, MirDb};
@@ -205,6 +205,26 @@ impl Harness {
 
     fn hp(&self, monster: u32) -> i32 {
         self.world.monster(monster).expect("怪物还在").hp
+    }
+
+    /// 召唤一只骷髅并返回它的对象 ID（500ms 延迟已经走完）。
+    fn summon_skeleton(&mut self, player: u32) -> u32 {
+        self.learn(player, Spell::SummonSkeleton);
+        self.ready_all(player);
+        self.cast(
+            player,
+            Spell::SummonSkeleton,
+            MirDirection::Down,
+            0,
+            Point::new(0, 0),
+        )
+        .expect("施法动作成功");
+        self.elapse(500);
+        self.world
+            .pets_of(player)
+            .first()
+            .copied()
+            .expect("应召唤出一只骷髅")
     }
 
     /// 把 `target` 的发包通道接到 `source` 的接收端上。
@@ -961,6 +981,8 @@ fn summoned_pets_do_not_grant_experience() {
     harness.world.monster_mut(pet).expect("召唤物").hp = 1;
     let experience = harness.world.player(player).expect("玩家").experience;
 
+    // 主人打自己的宠物需要 All 模式（Crystal `MonsterObject.cs:2440`）。
+    harness.world.player_mut(player).expect("玩家").attack_mode = AttackMode::All;
     harness.ready_all(player);
     harness
         .cast(
@@ -1374,5 +1396,317 @@ fn broadcast_text_renders_per_recipient_language() {
             .iter()
             .any(|packet| matches!(packet, ServerPacket::Chat(chat) if chat.message == en)),
         "英文玩家收英文广播（逐收件人编码）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 宠物 ↔ 野生怪（Crystal `MonsterObject.FindTarget` / `Attacked`）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn wild_monster_targets_and_attacks_a_pet_then_pet_retaliates() {
+    let mut harness = Harness::new(31);
+    let player = harness.add_player(1, MirClass::Taoist, 30, Point::new(20, 20));
+    let pet = harness.summon_skeleton(player);
+    let pet_hp = harness.hp(pet);
+
+    let mut kind = monster_kind("野生恶狼", 5_000, 1, 0);
+    kind.stats.min_dc = 3;
+    kind.stats.max_dc = 3;
+    kind.stats.accuracy = 100;
+    // 宠物在 (20,21)，玩家在 (20,20)：野怪离宠物更近，应优先锁宠物。
+    let wild = harness.spawn_active(kind, Point::new(20, 24));
+
+    harness.elapse(0);
+    assert_eq!(
+        harness.world.monster(wild).expect("野生怪").target,
+        Some(pet),
+        "野生怪应优先选中更近的召唤物（Crystal `MonsterObject.cs:1940-1963`、`:2481-2484`）"
+    );
+
+    for _ in 0..8 {
+        harness.elapse(1_000);
+    }
+    assert_eq!(
+        harness.world.monster(pet).expect("宠物").pet_target,
+        Some(wild),
+        "宠物被咬后应把攻击者设回 pet_target（Crystal `:2601-2610`）"
+    );
+    assert!(harness.hp(pet) < pet_hp, "宠物应被野生怪咬到");
+    assert!(harness.hp(wild) < 5_000, "宠物应反击野生怪");
+}
+
+#[test]
+fn wild_monster_switches_target_to_the_pet_that_bites_it() {
+    let mut harness = Harness::new(39);
+    let master = harness.add_player(1, MirClass::Taoist, 30, Point::new(20, 20));
+    let pet = harness.summon_skeleton(master);
+    let kind = monster_kind("被咬的野怪", 5_000, 1, 0);
+    // 宠物 (20,21)，野怪 (20,22)：先手动把野怪目标设成主人，模拟「已经锁玩家」。
+    let wild = harness.spawn_active(kind, Point::new(20, 22));
+    harness.world.monster_mut(wild).expect("野生怪").target = Some(master);
+    harness.wake_monster(pet);
+
+    harness.elapse(0);
+    harness.elapse(300);
+    assert_eq!(
+        harness.world.monster(wild).expect("野生怪").target,
+        Some(pet),
+        "被宠物咬后应无条件改打宠物（Crystal `MonsterObject.cs:2601-2610`）"
+    );
+}
+
+#[test]
+fn pet_death_to_a_wild_monster_does_not_panic_the_master() {
+    let mut harness = Harness::new(32);
+    let player = harness.add_player(1, MirClass::Taoist, 30, Point::new(20, 20));
+    let pet = harness.summon_skeleton(player);
+    let max_hp = harness.world.player(player).expect("玩家").stats.hp;
+
+    let mut kind = monster_kind("斩宠者", 5_000, 10, 0);
+    kind.stats.min_dc = 100;
+    kind.stats.max_dc = 100;
+    kind.stats.accuracy = 100;
+    let wild = harness.spawn_active(kind, Point::new(20, 22));
+    harness.world.monster_mut(wild).expect("野生怪").target = Some(pet);
+    harness.world.monster_mut(pet).expect("宠物").hp = 10;
+
+    harness.elapse(0); // 野怪攻击入队（伤害 300ms 后结算）
+    harness.elapse(300);
+    assert!(
+        harness.world.pets_of(player).is_empty(),
+        "宠物被打死后应从主人宠物表注销"
+    );
+    assert!(
+        !harness.world.player(player).expect("玩家").dead,
+        "主人不应跟着死"
+    );
+    assert_eq!(harness.world.player(player).expect("玩家").hp, max_hp);
+
+    // 目标死亡后的清理：再跑一小段，野生怪不能把主人打崩。
+    harness.elapse(1_000);
+    assert!(!harness.world.player(player).expect("玩家").dead);
+    assert_ne!(
+        harness.world.monster(wild).expect("野生怪").target,
+        Some(pet),
+        "宠物死亡后野生怪应脱战/换目标"
+    );
+}
+
+#[test]
+fn guards_ignore_pets() {
+    let mut harness = Harness::new(33);
+    let player = harness.add_player(1, MirClass::Taoist, 30, Point::new(20, 20));
+    let pet = harness.summon_skeleton(player);
+    let pet_hp = harness.hp(pet);
+
+    let mut guard_kind = monster_kind("守卫", 5_000, 10, 0);
+    guard_kind.ai = 6; // Crystal Guard：只打红名主人的宠物
+    guard_kind.stats.min_dc = 10;
+    guard_kind.stats.max_dc = 10;
+    let guard = harness.spawn_active(guard_kind, Point::new(20, 23));
+
+    harness.elapse(0);
+    harness.elapse(2_000);
+    assert_eq!(
+        harness.world.monster(guard).expect("守卫").target,
+        None,
+        "守卫不应锁定普通玩家的宠物（Crystal `MonsterObject.cs:2471-2475`）"
+    );
+    assert_eq!(harness.hp(pet), pet_hp);
+}
+
+#[test]
+fn peaceful_masters_pet_does_not_attack_players() {
+    let mut harness = Harness::new(35);
+    let player = harness.add_player(1, MirClass::Taoist, 30, Point::new(20, 20));
+    let pet = harness.summon_skeleton(player);
+
+    // 和平模式：主人把 last_target 指向另一个玩家，宠物也不出手。
+    let other = harness.add_player(2, MirClass::Warrior, 30, Point::new(20, 22));
+    let other_hp = harness.world.player(other).expect("另一个玩家").hp;
+    {
+        let master = harness.world.player_mut(player).expect("玩家");
+        master.attack_mode = AttackMode::Peace;
+        master.magic.last_target = Some(other);
+    }
+    harness.world.monster_mut(pet).expect("宠物").pet_target = Some(other);
+    harness.wake_monster(pet);
+    harness.elapse(0);
+    assert_ne!(
+        harness.world.monster(pet).expect("宠物").pet_target,
+        Some(other),
+        "和平模式主人的宠物不应攻击玩家"
+    );
+    harness.elapse(1_000);
+    assert_eq!(
+        harness.world.player(other).expect("另一个玩家").hp,
+        other_hp
+    );
+}
+
+#[test]
+fn pet_never_targets_its_own_master() {
+    let mut harness = Harness::new(34);
+    let player = harness.add_player(1, MirClass::Taoist, 30, Point::new(20, 20));
+    let pet = harness.summon_skeleton(player);
+    let max_hp = harness.world.player(player).expect("玩家").stats.hp;
+
+    harness
+        .world
+        .player_mut(player)
+        .expect("玩家")
+        .magic
+        .last_target = Some(player);
+    harness.world.monster_mut(pet).expect("宠物").pet_target = Some(player);
+    harness.wake_monster(pet);
+    harness.elapse(0);
+    assert_ne!(
+        harness.world.monster(pet).expect("宠物").pet_target,
+        Some(player),
+        "召唤物永远不能把主人当目标"
+    );
+    assert_eq!(
+        harness.world.monster(pet).expect("宠物").pet_target,
+        None,
+        "没有其他目标时应回到主人身后"
+    );
+    assert_eq!(harness.world.player(player).expect("玩家").hp, max_hp);
+}
+
+#[test]
+fn pet_retaliates_when_attacked_by_a_player() {
+    let mut harness = Harness::new(36);
+    let master = harness.add_player(1, MirClass::Taoist, 30, Point::new(20, 20));
+    let pet = harness.summon_skeleton(master);
+    {
+        // 主人 All 模式：宠物才被允许反击玩家（Peace 下 `pet_target_valid` 会拒绝）。
+        let player = harness.world.player_mut(master).expect("主人");
+        player.attack_mode = AttackMode::All;
+        player.attack_time = 0;
+        player.action_time = 0;
+    }
+    let attacker = harness.add_player(3, MirClass::Warrior, 10, Point::new(20, 22));
+    {
+        let player = harness.world.player_mut(attacker).expect("攻击者");
+        player.attack_mode = AttackMode::All;
+        player.direction = MirDirection::Up;
+        player.attack_time = 0;
+        player.action_time = 0;
+        player.stats.accuracy = 100;
+        player.stats.min_dc = 20;
+        player.stats.max_dc = 20;
+        player.stats.agility = 0;
+        player.stats.min_ac = 0;
+        player.stats.max_ac = 0;
+    }
+    let report = harness
+        .world
+        .attack(attacker, MirDirection::Up)
+        .expect("攻击动作");
+    assert!(report.is_some(), "All 模式玩家可以攻击宠物");
+    harness.elapse(300);
+    assert_eq!(
+        harness.world.monster(pet).expect("宠物").pet_target,
+        Some(attacker),
+        "宠物被玩家攻击后应把 pet_target 设回该玩家（Crystal `MonsterObject.cs:2571-2574`、`:2601-2610`）"
+    );
+    harness.elapse(5_000);
+    assert_eq!(
+        harness.world.monster(pet).expect("宠物").pet_target,
+        Some(attacker),
+        "宠物应持续锁定攻击它的玩家"
+    );
+    assert!(
+        harness.packets(master).iter().any(|packet| matches!(
+            packet,
+            ServerPacket::ObjectAttack(attack) if attack.object_id == pet
+        )),
+        "宠物应真的出手反击攻击者（S.ObjectAttack）"
+    );
+}
+
+#[test]
+fn peaceful_master_pet_does_not_retaliate_against_players() {
+    let mut harness = Harness::new(37);
+    let master = harness.add_player(1, MirClass::Taoist, 30, Point::new(20, 20));
+    let pet = harness.summon_skeleton(master);
+    harness.world.monster_mut(pet).expect("宠物").hp = 10_000;
+    let attacker = harness.add_player(3, MirClass::Warrior, 10, Point::new(20, 22));
+    {
+        let player = harness.world.player_mut(attacker).expect("攻击者");
+        player.attack_mode = AttackMode::All;
+        player.direction = MirDirection::Up;
+        player.attack_time = 0;
+        player.action_time = 0;
+        player.stats.accuracy = 100;
+        player.stats.min_dc = 20;
+        player.stats.max_dc = 20;
+        player.stats.agility = 0;
+        player.stats.min_ac = 0;
+        player.stats.max_ac = 0;
+    }
+    let attacker_hp = harness.world.player(attacker).expect("攻击者").hp;
+
+    // 主人默认 Peace：受击也不反击玩家，但攻击本身仍然能命中。
+    harness
+        .world
+        .attack(attacker, MirDirection::Up)
+        .expect("攻击动作");
+    harness.elapse(300);
+    assert_eq!(
+        harness.world.monster(pet).expect("宠物").pet_target,
+        None,
+        "和平模式主人的宠物不反击玩家"
+    );
+    harness.elapse(1_000);
+    assert_eq!(
+        harness.world.player(attacker).expect("攻击者").hp,
+        attacker_hp
+    );
+}
+
+#[test]
+fn players_cannot_attack_pets_without_all_mode() {
+    let mut harness = Harness::new(38);
+    let master = harness.add_player(1, MirClass::Taoist, 30, Point::new(20, 20));
+    let pet = harness.summon_skeleton(master);
+    let pet_hp = harness.hp(pet);
+
+    // 主人的 Group 模式：不能打自己的宠物（Crystal `:2440`）。
+    {
+        let player = harness.world.player_mut(master).expect("主人");
+        player.attack_mode = AttackMode::Group;
+        player.direction = MirDirection::Down;
+        player.attack_time = 0;
+        player.action_time = 0;
+    }
+    let report = harness
+        .world
+        .attack(master, MirDirection::Down)
+        .expect("攻击动作");
+    assert!(report.is_none(), "Group 模式不能选中自己的宠物");
+    harness.elapse(300);
+    assert_eq!(harness.hp(pet), pet_hp);
+
+    // 主人的 All 模式：可以打自己的宠物，但宠物不会把主人当目标。
+    {
+        let player = harness.world.player_mut(master).expect("主人");
+        player.attack_mode = AttackMode::All;
+        player.attack_time = 0;
+        player.action_time = 0;
+        player.stats.min_dc = 20;
+        player.stats.max_dc = 20;
+    }
+    let report = harness
+        .world
+        .attack(master, MirDirection::Down)
+        .expect("攻击动作");
+    assert!(report.is_some(), "All 模式可以选中自己的宠物");
+    harness.elapse(300);
+    assert!(harness.hp(pet) < pet_hp);
+    assert_ne!(
+        harness.world.monster(pet).expect("宠物").pet_target,
+        Some(master)
     );
 }

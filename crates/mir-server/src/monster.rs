@@ -36,7 +36,9 @@ use std::sync::Arc;
 
 use mir_core::MirRng;
 use mir_core::Point;
-use mir_core::enums::{DamageType, DefenceType, MirDirection, Monster as MonsterImage, Spell};
+use mir_core::enums::{
+    AttackMode, DamageType, DefenceType, MirDirection, Monster as MonsterImage, Spell,
+};
 use mir_protocol::ServerPacket;
 use mir_protocol::packets::server::{ObjectAttack, ObjectDied, ObjectTurn, ObjectWalk};
 
@@ -140,6 +142,14 @@ impl MonsterKind {
     #[must_use]
     pub const fn is_guard(&self) -> bool {
         matches!(self.ai, 6 | 58 | 113)
+    }
+
+    /// 是否是 Tao Guard（Crystal AI 58）。
+    ///
+    /// 与普通守卫（AI 6/113）不同：Tao Guard 会主动打宠物，**除非**宠物的主人处于
+    /// 和平模式（`MonsterObject.cs:2476-2479`）。
+    pub const fn is_tao_guard(&self) -> bool {
+        self.ai == 58
     }
 
     /// 是否是攻城箭塔（Crystal `ConquestArcher`，AI 80）。
@@ -572,17 +582,28 @@ impl World {
         // 因此「目标跑远后脱战」的距离比 Crystal 近 6 格；两者都远大于索敌视野（7），
         // 不影响「先发现、再追、再脱战」的先后顺序。
         if let Some(target_id) = monster.target {
-            let still_valid = self.players.get(&target_id).is_some_and(|player| {
-                !player.dead
-                    && player.map == monster.map
-                    && monster.position.in_range(player.position, VIEW_RANGE)
-                    // 隐身玩家不再被锁定（`MonsterObject.cs:1974`；破隐（CoolEye）
-                    // 且等级不低于对方时仍可锁定）。
-                    && !hidden_from(&player.magic, monster, player.level)
-                    // 守卫只对红名动手（`PlayerObject.IsAttackTarget(MonsterObject)`，
-                    // `PlayerObject.cs:4679`）：对方洗白后立即脱战。
-                    && (!monster.kind.is_guard() || player.pk_points >= RED_NAME_PK_POINTS)
-            });
+            let still_valid = if self.players.contains_key(&target_id) {
+                self.players.get(&target_id).is_some_and(|player| {
+                    !player.dead
+                        && player.map == monster.map
+                        && monster.position.in_range(player.position, VIEW_RANGE)
+                        // 隐身玩家不再被锁定（`MonsterObject.cs:1974`；破隐（CoolEye）
+                        // 且等级不低于对方时仍可锁定）。
+                        && !hidden_from(&player.magic, monster, player.level)
+                        // 守卫只对红名动手（`PlayerObject.IsAttackTarget(MonsterObject)`，
+                        // `PlayerObject.cs:4679`）：对方洗白后立即脱战。
+                        && (!monster.kind.is_guard() || player.pk_points >= RED_NAME_PK_POINTS)
+                })
+            } else {
+                // 怪物目标只可能是玩家召唤物（Crystal `FindTarget` 的 Monster 分支，
+                // `MonsterObject.cs:1940-1963`；野生怪之间不会互殴）。
+                self.monster(target_id).is_some_and(|target| {
+                    self.can_target_pet(monster, target)
+                        && !target.dead
+                        && target.map == monster.map
+                        && monster.position.in_range(target.position, VIEW_RANGE)
+                })
+            };
             if !still_valid {
                 monster.target = None;
             }
@@ -736,6 +757,9 @@ impl World {
     }
 
     /// Crystal `MonsterObject.ProcessTarget`（`MonsterObject.cs:1842-1870`）。
+    ///
+    /// 目标既可以是玩家（野生怪的常规目标），也可以是玩家的召唤物
+    /// （`FindTarget` 的 `case ObjectType.Monster`，`MonsterObject.cs:1940-1963`）。
     fn process_target(&mut self, monster: &mut Monster, now: i64) {
         let Some(target_id) = monster.target else {
             return;
@@ -743,12 +767,18 @@ impl World {
         if !monster.can_attack(now) {
             return;
         }
-        let Some(target) = self.players.get(&target_id) else {
+        let (target_position, same_map) = if let Some(target) = self.players.get(&target_id) {
+            (target.position, target.map == monster.map)
+        } else if let Some(target) = self.monster(target_id) {
+            if target.master.is_none() {
+                monster.target = None;
+                return;
+            }
+            (target.position, target.map == monster.map)
+        } else {
             monster.target = None;
             return;
         };
-        let target_position = target.position;
-        let same_map = target.map == monster.map;
 
         if monster.kind.is_guard() || monster.kind.is_conquest_archer() {
             // `Guard.InAttackRange`：同图、不同格、切比雪夫距离 <= 视野半径
@@ -763,7 +793,11 @@ impl World {
                     .position
                     .in_range(target_position, monster.kind.view_range)
             {
-                self.guard_attack(monster, target_id, now);
+                if self.players.contains_key(&target_id) {
+                    self.guard_attack(monster, target_id, now);
+                } else if !self.attack_monster(monster, target_id, now) {
+                    monster.target = None;
+                }
             }
             return;
         }
@@ -772,7 +806,15 @@ impl World {
             && target_position != monster.position
             && monster.position.in_range(target_position, 1)
         {
-            self.monster_attack(monster, target_id, now);
+            let attacked = if self.players.contains_key(&target_id) {
+                self.monster_attack(monster, target_id, now);
+                true
+            } else {
+                self.attack_monster(monster, target_id, now)
+            };
+            if !attacked {
+                monster.target = None;
+            }
             return;
         }
         self.monster_move_to(monster, target_position, now);
@@ -856,7 +898,16 @@ impl World {
     }
 
     /// 召唤物的目标是否仍然合法。
-    fn pet_target_valid(&self, monster: &Monster, master_id: u32, target_id: u32) -> bool {
+    pub(crate) fn pet_target_valid(
+        &self,
+        monster: &Monster,
+        master_id: u32,
+        target_id: u32,
+    ) -> bool {
+        // 召唤物永远不打自己的主人（即使主人的 `last_target` 指向自己）。
+        if target_id == master_id {
+            return false;
+        }
         if let Some(player) = self.players.get(&target_id) {
             return !player.dead
                 && player.map == monster.map
@@ -885,6 +936,7 @@ impl World {
             .players
             .get(&master_id)
             .and_then(|master| master.magic.last_target)
+            && last_target != master_id
             && last_target != monster.object_id
             && self.pet_target_valid(monster, master_id, last_target)
         {
@@ -920,10 +972,16 @@ impl World {
     ///
     /// 与野生怪相同：广播 `ObjectAttack`、`ActionTime = now + 300`、
     /// 伤害延迟 300ms 结算。目标可以是野生怪或玩家。
-    fn pet_attack(&mut self, monster: &mut Monster, target_id: u32, now: i64) {
+    /// 怪物攻击另一个怪物（召唤物 ↔ 野生怪，Crystal `MonsterObject.Attack`，
+    /// `MonsterObject.cs:2150-2173`）：广播 `ObjectAttack`、`ActionTime = now + 300`、
+    /// 伤害延迟 300ms 结算。返回是否真的排入了伤害。
+    ///
+    /// 宠物打野怪时经验归主人（Crystal `GetAttacker` 会把宠物的主人当作 `EXPOwner`，
+    /// `MonsterObject.cs:1008-1016`、`:2627-2630`）；野生怪打宠物时正常记在攻击者身上，
+    /// 宠物死亡本来就跳过经验/掉落（`monster_died` 的 `master.is_some()` 分支）。
+    fn attack_monster(&mut self, monster: &mut Monster, target_id: u32, now: i64) -> bool {
         let Some(target_position) = self.attackable_position(&monster.map, target_id) else {
-            monster.pet_target = None;
-            return;
+            return false;
         };
         monster.direction = monster.position.direction_to(target_position);
         let packet = ServerPacket::ObjectAttack(ObjectAttack {
@@ -947,12 +1005,10 @@ impl World {
         monster.attack_time = now + monster.attack_speed_ms;
         let damage = monster.stats.physical_attack(&mut self.rng);
         if damage == 0 {
-            return;
+            return true;
         }
-        // 怪物目标：经验归主人（Crystal `GetAttacker` 会把宠物的主人当作 `EXPOwner`，
-        // `MonsterObject.cs:1008-1016`、`:2627-2630`）。先占住 `EXPOwner`，
-        // `damage_monster` 就不会把宠物自己记成经验归属。
-        if let Some(target) = self.monster_mut(target_id)
+        if monster.master.is_some()
+            && let Some(target) = self.monster_mut(target_id)
             && target.expo_owner.is_none()
         {
             target.expo_owner = monster.master;
@@ -964,6 +1020,14 @@ impl World {
             damage,
             defence: DefenceType::ACAgility,
         });
+        true
+    }
+
+    /// 召唤物攻击：失败时清掉 `pet_target`（目标死亡/换图/消失）。
+    fn pet_attack(&mut self, monster: &mut Monster, target_id: u32, now: i64) {
+        if !self.attack_monster(monster, target_id, now) {
+            monster.pet_target = None;
+        }
     }
 
     /// Crystal `MonsterObject.FindTarget`（`MonsterObject.cs:1918-1997`）。
@@ -1033,8 +1097,61 @@ impl World {
                 best = Some((key.0, key.1, key.2, player.object_id));
             }
         }
+        // Crystal `FindTarget` 的 `case ObjectType.Monster`（`MonsterObject.cs:1940-1963`）：
+        // 野生怪的候选里还有**玩家召唤物**。`IsAttackTarget(MonsterObject)` 的
+        // 「Pet Attacked」分支（`:2481-2484`）对「野生怪 → 宠物」返回 true；
+        // 守卫（AI 6/113）只打红名主人的宠物（`:2471-2475`），Tao Guard（AI 58）
+        // 只排除和平模式主人的宠物（`:2476-2479`），攻城箭塔不把宠物当目标。
+        if !monster.kind.is_conquest_archer() {
+            for pet_id in self.aoi_ids_in_radius_spatial(
+                &monster.map,
+                monster.position,
+                monster.kind.view_range,
+                AoiKind::Monster,
+            ) {
+                if pet_id == monster.object_id {
+                    continue;
+                }
+                let Some(pet) = self.monster(pet_id) else {
+                    continue;
+                };
+                if pet.dead || pet.map != monster.map || !self.can_target_pet(monster, pet) {
+                    continue;
+                }
+                let distance = monster.position.max_distance(pet.position);
+                if distance > monster.kind.view_range {
+                    continue;
+                }
+                let key = (distance, pet.position.y, pet.position.x);
+                let better =
+                    best.is_none_or(|(best_d, best_y, best_x, _)| key < (best_d, best_y, best_x));
+                if better {
+                    best = Some((key.0, key.1, key.2, pet.object_id));
+                }
+            }
+        }
         if let Some((_, _, _, object_id)) = best {
             monster.target = Some(object_id);
+        }
+    }
+
+    /// 怪物能否把某个召唤物当目标（Crystal `IsAttackTarget(MonsterObject)` 的
+    /// Guard / Tao Guard / Pet Attacked 分支，`MonsterObject.cs:2465-2521`）。
+    ///
+    /// * 普通野生怪：任何召唤物都可以（`:2481-2484`）；
+    /// * 守卫（AI 6/113）：只打红名主人的召唤物（`:2471-2475`）；
+    /// * Tao Guard（AI 58）：和平模式主人的召唤物不打（`:2476-2479`）；
+    /// * 攻城箭塔：不把召唤物当目标（`ConquestArcher.cs` 只射玩家）。
+    fn can_target_pet(&self, attacker: &Monster, pet: &Monster) -> bool {
+        let Some(master_id) = pet.master else {
+            return false;
+        };
+        let master = self.players.get(&master_id);
+        match attacker.kind.ai {
+            58 => master.is_some_and(|master| master.attack_mode != AttackMode::Peace),
+            6 | 113 => master.is_some_and(|master| master.pk_points >= RED_NAME_PK_POINTS),
+            80 => false,
+            _ => true,
         }
     }
 

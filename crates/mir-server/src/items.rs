@@ -2563,8 +2563,12 @@ impl World {
     ///   物品落地时 `Owner = EXPOwner`、`OwnerTime = now + 1 分钟`；
     /// * **`DropItem` 找不到落点就 `return`**（`:1141`）——后面的掉落直接不掉了，这点也照抄。
     ///
+    /// 截胡：Crystal `MonsterObject.cs:1130-1138` 在落地前调 `CheckGroupQuestItem`，
+    /// 命中「有未完成收集任务」的掉落直接进任务物品栏（[`crate::quest_inventory`]），
+    /// 不再落地；本作在 [`World::drop_monster_loot`] 的掉落循环里照做。
+    ///
     /// 简化：`NoDropMonster` 地图开关、稀有度/会员掉率加成（`:1098-1102`）、
-    /// `QuestRequired` 与任务物品的消耗（`:1134-1140`）、`GMMade` 标记都未实现。
+    /// `GMMade` 标记、`drop.QuestRequired`（数据层还没有这个字段）都未实现。
     pub(crate) fn drop_monster_loot(&mut self, monster_id: u32) {
         // 用 `World::monster`（monster_slots 下标）代替遍历全部怪物。
         let Some(monster) = self.monster(monster_id) else {
@@ -2600,6 +2604,11 @@ impl World {
                 continue;
             };
             let item = self.create_drop_item(&info);
+            // Crystal `MonsterObject.cs:1130-1138`：击杀者（组队时含同图范围内的队员）有
+            // **未完成的收集任务**时，这件掉落直接进任务物品栏，不再落地。
+            if self.check_group_quest_item(owner, &item) {
+                continue;
+            }
             let Some(cell) = self.drop_cell(&map, position) else {
                 tracing::warn!(monster = %name, "周围没有空格，本次掉落的剩余物品被丢弃");
                 return;

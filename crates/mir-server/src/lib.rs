@@ -36,6 +36,7 @@ pub mod market;
 pub mod monster;
 pub mod npc;
 pub mod pg_store;
+pub mod quest_inventory;
 pub mod quests;
 pub mod server;
 pub mod session;

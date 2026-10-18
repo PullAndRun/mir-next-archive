@@ -12,7 +12,8 @@
 //! 加上行会三张表，`migrations/0006_guild_storage.sql` 加上行会仓库与增益，
 //! `migrations/0007_mail.sql` 加上邮件表，`migrations/0008_conquests.sql` 加上攻城区表，
 //! `migrations/0009_market.sql` 加上市场挂单表，`migrations/0011_gameshop.sql` 加上
-//! 商城库存/购买计数两张表（迁移是只追加的，旧文件不再改动）：
+//! 商城库存/购买计数两张表，`migrations/0012_character_quest_inventory.sql` 给角色加上
+//! 任务物品栏字节块（迁移是只追加的，旧文件不再改动）：
 //!
 //! - `accounts`：登录名（大小写不敏感唯一）、口令散列与 24 字节盐、邮箱、注册 IP/时间、
 //!   封禁（标志 + 原因 + 到期时间）、强制改密、错误口令计数、最后登录 IP/时间、GM 标志、

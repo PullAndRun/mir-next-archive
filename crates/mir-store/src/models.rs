@@ -285,6 +285,12 @@ pub struct Character {
     /// 任务进度（Crystal `CurrentQuests` + `CompletedQuests` 的整块二进制；格式见
     /// `crates/mir-server/src/quests.rs` 的 `encode_quests`/`decode_quests`）。
     pub quests: Vec<u8>,
+    /// 任务物品栏（Crystal `CharacterInfo.QuestInventory`，`CharacterInfo.cs:75` 的
+    /// `UserItem[40]` 整块二进制；格式见 `crates/mir-server/src/quest_inventory.rs` 的
+    /// `QuestInventory::encode`/`QuestInventory::decode`）。
+    ///
+    /// 空数组（没有任务物品）是零长度；Crystal 的存档在 `CharacterInfo.cs:449-456`。
+    pub quest_inventory: Vec<u8>,
     /// 仓库（任务要求放在角色行；Crystal 实际存于 `AccountInfo.Storage`）。
     pub storage: Vec<u8>,
     /// 配偶角色主键，0 表示未婚（Crystal `Married`）。

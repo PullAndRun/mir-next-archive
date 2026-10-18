@@ -712,6 +712,20 @@ impl<S: AccountStore> Session<S> {
         // 邮箱：Crystal 在登录流程末尾调 `GetMail()`（`PlayerObject.cs:1190`）。
         // 本作从 `mail` 表装载，并按扩展的 30 天上限过滤+删除过期邮件（见 `crate::mail`）。
         let mailbox = self.load_mailbox(character.id).await;
+        // 任务物品栏：Crystal `CharacterInfo.QuestInventory`（40 格，`CharacterInfo.cs:75`），
+        // 本作存在角色行的 `characters.quest_inventory`（迁移 0012）；空块解成空栏。
+        let quest_inventory =
+            match crate::quest_inventory::QuestInventory::decode(&character.quest_inventory) {
+                Ok(inventory) => inventory,
+                Err(error) => {
+                    tracing::warn!(
+                        session = self.id,
+                        %error,
+                        "任务物品栏字节块解析失败，按空栏处理"
+                    );
+                    crate::quest_inventory::QuestInventory::new()
+                }
+            };
 
         let mut world = self.world.lock().await;
         // 读档里出现过的 UUID 要计入发生器，否则新掉的物品可能撞号
@@ -811,6 +825,8 @@ impl<S: AccountStore> Session<S> {
         });
         // 玩家语言：账号语言随登录写进世界层映射，World 的市场/交易/邮件/NPC 提示据此渲染。
         world.set_player_language(object_id, self.language.language());
+        // 任务物品栏：装进世界侧表，下线时由 `leave_world` 取走存盘。
+        world.set_quest_inventory(object_id, quest_inventory.clone());
         // 进图资料：Crystal `PlayerObject.CheckMapInfo`（`PlayerObject.cs:1009-1056`）。
         // 必须在释放世界锁之前取，Npc 列表与传送点都来自世界内的实时状态。
         let map_index = world
@@ -874,6 +890,7 @@ impl<S: AccountStore> Session<S> {
             &inventory,
             &equipment,
             &client_magics,
+            quest_inventory.slots(),
         )));
         // `Enqueue(new S.ChangeAMode { Mode = AMode });`（`PlayerObject.cs:1217`）：
         // 排在 `TimeOfDay` 之后、`SwitchGroup` 之前；本作没有 `TimeOfDay`，所以直接紧跟
@@ -1622,9 +1639,10 @@ impl<S: AccountStore> Session<S> {
     async fn flush_auction_writes(&self) {
         let character = {
             let world = self.world.lock().await;
-            self.object_id
-                .and_then(|object_id| world.player(object_id))
-                .and_then(|player| self.character_snapshot(player))
+            self.object_id.and_then(|object_id| {
+                let player = world.player(object_id)?;
+                self.character_snapshot(player, world.quest_inventory(object_id))
+            })
         };
         if let Err(error) =
             crate::market::flush_market_update(self.store.as_ref(), &self.world, character).await
@@ -1637,10 +1655,22 @@ impl<S: AccountStore> Session<S> {
     ///
     /// 与 [`crate::market::character_snapshot`] 共用同一份编解码；市场落盘和下线存盘
     /// 都必须看到同一份「世界 → 角色行」映射。
-    fn character_snapshot(&self, player: &Player) -> Option<Character> {
-        self.character
-            .as_ref()
-            .map(|base| crate::market::character_snapshot(base, player))
+    ///
+    /// `quest_inventory` 是**世界里当前**的任务物品栏：`market::character_snapshot` 从
+    /// 登录时的 base 克隆，不覆写的话市场/商城任何一次落盘都会把
+    /// `characters.quest_inventory` 写回登录值（丢任务物品）。
+    fn character_snapshot(
+        &self,
+        player: &Player,
+        quest_inventory: Option<&crate::quest_inventory::QuestInventory>,
+    ) -> Option<Character> {
+        self.character.as_ref().map(|base| {
+            let mut snapshot = crate::market::character_snapshot(base, player);
+            if let Some(inventory) = quest_inventory {
+                snapshot.quest_inventory = inventory.encode();
+            }
+            snapshot
+        })
     }
 
     /// 客户端把物品放进仓库：`C.StoreItem`（Crystal `PlayerObject.StoreItem`，
@@ -2219,9 +2249,10 @@ impl<S: AccountStore> Session<S> {
     ) -> Result<(), StoreError> {
         let character = {
             let world = self.world.lock().await;
-            self.object_id
-                .and_then(|object_id| world.player(object_id))
-                .and_then(|player| self.character_snapshot(player))
+            self.object_id.and_then(|object_id| {
+                let player = world.player(object_id)?;
+                self.character_snapshot(player, world.quest_inventory(object_id))
+            })
         };
         let update = GameShopUpdate {
             // 角色行与待写邮件由 `flush_gameshop_update` 补齐（它以最新的邮件队列为准）。
@@ -2345,14 +2376,16 @@ impl<S: AccountStore> Session<S> {
         let Some(object_id) = self.object_id.take() else {
             return;
         };
-        let leaving = {
+        let (leaving, quest_inventory) = {
             let mut world = self.world.lock().await;
-            world.leave(object_id)
+            // 先取走任务物品栏，再 `leave`（`World::leave` 会兜底清理侧表）。
+            let quest_inventory = world.take_quest_inventory(object_id);
+            (world.leave(object_id), quest_inventory)
         };
         if let Some(player) = leaving {
             // 世界 → 角色行的映射与市场落盘共用 `market::character_snapshot`，
             // 保证「下线存盘」与「市场事务落盘」不会写出两套不同的背包/金币语义。
-            if let Some(character) = self.character_snapshot(&player) {
+            if let Some(character) = self.character_snapshot(&player, Some(&quest_inventory)) {
                 self.character = Some(character);
             }
         }
@@ -2394,6 +2427,7 @@ fn user_information(
     inventory: &[Option<UserItem>],
     equipment: &[Option<UserItem>],
     magics: &[ClientMagic],
+    quest_inventory: &[Option<UserItem>],
 ) -> UserInformation {
     UserInformation {
         object_id,
@@ -2417,7 +2451,9 @@ fn user_information(
         // `Info.Equipment` 整块，`ServerPackets.cs:640-680`）。
         inventory: Some(inventory.to_vec()),
         equipment: Some(equipment.to_vec()),
-        quest_inventory: Some(vec![None; 40]),
+        // 任务物品栏按**存档里的真实内容**下发（Crystal `Info.QuestInventory`，
+        // `ServerPackets.cs:640-680`；`None` 的语义是「保留客户端现值」，登录必须发真值）。
+        quest_inventory: Some(quest_inventory.to_vec()),
         gold: u32::try_from(character.gold.max(0)).unwrap_or(u32::MAX),
         credit: u32::try_from(character.credit.max(0)).unwrap_or(u32::MAX),
         has_expanded_storage: false,

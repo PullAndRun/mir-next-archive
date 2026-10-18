@@ -630,10 +630,12 @@ impl World {
         // 4~7) 前置校验。
         self.check_can_accept(&definition, player_id, quest_index)?;
 
-        // 8) 携带物品：先算清单再一次性检查背包，避免「发了一半」的中间态。
+        // 8) 携带物品：Crystal 把 `[@CARRYITEMS]` 发进**任务物品栏**（`GainQuestItem`，
+        //    `PlayerObject.cs:11307-11339`）；先算清单再一次性检查任务物品栏，
+        //    避免「发了一半」的中间态。放不下就拒绝接取（Crystal 同样返回）。
         let carry = self.resolve_carry_items(&definition.script);
         if !carry.is_empty() {
-            if !self.can_gain_items(player_id, &carry) {
+            if !self.can_gain_quest_items(player_id, &carry) {
                 return Err(QuestError::InventoryFull);
             }
             for (info, count) in &carry {
@@ -641,11 +643,7 @@ impl World {
                     count: *count,
                     ..self.create_fresh_item(info)
                 };
-                self.send_to_player(
-                    player_id,
-                    &ServerPacket::GainedItem(GainedItem { item: item.clone() }).encode_frame(),
-                );
-                self.add_item_to_inventory(player_id, item);
+                self.gain_quest_item(player_id, &item);
             }
         }
 
@@ -889,12 +887,14 @@ impl World {
         }
         let report = self.send_quest_change(player_id, quest_index, QuestState::Remove, false);
 
-        // 3) 扣携带物品与收集目标（`:11436-11447`）。
+        // 3) 扣携带物品与收集目标（`:11436-11447`）。Crystal 从任务物品栏扣
+        //    （`TakeQuestItem` → `S.DeleteQuestItem`）；本作先扣任务物品栏，不够再从普通背包
+        //    补扣（兼容旧存档/交易来的物品），见 `crate::quest_inventory` 的模块文档。
         for task in &definition.script.carry_items {
-            self.take_inventory_items(player_id, &task.item, task.count);
+            self.take_quest_items(player_id, &task.item, task.count);
         }
         for task in &definition.script.item_tasks {
-            self.take_inventory_items(player_id, &task.item, task.count);
+            self.take_quest_items(player_id, &task.item, task.count);
         }
 
         // 4) 发奖励物品（`:11449-11452`）。
@@ -928,6 +928,10 @@ impl World {
             self.gain_credit(player_id, credit);
         }
 
+        // `RecalculateQuestBag()`（`:11454`）：任务结束后清掉不再被任何进行中任务需要的
+        // 任务物品（含携带物品与收集目标），每清一格发 `S.DeleteQuestItem`。
+        self.recalculate_quest_bag(player_id);
+
         // 扣完收集物品后，其它进行中任务的计数也要跟着降。
         self.refresh_quest_items(player_id);
 
@@ -946,7 +950,7 @@ impl World {
     /// 放弃任务（`C.AbandonQuest`，Crystal `PlayerObject.AbandonQuest`，`PlayerObject.cs:11462-11471`）。
     ///
     /// Crystal 只做两件事：`SendUpdateQuest(Remove)` + `RecalculateQuestBag()`（把不再需要的
-    /// 任务物品从任务背包里清掉）。本作对应「删进度 + 收回携带物品」。
+    /// 任务物品从任务背包里清掉）。本作对应「删进度 + 回收不再需要的任务物品」。
     ///
     /// # Errors
     /// 没接过这个任务时返回 [`QuestError::NotTaken`]。
@@ -954,9 +958,9 @@ impl World {
         let Some(player) = self.players.get(&player_id) else {
             return Err(QuestError::NotInWorld(player_id));
         };
-        let Some(definition) = self.quest_definition(quest_index) else {
+        if self.quest_definition(quest_index).is_none() {
             return Err(QuestError::NoSuchQuest(quest_index));
-        };
+        }
         let Some(index) = player
             .quests
             .iter()
@@ -970,10 +974,9 @@ impl World {
         }
         // `SendUpdateQuest(quest, QuestState.Remove)`（`:11468`）：先按**移除前**的进度组包。
         self.send_quest_change_for(player_id, &removed, QuestState::Remove, false);
-        for task in &definition.script.carry_items {
-            self.take_inventory_items(player_id, &task.item, task.count);
-        }
-        self.refresh_quest_items(player_id);
+        // Crystal 只做 `SendUpdateQuest(Remove)` + `RecalculateQuestBag()`：不再需要的任务物品
+        // 从任务物品栏清掉（携带物品也在其中），普通背包里的旧物品不主动收。
+        self.recalculate_quest_bag(player_id);
         Ok(())
     }
 
@@ -1172,13 +1175,13 @@ impl World {
         count
     }
 
-    /// 收集目标重算：按背包里该物品的当前数量刷新进行中任务的 `item_collected`
-    /// （Crystal `CheckNeedQuestItem` → `ProcessItem(Info.QuestInventory)`，
+    /// 收集目标重算：按**任务物品栏**（外加普通背包，兼容旧存档）里该物品的当前数量刷新
+    /// 进行中任务的 `item_collected`（Crystal `CheckNeedQuestItem` → `ProcessItem(Info.QuestInventory)`，
     /// `PlayerObject.cs:11539-11561`、`QuestProgressInfo.cs:398-408`）。
     ///
     /// 返回计数发生变化的任务个数；有变化时会各发一条 `S.ChangeQuest{Update}`。
     pub fn refresh_quest_items(&mut self, player_id: u32) -> usize {
-        let counts = self.inventory_item_counts(player_id);
+        let counts = self.quest_item_counts(player_id);
         let Some(player) = self.players.get_mut(&player_id) else {
             return 0;
         };
@@ -1236,9 +1239,9 @@ impl World {
         counts
     }
 
-    /// 把玩家身上的任务进度按当前背包重算一次（**不发包**，登录/存档前用）。
+    /// 把玩家身上的任务进度按当前任务物品栏（+普通背包）重算一次（**不发包**，登录/存档前用）。
     pub fn sync_quest_items(&mut self, player_id: u32) {
-        let counts = self.inventory_item_counts(player_id);
+        let counts = self.quest_item_counts(player_id);
         let indexes: Vec<i32> = self
             .players
             .get(&player_id)

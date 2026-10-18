@@ -467,6 +467,13 @@ impl Harness {
             .map(|item| item.count)
             .sum()
     }
+
+    /// 任务物品栏里某个模板的总数量（不在世界里按 0 算）。
+    fn count_in_quest_inventory(&self, object_id: u32, item_index: i32) -> u16 {
+        self.world
+            .quest_inventory(object_id)
+            .map_or(0, |inventory| inventory.count_of(item_index))
+    }
 }
 
 /// 把一页对话的正文拼成一行，方便断言。
@@ -1062,9 +1069,21 @@ fn carry_items_are_given_on_accept_and_taken_on_finish() {
     let player = harness.add_player(1, Point::new(100, 101));
     harness.world.accept_quest(player, giver, 9).expect("接取");
     assert_eq!(
-        harness.count_in_inventory(player, 14),
+        harness.count_in_quest_inventory(player, 14),
         2,
-        "Crystal 会把 `[@CARRYITEMS]` 发给玩家（`PlayerObject.cs:11307-11339`）"
+        "Crystal 把 `[@CARRYITEMS]` 发进任务物品栏（`PlayerObject.cs:11307-11339`）"
+    );
+    assert_eq!(
+        harness.count_in_inventory(player, 14),
+        0,
+        "携带物品不再进普通背包"
+    );
+    assert!(
+        harness
+            .packets(player)
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::GainedQuestItem(_))),
+        "接取时逐件下发 `S.GainedQuestItem`"
     );
 
     // 标记位任务：点亮标记 7（NPC 脚本 `SET [7] 1`）后目标达成。
@@ -1091,9 +1110,355 @@ fn carry_items_are_given_on_accept_and_taken_on_finish() {
 
     harness.world.finish_quest(player, 9, -1).expect("交付");
     assert_eq!(
-        harness.count_in_inventory(player, 14),
+        harness.count_in_quest_inventory(player, 14),
         0,
-        "交付时收回携带物品"
+        "交付时从任务物品栏收回携带物品"
+    );
+    assert!(
+        harness
+            .packets(player)
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::DeleteQuestItem(_))),
+        "扣除时下发 `S.DeleteQuestItem`"
+    );
+}
+
+#[test]
+fn quest_items_are_intercepted_only_for_unfinished_collect_tasks() {
+    let (mut harness, _envir) = Harness::new("intercept");
+    let craft_lady = harness.npc_id("工匠");
+    let player = harness.add_player(1, Point::new(105, 101));
+    let egg = harness.world.item_info_by_name("Egg").unwrap().clone();
+
+    // 没接任务：不截胡（物品照旧落地，由调用方继续走 `drop_cell`）。
+    let drop = harness.world.create_fresh_item(&egg);
+    assert!(!harness.world.check_group_quest_item(player, &drop));
+    assert_eq!(harness.count_in_quest_inventory(player, 11), 0);
+
+    // 接「收集 2 个蛋」：前两件截胡，计数同步推进。
+    harness
+        .world
+        .accept_quest(player, craft_lady, 2)
+        .expect("接取");
+    for expected in 1..=2u16 {
+        let drop = harness.world.create_fresh_item(&egg);
+        assert!(
+            harness.world.check_group_quest_item(player, &drop),
+            "第 {expected} 件应当被截胡"
+        );
+        assert_eq!(harness.count_in_quest_inventory(player, 11), expected);
+        assert_eq!(
+            harness
+                .world
+                .quest_progress(player, 2)
+                .unwrap()
+                .item_count_of("Egg"),
+            expected,
+            "截胡后收集进度立即重算"
+        );
+    }
+
+    // 收满之后不再截胡。
+    let drop = harness.world.create_fresh_item(&egg);
+    assert!(
+        !harness.world.check_group_quest_item(player, &drop),
+        "任务已收满，第三件应当落地"
+    );
+    let gained = harness
+        .packets(player)
+        .iter()
+        .filter(|packet| matches!(packet, ServerPacket::GainedQuestItem(_)))
+        .count();
+    assert_eq!(gained, 2, "只发两件 `S.GainedQuestItem`");
+}
+
+#[test]
+fn gained_quest_item_frame_carries_the_incremental_item() {
+    let (mut harness, _envir) = Harness::new("incremental");
+    let craft_lady = harness.npc_id("工匠");
+    let player = harness.add_player(1, Point::new(105, 101));
+    let egg = harness.world.item_info_by_name("Egg").unwrap().clone();
+    harness
+        .world
+        .accept_quest(player, craft_lady, 2)
+        .expect("接取");
+
+    let drop = harness.world.create_fresh_item(&egg);
+    assert!(harness.world.check_group_quest_item(player, &drop));
+    let stored = harness
+        .world
+        .quest_inventory(player)
+        .and_then(|inventory| inventory.slot(0))
+        .cloned()
+        .expect("任务物品应当入栏");
+    let packets = harness.packets(player);
+    let gained = packets
+        .iter()
+        .find_map(|packet| match packet {
+            ServerPacket::GainedQuestItem(gained) => Some(gained),
+            _ => None,
+        })
+        .expect("应当下发 `S.GainedQuestItem`");
+    assert_eq!(
+        gained.item.unique_id, stored.unique_id,
+        "下发的是本次增量克隆（与入栏的是同一件，客户端按模板合并）"
+    );
+    assert_eq!(gained.item.item_index, egg.index);
+    assert_eq!(gained.item.count, 1);
+    assert_ne!(
+        gained.item.unique_id, drop.unique_id,
+        "组队路径为每个队员发独立克隆"
+    );
+}
+
+#[test]
+fn full_quest_inventory_does_not_intercept() {
+    let (mut harness, _envir) = Harness::new("full-quest-bag");
+    let craft_lady = harness.npc_id("工匠");
+    let player = harness.add_player(1, Point::new(105, 101));
+    let egg = harness.world.item_info_by_name("Egg").unwrap().clone();
+    let sword = harness.world.item_info_by_name("Sword").unwrap().clone();
+    harness
+        .world
+        .accept_quest(player, craft_lady, 2)
+        .expect("接取");
+
+    // 用 40 件无法堆叠的剑塞满任务物品栏。
+    let mut inventory = mir_server::quest_inventory::QuestInventory::new();
+    for index in 0..mir_server::quest_inventory::QUEST_INVENTORY_SIZE {
+        let filler = UserItem {
+            unique_id: index as u64 + 1,
+            item_index: sword.index,
+            count: 1,
+            ..UserItem::default()
+        };
+        assert!(inventory.add(&filler, 1), "第 {index} 格应当放得下");
+    }
+    harness.world.set_quest_inventory(player, inventory);
+    assert!(harness.world.quest_inventory(player).unwrap().is_full());
+
+    let drop = harness.world.create_fresh_item(&egg);
+    assert!(
+        !harness.world.check_group_quest_item(player, &drop),
+        "任务物品栏满时不截胡，物品落地"
+    );
+    assert_eq!(harness.count_in_quest_inventory(player, 11), 0);
+}
+
+#[test]
+fn finish_deducts_collected_items_from_quest_inventory() {
+    let (mut harness, _envir) = Harness::new("finish-quest-bag");
+    let craft_lady = harness.npc_id("工匠");
+    let player = harness.add_player(1, Point::new(105, 101));
+    let egg = harness.world.item_info_by_name("Egg").unwrap().clone();
+    harness
+        .world
+        .accept_quest(player, craft_lady, 2)
+        .expect("接取");
+    for _ in 0..2 {
+        let drop = harness.world.create_fresh_item(&egg);
+        assert!(harness.world.check_group_quest_item(player, &drop));
+    }
+    assert_eq!(harness.count_in_quest_inventory(player, 11), 2);
+
+    harness.world.finish_quest(player, 2, -1).expect("交付");
+    assert_eq!(
+        harness.count_in_quest_inventory(player, 11),
+        0,
+        "交付时从任务物品栏扣除收集目标"
+    );
+    assert_eq!(
+        harness.count_in_inventory(player, 11),
+        0,
+        "普通背包不受影响"
+    );
+}
+
+#[test]
+fn finish_clears_leftover_quest_items_not_needed_anymore() {
+    let (mut harness, _envir) = Harness::new("recalc-quest-bag");
+    let craft_lady = harness.npc_id("工匠");
+    let player = harness.add_player(1, Point::new(105, 101));
+    let egg = harness.world.item_info_by_name("Egg").unwrap().clone();
+    harness
+        .world
+        .accept_quest(player, craft_lady, 2)
+        .expect("接取");
+    for _ in 0..2 {
+        let drop = harness.world.create_fresh_item(&egg);
+        assert!(harness.world.check_group_quest_item(player, &drop));
+    }
+    // 多捡的一件（正常玩法里收满后不会再截胡，这里直接塞进任务物品栏模拟旧存档/异常数据）。
+    let extra = harness.world.create_fresh_item(&egg);
+    assert!(harness.world.gain_quest_item(player, &extra));
+    assert_eq!(harness.count_in_quest_inventory(player, 11), 3);
+
+    harness.world.finish_quest(player, 2, -1).expect("交付");
+    assert_eq!(
+        harness.count_in_quest_inventory(player, 11),
+        0,
+        "交付后 `RecalculateQuestBag` 清掉多余的任务物品"
+    );
+}
+
+#[test]
+fn abandon_quest_clears_carry_items_from_quest_inventory() {
+    let (mut harness, _envir) = Harness::new("abandon-carry");
+    let giver = harness.npc_id("任务使者");
+    let player = harness.add_player(1, Point::new(100, 101));
+    harness.world.accept_quest(player, giver, 9).expect("接取");
+    assert_eq!(harness.count_in_quest_inventory(player, 14), 2);
+
+    harness.world.abandon_quest(player, 9).expect("放弃");
+    assert_eq!(
+        harness.count_in_quest_inventory(player, 14),
+        0,
+        "放弃后 `RecalculateQuestBag` 清掉携带物品"
+    );
+}
+
+#[test]
+fn market_snapshot_must_use_live_quest_inventory() {
+    let (mut harness, _envir) = Harness::new("market-snapshot");
+    let craft_lady = harness.npc_id("工匠");
+    let player = harness.add_player(1, Point::new(105, 101));
+    let egg = harness.world.item_info_by_name("Egg").unwrap().clone();
+    harness
+        .world
+        .accept_quest(player, craft_lady, 2)
+        .expect("接取");
+    let drop = harness.world.create_fresh_item(&egg);
+    assert!(harness.world.check_group_quest_item(player, &drop));
+
+    // 登录时的角色行（session 的 `self.character`）：任务物品栏还是空的。
+    let mut base = mir_server::Character::new(
+        i64::from(player),
+        i64::from(player),
+        "玩家",
+        MirClass::Warrior,
+        MirGender::Male,
+        MAP,
+        (105, 101),
+    );
+    base.quest_inventory = mir_server::quest_inventory::QuestInventory::new().encode();
+    let base_snapshot =
+        mir_server::market::character_snapshot(&base, harness.world.player(player).unwrap());
+    assert!(
+        mir_server::quest_inventory::QuestInventory::decode(&base_snapshot.quest_inventory)
+            .expect("空栏存档合法")
+            .is_empty(),
+        "`market::character_snapshot` 只克隆登录时的 base，所以 `Session::character_snapshot` \
+         必须用世界里的活值覆写，否则市场/商城落盘会丢任务物品"
+    );
+
+    // 户部在 `Session::character_snapshot` 里做的覆写：落盘快照必须带活值。
+    let mut live = base_snapshot;
+    live.quest_inventory = harness
+        .world
+        .quest_inventory(player)
+        .expect("世界侧有任务物品栏")
+        .encode();
+    let restored =
+        mir_server::quest_inventory::QuestInventory::decode(&live.quest_inventory).expect("解码");
+    assert_eq!(
+        restored.count_of(egg.index),
+        1,
+        "市场/商城落盘的快照必须带活的任务物品栏"
+    );
+
+    // 下线取走 → 重登解码：任务物品还在（store 侧的 BYTEA 往返见 `mir-store` 的 roundtrip）。
+    let taken = harness.world.take_quest_inventory(player);
+    let relogged =
+        mir_server::quest_inventory::QuestInventory::decode(&taken.encode()).expect("解码");
+    assert_eq!(relogged.count_of(egg.index), 1, "下线→重登后任务物品还在");
+}
+
+#[test]
+fn intercepted_drop_keeps_its_count_and_durability() {
+    let (mut harness, _envir) = Harness::new("intercept-count");
+    let craft_lady = harness.npc_id("工匠");
+    let player = harness.add_player(1, Point::new(105, 101));
+    let egg = harness.world.item_info_by_name("Egg").unwrap().clone();
+    harness
+        .world
+        .accept_quest(player, craft_lady, 2)
+        .expect("接取");
+
+    // 怪物一次掉 3 个蛋，且带有非满耐久：截胡必须保留掉落实例的数量/耐久。
+    let mut drop = harness.world.create_fresh_item(&egg);
+    drop.count = 3;
+    drop.current_dura = 7;
+    drop.max_dura = 9;
+    assert!(harness.world.check_group_quest_item(player, &drop));
+    let stored = harness
+        .world
+        .quest_inventory(player)
+        .and_then(|inventory| inventory.slot(0))
+        .cloned()
+        .expect("任务物品应当入栏");
+    assert_eq!(stored.count, 3, "不能把掉落的 3 个变成 1 个");
+    assert_eq!(stored.current_dura, 7, "保留掉落实例的耐久");
+    assert_eq!(stored.max_dura, 9);
+    assert_ne!(stored.unique_id, drop.unique_id, "每个队员拿独立副本");
+    assert_eq!(
+        harness
+            .world
+            .quest_progress(player, 2)
+            .unwrap()
+            .item_count_of("Egg"),
+        3,
+        "收集进度按 3 个统计"
+    );
+
+    // 扣 3 个能清空，并下发一帧 `S.DeleteQuestItem{Count=3}`。
+    assert_eq!(harness.world.take_quest_items(player, "Egg", 3), 3);
+    assert_eq!(harness.count_in_quest_inventory(player, 11), 0);
+    let packets = harness.packets(player);
+    let deleted = packets
+        .iter()
+        .find_map(|packet| match packet {
+            ServerPacket::DeleteQuestItem(deleted) => Some(deleted),
+            _ => None,
+        })
+        .expect("应当下发 `S.DeleteQuestItem`");
+    assert_eq!(deleted.count, 3);
+    assert_eq!(deleted.unique_id, stored.unique_id);
+}
+
+#[test]
+fn quest_inventory_roundtrips_through_world_and_store_blob() {
+    let (mut harness, _envir) = Harness::new("quest-bag-roundtrip");
+    let craft_lady = harness.npc_id("工匠");
+    let player = harness.add_player(1, Point::new(105, 101));
+    let egg = harness.world.item_info_by_name("Egg").unwrap().clone();
+    harness
+        .world
+        .accept_quest(player, craft_lady, 2)
+        .expect("接取");
+    let drop = harness.world.create_fresh_item(&egg);
+    assert!(harness.world.check_group_quest_item(player, &drop));
+
+    // 下线：取走 + 编码（session 的 `leave_world` 做的事）。
+    let inventory = harness.world.take_quest_inventory(player);
+    assert!(
+        harness.world.quest_inventory(player).is_none(),
+        "取走后世界侧不再持有"
+    );
+    let bytes = inventory.encode();
+
+    // 重登：解码 + 装回（session 的 `on_start_game` 做的事）。
+    let restored =
+        mir_server::quest_inventory::QuestInventory::decode(&bytes).expect("存档块应当可以解码");
+    harness.world.set_quest_inventory(player, restored);
+    assert_eq!(harness.count_in_quest_inventory(player, 11), 1);
+    assert_eq!(
+        harness
+            .world
+            .quest_progress(player, 2)
+            .unwrap()
+            .item_count_of("Egg"),
+        1,
+        "重登后收集进度从任务物品栏重算"
     );
 }
 

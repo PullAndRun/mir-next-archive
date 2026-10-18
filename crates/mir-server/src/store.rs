@@ -153,6 +153,10 @@ pub struct Character {
     /// 任务进度 + 已完成任务（Crystal `CharacterInfo.CurrentQuests` / `CompletedQuests` 的字节块，
     /// 编解码见 [`crate::quests::encode_quests`] / [`crate::quests::decode_quests`]）。
     pub quests: Vec<u8>,
+    /// 任务物品栏（Crystal `CharacterInfo.QuestInventory` 的 `UserItem[40]` 字节块，
+    /// 编解码见 [`crate::quest_inventory::QuestInventory::encode`] /
+    /// [`crate::quest_inventory::QuestInventory::decode`]；迁移 0012）。
+    pub quest_inventory: Vec<u8>,
     /// 所属行会的主键，`-1` 表示没有行会（Crystal `CharacterInfo.GuildIndex`）。
     ///
     /// 行会本体走 [`GuildRecord`]（`guilds` / `guild_ranks` / `guild_members` 三张表），
@@ -196,6 +200,7 @@ impl Character {
             storage: Vec::new(),
             magics: Vec::new(),
             quests: Vec::new(),
+            quest_inventory: Vec::new(),
             // Crystal 的 `CharacterInfo.GuildIndex` 默认 -1（没有行会）。
             guild_index: -1,
             last_access: DateTimeBinary(0),
@@ -682,6 +687,8 @@ struct MemoryState {
     gameshop_purchases: Vec<GameShopPurchaseRecord>,
     /// **仅测试**：让下一次 `apply_gameshop_update` 失败（模拟数据库事务失败）。
     fail_next_gameshop_update: bool,
+    /// **仅测试**：让下一次 `apply_market_update` 失败（模拟数据库事务失败）。
+    fail_next_market_update: bool,
     next_account_id: i64,
     next_character_id: i64,
     next_guild_id: i32,
@@ -703,6 +710,7 @@ impl MemoryStore {
                 gameshop_stock: Vec::new(),
                 gameshop_purchases: Vec::new(),
                 fail_next_gameshop_update: false,
+                fail_next_market_update: false,
                 next_account_id: 1,
                 next_character_id: 1,
                 next_guild_id: 1,
@@ -769,6 +777,15 @@ impl MemoryStore {
     /// 在集成测试里稳定制造事务失败）。只影响一次调用，之后自动复位。
     pub async fn fail_next_gameshop_update(&self) {
         self.state.lock().await.fail_next_gameshop_update = true;
+    }
+
+    /// **仅测试**：让下一次 [`AccountStore::apply_market_update`] 返回错误。
+    ///
+    /// 用来测「拍卖到期自动成交的事务失败 → 挂单与邮件回滚进世界、下一轮重试」这条
+    /// 崩溃窗口路径（真实 PostgreSQL 没法在集成测试里稳定制造事务失败）。
+    /// 只影响一次调用，之后自动复位。
+    pub async fn fail_next_market_update(&self) {
+        self.state.lock().await.fail_next_market_update = true;
     }
 }
 
@@ -1044,6 +1061,14 @@ impl AccountStore for MemoryStore {
             auctions,
         } = update;
         let mut state = self.state.lock().await;
+
+        // 仅测试：注入一次事务失败（见 [`MemoryStore::fail_next_market_update`]）。
+        if state.fail_next_market_update {
+            state.fail_next_market_update = false;
+            return Err(StoreError::Internal(
+                "注入的市场事务失败（测试）".to_owned(),
+            ));
+        }
 
         // ---- 预校验：内存存储用「先检查、后修改」模拟事务的全有或全无。 ----
         if let Some(character) = &character

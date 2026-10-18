@@ -665,6 +665,14 @@ pub struct World {
     /// 登录与 `/language` 切换由 `session.rs` 调 [`World::set_player_language`] 写入，
     /// 玩家离开世界时在 [`World::leave`] 里移除，避免对象 ID 复用串语言。
     pub(crate) player_languages: HashMap<u32, Language>,
+    /// 每个在线玩家的任务物品栏（`object_id → QuestInventory`，Crystal
+    /// `CharacterInfo.QuestInventory`，40 格）。
+    ///
+    /// 与 [`World::player_languages`] 一样放在 `World` 侧表而不是 [`Player`] 上：避免改动
+    /// 30+ 处 `Player {}` 字面量（测试/会话层）。登录时由 `session.rs` 从
+    /// `characters.quest_inventory` 解码写入，下线时 [`World::take_quest_inventory`] 取走
+    /// 并随角色存盘；[`World::leave`] 里兜底清理，避免对象 ID 复用串栏。
+    pub(crate) quest_inventories: HashMap<u32, crate::quest_inventory::QuestInventory>,
     /// 服务器语言包（`config/lang/*.json`，由 `server.rs` 注入）。
     ///
     /// `None` 时 [`World::text`]/[`World::format`] 回落到 `mir_core::i18n` 的内置模板，
@@ -869,6 +877,7 @@ impl World {
             next_spell_cast_id: 1,
             pets: HashMap::new(),
             player_languages: HashMap::new(),
+            quest_inventories: HashMap::new(),
             languages: None,
             respawn_groups: Vec::new(),
             ground_items: Vec::new(),
@@ -938,6 +947,7 @@ impl World {
             next_spell_cast_id: 1,
             pets: HashMap::new(),
             player_languages: HashMap::new(),
+            quest_inventories: HashMap::new(),
             languages: None,
             respawn_groups: Vec::new(),
             ground_items: Vec::new(),
@@ -1933,10 +1943,7 @@ impl World {
                     }
                 }
                 AoiKind::Monster => {
-                    if self
-                        .monster(entry.object_id)
-                        .is_some_and(|monster| !monster.dead)
-                    {
+                    if self.monster_is_attack_target_of_player(attacker_id, entry.object_id) {
                         candidates.push((entry.object_id, false));
                     }
                 }
@@ -1951,15 +1958,65 @@ impl World {
                 }
                 continue;
             }
-            // 守卫：`Guard.IsAttackTarget(HumanObject)` 返回 false（`Monsters/Guard.cs:54`）。
-            let guard = self
-                .monster(object_id)
-                .is_some_and(|monster| monster.kind.is_guard());
-            if !guard {
+            // 怪物：守卫不可攻击；宠物按 Crystal `MonsterObject.IsAttackTarget(HumanObject)`
+            // （`:2430-2463`）判定（主人/Peace/安全区/组队/行会）。
+            if self.monster_is_attack_target_of_player(attacker_id, object_id) {
                 return Some(object_id);
             }
         }
         None
+    }
+
+    /// 玩家能否攻击某个怪物（含玩家召唤物）：Crystal
+    /// `MonsterObject.IsAttackTarget(HumanObject)`（`MonsterObject.cs:2430-2463`）。
+    ///
+    /// * 守卫：恒 false（`Monsters/Guard.cs:54-57`）；
+    /// * 野生怪：true（现有行为不变）；
+    /// * 宠物（`Master != null`）：
+    ///   - 攻击者 Peace → false；
+    ///   - 目标是自己的宠物 → 只有 `AttackMode::All` 才能打（`:2440`）；
+    ///   - 攻击者或主人在安全区 → false（`:2441`）；
+    ///   - `Group`/`Guild` 按同组/同会排除，`EnemyGuild` 未实现恒 false，
+    ///     `RedBrown` 要求主人红名/棕名（`:2443-2462`）。
+    #[must_use]
+    pub fn monster_is_attack_target_of_player(&self, attacker_id: u32, target_id: u32) -> bool {
+        let Some(attacker) = self.players.get(&attacker_id) else {
+            return false;
+        };
+        let Some(target) = self.monster(target_id) else {
+            return false;
+        };
+        if target.dead {
+            return false;
+        }
+        if target.kind.is_guard() {
+            return false;
+        }
+        let Some(master_id) = target.master else {
+            return true;
+        };
+        if attacker.attack_mode == AttackMode::Peace {
+            return false;
+        }
+        if master_id == attacker_id {
+            return attacker.attack_mode == AttackMode::All;
+        }
+        let Some(master) = self.players.get(&master_id) else {
+            return false;
+        };
+        if self.in_safe_zone(attacker_id) || self.in_safe_zone(master_id) {
+            return false;
+        }
+        match attacker.attack_mode {
+            AttackMode::All => true,
+            AttackMode::Group => !same_group(attacker, master),
+            AttackMode::Guild => !same_guild(attacker, master),
+            // 行会战争未实现（与 [`World::is_attack_target_player`] 同口径）。
+            AttackMode::EnemyGuild | AttackMode::Peace => false,
+            AttackMode::RedBrown => {
+                master.pk_points >= RED_NAME_PK_POINTS || self.now() < master.brown_time
+            }
+        }
     }
 
     /// 玩家能否攻击另一个玩家：Crystal `PlayerObject.IsAttackTarget(HumanObject)`
@@ -2425,12 +2482,32 @@ impl World {
         }
 
         // 仇恨与经验归属（`MonsterObject.cs:2571-2574`、`:2627-2633`）。
+        //
+        // 宠物被攻击时把攻击者写回 `pet_target`（Crystal `MonsterObject.Attacked` 的
+        // `Target = attacker`，`:2601-2610`；玩家攻击也走 `:2571-2574`）。是否真的能反击
+        // 交给 `pet_target_valid`：主人 Peace/安全区/同组同会等会自然拒绝。
+        let pet_retaliation = self.monster(hit.target_id).and_then(|pet| {
+            let master_id = pet.master?;
+            self.pet_target_valid(pet, master_id, hit.attacker_id)
+                .then_some(hit.attacker_id)
+        });
+        let attacker_is_monster = self.monster(hit.attacker_id).is_some();
         if let Some(monster) = self.monster_mut(hit.target_id) {
-            if monster.target.is_none() {
-                monster.target = Some(hit.attacker_id);
-            }
-            if monster.expo_owner.is_none() {
-                monster.expo_owner = Some(hit.attacker_id);
+            if monster.master.is_some() {
+                if let Some(attacker_id) = pet_retaliation {
+                    monster.pet_target = Some(attacker_id);
+                    monster.operate_time = 0;
+                }
+            } else {
+                // `Attacked(MonsterObject)` 是**无条件覆盖**（`MonsterObject.cs:2601-2610`）：
+                // 野生怪已经有玩家目标时，被宠物咬也会立刻回身打宠物；玩家攻击则只在
+                // 没有目标时设（`Attacked(HumanObject)` 的 `Target == null`，`:2571-2574`）。
+                if attacker_is_monster || monster.target.is_none() {
+                    monster.target = Some(hit.attacker_id);
+                }
+                if monster.expo_owner.is_none() {
+                    monster.expo_owner = Some(hit.attacker_id);
+                }
             }
         }
 

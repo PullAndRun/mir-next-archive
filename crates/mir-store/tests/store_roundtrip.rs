@@ -126,6 +126,10 @@ async fn account_and_character_lifecycle_rolls_back() {
     assert_eq!(character.level, 1);
     assert!(!character.deleted);
     assert!(character.inventory.is_empty() && character.equipment.is_empty());
+    assert!(
+        character.quest_inventory.is_empty(),
+        "新角色没有任务物品，任务物品栏列应当是零长度"
+    );
     assert_eq!(character.guild_index, -1);
 
     // 角色名全局唯一（大小写不敏感）。
@@ -195,6 +199,8 @@ async fn account_and_character_lifecycle_rolls_back() {
     character.inventory = vec![1, 2, 3];
     character.equipment = vec![4, 5];
     character.storage = vec![6];
+    // 任务物品栏是独立的 BYTEA 块（迁移 0012）；内容由 mir-server 编码，存储层只保证往返。
+    character.quest_inventory = vec![0x00, 0x28, 0x01, 0xAA, 0xBB];
     character.last_login_date = Some(fixed_time);
     character.last_logout_date = Some(fixed_time);
     save_character(&mut *tx, &character)

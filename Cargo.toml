@@ -68,6 +68,9 @@ cast_possible_wrap = "allow"
 too_many_lines = "allow"
 similar_names = "allow"
 struct_excessive_bools = "allow"
+# 1.99 起新增的纯风格 lint：`assert!(x.is_empty())` 比 `assert_eq!(x, [])` 更直观，
+# 且测试里大量用它表达「应当为空」。为保持测试可读性，工程内统一允许。
+assert_is_empty = "allow"
 
 [profile.release]
 lto = "thin"

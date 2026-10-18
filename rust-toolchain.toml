@@ -1,3 +1,6 @@
 [toolchain]
-channel = "stable"
+# 固定工具链：CI 与本地用同一版本，避免 stable 漂移引入新 clippy lint 把主干打红。
+# 升级流程：改这里 + .github/workflows/ci.yml 的 dtolnay/rust-toolchain 版本号，
+# 本地 `rustup update` 后跑三件套，一起提交。
+channel = "1.99.1"
 components = ["rustfmt", "clippy"]

@@ -130,6 +130,18 @@ pub enum UiAction {
         /// 是否直接走（否则转身）。
         step: bool,
     },
+    /// A* 路径的下一格（[`UiState::tick_path`] 产生）。
+    ///
+    /// 与 [`Self::WorldMove`] 分开：`WorldMove` 需要 `app.rs` 按当前朝向决定先转身，
+    /// 而路径的每一步已经在寻路时确定了方向，直接发 `C.Walk`/`C.Run`。
+    WalkStep {
+        /// 方向。
+        direction: MirDirection,
+        /// 是否跑步（连续两格同向时）。
+        run: bool,
+    },
+    /// 捡起脚下的地面物品（`C.PickUp`）。
+    PickUp,
     /// 朝锁定目标攻击（`C.Attack`；目标相邻时由 [`UiState::attack_target`] 产生）。
     AttackTarget {
         /// 朝向目标的方向。
@@ -169,6 +181,12 @@ impl UiAction {
                 count: 1,
             }),
             Self::AttackTarget { direction } => Some(NetCommand::Attack(*direction)),
+            Self::WalkStep { direction, run } => Some(if *run {
+                NetCommand::Run(*direction)
+            } else {
+                NetCommand::Walk(*direction)
+            }),
+            Self::PickUp => Some(NetCommand::PickUp),
             _ => None,
         }
     }
@@ -320,7 +338,8 @@ pub const TARGET_DOUBLE_CLICK_MS: i64 = inventory::DOUBLE_CLICK_MS;
 ///
 /// 对应 Crystal 的自动靠近：`CheckInput` 在目标超出 1 格时朝目标走
 /// （`Client/MirScenes/GameScene.cs:11764-11773`），相邻时自动挥刀（`:11471-11509`）。
-/// 本作没有 A*，只沿 `DirectionFromPoint` 的八方向走直线。
+/// 靠近目标仍沿 `DirectionFromPoint` 的八方向走直线（A* 只用于点地走路，
+/// 见 [`UiState::on_click_with_path`]）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Approach {
     /// 目标对象 ID。
@@ -329,7 +348,36 @@ pub struct Approach {
     pub steps_left: u8,
     /// 下一步允许发出的时间（Unix 毫秒）。
     pub next_step_at: i64,
+    /// `true` = 目标是地面物品（相邻时发 `C.PickUp`，不是攻击）。
+    pub pickup: bool,
 }
+
+/// 一次 A* 点地走路的剩余路径。
+///
+/// 由 [`UiState::on_click_with_path`] 在点到空地时创建，[`UiState::tick_path`] 每
+/// [`PATH_STEP_MS`] 取一步。`from`/`expected` 记录路径认为角色应该在的位置
+/// （诊断/以后中断校验用，当前不阻塞发包：服务器回包慢时相当于输入缓冲）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WalkPath {
+    /// 点击的目标格。
+    pub goal: Point,
+    /// 剩余方向（不含已经发出的第一步）。
+    pub steps: Vec<MirDirection>,
+    /// 下一步允许发出的时间（Unix 毫秒）。
+    pub next_step_at: i64,
+    /// 上一步的起点格。
+    pub from: Point,
+    /// 上一步的落点格（服务器确认后才会继续）。
+    pub expected: Point,
+    /// 是否跑步（下一段有两步同向时发 `C.Run`）。
+    pub running: bool,
+}
+
+/// 点地走路每一步的间隔（毫秒）。
+///
+/// Walk 动作本身 6 帧 × 100 ms（`Frames.cs:158`）；跑步也是 600 ms 走两格
+/// （`Frames.cs:159`），所以两者用同一个节拍，靠 `running` 决定发 `C.Walk` 还是 `C.Run`。
+pub const PATH_STEP_MS: i64 = 600;
 
 /// `Esc` 按顺序关面板的结果。
 ///
@@ -381,6 +429,8 @@ pub struct UiState {
     pub target_object_id: Option<u32>,
     /// 朝锁定目标靠近的进度（见 [`Approach`]）。
     pub approach: Option<Approach>,
+    /// 点地走路的 A* 剩余路径（见 [`WalkPath`]）。
+    pub walk_path: Option<WalkPath>,
     /// 背包选中的格子。
     pub selected_slot: Option<usize>,
     /// 商店选中的货架下标。
@@ -438,6 +488,7 @@ impl UiState {
             mouse: Point::new(0, 0),
             target_object_id: None,
             approach: None,
+            walk_path: None,
             selected_slot: None,
             selected_goods: None,
             selected_magic: None,
@@ -541,6 +592,14 @@ impl UiState {
                 .is_none_or(|entity| entity.dead)
         }) {
             self.target_object_id = None;
+            self.approach = None;
+        }
+        // 地面物品被捡走/消失后，靠近它的进度也作废（目标 ID 不在 `entities` 里）。
+        if self
+            .approach
+            .as_ref()
+            .is_some_and(|approach| !snapshot.entities.contains_key(&approach.target_id))
+        {
             self.approach = None;
         }
         self.collect_world_events(snapshot);
@@ -697,6 +756,23 @@ impl UiState {
         target::entity_at(snapshot, cell)
     }
 
+    /// 鼠标下的地面物品（物品名/拾取用）；鼠标压在面板上时不算。
+    #[must_use]
+    pub fn hover_item<'a>(
+        &self,
+        snapshot: &'a WorldSnapshot,
+        scene: &MapScene,
+        text: &UiText,
+        center: Point,
+        frame: Rect,
+    ) -> Option<&'a WorldEntity> {
+        if self.pointer_over_panel(snapshot, text, frame) {
+            return None;
+        }
+        let cell = scene.screen_to_cell(center, self.mouse);
+        target::item_at(snapshot, cell)
+    }
+
     /// 鼠标是否压在某个打开的面板上（tooltip/高亮/点地走路据此避让）。
     #[must_use]
     pub fn pointer_over_panel(&self, snapshot: &WorldSnapshot, text: &UiText, frame: Rect) -> bool {
@@ -772,6 +848,7 @@ impl UiState {
             target_id,
             steps_left: APPROACH_STEPS.saturating_sub(1),
             next_step_at: self.time_millis.saturating_add(APPROACH_STEP_MS),
+            pickup: false,
         });
         Some(UiAction::WorldMove {
             direction,
@@ -799,14 +876,18 @@ impl UiState {
             self.approach = None;
             return None;
         };
-        if self.target_object_id != Some(approach.target_id) {
+        if self.target_object_id != Some(approach.target_id) && !approach.pickup {
             self.approach = None;
             return None;
         }
         let direction = me.position.direction_to(target.position);
         if me.position.in_range(target.position, 1) {
             self.approach = None;
-            return Some(UiAction::AttackTarget { direction });
+            return Some(if approach.pickup {
+                UiAction::PickUp
+            } else {
+                UiAction::AttackTarget { direction }
+            });
         }
         if approach.steps_left == 0 {
             // 走满 3 步还没到：放弃靠近（目标仍可重新点击/按 Space）。
@@ -885,11 +966,10 @@ impl UiState {
         actions
     }
 
-    /// 鼠标左键按下：按「右键菜单 > 对话 > 商店 > 装备 > 背包 > 技能 > 世界」的顺序派发。
+    /// 鼠标左键按下（无地图可走性时的兼容入口）。
     ///
-    /// `world_cell` 是鼠标对应的地图格（由 `MapScene::screen_to_cell` 算好）。
-    /// 在背包格按下会同时开始拖拽；同一格 `inventory::DOUBLE_CLICK_MS` 内再次按下
-    /// 视为双击 → [`UiAction::UseItem`]。
+    /// 与 [`Self::on_click_with_path`] 完全相同，只是点击空地仍退回
+    /// [`walk_intent`] 的「走一步/转身」；无头测试与旧调用方用这个入口。
     pub fn on_click(
         &mut self,
         snapshot: &WorldSnapshot,
@@ -897,7 +977,28 @@ impl UiState {
         frame: Rect,
         world_cell: Option<Point>,
     ) -> Option<UiAction> {
+        self.on_click_with_path(snapshot, text, frame, world_cell, None)
+    }
+
+    /// 鼠标左键按下：按「右键菜单 > 对话 > 商店 > 装备 > 背包 > 技能 > 世界」的顺序派发。
+    ///
+    /// `world_cell` 是鼠标对应的地图格（由 `MapScene::screen_to_cell` 算好）。
+    /// `walkable` 是地图可走性闭包：给出时点到空地会跑 A*（[`crate::ui::PATH_STEP_MS`]
+    /// 节拍逐格发 [`UiAction::WalkStep`]）；`None` 或寻路失败时退回一步/转身。
+    /// 在背包格按下会同时开始拖拽；同一格 `inventory::DOUBLE_CLICK_MS` 内再次按下
+    /// 视为双击 → [`UiAction::UseItem`]。
+    pub fn on_click_with_path(
+        &mut self,
+        snapshot: &WorldSnapshot,
+        text: &UiText,
+        frame: Rect,
+        world_cell: Option<Point>,
+        walkable: Option<&dyn Fn(i32, i32) -> bool>,
+    ) -> Option<UiAction> {
         self.sync(snapshot);
+        // 新点击一律取消旧路径/靠近；下面点到空地时会重新设置。
+        self.walk_path = None;
+        self.approach = None;
         if let Some(menu) = self.context_menu.clone() {
             let entries = menu.entries(snapshot, self.language);
             let panel = inventory::context_menu_rect(menu.anchor, entries.len(), frame);
@@ -1015,7 +1116,7 @@ impl UiState {
             return None;
         }
         // 大地图同理；Crystal 点大地图会寻路（`BigMapDialog.cs:612-628`），
-        // 本作没有 A*，只吃掉点击（简化）。
+        // 本作还没把大地图坐标映射到世界格，只吃掉点击（简化）。
         if self.bigmap_clicked(frame) {
             return None;
         }
@@ -1033,21 +1134,133 @@ impl UiState {
                     });
                 }
             }
+            // 点地面物品：相邻直接 `C.PickUp`；不相邻先靠近（复用 [`Approach`]，
+            // 最多 [`APPROACH_STEPS`] 步，到了相邻再捡）。Crystal 的拾取在
+            // `GameScene.cs:11627-11634`：鼠标格 == 自己所在格时发 `C.PickUp`。
+            if let Some(item) = target::item_at(snapshot, cell) {
+                let me = snapshot.self_player.as_ref()?;
+                // 简化：Crystal 只在鼠标格 == 自己所在格时发 C.PickUp
+                // （GameScene.cs:11627-11634）；需求要求相邻格即可拾取。
+                if me.position.in_range(item.position, 1) {
+                    self.target_object_id = None;
+                    return Some(UiAction::PickUp);
+                }
+                let direction = me.position.direction_to(item.position);
+                self.target_object_id = None;
+                self.approach = Some(Approach {
+                    target_id: item.object_id,
+                    steps_left: APPROACH_STEPS.saturating_sub(1),
+                    next_step_at: self.time_millis.saturating_add(APPROACH_STEP_MS),
+                    pickup: true,
+                });
+                return Some(UiAction::WorldMove {
+                    direction,
+                    step: true,
+                });
+            }
             // 点在怪物/其他玩家上：锁定目标（`GameScene.cs:11442-11451`），
             // 同一目标 `TARGET_DOUBLE_CLICK_MS` 内再点一次 → 攻击/靠近。
             if let Some(object_id) = target::target_at(snapshot, cell) {
                 return self.lock_target(snapshot, object_id);
             }
             // 点空地：清掉锁定目标（Crystal 的 `else TargetObjectID = 0`，
-            // `GameScene.cs:11450-11451`），再走/转身。
+            // `GameScene.cs:11450-11451`），有可走性闭包时走 A*，否则走一步/转身。
             self.target_object_id = None;
             self.approach = None;
+            if let Some(walkable) = walkable {
+                if let Some(me) = snapshot.self_player.as_ref() {
+                    if let Some(path) = mir_render::pathfind::find_path_with_steps(
+                        me.position,
+                        cell,
+                        walkable,
+                        mir_render::pathfind::DEFAULT_MAX_NODES,
+                        mir_render::pathfind::MAX_PATH_STEPS,
+                    ) {
+                        if let Some((&first, rest)) = path.split_first() {
+                            // 只有一步时直接发掉，不留下空路径。
+                            self.walk_path = if rest.is_empty() {
+                                None
+                            } else {
+                                Some(WalkPath {
+                                    goal: cell,
+                                    steps: rest.to_vec(),
+                                    next_step_at: self.time_millis.saturating_add(PATH_STEP_MS),
+                                    from: me.position,
+                                    expected: me.position.moved(first, 1),
+                                    running: false,
+                                })
+                            };
+                            return Some(UiAction::WalkStep {
+                                direction: first,
+                                run: false,
+                            });
+                        }
+                    }
+                    // 寻路失败：退化为「朝目标方向走一步」（需求）。
+                    if me.position != cell {
+                        return Some(UiAction::WorldMove {
+                            direction: me.position.direction_to(cell),
+                            step: true,
+                        });
+                    }
+                }
+            }
             return walk_intent(snapshot, cell).map(|intent| UiAction::WorldMove {
                 direction: intent.direction,
                 step: intent.step,
             });
         }
         None
+    }
+
+    /// 设置当前路径是否用跑步（`Shift` 按住时由 `app.rs` 调用）。
+    pub fn set_path_running(&mut self, running: bool) {
+        if let Some(path) = &mut self.walk_path {
+            path.running = running;
+        }
+    }
+
+    /// 取消点地走路（键盘移动/攻击/点面板时调用）。
+    pub fn cancel_path(&mut self) {
+        self.walk_path = None;
+    }
+
+    /// 每帧推进 A* 路径：到时间就取下一格，返回要发的 `C.Walk`/`C.Run`。
+    ///
+    /// 按 [`PATH_STEP_MS`] 节拍逐格取，路径耗尽就停止（`walk_path` 清空）。
+    /// 不依赖服务器回包：服务器还没确认上一步时继续按节拍发下一步，相当于输入缓冲；
+    /// `from`/`expected` 只用于诊断（记录路径认为角色应该在的位置）。
+    /// `snapshot` 保留在签名里，方便以后加入「被传送/攻击打断」的校验。
+    pub fn tick_path(&mut self, _snapshot: &WorldSnapshot) -> Option<UiAction> {
+        let next_at = self.walk_path.as_ref()?.next_step_at;
+        if self.time_millis < next_at {
+            return None;
+        }
+        let mut path = self.walk_path.take()?;
+        if path.steps.is_empty() {
+            return None;
+        }
+        let first = path.steps.remove(0);
+        let run = path.running && path.steps.first().is_some_and(|second| *second == first);
+        let steps = if run {
+            path.steps.remove(0);
+            2
+        } else {
+            1
+        };
+        path.from = path.expected;
+        path.expected = path.from.moved(first, steps);
+        path.next_step_at = self.time_millis.saturating_add(PATH_STEP_MS);
+        // 最后一步已经发出：直接丢路径（到达后停止）。
+        self.walk_path = if path.steps.is_empty() {
+            None
+        } else {
+            Some(path)
+        };
+        Some(UiAction::WalkStep {
+            direction: first,
+            run,
+        })
     }
 
     /// 左键点到可攻击目标：锁定它；同一目标短时间内第二次点击视为双击 → 攻击/靠近。
@@ -1209,6 +1422,10 @@ pub fn draw(
     state.sync(snapshot);
     let screen = Rect::screen(frame.width, frame.height);
     worldtext::draw_names(frame, snapshot, scene, center, text);
+    // 鼠标下的地面物品名字（只画命中的那一件，Crystal `GameScene.cs:10619-10626`）。
+    if let Some(item) = state.hover_item(snapshot, scene, text, center, screen) {
+        worldtext::draw_item_name(frame, snapshot, scene, center, text, item.position);
+    }
     // 光标目标：悬停实体画 1px 黄框、锁定目标画 1px 红框（Crystal 用半透明重绘，
     // `GameScene.cs:10973-10980`；这里按需求简化成方框，见 [`target`]）。
     let hover_cell = state
@@ -2192,6 +2409,7 @@ mod tests {
             target_id: 42,
             steps_left: 2,
             next_step_at: 0,
+            pickup: false,
         });
         state.sync(&snapshot);
         assert_eq!(state.target_object_id, Some(42), "活着的目标保留");

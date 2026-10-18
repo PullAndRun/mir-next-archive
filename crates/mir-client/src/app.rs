@@ -9,7 +9,8 @@
 //! * 联机模式（`--connect`）：方向键/WASD 移动、`Space` 攻击（锁定目标时朝目标攻击/
 //!   靠近）、`P` 捡取、`T` 聊天、`I` 背包、`E` 装备、`F3` 技能、`M` 小地图、`B` 大地图、
 //!   `1..9` 施法、鼠标悬停/点击锁定世界目标、左键双击目标攻击、鼠标点 NPC/面板按钮、
-//!   `Esc` 关面板、`F1` 叠层、`F2` 截图、`Q` 退出；
+//!   点空地走 A\* 路径、点地面物品拾取、`Esc` 关面板、`F1` 叠层、`F2` 截图、`Q` 退出；
+//! * 每帧按 `S.MapInformation.Music` / `S.MapChanged.Music` 切换背景音乐；
 //! * 每 100 ms 递增一次动画帧（对应 Crystal 的 `MapControl.AnimationCount++`，
 //!   `GameScene.cs:1188-1193`）。
 //!
@@ -369,6 +370,49 @@ impl ClientApp {
         }
     }
 
+    /// 按当前地图切换背景音乐（切图时 Crystal 也是 `MapControl.LoadMap` 里换曲，
+    /// `GameScene.cs:10454-10466`）。
+    ///
+    /// 优先用服务器 `S.MapInformation.Music` / `S.MapChanged.Music` 的编号
+    /// （`music_for_index`），编号为 0 时用 `music_for_map` 兜底（示例数据库全是 0）。
+    /// 同一个文件已经在播时 `play_music` 不会重开。
+    fn sync_music(&mut self) {
+        // 先只读地算出「该放哪个文件 / 该停」，再可变地碰播放器。
+        enum MusicChoice {
+            Play(std::path::PathBuf),
+            Stop,
+        }
+        let choice = {
+            let Mode::Live(live) = &self.mode else {
+                return;
+            };
+            let Some(map) = &live.snapshot.map else {
+                return;
+            };
+            let file = mir_render::music_for_index(map.music)
+                .or_else(|| mir_render::music_for_map(&map.file_name, &map.title));
+            let path = file.and_then(|file| {
+                let resolved = live.sound.library().resolve(file);
+                if resolved.is_none() {
+                    tracing::debug!(file, "背景音乐素材缺失，静音");
+                }
+                resolved
+            });
+            path.map_or(MusicChoice::Stop, MusicChoice::Play)
+        };
+        let Mode::Live(live) = &mut self.mode else {
+            return;
+        };
+        match choice {
+            MusicChoice::Play(path) => {
+                if live.sound.music_path() != Some(path.as_path()) {
+                    live.sound.play_music(&path);
+                }
+            }
+            MusicChoice::Stop => live.sound.stop_music(),
+        }
+    }
+
     /// 画联机界面（世界文字、状态栏、增益、聊天、背包/装备/商店/技能/对话）。
     fn draw_ui(&mut self) {
         let center = self.center;
@@ -477,6 +521,8 @@ impl ClientApp {
         let Mode::Live(live) = &mut self.mode else {
             return;
         };
+        // 键盘移动打断 A* 点地走路。
+        live.ui.cancel_path();
         let Some(me) = &live.snapshot.self_player else {
             return;
         };
@@ -498,6 +544,9 @@ impl ClientApp {
     /// 锁定目标后的语义见 [`UiState::attack_target`]：相邻 → `C.Attack`，
     /// 不相邻 → 先朝目标走一步（最多 3 步，走到相邻自动攻击）。
     fn live_attack(&mut self) {
+        if let Mode::Live(live) = &mut self.mode {
+            live.ui.cancel_path();
+        }
         let action = match &mut self.mode {
             Mode::Live(live) => {
                 if live.ui.target_object_id.is_some() {
@@ -526,6 +575,21 @@ impl ClientApp {
             Mode::Live(live) => {
                 live.ui.set_time(now_millis());
                 live.ui.tick_approach(&live.snapshot)
+            }
+            Mode::Offline => None,
+        };
+        if let Some(action) = action {
+            self.dispatch_ui_action(action);
+        }
+    }
+
+    /// 每个节拍推进点地走路的 A* 路径（每 600 ms 一格，见 `UiState::tick_path`）。
+    fn tick_path(&mut self) {
+        let action = match &mut self.mode {
+            Mode::Live(live) => {
+                live.ui.set_time(now_millis());
+                live.ui.set_path_running(live.shift);
+                live.ui.tick_path(&live.snapshot)
             }
             Mode::Offline => None,
         };
@@ -570,7 +634,9 @@ impl ClientApp {
             // 纯数据动作直接走 `UiAction::net_command`（与无头测试共用同一映射）。
             action @ (UiAction::BuyItem { .. }
             | UiAction::DropItem { .. }
-            | UiAction::MoveItem { .. }) => {
+            | UiAction::MoveItem { .. }
+            | UiAction::WalkStep { .. }
+            | UiAction::PickUp) => {
                 if let Some(command) = action.net_command() {
                     live.send(command);
                 }
@@ -806,13 +872,21 @@ impl ClientApp {
             let mouse = live.ui.mouse;
             let world_cell = self.scene.screen_to_cell(self.center, mouse);
             cell = Some(world_cell);
-            action = live
-                .ui
-                .on_click(&live.snapshot, &self.text, frame, Some(world_cell));
+            // 地图可走性闭包：A* 只在点到空地时使用（`UiState::on_click_with_path`）。
+            let map = &self.scene.map;
+            let walkable = |x: i32, y: i32| map.walkable(x, y);
+            action = live.ui.on_click_with_path(
+                &live.snapshot,
+                &self.text,
+                frame,
+                Some(world_cell),
+                Some(&walkable),
+            );
         }
         if let Some(action) = action {
             // 双击目标产生的「靠近一步」不进按住连续走：它由 `UiState::tick_approach`
-            // 按 600 ms 节拍推进，最多 3 步（需求）。
+            // 按 600 ms 节拍推进，最多 3 步（需求）。A* 的 `WalkStep` 由 `tick_path`
+            // 自己推进，也不进按住连续走。
             let walking = matches!(action, UiAction::WorldMove { .. }) && !self.live_approaching();
             self.dispatch_ui_action(action);
             if walking {
@@ -895,6 +969,10 @@ impl ClientApp {
         let Mode::Live(live) = &mut self.mode else {
             return;
         };
+        if live.ui.walk_path.is_some() {
+            // A* 路径优先；按住左键的连续走不要和它抢节拍。
+            return;
+        }
         if !live.left_held || Instant::now() < live.next_walk {
             return;
         }
@@ -1306,6 +1384,8 @@ impl ApplicationHandler for ClientApp {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.poll_network();
         self.tick_targeting();
+        self.tick_path();
+        self.sync_music();
         self.repeat_walk();
         let now = Instant::now();
         if now >= self.next_animation {

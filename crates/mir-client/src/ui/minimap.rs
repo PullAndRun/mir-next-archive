@@ -297,6 +297,7 @@ mod tests {
                 height: 700,
                 mini_map: 9,
                 big_map: 302,
+                music: 0,
             }),
             self_player: Some(SelfPlayer {
                 object_id: 7,

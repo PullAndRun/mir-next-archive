@@ -44,7 +44,8 @@
 //! | 包 | 快照字段 / 用途 |
 //! |---|---|
 //! | `S.UserInformation` | 自己、`inventory`、`magics`、金币、HP/MP、纸娃娃外观 |
-//! | `S.ObjectPlayer` / `S.PlayerUpdate` | 其他玩家的坐标/朝向/外观（`PlayerLooks`） |
+//! | `S.ObjectPlayer` / `S.PlayerUpdate` | 其他玩家的坐标/朝向/外观（`PlayerLooks`，含翅膀） |
+//! | `S.MountUpdate` | 自己/其他玩家的坐骑外观与是否骑乘（`PlayerLooks.mount`） |
 //! | `S.NewItemInfo` | `item_infos`：物品名/图标号/**外观号 `shape`**/价格/堆叠上限/类型/需求/属性表 |
 //! | `S.GainedItem` | 并入背包（可堆叠物品先并堆）；系统聊天 |
 //! | `S.MoveItem` | 背包内交换（`grid = Inventory` 且 `success`） |
@@ -347,6 +348,13 @@ pub struct MapSnapshot {
     /// 大地图图像号（`S.MapInformation.BigMap` / `ClientMapInfo.BigMap`，
     /// `Shared/Data/ClientData.cs:324`；`BigMapDialog.cs:642` 用它取 `mmap.wzl` 的帧）。
     pub big_map: u16,
+    /// 背景音乐编号（`S.MapInformation.Music` / `S.MapChanged.Music`，
+    /// `Shared/ServerPackets.cs`；Crystal 在 `GameScene.cs:2146`、`:3985` 把它写进
+    /// `MapControl.Music`，`GameScene.cs:10454-10466` 用 `SoundManager.PlayMusic` 播放）。
+    ///
+    /// `0` 表示服务器没有配置音乐（Crystal 静音）；示例数据库的所有地图都是 0。
+    /// 客户端会用 [`mir_render::music_for_map`] 兜底，见 `mir-client::audio`。
+    pub music: u16,
 }
 
 /// 客户端收到 `S.MapChanged` 后要做的切图动作：本地地形文件 + 新的相机中心。
@@ -401,6 +409,17 @@ pub struct PlayerLooks {
     pub weapon_shape: u16,
     /// 盾牌外观号；[`mir_render::NO_LAYER`] 表示没有盾牌。
     pub shield: u16,
+    /// 坐骑外观号：`0` = 没有坐骑，`1..` = `S.ObjectPlayer.mount_type + 1`
+    /// （Crystal `PlayerObject.MountType`/`RidingMount`，`PlayerObject.cs:95-99,202-219`）。
+    ///
+    /// `S.UserInformation` 不携带坐骑字段，自己的坐骑由 `S.MountUpdate` 更新；
+    /// 其他人由 `S.ObjectPlayer` 的 `mount_type`/`riding_mount` 直接给。
+    pub mount: u16,
+    /// 翅膀外观号：`0` = 没有翅膀，`1..99` = `S.ObjectPlayer.wing_effect`
+    /// （Crystal `PlayerObject.WingEffect`，`PlayerObject.cs:78,141,176`）。
+    ///
+    /// `>= 100` 是特效而不是翅膀层（`PlayerObject.cs:577,650,5077`），渲染层会忽略。
+    pub wings: u16,
 }
 
 impl Default for PlayerLooks {
@@ -416,6 +435,8 @@ impl Default for PlayerLooks {
             weapon: mir_render::NO_LAYER,
             weapon_shape: mir_render::NO_LAYER,
             shield: mir_render::NO_LAYER,
+            mount: 0,
+            wings: 0,
         }
     }
 }
@@ -492,6 +513,8 @@ impl PlayerLooks {
             weapon: weapon_block,
             weapon_shape,
             shield: mir_render::NO_LAYER,
+            mount: 0,
+            wings: 0,
         }
     }
 
@@ -518,6 +541,31 @@ fn i16_to_layer(value: i16) -> u16 {
     } else {
         u16::try_from(value).unwrap_or(mir_render::NO_LAYER)
     }
+}
+
+/// `S.ObjectPlayer.MountType` + `RidingMount` → 渲染层坐骑外观号。
+///
+/// Crystal 的 `DrawMount` 要求 `MountType >= 0 && RidingMount`（`PlayerObject.cs:5086`），
+/// 否则不画坐骑。`EntityView.mount` 用 `0` 表示「没有」，所以这里把 `MountType`
+/// 加一保存（`MountType = 0` → 外观 1）。
+#[must_use]
+fn mount_layer(mount_type: i16, riding_mount: bool) -> u16 {
+    if !riding_mount || mount_type < 0 {
+        return 0;
+    }
+    u16::try_from(mount_type)
+        .ok()
+        .and_then(|value| value.checked_add(1))
+        .unwrap_or(0)
+}
+
+/// `S.ObjectPlayer.WingEffect` → 渲染层翅膀外观号（`0` = 没有）。
+///
+/// Crystal 只在 `WingEffect in 1..99` 时给 `WingLibrary` 赋值（`PlayerObject.cs:577,526`），
+/// `>= 100` 是其他特效（`:650`）；渲染层会再次过滤，这里原样保存以便 UI 诊断。
+#[must_use]
+fn wing_layer(wing_effect: u8) -> u16 {
+    u16::from(wing_effect)
 }
 
 /// 自己的角色状态。
@@ -1287,6 +1335,8 @@ impl WorldSnapshot {
                 weapon_shape: me.looks.weapon_shape,
                 hair: me.looks.hair,
                 shield: me.looks.shield,
+                mount: me.looks.mount,
+                wings: me.looks.wings,
                 name: Some(me.name.clone()),
                 dead: me.dead,
                 hp_percent: Some(health_percent(me.hp, me.hp_max)),
@@ -1308,6 +1358,8 @@ impl WorldSnapshot {
                 weapon_shape: entity.looks.weapon_shape,
                 hair: entity.looks.hair,
                 shield: entity.looks.shield,
+                mount: entity.looks.mount,
+                wings: entity.looks.wings,
                 name: Some(entity.name.clone()),
                 dead: entity.dead,
                 hp_percent: entity.hp_percent,
@@ -1417,13 +1469,16 @@ impl WorldSnapshot {
         let Some(me) = self.self_player.as_ref() else {
             return;
         };
-        let looks = PlayerLooks::from_equipment(
+        let mut looks = PlayerLooks::from_equipment(
             &self.equipment,
             &self.item_infos,
             me.class,
             me.gender,
             me.hair,
         );
+        // 坐骑/翅膀不来自装备槽，重算纸娃娃时不能把它们丢掉。
+        looks.mount = me.looks.mount;
+        looks.wings = me.looks.wings;
         if let Some(me) = self.self_player.as_mut() {
             me.looks = looks;
         }
@@ -2049,6 +2104,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 height: 0,
                 mini_map: info.mini_map,
                 big_map: info.big_map,
+                music: info.music,
             });
         }
         ServerPacket::NewMapInfo(info) => {
@@ -2085,6 +2141,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 height: 0,
                 mini_map: changed.mini_map,
                 big_map: changed.big_map,
+                music: changed.music,
             });
             snapshot.entities.clear();
             // 换地图等于离开当前 NPC，UI 必须把对话/商店收起来。
@@ -2112,13 +2169,21 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                     .map(|item| item.as_ref().map(InventoryItem::from_user_item))
                     .collect();
             }
-            let looks = PlayerLooks::from_equipment(
+            // `S.UserInformation` 不带坐骑/翅膀；保留之前 `S.MountUpdate` / `S.ObjectPlayer`
+            // 已经写入的值（登录链路通常先发 UserInformation，再发 MountUpdate）。
+            let (mount, wings) = snapshot
+                .self_player
+                .as_ref()
+                .map_or((0, 0), |me| (me.looks.mount, me.looks.wings));
+            let mut looks = PlayerLooks::from_equipment(
                 &snapshot.equipment,
                 &snapshot.item_infos,
                 info.class,
                 info.gender,
                 info.hair,
             );
+            looks.mount = mount;
+            looks.wings = wings;
             snapshot.self_player = Some(SelfPlayer {
                 object_id: info.object_id,
                 name: info.name.clone(),
@@ -2153,13 +2218,17 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
         ServerPacket::ObjectPlayer(player) => {
             // 服务端已经把外观算好（`Armour = ItemInfo.Shape`、`Weapon = ItemInfo.Shape`，
             // `Server/MirObjects/HumanObject.cs:1840-1846`），客户端直接拿来分层。
-            let looks = PlayerLooks::from_server(
+            let mut looks = PlayerLooks::from_server(
                 player.class,
                 player.gender,
                 player.hair,
                 player.armour,
                 player.weapon,
             );
+            // `S.ObjectPlayer` 在 `Armour` 之后带 `WingEffect`、`MountType`、`RidingMount`
+            // （`Shared/ServerPackets.cs`；Crystal 在 `PlayerObject.cs:141,145,176` 接收）。
+            looks.wings = wing_layer(player.wing_effect);
+            looks.mount = mount_layer(player.mount_type, player.riding_mount);
             upsert_entity(
                 snapshot,
                 WorldEntity {
@@ -2618,7 +2687,15 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                     entity.looks.weapon_shape = weapon_shape;
                     entity.looks.weapon = weapon_shape % 100;
                 }
+                entity.looks.wings = wing_layer(update.wing_effect);
                 entity.image = entity.looks.armour;
+            });
+        }
+        ServerPacket::MountUpdate(update) => {
+            // `S.MountUpdate`（Crystal `PlayerObject.MountUpdate`，`PlayerObject.cs:202-219`）
+            // 同时更新坐骑外观与是否骑乘；没有坐骑时 `MountType = -1`。
+            update_entity(snapshot, update.object_id, |entity| {
+                entity.looks.mount = mount_layer(update.mount_type, update.riding_mount);
             });
         }
         ServerPacket::Disconnect(disconnect) => {
@@ -2668,6 +2745,7 @@ fn update_entity(
             me.dead = temporary.dead;
             me.action = temporary.action;
             me.action_started_ms = temporary.action_started_ms;
+            me.looks = temporary.looks;
         }
     }
 }
@@ -2857,8 +2935,8 @@ mod tests {
     use mir_core::enums::Monster as MonsterImage;
     use mir_protocol::data::{ClientBuff, ClientMagic, ItemInfo, SelectInfo, Stats, UserItem};
     use mir_protocol::packets::server::{
-        AddBuff, DamageIndicator, DeleteItem, EquipItem, MoveItem, NPCGoods, NPCResponse,
-        NewItemInfo, ObjectEffect, ObjectItem, ObjectMonster, ObjectNPC, ObjectPlayer,
+        AddBuff, DamageIndicator, DeleteItem, EquipItem, MountUpdate, MoveItem, NPCGoods,
+        NPCResponse, NewItemInfo, ObjectEffect, ObjectItem, ObjectMonster, ObjectNPC, ObjectPlayer,
         ObjectStruck, ObjectWalk, PlayerUpdate, RemoveBuff, RemoveItem, UserInformation,
         UserLocation,
     };
@@ -3370,6 +3448,9 @@ mod tests {
             hair: 4,
             weapon: 218,
             armour: 37,
+            wing_effect: 3,
+            mount_type: 2,
+            riding_mount: true,
             ..ObjectPlayer::default()
         }));
         let view = snapshot
@@ -3381,6 +3462,8 @@ mod tests {
         assert_eq!(view.weapon_shape, 218);
         assert_eq!(view.weapon, 18);
         assert_eq!(view.hair, 4);
+        assert_eq!(view.wings, 3, "S.ObjectPlayer.wing_effect");
+        assert_eq!(view.mount, 3, "mount_type 2 + 1（0 = 没有坐骑）");
         let looks = snapshot.entities[&5].looks;
         assert_eq!(looks.class, MirClass::Archer);
         assert_eq!(looks.gender, MirGender::Female);
@@ -3403,5 +3486,86 @@ mod tests {
         assert_eq!(view.weapon, mir_render::NO_LAYER, "Weapon = -1 表示空手");
         assert_eq!(view.weapon_shape, mir_render::NO_LAYER);
         assert_eq!(view.hair, 4, "PlayerUpdate 不改发型");
+    }
+
+    #[test]
+    fn mount_update_sets_and_clears_mount_for_self_and_others() {
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.apply_packet(&ServerPacket::UserInformation(UserInformation {
+            object_id: 7,
+            name: "自己".to_owned(),
+            location: Point::new(5, 5),
+            ..UserInformation::default()
+        }));
+        snapshot.apply_packet(&ServerPacket::MountUpdate(MountUpdate {
+            object_id: 7,
+            mount_type: 4,
+            riding_mount: true,
+        }));
+        assert_eq!(
+            snapshot.self_player.as_ref().expect("自己").looks.mount,
+            5,
+            "自己的坐骑来自 S.MountUpdate"
+        );
+        // 重新算纸娃娃（任意包都会触发）不能把坐骑丢掉。
+        snapshot.apply_packet(&ServerPacket::HealthChanged(
+            mir_protocol::packets::server::HealthChanged { hp: 9, mp: 9 },
+        ));
+        assert_eq!(snapshot.self_player.as_ref().expect("自己").looks.mount, 5);
+        let view = snapshot
+            .entity_views(0)
+            .into_iter()
+            .next()
+            .expect("自己的视图");
+        assert_eq!(view.mount, 5);
+
+        snapshot.apply_packet(&ServerPacket::MountUpdate(MountUpdate {
+            object_id: 7,
+            mount_type: -1,
+            riding_mount: false,
+        }));
+        assert_eq!(snapshot.self_player.as_ref().expect("自己").looks.mount, 0);
+
+        // 其他玩家：ObjectPlayer 给出坐骑，MountUpdate 可以下马。
+        snapshot.apply_packet(&ServerPacket::ObjectPlayer(ObjectPlayer {
+            object_id: 8,
+            name: "路人".to_owned(),
+            location: Point::new(6, 5),
+            mount_type: 1,
+            riding_mount: true,
+            ..ObjectPlayer::default()
+        }));
+        assert_eq!(snapshot.entities[&8].looks.mount, 2);
+        snapshot.apply_packet(&ServerPacket::MountUpdate(MountUpdate {
+            object_id: 8,
+            mount_type: -1,
+            riding_mount: false,
+        }));
+        assert_eq!(snapshot.entities[&8].looks.mount, 0);
+    }
+
+    #[test]
+    fn map_packets_keep_the_music_index() {
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.apply_packet(&ServerPacket::MapInformation(
+            mir_protocol::packets::server::MapInformation {
+                map_index: 1,
+                file_name: "0".to_owned(),
+                title: "比奇省".to_owned(),
+                music: 30_001,
+                ..mir_protocol::packets::server::MapInformation::default()
+            },
+        ));
+        assert_eq!(snapshot.map.as_ref().expect("地图").music, 30_001);
+        snapshot.apply_packet(&ServerPacket::MapChanged(
+            mir_protocol::packets::server::MapChanged {
+                map_index: 2,
+                file_name: "D2083".to_owned(),
+                title: "洞穴".to_owned(),
+                music: 30_101,
+                ..mir_protocol::packets::server::MapChanged::default()
+            },
+        ));
+        assert_eq!(snapshot.map.as_ref().expect("地图").music, 30_101);
     }
 }

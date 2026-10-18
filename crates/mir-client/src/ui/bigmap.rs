@@ -24,7 +24,8 @@
 //! * 右侧的 NPC 列表、滚动条、底部按钮（世界地图/我的位置/传送/搜索）与「已探明区域」
 //!   遮罩都没有做（Crystal 也没有遮罩，直接画整张 `mmap.wzl` 大图）。
 //! * 坐标行显示**自己的**坐标；Crystal 跟随鼠标显示大地图坐标（`:603-609`、`:257-260`）。
-//! * 点大地图在 Crystal 里会寻路（`:612-628`）；本作没有 A*，`UiState::bigmap_clicked`
+//! * 点大地图在 Crystal 里会寻路（`:612-628`）；本作已有 A*，但还没把大地图坐标映射到
+//!   世界格，所以 `UiState::bigmap_clicked`
 //!   会把面板上的点击吃掉，避免误触发「点地走路」。
 
 use mir_core::Language;
@@ -243,6 +244,7 @@ mod tests {
                 height: 400,
                 mini_map: 7,
                 big_map: 302,
+                music: 0,
             }),
             self_player: Some(SelfPlayer {
                 object_id: 7,

@@ -3,7 +3,9 @@
 //! # 分工
 //!
 //! * 事件 → 文件名 的映射在 `mir-render::sound`（纯数据，不依赖音频库）；
-//! * **播放**只在这里：`mir-render` 不引入任何音频依赖（需求硬性约束）。
+//! * **播放**只在这里：`mir-render` 不引入任何音频依赖（需求硬性约束）；
+//! * 背景音乐用独立的 [`SoundPlayer::play_music`]（循环、独立音量 `music_volume`、
+//!   切图时换曲），与音效共用同一个 `Mixer`，但用单独的 `rodio::Player` 持有当前曲目。
 //!
 //! # 降级策略
 //!
@@ -28,12 +30,13 @@
 //!
 //! [`SoundLibrary`] 按顺序在多个目录里找同名文件：
 //!
-//! 1. `resource/wav`——需求指定的音效目录（786 个经典 Mir2 WAV）；
-//! 2. `resource/community/gqf2008-crystal/Sound`——Crystal 客户端完整音效集，
-//!    补上 `resource/wav` 里缺的 `levelup.wav`、`pet_pickup.wav` 与 `M<技能>-*.wav`
-//!    （`SoundList.lst` 见该目录）。
+//! 1. `resource/wav`——需求指定的音效目录（786 个经典 Mir2 WAV，没有背景音乐）；
+//! 2. `resource/community/mirfiles-crystal-client/Client/Sound`——Crystal 客户端完整
+//!    音效/音乐集，含 30 首 `300xx.wav` 背景音乐（`SoundList.lst:583-615`）；
+//! 3. `resource/community/gqf2008-crystal/Sound`——另一份完整音效集，补上
+//!    `resource/wav` 里缺的 `levelup.wav`、`pet_pickup.wav` 与 `M<技能>-*.wav`。
 //!
-//! 两个目录都没有该文件时静默跳过（只在第一次遇到时用 `tracing::debug!` 记一笔），
+//! 三个目录都没有该文件时静默跳过（只在第一次遇到时用 `tracing::debug!` 记一笔），
 //! 不 panic、不刷屏。
 
 use std::collections::{HashMap, HashSet};
@@ -43,10 +46,12 @@ use std::path::{Path, PathBuf};
 use mir_core::enums::Spell;
 use mir_render::sound::{SOUND_COOLDOWN_MS, SoundId, sound_for_sex, spell_sound};
 use rodio::mixer::Mixer;
-use rodio::{Decoder, MixerDeviceSink, Source};
+use rodio::{Decoder, MixerDeviceSink, Player, Source};
 
 /// 默认音量（需求：0.5）。
 pub const DEFAULT_VOLUME: f32 = 0.5;
+/// 背景音乐默认音量（独立于音效；需求：`--music-volume`，默认 0.5）。
+pub const DEFAULT_MUSIC_VOLUME: f32 = 0.5;
 
 /// 100 ms 频控表：`文件名 → 上次播放时间（Unix 毫秒）`。
 #[derive(Debug, Default, Clone)]
@@ -102,12 +107,13 @@ pub struct SoundLibrary {
 }
 
 impl SoundLibrary {
-    /// 默认搜索目录：`resource/wav` + Crystal 完整音效集（见模块文档）。
+    /// 默认搜索目录：`resource/wav` + Crystal 完整音效/音乐集（见模块文档）。
     #[must_use]
     pub fn default_roots() -> Self {
         Self {
             roots: vec![
                 PathBuf::from("resource/wav"),
+                PathBuf::from("resource/community/mirfiles-crystal-client/Client/Sound"),
                 PathBuf::from("resource/community/gqf2008-crystal/Sound"),
             ],
         }
@@ -131,6 +137,10 @@ impl SoundLibrary {
         let root = data_dir.parent().unwrap_or_else(|| Path::new("."));
         Self::with_roots(vec![
             root.join("wav"),
+            root.join("community")
+                .join("mirfiles-crystal-client")
+                .join("Client")
+                .join("Sound"),
             root.join("community").join("gqf2008-crystal").join("Sound"),
         ])
     }
@@ -196,8 +206,16 @@ pub struct SoundPlayer {
     throttle: SoundThrottle,
     /// 音量（0.0..=1.0）。
     volume: f32,
-    /// 是否启用（`--no-sound` / 设置文件关掉时为 `false`）。
+    /// 是否启用音效（`--no-sound` / 设置文件关掉时为 `false`）。
     enabled: bool,
+    /// 是否启用背景音乐（`--no-music` / 设置文件关掉时为 `false`）。
+    music_enabled: bool,
+    /// 背景音乐音量（0.0..=1.0，独立于音效）。
+    music_volume: f32,
+    /// 当前背景音乐的循环播放器；`None` 表示没有在放。
+    music: Option<Player>,
+    /// 当前背景音乐文件（避免同一张图反复重开）。
+    music_path: Option<PathBuf>,
     /// 音频后端；`None` 表示没有声音（关掉了或设备打不开）。
     backend: Option<Backend>,
     /// 已经警告过的文件（避免同一个坏文件刷屏）。
@@ -210,6 +228,9 @@ impl std::fmt::Debug for SoundPlayer {
             .field("roots", &self.library.roots)
             .field("volume", &self.volume)
             .field("enabled", &self.enabled)
+            .field("music_volume", &self.music_volume)
+            .field("music_enabled", &self.music_enabled)
+            .field("music", &self.music_path)
             .field("backend", &self.backend.is_some())
             .field("throttle", &self.throttle.len())
             .field("warned", &self.warned.len())
@@ -218,13 +239,31 @@ impl std::fmt::Debug for SoundPlayer {
 }
 
 impl SoundPlayer {
-    /// 建播放器：`enabled == false` 或设备打不开时都是「静音空操作」。
+    /// 建播放器：音效 `enabled == false` 或设备打不开时都是「静音空操作」。
     ///
     /// 设备打不开只会打印**一次**警告（需求：CI 没有音频设备时窗口照常运行）。
+    /// 这个构造器不启用背景音乐（音乐开关见 [`Self::new_with_music`]），
+    /// 保持既有测试/调用方的行为。
     #[must_use]
     pub fn new(library: SoundLibrary, enabled: bool, volume: f32) -> Self {
-        let mut player = Self::without_device(library, enabled, volume);
-        if enabled {
+        Self::new_with_music(library, enabled, volume, false, DEFAULT_MUSIC_VOLUME)
+    }
+
+    /// 建播放器，并一起设置背景音乐开关/音量。
+    ///
+    /// 只要音效或音乐有一个启用就打开输出设备；`--no-sound` 只关音效，
+    /// 不会顺带把背景音乐也关掉。
+    #[must_use]
+    pub fn new_with_music(
+        library: SoundLibrary,
+        enabled: bool,
+        volume: f32,
+        music_enabled: bool,
+        music_volume: f32,
+    ) -> Self {
+        let mut player =
+            Self::without_device(library, enabled, volume).with_music(music_enabled, music_volume);
+        if enabled || music_enabled {
             match rodio::DeviceSinkBuilder::open_default_sink() {
                 Ok(mut sink) => {
                     // 默认 Drop 时会往 stderr 打一行提示，客户端退出时不需要。
@@ -234,7 +273,7 @@ impl SoundPlayer {
                 }
                 Err(error) => {
                     eprintln!(
-                        "警告：无法打开音频设备（{error}）；音效已禁用，窗口与渲染照常运行。"
+                        "警告：无法打开音频设备（{error}）；音效/音乐已禁用，窗口与渲染照常运行。"
                     );
                 }
             }
@@ -250,9 +289,21 @@ impl SoundPlayer {
             throttle: SoundThrottle::new(),
             volume: volume.clamp(0.0, 1.0),
             enabled,
+            music_enabled: true,
+            music_volume: DEFAULT_MUSIC_VOLUME,
+            music: None,
+            music_path: None,
             backend: None,
             warned: HashSet::new(),
         }
+    }
+
+    /// 设置背景音乐开关与音量（在 [`Self::new`] 之前调用）。
+    #[must_use]
+    pub fn with_music(mut self, enabled: bool, volume: f32) -> Self {
+        self.music_enabled = enabled;
+        self.music_volume = volume.clamp(0.0, 1.0);
+        self
     }
 
     /// 是否真的有声音（启用了且设备打开了）。
@@ -282,6 +333,110 @@ impl SoundPlayer {
     /// 是「每个音效一条 source」，改音量只对之后播放的生效）。
     pub fn set_volume(&mut self, volume: f32) {
         self.volume = volume.clamp(0.0, 1.0);
+    }
+
+    /// 是否启用背景音乐（不看设备）。
+    #[must_use]
+    pub fn is_music_enabled(&self) -> bool {
+        self.music_enabled
+    }
+
+    /// 背景音乐是否真的有声音（启用了且设备打开了）。
+    #[must_use]
+    pub fn is_music_active(&self) -> bool {
+        self.music_enabled && self.backend.is_some()
+    }
+
+    /// 背景音乐音量（0.0..=1.0）。
+    #[must_use]
+    pub fn music_volume(&self) -> f32 {
+        self.music_volume
+    }
+
+    /// 设置背景音乐音量；正在播的音乐立即生效（`Player::set_volume`）。
+    pub fn set_music_volume(&mut self, volume: f32) {
+        self.music_volume = volume.clamp(0.0, 1.0);
+        if let Some(player) = &self.music {
+            player.set_volume(self.music_volume);
+        }
+    }
+
+    /// 开关背景音乐；关掉时立即停止当前曲目。
+    pub fn set_music_enabled(&mut self, enabled: bool) {
+        self.music_enabled = enabled;
+        if !enabled {
+            self.stop_music();
+        }
+    }
+
+    /// 当前背景音乐文件（测试/诊断用）。
+    #[must_use]
+    pub fn music_path(&self) -> Option<&Path> {
+        self.music_path.as_deref()
+    }
+
+    /// 循环播放一个背景音乐文件；返回是否真的送进了混音器。
+    ///
+    /// * 同一个路径已经在播时直接返回 `true`（不重新起播）；
+    /// * 新路径先 `StopMusic` 再循环播放（Crystal `SoundManager.PlayMusic` 先
+    ///   `StopMusic()`，`SoundManager.cs:128-136`）；
+    /// * 音乐关闭、没有设备、文件缺失/解码失败时安静返回 `false`。
+    ///
+    /// 循环用 `Source::repeat_infinite()`；音量用独立的 [`Self::music_volume`]。
+    pub fn play_music(&mut self, path: impl AsRef<Path>) -> bool {
+        if !self.music_enabled || self.backend.is_none() {
+            return false;
+        }
+        let requested = path.as_ref();
+        // 允许传 `30001.wav` 这样的裸文件名：先按素材目录解析（与音效一致），
+        // 找不到时再按调用方给的路径打开。
+        let resolved = if requested.is_file() {
+            requested.to_path_buf()
+        } else {
+            self.library
+                .resolve(&requested.to_string_lossy())
+                .unwrap_or_else(|| requested.to_path_buf())
+        };
+        if self.music_path.as_deref() == Some(resolved.as_path()) && self.music.is_some() {
+            return true;
+        }
+        self.stop_music();
+        let path = resolved.as_path();
+        let source = match File::open(path)
+            .map_err(|error| error.to_string())
+            .and_then(|handle| Decoder::try_from(handle).map_err(|error| error.to_string()))
+        {
+            Ok(decoder) => decoder.repeat_infinite().amplify(self.music_volume),
+            Err(error) => {
+                eprintln!("警告：背景音乐 {} 解码失败：{error}", path.display());
+                return false;
+            }
+        };
+        let Some(backend) = self.backend.as_ref() else {
+            return false;
+        };
+        let player = Player::connect_new(&backend.mixer);
+        player.append(source);
+        player.play();
+        self.music = Some(player);
+        self.music_path = Some(path.to_path_buf());
+        true
+    }
+
+    /// 按文件名在素材目录里找并播放背景音乐（见 [`SoundLibrary::resolve`]）。
+    pub fn play_music_file(&mut self, file: &str) -> bool {
+        let Some(path) = self.library.resolve(file) else {
+            return false;
+        };
+        self.play_music(path)
+    }
+
+    /// 停止背景音乐（保留音量/开关设置）。
+    pub fn stop_music(&mut self) {
+        if let Some(player) = self.music.take() {
+            player.stop();
+        }
+        self.music_path = None;
     }
 
     /// 素材目录。
@@ -453,6 +608,39 @@ mod tests {
         assert!(!is_wav_file(&bad));
         assert!(!is_wav_file(&directory.join("missing.wav")));
         std::fs::remove_dir_all(&directory).ok();
+    }
+
+    #[test]
+    fn music_defaults_and_volume_are_independent_of_sound_effects() {
+        let mut player = SoundPlayer::without_device(SoundLibrary::default_roots(), true, 0.2)
+            .with_music(true, 0.8);
+        assert!(player.is_music_enabled());
+        assert!(!player.is_music_active(), "没有设备时不应报告在播");
+        assert!((player.music_volume() - 0.8).abs() < f32::EPSILON);
+        assert!((player.volume() - 0.2).abs() < f32::EPSILON, "音效音量独立");
+        player.set_music_volume(2.0);
+        assert!((player.music_volume() - 1.0).abs() < f32::EPSILON);
+        player.set_music_enabled(false);
+        assert!(!player.is_music_enabled());
+        assert!(player.music_path().is_none());
+        // 没有设备时 `play_music` 是安静空操作。
+        assert!(!player.play_music("does-not-exist.wav"));
+        assert!(!player.play_music_file("30001.wav"));
+    }
+
+    #[test]
+    fn music_files_resolve_in_the_crystal_sound_set() {
+        // `resource/` 被 .gitignore 忽略：CI 上没有素材时直接跳过。
+        let library = SoundLibrary::default_roots();
+        let Some(file) = mir_render::music_for_index(30_001) else {
+            eprintln!("跳过：music_for_index(30001) 应存在");
+            return;
+        };
+        let Some(path) = library.resolve(file) else {
+            eprintln!("跳过：音效目录里没有 {file}");
+            return;
+        };
+        assert!(is_wav_file(&path), "{} 应当是 WAV", path.display());
     }
 
     #[test]

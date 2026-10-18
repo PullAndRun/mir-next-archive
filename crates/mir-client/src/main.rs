@@ -57,8 +57,12 @@ struct Options {
     auto_register: bool,
     /// `--no-sound`：本次不播音效。
     no_sound: bool,
-    /// `--volume`：覆盖音量（0.0..=1.0）。
+    /// `--volume`：覆盖音效音量（0.0..=1.0）。
     volume: Option<f32>,
+    /// `--no-music`：本次不播背景音乐。
+    no_music: bool,
+    /// `--music-volume`：覆盖背景音乐音量（0.0..=1.0，独立于音效）。
+    music_volume: Option<f32>,
     /// `--sound-dir`：额外的音效目录（优先于默认目录）。
     sound_dirs: Vec<PathBuf>,
 }
@@ -78,6 +82,8 @@ impl Default for Options {
             auto_register: true,
             no_sound: false,
             volume: None,
+            no_music: false,
+            music_volume: None,
             sound_dirs: Vec::new(),
         }
     }
@@ -240,6 +246,22 @@ fn main() -> Result<()> {
                 }
                 options.volume = Some(volume);
             }
+            "--no-music" => options.no_music = true,
+            "--music-volume" => {
+                let Some(value) = args.next() else {
+                    anyhow::bail!(
+                        "--music-volume 需要 0.0..=1.0 之间的数值，例如 --music-volume 0.3"
+                    );
+                };
+                let volume = value
+                    .trim()
+                    .parse::<f32>()
+                    .with_context(|| format!("--music-volume 不是数字：{value}"))?;
+                if !(0.0..=1.0).contains(&volume) {
+                    anyhow::bail!("--music-volume 必须在 0.0..=1.0 之间，收到 {volume}");
+                }
+                options.music_volume = Some(volume);
+            }
             "--sound-dir" => {
                 let Some(value) = args.next() else {
                     anyhow::bail!("--sound-dir 需要一个目录（例如 resource/wav）");
@@ -354,6 +376,14 @@ fn run_connected(
     } else if options.no_sound || !client_settings.sound {
         println!("音效：关闭（--no-sound 或设置文件里的 sound = false）");
     }
+    if sound.is_music_active() {
+        println!(
+            "背景音乐：开启（音量 {:.2}；切图时按 MapInfo.Music 切换）",
+            sound.music_volume()
+        );
+    } else if options.no_music || !client_settings.music {
+        println!("背景音乐：关闭（--no-music 或设置文件里的 music = false）");
+    }
     app::run_live(
         scene,
         center,
@@ -376,14 +406,18 @@ fn run_connected(
 fn build_sound_player(options: &Options, settings: &ClientSettings) -> SoundPlayer {
     let enabled = settings.sound && !options.no_sound;
     let volume = options.volume.unwrap_or_else(|| settings.sound_volume());
+    let music_enabled = settings.music && !options.no_music;
+    let music_volume = options
+        .music_volume
+        .unwrap_or_else(|| settings.music_volume());
     // 素材目录：`--sound-dir` 最优先，其次是按 `--data-dir` 推出来的
-    // `resource/wav` 与 Crystal 完整音效集，最后是相对当前目录的默认值兜底。
+    // `resource/wav` 与 Crystal 完整音效/音乐集，最后是相对当前目录的默认值兜底。
     let mut library = SoundLibrary::around_data_dir(&options.data_dir);
     library.push_back(&SoundLibrary::default_roots());
     for directory in options.sound_dirs.iter().rev() {
         library.push_front(directory.clone());
     }
-    SoundPlayer::new(library, enabled, volume)
+    SoundPlayer::new_with_music(library, enabled, volume, music_enabled, music_volume)
 }
 
 /// 联机模式的地图加载：失败时退化成空白地图，但仍然尝试加载实体图库。
@@ -485,10 +519,12 @@ fn print_help() {
     println!("  --gender <性别>         male/female 或 0/1（默认 male）");
     println!("  --no-register           账号不存在时不自动注册，直接报错");
     println!();
-    println!("音效：");
+    println!("音效与音乐：");
     println!("  --no-sound              本次运行不播音效（不写设置文件）");
-    println!("  --volume <0..1>         本次运行音量（默认 0.5，不写设置文件）");
-    println!("  --sound-dir <目录>      额外音效目录（可多次；优先于 resource/wav）");
+    println!("  --volume <0..1>         本次运行音效音量（默认 0.5，不写设置文件）");
+    println!("  --no-music              本次运行不播背景音乐（不写设置文件）");
+    println!("  --music-volume <0..1>   本次运行背景音乐音量（默认 0.5，独立于音效）");
+    println!("  --sound-dir <目录>      额外音效/音乐目录（可多次；优先于 resource/wav）");
     println!();
     println!("其它：");
     println!("  --lang <代码>           本次启动使用该语言（并保存）");

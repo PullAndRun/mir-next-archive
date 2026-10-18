@@ -47,6 +47,20 @@ pub fn entity_at(snapshot: &WorldSnapshot, cell: Point) -> Option<&WorldEntity> 
         .min_by_key(|entity| (priority(entity.kind), entity.object_id))
 }
 
+/// 鼠标下的地面物品（拾取/物品名用）。
+///
+/// Crystal 的 `ItemObject.MouseOver` 在鼠标格与物品格相同时命中，并在
+/// `GameScene.cs:10619-10626` 只给鼠标下的物品画名字（其余物品只在 `DropView` 时画）。
+/// 本作按格命中，同格多件物品取对象 ID 最小的那件。
+#[must_use]
+pub fn item_at(snapshot: &WorldSnapshot, cell: Point) -> Option<&WorldEntity> {
+    snapshot
+        .entities
+        .values()
+        .filter(|entity| entity.kind == EntityKind::Item && entity.position == cell)
+        .min_by_key(|entity| entity.object_id)
+}
+
 /// 可以锁定的目标：活着的怪物或其他玩家（`GameScene.cs:11442-11451` 排除了 NPC/物品/
 /// 尸体；本作还没有宠物 AI，所以没有 `AI == 64/70` 的判断）。
 #[must_use]
@@ -215,6 +229,16 @@ mod tests {
         // 自己不算悬停对象（`GameScene.cs:10507`）。
         assert!(entity_at(&snapshot, Point::new(10, 10)).is_none());
         assert!(entity_at(&snapshot, Point::new(30, 30)).is_none());
+    }
+
+    #[test]
+    fn ground_items_are_hoverable_but_not_targetable() {
+        let snapshot = snapshot();
+        let item = item_at(&snapshot, Point::new(12, 10)).expect("金币应能被悬停");
+        assert_eq!(item.name, "金币 10");
+        assert_eq!(item.kind, EntityKind::Item);
+        assert!(item_at(&snapshot, Point::new(11, 10)).is_none());
+        assert_eq!(target_at(&snapshot, Point::new(12, 10)), None);
     }
 
     #[test]

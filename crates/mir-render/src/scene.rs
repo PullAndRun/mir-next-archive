@@ -599,6 +599,15 @@ pub(crate) fn remove_black(image: &mut Image) {
     if !matches!(image.info.format, format::EMPTY | format::PALETTE8) {
         return;
     }
+    remove_black_all(image);
+}
+
+/// 把纯黑变成透明，**不限制格式**。
+///
+/// 坐骑/翅膀的扁平素材是 RGB565（`.wzl` 没有 alpha），而 Crystal 的 `.Lib`/DXT1
+/// 在转换时已经做过 `removeBlack`（`MLibraryV2.cs:419-426`）。所以这两层不能只靠
+/// [`remove_black`] 的调色板分支，否则会在角色周围留下黑框。
+pub(crate) fn remove_black_all(image: &mut Image) {
     for pixel in image.pixels.chunks_exact_mut(4) {
         if pixel[0] == 0 && pixel[1] == 0 && pixel[2] == 0 {
             pixel[3] = 0;
@@ -704,6 +713,29 @@ mod tests {
         remove_black(&mut rgba);
         assert_eq!(&rgba.pixels[0..4], &[0, 0, 0, 255]);
         assert_eq!(&rgba.pixels[4..8], &[0, 0, 0, 128]);
+    }
+
+    #[test]
+    fn remove_black_all_also_touches_rgb565_mount_and_wing_frames() {
+        let mut image = Image {
+            info: ImageInfo {
+                width: 2,
+                height: 1,
+                offset_x: 0,
+                offset_y: 0,
+                format: format::RGB565,
+                shadow_x: 0,
+                shadow_y: 0,
+                reserved: [0; 3],
+                has_mask: false,
+                data_offset: 0,
+                data_len: 0,
+            },
+            pixels: vec![0, 0, 0, 255, 7, 8, 9, 255],
+        };
+        remove_black_all(&mut image);
+        assert_eq!(&image.pixels[0..4], &[0, 0, 0, 0]);
+        assert_eq!(&image.pixels[4..8], &[7, 8, 9, 255]);
     }
 
     #[test]

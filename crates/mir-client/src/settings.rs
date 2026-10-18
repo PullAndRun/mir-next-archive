@@ -1,14 +1,15 @@
 //! 客户端本地设置。
 //!
 //! 语言选择属于本地设置：不依赖服务端也能切换界面语言，默认简体中文。
-//! 音效开关与音量也在这里（默认开启、音量 0.5），命令行 `--no-sound` / `--volume`
-//! 会覆盖并写回。
+//! 音效开关/音量与背景音乐开关/音量也在这里（都默认开启、音量 0.5，两者独立）；
+//! 命令行 `--no-sound` / `--volume` / `--no-music` / `--music-volume` 只覆盖本次运行，
+//! 设置文件字段是 `sound` / `volume` / `music` / `music_volume`。
 //! 设置文件放在 `%APPDATA%\mir-next\settings.json`（其它平台放在用户目录下的
 //! `.mir-next/settings.json`），读写失败时回退到默认值而不是中断启动。
 
 use std::path::{Path, PathBuf};
 
-use mir_client::audio::DEFAULT_VOLUME;
+use mir_client::audio::{DEFAULT_MUSIC_VOLUME, DEFAULT_VOLUME};
 use mir_core::Language;
 use serde::{Deserialize, Serialize};
 
@@ -24,6 +25,12 @@ pub struct ClientSettings {
     /// 音效音量（0.0..=1.0，默认 0.5）。
     #[serde(default = "default_volume")]
     pub volume: f32,
+    /// 是否播放背景音乐（默认开启；`--no-music` 关掉）。
+    #[serde(default = "default_music")]
+    pub music: bool,
+    /// 背景音乐音量（0.0..=1.0，默认 0.5；与音效音量独立）。
+    #[serde(default = "default_music_volume")]
+    pub music_volume: f32,
 }
 
 fn default_language() -> String {
@@ -41,12 +48,24 @@ const fn default_volume() -> f32 {
     DEFAULT_VOLUME
 }
 
+/// 背景音乐默认开启（需求：有 BGM；`--no-music` 可关）。
+const fn default_music() -> bool {
+    true
+}
+
+/// 背景音乐默认音量（与音效独立，默认 0.5）。
+const fn default_music_volume() -> f32 {
+    DEFAULT_MUSIC_VOLUME
+}
+
 impl Default for ClientSettings {
     fn default() -> Self {
         Self {
             language: default_language(),
             sound: default_sound(),
             volume: default_volume(),
+            music: default_music(),
+            music_volume: default_music_volume(),
         }
     }
 }
@@ -65,6 +84,16 @@ impl ClientSettings {
             self.volume.clamp(0.0, 1.0)
         } else {
             DEFAULT_VOLUME
+        }
+    }
+
+    /// 归一化背景音乐音量到 `0.0..=1.0`。
+    #[must_use]
+    pub fn music_volume(&self) -> f32 {
+        if self.music_volume.is_finite() {
+            self.music_volume.clamp(0.0, 1.0)
+        } else {
+            DEFAULT_MUSIC_VOLUME
         }
     }
 
@@ -139,6 +168,22 @@ mod tests {
     }
 
     #[test]
+    fn music_defaults_on_at_half_volume_independently() {
+        let settings = ClientSettings::default();
+        assert!(settings.music, "背景音乐默认开启");
+        assert!((settings.music_volume() - 0.5).abs() < f32::EPSILON);
+        assert!(
+            (settings.music_volume() - mir_client::audio::DEFAULT_MUSIC_VOLUME).abs()
+                < f32::EPSILON
+        );
+        let broken = ClientSettings {
+            music_volume: f32::NAN,
+            ..ClientSettings::default()
+        };
+        assert!((broken.music_volume() - DEFAULT_MUSIC_VOLUME).abs() < f32::EPSILON);
+    }
+
+    #[test]
     fn old_settings_files_without_sound_fields_still_load() {
         // 老版本设置文件只有 `language`：serde 默认值补上音效两项。
         let directory =
@@ -150,6 +195,9 @@ mod tests {
         assert_eq!(settings.language, "en");
         assert!(settings.sound);
         assert!((settings.sound_volume() - 0.5).abs() < f32::EPSILON);
+        // 老设置文件没有音乐两项：默认开启、音量 0.5。
+        assert!(settings.music);
+        assert!((settings.music_volume() - 0.5).abs() < f32::EPSILON);
         std::fs::remove_dir_all(&directory).ok();
     }
 

@@ -1,7 +1,8 @@
 # 客户端：联机世界、面板交互与实体渲染
 
 本文记录 `mir-client` 在「离线看地图」之外的联机能力：登录链路、世界快照、输入映射、
-物品/装备交互、世界内文字、面板、小地图、音效与无窗口端到端测试。协议细节见
+物品/装备交互、世界内文字、面板、小地图、音效/背景音乐、坐骑/翅膀、A\* 寻路与无窗口
+端到端测试。协议细节见
 [`protocol/login-flow.md`](protocol/login-flow.md)，渲染几何见
 `crates/mir-render/src/lib.rs` 与 `crates/mir-render/src/geometry.rs` 的模块文档。
 
@@ -33,6 +34,10 @@ cargo run -p mir-client -- --connect 127.0.0.1:7000 `
 * 音效默认开启、音量 0.5（`settings.json` 的 `sound` / `volume`）；`--no-sound` 与
   `--volume <0..1>` 只影响本次启动，`--sound-dir <目录>` 可追加音效目录。
   没有音频设备时只打印一次警告，窗口照常运行（见 §5.6）。
+* 背景音乐默认开启、独立音量 0.5（`settings.json` 的 `music` / `music_volume`）；
+  `--no-music` 与 `--music-volume <0..1>` 只影响本次启动。切图时按
+  `S.MapInformation.Music` / `S.MapChanged.Music` 换曲；编号为 0（示例数据库全部如此）
+  时用 `music_for_map` 的主题曲兜底，缺少 `300xx.wav` 时安静静音（见 §5.6）。
 
 ## 2. 登录包序（实现于 `crates/mir-client/src/net.rs`）
 
@@ -92,9 +97,13 @@ Crystal 的版本哈希是客户端 exe 的 MD5（`Client/MirScenes/LoginScene.c
   `NPCGoods` 记货架；`GainedItem/GainedGold` 写一条系统消息并更新金币；
 * `ObjectRemove`/`MapChanged` 清理实体；
 * `self_player.looks` / `entities[].looks`（`PlayerLooks`）：纸娃娃外观（衣服/武器/发型/
-  盾牌）。自己的由装备槽 + 物品模板推导（Crystal `UserObject.RefreshEquipmentStats`，
-  `Client/MirObjects/UserObject.cs:205-250`），别人的直接取 `S.ObjectPlayer` /
-  `S.PlayerUpdate` 的外观号；每处理完一个包重算一次，所以装备与模板谁先到都能收敛；
+  盾牌/坐骑/翅膀）。自己的衣服/武器由装备槽 + 物品模板推导（Crystal
+  `UserObject.RefreshEquipmentStats`，`Client/MirObjects/UserObject.cs:205-250`），
+  坐骑/翅膀来自 `S.MountUpdate` / `S.ObjectPlayer`；别人的直接取 `S.ObjectPlayer` /
+  `S.PlayerUpdate` 的外观号。每处理完一个包重算一次，重算时会保留 `mount`/`wings`，
+  所以装备与模板谁先到都能收敛；
+* `map.music`：`S.MapInformation.Music`（`GameScene.cs:2146`）或
+  `S.MapChanged.Music`（`GameScene.cs:3985`），窗口每帧用它切背景音乐；
 * `packet_counts` 记录包种类次数，供测试断言。
 
 客户端每批包处理完把快照整体克隆给 UI；UI 侧 `poll_network` 用最新快照重绘。
@@ -152,15 +161,28 @@ buff 倒计时都基于它，所以无头测试可以任意拨表。
 | 悬停 | 背包/装备物品 | 跟随鼠标的 tooltip（名字/类型/需求/属性/耐久/堆叠/价格） |
 | 滚轮 | 商店面板 | 货架滚动（同时画比例滚动条） |
 | 悬停 | 世界实体（怪物/玩家/NPC） | 该格画 1px 黄色方框（头顶名字本来就常显） |
+| 悬停 | 地面物品 | 在该格画出物品名（`worldtext::draw_item_name`，Crystal `GameScene.cs:10619-10626`） |
 | 左键单击 | 怪物 / 其他玩家 | 锁定目标（`UiState::target_object_id`），该格画 1px 红色方框并显示其血条 |
 | 左键双击 | 已锁定/点中的怪物或玩家 | 相邻 → `C.Attack`；不相邻 → 朝目标走一步，最多 3 步，走到相邻自动攻击 |
-| 左键单击/按住 | 地面 | 清掉锁定目标，朝该格走一步；按住连续走 |
+| 左键单击 | 相邻地面物品 | `C.PickUp`（`GameScene.cs:11627-11634`） |
+| 左键单击 | 远处地面物品 | 先朝物品走一步并记下靠近进度（≤3 步），相邻后自动 `C.PickUp` |
+| 左键单击 | 空地 | A\* 路径逐格走（`UiAction::WalkStep` → `C.Walk`）；不可达时退化为朝目标走一步 |
+| 左键按住 | 空地 | 保留旧的连续走（A\* 路径优先，路径存在时不重复发按键走） |
 | 左键单击 | NPC（8 格内） | 打开对话（`C.CallNPC { key: "@main" }`） |
 | 左键单击 | 大地图/小地图/背包等面板 | 被面板吃掉（不会变成「点地走路」） |
 
-点地走路的规则（`ui::walk_intent`，**不做 A\***）：目标与自己在同一行/列且相邻 →
-直接发 `C.Walk`；否则朝目标方向——已经面向该方向就再走一步，否则先 `C.Turn`。
-按住左键时 `app.rs` 每 150 ms 重新计算一次，坐标变化后自然转向/继续走。
+点地走路（`mir-render::pathfind` + `UiState::on_click_with_path`）：
+
+* 点到空地时用 8 方向 A\*（对角要求两侧正交格都可走、节点上限 2000、路径 ≤20 格，
+  `pathfind::DEFAULT_MAX_NODES` / `MAX_PATH_STEPS`）算出一条方向序列；
+* `UiState` 把剩余路径存进 `walk_path`，每 600 ms（`PATH_STEP_MS`）发一格
+  `UiAction::WalkStep` → `C.Walk`；按住 Shift 且连续两格同向时发 `C.Run`；
+* 按时间节拍逐格发，不等待服务器回包（回包慢时相当于输入缓冲）；`from`/`expected`
+  只记录路径认为角色应该在的位置，路径耗尽即停（以后可加传送/攻击打断校验）；
+* 寻路失败或目标不可走时退化为 `ui::walk_intent` 的「朝目标方向走一步」；
+  `on_click`（没有可走性闭包的旧入口）仍只走一步/转身，供无头旧测试使用。
+* 旧行为保留：按住左键时 `app.rs` 每 150 ms 重新计算一步（`walk_intent`），但
+  A\* 路径存在时 `repeat_walk` 直接返回，不抢节拍。
 
 鼠标目标（`ui::target` + `UiState::target_object_id`）对拍 Crystal：
 
@@ -182,8 +204,9 @@ Crystal 客户端的键盘移动不是逐键发 `C.Walk`：`GameScene.CheckInput
 `MouseDirection()` 得到方向并解析成 `MirAction.Walking/Running/Standing`
 （`Client/MirScenes/GameScene.cs:11522-11553`，方向函数 `:12017`），随后
 `PlayerObject` 在动作开始时发 `C.Walk`、`C.Run` 或 `C.Turn`
-（`Client/MirObjects/PlayerObject.cs:1313-1334`）。本作没有动作缓冲与寻路，
-把「方向是否等于当前朝向」直接映射成 Turn/Walk 两种动作；Shift 强制跑。
+（`Client/MirObjects/PlayerObject.cs:1313-1334`）。本作没有动作缓冲；键盘移动仍把
+「方向是否等于当前朝向」直接映射成 Turn/Walk 两种动作，Shift 强制跑；鼠标点地则走
+A\* 路径（见上）。
 
 ## 5. 面板与交互
 
@@ -329,6 +352,27 @@ view.y = (int)(scaleY × 自己.y) - 108/2
   **从未被调用**）；NPC 对话没有专用音效，借用界面按钮音；怪物攻击/死亡不按 `BaseSound`
   取各自音效（`MonsterObject.cs:217,601,1395`）。
 
+#### 背景音乐
+
+* 编号 → 文件名是纯数据，在 `mir_render::sound::MUSIC_TRACKS`：`30001..30011`、
+  `30101..30113`、`31001..31006` 共 30 首，对应 `SoundList.lst:583-615` 的 `;Music` 段；
+  `music_for_index(30001) == Some("30001.wav")`。
+* Crystal 的流程：服务器 `MapInfo.Music` → `S.MapInformation.Music` / `S.MapChanged.Music`
+  → `MapControl.Music`（`GameScene.cs:2146`、`:3985`）→ `LoadMap` 发现编号变化时
+  `SoundManager.PlayMusic(Music, true)`（`GameScene.cs:10454-10466`）。
+  `PlayMusic` 先 `StopMusic()`，再用 `SoundList.Indexes` 查文件并循环播放
+  （`SoundManager.cs:128-136`）。
+* 本作窗口每帧 `sync_music`：优先 `music_for_index(map.music)`；编号为 0 时用
+  `music_for_map(file_name, title)` 兜底（`0`/比奇 → `30001.wav`，`3`/盟重 →
+  `30002.wav`，其它地图 → `30001.wav`）。示例数据库 389～463 张图的 `MapInfo.Music`
+  全为 0，所以这个兜底是**本作对示例数据的简化**，不是 Crystal 行为。
+* 播放器是单独的 `rodio::Player` + `Source::repeat_infinite()`，音量走独立的
+  `music_volume`（默认 0.5，`--music-volume` / `settings.json`），与音效互不影响；
+  `--no-music` 关闭。没有设备、没有 `300xx.wav`、解码失败都安静降级。
+* 素材顺序：`resource/wav`（没有 300xx.wav）→
+  `resource/community/mirfiles-crystal-client/Client/Sound`（完整 30 首 BGM）→
+  `resource/community/gqf2008-crystal/Sound`（补音效）。
+
 ### 5.7 大地图（B）
 
 面板**屏幕居中**，从上到下：地图名标题、568×380 的大地图视区、坐标行与 `B / Esc 关闭`。
@@ -355,7 +399,8 @@ view.y = (int)(scaleY × 自己.y) - 108/2
 * 没有右侧 NPC 列表/滚动条/底部按钮（世界地图、我的位置、传送、搜索，
   `:101-255,341-432`），也没有「已探明区域」遮罩——Crystal 本身也是直接画整张图；
 * 坐标行显示自己的坐标；Crystal 跟随鼠标显示大地图坐标（`:603-609`、`:257-260`）；
-* 点大地图在 Crystal 里会寻路（`:612-628`），本作没有 A*，只把点击吃掉，避免误触发走路；
+* 点大地图在 Crystal 里会寻路（`:612-628`）；本作已有 A\* 但还没把大地图坐标映射到
+  世界格，所以这里仍只把点击吃掉，避免误触发走路；
 * `mmap.wzl` 缺失或 `big_map == 0` 时画纯色占位 + 地图名（`NoBigmap`），不 panic。
 
 Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`:676`），但对象点仍减去
@@ -373,6 +418,8 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 | 玩家武器 | `weapon.wzl` / `weapon2.wzl` / `weapon3.wzl` | 同上（与身体**同步**，同一个动作帧号） | `PlayerObject.cs:415-431`、`:5062-5073` |
 | 玩家头发 | `hair.wzl` / `hair2..4.wzl` | 同上（与身体**同步**） | `PlayerObject.cs:554`、`:5054` |
 | 玩家盾牌 | `shield.wzl`（语料里**没有**） | 同上 | Crystal 没有盾牌层（见 §6.2） |
+| 玩家坐骑 | `horse_x.wzl` | `block*640 + action.start + direction*8 + n`（3 个完整块；动作表见 §6.3） | `DrawMount`（`PlayerObject.cs:5084-5089`）；`S.ObjectPlayer.mount_type/riding_mount`、`S.MountUpdate` |
+| 玩家翅膀 | `wingeffect_x.wzl` | `block*600 + effect.start + direction*8 + effect`（2 个块；`Frames.cs:157-170` 的 effect 列） | `DrawWings`（`PlayerObject.cs:5075-5081`）用了 `DrawWingFrame`（`:762`）；`S.ObjectPlayer.wing_effect` |
 | 怪物 | `mon{image/10+1}.wzl` | `(image%10)*430 + action.start + direction*stride + n`（默认动作表见 §6.3） | 图像 → 图库 `MonsterObject.cs:208`；默认怪物帧集合 `Frames.cs:25-31`；绘制 `MonsterObject.cs:4307-4309` |
 | NPC | `npc.wzl`、`npc2.wzl`…（每 100 个图像换库） | `(image%100)*60`，取站立首帧 | 图像 → 图库 `NPCObject.cs:77-80`；帧号 `NPCObject.cs:101`；默认 NPC 帧集合 `Frames.cs:18-19` |
 | 物品 | `items.wzl`（缺失时 `dnitems.wzl`） | 帧号 = `ObjectItem.image`；金币按数量用 112..116 | `ItemObject.cs:32,37`（物品）、`:49,55-64`（金币）、`:72-73`（绘制） |
@@ -380,8 +427,8 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 几何锚点：
 
 * 玩家/怪物/NPC：格原点 + 图像头里的 `offset_x/offset_y`（`MLibrary.cs:658-665`，
-  `PlayerObject.cs:5045` 的 `offSet: true`）；玩家的**四层**共用同一个格原点，各自叠加
-  自己的图像偏移，所以不需要额外的层间偏移常量；
+  `PlayerObject.cs:5045` 的 `offSet: true`）；玩家的**每一层**共用同一个格原点，各自叠加
+  自己的图像偏移，所以不需要额外的层间偏移常量（坐骑块里的图像偏移已经是相对格原点的）；
 * 物品：在格子里居中（`ItemObject.cs:78-79`），不叠加图像偏移（`:72-73` 的默认 `offSet: false`）；
 * 绘制顺序：地图 Y 升序、同一行 X 升序（`GameScene.cs:10798-11008`）。
 * 精灵缺失：画 12×18 的彩色方块（玩家蓝、怪物红、NPC 绿、物品黄；死亡为灰色），
@@ -390,29 +437,39 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 
 ### 6.1 玩家装备分层（纸娃娃）
 
-`mir_render::EntityView` 带五个外观字段，`EntityRenderer` 按 Crystal 的顺序逐层叠加：
+`mir_render::EntityView` 带七个外观字段（`armour/weapon/weapon_shape/hair/shield/mount/wings`），
+`EntityRenderer` 按 Crystal 的顺序逐层叠加：
 
 ```text
-朝 Left/Up/UpLeft/DownLeft：武器 → 身体 → 头发 → 盾牌
-朝 UpRight/Right/DownRight/Down：身体 → 头发 → 盾牌 → 武器
+坐骑
+朝 Left/Up/UpLeft/DownLeft：武器 → 身体 → 头发 → 翅膀 → 盾牌
+朝 UpRight/Right/DownRight/Down：身体 → 头发 → 翅膀 → 盾牌 → 武器
+（骑乘时 Crystal 不画武器，PlayerObject.cs:4886,4914；本作同样跳过）
 ```
 
 顺序来自 `PlayerObject.Draw`（`Client/MirObjects/PlayerObject.cs:4877-4926`）：
 
 | 步骤 | Crystal | 说明 |
 |---|---|---|
-| 1 | `:4884` `DrawMount()` | 坐骑，本作未做 |
+| 1 | `:4884` `DrawMount()` | 坐骑，画在身体之下；`MountType < 0` 或未骑乘时不画（`:5086`） |
 | 2 | `:4886-4892` 方向∈{Left,Up,UpLeft,DownLeft} → `DrawWeapon()`（身体**之前**） | 朝左上/上/左下/左时武器被身体挡住 |
 | 3 | `:4894` `DrawBody()` | 身体层 |
-| 4 | `:4896-4911` `DrawHead()` | 头发层（`DrawWings` 在中间，本作未做翅膀） |
+| 4 | `:4896-4911` `DrawHead()` / `DrawWings()` | 头发与翅膀；Crystal 按方向交换两者顺序，本作按需求固定为「头发之后画翅膀」 |
 | 5 | `:4914-4923` 方向∈{UpRight,Right,DownRight,Down} → `DrawWeapon()`（身体**之后**） | 朝右上/右/右下/下时武器在最前面 |
 | 6 | `:4921-4922` 弓箭手 `DrawWeapon2()` | 双持/职业武器，本作未做 |
 
-帧公式（三层完全一致）：
+帧公式：
 
 ```text
-DrawFrame = block * 600 + direction * 8 + n     // n = 0..=3（站立 4 帧）
+身体/武器/头发/盾牌：DrawFrame = block * 600 + direction * 8 + n   // n = 0..=3（站立）
+坐骑：               block * 640 + direction * 8 + n               // horse_x.wzl，3 块
+翅膀：               block * 600 + effect.start + direction * 8 + e // wingeffect_x.wzl，2 块
 ```
+
+坐骑外观号 = `S.ObjectPlayer.mount_type + 1`（0 表示没有；`S.MountUpdate` 同理），
+对 3 取模；翅膀外观号 = `S.ObjectPlayer.wing_effect`，对 2 取模。Crystal 的
+`WingEffect >= 100` 是其它特效而不是翅膀层（`PlayerObject.cs:577,650,5077`），
+渲染层不画；`MountType`/`RidingMount` 缺一不画（`:5086`）。
 
 * `block` 是**图库内**的外观块号，不是 `ItemInfo.Shape` 的原始值：
   * 衣服：`Shape` 0..23 → `hum.wzl`，24..53 → `hum2.wzl`，54..99 → `hum3.wzl`（实测块数
@@ -448,6 +505,16 @@ DrawFrame = block * 600 + direction * 8 + n     // n = 0..=3（站立 4 帧）
 精确帧 → 该图像站立帧 → 库首帧 → 占位方块，因为并非每个 `monN.wzx` 都恰好有
 `10*430` 帧（例如 `mon1.wzx` 只有 1086 帧）。
 
+坐骑/翅膀的扁平语料与 Crystal 的 `Mount/*.Lib` / `CHumEffect/*.Lib` 也不是一一对应：
+
+* `resource/data/horse_x.wzl` 是 3 个完整坐骑外观 × 640 帧（第 4 块只有 40 帧，丢弃），
+  帧 0 是干净的坐骑（28×122），所以用它当 `Mount` 图库；`mount = 1..` 对 3 取模。
+* `horse.wzl`（9×640）、`horse2.wzl`（6×640）是**骑乘人物**整身外观（帧 0 就带骑手），
+  再叠身体会双重人物，因此本作不把它们当 `DrawMount` 的坐骑层；这是素材差异，不是漏做。
+* `wingeffect_x.wzl` 有 1200 帧 = 2 个翅膀外观 × 600，动作布局与 `hum.wzl` 相同、
+  正好对应 `Frames.cs:157-170` 的 effect 列；`wingserieseffect_x.wzl` 是 10 帧/方向
+  的另一种布局，不能按 600 帧块索引，本作不用。
+
 ### 6.3 动作帧表与时长（`mir-render/src/animation.rs`）
 
 Crystal 的 `Frame` 是 `Start / Count / Skip / Interval`（`Client/MirObjects/Frames.cs:203-244`），
@@ -481,6 +548,42 @@ Crystal 的 `Frame` 是 `Start / Count / Skip / Interval`（`Client/MirObjects/F
 * 播放规则：站立循环 4 帧；走/跑播完回 Standing 第 0 帧；攻击/受击/死亡播完保持
   最后一帧；`Dead` 永远停尸体帧（`PlayerObject.cs:2317-2323,2500-2508`）。
 
+#### 坐骑与翅膀帧表
+
+坐骑帧表照 `Frames.cs:188-192` 的 `Count/Interval`，`Start` 换算成扁平
+`horse_x.wzl` 的块内偏移（Crystal 的 `DrawMount` 会减掉 416，所以那边从 0 开始；
+扁平布局把站立放在 0、行走放在 64……）：
+
+| 动作 | Crystal 定义 | 扁平 Start | Count | Skip | Interval |
+|---|---|---|---|---|---|
+| `MountStanding` | `Frames.cs:188` `Frame(416,4,0,500)` | 0 | 4 | 4 | 500 ms |
+| `MountWalking` | `Frames.cs:189` `Frame(448,8,0,100)` | 64 | 6 | 2 | 100 ms |
+| `MountRunning` | `Frames.cs:190` `Frame(512,6,0,100)` | 128 | 6 | 2 | 100 ms |
+| `MountStruck` | `Frames.cs:191` `Frame(560,3,0,100)` | 192 | 3 | 5 | 100 ms |
+| `MountAttack` | `Frames.cs:192` `Frame(584,6,0,100)` | 384 | 6 | 2 | 100 ms |
+| 坐骑死亡/尸体 | Crystal 没有这两个动作 | 512 / 576 | 3 / 1 | 5 / 7 | 100 / 1000 ms |
+
+* 行走每方向只有 6 张有效图（Crystal 的 `MountWalking` 写的是 8），按素材实测用 6/2；
+* 攻击段在 `horse*.wzl` 的 384 起（Crystal 的 `MountAttack` 相对偏移是 168），
+  死亡/尸体段是扁平素材额外提供的，按实测取 512/576。
+
+翅膀帧表直接取 `Frames.cs:157-170` 每行的第五～八角（effect 段）：
+
+| 动作 | `Wing*` 常量 | Start | Count | Skip | Interval |
+|---|---|---|---|---|---|
+| 站立 | `WING_STANDING` | 0 | 8 | 0 | 250 ms |
+| 行走 | `WING_WALKING` | 64 | 8 | 0 | 100 ms |
+| 跑步 | `WING_RUNNING` | 112 | 8 | 0 | 100 ms |
+| 攻击 1 | `WING_ATTACKING` | 168 | 8 | 0 | 100 ms |
+| 受击 | `WING_STRUCK` | 392 | 3 | 0 | 100 ms |
+| 死亡 | `WING_DYING` | 416 | 4 | 0 | 100 ms |
+| 尸体 | `WING_DEAD` | 419 | 1 | 3 | 1000 ms |
+
+翅膀的 `DrawWingFrame = EffectStart + EffectOffSet × direction + EffectFrameIndex`
+（`PlayerObject.cs:762`），与身体 `DrawFrame` 是两套帧号；本作在
+`player_layer_plan_at` 里分别按 `wing_frames(action)` 取帧，
+`mir-render` 的合成素材测试断言「翅膀压在头发上」「坐骑被身体盖住」。
+
 怪物默认表来自 Crystal `Frames.cs:25-31`（站立 4×500、行走 6×100、攻击 6×100、
 受击 2×200、死亡 10×100、尸体 1×1000）。扁平 `monN.wzl` 没有 Crystal `.Lib` 的
 逐怪物 `Frames` 数据（`MonsterObject.cs:276`），所以按 `mon1.wzl` 图像 0 实测布局
@@ -492,7 +595,8 @@ Crystal 的 `Frame` 是 `Start / Count / Skip / Interval`（`Client/MirObjects/F
 
 ### 6.4 渲染接口
 
-* `EntityView` 新增 `action: ActorAction`（默认 `Standing`）与 `action_started_ms: u64`；
+* `EntityView` 新增 `action: ActorAction`（默认 `Standing`）、`action_started_ms: u64`、
+  `mount: u16`（0 = 没有）与 `wings: u16`（0 = 没有）；
 * `EntityRenderer::render_at(..., now_ms)` 用 `ActorAnimation::frame_at(now_ms)` 选帧，
   旧的 `render(..., animation_frame)` 把动画计数按 100 ms/拍换算成时间；
 * `MapScene::render_with_entities_at(..., now_ms)` 是窗口用的入口，离线模式仍走
@@ -601,6 +705,26 @@ Crystal 的 `Frame` 是 `Start / Count / Skip / Interval`（`Client/MirObjects/F
 4. 双击远处怪物 → 先 `WorldMove { step: true }`，每 600 ms 一步、共 3 步后放弃；
 5. 点背包/小地图面板不会产生走路动作。
 
+`crates/mir-client/tests/path_and_pickup.rs`：**A\* 点地走路 + 地面物品拾取**（注入式）。
+
+1. 点到 4 格外的空地：`on_click_with_path` 返回 `WalkStep`，随后每 600 ms
+   `tick_path` 依次发出 4 个 `NetCommand::Walk(Right)`，到达后路径清空；
+2. Shift 跑步：连续两格同向时第二步发 `NetCommand::Run`；
+3. 目标不可走：退化为 `WorldMove { step: true }`，不留半截路径；
+4. 悬停相邻物品：`hover_item` 返回物品名，渲染帧与不悬停时不同；
+   单击相邻物品 → `UiAction::PickUp` → `NetCommand::PickUp`；
+5. 单击远处物品：先 `WorldMove` 靠近，相邻后 `tick_approach` 自动 `PickUp`；
+6. 输出 `target/client-pickup.png`。
+
+`crates/mir-client/tests/mount_wings.rs`：**坐骑/翅膀渲染**（真实素材，缺素材时跳过差异断言）。
+
+1. `EntityView.mount = 2`、`wings = 1`，层计划断言坐骑第一、翅膀在头发之后；
+2. 同一玩家「无坐骑/翅膀」与「有坐骑/翅膀」两帧差异 > 200 像素；
+3. 输出 `target/client-mount.png`。
+
+`crates/mir-render` 的 `pathfind` 单元测试覆盖：直线、绕墙、不可达、对角不切角、
+节点上限/步数上限、启发式与确定性。
+
 `crates/mir-client/tests/sound.rs`：**音效事件 + 真实 WAV 冒烟**（不连服务器、不开窗口）。
 
 1. 注入 `ObjectWalk`/`ObjectRun`/`ObjectAttack`（带技能）/`ObjectStruck`/`S.Struck`/
@@ -616,6 +740,8 @@ cargo test -p mir-client --test sound -- --nocapture
 cargo test -p mir-client --test minimap_panel -- --nocapture
 cargo test -p mir-client --test bigmap_panel -- --nocapture
 cargo test -p mir-client --test targeting -- --nocapture
+cargo test -p mir-client --test path_and_pickup -- --nocapture
+cargo test -p mir-client --test mount_wings -- --nocapture
 cargo test -p mir-render --test minimap -- --nocapture
 cargo test -p mir-client --test ui_interaction -- --nocapture
 cargo test -p mir-client --test player_looks -- --nocapture
@@ -631,7 +757,8 @@ cargo fmt --all -- --check
 
 ## 8. 尚未实现
 
-* 坐骑、翅膀、武器发光（`CHumEffect`/`WeaponEffect`）、中毒染色与等级特效；
+* 武器发光（`WeaponEffect`）、中毒染色与等级特效；坐骑/翅膀已支持基础绘制，
+  但坐骑/翅膀的逐外观精确素材映射（`Mount/*.Lib`、`CHumEffect/*.Lib`）尚未接入；
 * 移动插值（Crystal `OffSetMove`/`Movement` 的平滑位移，`PlayerObject.cs:765-810`）：
   实体直接站在服务端给的格子上，动作帧逐帧播放，但没有格间滑动；
 * 攻击变招（Attack2/3/4 按职业/武器/随机选择，`PlayerObject.cs:1055-1075`）、
@@ -641,16 +768,16 @@ cargo fmt --all -- --check
   偏移上，会回退到站立帧；
 * 刺客双持（`WeaponLibrary2`）与弓箭手第二遍武器（`PlayerObject.cs:4921-4922`）；
 * 装备面板里的角色小预览（面板目前只有 14 个槽的图标 + 名称 + 属性汇总）；
-* A\* 寻路（点地走路只有「朝目标方向一步」）；鼠标点击地面物品拾取（`P` 键已可用）、
-  鼠标悬停物品的名字/拾取提示；
+* 鼠标悬停地面物品的拾取提示框（现在只画物品名；`P` 键与点击拾取已可用）；
+  大地图点击寻路（`BigMapDialog.cs:612-628`）仍只吃掉点击；
 * 大地图面板的 NPC 列表/滚动条/世界地图按钮/「传送到 NPC」/搜索框（`BigMapDialog.cs:101-255,320-432`），
   以及坐标行跟随鼠标（本作显示自己的坐标）；玩家蓝条（`MapObject.cs:500`）暂未画；
 * 地图切换后的素材重载（服务端 `MapChanged` 会更新快照地图名，窗口仍用启动时加载的地形）；
-* **音效**：背景音乐（`SoundManager.PlayMusic`）、循环音（`LoopProvider`）、
-  怪物各自的 `BaseSound`、按地块选择脚步音、按武器选择受击音、按距离衰减、
-  音量条 UI（`MainDialogs.cs:2864-2887`）、解码缓存与回收
+* **音效/音乐**：循环音（`LoopProvider`）、怪物各自的 `BaseSound`、按地块选择脚步音、
+  按武器选择受击音、按距离衰减、音量条 UI（`MainDialogs.cs:2864-2887`）、解码缓存与回收
   （Crystal 的 `CachedSound` / `SoundManager.cs:195-223`；本作每次播放现解码，
-  短 WAV 够快，但没有缓存与 30 秒回收）；
+  短 WAV 够快，但没有缓存与 30 秒回收）；音乐目前只按地图编号/标题选曲，
+  没有登录/选角/战斗音乐切换（`LoginScene.cs:29`、`SelectScene.cs:25`）；
 * **小地图**：NPC 任务感叹号（`MainDialogs.cs:1963-2010`）、两档尺寸/底部按钮
   （邮件/大地图/亮度）、滚轮缩放的「大地图搜索」；大地图面板本体见 §5.7（已实现）；
 * 天气、光照（`LightSetting`/`MapDarkLight`）、聊天频道切换与物品链接；
@@ -676,7 +803,9 @@ cargo fmt --all -- --check
 7. **物品在格子里居中**，而角色/怪物用格原点 + 图像偏移；两者锚点不同（`ItemObject.cs:78-79`
    对比 `PlayerObject.cs:5045`）。
 8. **`.wzl` 调色板 alpha 全 255**：实体和地图图一样需要把纯黑当透明（`remove_black`）；
-   Crystal 的 `.Lib` 在生成时已经做过这一步。
+   Crystal 的 `.Lib` 在生成时已经做过这一步（`MLibraryV2.cs:419-426`）。坐骑/翅膀是
+   RGB565（`.wzl` 没有 alpha），所以 `EntityRenderer` 对这两层走 `remove_black_all`，
+   否则会在角色周围留下不透明黑框。
 9. **扁平素材的 NPC/怪物外观不是 Crystal 的枚举编号**，见第 5 节末尾。
 10. **装备穿脱在 Crystal 客户端是两条包**（`C.EquipItem` / `C.RemoveItem`，
     `MirConnection.cs:1297-1307`），本作服务端把它们并进 `C.MoveItem { grid: Equipment }`
@@ -734,3 +863,19 @@ cargo fmt --all -- --check
     外加 `MapObject.DrawHealth` 的 `HealthTime` 窗口（`MapObject.cs:461-476`）。
     本作以「收到过 `ObjectHealth`/`HealthChanged`」当作画条条件（需求），
     所以怪物掉血后就一直显示血条。
+24. **背景音乐编号不在客户端代码里**：Crystal 客户端只接收 `MapInfo.Music`，没有
+    地图文件名 → 音乐的静态表；示例数据库 389～463 张图的 `Music` 全为 0。
+    本作的 `music_for_map` 兜底（`0`/比奇、`3`/盟重、其它地图）是项目数据，
+    正式行为仍以服务器编号 → `SoundList.lst:583-615` 为准。
+25. **Crystal 的坐骑 `.Lib` 只有 216 帧**（`Mount/00.Lib`；`DrawMount` 把
+    `MountStanding` 的 416 偏移减掉，`PlayerObject.cs:5089`），而扁平
+    `horse_x.wzl` 每个外观 640 帧、动作起点也不同（站立 0、走 64、跑 128、
+    攻击 384）。`mir-render` 的 `MOUNT_*` 常量按扁平布局填写，`Count/Interval`
+    尽量照 `Frames.cs:188-192`，行走帧数按素材实测 6 帧。
+26. **`wingeffect_x.wzl` 与 `Frames.cs` 的 effect 列能对上**：站立 8 帧/250 ms、
+    行走 64、跑步 112、攻击 168……；翅膀的 `DrawWingFrame` 不是身体的
+    `DrawFrame`（`PlayerObject.cs:761-762`），不能拿身体帧号直接索引翅膀。
+27. **Crystal 的 A\* 允许斜穿墙角**（`GetNeighbours` 只检查目标格，
+    `PathFinder.cs:274-294`）；本作要求对角两侧正交格都可走，宁可绕路也不穿墙。
+    另外 Crystal 的 `MaxNodes` 是路径点数上限（`:210-214`），本作拆成
+    「搜索节点上限」与「路径步数上限」两个参数。

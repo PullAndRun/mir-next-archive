@@ -61,12 +61,14 @@
 //! * 地图背景图（`DrawBackground`，`GameScene.cs:10765-10785`：只有 `ID1`/`ID2`
 //!   等少数地图名才画）与 Shanda 瓦片动画层（`MapLibs[190] AniTiles1`，
 //!   `GameScene.cs:10825-10836`；v0 地图没有 `TileAnimationImage` 数据）；
-//! * 角色的**装备分层已实现**：身体（`hum*.wzl`）、武器（`weapon*.wzl`）、头发
-//!   （`hair*.wzl`）按 Crystal `PlayerObject.Draw` 的顺序叠加（武器在朝上/朝左时画在
-//!   身体之后，朝下/朝右时画在身体之前），见 [`entities`] 模块文档；
+//! * 角色的**装备分层已实现**：坐骑（`horse_x.wzl`）、身体（`hum*.wzl`）、武器
+//!   （`weapon*.wzl`）、头发（`hair*.wzl`）、翅膀（`wingeffect_x.wzl`）按 Crystal
+//!   `PlayerObject.Draw` 的顺序叠加（坐骑在身体之下，翅膀在头发之后；武器在朝上/朝左时
+//!   画在身体之后，朝下/朝右时画在身体之前），见 [`entities`] 模块文档；
 //!   **站立/走/跑/攻击/受击/死亡**的逐帧动画也已接入（[`animation`]），
-//!   坐骑、翅膀、光效、移动插值仍未做；
-//! * 实体名字文字（[`text`] 已能画中文，但实体层还没接名字绘制）。
+//!   武器发光、光效、移动插值仍未做；
+//! * 实体名字文字（[`text`] 已能画中文，但实体层还没接名字绘制；联机名字在 `mir-client`）。
+//! * 8 方向 A\* 寻路（[`pathfind`]）：纯函数、闭包传可走性，供客户端点地走路使用。
 //! * 门的开关状态：静态帧按「门关闭」处理，不做 `DoorOffset` 的帧号调整
 //!   （`GameScene.cs:10902-10917`）；
 //! * 后层/中层的动画：v0 的客户端读不到这两层的动画字节（`MapCode.cs:239-253`），
@@ -88,6 +90,8 @@
 //! | 玩家身体 | `hum.wzl` / `hum2.wzl` / `hum3.wzl` | `block*600 + action.start + direction*stride + n` |
 //! | 玩家武器 | `weapon.wzl` / `weapon2.wzl` / `weapon3.wzl` | 同上（与身体同步） |
 //! | 玩家头发 | `hair.wzl` / `hair2..4.wzl` | 同上（与身体同步） |
+//! | 玩家坐骑 | `horse_x.wzl`（3×640 帧） | `block*640 + mount.start + direction*8 + n` |
+//! | 玩家翅膀 | `wingeffect_x.wzl`（2×600 帧） | `block*600 + effect.start + direction*8 + e` |
 //! | 怪物 | `mon{image/10+1}.wzl` | `(image%10)*430 + action.start + direction*stride + n` |
 //! | NPC | `npc.wzl` / `npc2..4.wzl` | `(image%100)*60 + action.start + direction*stride + n` |
 //! | 物品 | `items.wzl` | `image`（金币用 112..116，`ItemObject.cs:55-64`） |
@@ -162,6 +166,7 @@ mod error;
 mod frame;
 pub mod geometry;
 pub mod minimap;
+pub mod pathfind;
 mod scene;
 pub mod sound;
 pub mod text;
@@ -171,8 +176,9 @@ pub use animation::{
     ActorAction, ActorAnimation, BodyKind, DIRECTION_COUNT, FrameChoice, FrameSequence,
     HUMAN_ATTACK1, HUMAN_ATTACK2, HUMAN_ATTACK3, HUMAN_DEAD, HUMAN_DYING, HUMAN_RUNNING,
     HUMAN_STANDING, HUMAN_STRUCK, HUMAN_WALKING, MONSTER_ATTACK1, MONSTER_DEAD, MONSTER_DYING,
-    MONSTER_STANDING, MONSTER_STRUCK, MONSTER_WALKING, NPC_HARVEST, NPC_STANDING, frames_for,
-    human_frames, monster_frames, npc_frames,
+    MONSTER_STANDING, MONSTER_STRUCK, MONSTER_WALKING, NPC_HARVEST, NPC_STANDING, WING_ATTACKING,
+    WING_DEAD, WING_DYING, WING_FRAMES_PER_APPEARANCE, WING_RUNNING, WING_STANDING, WING_STRUCK,
+    WING_WALKING, frames_for, human_frames, monster_frames, npc_frames, wing_frames,
 };
 pub use entities::{
     EntityKind, EntityLibraries, EntityRenderer, EntityView, HAIR_BLOCKS, HEALTH_BACKGROUND,
@@ -198,7 +204,8 @@ pub use minimap::{
 pub use mir_asset::{Image, ImageInfo};
 pub use scene::MapScene;
 pub use sound::{
-    SOUND_COOLDOWN_MS, SoundId, index_to_fallback_name, sound_for_event, sound_for_sex, spell_sound,
+    DEFAULT_MUSIC, MUSIC_TRACKS, SOUND_COOLDOWN_MS, SoundId, index_to_fallback_name,
+    music_for_index, music_for_map, sound_for_event, sound_for_sex, spell_sound,
 };
 pub use text::{TextClip, TextError, TextRenderer, font_candidates, pixel};
 pub use tiles::{LIBRARY_FILES, TileLibraries};

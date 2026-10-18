@@ -4,7 +4,9 @@
 //!
 //! 1. 定义客户端会用到的音效事件（[`SoundId`]）；
 //! 2. 把事件翻译成 Crystal 真实使用的 WAV 文件名（[`sound_for_event`]）；
-//! 3. 把技能号翻译成 Crystal 的施法音文件名（[`spell_sound`]）。
+//! 3. 把技能号翻译成 Crystal 的施法音文件名（[`spell_sound`]）；
+//! 4. 把服务器 `MapInfo.Music` 编号/地图名翻译成背景音乐文件
+//!    （[`music_for_index`] / [`music_for_map`]，见下）。
 //!
 //! # 文件名是怎么来的
 //!
@@ -222,6 +224,115 @@ pub fn spell_sound(spell: Spell) -> Option<String> {
     Some(format!("M{index}-0.wav"))
 }
 
+/// 背景音乐编号 → 文件名表。
+///
+/// Crystal 的 `SoundList.lst` 在 `;Music` 段（`resource/community/gqf2008-crystal/Sound/SoundList.lst:583`）
+/// 把三组音乐编号直接映射成同名文件：
+///
+/// ```text
+/// 30001: 30001.wav   … 30011: 30011.wav     // SoundList.lst:584-594
+/// 30101: 30101.wav   … 30113: 30113.wav     // SoundList.lst:596-608
+/// 31001: 31001.wav   … 31006: 31006.wav     // SoundList.lst:610-615
+/// ```
+///
+/// Crystal 的 `SoundManager.PlayMusic(index, loop)` 先 `StopMusic()`，再用
+/// `SoundList.Indexes[index]` 找文件名并创建循环音源（`Client/MirSounds/SoundManager.cs:128-136`）。
+/// 这里保留同样的「编号 → 文件」关系，但文件放在 `resource/community/mirfiles-crystal-client/Client/Sound`
+/// （完整 30 首 BGM；`resource/wav` 只有音效，没有 300xx.wav）。
+pub const MUSIC_TRACKS: [(u16, &str); 30] = [
+    (30001, "30001.wav"),
+    (30002, "30002.wav"),
+    (30003, "30003.wav"),
+    (30004, "30004.wav"),
+    (30005, "30005.wav"),
+    (30006, "30006.wav"),
+    (30007, "30007.wav"),
+    (30008, "30008.wav"),
+    (30009, "30009.wav"),
+    (30010, "30010.wav"),
+    (30011, "30011.wav"),
+    (30101, "30101.wav"),
+    (30102, "30102.wav"),
+    (30103, "30103.wav"),
+    (30104, "30104.wav"),
+    (30105, "30105.wav"),
+    (30106, "30106.wav"),
+    (30107, "30107.wav"),
+    (30108, "30108.wav"),
+    (30109, "30109.wav"),
+    (30110, "30110.wav"),
+    (30111, "30111.wav"),
+    (30112, "30112.wav"),
+    (30113, "30113.wav"),
+    (31001, "31001.wav"),
+    (31002, "31002.wav"),
+    (31003, "31003.wav"),
+    (31004, "31004.wav"),
+    (31005, "31005.wav"),
+    (31006, "31006.wav"),
+];
+
+/// 没有 `MapInfo.Music` 时使用的主城主题曲（`SoundList.lst:584` 的第一首）。
+///
+/// 本仓库的示例服务端数据库（389～463 张地图）里 `MapInfo.Music` **全部是 0**，
+/// 而 Crystal 的 `Music == 0` 表示静音（`GameScene.cs:10454-10466`）。为了让客户端在
+/// 示例服上也有背景音乐，`music_for_map` 在没有服务器编号时回退到这一首；`--no-music`
+/// 可以关掉。**这不是 Crystal 的行为**，属于本作对示例数据的兜底，见文档「简化」。
+pub const DEFAULT_MUSIC: &str = "30001.wav";
+
+/// 背景音乐编号 → 文件名（见 [`MUSIC_TRACKS`]）。
+///
+/// Crystal 的编号来自服务器 `MapInfo.Music`：`S.MapInformation.Music` 在
+/// `GameScene.cs:2146` 写进 `MapControl.Music`，`S.MapChanged.Music` 在
+/// `GameScene.cs:3985` 写进同一个字段；`MapControl.LoadMap` 发现编号变化就
+/// `SoundManager.PlayMusic(Music, true)`（`GameScene.cs:10454-10466`）。
+/// 编号不在表里（包括 0）时 Crystal 静音（`SoundManager.cs:132` 的 `TryGetValue` 失败），
+/// 这里返回 `None`。
+#[must_use]
+pub const fn music_for_index(index: u16) -> Option<&'static str> {
+    let mut position = 0;
+    while position < MUSIC_TRACKS.len() {
+        let (candidate, file) = MUSIC_TRACKS[position];
+        if candidate == index {
+            return Some(file);
+        }
+        position += 1;
+    }
+    None
+}
+
+/// 地图文件名/标题 → 背景音乐文件。
+///
+/// Crystal 客户端**没有**地图文件名 → 音乐的静态表：音乐编号完全由服务器
+/// `MapInfo.Music` 决定（`GameScene.cs:2146`、`:3985`），文件由 `SoundList.lst`
+/// 的 `;Music` 段决定（`SoundList.lst:583-615`）。本函数在「服务器没给编号」时
+/// 按地图标题给出一个可用的主题曲，供示例服/离线模式使用：
+///
+/// * 标题含 `比奇` 或文件名 `0` → `30001.wav`（`SoundList.lst:584`）；
+/// * 标题含 `盟重` 或文件名 `3` → `30002.wav`（`SoundList.lst:585`）；
+/// * 其它非空地图 → [`DEFAULT_MUSIC`]。
+///
+/// 其它地图的文件名不在 Crystal 源码里，而是经典 Mir2 地图库的常见配置；
+/// 本作把它当作**兜底**，真正的优先级是服务器给的 [`music_for_index`]。
+#[must_use]
+pub fn music_for_map(map_file: &str, title: &str) -> Option<&'static str> {
+    let file_name = map_file.trim();
+    let title = title.trim();
+    if file_name.is_empty() && title.is_empty() {
+        return None;
+    }
+    // 简化：示例数据库 389～463 张地图的 `MapInfo.Music` 全为 0（Crystal 会静音），
+    // 为了让客户端有 BGM，按经典地图名给一个主题曲兜底。原因：客户端没有服务端
+    // 地图数据库，无法在本地复现 `MapInfo.Music`；真正的优先级是服务器编号。
+    if file_name == "0" || title.contains("比奇") {
+        return music_for_index(30_001);
+    }
+    if file_name == "3" || title.contains("盟重") {
+        return music_for_index(30_002);
+    }
+    Some(DEFAULT_MUSIC)
+}
+
 /// 编号公式：`index` → Crystal 兜底文件名（`SoundManager.cs:87-89`）。
 ///
 /// 只在 `SoundList.lst` 里查不到某个编号时才用到；这里保留一份是为了让
@@ -310,5 +421,34 @@ mod tests {
     #[test]
     fn cooldown_is_one_hundred_millis() {
         assert_eq!(SOUND_COOLDOWN_MS, 100);
+    }
+
+    #[test]
+    fn music_indices_match_the_sound_list_music_sections() {
+        // `SoundList.lst:583-615` 的三组音乐编号；每组首尾都要能查到文件。
+        assert_eq!(music_for_index(30_001), Some("30001.wav"));
+        assert_eq!(music_for_index(30_011), Some("30011.wav"));
+        assert_eq!(music_for_index(30_101), Some("30101.wav"));
+        assert_eq!(music_for_index(30_113), Some("30113.wav"));
+        assert_eq!(music_for_index(31_001), Some("31001.wav"));
+        assert_eq!(music_for_index(31_006), Some("31006.wav"));
+        // 0（Crystal 的 Music=0 静音）与表外编号都没有文件。
+        assert_eq!(music_for_index(0), None);
+        assert_eq!(music_for_index(30_012), None);
+        assert_eq!(music_for_index(32_000), None);
+        assert_eq!(MUSIC_TRACKS.len(), 30);
+    }
+
+    #[test]
+    fn map_music_falls_back_to_the_default_theme() {
+        // 服务器给了编号时用 `music_for_index`（Crystal GameScene.cs:2146/3985）。
+        assert_eq!(music_for_map("0", "比奇省"), Some("30001.wav"));
+        assert_eq!(music_for_map("3", "盟重省"), Some("30002.wav"));
+        // 其它地图也要有兜底主题曲（示例服 MapInfo.Music 全为 0）。
+        assert_eq!(music_for_map("D2083", "洞穴"), Some(DEFAULT_MUSIC));
+        assert_eq!(music_for_map("", "未知地图"), Some(DEFAULT_MUSIC));
+        // 完全不知道地图时才静音。
+        assert_eq!(music_for_map("", ""), None);
+        assert_eq!(music_for_map("   ", "  "), None);
     }
 }

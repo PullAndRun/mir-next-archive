@@ -364,6 +364,53 @@ pub const fn npc_frames(action: ActorAction) -> FrameSequence {
     }
 }
 
+// ---------------------------------------------------------------------------
+// 翅膀（WingEffect）帧表
+// ---------------------------------------------------------------------------
+//
+// Crystal 的 `PlayerObject.DrawWings` 用 `DrawWingFrame`，它不是身体的 `DrawFrame`：
+// `DrawWingFrame = Frame.EffectStart + Frame.EffectOffSet * direction + EffectFrameIndex`
+// （`PlayerObject.cs:762`）。`Frames.cs` 给每个身体动作都带了第二组 effect 帧参数
+// （`new Frame(start, count, skip, interval, effectStart, effectCount, effectSkip, effectInterval)`，
+// `Frames.cs:157-170` 的第五～八角）。因此翅膀与身体使用**不同的** Start/Count/Interval：
+// 站立每方向 8 帧、250 ms（`Frames.cs:157`），行走/跑步/攻击也是每方向 8 帧，
+// 但间隔 100 ms（`:158-164`）；受击、死亡、尸体用各自的 effect 段（`:168-170`）。
+
+/// 扁平 `wingeffect_x.wzl` 每个翅膀外观块占的帧数。
+///
+/// 实测 `wingeffect_x.wzx` 有 1200 项 = 2 个外观 × 600 帧；每个外观块与 `hum.wzl`
+/// 一样是 600 帧布局（方向步长 8、动作起点见下面的常量）。
+pub const WING_FRAMES_PER_APPEARANCE: u32 = 600;
+/// 翅膀站立：`Frames.cs:157` 的 effect 段 `Frame(..., 0, 8, 0, 250)`。
+pub const WING_STANDING: FrameSequence = FrameSequence::new(0, 8, 0, 250);
+/// 翅膀行走：`Frames.cs:158` 的 effect 段 `Frame(..., 64, 8, 0, 100)`。
+pub const WING_WALKING: FrameSequence = FrameSequence::new(64, 8, 0, 100);
+/// 翅膀跑步：`Frames.cs:159` 的 effect 段 `Frame(..., 112, 8, 0, 100)`。
+pub const WING_RUNNING: FrameSequence = FrameSequence::new(112, 8, 0, 100);
+/// 翅膀攻击：`Frames.cs:162` 的攻击 1 effect 段 `Frame(..., 168, 8, 0, 100)`。
+// 简化：所有攻击都映射到攻击 1 的 effect 段。原因：`ActorAction` 不区分 Attack1..4。
+pub const WING_ATTACKING: FrameSequence = FrameSequence::new(168, 8, 0, 100);
+/// 翅膀受击：`Frames.cs:168` 的 effect 段 `Frame(..., 392, 3, 0, 100)`。
+pub const WING_STRUCK: FrameSequence = FrameSequence::new(392, 3, 0, 100);
+/// 翅膀死亡：`Frames.cs:169` 的 effect 段 `Frame(..., 416, 4, 0, 100)`。
+pub const WING_DYING: FrameSequence = FrameSequence::new(416, 4, 0, 100);
+/// 翅膀尸体：`Frames.cs:170` 的 effect 段 `Frame(..., 419, 1, 3, 1000)`。
+pub const WING_DEAD: FrameSequence = FrameSequence::new(419, 1, 3, 1000);
+
+/// 取某个动作的翅膀帧表（对应 `Frames.cs:157-170` 的 effect 列）。
+#[must_use]
+pub const fn wing_frames(action: ActorAction) -> FrameSequence {
+    match action {
+        ActorAction::Standing => WING_STANDING,
+        ActorAction::Walking => WING_WALKING,
+        ActorAction::Running => WING_RUNNING,
+        ActorAction::Attacking => WING_ATTACKING,
+        ActorAction::Struck => WING_STRUCK,
+        ActorAction::Dying => WING_DYING,
+        ActorAction::Dead => WING_DEAD,
+    }
+}
+
 /// 取某个素材种类的动作帧表。
 #[must_use]
 pub const fn frames_for(body_kind: BodyKind, action: ActorAction) -> FrameSequence {
@@ -591,6 +638,22 @@ mod tests {
         assert_eq!(animation.frame_at(999_999).index, 539 + 4 * 8);
         assert!(!animation.frame_at(999_999).finished);
         assert!(!animation.finished_at(999_999));
+    }
+
+    #[test]
+    fn wing_tables_match_crystals_effect_columns() {
+        // `Frames.cs:157-170` 每行的第五～八角是 effect 段。
+        assert_eq!(WING_STANDING, FrameSequence::new(0, 8, 0, 250));
+        assert_eq!(WING_WALKING, FrameSequence::new(64, 8, 0, 100));
+        assert_eq!(WING_RUNNING, FrameSequence::new(112, 8, 0, 100));
+        assert_eq!(WING_ATTACKING, FrameSequence::new(168, 8, 0, 100));
+        assert_eq!(WING_STRUCK, FrameSequence::new(392, 3, 0, 100));
+        assert_eq!(WING_DYING, FrameSequence::new(416, 4, 0, 100));
+        assert_eq!(WING_DEAD, FrameSequence::new(419, 1, 3, 1000));
+        assert_eq!(wing_frames(ActorAction::Running), WING_RUNNING);
+        assert_eq!(WING_STANDING.index_of(DOWN, 0), 4 * 8);
+        assert_eq!(WING_STANDING.index_of(DOWN, 7), 4 * 8 + 7);
+        assert_eq!(WING_STANDING.duration_ms(), 2_000);
     }
 
     #[test]

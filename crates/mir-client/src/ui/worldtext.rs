@@ -24,6 +24,10 @@ pub const DAMAGE_RISE_PIXELS: i32 = 50;
 pub const NAME_OFFSET_Y: i32 = -44;
 /// 伤害数字的起始垂直偏移。
 pub const DAMAGE_OFFSET_Y: i32 = -56;
+/// 地面物品名字相对格原点的垂直偏移（物品图标比人物小，名字贴近地面）。
+pub const ITEM_NAME_OFFSET_Y: i32 = -24;
+/// 地面物品名字的颜色（Crystal 的物品标签默认亮黄色，`ItemObject.DrawName`）。
+pub const ITEM_NAME_COLOR: [u8; 4] = [240, 220, 120, 255];
 /// 伤害数字字号。
 pub const DAMAGE_SIZE: u32 = SIZE_SMALL;
 
@@ -193,6 +197,52 @@ pub fn draw_names(
             color,
         );
     }
+}
+
+/// 画鼠标下地面物品的名字（`GameScene.cs:10619-10626` 只画鼠标命中的那一件）。
+///
+/// 复用 [`draw_one_name`] 的描边/居中逻辑，只是垂直偏移更贴近地面、颜色固定为
+/// [`ITEM_NAME_COLOR`]。`cell` 是物品所在格（屏幕坐标由 `scene.world_to_screen` 换算）。
+pub fn draw_item_name(
+    frame: &mut Frame,
+    snapshot: &WorldSnapshot,
+    scene: &MapScene,
+    center: Point,
+    text: &UiText,
+    cell: Point,
+) {
+    let Some(item) = snapshot
+        .entities
+        .values()
+        .filter(|entity| entity.kind == EntityKind::Item && entity.position == cell)
+        .min_by_key(|entity| entity.object_id)
+    else {
+        return;
+    };
+    if item.name.is_empty() {
+        return;
+    }
+    let (cell_x, cell_y) = scene.world_to_screen(center, cell);
+    let width = text.text_width(&item.name, SIZE_SMALL);
+    let x = cell_x + 24 - i32::try_from(width).unwrap_or(0) / 2;
+    let y = cell_y + ITEM_NAME_OFFSET_Y;
+    if x + i32::try_from(width).unwrap_or(0) < 0
+        || x >= i32::try_from(frame.width).unwrap_or(i32::MAX)
+        || y + 12 < 0
+        || y >= i32::try_from(frame.height).unwrap_or(i32::MAX)
+    {
+        return;
+    }
+    draw_outlined(
+        text,
+        frame,
+        x,
+        y,
+        &item.name,
+        SIZE_SMALL,
+        ITEM_NAME_COLOR,
+        [0, 0, 0, 220],
+    );
 }
 
 /// 画一个名字：居中于格原点，带黑描边。

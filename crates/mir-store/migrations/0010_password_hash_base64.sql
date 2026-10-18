@@ -1,0 +1,31 @@
+-- 0010_password_hash_base64.sql — 口令散列改为 Base64 文本，消除 NUL 写入失败。
+--
+-- 旧实现把 `String::from_utf8_lossy(derived)` 的 24 字节 PBKDF2 派生物直接写进
+-- `accounts.password_hash TEXT`（`0001_init.sql:18`）。24 个随机字节里只要出现 0x00
+-- （合法 UTF-8，概率约 9%），PostgreSQL 就报 `22021 invalid byte sequence "UTF8": 0x00`，
+-- 建号直接失败（刑部 t7 F4）。
+--
+-- 新编码保持 Crystal 的「UTF-8 替换解码」语义不变（`crates/mir-store/src/password.rs`
+-- 的 `hash_password`），只把解码后的字符串按 **UTF-8 字节** 做标准 Base64：
+--
+--   password_hash = base64(lossy_string.as_bytes())
+--
+-- Base64 输出只含 `A-Z a-z 0-9 + / =`，不可能出现 NUL；解码后与旧值逐字节一致，
+-- 因此旧账号在新代码下仍能通过 `verify_password`（新代码用同一 `encode_hash` 重算后比较）。
+--
+-- ## 兼容旧行
+--
+-- 旧行的 `password_hash` 是 lossy 字符串本身；`convert_to(..., 'UTF8')` 取出它的
+-- UTF-8 字节，再 `encode(..., 'base64')`。例如旧值里的 U+FFFD（EF BF BD）与 NUL（00）
+-- 都会被原样保留在 Base64 解码结果里。这个 UPDATE 只应由 sqlx 迁移执行一次；
+-- 迁移历史表保证不会重复执行（重复执行会二次编码）。
+--
+-- ## 为什么不换 BYTEA
+--
+-- 列类型换成 BYTEA 需要处理「旧行是 lossy 字符串、新行是 24 字节裸派生物」的版本
+-- 区分（否则旧账号全部验证失败），要么加 `password_version` 列、要么加兼容分支。
+-- Base64 方案保持列类型与「存储/重算两侧同一变换」的验证语义不变，迁移是纯文本变换，
+-- 改动面最小；这也是 t8 任务的裁决口径。
+
+UPDATE accounts
+SET password_hash = encode(convert_to(password_hash, 'UTF8'), 'base64');

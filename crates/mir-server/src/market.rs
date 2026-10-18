@@ -65,6 +65,21 @@
 //!    `PlayerObject` 的字段（`PlayerObject.cs:132-139`）；本作放在
 //!    [`World::market_searches`]，下线即清（与 Crystal 随对象销毁等价）。
 //!
+//! # 持久化不变量（刑部 t7 F1/F2/F3 修复后）
+//!
+//! 1. **串行快照**：所有会话的市场落盘都经过 [`flush_market_update`]；它在独立的
+//!    [`MARKET_FLUSH_LOCK`] 内**重新取**最新挂单快照，再写库。任何时刻都不会出现
+//!    「旧快照后提交、整表覆盖新状态」。
+//! 2. **单事务**：一次市场操作（上架/买断/出价/提前成交/取回）的持久化副作用——
+//!    当前角色行、系统邮件、挂单全量快照——由 [`crate::store::MarketUpdate`] 装进
+//!    同一个数据库事务。崩溃只会看到「全部没写」或「全部写了」，不会复制/丢失物品或金币。
+//! 3. **启动清理至多一次**：过期挂单的退回邮件与删除挂单也在同一个
+//!    `apply_market_update` 事务里；失败则全部回滚，重试不会重复退款；成功后挂单已删，
+//!    下次启动不会再产生同一批退款。
+//!
+//! 对手方（卖家/被超价的买家）只通过 **邮件** 收取物品/金币，因此不需要跨会话写对方
+//! 角色行；当前操作者自己的背包/金币变化则由第 2 条保证落盘。
+//!
 //! # 简化
 //!
 //! * 简化：Crystal 的 `Search` 是 `List<AuctionInfo>` 引用；本作存拍卖 **ID**（`Vec<u64>`），
@@ -84,8 +99,8 @@ use mir_protocol::packets::server::{
 use mir_db::ItemInfo;
 
 use crate::items::{decode_slots, encode_slots, friendly_name};
-use crate::store::{AccountStore, AuctionRecord, StoreError};
-use crate::world::World;
+use crate::store::{AccountStore, AuctionRecord, Character, MarketUpdate, StoreError};
+use crate::world::{Player, World};
 
 pub use crate::npc::MARKET_KEY;
 use crate::npc::NPC_TALK_RANGE;
@@ -1423,11 +1438,96 @@ impl World {
     }
 }
 
+/// 串行化「取最新挂单快照 + 落库」的进程级锁（刑部 t7 F1）。
+///
+/// 世界层是同步的、存储层是异步的：如果每个会话各自「先取快照、释放 world 锁、再 await
+/// 写库」，两个会话交错时旧快照可能后提交，把新状态整表覆盖（买断/取回被回滚）。
+/// 本锁把「取最新快照 + 单事务落库」整段串行化；锁在拿 world 锁之前获取、写库期间
+/// 不持有 world 锁（不会阻塞 tick/其它会话）。
+static MARKET_FLUSH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// 单测专用：让**下一次** flush 在「取快照 → 落库」之间停顿，用来确定性复现 F1 交错。
+#[cfg(test)]
+static SLOW_NEXT_FLUSH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 用世界里的玩家状态生成角色行快照（市场原子落盘与下线存盘共用）。
+///
+/// 对应 Crystal `CharacterInfo.Save` 的字段编解码：背包/装备/仓库/技能/任务是字节块，
+/// 金币/HP/MP/等级/经验/坐标/地图/行会归属逐字段同步。市场操作改了背包与金币，
+/// 必须把这份快照和挂单放进同一个事务（F3）。
+#[must_use]
+pub fn character_snapshot(base: &Character, player: &Player) -> Character {
+    let mut character = base.clone();
+    character.inventory = encode_slots(&player.inventory);
+    character.equipment = encode_slots(&player.equipment);
+    character.storage = crate::storage::encode_storage(&player.storage);
+    character.magics = crate::magic::encode_magics(&player.magics);
+    character.quests = crate::quests::encode_quests(&crate::quests::QuestSave {
+        quests: player.quests.clone(),
+        completed_quests: player.completed_quests.clone(),
+    });
+    character.gold = player.gold;
+    character.credit = player.credit;
+    character.hp = player.hp;
+    character.mp = player.mp;
+    character.level = player.level;
+    character.experience = player.experience;
+    character.x = player.position.x;
+    character.y = player.position.y;
+    character.direction = player.direction;
+    character.map.clone_from(&player.map);
+    character.guild_index = player.guild.map_or(-1, |reference| reference.guild_id);
+    character
+}
+
+/// 原子落盘一次市场变更（F1/F3）：角色行 + 邮件 + 挂单快照同一事务。
+///
+/// 流程：
+/// 1. 拿 [`MARKET_FLUSH_LOCK`]（独立于 world 锁，串行化所有会话的市场落盘）；
+/// 2. 拿 world 锁取**最新**挂单快照与待写邮件队列，随即释放；
+/// 3. 调 [`AccountStore::apply_market_update`] 在单事务里写角色行/邮件/挂单。
+///
+/// `character` 是发起本次操作的在线角色快照（[`character_snapshot`]）；启动过期清理
+/// 传 `None`。对手方通过 `mail_writes` 收款/收货，不跨会话写对方角色行。
+///
+/// **不变量**：客户端可见的市场背包/金币变化与 `market_auctions` 行同事务提交；
+/// 崩溃只会发生在「都没写」或「都写了」两种状态，不会出现物品/金币复制或丢失。
+///
+/// # Errors
+/// 存储层失败时返回错误，调用方记日志；下一次操作会以新快照重试整组写入。
+pub async fn flush_market_update<S: AccountStore>(
+    store: &S,
+    world: &tokio::sync::Mutex<World>,
+    character: Option<Character>,
+) -> Result<(), StoreError> {
+    let _flush_guard = MARKET_FLUSH_LOCK.lock().await;
+    let (auctions, mail_writes) = {
+        let mut world = world.lock().await;
+        (world.auction_snapshot(), world.take_mail_writes())
+    };
+    // 仅单测：把「取快照 → 落库」窗口拉长，让并发用例能确定性复现 F1 的交错。
+    // 集成测试链接的是正常编译的库，不会走这里。
+    #[cfg(test)]
+    if SLOW_NEXT_FLUSH.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    store
+        .apply_market_update(MarketUpdate {
+            character,
+            mail_writes,
+            auctions,
+        })
+        .await
+}
+
 /// 把当前挂单快照落到存储层（整表替换）。
 ///
 /// 会话在上架/买断/提前成交/取回成功后调用（见 `session.rs` 的统一 flush 钩子），
 /// 服务器启动清理过期挂单后也用它落盘。世界层是同步的、存储层是异步的，所以由调用方
 /// 先取 [`World::auction_snapshot`]，再在包处理之外 `await` 本函数。
+///
+/// **注意**：本函数只写挂单，不写角色行/邮件；正常市场链路应使用
+/// [`flush_market_update`]（F3 原子性）。保留它给工具/测试做低层挂单写入。
 ///
 /// # Errors
 /// 存储层失败时返回错误，调用方只记日志：下一轮操作会拿新快照重试整份写入，
@@ -1554,5 +1654,83 @@ mod tests {
             ..AuctionRecord::default()
         };
         assert!(Auction::from_record(record).is_none());
+    }
+
+    fn sample_auction(id: u64) -> Auction {
+        Auction {
+            id,
+            item: UserItem::default(),
+            consignment_date: DateTimeBinary::default(),
+            price: 5_000,
+            current_bid: 0,
+            seller_character_id: 1,
+            seller_name: "卖家".to_owned(),
+            current_buyer_character_id: None,
+            current_buyer_name: None,
+            expired: false,
+            sold: false,
+            item_type: MarketItemType::Consign,
+        }
+    }
+
+    /// F1：两个会话交错 flush 时，后提交的必须是**最新**快照。
+    ///
+    /// `flush_market_update` 在 `cfg(test)` 下会在「取快照 → 落库」之间 sleep 25ms。
+    /// 没有 [`MARKET_FLUSH_LOCK`] 时：任务 1 先取 [1]，主线程改出 [2,1]，任务 2 取 [2,1]
+    /// 先落库，任务 1 醒来再用 [1] 整表覆盖 → 断言失败。有锁时任务 2 必须等任务 1 落完，
+    /// 再取最新快照 [2,1]，最终状态正确。
+    #[tokio::test]
+    async fn concurrent_flushes_keep_the_latest_snapshot() {
+        use std::sync::Arc;
+
+        use crate::store::MemoryStore;
+
+        let store = Arc::new(MemoryStore::new());
+        // `apply_market_update` 会校验挂单的卖家外键；先建一个角色（id 固定从 1 开始）。
+        let account = store
+            .create_account("f1", "secret", "")
+            .await
+            .expect("建测试账号");
+        store
+            .create_character(
+                account.id,
+                "F1",
+                mir_core::enums::MirClass::Warrior,
+                mir_core::enums::MirGender::Male,
+                "0",
+                (0, 0),
+            )
+            .await
+            .expect("建测试角色");
+        let world = Arc::new(tokio::sync::Mutex::new(World::new(999)));
+        world.lock().await.auctions.push(sample_auction(1));
+
+        // 只让任务 1 在取到快照后停顿：没有锁时任务 2 会先落最新快照、任务 1 再用旧快照覆盖。
+        SLOW_NEXT_FLUSH.store(true, std::sync::atomic::Ordering::SeqCst);
+        let first = {
+            let store = Arc::clone(&store);
+            let world = Arc::clone(&world);
+            tokio::spawn(
+                async move { flush_market_update(store.as_ref(), world.as_ref(), None).await },
+            )
+        };
+        // 给任务 1 时间拿锁并取到「只有 1 号」的快照（随后进入 25ms 的落库窗口）。
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        // 会话 2 在这期间改世界：新增 2 号挂单。
+        world.lock().await.auctions.insert(0, sample_auction(2));
+        let second = {
+            let store = Arc::clone(&store);
+            let world = Arc::clone(&world);
+            tokio::spawn(
+                async move { flush_market_update(store.as_ref(), world.as_ref(), None).await },
+            )
+        };
+
+        first.await.expect("任务 1 可 join").expect("任务 1 落盘");
+        second.await.expect("任务 2 可 join").expect("任务 2 落盘");
+
+        let ids: Vec<u64> = store.auctions().await.iter().map(|row| row.id).collect();
+        assert_eq!(ids, vec![2, 1], "最新快照必须胜出，不能被旧快照覆盖");
     }
 }

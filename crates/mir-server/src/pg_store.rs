@@ -7,7 +7,8 @@ use mir_store::PgPool;
 
 use crate::store::{
     Account, AccountStore, AuctionRecord, Character, ConquestRecord, GuildBuffRecord,
-    GuildMemberRecord, GuildRankRecord, GuildRecord, GuildStorageRecord, MailRecord, StoreError,
+    GuildMemberRecord, GuildRankRecord, GuildRecord, GuildStorageRecord, MailRecord, MarketUpdate,
+    StoreError,
 };
 
 /// 基于 PostgreSQL 的账号/角色存储。
@@ -780,6 +781,70 @@ impl AccountStore for PgAccountStore {
             mir_store::save_auctions(&mut tx, &rows)
                 .await
                 .map_err(map_store_error)?;
+            tx.commit()
+                .await
+                .map_err(|error| StoreError::Internal(error.to_string()))
+        }
+    }
+
+    fn apply_market_update(
+        &self,
+        update: MarketUpdate,
+    ) -> impl std::future::Future<Output = Result<(), StoreError>> + Send + '_ {
+        async move {
+            let MarketUpdate {
+                character,
+                mail_writes,
+                auctions,
+            } = update;
+            // 角色行 + 邮件 + 挂单同一事务（F2/F3）：任何一步失败都整组回滚。
+            let mut tx = self
+                .pool
+                .begin()
+                .await
+                .map_err(|error| StoreError::Internal(error.to_string()))?;
+
+            if let Some(character) = character {
+                let mut row = mir_store::load_character(&mut *tx, character.id)
+                    .await
+                    .map_err(map_store_error)?;
+                apply_to_store_character(&character, &mut row);
+                mir_store::save_character(&mut *tx, &row)
+                    .await
+                    .map_err(map_store_error)?;
+            }
+
+            for write in mail_writes {
+                match write {
+                    crate::mail::MailWrite::Create(mail) => {
+                        let row = to_store_mail(&mail);
+                        mir_store::create_mail(&mut tx, &row)
+                            .await
+                            .map_err(map_store_error)?;
+                    }
+                    crate::mail::MailWrite::Save(mail) => {
+                        let row = to_store_mail(&mail);
+                        mir_store::save_mail(&mut tx, &row)
+                            .await
+                            .map_err(map_store_error)?;
+                    }
+                    crate::mail::MailWrite::Delete { mail_id } => {
+                        let id = i64::try_from(mail_id).map_err(|_| {
+                            StoreError::Internal(format!("邮件 ID {mail_id} 超出 i64"))
+                        })?;
+                        mir_store::delete_mail(&mut tx, id)
+                            .await
+                            .map_err(map_store_error)?;
+                    }
+                }
+            }
+
+            let rows: Vec<mir_store::MarketAuction> =
+                auctions.iter().map(to_store_auction).collect();
+            mir_store::save_auctions(&mut tx, &rows)
+                .await
+                .map_err(map_store_error)?;
+
             tx.commit()
                 .await
                 .map_err(|error| StoreError::Internal(error.to_string()))

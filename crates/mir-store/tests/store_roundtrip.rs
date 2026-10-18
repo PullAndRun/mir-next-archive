@@ -12,9 +12,9 @@
 use chrono::{DateTime, Utc};
 use mir_store::{
     LoginGate, Mail, NewAccount, NewCharacter, SALT_LEN, StoreError, create_account,
-    create_character, create_mail, delete_character, delete_mail, find_account,
-    find_character_by_name, list_characters, list_mail, load_character, load_mail, mark_login,
-    save_account, save_character, save_mail, set_account_language, set_last_login_ip,
+    create_character, create_mail, delete_character, delete_mail, encode_hash, find_account,
+    find_character_by_name, hash_password, list_characters, list_mail, load_character, load_mail,
+    mark_login, save_account, save_character, save_mail, set_account_language, set_last_login_ip,
     verify_password,
 };
 
@@ -459,6 +459,137 @@ async fn mail_crud_roundtrip_rolls_back() {
         ),
         "删除后不应再读出邮件"
     );
+
+    tx.rollback().await.expect("回滚应当成功");
+}
+
+/// F4 回归：固定盐 `[8u8; 24]` + `hunter2` 的 PBKDF2 派生物第 21 字节是 0x00。
+///
+/// 旧实现把 lossy 字符串直接写 `accounts.password_hash TEXT`，PostgreSQL 会报
+/// `22021 invalid byte sequence "UTF8": 0x00`。新实现先 Base64 再写，必须在真库上通过。
+#[tokio::test]
+async fn account_with_nul_hash_roundtrips() {
+    let Ok(database_url) = std::env::var("MIR2_TEST_DATABASE_URL") else {
+        println!("跳过集成测试：未设置 MIR2_TEST_DATABASE_URL");
+        return;
+    };
+
+    let pool = mir_store::connect(&database_url)
+        .await
+        .expect("应能连接 MIR2_TEST_DATABASE_URL 指向的数据库");
+    mir_store::migrate(&pool).await.expect("迁移应当成功");
+
+    let mut tx = pool.begin().await.expect("应能开启事务");
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("系统时间应晚于 UNIX_EPOCH")
+        .as_nanos();
+    let mut account = create_account(
+        &mut *tx,
+        &NewAccount::new(format!("nul_{suffix}"), "unused"),
+    )
+    .await
+    .expect("创建账号应当成功");
+
+    // 固定盐 + 固定口令：派生物 53caf6c596febaad2e795c4f646f6859f3060903c0008180。
+    account.salt = vec![8u8; SALT_LEN];
+    let legacy = hash_password("hunter2", &account.salt);
+    assert!(
+        legacy.as_bytes().contains(&0),
+        "固定向量必须含 NUL，否则这个回归测试失去意义",
+    );
+    account.password_hash = encode_hash(&legacy);
+    assert!(
+        !account.password_hash.as_bytes().contains(&0),
+        "落库前必须已是无 NUL 的 Base64",
+    );
+
+    save_account(&mut *tx, &account)
+        .await
+        .expect("含 NUL 的散列向量应能写入 TEXT 列");
+
+    let reloaded = find_account(&mut *tx, &account.username)
+        .await
+        .expect("查询账号应当成功")
+        .expect("账号应当存在");
+    assert!(
+        verify_password(&reloaded, "hunter2"),
+        "重新读回后仍应验证同一口令",
+    );
+    assert!(!verify_password(&reloaded, "hunter3"));
+
+    tx.rollback().await.expect("回滚应当成功");
+}
+
+/// F4 兼容性：旧行存的是 lossy 字符串；模拟迁移 0010 的 SQL 后旧账号仍能登录。
+#[tokio::test]
+async fn legacy_password_hash_survives_migration_0010() {
+    let Ok(database_url) = std::env::var("MIR2_TEST_DATABASE_URL") else {
+        println!("跳过集成测试：未设置 MIR2_TEST_DATABASE_URL");
+        return;
+    };
+
+    let pool = mir_store::connect(&database_url)
+        .await
+        .expect("应能连接 MIR2_TEST_DATABASE_URL 指向的数据库");
+    mir_store::migrate(&pool).await.expect("迁移应当成功");
+
+    let mut tx = pool.begin().await.expect("应能开启事务");
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("系统时间应晚于 UNIX_EPOCH")
+        .as_nanos();
+    let mut account = create_account(
+        &mut *tx,
+        &NewAccount::new(format!("legacy_{suffix}"), "unused"),
+    )
+    .await
+    .expect("创建账号应当成功");
+
+    // 造一条「迁移前」的旧行：password_hash = lossy 字符串本身（0010 之前的写法）。
+    // 旧代码能写进 TEXT 的旧值必然不含 NUL（含 NUL 的旧行根本建不出来），
+    // 所以这里固定用「派生物无 NUL」的盐 [0u8; 24]；含 NUL 的新旧对照见上一个用例。
+    account.salt = vec![0u8; SALT_LEN];
+    let legacy = hash_password("hunter2", &account.salt);
+    assert!(
+        !legacy.as_bytes().contains(&0),
+        "旧行必须是无 NUL 的 lossy 字符串，才能被 0010 之前的 TEXT 列接受",
+    );
+    sqlx::query("UPDATE accounts SET password_hash = $2, salt = $3 WHERE id = $1")
+        .bind(account.id)
+        .bind(&legacy)
+        .bind(account.salt.as_slice())
+        .execute(&mut *tx)
+        .await
+        .expect("写入旧格式散列应当成功");
+
+    // 手动执行 0010 的迁移 SQL（真实迁移已由 migrate 跑过，这里只模拟旧行转换）。
+    sqlx::query(
+        "UPDATE accounts SET password_hash = \
+         encode(convert_to(password_hash, 'UTF8'), 'base64') WHERE id = $1",
+    )
+    .bind(account.id)
+    .execute(&mut *tx)
+    .await
+    .expect("模拟迁移 0010 应当成功");
+
+    let migrated = find_account(&mut *tx, &account.username)
+        .await
+        .expect("查询账号应当成功")
+        .expect("账号应当存在");
+    assert!(
+        migrated
+            .password_hash
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=')),
+        "迁移后的值应当是标准 Base64：{:?}",
+        migrated.password_hash,
+    );
+    assert!(
+        verify_password(&migrated, "hunter2"),
+        "旧账号迁移后仍应验证同一口令",
+    );
+    assert!(!verify_password(&migrated, "hunter3"));
 
     tx.rollback().await.expect("回滚应当成功");
 }

@@ -37,7 +37,7 @@ use crate::models::{
     GuildMemberRow, GuildRankRow, GuildRow, GuildStorageRow, Mail, MarketAuction, NewAccount,
     NewCharacter,
 };
-use crate::password::{generate_salt, hash_password};
+use crate::password::{encode_hash, generate_salt, hash_password};
 
 /// `accounts` 表的列顺序；`Account` 的 `FromRow` 按名字匹配，这里的顺序只用于手写 SQL 的可读性。
 const ACCOUNT_COLUMNS: &str = "id, username, password_hash, salt, email, creation_ip, creation_date, \
@@ -74,7 +74,9 @@ where
     E: PgExecutor<'e>,
 {
     let salt = generate_salt();
-    let password_hash = hash_password(&new.password, &salt);
+    // 存储口径：Crystal 的 lossy 字符串 → 标准 Base64（见 `password::encode_hash` 与迁移 0010）。
+    // 24 个随机字节里出现 NUL 不会再把 TEXT 写入打挂。
+    let password_hash = encode_hash(&hash_password(&new.password, &salt));
     let language = normalize_language(&new.language)
         .ok_or_else(|| StoreError::InvalidLanguage(new.language.clone()))?;
     let sql = format!(

@@ -65,7 +65,11 @@ pub struct Account {
     pub id: i64,
     /// 登录名（Crystal `AccountID`）；唯一性不区分大小写。
     pub username: String,
-    /// Crystal `password`：PBKDF2 结果的 UTF-8 替换解码串，原样保存、原样比较。
+    /// Crystal `password`：PBKDF2 结果的 UTF-8 替换解码串，再按标准 Base64 编码后的
+    /// ASCII 文本（见 [`crate::encode_hash`]）。
+    ///
+    /// 旧版本直接把 lossy 字符串写进本列；当派生物含 NUL 时 PostgreSQL 报 22021，
+    /// 迁移 `0010_password_hash_base64.sql` 已把旧行统一转成 Base64。新代码只会写 Base64。
     pub password_hash: String,
     /// 口令盐（Crystal `Salt`），24 字节。
     pub salt: Vec<u8>,

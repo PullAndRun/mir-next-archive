@@ -8,7 +8,7 @@ use std::future::Future;
 
 use mir_core::DateTimeBinary;
 use mir_core::enums::{MarketItemType, MirClass, MirDirection, MirGender};
-use mir_store::{generate_salt, hash_password};
+use mir_store::{encode_hash, generate_salt, hash_password};
 
 /// 存储层错误。
 #[derive(Debug, thiserror::Error)]
@@ -43,7 +43,8 @@ pub struct Account {
     pub id: i64,
     /// 账号名（保留原始大小写）。
     pub username: String,
-    /// 口令哈希（UTF-8 字符串，Crystal 语义）。
+    /// 口令哈希：Crystal 的 UTF-8 替换解码串再做标准 Base64（见 `mir_store::encode_hash`
+    /// 与迁移 `0010_password_hash_base64.sql`）。
     pub password_hash: String,
     /// 盐。
     pub salt: Vec<u8>,
@@ -70,7 +71,8 @@ impl Account {
     #[must_use]
     pub fn new_with_password(id: i64, username: &str, password: &str, email: &str) -> Self {
         let salt = generate_salt().to_vec();
-        let password_hash = hash_password(password, &salt);
+        // 与 `mir_store::create_account` 同一存储口径：lossy 字符串 → Base64（迁移 0010）。
+        let password_hash = encode_hash(&hash_password(password, &salt));
         Self {
             id,
             username: username.to_owned(),
@@ -91,7 +93,7 @@ impl Account {
     /// 校验明文口令。
     #[must_use]
     pub fn verify_password(&self, password: &str) -> bool {
-        let candidate = hash_password(password, &self.salt);
+        let candidate = encode_hash(&hash_password(password, &self.salt));
         // Crystal 用序数比较（`string.CompareOrdinal`），这里等价于逐字节比较。
         candidate.as_bytes() == self.password_hash.as_bytes()
     }
@@ -399,6 +401,25 @@ pub struct AuctionRecord {
     pub item_type: MarketItemType,
 }
 
+/// 一次市场变更要原子落库的内容（刑部 t7 F2/F3）。
+///
+/// **不变量**：市场操作引起的全部持久化副作用——受影响角色的当前行、系统邮件（成交邮寄/
+/// 出价退回/过期退回）、市场挂单全量快照——要么在同一个事务里一起提交，要么一起回滚。
+/// 客户端在 `World` 里看到的背包/金币变化因此不会在崩溃窗口里复制或丢失；
+/// 对手方只通过 `mail_writes` 收取物品/金币，不需要跨会话写对方的角色行。
+///
+/// 启动过期清理（F2）用 `character: None` + 清理后的挂单 + 退回邮件；正常市场操作用
+/// `character: Some(当前角色快照)` + 最新挂单 + 本次产生的邮件。
+#[derive(Debug, Clone, Default)]
+pub struct MarketUpdate {
+    /// 发起/受影响的在线角色行（世界当前状态快照）。
+    pub character: Option<Character>,
+    /// 市场操作产生的邮件写入（创建/回写/删除）。
+    pub mail_writes: Vec<crate::mail::MailWrite>,
+    /// 市场挂单全量快照（新 → 旧）。
+    pub auctions: Vec<AuctionRecord>,
+}
+
 /// 存储边界。
 ///
 /// 返回类型写成 `impl Future + Send`（而不是裸 `async fn`）是为了让泛型调用方
@@ -549,9 +570,22 @@ pub trait AccountStore: Send + Sync + 'static {
     ///
     /// 对应 Crystal 每次 `SaveAccounts` 重写整个 `Auctions` 段
     /// （`Envir.cs:2591-2594`）；传空列表等价于清空。
+    ///
+    /// 单独的挂单写入**不够**：市场操作还会改角色背包/金币、产生系统邮件。需要原子性时
+    /// 用 [`AccountStore::apply_market_update`]（F2/F3）。
     fn save_auctions(
         &self,
         auctions: Vec<AuctionRecord>,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send + '_;
+
+    /// 原子地应用一次市场变更：[`MarketUpdate::character`] + [`MarketUpdate::mail_writes`]
+    /// + [`MarketUpdate::auctions`] 在同一事务里提交。
+    ///
+    /// 内存实现会先做全量校验再改状态（模拟事务回滚）；PostgreSQL 实现用
+    /// `pool.begin()/commit()`，任一语句失败都不会留下半套写入。
+    fn apply_market_update(
+        &self,
+        update: MarketUpdate,
     ) -> impl Future<Output = Result<(), StoreError>> + Send + '_;
 }
 
@@ -904,6 +938,89 @@ impl AccountStore for MemoryStore {
     async fn save_auctions(&self, auctions: Vec<AuctionRecord>) -> Result<(), StoreError> {
         // 全量快照替换（与 `mir_store::save_auctions` 的 DELETE + INSERT 等价）。
         self.state.lock().await.auctions = auctions;
+        Ok(())
+    }
+
+    async fn apply_market_update(&self, update: MarketUpdate) -> Result<(), StoreError> {
+        let MarketUpdate {
+            character,
+            mail_writes,
+            auctions,
+        } = update;
+        let mut state = self.state.lock().await;
+
+        // ---- 预校验：内存存储用「先检查、后修改」模拟事务的全有或全无。 ----
+        if let Some(character) = &character
+            && !state.characters.iter().any(|row| row.id == character.id)
+        {
+            return Err(StoreError::NotFound("角色"));
+        }
+        for write in &mail_writes {
+            match write {
+                crate::mail::MailWrite::Create(mail) => {
+                    if !state
+                        .characters
+                        .iter()
+                        .any(|row| row.id == mail.character_id)
+                    {
+                        return Err(StoreError::NotFound("角色"));
+                    }
+                }
+                crate::mail::MailWrite::Save(mail) => {
+                    if !state.mails.iter().any(|row| row.id == mail.id) {
+                        return Err(StoreError::NotFound("邮件"));
+                    }
+                }
+                crate::mail::MailWrite::Delete { .. } => {}
+            }
+        }
+        // 挂单的卖家/买家外键：PostgreSQL 由 FK 保证，内存实现同样预校验（F3 原子性）。
+        for auction in &auctions {
+            if !state
+                .characters
+                .iter()
+                .any(|row| row.id == auction.seller_character_id)
+            {
+                return Err(StoreError::NotFound("角色"));
+            }
+            if let Some(buyer) = auction.current_buyer_character_id
+                && !state.characters.iter().any(|row| row.id == buyer)
+            {
+                return Err(StoreError::NotFound("角色"));
+            }
+        }
+
+        // ---- 应用：到这里不会再失败。 ----
+        if let Some(character) = character
+            && let Some(existing) = state
+                .characters
+                .iter_mut()
+                .find(|row| row.id == character.id)
+        {
+            *existing = character;
+        }
+        for write in mail_writes {
+            match write {
+                crate::mail::MailWrite::Create(mut mail) => {
+                    if mail.id == 0 {
+                        mail.id = state.next_mail_id;
+                        state.next_mail_id += 1;
+                    } else {
+                        state.next_mail_id = state.next_mail_id.max(mail.id + 1);
+                    }
+                    state.mails.push(*mail);
+                }
+                crate::mail::MailWrite::Save(mail) => {
+                    if let Some(existing) = state.mails.iter_mut().find(|row| row.id == mail.id) {
+                        *existing = *mail;
+                    }
+                }
+                crate::mail::MailWrite::Delete { mail_id } => {
+                    state.mails.retain(|row| row.id != mail_id);
+                }
+            }
+        }
+        state.auctions = auctions;
         Ok(())
     }
 }

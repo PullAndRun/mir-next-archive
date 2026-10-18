@@ -38,6 +38,8 @@
 //!
 //! - 口令算法完全照抄：PBKDF2-HMAC-SHA1、50 次迭代、24 字节盐、24 字节输出，
 //!   并按 Crystal 的方式把结果当 UTF-8 解码成字符串（见 [`hash_password`]）。
+//!   落库前再按标准 Base64 编码（[`encode_hash`]），避免 lossy 字符串里的 NUL 触发
+//!   PostgreSQL `22021`；迁移 `0010_password_hash_base64.sql` 负责转换旧行。
 //! - 时间统一为 `timestamptz`；Crystal 的 `DateTime.MinValue` 落成 `NULL`。
 //! - 物品在 MVP 阶段是 `BYTEA` 整块，尚未拆成独立的 `user_items` 表。
 //! - 金币、点数、仓库按任务要求放在角色行；Crystal 实际把它们挂在账号上，
@@ -81,7 +83,9 @@ pub use models::{
     GuildMemberRow, GuildRankRow, GuildStorageRow, LoginGate, Mail, MarketAuction, NewAccount,
     NewCharacter,
 };
-pub use password::{HASH_LEN, ITERATIONS, SALT_LEN, generate_salt, hash_password, verify_password};
+pub use password::{
+    HASH_LEN, ITERATIONS, SALT_LEN, encode_hash, generate_salt, hash_password, verify_password,
+};
 pub use repo::{
     create_account, create_character, create_guild, create_mail, delete_character, delete_guild,
     delete_mail, find_account, find_character_by_name, is_supported_language, list_auctions,

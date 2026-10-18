@@ -79,33 +79,29 @@ pub async fn serve_forever<S: AccountStore>(
         .load_auctions()
         .await
         .context("读取市场挂单失败，拒绝以空市场启动")?;
-    let (auction_count, purged, refund_mails) = {
+    let (auction_count, purged, market_cleanup) = {
         let mut world = world.lock().await;
         let loaded = world.load_auctions(auctions);
         let now_ms = world.wall_now();
         let purged = world.purge_expired_auctions(now_ms);
-        // 退回邮件先留在写队列里，出锁后统一落库（MemoryStore/Pg 均支持离线收件人）。
-        let mails = if purged.is_empty() {
-            Vec::new()
+        // F2：退回邮件与「删除挂单」必须在同一事务提交；否则崩溃在两者之间会重复退款。
+        // 出锁后由 `apply_market_update` 用一个 PostgreSQL 事务落库。
+        let cleanup = if purged.is_empty() {
+            None
         } else {
-            world.take_mail_writes()
+            Some(crate::store::MarketUpdate {
+                character: None,
+                mail_writes: world.take_mail_writes(),
+                auctions: world.auction_snapshot(),
+            })
         };
-        (loaded, purged, mails)
+        (loaded, purged, cleanup)
     };
-    if !refund_mails.is_empty() {
-        crate::mail::persist_mail_writes(store.as_ref(), refund_mails)
-            .await
-            .context("市场过期退回邮件落盘失败")?;
-    }
-    if !purged.is_empty() {
-        let snapshot = {
-            let world = world.lock().await;
-            world.auction_snapshot()
-        };
+    if let Some(cleanup) = market_cleanup {
         store
-            .save_auctions(snapshot)
+            .apply_market_update(cleanup)
             .await
-            .context("清理过期市场挂单落盘失败")?;
+            .context("过期市场挂单清理（退回邮件+删除挂单）事务失败")?;
     }
     tracing::info!(
         loaded = auction_count,

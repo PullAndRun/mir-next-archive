@@ -30,9 +30,11 @@ use mir_core::{DateTimeBinary, Point};
 use mir_db::{MirDb, NpcInfo};
 use mir_protocol::data::{ItemInfo, Stats, UserItem};
 use mir_server::gamedata::GameData;
+use mir_server::mail::MailWrite;
+use mir_server::store::{AuctionRecord, MarketUpdate};
 use mir_server::{
-    AccountStore, Auction, CONSIGN_KEY, MARKET_KEY, MagicState, MailState, MemoryStore, NpcState,
-    PgAccountStore, Player, TradeState, World, combat, items,
+    AccountStore, Auction, CONSIGN_KEY, MARKET_KEY, MagicState, MailRecord, MailState, MemoryStore,
+    NpcState, PgAccountStore, Player, TradeState, World, combat, items,
 };
 use mir_world::{Map, MapCell, MapVersion};
 use tokio::sync::mpsc;
@@ -256,8 +258,43 @@ async fn flush_mails<S: AccountStore>(store: &S, world: &mut World) {
     }
 }
 
-/// 建一个账号和卖/买两个角色（返回角色 ID）。
-async fn seed_characters<S: AccountStore>(store: &S, tag: &str) -> (i64, i64) {
+/// 构造一条退款/退货系统邮件（F2 用例）。
+fn sample_mail(character_id: i64, gold: u32) -> MailRecord {
+    MailRecord {
+        id: 0,
+        character_id,
+        sender_name: "比奇管理员".to_owned(),
+        subject: String::new(),
+        message: "测试退款".to_owned(),
+        items: Vec::new(),
+        gold,
+        date_sent: DateTimeBinary::default(),
+        opened: false,
+        locked: false,
+        collected: false,
+    }
+}
+
+/// 构造一条只有外键会失败的挂单（F2/F3 回滚用例）。
+fn invalid_auction(id: u64, seller_character_id: i64) -> AuctionRecord {
+    AuctionRecord {
+        id,
+        item: Vec::new(),
+        consignment_date: DateTimeBinary::default(),
+        price: 5_000,
+        current_bid: 0,
+        seller_character_id,
+        seller_name: "坏挂单".to_owned(),
+        current_buyer_character_id: None,
+        current_buyer_name: None,
+        expired: false,
+        sold: false,
+        item_type: MarketItemType::Consign,
+    }
+}
+
+/// 建一个账号和卖/买两个角色（返回账号 ID 与角色 ID）。
+async fn seed_characters<S: AccountStore>(store: &S, tag: &str) -> (i64, i64, i64) {
     let account = store
         .create_account(&format!("mkt{tag}"), "secret", "")
         .await
@@ -284,7 +321,7 @@ async fn seed_characters<S: AccountStore>(store: &S, tag: &str) -> (i64, i64) {
         )
         .await
         .expect("建买家");
-    (seller.id, buyer.id)
+    (account.id, seller.id, buyer.id)
 }
 
 // ---------------------------------------------------------------------------
@@ -292,7 +329,7 @@ async fn seed_characters<S: AccountStore>(store: &S, tag: &str) -> (i64, i64) {
 // ---------------------------------------------------------------------------
 
 async fn run_consign_survives_restart<S: AccountStore>(store: &S, tag: &str) {
-    let (seller_id, buyer_id) = seed_characters(store, tag).await;
+    let (_account_id, seller_id, buyer_id) = seed_characters(store, tag).await;
 
     let (mut world, npc_id) = build_world();
     add_player(&mut world, SELLER, seller_id, "卖家", 100_000, npc_id);
@@ -341,7 +378,7 @@ async fn run_consign_survives_restart<S: AccountStore>(store: &S, tag: &str) {
 // ---------------------------------------------------------------------------
 
 async fn run_buyout_survives_restart<S: AccountStore>(store: &S, tag: &str) {
-    let (seller_id, buyer_id) = seed_characters(store, tag).await;
+    let (_account_id, seller_id, buyer_id) = seed_characters(store, tag).await;
 
     let (mut world, npc_id) = build_world();
     add_player(&mut world, SELLER, seller_id, "卖家", 100_000, npc_id);
@@ -417,7 +454,7 @@ async fn run_buyout_survives_restart<S: AccountStore>(store: &S, tag: &str) {
 // ---------------------------------------------------------------------------
 
 async fn run_bid_attribution_survives_restart<S: AccountStore>(store: &S, tag: &str) {
-    let (seller_id, buyer_id) = seed_characters(store, tag).await;
+    let (_account_id, seller_id, buyer_id) = seed_characters(store, tag).await;
 
     let (mut world, npc_id) = build_world();
     add_player(&mut world, SELLER, seller_id, "卖家", 100_000, npc_id);
@@ -469,7 +506,7 @@ async fn run_bid_attribution_survives_restart<S: AccountStore>(store: &S, tag: &
 // ---------------------------------------------------------------------------
 
 async fn run_expired_auctions_are_purged<S: AccountStore>(store: &S, tag: &str) {
-    let (seller_id, buyer_id) = seed_characters(store, tag).await;
+    let (_account_id, seller_id, buyer_id) = seed_characters(store, tag).await;
 
     let (mut world, npc_id) = build_world();
     add_player(&mut world, SELLER, seller_id, "卖家", 100_000, npc_id);
@@ -522,6 +559,136 @@ async fn run_expired_auctions_are_purged<S: AccountStore>(store: &S, tag: &str) 
 }
 
 // ---------------------------------------------------------------------------
+// 场景 5：市场变更与角色行同事务（F3）
+// ---------------------------------------------------------------------------
+
+async fn run_market_update_is_atomic<S: AccountStore>(store: &S, tag: &str) {
+    let (account_id, seller_id, buyer_id) = seed_characters(store, tag).await;
+
+    let (mut world, npc_id) = build_world();
+    add_player(&mut world, SELLER, seller_id, "卖家", 100_000, npc_id);
+    add_player(&mut world, BUYER, buyer_id, "买家", 100_000, npc_id);
+    let auction_id = consign(&mut world, SELLER, 1, 5_000, MarketPanelType::Consign);
+    search_market(&mut world, BUYER);
+    world
+        .market_buy(BUYER, auction_id, 5_000)
+        .expect("买断应成功");
+
+    // 模拟「买断后立刻崩溃」：不经过下线存盘，只做市场原子落盘。
+    let base = store
+        .find_character(account_id, buyer_id)
+        .await
+        .expect("查买家")
+        .expect("买家存在");
+    let buyer_player = world.player(BUYER).expect("买家在线");
+    let character = mir_server::market::character_snapshot(&base, buyer_player);
+    store
+        .apply_market_update(MarketUpdate {
+            character: Some(character),
+            mail_writes: world.take_mail_writes(),
+            auctions: world.auction_snapshot(),
+        })
+        .await
+        .expect("角色行 + 挂单应同事务落盘");
+
+    // 直接读库：金币、背包、挂单三处都必须已经持久化。
+    let reloaded = store
+        .find_character(account_id, buyer_id)
+        .await
+        .expect("查买家")
+        .expect("买家存在");
+    assert_eq!(reloaded.gold, 95_000, "买断扣款必须和挂单同事务落库");
+    let slots = mir_server::decode_slots(&reloaded.inventory).expect("背包字节块");
+    assert!(
+        slots
+            .iter()
+            .flatten()
+            .any(|item| item.item_index == ITEM_INDEX),
+        "买到的东西必须已经落库（崩溃窗口不丢）",
+    );
+    let auctions = store.load_auctions().await.expect("读取挂单");
+    assert!(
+        auctions
+            .iter()
+            .find(|auction| auction.id == auction_id)
+            .is_some_and(|auction| auction.sold),
+        "挂单已售状态必须已经落库",
+    );
+
+    // 失败回滚：角色行改金币 + 无效卖家挂单（外键必失败），必须整组回滚。
+    let mut tampered = reloaded.clone();
+    tampered.gold = 1;
+    let result = store
+        .apply_market_update(MarketUpdate {
+            character: Some(tampered),
+            mail_writes: Vec::new(),
+            auctions: vec![invalid_auction(auction_id + 1, -1)],
+        })
+        .await;
+    assert!(result.is_err(), "无效挂单必须让整个事务失败");
+    let after = store
+        .find_character(account_id, buyer_id)
+        .await
+        .expect("查买家")
+        .expect("买家存在");
+    assert_eq!(after.gold, 95_000, "失败事务不能改动角色行");
+    assert_eq!(
+        store.load_auctions().await.expect("读取挂单").len(),
+        1,
+        "失败事务不能改动挂单"
+    );
+
+    store.save_auctions(Vec::new()).await.expect("清空测试挂单");
+}
+
+// ---------------------------------------------------------------------------
+// 场景 6：启动清理「退款至多一次」（F2）
+// ---------------------------------------------------------------------------
+
+async fn run_market_cleanup_is_atomic<S: AccountStore>(store: &S, tag: &str) {
+    let (_account_id, seller_id, _buyer_id) = seed_characters(store, tag).await;
+
+    // 清理中途失败：退款邮件 + 无效挂单 → 整个事务回滚，邮件不能落库。
+    let failed = store
+        .apply_market_update(MarketUpdate {
+            character: None,
+            mail_writes: vec![MailWrite::Create(Box::new(sample_mail(seller_id, 6_000)))],
+            auctions: vec![invalid_auction(900, -1)],
+        })
+        .await;
+    assert!(failed.is_err(), "无效挂单必须让清理事务失败");
+    assert!(
+        store
+            .list_mail(seller_id)
+            .await
+            .expect("读邮箱")
+            .iter()
+            .all(|mail| mail.gold != 6_000),
+        "失败清理不能留下退款邮件（否则重试会重复退款）",
+    );
+
+    // 成功：退款邮件 + 删除挂单同一事务提交。
+    store
+        .apply_market_update(MarketUpdate {
+            character: None,
+            mail_writes: vec![MailWrite::Create(Box::new(sample_mail(seller_id, 6_000)))],
+            auctions: Vec::new(),
+        })
+        .await
+        .expect("清理事务应成功");
+    let mails = store.list_mail(seller_id).await.expect("读邮箱");
+    assert_eq!(
+        mails.iter().filter(|mail| mail.gold == 6_000).count(),
+        1,
+        "退款邮件必须恰好一封",
+    );
+    assert!(
+        store.load_auctions().await.expect("读取挂单").is_empty(),
+        "清理成功后挂单必须为空；重启不会再触发同一批退款",
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 用例：MemoryStore（全跑）与 PostgreSQL（有环境变量才跑）
 // ---------------------------------------------------------------------------
 
@@ -547,6 +714,18 @@ async fn market_bid_attribution_survives_restart() {
 async fn expired_auctions_are_purged_on_restart() {
     let store = MemoryStore::new();
     run_expired_auctions_are_purged(&store, "mem-expire").await;
+}
+
+#[tokio::test]
+async fn market_update_persists_character_and_auctions_atomically() {
+    let store = MemoryStore::new();
+    run_market_update_is_atomic(&store, "mem-atomic").await;
+}
+
+#[tokio::test]
+async fn market_cleanup_refund_is_at_most_once() {
+    let store = MemoryStore::new();
+    run_market_cleanup_is_atomic(&store, "mem-cleanup").await;
 }
 
 /// 回归：重启载入后 `next_auction_id` 必须是 `max(id) + 1`，不能回到 1。
@@ -614,5 +793,7 @@ async fn postgres_market_persistence_roundtrip() {
     run_buyout_survives_restart(&store, &format!("{tag}b")).await;
     run_bid_attribution_survives_restart(&store, &format!("{tag}c")).await;
     run_expired_auctions_are_purged(&store, &format!("{tag}d")).await;
+    run_market_update_is_atomic(&store, &format!("{tag}e")).await;
+    run_market_cleanup_is_atomic(&store, &format!("{tag}f")).await;
     store.save_auctions(Vec::new()).await.expect("清空测试挂单");
 }

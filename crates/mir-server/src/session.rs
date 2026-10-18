@@ -26,14 +26,12 @@ use tokio::sync::Mutex;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::config::ServerConfig;
-use crate::items::{
-    decode_equipment, decode_inventory, encode_slots, new_equipment, new_inventory,
-};
-use crate::magic::{decode_magics, encode_magics};
+use crate::items::{decode_equipment, decode_inventory, new_equipment, new_inventory};
+use crate::magic::decode_magics;
 use crate::mail::{Mail, MailRecipient, MailState};
 use crate::npc::NpcState;
-use crate::quests::{decode_quests, encode_quests};
-use crate::storage::{decode_storage, encode_storage, new_storage};
+use crate::quests::decode_quests;
+use crate::storage::{decode_storage, new_storage};
 use crate::store::{Account, AccountStore, Character, StoreError};
 use crate::world::{Player, World};
 
@@ -1583,19 +1581,38 @@ impl<S: AccountStore> Session<S> {
         }
     }
 
-    /// 把世界里的全部市场挂单按**整表快照**落盘（见 [`crate::market::persist_auctions`]）。
+    /// 把世界里的全部市场挂单按**整表快照**落盘（见 [`crate::market::flush_market_update`]）。
     ///
     /// 只在上架/买断/提前成交/取回这些变更包处理完之后由 [`Session::handle`] 的统一钩子
-    /// 调用；下线时再补一次，保证「服务器关闭前不丢」。世界层没有市场写入队列
-    /// （不新增 `World` 字段），快照就是当前 `World::auctions` 的全部内容。
+    /// 调用；下线时再补一次。落盘内容包括：
+    /// * **当前角色行快照**（背包/金币等市场操作刚改过的字段）——F3；
+    /// * 市场操作产生的系统邮件（成交邮寄/出价退回）——F3；
+    /// * 最新挂单快照——F1/F3。
+    ///
+    /// 三者由 [`crate::market::flush_market_update`] 串行化并在同一事务提交；
+    /// 这里不在 world 锁内做 IO。
     async fn flush_auction_writes(&self) {
-        let snapshot = {
+        let character = {
             let world = self.world.lock().await;
-            world.auction_snapshot()
+            self.object_id
+                .and_then(|object_id| world.player(object_id))
+                .and_then(|player| self.character_snapshot(player))
         };
-        if let Err(error) = crate::market::persist_auctions(self.store.as_ref(), snapshot).await {
-            tracing::warn!(session = self.id, %error, "市场挂单落盘失败");
+        if let Err(error) =
+            crate::market::flush_market_update(self.store.as_ref(), &self.world, character).await
+        {
+            tracing::warn!(session = self.id, %error, "市场变更原子落盘失败");
         }
+    }
+
+    /// 用世界里的玩家状态刷新本会话的角色存档视图。
+    ///
+    /// 与 [`crate::market::character_snapshot`] 共用同一份编解码；市场落盘和下线存盘
+    /// 都必须看到同一份「世界 → 角色行」映射。
+    fn character_snapshot(&self, player: &Player) -> Option<Character> {
+        self.character
+            .as_ref()
+            .map(|base| crate::market::character_snapshot(base, player))
     }
 
     /// 客户端把物品放进仓库：`C.StoreItem`（Crystal `PlayerObject.StoreItem`，
@@ -2114,36 +2131,10 @@ impl<S: AccountStore> Session<S> {
             world.leave(object_id)
         };
         if let Some(player) = leaving {
-            if let Some(character) = &mut self.character {
-                character.inventory = encode_slots(&player.inventory);
-                character.equipment = encode_slots(&player.equipment);
-                // 仓库块：Crystal `AccountInfo.Save` 的「`Storage.Length` + 每槽 bool/`UserItem`」
-                // （`Server/MirDatabase/AccountInfo.cs:241-248`），本作存 `characters.storage`。
-                character.storage = encode_storage(&player.storage);
-                // 技能块：`CharacterInfo.Save` 的「`Magics.Count` + 逐条 `UserMagic.Save`」
-                // （`CharacterInfo.cs:458-463`）。
-                character.magics = encode_magics(&player.magics);
-                // 任务块：`CharacterInfo.Save` 的「`CurrentQuests.Count` + 逐条」与
-                // 「`CompletedQuests.Count` + 逐条」（`CharacterInfo.cs:488-492`、`:514-518`）。
-                character.quests = encode_quests(&crate::quests::QuestSave {
-                    quests: player.quests.clone(),
-                    completed_quests: player.completed_quests.clone(),
-                });
-                character.gold = player.gold;
-                character.credit = player.credit;
-                character.hp = player.hp;
-                character.mp = player.mp;
-                character.level = player.level;
-                character.experience = player.experience;
-                character.x = player.position.x;
-                character.y = player.position.y;
-                character.direction = player.direction;
-                // 切图后角色要在新图上重登，地图名必须一起落盘
-                // （Crystal `CharacterInfo` 存的是当前地图，`Envir.SaveAccounts`）。
-                character.map.clone_from(&player.map);
-                // 行会归属：世界里的成员表才是事实来源（`guild` 在进世界时已校正过），
-                // 存档只记 `characters.guild_index`（Crystal `CharacterInfo.GuildIndex`）。
-                character.guild_index = player.guild.map_or(-1, |reference| reference.guild_id);
+            // 世界 → 角色行的映射与市场落盘共用 `market::character_snapshot`，
+            // 保证「下线存盘」与「市场事务落盘」不会写出两套不同的背包/金币语义。
+            if let Some(character) = self.character_snapshot(&player) {
+                self.character = Some(character);
             }
         }
         if let Some(character) = self.character.clone() {

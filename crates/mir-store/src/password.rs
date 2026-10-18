@@ -14,6 +14,10 @@
 //! 见 <https://learn.microsoft.com/dotnet/core/compatibility/2.2-3.0>），
 //! 保证新库与 Crystal 存档里的口令串可以互相校验。
 //!
+//! **存储前必须经过 [`encode_hash`]**：lossy 字符串可能含 NUL（0x00 是合法 UTF-8），
+//! 直接写 PostgreSQL TEXT 会报 `22021`。Base64 保留全部字节，验证时重算再编码比较，
+//! 语义与「直接比较 lossy 字符串」一致（刑部 t7 F4）。
+//!
 //! 比较口令时使用常量时间比较；Crystal 用的是 `string.CompareOrdinal`。
 
 use pbkdf2::pbkdf2_hmac;
@@ -43,17 +47,64 @@ pub fn generate_salt() -> [u8; SALT_LEN] {
 /// 按 Crystal 的方式散列口令：PBKDF2-HMAC-SHA1（50 次、24 字节输出）+ UTF-8 替换解码。
 ///
 /// 同一组 `(password, salt)` 结果稳定；`salt` 长度不受限制（Crystal 固定 24 字节）。
+///
+/// 返回值可能含 NUL（0x00 是合法 UTF-8）与 U+FFFD；**不要**直接写 TEXT 列，
+/// 存储前必须先经过 [`encode_hash`]（见迁移 `0010_password_hash_base64.sql`）。
 pub fn hash_password(password: &str, salt: &[u8]) -> String {
     let mut derived = [0u8; HASH_LEN];
     pbkdf2_hmac::<Sha1>(password.as_bytes(), salt, ITERATIONS, &mut derived);
     String::from_utf8_lossy(&derived).into_owned()
 }
 
+/// 把 Crystal 的 lossy 散列字符串编码成可安全存 TEXT 的 ASCII（标准 Base64）。
+///
+/// 旧实现把 [`hash_password`] 的结果直接写 `accounts.password_hash TEXT`；当 24 字节
+/// 派生物里出现 0x00（合法 UTF-8、概率约 9%）时 PostgreSQL 报
+/// `22021 invalid byte sequence "UTF8": 0x00`，建号失败（刑部 t7 F4）。
+///
+/// Base64 保留 lossy 字符串的**全部 UTF-8 字节**（包括 U+FFFD 的 `EF BF BD` 与 NUL），
+/// 输出只含 ASCII，且与迁移 0010 的 `encode(convert_to(...), 'base64')` 一一对应。
+/// 验证时用同一函数重算再比较，所以「存储/重算两侧同一变换」的语义不变。
+#[must_use]
+pub fn encode_hash(lossy: &str) -> String {
+    base64_encode(lossy.as_bytes())
+}
+
+/// 标准 Base64（RFC 4648，带 `=` 填充），与 PostgreSQL `encode(bytea, 'base64')` 一致。
+///
+/// 只用 64 个 ASCII 字符，输出不可能含 NUL；解码后逐字节还原输入。
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let first = u32::from(chunk[0]);
+        let second = chunk.get(1).copied().map_or(0, u32::from);
+        let third = chunk.get(2).copied().map_or(0, u32::from);
+        let triple = (first << 16) | (second << 8) | third;
+
+        encoded.push(char::from(ALPHABET[((triple >> 18) & 0x3F) as usize]));
+        encoded.push(char::from(ALPHABET[((triple >> 12) & 0x3F) as usize]));
+        if chunk.len() > 1 {
+            encoded.push(char::from(ALPHABET[((triple >> 6) & 0x3F) as usize]));
+        } else {
+            encoded.push('=');
+        }
+        if chunk.len() > 2 {
+            encoded.push(char::from(ALPHABET[(triple & 0x3F) as usize]));
+        } else {
+            encoded.push('=');
+        }
+    }
+    encoded
+}
+
 /// 校验明文口令是否与账号里保存的散列一致。
 ///
-/// 使用账号自带的 [`Account::salt`] 重算后再做常量时间比较；盐或散列被改动都会返回 `false`。
+/// 使用账号自带的 [`Account::salt`] 重算、再按 [`encode_hash`] 编码后做常量时间比较；
+/// 盐或散列被改动都会返回 `false`。
 pub fn verify_password(account: &Account, password: &str) -> bool {
-    let candidate = hash_password(password, &account.salt);
+    let candidate = encode_hash(&hash_password(password, &account.salt));
     constant_time_eq(candidate.as_bytes(), account.password_hash.as_bytes())
 }
 
@@ -78,7 +129,7 @@ impl Account {
     /// 每次赋值都会重新 `GenerateSalt()` 再散列。改完要调用 [`crate::save_account`] 才会写库。
     pub fn set_password(&mut self, password: &str) {
         self.salt = generate_salt().to_vec();
-        self.password_hash = hash_password(password, &self.salt);
+        self.password_hash = encode_hash(&hash_password(password, &self.salt));
     }
 }
 
@@ -108,7 +159,7 @@ mod tests {
     fn account_with(password: &str) -> Account {
         let salt = fixed_salt();
         Account {
-            password_hash: hash_password(password, &salt),
+            password_hash: encode_hash(&hash_password(password, &salt)),
             salt,
             ..Account::default()
         }
@@ -161,6 +212,57 @@ mod tests {
             hash.len() > HASH_LEN,
             "替换字符的 UTF-8 编码是 3 字节，散列串因此长于 24 字节",
         );
+    }
+
+    /// 固定向量：盐 `[8u8; 24]` + 口令 `hunter2` 的 PBKDF2 派生物是
+    /// `53caf6c596febaad2e795c4f646f6859f3060903c0008180`，第 21 字节为 0x00。
+    ///
+    /// 旧代码把这个 lossy 字符串直接写 TEXT，PostgreSQL 报 22021（刑部 t7 F4）。
+    /// 这里同时锁住两件事：① 该向量确实含 NUL；② `encode_hash` 之后不含 NUL
+    /// 且 Base64 解码能逐字节还原。
+    #[test]
+    fn encode_hash_keeps_nul_out_of_text() {
+        let salt = [8u8; SALT_LEN];
+        let lossy = hash_password("hunter2", &salt);
+
+        assert!(
+            lossy.as_bytes().contains(&0),
+            "固定向量必须含 NUL，否则这个回归测试失去意义",
+        );
+
+        let encoded = encode_hash(&lossy);
+        assert!(
+            !encoded.as_bytes().contains(&0),
+            "Base64 输出不能含 NUL：{encoded:?}",
+        );
+        // 与 Python `base64.b64encode(lossy_bytes)` / PostgreSQL `encode(...,'base64')` 对照。
+        assert_eq!(
+            encoded, "U++/ve+/vcWW77+977+977+9LnlcT2RvaFnvv70GCQPvv70A77+977+9",
+            "标准 Base64（带填充）必须逐字符一致",
+        );
+
+        let account = Account {
+            salt: salt.to_vec(),
+            password_hash: encoded,
+            ..Account::default()
+        };
+        assert!(verify_password(&account, "hunter2"));
+        assert!(!verify_password(&account, "hunter3"));
+    }
+
+    /// 旧行（迁移 0010 之前的 lossy 文本）经 `encode_hash` 变换后仍能验证同一口令。
+    #[test]
+    fn legacy_lossy_hash_still_verifies_after_encoding() {
+        let salt = fixed_salt();
+        let legacy = hash_password("hunter2", &salt);
+        let migrated = encode_hash(&legacy);
+        let account = Account {
+            salt,
+            password_hash: migrated,
+            ..Account::default()
+        };
+        assert!(verify_password(&account, "hunter2"));
+        assert!(!verify_password(&account, "wrong"));
     }
 
     #[test]

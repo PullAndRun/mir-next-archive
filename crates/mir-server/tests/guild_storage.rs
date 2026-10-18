@@ -1910,8 +1910,12 @@ fn real_guild_settings_buff_list_can_be_activated() {
             let relative = Path::new(candidate);
             [relative.to_path_buf(), workspace.join(relative)]
         })
-        .find(|path| path.is_file())
-        .expect("仓库里应有 GuildSettings.ini（resource/community/.../Configs）");
+        .find(|path| path.is_file());
+    // CI 上没有 `resource/`（被 gitignore），真实数据冒烟按约定跳过而不是失败。
+    let Some(path) = path else {
+        eprintln!("跳过：仓库里没有 GuildSettings.ini（resource/ 被 gitignore）");
+        return;
+    };
     let settings =
         GuildSettings::load(&path).unwrap_or_else(|| panic!("{} 应能解析", path.display()));
     assert!(

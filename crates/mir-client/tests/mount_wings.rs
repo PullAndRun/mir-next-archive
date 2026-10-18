@@ -68,10 +68,13 @@ fn mounted_player_renders_mount_and_wings_to_a_png() {
     let has_assets =
         data_dir.join("horse_x.wzl").is_file() && data_dir.join("wingeffect_x.wzl").is_file();
     if !has_assets {
+        // CI 上没有 `resource/`（被 gitignore），坐骑/翅膀图库缺失时颜色与差异断言没有意义，
+        // 按工程既有约定跳过（本地有素材时仍全量校验）。
         eprintln!(
-            "跳过真实素材：{} 下没有 horse_x.wzl / wingeffect_x.wzl",
+            "跳过：{} 下没有 horse_x.wzl / wingeffect_x.wzl（resource/ 被 gitignore）",
             data_dir.display()
         );
+        return;
     }
 
     // 有真实地图就用 `0.map` 当背景，没有则用合成空地图；两者都只依赖本地素材。

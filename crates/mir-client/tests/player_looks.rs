@@ -222,6 +222,13 @@ fn equipment_layers_reach_the_snapshot_and_the_frame() {
         .expect("路人甲");
     assert_eq!((other.armour, other.weapon, other.hair), (3, 7, 3));
 
+    // CI 上没有 `resource/`（被 gitignore）：占位方块的颜色/像素差异断言没有意义，
+    // 快照层的断言已经跑过，这里按工程既有约定跳过渲染部分。
+    if !root.join("resource/data").is_dir() {
+        println!("跳过像素断言：缺少真实素材（resource/ 被 gitignore）");
+        return;
+    }
+
     // 3. 换武器（背包里的 210 段武器 → 武器槽 0）：外观刷新 + 重绘后画面不同。
     let before = render(&snapshot, &root);
     snapshot.apply_packet(&ServerPacket::EquipItem(EquipItem {

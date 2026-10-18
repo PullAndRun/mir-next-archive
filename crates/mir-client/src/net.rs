@@ -106,9 +106,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, anyhow, bail};
 use mir_core::Point;
 use mir_core::enums::{
-    BuffType, ChatType, DamageType, ItemGrade, ItemType, MarketCollectionMode, MarketItemType,
-    MarketPanelType, MirClass, MirDirection, MirGender, MirGridType, PanelType, QuestState,
-    QuestType, RequiredType, Spell, SpellEffect, Stat,
+    BuffType, ChatType, DamageType, ItemGrade, ItemType, LightSetting, MarketCollectionMode,
+    MarketItemType, MarketPanelType, MirClass, MirDirection, MirGender, MirGridType, PanelType,
+    QuestState, QuestType, RequiredType, Spell, SpellEffect, Stat, WeatherSetting,
 };
 use mir_protocol::codec::FrameBuffer;
 use mir_protocol::data::guild_rank::{GuildMember, GuildRank};
@@ -1141,6 +1141,24 @@ pub enum SystemChat {
     GuildMemberLeft {
         /// 成员名字。
         name: String,
+    },
+    /// 任务物品：获得（`S.GainedQuestItem`）。
+    QuestItemGained {
+        /// 物品名（模板缺失时 `None`）。
+        name: Option<String>,
+        /// 模板编号（名字缺失时的占位用）。
+        item_index: i32,
+        /// 数量。
+        count: u16,
+    },
+    /// 任务物品：失去（`S.DeleteQuestItem`）。
+    QuestItemLost {
+        /// 物品名（模板缺失时 `None`）。
+        name: Option<String>,
+        /// 模板编号（名字缺失时的占位用）。
+        item_index: i32,
+        /// 数量。
+        count: u16,
     },
 }
 
@@ -2375,6 +2393,14 @@ pub struct WorldSnapshot {
     /// 地面金币堆的对象编号 → 金额（`S.ObjectGold`）。金币堆名字按玩家语言渲染
     /// （`ui::worldtext`），所以不把中文写进实体名字。
     pub gold_piles: BTreeMap<u32, u32>,
+    /// 任务物品栏（`S.GainedQuestItem` / `S.DeleteQuestItem`；Crystal `QuestInventory`）。
+    pub quest_items: Vec<InventoryItem>,
+    /// 任务物品每次变化 +1（UI 据此刷新任务面板）。
+    pub quest_items_version: u64,
+    /// 昼夜（`S.TimeOfDay`）。服务端目前不发这个包，`None` 表示不知道；收到后 HUD 才显示。
+    pub lights: Option<LightSetting>,
+    /// 天气（`S.MapChanged.weather`）。协议没有独立的 `S.Weather`，天气随切图下发。
+    pub weather: Option<WeatherSetting>,
     /// 收到过多少页 NPC 对话（版本号来源）。
     pub npc_dialog_version: u64,
     /// 收到过多少次商店货架（版本号来源）。
@@ -2436,6 +2462,10 @@ impl Default for WorldSnapshot {
             characters: Vec::new(),
             characters_version: 0,
             gold_piles: BTreeMap::new(),
+            quest_items: Vec::new(),
+            quest_items_version: 0,
+            lights: None,
+            weather: None,
             npc_dialog_version: 0,
             npc_goods_version: 0,
             packet_counts: BTreeMap::new(),
@@ -3771,6 +3801,9 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
         ServerPacket::GroupInvite(_) => "GroupInvite",
         ServerPacket::GroupMembersMap(_) => "GroupMembersMap",
         ServerPacket::SendMemberLocation(_) => "SendMemberLocation",
+        ServerPacket::TimeOfDay(_) => "TimeOfDay",
+        ServerPacket::GainedQuestItem(_) => "GainedQuestItem",
+        ServerPacket::DeleteQuestItem(_) => "DeleteQuestItem",
         ServerPacket::ColourChanged(_) => "ColourChanged",
         ServerPacket::ObjectColourChanged(_) => "ObjectColourChanged",
         ServerPacket::ObjectName(_) => "ObjectName",
@@ -3852,6 +3885,12 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 );
             }
         }
+        ServerPacket::TimeOfDay(time) => {
+            // 昼夜（Crystal `GameScene.TimeOfDay`）：协议有包（index 61），但本作服务端
+            // 目前不发（`mir-server/src/session.rs:879` 注明「本作没有 TimeOfDay」）。
+            // 这里先接住，收到就更新 HUD；没收到时 `None`，HUD 不显示昼夜。
+            snapshot.lights = Some(time.lights);
+        }
         ServerPacket::MapChanged(changed) => {
             snapshot.map = Some(MapSnapshot {
                 map_index: changed.map_index,
@@ -3863,6 +3902,9 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 big_map: changed.big_map,
                 music: changed.music,
             });
+            // 天气随切图下发（协议没有独立的 `S.Weather`，`MapChanged.weather` 就是
+            // Crystal `ServerPackets.MapChanged` 的 weather 字段）。
+            snapshot.weather = Some(changed.weather);
             snapshot.entities.clear();
             // 换地图等于离开当前 NPC，UI 必须把对话/商店/仓库收起来。
             snapshot.npc_dialog = None;
@@ -3889,6 +3931,17 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                     .iter()
                     .map(|item| item.as_ref().map(InventoryItem::from_user_item))
                     .collect();
+            }
+            // 任务物品栏（Crystal `UserInformation.QuestInventory`，40 格）：
+            // `null` 保留旧数据，`Some` 整栏替换（登录/重连时恢复，否则要等下一次
+            // `S.GainedQuestItem` 才有内容）。
+            if let Some(quest_inventory) = &info.quest_inventory {
+                snapshot.quest_items = quest_inventory
+                    .iter()
+                    .flatten()
+                    .map(InventoryItem::from_user_item)
+                    .collect();
+                snapshot.quest_items_version = snapshot.quest_items_version.saturating_add(1);
             }
             // `S.UserInformation` 不带坐骑/翅膀；保留之前 `S.MountUpdate` / `S.ObjectPlayer`
             // 已经写入的值（登录链路通常先发 UserInformation，再发 MountUpdate）。
@@ -4352,6 +4405,49 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                     }),
                 },
             );
+        }
+        ServerPacket::GainedQuestItem(gained) => {
+            // 任务物品不走背包（Crystal 的 `QuestInventory`，`GameScene.cs:3185-3200`），
+            // 单独一列表；图标仍复用 `items.wzl`，所以 UI 按 `item_index` 找模板。
+            let item = InventoryItem::from_user_item(&gained.item);
+            add_quest_item(snapshot, item.clone());
+            let name = snapshot
+                .item_info(item.item_index)
+                .map(|info| info.name.clone());
+            push_chat(
+                snapshot,
+                ChatLine {
+                    speaker: None,
+                    text: String::new(),
+                    kind: ChatType::System,
+                    system: Some(SystemChat::QuestItemGained {
+                        name,
+                        item_index: item.item_index,
+                        count: item.count,
+                    }),
+                },
+            );
+        }
+        ServerPacket::DeleteQuestItem(deleted) => {
+            // 服务端按 `unique_id` 扣数量（Crystal `GameScene.cs:3202-3216`）；
+            // 扣到 0 才从列表里移除。找不到就不发提示。
+            if let Some(item_index) = remove_quest_item(snapshot, deleted.unique_id, deleted.count)
+            {
+                let name = snapshot.item_info(item_index).map(|info| info.name.clone());
+                push_chat(
+                    snapshot,
+                    ChatLine {
+                        speaker: None,
+                        text: String::new(),
+                        kind: ChatType::System,
+                        system: Some(SystemChat::QuestItemLost {
+                            name,
+                            item_index,
+                            count: deleted.count,
+                        }),
+                    },
+                );
+            }
         }
         ServerPacket::GainedGold(gained) => {
             if let Some(me) = &mut snapshot.self_player {
@@ -5444,7 +5540,68 @@ fn snap_move_inventory(snapshot: &mut WorldSnapshot, from: i32, to: i32) {
     snapshot.inventory.swap(from, to);
 }
 
-/// 把一件物品放进背包：可堆叠就先并进已有堆，否则找第一个空格。
+/// 任务物品入列（Crystal `GameScene.AddQuestItem`，`GameScene.cs:6559-6586`）。
+///
+/// 语义（与服务端 `QuestInventory::add` 对齐）：
+/// * 先按 `unique_id` 命中：服务端发「合并后的整堆」（同 id、count 变大）时直接整堆替换；
+/// * 可堆叠物品按**模板**并进同模板未满的堆（服务端 `GainQuestItem` 发增量克隆，
+///   `unique_id` 可能是新的，不能按 id 查重，否则会显示成两堆）；
+/// * 还有剩余就放到第一个空位（客户端没有固定 40 格数组，服务端已保证有空间，直接 push）。
+fn add_quest_item(snapshot: &mut WorldSnapshot, item: InventoryItem) {
+    if let Some(existing) = snapshot
+        .quest_items
+        .iter_mut()
+        .find(|existing| existing.unique_id == item.unique_id)
+    {
+        *existing = item;
+        snapshot.quest_items_version = snapshot.quest_items_version.saturating_add(1);
+        return;
+    }
+    let stack_size = snapshot
+        .item_info(item.item_index)
+        .map_or(1, |info| info.stack_size.max(1));
+    let mut remaining = item.count;
+    if stack_size > 1 {
+        for existing in &mut snapshot.quest_items {
+            if remaining == 0 {
+                break;
+            }
+            if existing.item_index != item.item_index || existing.count >= stack_size {
+                continue;
+            }
+            let room = stack_size.saturating_sub(existing.count);
+            let moved = remaining.min(room);
+            existing.count = existing.count.saturating_add(moved);
+            remaining -= moved;
+        }
+    }
+    if remaining > 0 {
+        let mut cloned = item;
+        cloned.count = remaining;
+        snapshot.quest_items.push(cloned);
+    }
+    snapshot.quest_items_version = snapshot.quest_items_version.saturating_add(1);
+}
+
+/// 任务物品扣数量（扣到 0 移除）；找不到返回 `None`（不发提示）。
+fn remove_quest_item(snapshot: &mut WorldSnapshot, unique_id: u64, count: u16) -> Option<i32> {
+    let position = snapshot
+        .quest_items
+        .iter()
+        .position(|item| item.unique_id == unique_id)?;
+    let item_index = snapshot.quest_items[position].item_index;
+    let left = snapshot.quest_items[position]
+        .count
+        .saturating_sub(count.max(1));
+    if left == 0 {
+        snapshot.quest_items.remove(position);
+    } else {
+        snapshot.quest_items[position].count = left;
+    }
+    snapshot.quest_items_version = snapshot.quest_items_version.saturating_add(1);
+    Some(item_index)
+}
+
 fn add_inventory_item(snapshot: &mut WorldSnapshot, item: InventoryItem) {
     let stack_size = snapshot
         .item_infos

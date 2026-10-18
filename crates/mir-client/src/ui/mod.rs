@@ -3553,15 +3553,21 @@ pub fn draw(
     if state.show_quests {
         let layout = quests::quest_layout(screen, snapshot.quests.len(), state.quest_scroll);
         let hover_index = layout.row_at(state.mouse);
+        let selected_quest = state.selected_quest;
+        let mouse = state.mouse;
+        let time_millis = u64::try_from(state.time_millis).unwrap_or(0);
+        let UiState { icons, .. } = state;
+        let mut icon_fn = |image: u16| -> Option<Image> { load_icon(scene, icons, image) };
         quests::draw(
             frame,
             &layout,
             &context,
             snapshot,
-            state.selected_quest,
+            selected_quest,
             hover_index,
-            state.mouse,
-            u64::try_from(state.time_millis).unwrap_or(0),
+            mouse,
+            time_millis,
+            &mut icon_fn,
         );
     }
 

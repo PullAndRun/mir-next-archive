@@ -18,20 +18,24 @@
 use std::path::{Path, PathBuf};
 
 use mir_client::geom::Rect;
-use mir_client::net::{CharacterInfo, NetCommand, SystemChat, WorldSnapshot};
+use mir_client::net::{
+    CharacterInfo, InventoryItem, NetCommand, QuestView, SystemChat, WorldSnapshot,
+};
 use mir_client::settings::ClientSettings;
 use mir_client::ui::labels;
 use mir_client::ui::settings::{self as settings_ui, SettingsAction};
-use mir_client::ui::{self, UiAction, UiState, UiText, market, select};
+use mir_client::ui::{self, UiAction, UiState, UiText, hud, market, quests, select};
 use mir_core::enums::{
-    ChatType, ItemType, MarketItemType, MarketPanelType, MirClass, MirDirection, MirGender, Spell,
+    ChatType, ItemType, LightSetting, MarketItemType, MarketPanelType, MirClass, MirDirection,
+    MirGender, Spell, WeatherSetting,
 };
 use mir_core::{DateTimeBinary, Language, Point};
 use mir_protocol::ServerPacket;
-use mir_protocol::data::{ClientAuction, ItemInfo, SelectInfo, UserItem};
+use mir_protocol::data::{ClientAuction, ClientMail, ItemInfo, SelectInfo, UserItem};
 use mir_protocol::packets::server::{
-    Chat, GainedGold, GainedItem, LoginSuccess, Magic, MarketFail, NPCMarket, NewItemInfo,
-    ObjectHidden, ObjectMagic, ObjectSpell, StartGame, TradeConfirm, UserInformation,
+    Chat, DeleteQuestItem, GainedGold, GainedItem, GainedQuestItem, LoginSuccess, Magic,
+    MapChanged, MarketFail, NPCMarket, NewItemInfo, ObjectHidden, ObjectMagic, ObjectSpell,
+    ReceiveMail, StartGame, TimeOfDay, TradeConfirm, UserInformation,
 };
 use mir_render::{Frame, MapScene, TileLibraries, Viewport};
 use mir_world::{Map, MapCell, MapVersion};
@@ -1074,4 +1078,273 @@ fn english_login_error_never_shows_raw_chinese_diagnostics() {
     let blank = Frame::new(800, 600);
     assert!(changed_pixels(&blank, &en, layout.panel) > 100);
     assert_eq!(state.message.as_deref(), Some(raw));
+}
+
+// ===== 第 4 轮：任务物品 / 拍卖提示 / 时间天气 =====
+
+#[test]
+fn quest_items_track_gained_and_deleted_items() {
+    let mut snapshot = snapshot_with_player(0, &[]);
+    snapshot.apply_packet(&ServerPacket::GainedQuestItem(GainedQuestItem {
+        item: user_item(900, 1000, 2),
+    }));
+    assert_eq!(snapshot.quest_items.len(), 1);
+    assert_eq!(snapshot.quest_items[0].count, 2);
+    assert_eq!(snapshot.quest_items_version, 1);
+    let line = snapshot.chat.last().expect("获得任务物品要有提示");
+    assert!(matches!(
+        &line.system,
+        Some(SystemChat::QuestItemGained {
+            name: Some(name),
+            count: 2,
+            ..
+        }) if name == "元宝商品"
+    ));
+    assert_eq!(
+        labels::chat_line_text(line, Language::ZhCn),
+        "获得任务物品 元宝商品 ×2"
+    );
+    assert_eq!(
+        labels::chat_line_text(line, Language::En),
+        "Quest item gained: 元宝商品 ×2"
+    );
+
+    // 同 `unique_id` 覆盖（服务端发「合并后的整堆」时 count 变大），版本号继续增长。
+    snapshot.apply_packet(&ServerPacket::GainedQuestItem(GainedQuestItem {
+        item: user_item(900, 1000, 3),
+    }));
+    assert_eq!(snapshot.quest_items.len(), 1);
+    assert_eq!(snapshot.quest_items[0].count, 3);
+    assert_eq!(snapshot.quest_items_version, 2);
+
+    // 服务端发增量克隆（新 unique_id、同模板）：按模板并堆，不能显示成两堆
+    // （Crystal `GameScene.AddQuestItem`，`GameScene.cs:6559-6586`）。
+    snapshot.apply_packet(&ServerPacket::GainedQuestItem(GainedQuestItem {
+        item: user_item(901, 1000, 4),
+    }));
+    assert_eq!(snapshot.quest_items.len(), 1, "同模板增量要并进已有堆");
+    assert_eq!(snapshot.quest_items[0].count, 7);
+    assert_eq!(
+        snapshot.quest_items[0].unique_id, 900,
+        "保留先入堆的 unique_id"
+    );
+
+    // 扣数量：7 扣 2 剩 5（仍保留），提示「失去任务物品」。
+    snapshot.apply_packet(&ServerPacket::DeleteQuestItem(DeleteQuestItem {
+        unique_id: 900,
+        count: 2,
+    }));
+    assert_eq!(snapshot.quest_items.len(), 1);
+    assert_eq!(snapshot.quest_items[0].count, 5);
+    assert!(matches!(
+        &snapshot.chat.last().expect("扣除要有提示").system,
+        Some(SystemChat::QuestItemLost { count: 2, .. })
+    ));
+
+    // 再扣 5 到 0：从列表移除。
+    snapshot.apply_packet(&ServerPacket::DeleteQuestItem(DeleteQuestItem {
+        unique_id: 900,
+        count: 5,
+    }));
+    assert!(snapshot.quest_items.is_empty());
+
+    // 未知 `unique_id`：不改状态、不发聊天。
+    let before = snapshot.chat.len();
+    snapshot.apply_packet(&ServerPacket::DeleteQuestItem(DeleteQuestItem {
+        unique_id: 123_456,
+        count: 1,
+    }));
+    assert!(snapshot.quest_items.is_empty());
+    assert_eq!(snapshot.chat.len(), before);
+}
+
+#[test]
+fn user_information_restores_quest_inventory() {
+    let mut snapshot = WorldSnapshot::default();
+    snapshot.apply_packet(&ServerPacket::NewItemInfo(NewItemInfo {
+        info: item_info(1000, "元宝商品", 10, 100),
+    }));
+    // 登录/重连：`UserInformation.QuestInventory`（40 格，`null` = 保留旧数据）。
+    snapshot.apply_packet(&ServerPacket::UserInformation(UserInformation {
+        object_id: 7,
+        real_id: 7,
+        name: "测试者".to_owned(),
+        quest_inventory: Some(vec![
+            Some(user_item(77, 1000, 2)),
+            None,
+            Some(user_item(78, 1000, 1)),
+        ]),
+        ..UserInformation::default()
+    }));
+    assert_eq!(snapshot.quest_items.len(), 2, "空格不生成条目");
+    assert_eq!(snapshot.quest_items[0].unique_id, 77);
+    assert_eq!(snapshot.quest_items[0].count, 2);
+    assert_eq!(snapshot.quest_items[1].unique_id, 78);
+    assert_eq!(snapshot.quest_items_version, 1);
+
+    // 之后 `DeleteQuestItem` 按 unique_id/count 扣减。
+    snapshot.apply_packet(&ServerPacket::DeleteQuestItem(DeleteQuestItem {
+        unique_id: 77,
+        count: 1,
+    }));
+    assert_eq!(snapshot.quest_items.len(), 2);
+    assert_eq!(snapshot.quest_items[0].count, 1);
+}
+
+#[test]
+fn quest_panel_shows_quest_items_and_fits_small_screens() {
+    let text = text();
+    let mut snapshot = snapshot_with_player(0, &[]);
+    snapshot.quests.push(QuestView {
+        id: 5,
+        name: "猎鹿".to_owned(),
+        group: "新手".to_owned(),
+        task_list: vec!["击杀 鹿 3/10".to_owned()],
+        taken: true,
+        completed: false,
+        new: false,
+        time_limit_seconds: 600,
+        accepted_at_ms: Some(1_000),
+    });
+    snapshot.quest_items.push(InventoryItem {
+        unique_id: 900,
+        item_index: 1000,
+        count: 2,
+        current_dura: 0,
+        max_dura: 0,
+    });
+
+    // 320×240：行数按高度缩减，「任务物品」区与底部提示都不能出屏。
+    let small = quests::quest_layout(Rect::screen(320, 240), snapshot.quests.len(), 0);
+    let screen = Rect::screen(320, 240);
+    assert!(screen.contains(small.panel.center()));
+    assert!(small.panel.right() <= screen.right());
+    assert!(small.panel.bottom() <= screen.bottom());
+    assert!(small.rows.len() < 3, "小窗口要减少可见行");
+    for row in &small.rows {
+        assert!(small.panel.contains(row.row.center()), "{row:?} 越出面板");
+        assert!(screen.contains(row.row.center()), "{row:?} 越出屏幕");
+    }
+    assert!(small.panel.contains(small.items.center()), "任务物品区越界");
+    assert!(small.panel.contains(small.footer.center()), "底部提示越界");
+    assert!(
+        small.items.bottom() <= small.footer.y,
+        "任务物品区不能盖住底部提示"
+    );
+
+    for (width, height) in [(320, 240), (800, 600)] {
+        let mut state = UiState::new(Language::ZhCn);
+        state.sync(&snapshot);
+        state.show_quests = true;
+        let (mut scene, mut frame, center) = scene_and_frame(width, height);
+        let entities = snapshot.entity_views(0);
+        scene.render_with_entities(&mut frame, center, &entities);
+        ui::draw(
+            &mut state, &mut frame, &mut scene, &snapshot, &text, None, center,
+        );
+        frame
+            .save_png(screenshot(&format!("quest-items-{width}x{height}")))
+            .expect("保存任务物品截图");
+    }
+
+    // 切语言重绘（任务面板文案 + 「任务物品」标题）。
+    let mut state = UiState::new(Language::ZhCn);
+    state.sync(&snapshot);
+    state.show_quests = true;
+    let zh = frame_with_language(&mut state, &snapshot, &text, Language::ZhCn);
+    let en = frame_with_language(&mut state, &snapshot, &text, Language::En);
+    let layout = quests::quest_layout(Rect::screen(800, 600), snapshot.quests.len(), 0);
+    assert!(
+        changed_pixels(&zh, &en, layout.panel) > 100,
+        "任务面板切语言后应当重绘"
+    );
+}
+
+#[test]
+fn auction_mail_and_expiry_messages_render() {
+    let text = text();
+    let mut snapshot = snapshot_with_player(0, &[]);
+    // 自动成交/过期退回由服务端下发邮件 + 系统消息，客户端原样显示。
+    snapshot.apply_packet(&ServerPacket::ReceiveMail(ReceiveMail {
+        mail: vec![ClientMail {
+            mail_id: 7,
+            sender_name: "拍卖行".to_owned(),
+            message: "你的拍卖品已成交，货款已附上。".to_owned(),
+            opened: false,
+            locked: false,
+            can_reply: false,
+            collected: false,
+            date_sent: DateTimeBinary::from_unix_seconds(1_704_067_200),
+            gold: 1_200,
+            items: Vec::new(),
+        }],
+    }));
+    assert_eq!(snapshot.mails.len(), 1);
+    assert_eq!(snapshot.mails[0].sender_name, "拍卖行");
+    assert_eq!(snapshot.mails[0].gold, 1_200);
+
+    snapshot.apply_packet(&ServerPacket::Chat(Chat {
+        message: "拍卖成交：木剑".to_owned(),
+        type_: ChatType::System,
+    }));
+    let line = snapshot.chat.last().expect("拍卖成交通知");
+    // 服务端已本地化，客户端不二次翻译（英文界面也原样显示服务端文本）。
+    assert_eq!(labels::chat_line_text(line, Language::En), "拍卖成交：木剑");
+
+    let mut state = UiState::new(Language::ZhCn);
+    state.sync(&snapshot);
+    state.show_mail = true;
+    let zh = frame_with_language(&mut state, &snapshot, &text, Language::ZhCn);
+    let en = frame_with_language(&mut state, &snapshot, &text, Language::En);
+    let mail = mir_client::ui::mail::mail_layout(
+        Rect::screen(800, 600),
+        state.mail_tab,
+        snapshot.mails.len(),
+        0,
+        snapshot.inventory.len(),
+    );
+    assert!(
+        changed_pixels(&zh, &en, mail.panel) > 100,
+        "邮件面板切语言后应当重绘"
+    );
+    en.save_png(screenshot("auction-mail"))
+        .expect("保存拍卖邮件截图");
+}
+
+#[test]
+fn time_and_weather_follow_server_packets() {
+    let mut snapshot = snapshot_with_player(0, &[]);
+    // `S.TimeOfDay` 在协议里存在（index 61）；本作服务端目前不发，收到才显示。
+    assert_eq!(snapshot.lights, None);
+    snapshot.apply_packet(&ServerPacket::TimeOfDay(TimeOfDay {
+        lights: LightSetting::Evening,
+    }));
+    // 天气随 `S.MapChanged.weather` 下发（协议没有独立的 `S.Weather`）。
+    snapshot.apply_packet(&ServerPacket::MapChanged(MapChanged {
+        weather: WeatherSetting::Rain,
+        ..MapChanged::default()
+    }));
+    assert_eq!(snapshot.lights, Some(LightSetting::Evening));
+    assert_eq!(snapshot.weather, Some(WeatherSetting::Rain));
+    assert_eq!(
+        hud::time_weather_text(&snapshot, Language::ZhCn),
+        "黄昏 · 雨"
+    );
+    assert_eq!(
+        hud::time_weather_text(&snapshot, Language::En),
+        "Evening · Rain"
+    );
+
+    let text = text();
+    let mut state = UiState::new(Language::ZhCn);
+    state.sync(&snapshot);
+    let zh = frame_with_language(&mut state, &snapshot, &text, Language::ZhCn);
+    let en = frame_with_language(&mut state, &snapshot, &text, Language::En);
+    let status = hud::status_layout(Rect::screen(800, 600));
+    assert!(
+        changed_pixels(&zh, &en, status.time) > 5,
+        "时间/天气文案应当随语言变化"
+    );
+    en.save_png(screenshot("time-weather"))
+        .expect("保存时间天气截图");
 }

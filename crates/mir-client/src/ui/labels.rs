@@ -4,7 +4,10 @@
 //! 之类的动态文本来自服务端，不在这里。
 
 use mir_core::Language;
-use mir_core::enums::{BuffType, ChatType, EquipmentSlot, ItemGrade, ItemType, RequiredType};
+use mir_core::enums::{
+    BuffType, ChatType, EquipmentSlot, ItemGrade, ItemType, LightSetting, RequiredType,
+    WeatherSetting,
+};
 
 use crate::net::{ChatLine, NetStatus, SystemChat};
 
@@ -555,6 +558,34 @@ pub enum Label {
     ConnectVersionMismatch,
     /// 连接失败：其它错误。
     ConnectFailed,
+    /// 任务面板的「任务物品」区标题。
+    QuestItems,
+    /// 昼夜：黎明（`S.TimeOfDay` 的 `LightSetting::Dawn`）。
+    PhaseDawn,
+    /// 昼夜：白天（`Normal` / `Day`）。
+    PhaseDay,
+    /// 昼夜：黄昏。
+    PhaseEvening,
+    /// 昼夜：夜晚。
+    PhaseNight,
+    /// 天气：晴。
+    WeatherClear,
+    /// 天气：雾。
+    WeatherFog,
+    /// 天气：余烬。
+    WeatherEmber,
+    /// 天气：火星。
+    WeatherFire,
+    /// 天气：雪。
+    WeatherSnow,
+    /// 天气：雨。
+    WeatherRain,
+    /// 天气：落叶。
+    WeatherLeaves,
+    /// 客户端系统消息：获得任务物品。
+    SystemQuestItemGained,
+    /// 客户端系统消息：失去任务物品。
+    SystemQuestItemLost,
 }
 
 impl Label {
@@ -836,6 +867,20 @@ impl Label {
         Self::ConnectTimeout,
         Self::ConnectVersionMismatch,
         Self::ConnectFailed,
+        Self::QuestItems,
+        Self::PhaseDawn,
+        Self::PhaseDay,
+        Self::PhaseEvening,
+        Self::PhaseNight,
+        Self::WeatherClear,
+        Self::WeatherFog,
+        Self::WeatherEmber,
+        Self::WeatherFire,
+        Self::WeatherSnow,
+        Self::WeatherRain,
+        Self::WeatherLeaves,
+        Self::SystemQuestItemGained,
+        Self::SystemQuestItemLost,
     ];
 }
 
@@ -1386,6 +1431,34 @@ impl Label {
             }
             (Self::ConnectFailed, Language::ZhCn) => "连接失败，请重试。",
             (Self::ConnectFailed, Language::En) => "Connection failed. Try again.",
+            (Self::QuestItems, Language::ZhCn) => "任务物品",
+            (Self::QuestItems, Language::En) => "Quest items",
+            (Self::PhaseDawn, Language::ZhCn) => "黎明",
+            (Self::PhaseDawn, Language::En) => "Dawn",
+            (Self::PhaseDay, Language::ZhCn) => "白天",
+            (Self::PhaseDay, Language::En) => "Day",
+            (Self::PhaseEvening, Language::ZhCn) => "黄昏",
+            (Self::PhaseEvening, Language::En) => "Evening",
+            (Self::PhaseNight, Language::ZhCn) => "夜晚",
+            (Self::PhaseNight, Language::En) => "Night",
+            (Self::WeatherClear, Language::ZhCn) => "晴",
+            (Self::WeatherClear, Language::En) => "Clear",
+            (Self::WeatherFog, Language::ZhCn) => "雾",
+            (Self::WeatherFog, Language::En) => "Fog",
+            (Self::WeatherEmber, Language::ZhCn) => "余烬",
+            (Self::WeatherEmber, Language::En) => "Embers",
+            (Self::WeatherFire, Language::ZhCn) => "火星",
+            (Self::WeatherFire, Language::En) => "Fire particles",
+            (Self::WeatherSnow, Language::ZhCn) => "雪",
+            (Self::WeatherSnow, Language::En) => "Snow",
+            (Self::WeatherRain, Language::ZhCn) => "雨",
+            (Self::WeatherRain, Language::En) => "Rain",
+            (Self::WeatherLeaves, Language::ZhCn) => "落叶",
+            (Self::WeatherLeaves, Language::En) => "Leaves",
+            (Self::SystemQuestItemGained, Language::ZhCn) => "获得任务物品 {} ×{}",
+            (Self::SystemQuestItemGained, Language::En) => "Quest item gained: {} ×{}",
+            (Self::SystemQuestItemLost, Language::ZhCn) => "失去任务物品 {} ×{}",
+            (Self::SystemQuestItemLost, Language::En) => "Quest item lost: {} ×{}",
         }
     }
 
@@ -1720,6 +1793,32 @@ pub fn system_chat_text(message: &SystemChat, language: Language) -> String {
         SystemChat::GuildMemberLeft { name } => {
             fill_template(Label::SystemGuildMemberLeft.text(language), &[name])
         }
+        SystemChat::QuestItemGained {
+            name,
+            item_index,
+            count,
+        } => {
+            let name = name
+                .clone()
+                .unwrap_or_else(|| unknown_item(language, *item_index));
+            fill_template(
+                Label::SystemQuestItemGained.text(language),
+                &[&name, &count.to_string()],
+            )
+        }
+        SystemChat::QuestItemLost {
+            name,
+            item_index,
+            count,
+        } => {
+            let name = name
+                .clone()
+                .unwrap_or_else(|| unknown_item(language, *item_index));
+            fill_template(
+                Label::SystemQuestItemLost.text(language),
+                &[&name, &count.to_string()],
+            )
+        }
     }
 }
 
@@ -1748,6 +1847,35 @@ pub const fn net_status_label(status: NetStatus, language: Language) -> &'static
         NetStatus::InGame => Label::StatusInGame.text(language),
         NetStatus::Closed => Label::Disconnected.text(language),
         NetStatus::Failed => Label::StatusFailed.text(language),
+    }
+}
+
+/// 昼夜文案（`S.TimeOfDay`；`Normal` 与 `Day` 都按「白天」显示）。
+#[must_use]
+pub const fn light_label(setting: LightSetting) -> Label {
+    match setting {
+        LightSetting::Normal | LightSetting::Day => Label::PhaseDay,
+        LightSetting::Dawn => Label::PhaseDawn,
+        LightSetting::Evening => Label::PhaseEvening,
+        LightSetting::Night => Label::PhaseNight,
+    }
+}
+
+/// 天气文案（`S.MapChanged.weather`）。
+#[must_use]
+pub const fn weather_label(setting: WeatherSetting) -> Label {
+    match setting {
+        WeatherSetting::None => Label::WeatherClear,
+        WeatherSetting::Fog => Label::WeatherFog,
+        WeatherSetting::RedEmber | WeatherSetting::WhiteEmber | WeatherSetting::YellowEmber => {
+            Label::WeatherEmber
+        }
+        WeatherSetting::FireParticle => Label::WeatherFire,
+        WeatherSetting::Snow => Label::WeatherSnow,
+        WeatherSetting::Rain => Label::WeatherRain,
+        WeatherSetting::Leaves | WeatherSetting::FireyLeaves | WeatherSetting::PurpleLeaves => {
+            Label::WeatherLeaves
+        }
     }
 }
 
@@ -1840,7 +1968,7 @@ mod tests {
     #[test]
     fn every_label_has_both_languages() {
         // `Label::ALL` 是手工维护的清单：数量对不上说明加了变体没同步。
-        assert_eq!(Label::ALL.len(), 272, "新增 Label 后请同步 Label::ALL");
+        assert_eq!(Label::ALL.len(), 286, "新增 Label 后请同步 Label::ALL");
         for label in Label::ALL {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);
@@ -2015,6 +2143,20 @@ mod tests {
             Label::ConnectTimeout,
             Label::ConnectVersionMismatch,
             Label::ConnectFailed,
+            Label::QuestItems,
+            Label::PhaseDawn,
+            Label::PhaseDay,
+            Label::PhaseEvening,
+            Label::PhaseNight,
+            Label::WeatherClear,
+            Label::WeatherFog,
+            Label::WeatherEmber,
+            Label::WeatherFire,
+            Label::WeatherSnow,
+            Label::WeatherRain,
+            Label::WeatherLeaves,
+            Label::SystemQuestItemGained,
+            Label::SystemQuestItemLost,
         ] {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);

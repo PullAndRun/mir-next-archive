@@ -54,6 +54,8 @@ pub const MP_COLOR: [u8; 4] = [52, 104, 224, 255];
 pub const MP_BACKGROUND: [u8; 4] = [18, 26, 68, 255];
 /// 地图名颜色。
 pub const MAP_COLOR: [u8; 4] = [168, 224, 255, 255];
+/// 时间/天气颜色。
+pub const TIME_COLOR: [u8; 4] = [208, 218, 238, 255];
 
 /// 状态栏的布局（绘制与测试共用）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,6 +70,8 @@ pub struct StatusLayout {
     pub mp_bar: Rect,
     /// 金币区域（右对齐）。
     pub gold: Rect,
+    /// 时间/天气区域（右对齐，金币左侧；窄窗口留空）。
+    pub time: Rect,
     /// 地图名区域（右对齐）。
     pub map: Rect,
 }
@@ -82,6 +86,12 @@ pub fn status_layout(frame: Rect) -> StatusLayout {
         hp_bar: Rect::new(10, 28, 190, 16),
         mp_bar: Rect::new(210, 28, 190, 16),
         gold: Rect::new(width.saturating_sub(180) as i32, 5, 170, 18),
+        // 320 宽的窄窗口没有空位，宽度为 0（不画）。
+        time: if width >= 560 {
+            Rect::new(width.saturating_sub(430) as i32, 5, 230, 18)
+        } else {
+            Rect::new(0, 0, 0, 0)
+        },
         map: Rect::new(width.saturating_sub(330) as i32, 30, 320, 16),
     }
 }
@@ -173,6 +183,35 @@ pub fn draw_status(
         SIZE_SMALL,
         MAP_COLOR,
     );
+
+    // 时间/天气（Crystal 在顶部小地图旁显示时间）：`S.TimeOfDay` 与 `S.MapChanged.weather`。
+    // 服务端目前不发 `S.TimeOfDay`，所以 `lights` 是 `None`，只显示天气。
+    if layout.time.width > 0 {
+        let info = time_weather_text(snapshot, language);
+        if !info.is_empty() {
+            text.draw_right(
+                frame,
+                layout.time.right(),
+                layout.time.y,
+                &info,
+                SIZE_SMALL,
+                TIME_COLOR,
+            );
+        }
+    }
+}
+
+/// 时间/天气文案：`白天 · 雨`（缺哪项就少哪项；都没有返回空串）。
+#[must_use]
+pub fn time_weather_text(snapshot: &WorldSnapshot, language: Language) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    if let Some(lights) = snapshot.lights {
+        parts.push(labels::light_label(lights).text(language));
+    }
+    if let Some(weather) = snapshot.weather {
+        parts.push(labels::weather_label(weather).text(language));
+    }
+    parts.join(" · ")
 }
 
 /// 地图标题：优先 `MapInformation.title`，其次文件名，最后「未知地图」。
@@ -469,6 +508,20 @@ mod tests {
                 system: None,
             })
             .collect()
+    }
+
+    #[test]
+    fn time_weather_text_is_localized_and_optional() {
+        let mut snapshot = WorldSnapshot::default();
+        assert_eq!(time_weather_text(&snapshot, Language::ZhCn), "");
+        snapshot.lights = Some(mir_core::enums::LightSetting::Night);
+        assert_eq!(time_weather_text(&snapshot, Language::ZhCn), "夜晚");
+        snapshot.weather = Some(mir_core::enums::WeatherSetting::Snow);
+        assert_eq!(time_weather_text(&snapshot, Language::ZhCn), "夜晚 · 雪");
+        assert_eq!(time_weather_text(&snapshot, Language::En), "Night · Snow");
+        // 320 宽没有空位，不画时间/天气。
+        assert_eq!(status_layout(Rect::screen(320, 240)).time.width, 0);
+        assert!(status_layout(Rect::screen(800, 600)).time.width > 0);
     }
 
     #[test]

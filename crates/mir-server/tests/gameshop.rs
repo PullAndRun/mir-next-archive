@@ -1328,7 +1328,12 @@ impl TestClient {
     }
 
     async fn expect_index(&mut self, index: i16) -> ServerPacket {
-        let packet = self.expect().await;
+        // 登录序列里还有好友列表（`S.FriendUpdate`，Crystal `GetFriends()`），
+        // 与本文件关心的包序无关，跳过它。
+        let mut packet = self.expect().await;
+        while matches!(packet, ServerPacket::FriendUpdate(_)) {
+            packet = self.expect().await;
+        }
         assert_eq!(packet.index(), index, "收到的包编号不符：{packet:?}");
         packet
     }

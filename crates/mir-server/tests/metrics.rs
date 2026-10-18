@@ -1,0 +1,124 @@
+//! `/metrics` 端点的端到端测试：真起 listener、发一次 HTTP GET、断言字段。
+//!
+//! 指标结构本身的单测在 `src/metrics.rs` 的 `#[cfg(test)]` 里（计数/环形窗口/分位）。
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use mir_server::metrics::{Metrics, Ring, bind_metrics, metrics};
+use mir_server::world::World;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+use tokio::sync::Mutex;
+
+/// 发一次最简 HTTP GET，返回 `(状态行, body)`。
+async fn http_get(address: std::net::SocketAddr, path: &str) -> (String, String) {
+    let mut stream = TcpStream::connect(address).await.expect("连 metrics 端口");
+    let request = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    stream.write_all(request.as_bytes()).await.expect("发请求");
+    let mut buffer = Vec::new();
+    let read = tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut buffer))
+        .await
+        .expect("读响应超时")
+        .expect("读响应");
+    assert!(read > 0, "端点没有响应");
+    let text = String::from_utf8_lossy(&buffer).into_owned();
+    let (status, body) = text.split_once("\r\n\r\n").unwrap_or((text.as_str(), ""));
+    let status_line = status.lines().next().unwrap_or_default().to_owned();
+    (status_line, body.to_owned())
+}
+
+#[tokio::test]
+async fn metrics_endpoint_reports_players_connections_and_tick_fields() {
+    // 先往全局指标里塞一点可预测的东西（端点读的就是全局实例）。
+    let global = metrics();
+    global.record_tick(Duration::from_micros(1_234));
+    global.record_auction_scan(1);
+    global.record_db_save(Duration::from_micros(456));
+    global.record_db_flush(Duration::from_micros(789));
+    global.set_mail_queue(2);
+
+    let world = Arc::new(Mutex::new(World::new(7)));
+    let address = bind_metrics("127.0.0.1:0".parse().expect("addr"), Arc::clone(&world))
+        .await
+        .expect("绑定 metrics 端口");
+
+    let (status, body) = http_get(address, "/metrics").await;
+    assert!(status.contains("200"), "状态行：{status}");
+    for needle in [
+        "mir2_players_online ",
+        "mir2_connections_active ",
+        "mir2_connections_rejected ",
+        "mir2_ticks_total ",
+        "mir2_tick_micros_last ",
+        "mir2_tick_micros_p50 ",
+        "mir2_tick_micros_p95 ",
+        "mir2_tick_micros_p99 ",
+        "mir2_tick_micros_max ",
+        "mir2_auction_scans_total ",
+        "mir2_auctions_sold_total ",
+        "mir2_mail_queue ",
+        "mir2_db_save_total ",
+        "mir2_db_save_micros_p95 ",
+        "mir2_db_flush_total ",
+        "mir2_db_flush_micros_p95 ",
+        "mir2_packets_dropped_total ",
+    ] {
+        assert!(body.contains(needle), "缺少指标 {needle}：\n{body}");
+    }
+    assert!(body.contains("# TYPE mir2_ticks_total counter"), "{body}");
+    assert!(body.contains("mir2_mail_queue 2"), "邮件队列应回填：{body}");
+}
+
+#[tokio::test]
+async fn metrics_endpoint_lists_players_per_map() {
+    let world = Arc::new(Mutex::new(World::new(7)));
+    {
+        let mut world = world.lock().await;
+        world.insert_map(
+            "0",
+            Arc::new(mir_world::Map {
+                width: 8,
+                height: 8,
+                cells: vec![mir_world::MapCell::default(); 64],
+                file_name: "0".to_owned(),
+                version: mir_world::MapVersion::V0,
+                doors: Vec::new(),
+            }),
+        );
+    }
+    let address = bind_metrics("127.0.0.1:0".parse().expect("addr"), Arc::clone(&world))
+        .await
+        .expect("绑定 metrics 端口");
+
+    // 没有玩家时也要有 `mir2_players_online 0`，且不会崩。
+    let (status, body) = http_get(address, "/metrics").await;
+    assert!(status.contains("200"), "{status}");
+    assert!(body.contains("mir2_players_online "), "{body}");
+}
+
+#[tokio::test]
+async fn metrics_endpoint_returns_404_for_unknown_paths_and_healthz() {
+    let world = Arc::new(Mutex::new(World::new(7)));
+    let address = bind_metrics("127.0.0.1:0".parse().expect("addr"), world)
+        .await
+        .expect("绑定 metrics 端口");
+    let (status, _body) = http_get(address, "/nope").await;
+    assert!(status.contains("404"), "未知路径应回 404：{status}");
+    let (status, body) = http_get(address, "/healthz").await;
+    assert!(status.contains("200"), "健康检查应回 200：{status}");
+    assert_eq!(body.trim(), "ok");
+}
+
+#[test]
+fn ring_window_and_percentiles_are_bounded() {
+    // 端到端之外再钉一遍窗口语义：容量 3，写 5 个数只留最后 3 个。
+    let ring = Ring::with_capacity(3);
+    for value in [5_u32, 1, 9, 7, 3] {
+        ring.push(value);
+    }
+    assert_eq!(ring.snapshot(), vec![3, 7, 9]);
+    assert_eq!(ring.quantile(0.5), Some(7));
+    assert_eq!(ring.max(), Some(9));
+    assert_eq!(Metrics::new().ticks_total(), 0);
+}

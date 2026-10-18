@@ -46,7 +46,7 @@
 //! 攻城（`C.GuildRequestWar` / `C.PurchaseGuildTerritory` / `C.GuildTerritoryPage`）、
 //! 行会联盟/敌对、行会投票（`GuildInfo.Votes`）。这些包收到后只记日志，不改变任何状态。
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use mir_core::DateTimeBinary;
 use mir_core::enums::{ChatType, GuildRankOptions, Stat};
@@ -580,6 +580,8 @@ pub struct Guild {
     /// 物品定义（`Info`）不在结构里，按 `id` 从
     /// [`GuildSettings::guild_buff_info`] 查（Crystal `GuildBuff.Info` 也是运行时查出来的）。
     pub buffs: Vec<GuildBuff>,
+    /// 联盟行会 ID（Crystal `GuildInfo.AllyGuilds`，`GuildObject.cs:63`；本作双向存储）。
+    pub allies: BTreeSet<i32>,
 }
 
 impl Guild {
@@ -632,6 +634,7 @@ impl Guild {
             // `StoredItems = new GuildStorageItem[112]`（`GuildInfo.cs:22`）——新行会全是空格子。
             storage: vec![None; GUILD_STORAGE_SLOTS],
             // `BuffList = new List<GuildBuff>()`（`:23`）。
+            allies: BTreeSet::new(),
             buffs: Vec::new(),
         };
         guild.refresh_limits(settings);
@@ -856,6 +859,7 @@ impl Guild {
                     active_time_remaining: buff.active_time_remaining,
                 })
                 .collect(),
+            allies: self.allies.iter().copied().collect(),
         }
     }
 
@@ -970,6 +974,12 @@ impl Guild {
             next_exp_update: 0,
             storage,
             buffs,
+            allies: record
+                .allies
+                .iter()
+                .copied()
+                .filter(|id| *id != record.id)
+                .collect(),
         };
         guild.refresh_limits(settings);
         guild
@@ -2832,5 +2842,245 @@ pub async fn persist_guild_writes<S: crate::store::AccountStore>(
     match last_error {
         Some(error) => Err(error),
         None => Ok(()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 行会联盟（Crystal `GuildInfo.AllyGuilds`；本作扩展了申请/同意/解除流程）
+// ---------------------------------------------------------------------------
+
+/// 行会盟友上限。Crystal 本版没有 `MaxGuildAllies` 常量（`AllyGuilds` 字段未被逻辑使用），
+/// 本作取 5 并在文档登记为扩展。
+pub const MAX_GUILD_ALLIES: usize = 5;
+
+/// 行会联盟操作失败原因（开发者/系统提示用；玩家侧可由会话按需转成聊天，暂未进 i18n 词表）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GuildAllyError {
+    /// 玩家不在世界里。
+    NotInWorld(u32),
+    /// 玩家不在行会里。
+    NotInGuild(u32),
+    /// 只有会长能操作。
+    NotLeader,
+    /// 目标行会不存在。
+    TargetNotFound(i32),
+    /// 不能和自己结盟。
+    SameGuild,
+    /// 已经是盟友。
+    AlreadyAllied,
+    /// 任意一方盟友已达上限。
+    AllyLimitReached,
+    /// 没有待接受的结盟申请。
+    NoPendingRequest,
+    /// 两个行会不是盟友。
+    NotAllied,
+}
+
+impl std::fmt::Display for GuildAllyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotInWorld(id) => write!(f, "object {id} is not in the world"),
+            Self::NotInGuild(id) => write!(f, "object {id} is not in a guild"),
+            Self::NotLeader => f.write_str("only the guild leader can do this"),
+            Self::TargetNotFound(id) => write!(f, "target guild {id} not found"),
+            Self::SameGuild => f.write_str("a guild cannot ally with itself"),
+            Self::AlreadyAllied => f.write_str("the guilds are already allies"),
+            Self::AllyLimitReached => f.write_str("guild ally limit reached"),
+            Self::NoPendingRequest => f.write_str("no pending ally request"),
+            Self::NotAllied => f.write_str("the guilds are not allies"),
+        }
+    }
+}
+
+impl Guild {
+    /// 盟友 ID 列表（升序）。
+    #[must_use]
+    pub fn ally_ids(&self) -> Vec<i32> {
+        self.allies.iter().copied().collect()
+    }
+
+    /// 是否是某个行会的盟友。
+    #[must_use]
+    pub fn has_ally(&self, guild_id: i32) -> bool {
+        self.allies.contains(&guild_id)
+    }
+}
+
+impl World {
+    /// 取某个玩家的行会 ID（不在行会返回 `None`）。
+    fn guild_id_of_player(&self, player_id: u32) -> Option<i32> {
+        self.players
+            .get(&player_id)
+            .and_then(|player| player.guild)
+            .map(|reference| reference.guild_id)
+    }
+
+    /// 玩家 A 与玩家 B 的行会是否结盟（PK 豁免用）。
+    #[must_use]
+    pub fn players_are_allied(&self, a: u32, b: u32) -> bool {
+        let (Some(a), Some(b)) = (self.guild_id_of_player(a), self.guild_id_of_player(b)) else {
+            return false;
+        };
+        a != b && self.guilds_are_allied(a, b)
+    }
+
+    /// 两个行会是否结盟。
+    #[must_use]
+    pub fn guilds_are_allied(&self, a: i32, b: i32) -> bool {
+        a != b
+            && self
+                .guilds
+                .get(&a)
+                .is_some_and(|guild| guild.allies.contains(&b))
+    }
+
+    /// 按名字找行会 ID（大小写不敏感；GM/聊天命令用）。
+    #[must_use]
+    pub fn guild_id_by_name(&self, name: &str) -> Option<i32> {
+        self.guilds
+            .values()
+            .find(|guild| guild.name.eq_ignore_ascii_case(name))
+            .map(|guild| guild.id)
+    }
+
+    /// 某个行会的盟友 ID 列表。
+    #[must_use]
+    pub fn guild_allies(&self, guild_id: i32) -> Vec<i32> {
+        self.guilds
+            .get(&guild_id)
+            .map(Guild::ally_ids)
+            .unwrap_or_default()
+    }
+
+    /// 发起结盟申请（会长）。真正的联盟要等对方会长 [`World::accept_guild_ally`]。
+    pub fn request_guild_ally(
+        &mut self,
+        player_id: u32,
+        target_guild_id: i32,
+    ) -> Result<(), GuildAllyError> {
+        let guild_id = self
+            .guild_id_of_player(player_id)
+            .ok_or(GuildAllyError::NotInGuild(player_id))?;
+        if !self.guilds.contains_key(&guild_id) {
+            return Err(GuildAllyError::NotInGuild(player_id));
+        }
+        let Some(guild) = self.guilds.get(&guild_id) else {
+            return Err(GuildAllyError::NotInGuild(player_id));
+        };
+        let character_id = self.players[&player_id].character_id;
+        if guild.leader != character_id {
+            return Err(GuildAllyError::NotLeader);
+        }
+        if target_guild_id == guild_id {
+            return Err(GuildAllyError::SameGuild);
+        }
+        if !self.guilds.contains_key(&target_guild_id) {
+            return Err(GuildAllyError::TargetNotFound(target_guild_id));
+        }
+        if self.guilds_are_allied(guild_id, target_guild_id) {
+            return Err(GuildAllyError::AlreadyAllied);
+        }
+        let now = self.wall_now();
+        self.ally_requests
+            .entry(guild_id)
+            .or_default()
+            .insert(target_guild_id);
+        self.ally_request_times
+            .insert((guild_id, target_guild_id), now);
+        Ok(())
+    }
+
+    /// 同意结盟：对方会长发过申请即可（双向写入 + 双方行会立即落盘）。
+    pub fn accept_guild_ally(&mut self, player_id: u32) -> Result<i32, GuildAllyError> {
+        let guild_id = self
+            .guild_id_of_player(player_id)
+            .ok_or(GuildAllyError::NotInGuild(player_id))?;
+        let Some(guild) = self.guilds.get(&guild_id) else {
+            return Err(GuildAllyError::NotInGuild(player_id));
+        };
+        let character_id = self.players[&player_id].character_id;
+        if guild.leader != character_id {
+            return Err(GuildAllyError::NotLeader);
+        }
+        let pending = self
+            .ally_requests
+            .iter()
+            .find(|(_, targets)| targets.contains(&guild_id))
+            .map(|(from, _)| *from)
+            .ok_or(GuildAllyError::NoPendingRequest)?;
+        self.form_guild_alliance(pending, guild_id)?;
+        Ok(pending)
+    }
+
+    /// 解除联盟（任一方的会长都可以）。
+    pub fn remove_guild_ally(
+        &mut self,
+        player_id: u32,
+        ally_guild_id: i32,
+    ) -> Result<(), GuildAllyError> {
+        let guild_id = self
+            .guild_id_of_player(player_id)
+            .ok_or(GuildAllyError::NotInGuild(player_id))?;
+        let Some(guild) = self.guilds.get(&guild_id) else {
+            return Err(GuildAllyError::NotInGuild(player_id));
+        };
+        let character_id = self.players[&player_id].character_id;
+        if guild.leader != character_id {
+            return Err(GuildAllyError::NotLeader);
+        }
+        if !self.guilds_are_allied(guild_id, ally_guild_id) {
+            return Err(GuildAllyError::NotAllied);
+        }
+        self.dissolve_guild_alliance(guild_id, ally_guild_id);
+        Ok(())
+    }
+
+    /// 直接建立联盟（申请/同意的落点；也供 GM/测试用）。双向写入并登记两条落盘。
+    pub fn form_guild_alliance(&mut self, a: i32, b: i32) -> Result<(), GuildAllyError> {
+        if a == b {
+            return Err(GuildAllyError::SameGuild);
+        }
+        for id in [a, b] {
+            let Some(guild) = self.guilds.get(&id) else {
+                return Err(GuildAllyError::TargetNotFound(id));
+            };
+            if self.max_guild_allies != 0 && guild.allies.len() >= self.max_guild_allies {
+                return Err(GuildAllyError::AllyLimitReached);
+            }
+            if guild.allies.contains(&(if id == a { b } else { a })) {
+                return Err(GuildAllyError::AlreadyAllied);
+            }
+        }
+        if let Some(guild) = self.guilds.get_mut(&a) {
+            guild.allies.insert(b);
+            let record = guild.to_record();
+            self.guild_writes
+                .push(crate::world::GuildWrite::Save(Box::new(record)));
+        }
+        if let Some(guild) = self.guilds.get_mut(&b) {
+            guild.allies.insert(a);
+            let record = guild.to_record();
+            self.guild_writes
+                .push(crate::world::GuildWrite::Save(Box::new(record)));
+        }
+        self.ally_requests.clear();
+        self.ally_request_times.clear();
+        Ok(())
+    }
+
+    /// 直接解除联盟（双向移除 + 两条落盘）。
+    pub fn dissolve_guild_alliance(&mut self, a: i32, b: i32) {
+        if let Some(guild) = self.guilds.get_mut(&a) {
+            guild.allies.remove(&b);
+            let record = guild.to_record();
+            self.guild_writes
+                .push(crate::world::GuildWrite::Save(Box::new(record)));
+        }
+        if let Some(guild) = self.guilds.get_mut(&b) {
+            guild.allies.remove(&a);
+            let record = guild.to_record();
+            self.guild_writes
+                .push(crate::world::GuildWrite::Save(Box::new(record)));
+        }
     }
 }

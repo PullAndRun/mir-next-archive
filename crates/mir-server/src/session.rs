@@ -181,6 +181,7 @@ impl<S: AccountStore> Session<S> {
                     "客户端包速率超限：本秒余下的包丢弃（不踢线）"
                 );
             }
+            crate::metrics::metrics().packet_dropped();
             return false;
         }
         true
@@ -231,6 +232,24 @@ impl<S: AccountStore> Session<S> {
             // 写入 `PMode` 并无条件回一条 `S.ChangePMode`。
             ClientPacket::ChangePMode(packet) => self.on_change_pet_mode(packet.mode).await,
             ClientPacket::Chat(packet) => self.on_chat(&packet.message).await,
+            // 好友/黑名单（Crystal `PlayerObject.AddFriend` / `RemoveFriend` / `RefreshFriends` /
+            // `AddMemo`，`PlayerObject.cs:12426+`）。
+            ClientPacket::AddFriend(packet) => {
+                self.on_add_friend(packet.name.clone(), packet.blocked)
+                    .await;
+            }
+            ClientPacket::RemoveFriend(packet) => {
+                self.on_remove_friend(packet.character_index).await;
+            }
+            ClientPacket::RefreshFriends(_) => {
+                if let Some(object_id) = self.object_id {
+                    let mut world = self.world.lock().await;
+                    world.send_friends(object_id);
+                }
+            }
+            ClientPacket::AddMemo(packet) => {
+                self.on_add_memo(packet.character_index, &packet.memo).await;
+            }
             ClientPacket::PickUp(_) => self.on_pickup().await,
             ClientPacket::DropItem(packet) => {
                 self.on_drop_item(packet.unique_id, packet.count).await;
@@ -721,7 +740,10 @@ impl<S: AccountStore> Session<S> {
             character.hair = u8::try_from(character.id % 9).unwrap_or(0);
             character.hp = 15;
             character.mp = 15;
-            self.store.save_character(character.clone()).await?;
+            let started = std::time::Instant::now();
+            let saved = self.store.save_character(character.clone()).await;
+            crate::metrics::metrics().record_db_save(started.elapsed());
+            saved?;
         }
 
         // 每日任务惰性重置：必须在**解码 `character.quests` 之前**作用在角色记录上，
@@ -742,7 +764,10 @@ impl<S: AccountStore> Session<S> {
             world.apply_daily_reset(&mut character, reset_now)
         };
         if reset_done {
-            match self.store.save_character(character.clone()).await {
+            let started = std::time::Instant::now();
+            let saved = self.store.save_character(character.clone()).await;
+            crate::metrics::metrics().record_db_save(started.elapsed());
+            match saved {
                 Ok(()) => tracing::debug!(
                     session = self.id,
                     character = character.id,
@@ -917,6 +942,14 @@ impl<S: AccountStore> Session<S> {
         world.set_player_language(object_id, self.language.language());
         // 任务物品栏：装进世界侧表，下线时由 `leave_world` 取走存盘。
         world.set_quest_inventory(object_id, quest_inventory.clone());
+        // 好友/黑名单（Crystal `CharacterInfo.Friends`，迁移 0015 `characters.friends`）。
+        world.set_friends(
+            object_id,
+            crate::friends::decode_friends(&character.friends),
+        );
+        // 社交上限（本作扩展；Crystal 两组都是无上限 List）走 ServerConfig。
+        world.set_friend_limit(self.config.max_friends);
+        world.set_guild_ally_limit(self.config.max_guild_allies);
         // 宠物命令模式（Crystal `CharacterInfo.PMode`，列 `characters.pet_mode`；迁移 0001）。
         // 越界/老存档按 `Both`（Crystal 默认）。
         world.set_pet_mode(
@@ -946,6 +979,8 @@ impl<S: AccountStore> Session<S> {
         // `PlayerObject.cs:1185-1212`）。这些包要排在 `UserInformation` 之后，
         // 所以先收集，等会话自己的包发完再发。
         let quest_packets = world.quest_login_packets(object_id);
+        // Crystal 登录序列里 `GetFriends()` 紧跟任务信息（`PlayerObject.cs:1191`）。
+        world.send_friends(object_id);
         drop(world);
 
         self.object_id = Some(object_id);
@@ -1039,6 +1074,7 @@ impl<S: AccountStore> Session<S> {
             "进入世界"
         );
         self.character = Some(character);
+        crate::metrics::metrics().player_entered();
         // 让 `@kick <账号|角色>` 能在会话登记表里按名字反查（见 `crate::gm`）。
         if let Some(account) = &self.account {
             let character_name = self
@@ -1056,7 +1092,10 @@ impl<S: AccountStore> Session<S> {
         }
         self.leave_world().await;
         if let Some(character) = self.character.clone() {
-            self.store.save_character(character).await?;
+            let started = std::time::Instant::now();
+            let saved = self.store.save_character(character).await;
+            crate::metrics::metrics().record_db_save(started.elapsed());
+            saved?;
         }
         self.character = None;
         self.stage = Stage::Select;
@@ -1468,6 +1507,84 @@ impl<S: AccountStore> Session<S> {
         tracing::debug!(session = self.id, "任务交互前补做每日任务重置");
     }
 
+    /// `C.AddFriend`：加好友 / 拉黑（Crystal `PlayerObject.AddFriend`，`PlayerObject.cs:12426`）。
+    async fn on_add_friend(&mut self, name: String, blocked: bool) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        if let Err(error) = world.add_friend_by_name(object_id, &name, blocked) {
+            tracing::debug!(session = self.id, %error, "加好友失败");
+        }
+    }
+
+    /// `C.RemoveFriend`：删好友（删完立刻重发整张表，客户端按它覆盖本地列表）。
+    async fn on_remove_friend(&mut self, character_index: i32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        world.remove_friend(object_id, i64::from(character_index));
+        world.send_friends(object_id);
+    }
+
+    /// `C.AddMemo`：好友备注（Crystal 限 200 字，超长截断）。
+    async fn on_add_memo(&mut self, character_index: i32, memo: &str) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        world.set_friend_memo(object_id, i64::from(character_index), memo);
+        world.send_friends(object_id);
+    }
+
+    /// `/ally request <行会名|ID>` / `/ally accept` / `/ally remove <行会名|ID>`（本作扩展：
+    /// Crystal 这一版只有 `AllyGuilds` 数据，没有界面入口）。
+    async fn on_ally_command(&mut self, rest: &str) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut parts = rest.split_whitespace();
+        let Some(action) = parts.next() else {
+            self.send_system_chat("usage: /ally request|accept|remove <guild>");
+            return;
+        };
+        let mut world = self.world.lock().await;
+        let result = match action {
+            "request" | "remove" => {
+                let Some(query) = parts.next() else {
+                    self.send_system_chat("usage: /ally request|accept|remove <guild>");
+                    return;
+                };
+                let target = query
+                    .parse::<i32>()
+                    .ok()
+                    .or_else(|| world.guild_id_by_name(query));
+                let Some(target) = target else {
+                    self.send_system_chat("ally: guild not found");
+                    return;
+                };
+                if action == "request" {
+                    world.request_guild_ally(object_id, target)
+                } else {
+                    world.remove_guild_ally(object_id, target)
+                }
+            }
+            "accept" => world.accept_guild_ally(object_id).map(|_| ()),
+            _ => {
+                self.send_system_chat("usage: /ally request|accept|remove <guild>");
+                return;
+            }
+        };
+        match result {
+            Ok(()) => self.send_system_chat("ally: ok"),
+            Err(error) => {
+                let message = format!("ally: {error}");
+                self.send_system_chat(&message);
+            }
+        }
+    }
+
     /// 接任务（`C.AcceptQuest`，Crystal `PlayerObject.AcceptQuest`，`PlayerObject.cs:11251-11348`）。
     async fn on_accept_quest(&mut self, npc_index: u32, quest_index: i32) {
         self.maybe_reset_daily_quests().await;
@@ -1803,12 +1920,15 @@ impl<S: AccountStore> Session<S> {
                     player,
                     world.quest_inventory(object_id),
                     world.pet_mode(object_id),
+                    world.friends_of(object_id),
                 )
             })
         };
-        if let Err(error) =
-            crate::market::flush_market_update(self.store.as_ref(), &self.world, character).await
-        {
+        let started = std::time::Instant::now();
+        let flushed =
+            crate::market::flush_market_update(self.store.as_ref(), &self.world, character).await;
+        crate::metrics::metrics().record_db_flush(started.elapsed());
+        if let Err(error) = flushed {
             tracing::warn!(session = self.id, %error, "市场变更原子落盘失败");
         }
     }
@@ -1828,6 +1948,7 @@ impl<S: AccountStore> Session<S> {
         player: &Player,
         quest_inventory: Option<&crate::quest_inventory::QuestInventory>,
         pet_mode: mir_core::enums::PetMode,
+        friends: &[crate::friends::FriendEntry],
     ) -> Option<Character> {
         self.character.as_ref().map(|base| {
             // `pet_mode` 由 `market::character_snapshot` 一起写进行（市场/商城/下线口径统一）。
@@ -1835,6 +1956,8 @@ impl<S: AccountStore> Session<S> {
             if let Some(inventory) = quest_inventory {
                 snapshot.quest_inventory = inventory.encode();
             }
+            // 好友/黑名单同理：base 里是登录时的快照，这里覆写成世界里的活值。
+            snapshot.friends = crate::friends::encode_friends(friends);
             snapshot
         })
     }
@@ -2421,6 +2544,7 @@ impl<S: AccountStore> Session<S> {
                     player,
                     world.quest_inventory(object_id),
                     world.pet_mode(object_id),
+                    world.friends_of(object_id),
                 )
             })
         };
@@ -2431,8 +2555,16 @@ impl<S: AccountStore> Session<S> {
             purchases,
             stock,
         };
-        crate::market::flush_gameshop_update(self.store.as_ref(), &self.world, character, update)
-            .await
+        let started = std::time::Instant::now();
+        let flushed = crate::market::flush_gameshop_update(
+            self.store.as_ref(),
+            &self.world,
+            character,
+            update,
+        )
+        .await;
+        crate::metrics::metrics().record_db_flush(started.elapsed());
+        flushed
     }
 
     /// 商城页签路径上的 `S.MarketFail`（Crystal `MarketBuy` 的商城分支，`:8458-8486`）。
@@ -2519,6 +2651,11 @@ impl<S: AccountStore> Session<S> {
         let Some(object_id) = self.object_id else {
             return;
         };
+        // 行会联盟（本作扩展）：`/ally ...`。
+        if let Some(rest) = message.strip_prefix("/ally ") {
+            self.on_ally_command(rest).await;
+            return;
+        }
         // GM 命令：只有 GM 账号才消费 `@...`；非 GM 的 `@...` 按普通聊天走，
         // 不报错、也不泄露命令是否存在（Crystal 在 `PlayerObject.Chat` 里做同样的判定）。
         if message.starts_with('@') && self.is_gm() {
@@ -2562,24 +2699,31 @@ impl<S: AccountStore> Session<S> {
         let Some(object_id) = self.object_id.take() else {
             return;
         };
-        let (leaving, quest_inventory, pet_mode) = {
+        let (leaving, quest_inventory, pet_mode, friends) = {
             let mut world = self.world.lock().await;
-            // 先取走任务物品栏与宠物命令（`leave` 会清理侧表，取晚了就只剩默认值）。
+            // 先取走任务物品栏/宠物命令/好友表（`leave` 会清理侧表，取晚了就只剩默认值）。
             let quest_inventory = world.take_quest_inventory(object_id);
             let pet_mode = world.pet_mode(object_id);
-            (world.leave(object_id), quest_inventory, pet_mode)
+            let friends = world.take_friends(object_id);
+            (world.leave(object_id), quest_inventory, pet_mode, friends)
         };
+        if leaving.is_some() {
+            crate::metrics::metrics().player_left();
+        }
         if let Some(player) = leaving {
             // 世界 → 角色行的映射与市场落盘共用 `market::character_snapshot`，
             // 保证「下线存盘」与「市场事务落盘」不会写出两套不同的背包/金币语义。
             if let Some(character) =
-                self.character_snapshot(&player, Some(&quest_inventory), pet_mode)
+                self.character_snapshot(&player, Some(&quest_inventory), pet_mode, &friends)
             {
                 self.character = Some(character);
             }
         }
         if let Some(character) = self.character.clone() {
-            if let Err(error) = self.store.save_character(character).await {
+            let started = std::time::Instant::now();
+            let saved = self.store.save_character(character).await;
+            crate::metrics::metrics().record_db_save(started.elapsed());
+            if let Err(error) = saved {
                 tracing::warn!(session = self.id, %error, "下线存盘失败");
             }
         }

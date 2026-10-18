@@ -18,6 +18,9 @@ use crate::session::Session;
 use crate::store::AccountStore;
 use crate::world::World;
 
+/// 汇总日志的间隔（30 秒）。
+const METRICS_LOG_INTERVAL_MS: i64 = 30_000;
+
 /// 连接被拒的原因（只用于日志/测试断言）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnReject {
@@ -225,8 +228,11 @@ pub async fn serve_forever<S: AccountStore>(
         // 的频率捶库，第一次尝试是即时的（初值 0），失败后按 5 秒退避。
         let mut sale_flush_pending = false;
         let mut next_sale_flush_at = 0_i64;
+        // 指标：每 30 秒一条汇总日志（`metrics summary` 便于 grep）。
+        let mut next_metrics_log_at = 0_i64;
         loop {
             interval.tick().await;
+            let tick_started = std::time::Instant::now();
             let (now_ms, writes, conquest_writes) = {
                 let mut world = tick_world.lock().await;
                 world.tick();
@@ -237,7 +243,10 @@ pub async fn serve_forever<S: AccountStore>(
                     next_auction_scan =
                         now_ms.saturating_add(crate::market::AUCTION_SCAN_INTERVAL_MS);
                     // 成交结果留在内存里（挂单删除 + 邮件入队），由下面的 flush 分支落盘。
-                    if !world.process_auctions(now_ms).is_empty() {
+                    let sold = world.process_auctions(now_ms).len();
+                    crate::metrics::metrics()
+                        .record_auction_scan(u64::try_from(sold).unwrap_or(u64::MAX));
+                    if sold > 0 {
                         sale_flush_pending = true;
                     }
                 }
@@ -253,12 +262,25 @@ pub async fn serve_forever<S: AccountStore>(
                     };
                     tracing::info!(remaining, kicked, "重启倒计时");
                 }
+                crate::metrics::metrics().record_tick(tick_started.elapsed());
+                crate::metrics::metrics().set_mail_queue(world.pending_mail_writes());
                 (
                     now_ms,
                     world.take_guild_writes(),
                     world.take_conquest_writes(),
                 )
             };
+            if now_ms >= next_metrics_log_at {
+                next_metrics_log_at = now_ms.saturating_add(METRICS_LOG_INTERVAL_MS);
+                let per_map = {
+                    let world = tick_world.lock().await;
+                    world.player_counts_by_map().len()
+                };
+                tracing::info!(
+                    metrics = %crate::metrics::metrics().summary_line(per_map),
+                    "metrics summary"
+                );
+            }
             if !writes.is_empty()
                 && let Err(error) =
                     crate::guild::persist_guild_writes(tick_store.as_ref(), writes).await
@@ -292,6 +314,14 @@ pub async fn serve_forever<S: AccountStore>(
         }
     });
 
+    // 可观测性：配了 `MIR2_METRICS_LISTEN` 才起 `/metrics`（默认关闭）。
+    if let Some(listen) = config.metrics_listen {
+        match crate::metrics::bind_metrics(listen, Arc::clone(&world)).await {
+            Ok(address) => tracing::info!(%address, "metrics 端点已启动（GET /metrics）"),
+            Err(error) => tracing::warn!(%listen, %error, "metrics 端点启动失败，继续无指标运行"),
+        }
+    }
+
     // 抗刷：每 IP 并发 + 每秒新建连接数，超限直接关连接并计数。
     let limiter = Arc::new(std::sync::Mutex::new(ConnectionLimiter::new(
         config.max_connections_per_ip,
@@ -320,10 +350,12 @@ pub async fn serve_forever<S: AccountStore>(
             .try_acquire(ip, u64::try_from(crate::gm::unix_now_secs()).unwrap_or(0));
         if let Some(reason) = verdict {
             rejected += 1;
+            crate::metrics::metrics().connection_rejected();
             tracing::warn!(%ip, ?reason, rejected, "连接被限流拒绝");
             drop(stream);
             continue;
         }
+        crate::metrics::metrics().connection_opened();
         let id = next_session.fetch_add(1, Ordering::Relaxed);
         let config = Arc::clone(&config);
         let store = Arc::clone(&store);
@@ -348,6 +380,7 @@ pub async fn serve_forever<S: AccountStore>(
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .release(ip);
+            crate::metrics::metrics().connection_closed();
         });
     }
     tracing::info!(rejected, "服务端已停止接受新连接");

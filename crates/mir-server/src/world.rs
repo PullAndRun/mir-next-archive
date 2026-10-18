@@ -664,6 +664,16 @@ pub struct World {
     /// 不放在 [`Player`] 上（理由同 `player_languages`）：`C.ChangePMode` 由 `session.rs`
     /// 调 [`World::set_pet_mode`] 写入；召唤新宠时重置为 `PetMode::Both`。
     pub(crate) pet_modes: HashMap<u32, PetMode>,
+    /// 行会结盟申请：申请方行会 ID → 被申请行会 ID 集合（未落盘；双方会长确认后转成正式联盟）。
+    pub(crate) ally_requests: HashMap<i32, BTreeSet<i32>>,
+    /// 结盟申请时间（剪枝/审计用）。
+    pub(crate) ally_request_times: HashMap<(i32, i32), i64>,
+    /// 好友/黑名单（`object_id → 列表`；登录时从 `characters.friends` 解出，下线写回）。
+    pub(crate) friends: HashMap<u32, Vec<crate::friends::FriendEntry>>,
+    /// 好友列表上限（由 `ServerConfig.max_friends` 在登录时写入；本作扩展）。
+    pub(crate) max_friends: usize,
+    /// 行会盟友上限（由 `ServerConfig.max_guild_allies` 在登录时写入；本作扩展）。
+    pub(crate) max_guild_allies: usize,
     /// 每个在线玩家的当前语言（`object_id → Language`）。
     ///
     /// 不放在 [`Player`] 上是为了避免改动 30+ 处 `Player {}` 字面量（测试/会话层）；
@@ -882,6 +892,11 @@ impl World {
             next_spell_cast_id: 1,
             pets: HashMap::new(),
             pet_modes: HashMap::new(),
+            ally_requests: HashMap::new(),
+            ally_request_times: HashMap::new(),
+            friends: HashMap::new(),
+            max_friends: crate::friends::MAX_FRIENDS,
+            max_guild_allies: crate::guild::MAX_GUILD_ALLIES,
             player_languages: HashMap::new(),
             quest_inventories: HashMap::new(),
             languages: None,
@@ -953,6 +968,11 @@ impl World {
             next_spell_cast_id: 1,
             pets: HashMap::new(),
             pet_modes: HashMap::new(),
+            ally_requests: HashMap::new(),
+            ally_request_times: HashMap::new(),
+            friends: HashMap::new(),
+            max_friends: crate::friends::MAX_FRIENDS,
+            max_guild_allies: crate::guild::MAX_GUILD_ALLIES,
             player_languages: HashMap::new(),
             quest_inventories: HashMap::new(),
             languages: None,
@@ -1616,6 +1636,7 @@ impl World {
         // 语言映射随对象销毁：对象 ID 会被复用，不清掉会让新玩家继承旧语言。
         self.player_languages.remove(&object_id);
         self.pet_modes.remove(&object_id);
+        self.friends.remove(&object_id);
         self.players.remove(&object_id)
     }
 
@@ -2767,6 +2788,7 @@ impl World {
         if now > victim_brown
             && victim_pk < RED_NAME_PK_POINTS
             && !self.at_war(hit.target_id, hit.attacker_id)
+            && !self.players_are_allied(hit.attacker_id, hit.target_id)
             && let Some(attacker) = self.players.get_mut(&hit.attacker_id)
         {
             attacker.brown_time = now + BROWN_NAME_DURATION_MS;
@@ -2853,7 +2875,10 @@ impl World {
             if self.at_war(player_id, hitter_id) || self.in_war_zone(player_id) {
                 let message = self.text(hitter_id, TextKey::PkProtectedByLaw);
                 self.send_system_chat(hitter_id, &message);
-            } else if now > victim_brown && victim_pk < RED_NAME_PK_POINTS {
+            } else if now > victim_brown
+                && victim_pk < RED_NAME_PK_POINTS
+                && !self.players_are_allied(hitter_id, player_id)
+            {
                 let mut cursed = None;
                 if let Some(hitter) = self.players.get_mut(&hitter_id) {
                     hitter.pk_points = hitter.pk_points.saturating_add(PK_POINTS_PER_KILL);
@@ -3568,6 +3593,16 @@ impl World {
         }
         self.pet_modes.insert(master_id, mode);
         true
+    }
+
+    /// 设置好友列表上限（登录时由 `ServerConfig.max_friends` 注入）。
+    pub fn set_friend_limit(&mut self, limit: usize) {
+        self.max_friends = limit;
+    }
+
+    /// 设置行会盟友上限（登录时由 `ServerConfig.max_guild_allies` 注入）。
+    pub fn set_guild_ally_limit(&mut self, limit: usize) {
+        self.max_guild_allies = limit;
     }
 
     /// 玩家当前宠物命令；未设置时按 Crystal 默认 `PetMode::Both`（跟随 + 攻击）。

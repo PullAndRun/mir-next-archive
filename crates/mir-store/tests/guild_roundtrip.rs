@@ -104,6 +104,7 @@ async fn guild_repository_roundtrip_rolls_back() {
                 active_time_remaining: 0,
             },
         ],
+        allies: Vec::new(),
     };
     let created = create_guild(&mut *tx, &guild).await.expect("建行会");
     assert!(created.id > 0, "应由数据库分配主键");

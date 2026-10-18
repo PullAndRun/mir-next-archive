@@ -112,6 +112,7 @@ fn from_store_character(character: mir_store::Character) -> Character {
         quest_inventory: character.quest_inventory,
         last_daily_reset_at: character.last_daily_reset_at,
         pet_mode: character.pet_mode,
+        friends: character.friends,
         guild_index: character.guild_index,
         last_access: from_datetime(character.last_login_date),
     }
@@ -148,6 +149,7 @@ fn apply_to_store_character(character: &Character, target: &mut mir_store::Chara
         .clone_from(&character.quest_inventory);
     target.last_daily_reset_at = character.last_daily_reset_at;
     target.pet_mode = character.pet_mode;
+    target.friends.clone_from(&character.friends);
     target.guild_index = character.guild_index;
 }
 
@@ -173,6 +175,7 @@ fn to_store_guild(guild: &GuildRecord) -> mir_store::Guild {
         gold: guild.gold,
         spare_points: guild.spare_points,
         notice: guild.notice.clone(),
+        allies: mir_store::encode_i32_list(&guild.allies),
         ranks: guild
             .ranks
             .iter()
@@ -229,6 +232,7 @@ fn from_store_guild(guild: mir_store::Guild) -> GuildRecord {
         gold: guild.gold,
         spare_points: guild.spare_points,
         notice: guild.notice,
+        allies: mir_store::decode_i32_list(&guild.allies),
         ranks: guild
             .ranks
             .into_iter()

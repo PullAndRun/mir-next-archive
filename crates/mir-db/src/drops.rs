@@ -276,6 +276,12 @@ impl DropTable {
 }
 
 impl DropInfo {
+    /// 是否为「必掉」规则（`1/1`，Crystal 每次 `AttemptDrop` 都先过 `Random.Next(1)` 恒 0）。
+    #[must_use]
+    pub const fn is_guaranteed(&self) -> bool {
+        self.chance == 1
+    }
+
     /// 单条规则的掷骰（`MonsterInfo.cs:489-560` 的 `AttemptDrop`）。
     ///
     /// `item_offset` / `gold_offset` 对应 Crystal 的「掉率百分比偏移」（会员等加成）。
@@ -294,8 +300,9 @@ impl DropInfo {
         if chance < 1 {
             chance = 1;
         }
-        // `Envir.Random.Next(rate) != 0` → 返回空。
-        if rng.next_range(0, chance - 1) != 0 {
+        // `Envir.Random.Next(rate) != 0`（Crystal 左闭右开）：`next_bounded(n)` 返回
+        // `[0, n)`，与 C# 的 `Random.Next(n)` 完全同语义。
+        if rng.next_bounded(chance as u32) != 0 {
             return None;
         }
 
@@ -314,7 +321,10 @@ impl DropInfo {
                 if upper <= lower {
                     upper = lower + 1;
                 }
-                let rolled = rng.next_range(lower, upper - 1);
+                // Crystal `Envir.Random.Next(lower, upper)` 是左闭右开：`[lower, upper)`。
+                // 用 `next_bounded(span)` 显式表达，避免闭区间 API 的 off-by-one 歧义。
+                let span = (upper - lower) as u32;
+                let rolled = lower + rng.next_bounded(span) as i32;
                 reward.gold = rolled.max(0) as u32;
             }
             DropKind::Item(name) => {
@@ -499,6 +509,74 @@ mod tests {
             reward.quest_required,
             vec![true, false],
             "`Q` 标记必须与 items 一一对应（Crystal `DropInfo.QuestRequired`）"
+        );
+    }
+
+    #[test]
+    fn group_children_are_independent_probabilities() {
+        // Crystal `AttemptDrop` 对组内每一条**各自**掷 `Random.Next(Chance)`，
+        // 不是「每 group 只掉一个」，也不是先归一化权重；`GROUP*` 的 `Random` 字段
+        // Crystal 实际没使用（`MonsterInfo.cs:547-566`）。
+        let table = DropTable::parse(
+            r"
+            1/1 GROUP*
+            {
+                1/2 A
+                1/2 B
+            }
+            ",
+        );
+        let mut rng = MirRng::from_seed(0x00C0_FFEE);
+        let (mut only_a, mut only_b, mut both, mut neither) = (0, 0, 0, 0);
+        let rolls = 4_000;
+        for _ in 0..rolls {
+            let items = table.roll(&mut rng, 1).items;
+            match (
+                items.iter().any(|s| s == "A"),
+                items.iter().any(|s| s == "B"),
+            ) {
+                (true, true) => both += 1,
+                (true, false) => only_a += 1,
+                (false, true) => only_b += 1,
+                (false, false) => neither += 1,
+            }
+        }
+        // 期望各 25%；二项分布 sd≈21.7，±5% 区间非常宽松且确定（固定种子）。
+        for (label, count) in [
+            ("A only", only_a),
+            ("B only", only_b),
+            ("both", both),
+            ("neither", neither),
+        ] {
+            assert!(
+                (800..=1_200).contains(&count),
+                "{label} 应约为 1000/4000，实际 {count}"
+            );
+        }
+    }
+
+    #[test]
+    fn guaranteed_rule_and_rate_use_right_open_rng() {
+        let guaranteed = DropInfo {
+            chance: 1,
+            kind: DropKind::Item("必掉".to_owned()),
+            quest_required: false,
+        };
+        assert!(guaranteed.is_guaranteed());
+        let mut rng = MirRng::from_seed(0xDEAD_BEEF);
+        for _ in 0..100 {
+            assert!(guaranteed.roll(&mut rng, 1, 0, 0).is_some());
+        }
+
+        // 1/4 规则 4000 次应命中约 1000 次（左闭右开 0..4 中恰有 1/4 为 0）。
+        let table = DropTable::parse("1/4 四分之一\n");
+        let mut rng = MirRng::from_seed(0x1234_5678);
+        let hits = (0..4_000)
+            .filter(|_| !table.roll(&mut rng, 1).items.is_empty())
+            .count();
+        assert!(
+            (850..=1_150).contains(&hits),
+            "4000 次 1/4 应约 1000 次，实际 {hits}"
         );
     }
 }

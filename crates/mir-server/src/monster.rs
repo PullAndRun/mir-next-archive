@@ -40,7 +40,9 @@ use mir_core::enums::{
     AttackMode, DamageType, DefenceType, MirDirection, Monster as MonsterImage, PetMode, Spell,
 };
 use mir_protocol::ServerPacket;
-use mir_protocol::packets::server::{ObjectAttack, ObjectDied, ObjectTurn, ObjectWalk};
+use mir_protocol::packets::server::{
+    ObjectAttack, ObjectDied, ObjectRangeAttack, ObjectTurn, ObjectWalk,
+};
 
 use crate::aoi::AoiKind;
 use crate::combat::{CombatStats, PendingHit};
@@ -142,6 +144,54 @@ impl MonsterKind {
     #[must_use]
     pub const fn is_guard(&self) -> bool {
         matches!(self.ai, 6 | 58 | 113)
+    }
+
+    /// 远程攻击射程（Crystal 各 AI 子类覆写的 `InAttackRange`）：
+    ///
+    /// * `AI 8` `AxeSkeleton` / `AI 164` `HornedArcher` / `AI 175` `ChieftainArcher` /
+    ///   `AI 199` `FurbolgArcher`：6（各自 `AttackRange`）；
+    /// * `AI 57` `TownArcher` / `AI 80` `ConquestArcher`：10（`TownArcher.cs:10`）；
+    /// * `AI 31` `RightGuard` / `AI 32` `LeftGuard`：8，且**相邻时改用近战**
+    ///   （`RightGuard.cs:10-53` 的 `ranged = !InRange(...,1)`）；
+    /// * `AI 16` `RedThunderZuma`：9，同样相邻改近战（`RedThunderZuma.cs:8-56`）；
+    /// * `AI 113` `ArcherGuard`：射程 = `ViewRange`（`ArcherGuard.cs:22-44`，
+    ///   `InAttackRange` 继承 `Guard`）。真实 DB 里 113 也被部分版本用作 `Armadillo`，
+    ///   因此按名字再确认一次，避免把土狼当弓手。
+    ///
+    /// 其余 AI 返回 `None`（走基类近战距离 1）。法师类 AI（10/55/93…）的魔法弹/直线
+    /// 技能需要 `MonsterMagic` 表与 `ObjectMagic` 分支，本轮不做，见 docs 差异。
+    #[must_use]
+    pub fn ranged_attack_range(&self) -> Option<i32> {
+        match self.ai {
+            8 | 164 | 175 | 199 => Some(6),
+            16 => Some(9),
+            31 | 32 => Some(8),
+            57 | 80 => Some(10),
+            113 if self.is_archer_guard() => Some(self.view_range),
+            _ => None,
+        }
+    }
+
+    /// `AI 113` 是否是 `ArcherGuard`（站桩远程守卫）。
+    ///
+    /// Crystal 参考表把 113 映射到 `ArcherGuard`（`MonsterObject.cs:261-262`）；
+    /// 但部分社区 DB（如 Jev）把 113 用作 `Armadillo`，所以用名字兜底确认。
+    #[must_use]
+    pub fn is_archer_guard(&self) -> bool {
+        self.ai == 113 && (self.name.contains("ArcherGuard") || self.name.contains("弓箭守卫"))
+    }
+
+    /// 远程 AI 在贴身时是否改用近战（Crystal `RightGuard/LeftGuard/RedThunderZuma`）。
+    #[must_use]
+    pub const fn melee_when_adjacent(&self) -> bool {
+        matches!(self.ai, 16 | 31 | 32)
+    }
+
+    /// 是否是站桩型弓箭手（Crystal `TownArcher.CanMove` 要求 `Route.Count > 0`，
+    /// 无路线表时不移动，`Monsters/TownArcher.cs:52-120`）。
+    #[must_use]
+    pub const fn is_town_archer(&self) -> bool {
+        self.ai == 57
     }
 
     /// 是否是 Tao Guard（Crystal AI 58）。
@@ -632,13 +682,17 @@ impl World {
         if monster.kind.is_guard() {
             monster.alone = false;
             self.process_search(monster, now);
-            self.process_guard_return(monster, now);
+            // `ArcherGuard.CanMove => false`（`ArcherGuard.cs:12-16`）：站桩，不回巡逻线。
+            if !monster.kind.is_archer_guard() {
+                self.process_guard_return(monster, now);
+            }
             self.process_target(monster, now);
             return;
         }
-        // 攻城箭塔：`ConquestArcher.CanMove` 要求 `Route.Count > 0`（`ConquestArcher.cs:11-14`），
-        // 本作没有路线表 → 站桩：只索敌 + 攻击，不漫游、不追击。
-        if monster.kind.is_conquest_archer() {
+        // 攻城箭塔/城弓箭手：`CanMove` 要求 `Route.Count > 0`
+        // （`ConquestArcher.cs:11-14`、`TownArcher.cs:52-120`），本作没有路线表 →
+        // 站桩：只索敌 + 攻击，不漫游、不追击。
+        if monster.kind.is_conquest_archer() || monster.kind.is_town_archer() {
             monster.alone = false;
             self.process_search(monster, now);
             self.process_target(monster, now);
@@ -654,6 +708,19 @@ impl World {
         self.process_search(monster, now);
         self.process_roam(monster, now);
         self.process_target(monster, now);
+        self.process_return_home(monster, now);
+    }
+
+    /// 目标丢失后的「回位」：Crystal 基类只随机漫游，守卫沿 `Route` 回出生点
+    /// （`MonsterObject.ProcessRoam`，`:1815-1825`）。本作没有路线表，用出生点
+    /// [`Monster::home`] 兜底：只有追出视野半径外才走回，避免影响正常漫游。
+    fn process_return_home(&mut self, monster: &mut Monster, now: i64) {
+        if monster.target.is_some() || monster.position == monster.home {
+            return;
+        }
+        if monster.position.max_distance(monster.home) > monster.kind.view_range {
+            self.monster_move_to(monster, monster.home, now);
+        }
     }
 
     /// Crystal `MonsterObject.CheckAlone`（`MonsterObject.cs:1735-1763`）。
@@ -780,20 +847,21 @@ impl World {
             return;
         };
 
+        let ranged_range = monster.kind.ranged_attack_range();
         if monster.kind.is_guard() || monster.kind.is_conquest_archer() {
             // `Guard.InAttackRange`：同图、不同格、切比雪夫距离 <= 视野半径
-            // （`Monsters/Guard.cs:40-45`）。够不到就站着：`Guard.CanMove` 要求
-            // `Route.Count > 0`，没有路线时不会追（`:14-17`）。
-            //
-            // 攻城箭塔同理（`TownArcher.AttackRange = 10`，`TownArcher.cs:10`、
-            // `ConquestArcher.cs:11-14`），本作用视野半径代替固定 10。
+            // （`Monsters/Guard.cs:40-45`）。攻城箭塔/TownArcher 用 `AttackRange = 10`
+            // （`Monsters/TownArcher.cs:10`），走 `S.ObjectRangeAttack`。
+            let range = ranged_range.unwrap_or(monster.kind.view_range);
             if same_map
                 && target_position != monster.position
-                && monster
-                    .position
-                    .in_range(target_position, monster.kind.view_range)
+                && monster.position.in_range(target_position, range)
             {
-                if self.players.contains_key(&target_id) {
+                if ranged_range.is_some() {
+                    if !self.ranged_attack(monster, target_id, now) {
+                        monster.target = None;
+                    }
+                } else if self.players.contains_key(&target_id) {
                     self.guard_attack(monster, target_id, now);
                 } else if !self.attack_monster(monster, target_id, now) {
                     monster.target = None;
@@ -802,11 +870,17 @@ impl World {
             return;
         }
 
+        let attack_range = ranged_range.unwrap_or(1);
+        let adjacent = monster.position.in_range(target_position, 1);
         if same_map
             && target_position != monster.position
-            && monster.position.in_range(target_position, 1)
+            && monster.position.in_range(target_position, attack_range)
         {
-            let attacked = if self.players.contains_key(&target_id) {
+            let use_ranged =
+                ranged_range.is_some() && !(adjacent && monster.kind.melee_when_adjacent());
+            let attacked = if use_ranged {
+                self.ranged_attack(monster, target_id, now)
+            } else if self.players.contains_key(&target_id) {
                 self.monster_attack(monster, target_id, now);
                 true
             } else {
@@ -815,6 +889,10 @@ impl World {
             if !attacked {
                 monster.target = None;
             }
+            return;
+        }
+        // TownArcher 无路线表 → 站桩；够不到也不追。
+        if monster.kind.is_town_archer() {
             return;
         }
         self.monster_move_to(monster, target_position, now);
@@ -1056,6 +1134,57 @@ impl World {
         }
         self.pending_hits.push(PendingHit {
             at: now + MONSTER_ATTACK_DAMAGE_DELAY_MS,
+            attacker_id: monster.object_id,
+            target_id,
+            damage,
+            defence: DefenceType::ACAgility,
+        });
+        true
+    }
+
+    /// 远程物理攻击（Crystal `AxeSkeleton.Attack`/`TownArcher.Attack`，
+    /// `Monsters/AxeSkeleton.cs:23-49`、`Monsters/TownArcher.cs:28-48`）：
+    /// 广播 `S.ObjectRangeAttack`，伤害延迟 `max_distance * 50 + 500ms`
+    /// （`MonsterObject.ProjectileAttack`）。
+    fn ranged_attack(&mut self, monster: &mut Monster, target_id: u32, now: i64) -> bool {
+        let Some(target_position) = self.attackable_position(&monster.map, target_id) else {
+            return false;
+        };
+        monster.direction = monster.position.direction_to(target_position);
+        let packet = ServerPacket::ObjectRangeAttack(ObjectRangeAttack {
+            object_id: monster.object_id,
+            location: monster.position,
+            direction: monster.direction,
+            target_id,
+            target: target_position,
+            type_: 0,
+            spell: Spell::None,
+            level: 0,
+        })
+        .encode_frame();
+        self.broadcast(
+            &monster.map,
+            monster.position,
+            Some(monster.object_id),
+            &packet,
+            monster.object_id,
+        );
+
+        monster.action_time = now + MONSTER_ATTACK_ACTION_MS;
+        monster.attack_time = now + monster.attack_speed_ms;
+        let damage = monster.stats.physical_attack(&mut self.rng);
+        if damage == 0 {
+            return true;
+        }
+        if monster.master.is_some()
+            && let Some(target) = self.monster_mut(target_id)
+            && target.expo_owner.is_none()
+        {
+            target.expo_owner = monster.master;
+        }
+        let distance = i64::from(monster.position.max_distance(target_position));
+        self.pending_hits.push(PendingHit {
+            at: now + distance * 50 + 500,
             attacker_id: monster.object_id,
             target_id,
             damage,

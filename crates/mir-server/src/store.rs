@@ -160,6 +160,9 @@ pub struct Character {
     /// 宠物命令模式（Crystal `CharacterInfo.PMode`；列 `characters.pet_mode`，迁移 0001，
     /// `PetMode::Both = 0`）。登录时写进世界侧表，下线时回写。
     pub pet_mode: i16,
+    /// 好友/黑名单（Crystal `CharacterInfo.Friends`，`CharacterInfo.cs:86`；
+    /// 格式见 `crate::friends` 的 `encode_friends`/`decode_friends`；迁移 0015）。
+    pub friends: Vec<u8>,
     /// 上次每日任务重置时间（Unix 毫秒；0 = 从未重置过；迁移 0013
     /// `characters.last_daily_reset_at`）。
     ///
@@ -211,6 +214,7 @@ impl Character {
             quests: Vec::new(),
             quest_inventory: Vec::new(),
             pet_mode: 0,
+            friends: Vec::new(),
             last_daily_reset_at: 0,
             // Crystal 的 `CharacterInfo.GuildIndex` 默认 -1（没有行会）。
             guild_index: -1,
@@ -250,6 +254,8 @@ pub struct GuildRecord {
     pub storage: Vec<GuildStorageRecord>,
     /// 行会增益（Crystal `GuildInfo.BuffList`）。
     pub buffs: Vec<GuildBuffRecord>,
+    /// 联盟行会 ID（Crystal `GuildInfo.AllyGuilds`，`GuildObject.cs:63`；迁移 0015）。
+    pub allies: Vec<i32>,
 }
 
 /// 一个攻城区的运行期状态（与 `mir-store` 的 `Conquest` 同构的存储视图）。

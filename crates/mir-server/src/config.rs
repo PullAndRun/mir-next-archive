@@ -68,11 +68,25 @@ pub struct ServerConfig {
     /// Crystal 的客户端每分钟发一次 `C.KeepAlive`（`MirConnection.cs`），所以「有包」
     /// 就等于「客户端还活着」；`0` = 不超时。
     pub idle_timeout_secs: u64,
+    /// `/metrics` 端点监听地址（`MIR2_METRICS_LISTEN`）；`None` = **默认关闭**。
+    ///
+    /// 只读端点（Prometheus 文本），不鉴权：生产环境请绑内网/回环地址。
+    pub metrics_listen: Option<SocketAddr>,
     /// 单会话每秒最多处理多少个客户端包（默认 200）。
     ///
     /// 超限的包**丢弃并记一条 warn**，不踢人（避免误伤网络抖动时的重发包）。
     /// `0` = 不限制。
     pub max_packets_per_second: u32,
+    /// 好友/黑名单上限（`MIR2_MAX_FRIENDS`，默认 100）。
+    ///
+    /// `0` = 不限（与本文件其它抗刷阈值口径一致）。
+    /// **本作扩展**：Crystal `CharacterInfo.Friends` 是无上限 `List<FriendInfo>`。
+    pub max_friends: usize,
+    /// 行会盟友上限（`MIR2_MAX_GUILD_ALLIES`，默认 5）。
+    ///
+    /// `0` = 不限。**本作扩展**：Crystal `GuildObject.AllyGuilds` 是无上限 `List`，
+    /// `Globals` 也没有 `MaxGuildAllies` 常量。
+    pub max_guild_allies: usize,
 }
 
 impl Default for ServerConfig {
@@ -105,10 +119,21 @@ impl Default for ServerConfig {
             gm_accounts: std::env::var(crate::gm::GM_ACCOUNTS_ENV)
                 .map(|raw| crate::gm::parse_gm_accounts(&raw))
                 .unwrap_or_default(),
+            metrics_listen: std::env::var("MIR2_METRICS_LISTEN")
+                .ok()
+                .and_then(|raw| match raw.parse::<SocketAddr>() {
+                    Ok(address) => Some(address),
+                    Err(error) => {
+                        tracing::warn!(%raw, %error, "MIR2_METRICS_LISTEN 解析失败，metrics 不启动");
+                        None
+                    }
+                }),
             max_connections_per_ip: 5,
             max_connections_per_second: 10,
             idle_timeout_secs: 60,
             max_packets_per_second: 200,
+            max_friends: 100,
+            max_guild_allies: 5,
         }
     }
 }
@@ -141,6 +166,14 @@ impl ServerConfig {
         if let Ok(value) = std::env::var(crate::gm::GM_ACCOUNTS_ENV) {
             config.gm_accounts = crate::gm::parse_gm_accounts(&value);
         }
+        if let Ok(value) = std::env::var("MIR2_METRICS_LISTEN") {
+            match value.parse::<SocketAddr>() {
+                Ok(address) => config.metrics_listen = Some(address),
+                Err(error) => {
+                    tracing::warn!(%value, %error, "MIR2_METRICS_LISTEN 解析失败，沿用默认（关闭）");
+                }
+            }
+        }
         if let Some(value) = parse_env_usize("MIR2_MAX_CONN_PER_IP") {
             config.max_connections_per_ip = value;
         }
@@ -152,6 +185,12 @@ impl ServerConfig {
         }
         if let Some(value) = parse_env_usize("MIR2_MAX_PACKETS_PER_SEC") {
             config.max_packets_per_second = u32::try_from(value).unwrap_or(u32::MAX);
+        }
+        if let Some(value) = parse_env_usize("MIR2_MAX_FRIENDS") {
+            config.max_friends = value;
+        }
+        if let Some(value) = parse_env_usize("MIR2_MAX_GUILD_ALLIES") {
+            config.max_guild_allies = value;
         }
         config
     }

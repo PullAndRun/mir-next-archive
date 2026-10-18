@@ -265,6 +265,9 @@ pub struct Character {
     pub attack_mode: i16,
     /// 宠物模式（Crystal `PMode`，取值同 `PetMode`）。
     pub pet_mode: i16,
+    /// 好友/黑名单（Crystal `CharacterInfo.Friends`，`CharacterInfo.cs:86`；
+    /// 格式见 `crates/mir-server/src/friends.rs` 的 `encode_friends`/`decode_friends`）。
+    pub friends: Vec<u8>,
     /// PK 值（Crystal `PKPoints`）。
     pub pk_points: i32,
     /// 是否允许组队（Crystal `AllowGroup`）。
@@ -383,6 +386,9 @@ pub struct Guild {
     pub storage: Vec<GuildStorageRow>,
     /// 行会增益（按写入顺序；Crystal `List<GuildBuff>`）。
     pub buffs: Vec<GuildBuffRow>,
+    /// 联盟行会 ID 列表（Crystal `GuildInfo.AllyGuilds`，`GuildObject.cs:63`；
+    /// `int32 count + int32 每项`，空 = 没有盟友）。
+    pub allies: Vec<u8>,
 }
 
 impl Guild {
@@ -669,6 +675,8 @@ pub(crate) struct GuildRow {
     pub spare_points: i16,
     /// 公告全文（`\n` 分隔）。
     pub notice: String,
+    /// 联盟行会 ID 列表（`int32 count + int32 每项`）。
+    pub allies: Vec<u8>,
 }
 
 /// 选角列表的一行（Crystal `SelectInfo`）。

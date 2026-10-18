@@ -1901,3 +1901,119 @@ fn pet_mode_resets_on_recall_and_pet_death() {
         "宠物死亡后命令重置"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 怪物 AI 深化：远程攻击 / 目标丢失回位
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ranged_ai_ranges_cover_the_data_archer_templates() {
+    let mut kind = monster_kind("ArcherGuard", 100, 1, 0);
+    kind.view_range = 9;
+    for (ai, expected) in [
+        (8, 6),
+        (16, 9),
+        (164, 6),
+        (175, 6),
+        (199, 6),
+        (31, 8),
+        (32, 8),
+        (57, 10),
+        (80, 10),
+        (113, 9),
+    ] {
+        kind.ai = ai;
+        assert_eq!(
+            kind.ranged_attack_range(),
+            Some(expected),
+            "AI {ai} 的远程射程"
+        );
+    }
+    kind.ai = 31;
+    assert!(kind.melee_when_adjacent(), "RightGuard 贴身改近战");
+    kind.ai = 16;
+    assert!(kind.melee_when_adjacent(), "RedThunderZuma 贴身改近战");
+    kind.ai = 8;
+    assert!(!kind.melee_when_adjacent(), "AxeSkeleton 贴身仍投射");
+    kind.ai = 57;
+    assert!(kind.is_town_archer(), "TownArcher 站桩");
+    kind.ai = 113;
+    assert!(kind.is_archer_guard(), "AI 113 + ArcherGuard 名字");
+    kind.name = "Armadillo".to_owned();
+    assert_eq!(
+        kind.ranged_attack_range(),
+        None,
+        "Jev 库 AI 113 是 Armadillo，不能当弓手"
+    );
+    kind.name = "弓手".to_owned();
+    kind.ai = 10; // FlamingWooma 是近战物理（MACAgility），不在远程覆盖内
+    assert_eq!(kind.ranged_attack_range(), None);
+}
+
+#[test]
+fn town_archer_does_not_chase_without_a_route() {
+    let mut harness = Harness::new(52);
+    let player = harness.add_player(1, MirClass::Warrior, 30, Point::new(20, 20));
+    let mut kind = monster_kind("弓箭守卫", 5_000, 10, 0);
+    kind.ai = 57;
+    let archer = harness.spawn_active(kind, Point::new(20, 32));
+    harness.world.monster_mut(archer).expect("弓手").target = Some(player);
+    harness.wake_monster(archer);
+    let position = harness.world.monster(archer).expect("弓手").position;
+
+    harness.elapse(2_000);
+    assert_eq!(
+        harness.world.monster(archer).expect("弓手").position,
+        position,
+        "TownArcher 无路线表应站桩，不追击"
+    );
+}
+
+#[test]
+fn ranged_monster_shoots_from_six_cells() {
+    let mut harness = Harness::new(50);
+    let player = harness.add_player(1, MirClass::Warrior, 30, Point::new(20, 20));
+    let max_hp = harness.world.player(player).expect("玩家").stats.hp;
+    let mut kind = monster_kind("掷斧骷髅", 5_000, 5, 0);
+    kind.ai = 8; // Crystal AxeSkeleton：射程 6
+    kind.stats.min_dc = 5;
+    kind.stats.max_dc = 5;
+    kind.stats.accuracy = 100;
+    let shooter = harness.spawn_active(kind, Point::new(20, 24));
+    harness.wake_monster(shooter);
+
+    harness.elapse(0);
+    assert!(
+        harness.packets(player).iter().any(|packet| matches!(
+            packet,
+            ServerPacket::ObjectRangeAttack(attack)
+                if attack.object_id == shooter && attack.target_id == player
+        )),
+        "远程怪应广播 S.ObjectRangeAttack（Crystal `AxeSkeleton.cs:39`）"
+    );
+    // `ProjectileAttack`：distance(4) * 50 + 500 = 700ms。
+    harness.elapse(800);
+    assert!(
+        harness.world.player(player).expect("玩家").hp < max_hp,
+        "远程伤害应在弹道延迟后落地"
+    );
+}
+
+#[test]
+fn target_lost_monster_returns_home() {
+    let mut harness = Harness::new(51);
+    let _player = harness.add_player(1, MirClass::Warrior, 30, Point::new(20, 20));
+    let monster = harness.spawn_active(monster_kind("游荡怪", 5_000, 5, 0), Point::new(30, 20));
+    harness.world.monster_mut(monster).expect("怪物").home = Point::new(20, 20);
+    // 模拟目标死亡/跑出 DataRange 后 `process_monster` 的清理结果。
+    harness.world.monster_mut(monster).expect("怪物").target = None;
+    harness.wake_monster(monster);
+
+    harness.elapse(2_000);
+    let position = harness.world.monster(monster).expect("怪物").position;
+    assert_eq!(harness.world.monster(monster).expect("怪物").target, None);
+    assert!(
+        position.max_distance(Point::new(20, 20)) < 10,
+        "目标丢失后应朝出生点回位，实际 {position:?}"
+    );
+}

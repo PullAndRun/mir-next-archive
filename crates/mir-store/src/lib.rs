@@ -79,6 +79,39 @@ mod models;
 mod password;
 mod repo;
 
+/// 编码 `i32` 列表（`guilds.allies` 等行内块：`int32 count + int32 每项`）。
+#[must_use]
+pub fn encode_i32_list(values: &[i32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(4 + values.len() * 4);
+    bytes.extend_from_slice(
+        &i32::try_from(values.len())
+            .unwrap_or(i32::MAX)
+            .to_le_bytes(),
+    );
+    for value in values {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes
+}
+
+/// 解码 [`encode_i32_list`] 的块；空块/截断时按宽容方式处理（至多 `count` 项）。
+#[must_use]
+pub fn decode_i32_list(bytes: &[u8]) -> Vec<i32> {
+    let Some(count) = bytes
+        .get(..4)
+        .and_then(|b| <[u8; 4]>::try_from(b).ok())
+        .map(i32::from_le_bytes)
+    else {
+        return Vec::new();
+    };
+    let count = usize::try_from(count).unwrap_or(0);
+    bytes[4..]
+        .chunks_exact(4)
+        .take(count)
+        .map(|chunk| i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .collect()
+}
+
 pub use error::{Result, StoreError};
 pub use models::{
     Account, Character, CharacterSummary, Conquest, DEFAULT_LANGUAGE, GameShopPurchase,

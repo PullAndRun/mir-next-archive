@@ -22,6 +22,7 @@
 //! [`UiState::set_time`] 写入真实时间；无头测试直接写任意时刻，于是可以在不 sleep 的
 //! 情况下断言「500 ms 内存在、2 s 后消失」。
 
+pub mod bigmap;
 pub mod buffs;
 pub mod dialog;
 pub mod equipment;
@@ -31,6 +32,7 @@ pub mod labels;
 pub mod minimap;
 pub mod shop;
 pub mod skills;
+pub mod target;
 pub mod text;
 pub mod tooltip;
 pub mod worldtext;
@@ -42,7 +44,7 @@ use mir_core::enums::{MirDirection, MirGridType, Spell};
 use mir_render::{Frame, Image, MapScene};
 
 use crate::geom::Rect;
-use crate::net::{InventoryItem, WorldSnapshot};
+use crate::net::{InventoryItem, WorldEntity, WorldSnapshot};
 use crate::ui::dialog::ParsedPage;
 pub use crate::ui::text::UiText;
 use mir_core::Language;
@@ -128,6 +130,11 @@ pub enum UiAction {
         /// 是否直接走（否则转身）。
         step: bool,
     },
+    /// 朝锁定目标攻击（`C.Attack`；目标相邻时由 [`UiState::attack_target`] 产生）。
+    AttackTarget {
+        /// 朝向目标的方向。
+        direction: MirDirection,
+    },
 }
 
 impl UiAction {
@@ -161,6 +168,7 @@ impl UiAction {
                 unique_id: *unique_id,
                 count: 1,
             }),
+            Self::AttackTarget { direction } => Some(NetCommand::Attack(*direction)),
             _ => None,
         }
     }
@@ -297,6 +305,60 @@ pub fn walk_intent(snapshot: &WorldSnapshot, target: Point) -> Option<WalkIntent
     Some(WalkIntent { direction, step })
 }
 
+/// 靠近锁定目标时最多连续走的步数（需求：最多 3 步后放弃）。
+pub const APPROACH_STEPS: u8 = 3;
+/// 靠近目标时每走一步的间隔：走动作本身的时长（`Frames.cs:159-166`，600 ms）。
+pub const APPROACH_STEP_MS: i64 = 600;
+/// 目标双击的判定窗口（与背包双击相同，`inventory::DOUBLE_CLICK_MS`）。
+pub const TARGET_DOUBLE_CLICK_MS: i64 = inventory::DOUBLE_CLICK_MS;
+
+/// 「靠近锁定目标」的进度。
+///
+/// 目标不在相邻格时，第一次攻击会变成「朝目标走一步」，并记下这里；之后每
+/// [`APPROACH_STEP_MS`] 再走一步（[`UiState::tick_approach`]），走到相邻格就自动攻击，
+/// 走满 [`APPROACH_STEPS`] 步还没到就放弃。
+///
+/// 对应 Crystal 的自动靠近：`CheckInput` 在目标超出 1 格时朝目标走
+/// （`Client/MirScenes/GameScene.cs:11764-11773`），相邻时自动挥刀（`:11471-11509`）。
+/// 本作没有 A*，只沿 `DirectionFromPoint` 的八方向走直线。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Approach {
+    /// 目标对象 ID。
+    pub target_id: u32,
+    /// 还要再走几步（0 表示下一步仍不相邻就放弃）。
+    pub steps_left: u8,
+    /// 下一步允许发出的时间（Unix 毫秒）。
+    pub next_step_at: i64,
+}
+
+/// `Esc` 按顺序关面板的结果。
+///
+/// 顺序与 Crystal 的 `Closeall`/`Esc` 处理一致（`GameScene.cs:668-671,697`）：
+/// 右键菜单 → 拖拽 → 大地图 → NPC 对话/商店 → 背包/装备/技能。聊天输入由窗口层先处理
+/// （输入框在 `LiveState` 里，不在 [`UiState`]）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EscapeResult {
+    /// 关掉了大地图。
+    Bigmap,
+    /// 关掉了 NPC 对话/商店；调用方要给服务端发 `@exit`。
+    Npc {
+        /// 对话 NPC 的对象 ID（未知时为 0）。
+        object_id: u32,
+    },
+    /// 关掉了背包/装备/技能/右键菜单/拖拽。
+    Panels,
+    /// 没有可关的面板。
+    Nothing,
+}
+
+impl EscapeResult {
+    /// 是否真的关掉了什么（决定要不要重绘）。
+    #[must_use]
+    pub const fn closed(self) -> bool {
+        !matches!(self, Self::Nothing)
+    }
+}
+
 /// 界面状态：面板开关、选中项、鼠标位置、拖拽/右键菜单、飘字与物品图标缓存。
 pub struct UiState {
     /// 界面语言。
@@ -309,10 +371,16 @@ pub struct UiState {
     pub show_equipment: bool,
     /// 小地图面板是否打开（`M`）。
     pub show_minimap: bool,
+    /// 大地图面板是否打开（`B`，Crystal `BigMapDialog.Toggle()`，`GameScene.cs:774`）。
+    pub show_bigmap: bool,
     /// 小地图渲染器（`resource/data/mmap.wzl`；缺素材时是空场景，画纯色占位）。
     pub minimap_scene: mir_render::MinimapScene,
     /// 鼠标位置（物理像素，与帧坐标一致）。
     pub mouse: Point,
+    /// 锁定的目标对象 ID（Crystal `MapObject.TargetObjectID`，`MapObject.cs:34-44`）。
+    pub target_object_id: Option<u32>,
+    /// 朝锁定目标靠近的进度（见 [`Approach`]）。
+    pub approach: Option<Approach>,
     /// 背包选中的格子。
     pub selected_slot: Option<usize>,
     /// 商店选中的货架下标。
@@ -351,6 +419,8 @@ pub struct UiState {
     pub icons: HashMap<u16, Option<Image>>,
     /// 上一次点击（双击判定）。
     last_click: Option<(i64, DragSource)>,
+    /// 上一次点击的世界目标（双击判定：同一目标 `TARGET_DOUBLE_CLICK_MS` 内两次点击）。
+    last_target_click: Option<(i64, u32)>,
 }
 
 impl UiState {
@@ -363,8 +433,11 @@ impl UiState {
             show_skills: false,
             show_equipment: false,
             show_minimap: false,
+            show_bigmap: false,
             minimap_scene: mir_render::MinimapScene::empty(),
             mouse: Point::new(0, 0),
+            target_object_id: None,
+            approach: None,
             selected_slot: None,
             selected_goods: None,
             selected_magic: None,
@@ -384,6 +457,7 @@ impl UiState {
             last_effect_id: 0,
             icons: HashMap::new(),
             last_click: None,
+            last_target_click: None,
         }
     }
 
@@ -457,6 +531,17 @@ impl UiState {
             DragSource::Equipment(slot) => snapshot.equipment_item(slot).is_none(),
         }) {
             self.drag = None;
+        }
+        // 目标死亡/离场后不再锁定（Crystal 在目标死亡时清 `TargetObjectID`，
+        // `GameScene.cs:10485-10486`）。
+        if self.target_object_id.is_some_and(|object_id| {
+            snapshot
+                .entities
+                .get(&object_id)
+                .is_none_or(|entity| entity.dead)
+        }) {
+            self.target_object_id = None;
+            self.approach = None;
         }
         self.collect_world_events(snapshot);
         self.prune_world_events();
@@ -533,6 +618,7 @@ impl UiState {
         self.show_inventory = false;
         self.show_skills = false;
         self.show_equipment = false;
+        self.show_bigmap = false;
         self.drag = None;
         self.context_menu = None;
         self.close_npc();
@@ -543,10 +629,199 @@ impl UiState {
         self.show_minimap = !self.show_minimap;
     }
 
+    /// 开关大地图（`B`，Crystal `KeybindOptions.Bigmap` → `BigMapDialog.Toggle()`，
+    /// `GameScene.cs:773-774`；`BigMapDialog.Show()` 在 `MapInfo.BigMap <= 0` 时直接返回，
+    /// `BigMapDialog.cs:286-295`，本作改为显示纯色占位 + 地图名）。
+    pub fn toggle_bigmap(&mut self) {
+        self.show_bigmap = !self.show_bigmap;
+    }
+
+    /// 鼠标是否落在大地图面板上（面板开着时吃掉点击，避免误点成走路）。
+    #[must_use]
+    pub fn bigmap_clicked(&self, frame: Rect) -> bool {
+        self.show_bigmap && bigmap::panel_rect(frame).contains(self.mouse)
+    }
+
+    /// `Esc`：按「右键菜单 → 拖拽 → 大地图 → NPC 对话/商店 → 其它面板」的顺序关一层。
+    ///
+    /// 聊天输入不在这里（在窗口层的 `LiveState` 里，且窗口层在调用本方法前已经处理）。
+    /// 返回值告诉调用方要不要发 `@exit`、要不要重绘。
+    pub fn escape(&mut self) -> EscapeResult {
+        if self.context_menu.is_some() {
+            self.context_menu = None;
+            return EscapeResult::Panels;
+        }
+        if self.drag.is_some() {
+            self.drag = None;
+            return EscapeResult::Panels;
+        }
+        // 需求：`Esc` 关闭大地图（Crystal 的 `Closeall` 也会收起对话框，
+        // `GameScene.cs:668-671,697`）。
+        if self.show_bigmap {
+            self.show_bigmap = false;
+            return EscapeResult::Bigmap;
+        }
+        if self.dialog.is_some() || self.shop_open {
+            let object_id = self.npc_object_id.unwrap_or(0);
+            self.close_npc();
+            return EscapeResult::Npc { object_id };
+        }
+        if self.show_inventory || self.show_skills || self.show_equipment {
+            self.close_panels();
+            return EscapeResult::Panels;
+        }
+        EscapeResult::Nothing
+    }
+
     /// 鼠标是否落在小地图面板上（面板开着时吃掉点击，避免误点成走路）。
     #[must_use]
     pub fn minimap_clicked(&self, frame: Rect) -> bool {
         self.show_minimap && minimap::panel_rect(frame).contains(self.mouse)
+    }
+
+    /// 鼠标下的实体（悬停高亮用）；鼠标压在面板上时不算（Crystal 只在
+    /// `MapControl` 是 `MouseControl` 时才更新 `MouseObject`）。
+    #[must_use]
+    pub fn hover_object<'a>(
+        &self,
+        snapshot: &'a WorldSnapshot,
+        scene: &MapScene,
+        text: &UiText,
+        center: Point,
+        frame: Rect,
+    ) -> Option<&'a WorldEntity> {
+        if self.pointer_over_panel(snapshot, text, frame) {
+            return None;
+        }
+        let cell = scene.screen_to_cell(center, self.mouse);
+        target::entity_at(snapshot, cell)
+    }
+
+    /// 鼠标是否压在某个打开的面板上（tooltip/高亮/点地走路据此避让）。
+    #[must_use]
+    pub fn pointer_over_panel(&self, snapshot: &WorldSnapshot, text: &UiText, frame: Rect) -> bool {
+        if self.show_bigmap && bigmap::panel_rect(frame).contains(self.mouse) {
+            return true;
+        }
+        if self.minimap_clicked(frame) {
+            return true;
+        }
+        if self.show_inventory && inventory::inventory_panel_rect(frame).contains(self.mouse) {
+            return true;
+        }
+        if self.show_equipment
+            && equipment::equipment_layout(frame)
+                .panel
+                .contains(self.mouse)
+        {
+            return true;
+        }
+        if self.show_skills
+            && skills::skill_layout(frame, snapshot.magics.len())
+                .panel
+                .contains(self.mouse)
+        {
+            return true;
+        }
+        if self.shop_open {
+            if let Some(goods) = &snapshot.npc_goods {
+                let layout = shop::shop_layout(
+                    frame,
+                    goods.list.len(),
+                    self.shop_scroll,
+                    shop::shop_left(self.show_equipment),
+                );
+                if layout.panel.contains(self.mouse) {
+                    return true;
+                }
+            }
+        }
+        if let Some(page) = &self.dialog {
+            let layout =
+                dialog::dialog_layout(frame, page, |label| text.text_width(label, hud::SIZE_BODY));
+            if layout.panel.contains(self.mouse) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// 对锁定的目标发起一次攻击/靠近（`Space` 或双击目标）。
+    ///
+    /// * 目标相邻（切比雪夫距离 ≤ 1）→ [`UiAction::AttackTarget`]（`C.Attack`）；
+    ///   对应 Crystal 相邻时自动挥刀（`GameScene.cs:11471-11509`）；
+    /// * 否则朝目标走一步，并记下 [`Approach`]（最多 [`APPROACH_STEPS`] 步）；
+    ///   对应 Crystal 目标超出 1 格时朝目标走（`:11764-11773`）。
+    ///
+    /// 没有锁定目标、目标已死或自己不在世界里时返回 `None`。
+    pub fn attack_target(&mut self, snapshot: &WorldSnapshot) -> Option<UiAction> {
+        let target_id = self.target_object_id?;
+        let me = snapshot.self_player.as_ref()?;
+        let target = snapshot.entities.get(&target_id)?;
+        if target.dead {
+            self.target_object_id = None;
+            self.approach = None;
+            return None;
+        }
+        let direction = me.position.direction_to(target.position);
+        if me.position.in_range(target.position, 1) {
+            self.approach = None;
+            return Some(UiAction::AttackTarget { direction });
+        }
+        self.approach = Some(Approach {
+            target_id,
+            steps_left: APPROACH_STEPS.saturating_sub(1),
+            next_step_at: self.time_millis.saturating_add(APPROACH_STEP_MS),
+        });
+        Some(UiAction::WorldMove {
+            direction,
+            step: true,
+        })
+    }
+
+    /// 每帧推进「靠近目标」：到时间就走一步；相邻就自动攻击；步数用完就放弃。
+    ///
+    /// 由 `app.rs` 每个渲染节拍调用一次；无头测试直接拨 [`Self::time_millis`] 后调用。
+    pub fn tick_approach(&mut self, snapshot: &WorldSnapshot) -> Option<UiAction> {
+        let approach = self.approach?;
+        if self.time_millis < approach.next_step_at {
+            return None;
+        }
+        let Some(me) = snapshot.self_player.as_ref() else {
+            self.approach = None;
+            return None;
+        };
+        let Some(target) = snapshot
+            .entities
+            .get(&approach.target_id)
+            .filter(|target| !target.dead)
+        else {
+            self.approach = None;
+            return None;
+        };
+        if self.target_object_id != Some(approach.target_id) {
+            self.approach = None;
+            return None;
+        }
+        let direction = me.position.direction_to(target.position);
+        if me.position.in_range(target.position, 1) {
+            self.approach = None;
+            return Some(UiAction::AttackTarget { direction });
+        }
+        if approach.steps_left == 0 {
+            // 走满 3 步还没到：放弃靠近（目标仍可重新点击/按 Space）。
+            self.approach = None;
+            return None;
+        }
+        self.approach = Some(Approach {
+            steps_left: approach.steps_left - 1,
+            next_step_at: self.time_millis.saturating_add(APPROACH_STEP_MS),
+            ..approach
+        });
+        Some(UiAction::WorldMove {
+            direction,
+            step: true,
+        })
     }
 
     /// 选中的背包物品。
@@ -739,6 +1014,11 @@ impl UiState {
         if self.minimap_clicked(frame) {
             return None;
         }
+        // 大地图同理；Crystal 点大地图会寻路（`BigMapDialog.cs:612-628`），
+        // 本作没有 A*，只吃掉点击（简化）。
+        if self.bigmap_clicked(frame) {
+            return None;
+        }
         if let Some(cell) = world_cell {
             if let Some(npc) = snapshot.npc_at(cell) {
                 let in_range = snapshot
@@ -753,12 +1033,40 @@ impl UiState {
                     });
                 }
             }
+            // 点在怪物/其他玩家上：锁定目标（`GameScene.cs:11442-11451`），
+            // 同一目标 `TARGET_DOUBLE_CLICK_MS` 内再点一次 → 攻击/靠近。
+            if let Some(object_id) = target::target_at(snapshot, cell) {
+                return self.lock_target(snapshot, object_id);
+            }
+            // 点空地：清掉锁定目标（Crystal 的 `else TargetObjectID = 0`，
+            // `GameScene.cs:11450-11451`），再走/转身。
+            self.target_object_id = None;
+            self.approach = None;
             return walk_intent(snapshot, cell).map(|intent| UiAction::WorldMove {
                 direction: intent.direction,
                 step: intent.step,
             });
         }
         None
+    }
+
+    /// 左键点到可攻击目标：锁定它；同一目标短时间内第二次点击视为双击 → 攻击/靠近。
+    ///
+    /// Crystal 没有「双击攻击」：它按住左键，`CheckInput` 在目标相邻时持续挥刀
+    /// （`GameScene.cs:11558-11625`）。本作没有输入缓冲，用双击表达「打这个」
+    /// （简化），单击只锁定目标。
+    fn lock_target(&mut self, snapshot: &WorldSnapshot, object_id: u32) -> Option<UiAction> {
+        let now = self.time_millis;
+        let double = self.last_target_click.is_some_and(|(time, last)| {
+            last == object_id && now.saturating_sub(time) <= TARGET_DOUBLE_CLICK_MS
+        });
+        self.target_object_id = Some(object_id);
+        self.last_target_click = Some((now, object_id));
+        if !double {
+            return None;
+        }
+        self.last_target_click = None;
+        self.attack_target(snapshot)
     }
 
     /// 开始拖拽某个格子里的物品（空格不产生拖拽）。
@@ -887,8 +1195,8 @@ impl UiState {
 
 /// 画所有面板与世界叠层。
 ///
-/// 绘制顺序：世界文字（名字/伤害/光效）→ 状态栏 → 增益栏 → 聊天 → 装备 → 背包 →
-/// 商店 → 技能 → 对话 → tooltip → 右键菜单 → 拖拽幽灵。
+/// 绘制顺序：世界文字（名字/伤害/光效）→ 光标目标高亮 → 状态栏 → 增益栏 → 聊天 →
+/// 装备 → 背包 → 商店 → 技能 → 小地图 → 大地图 → 对话 → tooltip → 右键菜单 → 拖拽幽灵。
 pub fn draw(
     state: &mut UiState,
     frame: &mut Frame,
@@ -901,6 +1209,19 @@ pub fn draw(
     state.sync(snapshot);
     let screen = Rect::screen(frame.width, frame.height);
     worldtext::draw_names(frame, snapshot, scene, center, text);
+    // 光标目标：悬停实体画 1px 黄框、锁定目标画 1px 红框（Crystal 用半透明重绘，
+    // `GameScene.cs:10973-10980`；这里按需求简化成方框，见 [`target`]）。
+    let hover_cell = state
+        .hover_object(snapshot, scene, text, center, screen)
+        .map(|entity| entity.position);
+    target::draw_highlights(
+        frame,
+        scene,
+        center,
+        snapshot,
+        hover_cell,
+        state.target_object_id,
+    );
     worldtext::draw_damage_numbers(
         frame,
         &state.damage_numbers,
@@ -990,6 +1311,19 @@ pub fn draw(
             ..
         } = state;
         minimap::draw(frame, screen, minimap_scene, &view, title, text, *language);
+    }
+
+    // 大地图（`B`）：屏幕居中的对话框，盖住世界与小地图（Crystal 的
+    // `BigMapDialog` 也是独立控件，`GameScene.cs:337`）。
+    if state.show_bigmap {
+        let view = minimap::big_view_for(snapshot, (scene.map.width, scene.map.height));
+        let title = snapshot.map.as_ref().map_or("", |map| map.title.as_str());
+        let UiState {
+            minimap_scene,
+            language,
+            ..
+        } = state;
+        bigmap::draw(frame, screen, minimap_scene, &view, title, text, *language);
     }
 
     if let Some(page) = &state.dialog {
@@ -1689,5 +2023,214 @@ mod tests {
         state.sync(&snapshot);
         assert!(state.damage_numbers.is_empty(), "2s 后飘字应消失");
         assert!(state.effects.is_empty(), "光效应结束");
+    }
+
+    /// 在快照里塞一只怪物（`ObjectMonster` 的界面子集）。
+    fn with_monster(
+        mut snapshot: WorldSnapshot,
+        object_id: u32,
+        cell: Point,
+        hp_percent: u8,
+    ) -> WorldSnapshot {
+        snapshot.entities.insert(
+            object_id,
+            WorldEntity {
+                object_id,
+                kind: EntityKind::Monster,
+                name: "鸡".to_owned(),
+                position: cell,
+                direction: MirDirection::Left,
+                image: 1,
+                looks: crate::net::PlayerLooks::default(),
+                dead: false,
+                hp_percent: Some(hp_percent),
+                action: mir_render::animation::ActorAction::Standing,
+                action_started_ms: 0,
+            },
+        );
+        snapshot
+    }
+
+    #[test]
+    fn clicking_a_monster_locks_it_and_double_clicking_attacks_it() {
+        let snapshot = with_monster(snapshot(), 42, Point::new(11, 10), 50);
+        let mut state = UiState::new(Language::ZhCn);
+        state.set_time(1_000);
+        let frame = Rect::screen(800, 600);
+        // 单击：只锁定（Crystal `MouseObject` → `TargetObjectID`，GameScene.cs:11442-11451）。
+        let action = state.on_click(&snapshot, &text(), frame, Some(Point::new(11, 10)));
+        assert!(action.is_none(), "单击怪物只锁定，不应发网络包");
+        assert_eq!(state.target_object_id, Some(42));
+        // 350 ms 内再点同一目标：双击 → 相邻时直接攻击。
+        state.set_time(1_100);
+        let action = state
+            .on_click(&snapshot, &text(), frame, Some(Point::new(11, 10)))
+            .expect("双击相邻怪物应攻击");
+        assert_eq!(
+            action,
+            UiAction::AttackTarget {
+                direction: MirDirection::Right
+            }
+        );
+        assert_eq!(
+            action.net_command(),
+            Some(crate::net::NetCommand::Attack(MirDirection::Right)),
+            "双击相邻怪物应产生 NetCommand::Attack"
+        );
+        assert!(state.approach.is_none(), "相邻时不需要靠近");
+    }
+
+    #[test]
+    fn double_clicking_a_distant_target_walks_and_gives_up_after_three_steps() {
+        let snapshot = with_monster(snapshot(), 42, Point::new(13, 10), 50);
+        let mut state = UiState::new(Language::ZhCn);
+        let frame = Rect::screen(800, 600);
+        state.set_time(1_000);
+        assert!(
+            state
+                .on_click(&snapshot, &text(), frame, Some(Point::new(13, 10)))
+                .is_none()
+        );
+        state.set_time(1_100);
+        let action = state
+            .on_click(&snapshot, &text(), frame, Some(Point::new(13, 10)))
+            .expect("双击远处目标应先走一步");
+        assert_eq!(
+            action,
+            UiAction::WorldMove {
+                direction: MirDirection::Right,
+                step: true
+            }
+        );
+        assert_eq!(state.approach.map(|approach| approach.steps_left), Some(2));
+
+        // 之后每 600 ms 走一步（帧间隔沿用走动作时长，Frames.cs:159-166）。
+        state.set_time(1_700);
+        assert_eq!(
+            state.tick_approach(&snapshot),
+            Some(UiAction::WorldMove {
+                direction: MirDirection::Right,
+                step: true
+            })
+        );
+        assert_eq!(state.approach.map(|approach| approach.steps_left), Some(1));
+        state.set_time(2_300);
+        assert_eq!(
+            state.tick_approach(&snapshot),
+            Some(UiAction::WorldMove {
+                direction: MirDirection::Right,
+                step: true
+            })
+        );
+        assert_eq!(state.approach.map(|approach| approach.steps_left), Some(0));
+        // 第 3 步之后还没到相邻：放弃（需求：最多连续 3 步）。
+        state.set_time(2_900);
+        assert_eq!(state.tick_approach(&snapshot), None);
+        assert!(state.approach.is_none(), "走满 3 步应放弃靠近");
+        assert_eq!(state.target_object_id, Some(42), "放弃靠近不清目标");
+    }
+
+    #[test]
+    fn approach_attacks_automatically_once_the_target_is_adjacent() {
+        let mut snapshot = with_monster(snapshot(), 42, Point::new(13, 10), 50);
+        let mut state = UiState::new(Language::ZhCn);
+        let frame = Rect::screen(800, 600);
+        state.set_time(1_000);
+        assert!(
+            state
+                .on_click(&snapshot, &text(), frame, Some(Point::new(13, 10)))
+                .is_none()
+        );
+        state.set_time(1_100);
+        assert!(
+            state
+                .on_click(&snapshot, &text(), frame, Some(Point::new(13, 10)))
+                .is_some()
+        );
+        // 服务器把目标走到了自己旁边（ObjectWalk 的界面子集）。
+        snapshot.entities.get_mut(&42).unwrap().position = Point::new(11, 10);
+        state.set_time(1_700);
+        let action = state.tick_approach(&snapshot).expect("相邻后应自动攻击");
+        assert_eq!(
+            action,
+            UiAction::AttackTarget {
+                direction: MirDirection::Right
+            }
+        );
+        assert!(state.approach.is_none());
+    }
+
+    #[test]
+    fn clicking_the_ground_clears_the_locked_target() {
+        let snapshot = with_monster(snapshot(), 42, Point::new(11, 10), 50);
+        let mut state = UiState::new(Language::ZhCn);
+        state.set_time(1_000);
+        let frame = Rect::screen(800, 600);
+        assert!(
+            state
+                .on_click(&snapshot, &text(), frame, Some(Point::new(11, 10)))
+                .is_none()
+        );
+        assert_eq!(state.target_object_id, Some(42));
+        state.set_time(2_000);
+        let action = state
+            .on_click(&snapshot, &text(), frame, Some(Point::new(13, 13)))
+            .expect("点空地仍然走路");
+        assert!(matches!(action, UiAction::WorldMove { .. }));
+        assert_eq!(
+            state.target_object_id, None,
+            "点空地清目标（GameScene.cs:11450）"
+        );
+    }
+
+    #[test]
+    fn dead_targets_are_dropped_on_sync() {
+        let mut snapshot = with_monster(snapshot(), 42, Point::new(11, 10), 50);
+        let mut state = UiState::new(Language::ZhCn);
+        state.target_object_id = Some(42);
+        state.approach = Some(Approach {
+            target_id: 42,
+            steps_left: 2,
+            next_step_at: 0,
+        });
+        state.sync(&snapshot);
+        assert_eq!(state.target_object_id, Some(42), "活着的目标保留");
+        snapshot.entities.get_mut(&42).unwrap().dead = true;
+        state.sync(&snapshot);
+        assert_eq!(state.target_object_id, None, "目标死亡后清空锁定");
+        assert!(state.approach.is_none());
+    }
+
+    #[test]
+    fn escape_closes_the_bigmap_before_other_panels() {
+        let mut state = UiState::new(Language::ZhCn);
+        state.show_bigmap = true;
+        state.show_inventory = true;
+        assert_eq!(state.escape(), EscapeResult::Bigmap);
+        assert!(!state.show_bigmap);
+        assert!(state.show_inventory, "一次 Esc 只关一层");
+        let result = state.escape();
+        assert_eq!(result, EscapeResult::Panels);
+        assert!(!state.show_inventory);
+        assert!(result.closed());
+        assert_eq!(state.escape(), EscapeResult::Nothing);
+        assert!(!EscapeResult::Nothing.closed());
+    }
+
+    #[test]
+    fn clicking_the_bigmap_panel_does_not_walk() {
+        let snapshot = with_monster(snapshot(), 42, Point::new(11, 10), 50);
+        let mut state = UiState::new(Language::ZhCn);
+        state.show_bigmap = true;
+        let frame = Rect::screen(800, 600);
+        let panel = bigmap::panel_rect(frame);
+        state.mouse = panel.center();
+        let action = state.on_click(&snapshot, &text(), frame, Some(Point::new(13, 13)));
+        assert!(action.is_none(), "点大地图面板不应产生走路动作");
+        assert!(state.bigmap_clicked(frame));
+        assert_eq!(state.target_object_id, None, "点面板也不应锁定目标");
+        // 面板外仍然可以点地走路。
+        state.mouse = Point::new(10, 560);
+        assert!(!state.bigmap_clicked(frame));
     }
 }

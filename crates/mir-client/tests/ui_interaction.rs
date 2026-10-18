@@ -486,17 +486,26 @@ fn interaction_tooltip_use_drag_damage_and_buffs() {
     assert!(state.damage_numbers.is_empty(), "2s 后伤害数字应消失");
     assert!(state.effects.is_empty(), "光效应已结束");
     let mut clean = Frame::new(800, 600);
-    let clean_entities = snapshot.entity_views(0);
+    // 只保留注入的怪物：服务端的演示怪物会自由走动，登录耗时不同会让它们停在
+    // 不同格子，名字/占位方块有可能落进断言矩形，造成与飘字无关的亮像素（测试抖动）。
+    let mut clean_snapshot = snapshot.clone();
+    clean_snapshot.entities.retain(|id, _| *id == MONSTER_ID);
+    let clean_entities = clean_snapshot.entity_views(0);
     scene.render_with_entities(&mut clean, center, &clean_entities);
     ui::draw(
-        &mut state, &mut clean, &mut scene, &snapshot, &text, None, center,
+        &mut state,
+        &mut clean,
+        &mut scene,
+        &clean_snapshot,
+        &text,
+        None,
+        center,
     );
     assert_eq!(
         visible_pixels(&clean, damage_rect),
         0,
         "飘字消失后同一区域不应再有文字"
     );
-
     // 9. 双击背包 → UseItem（并映射成 NetCommand::UseItem）。
     state.set_time(NOW + 3_000);
     state.mouse = inventory::inventory_slot_rect(inventory_panel, 0)

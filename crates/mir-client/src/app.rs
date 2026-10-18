@@ -6,9 +6,10 @@
 //! * 创建 800×600 的窗口，失败时打印可读的原因并以成功状态退出（无显示器的 CI）；
 //! * 把 [`Frame`] 的 RGBA8 转成 softbuffer 需要的 `0x00RRGGBB`；
 //! * 离线模式（`--map`）：方向键 / WASD 平移相机、`S` 截图、`F1` 调试叠层、`Q` 退出；
-//! * 联机模式（`--connect`）：方向键/WASD 移动、`Space` 攻击、`P` 捡取、`T` 聊天、
-//!   `I` 背包、`F3` 技能、`1..9` 施法、鼠标点 NPC/面板按钮、`Esc` 关面板、
-//!   `F1` 叠层、`F2` 截图、`Q` 退出；
+//! * 联机模式（`--connect`）：方向键/WASD 移动、`Space` 攻击（锁定目标时朝目标攻击/
+//!   靠近）、`P` 捡取、`T` 聊天、`I` 背包、`E` 装备、`F3` 技能、`M` 小地图、`B` 大地图、
+//!   `1..9` 施法、鼠标悬停/点击锁定世界目标、左键双击目标攻击、鼠标点 NPC/面板按钮、
+//!   `Esc` 关面板、`F1` 叠层、`F2` 截图、`Q` 退出；
 //! * 每 100 ms 递增一次动画帧（对应 Crystal 的 `MapControl.AnimationCount++`，
 //!   `GameScene.cs:1188-1193`）。
 //!
@@ -85,6 +86,8 @@ struct LiveState {
     walk_target: Option<Point>,
     /// 下一次重复走路的时间。
     next_walk: Instant,
+    /// 上一次鼠标所在的格子（悬停高亮变化时才重绘）。
+    last_hover_cell: Option<Point>,
 }
 
 impl LiveState {
@@ -193,6 +196,7 @@ pub fn run_live(
         left_held: false,
         walk_target: None,
         next_walk: Instant::now(),
+        last_hover_cell: None,
     }));
     run_app(scene, center, mode, options.map_dir);
 }
@@ -489,13 +493,44 @@ impl ClientApp {
         live.send(command);
     }
 
-    /// 联机攻击（朝当前朝向）。
+    /// 联机攻击：有锁定目标时朝目标攻击/靠近，否则朝当前朝向挥一下。
+    ///
+    /// 锁定目标后的语义见 [`UiState::attack_target`]：相邻 → `C.Attack`，
+    /// 不相邻 → 先朝目标走一步（最多 3 步，走到相邻自动攻击）。
     fn live_attack(&mut self) {
-        let Mode::Live(live) = &mut self.mode else {
-            return;
+        let action = match &mut self.mode {
+            Mode::Live(live) => {
+                if live.ui.target_object_id.is_some() {
+                    live.ui.set_time(now_millis());
+                    live.ui.attack_target(&live.snapshot)
+                } else {
+                    None
+                }
+            }
+            Mode::Offline => None,
         };
-        if let Some(direction) = live.snapshot.self_player.as_ref().map(|me| me.direction) {
-            live.send(NetCommand::Attack(direction));
+        if let Some(action) = action {
+            self.dispatch_ui_action(action);
+            return;
+        }
+        if let Mode::Live(live) = &mut self.mode {
+            if let Some(direction) = live.snapshot.self_player.as_ref().map(|me| me.direction) {
+                live.send(NetCommand::Attack(direction));
+            }
+        }
+    }
+
+    /// 每个节拍推进「靠近锁定目标」：相邻后自动攻击，走满 3 步放弃。
+    fn tick_targeting(&mut self) {
+        let action = match &mut self.mode {
+            Mode::Live(live) => {
+                live.ui.set_time(now_millis());
+                live.ui.tick_approach(&live.snapshot)
+            }
+            Mode::Offline => None,
+        };
+        if let Some(action) = action {
+            self.dispatch_ui_action(action);
         }
     }
 
@@ -599,6 +634,11 @@ impl ClientApp {
                 } else {
                     live.send(NetCommand::Turn(direction));
                 }
+            }
+            // 朝锁定目标攻击（`C.Attack`）。目标相邻时由 `UiState::attack_target`
+            // 产生，非相邻时会先产生 `WorldMove`（走一步靠近）。
+            UiAction::AttackTarget { direction } => {
+                live.send(NetCommand::Attack(direction));
             }
         }
         self.request_redraw();
@@ -715,25 +755,45 @@ impl ClientApp {
         }
     }
 
-    /// 鼠标移动：记录位置；有面板/拖拽/右键菜单时重绘以更新悬停高亮与幽灵图标。
-    fn handle_cursor_moved(&mut self, position: winit::dpi::PhysicalPosition<f64>) {
+    /// `B`：开关大地图（Crystal `KeybindOptions.Bigmap` → `BigMapDialog.Toggle()`，
+    /// `GameScene.cs:773-774`）。
+    fn live_toggle_bigmap(&mut self) {
         let mut redraw = false;
         if let Mode::Live(live) = &mut self.mode {
-            live.ui.mouse = Point::new(position.x as i32, position.y as i32);
-            redraw = live.ui.show_inventory
-                || live.ui.show_skills
-                || live.ui.show_equipment
-                || live.ui.shop_open
-                || live.ui.dialog.is_some()
-                || live.ui.drag.is_some()
-                || live.ui.context_menu.is_some();
+            live.ui.toggle_bigmap();
+            redraw = true;
         }
         if redraw {
             self.request_redraw();
         }
     }
 
-    /// 鼠标左键按下：点 NPC/对话按钮/商店行/背包格/技能行/地面。
+    /// 鼠标移动：记录位置；面板打开、悬停格子变化时重绘（更新悬停高亮与目标框）。
+    fn handle_cursor_moved(&mut self, position: winit::dpi::PhysicalPosition<f64>) {
+        let mouse = Point::new(position.x as i32, position.y as i32);
+        let cell = self.scene.screen_to_cell(self.center, mouse);
+        let mut redraw = false;
+        if let Mode::Live(live) = &mut self.mode {
+            live.ui.mouse = mouse;
+            live.ui.set_time(now_millis());
+            // 悬停高亮按格画（`ui::target`），格子变了才需要重绘。
+            redraw = live.last_hover_cell != Some(cell)
+                || live.ui.show_inventory
+                || live.ui.show_skills
+                || live.ui.show_equipment
+                || live.ui.show_bigmap
+                || live.ui.shop_open
+                || live.ui.dialog.is_some()
+                || live.ui.drag.is_some()
+                || live.ui.context_menu.is_some();
+            live.last_hover_cell = Some(cell);
+        }
+        if redraw {
+            self.request_redraw();
+        }
+    }
+
+    /// 鼠标左键按下：点 NPC/对话按钮/商店行/背包格/技能行/怪物/地面。
     fn handle_left_press(&mut self) {
         let frame = Rect::screen(self.frame.width, self.frame.height);
         let mut action = None;
@@ -742,6 +802,7 @@ impl ClientApp {
             if !live.snapshot.is_ready() {
                 return;
             }
+            live.ui.set_time(now_millis());
             let mouse = live.ui.mouse;
             let world_cell = self.scene.screen_to_cell(self.center, mouse);
             cell = Some(world_cell);
@@ -750,13 +811,22 @@ impl ClientApp {
                 .on_click(&live.snapshot, &self.text, frame, Some(world_cell));
         }
         if let Some(action) = action {
-            let walking = matches!(action, UiAction::WorldMove { .. });
+            // 双击目标产生的「靠近一步」不进按住连续走：它由 `UiState::tick_approach`
+            // 按 600 ms 节拍推进，最多 3 步（需求）。
+            let walking = matches!(action, UiAction::WorldMove { .. }) && !self.live_approaching();
             self.dispatch_ui_action(action);
             if walking {
                 self.start_walk_hold(cell);
             }
+        } else {
+            // 选中目标/关闭右键菜单等没有网络动作的点击也要重绘（目标准星）。
+            self.request_redraw();
         }
-        // 没有动作（点面板空白处/同一个格子）时什么也不做。
+    }
+
+    /// 是否正在「靠近锁定目标」（由 `UiState::approach` 驱动）。
+    fn live_approaching(&self) -> bool {
+        matches!(&self.mode, Mode::Live(live) if live.ui.approach.is_some())
     }
 
     /// 鼠标左键释放：结束连续走并处理拖拽落点。
@@ -842,31 +912,23 @@ impl ClientApp {
         }
     }
 
-    /// Esc：按「右键菜单 > 拖拽 > 聊天 > NPC 对话 > 背包/装备/技能」的顺序关闭；
-    /// 关对话时给服务端发 `@exit`。
+    /// Esc：聊天输入 > UI 面板按「右键菜单 > 拖拽 > 大地图 > NPC 对话 > 背包/装备/技能」；
+    /// 关对话时给服务端发 `@exit`。具体顺序由 [`UiState::escape`] 决定（可无头测试）。
     fn live_escape(&mut self) {
         let mut redraw = false;
         if let Mode::Live(live) = &mut self.mode {
-            if live.ui.context_menu.is_some() {
-                live.ui.context_menu = None;
-                redraw = true;
-            } else if live.ui.drag.is_some() {
-                live.ui.drag = None;
-                redraw = true;
-            } else if live.chat_input.is_some() {
+            if live.chat_input.is_some() {
                 live.chat_input = None;
                 redraw = true;
-            } else if live.ui.dialog.is_some() || live.ui.shop_open {
-                let object_id = live.ui.npc_object_id.unwrap_or(0);
-                live.send(NetCommand::CallNpc {
-                    object_id,
-                    key: "@exit".to_owned(),
-                });
-                live.ui.close_npc();
-                redraw = true;
-            } else if live.ui.show_inventory || live.ui.show_skills || live.ui.show_equipment {
-                live.ui.close_panels();
-                redraw = true;
+            } else {
+                let result = live.ui.escape();
+                if let ui::EscapeResult::Npc { object_id } = result {
+                    live.send(NetCommand::CallNpc {
+                        object_id,
+                        key: "@exit".to_owned(),
+                    });
+                }
+                redraw = result.closed();
             }
         }
         if redraw {
@@ -1029,6 +1091,10 @@ impl ClientApp {
                 }
                 "m" => {
                     self.live_toggle_minimap();
+                    return;
+                }
+                "b" => {
+                    self.live_toggle_bigmap();
                     return;
                 }
                 "p" => {
@@ -1239,6 +1305,7 @@ impl ApplicationHandler for ClientApp {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.poll_network();
+        self.tick_targeting();
         self.repeat_walk();
         let now = Instant::now();
         if now >= self.next_animation {

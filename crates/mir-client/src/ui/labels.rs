@@ -123,6 +123,10 @@ pub enum Label {
     NoMinimap,
     /// 小地图面板底部的按键提示。
     MinimapHint,
+    /// 没有大地图素材时的占位文字。
+    NoBigmap,
+    /// 大地图面板底部的按键提示。
+    BigmapHint,
 }
 
 impl Label {
@@ -242,6 +246,10 @@ impl Label {
             (Self::NoMinimap, Language::En) => "No minimap art",
             (Self::MinimapHint, Language::ZhCn) => "M 关闭",
             (Self::MinimapHint, Language::En) => "M to close",
+            (Self::NoBigmap, Language::ZhCn) => "无大地图素材",
+            (Self::NoBigmap, Language::En) => "No big map art",
+            (Self::BigmapHint, Language::ZhCn) => "B / Esc 关闭",
+            (Self::BigmapHint, Language::En) => "B / Esc to close",
         }
     }
 
@@ -548,6 +556,11 @@ mod tests {
             Label::Critical,
             Label::WorldHint,
             Label::InventoryTooltipHint,
+            Label::Minimap,
+            Label::NoMinimap,
+            Label::MinimapHint,
+            Label::NoBigmap,
+            Label::BigmapHint,
         ] {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);

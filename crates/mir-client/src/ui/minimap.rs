@@ -101,6 +101,23 @@ pub fn footer_rect(panel: Rect) -> Rect {
 pub fn view_for(snapshot: &WorldSnapshot, terrain: (i32, i32)) -> MinimapView {
     let map = snapshot.map.as_ref();
     let image_index = map.map_or(0, |map| map.mini_map);
+    view_with_image(snapshot, terrain, image_index)
+}
+
+/// 大地图用的视图：与 [`view_for`] 相同，但图像号换成 `MapInfo.BigMap`
+/// （`Client/MirScenes/Dialogs/BigMapDialog.cs:642` 的 `currentRecord.MapInfo.BigMap`）。
+///
+/// 两个面板共用同一份 `mmap.wzl`（`Client/MirGraphics/MLibrary.cs:23`），
+/// 只是取的帧号不同（Crystal 叫 `MiniMap` 与 `BigMap`）。
+#[must_use]
+pub fn big_view_for(snapshot: &WorldSnapshot, terrain: (i32, i32)) -> MinimapView {
+    let image_index = snapshot.map.as_ref().map_or(0, |map| map.big_map);
+    view_with_image(snapshot, terrain, image_index)
+}
+
+/// 按给定图像号拼视图（小地图/大地图共用）。
+fn view_with_image(snapshot: &WorldSnapshot, terrain: (i32, i32), image_index: u16) -> MinimapView {
+    let map = snapshot.map.as_ref();
     let (width, height) = map.map_or((0, 0), |map| (map.width, map.height));
     let map_width = u32::try_from(if width > 0 { width } else { terrain.0 }).unwrap_or(0);
     let map_height = u32::try_from(if height > 0 { height } else { terrain.1 }).unwrap_or(0);

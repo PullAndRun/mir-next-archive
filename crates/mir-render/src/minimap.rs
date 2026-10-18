@@ -37,9 +37,27 @@
 //!
 //! 与 Crystal 一样跳过：地面物品、尸体、法术对象、潜行中的对象（`MainDialogs.cs:1941`）。
 //!
+//! # 大地图（`BigMapDialog`）
+//!
+//! 同一个 `mmap.wzl` 图库的另一个用途：`MapInfo.BigMap`（`BigMapDialog.cs:642`）是
+//! 整张大地图的帧号，面板画法见 [`crate::MinimapScene::draw_big_map`]：
+//!
+//! | 常量 | 值 | Crystal 出处 |
+//! |---|---|---|
+//! | [`BIG_MAP_VIEW_WIDTH`] | 568 | `BigMapDialog.cs:559` 的 `Size = new Size(568, 380)` |
+//! | [`BIG_MAP_VIEW_HEIGHT`] | 380 | 同上 |
+//! | [`BIG_MAP_OFFSET_X`] | 14 | `BigMapDialog.cs:652` 的 `14 + (568 - 宽) / 2` |
+//! | [`BIG_MAP_OFFSET_Y`] | 52 | `BigMapDialog.cs:653` 的 `52 + (380 - 高) / 2` |
+//!
+//! 缩放：`绘制宽 = min(568, 图像宽)`、`绘制高 = min(380, 图像高)`（`:650`），
+//! 整图像素 = `格 × (绘制宽 / 地图宽)`（`:661-662`）。Crystal 的
+//! `MLibrary.Draw(index, point, size, colour)` 就是按这个尺寸整体缩放（`MLibrary.cs:756-776`）。
+//!
 //! # 没做
 //!
-//! * 大地图面板（`BigMapDialog`）与 NPC 任务感叹号图标（`MainDialogs.cs:1963-2010`）；
+//! * 大地图的 NPC 列表、移动点按钮、世界地图、搜索框与「传送到 NPC」按钮
+//!   （`BigMapDialog.cs:101-255,320-432`）；
+//! * 「已探明区域」遮罩：Crystal 也没有（它直接画整张 `mmap.wzl` 大图）；
 //! * `MiniMapDialog` 的两档尺寸（`Index = 2090` 大档 / `2091` 小档，
 //!   `MainDialogs.cs:2046-2072`）与底部按钮（邮件/大地图/亮度）；
 //! * 图库缺失时的 `SetSmallMode` 行为：本项目改为画纯色占位 + 地图名（不 panic）。
@@ -59,6 +77,17 @@ use crate::frame::Frame;
 pub const VIEW_WIDTH: u32 = 120;
 /// 小地图视窗高（同上）。
 pub const VIEW_HEIGHT: u32 = 108;
+
+/// 大地图视区宽（`BigMapDialog.cs:559` 的 `Size = new Size(568, 380)`）。
+pub const BIG_MAP_VIEW_WIDTH: u32 = 568;
+/// 大地图视区高（同上）。
+pub const BIG_MAP_VIEW_HEIGHT: u32 = 380;
+/// 大地图画面相对对话框左上角的 X 偏移（`BigMapDialog.cs:652`：
+/// `viewRect.X = 14 + (568 - 宽) / 2`）。
+pub const BIG_MAP_OFFSET_X: u32 = 14;
+/// 大地图画面相对对话框左上角的 Y 偏移（`BigMapDialog.cs:653`：
+/// `viewRect.Y = 52 + (380 - 高) / 2`）。
+pub const BIG_MAP_OFFSET_Y: u32 = 52;
 
 /// 点位边长：Crystal `DXManager.Draw(RadarTexture, new Rectangle(0, 0, 2, 2), …)`
 /// （`MainDialogs.cs:1961`）。
@@ -195,6 +224,58 @@ fn trunc_to_i32(value: f32) -> i32 {
         value.trunc() as i32
     } else {
         0
+    }
+}
+
+/// 大地图的整图缩放结果（`BigMapDialog.cs:649-676`）。
+///
+/// ```text
+/// 绘制尺寸 = (min(568, 图像宽), min(380, 图像高))       // :650
+/// 居中偏移 = ((568 - 宽) / 2, (380 - 高) / 2)           // :652-653
+/// scaleX  = 绘制宽 / 地图宽(格)                         // :661
+/// scaleY  = 绘制高 / 地图高(格)                         // :662
+/// ```
+///
+/// [`Self::offset`] 是**相对 568×380 视区左上角**的居中偏移；调用方再把视区放到
+/// 对话框里的 `(14, 52)`（[`BIG_MAP_OFFSET_X`] / [`BIG_MAP_OFFSET_Y`]）。
+///
+/// # 与 Crystal 的一处偏差
+///
+/// Crystal 的大地图把**整张图**缩放绘制（`BigMapDialog.cs:676` 的
+/// `Draw(index, DisplayLocation, Size, …)`，缩放实现见 `MLibrary.cs:756-776`），
+/// 但点位仍减去 `startPointX/Y`（`:678-705`）。玩家不在图像边缘时 `startPoint`
+/// 非 0，点位会整体偏移，而玩家自己的点却按 `格 × 比例` 画（`:707-710`）——
+/// 这是 Crystal 自带的 bug。本作按「整图像素 = 格 × 比例」投影（需求也要求
+/// 「画整张图 + 自己位置点」）。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BigMapProjection {
+    /// 图像绘制尺寸（宽, 高），`min(视区, 图像)`（`BigMapDialog.cs:650`）。
+    pub size: (u32, u32),
+    /// 图像在视区内的居中偏移（相对视区左上角，`BigMapDialog.cs:652-653`）。
+    pub offset: (i32, i32),
+    /// 每格对应的横向像素数（`BigMapDialog.cs:661`）。
+    pub scale_x: f32,
+    /// 每格对应的纵向像素数（`:662`）。
+    pub scale_y: f32,
+}
+
+impl BigMapProjection {
+    /// 把地图格投影到视区内像素（相对视区左上角，四舍五入到整像素）。
+    ///
+    /// Crystal：`x = 格.x * ScaleX`、`y = 格.y * ScaleY`（`:707-710` 的玩家点），
+    /// 再减去图像偏移得到绘制位置；这里把两步合并成一个返回值。
+    #[must_use]
+    pub fn cell_to_view(&self, cell: Point) -> (i32, i32) {
+        (
+            round_to_i32(self.offset.0 as f32 + cell.x as f32 * self.scale_x),
+            round_to_i32(self.offset.1 as f32 + cell.y as f32 * self.scale_y),
+        )
+    }
+
+    /// 视区内像素是否落在 568×380 里（超出就剪掉，避免画到对话框外）。
+    #[must_use]
+    pub fn in_view(x: i32, y: i32) -> bool {
+        x >= 0 && y >= 0 && (x as u32) < BIG_MAP_VIEW_WIDTH && (y as u32) < BIG_MAP_VIEW_HEIGHT
     }
 }
 
@@ -410,6 +491,82 @@ impl MinimapScene {
         );
         drew_image
     }
+
+    /// 计算大地图的整图缩放：把哪一张图缩放成多大、画在视区里的哪里。
+    ///
+    /// 完全照抄 `BigMapDialog.cs:649-662`；`image_index == 0`（这张图没有大地图，
+    /// `BigMapDialog.Show` 会直接返回，`:289`）或还没收到 `NewMapInfo`（宽高为 0）时
+    /// 返回 `None`。
+    pub fn big_map_projection(&mut self, view: &MinimapView) -> Option<BigMapProjection> {
+        if view.image_index == 0 || view.map_width == 0 || view.map_height == 0 {
+            return None;
+        }
+        let (image_width, image_height) = self.image_size(view.image_index)?;
+        if image_width == 0 || image_height == 0 {
+            return None;
+        }
+        // `Rectangle viewRect = new Rectangle(0, 0, Math.Min(568, Size.Width), Math.Min(380, Size.Height))`
+        // （`BigMapDialog.cs:650`）。
+        let width = image_width.min(BIG_MAP_VIEW_WIDTH);
+        let height = image_height.min(BIG_MAP_VIEW_HEIGHT);
+        // `viewRect.X = 14 + (568 - viewRect.Width) / 2`（`:652`）；
+        // 14/52 是视区在对话框里的位置，`offset` 只记「视区内居中」的那部分。
+        let offset_x = i32::try_from((BIG_MAP_VIEW_WIDTH - width) / 2).unwrap_or(0);
+        let offset_y = i32::try_from((BIG_MAP_VIEW_HEIGHT - height) / 2).unwrap_or(0);
+        // `ScaleX = Size.Width / (float)MapInfo.Width`（`:661-662`）。
+        let scale_x = width as f32 / view.map_width as f32;
+        let scale_y = height as f32 / view.map_height as f32;
+        Some(BigMapProjection {
+            size: (width, height),
+            offset: (offset_x, offset_y),
+            scale_x,
+            scale_y,
+        })
+    }
+
+    /// 把大地图（整图缩放）与点位画到 568×380 的视区里，视区左上角是 `(dest_x, dest_y)`。
+    ///
+    /// 调用方应把 `(dest_x, dest_y)` 放在对话框的 `(14, 52)` 处
+    /// （[`BIG_MAP_OFFSET_X`] / [`BIG_MAP_OFFSET_Y`]，`BigMapDialog.cs:650-653`）。
+    /// 返回值：是否真的画了底图（`false` = 没有素材，调用方应画纯色占位 + 地图名）。
+    pub fn draw_big_map(
+        &mut self,
+        frame: &mut Frame,
+        dest_x: i32,
+        dest_y: i32,
+        view: &MinimapView,
+    ) -> bool {
+        let projection = self.big_map_projection(view);
+        let mut drew_image = false;
+        if let Some(projection) = &projection {
+            if let Some(image) = self.image(view.image_index) {
+                blit_scaled(
+                    frame,
+                    image,
+                    dest_x + projection.offset.0,
+                    dest_y + projection.offset.1,
+                    projection.size,
+                );
+                drew_image = true;
+            }
+        }
+        let Some(projection) = projection else {
+            return drew_image;
+        };
+        for marker in &view.markers {
+            draw_big_marker(frame, dest_x, dest_y, projection, marker.cell, marker.kind);
+        }
+        // 自己也用 2×2 的点，颜色是需求指定的黄色（[`PLAYER_COLOR`]）。
+        draw_big_marker(
+            frame,
+            dest_x,
+            dest_y,
+            projection,
+            view.player,
+            MarkerKind::SelfPlayer,
+        );
+        drew_image
+    }
 }
 
 /// 画一个 2×2 的点（Crystal `DXManager.Draw(RadarTexture, new Rectangle(0, 0, 2, 2),
@@ -441,6 +598,88 @@ fn draw_marker(
     }
 }
 
+/// 画大地图上的一个 2×2 点（与 [`draw_marker`] 同一尺寸/颜色，`MainDialogs.cs:1961`）。
+///
+/// 位置用 [`BigMapProjection::cell_to_view`]（`格 × 比例 + 居中偏移`），
+/// 剪裁区是 568×380（`BigMapDialog.cs:650`）。
+fn draw_big_marker(
+    frame: &mut Frame,
+    dest_x: i32,
+    dest_y: i32,
+    projection: BigMapProjection,
+    cell: Point,
+    kind: MarkerKind,
+) {
+    let (x, y) = projection.cell_to_view(cell);
+    let color = kind.color();
+    for offset_y in 0..MARKER_SIZE {
+        for offset_x in 0..MARKER_SIZE {
+            let px = x + offset_x;
+            let py = y + offset_y;
+            if !BigMapProjection::in_view(px, py) {
+                continue;
+            }
+            let (Ok(frame_x), Ok(frame_y)) =
+                (u32::try_from(dest_x + px), u32::try_from(dest_y + py))
+            else {
+                continue;
+            };
+            frame.set_pixel(frame_x, frame_y, color);
+        }
+    }
+}
+
+/// 把一张图像的某个源像素按 source-over 写到帧上（`alpha == 0` 跳过）。
+fn copy_pixel(frame: &mut Frame, image: &Image, source_x: u32, source_y: u32, dest: (u32, u32)) {
+    let image_width = u32::from(image.info.width);
+    if source_x >= image_width || source_y >= u32::from(image.info.height) {
+        return;
+    }
+    let offset =
+        usize::try_from((u64::from(source_y) * u64::from(image_width) + u64::from(source_x)) * 4)
+            .unwrap_or(usize::MAX);
+    let Some(pixel) = image.pixels.get(offset..offset + 4) else {
+        return;
+    };
+    match pixel[3] {
+        0 => {}
+        255 => frame.set_pixel(dest.0, dest.1, [pixel[0], pixel[1], pixel[2], 255]),
+        alpha => frame.blend_pixel(
+            i32::try_from(dest.0).unwrap_or(0),
+            i32::try_from(dest.1).unwrap_or(0),
+            [pixel[0], pixel[1], pixel[2], 255],
+            alpha,
+        ),
+    }
+}
+
+/// 把整张 `image` **最近邻缩放**到 `size` 并画到 `(dest_x, dest_y)`（左上角）。
+///
+/// Crystal 的大地图用 `MLibrary.Draw(index, point, size, colour)`（`MLibrary.cs:756-776`）
+/// 做同样的整图缩放（`Matrix.Scaling(size.Width / image.Width, …)`）；Direct3D 采样是
+/// 双线性，这里按项目惯例用最近邻（渲染层一律最近邻，结果可确定性测试）。
+fn blit_scaled(frame: &mut Frame, image: &Image, dest_x: i32, dest_y: i32, size: (u32, u32)) {
+    let source_width = u32::from(image.info.width);
+    let source_height = u32::from(image.info.height);
+    let (target_width, target_height) = size;
+    if source_width == 0 || source_height == 0 || target_width == 0 || target_height == 0 {
+        return;
+    }
+    for row in 0..target_height {
+        let source_y = row * source_height / target_height;
+        let Ok(frame_y) = u32::try_from(dest_y + i32::try_from(row).unwrap_or(0)) else {
+            continue;
+        };
+        for column in 0..target_width {
+            let source_x = column * source_width / target_width;
+            let Ok(frame_x) = u32::try_from(dest_x + i32::try_from(column).unwrap_or(0)) else {
+                continue;
+            };
+            copy_pixel(frame, image, source_x, source_y, (frame_x, frame_y));
+        }
+    }
+}
+
 /// 把 `image` 的 `source` 区域逐像素复制到 `frame` 的 `(dest_x, dest_y)`。
 ///
 /// `Frame` 只有整图 `blit`，没有裁剪绘制，所以这里自己做；小地图视窗只有
@@ -454,7 +693,6 @@ fn blit_crop(
     dest_y: i32,
 ) {
     let (source_x, source_y, width, height) = source;
-    let image_width = u32::from(image.info.width);
     for row in 0..height {
         for column in 0..width {
             let x = source_x + i32::try_from(column).unwrap_or(0);
@@ -465,32 +703,13 @@ fn blit_crop(
             let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
                 continue;
             };
-            if x >= image_width || y >= u32::from(image.info.height) {
-                continue;
-            }
-            let offset = usize::try_from((y * image_width + x) * 4).unwrap_or(usize::MAX);
-            let Some(pixel) = image.pixels.get(offset..offset + 4) else {
-                continue;
-            };
             let (Ok(frame_x), Ok(frame_y)) = (
                 u32::try_from(dest_x + i32::try_from(column).unwrap_or(0)),
                 u32::try_from(dest_y + i32::try_from(row).unwrap_or(0)),
             ) else {
                 continue;
             };
-            if pixel[3] == 0 {
-                continue;
-            }
-            if pixel[3] == 255 {
-                frame.set_pixel(frame_x, frame_y, [pixel[0], pixel[1], pixel[2], 255]);
-            } else {
-                frame.blend_pixel(
-                    i32::try_from(frame_x).unwrap_or(0),
-                    i32::try_from(frame_y).unwrap_or(0),
-                    [pixel[0], pixel[1], pixel[2], 255],
-                    pixel[3],
-                );
-            }
+            copy_pixel(frame, image, x, y, (frame_x, frame_y));
         }
     }
 }
@@ -729,6 +948,85 @@ mod tests {
         let drew = scene.draw(&mut frame, 10, 10, &view());
         assert!(!drew, "空场景没有底图");
         assert_eq!(frame.pixel(10 + 60, 10 + 54), Some([0, 0, 0, 255]));
+        assert_eq!(frame.pixel(10, 10), Some([0, 0, 0, 255]));
+    }
+
+    #[test]
+    fn big_map_projection_keeps_a_small_image_at_one_to_one_and_centers_it() {
+        let mut scene = synthetic_scene(); // 7 号帧 300×200
+        // 地图 600×400 → 每格 0.5 像素；图像比视区小，按原尺寸居中。
+        let projection = scene.big_map_projection(&view()).expect("应当能算投影");
+        assert_eq!(projection.size, (300, 200));
+        assert_eq!(projection.offset, (134, 90)); // (568-300)/2、(380-200)/2
+        assert!((projection.scale_x - 0.5).abs() < 1e-6);
+        assert!((projection.scale_y - 0.5).abs() < 1e-6);
+        // 玩家 (300, 200) → (134 + 150, 90 + 100)。
+        assert_eq!(projection.cell_to_view(Point::new(300, 200)), (284, 190));
+        // 视区角落不属于图像：内部偏移之外不画。
+        assert!(!BigMapProjection::in_view(-1, 0));
+        assert!(BigMapProjection::in_view(0, 0));
+        assert!(BigMapProjection::in_view(567, 379));
+        assert!(!BigMapProjection::in_view(568, 380));
+    }
+
+    #[test]
+    fn big_map_projection_downscales_a_large_image_to_the_view() {
+        let mut images = std::collections::BTreeMap::new();
+        images.insert(7, solid_image(600, 399, [40, 60, 80, 255]));
+        let mut scene = MinimapScene::from_images(images);
+        let mut view = view();
+        view.map_width = 700;
+        view.map_height = 700;
+        let projection = scene.big_map_projection(&view).expect("投影");
+        // `Math.Min(568, 600) × Math.Min(380, 399)`（`BigMapDialog.cs:650`）。
+        assert_eq!(projection.size, (568, 380));
+        assert_eq!(projection.offset, (0, 0));
+        assert!((projection.scale_x - 568.0 / 700.0).abs() < 1e-6);
+        assert!((projection.scale_y - 380.0 / 700.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn drawing_the_big_map_scales_the_image_and_marks_the_player() {
+        let mut scene = synthetic_scene();
+        let mut frame = Frame::new(600, 500);
+        frame.clear([0, 0, 0, 255]);
+        // 视区左上角放在 (10, 20)，与对话框的 `(14, 52)` 同义（`BigMapDialog.cs:652-653`）。
+        let drew = scene.draw_big_map(&mut frame, 10, 20, &view());
+        assert!(drew, "有素材时应画出大地图");
+        // 图像居中：偏移 (134, 90)。
+        assert_eq!(
+            frame.pixel(10 + 134 + 5, 20 + 90 + 5),
+            Some([40, 60, 80, 255])
+        );
+        // 图像外（视区左上角）保持黑色。
+        assert_eq!(frame.pixel(10, 20), Some([0, 0, 0, 255]));
+        // 玩家点：(284, 190) 处的 2×2 黄点。
+        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+            assert_eq!(
+                frame.pixel(10 + 284 + dx, 20 + 190 + dy),
+                Some(PLAYER_COLOR),
+                "玩家点应画成黄色（{dx},{dy}）"
+            );
+        }
+    }
+
+    #[test]
+    fn big_map_needs_an_image_and_a_non_zero_index() {
+        let mut scene = synthetic_scene();
+        let mut no_asset = MinimapScene::empty();
+        assert!(no_asset.big_map_projection(&view()).is_none());
+        // `MapInfo.BigMap == 0`：Crystal `BigMapDialog.Show` 直接返回（`:289`）。
+        let mut zero = view();
+        zero.image_index = 0;
+        assert!(scene.big_map_projection(&zero).is_none());
+        // 没有 `NewMapInfo`（宽高为 0）时也算不出比例。
+        let mut no_size = view();
+        no_size.map_width = 0;
+        assert!(scene.big_map_projection(&no_size).is_none());
+        // 画不出来时调用方画占位。
+        let mut frame = Frame::new(200, 200);
+        frame.clear([0, 0, 0, 255]);
+        assert!(!no_asset.draw_big_map(&mut frame, 10, 10, &view()));
         assert_eq!(frame.pixel(10, 10), Some([0, 0, 0, 255]));
     }
 }

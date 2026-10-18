@@ -1011,6 +1011,20 @@ fn effective_action(
     finished_action(action, started_at_ms, now_ms, body_kind).unwrap_or(action)
 }
 
+/// 生命百分比（0..=100）：`HP / MaxHP × 100`，四舍五入到整数。
+///
+/// 逐行对应 Crystal `Client/MirObjects/UserObject.cs:176`：
+/// `PercentHealth = (byte)(HP / (float)Stats[Stat.HP] * 100);`。
+/// 最大生命未知（<= 0）时返回 0；HP 超过上限时夹到 100。
+#[must_use]
+fn health_percent(current: i32, maximum: i32) -> u8 {
+    if maximum <= 0 {
+        return 0;
+    }
+    let percent = i64::from(current.clamp(0, maximum)) * 100 / i64::from(maximum);
+    u8::try_from(percent.clamp(0, 100)).unwrap_or(100)
+}
+
 /// 客户端看到的世界。
 #[derive(Debug, Clone)]
 pub struct WorldSnapshot {
@@ -1249,6 +1263,13 @@ impl WorldSnapshot {
     /// 外观号（[`PlayerLooks::from_server`]）。自己的实体 ID 如果同时也出现在 `entities`
     /// 里，会被跳过，避免画两遍。
     ///
+    /// 血条：自己的百分比由 `HP / MaxHP` 算（Crystal `UserObject.cs:176` 的
+    /// `PercentHealth = (byte)(HP / (float)Stats[Stat.HP] * 100)`），其他人的取
+    /// `S.ObjectHealth` 存进 [`WorldEntity::hp_percent`] 的值——也就是只有收到过
+    /// `ObjectHealth`/`HealthChanged` 的实体才有血条（Crystal 的
+    /// `MapObject.DrawHealth` 也只在 `ShouldDrawHealth()` 或刚掉过血时画，
+    /// `Client/MirObjects/MapObject.cs:461-476`）。
+    ///
     /// `now_ms` 用来把已经播完的一次性动作归一化：走/跑/攻击/受击结束回 Standing，
     /// 死亡动画结束变 Dead。窗口每帧传真实的 Unix 毫秒；无头测试可以传任意固定时间。
     #[must_use]
@@ -1268,7 +1289,7 @@ impl WorldSnapshot {
                 shield: me.looks.shield,
                 name: Some(me.name.clone()),
                 dead: me.dead,
-                hp_percent: None,
+                hp_percent: Some(health_percent(me.hp, me.hp_max)),
                 action: effective_action(me.action, me.action_started_ms, now_ms, BodyKind::Human),
                 action_started_ms: me.action_started_ms,
             });

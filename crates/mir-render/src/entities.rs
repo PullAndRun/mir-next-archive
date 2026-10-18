@@ -132,6 +132,24 @@ pub const HAIR_BLOCKS: [u16; 4] = [6, 22, 5, 152];
 /// 一个玩家最多占 4 层（身体/武器/头发/盾牌），所以上限比单层时翻了倍。
 pub const MAX_ENTITY_CACHED_IMAGES: usize = 1024;
 
+/// 头顶血条宽（Crystal `32 * PercentHealth / 100`，`MapObject.cs:506`）。
+pub const HEALTH_BAR_WIDTH: i32 = 32;
+/// 头顶血条高（Crystal 的 4 像素，`MapObject.cs:506`）。
+pub const HEALTH_BAR_HEIGHT: u32 = 4;
+/// 血条在格内的横向偏移（Crystal `DisplayRectangle.X + 8`，`MapObject.cs:478,506`）。
+pub const HEALTH_BAR_OFFSET_X: i32 = 8;
+/// 血条前景色：>50% 绿色（对应 Crystal `Prguse2` 的 1/11/12 号条，
+/// `MapObject.cs:481-504`；本作没有这套 UI 图库，改按百分比着色）。
+pub const HEALTH_GREEN: [u8; 4] = [72, 208, 96, 255];
+/// 血条前景色：25%..=50% 黄色。
+pub const HEALTH_YELLOW: [u8; 4] = [240, 208, 72, 255];
+/// 血条前景色：<=25% 红色。
+pub const HEALTH_RED: [u8; 4] = [232, 72, 72, 255];
+/// 死亡实体的血条色（Crystal 死亡时不画血条，`MapObject.cs:470`；本作保留灰色条）。
+pub const HEALTH_DEAD: [u8; 4] = [90, 90, 90, 255];
+/// 血条底板色（Crystal 用 `Prguse2` 的 0 号图，`MapObject.cs:478`）。
+pub const HEALTH_BACKGROUND: [u8; 4] = [0, 0, 0, 255];
+
 /// 实体类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum EntityKind {
@@ -1023,23 +1041,38 @@ fn draw_placeholder(frame: &mut Frame, origin_x: i32, origin_y: i32, entity: &En
     frame.fill_rect(left, top, 12, 18, color);
 }
 
-/// 画 3px 血条（黑底 + 绿/黄/红前景）。
+/// 画头顶血条：黑底 + 按百分比宽度的前景（Crystal `MapObject.DrawHealth`，
+/// `Client/MirObjects/MapObject.cs:465-507`）。
+///
+/// * 前景宽 `32 × PercentHealth / 100`、高 4（`:506`），左边界在格原点 + 8（`:478`）；
+/// * Crystal 的前景是 `Prguse2` 的 4 张预着色图（1 = 怪物、10 = 队友玩家、
+///   11 = 队友的宠物、12 = 其他玩家/自己，`:481-504`）；本作没有那套 UI 图库，改为
+///   按血量百分比着色（[`HEALTH_GREEN`] / [`HEALTH_YELLOW`] / [`HEALTH_RED`]），
+///   死亡用 [`HEALTH_DEAD`]（Crystal 死亡时不画，`:470`；这里保留一条灰条以提示尸体）。
+/// * 纵向位置：Crystal 是 `DisplayRectangle.Y - 64`（`:506`），本作的精灵顶边由
+///   [`EntityRenderer::draw_entity`] 返回，血条画在它上方 6 像素（简化：64 像素是按
+///   16 位色时代的格子高度算的，照搬到本作会飘到名字上面）。
 fn draw_health_bar(frame: &mut Frame, origin_x: i32, y: i32, percent: u8, dead: bool) {
-    let width: i32 = 18;
-    let left = origin_x + (CELL_WIDTH - width) / 2;
-    let bar_width = u32::try_from(width + 2).unwrap_or(0);
-    frame.fill_rect(left - 1, y - 1, bar_width, 5, [0, 0, 0, 255]);
+    let left = origin_x + HEALTH_BAR_OFFSET_X;
+    let bar_width = u32::try_from(HEALTH_BAR_WIDTH).unwrap_or(0);
+    frame.fill_rect(
+        left - 1,
+        y - 1,
+        bar_width + 2,
+        HEALTH_BAR_HEIGHT + 2,
+        HEALTH_BACKGROUND,
+    );
     let color = if dead {
-        [90, 90, 90, 255]
+        HEALTH_DEAD
     } else if percent > 50 {
-        [72, 208, 96, 255]
+        HEALTH_GREEN
     } else if percent > 25 {
-        [240, 208, 72, 255]
+        HEALTH_YELLOW
     } else {
-        [232, 72, 72, 255]
+        HEALTH_RED
     };
-    let filled = u32::from(percent.min(100)) * u32::try_from(width).unwrap_or(0) / 100;
-    frame.fill_rect(left, y, filled, 3, color);
+    let filled = u32::from(percent.min(100)) * bar_width / 100;
+    frame.fill_rect(left, y, filled, HEALTH_BAR_HEIGHT, color);
 }
 
 /// 死亡但无血量信息时的灰色小横条。

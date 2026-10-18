@@ -112,23 +112,24 @@ buff 倒计时都基于它，所以无头测试可以任意拨表。
 
 ### 键盘（联机模式）
 
-本次动作动画改动**不改变任何按键**：走/跑/攻击/受击/死亡都由收到的包或已有的
-移动/攻击键驱动，下面这张表与之前一致。
+本里程碑新增 `B`（大地图）；`Space` 在锁定目标后变成「朝目标攻击/靠近」，没有目标时
+仍是原来的「朝当前朝向挥一下」。走/跑/攻击/受击/死亡都由收到的包或这些按键驱动。
 
 | 按键 | 行为 |
 |---|---|
 | 方向键 / WASD | 与当前朝向相同 → `C.Walk`，不同 → `C.Turn`；按住左键走路时方向键仍可用 |
 | Shift + 方向 | 与朝向相同 → `C.Run`（服务端仍校验跑步计数） |
-| Space | `C.Attack { direction: 当前朝向 }` |
+| Space | 有锁定目标 → 朝目标攻击（相邻）或朝目标走一步靠近；没有目标 → `C.Attack { direction: 当前朝向 }` |
 | P | `C.PickUp` |
 | T | 打开聊天输入；回车 `C.Chat`，Esc 取消 |
 | I | 开关背包 |
 | E | 开关装备纸娃娃面板 |
 | M | 开关小地图（`ui::minimap`，见 §5.5） |
+| B | 开关大地图（`ui::bigmap`，见 §5.7） |
 | F3 | 开关技能列表 |
 | 1..9 | 施法（未绑定技能会先发 `C.MagicKey`） |
 | 商店打开时 ↑/↓ | 滚动货架（不移动角色） |
-| Esc | 依次关闭：右键菜单 → 拖拽 → 聊天输入 → NPC 对话（发 `@exit`）→ 背包/装备/技能（小地图只由 `M` 开关，与 Crystal 的 `MiniMapDialog.Toggle()` 一致） |
+| Esc | 依次关闭：右键菜单 → 拖拽 → 聊天输入 → 大地图 → NPC 对话（发 `@exit`）→ 背包/装备/技能（小地图只由 `M` 开关，与 Crystal 的 `MiniMapDialog.Toggle()` 一致）；顺序集中在 `UiState::escape` |
 | F1 | 调试叠层 |
 | F2 | 截图到 `build/screenshot-<n>.png` |
 | Q | 退出 |
@@ -150,12 +151,32 @@ buff 倒计时都基于它，所以无头测试可以任意拨表。
 | 拖拽 | 背包 → 背包 | 交换：`C.MoveItem { grid: Inventory, from, to }` |
 | 悬停 | 背包/装备物品 | 跟随鼠标的 tooltip（名字/类型/需求/属性/耐久/堆叠/价格） |
 | 滚轮 | 商店面板 | 货架滚动（同时画比例滚动条） |
-| 左键单击/按住 | 地面 | 朝该格走一步；按住连续走 |
+| 悬停 | 世界实体（怪物/玩家/NPC） | 该格画 1px 黄色方框（头顶名字本来就常显） |
+| 左键单击 | 怪物 / 其他玩家 | 锁定目标（`UiState::target_object_id`），该格画 1px 红色方框并显示其血条 |
+| 左键双击 | 已锁定/点中的怪物或玩家 | 相邻 → `C.Attack`；不相邻 → 朝目标走一步，最多 3 步，走到相邻自动攻击 |
+| 左键单击/按住 | 地面 | 清掉锁定目标，朝该格走一步；按住连续走 |
 | 左键单击 | NPC（8 格内） | 打开对话（`C.CallNPC { key: "@main" }`） |
+| 左键单击 | 大地图/小地图/背包等面板 | 被面板吃掉（不会变成「点地走路」） |
 
 点地走路的规则（`ui::walk_intent`，**不做 A\***）：目标与自己在同一行/列且相邻 →
 直接发 `C.Walk`；否则朝目标方向——已经面向该方向就再走一步，否则先 `C.Turn`。
 按住左键时 `app.rs` 每 150 ms 重新计算一次，坐标变化后自然转向/继续走。
+
+鼠标目标（`ui::target` + `UiState::target_object_id`）对拍 Crystal：
+
+| 本项目 | Crystal 出处 |
+|---|---|
+| 悬停命中按格判断（跳过自己/尸体/地面物品） | `GameScene.cs:10492-10535`（`MouseObject` 扫描 5×5 格）、`:10605-10606`（不为物品画名字） |
+| 悬停/锁定高亮是 1px 方框 | `GameScene.cs:10973-10980` 的 `DrawBlend()`（半透明重绘），本作按需求改成格线框 |
+| 单击怪物/玩家 → `target_object_id`；点空地清空 | `GameScene.cs:11442-11451`（NPC/物品/尸体/AI 64/70 不锁定） |
+| 双击任意锁定目标即可攻击（含其他玩家） | Crystal 打玩家需要按住 Shift（`GameScene.cs:11473,11568`）；本作没有 PK 开关，双击即攻击（简化） |
+| `Space`/双击相邻目标 → `C.Attack` | `GameScene.cs:11471-11509`（相邻时 `CheckInput` 自动挥刀） |
+| 不相邻 → 朝目标走一步，≤3 步后放弃，相邻自动攻击 | `GameScene.cs:11764-11773`（超出 1 格时朝目标走）；Crystal 没有步数上限，3 步是需求指定的简化 |
+| 双击判定窗口 350 ms | Crystal 无「双击攻击」，这是本作用来表达「打这个」的简化（与背包双击窗口一致，`ui::inventory::DOUBLE_CLICK_MS`） |
+
+锁定目标的血量：只有收到过 `S.ObjectHealth` 的实体才有百分比（`WorldEntity::hp_percent`），
+自己的百分比由 `HealthChanged`/`UserInformation` 的 `HP / MaxHP` 算
+（Crystal `UserObject.cs:176`）。目标名字来自常显的头顶名字（见 §5「世界内文字」）。
 
 Crystal 客户端的键盘移动不是逐键发 `C.Walk`：`GameScene.CheckInput` 用
 `MouseDirection()` 得到方向并解析成 `MirAction.Walking/Running/Standing`
@@ -208,6 +229,15 @@ Crystal 的商店同样用滚轮翻页（`Client/MirScenes/Dialogs/NPCDialogs.cs
 ### 世界内文字
 
 * 头顶名字：玩家/怪物/NPC 的名字画在精灵上方，带 8 方向黑描边；
+* 头顶血条（`mir-render` 的 `EntityRenderer::render_at`）：32×4 的色块，宽度按
+  `PercentHealth` 百分比（`MapObject.DrawHealth`，`Client/MirObjects/MapObject.cs:465-507`
+  的 `32 * PercentHealth / 100`、4 像素高），画在精灵顶边上方 6 像素、格内左移 8 像素；
+  * 自己的百分比由 `HP / MaxHP` 算（`UserObject.cs:176`），其他人/怪物取
+    `S.ObjectHealth.percent`（组队血条 `group.rs:273`、怪物 `world.rs:1511`）——
+    没收到过血量的实体不画条；
+  * 颜色按百分比分档（>50% 绿、>25% 黄、其余红、死亡灰）：Crystal 用的是
+    `Prguse2` 的 1/10/11/12 号预着色条（`MapObject.cs:481-504`），本作没有这套 UI 图库，
+    改按百分比着色；玩家蓝条（Crystal `PercentMana`，`:500`）暂未画；
 * 伤害数字：`ObjectStruck`（无伤害值 → 红色 ✕）与 `DamageIndicator`
   （数字 / `闪避` / 暴击加 `!`）在目标头顶向上飘 50 px、1 s 内淡出。
   时长与位移对应 Crystal `Client/MirObjects/Damage.cs:16-46`
@@ -299,6 +329,39 @@ view.y = (int)(scaleY × 自己.y) - 108/2
   **从未被调用**）；NPC 对话没有专用音效，借用界面按钮音；怪物攻击/死亡不按 `BaseSound`
   取各自音效（`MonsterObject.cs:217,601,1395`）。
 
+### 5.7 大地图（B）
+
+面板**屏幕居中**，从上到下：地图名标题、568×380 的大地图视区、坐标行与 `B / Esc 关闭`。
+
+| 项 | 本项目 | Crystal 出处 |
+|---|---|---|
+| 按键 | `B` 开关；`Esc` 也能关 | `GameScene.cs:773-774`（`KeybindOptions.Bigmap` → `BigMapDialog.Toggle()`）、`:668-671,697`（`Closeall`） |
+| 图库 | 与小地图同一个 `resource/data/mmap.wzl` | `Client/MirGraphics/MLibrary.cs:23` `MiniMap = new MLibrary(Settings.DataPath + "MMap")` |
+| 图像号 | `S.MapInformation.big_map` / `ClientMapInfo.BigMap`（0 = 没有大地图） | `BigMapDialog.cs:642`；`Shared/Data/ClientData.cs:324`；`Show()` 在 `BigMap <= 0` 时直接返回 `:289` |
+| 面板位置 | 屏幕居中 | `:98` `Location = Center` |
+| 标题 | 面板内 `(19, 6)`、高 20 | `:225-234` `TitleLabel` |
+| 视区 | 面板内 `(14, 52)`、568×380 | `:559`、`:650-653` |
+| 整图缩放 | 绘制尺寸 = `min(568, 图像宽) × min(380, 图像高)`，整图拉伸到该尺寸并居中 | `:650`、`MLibrary.cs:756-776` 的 `Draw(index, point, size, colour)` |
+| 格 → 像素 | `像素 = 格 × (绘制宽 / 地图宽)` | `:661-662`（`ScaleX/ScaleY`） |
+| 点位 | 复用 `ui::minimap::big_view_for` 的点位（怪物红/NPC 绿/其他玩家白），自己最后画黄色 2×2 | `:686-705` 的点位颜色（与 `MainDialogs.cs:1945-1961` 相同） |
+| 输出 | `target/client-bigmap.png`（`tests/bigmap_panel.rs`） | — |
+
+简化（原因）：
+
+* 面板尺寸取自控件坐标反推的 **596×460**：Crystal 的对话框尺寸来自 `Title.wzl` 的
+  820 号图（`:95-98`），而本仓库素材里没有 `Title.wzl`，所以用
+  「视区 14 + 568 + 14 宽」与「视区 52 + 380 + 底部坐标行（`:221` 的 y = 435）」反推，
+  面板背景用与其它面板一致的半透明底 + 边框；
+* 没有右侧 NPC 列表/滚动条/底部按钮（世界地图、我的位置、传送、搜索，
+  `:101-255,341-432`），也没有「已探明区域」遮罩——Crystal 本身也是直接画整张图；
+* 坐标行显示自己的坐标；Crystal 跟随鼠标显示大地图坐标（`:603-609`、`:257-260`）；
+* 点大地图在 Crystal 里会寻路（`:612-628`），本作没有 A*，只把点击吃掉，避免误触发走路；
+* `mmap.wzl` 缺失或 `big_map == 0` 时画纯色占位 + 地图名（`NoBigmap`），不 panic。
+
+Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`:676`），但对象点仍减去
+`startPointX/Y`（`:678-705`），而自己的点却按 `格 × 比例` 画（`:707-710`）。玩家不在
+图像边缘时两者会错位；本作按 `格 × 比例` 统一投影（需求也要求「画整张图 + 自己位置点」）。
+
 ## 6. 实体图库映射
 
 扁平素材（`resource/data/*.wzl`）与 Crystal 的「一个外观一个 `.Lib`」不同，因此用文件名
@@ -322,7 +385,8 @@ view.y = (int)(scaleY × 自己.y) - 108/2
 * 物品：在格子里居中（`ItemObject.cs:78-79`），不叠加图像偏移（`:72-73` 的默认 `offSet: false`）；
 * 绘制顺序：地图 Y 升序、同一行 X 升序（`GameScene.cs:10798-11008`）。
 * 精灵缺失：画 12×18 的彩色方块（玩家蓝、怪物红、NPC 绿、物品黄；死亡为灰色），
-  物件有 `ObjectHealth` 时额外画 3px 血条。无 `resource/` 的 CI 也能得到非空画面。
+  收到过 `ObjectHealth`/`HealthChanged` 的实体再画 32×4 的头顶血条（见 §5 世界内文字）。
+  无 `resource/` 的 CI 也能得到非空画面。
 
 ### 6.1 玩家装备分层（纸娃娃）
 
@@ -517,6 +581,26 @@ Crystal 的 `Frame` 是 `Start / Count / Skip / Interval`（`Client/MirObjects/F
    玩家点（黄）≥ 4 像素；
 4. 缺素材时视窗是纯色占位；`mini_map == 0` 时即使图库里有 0 号帧也不画。
 
+`crates/mir-client/tests/bigmap_panel.rs`：**B 面板无头测试**（不连服务器）。
+
+1. 注入 `S.UserInformation` + `S.MapInformation`（`big_map = 302`）+
+   `S.NewMapInfo`（700×700），`UiState::toggle_bigmap()` 模拟 `B`；
+2. 渲染整屏到 `target/client-bigmap.png`，断言面板居中（596×460）、面板区域变化
+   > 5 万像素、整帧颜色 ≥ 20 种、视区里非黑像素 > 5 万、玩家点（黄）≥ 4 像素；
+3. `UiState::escape()` 模拟 `Esc`，断言返回 `EscapeResult::Bigmap` 且面板关闭；
+4. 点面板不会走路、也不会锁定目标；缺素材 / `big_map == 0` 时视区是纯色占位 + 地图名。
+
+`crates/mir-client/tests/targeting.rs`：**鼠标目标 + 头顶血条**（注入式，不连服务器）。
+
+1. 注入 `S.UserInformation` + 两只 `S.ObjectMonster`（相邻/隔一格）+ 两条
+   `S.ObjectHealth`；鼠标移到怪物格上，`UiState::hover_object` 返回该 object id；
+2. 渲染后怪物头顶有 32×4 血条（40% 的怪是黄色 `HEALTH_YELLOW`），悬停格画出
+   1px 黄框；输出 `target/client-target.png`；
+3. 单击怪物 → `target_object_id` 被设置；双击相邻怪物 → `UiAction::AttackTarget`，
+   `net_command()` 等于 `NetCommand::Attack`；
+4. 双击远处怪物 → 先 `WorldMove { step: true }`，每 600 ms 一步、共 3 步后放弃；
+5. 点背包/小地图面板不会产生走路动作。
+
 `crates/mir-client/tests/sound.rs`：**音效事件 + 真实 WAV 冒烟**（不连服务器、不开窗口）。
 
 1. 注入 `ObjectWalk`/`ObjectRun`/`ObjectAttack`（带技能）/`ObjectStruck`/`S.Struck`/
@@ -530,6 +614,8 @@ Crystal 的 `Frame` 是 `Start / Count / Skip / Interval`（`Client/MirObjects/F
 ```powershell
 cargo test -p mir-client --test sound -- --nocapture
 cargo test -p mir-client --test minimap_panel -- --nocapture
+cargo test -p mir-client --test bigmap_panel -- --nocapture
+cargo test -p mir-client --test targeting -- --nocapture
 cargo test -p mir-render --test minimap -- --nocapture
 cargo test -p mir-client --test ui_interaction -- --nocapture
 cargo test -p mir-client --test player_looks -- --nocapture
@@ -555,15 +641,18 @@ cargo fmt --all -- --check
   偏移上，会回退到站立帧；
 * 刺客双持（`WeaponLibrary2`）与弓箭手第二遍武器（`PlayerObject.cs:4921-4922`）；
 * 装备面板里的角色小预览（面板目前只有 14 个槽的图标 + 名称 + 属性汇总）；
-* A\* 寻路（点地走路只有「朝目标方向一步」）；拾取/攻击的鼠标目标选择；
+* A\* 寻路（点地走路只有「朝目标方向一步」）；鼠标点击地面物品拾取（`P` 键已可用）、
+  鼠标悬停物品的名字/拾取提示；
+* 大地图面板的 NPC 列表/滚动条/世界地图按钮/「传送到 NPC」/搜索框（`BigMapDialog.cs:101-255,320-432`），
+  以及坐标行跟随鼠标（本作显示自己的坐标）；玩家蓝条（`MapObject.cs:500`）暂未画；
 * 地图切换后的素材重载（服务端 `MapChanged` 会更新快照地图名，窗口仍用启动时加载的地形）；
 * **音效**：背景音乐（`SoundManager.PlayMusic`）、循环音（`LoopProvider`）、
   怪物各自的 `BaseSound`、按地块选择脚步音、按武器选择受击音、按距离衰减、
   音量条 UI（`MainDialogs.cs:2864-2887`）、解码缓存与回收
   （Crystal 的 `CachedSound` / `SoundManager.cs:195-223`；本作每次播放现解码，
   短 WAV 够快，但没有缓存与 30 秒回收）；
-* **小地图**：大地图面板（`BigMapDialog`，图像号用 `MapInfo.BigMap`）、NPC 任务感叹号、
-  两档尺寸/底部按钮（邮件/大地图/亮度）、滚轮缩放的「大地图搜索」；
+* **小地图**：NPC 任务感叹号（`MainDialogs.cs:1963-2010`）、两档尺寸/底部按钮
+  （邮件/大地图/亮度）、滚轮缩放的「大地图搜索」；大地图面板本体见 §5.7（已实现）；
 * 天气、光照（`LightSetting`/`MapDarkLight`）、聊天频道切换与物品链接；
 * 交易/仓库/摆摊/邮件/任务面板；装备升级/镶嵌/觉醒等数值系统；
 * `!Mon.dat` 精确怪物外观映射（见 §6.2）。
@@ -625,8 +714,23 @@ cargo fmt --all -- --check
     （`MirControl.cs:823-824`），默认 `ButtonA`（`SoundList.cs:41`）。本作用它当「打开对话」音。
 19. **小地图的两个图像号是两个控件**：`MiniMapDialog` 用 `MapControl.MiniMap`
     （`MainDialogs.cs:1916`），`BigMapDialog` 用 `MapInfo.BigMap`（`BigMapDialog.cs:642`），
-    但都取自同一个 `mmap.wzl`（`MLibrary.cs:23`）。本项目小地图面板只做前者，
-    `big_map` 已经在快照里备好（`MapSnapshot::big_map`）等大地图面板用。
+    但都取自同一个 `mmap.wzl`（`MLibrary.cs:23`）。本项目的 `ui::minimap` 与
+    `ui::bigmap` 共用同一个 `MinimapScene`，图像号分别来自 `MapSnapshot::mini_map` 与
+    `MapSnapshot::big_map`。
 20. **`mmap.wzl` 的 0 号帧是真实地图图**（600×399），不是「空图」；Crystal 用
     `MapInfo.MiniMap <= 0` 判断「这张图没有小地图」（`MainDialogs.cs:1898-1907`），
     所以客户端把 0 当哨兵值、不去查图库，否则会画出别的地图。
+21. **`BigMapDialog` 的点位公式与整图缩放不一致**：地图是整图缩放绘制的
+    （`BigMapDialog.cs:676`、`MLibrary.cs:756-776`），对象点却减去 `startPointX/Y`
+    （`:678-705`），而自己的点按 `格 × 比例` 画（`:707-710`）——玩家不在图像边缘时
+    点位会错位。本作统一按 `格 × 比例` 投影，见 §5.7。
+22. **大地图对话框的背景图 `Title.wzl` 不在本仓库素材里**：Crystal 用
+    `Libraries.Title` 的 820 号图当对话框底（`BigMapDialog.cs:95-98`），
+    `resource/data` 只有 `mmap.wzl`/`prguse2.wzl` 等；本作改用自绘面板
+    （尺寸按控件坐标反推 596×460，见 §5.7）。
+23. **血条只在 `ShouldDrawHealth()` 为真或刚掉过血时画**：Crystal 的
+    `PlayerObject.ShouldDrawHealth`（`PlayerObject.cs:182-190`）只对自己/队友为真，
+    `MonsterObject.ShouldDrawHealth`（`MonsterObject.cs:335-341`）只对自己的宠物/队友为真，
+    外加 `MapObject.DrawHealth` 的 `HealthTime` 窗口（`MapObject.cs:461-476`）。
+    本作以「收到过 `ObjectHealth`/`HealthChanged`」当作画条条件（需求），
+    所以怪物掉血后就一直显示血条。

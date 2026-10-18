@@ -96,7 +96,7 @@
 //! 窗口循环用 [`MapScene::render_with_entities_at`] 按真实时间取帧。
 //!
 //! 精灵缺失时画 12×18 的彩色占位方块（按类型着色），所以没有 `resource/` 的 CI
-//! 也能在 `Frame` 里看到实体。血条是 3px 色块，不依赖字体。
+//! 也能在 `Frame` 里看到实体。血条是 32×4 的色块（`MapObject.cs:506`），不依赖字体。
 //!
 //! 阴影：Crystal 客户端**没有**地图/对象的阴影绘制。`MImage` 虽然解析了
 //! `ShadowX/ShadowY`（`MLibrary.cs:887-888`），但全仓库没有任何地方用它们画阴影，
@@ -175,12 +175,14 @@ pub use animation::{
     human_frames, monster_frames, npc_frames,
 };
 pub use entities::{
-    EntityKind, EntityLibraries, EntityRenderer, EntityView, HAIR_BLOCKS, HUM_BLOCKS, LayerFrame,
-    MAX_ENTITY_CACHED_IMAGES, MONSTER_DIRECTION_STRIDE, MONSTER_FRAMES_PER_IMAGE, NO_LAYER,
-    NPC_FRAMES_PER_IMAGE, PLAYER_DIRECTION_STRIDE, PLAYER_FRAMES_PER_APPEARANCE,
-    PLAYER_STANDING_FRAMES, PlayerLayer, PlayerLayerPlan, SpriteLibrary, hair_library,
-    monster_library, monster_standing_frame, npc_library, player_layer_plan, player_layer_plan_at,
-    player_library, player_standing_frame, weapon_drawn_in_front, weapon_library,
+    EntityKind, EntityLibraries, EntityRenderer, EntityView, HAIR_BLOCKS, HEALTH_BACKGROUND,
+    HEALTH_BAR_HEIGHT, HEALTH_BAR_OFFSET_X, HEALTH_BAR_WIDTH, HEALTH_DEAD, HEALTH_GREEN,
+    HEALTH_RED, HEALTH_YELLOW, HUM_BLOCKS, LayerFrame, MAX_ENTITY_CACHED_IMAGES,
+    MONSTER_DIRECTION_STRIDE, MONSTER_FRAMES_PER_IMAGE, NO_LAYER, NPC_FRAMES_PER_IMAGE,
+    PLAYER_DIRECTION_STRIDE, PLAYER_FRAMES_PER_APPEARANCE, PLAYER_STANDING_FRAMES, PlayerLayer,
+    PlayerLayerPlan, SpriteLibrary, hair_library, monster_library, monster_standing_frame,
+    npc_library, player_layer_plan, player_layer_plan_at, player_library, player_standing_frame,
+    weapon_drawn_in_front, weapon_library,
 };
 pub use error::RenderError;
 pub use frame::{Frame, scale_to_fit};
@@ -188,6 +190,7 @@ pub use geometry::{CELL_HEIGHT, CELL_WIDTH, Viewport};
 // 客户端 UI 画物品图标时需要 `Image` 的尺寸/像素字段，但不应直接依赖 `mir-asset`；
 // 测试造「合成小地图图库」时也要 `ImageInfo`（`Image` 的字段之一）。
 pub use minimap::{
+    BIG_MAP_OFFSET_X, BIG_MAP_OFFSET_Y, BIG_MAP_VIEW_HEIGHT, BIG_MAP_VIEW_WIDTH, BigMapProjection,
     GROUP_COLOR, MARKER_SIZE, MONSTER_COLOR, MarkerKind, MinimapMarker, MinimapProjection,
     MinimapScene, MinimapView, NPC_COLOR, PLAYER_COLOR, PLAYER_OTHER_COLOR, VIEW_HEIGHT,
     VIEW_WIDTH,

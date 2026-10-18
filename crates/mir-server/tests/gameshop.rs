@@ -1222,8 +1222,48 @@ fn player_from(character: &mir_server::Character, object_id: u32) -> Player {
 // 九、真实协议：C.MarketSearch / C.GameshopBuy 的接线（真实 Server.MirDB）
 // ---------------------------------------------------------------------------
 
-/// 真实样本数据库（素材索引里的 v111 全量库，105 件商城商品）。
-const SAMPLE_DB: &str = "resource/community/suprcode-crystal-database/Jev/Server.MirDB";
+/// 真实样本数据库（素材索引里的 v111 全量库，105 件商城商品），相对**仓库根**。
+const SAMPLE_DB_RELATIVE: &str = "resource/community/suprcode-crystal-database/Jev/Server.MirDB";
+
+/// 把相对**仓库根**的路径解析成绝对路径（仓库根 = `CARGO_MANIFEST_DIR/../..`）。
+///
+/// **不能**直接用相对路径：`cargo test -p mir-server` 的工作目录是 `crates/mir-server`，
+/// 而 `resource/` 在仓库根；用相对路径会「找不到 → 打印跳过 → 计 passed」，真实链路
+/// 其实没测到（刑部 t7 F1）。返回 `None` 表示路径无法 canonicalize（文件不存在）。
+fn resolve_from_repo_root(relative: &str) -> Option<std::path::PathBuf> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join(relative);
+    std::fs::canonicalize(path).ok()
+}
+
+/// 真实样本库的绝对路径（见 [`SAMPLE_DB_RELATIVE`]）。
+fn sample_db_path() -> Option<std::path::PathBuf> {
+    resolve_from_repo_root(SAMPLE_DB_RELATIVE)
+}
+
+/// t7 F1 的回归：路径解析必须以 `CARGO_MANIFEST_DIR` 为基准（与 cwd 无关），
+/// 且不存在的相对路径要返回 `None`（调用方据此打印明确的跳过原因）。
+#[test]
+fn sample_db_path_is_resolved_from_manifest_dir() {
+    let Some(path) = sample_db_path() else {
+        println!(
+            "跳过 sample_db_path_is_resolved_from_manifest_dir：真实样本库不存在（按 CARGO_MANIFEST_DIR/../.. 解析）"
+        );
+        return;
+    };
+    assert!(path.is_absolute(), "必须是绝对路径：{}", path.display());
+    assert!(
+        path.ends_with("Jev/Server.MirDB"),
+        "应解析到样本库：{}",
+        path.display()
+    );
+    assert!(
+        resolve_from_repo_root("resource/definitely-missing/Server.MirDB").is_none(),
+        "不存在的库必须返回 None，让调用方打印跳过原因"
+    );
+}
 
 struct TestClient {
     stream: tokio::net::TcpStream,
@@ -1275,6 +1315,21 @@ impl TestClient {
         assert_eq!(packet.index(), index, "收到的包编号不符：{packet:?}");
         packet
     }
+
+    /// 读到指定编号的包为止，**忽略**期间收到的其它包。
+    ///
+    /// 进世界序列的包数随功能/数据变化（任务、行会 buff、邮件、欢迎语…），
+    /// 逐个断言顺序会让用例和「当前有哪些系统」耦合；这里只关心目标包，
+    /// 与 `market_flow.rs` 的做法一致但更宽容。
+    async fn expect_until(&mut self, index: i16) -> ServerPacket {
+        for _ in 0..200 {
+            let packet = self.expect().await;
+            if packet.index() == index {
+                return packet;
+            }
+        }
+        panic!("等待包 {index} 超时（已读 200 个其它包）");
+    }
 }
 
 /// 端到端：登录 → 进世界 → `C.MarketSearch{GameShop}` 拿到目录 → `C.GameshopBuy` 扣元宝并到货，
@@ -1287,10 +1342,19 @@ async fn gameshop_buy_round_trips_over_the_wire() {
     use mir_protocol::packets::client as c;
     use mir_protocol::packets::server as s;
 
-    if !std::path::Path::new(SAMPLE_DB).is_file() {
-        println!("跳过：没有 {SAMPLE_DB}");
+    // 真实样本库按**仓库根**解析（`CARGO_MANIFEST_DIR/../..`），见 [`sample_db_path`]。
+    // 缺数据时跳过，但必须打印明确的绝对路径，不允许「静默跳过还计 passed」。
+    let Some(db_path) = sample_db_path() else {
+        println!(
+            "跳过 gameshop_buy_round_trips_over_the_wire：真实样本库不存在（期望 {}/{}）。\
+             本用例验证真实 `C.MarketSearch`/`C.GameshopBuy` 链路，缺数据时无法覆盖——\
+             请确认仓库根的 resource/ 素材目录已就绪。",
+            env!("CARGO_MANIFEST_DIR"),
+            SAMPLE_DB_RELATIVE
+        );
         return;
-    }
+    };
+    let db_path = db_path.to_string_lossy().into_owned();
 
     let store = Arc::new(MemoryStore::new());
     let account = store
@@ -1319,7 +1383,7 @@ async fn gameshop_buy_round_trips_over_the_wire() {
         map_root: "resource/不存在的目录".to_owned(),
         language_dir: "config/不存在的目录".to_owned(),
         load_game_data: true,
-        db_path: Some(SAMPLE_DB.to_owned()),
+        db_path: Some(db_path.clone()),
         ..mir_server::ServerConfig::default()
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -1355,13 +1419,13 @@ async fn gameshop_buy_round_trips_over_the_wire() {
         }))
         .await;
     client.expect_index(s::StartGame::INDEX).await;
-    // 进世界序列的包数随功能增减，按「读到欢迎语为止」消费。
-    for _ in 0..40 {
-        if let ServerPacket::Chat(chat) = client.expect().await {
-            assert!(chat.message.contains("欢迎"), "进世界欢迎语");
-            break;
-        }
-    }
+    // 进世界序列：读到 `S.UserInformation` 说明角色已进世界；其余包（任务、行会 buff、
+    // 邮件、欢迎语…）与本用例无关，后面的 `expect_until` 会一并跳过。
+    let info = match client.expect_until(s::UserInformation::INDEX).await {
+        ServerPacket::UserInformation(info) => info,
+        other => panic!("期望 UserInformation，收到 {other:?}"),
+    };
+    assert!(info.object_id > 0, "进世界应分配对象 ID");
 
     // `C.MarketSearch{MarketType=GameShop}` → `S.NPCMarket`：目录来自真实数据库。
     client
@@ -1374,7 +1438,7 @@ async fn gameshop_buy_round_trips_over_the_wire() {
             market_type: MarketPanelType::GameShop,
         }))
         .await;
-    let market = match client.expect_index(s::NPCMarket::INDEX).await {
+    let market = match client.expect_until(s::NPCMarket::INDEX).await {
         ServerPacket::NPCMarket(market) => market,
         other => panic!("期望 NPCMarket，收到 {other:?}"),
     };
@@ -1400,12 +1464,12 @@ async fn gameshop_buy_round_trips_over_the_wire() {
         .await;
     let mut lose = None;
     let mut gained = 0usize;
-    for _ in 0..8 {
+    for _ in 0..40 {
+        // 进世界序列可能还有没读完的包（任务/邮件/欢迎语…），一律跳过。
         match client.expect().await {
             ServerPacket::LoseCredit(packet) => lose = Some(packet.credit),
             ServerPacket::GainedItem(_) => gained += 1,
-            ServerPacket::Chat(_) => {}
-            other => panic!("购买时收到意外包：{other:?}"),
+            _ => {}
         }
         if lose.is_some() && gained > 0 {
             break;
@@ -1414,13 +1478,13 @@ async fn gameshop_buy_round_trips_over_the_wire() {
     assert_eq!(lose, Some(price), "扣的元宝等于列表里的 CreditPrice");
     assert!(gained > 0, "物品应直接进背包并发 S.GainedItem");
 
-    // KeepAlive 屏障：会话顺序处理包，收到回包时商城事务已经提交。
+    // KeepAlive 屏障：会话按包序处理，收到回包时商城事务已经提交。
     client
         .send(mir_protocol::ClientPacket::KeepAlive(c::KeepAlive {
             time: 1,
         }))
         .await;
-    client.expect_index(s::KeepAlive::INDEX).await;
+    client.expect_until(s::KeepAlive::INDEX).await;
     let reloaded = store
         .find_character(account.id, character.id)
         .await
@@ -1431,6 +1495,14 @@ async fn gameshop_buy_round_trips_over_the_wire() {
         1_000 - i64::from(price),
         "元宝扣款应与角色行一起落盘"
     );
+    // 打印一条「真的跑了」的证据：`--nocapture` 下能看到它，用来区分「通过」与「静默跳过」。
+    println!(
+        "真实链路通过：g_index={g_index} price={price} pages={} 首页条目={} 余额={} 样本库={}",
+        market.pages,
+        market.listings.len(),
+        reloaded.credit,
+        db_path
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1439,8 +1511,9 @@ async fn gameshop_buy_round_trips_over_the_wire() {
 
 /// 需要真实 PostgreSQL（`MIR2_TEST_DATABASE_URL`，URL 见 `target/test-db-url.txt`）。
 ///
-/// 验证 `apply_gameshop_update` 一次事务写入角色行（元宝）、邮件、全服计数与按角色计数，
-/// 并且重新读库后值正确（等价于「重启后元宝与库存正确」）。
+/// 走**生产路径**：`World::gameshop_buy`（与 session 相同的校验/扣款/发货）→
+/// `flush_gameshop_update`（角色行 + 元宝 + 两组计数同一事务）→ 重新读库断言
+/// 「重启后元宝与库存正确」；再验证计数是绝对值 upsert（不会把两次数量相加）。
 #[tokio::test]
 async fn postgres_gameshop_purchase_persists() {
     let Ok(url) = std::env::var("MIR2_TEST_DATABASE_URL") else {
@@ -1480,30 +1553,54 @@ async fn postgres_gameshop_purchase_persists() {
 
     // 每次运行用一个独立的 GIndex，避免与历史行冲突。
     let g_index = 900_000 + i32::try_from(suffix % 100_000).unwrap_or(0);
-    let (purchases, stock) = {
-        // 模拟一次「买 2 件、扣 200 元宝」的结算结果。
-        character.credit -= 200;
-        (
-            vec![mir_server::store::GameShopPurchaseRecord {
-                character_id: character.id,
-                g_index,
-                quantity: 2,
-            }],
-            vec![mir_server::store::GameShopStockRecord {
-                g_index,
-                purchased: 2,
-            }],
-        )
+
+    // 合成一个只含本用例商品的数据库，走**世界层入口** `World::gameshop_buy`
+    // （与 session 购买同一条校验/扣款/发货路径），再用生产用的
+    // `flush_gameshop_update` 落盘（t7 F5：不再手搓 GameShopUpdate）。
+    let envir = Envir::new("pg");
+    let mut db = database();
+    db.gameshop = vec![GameShopItem {
+        stock: 5,
+        i_stock: true,
+        ..product(ITEM_SWORD, g_index, 100)
+    }];
+    let world = tokio::sync::Mutex::new({
+        let mut world = World::new(999);
+        world.set_game_data(Arc::new(GameData::from_db(db, Some(envir.drop_dir()))));
+        world
+    });
+    let object_id = {
+        let mut world = world.lock().await;
+        let object_id = world.allocate_object_id();
+        world.enter(player_from(&character, object_id));
+        object_id
     };
-    store
-        .apply_gameshop_update(GameShopUpdate {
-            character: Some(character.clone()),
+    let report = {
+        let mut world = world.lock().await;
+        world
+            .gameshop_buy(object_id, g_index, 2, 0, &no_purchases())
+            .expect("World::gameshop_buy 买 2 件")
+    };
+    assert_eq!(report.cost, 200, "100 元宝 × 2");
+    assert_eq!(report.individual_purchased, Some(2));
+    let snapshot = {
+        let world = world.lock().await;
+        mir_server::market::character_snapshot(&character, world.player(object_id).expect("玩家"))
+    };
+    let (purchases, stock) = report.to_records(character.id);
+    mir_server::market::flush_gameshop_update(
+        &store,
+        &world,
+        Some(snapshot),
+        GameShopUpdate {
+            character: None,
             mail_writes: Vec::new(),
             purchases: purchases.clone(),
             stock: stock.clone(),
-        })
-        .await
-        .expect("商城事务");
+        },
+    )
+    .await
+    .expect("商城事务");
 
     let reloaded = store
         .find_character(account.id, character.id)

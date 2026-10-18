@@ -235,7 +235,7 @@ per magic (14 bytes):
 | 3 | 已学会（`GetMagic`） | `S.UserLocation` | `:3408-3414` |
 | 4 | 模板存在 | `S.UserLocation` | `:3410` |
 | 5 | 技能类别支持（本作扩展） | `S.UserLocation` | — |
-| 6 | 目标合法（本作扩展，见 §10） | — | `:3460-3474` |
+| 6 | 目标合法（本作扩展，见 §5.1、§10） | — | `:3460-3474` |
 | 7 | 射程：`InRange(自己, 落点, Range)`，`Range == 0` 跳过 | **什么都不发** | `:3416` |
 | 8 | 写 `AttackTime = now+600`、`SpellTime = now+1800`、`ActionTime = now+600`、`RegenTime = now+10000`、`Direction = dir` | — | `:3424-3432`、`:3456` |
 | 9 | 冷却：`now < CastTime + GetDelay()` | `S.UserLocation` | `:3434-3440` |
@@ -257,21 +257,24 @@ per magic (14 bytes):
 
 | 类别 | 目标 | 说明 |
 |---|---|---|
-| `Bolt`（FireBall/GreatFireBall/ThunderBolt/SoulFireBall） | 怪物对象 | 必须有目标；距离 ≤ `Range` 且 ≤ 10（`FindObject` 搜索半径）。落点为空时取目标坐标。 |
+| `Bolt`（FireBall/GreatFireBall/ThunderBolt/SoulFireBall） | 怪物对象 | 必须有目标；距离 ≤ `Range` 且 ≤ 10（`FindObject` 搜索半径）。落点为空时取目标坐标。**不含玩家**（`attack_target_position` 只查怪物）。 |
 | `HellFire` | 无（方向 + 自己脚下） | 落点为空时用自己位置 |
 | `FireBang` | 落点坐标 | 落点为空 `(0,0)` 时退回自己脚下（Crystal 会照 `(0,0)` 施法） |
 | `Heal` | 玩家（自己/他人） | 没给目标时默认自己（`DefaultMagicTarget`，`HumanObject.cs:3399`、`:3506-3512`） |
 | `MassHealing` | 落点坐标（3×3） | 同上 |
-| `FireWall` | 落点坐标 | 落点为空时退回自己脚下；`target_id` 恒 0（`:3565-3566`） |
-| `Lightning` | 无（方向） | 只用到方向与施法者位置（`:3568-3569`、`:4209-4215`） |
+| `FireWall` | 落点坐标 | 落点为空时退回自己脚下；`target_id` 恒 0（`:3565-3566`）；**伤害结算可命中玩家**（PK 规则，施法者除外） |
+| `Lightning` | 无（方向） | 只用到方向与施法者位置（`:3568-3569`、`:4209-4215`）；**逐格结算可命中玩家**（PK 规则） |
 | `Teleport` | 无（落点只做射程预检） | `info.range != 0` 时仍按 `HumanObject.cs:3416` 判一次 |
 | `Hiding` / `Summon*` | 自己 | `target_id` 统一覆盖成施法者对象 ID |
-| `Poisoning` | 怪物对象 | 与 `Bolt` 相同：目标必须在 10 格内且可攻击（`:4367`） |
+| `Poisoning` | **怪物或按 PK 规则可攻击的玩家** | 走 `magic_attack_position`：先找怪物，再查「同图存活 + `is_attack_target_player`」的玩家（Crystal `IsAttackTarget`，`HumanObject.cs:4367`）；距离 ≤ 10 |
 | `Buff` | 自己（`EnergyShield`/`SoulShield`/`BlessedArmour` 可给同图存活玩家） | 其余 6 个增益无视目标、作用在自己身上 |
 
-简化：PK 只支持「玩家打玩家」的一部分路径（`is_attack_target_player`），
-**攻击类魔法仍只认怪物**；`Bolt`/`Poisoning` 的目标玩家返回 `InvalidTarget`
-（`FireWall`/`Lightning` 的范围结算里已经会打到玩家，见 §6.2、§6.3）。
+目标规则与 PK 一致（`is_attack_target_player`）：
+
+* **`Bolt` 类只选怪物**（目标玩家返回 `InvalidTarget`）；
+* **`Poisoning` 可对玩家施毒**（与物理攻击共用 PK 规则；玩家毒走 `S.Poisoned` 包）；
+* **`FireWall` 的中心格与 `Lightning` 的逐格结算**会命中玩家（同样按 PK 规则，施法者自己除外），
+  见 §6.2、§6.3。
 
 ---
 
@@ -464,6 +467,10 @@ Crystal 的隐身消耗 **1 张护身符**（`GetAmulet(1)`），本作消耗品
 施法（`HumanObject.cs:4365-4378`）：`power = GetDamage(GetAttackPower(MinSC, MaxSC))`，
 500ms 后落地（`:6041-6077`）。
 
+**目标**：走 `magic_attack_position`，可对**怪物**或**按 PK 规则可攻击的玩家**施毒
+（`is_attack_target_player`，与物理攻击同一套规则；玩家中招走 `S.Poisoned`，
+周围走 `S.ObjectPoisoned`）。
+
 **毒型选择**：Crystal 由装备栏毒药的 `Shape` 决定（1 绿 / 2 红，`:6050-6070`）；
 本作没有毒药消耗品，改为确定性策略：
 
@@ -581,7 +588,7 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 | **Hiding** | 67 | 自身状态 | ✅ **第 2 轮新增** | 走/跑、到期、死亡解除（与 Crystal 一致，§6.5） |
 | **SummonSkeleton** | 65 | 召唤 | ✅ **第 2 轮新增** | 骷髅；共享上限 2；不耗护身符（§6.6） |
 | **SummonShinsu** | 78 | 召唤 | ✅ **第 2 轮新增** | 神兽；共享上限 2；不耗护身符（§6.6） |
-| **Poisoning** | 63 | 持续伤害 | ✅ **第 2 轮新增** | 绿/红毒确定性选择；2s 一跳（§6.7） |
+| **Poisoning** | 63 | 持续伤害 | ✅ **第 2 轮新增** | 绿/红毒确定性选择；2s 一跳；可对玩家施毒（PK 规则，§6.7） |
 | ProtectionField | 12 | 增益（护盾） | ✅ 已实现 | `MinAC/MaxAC += round(MaxAC × (0.2 + 0.03L))`，`45 + 15L` 秒（`HumanObject.cs:4955-4963`） |
 | Haste | 93 | 增益（攻速） | ✅ 已实现 | `AttackSpeed += 2L + 2`，`25 + 15L` 秒（`:6149-6153`） |
 | MagicShield | 43 | 增益（减伤） | ✅ 已实现 | `DamageReductionPercent = 10(L+2)`，每点伤害扣 60ms（`:6198-6204`、`:7165`） |
@@ -607,9 +614,11 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
    （`HumanObject.cs:1237-1242` 的 `Info.Magics.Any(t => t.Spell == (Spell)item.Info.Shape)`），
    `UseItem` 在 `:5814` 就用它挡掉了。两边的可观察行为一致（拒绝 + 不消耗），
    只是本作的提示多一句「已经学会」。
-2. **单体攻击魔法只认怪物**：`Bolt`/`Poisoning` 的目标解析走 `attack_target_position`，
-   目标玩家返回 `InvalidTarget`；但**范围结算**（`FireWall` 中心格、`Lightning` 逐格）
-   已经会打到玩家（`is_attack_target_player` + PK 规则），这是第 2 轮补的玩家伤害路径。
+2. **攻击魔法的目标范围**：`Bolt` 类只认怪物（`attack_target_position` 只查怪物，
+   目标玩家返回 `InvalidTarget`）；`Poisoning` 走 `magic_attack_position`，可对
+   **按 PK 规则可攻击的玩家**施毒（与物理攻击共用 `is_attack_target_player`）；
+   `FireWall` 中心格与 `Lightning` 逐格的**范围结算**也会命中玩家（同样按 PK 规则，
+   排除施法者自己）。这是第 2 轮补的玩家伤害路径。
 3. **目标合法性在扣蓝之前严格校验**。Crystal 在扣蓝后才发现目标无效，
    此时仍算一次施法（`cast = true`、`targetID = 0`、无伤害）。
    本作选择「不合法就不扣蓝」，避免玩家被误扣。射程检查仍保持 Crystal 的

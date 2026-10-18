@@ -22,6 +22,7 @@ use mir_server::combat::{self, CombatStats};
 use mir_server::gamedata::GameData;
 use mir_server::magic::{CastReport, MagicError};
 use mir_server::world::{Player, World};
+use mir_world::Map;
 use tokio::sync::mpsc;
 
 const MAP: &str = "0";
@@ -204,6 +205,42 @@ impl Harness {
     fn hp(&self, monster: u32) -> i32 {
         self.world.monster(monster).expect("怪物还在").hp
     }
+
+    /// 把 `target` 的发包通道接到 `source` 的接收端上。
+    ///
+    /// 用于断言**跨收包方**的包序：`S.Magic` 只发给施法者、`S.ObjectMagic` 只广播给
+    /// 周围玩家；让两者进入同一个 mpsc 队列后，就能验证发送顺序。
+    fn share_channel(&mut self, source: u32, target: u32) {
+        let sender = self.world.player(source).expect("源玩家").sender.clone();
+        self.world.player_mut(target).expect("目标玩家").sender = sender;
+    }
+}
+
+/// 60×60 可走地形（v0 地图格式的合成字节）；`walls` 里的格子设为高墙。
+///
+/// `Map` 的 `attribute` 字段类型是私有枚举，集成测试无法直接构造 `MapCell`；
+/// 这里走公开的 [`Map::from_bytes_named`]（v0：52 字节头 + 每格 12 字节，
+/// 列优先 `offset = 52 + (x * Height + y) * 12`，`o+0` 的 bit15 = 高墙，
+/// 见 `crates/mir-world/src/map.rs` 的 v0 解析）。
+fn synthetic_map(walls: &[Point]) -> Arc<Map> {
+    const V0_HEADER: usize = 52;
+    const V0_STRIDE: usize = 12;
+    let width = 60_usize;
+    let height = 60_usize;
+    let mut data = vec![0_u8; V0_HEADER + V0_STRIDE * width * height];
+    data[0..2].copy_from_slice(&u16::try_from(width).unwrap_or(0).to_le_bytes());
+    data[2..4].copy_from_slice(&u16::try_from(height).unwrap_or(0).to_le_bytes());
+    for wall in walls {
+        if wall.x < 0 || wall.y < 0 || wall.x >= 60 || wall.y >= 60 {
+            continue;
+        }
+        let index =
+            usize::try_from(wall.x).unwrap_or(0) * height + usize::try_from(wall.y).unwrap_or(0);
+        let offset = V0_HEADER + index * V0_STRIDE;
+        // `o+0` 的 bit15 → `HighWall`（`WallRule::OverrideWords`）。
+        data[offset..offset + 2].copy_from_slice(&0x8000_u16.to_le_bytes());
+    }
+    Arc::new(Map::from_bytes_named(&data, MAP).expect("合成 v0 地图应能解析"))
 }
 
 // ---------------------------------------------------------------------------
@@ -327,7 +364,8 @@ fn fire_wall_spawns_five_cells_and_burns_each_cell_every_two_seconds() {
             Point::new(20, 23),
         )
         .expect("施法成功");
-    assert_eq!(report.damage, Some(report.damage.expect("火墙有伤害")));
+    let damage = report.damage.expect("火墙有伤害");
+    assert!(damage > 0, "火墙伤害应为正数，实际 {damage}");
     assert!(
         harness.world.spell_fields().is_empty(),
         "500ms 前还没有火墙"
@@ -337,6 +375,10 @@ fn fire_wall_spawns_five_cells_and_burns_each_cell_every_two_seconds() {
     harness.elapse(500);
     let fields = harness.world.spell_fields();
     assert_eq!(fields.len(), 5, "一次施法铺 5 格");
+    assert!(
+        fields.iter().all(|field| field.damage == damage),
+        "五格共享施法时抽到的 Value（`Map.cs:1129-1139`）"
+    );
     let cast_id = fields[0].cast_id;
     assert!(fields.iter().all(|field| field.cast_id == cast_id));
     let mut centers: Vec<(i32, i32)> = fields
@@ -409,6 +451,19 @@ fn fire_wall_without_mana_is_rejected() {
 #[test]
 fn lightning_pierces_six_cells_hitting_first_target_per_cell() {
     let mut harness = Harness::new(5);
+    // 路径第 3 格 (23,20) 是高墙：Crystal `Map.ValidPoint` 失败只是 `continue`，
+    // 下一格从墙格继续推进（`Map.cs:1194-1198`），不会中断贯穿。
+    harness
+        .world
+        .insert_map(MAP, synthetic_map(&[Point::new(23, 20)]));
+    assert!(
+        !harness
+            .world
+            .map_of(MAP)
+            .expect("合成地图")
+            .walkable(23, 20),
+        "合成地图的 (23,20) 应是不可走格，否则本用例覆盖不到 continue"
+    );
     let player = harness.add_player(1, MirClass::Wizard, 30, Point::new(20, 20));
     harness.learn(player, Spell::Lightning);
     harness.ready_all(player);
@@ -442,8 +497,60 @@ fn lightning_pierces_six_cells_hitting_first_target_per_cell() {
         5_000,
         "同一格只有第一个可攻击对象被命中（内层 break）"
     );
-    assert!(harness.hp(fourth) < 5_000, "命中后继续贯穿（没有遇阻停止）");
+    assert!(
+        harness.hp(fourth) < 5_000,
+        "第 3 格是高墙 → continue 后第 4 格仍被命中（没有遇阻停止）"
+    );
     assert_eq!(harness.hp(beyond), 5_000, "只贯穿 6 格");
+}
+
+#[test]
+fn lightning_sends_magic_to_caster_before_object_magic_broadcast() {
+    let mut harness = Harness::new(24);
+    let player = harness.add_player(1, MirClass::Wizard, 30, Point::new(20, 20));
+    let observer = harness.add_player(2, MirClass::Wizard, 30, Point::new(20, 24));
+    // 把观察者的发包通道接到施法者的接收端，合并两个收包方以断言发送先后。
+    harness.share_channel(player, observer);
+    harness.learn(player, Spell::Lightning);
+    harness.ready_all(player);
+    harness.packets(player);
+
+    harness
+        .cast(
+            player,
+            Spell::Lightning,
+            MirDirection::Right,
+            0,
+            Point::new(0, 0),
+        )
+        .expect("施法成功");
+
+    // 全部在 `cast_magic` 内同步发出（伤害要等 500ms，与包序无关）。
+    let packets = harness.packets(player);
+    let magic_index = packets.iter().position(
+        |packet| matches!(packet, ServerPacket::Magic(magic) if magic.spell == Spell::Lightning),
+    );
+    let object_magic_index = packets.iter().position(|packet| {
+        matches!(
+            packet,
+            ServerPacket::ObjectMagic(object)
+                if object.spell == Spell::Lightning && object.object_id == player
+        )
+    });
+    let magic_index = magic_index.expect("施法者应收到 S.Magic");
+    let object_magic_index = object_magic_index.expect("旁观者应收到 S.ObjectMagic");
+    assert!(
+        magic_index < object_magic_index,
+        "包序必须是 S.Magic → S.ObjectMagic，实际 {packets:?}"
+    );
+    // 同一次施法只发一条 `S.Magic`，且 `cast = true`（`HumanObject.cs:3778-3779`）。
+    assert_eq!(
+        packets
+            .iter()
+            .filter(|packet| matches!(packet, ServerPacket::Magic(_)))
+            .count(),
+        1
+    );
 }
 
 #[test]

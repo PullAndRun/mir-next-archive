@@ -61,6 +61,7 @@
 
 use mir_core::Point;
 use mir_core::enums::ChatType;
+use mir_core::i18n::TextKey;
 use mir_protocol::ServerPacket;
 use mir_protocol::packets::server::{
     AddMember as AddMemberPacket, DeleteGroup as DeleteGroupPacket,
@@ -481,24 +482,37 @@ impl World {
         // `if (GroupMembers != null && GroupMembers[0] != this)`（`:9278`）
         if let Some(group) = self.group(inviter_id) {
             if group.leader() != Some(inviter_id) {
-                self.send_system_chat(inviter_id, "你不是队长，不能邀请队员。");
+                self.send_system_chat(
+                    inviter_id,
+                    &self.text(inviter_id, TextKey::GroupInviteNotLeader),
+                );
                 return Err(GroupError::NotLeader(inviter_id));
             }
             // `if (GroupMembers != null && GroupMembers.Count >= Globals.MaxGroup)`（`:9284`）
             if group.is_full() {
-                self.send_system_chat(inviter_id, "你的队伍人数已满。");
+                self.send_system_chat(inviter_id, &self.text(inviter_id, TextKey::GroupInviteFull));
                 return Err(GroupError::GroupFull);
             }
         }
         // `if (CurrentMap != null && CurrentMap.Info.NoGroup)`（`:9291`）
         if map_no_group(self, &inviter_map) {
-            self.send_system_chat(inviter_id, "当前地图禁止组队，无法邀请。");
+            self.send_system_chat(
+                inviter_id,
+                &self.text(inviter_id, TextKey::GroupInviteMapForbidden),
+            );
             return Err(GroupError::InviterOnSoloMap(inviter_map));
         }
 
         // `PlayerObject player = Envir.GetPlayer(name);`（`:9297`）
         let Some(target_id) = self.player_by_name(name).map(|player| player.object_id) else {
-            self.send_system_chat(inviter_id, &format!("找不到玩家 {name}。"));
+            self.send_system_chat(
+                inviter_id,
+                &self.format(
+                    inviter_id,
+                    TextKey::GroupInviteTargetMissing,
+                    &[("name", name)],
+                ),
+            );
             return Err(GroupError::NotFound(name.to_owned()));
         };
         let target = self
@@ -507,19 +521,33 @@ impl World {
             .expect("player_by_name 返回的 ID 一定在 players 里");
         // `if (player == this)`（`:9304`）
         if target_id == inviter_id {
-            self.send_system_chat(inviter_id, "不能邀请自己加入队伍。");
+            self.send_system_chat(inviter_id, &self.text(inviter_id, TextKey::GroupInviteSelf));
             return Err(GroupError::CannotInviteSelf);
         }
         let target_name = target.name.clone();
         let target_map = target.map.clone();
         // `if (!player.AllowGroup)`（`:9310`）
         if !target.allow_group {
-            self.send_system_chat(inviter_id, &format!("{target_name} 不允许组队。"));
+            self.send_system_chat(
+                inviter_id,
+                &self.format(
+                    inviter_id,
+                    TextKey::GroupInviteTargetDisallowed,
+                    &[("target_name", &target_name)],
+                ),
+            );
             return Err(GroupError::TargetNotAllowGroup(target_name));
         }
         // `if (player.GroupMembers != null)`（`:9316`）
         if target.group_id.is_some() {
-            self.send_system_chat(inviter_id, &format!("{target_name} 已经在队伍中。"));
+            self.send_system_chat(
+                inviter_id,
+                &self.format(
+                    inviter_id,
+                    TextKey::GroupInviteTargetInGroup,
+                    &[("target_name", &target_name)],
+                ),
+            );
             return Err(GroupError::TargetAlreadyInGroup(target_name));
         }
         // `if (player.GroupInvitation != null)`（`:9322`）
@@ -536,15 +564,29 @@ impl World {
             } else {
                 self.send_system_chat(
                     inviter_id,
-                    &format!("{target_name} 正在接收其他人的组队邀请。"),
+                    &self.format(
+                        inviter_id,
+                        TextKey::GroupInviteTargetBusy,
+                        &[("target_name", &target_name)],
+                    ),
                 );
                 return Err(GroupError::TargetAlreadyInvited(target_name));
             }
         }
         // `if (player.CurrentMap != null && player.CurrentMap.Info.NoGroup)`（`:9328`）
         if map_no_group(self, &target_map) {
-            self.send_system_chat(inviter_id, &format!("{target_name} 所在的地图禁止组队。"));
-            self.send_system_chat(target_id, "当前地图禁止组队，无法接受邀请。");
+            self.send_system_chat(
+                inviter_id,
+                &self.format(
+                    inviter_id,
+                    TextKey::GroupInviteTargetMapForbidden,
+                    &[("target_name", &target_name)],
+                ),
+            );
+            self.send_system_chat(
+                target_id,
+                &self.text(target_id, TextKey::GroupJoinMapForbidden),
+            );
             return Err(GroupError::TargetOnSoloMap(target_map));
         }
 
@@ -590,7 +632,10 @@ impl World {
         let invitee_name = invitee.name.clone();
         // `if (GroupInvitation == null)`（`:9374`）
         let Some(invitation) = invitee.group_invitation else {
-            self.send_system_chat(invitee_id, "你没有收到组队邀请。");
+            self.send_system_chat(
+                invitee_id,
+                &self.text(invitee_id, TextKey::GroupJoinNoInvite),
+            );
             return Err(GroupError::NoInvitation(invitee_id));
         };
         let inviter_id = invitation.inviter;
@@ -599,7 +644,14 @@ impl World {
         if !accept {
             self.take_invitation(invitee_id);
             if self.players.contains_key(&inviter_id) {
-                self.send_system_chat(inviter_id, &format!("{invitee_name} 拒绝了你的组队邀请。"));
+                self.send_system_chat(
+                    inviter_id,
+                    &self.format(
+                        inviter_id,
+                        TextKey::GroupJoinDeclined,
+                        &[("invitee_name", &invitee_name)],
+                    ),
+                );
             }
             return Ok(GroupJoinOutcome::Declined);
         }
@@ -607,7 +659,10 @@ impl World {
         // 本作扩展：邀请 TTL（Crystal 没有超时，见 `GROUP_INVITE_EXPIRE_MS`）。
         if now > invitation.expires_at {
             self.take_invitation(invitee_id);
-            self.send_system_chat(invitee_id, "组队邀请已过期。");
+            self.send_system_chat(
+                invitee_id,
+                &self.text(invitee_id, TextKey::GroupJoinExpired),
+            );
             return Err(GroupError::InvitationExpired);
         }
 
@@ -621,7 +676,11 @@ impl World {
             self.take_invitation(invitee_id);
             self.send_system_chat(
                 invitee_id,
-                &format!("你已经在队伍中，无法加入 {inviter_name} 的队伍。"),
+                &self.format(
+                    invitee_id,
+                    TextKey::GroupJoinAlreadyInGroup,
+                    &[("inviter_name", &inviter_name)],
+                ),
             );
             return Err(GroupError::AlreadyInGroup(invitee_id));
         }
@@ -629,7 +688,10 @@ impl World {
         // `if (GroupInvitation.Node == null)`（`:9413`）——邀请者下线。
         let Some(inviter) = self.players.get(&inviter_id) else {
             self.take_invitation(invitee_id);
-            self.send_system_chat(invitee_id, "邀请者已经下线。");
+            self.send_system_chat(
+                invitee_id,
+                &self.text(invitee_id, TextKey::GroupJoinInviterOffline),
+            );
             return Err(GroupError::InviterOffline);
         };
         let inviter_name = inviter.name.clone();
@@ -642,20 +704,41 @@ impl World {
         if let Some(group) = &existing_group {
             if group.leader() != Some(inviter_id) {
                 self.take_invitation(invitee_id);
-                self.send_system_chat(invitee_id, &format!("{inviter_name} 已经不是队长了。"));
+                self.send_system_chat(
+                    invitee_id,
+                    &self.format(
+                        invitee_id,
+                        TextKey::GroupJoinInviterNotLeader,
+                        &[("inviter_name", &inviter_name)],
+                    ),
+                );
                 return Err(GroupError::InviterNotLeader);
             }
             // `if (GroupInvitation.GroupMembers.Count >= Globals.MaxGroup)`（`:9401`）
             if group.is_full() {
                 self.take_invitation(invitee_id);
-                self.send_system_chat(invitee_id, &format!("{inviter_name} 的队伍人数已满。"));
+                self.send_system_chat(
+                    invitee_id,
+                    &self.format(
+                        invitee_id,
+                        TextKey::GroupJoinInviterFull,
+                        &[("inviter_name", &inviter_name)],
+                    ),
+                );
                 return Err(GroupError::GroupFull);
             }
         }
         // `if (!GroupInvitation.AllowGroup)`（`:9407`）
         if !inviter_allow_group {
             self.take_invitation(invitee_id);
-            self.send_system_chat(invitee_id, &format!("{inviter_name} 不再允许组队。"));
+            self.send_system_chat(
+                invitee_id,
+                &self.format(
+                    invitee_id,
+                    TextKey::GroupJoinInviterDisallowed,
+                    &[("inviter_name", &inviter_name)],
+                ),
+            );
             return Err(GroupError::InviterNotAllowGroup);
         }
         // `if (GroupInvitation.CurrentMap.Info.NoGroup)`（`:9420`）
@@ -663,9 +746,16 @@ impl World {
             self.take_invitation(invitee_id);
             self.send_system_chat(
                 invitee_id,
-                &format!("{inviter_name} 在地图禁止组队的区域。"),
+                &self.format(
+                    invitee_id,
+                    TextKey::GroupJoinInviterMapForbidden,
+                    &[("inviter_name", &inviter_name)],
+                ),
             );
-            self.send_system_chat(inviter_id, "当前地图禁止组队。");
+            self.send_system_chat(
+                inviter_id,
+                &self.text(inviter_id, TextKey::GroupMapForbidden),
+            );
             return Err(GroupError::InviterOnSoloMap(inviter_map));
         }
 
@@ -840,12 +930,18 @@ impl World {
     pub fn group_kick(&mut self, player_id: u32, name: &str) -> Result<u32, GroupError> {
         // `if (GroupMembers == null)`（`:9342`）
         let Some(group) = self.group(player_id).cloned() else {
-            self.send_system_chat(player_id, "你不在队伍中。");
+            self.send_system_chat(
+                player_id,
+                &self.text(player_id, TextKey::GroupKickNotInGroup),
+            );
             return Err(GroupError::NotInGroup(player_id));
         };
         // `if (GroupMembers[0] != this)`（`:9347`）
         if group.leader() != Some(player_id) {
-            self.send_system_chat(player_id, "你不是队长，不能移除队员。");
+            self.send_system_chat(
+                player_id,
+                &self.text(player_id, TextKey::GroupKickNotLeader),
+            );
             return Err(GroupError::NotLeader(player_id));
         }
         // `for (...) if (string.Compare(GroupMembers[i].Name, name, OrdinalIgnoreCase) != 0) continue;`（`:9355-9360`）
@@ -855,7 +951,10 @@ impl World {
                 .is_some_and(|player| player.name.eq_ignore_ascii_case(name))
         });
         let Some(target) = target else {
-            self.send_system_chat(player_id, &format!("{name} 不在你的队伍中。"));
+            self.send_system_chat(
+                player_id,
+                &self.format(player_id, TextKey::GroupKickNotMember, &[("name", name)]),
+            );
             return Err(GroupError::NotInYourGroup(name.to_owned()));
         };
         // `player.Enqueue(new S.DeleteGroup());`（`:9368`）

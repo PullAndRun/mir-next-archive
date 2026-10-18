@@ -1009,7 +1009,8 @@ impl World {
             })
             .collect();
         if recipients.is_empty() {
-            self.send_system_chat(player_id, "组队并且附近有队友时才能分享任务。");
+            let message = self.text(player_id, mir_core::i18n::TextKey::QuestShareNeedsParty);
+            self.send_system_chat(player_id, &message);
             return Err(QuestError::NotShared);
         }
         let frame = ServerPacket::ShareQuest(ShareQuest {
@@ -1151,7 +1152,11 @@ impl World {
         }
         // `Enqueue(new S.SendOutputMessage { Message = YouKilled(GameName), Type = Quest });`
         // （`PlayerObject.cs:11586`）——每推进一次发一条「你杀死了 X」。
-        let message = format!("你杀死了 {monster_name}");
+        let message = self.format(
+            player_id,
+            mir_core::i18n::TextKey::QuestKilledMonster,
+            &[("monster", monster_name)],
+        );
         self.send_to_player(
             player_id,
             &ServerPacket::SendOutputMessage(SendOutputMessage {
@@ -1428,8 +1433,8 @@ impl World {
     ) -> Option<ServerPacket> {
         let definition = self.quest_definition(progress.quest_index)?;
         let now = self.wall_now();
-        let quest = self.client_progress(&definition, progress, now);
-        let _ = player;
+        let language = self.player_language(player.object_id);
+        let quest = self.client_progress(&definition, progress, now, language);
         Some(ServerPacket::ChangeQuest(ChangeQuest {
             quest,
             quest_state: state,
@@ -1445,10 +1450,11 @@ impl World {
         definition: &QuestDefinition,
         progress: &QuestProgress,
         now: i64,
+        language: mir_core::Language,
     ) -> ClientQuestProgress {
         ClientQuestProgress {
             id: progress.quest_index,
-            task_list: task_list(definition, progress),
+            task_list: task_list(definition, progress, language),
             taken: progress.state != QuestProgressState::NotStarted,
             // Crystal 的 `Completed` 是「目标达成」（`EndDateTime` 被写），不是「已交付」。
             completed: progress.objectives_met,
@@ -1459,15 +1465,27 @@ impl World {
 
 /// 任务进度文本（Crystal `QuestProgressInfo.UpdateTasks`，`QuestProgressInfo.cs:428-532`）。
 ///
-/// Crystal 的文案来自语言表（`ServerTextKeys.KillCountProgress` 等）。本作没有那套键，
-/// 直接拼中文；脚本里给了 `KillMessage` / `ItemMessage` / `FlagMessage` 时用脚本文案
-/// （Crystal 的同名分支，`:440-452`、`:470-482`、`:500-512`）。
+/// Crystal 的文案来自语言表（`ServerTextKeys.KillCountProgress` 等）；本作用
+/// `TextKey::QuestTask*` 按 `language` 渲染。脚本里给了 `KillMessage` / `ItemMessage` /
+/// `FlagMessage` 时用脚本文案（数据，来自 `Server.MirDB`；Crystal 的同名分支，
+/// `:440-452`、`:470-482`、`:500-512`）。
 #[must_use]
-pub fn task_list(definition: &QuestDefinition, progress: &QuestProgress) -> Vec<String> {
+pub fn task_list(
+    definition: &QuestDefinition,
+    progress: &QuestProgress,
+    language: mir_core::Language,
+) -> Vec<String> {
+    use mir_core::i18n::{TextKey, format_text, text};
     let info = &definition.info;
     let script = &definition.script;
     let mut lines = Vec::new();
-    let done = |flag: bool| if flag { "（已完成）" } else { "" };
+    let done = |flag: bool| {
+        if flag {
+            text(language, TextKey::QuestTaskDoneSuffix)
+        } else {
+            ""
+        }
+    };
 
     if !script.kill_tasks.is_empty() {
         let all_done = script
@@ -1478,11 +1496,14 @@ pub fn task_list(definition: &QuestDefinition, progress: &QuestProgress) -> Vec<
             for task in &script.kill_tasks {
                 let count = progress.kill_count_of(&task.monster);
                 if task.message.is_empty() {
-                    lines.push(format!(
-                        "击杀 {} {}/{}",
-                        task.monster,
-                        count.min(task.count),
-                        task.count
+                    lines.push(format_text(
+                        language,
+                        TextKey::QuestTaskKill,
+                        &[
+                            ("monster", &task.monster),
+                            ("count", &count.min(task.count).to_string()),
+                            ("total", &task.count.to_string()),
+                        ],
                     ));
                 } else {
                     lines.push(format!("{}{}", task.message, done(count >= task.count)));
@@ -1502,11 +1523,14 @@ pub fn task_list(definition: &QuestDefinition, progress: &QuestProgress) -> Vec<
             for task in &script.item_tasks {
                 let count = progress.item_count_of(&task.item);
                 if task.message.is_empty() {
-                    lines.push(format!(
-                        "收集 {} {}/{}",
-                        task.item,
-                        count.min(task.count),
-                        task.count
+                    lines.push(format_text(
+                        language,
+                        TextKey::QuestTaskItem,
+                        &[
+                            ("item", &task.item),
+                            ("count", &count.min(task.count).to_string()),
+                            ("total", &task.count.to_string()),
+                        ],
                     ));
                 } else {
                     lines.push(format!("{}{}", task.message, done(count >= task.count)));
@@ -1525,10 +1549,13 @@ pub fn task_list(definition: &QuestDefinition, progress: &QuestProgress) -> Vec<
         if info.flag_message.is_empty() {
             for task in &script.flag_tasks {
                 if task.message.is_empty() {
-                    lines.push(format!(
-                        "激活标记 {}{}",
-                        task.number,
-                        done(progress.flags.contains(&task.number))
+                    lines.push(format_text(
+                        language,
+                        TextKey::QuestTaskFlag,
+                        &[
+                            ("number", &task.number.to_string()),
+                            ("done_suffix", done(progress.flags.contains(&task.number))),
+                        ],
                     ));
                 } else {
                     lines.push(format!(

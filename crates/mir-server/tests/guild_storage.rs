@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 use mir_core::Point;
 use mir_core::enums::{BindMode, ChatType, ItemType, MirClass, MirDirection, MirGender, Stat};
+use mir_core::i18n::{Language, TextKey, format_text};
 use mir_db::{MapInfo, MirDb, SafeZoneInfo};
 use mir_protocol::ServerPacket;
 use mir_protocol::data::{GuildBuffInfo, ItemInfo, Stats, UserItem};
@@ -481,7 +482,8 @@ fn store_item_checks_safe_zone_permission_and_slot() {
     assert!(
         chats(&packets)
             .iter()
-            .any(|(text, kind)| *kind == ChatType::System && text.contains("安全区")),
+            .any(|(text, kind)| *kind == ChatType::System
+                && text == &format_text(Language::ZhCn, TextKey::GuildStorageOutsideSafezone, &[])),
         "应提示只能在安全区使用，实际 {packets:?}"
     );
     assert_eq!(
@@ -506,7 +508,9 @@ fn store_item_checks_safe_zone_permission_and_slot() {
     assert!(
         chats(&packets)
             .iter()
-            .any(|(text, kind)| *kind == ChatType::System && text.contains("存物品")),
+            .any(|(text, kind)| *kind == ChatType::System
+                && text
+                    == &format_text(Language::ZhCn, TextKey::GuildStorageNoStorePermission, &[])),
         "应提示没有存物品权限，实际 {packets:?}"
     );
 
@@ -605,7 +609,9 @@ fn store_item_rejects_dont_store_bind_and_occupied_slot() {
     assert!(
         chats(&packets)
             .iter()
-            .any(|(text, kind)| *kind == ChatType::System && text.contains("目标格子")),
+            .any(|(text, kind)| *kind == ChatType::System
+                && text
+                    == &format_text(Language::ZhCn, TextKey::GuildStorageTargetSlotNotEmpty, &[])),
         "应提示目标格非空，实际 {packets:?}"
     );
     assert_eq!(
@@ -774,7 +780,13 @@ fn retrieve_without_permission_sends_chat_but_no_failure_packet() {
     assert!(
         chats(&packets)
             .iter()
-            .any(|(text, kind)| *kind == ChatType::System && text.contains("取物品")),
+            .any(|(text, kind)| *kind == ChatType::System
+                && text
+                    == &format_text(
+                        Language::ZhCn,
+                        TextKey::GuildStorageNoRetrievePermission,
+                        &[]
+                    )),
         "应提示没有取物品权限，实际 {packets:?}"
     );
     assert!(
@@ -846,7 +858,9 @@ fn retrieve_when_inventory_is_full_is_rejected() {
     assert!(
         chats(&packets)
             .iter()
-            .any(|(text, kind)| *kind == ChatType::System && text.contains("目标格子"))
+            .any(|(text, kind)| *kind == ChatType::System
+                && text
+                    == &format_text(Language::ZhCn, TextKey::GuildStorageTargetSlotNotEmpty, &[]))
     );
     assert!(
         harness
@@ -917,7 +931,9 @@ fn storage_move_swaps_items_and_requires_permission() {
     assert!(
         chats(&packets)
             .iter()
-            .any(|(text, kind)| *kind == ChatType::System && text.contains("整理"))
+            .any(|(text, kind)| *kind == ChatType::System
+                && text
+                    == &format_text(Language::ZhCn, TextKey::GuildStorageNoMovePermission, &[]))
     );
 
     // 会长可以交换：`StoredItems[to] = StoredItems[from]; StoredItems[from] = q`（`:10252-10258`）。
@@ -1066,7 +1082,8 @@ fn gold_deposit_and_withdrawal_broadcast_to_the_guild() {
     assert!(
         chats(&packets)
             .iter()
-            .any(|(text, kind)| *kind == ChatType::System && text.contains("会长")),
+            .any(|(text, kind)| *kind == ChatType::System
+                && text == &format_text(Language::ZhCn, TextKey::GuildBankLeaderOnly, &[])),
         "应提示只有会长能取，实际 {packets:?}"
     );
     assert_eq!(
@@ -1147,7 +1164,8 @@ fn gold_deposit_is_capped_at_uint_max() {
     assert!(
         chats(&harness.packets(leader))
             .iter()
-            .any(|(text, kind)| *kind == ChatType::System && text.contains("行会资金已达上限"))
+            .any(|(text, kind)| *kind == ChatType::System
+                && text == &format_text(Language::ZhCn, TextKey::GuildGoldLimitReached, &[]))
     );
     assert_eq!(
         harness.world.guild(guild_id).map(|guild| guild.gold),
@@ -1175,7 +1193,8 @@ fn gold_withdrawal_respects_the_player_gold_cap() {
     assert!(
         chats(&harness.packets(leader))
             .iter()
-            .any(|(text, kind)| *kind == ChatType::System && text.contains("金币已达上限"))
+            .any(|(text, kind)| *kind == ChatType::System
+                && text == &format_text(Language::ZhCn, TextKey::GuildPlayerGoldLimitReached, &[]))
     );
     assert_eq!(
         harness.world.guild(guild_id).map(|guild| guild.gold),
@@ -1207,7 +1226,8 @@ fn guild_buff_purchase_requires_permission_and_a_known_buff() {
     assert!(
         chats(&harness.packets(bob))
             .iter()
-            .any(|(text, kind)| *kind == ChatType::System && text.contains("权限"))
+            .any(|(text, kind)| *kind == ChatType::System
+                && text == &format_text(Language::ZhCn, TextKey::GuildBuffNoPermission, &[]))
     );
 
     // 打开 `CanActivateBuff = 128`（`1 << 7`）后，未知编号 → `BuffNotExist`（`:10367-10372`）。
@@ -1220,7 +1240,13 @@ fn guild_buff_purchase_requires_permission_and_a_known_buff() {
     assert!(
         chats(&harness.packets(bob))
             .iter()
-            .any(|(text, kind)| *kind == ChatType::System && text.contains("不存在"))
+            .any(|(text, kind)| *kind == ChatType::System
+                && text
+                    == &format_text(
+                        Language::ZhCn,
+                        TextKey::GuildBuffNotExist,
+                        &[("buff", "999")]
+                    ))
     );
 }
 
@@ -1302,7 +1328,18 @@ fn guild_buff_purchase_checks_level_points_and_bank_gold() {
     assert!(
         chats(&packets)
             .iter()
-            .any(|(text, kind)| *kind == ChatType::Guild && text.contains("体力祝福")),
+            .any(|(text, kind)| *kind == ChatType::Guild
+                && text
+                    == &format_text(
+                        Language::ZhCn,
+                        TextKey::GuildBuffBoughtPointsGold,
+                        &[
+                            ("player", "阿甲"),
+                            ("points", "1"),
+                            ("gold", "500"),
+                            ("buff", "体力祝福")
+                        ]
+                    )),
         "应广播购买成功消息，实际 {packets:?}"
     );
 
@@ -1692,7 +1729,8 @@ fn kicked_member_cannot_retrieve_but_another_member_can() {
     assert!(
         chats(&packets)
             .iter()
-            .any(|(text, kind)| *kind == ChatType::System && text.contains("不在行会")),
+            .any(|(text, kind)| *kind == ChatType::System
+                && text == &format_text(Language::ZhCn, TextKey::GuildNotInGuild, &[])),
         "应提示不在行会，实际 {packets:?}"
     );
     assert!(

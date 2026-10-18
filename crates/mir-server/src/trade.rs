@@ -69,6 +69,7 @@
 //!    本地化成中文，其余（未受理包裹 `Collected=false`）一致。
 
 use mir_core::Point;
+use mir_core::TextKey;
 use mir_core::enums::{BindMode, MirDirection};
 use mir_protocol::ServerPacket;
 use mir_protocol::data::UserItem;
@@ -318,7 +319,10 @@ impl World {
         }
         // 2. `if (TradePartner != null)`（`:10628-10632`）
         if in_trade {
-            self.send_system_chat(object_id, "你已经在交易中。");
+            self.send_system_chat(
+                object_id,
+                &self.text(object_id, TextKey::TradeAlreadyTrading),
+            );
             return Err(TradeError::AlreadyTrading);
         }
         // 3. 面朝格（`:10634-10658`）。Crystal 在一格里可能有多个对象，
@@ -334,13 +338,13 @@ impl World {
             .map(|other| other.object_id)
             .max();
         let Some(target_id) = target else {
-            self.send_system_chat(object_id, "请面对你要交易的对象。");
+            self.send_system_chat(object_id, &self.text(object_id, TextKey::TradeNotFacing));
             return Err(TradeError::NoTarget);
         };
         // 4. `Functions.FacingEachOther(...)`（`:10662-10666`）
         let target_direction = self.players[&target_id].direction;
         if !facing_each_other(direction, position, target_direction, facing) {
-            self.send_system_chat(object_id, "请面对你要交易的对象。");
+            self.send_system_chat(object_id, &self.text(object_id, TextKey::TradeNotFacing));
             return Err(TradeError::NotFacing);
         }
         // 5. 选人之后的校验（`:10668-10706`）
@@ -372,7 +376,10 @@ impl World {
             player.next_trade_time = now + TRADE_DELAY_MS;
         }
         if in_trade {
-            self.send_system_chat(object_id, "你已经在交易中。");
+            self.send_system_chat(
+                object_id,
+                &self.text(object_id, TextKey::TradeAlreadyTrading),
+            );
             return Err(TradeError::AlreadyTrading);
         }
         self.trade_invite(object_id, target_id)
@@ -389,39 +396,59 @@ impl World {
         let requester_position = requester.position;
         let requester_dead = requester.dead;
         let Some(target) = self.players.get(&target_id) else {
-            self.send_system_chat(object_id, "请面对你要交易的对象。");
+            self.send_system_chat(object_id, &self.text(object_id, TextKey::TradeNotFacing));
             return Err(TradeError::NoTarget);
         };
         let target_name = target.name.clone();
         // 4. `if (player == this)`（`:10668-10672`）
         if target_id == object_id {
-            self.send_system_chat(object_id, "不能和自己交易。");
+            self.send_system_chat(object_id, &self.text(object_id, TextKey::TradeSelf));
             return Err(TradeError::SelfTrade);
         }
         // 5. `if (player.Dead || Dead)`（`:10674-10678`）
         if target.dead || requester_dead {
-            self.send_system_chat(object_id, "死亡状态不能交易。");
+            self.send_system_chat(object_id, &self.text(object_id, TextKey::TradeDead));
             return Err(TradeError::Dead);
         }
         // 6. `if (player.TradeInvitation != null)`（`:10680-10684`）
         if target.trade_invitation.is_some() {
-            self.send_system_chat(object_id, &format!("{target_name} 已经收到了交易邀请。"));
+            let message = self.format(
+                object_id,
+                TextKey::TradeTargetAlreadyInvited,
+                &[("target_name", &target_name)],
+            );
+            self.send_system_chat(object_id, &message);
             return Err(TradeError::TargetInvited(target_name));
         }
         // 7. `if (!player.AllowTrade)`（`:10686-10690`）
         if !target.allow_trade {
-            self.send_system_chat(object_id, &format!("{target_name} 不允许交易。"));
+            let message = self.format(
+                object_id,
+                TextKey::TradeTargetDisallowed,
+                &[("target_name", &target_name)],
+            );
+            self.send_system_chat(object_id, &message);
             return Err(TradeError::TargetNotAllowingTrade(target_name));
         }
         // 8. 同图 + `Functions.InRange(..., Globals.DataRange)`（`:10692-10696`）
         if target.map != requester_map || !target.position.in_range(requester_position, TRADE_RANGE)
         {
-            self.send_system_chat(object_id, &format!("{target_name} 不在交易范围内。"));
+            let message = self.format(
+                object_id,
+                TextKey::TradeTargetOutOfRange,
+                &[("target_name", &target_name)],
+            );
+            self.send_system_chat(object_id, &message);
             return Err(TradeError::OutOfRange(target_name));
         }
         // 9. `if (player.TradePartner != null)`（`:10698-10702`）
         if target.trade.partner.is_some() {
-            self.send_system_chat(object_id, &format!("{target_name} 已经在交易中。"));
+            let message = self.format(
+                object_id,
+                TextKey::TradeTargetAlreadyTrading,
+                &[("target_name", &target_name)],
+            );
+            self.send_system_chat(object_id, &message);
             return Err(TradeError::TargetTrading(target_name));
         }
         // `player.TradeInvitation = this; player.Enqueue(new S.TradeRequest { Name = Info.Name });`
@@ -464,17 +491,30 @@ impl World {
         let inviter_name = inviter.name.clone();
         if !accept {
             // `TradeInvitation.ReceiveChat(PlayerRefusedTrade…)`（`:10716-10721`）
-            self.send_system_chat(inviter_id, &format!("{invitee_name} 拒绝交易。"));
+            let message = self.format(
+                inviter_id,
+                TextKey::TradeDeclined,
+                &[("invitee_name", &invitee_name)],
+            );
+            self.send_system_chat(inviter_id, &message);
             return Ok(TradeReplyOutcome::Declined);
         }
         // `if (TradePartner != null)`（`:10723-10728`）
         if self.players[&object_id].trade.partner.is_some() {
-            self.send_system_chat(object_id, "你已经在交易中。");
+            self.send_system_chat(
+                object_id,
+                &self.text(object_id, TextKey::TradeAlreadyTrading),
+            );
             return Err(TradeError::AlreadyTrading);
         }
         // `if (TradeInvitation.TradePartner != null)`（`:10730-10735`）
         if inviter.trade.partner.is_some() {
-            self.send_system_chat(object_id, &format!("{inviter_name} 已经在交易中。"));
+            let message = self.format(
+                object_id,
+                TextKey::TradeInviterAlreadyTrading,
+                &[("inviter_name", &inviter_name)],
+            );
+            self.send_system_chat(object_id, &message);
             return Err(TradeError::TargetTrading(inviter_name));
         }
         // `TradePartner = TradeInvitation; TradeInvitation.TradePartner = this; TradeInvitation = null;`
@@ -708,7 +748,8 @@ impl World {
         // `if (TradeLocked && !TradePartner.TradeLocked) partner.ReceiveChat(PlayerWaitingConfirmTrade…)`
         // （`:10812-10815`）——只有「我刚锁、对方还没锁」才提示**对方**。
         if !partner_locked {
-            self.send_system_chat(partner_id, &format!("{name} 正在等待你确认交易。"));
+            let message = self.format(partner_id, TextKey::TradePartnerWaiting, &[("name", &name)]);
+            self.send_system_chat(partner_id, &message);
             return Ok(());
         }
         // 双方都锁了：先双向检查能不能收下（`:10824-10852`）
@@ -753,7 +794,7 @@ impl World {
             }
             // `TradePair[p].ReceiveChat(TradeSuccessful…); TradePair[p].Enqueue(new S.TradeConfirm());`
             // （`:10881-10882`）
-            self.send_system_chat(giver, "交易成功。");
+            self.send_system_chat(giver, &self.text(giver, TextKey::TradeSuccess));
             self.send_to_player(
                 giver,
                 &ServerPacket::TradeConfirm(TradeConfirm {}).encode_frame(),
@@ -954,13 +995,21 @@ impl World {
     /// 成交检查失败：双方各一句提示 + `S.TradeCancel{Unlock = true}`（不关窗）
     /// （Crystal `PlayerObject.cs:10829-10851`）。
     fn trade_reject_swap(&mut self, giver: u32, receiver: u32, gold: bool) {
-        let (giver_text, receiver_text) = if gold {
-            ("你的交易对方无法接受更多金币。", "你无法接受更多金币。")
+        let (giver_key, receiver_key) = if gold {
+            (
+                TextKey::TradePartnerGoldOverflow,
+                TextKey::TradeGoldOverflow,
+            )
         } else {
-            ("你的交易对方无法接受全部物品。", "你无法接受全部物品。")
+            (
+                TextKey::TradePartnerItemsOverflow,
+                TextKey::TradeItemsOverflow,
+            )
         };
-        self.send_system_chat(giver, giver_text);
-        self.send_system_chat(receiver, receiver_text);
+        let giver_text = self.text(giver, giver_key);
+        let receiver_text = self.text(receiver, receiver_key);
+        self.send_system_chat(giver, &giver_text);
+        self.send_system_chat(receiver, &receiver_text);
         let frame = ServerPacket::TradeCancel(TradeCancel { unlock: true }).encode_frame();
         self.send_to_player(giver, &frame);
         self.send_to_player(receiver, &frame);

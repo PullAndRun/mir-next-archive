@@ -27,6 +27,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use mir_core::Point;
+use mir_core::TextKey;
 use mir_core::enums::{BindMode, ChatType, ItemType, MirClass, MirDirection, MirGender, PanelType};
 use mir_db::npc_script::{
     CompareOp, EXIT_SECTION, MAIN_SECTION, NpcAction, NpcActionKind, NpcCheck, NpcCheckKind,
@@ -1200,12 +1201,17 @@ impl World {
                 match self.create_guild(player_id, name) {
                     Ok(guild_id) => {
                         // 成功提示照 `PlayerObject.cs:3299` 的 GM 命令写法。
-                        self.send_system_chat(player_id, &format!("行会 {name} 创建成功。"));
+                        let message =
+                            self.format(player_id, TextKey::NpcGuildCreated, &[("name", name)]);
+                        self.send_system_chat(player_id, &message);
                         tracing::info!(npc = %npc.name, guild = guild_id, %name, "NPC 动作创建行会");
                     }
                     Err(error) => {
                         tracing::debug!(npc = %npc.name, %error, "NPC 动作创建行会被拒绝");
-                        self.send_system_chat(player_id, &error.message());
+                        self.send_system_chat(
+                            player_id,
+                            &error.message(self.player_language(player_id)),
+                        );
                         run.quest_events
                             .push(format!("CREATEGUILD {name} 失败：{error}"));
                     }
@@ -1317,7 +1323,10 @@ impl World {
                         started = report.war_started,
                         "NPC 动作：申请攻城"
                     ),
-                    Err(error) => self.send_system_chat(player_id, &error.message()),
+                    Err(error) => self.send_system_chat(
+                        player_id,
+                        &error.message(self.player_language(player_id)),
+                    ),
                 }
                 true
             }
@@ -1326,14 +1335,20 @@ impl World {
                     return true;
                 };
                 match self.take_conquest_gold(player_id, index) {
-                    Ok(0) => self.send_system_chat(player_id, "城里没有可收取的金币。"),
+                    Ok(0) => {
+                        let message = self.text(player_id, TextKey::NpcNoConquestGold);
+                        self.send_system_chat(player_id, &message);
+                    }
                     Ok(amount) => tracing::debug!(
                         npc = %npc.name,
                         conquest = index,
                         amount,
                         "NPC 动作：收取城主税金"
                     ),
-                    Err(error) => self.send_system_chat(player_id, &error.message()),
+                    Err(error) => self.send_system_chat(
+                        player_id,
+                        &error.message(self.player_language(player_id)),
+                    ),
                 }
                 true
             }
@@ -1345,7 +1360,10 @@ impl World {
                 };
                 let rate = u8::try_from(rate).unwrap_or(u8::MAX);
                 if let Err(error) = self.set_conquest_rate(player_id, index, rate) {
-                    self.send_system_chat(player_id, &error.message());
+                    self.send_system_chat(
+                        player_id,
+                        &error.message(self.player_language(player_id)),
+                    );
                 }
                 true
             }
@@ -1360,7 +1378,10 @@ impl World {
                         started,
                         "NPC 动作：开战/停战"
                     ),
-                    Err(error) => self.send_system_chat(player_id, &error.message()),
+                    Err(error) => self.send_system_chat(
+                        player_id,
+                        &error.message(self.player_language(player_id)),
+                    ),
                 }
                 true
             }
@@ -1712,7 +1733,8 @@ impl World {
 
     /// 装备槽的显示名（Crystal `ReplaceValue` 的 `ARMOUR`/`WEAPON`/… 分支，`:1498-1549`）。
     ///
-    /// 简化：Crystal 从语言表取「无武器」之类的文案，本作没有这些键，空槽直接返回 `"无"`。
+    /// 简化：Crystal 从语言表取「无武器」之类的文案，本作没有这些键，空槽回落到
+    /// `npc_none`（「无」/「None」）。
     fn equipment_name(&self, player: &Player, key: &str) -> Option<String> {
         let slot = match key {
             "ARMOUR" => crate::items::equipment_slot_for(ItemType::Armour),
@@ -1731,7 +1753,7 @@ impl World {
         let item = player.equipment.get(slot).and_then(Option::as_ref);
         match item.and_then(|item| self.item_info(item.item_index)) {
             Some(info) => Some(crate::items::friendly_name(&info.name)),
-            None => Some("无".to_owned()),
+            None => Some(self.text(player.object_id, TextKey::NpcNone)),
         }
     }
 
@@ -1823,7 +1845,10 @@ impl World {
                             %error,
                             "请求创建行会被拒绝"
                         );
-                        self.send_system_chat(player_id, &error.message());
+                        self.send_system_chat(
+                            player_id,
+                            &error.message(self.player_language(player_id)),
+                        );
                     }
                 }
             }
@@ -2107,7 +2132,8 @@ impl World {
         }
         if let Some(script) = self.npc_script(&npc.file_name) {
             if !script.types().is_empty() && !script.types().contains(&(info.item_type as i32)) {
-                self.send_system_chat(player_id, "这个 NPC 不收购这种物品。");
+                let message = self.text(player_id, TextKey::NpcWontBuyType);
+                self.send_system_chat(player_id, &message);
                 self.send_to_player(player_id, &ServerPacket::SellItem(failure).encode_frame());
                 return Err(NpcError::TypeNotAllowed);
             }
@@ -2206,12 +2232,14 @@ impl World {
             return Err(NpcError::NoSuchItem(unique_id));
         };
         if info.bind.contains(BindMode::DontRepair) {
-            self.send_system_chat(player_id, "这件物品无法修理。");
+            let message = self.text(player_id, TextKey::NpcCannotRepair);
+            self.send_system_chat(player_id, &message);
             return Err(NpcError::CannotRepair(unique_id));
         }
         if let Some(script) = self.npc_script(&npc.file_name) {
             if !script.types().is_empty() && !script.types().contains(&(info.item_type as i32)) {
-                self.send_system_chat(player_id, "这里不能修理这种物品。");
+                let message = self.text(player_id, TextKey::NpcRepairTypeNotAllowed);
+                self.send_system_chat(player_id, &message);
                 return Err(NpcError::TypeNotAllowed);
             }
         }

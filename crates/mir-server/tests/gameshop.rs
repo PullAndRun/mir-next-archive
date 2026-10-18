@@ -32,7 +32,8 @@ use mir_protocol::ServerPacket;
 use mir_server::gamedata::GameData;
 use mir_server::items;
 use mir_server::market::{
-    GameShopError, GameShopPayment, GameShopPurchases, MARKET_PAGE_SIZE, SEARCH_DELAY_MS,
+    GAMESHOP_MAX_STACKS, GameShopError, GameShopPayment, GameShopPurchases, MARKET_PAGE_SIZE,
+    SEARCH_DELAY_MS,
 };
 use mir_server::store::{AccountStore, GameShopUpdate};
 use mir_server::world::{Player, World};
@@ -496,9 +497,21 @@ fn bag_full_purchase_goes_to_mailbox() {
 
     let mailbox = harness.world.mailbox(player).expect("玩家存在");
     assert_eq!(mailbox.len(), 1, "应生成一封商城邮件");
-    assert_eq!(mailbox[0].sender_name, "商城");
-    assert!(
-        mailbox[0].message.contains("感谢您购买"),
+    // 发件人/正文按语言包取（zh-cn 模板），不在测试里写死两份文案。
+    let pack = language_pack();
+    assert_eq!(
+        mailbox[0].sender_name,
+        pack.text(
+            mir_core::Language::ZhCn,
+            mir_core::TextKey::MailGameshopSender
+        )
+    );
+    assert_eq!(
+        mailbox[0].message,
+        pack.text(
+            mir_core::Language::ZhCn,
+            mir_core::TextKey::MailGameshopBody
+        ),
         "Crystal 的致谢正文"
     );
     assert_eq!(mailbox[0].items.len(), 1);
@@ -1653,5 +1666,366 @@ async fn postgres_gameshop_purchase_persists() {
             .map(|row| row.purchased),
         Some(3),
         "upsert 写绝对值"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 十一、i18n：文本键按玩家语言渲染（期望值全部取自 `config/lang/*.json`）
+// ---------------------------------------------------------------------------
+
+/// 真实语言包（`config/lang`，仓库根 = `CARGO_MANIFEST_DIR/../..`）。
+///
+/// 测试断言直接从语言包取模板，不写死中英文案——这样文案调整时测试不会变红，
+/// 只有当「渲染走错语言/参数名写错」时才会失败。
+fn language_pack() -> mir_core::i18n::LanguageLibrary {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("config/lang");
+    mir_core::i18n::LanguageLibrary::load_dir(&dir)
+        .unwrap_or_else(|error| panic!("读取语言包 {} 失败：{error}", dir.display()))
+}
+
+/// 商城错误提示：无参 + 两条带参模板，中英各渲染一次（`GameShopError::message`）。
+#[test]
+fn i18n_gameshop_errors_follow_language() {
+    use mir_core::Language;
+    use mir_core::TextKey;
+    let pack = language_pack();
+    let zh = Language::ZhCn;
+    let en = Language::En;
+
+    // 带参 ①：一次最多买 N 组（{max} / {stacks}）。
+    let error = GameShopError::TooManyStacks { stacks: 6 };
+    let args = [
+        ("max", GAMESHOP_MAX_STACKS.to_string()),
+        ("stacks", 6.to_string()),
+    ];
+    let args_ref: Vec<(&str, &str)> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    assert_eq!(
+        error.message(zh),
+        pack.format(zh, TextKey::GameshopTooManyStacks, &args_ref)
+    );
+    assert_eq!(
+        error.message(en),
+        pack.format(en, TextKey::GameshopTooManyStacks, &args_ref)
+    );
+
+    // 带参 ②：等级不够（{required}）。
+    let error = GameShopError::WrongLevel {
+        required: 22,
+        level: 10,
+    };
+    assert_eq!(
+        error.message(en),
+        pack.format(en, TextKey::GameshopWrongLevel, &[("required", "22")])
+    );
+
+    // 无参：库存不足。
+    assert_eq!(
+        GameShopError::OutOfStock { remaining: 0 }.message(en),
+        pack.text(en, TextKey::GameshopOutOfStock)
+    );
+}
+
+/// 市场过期清理的**系统邮件**按收件人语言渲染（买家 en、卖家 zh），
+/// 覆盖 `market_mail_bid_refund_expired` / `market_mail_item_expired` 两条带参模板。
+#[test]
+fn i18n_market_mails_follow_language() {
+    use mir_core::Language;
+    use mir_core::TextKey;
+    let (mut harness, _envir) = Harness::new("i18n-market");
+    let seller = harness.add_player(1, MirClass::Warrior, 10, 0);
+    let buyer = harness.add_player(2, MirClass::Warrior, 10, 0);
+    let pack = language_pack();
+    harness.world.set_languages(Arc::new(pack.clone()));
+    harness.world.set_player_language(seller, Language::ZhCn);
+    harness.world.set_player_language(buyer, Language::En);
+
+    // 一条已过期、有 ·最高出价· 的寄售挂单（卖家角色 1、买家角色 2）。
+    let item = mir_protocol::data::UserItem {
+        unique_id: 5_001,
+        item_index: ITEM_SWORD,
+        count: 1,
+        ..Default::default()
+    };
+    harness.world.load_auctions(vec![mir_server::AuctionRecord {
+        id: 77,
+        item: items::encode_slots(&[Some(item)]),
+        consignment_date: mir_core::DateTimeBinary::default(),
+        price: 5_000,
+        current_bid: 6_000,
+        seller_character_id: 1,
+        seller_name: "卖家".to_owned(),
+        current_buyer_character_id: Some(2),
+        current_buyer_name: Some("买家".to_owned()),
+        expired: true,
+        sold: false,
+        item_type: MarketItemType::Consign,
+    }]);
+    let now = 10_000_000_000_i64;
+    let purged = harness.world.purge_expired_auctions(now);
+    assert_eq!(purged, vec![77], "过期挂单应被清理");
+
+    let mails: Vec<mir_server::store::MailRecord> = harness
+        .world
+        .take_mail_writes()
+        .into_iter()
+        .filter_map(|write| match write {
+            mir_server::mail::MailWrite::Create(mail) => Some(*mail),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(mails.len(), 2, "买家退款 + 卖家退货各一封");
+    let item_name = mir_server::items::friendly_name("木剑");
+    let buyer_mail = mails
+        .iter()
+        .find(|mail| mail.character_id == 2)
+        .expect("买家邮件");
+    assert_eq!(
+        buyer_mail.message,
+        pack.format(
+            Language::En,
+            TextKey::MarketMailBidRefundExpired,
+            &[("item", &item_name), ("gold", "6000")]
+        )
+    );
+    assert_eq!(
+        buyer_mail.sender_name,
+        pack.text(Language::En, TextKey::MailSystemSender),
+        "系统邮件发件人按买家语言"
+    );
+    let seller_mail = mails
+        .iter()
+        .find(|mail| mail.character_id == 1)
+        .expect("卖家邮件");
+    assert_eq!(
+        seller_mail.message,
+        pack.format(
+            Language::ZhCn,
+            TextKey::MarketMailItemExpired,
+            &[("item", &item_name)]
+        )
+    );
+}
+
+/// 商城邮件（发件人/正文）与 `MailError` 提示按玩家语言渲染。
+#[test]
+fn i18n_gameshop_mail_and_mail_errors_follow_language() {
+    use mir_core::Language;
+    use mir_core::TextKey;
+    let (mut harness, _envir) = Harness::new("i18n-mail");
+    let player = harness.add_player(1, MirClass::Warrior, 10, 100);
+    let pack = language_pack();
+    harness.world.set_languages(Arc::new(pack.clone()));
+    harness.world.set_player_language(player, Language::En);
+
+    // 背包塞满 → 购买转邮件，邮件按玩家语言（en）渲染。
+    harness.fill_inventory(player);
+    let report = harness
+        .world
+        .gameshop_buy(player, G_POTION, 1, 0, &no_purchases())
+        .expect("背包满也能买");
+    assert_eq!(report.mailed, 1);
+    let mails: Vec<mir_server::store::MailRecord> = harness
+        .world
+        .take_mail_writes()
+        .into_iter()
+        .filter_map(|write| match write {
+            mir_server::mail::MailWrite::Create(mail) => Some(*mail),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        mails[0].sender_name,
+        pack.text(Language::En, TextKey::MailGameshopSender)
+    );
+    assert_eq!(
+        mails[0].message,
+        pack.text(Language::En, TextKey::MailGameshopBody)
+    );
+
+    // `MailError` 的带参模板（{max}）也按语言取。
+    let error = mir_server::mail::MailError::TextTooLong;
+    assert_eq!(
+        error.message(Language::En),
+        pack.format(
+            Language::En,
+            TextKey::MailTextTooLong,
+            &[("max", &mir_server::mail::MAIL_TEXT_MAX.to_string())]
+        )
+    );
+    assert_eq!(
+        error.message(Language::ZhCn),
+        pack.format(
+            Language::ZhCn,
+            TextKey::MailTextTooLong,
+            &[("max", &mir_server::mail::MAIL_TEXT_MAX.to_string())]
+        )
+    );
+}
+
+/// 会话层：进世界把账号语言写进世界；`/language en` 后世界层同步切换；
+/// 商城页签（`C.MarketBuy`）的成功回执按新语言渲染（带参模板 `gameshop_bought_market_success`）。
+#[tokio::test]
+async fn i18n_session_syncs_language_and_renders_success() {
+    use mir_core::Language;
+    use mir_core::TextKey;
+    use mir_protocol::packets::client as c;
+
+    let pack = language_pack();
+    let store = Arc::new(MemoryStore::new());
+    let account = store
+        .create_account("i18n", "secret", "")
+        .await
+        .expect("建号");
+    let mut character = store
+        .create_character(
+            account.id,
+            "多语言",
+            MirClass::Warrior,
+            MirGender::Male,
+            MAP,
+            (100, 101),
+        )
+        .await
+        .expect("建角");
+    character.level = 10;
+    character.credit = 1_000;
+    store
+        .save_character(character.clone())
+        .await
+        .expect("存角色");
+
+    let envir = Envir::new("i18n-session");
+    let mut world = World::new(999);
+    world.set_game_data(Arc::new(GameData::from_db(
+        database(),
+        Some(envir.drop_dir()),
+    )));
+    world.set_languages(Arc::new(pack.clone()));
+    let world = Arc::new(tokio::sync::Mutex::new(world));
+
+    let config = Arc::new(mir_server::ServerConfig {
+        map_root: "resource/不存在的目录".to_owned(),
+        language_dir: "config/不存在的目录".to_owned(),
+        load_game_data: false,
+        ..mir_server::ServerConfig::default()
+    });
+    let (out, mut out_rx) = mpsc::unbounded_channel();
+    let mut session = mir_server::session::Session::new(
+        1,
+        "test".to_owned(),
+        config,
+        Arc::clone(&store),
+        Arc::clone(&world),
+        out,
+        Arc::new(pack.clone()),
+    );
+    session
+        .handle(mir_protocol::ClientPacket::ClientVersion(
+            c::ClientVersion {
+                version_hash: Vec::new(),
+            },
+        ))
+        .await
+        .expect("版本校验");
+    session
+        .handle(mir_protocol::ClientPacket::Login(c::Login {
+            account_id: "i18n".to_owned(),
+            password: "secret".to_owned(),
+        }))
+        .await
+        .expect("登录");
+    session
+        .handle(mir_protocol::ClientPacket::StartGame(c::StartGame {
+            character_index: i32::try_from(character.id).unwrap_or(0),
+        }))
+        .await
+        .expect("进世界");
+    let mut object_id = None;
+    let drain = |rx: &mut mpsc::UnboundedReceiver<Vec<u8>>| {
+        let mut packets = Vec::new();
+        while let Ok(frame) = rx.try_recv() {
+            let index = i16::from_le_bytes([frame[2], frame[3]]);
+            packets.push(ServerPacket::decode(index, &frame[4..]).expect("解码"));
+        }
+        packets
+    };
+    for packet in drain(&mut out_rx) {
+        if let ServerPacket::UserInformation(info) = packet {
+            object_id = Some(info.object_id);
+        }
+    }
+    let object_id = object_id.expect("进世界应下发 UserInformation");
+    assert_eq!(
+        world.lock().await.player_language(object_id),
+        Language::ZhCn,
+        "进世界时按账号语言（默认 zh-cn）写入世界层"
+    );
+
+    // 切到英文：世界层同步。
+    session
+        .handle(mir_protocol::ClientPacket::Chat(c::Chat {
+            message: "/language en".to_owned(),
+            linked_items: Vec::new(),
+        }))
+        .await
+        .expect("切换语言");
+    assert_eq!(
+        world.lock().await.player_language(object_id),
+        Language::En,
+        "/language 切换后世界层必须同步，否则世界提示仍用旧语言"
+    );
+
+    // 商城页签：搜索 + 用 `C.MarketBuy` 购买，成功回执按 en 渲染。
+    session
+        .handle(mir_protocol::ClientPacket::MarketSearch(c::MarketSearch {
+            match_text: String::new(),
+            item_type: ItemType::Nothing,
+            usermode: false,
+            min_shape: 0,
+            max_shape: 0,
+            market_type: MarketPanelType::GameShop,
+        }))
+        .await
+        .expect("搜索商城");
+    let market = drain(&mut out_rx)
+        .into_iter()
+        .find_map(|packet| match packet {
+            ServerPacket::NPCMarket(market) => Some(market),
+            _ => None,
+        })
+        .expect("应回 S.NPCMarket");
+    assert!(!market.listings.is_empty());
+
+    session
+        .handle(mir_protocol::ClientPacket::MarketBuy(c::MarketBuy {
+            auction_id: u64::try_from(G_POTION).unwrap_or(0),
+            bid_price: 0,
+        }))
+        .await
+        .expect("商城页签购买");
+    let packets = drain(&mut out_rx);
+    let success = packets
+        .iter()
+        .find_map(|packet| match packet {
+            ServerPacket::MarketSuccess(success) => Some(success.message.clone()),
+            _ => None,
+        })
+        .expect("应回 S.MarketSuccess");
+    assert_eq!(
+        success,
+        pack.format(
+            Language::En,
+            TextKey::GameshopBoughtMarketSuccess,
+            &[("item", "金创药"), ("count", "1")]
+        )
+    );
+    assert!(
+        packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::LoseCredit(lose) if lose.credit == 10)),
+        "元宝按商品价扣除"
     );
 }

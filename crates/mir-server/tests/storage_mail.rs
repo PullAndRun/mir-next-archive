@@ -738,11 +738,11 @@ fn take_back_item_returns_to_inventory_and_rejects_full_bag() {
         Some(other)
     );
 
-    // 源格是空的。
+    // 源格是空的（`grid` 是日志 Display 用的英文名，不发给玩家）。
     assert_eq!(
         harness.world.storage_take_back_item(player, 11, 0),
         Err(StorageError::EmptySlot {
-            grid: "仓库",
+            grid: "Storage",
             index: 11,
         })
     );

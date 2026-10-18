@@ -109,6 +109,12 @@ pub async fn serve_forever<S: AccountStore>(
         "已载入市场挂单"
     );
     let languages = Arc::new(build_language_library(&config));
+    // 语言包注入世界层：World 里的玩家可见文本（市场/交易/邮件/NPC）按玩家语言渲染，
+    // 语言包是运行时覆盖层（缺失时 `World::text/format` 回落内置模板）。
+    {
+        let mut world = world.lock().await;
+        world.set_languages(Arc::clone(&languages));
+    }
     let next_session = Arc::new(AtomicU64::new(1));
 
     // 世界 tick：每 100ms 推进一次（跑步计数衰减、停顿清零；怪物 AI 之后也挂这里）。

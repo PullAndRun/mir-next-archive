@@ -809,6 +809,8 @@ impl<S: AccountStore> Session<S> {
             allow_trade: true,
             sender: self.out.clone(),
         });
+        // 玩家语言：账号语言随登录写进世界层映射，World 的市场/交易/邮件/NPC 提示据此渲染。
+        world.set_player_language(object_id, self.language.language());
         // 进图资料：Crystal `PlayerObject.CheckMapInfo`（`PlayerObject.cs:1009-1056`）。
         // 必须在释放世界锁之前取，Npc 列表与传送点都来自世界内的实时状态。
         let map_index = world
@@ -1587,7 +1589,7 @@ impl<S: AccountStore> Session<S> {
             Ok(guild_id) => tracing::info!(session = self.id, guild = guild_id, %name, "创建行会"),
             Err(error) => {
                 tracing::debug!(session = self.id, %error, "创建行会被拒绝");
-                self.send_system_chat(&error.message());
+                self.send_system_chat(&error.message(self.language.language()));
             }
         }
         self.flush_guild_writes().await;
@@ -2116,7 +2118,10 @@ impl<S: AccountStore> Session<S> {
                         self.send_market_fail(crate::market::MarketFailReason::TooFar);
                     }
                     GameShopReply::Chat => {
-                        self.send_system_chat("商城暂时不可用，请稍后再试。");
+                        let message = self
+                            .language
+                            .text_with(&self.languages, TextKey::GameshopStoreUnavailable);
+                        self.send_system_chat(&message);
                     }
                 }
                 return;
@@ -2141,12 +2146,15 @@ impl<S: AccountStore> Session<S> {
                 match self.flush_gameshop(purchases, stock).await {
                     Ok(()) => {
                         if reply == GameShopReply::Market {
-                            self.send(ServerPacket::MarketSuccess(MarketSuccess {
-                                message: format!(
-                                    "你购买了 {} × {}。",
-                                    report.product_name, report.quantity
-                                ),
-                            }));
+                            let message = self.language.format_with(
+                                &self.languages,
+                                TextKey::GameshopBoughtMarketSuccess,
+                                &[
+                                    ("item", &report.product_name),
+                                    ("count", &report.quantity.to_string()),
+                                ],
+                            );
+                            self.send(ServerPacket::MarketSuccess(MarketSuccess { message }));
                         }
                     }
                     Err(error) => {
@@ -2167,9 +2175,10 @@ impl<S: AccountStore> Session<S> {
                                 self.send_market_fail(crate::market::MarketFailReason::TooFar);
                             }
                             GameShopReply::Chat => {
-                                self.send_system_chat(
-                                    "商城购买失败：已退回支付的货币与物品，请稍后再试。",
-                                );
+                                let message = self
+                                    .language
+                                    .text_with(&self.languages, TextKey::GameshopRolledBack);
+                                self.send_system_chat(&message);
                             }
                         }
                     }
@@ -2181,7 +2190,7 @@ impl<S: AccountStore> Session<S> {
                     GameShopReply::Market => self.send_market_fail(error.market_reason()),
                     // Crystal：数量/组数越界、余额不足、`CanBuy*` 为假都是静默 return。
                     GameShopReply::Chat if !error.is_silent() => {
-                        self.send_system_chat(&error.message());
+                        self.send_system_chat(&error.message(self.language.language()));
                     }
                     GameShopReply::Chat => {}
                 }
@@ -2293,6 +2302,11 @@ impl<S: AccountStore> Session<S> {
                     .language
                     .text_with(&self.languages, TextKey::LanguageChanged);
                 self.send_system_chat(&reply);
+                // 世界层也同步一份：否则市场/交易/邮件/NPC 的提示仍用旧语言。
+                if let Some(object_id) = self.object_id {
+                    let mut world = self.world.lock().await;
+                    world.set_player_language(object_id, language);
+                }
             } else {
                 let reply = self
                     .language

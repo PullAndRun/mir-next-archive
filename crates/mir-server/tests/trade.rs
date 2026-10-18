@@ -33,6 +33,32 @@ use tokio::sync::mpsc;
 
 const MAP: &str = "0";
 
+/// 真实语言包（`config/lang`，仓库根 = `CARGO_MANIFEST_DIR/../..`）。
+///
+/// 断言里的玩家可见文本一律从语言包取模板渲染，**不在测试里写死中英文案**：
+/// 文案调整时测试不会变红，只有「渲染走错语言/参数名写错」才会失败。
+fn language_pack() -> &'static mir_core::i18n::LanguageLibrary {
+    static PACK: std::sync::OnceLock<mir_core::i18n::LanguageLibrary> = std::sync::OnceLock::new();
+    PACK.get_or_init(|| {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("config/lang");
+        mir_core::i18n::LanguageLibrary::load_dir(&dir)
+            .unwrap_or_else(|error| panic!("读取语言包 {} 失败：{error}", dir.display()))
+    })
+}
+
+/// 简体中文下的无参文本。
+fn zh(key: mir_core::TextKey) -> String {
+    language_pack().text(mir_core::Language::ZhCn, key)
+}
+
+/// 简体中文下的带参文本（参数名与 `mir-core` 的 `{snake_case}` 占位符一致）。
+fn zh_args(key: mir_core::TextKey, args: &[(&str, &str)]) -> String {
+    language_pack().format(mir_core::Language::ZhCn, key, args)
+}
+
 /// 正常可交易物品。
 const SWORD: i32 = 1;
 /// 另一件正常可交易物品。
@@ -327,7 +353,7 @@ fn trade_request_requires_a_faced_player() {
     // `ReceiveChat(FaceToTrade, ChatType.System)`（`PlayerObject.cs:10642`）
     assert_eq!(
         system_chats(&harness.packets(a)),
-        vec!["请面对你要交易的对象。"]
+        vec![zh(mir_core::TextKey::TradeNotFacing)]
     );
     assert_eq!(harness.world.trade_invitation_of(b), None);
 }
@@ -347,7 +373,7 @@ fn trade_request_rejects_a_player_that_does_not_face_back() {
     assert_eq!(error, TradeError::NotFacing);
     assert_eq!(
         system_chats(&harness.packets(a)),
-        vec!["请面对你要交易的对象。"]
+        vec![zh(mir_core::TextKey::TradeNotFacing)]
     );
     assert_eq!(harness.world.trade_invitation_of(2), None);
 }
@@ -369,7 +395,10 @@ fn trade_request_rejects_a_target_out_of_range() {
     // `ReceiveChat(PlayerNotInTradeRange, ...)`（`PlayerObject.cs:10694`）
     assert_eq!(
         system_chats(&harness.packets(a)),
-        vec!["乙 不在交易范围内。"]
+        vec![zh_args(
+            mir_core::TextKey::TradeTargetOutOfRange,
+            &[("target_name", "乙")]
+        )]
     );
     assert_eq!(harness.world.trade_invitation_of(b), None);
 }
@@ -386,7 +415,10 @@ fn trade_request_rejects_trading_with_yourself() {
         .trade_request_target(a, a)
         .expect_err("不能和自己交易");
     assert_eq!(error, TradeError::SelfTrade);
-    assert_eq!(system_chats(&harness.packets(a)), vec!["不能和自己交易。"]);
+    assert_eq!(
+        system_chats(&harness.packets(a)),
+        vec![zh(mir_core::TextKey::TradeSelf)]
+    );
     assert_eq!(harness.world.trade_partner(a), None);
 }
 
@@ -405,7 +437,13 @@ fn trade_request_rejects_players_already_trading_or_invited() {
         .world
         .trade_request_target(c, a)
         .expect_err("目标已在交易中");
-    assert_eq!(system_chats(&harness.packets(c)), vec!["甲 已经在交易中。"]);
+    assert_eq!(
+        system_chats(&harness.packets(c)),
+        vec![zh_args(
+            mir_core::TextKey::TradeTargetAlreadyTrading,
+            &[("target_name", "甲")]
+        )]
+    );
 
     // 甲 → 丙：自己已经在交易中（`:10628-10632`）。
     harness.world.advance_clock(TRADE_DELAY_MS);
@@ -414,7 +452,10 @@ fn trade_request_rejects_players_already_trading_or_invited() {
         .trade_request_target(a, c)
         .expect_err("自己在交易中");
     assert_eq!(error, TradeError::AlreadyTrading);
-    assert_eq!(system_chats(&harness.packets(a)), vec!["你已经在交易中。"]);
+    assert_eq!(
+        system_chats(&harness.packets(a)),
+        vec![zh(mir_core::TextKey::TradeAlreadyTrading)]
+    );
 
     // 结束甲/乙的交易，然后：丙 → 丁 成功；甲 → 丁 撞上「丁已经收到邀请」
     // （`PlayerAlreadyHasTradeInvitation`，`:10680-10684`）。
@@ -431,7 +472,10 @@ fn trade_request_rejects_players_already_trading_or_invited() {
         .expect_err("丁已经有邀请");
     assert_eq!(
         system_chats(&harness.packets(a)),
-        vec!["丁 已经收到了交易邀请。"]
+        vec![zh_args(
+            mir_core::TextKey::TradeTargetAlreadyInvited,
+            &[("target_name", "丁")]
+        )]
     );
 }
 
@@ -448,7 +492,13 @@ fn trade_request_respects_the_allow_trade_switch() {
         .trade_request(a)
         .expect_err("对方关掉交易开关");
     assert_eq!(error, TradeError::TargetNotAllowingTrade("乙".to_owned()));
-    assert_eq!(system_chats(&harness.packets(a)), vec!["乙 不允许交易。"]);
+    assert_eq!(
+        system_chats(&harness.packets(a)),
+        vec![zh_args(
+            mir_core::TextKey::TradeTargetDisallowed,
+            &[("target_name", "乙")]
+        )]
+    );
 }
 
 #[test]
@@ -465,7 +515,7 @@ fn trade_request_is_throttled_by_trade_delay() {
     // 只应有一条系统提示（节流那次什么都不发）。
     assert_eq!(
         system_chats(&harness.packets(a)),
-        vec!["请面对你要交易的对象。"]
+        vec![zh(mir_core::TextKey::TradeNotFacing)]
     );
 }
 
@@ -517,7 +567,13 @@ fn declining_the_invitation_notifies_the_inviter() {
     harness.world.trade_reply(b, false).expect("拒绝不是错误");
 
     // `TradeInvitation.ReceiveChat(PlayerRefusedTrade…)`（`:10716-10721`）。
-    assert_eq!(system_chats(&harness.packets(a)), vec!["乙 拒绝交易。"]);
+    assert_eq!(
+        system_chats(&harness.packets(a)),
+        vec![zh_args(
+            mir_core::TextKey::TradeDeclined,
+            &[("invitee_name", "乙")]
+        )]
+    );
     assert_eq!(harness.world.trade_partner(a), None);
     assert_eq!(harness.world.trade_partner(b), None);
     assert_eq!(harness.world.trade_invitation_of(b), None);
@@ -780,7 +836,13 @@ fn a_single_confirmation_does_not_trade() {
     assert_eq!(harness.inventory_count(a), 0);
     let b_packets = harness.packets(b);
     // `TradePartner.ReceiveChat(PlayerWaitingConfirmTrade…)`（`:10814`）
-    assert_eq!(system_chats(&b_packets), vec!["甲 正在等待你确认交易。"]);
+    assert_eq!(
+        system_chats(&b_packets),
+        vec![zh_args(
+            mir_core::TextKey::TradePartnerWaiting,
+            &[("name", "甲")]
+        )]
+    );
     assert!(
         !b_packets
             .iter()
@@ -846,7 +908,10 @@ fn both_confirmations_swap_items_and_gold() {
         chatted < confirmed && confirmed < gained_item && gained_item < gained_gold,
         "包序应为聊天→成交→物品→金币：{a_packets:?}"
     );
-    assert_eq!(system_chats(&a_packets), vec!["交易成功。"]);
+    assert_eq!(
+        system_chats(&a_packets),
+        vec![zh(mir_core::TextKey::TradeSuccess)]
+    );
 
     // 乙（最后确认的一方）先收到甲的物品，再收到「交易成功」+ 成交包。
     let b_packets = harness.packets(b);
@@ -859,7 +924,7 @@ fn both_confirmations_swap_items_and_gold() {
     let b_chat = b_packets
         .iter()
         .position(
-            |packet| matches!(packet, ServerPacket::Chat(chat) if chat.message == "交易成功。"),
+            |packet| matches!(packet, ServerPacket::Chat(chat) if chat.message == zh(mir_core::TextKey::TradeSuccess)),
         )
         .expect("乙应收到「交易成功」");
     let b_confirm = b_packets
@@ -957,7 +1022,10 @@ fn full_bag_makes_the_trade_fail_without_exchanging_anything() {
     );
     assert_eq!(
         system_chats(&b_packets),
-        vec!["甲 正在等待你确认交易。", "你无法接受全部物品。"]
+        vec![
+            zh_args(mir_core::TextKey::TradePartnerWaiting, &[("name", "甲")]),
+            zh(mir_core::TextKey::TradeItemsOverflow),
+        ]
     );
 }
 

@@ -28,6 +28,7 @@ use std::collections::BTreeMap;
 
 use mir_core::Point;
 use mir_core::enums::{ChatType, ConquestGame, ConquestType};
+use mir_core::i18n::TextKey;
 use mir_db::ConquestInfo;
 use mir_protocol::ServerPacket;
 use mir_protocol::packets::server::Chat;
@@ -375,10 +376,48 @@ pub enum ConquestError {
 }
 
 impl ConquestError {
-    /// 中文提示（Crystal 用 `GameLanguage.ServerTextMap` 的对应词条）。
+    /// 给玩家看的提示，按玩家当前语言渲染（Crystal 用 `GameLanguage.ServerTextMap`
+    /// 的对应词条；本作对应 `TextKey::Conquest*`）。
+    ///
+    /// `#[error]` 上的中文只用于 `tracing` 日志（开发者可见）。
     #[must_use]
-    pub fn message(&self) -> String {
-        self.to_string()
+    pub fn message(&self, language: mir_core::Language) -> String {
+        use mir_core::i18n::{TextKey, format_text};
+        use std::string::ToString;
+        match self {
+            Self::NotInWorld(object_id) => format_text(
+                language,
+                TextKey::ConquestNotInWorld,
+                &[("object_id", &object_id.to_string())],
+            ),
+            Self::NotInGuild => format_text(language, TextKey::ConquestNotInGuild, &[]),
+            Self::NotLeader => format_text(language, TextKey::ConquestNotLeader, &[]),
+            Self::NotFound(area) => format_text(
+                language,
+                TextKey::ConquestAreaNotFound,
+                &[("area", &area.to_string())],
+            ),
+            Self::AlreadyOwner => format_text(language, TextKey::ConquestAlreadyOwner, &[]),
+            Self::AtWar => format_text(language, TextKey::ConquestAtWar, &[]),
+            Self::AlreadyScheduled => format_text(language, TextKey::ConquestAlreadyScheduled, &[]),
+            Self::LevelTooLow { required, level } => format_text(
+                language,
+                TextKey::ConquestLevelTooLow,
+                &[
+                    ("required", &required.to_string()),
+                    ("level", &level.to_string()),
+                ],
+            ),
+            Self::NotEnoughGold { required, gold } => format_text(
+                language,
+                TextKey::ConquestNotEnoughGold,
+                &[
+                    ("required", &required.to_string()),
+                    ("gold", &gold.to_string()),
+                ],
+            ),
+            Self::NotOwnerGuild => format_text(language, TextKey::ConquestNotOwnerGuild, &[]),
+        }
     }
 }
 
@@ -1133,7 +1172,10 @@ impl World {
         let name = conquest.info.name.clone();
         // 战区玩家的名字颜色从「白」变「绿」（`PlayerObject.cs:1861-1870`）。
         self.refresh_war_zone_colours();
-        self.broadcast_system(&format!("【攻城】{name} 攻城战已经开始！"));
+        self.broadcast_system_key(
+            mir_core::i18n::TextKey::ConquestWarStarted,
+            &[("name", &name)],
+        );
     }
 
     /// 停战：Crystal `ConquestObject.EndWar`（`:915-967`）+ `AtWarChanged` 的 else 分支
@@ -1179,7 +1221,10 @@ impl World {
             conquest.next_war_at = conquest.next_window_start(wall);
         }
         self.refresh_war_zone_colours();
-        self.broadcast_system(&format!("【攻城】{name} 攻城战已经结束。"));
+        self.broadcast_system_key(
+            mir_core::i18n::TextKey::ConquestWarEnded,
+            &[("name", &name)],
+        );
     }
 
     /// 计分：Crystal `ConquestObject.ScorePoints`（`:716-905`）。
@@ -1429,11 +1474,22 @@ impl World {
             conquest.control_points.clone_from(&points);
             conquest.dirty = true;
         }
-        for (name, guild) in changed_owners {
-            let guild_name = self
-                .guild(guild)
-                .map_or_else(|| "（无行会）".to_owned(), |guild| guild.name.clone());
-            self.broadcast_system(&format!("【攻城】{guild_name} 占领了控制点 {name}。"));
+        for (point_name, guild) in changed_owners {
+            let guild_name = self.guild(guild).map(|guild| guild.name.clone());
+            // 「（无行会）」也是本地化文本：占位时按收件人语言渲染。
+            let mut ids: Vec<u32> = self.players.keys().copied().collect();
+            ids.sort_unstable();
+            for object_id in ids {
+                let label = guild_name
+                    .clone()
+                    .unwrap_or_else(|| self.text(object_id, TextKey::ConquestNoGuild));
+                let message = self.format(
+                    object_id,
+                    TextKey::ConquestPointCaptured,
+                    &[("guild", &label), ("point", &point_name)],
+                );
+                self.send_system_chat(object_id, &message);
+            }
         }
         None
     }
@@ -1522,7 +1578,10 @@ impl World {
         let guild_name = self
             .guild(guild_id)
             .map_or_else(String::new, |guild| guild.name.clone());
-        self.broadcast_system(&format!("【攻城】{name} 的新城主是 {guild_name}。"));
+        self.broadcast_system_key(
+            TextKey::ConquestNewOwner,
+            &[("conquest", &name), ("guild", &guild_name)],
+        );
         // 城主的行会成员要刷新一次 `S.GuildStatus`（Crystal `UpdatePlayers`，`:634-650`）。
         self.send_guild_status_to_all(guild_id);
         self.refresh_war_zone_colours();
@@ -1566,6 +1625,20 @@ impl World {
 
     /// 全服系统公告（Crystal 用 `pl.ReceiveChat(..., ChatType.System)` 遍历
     /// `Envir.Players`，`NPCSegment.cs:4271-4283`）。
+    ///
+    /// 多语言项目里**逐收件人按各自语言**渲染：先取 `TextKey` + 参数，再给每个
+    /// 在线玩家 `format` 一次（同一语言只渲染一次的开销可以忽略；公告频率很低）。
+    pub fn broadcast_system_key(&self, key: mir_core::i18n::TextKey, args: &[(&str, &str)]) {
+        let mut ids: Vec<u32> = self.players.keys().copied().collect();
+        ids.sort_unstable();
+        for object_id in ids {
+            let message = self.format(object_id, key, args);
+            self.send_system_chat(object_id, &message);
+        }
+    }
+
+    /// 全服系统公告（已渲染文本；内部/兼容用，玩家可见公告请走
+    /// [`Self::broadcast_system_key`]）。
     pub fn broadcast_system(&self, message: &str) {
         let packet = ServerPacket::Chat(Chat {
             message: message.to_owned(),

@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use mir_core::Point;
 use mir_core::enums::{ChatType, ConquestGame, ConquestType, MirClass, MirDirection, MirGender};
+use mir_core::i18n::{Language, TextKey, format_text, text};
 use mir_db::{
     ConquestArcherInfo, ConquestFlagInfo, ConquestInfo, ConquestStructure, MapInfo, MirDb,
     MonsterInfo, NpcInfo,
@@ -772,10 +773,15 @@ fn schedule_starts_the_war_and_broadcasts_a_system_message() {
     for object_id in [1, 2] {
         let packets = harness.packets(object_id);
         let messages = chats(&packets);
+        let expected = format_text(
+            Language::ZhCn,
+            TextKey::ConquestWarStarted,
+            &[("name", "Sabuk Wall")],
+        );
         assert!(
             messages
                 .iter()
-                .any(|(text, type_)| *type_ == ChatType::System && text.contains("攻城战已经开始")),
+                .any(|(text, type_)| *type_ == ChatType::System && text == &expected),
             "玩家 {object_id} 应收到开战公告，实际 {messages:?}"
         );
     }
@@ -823,10 +829,13 @@ fn schedule_ends_the_war_after_the_window() {
     );
     let inbox = harness.packets(1);
     let messages = chats(&inbox);
+    let expected = format_text(
+        Language::ZhCn,
+        TextKey::ConquestWarEnded,
+        &[("name", "Sabuk Wall")],
+    );
     assert!(
-        messages
-            .iter()
-            .any(|(text, _)| text.contains("攻城战已经结束")),
+        messages.iter().any(|(text, _)| text == &expected),
         "应收到停战公告，实际 {messages:?}"
     );
 }
@@ -956,10 +965,13 @@ fn classic_captures_when_only_one_guild_holds_the_palace() {
     );
     let inbox = harness.packets(1);
     let messages = chats(&inbox);
+    let expected = format_text(
+        Language::ZhCn,
+        TextKey::ConquestNewOwner,
+        &[("conquest", "Sabuk Wall"), ("guild", "甲会联盟")],
+    );
     assert!(
-        messages
-            .iter()
-            .any(|(text, _)| text.contains("新城主是 甲会联盟")),
+        messages.iter().any(|(text, _)| text == &expected),
         "城主变更要全服公告，实际 {messages:?}"
     );
 }
@@ -1089,12 +1101,16 @@ fn control_points_change_owner_and_decide_the_castle() {
         conquest.control_points[0].points.get(&guilds.alpha),
         Some(&1)
     );
+    let point_name = conquest.control_points[0].name.clone();
     let inbox = harness.packets(1);
     let messages = chats(&inbox);
+    let expected = format_text(
+        Language::ZhCn,
+        TextKey::ConquestPointCaptured,
+        &[("guild", "甲会联盟"), ("point", &point_name)],
+    );
     assert!(
-        messages
-            .iter()
-            .any(|(text, _)| text.contains("占领了控制点")),
+        messages.iter().any(|(text, _)| text == &expected),
         "控制点易主要公告，实际 {messages:?}"
     );
     // 停战时按控制点数量选城主（`EndWar` 的 `ControlPoints` 分支，`:921-962`）。
@@ -1195,10 +1211,9 @@ fn war_zone_paints_names_green_and_protects_killers() {
     );
     let inbox = harness.packets(1);
     let messages = chats(&inbox);
+    let expected = text(Language::ZhCn, TextKey::PkProtectedByLaw);
     assert!(
-        messages
-            .iter()
-            .any(|(text, _)| text.contains("你受到了法律的保护")),
+        messages.iter().any(|(text, _)| *text == expected),
         "凶手应收到保护提示，实际 {messages:?}"
     );
 }

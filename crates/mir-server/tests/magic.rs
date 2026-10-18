@@ -18,6 +18,8 @@ use mir_core::enums::{
     DamageType, ItemType, MirClass, MirDirection, MirGender, Monster as MonsterImage,
     RequiredClass, RequiredType, Spell,
 };
+use mir_core::i18n::{format_text, text};
+use mir_core::{Language, TextKey};
 use mir_db::{MagicInfo, MirDb};
 use mir_protocol::ServerPacket;
 use mir_protocol::data::ItemInfo;
@@ -386,11 +388,22 @@ fn learning_the_same_book_twice_is_rejected() {
         )),
         "失败应发 S.UseItem{{Success=false}}，实际 {packets:?}"
     );
+    let book_name = harness
+        .world
+        .item_info(1)
+        .expect("火球技能书模板")
+        .name
+        .clone();
+    let expected = format_text(
+        Language::ZhCn,
+        TextKey::MagicAlreadyLearned,
+        &[("spell", &book_name)],
+    );
     assert!(
-        packets.iter().any(
-            |packet| matches!(packet, ServerPacket::Chat(chat) if chat.message.contains("已经学会"))
-        ),
-        "应给一条系统提示，实际 {packets:?}"
+        packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::Chat(chat) if chat.message == expected)),
+        "应给一条系统提示（按中文语言包取值 {expected}），实际 {packets:?}"
     );
     assert!(
         harness.world.find_inventory_item(player, second).is_some(),
@@ -415,10 +428,12 @@ fn book_class_requirement_is_enforced() {
         }
     );
     assert!(
-        harness.packets(player).iter().any(
-            |packet| matches!(packet, ServerPacket::Chat(chat) if chat.message.contains("职业"))
-        ),
-        "应提示职业不符"
+        harness.packets(player).iter().any(|packet| matches!(
+            packet,
+            ServerPacket::Chat(chat)
+                if chat.message == text(Language::ZhCn, TextKey::ItemWrongClass)
+        )),
+        "应提示职业不符（按中文语言包取值）"
     );
 }
 
@@ -438,11 +453,17 @@ fn book_level_requirement_is_enforced() {
             level: 5
         }
     );
+    let expected = format_text(
+        Language::ZhCn,
+        TextKey::ItemLevelTooLow,
+        &[("required", "10")],
+    );
     assert!(
-        harness.packets(player).iter().any(
-            |packet| matches!(packet, ServerPacket::Chat(chat) if chat.message.contains("等级不够"))
-        ),
-        "应提示等级不够"
+        harness
+            .packets(player)
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::Chat(chat) if chat.message == expected)),
+        "应提示等级不够（按中文语言包取值 {expected}）"
     );
 }
 

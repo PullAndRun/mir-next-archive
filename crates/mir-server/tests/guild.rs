@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use mir_core::Point;
 use mir_core::enums::{ChatType, MirClass, MirDirection, MirGender};
+use mir_core::i18n::{Language, TextKey, format_text};
 use mir_db::{MapInfo, MirDb, NpcInfo};
 use mir_protocol::ServerPacket;
 use mir_server::gamedata::GameData;
@@ -628,10 +629,12 @@ fn guild_invite_requires_recruit_permission() {
     );
     let packets = harness.packets(bob);
     let hints = chats(&packets);
+    // 权限提示按语言包渲染（默认中文），不再透传 `CanRecruit` 这类内部标识符。
+    let expected = format_text(Language::ZhCn, TextKey::GuildNotAllowedRecruit, &[]);
     assert!(
         hints
             .iter()
-            .any(|(text, kind)| *kind == ChatType::System && text.contains("CanRecruit")),
+            .any(|(text, kind)| *kind == ChatType::System && text == &expected),
         "邀请者应收到权限提示，实际 {hints:?}"
     );
 }
@@ -854,7 +857,8 @@ fn kick_member_clears_guild_and_sends_empty_status() {
     assert!(
         chats(&packets)
             .iter()
-            .any(|(text, kind)| *kind == ChatType::Guild && text.contains("移出")),
+            .any(|(text, kind)| *kind == ChatType::Guild
+                && text == &format_text(Language::ZhCn, TextKey::GuildKicked, &[])),
         "被踢的人应收到行会频道提示，实际 {packets:?}"
     );
     // 其余成员收到 `Status=3`。
@@ -1256,7 +1260,8 @@ fn member_leave_removes_from_guild() {
     assert!(
         chats(&harness.packets(bob))
             .iter()
-            .any(|(text, kind)| *kind == ChatType::Guild && text.contains("离开")),
+            .any(|(text, kind)| *kind == ChatType::Guild
+                && text == &format_text(Language::ZhCn, TextKey::GuildLeft, &[])),
         "退会者应收到行会频道提示"
     );
     assert!(
@@ -1670,7 +1675,13 @@ fn npc_createguild_action_creates_the_guild() {
     assert!(
         chats(&packets)
             .iter()
-            .any(|(text, kind)| *kind == ChatType::System && text.contains("创建成功")),
+            .any(|(text, kind)| *kind == ChatType::System
+                && text
+                    == &format_text(
+                        Language::ZhCn,
+                        TextKey::NpcGuildCreated,
+                        &[("name", "脚本行会")]
+                    )),
         "应收到成功提示，实际 {packets:?}"
     );
 }

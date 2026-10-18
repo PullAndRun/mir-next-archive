@@ -15,6 +15,7 @@ use mir_core::enums::{
     BuffType, ItemType, MirClass, MirDirection, MirGender, Monster as MonsterImage, PoisonType,
     RequiredClass, RequiredType, Spell,
 };
+use mir_core::{Language, TextKey};
 use mir_db::{MagicInfo, MapInfo, MirDb};
 use mir_protocol::ServerPacket;
 use mir_server::MonsterKind;
@@ -1209,11 +1210,13 @@ fn summoning_on_a_no_pets_map_is_rejected_after_spending_mana() {
     harness.elapse(500);
     assert!(harness.world.pets_of(player).is_empty());
     assert!(harness.world.player(player).expect("玩家").mp < mp);
+    let expected = mir_core::i18n::text(Language::ZhCn, TextKey::MagicSummonForbidden);
     assert!(
-        harness.packets(player).iter().any(
-            |packet| matches!(packet, ServerPacket::Chat(chat) if chat.message.contains("不能召唤"))
-        ),
-        "应提示地图不能召唤"
+        harness
+            .packets(player)
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::Chat(chat) if chat.message == expected)),
+        "应提示地图不能召唤（按中文语言包取值 {expected}）"
     );
 }
 
@@ -1304,5 +1307,72 @@ fn recasting_hiding_while_hidden_only_refreshes_duration() {
             .iter()
             .any(|packet| matches!(packet, ServerPacket::ObjectHidden(_))),
         "已隐身时不再重发 S.ObjectHidden"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// i18n：World 语言接入口（旁置映射，不新增 Player 字段）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn system_text_uses_the_players_language() {
+    let mut map = map_with(MAP);
+    map.no_pets = true;
+    let mut harness = Harness::with_data(25, game_data_with_maps(vec![map]));
+    let player = harness.add_player(1, MirClass::Taoist, 30, Point::new(20, 20));
+    harness.world.set_player_language(player, Language::En);
+    harness.learn(player, Spell::SummonSkeleton);
+    harness.ready_all(player);
+
+    harness
+        .cast(
+            player,
+            Spell::SummonSkeleton,
+            MirDirection::Down,
+            0,
+            Point::new(0, 0),
+        )
+        .expect("施法动作本身成功");
+    harness.elapse(500);
+
+    let expected = mir_core::i18n::text(Language::En, TextKey::MagicSummonForbidden);
+    assert!(
+        harness
+            .packets(player)
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::Chat(chat) if chat.message == expected)),
+        "英文玩家应收到英文提示（{expected}）"
+    );
+}
+
+#[test]
+fn broadcast_text_renders_per_recipient_language() {
+    let mut harness = Harness::new(26);
+    let chinese = harness.add_player(1, MirClass::Wizard, 30, Point::new(20, 20));
+    let english = harness.add_player(2, MirClass::Wizard, 30, Point::new(21, 20));
+    harness.world.set_player_language(chinese, Language::ZhCn);
+    harness.world.set_player_language(english, Language::En);
+    harness.packets(chinese);
+    harness.packets(english);
+
+    harness
+        .world
+        .broadcast_text(MAP, TextKey::MagicFirewallLimit, &[]);
+
+    let zh = mir_core::i18n::text(Language::ZhCn, TextKey::MagicFirewallLimit);
+    let en = mir_core::i18n::text(Language::En, TextKey::MagicFirewallLimit);
+    assert!(
+        harness
+            .packets(chinese)
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::Chat(chat) if chat.message == zh)),
+        "中文玩家收中文广播"
+    );
+    assert!(
+        harness
+            .packets(english)
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::Chat(chat) if chat.message == en)),
+        "英文玩家收英文广播（逐收件人编码）"
     );
 }

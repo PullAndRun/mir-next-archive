@@ -63,8 +63,9 @@
 //!    `new MailInfo(index, false)` 会把 `can_reply` 置假，本作还没有把「玩家邮件 / 系统邮件」
 //!    区分到落盘层（`mail` 表没有这一列），所以 `S.ReceiveMail` 的 `can_reply` 仍是 `true`。
 
-use mir_core::DateTimeBinary;
 use mir_core::enums::{BindMode, ItemType};
+use mir_core::i18n::{format_text, text};
+use mir_core::{DateTimeBinary, Language, TextKey};
 use mir_protocol::ServerPacket;
 use mir_protocol::data::{ClientMail, UserItem};
 use mir_protocol::packets::server::{
@@ -330,27 +331,37 @@ impl From<ItemCodecError> for MailError {
 }
 
 impl MailError {
-    /// 给玩家看的中文提示（Crystal 用 `GameLanguage.ServerTextMap` 的 `ServerTextKeys`）。
+    /// 给玩家看的提示（Crystal 用 `GameLanguage.ServerTextMap` 的 `ServerTextKeys`）。
     ///
-    /// `RateLimited` 与 `TooManyAttachments` 不提示（Crystal 前者静默，后者是本作防线）。
+    /// `language` 是收件人/操作者当前语言，文本走 `mir_core::i18n` 的键
+    /// （`docs/i18n.md` §7.2 的 `mail_*`）。`RateLimited` 与 `TooManyAttachments`
+    /// 不提示（Crystal 前者静默，后者是本作防线），返回空串。
     #[must_use]
-    pub fn message(&self) -> String {
+    pub fn message(&self, language: Language) -> String {
         match self {
-            Self::NotInWorld(_) => "你不在游戏世界里。".to_owned(),
+            Self::NotInWorld(_) => text(language, TextKey::MailNotInWorld).to_owned(),
             Self::RateLimited | Self::TooManyAttachments { .. } => String::new(),
-            Self::TextTooLong => format!("邮件正文不能超过 {MAIL_TEXT_MAX} 字。"),
-            Self::RecipientMissing => "找不到该玩家。".to_owned(),
-            Self::RecipientMailboxFull => "收件人的邮箱已满。".to_owned(),
-            Self::NotEnoughGold { needed, held } => {
-                format!("金币不足：需要 {needed}，你只有 {held}。")
+            Self::TextTooLong => format_text(
+                language,
+                TextKey::MailTextTooLong,
+                &[("max", &MAIL_TEXT_MAX.to_string())],
+            ),
+            Self::RecipientMissing => text(language, TextKey::MailRecipientMissing).to_owned(),
+            Self::RecipientMailboxFull => text(language, TextKey::MailMailboxFull).to_owned(),
+            Self::NotEnoughGold { needed, held } => format_text(
+                language,
+                TextKey::MailNotEnoughGold,
+                &[("needed", &needed.to_string()), ("held", &held.to_string())],
+            ),
+            Self::CannotMail { .. } => text(language, TextKey::MailItemCannotMail).to_owned(),
+            Self::NotFound { .. } => text(language, TextKey::MailNotFound).to_owned(),
+            Self::NotCollected => text(language, TextKey::MailNotCollected).to_owned(),
+            Self::InventoryFull => text(language, TextKey::MailInventoryFull).to_owned(),
+            Self::Locked => text(language, TextKey::MailLocked).to_owned(),
+            Self::UncollectedAttachments => {
+                text(language, TextKey::MailUncollectedAttachments).to_owned()
             }
-            Self::CannotMail { .. } => "这件物品不能邮寄。".to_owned(),
-            Self::NotFound { .. } => "找不到这封邮件。".to_owned(),
-            Self::NotCollected => "请先到邮局受理包裹。".to_owned(),
-            Self::InventoryFull => "背包已满，无法领取附件。".to_owned(),
-            Self::Locked => "邮件已锁定，不能删除。".to_owned(),
-            Self::UncollectedAttachments => "附件还没领取，不能删除。".to_owned(),
-            Self::Codec(_) => "邮件附件数据损坏。".to_owned(),
+            Self::Codec(_) => text(language, TextKey::MailAttachmentCorrupted).to_owned(),
         }
     }
 }
@@ -528,7 +539,7 @@ impl World {
         if !player.mail.new_mail {
             return;
         }
-        self.send_system_chat(player_id, "你有新邮件。");
+        self.send_system_chat(player_id, &self.text(player_id, TextKey::MailNewMail));
         self.send_mail_list(player_id);
     }
 
@@ -643,17 +654,26 @@ impl World {
         }
         // 2. 正文长度（`:11737-11741`）。
         if utf16_len(message) > MAIL_TEXT_MAX {
-            self.send_system_chat(sender_id, &MailError::TextTooLong.message());
+            self.send_system_chat(
+                sender_id,
+                &MailError::TextTooLong.message(self.player_language(sender_id)),
+            );
             return Err(MailError::TextTooLong);
         }
         // 3. 收件人（`:11743-11749`）。
         let Some(recipient) = recipient else {
-            self.send_system_chat(sender_id, &MailError::RecipientMissing.message());
+            self.send_system_chat(
+                sender_id,
+                &MailError::RecipientMissing.message(self.player_language(sender_id)),
+            );
             return Err(MailError::RecipientMissing);
         };
         // 4. 收件人邮箱上限（`:11751-11755`）。
         if recipient.mail_count > MAIL_RECIPIENT_LIMIT {
-            self.send_system_chat(sender_id, &MailError::RecipientMailboxFull.message());
+            self.send_system_chat(
+                sender_id,
+                &MailError::RecipientMailboxFull.message(self.player_language(sender_id)),
+            );
             return Err(MailError::RecipientMailboxFull);
         }
         if items.len() > MAIL_MAX_ATTACHMENTS {
@@ -726,7 +746,7 @@ impl World {
                     &MailError::CannotMail {
                         unique_id: item.unique_id,
                     }
-                    .message(),
+                    .message(self.player_language(sender_id)),
                 );
                 // `DontTrade` 分支不发 `S.MailSent`，`NoMail` 分支会发 `-1`（`:11800-11811`）。
                 if bind.is_some_and(|bind| bind.contains(BindMode::NoMail)) {
@@ -799,6 +819,9 @@ impl World {
     /// `ServerTextKeys.ThankYouPurchaseGameshop`（「感谢您购买商城商品。」），
     /// 一次购买**只发一封**、附件是本次所有放不进背包的堆叠。
     ///
+    /// 发件人/正文按**收件人语言**渲染（在线用玩家当前语言，离线回落服务器默认 zh-cn，
+    /// 见 `docs/world/gameshop.md` 与 `docs/i18n.md` §7.5）。
+    ///
     /// 返回邮件编号（测试用来断言「邮件真的生成了」）。
     pub(crate) fn mail_gameshop_to_character(
         &mut self,
@@ -810,10 +833,10 @@ impl World {
         let mail = Mail {
             id: mail_id,
             character_id,
-            // Crystal：`Sender = "Gameshop"`（`:13903`），本作中文化。
-            sender_name: "商城".to_owned(),
+            // Crystal：`Sender = "Gameshop"`（`:13903`），按收件人语言本地化。
+            sender_name: self.text_for_character(character_id, TextKey::MailGameshopSender),
             subject: String::new(),
-            message: "感谢您购买商城商品。".to_owned(),
+            message: self.text_for_character(character_id, TextKey::MailGameshopBody),
             items,
             gold: 0,
             date_sent: DateTimeBinary::from_unix_seconds(self.wall_now().max(0) / 1000),
@@ -826,6 +849,45 @@ impl World {
             .push(MailWrite::Create(Box::new(mail.to_record())));
         self.deliver_mail(mail);
         mail_id
+    }
+
+    /// 某个角色当前的语言：在线用玩家当前语言，离线回落服务器默认（`zh-cn`）。
+    ///
+    /// 离线收件人读取 `accounts.language` 需要异步查库，世界层是同步的，本轮不做
+    /// （队长裁决：离线系统邮件用默认语言，见 `docs/world/market.md`）。
+    pub(crate) fn language_for_character(&self, character_id: i64) -> Language {
+        self.players
+            .values()
+            .find(|player| player.character_id == character_id)
+            .map_or_else(Language::default, |player| {
+                self.player_language(player.object_id)
+            })
+    }
+
+    /// 按某个**角色**的语言渲染一条无参文本（在线用玩家语言，离线回落默认 `zh-cn`）。
+    ///
+    /// 市场/交易给对手方（可能在离线）的邮件正文用它；自己收到的回执用
+    /// [`World::text`]（有 `object_id`）。
+    pub(crate) fn text_for_character(&self, character_id: i64, key: TextKey) -> String {
+        let language = self.language_for_character(character_id);
+        self.languages.as_ref().map_or_else(
+            || text(language, key).to_owned(),
+            |library| library.text(language, key),
+        )
+    }
+
+    /// 按某个角色的语言渲染一条带参文本（同 [`World::text_for_character`]）。
+    pub(crate) fn format_for_character(
+        &self,
+        character_id: i64,
+        key: TextKey,
+        args: &[(&str, &str)],
+    ) -> String {
+        let language = self.language_for_character(character_id);
+        self.languages.as_ref().map_or_else(
+            || format_text(language, key, args),
+            |library| library.format(language, key, args),
+        )
     }
 
     /// 把一封新邮件放进收件人的运行期邮箱（在线时）；离线邮件只落库。
@@ -870,8 +932,8 @@ impl World {
         let mail = Mail {
             id: mail_id,
             character_id,
-            // Crystal：`string sender = "Bichon Administrator";`
-            sender_name: "比奇管理员".to_owned(),
+            // Crystal：`string sender = "Bichon Administrator";`（按收件人语言本地化）
+            sender_name: self.text_for_character(character_id, TextKey::MailSystemSender),
             subject: String::new(),
             message: message.to_owned(),
             items: item.into_iter().collect(),
@@ -893,19 +955,15 @@ impl World {
     /// 用途：交易取消时背包放不下（`PlayerObject.cs:10910-10937`）。
     /// Crystal 的正文是
     /// `You have been mailed due to the following reason: … Could not return item to bag after trade.`；
-    /// 本作把正文本地化成中文，其余（发件人、未受理包裹）一致。
+    /// 本作走 `mail_trade_item_returned` 文本键（按玩家语言渲染），发件人/未受理包裹与 Crystal 一致。
     ///
     /// 返回是否投递成功（玩家不在世界里时 `false`）。
     pub(crate) fn mail_item_to_self(&mut self, player_id: u32, item: UserItem) -> bool {
         let Some(character_id) = self.players.get(&player_id).map(|p| p.character_id) else {
             return false;
         };
-        self.mail_system_to_character(
-            character_id,
-            Some(item),
-            0,
-            "由于以下原因，物品已通过邮件寄给你：\r\n\r\n交易结束后无法放回背包。",
-        )
+        let message = self.text(player_id, TextKey::MailTradeItemReturned);
+        self.mail_system_to_character(character_id, Some(item), 0, &message)
     }
 
     /// 给某个角色发一条系统提示（Crystal `Envir.MessageAccount`，在线才发）。
@@ -1008,11 +1066,17 @@ impl World {
             return Err(MailError::NotFound { mail_id });
         };
         if !mail.collected {
-            self.send_system_chat(player_id, &MailError::NotCollected.message());
+            self.send_system_chat(
+                player_id,
+                &MailError::NotCollected.message(self.player_language(player_id)),
+            );
             return Err(MailError::NotCollected);
         }
         if !mail.items.is_empty() && !self.can_gain_mail_items(player_id, &mail.items) {
-            self.send_system_chat(player_id, &MailError::InventoryFull.message());
+            self.send_system_chat(
+                player_id,
+                &MailError::InventoryFull.message(self.player_language(player_id)),
+            );
             return Err(MailError::InventoryFull);
         }
         // `for (...) GainItem(mail.Items[i]);`（`:11878-11882`）——逐件进背包并发 GainedItem。
@@ -1101,12 +1165,18 @@ impl World {
             return Err(MailError::NotFound { mail_id });
         };
         if mail.locked {
-            self.send_system_chat(player_id, &MailError::Locked.message());
+            self.send_system_chat(
+                player_id,
+                &MailError::Locked.message(self.player_language(player_id)),
+            );
             return Err(MailError::Locked);
         }
         // 只要附件还在（金币或物品），就不允许删除——包括「已到邮局受理但还没领取」的包裹。
         if mail.is_parcel() {
-            self.send_system_chat(player_id, &MailError::UncollectedAttachments.message());
+            self.send_system_chat(
+                player_id,
+                &MailError::UncollectedAttachments.message(self.player_language(player_id)),
+            );
             return Err(MailError::UncollectedAttachments);
         }
         self.remove_mail(player_id, mail_id);

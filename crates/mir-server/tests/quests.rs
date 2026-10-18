@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use mir_core::Point;
 use mir_core::enums::{ItemGrade, ItemType, MirClass, MirDirection, MirGender, QuestState, Stat};
+use mir_core::i18n::{Language, TextKey, format_text};
 use mir_db::quest_script::QuestScript;
 use mir_db::{MapInfo, MirDb, MonsterInfo, NpcInfo, QuestInfo};
 use mir_protocol::ServerPacket;
@@ -552,7 +553,14 @@ fn accept_quest_records_progress_and_sends_change_quest() {
     assert_eq!(report.quest_index, 1);
     assert_eq!(report.name, "杀鸡");
     assert!(!report.completed);
-    assert_eq!(report.task_list, vec!["击杀 Hen 0/3".to_owned()]);
+    assert_eq!(
+        report.task_list,
+        vec![format_text(
+            Language::ZhCn,
+            TextKey::QuestTaskKill,
+            &[("monster", "Hen"), ("count", "0"), ("total", "3")],
+        )]
+    );
 
     let progress = harness.world.quest_progress(player, 1).expect("进度存在");
     assert_eq!(progress.state, QuestProgressState::InProgress);
@@ -723,12 +731,23 @@ fn kill_progress_completes_the_quest() {
     // 达成后进度文本带「已完成」并追加「去交任务」（Crystal `UpdateKillTasks` +
     // `UpdateGotoTask`，`QuestProgressInfo.cs:438-466`、`:527-532`）。
     let definition = harness.world.quest_definition(1).expect("定义");
-    let client = harness
-        .world
-        .client_progress(&definition, progress, harness.world.wall_now());
+    let client = harness.world.client_progress(
+        &definition,
+        progress,
+        harness.world.wall_now(),
+        Language::ZhCn,
+    );
     assert_eq!(
         client.task_list,
-        vec!["击杀 Hen 3/3".to_owned(), "去交任务".to_owned()]
+        vec![
+            format_text(
+                Language::ZhCn,
+                TextKey::QuestTaskKill,
+                &[("monster", "Hen"), ("count", "3"), ("total", "3")],
+            ),
+            // 脚本自带数据（`Server.MirDB` 的 `GotoMessage`），不是代码文案。
+            definition.info.goto_message.clone(),
+        ]
     );
     assert!(
         client.completed,
@@ -974,7 +993,14 @@ fn timed_quest_expires_and_is_abandoned() {
         .world
         .accept_quest(player, giver, 4)
         .expect("接取限时任务");
-    assert_eq!(report.task_list, vec!["击杀 Hen 0/1".to_owned()]);
+    assert_eq!(
+        report.task_list,
+        vec![format_text(
+            Language::ZhCn,
+            TextKey::QuestTaskKill,
+            &[("monster", "Hen"), ("count", "0"), ("total", "1")],
+        )]
+    );
     let expires_at = harness.world.quest_progress(player, 4).unwrap().expires_at;
     assert_eq!(
         expires_at - harness.world.quest_progress(player, 4).unwrap().taken_at,

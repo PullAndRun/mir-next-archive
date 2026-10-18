@@ -22,6 +22,8 @@ use mir_core::enums::{
     ItemType, MirClass, MirDirection, MirGender, Monster as MonsterImage, RequiredClass,
     RequiredType, Spell, Stat,
 };
+use mir_core::i18n::{format_text, text};
+use mir_core::{Language, TextKey};
 use mir_db::{MagicInfo, MirDb};
 use mir_protocol::ServerPacket;
 use mir_protocol::data::{ItemInfo, Stats};
@@ -482,11 +484,12 @@ fn normal_potion_at_full_health_is_rejected_without_consuming() {
         )),
         "失败要发 S.UseItem{{Success=false}}"
     );
+    let expected = text(Language::ZhCn, TextKey::ItemPotionNoEffectFull);
     assert!(
-        packets.iter().any(
-            |packet| matches!(packet, ServerPacket::Chat(chat) if chat.message.contains("没有效果"))
-        ),
-        "应提示满血"
+        packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::Chat(chat) if chat.message == expected)),
+        "应提示满血（按中文语言包取值 {expected}）"
     );
 }
 
@@ -559,11 +562,12 @@ fn potion_class_requirement_is_enforced() {
         "不该消耗"
     );
     let packets = harness.packets(player);
+    let expected = text(Language::ZhCn, TextKey::ItemWrongClass);
     assert!(
-        packets.iter().any(
-            |packet| matches!(packet, ServerPacket::Chat(chat) if chat.message.contains("职业"))
-        ),
-        "应提示职业不符"
+        packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::Chat(chat) if chat.message == expected)),
+        "应提示职业不符（按中文语言包取值 {expected}）"
     );
     assert!(packets.iter().any(|packet| matches!(
         packet,
@@ -586,11 +590,17 @@ fn potion_level_requirement_is_enforced() {
             level: 5
         }
     );
+    let expected = format_text(
+        Language::ZhCn,
+        TextKey::ItemLevelTooLow,
+        &[("required", "10")],
+    );
     assert!(
-        harness.packets(player).iter().any(
-            |packet| matches!(packet, ServerPacket::Chat(chat) if chat.message.contains("等级不够"))
-        ),
-        "应提示等级不够"
+        harness
+            .packets(player)
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::Chat(chat) if chat.message == expected)),
+        "应提示等级不够（按中文语言包取值 {expected}）"
     );
 }
 
@@ -647,9 +657,18 @@ fn unknown_item_shapes_and_scrolls_are_rejected_without_consuming() {
         harness.world.find_inventory_item(player, scroll).is_some(),
         "不该消耗"
     );
-    assert!(harness.packets(player).iter().any(
-        |packet| matches!(packet, ServerPacket::Chat(chat) if chat.message.contains("尚未实现"))
-    ));
+    let expected = format_text(
+        Language::ZhCn,
+        TextKey::ItemEffectNotImplemented,
+        &[("item", "回城卷")],
+    );
+    assert!(
+        harness
+            .packets(player)
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::Chat(chat) if chat.message == expected)),
+        "应提示效果尚未实现（按中文语言包取值 {expected}）"
+    );
 }
 
 // ---------------------------------------------------------------------------

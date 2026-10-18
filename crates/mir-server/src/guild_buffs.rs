@@ -270,30 +270,30 @@ impl World {
             return Ok(());
         }
         // 成功消息（`PlayerObject.cs:10400-10418`）：四种文案按「有没有金币/点数消耗」选。
+        // 文本键按收件人语言渲染（见 [`Self::send_guild_message`]）。
         let player_name = self
             .players
             .get(&player_id)
             .map_or_else(String::new, |player| player.name.clone());
         let has_point_cost = info.points_requirement > 0;
-        let message = if requires_gold && has_point_cost {
-            format!(
-                "「{player_name}」花费 {} 升级点与 {cost} 金币为行会购买了增益「{}」。",
-                info.points_requirement, info.name
-            )
-        } else if requires_gold {
-            format!(
-                "「{player_name}」花费 {cost} 金币为行会购买了增益「{}」。",
-                info.name
-            )
-        } else if has_point_cost {
-            format!(
-                "「{player_name}」花费 {} 升级点为行会购买了增益「{}」。",
-                info.points_requirement, info.name
-            )
-        } else {
-            format!("「{player_name}」为行会购买了增益「{}」。", info.name)
+        let key = match (requires_gold, has_point_cost) {
+            (true, true) => mir_core::i18n::TextKey::GuildBuffBoughtPointsGold,
+            (true, false) => mir_core::i18n::TextKey::GuildBuffBoughtGold,
+            (false, true) => mir_core::i18n::TextKey::GuildBuffBoughtPoints,
+            (false, false) => mir_core::i18n::TextKey::GuildBuffBoughtFree,
         };
-        self.send_guild_message(guild_id, &message);
+        let points = info.points_requirement.to_string();
+        let cost_text = cost.to_string();
+        self.send_guild_message(
+            guild_id,
+            key,
+            &[
+                ("player", &player_name),
+                ("points", &points),
+                ("gold", &cost_text),
+                ("buff", &info.name),
+            ],
+        );
         Ok(())
     }
 
@@ -434,14 +434,23 @@ impl World {
 
     /// 给行会全体在线成员发一条**行会频道**消息
     /// （Crystal `GuildObject.SendMessage` 默认 `ChatType.Guild`，`GuildObject.cs:113-126`）。
-    fn send_guild_message(&mut self, guild_id: i32, message: &str) {
+    ///
+    /// 每个成员按**自己的语言**渲染（`World::format`），所以同一条公告在中文/英文
+    /// 客户端上各自显示对应语言。
+    fn send_guild_message(
+        &mut self,
+        guild_id: i32,
+        key: mir_core::i18n::TextKey,
+        args: &[(&str, &str)],
+    ) {
         let online = self
             .guilds
             .get(&guild_id)
             .map(crate::guild::Guild::online_members)
             .unwrap_or_default();
         for object_id in online {
-            self.send_guild_chat_to(object_id, message);
+            let message = self.format(object_id, key, args);
+            self.send_guild_chat_to(object_id, &message);
         }
     }
 

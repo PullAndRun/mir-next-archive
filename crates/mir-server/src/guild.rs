@@ -50,6 +50,7 @@ use std::collections::HashMap;
 
 use mir_core::DateTimeBinary;
 use mir_core::enums::{ChatType, GuildRankOptions, Stat};
+use mir_core::i18n::TextKey;
 use mir_protocol::ServerPacket;
 use mir_protocol::data::guild_rank::{GuildMember, GuildRank};
 use mir_protocol::data::{GuildBuff, GuildBuffInfo, GuildStorageItem, Stats};
@@ -1007,8 +1008,8 @@ pub enum GuildJoinOutcome {
 /// 行会操作失败原因。
 ///
 /// 每个变体都对应 Crystal 的一次 `ReceiveChat(ServerTextKeys.…)` + `return`，
-/// 行号见各变体的注释。[`GuildError::message`] 给出中文提示（Crystal 走
-/// `GameLanguage.ServerTextMap`；本作的 i18n 词条还没覆盖行会，见文档）。
+/// 行号见各变体的注释。[`GuildError::message`] 按玩家语言渲染提示（Crystal 走
+/// `GameLanguage.ServerTextMap`）；`#[error]` 上的中文只用于 `tracing` 日志。
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum GuildError {
     /// 对象不在世界里。
@@ -1186,10 +1187,201 @@ pub enum GuildError {
 }
 
 impl GuildError {
-    /// 给玩家看的中文提示（Crystal 用 `GameLanguage.ServerTextMap` 的 `ServerTextKeys`）。
+    /// 给玩家看的提示，按玩家当前语言渲染（Crystal 用 `GameLanguage.ServerTextMap`
+    /// 的 `ServerTextKeys`；本作对应 `TextKey::Guild*`）。
+    ///
+    /// `#[error]` 上的中文只用于 `tracing` 日志（开发者可见），玩家看到的是这里
+    /// 按 `language` 渲染的文本。
     #[must_use]
-    pub fn message(&self) -> String {
-        self.to_string()
+    pub fn message(&self, language: mir_core::Language) -> String {
+        use mir_core::i18n::{TextKey, format_text};
+        use std::string::ToString;
+        match self {
+            Self::NotInWorld(object_id) => format_text(
+                language,
+                TextKey::GuildNotInWorld,
+                &[("object_id", &object_id.to_string())],
+            ),
+            Self::NotInGuild(_) => format_text(language, TextKey::GuildNotInGuild, &[]),
+            Self::AlreadyInGuild => format_text(language, TextKey::GuildAlreadyInGuild, &[]),
+            Self::NameTaken(name) => {
+                format_text(language, TextKey::GuildNameTaken, &[("name", name)])
+            }
+            Self::NameLength => format_text(
+                language,
+                TextKey::GuildNameLength,
+                &[
+                    ("min", &GUILD_NAME_MIN_LEN.to_string()),
+                    ("max", &GUILD_NAME_MAX_LEN.to_string()),
+                ],
+            ),
+            Self::NameInvalid => format_text(language, TextKey::GuildNameInvalid, &[]),
+            Self::LevelTooLow { required, level } => format_text(
+                language,
+                TextKey::GuildCreateLevelTooLow,
+                &[
+                    ("required", &required.to_string()),
+                    ("level", &level.to_string()),
+                ],
+            ),
+            Self::NotEnoughGold { required, gold } => format_text(
+                language,
+                TextKey::GuildCreateNotEnoughGold,
+                &[
+                    ("required", &required.to_string()),
+                    ("gold", &gold.to_string()),
+                ],
+            ),
+            Self::Permission(permission) => {
+                // Crystal 用 4 个独立文本键（`NotAllowedRecruitMembers` 等）；未知权限
+                // 回落 `GuildNoPermission` + `guild_permission_name` 的本地化名词。
+                match *permission {
+                    "CanRecruit" => format_text(language, TextKey::GuildNotAllowedRecruit, &[]),
+                    "CanKick" => format_text(language, TextKey::GuildNotAllowedKick, &[]),
+                    "CanChangeRank" => {
+                        format_text(language, TextKey::GuildNotAllowedChangeRank, &[])
+                    }
+                    "CanChangeNotice" => {
+                        format_text(language, TextKey::GuildNotAllowedChangeNotice, &[])
+                    }
+                    other => {
+                        let label =
+                            mir_core::i18n::guild_permission_name(language, other).unwrap_or(other);
+                        format_text(
+                            language,
+                            TextKey::GuildNoPermission,
+                            &[("permission", label)],
+                        )
+                    }
+                }
+            }
+            Self::MemberNotFound(name) => {
+                format_text(language, TextKey::GuildMemberNotFound, &[("name", name)])
+            }
+            Self::TargetAlreadyInGuild(name) => format_text(
+                language,
+                TextKey::GuildTargetAlreadyInGuild,
+                &[("name", name)],
+            ),
+            Self::TargetAlreadyInvited(name) => format_text(
+                language,
+                TextKey::GuildTargetAlreadyInvited,
+                &[("name", name)],
+            ),
+            Self::CannotInviteSelf => format_text(language, TextKey::GuildCannotInviteSelf, &[]),
+            Self::GuildFull => format_text(language, TextKey::GuildFull, &[]),
+            Self::NoInvitation => format_text(language, TextKey::GuildNoInvitation, &[]),
+            Self::LeaderLevelTooLow { required } => format_text(
+                language,
+                TextKey::GuildLeaderLevelTooLow,
+                &[("required", &required.to_string())],
+            ),
+            Self::GuildNeedsTwoLeaders => format_text(language, TextKey::GuildNeedsTwoLeaders, &[]),
+            Self::NeedOneLeaderOnline => {
+                format_text(language, TextKey::GuildNeedOneLeaderOnline, &[])
+            }
+            Self::RankNotFound(rank) => format_text(
+                language,
+                TextKey::GuildRankNotFound,
+                &[("rank", &rank.to_string())],
+            ),
+            Self::RankNameTooShort => format_text(
+                language,
+                TextKey::GuildRankNameTooShort,
+                &[("min", &GUILD_RANK_NAME_MIN_LEN.to_string())],
+            ),
+            Self::RankNameTooLong => format_text(
+                language,
+                TextKey::GuildRankNameTooLong,
+                &[("max", &GUILD_RANK_NAME_MAX_LEN.to_string())],
+            ),
+            Self::CannotChangeOwnRankOptions => {
+                format_text(language, TextKey::GuildCannotChangeOwnRank, &[])
+            }
+            Self::TooManyRanks => format_text(language, TextKey::GuildTooManyRanks, &[]),
+            Self::RankNotAdequate => format_text(language, TextKey::GuildRankNotAdequate, &[]),
+            Self::NoticeTooLong => format_text(
+                language,
+                TextKey::GuildNoticeTooLong,
+                &[("lines", &GUILD_NOTICE_MAX_LINES.to_string())],
+            ),
+            Self::NotInSafeZone => format_text(language, TextKey::GuildStorageOutsideSafezone, &[]),
+            Self::NoStorePermission => {
+                format_text(language, TextKey::GuildStorageNoStorePermission, &[])
+            }
+            Self::NoRetrievePermission => {
+                format_text(language, TextKey::GuildStorageNoRetrievePermission, &[])
+            }
+            Self::NoStorageMovePermission => {
+                format_text(language, TextKey::GuildStorageNoMovePermission, &[])
+            }
+            Self::InvalidStorageSlot => {
+                format_text(language, TextKey::GuildStorageInvalidSlot, &[])
+            }
+            Self::EmptySlot => format_text(language, TextKey::GuildStorageEmptySlot, &[]),
+            Self::TargetSlotNotEmpty => {
+                format_text(language, TextKey::GuildStorageTargetSlotNotEmpty, &[])
+            }
+            Self::StorageRequestThrottled => {
+                format_text(language, TextKey::GuildStorageThrottled, &[])
+            }
+            Self::ItemCannotBeStored => {
+                format_text(language, TextKey::GuildStorageItemCannotStore, &[])
+            }
+            Self::GuildGoldLimitReached => {
+                format_text(language, TextKey::GuildGoldLimitReached, &[])
+            }
+            Self::PlayerGoldLimitReached => {
+                format_text(language, TextKey::GuildPlayerGoldLimitReached, &[])
+            }
+            Self::GuildBankNotEnough { required, gold } => format_text(
+                language,
+                TextKey::GuildBankNotEnoughGold,
+                &[
+                    ("required", &required.to_string()),
+                    ("gold", &gold.to_string()),
+                ],
+            ),
+            Self::LeaderOnly => format_text(language, TextKey::GuildBankLeaderOnly, &[]),
+            Self::NoBuffPermission => format_text(language, TextKey::GuildBuffNoPermission, &[]),
+            Self::BuffNotExist(buff) => format_text(
+                language,
+                TextKey::GuildBuffNotExist,
+                &[("buff", &buff.to_string())],
+            ),
+            Self::BuffAlreadyObtained(buff) => format_text(
+                language,
+                TextKey::GuildBuffAlreadyObtained,
+                &[("buff", &buff.to_string())],
+            ),
+            Self::BuffNotObtained(buff) => format_text(
+                language,
+                TextKey::GuildBuffNotObtained,
+                &[("buff", &buff.to_string())],
+            ),
+            Self::GuildLevelTooLow { required, level } => format_text(
+                language,
+                TextKey::GuildLevelTooLow,
+                &[
+                    ("required", &required.to_string()),
+                    ("level", &level.to_string()),
+                ],
+            ),
+            Self::SparePointsInsufficient {
+                required,
+                remaining,
+            } => format_text(
+                language,
+                TextKey::GuildPointsInsufficient,
+                &[
+                    ("required", &required.to_string()),
+                    ("remaining", &remaining.to_string()),
+                ],
+            ),
+            Self::LastLeaderCannotLeave => {
+                format_text(language, TextKey::GuildLastLeaderCannotLeave, &[])
+            }
+        }
     }
 }
 
@@ -1405,9 +1597,9 @@ impl World {
         }
     }
 
-    /// 给某个玩家发一条系统提示。
+    /// 给某个玩家发一条系统提示（按该玩家当前语言渲染）。
     pub(crate) fn guild_error_to(&self, player_id: u32, error: &GuildError) {
-        self.send_system_chat(player_id, &error.message());
+        self.send_system_chat(player_id, &error.message(self.player_language(player_id)));
     }
 
     /// 给某个玩家发一条**行会频道**消息（Crystal `ReceiveChat(..., ChatType.Guild)`）。
@@ -1471,7 +1663,8 @@ impl World {
             } else {
                 // Crystal：`Info.GuildIndex = -1; ReceiveChat(RemoveGuild)`（`:1157-1158`）。
                 guild_ref = None;
-                self.send_system_chat(object_id, "你已经被移出行会。");
+                let message = self.text(object_id, TextKey::GuildRemoved);
+                self.send_system_chat(object_id, &message);
                 self.guild_writes
                     .push(crate::world::GuildWrite::SetCharacterGuild {
                         character_id,
@@ -2090,7 +2283,8 @@ impl World {
         }
         self.guild_remove_member(guild_id, member.character_id, is_self, disband)?;
         if disband {
-            self.send_system_chat(player_id, "你已经解散了行会。");
+            let message = self.text(player_id, TextKey::GuildDisbanded);
+            self.send_system_chat(player_id, &message);
         }
         Ok(())
     }
@@ -2144,14 +2338,13 @@ impl World {
             }
             // `ReceiveChat(kickSelf ? YouHaveLeftGuild : YouRemovedFromGuild, ChatType.Guild)`
             // （`GuildObject.cs:559`）：**行会频道**，不是系统频道。
-            self.send_guild_chat_to(
-                object_id,
-                if self_left {
-                    "你离开了行会。"
-                } else {
-                    "你被移出了行会。"
-                },
-            );
+            let key = if self_left {
+                TextKey::GuildLeft
+            } else {
+                TextKey::GuildKicked
+            };
+            let message = self.text(object_id, key);
+            self.send_guild_chat_to(object_id, &message);
             // `formerMember.RefreshStats();`（`:560`）——把行会 buff 的属性撤掉。
             self.refresh_stats(object_id);
             self.send_to_player(object_id, &status_frame(&Guild::placeholder_status()));

@@ -76,8 +76,11 @@
 //!    `UserMatch` / `MinShapes` / `MaxShapes` / `MarketPanelType` / `SearchTime` 是
 //!    `PlayerObject` 的字段（`PlayerObject.cs:132-139`）；本作放在
 //!    [`World::market_searches`]，下线即清（与 Crystal 随对象销毁等价）。
-//! 7. **商城购买文案是中文硬编码**：`TextKey`（`mir-core`）里还没有商城相关键，与市场同类
-//!    提示（成交/退款）同一口径；i18n 收口时统一补键。
+//! 7. **多语言**：市场/商城的全部玩家可见文本（`S.MarketSuccess`、聊天行、系统邮件、
+//!    `ClientAuction.seller` 标签）都走 `mir_core::i18n` 的 `market_*` / `gameshop_*` 文本键，
+//!    按**查看者/收件人**语言渲染（`World::text` / `World::format`，离线收件人回落
+//!    服务器默认 `zh-cn`，见 [`World::text_for_character`] 的说明）。
+//!    `thiserror` 的 `#[error]` 文本属于开发者可见的日志，保持中文不动。
 //!
 //! # 商城链路的几条约定
 //!
@@ -118,9 +121,11 @@
 //!   本作先把名字与关键字都去掉空格再 `contains`（大小写不敏感），对中文与英文等价。
 
 use mir_core::DateTimeBinary;
+use mir_core::TextKey;
 use mir_core::enums::{
     BindMode, ItemType, MarketCollectionMode, MarketItemType, MarketPanelType, RequiredType,
 };
+use mir_core::i18n::{format_text, text};
 use mir_protocol::ServerPacket;
 use mir_protocol::data::{ClientAuction, GameShopItem, UserItem};
 use mir_protocol::packets::server::{
@@ -394,28 +399,43 @@ pub enum GameShopError {
 }
 
 impl GameShopError {
-    /// 面向玩家的提示文案（Crystal 用 `ServerTextKeys` 本地化，本作暂用中文硬编码，
-    /// 见模块文档第 7 条）。
+    /// 面向玩家的提示文案（Crystal 用 `ServerTextKeys` 本地化；本作走 `mir_core::i18n`
+    /// 的 `gameshop_*` 文本键，按玩家当前语言渲染）。
     #[must_use]
-    pub fn message(&self) -> String {
+    pub fn message(&self, language: mir_core::Language) -> String {
         match self {
-            Self::NotInWorld(_) => "你不在游戏世界里。".to_owned(),
-            Self::NoGameData => "商城暂未开放。".to_owned(),
-            Self::ProductNotFound { .. } => "商城里没有这件商品。".to_owned(),
-            Self::InvalidQuantity(_) => "购买数量不对。".to_owned(),
-            Self::TooManyStacks { stacks } => {
-                format!("一次最多买 {GAMESHOP_MAX_STACKS} 组物品（这次要 {stacks} 组）。")
+            Self::NotInWorld(_) => text(language, TextKey::GameshopNotInWorld).to_owned(),
+            Self::NoGameData => text(language, TextKey::GameshopUnavailable).to_owned(),
+            Self::ProductNotFound { .. } => {
+                text(language, TextKey::GameshopProductNotFound).to_owned()
             }
-            Self::WrongClass { .. } => "你的职业不能购买这件商品。".to_owned(),
-            Self::WrongLevel { required, .. } => format!("等级不够：需要 {required} 级。"),
-            Self::OutOfStock { .. } => "库存不足。".to_owned(),
+            Self::InvalidQuantity(_) => text(language, TextKey::GameshopInvalidQuantity).to_owned(),
+            Self::TooManyStacks { stacks } => format_text(
+                language,
+                TextKey::GameshopTooManyStacks,
+                &[
+                    ("max", &GAMESHOP_MAX_STACKS.to_string()),
+                    ("stacks", &stacks.to_string()),
+                ],
+            ),
+            Self::WrongClass { .. } => text(language, TextKey::GameshopWrongClass).to_owned(),
+            Self::WrongLevel { required, .. } => format_text(
+                language,
+                TextKey::GameshopWrongLevel,
+                &[("required", &required.to_string())],
+            ),
+            Self::OutOfStock { .. } => text(language, TextKey::GameshopOutOfStock).to_owned(),
             Self::CreditNotAllowed | Self::GoldNotAllowed => {
-                "这件商品不能用这种方式购买。".to_owned()
+                text(language, TextKey::GameshopPaymentNotAllowed).to_owned()
             }
-            Self::NotEnoughCredit { .. } => "元宝不足。".to_owned(),
-            Self::NotEnoughGold { .. } => "金币不足。".to_owned(),
-            Self::UnsupportedPayment(_) => "不支持的支付方式。".to_owned(),
-            Self::CannotGain => "背包放不下。".to_owned(),
+            Self::NotEnoughCredit { .. } => {
+                text(language, TextKey::GameshopNotEnoughCredit).to_owned()
+            }
+            Self::NotEnoughGold { .. } => text(language, TextKey::GameshopNotEnoughGold).to_owned(),
+            Self::UnsupportedPayment(_) => {
+                text(language, TextKey::GameshopUnsupportedPayment).to_owned()
+            }
+            Self::CannotGain => text(language, TextKey::GameshopCannotGain).to_owned(),
         }
     }
 
@@ -533,19 +553,22 @@ pub struct Auction {
 }
 
 impl Auction {
-    /// 卖家展示文本：Crystal `AuctionInfo.GetSellerLabel`（`AuctionInfo.cs:89-102`），中文化。
+    /// 卖家展示文本：Crystal `AuctionInfo.GetSellerLabel`（`AuctionInfo.cs:89-102`）。
+    ///
+    /// 五个标签走 `market_label_*` 文本键，按**查看者**的语言渲染
+    /// （`ClientAuction.seller` 是客户端直接显示的字符串）。
     #[must_use]
-    pub fn seller_label(&self, user_match: bool) -> String {
+    pub fn seller_label(&self, user_match: bool, language: mir_core::Language) -> String {
         match self.item_type {
             // `return userMatch ? (Sold ? "Sold" : (Expired ? "Expired" : "For Sale")) : SellerInfo.Name;`
             MarketItemType::Consign => {
                 if user_match {
                     if self.sold {
-                        "已售出".to_owned()
+                        text(language, TextKey::MarketLabelSold).to_owned()
                     } else if self.expired {
-                        "已过期".to_owned()
+                        text(language, TextKey::MarketLabelExpired).to_owned()
                     } else {
-                        "出售中".to_owned()
+                        text(language, TextKey::MarketLabelOnSale).to_owned()
                     }
                 } else {
                     self.seller_name.clone()
@@ -555,13 +578,13 @@ impl Auction {
             MarketItemType::Auction => {
                 if user_match {
                     if self.sold {
-                        "已售出".to_owned()
+                        text(language, TextKey::MarketLabelSold).to_owned()
                     } else if self.expired {
-                        "已过期".to_owned()
+                        text(language, TextKey::MarketLabelExpired).to_owned()
                     } else if self.current_bid > self.price {
-                        "已有出价".to_owned()
+                        text(language, TextKey::MarketLabelHasBid).to_owned()
                     } else {
-                        "无人出价".to_owned()
+                        text(language, TextKey::MarketLabelNoBid).to_owned()
                     }
                 } else {
                     self.seller_name.clone()
@@ -573,11 +596,15 @@ impl Auction {
 
     /// 线上条目：Crystal `AuctionInfo.CreateClientAuction`（`AuctionInfo.cs:104-115`）。
     #[must_use]
-    pub fn to_client_auction(&self, user_match: bool) -> ClientAuction {
+    pub fn to_client_auction(
+        &self,
+        user_match: bool,
+        language: mir_core::Language,
+    ) -> ClientAuction {
         ClientAuction {
             auction_id: self.id,
             item: self.item.clone(),
-            seller: self.seller_label(user_match),
+            seller: self.seller_label(user_match, language),
             // `Price = ItemType == MarketItemType.Auction ? CurrentBid : Price;`
             price: if self.item_type == MarketItemType::Auction {
                 self.current_bid
@@ -942,13 +969,21 @@ impl World {
             if auction.current_bid > 0
                 && let Some(buyer) = auction.current_buyer_character_id
             {
-                let message = format!(
-                    "你在 {item_name} 上的出价已退回：拍卖已过期（{} 金币）。",
-                    auction.current_bid
+                let message = self.format_for_character(
+                    buyer,
+                    TextKey::MarketMailBidRefundExpired,
+                    &[
+                        ("item", &item_name),
+                        ("gold", &auction.current_bid.to_string()),
+                    ],
                 );
                 self.mail_system_to_character(buyer, None, auction.current_bid, &message);
             }
-            let message = format!("你挂出的 {item_name} 已过期，物品已通过邮件退回。");
+            let message = self.format_for_character(
+                auction.seller_character_id,
+                TextKey::MarketMailItemExpired,
+                &[("item", &item_name)],
+            );
             self.mail_system_to_character(
                 auction.seller_character_id,
                 Some(auction.item.clone()),
@@ -1241,7 +1276,9 @@ impl World {
                 .skip(start)
                 .take(MARKET_PAGE_SIZE)
                 .filter_map(|auction_id| self.auction(*auction_id))
-                .map(|auction| auction.to_client_auction(state.user_match))
+                .map(|auction| {
+                    auction.to_client_auction(state.user_match, self.player_language(player_id))
+                })
                 .collect()
         };
         state.page_sent = page;
@@ -1357,13 +1394,18 @@ impl World {
                 }
                 self.gain_item(player_id, auction.item.clone());
                 // `Envir.MessageAccount(auction.SellerInfo.AccountInfo, SoldItemForGold…)`（`:8552`）
-                let seller_message =
-                    format!("你挂出的 {item_name} 已售出，收入 {} 金币。", auction.price);
-                self.message_character(auction.seller_character_id, &seller_message);
-                self.send_market_success(
-                    player_id,
-                    format!("你以 {} 金币买下了 {item_name}。", auction.price),
+                let seller_message = self.format_for_character(
+                    auction.seller_character_id,
+                    TextKey::MarketMailSold,
+                    &[("item", &item_name), ("gold", &auction.price.to_string())],
                 );
+                self.message_character(auction.seller_character_id, &seller_message);
+                let message = self.format(
+                    player_id,
+                    TextKey::MarketBought,
+                    &[("gold", &auction.price.to_string()), ("item", &item_name)],
+                );
+                self.send_market_success(player_id, message);
                 let _ = self.market_refresh(player_id);
                 Ok(())
             }
@@ -1379,9 +1421,13 @@ impl World {
                 // `if (auction.CurrentBuyerInfo != null) MailCharacter(CurrentBuyerInfo, gold: CurrentBid…)`
                 // （`:8564-8569`）
                 if let Some(previous_buyer) = auction.current_buyer_character_id {
-                    let refund = format!(
-                        "你在 {item_name} 上的出价被超过，{} 金币已通过邮件退回。",
-                        auction.current_bid
+                    let refund = self.format_for_character(
+                        previous_buyer,
+                        TextKey::MarketMailOutbidRefund,
+                        &[
+                            ("item", &item_name),
+                            ("gold", &auction.current_bid.to_string()),
+                        ],
                     );
                     self.mail_system_to_character(
                         previous_buyer,
@@ -1403,12 +1449,18 @@ impl World {
                         held,
                     });
                 }
-                let seller_message = format!("有人为 {item_name} 出价 {bid_price} 金币。");
-                self.message_character(auction.seller_character_id, &seller_message);
-                self.send_market_success(
-                    player_id,
-                    format!("你为 {item_name} 出价 {bid_price} 金币。"),
+                let seller_message = self.format_for_character(
+                    auction.seller_character_id,
+                    TextKey::MarketMailNewBid,
+                    &[("item", &item_name), ("bid", &bid_price.to_string())],
                 );
+                self.message_character(auction.seller_character_id, &seller_message);
+                let message = self.format(
+                    player_id,
+                    TextKey::MarketBidPlaced,
+                    &[("item", &item_name), ("bid", &bid_price.to_string())],
+                );
+                self.send_market_success(player_id, message);
                 let _ = self.market_refresh(player_id);
                 Ok(())
             }
@@ -1482,16 +1534,26 @@ impl World {
         }
         // 物品邮寄给最高出价者（`:8652`）
         if let Some(buyer) = auction.current_buyer_character_id {
-            let message = format!("你在拍卖中赢得了 {item_name}，成交价 {cost} 金币。");
+            let message = self.format_for_character(
+                buyer,
+                TextKey::MarketMailAuctionWon,
+                &[("item", &item_name), ("cost", &cost.to_string())],
+            );
             self.mail_system_to_character(buyer, Some(auction.item.clone()), 0, &message);
         }
         self.remove_auction(auction_id);
         // `GainGold(gold);`（`:8657`）
         self.gain_gold(player_id, gold);
-        self.send_market_success(
+        let message = self.format(
             player_id,
-            format!("你以 {cost} 金币卖出了 {item_name}，扣除佣金后收入 {gold} 金币。"),
+            TextKey::MarketSoldNow,
+            &[
+                ("cost", &cost.to_string()),
+                ("item", &item_name),
+                ("gold", &gold.to_string()),
+            ],
         );
+        self.send_market_success(player_id, message);
         let _ = self.market_refresh(player_id);
         Ok(())
     }
@@ -1649,7 +1711,9 @@ impl World {
                 .iter()
                 .take(MARKET_PAGE_SIZE)
                 .filter_map(|id| self.auction(*id))
-                .map(|auction| auction.to_client_auction(state.user_match))
+                .map(|auction| {
+                    auction.to_client_auction(state.user_match, self.player_language(player_id))
+                })
                 .collect()
         };
         // `Pages = (Search.Count - 1) / 10 + 1`（`:8419`）
@@ -1838,9 +1902,13 @@ impl World {
             }
             // 退还当前出价（`:8698-8703`）
             if let Some(buyer) = auction.current_buyer_character_id {
-                let message = format!(
-                    "你挂出的 {item_name} 已被卖家下架，{} 金币已通过邮件退回。",
-                    auction.current_bid
+                let message = self.format_for_character(
+                    buyer,
+                    TextKey::MarketMailItemWithdrawn,
+                    &[
+                        ("item", &item_name),
+                        ("gold", &auction.current_bid.to_string()),
+                    ],
                 );
                 self.mail_system_to_character(buyer, None, auction.current_bid, &message);
             }
@@ -1861,10 +1929,16 @@ impl World {
             }
             let gold = Auction::after_commission(cost);
             self.gain_gold(player_id, gold);
-            self.send_market_success(
+            let message = self.format(
                 player_id,
-                format!("你卖出了 {item_name}，成交价 {cost}，扣除佣金后收入 {gold} 金币。"),
+                TextKey::MarketMailSoldCommission,
+                &[
+                    ("item", &item_name),
+                    ("cost", &cost.to_string()),
+                    ("gold", &gold.to_string()),
+                ],
             );
+            self.send_market_success(player_id, message);
             return Ok(true);
         }
         Ok(false)
@@ -2092,10 +2166,12 @@ impl World {
         let mailed = mail_items.len();
         let mail_id = if mailed > 0 {
             let mail_id = self.mail_gameshop_to_character(character_id, mail_items);
-            self.send_system_chat(
+            let message = self.format(
                 player_id,
-                &format!("背包放不下的 {mailed} 份物品已寄到邮箱，请到邮局领取。"),
+                TextKey::GameshopMailedItems,
+                &[("count", &mailed.to_string())],
             );
+            self.send_system_chat(player_id, &message);
             Some(mail_id)
         } else {
             None
@@ -2464,6 +2540,11 @@ mod tests {
 
     #[test]
     fn consign_labels_match_crystal() {
+        // 期望值从语言模块取（不写死中文），并顺带断言中英两套都成立。
+        use mir_core::Language;
+        use mir_core::i18n::text;
+        let zh = Language::ZhCn;
+        let en = Language::En;
         let mut auction = Auction {
             id: 1,
             item: UserItem::default(),
@@ -2478,13 +2559,30 @@ mod tests {
             sold: false,
             item_type: MarketItemType::Consign,
         };
-        assert_eq!(auction.seller_label(false), "甲");
-        assert_eq!(auction.seller_label(true), "出售中");
+        assert_eq!(auction.seller_label(false, zh), "甲");
+        assert_eq!(
+            auction.seller_label(true, zh),
+            text(zh, TextKey::MarketLabelOnSale)
+        );
+        assert_eq!(
+            auction.seller_label(true, en),
+            text(en, TextKey::MarketLabelOnSale)
+        );
         auction.sold = true;
-        assert_eq!(auction.seller_label(true), "已售出");
+        assert_eq!(
+            auction.seller_label(true, zh),
+            text(zh, TextKey::MarketLabelSold)
+        );
+        assert_eq!(
+            auction.seller_label(true, en),
+            text(en, TextKey::MarketLabelSold)
+        );
         auction.sold = false;
         auction.expired = true;
-        assert_eq!(auction.seller_label(true), "已过期");
+        assert_eq!(
+            auction.seller_label(true, zh),
+            text(zh, TextKey::MarketLabelExpired)
+        );
 
         // 拍卖：`CurrentBid > Price ? "Bid Met" : "No Bid"`（`AuctionInfo.cs:98`）。
         let mut auction = Auction {
@@ -2495,11 +2593,17 @@ mod tests {
             sold: false,
             ..auction
         };
-        assert_eq!(auction.seller_label(true), "无人出价");
+        assert_eq!(
+            auction.seller_label(true, zh),
+            text(zh, TextKey::MarketLabelNoBid)
+        );
         auction.current_bid = 6_000;
-        assert_eq!(auction.seller_label(true), "已有出价");
+        assert_eq!(
+            auction.seller_label(true, en),
+            text(en, TextKey::MarketLabelHasBid)
+        );
         // `CreateClientAuction` 的 `Price` 取 `CurrentBid`（`AuctionInfo.cs:111`）。
-        assert_eq!(auction.to_client_auction(false).price, 6_000);
+        assert_eq!(auction.to_client_auction(false, zh).price, 6_000);
     }
 
     #[test]

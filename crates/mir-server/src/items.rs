@@ -56,6 +56,7 @@ use mir_core::enums::{
     BindMode, ItemType, MirClass, MirGender, MirGridType, RequiredClass, RequiredGender,
     RequiredType, Stat,
 };
+use mir_core::{Language, TextKey};
 use mir_protocol::data::{ItemInfo, UserItem};
 use mir_protocol::packets::server::{
     DeleteItem as DeleteItemPacket, DropItem as DropItemPacket, EquipItem as EquipItemPacket,
@@ -1159,8 +1160,14 @@ impl World {
                     info.grade,
                 ),
                 // 模板缺失时给一个可读的占位名，至少不会崩。
+                // 这是**全服共用**的 `S.ObjectItem`（没有查看者参数），用服务器默认语言；
+                // 需要按查看者语言逐人编码时再改成 per-viewer 的帧生成。
                 None => (
-                    format!("<未知物品 {}>", item.item_index),
+                    mir_core::i18n::format_text(
+                        Language::ZhCn,
+                        TextKey::ItemUnknownPlaceholder,
+                        &[("item_index", &item.item_index.to_string())],
+                    ),
                     0,
                     mir_core::enums::ItemGrade::default(),
                 ),
@@ -1787,10 +1794,12 @@ impl World {
             ItemType::Scroll => {
                 // 简化：传送/回城/祝福油/修复油等卷轴需要传送、武器幸运、修理子系统，
                 // 本作没有；直接拒绝并提示，不消耗物品（Crystal 会把不认识的花色照样吃掉）。
-                self.send_system_chat(
+                let message = self.format(
                     object_id,
-                    &format!("「{}」的效果尚未实现，物品没有被消耗。", info.name),
+                    TextKey::ItemEffectNotImplemented,
+                    &[("item", &info.name)],
                 );
+                self.send_system_chat(object_id, &message);
                 self.send_use_item_failure(object_id, unique_id);
                 return Err(ItemError::UnsupportedItem {
                     item_index: info.index,
@@ -1807,7 +1816,8 @@ impl World {
             }
             ItemType::Food => {
                 // 简化：食物只用来喂坐骑（`PlayerObject.cs:6093-6117`），本作没有坐骑。
-                self.send_system_chat(object_id, "本作还不能骑乘，食物暂时用不上。");
+                let message = self.text(object_id, TextKey::ItemMountNotImplemented);
+                self.send_system_chat(object_id, &message);
                 self.send_use_item_failure(object_id, unique_id);
                 return Err(ItemError::UnsupportedItem {
                     item_index: info.index,
@@ -1864,7 +1874,8 @@ impl World {
             0 => {
                 // 满血/满蓝喝下去毫无效果 → 本作直接拒绝（**扩展**，Crystal 会白喝）。
                 if !potion_has_effect(hp_amount, hp, max_hp, mp_amount, mp, max_mp) {
-                    self.send_system_chat(object_id, "生命和魔法都是满的，药水没有效果。");
+                    let message = self.text(object_id, TextKey::ItemPotionNoEffectFull);
+                    self.send_system_chat(object_id, &message);
                     return Err(ItemError::PotionNoEffect);
                 }
                 let (pot_hp, pot_mp) = {
@@ -1886,7 +1897,8 @@ impl World {
             }
             1 => {
                 if !potion_has_effect(hp_amount, hp, max_hp, mp_amount, mp, max_mp) {
-                    self.send_system_chat(object_id, "生命和魔法都是满的，药水没有效果。");
+                    let message = self.text(object_id, TextKey::ItemPotionNoEffectFull);
+                    self.send_system_chat(object_id, &message);
                     return Err(ItemError::PotionNoEffect);
                 }
                 // `ChangeHP(item.Info.Stats[Stat.HP]); ChangeMP(item.Info.Stats[Stat.MP]);`
@@ -1905,13 +1917,15 @@ impl World {
             2 => {
                 // `UnlockCurse = true;`（`:5847`）+ 两条提示（`:5840-5846`）。
                 if self.players[&object_id].unlock_curse {
-                    self.send_system_chat(object_id, "你已经可以卸下诅咒装备了。");
+                    let message = self.text(object_id, TextKey::ItemCurseLifted);
+                    self.send_system_chat(object_id, &message);
                     return Err(ItemError::PotionNoEffect);
                 }
                 if let Some(player) = self.players.get_mut(&object_id) {
                     player.unlock_curse = true;
                 }
-                self.send_system_chat(object_id, "你现在可以卸下诅咒装备了。");
+                let message = self.text(object_id, TextKey::ItemCurseLiftedNow);
+                self.send_system_chat(object_id, &message);
             }
             3 => {
                 // `int time = item.Info.Durability;`（`:5850`），单位是**分钟**。
@@ -1976,12 +1990,14 @@ impl World {
         // （Rust 侧的 `ItemInfo::default()` 是 0，而 C# 字段初值是 `None`）。
         let required_gender = info.required_gender.0;
         if required_gender != 0 && required_gender & gender_flag(player.gender) == 0 {
-            self.send_system_chat(object_id, "你的性别无法使用这件物品。");
+            let message = self.text(object_id, TextKey::ItemWrongGender);
+            self.send_system_chat(object_id, &message);
             return Err(ItemError::WrongGender);
         }
         let required_class = info.required_class.0;
         if required_class != 0 && required_class & class_flag(player.class) == 0 {
-            self.send_system_chat(object_id, "你的职业无法使用这件物品。");
+            let message = self.text(object_id, TextKey::ItemWrongClass);
+            self.send_system_chat(object_id, &message);
             return Err(ItemError::WrongClass {
                 required: info.required_class,
                 class: player.class,
@@ -1990,10 +2006,12 @@ impl World {
         if info.required_type == RequiredType::Level
             && player.level < u16::from(info.required_amount)
         {
-            self.send_system_chat(
+            let message = self.format(
                 object_id,
-                &format!("等级不够：需要 {} 级。", info.required_amount),
+                TextKey::ItemLevelTooLow,
+                &[("required", &info.required_amount.to_string())],
             );
+            self.send_system_chat(object_id, &message);
             return Err(ItemError::LowLevel {
                 required: info.required_amount,
                 level: player.level,
@@ -2002,10 +2020,12 @@ impl World {
         if info.required_type == RequiredType::MaxLevel
             && player.level > u16::from(info.required_amount)
         {
-            self.send_system_chat(
+            let message = self.format(
                 object_id,
-                &format!("等级过高：最多 {} 级可用。", info.required_amount),
+                TextKey::ItemLevelTooHigh,
+                &[("max", &info.required_amount.to_string())],
             );
+            self.send_system_chat(object_id, &message);
             return Err(ItemError::LowLevel {
                 required: info.required_amount,
                 level: player.level,
@@ -2013,7 +2033,8 @@ impl World {
         }
         // `case 6: if (!Dead) { …; return false; }`（`:1195-1200`）。
         if info.item_type == ItemType::Scroll && info.shape == 6 && !player.dead {
-            self.send_system_chat(object_id, "你还没有死亡，不能使用复活卷轴。");
+            let message = self.text(object_id, TextKey::ItemReviveNotDead);
+            self.send_system_chat(object_id, &message);
             return Err(ItemError::UnsupportedItem {
                 item_index: info.index,
                 shape: info.shape,

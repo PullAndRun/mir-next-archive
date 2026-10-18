@@ -136,7 +136,7 @@ pub enum StorageError {
     /// 源格是空的（`temp == null`，`PlayerObject.cs:5425-5429`、`:5506-5510`）。
     #[error("{grid} 的 {index} 号格是空的")]
     EmptySlot {
-        /// `"背包"` 或 `"仓库"`。
+        /// `"Inventory"` 或 `"Storage"`（只用于日志 Display）。
         grid: &'static str,
         /// 格子下标。
         index: i32,
@@ -375,7 +375,7 @@ impl World {
             .get(&player_id)
             .and_then(|player| player.inventory.get(from_index).cloned().flatten())
             .ok_or(StorageError::EmptySlot {
-                grid: "背包",
+                grid: "Inventory",
                 index: from,
             })?;
         if cannot_store(self, &item) {
@@ -469,7 +469,7 @@ impl World {
             .get(&player_id)
             .and_then(|player| player.storage.get(from_index).cloned().flatten())
             .ok_or(StorageError::EmptySlot {
-                grid: "仓库",
+                grid: "Storage",
                 index: from,
             })?;
         // `Info.Inventory[to] == null` 才成功（`:5512-5525`）。

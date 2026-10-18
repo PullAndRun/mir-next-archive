@@ -51,6 +51,8 @@ use mir_core::enums::{
     AttackMode, ChatType, DamageType, DefenceType, DoorState, MirClass, MirDirection, MirGender,
     MonsterType, PoisonType, Spell, SpellEffect, Stat,
 };
+use mir_core::i18n::LanguageLibrary;
+use mir_core::{Language, TextKey};
 use mir_protocol::ServerPacket;
 use mir_protocol::data::UserItem;
 use mir_protocol::packets::server::{
@@ -657,6 +659,17 @@ pub struct World {
     /// 本作单独维护一份索引，主人下线/死亡、召唤物死亡时 O(1) 找到需要清理的对象，
     /// 不必遍历全部怪物。
     pub(crate) pets: HashMap<u32, Vec<u32>>,
+    /// 每个在线玩家的当前语言（`object_id → Language`）。
+    ///
+    /// 不放在 [`Player`] 上是为了避免改动 30+ 处 `Player {}` 字面量（测试/会话层）；
+    /// 登录与 `/language` 切换由 `session.rs` 调 [`World::set_player_language`] 写入，
+    /// 玩家离开世界时在 [`World::leave`] 里移除，避免对象 ID 复用串语言。
+    pub(crate) player_languages: HashMap<u32, Language>,
+    /// 服务器语言包（`config/lang/*.json`，由 `server.rs` 注入）。
+    ///
+    /// `None` 时 [`World::text`]/[`World::format`] 回落到 `mir_core::i18n` 的内置模板，
+    /// 与 [`LanguageLibrary::text`]/[`LanguageLibrary::format`] 同口径。
+    pub(crate) languages: Option<Arc<LanguageLibrary>>,
     /// 刷怪组运行状态（Crystal 每张 `Map` 的 `Respawns` 列表，`Server/MirEnvir/Map.cs:473-488`）。
     respawn_groups: Vec<RespawnGroupState>,
     /// 地面物品（Crystal `Envir.Objects` 里 `ObjectType.Item` 的那部分，见 `crate::items`）。
@@ -855,6 +868,8 @@ impl World {
             spell_fields: Vec::new(),
             next_spell_cast_id: 1,
             pets: HashMap::new(),
+            player_languages: HashMap::new(),
+            languages: None,
             respawn_groups: Vec::new(),
             ground_items: Vec::new(),
             game_data: None,
@@ -922,6 +937,8 @@ impl World {
             spell_fields: Vec::new(),
             next_spell_cast_id: 1,
             pets: HashMap::new(),
+            player_languages: HashMap::new(),
+            languages: None,
             respawn_groups: Vec::new(),
             ground_items: Vec::new(),
             game_data: None,
@@ -1097,6 +1114,64 @@ impl World {
     /// 按对象 ID 取玩家（可变）。
     pub fn player_mut(&mut self, object_id: u32) -> Option<&mut Player> {
         self.players.get_mut(&object_id)
+    }
+
+    /// 注入服务器语言包（`config/lang/*.json`，`server.rs` 启动时调用）。
+    ///
+    /// 不注入也能工作：[`World::text`]/[`World::format`] 会回落到 `mir_core::i18n`
+    /// 的内置模板，只是不享受语言包覆盖层。
+    pub fn set_languages(&mut self, languages: Arc<LanguageLibrary>) {
+        self.languages = Some(languages);
+    }
+
+    /// 设置玩家当前语言：登录时按账号语言写入，`/language` 切换成功后同步。
+    pub fn set_player_language(&mut self, object_id: u32, language: Language) {
+        self.player_languages.insert(object_id, language);
+    }
+
+    /// 玩家当前语言；对象不在世界里时按服务器默认语言（简体中文）处理。
+    #[must_use]
+    pub fn player_language(&self, object_id: u32) -> Language {
+        self.player_languages
+            .get(&object_id)
+            .copied()
+            .unwrap_or(Language::ZhCn)
+    }
+
+    /// 按玩家语言取一条无参文本（语言包覆盖层优先，缺失时回落内置模板）。
+    #[must_use]
+    pub fn text(&self, object_id: u32, key: TextKey) -> String {
+        let language = self.player_language(object_id);
+        self.languages.as_ref().map_or_else(
+            || mir_core::i18n::text(language, key).to_owned(),
+            |library| library.text(language, key),
+        )
+    }
+
+    /// 按玩家语言渲染一条带参文本（`{name}` 占位符，缺参原样保留）。
+    #[must_use]
+    pub fn format(&self, object_id: u32, key: TextKey, args: &[(&str, &str)]) -> String {
+        let language = self.player_language(object_id);
+        self.languages.as_ref().map_or_else(
+            || mir_core::i18n::format_text(language, key, args),
+            |library| library.format(language, key, args),
+        )
+    }
+
+    /// 向某张地图上的所有玩家广播一条系统聊天，**逐收件人**按各自语言渲染
+    /// （多语言项目不能只发一份默认语言；顺序按玩家对象 ID 升序，保证可回放）。
+    pub fn broadcast_text(&mut self, map: &str, key: TextKey, args: &[(&str, &str)]) {
+        let mut recipients: Vec<u32> = self
+            .players
+            .iter()
+            .filter(|(_, player)| player.map == map)
+            .map(|(object_id, _)| *object_id)
+            .collect();
+        recipients.sort_unstable();
+        for object_id in recipients {
+            let message = self.format(object_id, key, args);
+            self.send_system_chat(object_id, &message);
+        }
     }
 
     /// 按对象 ID 取怪物。
@@ -1460,6 +1535,10 @@ impl World {
         let position = player.position;
         let has_equipment = player.equipment.iter().any(Option::is_some);
         self.players.insert(object_id, player);
+        // 默认语言：登录后由 `session.rs` 按账号语言覆盖；测试/工具直接 `enter` 时保持简体中文。
+        self.player_languages
+            .entry(object_id)
+            .or_insert(Language::ZhCn);
         // AOI：新玩家登记进网格，并把他写进周围玩家的「已看见玩家」集合
         // （Crystal 的 `AddObjects` 是双向的，`HumanObject.cs:8447-8457`）。
         self.aoi_insert(&map_name, object_id, AoiKind::Player, position);
@@ -1517,6 +1596,8 @@ impl World {
         self.trade_cancel(object_id);
         // 市场浏览状态随对象销毁（Crystal 的 `PlayerObject.Search` 等字段）。
         self.market_searches.remove(&object_id);
+        // 语言映射随对象销毁：对象 ID 会被复用，不清掉会让新玩家继承旧语言。
+        self.player_languages.remove(&object_id);
         self.players.remove(&object_id)
     }
 
@@ -2685,7 +2766,8 @@ impl World {
             && self.players.contains_key(&hitter_id)
         {
             if self.at_war(player_id, hitter_id) || self.in_war_zone(player_id) {
-                self.send_system_chat(hitter_id, "你受到了法律的保护。");
+                let message = self.text(hitter_id, TextKey::PkProtectedByLaw);
+                self.send_system_chat(hitter_id, &message);
             } else if now > victim_brown && victim_pk < RED_NAME_PK_POINTS {
                 let mut cursed = None;
                 if let Some(hitter) = self.players.get_mut(&hitter_id) {

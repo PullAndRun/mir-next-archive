@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use mir_core::Point;
 use mir_core::enums::{ChatType, MirClass, MirDirection, MirGender};
+use mir_core::i18n::{Language, TextKey, format_text};
 use mir_db::{MapInfo, MirDb};
 use mir_protocol::ServerPacket;
 use mir_server::gamedata::GameData;
@@ -301,8 +302,13 @@ fn invite_unknown_name_is_rejected_with_a_hint() {
     );
     let packets = harness.packets(alice);
     let hints = system_chats(&packets);
+    let expected = format_text(
+        Language::ZhCn,
+        TextKey::GroupInviteTargetMissing,
+        &[("name", "查无此人")],
+    );
     assert!(
-        hints.iter().any(|hint| hint.contains("查无此人")),
+        hints.iter().any(|hint| hint == &expected),
         "应提示找不到该玩家，实际 {hints:?}"
     );
 }
@@ -417,8 +423,9 @@ fn invite_expires_after_the_extension_timeout() {
     assert!(harness.world.group_invitation_of(bob).is_none());
     let packets = harness.packets(bob);
     let hints = system_chats(&packets);
+    let expected = format_text(Language::ZhCn, TextKey::GroupJoinExpired, &[]);
     assert!(
-        hints.iter().any(|hint| hint.contains("过期")),
+        hints.iter().any(|hint| hint == &expected),
         "应提示邀请过期，实际 {hints:?}"
     );
 }
@@ -548,8 +555,13 @@ fn decline_notifies_the_inviter_without_creating_a_group() {
     );
     let packets = harness.packets(alice);
     let hints = system_chats(&packets);
+    let expected = format_text(
+        Language::ZhCn,
+        TextKey::GroupJoinDeclined,
+        &[("invitee_name", "Bob")],
+    );
     assert!(
-        hints.iter().any(|hint| hint.contains("拒绝")),
+        hints.iter().any(|hint| hint == &expected),
         "邀请者应收到拒绝提示，实际 {hints:?}"
     );
     assert!(
@@ -574,8 +586,9 @@ fn accepting_without_an_invitation_is_rejected() {
     );
     let packets = harness.packets(alice);
     let hints = system_chats(&packets);
+    let expected = format_text(Language::ZhCn, TextKey::GroupJoinNoInvite, &[]);
     assert!(
-        hints.iter().any(|hint| hint.contains("没有收到")),
+        hints.iter().any(|hint| hint == &expected),
         "应提示没有邀请，实际 {hints:?}"
     );
 }

@@ -68,6 +68,7 @@ use std::collections::HashMap;
 
 use mir_core::MirRng;
 use mir_core::Point;
+use mir_core::TextKey;
 use mir_core::enums::{
     BuffType, DamageType, DefenceType, ItemType, MirClass, MirDirection, MirGridType, PoisonType,
     RequiredClass, Spell, Stat,
@@ -955,10 +956,12 @@ impl World {
             return Err(MagicError::UnknownSpell(spell));
         }
         if self.player_magic(object_id, spell).is_some() {
-            self.send_system_chat(
+            let message = self.format(
                 object_id,
-                &format!("你已经学会了「{}」，不需要再学一次。", info.name),
+                TextKey::MagicAlreadyLearned,
+                &[("spell", &info.name)],
             );
+            self.send_system_chat(object_id, &message);
             self.use_item_failure(object_id, unique_id);
             return Err(MagicError::AlreadyLearned(spell));
         }
@@ -2181,7 +2184,8 @@ impl World {
         if self.recycle_oldest_fire_wall(map, caster_id) {
             true
         } else {
-            self.send_system_chat(caster_id, "火墙数量已达上限，请稍后再试。");
+            let message = self.text(caster_id, TextKey::MagicFirewallLimit);
+            self.send_system_chat(caster_id, &message);
             false
         }
     }
@@ -2470,7 +2474,8 @@ impl World {
             .and_then(|data| data.map_info(&map))
             .is_some_and(|info| info.no_teleport)
         {
-            self.send_system_chat(caster_id, "这张地图不能使用瞬息移动。");
+            let message = self.text(caster_id, TextKey::MagicTeleportForbidden);
+            self.send_system_chat(caster_id, &message);
             return false;
         }
         let (max_x, max_y) = self.map_bounds(&map);
@@ -2661,7 +2666,8 @@ impl World {
             .and_then(|data| data.map_info(&map))
             .is_some_and(|info| info.no_pets)
         {
-            self.send_system_chat(caster_id, "这张地图不能召唤宠物。");
+            let message = self.text(caster_id, TextKey::MagicSummonForbidden);
+            self.send_system_chat(caster_id, &message);
             return None;
         }
         // 同名活宠：只召回（Crystal 比较 `Settings.SkeletonName`/`ShinsuName`）。

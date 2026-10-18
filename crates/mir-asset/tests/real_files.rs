@@ -116,6 +116,11 @@ fn decodes_real_wzl_libraries() {
         assert!(decoded >= 8, "{name}: 抽样只解码了 {decoded} 张，少于 8 张");
         tested += 1;
     }
+    // CI 上没有 `resource/`（被 gitignore），此时没有可测样本，按文件头的约定跳过而不是失败。
+    if tested == 0 {
+        eprintln!("跳过：没有找到任何可解码的 .wzl 样本（resource/ 被 gitignore）");
+        return;
+    }
     assert!(tested >= 3, "至少检查 3 个 .wzl，实际 {tested} 个");
 }
 

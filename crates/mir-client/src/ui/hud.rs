@@ -144,9 +144,13 @@ pub fn draw_status(
         text.draw_right(
             frame,
             layout.gold.right(),
-            layout.gold.y,
-            &labels::gold_text(language, me.gold),
-            SIZE_BODY,
+            layout.gold.y + 2,
+            &format!(
+                "{} · {}",
+                labels::gold_text(language, me.gold),
+                labels::credit_text(language, me.credit)
+            ),
+            SIZE_SMALL,
             GOLD_COLOR,
         );
     } else {

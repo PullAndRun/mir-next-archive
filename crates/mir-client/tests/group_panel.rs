@@ -239,6 +239,7 @@ fn group_snapshot() -> WorldSnapshot {
             image: 0,
             looks: mir_client::net::PlayerLooks::default(),
             dead: false,
+            hidden: false,
             hp_percent: None,
             level: 22,
             class: MirClass::Wizard,

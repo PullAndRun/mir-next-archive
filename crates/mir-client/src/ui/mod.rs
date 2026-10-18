@@ -46,8 +46,11 @@ pub mod market;
 pub mod minimap;
 pub mod notice;
 pub mod quests;
+pub mod select;
+pub mod settings;
 pub mod shop;
 pub mod skills;
+pub mod spellfx;
 pub mod storage;
 pub mod target;
 pub mod text;
@@ -377,6 +380,20 @@ pub enum UiAction {
         /// 面板类型。
         panel: MarketPanelType,
     },
+    /// 商城购买（`C.GameshopBuy`，包 133）。
+    ///
+    /// 商城页签里列表条目的 `auction_id` 就是商品 `GIndex`（户部契约），
+    /// `p_type = 0` 用元宝结算、`1` 用金币结算。
+    GameShopBuy {
+        /// 商品编号（`MarketListing.auction_id`）。
+        g_index: i32,
+        /// 购买份数（1..=99）。
+        quantity: u8,
+        /// 结算货币：`0` 元宝 / `1` 金币。
+        p_type: i32,
+    },
+    /// 设置面板动作（音量/语言/显示）；窗口层落实并写回设置文件，不发网络包。
+    Settings(settings::SettingsAction),
 }
 
 impl UiAction {
@@ -545,6 +562,15 @@ impl UiAction {
                 unique_id: *unique_id,
                 price: *price,
                 panel: *panel,
+            }),
+            Self::GameShopBuy {
+                g_index,
+                quantity,
+                p_type,
+            } => Some(NetCommand::GameShopBuy {
+                g_index: *g_index,
+                quantity: *quantity,
+                p_type: *p_type,
             }),
             Self::WalkStep { direction, run } => Some(if *run {
                 NetCommand::Run(*direction)
@@ -897,6 +923,10 @@ pub struct UiState {
     pub show_minimap: bool,
     /// 大地图面板是否打开（`B`，Crystal `BigMapDialog.Toggle()`，`GameScene.cs:774`）。
     pub show_bigmap: bool,
+    /// 设置面板是否打开（`O` / `F12`，Crystal `OptionDialog`）。
+    pub show_settings: bool,
+    /// 设置面板的可编辑状态（窗口层用设置文件初始化，每个动作写回文件）。
+    pub settings: settings::SettingsState,
     /// 小地图渲染器（`resource/data/mmap.wzl`；缺素材时是空场景，画纯色占位）。
     pub minimap_scene: mir_render::MinimapScene,
     /// 鼠标位置（物理像素，与帧坐标一致）。
@@ -1012,6 +1042,8 @@ impl UiState {
             focus: None,
             show_minimap: false,
             show_bigmap: false,
+            show_settings: false,
+            settings: settings::SettingsState::default(),
             minimap_scene: mir_render::MinimapScene::empty(),
             mouse: Point::new(0, 0),
             target_object_id: None,
@@ -1396,6 +1428,7 @@ impl UiState {
         self.show_guild = false;
         self.show_group = false;
         self.show_bigmap = false;
+        self.show_settings = false;
         self.close_trade();
         self.close_market();
         self.focus = None;
@@ -1493,6 +1526,17 @@ impl UiState {
         self.show_bigmap = !self.show_bigmap;
     }
 
+    /// 开关设置面板（`O`，Crystal `KeybindOptions.Options2` 的默认键，
+    /// `Client/KeyBindSettings.cs:223-224`；`F12` 是同组的另一个默认键）。
+    ///
+    /// 打开时清掉输入焦点，避免上一次聊天/表单的焦点把字符键吃掉。
+    pub fn toggle_settings(&mut self) {
+        self.show_settings = !self.show_settings;
+        self.focus = None;
+        // 面板里的语言/音量显示与当前界面保持一致（窗口层每次打开前也会同步）。
+        self.settings.language = self.language;
+    }
+
     /// 鼠标是否落在大地图面板上（面板开着时吃掉点击，避免误点成走路）。
     #[must_use]
     pub fn bigmap_clicked(&self, frame: Rect) -> bool {
@@ -1510,6 +1554,12 @@ impl UiState {
         }
         if self.drag.is_some() {
             self.drag = None;
+            return EscapeResult::Panels;
+        }
+        // 设置面板是模态的，`Esc` 先收它（Crystal `OptionDialog.Hide()`）。
+        if self.show_settings {
+            self.show_settings = false;
+            self.focus = None;
             return EscapeResult::Panels;
         }
         // 需求：`Esc` 关闭大地图（Crystal 的 `Closeall` 也会收起对话框，
@@ -1594,6 +1644,9 @@ impl UiState {
     #[must_use]
     pub fn pointer_over_panel(&self, snapshot: &WorldSnapshot, text: &UiText, frame: Rect) -> bool {
         if self.invite_open() {
+            return true;
+        }
+        if self.show_settings && settings::settings_layout(frame).panel.contains(self.mouse) {
             return true;
         }
         if self.show_bigmap && bigmap::panel_rect(frame).contains(self.mouse) {
@@ -2169,6 +2222,22 @@ impl UiState {
         vec![self.market_search_action()]
     }
 
+    /// 商城购买数量：输入框夹到 `1..=99`，再按「5 组」上限夹一次。
+    ///
+    /// Crystal 在 `MirGameShopCell.cs:148-153` 这样算：
+    /// `if ((decimal)(Quantity * Item.Count) / Item.Info.StackSize) > 5` 时把数量夹到
+    /// `(5 * StackSize) / Count`；客户端先夹可以避免服务端对「超过 5 组」**静默丢弃**
+    /// （Crystal 语义，户部实现一致）。列表条目不带库存（售罄条目直接不下发），
+    /// 所以没有再按库存夹；模板缺失时只做 1..=99 的夹取。
+    fn market_quantity(&self, snapshot: &WorldSnapshot, listing: &crate::net::MarketListing) -> u8 {
+        let requested = self.market_price.number().clamp(1, 99);
+        let per_purchase = u32::from(listing.count.max(1));
+        let max_by_stacks = snapshot.item_info(listing.item_index).map_or(99, |info| {
+            (5 * u32::from(info.stack_size.max(1)) / per_purchase).max(1)
+        });
+        u8::try_from(requested.min(max_by_stacks).clamp(1, 99)).unwrap_or(1)
+    }
+
     /// 当前页签的搜索动作（关键字取搜索框；外观区间用 Crystal `MarketSearch` 的
     /// 缺省值 0..=5000，`Shared/ClientPackets.cs:1571`）。
     fn market_search_action(&self) -> UiAction {
@@ -2209,8 +2278,15 @@ impl UiState {
             self.market_page = 0;
             self.market_scroll = 0;
             // Crystal 切页签会清空价格框（`PriceTextBox.Text = null`，
-            // `TrustMerchantDialog.cs:1183`、`:1233`）。
-            self.market_price = input::TextField::numeric(9);
+            // `TrustMerchantDialog.cs:1183`、`:1233`）；商城页签复用同一个输入框当
+            // 「购买数量」，默认 1 份。
+            self.market_price = if tab == MarketPanelType::GameShop {
+                let mut field = input::TextField::numeric(2);
+                field.set("1");
+                field
+            } else {
+                input::TextField::numeric(9)
+            };
             self.focus = None;
             // `S.NPCConsign` 的 NPC 页是 `[@CONSIGN]`：服务端只接受上架，搜索/翻页要先
             // 回到 `[@MARKET]` 页（`crates/mir-server/src/market.rs` 的 `check_market_npc`）。
@@ -2221,6 +2297,8 @@ impl UiState {
                     key: market::MARKET_KEY.to_owned(),
                 });
             }
+            // 商城页签打开时发 `C.MarketSearch{MarketType=GameShop}`（Crystal
+            // `TrustMerchantDialog.cs:1302-1309`），列表由服务端 `S.NPCMarket` 下发。
             return Some(self.market_search_action());
         }
         if market::has_sell_form(self.market_tab) {
@@ -2265,7 +2343,10 @@ impl UiState {
             self.market_selected = Some(listing.auction_id);
             // 拍卖条目：按 Crystal 的 `MirAmountBox` 预填「当前价 + 1」
             // （`TrustMerchantDialog.cs:421`）；寄售是一口价，清掉残留的出价。
-            if !market::is_user_mode(self.market_tab) {
+            // 商城页签的输入框是「数量」，选中商品时保持原值。
+            if !market::is_user_mode(self.market_tab)
+                && self.market_tab != MarketPanelType::GameShop
+            {
                 if listing.item_type == mir_core::enums::MarketItemType::Auction {
                     let minimum = listing.price.saturating_add(1);
                     if self.market_price.number() <= listing.price {
@@ -2307,6 +2388,15 @@ impl UiState {
                 return Some(UiAction::MarketGetBack {
                     mode: MarketCollectionMode::Any,
                     auction_id: listing.auction_id,
+                });
+            }
+            // 商城页签：`C.GameshopBuy`（包 133），数量取输入框（1..=99），元宝结算。
+            if self.market_tab == MarketPanelType::GameShop {
+                let quantity = self.market_quantity(snapshot, listing);
+                return Some(UiAction::GameShopBuy {
+                    g_index: i32::try_from(listing.auction_id).unwrap_or(0),
+                    quantity,
+                    p_type: 0,
                 });
             }
             // 拍卖出价：输入框空着就用当前价（服务端只拒绝 `current_bid > bid`）。
@@ -2588,6 +2678,20 @@ impl UiState {
             return Some(action);
         }
         if self.invite_open() {
+            return None;
+        }
+        // 设置面板是模态的：打开时吃掉所有点击（面板外的点击也吞掉，`Esc` 或「关闭」退出），
+        // 与 Crystal `OptionDialog`（`MainDialogs.cs` 的对话框基类）一致。
+        if self.show_settings {
+            let layout = settings::settings_layout(frame);
+            if let Some(action) = settings::click(&layout, &mut self.settings, self.mouse) {
+                if action == settings::SettingsAction::Close {
+                    self.show_settings = false;
+                    self.focus = None;
+                    return None;
+                }
+                return Some(UiAction::Settings(action));
+            }
             return None;
         }
         if let Some(page) = &self.dialog {
@@ -3327,6 +3431,18 @@ pub fn draw(
         center,
         state.time_millis,
     );
+    // 技能表现（`S.Magic` / `S.ObjectMagic` / `S.ObjectSpell`）：火墙的区域、
+    // 雷电的路径、瞬息移动的落点、隐身/召唤的光环。
+    spellfx::draw(
+        frame,
+        &snapshot.spell_events,
+        snapshot,
+        scene,
+        center,
+        text,
+        state.language,
+        state.time_millis,
+    );
     let context = PanelContext {
         snapshot,
         text,
@@ -3596,6 +3712,13 @@ pub fn draw(
         draw_dialog(frame, screen, page, text, state.language, state.mouse);
     }
 
+    // 设置面板是模态的：画在普通面板之上、邀请弹窗之下。
+    if state.show_settings {
+        let layout = settings::settings_layout(screen);
+        let settings_state = state.settings.clone();
+        settings::draw(frame, &layout, &settings_state, text);
+    }
+
     // 邀请弹窗（交易/组队）压在其它面板之上；它们也是模态的（吃掉点击）。
     if let Some(name) = &state.trade_invite {
         let layout = notice::notice_layout(screen);
@@ -3607,7 +3730,7 @@ pub fn draw(
         notice::draw(frame, text, &layout, &message, state.language, state.mouse);
     }
 
-    if state.context_menu.is_none() {
+    if state.context_menu.is_none() && !state.show_settings {
         if let Some(item) = hovered_item(state, snapshot, screen) {
             let content = tooltip::content_for_item(snapshot, item, state.language);
             let layout = tooltip::layout(&content, text, screen, state.mouse);
@@ -3826,6 +3949,7 @@ mod tests {
                 gender: MirGender::Male,
                 hair: 0,
                 gold: 4_321,
+                credit: 0,
                 dead: false,
                 action: mir_render::animation::ActorAction::Standing,
                 action_started_ms: 0,
@@ -3879,6 +4003,7 @@ mod tests {
                 image: 1,
                 looks: crate::net::PlayerLooks::default(),
                 dead: false,
+                hidden: false,
                 hp_percent: None,
                 level: 0,
                 class: MirClass::Warrior,
@@ -4344,6 +4469,7 @@ mod tests {
                 image: 1,
                 looks: crate::net::PlayerLooks::default(),
                 dead: false,
+                hidden: false,
                 hp_percent: Some(hp_percent),
                 level: 0,
                 class: MirClass::Warrior,

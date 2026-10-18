@@ -1,20 +1,29 @@
-//! 市场 / 寄售 / 拍卖面板（Crystal `TrustMerchantDialog`，
+//! 市场 / 寄售 / 拍卖 / 商城面板（Crystal `TrustMerchantDialog`，
 //! `Client/MirScenes/Dialogs/TrustMerchantDialog.cs`）。
 //!
-//! 三个页签对应协议里的 `MarketPanelType`：
+//! 四个页签对应协议里的 `MarketPanelType`：
 //!
 //! | 页签 | `C.MarketSearch.UserMode` | 列表内容 | 主按钮 |
 //! |---|---|---|---|
 //! | 市场 | `false` | 全部在售条目 | 寄售「买下」/ 拍卖「出价」（`C.MarketBuy`） |
 //! | 寄售 | `true` | 自己挂的寄售 | 「取回」（`C.MarketGetBack{Any}`） |
 //! | 拍卖 | `true` | 自己挂的拍卖 | 「取回」；选中已有人出价的条目可「提前成交」（`C.MarketSellNow`） |
+//! | 商城 | `false` | 服务端商城目录（`S.NPCMarket`，`item_type = GameShop`） | 「购买」（`C.GameshopBuy`，元宝结算） |
 //!
-//! 布局参考 Crystal：顶部三个页签（`MarketButton` / `ConsignmentButton` /
-//! `AuctionButton`，`TrustMerchantDialog.cs:96-141`）、中间 10 行列表
+//! 布局参考 Crystal：顶部页签（`MarketButton` / `ConsignmentButton` / `AuctionButton`
+//! / `GameShopButton`，`TrustMerchantDialog.cs:96-155`）、中间 10 行列表
 //! （`AuctionRow`，`:593-605`）、底部搜索/刷新/翻页/买/卖/收款按钮
 //! （`:182-232`、`:309-482`）。寄售页的「拖入物品 + 填价 + 上架」
 //! （`:544-587`）简化成「在背包里选中物品 → 填价 → 上架」：市场窗口打开时
 //! 背包也一起显示（Crystal `Show()` 同样把背包移到窗口旁边，`:1435-1436`）。
+//!
+//! **与 Crystal 的差异**：Crystal 的商城按钮默认隐藏（`Show()` 里
+//! `GameShopButton.Visible = false`，`TrustMerchantDialog.cs:1426-1432`，只有
+//! `Show(gameshop: true)` 才显示，而那个入口没被调用）；本作把它做成常显的第四个
+//! 页签（需求「商城页签」）。商城页签仅支持**元宝**结算（`p_type = 0`），金币支付
+//! 留给独立商城窗口（`GameshopDialog`）。列表**不显示实时库存**：售罄条目仍会列出，
+//! 购买时由服务端回「库存不足」；「库存」列显示「在售」只是占位（与户部契约一致，
+//! 见 `docs/world/gameshop.md` §7.3）。
 //!
 //! 与既有的 [`crate::ui::shop`] / [`crate::ui::trade`] 一样，布局函数与命中测试共用
 //! 同一份矩形，所以无头测试可以在不开窗口的情况下点中每一个按钮。
@@ -76,11 +85,16 @@ pub const CONSIGNMENT_LENGTH_SECONDS: i64 = 7 * 24 * 60 * 60;
 /// 打开市场列表的 NPC 脚本页键：`NPCScript.MarketKey = "[@MARKET]"`（`NPCScript.cs:57`）。
 pub const MARKET_KEY: &str = "[@MARKET]";
 
-/// 页签顺序（Crystal 的 Market / Consign / Auction 三个按钮）。
-pub const TABS: [MarketPanelType; 3] = [
+/// 页签顺序（Crystal 的 Market / Consign / Auction 三个按钮 + 手动打开的商城页签）。
+///
+/// 商城（`MarketPanelType::GameShop`）是市场面板里的第四个页签：Crystal 里它由
+/// `GameShopButton` 打开（`TrustMerchantDialog.cs:143-155`），列表走
+/// `S.NPCMarket`（`market_type = GameShop`），价格是元宝。
+pub const TABS: [MarketPanelType; 4] = [
     MarketPanelType::Market,
     MarketPanelType::Consign,
     MarketPanelType::Auction,
+    MarketPanelType::GameShop,
 ];
 
 /// 页签文案。
@@ -89,7 +103,8 @@ pub const fn tab_label(panel: MarketPanelType) -> Label {
     match panel {
         MarketPanelType::Consign => Label::Consign,
         MarketPanelType::Auction => Label::Auction,
-        MarketPanelType::Market | MarketPanelType::GameShop => Label::Market,
+        MarketPanelType::GameShop => Label::GameShop,
+        MarketPanelType::Market => Label::Market,
     }
 }
 
@@ -111,7 +126,7 @@ pub const fn has_sell_form(panel: MarketPanelType) -> bool {
 pub struct MarketLayout {
     /// 面板矩形。
     pub panel: Rect,
-    /// 三个页签（顺序同 [`TABS`]）。
+    /// 四个页签（顺序同 [`TABS`]）。
     pub tabs: Vec<Rect>,
     /// 关闭按钮（标题栏右侧）。
     pub close: Rect,
@@ -219,12 +234,14 @@ pub fn market_layout(
     );
 
     let tabs_y = title_y + i32::try_from(TITLE_HEIGHT).unwrap_or(24);
-    let tab_width = (content_width.saturating_sub(8) / 3).max(48);
+    let tab_width =
+        (content_width.saturating_sub(4 * (TABS.len() as u32 - 1)) / TABS.len() as u32).max(40);
     let tabs = (0..TABS.len())
         .map(|index| {
             Rect::new(
                 content_x
-                    + i32::try_from(index).unwrap_or(0) * i32::try_from(tab_width + 4).unwrap_or(0),
+                    + i32::try_from(index).unwrap_or(0)
+                        * (i32::try_from(tab_width).unwrap_or(100) + 4),
                 tabs_y,
                 tab_width,
                 TAB_HEIGHT,
@@ -395,15 +412,20 @@ pub fn primary_label(panel: MarketPanelType, listing: Option<&MarketListing>) ->
     }
     match listing.map(|listing| listing.item_type) {
         Some(MarketItemType::Auction) => Label::Bid,
+        // 商城用「购买」（Crystal `GameShopButton`），元宝结算。
+        Some(MarketItemType::GameShop) => Label::Purchase,
         _ => Label::Buy,
     }
 }
 
-/// 价格文案：寄售 `1,200 金币`，拍卖 `1,200 出价`（Crystal `AuctionRow.Update`，
-/// `TrustMerchantDialog.cs:1569`）。
+/// 价格文案：寄售 `1,200 金币`，拍卖 `1,200 出价`，商城 `250 元宝`
+/// （Crystal `AuctionRow.Update`，`TrustMerchantDialog.cs:1569`；
+/// 商城页签用元宝结算是 `TrustMerchantDialog.cs:408-416` 的 `Credits` 分支）。
 #[must_use]
 pub fn price_text(listing: &MarketListing, language: Language) -> String {
-    let unit = if listing.is_bid() {
+    let unit = if listing.item_type == MarketItemType::GameShop {
+        Label::Credit
+    } else if listing.is_bid() {
         Label::Bid
     } else {
         Label::Gold
@@ -485,6 +507,50 @@ fn draw_button(frame: &mut Frame, text: &crate::ui::UiText, rect: Rect, label: &
     );
 }
 
+/// 表头四列文案：市场/寄售/拍卖是「物品 / 价格 / 卖家 / 到期」；
+/// 商城页签的 `seller` 恒为空、`ConsignmentDate` 不是到期时间，所以换成
+/// 「物品 / 价格 / 分类 / 库存」（Crystal 商城页签也是 `TitleExpiryLabel` 不使用，
+/// `TrustMerchantDialog.cs:1276-1300`）。
+#[must_use]
+pub fn header_labels(tab: MarketPanelType) -> [Label; 4] {
+    if tab == MarketPanelType::GameShop {
+        [
+            Label::ItemColumn,
+            Label::Price,
+            Label::Category,
+            Label::Stock,
+        ]
+    } else {
+        [
+            Label::ItemColumn,
+            Label::Price,
+            Label::Seller,
+            Label::Expiry,
+        ]
+    }
+}
+
+/// 商城列表里「卖家」列显示的内容（服务端下发空串）。
+#[must_use]
+pub fn seller_text(listing: &MarketListing, language: Language) -> String {
+    if listing.item_type == MarketItemType::GameShop {
+        Label::GameShop.text(language).to_owned()
+    } else {
+        listing.seller.clone()
+    }
+}
+
+/// 商城列表里「库存」列显示的内容：列表不显示实时库存（售罄条目仍会列出，
+/// 购买时服务端回「库存不足」），「在售」只是占位文案。
+#[must_use]
+pub fn stock_text(listing: &MarketListing, language: Language) -> String {
+    if listing.item_type == MarketItemType::GameShop {
+        Label::OnSale.text(language).to_owned()
+    } else {
+        expiry_text(listing.consignment_date)
+    }
+}
+
 /// 画市场面板。
 ///
 /// 参数覆盖「布局 + 快照 + 三个输入框 + 选中/悬停 + 图标」，与 `trade::draw` 一样
@@ -535,14 +601,25 @@ pub fn draw(
         .self_player
         .as_ref()
         .map_or(0, |player| player.gold);
+    let credit = snapshot
+        .self_player
+        .as_ref()
+        .map_or(0, |player| player.credit);
+    // 商城页签用元宝结算，标题栏显示元宝余额（Crystal `TotalGold`，
+    // `TrustMerchantDialog.cs:979`）。
+    let (balance, unit) = if tab == MarketPanelType::GameShop {
+        (credit, Label::Credit)
+    } else {
+        (gold, Label::Gold)
+    };
     text.draw_right(
         frame,
         layout.close.x - 6,
         layout.panel.y + 5,
         &format!(
             "{} {}",
-            labels::format_number(u64::from(gold)),
-            Label::Gold.text(language)
+            labels::format_number(u64::from(balance)),
+            unit.text(language)
         ),
         SIZE_SMALL,
         GOLD_COLOR,
@@ -644,12 +721,13 @@ pub fn draw(
         draw_button(frame, text, layout.refresh, Label::Refresh.text(language));
     }
 
-    // 表头。
+    // 表头（商城页签换成「物品 / 价格 / 分类 / 库存」）。
+    let labels_for_tab = header_labels(tab);
     let headers = [
-        (layout.item_header, Label::ItemColumn, false),
-        (layout.price_header, Label::Price, true),
-        (layout.seller_header, Label::Seller, true),
-        (layout.expiry_header, Label::Expiry, false),
+        (layout.item_header, labels_for_tab[0], false),
+        (layout.price_header, labels_for_tab[1], true),
+        (layout.seller_header, labels_for_tab[2], true),
+        (layout.expiry_header, labels_for_tab[3], false),
     ];
     for (rect, label, right) in headers {
         if right {
@@ -735,7 +813,7 @@ pub fn draw(
             frame,
             seller_col.x + 4,
             row.y + 4,
-            &listing.seller,
+            &seller_text(listing, language),
             SIZE_SMALL,
             BODY_COLOR,
             seller_col,
@@ -745,18 +823,23 @@ pub fn draw(
             frame,
             expiry_col.x + 4,
             row.y + 4,
-            &expiry_text(listing.consignment_date),
+            &stock_text(listing, language),
             SIZE_SMALL,
             MUTED_COLOR,
             expiry_col,
         );
     }
     if layout.rows.is_empty() {
+        let empty = if tab == MarketPanelType::GameShop {
+            Label::NoGameShopItems
+        } else {
+            Label::NoListings
+        };
         text.draw_clipped(
             frame,
             layout.header.x,
             layout.header.bottom() + 8,
-            Label::NoListings.text(language),
+            empty.text(language),
             SIZE_SMALL,
             MUTED_COLOR,
             Rect::new(
@@ -815,6 +898,37 @@ pub fn draw(
             layout.collect,
             Label::CollectSold.text(language),
         );
+    } else if tab == MarketPanelType::GameShop {
+        // 商城：数量输入框（复用 bid_field 的位置）+「购买」（`C.GameshopBuy`）。
+        input::draw(
+            frame,
+            text,
+            layout.bid_field,
+            price,
+            focus == Some(crate::ui::FieldId::MarketPrice),
+            Label::Quantity.text(language),
+        );
+        draw_button(
+            frame,
+            text,
+            layout.primary,
+            primary_label(tab, selected_listing).text(language),
+        );
+        text.draw_clipped(
+            frame,
+            layout.primary.right() + 8,
+            layout.action.y + 3,
+            Label::GameShopHint.text(language),
+            SIZE_SMALL,
+            MUTED_COLOR,
+            Rect::new(
+                layout.primary.right() + 8,
+                layout.action.y,
+                u32::try_from((layout.bid_field.x - 6 - layout.primary.right()).max(0))
+                    .unwrap_or(0),
+                BUTTON_HEIGHT,
+            ),
+        );
     } else {
         input::draw(
             frame,
@@ -852,6 +966,8 @@ pub fn draw(
         (fail_label(reason).text(language).to_owned(), FAIL_COLOR)
     } else if let Some(message) = &snapshot.market.message {
         (message.clone(), SUCCESS_COLOR)
+    } else if tab == MarketPanelType::GameShop {
+        (Label::GameShopHint.text(language).to_owned(), MUTED_COLOR)
     } else if has_sell_form(tab) {
         (
             if tab == MarketPanelType::Auction {

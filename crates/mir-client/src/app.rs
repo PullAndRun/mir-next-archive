@@ -21,13 +21,15 @@
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use mir_client::audio::SoundPlayer;
+use mir_client::audio::{SoundLibrary, SoundPlayer};
 use mir_client::geom::Rect;
 use mir_client::net::{
-    MapReloadRequest, NetClient, NetCommand, NetEvent, NetStatus, WorldSnapshot,
+    ConnectOptions, MapReloadRequest, NetClient, NetCommand, NetEvent, NetStatus, WorldSnapshot,
 };
+use mir_client::ui::select::{self, CharacterAction, LoginField, ServerAction};
 use mir_client::ui::{self, UiAction, UiState, UiText};
 use mir_core::Language;
 use mir_core::Point;
@@ -41,6 +43,7 @@ use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
 use crate::overlay;
+use mir_client::settings::ClientSettings;
 
 /// 默认窗口宽（与 `MapScene` 默认视口一致）。
 pub const WINDOW_WIDTH: u32 = 800;
@@ -58,6 +61,8 @@ enum Mode {
     Offline,
     /// 联机世界（`--connect`）。
     Live(Box<LiveState>),
+    /// 登录窗口（`--login`）：服务器选择 → 角色选择 → 进入世界。
+    Login(Box<LoginState>),
 }
 
 /// 联机状态：网络句柄 + 最近一次快照 + 本地 UI 状态。
@@ -147,7 +152,15 @@ impl LiveState {
 /// 不 panic、不返回非零退出码。离线模式只有 F1 点阵叠层，`language` 暂不影响画面。
 pub fn run(scene: MapScene, center: Point, _language: Language) {
     // 离线模式不会切图，地图目录只是占位（`ClientApp` 要求有这个字段）。
-    run_app(scene, center, Mode::Offline, PathBuf::from("resource/map"));
+    run_app(
+        scene,
+        center,
+        Mode::Offline,
+        PathBuf::from("resource/map"),
+        PathBuf::from("resource/data"),
+        ClientSettings::default(),
+        ClientSettings::default_path(),
+    );
 }
 
 /// 联机窗口的启动参数：目录与音效播放器。
@@ -160,6 +173,10 @@ pub struct LiveOptions {
     pub data_dir: PathBuf,
     /// 音效播放器（没有设备时是空操作）。
     pub sound: SoundPlayer,
+    /// 设置文件内容（设置面板按它显示初始值）。
+    pub settings: ClientSettings,
+    /// 设置文件路径（设置面板每次改动都写回这里）。
+    pub settings_path: PathBuf,
 }
 
 /// 启动联机窗口。
@@ -184,6 +201,10 @@ pub fn run_live(
         println!("小地图素材不可用：{reason}（M 面板会显示纯色占位）");
     }
     ui.minimap_scene = minimap_scene;
+    // 设置面板的初始值与设置文件一致（命令行 `--volume` 等只覆盖播放器，不写文件）。
+    ui.settings = options.settings.panel();
+    ui.settings.language = language;
+    ui.language = language;
     let mode = Mode::Live(Box::new(LiveState {
         net,
         ui,
@@ -200,11 +221,251 @@ pub fn run_live(
         next_walk: Instant::now(),
         last_hover_cell: None,
     }));
-    run_app(scene, center, mode, options.map_dir);
+    run_app(
+        scene,
+        center,
+        mode,
+        options.map_dir,
+        options.data_dir,
+        options.settings,
+        options.settings_path,
+    );
+}
+
+/// 登录窗口的启动参数。
+///
+/// `--login` 打开「服务器选择 → 角色选择」流程：地址可配（默认取设置文件里的
+/// `server`）、连接失败可重试；进入世界后复用联机窗口。
+pub struct LoginOptions {
+    /// 地图目录（进入世界后按服务器地图加载）。
+    pub map_dir: PathBuf,
+    /// 素材目录。
+    pub data_dir: PathBuf,
+    /// 音效播放器（进入世界后交给 `LiveState`）。
+    pub sound: SoundPlayer,
+    /// 设置文件内容。
+    pub settings: ClientSettings,
+    /// 设置文件路径。
+    pub settings_path: PathBuf,
+    /// 界面语言。
+    pub language: Language,
+    /// 预填账号（`--account`，可空）。
+    pub account: String,
+    /// 预填口令（`--password`，可空）。
+    pub password: String,
+}
+
+/// 登录流程的异步结果（网络线程 → 窗口线程）。
+enum LoginOutcome {
+    /// 登录成功，拿到角色列表（手动选角阶段）。
+    Characters(NetClient, Box<WorldSnapshot>),
+    /// 已进入世界。
+    InGame(NetClient, Box<WorldSnapshot>),
+    /// 连接/登录失败。
+    Failed(select::ConnectError, String),
+}
+
+/// 登录窗口状态（服务器选择 + 角色选择）。
+struct LoginState {
+    /// 服务器选择页状态。
+    server: select::ServerSelectState,
+    /// 角色选择页状态。
+    characters: select::CharacterSelectState,
+    /// 当前页。
+    screen: LoginScreen,
+    /// 网络会话（登录成功后保留，选角/进入世界都用它）。
+    net: Option<NetClient>,
+    /// 正在等待的网络结果。
+    pending: Option<Receiver<LoginOutcome>>,
+    /// 鼠标位置（逻辑坐标）。
+    mouse: Point,
+    /// 界面语言。
+    language: Language,
+    /// 音效播放器（进入世界时移交给 `LiveState`）。
+    sound: Option<SoundPlayer>,
+    /// 已经打印过「连接中」（避免每帧刷屏）。
+    announced: bool,
+}
+
+/// 登录窗口的两页。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoginScreen {
+    /// 服务器地址 + 账号 + 口令。
+    Server,
+    /// 角色列表（含创建表单）。
+    Characters,
+}
+
+impl LoginState {
+    fn new(
+        sound: SoundPlayer,
+        settings: &ClientSettings,
+        language: Language,
+        account: &str,
+        password: &str,
+    ) -> Self {
+        let mut server = select::ServerSelectState::with_server(&settings.server());
+        if !account.is_empty() {
+            server.account.set(account);
+        }
+        if !password.is_empty() {
+            server.password.set(password);
+        }
+        let characters = select::CharacterSelectState {
+            equipment_cache: settings.equipment.clone(),
+            ..select::CharacterSelectState::default()
+        };
+        Self {
+            server,
+            characters,
+            screen: LoginScreen::Server,
+            net: None,
+            pending: None,
+            mouse: Point::new(0, 0),
+            language,
+            sound: Some(sound),
+            announced: false,
+        }
+    }
+
+    fn busy(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    fn draw(&mut self, frame: &mut Frame, text: &UiText) {
+        frame.clear([14, 18, 26, 255]);
+        let screen = Rect::screen(frame.width, frame.height);
+        match self.screen {
+            LoginScreen::Server => {
+                let layout = select::server_layout(screen);
+                select::draw_server(frame, &layout, &self.server, text, self.language);
+            }
+            LoginScreen::Characters => {
+                let layout = select::character_layout(
+                    screen,
+                    self.characters.characters.len(),
+                    self.characters.creating,
+                );
+                select::draw_characters(frame, &layout, &self.characters, text, self.language);
+            }
+        }
+    }
+}
+
+/// 启动登录窗口（`--login`）：先画服务器选择页，进入世界后复用联机窗口。
+///
+/// 地形用空白地图占位（`resource/data` 缺失也能开窗）；进入世界时再按服务器
+/// `S.MapInformation.FileName` 加载真实地形。
+pub fn run_login(options: LoginOptions) {
+    let LoginOptions {
+        map_dir,
+        data_dir,
+        sound,
+        settings,
+        settings_path,
+        language,
+        account,
+        password,
+    } = options;
+    let scene = blank_scene(&data_dir);
+    let center = Point::new(330, 270);
+    let state = LoginState::new(sound, &settings, language, &account, &password);
+    run_app(
+        scene,
+        center,
+        Mode::Login(Box::new(state)),
+        map_dir,
+        data_dir,
+        settings,
+        settings_path,
+    );
+}
+
+/// 空白地形（登录窗口背景）：1024×1024 全可走格子 + 空图库 + 实体图库。
+fn blank_scene(data_dir: &Path) -> MapScene {
+    let width = 1024;
+    let height = 1024;
+    let map = mir_world::Map {
+        width,
+        height,
+        cells: vec![mir_world::MapCell::default(); usize::try_from(width * height).unwrap_or(0)],
+        file_name: "login".to_owned(),
+        version: mir_world::MapVersion::V0,
+        doors: Vec::new(),
+    };
+    MapScene::from_parts_with_entities(
+        map,
+        mir_render::TileLibraries::empty(data_dir),
+        mir_render::Viewport::DEFAULT,
+        mir_render::EntityLibraries::open_dir(data_dir),
+    )
+}
+
+/// 按服务器地图名加载地形，失败时退回空白图（登录后也能进世界）。
+fn load_world_scene(map_name: &str, map_dir: &Path, data_dir: &Path) -> MapScene {
+    let path = if map_name.to_ascii_lowercase().ends_with(".map") {
+        PathBuf::from(map_name)
+    } else {
+        map_dir.join(format!("{map_name}.map"))
+    };
+    MapScene::load(&path, data_dir).unwrap_or_else(|error| {
+        eprintln!("加载地图 {} 失败：{error}；使用空白地形", path.display());
+        blank_scene(data_dir)
+    })
+}
+
+/// 把网络层错误文案归类成登录页的提示类别（详情仍原样显示）。
+///
+/// `NetClient` 的错误是 `anyhow` 文本（例如「登录失败（result = 5）」、
+/// 「连接已关闭：…」），这里只做粗分类，避免在登录页暴露英文枚举。
+#[must_use]
+pub fn classify_login_error(message: &str) -> select::ConnectError {
+    let lower = message.to_lowercase();
+    if message.contains("密码")
+        || message.contains("口令")
+        || message.contains("账号")
+        || lower.contains("password")
+        || lower.contains("account")
+    {
+        select::ConnectError::Credentials
+    } else if message.contains("超时") || lower.contains("timeout") {
+        select::ConnectError::Timeout
+    } else if message.contains("拒绝") || lower.contains("version") {
+        select::ConnectError::Refused
+    } else if message.contains("连接") || lower.contains("connect") {
+        select::ConnectError::Unreachable
+    } else {
+        select::ConnectError::Other
+    }
+}
+
+/// 当前角色的装备摘要（`武器 / 衣服 / ...`；没有装备或没有模板时为空串）。
+#[must_use]
+pub fn equipment_summary(snapshot: &WorldSnapshot) -> String {
+    snapshot
+        .equipment
+        .iter()
+        .flatten()
+        .filter_map(|item| {
+            snapshot
+                .item_infos
+                .get(&item.item_index)
+                .map(|info| info.name.clone())
+        })
+        .collect::<Vec<_>>()
+        .join(" / ")
 }
 
 /// 公共窗口事件循环。
-fn run_app(scene: MapScene, center: Point, mode: Mode, map_dir: PathBuf) {
+fn run_app(
+    scene: MapScene,
+    center: Point,
+    mode: Mode,
+    map_dir: PathBuf,
+    data_dir: PathBuf,
+    settings: ClientSettings,
+    settings_path: PathBuf,
+) {
     let event_loop = match EventLoop::new() {
         Ok(event_loop) => event_loop,
         Err(error) => {
@@ -213,7 +474,15 @@ fn run_app(scene: MapScene, center: Point, mode: Mode, map_dir: PathBuf) {
             return;
         }
     };
-    let mut app = ClientApp::new(scene, center, mode, map_dir);
+    let mut app = ClientApp::new(
+        scene,
+        center,
+        mode,
+        map_dir,
+        data_dir,
+        settings,
+        settings_path,
+    );
     if let Err(error) = event_loop.run_app(&mut app) {
         eprintln!("窗口事件循环异常退出：{error}");
     }
@@ -224,7 +493,7 @@ struct ClientApp {
     scene: MapScene,
     /// 相机中心格。
     center: Point,
-    /// 当前帧缓冲（尺寸跟随窗口）。
+    /// 当前帧缓冲（尺寸跟随窗口；启用缩小时是**逻辑**尺寸，见 [`ClientApp::ui_scale`]）。
     frame: Frame,
     /// 运行模式。
     mode: Mode,
@@ -232,6 +501,8 @@ struct ClientApp {
     text: UiText,
     /// 地图目录：切图时按 `<map_dir>/<file>.map` 重载地形。
     map_dir: PathBuf,
+    /// 素材目录（登录后按服务器地图加载地形、小地图图库）。
+    data_dir: PathBuf,
     /// 窗口句柄（`resumed` 里创建）。
     window: Option<Arc<Window>>,
     /// softbuffer 表面。
@@ -242,10 +513,25 @@ struct ClientApp {
     show_overlay: bool,
     /// 下一次动画节拍。
     next_animation: Instant,
+    /// 设置文件内容（设置面板每次改动都写回 `settings_path`）。
+    settings: ClientSettings,
+    /// 设置文件路径。
+    settings_path: PathBuf,
+    /// 渲染缩放：1 = 原生，2/3 = 逻辑分辨率缩小后放大（Crystal 的「分辨率/缩放」）。
+    ui_scale: u32,
 }
 
 impl ClientApp {
-    fn new(scene: MapScene, center: Point, mode: Mode, map_dir: PathBuf) -> Self {
+    fn new(
+        scene: MapScene,
+        center: Point,
+        mode: Mode,
+        map_dir: PathBuf,
+        data_dir: PathBuf,
+        settings: ClientSettings,
+        settings_path: PathBuf,
+    ) -> Self {
+        let ui_scale = settings.scale();
         Self {
             scene,
             center,
@@ -253,11 +539,15 @@ impl ClientApp {
             mode,
             text: UiText::load(None),
             map_dir,
+            data_dir,
             window: None,
             surface: None,
             context: None,
             show_overlay: false,
             next_animation: Instant::now() + ANIMATION_INTERVAL,
+            settings,
+            settings_path,
+            ui_scale,
         }
     }
 
@@ -266,14 +556,16 @@ impl ClientApp {
         if self.window.is_some() {
             return;
         }
-        let title = if matches!(&self.mode, Mode::Live(_)) {
-            "传奇-Next · 联机"
-        } else {
-            "传奇-Next · 地图"
+        let title = match &self.mode {
+            Mode::Live(_) => "传奇-Next · 联机",
+            Mode::Login(_) => "传奇-Next · 登录",
+            Mode::Offline => "传奇-Next · 地图",
         };
+        // 分辨率来自设置文件（默认 800×600），启动时应用一次。
+        let (width, height) = self.settings.resolution();
         let attributes = Window::default_attributes()
             .with_title(title)
-            .with_inner_size(winit::dpi::LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT))
+            .with_inner_size(winit::dpi::LogicalSize::new(width, height))
             .with_min_inner_size(winit::dpi::LogicalSize::new(320u32, 240u32))
             .with_resizable(true);
         let window = match event_loop.create_window(attributes) {
@@ -336,7 +628,7 @@ impl ClientApp {
     fn render_current(&mut self) {
         let now = now_millis_u64();
         let entities = match &mut self.mode {
-            Mode::Offline => None,
+            Mode::Offline | Mode::Login(_) => None,
             Mode::Live(live) => {
                 live.snapshot.tick_animations(now);
                 Some(live.snapshot.entity_views(now))
@@ -357,6 +649,7 @@ impl ClientApp {
     fn draw_overlay(&mut self) {
         match &self.mode {
             Mode::Offline => overlay::draw(&mut self.frame, self.center),
+            Mode::Login(_) => {} // 登录页没有世界叠层
             Mode::Live(live) => {
                 let me = live.snapshot.self_player.as_ref();
                 overlay::draw_live(
@@ -417,6 +710,10 @@ impl ClientApp {
     /// 画联机界面（世界文字、状态栏、增益、聊天、背包/装备/商店/技能/对话）。
     fn draw_ui(&mut self) {
         let center = self.center;
+        if let Mode::Login(login) = &mut self.mode {
+            login.draw(&mut self.frame, &self.text);
+            return;
+        }
         let Mode::Live(live) = &mut self.mode else {
             return;
         };
@@ -438,8 +735,12 @@ impl ClientApp {
             return;
         };
         let size = window.inner_size();
-        let width = size.width.max(1);
-        let height = size.height.max(1);
+        let physical_width = size.width.max(1);
+        let physical_height = size.height.max(1);
+        // 缩放：逻辑帧 = 窗口 / scale，呈现时最近邻放大（scale = 1 时等于原样拷贝）。
+        let scale = self.ui_scale.max(1);
+        let width = (physical_width / scale).max(1);
+        let height = (physical_height / scale).max(1);
         if self.frame.width != width || self.frame.height != height {
             self.frame = Frame::new(width, height);
         }
@@ -449,7 +750,7 @@ impl ClientApp {
             self.draw_overlay();
         }
         if let Some(surface) = self.surface.as_mut() {
-            present(surface, &self.frame, width, height);
+            present(surface, &self.frame, physical_width, physical_height, scale);
         }
     }
 
@@ -563,7 +864,7 @@ impl ClientApp {
                     None
                 }
             }
-            Mode::Offline => None,
+            Mode::Offline | Mode::Login(_) => None,
         };
         if let Some(action) = action {
             self.dispatch_ui_action(action);
@@ -583,7 +884,7 @@ impl ClientApp {
                 live.ui.set_time(now_millis());
                 live.ui.tick_approach(&live.snapshot)
             }
-            Mode::Offline => None,
+            Mode::Offline | Mode::Login(_) => None,
         };
         if let Some(action) = action {
             self.dispatch_ui_action(action);
@@ -598,7 +899,7 @@ impl ClientApp {
                 live.ui.set_path_running(live.shift);
                 live.ui.tick_path(&live.snapshot)
             }
-            Mode::Offline => None,
+            Mode::Offline | Mode::Login(_) => None,
         };
         if let Some(action) = action {
             self.dispatch_ui_action(action);
@@ -634,6 +935,12 @@ impl ClientApp {
 
     /// 把界面动作映射成网络命令。
     fn dispatch_ui_action(&mut self, action: UiAction) {
+        // 设置动作不需要网络线程，先在这里落地（音量/语言/显示 + 写回设置文件）。
+        if let UiAction::Settings(action) = &action {
+            self.apply_settings(*action);
+            self.request_redraw();
+            return;
+        }
         let Mode::Live(live) = &mut self.mode else {
             return;
         };
@@ -674,6 +981,7 @@ impl ClientApp {
             | UiAction::MarketBuy { .. }
             | UiAction::MarketSellNow { .. }
             | UiAction::MarketGetBack { .. }
+            | UiAction::GameShopBuy { .. }
             | UiAction::ConsignItem { .. }) => {
                 if let Some(command) = action.net_command() {
                     live.send(command);
@@ -775,15 +1083,517 @@ impl ClientApp {
             UiAction::AttackTarget { direction } => {
                 live.send(NetCommand::Attack(direction));
             }
+            // 设置动作在上面已经提前返回（不需要 `live` 之外的窗口句柄等字段）。
+            UiAction::Settings(_) => {}
         }
         self.request_redraw();
+    }
+
+    /// 落实设置面板动作：运行期生效 + 写回设置文件（重启后仍生效）。
+    ///
+    /// 对应 Crystal `OptionDialog` 的音量滑条（`Client/MirScenes/Dialogs/MainDialogs.cs:2833-2846`）
+    /// 与 `Settings.Save()`（`Client/Forms/CMain.cs:699-713`）；语言切换立即重绘
+    /// （`ui.language` 与面板 `state.language` 同步）。
+    fn apply_settings(&mut self, action: ui::settings::SettingsAction) {
+        use ui::settings::SettingsAction as Action;
+        // 面板状态已被点击更新，这里按它落实运行期 + 设置文件。
+        let mut language = None;
+        if let Mode::Live(live) = &mut self.mode {
+            let panel = live.ui.settings.clone();
+            match action {
+                Action::ToggleSound => {
+                    live.sound.set_enabled(panel.sound_on);
+                }
+                Action::ToggleMusic => {
+                    live.sound.set_music_enabled(panel.music_on);
+                }
+                Action::SoundVolume(percent) => {
+                    live.sound
+                        .set_volume(ui::settings::SettingsState::fraction(percent));
+                }
+                Action::MusicVolume(percent) => {
+                    live.sound
+                        .set_music_volume(ui::settings::SettingsState::fraction(percent));
+                }
+                Action::SetLanguage(next) => {
+                    live.ui.language = next;
+                    language = Some(next);
+                }
+                Action::SetResolution(width, height) => {
+                    if let Some(window) = &self.window {
+                        let _ =
+                            window.request_inner_size(winit::dpi::LogicalSize::new(width, height));
+                    }
+                }
+                Action::SetScale(scale) => {
+                    self.ui_scale = scale.clamp(1, 3);
+                }
+                Action::Close => {
+                    live.ui.show_settings = false;
+                }
+            }
+            self.settings.absorb_panel(&panel);
+        } else {
+            return;
+        }
+        if let Some(language) = language {
+            // 语言切换立即生效：设置面板/状态栏/各面板都读 `ui.language`。
+            tracing::info!(?language, "界面语言切换");
+        }
+        if let Err(error) = self.settings.save(&self.settings_path) {
+            eprintln!("保存设置失败（{}）：{error}", self.settings_path.display());
+        }
+    }
+
+    /// 打开设置面板前把设置文件的值同步进面板（命令行覆盖只影响本次运行）。
+    fn sync_settings_panel(&mut self) {
+        if let Mode::Live(live) = &mut self.mode {
+            let panel = self.settings.panel();
+            live.ui.settings = panel;
+        }
+    }
+
+    /// 登录页按键：地址/账号/口令输入、回车连接、Tab 换焦点、Esc 退出/返回。
+    fn handle_login_key(&mut self, event_loop: &ActiveEventLoop, event: &KeyEvent) {
+        let mut connect = false;
+        let mut enter = false;
+        let mut back = false;
+        let mut exit = false;
+        let mut redraw = false;
+        if let Mode::Login(login) = &mut self.mode {
+            match login.screen {
+                LoginScreen::Server => match &event.logical_key {
+                    Key::Named(NamedKey::Escape) => exit = true,
+                    Key::Named(NamedKey::Enter) => connect = login.server.can_connect(),
+                    Key::Named(NamedKey::Tab) => {
+                        login.server.focus = match login.server.focus {
+                            LoginField::Server => LoginField::Account,
+                            LoginField::Account => LoginField::Password,
+                            LoginField::Password => LoginField::Server,
+                        };
+                        redraw = true;
+                    }
+                    Key::Named(NamedKey::Backspace) => {
+                        match login.server.focus {
+                            LoginField::Server => login.server.address.backspace(),
+                            LoginField::Account => login.server.account.backspace(),
+                            LoginField::Password => login.server.password.backspace(),
+                        }
+                        redraw = true;
+                    }
+                    Key::Character(text) => {
+                        for character in text.chars() {
+                            match login.server.focus {
+                                LoginField::Server => login.server.address.insert(character),
+                                LoginField::Account => login.server.account.insert(character),
+                                LoginField::Password => login.server.password.insert(character),
+                            }
+                        }
+                        redraw = true;
+                    }
+                    _ => {}
+                },
+                LoginScreen::Characters => match &event.logical_key {
+                    Key::Named(NamedKey::Escape) => back = true,
+                    Key::Named(NamedKey::Enter) => {
+                        enter = login.characters.current().is_some() && !login.characters.creating;
+                    }
+                    Key::Named(NamedKey::Backspace) if login.characters.creating => {
+                        login.characters.create_name.backspace();
+                        redraw = true;
+                    }
+                    Key::Character(text) if login.characters.creating => {
+                        for character in text.chars() {
+                            login.characters.create_name.insert(character);
+                        }
+                        redraw = true;
+                    }
+                    _ => {}
+                },
+            }
+        }
+        if exit {
+            event_loop.exit();
+            return;
+        }
+        if back {
+            self.login_back_to_server();
+            return;
+        }
+        if connect {
+            self.login_connect();
+            return;
+        }
+        if enter {
+            self.login_enter_selected();
+            return;
+        }
+        if redraw {
+            self.request_redraw();
+        }
+    }
+
+    /// 登录页点击：服务器页的连接/退出/焦点，选角页的选中/进入/创建。
+    fn login_click(&mut self, event_loop: &ActiveEventLoop) {
+        let screen = Rect::screen(self.frame.width, self.frame.height);
+        let mut connect = false;
+        let mut enter = false;
+        let mut create = false;
+        let mut back = false;
+        let mut quit = false;
+        if let Mode::Login(login) = &mut self.mode {
+            match login.screen {
+                LoginScreen::Server => {
+                    let layout = select::server_layout(screen);
+                    match select::server_click(&layout, &mut login.server, login.mouse) {
+                        Some(ServerAction::Quit) => quit = true,
+                        Some(ServerAction::Connect) => connect = true,
+                        Some(ServerAction::Focus(_)) | None => {}
+                    }
+                }
+                LoginScreen::Characters => {
+                    let layout = select::character_layout(
+                        screen,
+                        login.characters.characters.len(),
+                        login.characters.creating,
+                    );
+                    match select::character_click(&layout, &mut login.characters, login.mouse) {
+                        Some(CharacterAction::Back) => back = true,
+                        Some(CharacterAction::Enter(_)) => enter = true,
+                        Some(CharacterAction::Create) => create = true,
+                        Some(
+                            CharacterAction::Select(_)
+                            | CharacterAction::ToggleCreate
+                            | CharacterAction::CycleClass(_)
+                            | CharacterAction::CycleGender(_),
+                        )
+                        | None => {}
+                    }
+                }
+            }
+        }
+        if quit {
+            event_loop.exit();
+            return;
+        }
+        if back {
+            self.login_back_to_server();
+            return;
+        }
+        if connect {
+            self.login_connect();
+            return;
+        }
+        if create {
+            self.login_create();
+            return;
+        }
+        if enter {
+            self.login_enter_selected();
+            return;
+        }
+        self.request_redraw();
+    }
+
+    /// 发起登录（连接失败可重试：`ServerSelectState::fail` 之后按钮变成「重试」）。
+    fn login_connect(&mut self) {
+        let Mode::Login(login) = &mut self.mode else {
+            return;
+        };
+        if login.busy() || !login.server.can_connect() {
+            return;
+        }
+        let server = login.server.address.value.trim().to_owned();
+        let options = ConnectOptions {
+            server: server.clone(),
+            account: login.server.account.value.trim().to_owned(),
+            password: login.server.password.value.clone(),
+            character: String::new(),
+            create: None,
+            auto_register: true,
+            manual_select: true,
+        };
+        login.server.begin_connect();
+        if !login.announced {
+            println!("连接服务器 {server} …");
+            login.announced = true;
+        }
+        // 记住服务器地址（下次启动默认用它）。
+        self.settings.set_server(&server);
+        if let Err(error) = self.settings.save(&self.settings_path) {
+            eprintln!("保存设置失败（{}）：{error}", self.settings_path.display());
+        }
+        let (sender, receiver) = mpsc::channel();
+        login.pending = Some(receiver);
+        std::thread::spawn(move || {
+            match NetClient::connect(options) {
+                Ok(client) => {
+                    // 手动选角：等到 `SelectingCharacter`（`S.LoginSuccess` 之后）或失败。
+                    match client.wait_for_snapshot(
+                        |snapshot| {
+                            matches!(
+                                snapshot.status,
+                                NetStatus::SelectingCharacter | NetStatus::Failed
+                            )
+                        },
+                        Duration::from_secs(15),
+                    ) {
+                        Ok(snapshot) => {
+                            let _ =
+                                sender.send(LoginOutcome::Characters(client, Box::new(snapshot)));
+                        }
+                        Err(error) => {
+                            let message = format!("{error:#}");
+                            let _ = sender.send(LoginOutcome::Failed(
+                                classify_login_error(&message),
+                                message,
+                            ));
+                        }
+                    }
+                }
+                Err(error) => {
+                    let message = format!("{error:#}");
+                    let _ = sender.send(LoginOutcome::Failed(
+                        select::ConnectError::Unreachable,
+                        message,
+                    ));
+                }
+            }
+        });
+        self.request_redraw();
+    }
+
+    /// 进入选中角色（`C.StartGame`）。
+    fn login_enter_selected(&mut self) {
+        let Mode::Login(login) = &mut self.mode else {
+            return;
+        };
+        if login.busy() {
+            return;
+        }
+        let Some(index) = login.characters.current().map(|card| card.index) else {
+            return;
+        };
+        let Some(client) = login.net.take() else {
+            return;
+        };
+        let (sender, receiver) = mpsc::channel();
+        login.pending = Some(receiver);
+        std::thread::spawn(move || {
+            if !client.send(NetCommand::SelectCharacter { index }) {
+                let _ = sender.send(LoginOutcome::Failed(
+                    select::ConnectError::Other,
+                    "网络线程已退出".to_owned(),
+                ));
+                return;
+            }
+            match client.wait_until_in_game(Duration::from_secs(20)) {
+                Ok(snapshot) => {
+                    let _ = sender.send(LoginOutcome::InGame(client, Box::new(snapshot)));
+                }
+                Err(error) => {
+                    let message = format!("{error:#}");
+                    let _ = sender.send(LoginOutcome::Failed(
+                        classify_login_error(&message),
+                        message,
+                    ));
+                }
+            }
+        });
+    }
+
+    /// 创建角色（`C.NewCharacter`），成功后回到选角页。
+    fn login_create(&mut self) {
+        let Mode::Login(login) = &mut self.mode else {
+            return;
+        };
+        if login.busy() || !login.characters.can_create() {
+            return;
+        }
+        let name = login.characters.create_name.value.trim().to_owned();
+        let class = login.characters.create_class;
+        let gender = login.characters.create_gender;
+        let Some(client) = login.net.take() else {
+            return;
+        };
+        let (sender, receiver) = mpsc::channel();
+        login.pending = Some(receiver);
+        std::thread::spawn(move || {
+            if !client.send(NetCommand::NewCharacter {
+                name: name.clone(),
+                class,
+                gender,
+            }) {
+                let _ = sender.send(LoginOutcome::Failed(
+                    select::ConnectError::Other,
+                    "网络线程已退出".to_owned(),
+                ));
+                return;
+            }
+            let wanted = name.clone();
+            match client.wait_for_snapshot(
+                move |snapshot| snapshot.characters.iter().any(|card| card.name == wanted),
+                Duration::from_secs(15),
+            ) {
+                Ok(snapshot) => {
+                    let _ = sender.send(LoginOutcome::Characters(client, Box::new(snapshot)));
+                }
+                Err(error) => {
+                    let message = format!("{error:#}");
+                    let _ = sender.send(LoginOutcome::Failed(
+                        classify_login_error(&message),
+                        message,
+                    ));
+                }
+            }
+        });
+    }
+
+    /// 返回服务器选择页（丢弃当前连接）。
+    fn login_back_to_server(&mut self) {
+        if let Mode::Login(login) = &mut self.mode {
+            login.net = None;
+            login.pending = None;
+            login.screen = LoginScreen::Server;
+            login.server.succeed();
+            login.characters.clear_error();
+        }
+        self.request_redraw();
+    }
+
+    /// 轮询登录线程的结果。
+    fn poll_login(&mut self) {
+        let outcome = {
+            let Mode::Login(login) = &mut self.mode else {
+                return;
+            };
+            let Some(receiver) = &login.pending else {
+                return;
+            };
+            match receiver.try_recv() {
+                Ok(outcome) => Some(outcome),
+                Err(mpsc::TryRecvError::Empty) => None,
+                Err(mpsc::TryRecvError::Disconnected) => Some(LoginOutcome::Failed(
+                    select::ConnectError::Other,
+                    "登录线程已退出".to_owned(),
+                )),
+            }
+        };
+        let Some(outcome) = outcome else {
+            return;
+        };
+        if let Mode::Login(login) = &mut self.mode {
+            login.pending = None;
+        }
+        match outcome {
+            LoginOutcome::Characters(client, snapshot) => {
+                let count = snapshot.characters.len();
+                if let Mode::Login(login) = &mut self.mode {
+                    login.server.succeed();
+                    login.characters.set_characters(&snapshot.characters);
+                    login.characters.clear_error();
+                    login.net = Some(client);
+                    login.screen = LoginScreen::Characters;
+                }
+                println!("登录成功：账号下 {count} 个角色");
+            }
+            LoginOutcome::InGame(client, snapshot) => {
+                self.enter_world(client, *snapshot);
+            }
+            LoginOutcome::Failed(error, message) => {
+                eprintln!("登录失败：{message}");
+                if let Mode::Login(login) = &mut self.mode {
+                    // 连接已经随线程丢弃，回到服务器页让玩家改地址/重试。
+                    login.net = None;
+                    login.screen = LoginScreen::Server;
+                    login.server.fail(error, Some(message));
+                }
+            }
+        }
+        self.request_redraw();
+    }
+
+    /// 登录成功：加载服务器地图并切到联机模式（复用 `LiveState`）。
+    fn enter_world(&mut self, net: NetClient, snapshot: WorldSnapshot) {
+        let map_name = snapshot
+            .map
+            .as_ref()
+            .map(|map| map.file_name.clone())
+            .unwrap_or_default();
+        let scene = load_world_scene(&map_name, &self.map_dir, &self.data_dir);
+        let center = snapshot
+            .self_player
+            .as_ref()
+            .map_or(Point::new(330, 270), |me| me.position);
+        let language = self.settings.language();
+        let mut ui = UiState::new(language);
+        let (minimap_scene, reason) = mir_render::MinimapScene::open_dir(&self.data_dir);
+        if let Some(reason) = reason {
+            println!("小地图素材不可用：{reason}（M 面板会显示纯色占位）");
+        }
+        ui.minimap_scene = minimap_scene;
+        ui.settings = self.settings.panel();
+        ui.settings.language = language;
+        let status = snapshot.status;
+        let sound = if let Mode::Login(login) = &mut self.mode {
+            login.sound.take().unwrap_or_else(|| {
+                SoundPlayer::without_device(SoundLibrary::default_roots(), false, 0.0)
+            })
+        } else {
+            SoundPlayer::without_device(SoundLibrary::default_roots(), false, 0.0)
+        };
+        println!(
+            "已进入世界：{} · 对象 {} 个 · 地图 {}（{}×{}）",
+            snapshot
+                .self_player
+                .as_ref()
+                .map_or("?", |player| player.name.as_str()),
+            snapshot.entities.len(),
+            scene.map.file_name,
+            scene.map.width,
+            scene.map.height
+        );
+        println!(
+            "方向键/WASD 走 · Space 攻击 · T 聊天 · I 背包 · E 装备 · F3 技能 · M 小地图 · O 设置 · Esc 关面板 · F10 退出"
+        );
+        // 记录装备摘要（选角页显示）。
+        if let Some(me) = snapshot.self_player.as_ref() {
+            let summary = equipment_summary(&snapshot);
+            if !summary.is_empty() && self.settings.equipment.get(&me.name) != Some(&summary) {
+                self.settings.equipment.insert(me.name.clone(), summary);
+                if let Err(error) = self.settings.save(&self.settings_path) {
+                    eprintln!("保存设置失败（{}）：{error}", self.settings_path.display());
+                }
+            }
+        }
+        self.scene = scene;
+        self.center = center;
+        self.mode = Mode::Live(Box::new(LiveState {
+            net,
+            ui,
+            snapshot,
+            sound,
+            last_sound_id: 0,
+            chat_input: None,
+            shift: false,
+            last_chat: None,
+            last_status: status,
+            entered: false,
+            left_held: false,
+            walk_target: None,
+            next_walk: Instant::now(),
+            last_hover_cell: None,
+        }));
+        if let Some(window) = &self.window {
+            window.set_title("传奇-Next · 联机");
+        }
     }
 
     /// 市场搜索框回车 / 「搜索」按钮（`C.MarketSearch`）。
     fn live_market_search(&mut self) -> bool {
         let actions = match &mut self.mode {
             Mode::Live(live) => live.ui.market_open_requests(),
-            Mode::Offline => Vec::new(),
+            Mode::Offline | Mode::Login(_) => Vec::new(),
         };
         let handled = !actions.is_empty();
         for action in actions {
@@ -806,7 +1616,7 @@ impl ClientApp {
     fn live_cast_key(&mut self, key: u8) -> bool {
         let actions = match &mut self.mode {
             Mode::Live(live) => live.ui.press_magic_key(&live.snapshot, key),
-            Mode::Offline => Vec::new(),
+            Mode::Offline | Mode::Login(_) => Vec::new(),
         };
         let handled = !actions.is_empty();
         for action in actions {
@@ -928,6 +1738,19 @@ impl ClientApp {
         }
     }
 
+    /// 开关设置面板（`O`）：打开前把设置文件的值同步进面板。
+    fn open_settings(&mut self) {
+        self.sync_settings_panel();
+        let mut redraw = false;
+        if let Mode::Live(live) = &mut self.mode {
+            live.ui.toggle_settings();
+            redraw = true;
+        }
+        if redraw {
+            self.request_redraw();
+        }
+    }
+
     /// `B`：开关大地图（Crystal `KeybindOptions.Bigmap` → `BigMapDialog.Toggle()`，
     /// `GameScene.cs:773-774`）。
     fn live_toggle_bigmap(&mut self) {
@@ -992,7 +1815,17 @@ impl ClientApp {
 
     /// 鼠标移动：记录位置；面板打开、悬停格子变化时重绘（更新悬停高亮与目标框）。
     fn handle_cursor_moved(&mut self, position: winit::dpi::PhysicalPosition<f64>) {
-        let mouse = Point::new(position.x as i32, position.y as i32);
+        // 窗口坐标 → 逻辑坐标（缩放 > 1 时 UI/世界格都按逻辑坐标算）。
+        let scale = f64::from(self.ui_scale.max(1));
+        let mouse = Point::new(
+            (position.x / scale).round() as i32,
+            (position.y / scale).round() as i32,
+        );
+        if let Mode::Login(login) = &mut self.mode {
+            login.mouse = mouse;
+            self.request_redraw();
+            return;
+        }
         let cell = self.scene.screen_to_cell(self.center, mouse);
         let mut redraw = false;
         if let Mode::Live(live) = &mut self.mode {
@@ -1010,6 +1843,8 @@ impl ClientApp {
                 || live.ui.show_group
                 || live.ui.show_trade
                 || live.ui.show_bigmap
+                || live.ui.show_settings
+                || live.ui.show_market
                 || live.ui.shop_open
                 || live.ui.dialog.is_some()
                 || live.ui.drag.is_some()
@@ -1022,7 +1857,11 @@ impl ClientApp {
     }
 
     /// 鼠标左键按下：点 NPC/对话按钮/商店行/背包格/技能行/怪物/地面。
-    fn handle_left_press(&mut self) {
+    fn handle_left_press(&mut self, event_loop: &ActiveEventLoop) {
+        if matches!(&self.mode, Mode::Login(_)) {
+            self.login_click(event_loop);
+            return;
+        }
         let frame = Rect::screen(self.frame.width, self.frame.height);
         let mut action = None;
         let mut cell = None;
@@ -1267,7 +2106,7 @@ impl ClientApp {
         let map_dir = self.map_dir.clone();
         let snapshot = match &self.mode {
             Mode::Live(live) => live.snapshot.clone(),
-            Mode::Offline => return,
+            Mode::Offline | Mode::Login(_) => return,
         };
         match reload_after_map_change(&mut self.scene, &snapshot, &map_dir, map_index) {
             Ok(request) => {
@@ -1300,6 +2139,10 @@ impl ClientApp {
         }
         if self.chat_active() {
             self.handle_chat_key(event);
+            return;
+        }
+        if matches!(&self.mode, Mode::Login(_)) {
+            self.handle_login_key(event_loop, event);
             return;
         }
         if matches!(&self.mode, Mode::Live(_)) {
@@ -1419,6 +2262,12 @@ impl ClientApp {
                 }
                 "g" => {
                     self.live_toggle_guild();
+                    return;
+                }
+                // `O`：设置面板（Crystal `KeybindOptions.Options2` 的默认键，
+                // `Client/KeyBindSettings.cs:223-224`；`F12` 是同组的另一个默认键）。
+                "o" => {
+                    self.open_settings();
                     return;
                 }
                 _ => {}
@@ -1546,11 +2395,14 @@ fn reload_after_map_change(
 }
 
 /// 把 RGBA8 帧缓冲送进 softbuffer 并呈现。
+///
+/// `scale > 1` 时逻辑帧比窗口小：按最近邻放大（`scale = 2` 时每个逻辑像素画成 2×2）。
 fn present(
     surface: &mut softbuffer::Surface<Arc<Window>, Arc<Window>>,
     frame: &Frame,
     width: u32,
     height: u32,
+    scale: u32,
 ) {
     let (Some(width), Some(height)) = (NonZeroU32::new(width), NonZeroU32::new(height)) else {
         return;
@@ -1566,10 +2418,30 @@ fn present(
             return;
         }
     };
-    // softbuffer 的像素格式是 0x00RRGGBB（无 alpha）。
-    for (destination, source) in buffer.iter_mut().zip(frame.pixels.chunks_exact(4)) {
-        *destination =
-            (u32::from(source[0]) << 16) | (u32::from(source[1]) << 8) | u32::from(source[2]);
+    let scale = scale.max(1);
+    if scale == 1 && buffer.len() == frame.pixels.len() / 4 {
+        // softbuffer 的像素格式是 0x00RRGGBB（无 alpha）。
+        for (destination, source) in buffer.iter_mut().zip(frame.pixels.chunks_exact(4)) {
+            *destination =
+                (u32::from(source[0]) << 16) | (u32::from(source[1]) << 8) | u32::from(source[2]);
+        }
+    } else {
+        // 放大：目标像素取对应逻辑像素（最近邻；retro 风格也最省 CPU）。
+        let logical_width = frame.width.max(1);
+        let logical_height = frame.height.max(1);
+        let physical_width = usize::try_from(width.get()).unwrap_or(0);
+        for (index, destination) in buffer.iter_mut().enumerate() {
+            let x = index % physical_width;
+            let y = index / physical_width;
+            let sx = (x / usize::try_from(scale).unwrap_or(1))
+                .min(usize::try_from(logical_width - 1).unwrap_or(0));
+            let sy = (y / usize::try_from(scale).unwrap_or(1))
+                .min(usize::try_from(logical_height - 1).unwrap_or(0));
+            let offset = (sy * usize::try_from(logical_width).unwrap_or(0) + sx) * 4;
+            let source = &frame.pixels[offset..offset + 4];
+            *destination =
+                (u32::from(source[0]) << 16) | (u32::from(source[1]) << 8) | u32::from(source[2]);
+        }
     }
     if let Err(error) = buffer.present() {
         eprintln!("呈现画面失败：{error}");
@@ -1594,7 +2466,9 @@ impl ApplicationHandler for ClientApp {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
                 if size.width > 0 && size.height > 0 {
-                    self.frame = Frame::new(size.width, size.height);
+                    let scale = self.ui_scale.max(1);
+                    self.frame =
+                        Frame::new((size.width / scale).max(1), (size.height / scale).max(1));
                 }
                 if let Some(window) = &self.window {
                     window.request_redraw();
@@ -1607,7 +2481,7 @@ impl ApplicationHandler for ClientApp {
             }
             WindowEvent::CursorMoved { position, .. } => self.handle_cursor_moved(position),
             WindowEvent::MouseInput { state, button, .. } => match (state, button) {
-                (ElementState::Pressed, MouseButton::Left) => self.handle_left_press(),
+                (ElementState::Pressed, MouseButton::Left) => self.handle_left_press(event_loop),
                 (ElementState::Released, MouseButton::Left) => self.handle_left_release(),
                 (ElementState::Pressed, MouseButton::Right) => self.handle_right_press(),
                 _ => {}
@@ -1620,6 +2494,7 @@ impl ApplicationHandler for ClientApp {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.poll_login();
         self.poll_network();
         self.tick_targeting();
         self.tick_path();

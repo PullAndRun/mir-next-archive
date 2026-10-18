@@ -389,6 +389,104 @@ pub enum Label {
     NoSelectedItem,
     /// 寄售表单里「上架物品：」前缀。
     ConsignSelected,
+    /// 商城页签（Crystal `MarketPanelType.GameShop`）。
+    GameShop,
+    /// 元宝（商城价格单位；Crystal `ClientTextKeys.Credits`）。
+    Credit,
+    /// 库存列。
+    Stock,
+    /// 有货（商城列表的库存列文案：售罄条目由服务端直接剔除）。
+    OnSale,
+    /// 购买数量（输入框占位）。
+    Quantity,
+    /// 商城页签底部提示。
+    GameShopHint,
+    /// 商城没有商品。
+    NoGameShopItems,
+    /// 商品分类列。
+    Category,
+    /// 设置面板标题（Crystal `OptionDialog`，`KeyBindSettings.cs:221`）。
+    Settings,
+    /// 设置面板：音频分组。
+    Audio,
+    /// 设置面板：背景音乐。
+    Music,
+    /// 设置面板：音效。
+    Sound,
+    /// 设置面板：音量。
+    Volume,
+    /// 设置面板：语言。
+    Language,
+    /// 设置面板：显示。
+    Display,
+    /// 设置面板：分辨率。
+    Resolution,
+    /// 设置面板：缩放。
+    UiScale,
+    /// 设置面板：按键说明。
+    KeyBindings,
+    /// 设置面板底部提示。
+    SettingsHint,
+    /// 登录界面标题。
+    Login,
+    /// 服务器。
+    Server,
+    /// 服务器地址。
+    ServerAddress,
+    /// 账号。
+    Account,
+    /// 密码。
+    Password,
+    /// 连接按钮。
+    Connect,
+    /// 重试按钮。
+    Retry,
+    /// 选择角色。
+    SelectCharacter,
+    /// 创建角色按钮。
+    CreateCharacter,
+    /// 进入游戏。
+    EnterGame,
+    /// 角色名。
+    CharacterName,
+    /// 性别。
+    Gender,
+    /// 男。
+    Male,
+    /// 女。
+    Female,
+    /// 账号下没有角色时的引导。
+    NoCharacters,
+    /// 连接失败标题。
+    ConnectionFailed,
+    /// 上次登录时间。
+    LastAccess,
+    /// 从未登录。
+    Never,
+    /// 退出。
+    Quit,
+    /// 登录界面底部提示。
+    LoginHint,
+    /// 选角界面底部提示。
+    CharSelectHint,
+    /// 没有装备（角色选择界面的装备摘要占位）。
+    NoEquipmentSummary,
+    /// 选角界面：返回服务器选择。
+    BackToServer,
+    /// 设置面板按键表：大地图。
+    Bigmap,
+    /// 设置面板按键表：走路。
+    KeyMove,
+    /// 设置面板按键表：跑步。
+    KeyRun,
+    /// 设置面板按键表：攻击。
+    KeyAttack,
+    /// 设置面板按键表：拾取。
+    KeyPickUp,
+    /// 设置面板按键表：聊天输入。
+    KeyChat,
+    /// 设置面板按键表：关闭面板。
+    KeyEscape,
 }
 
 impl Label {
@@ -409,7 +507,7 @@ impl Label {
             (Self::Inventory, Language::ZhCn) => "背包",
             (Self::Inventory, Language::En) => "Inventory",
             (Self::Shop, Language::ZhCn) => "商店",
-            (Self::Shop, Language::En) => "Shop",
+            (Self::Shop | Self::GameShop, Language::En) => "Shop",
             (Self::Dialog, Language::ZhCn) => "对话",
             (Self::Dialog, Language::En) => "Dialog",
             (Self::Skills, Language::ZhCn) => "技能",
@@ -465,7 +563,7 @@ impl Label {
             (Self::Durability, Language::En) => "Durability",
             (Self::Stack, Language::ZhCn) => "堆叠",
             (Self::Stack, Language::En) => "Stack",
-            (Self::Attack, Language::ZhCn) => "攻击",
+            (Self::Attack | Self::KeyAttack, Language::ZhCn) => "攻击",
             (Self::Attack, Language::En) => "DC",
             (Self::Defence, Language::ZhCn) => "防御",
             (Self::Defence, Language::En) => "AC",
@@ -764,6 +862,108 @@ impl Label {
             (Self::NoSelectedItem, Language::En) => "No item selected",
             (Self::ConsignSelected, Language::ZhCn) => "上架物品",
             (Self::ConsignSelected, Language::En) => "Listing",
+            (Self::GameShop, Language::ZhCn) => "商城",
+            (Self::Credit, Language::ZhCn) => "元宝",
+            (Self::Credit, Language::En) => "Credits",
+            (Self::Stock, Language::ZhCn) => "库存",
+            (Self::Stock, Language::En) => "Stock",
+            (Self::OnSale, Language::ZhCn) => "在售",
+            (Self::OnSale, Language::En) => "On sale",
+            (Self::Quantity, Language::ZhCn) => "数量",
+            (Self::Quantity, Language::En) => "Qty",
+            (Self::GameShopHint, Language::ZhCn) => "选中商品后点购买 · 元宝结算 · Esc 关闭",
+            (Self::GameShopHint, Language::En) => {
+                "Select an item then Buy · paid in credits · Esc closes"
+            }
+            (Self::NoGameShopItems, Language::ZhCn) => "商城暂无商品",
+            (Self::NoGameShopItems, Language::En) => "The shop has no items",
+            (Self::Category, Language::ZhCn) => "分类",
+            (Self::Category, Language::En) => "Category",
+            (Self::Settings, Language::ZhCn) => "设置",
+            (Self::Settings, Language::En) => "Settings",
+            (Self::Audio, Language::ZhCn) => "音频",
+            (Self::Audio, Language::En) => "Audio",
+            (Self::Music, Language::ZhCn) => "背景音乐",
+            (Self::Music, Language::En) => "Music",
+            (Self::Sound, Language::ZhCn) => "音效",
+            (Self::Sound, Language::En) => "Sound",
+            (Self::Volume, Language::ZhCn) => "音量",
+            (Self::Volume, Language::En) => "Volume",
+            (Self::Language, Language::ZhCn) => "语言",
+            (Self::Language, Language::En) => "Language",
+            (Self::Display, Language::ZhCn) => "显示",
+            (Self::Display, Language::En) => "Display",
+            (Self::Resolution, Language::ZhCn) => "分辨率",
+            (Self::Resolution, Language::En) => "Resolution",
+            (Self::UiScale, Language::ZhCn) => "缩放",
+            (Self::UiScale, Language::En) => "Scale",
+            (Self::KeyBindings, Language::ZhCn) => "按键说明",
+            (Self::KeyBindings, Language::En) => "Key bindings",
+            (Self::SettingsHint, Language::ZhCn) => "O 关闭 · Esc 收起 · 改动即时生效并保存",
+            (Self::SettingsHint, Language::En) => {
+                "O to close · Esc hides · changes apply and save at once"
+            }
+            (Self::Login, Language::ZhCn) => "登录",
+            (Self::Login, Language::En) => "Log in",
+            (Self::Server, Language::ZhCn) => "服务器",
+            (Self::Server, Language::En) => "Server",
+            (Self::ServerAddress, Language::ZhCn) => "服务器地址",
+            (Self::ServerAddress, Language::En) => "Server address",
+            (Self::Account, Language::ZhCn) => "账号",
+            (Self::Account, Language::En) => "Account",
+            (Self::Password, Language::ZhCn) => "密码",
+            (Self::Password, Language::En) => "Password",
+            (Self::Connect, Language::ZhCn) => "连接",
+            (Self::Connect, Language::En) => "Connect",
+            (Self::Retry, Language::ZhCn) => "重试",
+            (Self::Retry, Language::En) => "Retry",
+            (Self::SelectCharacter, Language::ZhCn) => "选择角色",
+            (Self::SelectCharacter, Language::En) => "Select character",
+            (Self::CreateCharacter, Language::ZhCn) => "创建角色",
+            (Self::CreateCharacter, Language::En) => "Create character",
+            (Self::EnterGame, Language::ZhCn) => "进入游戏",
+            (Self::EnterGame, Language::En) => "Enter game",
+            (Self::CharacterName, Language::ZhCn) => "角色名",
+            (Self::CharacterName, Language::En) => "Name",
+            (Self::Gender, Language::ZhCn) => "性别",
+            (Self::Gender, Language::En) => "Gender",
+            (Self::Male, Language::ZhCn) => "男",
+            (Self::Male, Language::En) => "Male",
+            (Self::Female, Language::ZhCn) => "女",
+            (Self::Female, Language::En) => "Female",
+            (Self::NoCharacters, Language::ZhCn) => "账号下还没有角色，先创建一个开始冒险",
+            (Self::NoCharacters, Language::En) => "No characters yet — create one to start",
+            (Self::ConnectionFailed, Language::ZhCn) => "连接失败",
+            (Self::ConnectionFailed, Language::En) => "Connection failed",
+            (Self::LastAccess, Language::ZhCn) => "上次登录",
+            (Self::LastAccess, Language::En) => "Last access",
+            (Self::Never, Language::ZhCn) => "从未登录",
+            (Self::Never, Language::En) => "Never",
+            (Self::Quit, Language::ZhCn) => "退出",
+            (Self::Quit, Language::En) => "Quit",
+            (Self::LoginHint, Language::ZhCn) => "填好地址与账号后点连接 · Esc 退出",
+            (Self::LoginHint, Language::En) => {
+                "Fill in the address and account, then Connect · Esc quits"
+            }
+            (Self::CharSelectHint, Language::ZhCn) => "点角色选中 · 回车进入游戏 · Esc 返回",
+            (Self::CharSelectHint, Language::En) => "Click a character · Enter to play · Esc back",
+            (Self::NoEquipmentSummary, Language::ZhCn) => "暂无装备",
+            (Self::NoEquipmentSummary, Language::En) => "No equipment yet",
+            (Self::BackToServer, Language::ZhCn) => "返回服务器",
+            (Self::BackToServer, Language::En) => "Back to servers",
+            (Self::Bigmap, Language::ZhCn) => "大地图",
+            (Self::Bigmap, Language::En) => "Big map",
+            (Self::KeyMove, Language::ZhCn) => "走 / 转身",
+            (Self::KeyMove, Language::En) => "Walk / turn",
+            (Self::KeyRun, Language::ZhCn) => "跑",
+            (Self::KeyRun, Language::En) => "Run",
+            (Self::KeyAttack, Language::En) => "Attack",
+            (Self::KeyPickUp, Language::ZhCn) => "拾取",
+            (Self::KeyPickUp, Language::En) => "Pick up",
+            (Self::KeyChat, Language::ZhCn) => "聊天输入",
+            (Self::KeyChat, Language::En) => "Chat input",
+            (Self::KeyEscape, Language::ZhCn) => "关闭面板",
+            (Self::KeyEscape, Language::En) => "Close panels",
         }
     }
 
@@ -780,6 +980,30 @@ const fn pair(language: Language, zh: &'static str, en: &'static str) -> &'stati
         Language::ZhCn => zh,
         Language::En => en,
     }
+}
+
+/// 技能名（技能表现浮字用；只收录客户端特效相关的技能，未收录返回 `None`）。
+#[must_use]
+pub fn spell_name(spell: mir_core::enums::Spell, language: Language) -> Option<&'static str> {
+    use mir_core::enums::Spell;
+    let (zh, en) = match spell {
+        Spell::FireWall => ("火墙", "Fire Wall"),
+        Spell::ThunderBolt => ("雷电术", "Thunder Bolt"),
+        Spell::ThunderStorm => ("地狱雷光", "Thunder Storm"),
+        Spell::Lightning => ("疾光电影", "Lightning"),
+        Spell::Teleport => ("瞬息移动", "Teleport"),
+        Spell::Blink => ("瞬移", "Blink"),
+        Spell::Hiding | Spell::MassHiding => ("隐身术", "Hiding"),
+        Spell::SummonSkeleton => ("召唤骷髅", "Summon Skeleton"),
+        Spell::SummonShinsu => ("召唤神兽", "Summon Shinsu"),
+        Spell::Poisoning => ("施毒术", "Poisoning"),
+        Spell::PoisonCloud => ("毒云", "Poison Cloud"),
+        Spell::Healing | Spell::MassHealing => ("治愈术", "Healing"),
+        Spell::MagicShield => ("魔法盾", "Magic Shield"),
+        Spell::FireBall | Spell::GreatFireBall => ("火球术", "Fire Ball"),
+        _ => return None,
+    };
+    Some(pair(language, zh, en))
 }
 
 /// 职业名（组队面板与以后的玩家信息面板用）。
@@ -971,6 +1195,16 @@ pub fn gold_text(language: Language, gold: u32) -> String {
     )
 }
 
+/// `元宝 1,234` 之类的文案（状态栏余额；商城页签标题也用元宝）。
+#[must_use]
+pub fn credit_text(language: Language, credit: u32) -> String {
+    format!(
+        "{} {}",
+        Label::Credit.text(language),
+        format_number(u64::from(credit))
+    )
+}
+
 /// 未知物品的占位名：`未知物品 #12`。
 #[must_use]
 pub fn unknown_item(language: Language, item_index: i32) -> String {
@@ -1014,6 +1248,8 @@ mod tests {
         assert_eq!(format_number(1_000), "1,000");
         assert_eq!(format_number(12_345_678), "12,345,678");
         assert_eq!(gold_text(Language::ZhCn, 4_321), "金币 4,321");
+        assert_eq!(credit_text(Language::ZhCn, 5_000), "元宝 5,000");
+        assert_eq!(credit_text(Language::En, 250), "Credits 250");
     }
 
     #[test]

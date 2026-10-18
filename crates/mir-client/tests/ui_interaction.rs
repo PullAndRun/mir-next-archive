@@ -316,6 +316,7 @@ fn interaction_tooltip_use_drag_damage_and_buffs() {
             gender: MirGender::Male,
         }),
         auto_register: true,
+        manual_select: false,
     })
     .expect("启动客户端网络线程");
     let mut snapshot = client

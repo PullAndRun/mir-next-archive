@@ -15,7 +15,6 @@
 
 mod app;
 mod overlay;
-mod settings;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -29,8 +28,7 @@ use mir_core::{Language, Point, TextKey};
 use mir_render::{EntityLibraries, MapScene, TileLibraries, Viewport};
 use mir_world::{Map, MapCell, MapVersion};
 
-use crate::settings::ClientSettings;
-
+use mir_client::settings::ClientSettings;
 /// 联机登录等待上限。
 const CONNECT_LOGIN_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -46,6 +44,10 @@ struct Options {
     center: Point,
     /// `--connect` 的服务器地址。
     connect: Option<String>,
+    /// `--server`：保存到设置文件的默认服务器地址（不直接连接）。
+    server: Option<String>,
+    /// `--login`：打开登录窗口（服务器选择 → 角色选择 → 进入世界）。
+    login: bool,
     /// 账号。
     account: String,
     /// 口令。
@@ -76,6 +78,8 @@ impl Default for Options {
             data_dir: PathBuf::from("resource/data"),
             center: Point::new(330, 270),
             connect: None,
+            server: None,
+            login: false,
             account: String::new(),
             password: String::new(),
             character: String::new(),
@@ -161,6 +165,13 @@ fn main() -> Result<()> {
                 };
                 options.connect = Some(value);
             }
+            "--server" => {
+                let Some(value) = args.next() else {
+                    anyhow::bail!("--server 需要服务器地址，例如 --server 127.0.0.1:7000");
+                };
+                options.server = Some(value);
+            }
+            "--login" => options.login = true,
             "--account" => {
                 let Some(value) = args.next() else {
                     anyhow::bail!("--account 需要一个账号名");
@@ -287,9 +298,33 @@ fn main() -> Result<()> {
         language.code(),
         settings_path.display()
     );
+    println!(
+        "显示：{} · 缩放 {}x · 服务器 {}",
+        client_settings.resolution_text(),
+        client_settings.scale(),
+        client_settings.server()
+    );
+
+    // `--server` 只更新设置文件里的默认地址（登录窗口/下次启动用）。
+    if let Some(server) = options.server.clone() {
+        client_settings.set_server(&server);
+        client_settings.save(&settings_path)?;
+        println!("已保存服务器地址：{}", client_settings.server());
+    }
+
+    if options.login {
+        run_login_window(&options, &client_settings, &settings_path);
+        return Ok(());
+    }
 
     if let Some(server) = options.connect.clone() {
-        return run_connected(&options, &server, language, &client_settings);
+        return run_connected(
+            &options,
+            &server,
+            language,
+            &client_settings,
+            &settings_path,
+        );
     }
 
     let map_path = resolve_map_path(&options.map, &options.map_dir);
@@ -314,12 +349,36 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// 登录窗口：服务器选择 → 角色选择 → 进入世界。
+///
+/// 地址取设置文件里的 `server`（默认 `127.0.0.1:7000`，可用 `--server` 修改）；
+/// 命令行 `--account` / `--password` 只用于预填。
+fn run_login_window(options: &Options, client_settings: &ClientSettings, settings_path: &Path) {
+    println!(
+        "登录窗口：服务器 {} · 语言 {}",
+        client_settings.server(),
+        client_settings.language().native_name()
+    );
+    let sound = build_sound_player(options, client_settings);
+    app::run_login(app::LoginOptions {
+        map_dir: options.map_dir.clone(),
+        data_dir: options.data_dir.clone(),
+        sound,
+        settings: client_settings.clone(),
+        settings_path: settings_path.to_path_buf(),
+        language: client_settings.language(),
+        account: options.account.clone(),
+        password: options.password.clone(),
+    });
+}
+
 /// 联机模式：连接 → 登录/建角 → 进世界 → 按服务器地图加载本地地形 → 开窗口。
 fn run_connected(
     options: &Options,
     server: &str,
     language: Language,
     client_settings: &ClientSettings,
+    settings_path: &Path,
 ) -> Result<()> {
     if options.account.is_empty() || options.password.is_empty() || options.character.is_empty() {
         anyhow::bail!(
@@ -333,6 +392,7 @@ fn run_connected(
         character: options.character.clone(),
         create: options.create.clone(),
         auto_register: options.auto_register,
+        manual_select: false,
     };
     println!("连接服务器 {server} …");
     let client = NetClient::connect(connect)?;
@@ -340,6 +400,17 @@ fn run_connected(
         .wait_until_in_game(CONNECT_LOGIN_TIMEOUT)
         .with_context(|| format!("连接 {server} 并登录失败"))?;
     let me = snapshot.self_player.as_ref();
+    // 记录装备摘要（选角页显示；重启后仍在）。
+    if let Some(player) = me {
+        let summary = app::equipment_summary(&snapshot);
+        if !summary.is_empty() && client_settings.equipment.get(&player.name) != Some(&summary) {
+            let mut updated = client_settings.clone();
+            updated.equipment.insert(player.name.clone(), summary);
+            if let Err(error) = updated.save(settings_path) {
+                eprintln!("保存设置失败（{}）：{error}", settings_path.display());
+            }
+        }
+    }
     let map_name = snapshot
         .map
         .as_ref()
@@ -358,7 +429,7 @@ fn run_connected(
         scene.map.height
     );
     println!(
-        "方向键/WASD 走（Shift 跑，反向先转身）· Space 攻击 · P 捡取 · T 聊天 · I 背包 · M 小地图 · Q 任务 · N 邮件 · G 行会 · F3 技能 · 1..9 施法"
+        "方向键/WASD 走（Shift 跑，反向先转身）· Space 攻击 · P 捡取 · T 聊天 · I 背包 · M 小地图 · Q 任务 · N 邮件 · G 行会 · F3 技能 · 1..9 施法 · O 设置"
     );
     println!("鼠标点 NPC / 面板按钮 · Esc 关面板 · F1 叠层 · F2 截图 · F10 退出");
     let sound = build_sound_player(options, client_settings);
@@ -395,6 +466,8 @@ fn run_connected(
             map_dir: options.map_dir.clone(),
             data_dir: options.data_dir.clone(),
             sound,
+            settings: client_settings.clone(),
+            settings_path: settings_path.to_path_buf(),
         },
     );
     Ok(())
@@ -511,7 +584,9 @@ fn print_help() {
     println!("  --data-dir <目录>       素材目录（默认 resource/data）");
     println!();
     println!("联机世界：");
-    println!("  --connect <地址>        连接服务器，例如 --connect 127.0.0.1:7000");
+    println!("  --login                 打开登录窗口（服务器选择 → 角色选择 → 进入世界）");
+    println!("  --server <地址>         保存默认服务器地址（默认 127.0.0.1:7000）");
+    println!("  --connect <地址>        直接连接服务器，例如 --connect 127.0.0.1:7000");
     println!("  --account <账号>        账号（不存在时默认自动注册）");
     println!("  --password <口令>       口令");
     println!("  --character <角色名>    要进入世界的角色");
@@ -520,6 +595,8 @@ fn print_help() {
     println!("  --gender <性别>         male/female 或 0/1（默认 male）");
     println!("  --no-register           账号不存在时不自动注册，直接报错");
     println!();
+    println!("设置面板（游戏内按 O）：音量 / 语言 / 分辨率与缩放 / 按键说明；");
+    println!("改动即时生效并写回设置文件，重启后仍生效。");
     println!("音效与音乐：");
     println!("  --no-sound              本次运行不播音效（不写设置文件）");
     println!("  --volume <0..1>         本次运行音效音量（默认 0.5，不写设置文件）");

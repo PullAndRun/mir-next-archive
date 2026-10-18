@@ -14,4 +14,5 @@
 pub mod audio;
 pub mod geom;
 pub mod net;
+pub mod settings;
 pub mod ui;

@@ -89,6 +89,7 @@ fn live_client_walks_and_renders_a_frame() {
             gender: MirGender::Male,
         }),
         auto_register: true,
+        manual_select: false,
     })
     .expect("启动客户端网络线程");
 

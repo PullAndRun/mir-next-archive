@@ -42,6 +42,7 @@ pub fn entity_at(snapshot: &WorldSnapshot, cell: Point) -> Option<&WorldEntity> 
             entity.position == cell
                 && entity.kind != EntityKind::Item
                 && !entity.dead
+                && !entity.hidden
                 && Some(entity.object_id) != self_id
         })
         .min_by_key(|entity| (priority(entity.kind), entity.object_id))
@@ -181,6 +182,7 @@ mod tests {
                 gender: mir_core::enums::MirGender::Male,
                 hair: 0,
                 gold: 0,
+                credit: 0,
                 dead: false,
                 action: mir_render::ActorAction::Standing,
                 action_started_ms: 0,

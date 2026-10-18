@@ -188,7 +188,8 @@ pub fn draw_names(
     }
     let self_id = snapshot.self_player.as_ref().map(|me| me.object_id);
     for (object_id, entity) in &snapshot.entities {
-        if Some(*object_id) == self_id || entity.kind == EntityKind::Item {
+        if Some(*object_id) == self_id || entity.kind == EntityKind::Item || entity.hidden {
+            // 隐身对象的名字也不画（Crystal `GameScene.ObjectHidden`）。
             continue;
         }
         draw_one_name(
@@ -350,6 +351,7 @@ mod tests {
                 image: 0,
                 looks: crate::net::PlayerLooks::default(),
                 dead: false,
+                hidden: false,
                 hp_percent: None,
                 level: 0,
                 class: mir_core::enums::MirClass::Warrior,

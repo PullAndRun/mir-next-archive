@@ -261,6 +261,7 @@ mod tests {
                 gender: MirGender::Male,
                 hair: 1,
                 gold: 0,
+                credit: 0,
                 dead: false,
                 action: mir_render::ActorAction::Standing,
                 action_started_ms: 0,

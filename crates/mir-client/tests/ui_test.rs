@@ -286,6 +286,7 @@ fn headless_ui_renders_all_panels_and_dispatches_clicks() {
             gender: MirGender::Female,
         }),
         auto_register: true,
+        manual_select: false,
     })
     .expect("启动客户端网络线程");
     let mut snapshot = client

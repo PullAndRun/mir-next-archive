@@ -268,7 +268,9 @@ fn market_layouts_fit_small_and_large_screens() {
                         layout.panel
                     );
                 }
-                assert_eq!(layout.tabs.len(), 3);
+                // 第 2 轮加了第四个「商城」页签。
+                assert_eq!(layout.tabs.len(), 4);
+                assert_eq!(layout.tabs.len(), market::TABS.len());
                 if page == 0 {
                     assert_eq!(layout.first_row, 0);
                 } else {

@@ -152,6 +152,8 @@ pub const MAX_GROUP: usize = 15;
 const DAMAGE_EVENT_LIMIT: usize = 32;
 /// 快照里保留的光效事件条数。
 const EFFECT_EVENT_LIMIT: usize = 16;
+/// 快照里保留的技能表现事件条数（火墙/雷电等短时表现）。
+const SPELL_EVENT_LIMIT: usize = 24;
 /// 快照里保留的音效事件条数：UI 每帧把「比上次多」的那些交给播放器。
 const SOUND_EVENT_LIMIT: usize = 32;
 /// 客户端版本哈希的占位值：Crystal 发的是客户端 exe 的 MD5（16 字节），
@@ -223,6 +225,57 @@ pub struct ConnectOptions {
     pub create: Option<CreateCharacter>,
     /// 账号不存在时是否自动注册（默认 `true`；`--no-register` 关闭）。
     pub auto_register: bool,
+    /// 手动选角：登录成功后停在「角色选择」阶段，等 UI 发
+    /// [`NetCommand::SelectCharacter`] / [`NetCommand::NewCharacter`]。
+    ///
+    /// 登录窗口（`--login`）用 `true`；命令行 `--connect` 用 `false`（保持自动选角）。
+    pub manual_select: bool,
+}
+
+impl Default for ConnectOptions {
+    fn default() -> Self {
+        Self {
+            server: "127.0.0.1:7000".to_owned(),
+            account: String::new(),
+            password: String::new(),
+            character: String::new(),
+            create: None,
+            auto_register: true,
+            manual_select: false,
+        }
+    }
+}
+
+/// 选角列表里的一个角色（`S.LoginSuccess.Characters` 的 `SelectInfo` 界面子集）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CharacterInfo {
+    /// 角色槽位序号（`C.StartGame.CharacterIndex`）。
+    pub index: i32,
+    /// 角色名。
+    pub name: String,
+    /// 等级。
+    pub level: u16,
+    /// 职业。
+    pub class: MirClass,
+    /// 性别。
+    pub gender: MirGender,
+    /// 上次登录时间。
+    pub last_access: DateTimeBinary,
+}
+
+impl CharacterInfo {
+    /// 从协议 `SelectInfo` 构造。
+    #[must_use]
+    pub fn from_select_info(info: &mir_protocol::data::SelectInfo) -> Self {
+        Self {
+            index: info.index,
+            name: info.name.clone(),
+            level: info.level,
+            class: info.class,
+            gender: info.gender,
+            last_access: info.last_access,
+        }
+    }
 }
 
 /// UI → 网络线程的命令。
@@ -546,6 +599,34 @@ pub enum NetCommand {
         price: u32,
         /// 面板类型（`Consign` 或 `Auction`）。
         panel: MarketPanelType,
+    },
+    /// 商城购买（`C.GameshopBuy{GIndex,Quantity,PType}`，包 133）。
+    ///
+    /// `g_index` 是商城列表条目里的 `ClientAuction.auction_id`（服务端把它当商品
+    /// `GIndex`）；`p_type = 0` 用元宝结算、`1` 用金币结算（Crystal 同款）。
+    GameShopBuy {
+        /// 商品编号（列表里的 `auction_id`）。
+        g_index: i32,
+        /// 购买份数（1..=99）。
+        quantity: u8,
+        /// 结算货币：`0` 元宝 / `1` 金币。
+        p_type: i32,
+    },
+    /// 手动选角：进入游戏（`C.StartGame{CharacterIndex}`）。
+    ///
+    /// 只在 [`ConnectOptions::manual_select`] 的「角色选择」阶段有效。
+    SelectCharacter {
+        /// 角色槽位序号（`CharacterInfo.index`）。
+        index: i32,
+    },
+    /// 手动选角：创建角色（`C.NewCharacter`），成功后回到角色选择。
+    NewCharacter {
+        /// 角色名。
+        name: String,
+        /// 职业。
+        class: MirClass,
+        /// 性别。
+        gender: MirGender,
     },
     /// 关闭连接。
     Quit,
@@ -871,6 +952,8 @@ pub struct SelfPlayer {
     pub hair: u8,
     /// 金币。
     pub gold: u32,
+    /// 元宝（`S.UserInformation.Credit`；商城与任务奖励共用这个字段）。
+    pub credit: u32,
     /// 是否死亡。
     pub dead: bool,
     /// 当前动作（自己的走/跑/攻击由本地命令驱动，死亡/复活由服务器包驱动）。
@@ -917,6 +1000,9 @@ pub struct WorldEntity {
     pub looks: PlayerLooks,
     /// 是否死亡。
     pub dead: bool,
+    /// 是否隐身（`S.ObjectHidden`；隐身期间不画外观/名字/血条，也不能被点选，
+    /// Crystal `GameScene.ObjectHidden`，`GameScene.cs:5780-5790`）。
+    pub hidden: bool,
     /// 生命百分比（`S.ObjectHealth`；怪物才有）。
     pub hp_percent: Option<u8>,
     /// 等级（`S.ObjectPlayer.Level`；怪物/NPC 为 0）。组队面板的「等级」列用它。
@@ -955,6 +1041,7 @@ impl WorldEntity {
             image,
             looks: PlayerLooks::default(),
             dead: false,
+            hidden: false,
             hp_percent: None,
             level: 0,
             class: MirClass::Warrior,
@@ -1181,6 +1268,34 @@ pub struct EffectEvent {
     pub effect: SpellEffect,
     /// 持续毫秒（`ObjectEffect.time`）。
     pub time: u32,
+}
+
+/// 一次技能表现事件（`S.Magic` / `S.ObjectMagic` / `S.ObjectSpell`）。
+///
+/// 与 [`EffectEvent`] 的区别：光效挂在**对象**身上（魔法盾/治疗），技能表现挂在
+/// **地图格**上（火墙的区域、雷电的落点、瞬息移动的起点、召唤物的位置），
+/// 所以这里直接记录 `location`，UI 在 `ui::spellfx` 里按格画。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpellEvent {
+    /// 递增编号。
+    pub id: u64,
+    /// 施法者对象编号（`S.Magic` 为 0，表示自己）。
+    pub object_id: u32,
+    /// 技能。
+    pub spell: Spell,
+    /// 表现落点（见 [`spell_anchor`]：区域/指向性技能取目标格，自身增益取施法者格）。
+    pub location: Point,
+    /// 施法朝向（火墙的 5 格十字由服务端逐格下发，朝向仅作诊断）。
+    pub direction: MirDirection,
+    /// `S.ObjectSpell.Param` / 施法是否真的在放（`S.ObjectMagic.Cast`）。
+    pub param: bool,
+    /// 是否来自 `S.ObjectSpell`（包 149，**逐格**下发持续法术）。
+    ///
+    /// 火墙的 5 格十字各有一条 `ObjectSpell`，这类事件不能再沿方向铺开，
+    /// 否则会和其它格重复叠加（见 `ui::spellfx`）。
+    pub from_object_spell: bool,
+    /// 本地收到包的时刻（Unix 毫秒；UI 按 `ui::spellfx::duration_ms` 淡出）。
+    pub started_ms: i64,
 }
 
 /// 一次音效事件：服务端包 → 「该响什么」。
@@ -2107,6 +2222,10 @@ pub struct WorldSnapshot {
     pub effects: Vec<EffectEvent>,
     /// 下一个光效事件编号。
     pub next_effect_id: u64,
+    /// 最近的技能表现事件（`S.Magic`/`S.ObjectMagic`/`S.ObjectSpell`，尾部最新）。
+    pub spell_events: Vec<SpellEvent>,
+    /// 下一个技能表现事件编号。
+    pub next_spell_id: u64,
     /// 最近的音效事件（尾部最新；播放器只消费新增的 `id`）。
     pub sound_events: Vec<SoundEvent>,
     /// 下一个音效事件编号。
@@ -2170,6 +2289,10 @@ pub struct WorldSnapshot {
     /// 市场/寄售/拍卖状态（`S.NPCMarket`/`S.NPCMarketPage`/`S.NPCConsign`/
     /// `S.ConsignItem`/`S.MarketFail`/`S.MarketSuccess`，见 [`MarketView`]）。
     pub market: MarketView,
+    /// 登录账号下的角色列表（`S.LoginSuccess.Characters`；手动选角窗口用）。
+    pub characters: Vec<CharacterInfo>,
+    /// 角色列表每次变化 +1（UI 据此刷新选角页）。
+    pub characters_version: u64,
     /// 收到过多少页 NPC 对话（版本号来源）。
     pub npc_dialog_version: u64,
     /// 收到过多少次商店货架（版本号来源）。
@@ -2197,6 +2320,8 @@ impl Default for WorldSnapshot {
             next_damage_id: 0,
             effects: Vec::new(),
             next_effect_id: 0,
+            spell_events: Vec::new(),
+            next_spell_id: 0,
             sound_events: Vec::new(),
             next_sound_id: 1,
             item_infos: BTreeMap::new(),
@@ -2226,6 +2351,8 @@ impl Default for WorldSnapshot {
             trade: TradeView::new(),
             group: GroupView::new(),
             market: MarketView::default(),
+            characters: Vec::new(),
+            characters_version: 0,
             npc_dialog_version: 0,
             npc_goods_version: 0,
             packet_counts: BTreeMap::new(),
@@ -2572,7 +2699,8 @@ impl WorldSnapshot {
             });
         }
         for (object_id, entity) in &self.entities {
-            if Some(*object_id) == self_id {
+            if Some(*object_id) == self_id || entity.hidden {
+                // 隐身对象不画（Crystal `GameScene.ObjectHidden` 把绘制帧清掉）。
                 continue;
             }
             views.push(EntityView {
@@ -2857,7 +2985,33 @@ fn session(
                 send_snapshot(events, &snapshot);
                 return Ok(());
             }
-            handle_command(&mut stream, &mut snapshot, command)?;
+            // 手动选角：选角/建角命令只在「角色选择」阶段生效，不经过
+            // `handle_command`（那里要求已进入世界）。
+            match command {
+                NetCommand::SelectCharacter { index } if stage == Stage::AwaitCharacterSelect => {
+                    send_start_game(&mut stream, index)?;
+                    stage = Stage::AwaitStartGame;
+                    snapshot.status = NetStatus::StartingGame;
+                    send_snapshot(events, &snapshot);
+                }
+                NetCommand::NewCharacter {
+                    name,
+                    class,
+                    gender,
+                } if stage == Stage::AwaitCharacterSelect => {
+                    send_new_character(
+                        &mut stream,
+                        &CreateCharacter {
+                            name,
+                            class,
+                            gender,
+                        },
+                    )?;
+                    stage = Stage::AwaitNewCharacter;
+                    send_snapshot(events, &snapshot);
+                }
+                command => handle_command(&mut stream, &mut snapshot, command)?,
+            }
         }
 
         match stream.read(&mut buffer) {
@@ -2941,6 +3095,9 @@ enum Stage {
     AwaitNewAccount,
     /// 等 `S.NewCharacterSuccess` / `S.NewCharacter`。
     AwaitNewCharacter,
+    /// 手动选角：登录成功，等 UI 发 `SelectCharacter` / `NewCharacter`
+    /// （`ConnectOptions::manual_select`）。
+    AwaitCharacterSelect,
     /// 等 `S.StartGame`。
     AwaitStartGame,
     /// 已进入世界。
@@ -2995,6 +3152,11 @@ fn advance(
         }
         (Stage::AwaitLogin, ServerPacket::LoginSuccess(login)) => {
             snapshot.status = NetStatus::SelectingCharacter;
+            if options.manual_select {
+                // 手动选角：停在角色选择阶段，等窗口层发 `SelectCharacter`。
+                *stage = Stage::AwaitCharacterSelect;
+                return Ok(());
+            }
             if let Some(character) = find_character(&login.characters, &options.character) {
                 send_start_game(stream, character.index)?;
                 *stage = Stage::AwaitStartGame;
@@ -3018,6 +3180,12 @@ fn advance(
             other => bail!("注册账号失败（result = {other}）"),
         },
         (Stage::AwaitNewCharacter, ServerPacket::NewCharacterSuccess(success)) => {
+            if options.manual_select {
+                // 建角成功：回到角色选择，让窗口层刷新列表后由玩家点「进入游戏」。
+                snapshot.status = NetStatus::SelectingCharacter;
+                *stage = Stage::AwaitCharacterSelect;
+                return Ok(());
+            }
             send_start_game(stream, success.char_info.index)?;
             *stage = Stage::AwaitStartGame;
         }
@@ -3374,7 +3542,19 @@ fn handle_command(
             price,
             type_: panel,
         }),
-        NetCommand::Quit => return Ok(()),
+        NetCommand::GameShopBuy {
+            g_index,
+            quantity,
+            p_type,
+        } => ClientPacket::GameshopBuy(c::GameshopBuy {
+            g_index,
+            quantity,
+            p_type,
+        }),
+        // 选角/建角由会话循环在处理命令前拦截（只在角色选择阶段生效）。
+        NetCommand::SelectCharacter { .. } | NetCommand::NewCharacter { .. } | NetCommand::Quit => {
+            return Ok(());
+        }
     };
     send(stream, &packet)
 }
@@ -3431,6 +3611,10 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
         ServerPacket::ObjectStruck(_) => "ObjectStruck",
         ServerPacket::DamageIndicator(_) => "DamageIndicator",
         ServerPacket::ObjectEffect(_) => "ObjectEffect",
+        ServerPacket::ObjectHidden(_) => "ObjectHidden",
+        ServerPacket::Magic(_) => "Magic",
+        ServerPacket::ObjectMagic(_) => "ObjectMagic",
+        ServerPacket::ObjectSpell(_) => "ObjectSpell",
         ServerPacket::AddBuff(_) => "AddBuff",
         ServerPacket::RemoveBuff(_) => "RemoveBuff",
         ServerPacket::ObjectDied(_) => "ObjectDied",
@@ -3444,6 +3628,8 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
         ServerPacket::GainedItem(_) => "GainedItem",
         ServerPacket::GainedGold(_) => "GainedGold",
         ServerPacket::LoseGold(_) => "LoseGold",
+        ServerPacket::GainedCredit(_) => "GainedCredit",
+        ServerPacket::LoseCredit(_) => "LoseCredit",
         ServerPacket::MoveItem(_) => "MoveItem",
         ServerPacket::EquipItem(_) => "EquipItem",
         ServerPacket::RemoveItem(_) => "RemoveItem",
@@ -3522,6 +3708,28 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
         ServerPacket::StartGame(result) => {
             if result.result == 4 {
                 snapshot.status = NetStatus::InGame;
+            }
+        }
+        ServerPacket::LoginSuccess(login) => {
+            // 登录成功：把角色列表放进快照（手动选角窗口据此画选角页；
+            // Crystal `LoginScene` 收到 `S.LoginSuccess` 后切到 `SelectScene`）。
+            snapshot.characters = login
+                .characters
+                .iter()
+                .map(CharacterInfo::from_select_info)
+                .collect();
+            snapshot.characters_version = snapshot.characters_version.saturating_add(1);
+        }
+        ServerPacket::NewCharacterSuccess(success) => {
+            // 新建角色成功：追加到列表里（服务端只回这一条，不会再发 `S.LoginSuccess`）。
+            let info = CharacterInfo::from_select_info(&success.char_info);
+            if !snapshot
+                .characters
+                .iter()
+                .any(|known| known.index == info.index)
+            {
+                snapshot.characters.push(info);
+                snapshot.characters_version = snapshot.characters_version.saturating_add(1);
             }
         }
         ServerPacket::MapInformation(info) => {
@@ -3629,6 +3837,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 gender: info.gender,
                 hair: info.hair,
                 gold: info.gold,
+                credit: info.credit,
                 dead: false,
                 action: ActorAction::Standing,
                 action_started_ms: 0,
@@ -3671,6 +3880,8 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                     image: looks.armour,
                     looks,
                     dead: player.dead,
+                    // `S.ObjectPlayer.Hidden` 带初始隐身状态（之后由 `S.ObjectHidden` 更新）。
+                    hidden: player.hidden,
                     hp_percent: None,
                     level: player.level,
                     class: player.class,
@@ -3821,6 +4032,77 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
         }
         ServerPacket::ObjectEffect(effect) => {
             push_effect_event(snapshot, effect.object_id, effect.effect, effect.time);
+        }
+        ServerPacket::ObjectHidden(hidden) => {
+            // 隐身/显形（Crystal `GameScene.ObjectHidden`，`GameScene.cs:5780-5790`）。
+            update_entity(snapshot, hidden.object_id, |entity| {
+                entity.hidden = hidden.hidden;
+            });
+        }
+        ServerPacket::Magic(magic) => {
+            // 自己的施法回执（Crystal `GameScene.Magic`，`GameScene.cs:3238-3260`）：
+            // 施法音 + 技能表现。`S.Magic` 没有对象编号，落点用 `Target`。
+            snapshot.push_sound(SoundId::Cast, magic.spell, false);
+            let object_id = snapshot.self_player.as_ref().map_or(0, |me| me.object_id);
+            let location = if spell_anchor(magic.spell) {
+                magic.target
+            } else {
+                snapshot
+                    .self_player
+                    .as_ref()
+                    .map_or(magic.target, |me| me.position)
+            };
+            let direction = snapshot
+                .self_player
+                .as_ref()
+                .map_or(MirDirection::Down, |me| me.direction);
+            push_spell_event(
+                snapshot,
+                object_id,
+                magic.spell,
+                location,
+                direction,
+                magic.cast,
+                false,
+                now_ms,
+            );
+        }
+        ServerPacket::ObjectMagic(magic) => {
+            // 别人（或怪物）施法：Crystal `GameScene.ObjectMagic`（`GameScene.cs:3150-3200`）
+            // 用 `SpellObject` 画区域/投射物，并在施法者身上挂光效。
+            snapshot.push_sound(SoundId::Cast, magic.spell, false);
+            if let Some(effect) = spell_effect(magic.spell) {
+                push_effect_event(snapshot, magic.object_id, effect, 600);
+            }
+            let location = if spell_anchor(magic.spell) {
+                magic.target
+            } else {
+                magic.location
+            };
+            push_spell_event(
+                snapshot,
+                magic.object_id,
+                magic.spell,
+                location,
+                magic.direction,
+                magic.cast,
+                false,
+                now_ms,
+            );
+        }
+        ServerPacket::ObjectSpell(spell) => {
+            // `S.ObjectSpell`（包 149）：火墙等「铺在地上的持续法术」由这条包逐格定位
+            // （火墙一次 5 格十字，每格一条）。
+            push_spell_event(
+                snapshot,
+                spell.object_id,
+                spell.spell,
+                spell.location,
+                spell.direction,
+                spell.param,
+                true,
+                now_ms,
+            );
         }
         ServerPacket::AddBuff(add) => {
             let buff = BuffView::from_client_buff(&add.buff);
@@ -4005,6 +4287,19 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             }
             // 失去金币也响同一个音（`GameScene.cs:3306` 的 `LoseGold`）。
             snapshot.push_local_sound(SoundId::Gold, Spell::None);
+        }
+        ServerPacket::GainedCredit(gained) => {
+            // Crystal `GameScene.GainedCredit`（`Client/MirScenes/GameScene.cs:3310-3320`）：
+            // 任务奖励与其它元宝收入走这条包，余额由 `S.UserInformation.Credit` 初始化。
+            if let Some(me) = &mut snapshot.self_player {
+                me.credit = me.credit.saturating_add(gained.credit);
+            }
+        }
+        ServerPacket::LoseCredit(lost) => {
+            // 商城购买成功后服务端回 `S.LoseCredit{总价}`（见户部契约）。
+            if let Some(me) = &mut snapshot.self_player {
+                me.credit = me.credit.saturating_sub(lost.credit);
+            }
         }
         ServerPacket::Chat(chat) => {
             tracing::info!(message = %chat.message, "系统/频道聊天");
@@ -5187,6 +5482,85 @@ fn push_effect_event(snapshot: &mut WorldSnapshot, object_id: u32, effect: Spell
     });
     if snapshot.effects.len() > EFFECT_EVENT_LIMIT {
         snapshot.effects.remove(0);
+    }
+}
+
+/// 追加一条技能表现事件（`S.Magic` / `S.ObjectMagic` / `S.ObjectSpell`）。
+#[allow(clippy::too_many_arguments)]
+fn push_spell_event(
+    snapshot: &mut WorldSnapshot,
+    object_id: u32,
+    spell: Spell,
+    location: Point,
+    direction: MirDirection,
+    param: bool,
+    from_object_spell: bool,
+    now_ms: u64,
+) {
+    if spell == Spell::None {
+        return;
+    }
+    snapshot.next_spell_id = snapshot.next_spell_id.saturating_add(1);
+    let id = snapshot.next_spell_id;
+    snapshot.spell_events.push(SpellEvent {
+        id,
+        object_id,
+        spell,
+        location,
+        direction,
+        param,
+        from_object_spell,
+        started_ms: i64::try_from(now_ms).unwrap_or(i64::MAX),
+    });
+    if snapshot.spell_events.len() > SPELL_EVENT_LIMIT {
+        snapshot.spell_events.remove(0);
+    }
+}
+
+/// 技能表现挂在哪一格：`true` = 目标格（区域/指向性），`false` = 施法者格（自身增益/召唤）。
+///
+/// 对应 Crystal `SpellObject` 的落点：火墙/雷电/施毒铺在目标，隐身/魔法盾/召唤在脚下
+/// （`Client/MirObjects/SpellObject.cs:1-80`、`GameScene.cs:4950-5010`）。
+#[must_use]
+pub const fn spell_anchor(spell: Spell) -> bool {
+    matches!(
+        spell,
+        Spell::FireWall
+            | Spell::ThunderBolt
+            | Spell::ThunderStorm
+            | Spell::Lightning
+            | Spell::Poisoning
+            | Spell::PoisonCloud
+            | Spell::PoisonShot
+            | Spell::Plague
+            | Spell::TrapHexagon
+            | Spell::Trap
+            | Spell::Entrapment
+            | Spell::DelayedExplosion
+            | Spell::MeteorShower
+            | Spell::MeteorStrike
+            | Spell::Blizzard
+            | Spell::IceStorm
+            | Spell::IceThrust
+            | Spell::FrostCrunch
+            | Spell::FireBall
+            | Spell::GreatFireBall
+            | Spell::FireBurst
+            | Spell::FireBang
+            | Spell::HellFire
+            | Spell::FlameField
+            | Spell::SoulFireBall
+    )
+}
+
+/// 技能在对象身上画哪种光效（`S.ObjectMagic` → `EffectEvent`）；没有对应光效返回 `None`。
+#[must_use]
+pub const fn spell_effect(spell: Spell) -> Option<SpellEffect> {
+    match spell {
+        Spell::Healing | Spell::MassHealing | Spell::HealingCircle => Some(SpellEffect::Healing),
+        Spell::MagicShield => Some(SpellEffect::MagicShieldUp),
+        Spell::Teleport | Spell::Blink => Some(SpellEffect::Teleport),
+        _ => None,
     }
 }
 

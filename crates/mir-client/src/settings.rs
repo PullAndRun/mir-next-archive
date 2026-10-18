@@ -4,14 +4,29 @@
 //! 音效开关/音量与背景音乐开关/音量也在这里（都默认开启、音量 0.5，两者独立）；
 //! 命令行 `--no-sound` / `--volume` / `--no-music` / `--music-volume` 只覆盖本次运行，
 //! 设置文件字段是 `sound` / `volume` / `music` / `music_volume`。
+//!
+//! 第 2 轮加入设置面板后，这里还保存**服务器地址**（默认 `127.0.0.1:7000`）、
+//! **显示**（分辨率预设 `resolution` + 渲染缩放 `scale`）与**角色装备摘要缓存**
+//! （`equipment`：角色名 → 上次进入世界时的装备摘要，供选角页显示）。
+//! 每个设置动作由窗口层立即写回本文件（`ClientSettings::save`），重启后仍生效。
+//!
 //! 设置文件放在 `%APPDATA%\mir-next\settings.json`（其它平台放在用户目录下的
 //! `.mir-next/settings.json`），读写失败时回退到默认值而不是中断启动。
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use mir_client::audio::{DEFAULT_MUSIC_VOLUME, DEFAULT_VOLUME};
+use crate::audio::{DEFAULT_MUSIC_VOLUME, DEFAULT_VOLUME};
+use crate::ui::settings::{RESOLUTIONS, SCALES, SettingsState, resolution_text};
 use mir_core::Language;
 use serde::{Deserialize, Serialize};
+
+/// 默认服务器地址（与服务端默认端口一致）。
+pub const DEFAULT_SERVER: &str = "127.0.0.1:7000";
+/// 默认分辨率（窗口像素）。
+pub const DEFAULT_RESOLUTION: (u32, u32) = RESOLUTIONS[0];
+/// 默认渲染缩放。
+pub const DEFAULT_SCALE: u32 = 1;
 
 /// 客户端设置。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -31,6 +46,18 @@ pub struct ClientSettings {
     /// 背景音乐音量（0.0..=1.0，默认 0.5；与音效音量独立）。
     #[serde(default = "default_music_volume")]
     pub music_volume: f32,
+    /// 服务器地址（`host:port`，默认 [`DEFAULT_SERVER`]）。
+    #[serde(default = "default_server")]
+    pub server: String,
+    /// 窗口分辨率（`[宽, 高]`，默认 800×600）。
+    #[serde(default = "default_resolution")]
+    pub resolution: [u32; 2],
+    /// 渲染缩放（1..=3，默认 1）。
+    #[serde(default = "default_scale")]
+    pub scale: u32,
+    /// 角色装备摘要缓存（角色名 → 「木剑 / 布衣」），选角页显示用。
+    #[serde(default)]
+    pub equipment: BTreeMap<String, String>,
 }
 
 fn default_language() -> String {
@@ -58,6 +85,21 @@ const fn default_music_volume() -> f32 {
     DEFAULT_MUSIC_VOLUME
 }
 
+/// 默认服务器地址。
+fn default_server() -> String {
+    DEFAULT_SERVER.to_owned()
+}
+
+/// 默认窗口分辨率。
+const fn default_resolution() -> [u32; 2] {
+    [DEFAULT_RESOLUTION.0, DEFAULT_RESOLUTION.1]
+}
+
+/// 默认渲染缩放。
+const fn default_scale() -> u32 {
+    DEFAULT_SCALE
+}
+
 impl Default for ClientSettings {
     fn default() -> Self {
         Self {
@@ -66,6 +108,10 @@ impl Default for ClientSettings {
             volume: default_volume(),
             music: default_music(),
             music_volume: default_music_volume(),
+            server: default_server(),
+            resolution: default_resolution(),
+            scale: default_scale(),
+            equipment: BTreeMap::new(),
         }
     }
 }
@@ -109,6 +155,88 @@ impl ClientSettings {
             }
             None => false,
         }
+    }
+
+    /// 服务器地址（空值退回默认地址）。
+    #[must_use]
+    pub fn server(&self) -> String {
+        let server = self.server.trim();
+        if server.is_empty() {
+            DEFAULT_SERVER.to_owned()
+        } else {
+            server.to_owned()
+        }
+    }
+
+    /// 设置服务器地址（空值写回默认地址）。
+    pub fn set_server(&mut self, server: &str) {
+        let server = server.trim();
+        self.server = if server.is_empty() {
+            DEFAULT_SERVER.to_owned()
+        } else {
+            server.to_owned()
+        };
+    }
+
+    /// 窗口分辨率（夹到 320×240 以上）。
+    #[must_use]
+    pub fn resolution(&self) -> (u32, u32) {
+        (self.resolution[0].max(320), self.resolution[1].max(240))
+    }
+
+    /// 设置窗口分辨率。
+    pub fn set_resolution(&mut self, width: u32, height: u32) {
+        self.resolution = [width.max(320), height.max(240)];
+    }
+
+    /// 渲染缩放（只接受 [`SCALES`]，非法值退回 1）。
+    #[must_use]
+    pub fn scale(&self) -> u32 {
+        if SCALES.contains(&self.scale) {
+            self.scale
+        } else {
+            DEFAULT_SCALE
+        }
+    }
+
+    /// 设置渲染缩放。
+    pub fn set_scale(&mut self, scale: u32) {
+        self.scale = if SCALES.contains(&scale) {
+            scale
+        } else {
+            DEFAULT_SCALE
+        };
+    }
+
+    /// 用设置面板的当前状态覆盖设置文件的对应字段（保存前调用）。
+    pub fn absorb_panel(&mut self, panel: &SettingsState) {
+        self.sound = panel.sound_on;
+        self.music = panel.music_on;
+        self.volume = SettingsState::fraction(panel.sound_volume);
+        self.music_volume = SettingsState::fraction(panel.music_volume);
+        self.set_language(panel.language.code());
+        self.set_resolution(panel.resolution.0, panel.resolution.1);
+        self.set_scale(panel.scale);
+    }
+
+    /// 转成设置面板状态（打开设置面板时同步显示）。
+    #[must_use]
+    pub fn panel(&self) -> SettingsState {
+        SettingsState {
+            sound_on: self.sound,
+            music_on: self.music,
+            sound_volume: SettingsState::percent(self.sound_volume()),
+            music_volume: SettingsState::percent(self.music_volume()),
+            language: self.language(),
+            resolution: self.resolution(),
+            scale: self.scale(),
+        }
+    }
+
+    /// 分辨率文案（诊断日志用）。
+    #[must_use]
+    pub fn resolution_text(&self) -> String {
+        resolution_text(self.resolution())
     }
 
     /// 设置文件路径。
@@ -164,7 +292,7 @@ mod tests {
         let settings = ClientSettings::default();
         assert!(settings.sound, "音效默认开启");
         assert!((settings.sound_volume() - 0.5).abs() < f32::EPSILON);
-        assert!((settings.sound_volume() - mir_client::audio::DEFAULT_VOLUME).abs() < f32::EPSILON);
+        assert!((settings.sound_volume() - crate::audio::DEFAULT_VOLUME).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -173,8 +301,7 @@ mod tests {
         assert!(settings.music, "背景音乐默认开启");
         assert!((settings.music_volume() - 0.5).abs() < f32::EPSILON);
         assert!(
-            (settings.music_volume() - mir_client::audio::DEFAULT_MUSIC_VOLUME).abs()
-                < f32::EPSILON
+            (settings.music_volume() - crate::audio::DEFAULT_MUSIC_VOLUME).abs() < f32::EPSILON
         );
         let broken = ClientSettings {
             music_volume: f32::NAN,
@@ -198,7 +325,71 @@ mod tests {
         // 老设置文件没有音乐两项：默认开启、音量 0.5。
         assert!(settings.music);
         assert!((settings.music_volume() - 0.5).abs() < f32::EPSILON);
+        // 第 2 轮新增的服务器/显示三项同样有默认值。
+        assert_eq!(settings.server(), DEFAULT_SERVER);
+        assert_eq!(settings.resolution(), DEFAULT_RESOLUTION);
+        assert_eq!(settings.scale(), DEFAULT_SCALE);
         std::fs::remove_dir_all(&directory).ok();
+    }
+
+    #[test]
+    fn server_resolution_and_scale_roundtrip_through_disk() {
+        let directory =
+            std::env::temp_dir().join(format!("mir-next-settings-display-{}", std::process::id()));
+        let path = directory.join("settings.json");
+        let mut settings = ClientSettings::default();
+        settings.set_server("10.0.0.5:7000");
+        settings.set_resolution(1280, 720);
+        settings.set_scale(2);
+        settings
+            .equipment
+            .insert("张三".to_owned(), "木剑 / 布衣".to_owned());
+        settings.save(&path).expect("保存设置");
+
+        let loaded = ClientSettings::load(&path);
+        assert_eq!(loaded, settings);
+        assert_eq!(loaded.server(), "10.0.0.5:7000");
+        assert_eq!(loaded.resolution(), (1280, 720));
+        assert_eq!(loaded.scale(), 2);
+        assert_eq!(
+            loaded.equipment.get("张三").map(String::as_str),
+            Some("木剑 / 布衣")
+        );
+
+        // 非法值会被归一化。
+        let broken = ClientSettings {
+            server: "  ".to_owned(),
+            resolution: [10, 10],
+            scale: 9,
+            ..ClientSettings::default()
+        };
+        assert_eq!(broken.server(), DEFAULT_SERVER);
+        assert_eq!(broken.resolution(), (320, 240));
+        assert_eq!(broken.scale(), 1);
+        std::fs::remove_dir_all(&directory).ok();
+    }
+
+    #[test]
+    fn panel_state_roundtrips_into_settings() {
+        let mut settings = ClientSettings::default();
+        let mut panel = settings.panel();
+        assert_eq!(panel.sound_volume, 50);
+        panel.sound_on = false;
+        panel.music_on = false;
+        panel.sound_volume = 20;
+        panel.music_volume = 80;
+        panel.language = Language::En;
+        panel.resolution = (1600, 900);
+        panel.scale = 3;
+        settings.absorb_panel(&panel);
+        assert!(!settings.sound);
+        assert!(!settings.music);
+        assert!((settings.sound_volume() - 0.2).abs() < f32::EPSILON);
+        assert!((settings.music_volume() - 0.8).abs() < f32::EPSILON);
+        assert_eq!(settings.language(), Language::En);
+        assert_eq!(settings.resolution(), (1600, 900));
+        assert_eq!(settings.scale(), 3);
+        assert_eq!(settings.panel(), panel);
     }
 
     #[test]
@@ -217,7 +408,7 @@ mod tests {
             volume: f32::NAN,
             ..ClientSettings::default()
         };
-        assert!((settings.sound_volume() - mir_client::audio::DEFAULT_VOLUME).abs() < f32::EPSILON);
+        assert!((settings.sound_volume() - crate::audio::DEFAULT_VOLUME).abs() < f32::EPSILON);
     }
 
     #[test]

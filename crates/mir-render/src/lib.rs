@@ -181,9 +181,9 @@ pub use animation::{
     WING_WALKING, frames_for, human_frames, monster_frames, npc_frames, wing_frames,
 };
 pub use entities::{
-    EntityKind, EntityLibraries, EntityRenderer, EntityView, HAIR_BLOCKS, HEALTH_BACKGROUND,
-    HEALTH_BAR_HEIGHT, HEALTH_BAR_OFFSET_X, HEALTH_BAR_WIDTH, HEALTH_DEAD, HEALTH_GREEN,
-    HEALTH_RED, HEALTH_YELLOW, HUM_BLOCKS, LayerFrame, MAX_ENTITY_CACHED_IMAGES,
+    EntityKind, EntityLibraries, EntityRenderer, EntityView, FxKind, HAIR_BLOCKS,
+    HEALTH_BACKGROUND, HEALTH_BAR_HEIGHT, HEALTH_BAR_OFFSET_X, HEALTH_BAR_WIDTH, HEALTH_DEAD,
+    HEALTH_GREEN, HEALTH_RED, HEALTH_YELLOW, HUM_BLOCKS, LayerFrame, MAX_ENTITY_CACHED_IMAGES,
     MONSTER_DIRECTION_STRIDE, MONSTER_FRAMES_PER_IMAGE, NO_LAYER, NPC_FRAMES_PER_IMAGE,
     PLAYER_DIRECTION_STRIDE, PLAYER_FRAMES_PER_APPEARANCE, PLAYER_STANDING_FRAMES, PlayerLayer,
     PlayerLayerPlan, SpriteLibrary, hair_library, monster_library, monster_standing_frame,

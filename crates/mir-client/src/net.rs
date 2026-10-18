@@ -4201,6 +4201,36 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 entity.set_action(ActorAction::Attacking, now_ms);
             });
         }
+        ServerPacket::ObjectRangeAttack(attack) => {
+            // 远程攻击（包 143）：客户端没有这个分支时，远程怪（AI 8/57/80）开火
+            // 会被 wildcard 丢掉，玩家只会在 300ms 后看到伤害。Crystal 的
+            // `MonsterObject.RangeAttack` 同样走攻击动作 + 投射物/命中特效
+            // （`MonsterObject.cs:2577-2625`、`PlayerObject.cs:1928`）。
+            snapshot.push_sound(SoundId::Swing, attack.spell, false);
+            update_entity(snapshot, attack.object_id, |entity| {
+                entity.position = attack.location;
+                entity.direction = attack.direction;
+                entity.set_action(ActorAction::Attacking, now_ms);
+            });
+            // 投射物落点：`target` 是命中格；用技能表现层画命中闪光（缺素材静默）。
+            if attack.spell != Spell::None {
+                let location = if spell_anchor(attack.spell) {
+                    attack.target
+                } else {
+                    attack.location
+                };
+                push_spell_event(
+                    snapshot,
+                    attack.object_id,
+                    attack.spell,
+                    location,
+                    attack.direction,
+                    true,
+                    false,
+                    now_ms,
+                );
+            }
+        }
         ServerPacket::ObjectStruck(struck) => {
             // 被打中的身体音（`PlayerObject.cs:4700-4762` 的 `StruckBodySword + add`）。
             snapshot.push_sound(SoundId::Hit, Spell::None, false);
@@ -5947,8 +5977,8 @@ mod tests {
     use mir_protocol::packets::server::{
         AddBuff, DamageIndicator, DeleteItem, EquipItem, GuildStatus, MountUpdate, MoveItem,
         NPCGoods, NPCResponse, NPCStorage, NewItemInfo, ObjectEffect, ObjectItem, ObjectMonster,
-        ObjectNPC, ObjectPlayer, ObjectStruck, ObjectWalk, PlayerUpdate, RemoveBuff, RemoveItem,
-        UserInformation, UserLocation, UserStorage,
+        ObjectNPC, ObjectPlayer, ObjectRangeAttack, ObjectStruck, ObjectWalk, PlayerUpdate,
+        RemoveBuff, RemoveItem, UserInformation, UserLocation, UserStorage,
     };
 
     fn test_item(unique_id: u64, item_index: i32, count: u16) -> UserItem {
@@ -6015,6 +6045,41 @@ mod tests {
         }));
         assert_eq!(snapshot.entities.len(), 2);
         assert_eq!(snapshot.entity_views(0).len(), 3);
+
+        // 远程攻击（包 143）：不能掉进 wildcard，要触发攻击动作 + 命中表现。
+        snapshot.apply_packet(&ServerPacket::ObjectRangeAttack(ObjectRangeAttack {
+            object_id: 8,
+            location: Point::new(331, 271),
+            direction: MirDirection::Left,
+            target_id: 7,
+            target: Point::new(330, 271),
+            type_: 0,
+            spell: Spell::ThunderBolt,
+            level: 3,
+        }));
+        let ranged = snapshot.entities.get(&8).expect("远程怪还在");
+        assert_eq!(
+            ranged.action,
+            ActorAction::Attacking,
+            "远程攻击应播放攻击动作"
+        );
+        assert_eq!(ranged.direction, MirDirection::Left);
+        assert!(
+            snapshot
+                .spell_events
+                .iter()
+                .any(|event| event.object_id == 8
+                    && event.spell == Spell::ThunderBolt
+                    && event.location == Point::new(330, 271)),
+            "应当为目标格排一条技能命中表现"
+        );
+        assert!(
+            snapshot
+                .sound_events
+                .iter()
+                .any(|event| event.sound == SoundId::Swing),
+            "远程攻击也要有挥砍/投射音效事件"
+        );
 
         snapshot.apply_packet(&ServerPacket::ObjectWalk(ObjectWalk {
             object_id: 8,

@@ -223,6 +223,49 @@ pub fn draw(
     }
 }
 
+/// 技能命中闪光用的帧数（`magic.wzl` 前 10 帧，Crystal 的 `Effect(Magic, start, 10, ...)`）。
+pub const MAGIC_FX_FRAMES: i64 = 10;
+/// 命中闪光每帧时长（10 帧 × 60 ms = 600 ms，覆盖一次施法的可见命中窗口）。
+pub const MAGIC_FX_FRAME_MS: i64 = 60;
+
+/// 画技能命中闪光（`magic.wzl` 精灵）。
+///
+/// 与 [`draw`] 的色块叠加并存：色块给出范围/路径，精灵给出「打中了」的反馈。
+/// 缺 `magic.wzl` / 缺帧时静默跳过（[`MapScene::effect_image`] 返回 `None`）。
+pub fn draw_sprites(
+    frame: &mut Frame,
+    events: &[SpellEvent],
+    scene: &mut MapScene,
+    center: Point,
+    now_ms: i64,
+) {
+    for event in events {
+        let duration = duration_ms(event.spell);
+        let age = now_ms.saturating_sub(event.started_ms);
+        if age < 0 || age >= duration {
+            continue;
+        }
+        let frame_index = (age / MAGIC_FX_FRAME_MS).clamp(0, MAGIC_FX_FRAMES - 1);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let frame_index = frame_index as u32;
+        // 雷电用 `magic2.wzl` 的闪电束，其它技能用 `magic.wzl` 的火环。
+        let kind = if matches!(event.spell, Spell::ThunderBolt | Spell::Lightning) {
+            mir_render::FxKind::Bolt
+        } else {
+            mir_render::FxKind::Magic
+        };
+        let Some(image) = scene.effect_image(kind, frame_index) else {
+            continue;
+        };
+        let (x, y) = scene.world_to_screen(center, event.location);
+        // 扁平语料的 `magic*.wzl` 没有可靠的逐帧锚点：把特效按格居中，
+        // 视觉上落在命中格中央（雷电束 48×100 居中后不再飘到上一格）。
+        let x = x + (mir_render::CELL_WIDTH - i32::from(image.info.width)) / 2;
+        let y = y + (mir_render::CELL_HEIGHT - i32::from(image.info.height)) / 2;
+        frame.blit(&image, x, y);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

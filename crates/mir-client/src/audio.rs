@@ -220,11 +220,18 @@ pub struct SoundPlayer {
     backend: Option<Backend>,
     /// 已经警告过的文件（避免同一个坏文件刷屏）。
     warned: HashSet<String>,
+    /// 测试注入的假混音器：记录「真正送进混音器」的音效次数。
+    ///
+    /// CI 没有音频设备，`backend` 恒为 `None`；单元测试通过它计数
+    /// （[`SoundPlayer::set_test_sink`]），生产构建里这个字段不存在。
+    #[cfg(test)]
+    test_sink: Option<std::rc::Rc<std::cell::Cell<usize>>>,
 }
 
 impl std::fmt::Debug for SoundPlayer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SoundPlayer")
+        let mut debug = f.debug_struct("SoundPlayer");
+        debug
             .field("roots", &self.library.roots)
             .field("volume", &self.volume)
             .field("enabled", &self.enabled)
@@ -233,8 +240,10 @@ impl std::fmt::Debug for SoundPlayer {
             .field("music", &self.music_path)
             .field("backend", &self.backend.is_some())
             .field("throttle", &self.throttle.len())
-            .field("warned", &self.warned.len())
-            .finish()
+            .field("warned", &self.warned.len());
+        #[cfg(test)]
+        debug.field("test_sink", &self.test_sink.is_some());
+        debug.finish()
     }
 }
 
@@ -295,6 +304,29 @@ impl SoundPlayer {
             music_path: None,
             backend: None,
             warned: HashSet::new(),
+            #[cfg(test)]
+            test_sink: None,
+        }
+    }
+
+    /// 测试注入假混音器：`play` 成功解码后会把它计数加一（不依赖真实音频设备）。
+    #[cfg(test)]
+    pub fn set_test_sink(&mut self, counter: std::rc::Rc<std::cell::Cell<usize>>) {
+        self.test_sink = Some(counter);
+    }
+
+    /// 是否有可用的输出端（真实设备或测试假混音器）。
+    fn has_output(&self) -> bool {
+        if self.backend.is_some() {
+            return true;
+        }
+        #[cfg(test)]
+        {
+            self.test_sink.is_some()
+        }
+        #[cfg(not(test))]
+        {
+            false
         }
     }
 
@@ -455,7 +487,7 @@ impl SoundPlayer {
     ///
     /// 跳过的情况：音效关闭、没有设备、100 ms 内播过同一个文件、素材缺失、解码失败。
     pub fn play(&mut self, file: &str, now_ms: u64) -> bool {
-        if !self.enabled || self.backend.is_none() {
+        if !self.enabled || !self.has_output() {
             return false;
         }
         if !self.throttle.allow(file, now_ms) {
@@ -480,6 +512,11 @@ impl SoundPlayer {
             }
         };
         let Some(backend) = self.backend.as_ref() else {
+            #[cfg(test)]
+            if let Some(counter) = &self.test_sink {
+                counter.set(counter.get().saturating_add(1));
+                return true;
+            }
             return false;
         };
         backend.mixer.add(source);
@@ -652,5 +689,61 @@ mod tests {
             return;
         };
         assert!(is_wav_file(&path), "{} 应当是 WAV", path.display());
+    }
+
+    /// 写一个 8 位单声道静音 WAV（44 字节头 + 8 个采样）。
+    fn write_silent_wav(path: &Path) {
+        let data_len = 8u32;
+        let mut bytes = Vec::with_capacity(44 + data_len as usize);
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
+        bytes.extend_from_slice(&8_000u32.to_le_bytes());
+        bytes.extend_from_slice(&8_000u32.to_le_bytes()); // byte rate
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // block align
+        bytes.extend_from_slice(&8u16.to_le_bytes()); // bits
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_len.to_le_bytes());
+        bytes.resize(44 + data_len as usize, 128u8);
+        std::fs::write(path, bytes).expect("写测试 WAV");
+    }
+
+    #[test]
+    fn play_events_are_counted_throttled_and_silent_without_assets() {
+        let dir = std::env::temp_dir().join(format!("mir-audio-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        let wav = dir.join("fx.wav");
+        write_silent_wav(&wav);
+        let library = SoundLibrary::with_roots(vec![dir.clone()]);
+        let counter = std::rc::Rc::new(std::cell::Cell::new(0usize));
+        let mut player = SoundPlayer::without_device(library, true, 0.5);
+        player.set_test_sink(counter.clone());
+
+        // 第一次送进混音器；100 ms 内同文件被节流；到点后放行。
+        assert!(player.play("fx.wav", 1_000));
+        assert_eq!(counter.get(), 1);
+        assert!(!player.play("fx.wav", 1_050), "同一音效 100 ms 内节流");
+        assert_eq!(counter.get(), 1);
+        assert!(player.play("fx.wav", 1_100));
+        assert_eq!(counter.get(), 2);
+
+        // 缺文件：静默跳过，不计数、不 panic。
+        assert!(!player.play("missing.wav", 1_200));
+        assert_eq!(counter.get(), 2);
+
+        // 关掉音效：连频控都不记录。
+        player.set_enabled(false);
+        assert!(!player.play("fx.wav", 1_300));
+        assert_eq!(counter.get(), 2);
+        player.set_volume(0.0);
+        player.set_enabled(true);
+        // 音量 0 仍然「播放」（rodio amplify 0），只是听不见；计数照常。
+        assert!(player.play("fx.wav", 1_400));
+        assert_eq!(counter.get(), 3);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

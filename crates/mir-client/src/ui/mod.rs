@@ -3515,6 +3515,14 @@ pub fn draw(
         state.language,
         state.time_millis,
     );
+    // 命中闪光：`magic.wzl` 精灵叠在色块上（缺素材时静默跳过）。
+    spellfx::draw_sprites(
+        frame,
+        &snapshot.spell_events,
+        scene,
+        center,
+        state.time_millis,
+    );
     let context = PanelContext {
         snapshot,
         text,

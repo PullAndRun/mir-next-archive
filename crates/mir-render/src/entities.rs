@@ -114,8 +114,8 @@ use mir_core::enums::MirDirection;
 
 use crate::Frame;
 use crate::animation::{
-    ActorAction, ActorAnimation, FrameChoice, FrameSequence, HUMAN_STANDING, NPC_STANDING,
-    WING_FRAMES_PER_APPEARANCE, wing_frames,
+    ActorAction, ActorAnimation, BodyKind, FrameChoice, FrameSequence, HUMAN_STANDING,
+    NPC_STANDING, WING_FRAMES_PER_APPEARANCE, wing_frames,
 };
 use crate::geometry::{self, CELL_HEIGHT, CELL_WIDTH, Viewport};
 use crate::scene::remove_black_all;
@@ -441,6 +441,43 @@ pub enum SpriteLibrary {
     Monster(u16),
     /// `items.wzl`（找不到时回退 `dnitems.wzl`）。
     Item,
+    /// `effect.wzl`：攻击挥砍/技能命中的美术光效（扁平语料的 `effect*.wzl`）。
+    Effect,
+    /// `magic.wzl`：技能光效（回合二的雷电/火墙等命中闪光）。
+    Magic,
+    /// `magic2.wzl`：攻击挥砍/雷电束等第二套技能光效。
+    Magic2,
+}
+
+/// 特效图库种类（[`EntityRenderer::effect_image`] 用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum FxKind {
+    /// 攻击挥砍光效（`magic2.wzl` 第 0~2 帧的火花）。
+    Swing,
+    /// 技能命中闪光（`magic.wzl` 前 10 帧的火环）。
+    Magic,
+    /// 雷电类技能的命中闪光（`magic2.wzl` 第 20~29 帧的闪电束）。
+    Bolt,
+}
+
+impl FxKind {
+    /// 对应的精灵图库。
+    #[must_use]
+    pub const fn library(self) -> SpriteLibrary {
+        match self {
+            Self::Swing | Self::Bolt => SpriteLibrary::Magic2,
+            Self::Magic => SpriteLibrary::Magic,
+        }
+    }
+
+    /// 图库里的起始帧号。
+    #[must_use]
+    pub const fn start_frame(self) -> u32 {
+        match self {
+            Self::Bolt => 20,
+            Self::Swing | Self::Magic => 0,
+        }
+    }
 }
 
 impl SpriteLibrary {
@@ -461,6 +498,9 @@ impl SpriteLibrary {
             Self::Npc(index) => format!("npc{index}"),
             Self::Monster(index) => format!("mon{index}"),
             Self::Item => "items".to_owned(),
+            Self::Effect => "effect".to_owned(),
+            Self::Magic => "magic".to_owned(),
+            Self::Magic2 => "magic2".to_owned(),
         }
     }
 }
@@ -1129,7 +1169,53 @@ impl EntityRenderer {
         if !body_drawn {
             draw_placeholder(frame, origin_x, origin_y, entity);
         }
+        self.draw_attack_swing(frame, entity, origin_x, origin_y, now_ms);
         top
+    }
+
+    /// 攻击挥砍光效：`effect.wzl` 的 3 张光效按挥砍进度播放。
+    ///
+    /// Crystal 的武器光效来自每把武器自己的 `CWeaponEffect` 库（`PlayerObject.cs:419`），
+    /// 扁平语料没有这份映射；这里用通用 `effect.wzl` 第 0~2 帧代替，缺文件/缺帧
+    /// 时静默跳过（[`Self::effect_image`] 返回 `None`）。
+    fn draw_attack_swing(
+        &mut self,
+        frame: &mut Frame,
+        entity: &EntityView,
+        origin_x: i32,
+        origin_y: i32,
+        now_ms: u64,
+    ) {
+        if entity.kind != EntityKind::Player || entity.action != ActorAction::Attacking {
+            return;
+        }
+        let animation = ActorAnimation::new(
+            ActorAction::Attacking,
+            entity.direction,
+            BodyKind::Human,
+            entity.action_started_ms,
+        );
+        let choice = animation.frame_at(now_ms);
+        let sequence = animation.frames;
+        let local = choice
+            .index
+            .saturating_sub(sequence.start)
+            .saturating_sub(u16::from(entity.direction as u8) * sequence.stride());
+        // 6 帧挥砍映射到 3 张光效：0~1 起手、2~3 挥出、4~5 收招。
+        let effect_index = match local {
+            0 | 1 => 0,
+            2 | 3 => 1,
+            _ => 2,
+        };
+        let Some(image) = self.effect_image(FxKind::Swing, effect_index) else {
+            return;
+        };
+        let (dx, dy) = swing_offset(entity.direction);
+        frame.blit(
+            &image,
+            origin_x + dx + i32::from(image.info.offset_x),
+            origin_y + dy + i32::from(image.info.offset_y),
+        );
     }
 
     /// 一个外观块的站立段起点偏移：`0`（对齐）或 [`PLAYER_DIRECTION_STRIDE`]（整体后移）。
@@ -1157,6 +1243,13 @@ impl EntityRenderer {
     #[must_use]
     pub fn item_icon(&mut self, image: u16) -> Option<Image> {
         self.image(SpriteLibrary::Item, u32::from(image))
+    }
+
+    /// 取一张特效精灵（`effect.wzl` / `magic.wzl`）。
+    ///
+    /// 缺文件/缺帧时返回 `None`（调用方静默跳过，不画占位方块）。
+    pub fn effect_image(&mut self, kind: FxKind, index: u32) -> Option<Image> {
+        self.image(kind.library(), index + kind.start_frame())
     }
 
     /// 取一张实体图（带缓存与纯黑透明处理）。
@@ -1255,6 +1348,20 @@ fn direction_index(direction: MirDirection) -> u8 {
 }
 
 /// 画素材缺失时的彩色占位方块。
+/// 攻击光效相对格原点的位移：按朝向把光效挪到武器挥出的那一侧。
+fn swing_offset(direction: MirDirection) -> (i32, i32) {
+    match direction {
+        MirDirection::Up => (0, -20),
+        MirDirection::UpRight => (16, -14),
+        MirDirection::Right => (24, 0),
+        MirDirection::DownRight => (16, 10),
+        MirDirection::Down => (0, 12),
+        MirDirection::DownLeft => (-16, 10),
+        MirDirection::Left => (-24, 0),
+        MirDirection::UpLeft => (-16, -14),
+    }
+}
+
 fn draw_placeholder(frame: &mut Frame, origin_x: i32, origin_y: i32, entity: &EntityView) {
     let color = if entity.dead {
         entity.kind.dead_color()
@@ -2156,5 +2263,100 @@ mod tests {
         assert_eq!(frame.distinct_color_count(), 1);
         draw_health_bar(&mut frame, 20, 10, 50, false);
         assert!(frame.distinct_color_count() >= 2);
+    }
+
+    #[test]
+    fn effect_libraries_are_lazy_and_missing_effects_are_silent() {
+        let dir = TempDir::new("fx-lazy");
+        write_library(
+            &dir,
+            "magic2",
+            &[SyntheticFrame {
+                index: 0,
+                width: 12,
+                height: 9,
+                offset_x: -3,
+                offset_y: -8,
+                color: [255, 80, 20],
+            }],
+        );
+        let mut renderer = EntityRenderer::new(EntityLibraries::open_dir(&dir.0));
+        assert!(renderer.libraries().has(SpriteLibrary::Magic2));
+        let image = renderer
+            .effect_image(FxKind::Swing, 0)
+            .expect("magic2.wzl 第 0 帧应能解码");
+        assert_eq!((image.info.width, image.info.height), (12, 9));
+        // 缺 `magic.wzl`：返回 None（不 panic、不画占位方块）。
+        assert!(renderer.effect_image(FxKind::Magic, 0).is_none());
+        // 缺帧同理。
+        assert!(renderer.effect_image(FxKind::Swing, 99).is_none());
+    }
+
+    #[test]
+    fn attacking_player_draws_the_swing_effect_sprite() {
+        let dir = TempDir::new("fx-swing");
+        write_library(
+            &dir,
+            "hum",
+            &[SyntheticFrame {
+                index: 0,
+                width: 20,
+                height: 30,
+                offset_x: 0,
+                offset_y: -20,
+                color: BODY_COLOR,
+            }],
+        );
+        let frames: Vec<SyntheticFrame> = (0..3)
+            .map(|index| SyntheticFrame {
+                index,
+                width: 12,
+                height: 12,
+                offset_x: 0,
+                offset_y: -10,
+                color: [0, 255, 0],
+            })
+            .collect();
+        write_library(&dir, "magic2", &frames);
+        let mut renderer = EntityRenderer::new(EntityLibraries::open_dir(&dir.0));
+        let mut attacking = view(EntityKind::Player, 0);
+        attacking.action = ActorAction::Attacking;
+        attacking.action_started_ms = 0;
+        attacking.direction = MirDirection::Down;
+        let mut frame = Frame::new(200, 200);
+        frame.clear([0, 0, 0, 255]);
+        renderer.render(
+            &mut frame,
+            Viewport::new(200, 200),
+            Point::new(2, 3),
+            &[attacking.clone()],
+            10,
+        );
+        let swing_pixels = frame
+            .pixels
+            .chunks_exact(4)
+            .filter(|pixel| pixel[0] == 0 && pixel[1] == 255 && pixel[2] == 0)
+            .count();
+        assert!(swing_pixels > 0, "攻击时应叠一层挥砍光效");
+
+        // 站着不画光效。
+        let mut standing = attacking.clone();
+        standing.action = ActorAction::Standing;
+        let mut still = Frame::new(200, 200);
+        still.clear([0, 0, 0, 255]);
+        renderer.render(
+            &mut still,
+            Viewport::new(200, 200),
+            Point::new(2, 3),
+            &[standing],
+            10,
+        );
+        assert!(
+            !still
+                .pixels
+                .chunks_exact(4)
+                .any(|pixel| pixel[0] == 0 && pixel[1] == 255 && pixel[2] == 0),
+            "站立时不应画挥砍光效"
+        );
     }
 }

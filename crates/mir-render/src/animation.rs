@@ -30,9 +30,9 @@
 //! | 站立 | 0 | 4 | 4 | 8 | 500 ms | [`HUMAN_STANDING`] |
 //! | 行走 | 64 | 6 | 2 | 8 | 100 ms | [`HUMAN_WALKING`] |
 //! | 跑步 | 128 | 6 | 2 | 8 | 100 ms | [`HUMAN_RUNNING`] |
-//! | 攻击 1 | 200 | 6 | 2 | 8 | 100 ms | [`HUMAN_ATTACK1`] |
-//! | 攻击 2 | 264 | 6 | 2 | 8 | 100 ms | [`HUMAN_ATTACK2`] |
-//! | 攻击 3（双手） | 328 | 8 | 0 | 8 | 100 ms | [`HUMAN_ATTACK3`] |
+//! | 攻击 1 | 200 | 6 | 2 | 8 | **50 ms** | [`HUMAN_ATTACK1`] |
+//! | 攻击 2 | 264 | 6 | 2 | 8 | **50 ms** | [`HUMAN_ATTACK2`] |
+//! | 攻击 3（双手） | 328 | 8 | 0 | 8 | **50 ms** | [`HUMAN_ATTACK3`] |
 //! | 受击 | 472 | 3 | 5 | 8 | 100 ms | [`HUMAN_STRUCK`] |
 //! | 死亡 | 536 | 4 | 4 | 8 | 100 ms | [`HUMAN_DYING`] |
 //! | 尸体 | 539 | 1 | 7 | 8 | 1000 ms | [`HUMAN_DEAD`] |
@@ -260,11 +260,16 @@ pub const HUMAN_RUNNING: FrameSequence = FrameSequence::new(128, 6, 2, 100);
 /// 人类攻击 1：`Frames.cs:162` 的 `Frame(136, 6, 0, 100)`。
 ///
 /// 扁平布局从 200 开始（192~199 是 8 方向的 1 帧姿态）。
-pub const HUMAN_ATTACK1: FrameSequence = FrameSequence::new(200, 6, 2, 100);
-/// 人类攻击 2：`Frames.cs:163` 的 `Frame(184, 6, 0, 100)`。
-pub const HUMAN_ATTACK2: FrameSequence = FrameSequence::new(264, 6, 2, 100);
-/// 人类攻击 3（双手）：`Frames.cs:164` 的 `Frame(232, 8, 0, 100)`。
-pub const HUMAN_ATTACK3: FrameSequence = FrameSequence::new(328, 8, 0, 100);
+///
+/// 间隔取 **50 ms**（6 帧 = 300 ms）而不是 Crystal 帧表里的 100 ms：服务端
+/// `PLAYER_ATTACK_DAMAGE_DELAY_MS = 300`（`world.rs` 移植 `HumanObject.cs:3201`
+/// 的 `DelayedAction`），镜头要在伤害落地时正好播完挥砍；这个节奏也是本轮任务
+/// 要求的「攻击 300 ms」。跑步仍保持 6 × 100 ms = 600 ms（与服务器跑动一致）。
+pub const HUMAN_ATTACK1: FrameSequence = FrameSequence::new(200, 6, 2, 50);
+/// 人类攻击 2：`Frames.cs:163` 的 `Frame(184, 6, 0, 100)`；间隔同 [`HUMAN_ATTACK1`]。
+pub const HUMAN_ATTACK2: FrameSequence = FrameSequence::new(264, 6, 2, 50);
+/// 人类攻击 3（双手）：`Frames.cs:164` 的 `Frame(232, 8, 0, 100)`；间隔 50 ms。
+pub const HUMAN_ATTACK3: FrameSequence = FrameSequence::new(328, 8, 0, 50);
 /// 人类受击：`Frames.cs:168` 的 `Frame(360, 3, 0, 100)`。
 pub const HUMAN_STRUCK: FrameSequence = FrameSequence::new(472, 3, 5, 100);
 /// 人类死亡：`Frames.cs:169` 的 `Frame(384, 4, 0, 100)`。
@@ -303,8 +308,9 @@ pub const MONSTER_STANDING: FrameSequence = FrameSequence::new(0, 4, 4, 500);
 pub const MONSTER_WALKING: FrameSequence = FrameSequence::new(64, 6, 2, 100);
 /// 怪物攻击 1：`Frames.cs:27` 的 `Frame(80, 6, 0, 100)`。
 ///
-/// 扁平 `monN.wzl` 实测攻击段从 128 开始。
-pub const MONSTER_ATTACK1: FrameSequence = FrameSequence::new(128, 6, 2, 100);
+/// 扁平 `monN.wzl` 实测攻击段从 128 开始。间隔同人类攻击取 50 ms（300 ms 总时长），
+/// 与服务端 `PLAYER_ATTACK_DAMAGE_DELAY_MS` 的命中节奏对齐。
+pub const MONSTER_ATTACK1: FrameSequence = FrameSequence::new(128, 6, 2, 50);
 /// 怪物受击：`Frames.cs:28` 的 `Frame(128, 2, 0, 200)`。
 ///
 /// 扁平 `monN.wzl` 的受击段不在固定位置；这里的 280 是 `mon1.wzl` 第 0 个图像的
@@ -538,12 +544,12 @@ mod tests {
         assert_eq!(HUMAN_STANDING, FrameSequence::new(0, 4, 4, 500));
         assert_eq!(HUMAN_WALKING, FrameSequence::new(64, 6, 2, 100));
         assert_eq!(HUMAN_RUNNING, FrameSequence::new(128, 6, 2, 100));
-        assert_eq!(HUMAN_ATTACK1, FrameSequence::new(200, 6, 2, 100));
+        assert_eq!(HUMAN_ATTACK1, FrameSequence::new(200, 6, 2, 50));
         assert_eq!(HUMAN_STRUCK, FrameSequence::new(472, 3, 5, 100));
         assert_eq!(HUMAN_DYING, FrameSequence::new(536, 4, 4, 100));
         assert_eq!(HUMAN_DEAD, FrameSequence::new(539, 1, 7, 1000));
         assert_eq!(HUMAN_WALKING.duration_ms(), 600);
-        assert_eq!(HUMAN_ATTACK1.duration_ms(), 600);
+        assert_eq!(HUMAN_ATTACK1.duration_ms(), 300);
         assert_eq!(HUMAN_STRUCK.duration_ms(), 300);
         assert_eq!(HUMAN_DYING.duration_ms(), 400);
     }
@@ -552,7 +558,7 @@ mod tests {
     fn monster_defaults_match_crystal_and_flat_layout() {
         assert_eq!(MONSTER_STANDING, FrameSequence::new(0, 4, 4, 500));
         assert_eq!(MONSTER_WALKING, FrameSequence::new(64, 6, 2, 100));
-        assert_eq!(MONSTER_ATTACK1, FrameSequence::new(128, 6, 2, 100));
+        assert_eq!(MONSTER_ATTACK1, FrameSequence::new(128, 6, 2, 50));
         assert_eq!(MONSTER_DYING, FrameSequence::new(344, 6, 2, 100));
         assert_eq!(monster_frames(ActorAction::Running), MONSTER_WALKING);
         assert_eq!(monster_frames(ActorAction::Struck), MONSTER_STRUCK);
@@ -610,10 +616,15 @@ mod tests {
     fn attacking_holds_the_last_frame_after_finishing() {
         let animation = ActorAnimation::new(ActorAction::Attacking, DOWN, BodyKind::Human, 10_000);
         let last = HUMAN_ATTACK1.index_of(DOWN, 5);
-        assert_eq!(animation.frame_at(10_500).index, last);
-        assert!(!animation.frame_at(10_500).finished);
-        assert_eq!(animation.frame_at(10_600).index, last);
-        assert!(animation.frame_at(10_600).finished);
+        // 攻击 6 帧 × 50 ms = 300 ms（与服务器 300 ms 命中延迟对齐）。
+        assert_eq!(HUMAN_ATTACK1.duration_ms(), 300);
+        assert_eq!(
+            animation.frame_at(10_250).index,
+            HUMAN_ATTACK1.index_of(DOWN, 5)
+        );
+        assert!(!animation.frame_at(10_250).finished);
+        assert_eq!(animation.frame_at(10_300).index, last);
+        assert!(animation.frame_at(10_300).finished);
         assert_eq!(animation.frame_at(20_000).index, last, "播完后保持最后一帧");
     }
 
@@ -663,6 +674,7 @@ mod tests {
         assert_eq!(animation.frame_at(100).index, 64 + 4 * 8 + 1);
         let attack = ActorAnimation::new(ActorAction::Attacking, DOWN, BodyKind::Monster, 0);
         assert_eq!(attack.frame_at(0).index, 128 + 4 * 8);
-        assert!(attack.frame_at(600).finished);
+        assert!(!attack.frame_at(299).finished);
+        assert!(attack.frame_at(300).finished);
     }
 }

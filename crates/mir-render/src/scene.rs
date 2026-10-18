@@ -286,6 +286,14 @@ impl MapScene {
             .render_at(frame, viewport, center, entities, now_ms);
     }
 
+    /// 取一张特效精灵（`effect.wzl` / `magic.wzl`），缺素材时返回 `None`。
+    ///
+    /// 特效由客户端表现层（`ui::spellfx`）按事件落点贴到地图格上；图库走
+    /// [`EntityRenderer`] 的按需打开 + 解码缓存，不会在启动时读几 MB 的 `magic.wzl`。
+    pub fn effect_image(&mut self, kind: crate::entities::FxKind, index: u32) -> Option<Image> {
+        self.entities.effect_image(kind, index)
+    }
+
     /// 铺地层（`GameScene.cs:10658-10764`）。
     fn render_floor(
         &mut self,

@@ -5,7 +5,7 @@
 //!
 //! 1. 注入 `S.ObjectWalk` 后实体动作为 `Walking`，600 ms 内 `frame_at` 返回不同帧，
 //!    600 ms 后回 `Standing`；
-//! 2. 攻击 600 ms、受击 300 ms、死亡 400 ms 后依次结束（死亡转 `Dead`）；
+//! 2. 攻击 300 ms（6 帧 × 50 ms）、受击 300 ms、死亡 400 ms 后依次结束（死亡转 `Dead`）；
 //! 3. 自己的走/攻击由本地命令驱动（服务端不会给自己发 `ObjectWalk`）；
 //! 4. 渲染 `target/client-anim.png`：一个正在走路的玩家 + 一只正在攻击的怪物，
 //!    并断言非空白、两个时间点的画面不同。
@@ -265,7 +265,7 @@ fn self_death_packet_runs_dying_then_dead() {
 fn object_attack_and_struck_and_died_follow_crystal_durations() {
     let mut snapshot = injected_world();
 
-    // 攻击：600 ms（Frames.cs:162 的 6 帧 × 100 ms）。
+    // 攻击：300 ms（6 帧 × 50 ms，与服务器 300 ms 命中延迟对齐）。
     snapshot.apply_packet_at(
         &ServerPacket::ObjectAttack(ObjectAttack {
             object_id: MONSTER_ID,
@@ -283,16 +283,16 @@ fn object_attack_and_struck_and_died_follow_crystal_durations() {
     assert_eq!(view.action, ActorAction::Attacking);
     assert_ne!(
         view.animation().frame_at(T0).index,
-        view.animation().frame_at(T0 + 300).index,
+        view.animation().frame_at(T0 + 150).index,
         "攻击动画在不同时间必须取不同帧"
     );
-    snapshot.tick_animations(T0 + 599);
+    snapshot.tick_animations(T0 + 299);
     assert_eq!(
         snapshot.entities[&MONSTER_ID].action,
         ActorAction::Attacking,
-        "600 ms 之前不能提前结束"
+        "300 ms 之前不能提前结束"
     );
-    snapshot.tick_animations(T0 + 600);
+    snapshot.tick_animations(T0 + 300);
     assert_eq!(snapshot.entities[&MONSTER_ID].action, ActorAction::Standing);
 
     // 受击：人类 3 帧 × 100 ms = 300 ms。
@@ -362,18 +362,18 @@ fn local_player_actions_are_driven_without_a_server_echo() {
         ActorAction::Standing
     );
 
-    // 自己的攻击：600 ms。
+    // 自己的攻击：300 ms（6 帧 × 50 ms）。
     snapshot.apply_local_action(ActorAction::Attacking, MirDirection::Down, T0 + 1_000);
     assert_eq!(
         snapshot.self_player.as_ref().expect("自己").action,
         ActorAction::Attacking
     );
-    snapshot.tick_animations(T0 + 1_599);
+    snapshot.tick_animations(T0 + 1_299);
     assert_eq!(
         snapshot.self_player.as_ref().expect("自己").action,
         ActorAction::Attacking
     );
-    snapshot.tick_animations(T0 + 1_600);
+    snapshot.tick_animations(T0 + 1_300);
     assert_eq!(
         snapshot.self_player.as_ref().expect("自己").action,
         ActorAction::Standing

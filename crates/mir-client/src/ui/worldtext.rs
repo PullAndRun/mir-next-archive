@@ -11,7 +11,7 @@ use mir_core::enums::DamageType;
 use mir_core::{Language, Point};
 use mir_render::{EntityKind, Frame, MapScene};
 
-use crate::net::{DamageEvent, WorldSnapshot};
+use crate::net::{DamageEvent, WorldEntity, WorldSnapshot};
 use crate::ui::UiText;
 use crate::ui::hud::SIZE_SMALL;
 use crate::ui::labels::Label;
@@ -158,6 +158,16 @@ pub fn draw_outlined(
 }
 
 /// 画所有实体头顶名字（自己也是实体之一）；名字来自服务端，不随界面语言变化。
+///
+/// 颜色规则（需求：队友蓝名，与 PK 的红/黄/棕/白区分）：
+///
+/// * 自己：金色；
+/// * 队友：队伍蓝 [`crate::ui::group::GROUP_NAME_COLOR`]（Crystal 的组队蓝：
+///   小地图队友点 `MainDialogs.cs:1947-1948`、组队血条 `MapObject.cs:485`）；
+/// * 其他玩家：用服务端给的名字颜色（`S.ObjectPlayer.NameColour` / `S.ObjectColourChanged`，
+///   服务端 `PlayerObject.GetNameColour` 的 PK 红/黄/棕/白，`Server/MirObjects/PlayerObject.cs:1849-1890`）；
+///   没收到过或收到白色时退回默认的浅蓝；
+/// * 怪物 / NPC：默认色（Crystal 也给它们下发名字颜色，本作只对玩家生效，简化）。
 pub fn draw_names(
     frame: &mut Frame,
     snapshot: &WorldSnapshot,
@@ -181,12 +191,6 @@ pub fn draw_names(
         if Some(*object_id) == self_id || entity.kind == EntityKind::Item {
             continue;
         }
-        let color = match entity.kind {
-            EntityKind::Player => [190, 220, 255, 255],
-            EntityKind::Monster => [255, 176, 160, 255],
-            EntityKind::Npc => [170, 255, 190, 255],
-            EntityKind::Item => continue,
-        };
         draw_one_name(
             frame,
             scene,
@@ -194,8 +198,32 @@ pub fn draw_names(
             text,
             entity.position,
             &entity.name,
-            color,
+            name_color(snapshot, entity),
         );
+    }
+}
+
+/// 其他实体的名字颜色（见 [`draw_names`] 的规则）。
+#[must_use]
+pub fn name_color(snapshot: &WorldSnapshot, entity: &WorldEntity) -> [u8; 4] {
+    if snapshot.is_group_member(&entity.name) {
+        return crate::ui::group::GROUP_NAME_COLOR;
+    }
+    if entity.kind == EntityKind::Player {
+        if let Some(colour) = entity.name_colour {
+            // 服务端默认发白色（`NAME_COLOUR_WHITE`）；白色没有区分度，仍用默认浅蓝。
+            if colour.alpha() != 0
+                && (colour.red(), colour.green(), colour.blue()) != (255, 255, 255)
+            {
+                return [colour.red(), colour.green(), colour.blue(), 255];
+            }
+        }
+    }
+    match entity.kind {
+        EntityKind::Player => [190, 220, 255, 255],
+        EntityKind::Monster => [255, 176, 160, 255],
+        EntityKind::Npc => [170, 255, 190, 255],
+        EntityKind::Item => [240, 220, 120, 255],
     }
 }
 
@@ -323,6 +351,9 @@ mod tests {
                 looks: crate::net::PlayerLooks::default(),
                 dead: false,
                 hp_percent: None,
+                level: 0,
+                class: mir_core::enums::MirClass::Warrior,
+                name_colour: None,
                 action: mir_render::animation::ActorAction::Standing,
                 action_started_ms: 0,
             },

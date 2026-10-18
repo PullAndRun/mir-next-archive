@@ -803,6 +803,85 @@ impl World {
         }
     }
 
+    /// 系统邮件：给某个角色寄一件物品和/或一笔金币（Crystal `Envir.MailCharacter`）。
+    ///
+    /// 用于交易取消退货（`PlayerObject.cs:10910-10937`）、拍卖退款与成交邮寄
+    /// （`PlayerObject.cs:8564-8569`、`:8652`、`:8698-8703`）。收件人按**角色 ID**
+    /// 投递：在线立刻进收件箱并标 `NewMail`，离线只落 `mail` 表（下次登录收）。
+    ///
+    /// Crystal 的发件人固定为 `Bichon Administrator`；本作本地化为「比奇管理员」。
+    /// 包裹的 `Collected` 走 `MailAutoSendItems/Gold`（`Settings.cs:242-243`，默认都 `false`
+    /// → 需要先去邮局受理）。
+    ///
+    /// # Errors
+    /// 角色不在世界里且**也不在线**时也能成功（只落库），所以这里恒返回 `true`；
+    /// 失败只有一种：邮件写入通道异常（本作没有）。
+    pub(crate) fn mail_system_to_character(
+        &mut self,
+        character_id: i64,
+        item: Option<UserItem>,
+        gold: u32,
+        message: &str,
+    ) -> bool {
+        let mail_id = self.allocate_mail_id();
+        let has_item = item.is_some();
+        let mail = Mail {
+            id: mail_id,
+            character_id,
+            // Crystal：`string sender = "Bichon Administrator";`
+            sender_name: "比奇管理员".to_owned(),
+            subject: String::new(),
+            message: message.to_owned(),
+            items: item.into_iter().collect(),
+            gold,
+            date_sent: DateTimeBinary::from_unix_seconds(self.wall_now().max(0) / 1000),
+            opened: false,
+            locked: false,
+            collected: collected_on_send(gold > 0, has_item),
+        };
+        self.mail_writes
+            .push(MailWrite::Create(Box::new(mail.to_record())));
+        self.deliver_mail(mail);
+        true
+    }
+
+    /// 把一件物品以「系统邮件」寄给玩家自己：Crystal `PlayerObject.GainItemMail`
+    /// （`Server/MirObjects/PlayerObject.cs:7695-7698`）→ `Envir.MailCharacter(Info, item, reason: 1)`。
+    ///
+    /// 用途：交易取消时背包放不下（`PlayerObject.cs:10910-10937`）。
+    /// Crystal 的正文是
+    /// `You have been mailed due to the following reason: … Could not return item to bag after trade.`；
+    /// 本作把正文本地化成中文，其余（发件人、未受理包裹）一致。
+    ///
+    /// 返回是否投递成功（玩家不在世界里时 `false`）。
+    pub(crate) fn mail_item_to_self(&mut self, player_id: u32, item: UserItem) -> bool {
+        let Some(character_id) = self.players.get(&player_id).map(|p| p.character_id) else {
+            return false;
+        };
+        self.mail_system_to_character(
+            character_id,
+            Some(item),
+            0,
+            "由于以下原因，物品已通过邮件寄给你：\r\n\r\n交易结束后无法放回背包。",
+        )
+    }
+
+    /// 给某个角色发一条系统提示（Crystal `Envir.MessageAccount`，在线才发）。
+    ///
+    /// 拍卖卖出/被出价时通知卖家（`PlayerObject.cs:8552`、`:8578`）。
+    pub(crate) fn message_character(&mut self, character_id: i64, message: &str) -> bool {
+        let Some(player_id) = self
+            .players
+            .values()
+            .find(|player| player.character_id == character_id)
+            .map(|player| player.object_id)
+        else {
+            return false;
+        };
+        self.send_system_chat(player_id, message);
+        true
+    }
+
     /// 找邮票：`ItemType.Nothing`、`Shape == 1`、数量 ≥ 1（`PlayerObject.cs:11776`）。
     fn find_stamp(&self, player_id: u32) -> Option<(usize, UserItem)> {
         let player = self.players.get(&player_id)?;

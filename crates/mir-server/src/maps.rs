@@ -537,6 +537,10 @@ impl World {
         // 9) 补齐新图视野（Crystal `GetObjects()`，`PlayerObject.cs:4583` → `:1741-1768`）。
         let visible = self.refresh_own_view(player_id);
 
+        // 9.5) `if (TradePartner != null) TradeCancel();`（`PlayerObject.cs:1477`，在
+        //      `Teleport` → `base.Teleport` 之后）：切图/同图传送都中止交易，物品退回背包。
+        self.trade_cancel(player_id);
+
         // 10) 组队：切图后把「我在哪张图」通知队友（Crystal `GroupMemberMapNameChanged`，
         //     `PlayerObject.cs:1568`），再把坐标同步一遍（`GetPlayerLocation`，`:4601`）。
         //     队伍**保留**：Crystal 只有进入 `NoGroup` 地图才会解散队伍

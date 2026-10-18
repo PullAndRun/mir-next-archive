@@ -140,6 +140,13 @@ pub const STORAGE_SLOTS: usize = 80;
 /// 行会仓库格数：Crystal `GuildStorageItem[] StoredItems = new GuildStorageItem[112]`
 /// （`Server/MirDatabase/GuildInfo.cs:22`；服务端 `GUILD_STORAGE_SLOTS`）。
 pub const GUILD_STORAGE_SLOTS: usize = 112;
+/// 交易格数：Crystal `TradeDialog.Grid = new MirItemCell[5 * 2]`（`TradeDialogs.cs:104`）
+/// 与 `UserObject.Trade = new UserItem[10]`（`UserObject.cs:23`）；对方那一栏
+/// `GuestTradeDialog.GuestGrid` 同样是 5 × 2（`TradeDialogs.cs:237`）。
+pub const TRADE_SLOTS: usize = 10;
+/// 队伍人数上限：Crystal `Globals.MaxGroup = 15`（`Shared/Globals.cs:21`；
+/// 服务端 `crates/mir-server/src/group.rs` 的 `MAX_GROUP`）。
+pub const MAX_GROUP: usize = 15;
 /// 快照里保留的伤害事件条数：UI 每帧取「比上次更新」的那些画飘字。
 const DAMAGE_EVENT_LIMIT: usize = 32;
 /// 快照里保留的光效事件条数。
@@ -418,6 +425,73 @@ pub enum NetCommand {
     RequestGuildInfo {
         /// 信息类型。
         type_: u8,
+    },
+    /// 发起交易（`C.TradeRequest`）。
+    ///
+    /// 协议**不带对方名字**：服务端按自己的朝向取相邻格的玩家（Crystal
+    /// `PlayerObject.TradeRequest`，`PlayerObject.cs:10623-10706`），所以客户端只发空包。
+    TradeRequest,
+    /// 回应交易邀请（`C.TradeReply`）。
+    TradeReply {
+        /// `true` = 接受。
+        accept: bool,
+    },
+    /// 把背包物品放进自己的交易格（`C.DepositTradeItem`）。
+    ///
+    /// `from` 是背包格、`to` 是交易格（Crystal `MirItemCell.cs:1552-1559`）。
+    TradeItem {
+        /// 背包格。
+        from: i32,
+        /// 交易格（0..[`TRADE_SLOTS`]）。
+        to: i32,
+    },
+    /// 把交易格里的物品拿回背包（`C.RetrieveTradeItem`）。
+    ///
+    /// `from` 是交易格、`to` 是背包格（Crystal `MirItemCell.cs:1140-1148`）。
+    TradeTakeBack {
+        /// 交易格（0..[`TRADE_SLOTS`]）。
+        from: i32,
+        /// 背包格。
+        to: i32,
+    },
+    /// 放入金币（`C.TradeGold`）。
+    ///
+    /// `amount` 是**增量**：服务端做 `TradeGoldAmount += amount`（Crystal
+    /// `PlayerObject.cs:10755`），客户端记的是累计值 [`TradeView::gold`]。
+    TradeGold {
+        /// 本次放入的金币数（> 0）。
+        amount: u32,
+    },
+    /// 准备 / 确认（`C.TradeConfirm`）。
+    ///
+    /// `locked = true` 锁定己方报价，服务端在对方也锁定后互换物品与金币
+    /// （Crystal `PlayerObject.TradeConfirm`，`PlayerObject.cs:10789-10888`）；
+    /// `false` 解锁（Crystal 的 `ChangeLockState(!TradeLocked)` 第二段点击）。
+    TradeConfirm {
+        /// 是否锁定己方报价。
+        locked: bool,
+    },
+    /// 取消交易（`C.TradeCancel`）。
+    TradeCancel,
+    /// 邀请入队（`C.AddMember`；服务端 `World::group_invite`）。
+    AddMember {
+        /// 被邀请者名字。
+        name: String,
+    },
+    /// 退队 / 踢人（`C.DelMember`；发自己的名字等于退队，Crystal `GroupDialog.cs:216-224`）。
+    DelMember {
+        /// 目标名字（自己在队里时发自己的名字）。
+        name: String,
+    },
+    /// 回应组队邀请（`C.GroupInvite`）。
+    GroupReply {
+        /// `true` = 接受。
+        accept: bool,
+    },
+    /// 开关「允许组队」（`C.SwitchGroup`；Crystal `GroupDialog.cs:80`）。
+    SwitchGroup {
+        /// 是否允许别人邀请自己。
+        allow_group: bool,
     },
     /// 关闭连接。
     Quit,
@@ -791,6 +865,16 @@ pub struct WorldEntity {
     pub dead: bool,
     /// 生命百分比（`S.ObjectHealth`；怪物才有）。
     pub hp_percent: Option<u8>,
+    /// 等级（`S.ObjectPlayer.Level`；怪物/NPC 为 0）。组队面板的「等级」列用它。
+    pub level: u16,
+    /// 职业（`S.ObjectPlayer.Class`；不是玩家时为 [`MirClass::Warrior`] 占位，
+    /// 组队面板按 [`Self::kind`] 决定是否显示）。
+    pub class: MirClass,
+    /// 服务端给的名字颜色（`S.ObjectPlayer.NameColour` / `S.ObjectColourChanged`）。
+    ///
+    /// Crystal 用它区分 PK 红/黄/棕/白名（服务端 `PlayerObject.GetNameColour`，
+    /// `Server/MirObjects/PlayerObject.cs:1849-1890`）。`None` 表示没收到过。
+    pub name_colour: Option<mir_core::Color>,
     /// 当前动作（`S.ObjectWalk/ObjectRun/ObjectAttack/ObjectStruck/ObjectDied` 驱动）。
     pub action: ActorAction,
     /// 当前动作开始时间（Unix 毫秒）。
@@ -818,6 +902,9 @@ impl WorldEntity {
             looks: PlayerLooks::default(),
             dead: false,
             hp_percent: None,
+            level: 0,
+            class: MirClass::Warrior,
+            name_colour: None,
             action: ActorAction::Standing,
             action_started_ms: 0,
         }
@@ -1591,6 +1678,194 @@ fn health_percent(current: i32, maximum: i32) -> u8 {
     u8::try_from(percent.clamp(0, 100)).unwrap_or(100)
 }
 
+/// 交易面板状态（Crystal `TradeDialog` + `GuestTradeDialog`，`Client/MirScenes/Dialogs/TradeDialogs.cs`）。
+///
+/// # 包 ↔ 状态
+///
+/// | 包 | 状态变化 |
+/// |---|---|
+/// | `S.TradeRequest{Name}` | [`Self::invitation`] = 邀请者，[`Self::invitation_version`] +1（UI 弹「XXX 请求与你交易」） |
+/// | `S.TradeAccept{Name}` | [`Self::open`] = true、[`Self::partner`] = 对方名字、[`Self::open_version`] +1 |
+/// | `S.DepositTradeItem{From,To,Success}` | 背包格 → [`Self::items`]，[`Self::version`] +1 |
+/// | `S.RetrieveTradeItem{From,To,Success}` | [`Self::items`] → 背包格，[`Self::version`] +1 |
+/// | `S.TradeItem{TradeItems[10]}` | 对方 10 格 → [`Self::partner_items`]，己方准备状态与对方准备状态一起清零 |
+/// | `S.TradeGold{Amount}` | [`Self::partner_gold`] = Amount（**累计值**），同上清零 |
+/// | `S.TradeConfirm{}` | 成交：`open` = false（Crystal `GameScene.cs:6329-6332` → `TradeReset`） |
+/// | `S.TradeCancel{Unlock}` | `Unlock` = 解锁继续谈（`open` 不变），否则关窗（`GameScene.cs:6333-6346`） |
+///
+/// # 「对方已准备」
+///
+/// 协议**没有**「对方已准备」的包：Crystal 客户端只显示自己的锁定状态
+/// （`TradeDialogs.cs:36-40` 的 `ConfirmButton` + `:122-140` 的 `ChangeLockState`）。
+/// 本作按需求加了 [`Self::partner_ready`]，唯一的服务端信号是
+/// **双方都锁定时才会发 `S.TradeCancel{Unlock = true}`**（`PlayerObject.cs:10817-10852`），
+/// 所以收到 `unlock = true` 时把它置真；对方改报价（`S.TradeItem`/`S.TradeGold`）或
+/// 交易重开时清回假。注入式测试可以直接写这个字段验证两种文案。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TradeView {
+    /// 对方名字（`S.TradeAccept.Name`）。
+    pub partner: String,
+    /// 交易窗是否打开。
+    pub open: bool,
+    /// [`Self::open`] 每被打开一次 +1（UI 据此自动弹面板并重置本地准备状态）。
+    pub open_version: u64,
+    /// 自己的 10 格（`S.DepositTradeItem` / `S.RetrieveTradeItem` 的回执驱动）。
+    pub items: Vec<Option<InventoryItem>>,
+    /// 对方的 10 格（`S.TradeItem.TradeItems`）。
+    pub partner_items: Vec<Option<InventoryItem>>,
+    /// 自己放上的金币（累计；`C.TradeGold` 的增量在发包时加上，服务端不回声）。
+    pub gold: u32,
+    /// 对方的金币（`S.TradeGold.Amount` 是累计值）。
+    pub partner_gold: u32,
+    /// 自己已准备（`C.TradeConfirm{locked: true}`）。
+    ///
+    /// Crystal 把它放在客户端（`UserObject.TradeLocked`，`UserObject.cs:24` 附近），
+    /// 所以 [`crate::ui::UiState`] 也留了一份即时状态；这里保存服务端包能改动的镜像。
+    pub locked: bool,
+    /// 对方已准备（见类型文档：协议只能间接推断）。
+    pub partner_ready: bool,
+    /// 交易内容每变一次 +1（对方改物品/金币、自己存取物品）。
+    pub version: u64,
+    /// 最近的交易邀请（`S.TradeRequest.Name`）；`None` 表示没有待处理邀请。
+    pub invitation: Option<String>,
+    /// 收到过多少次交易邀请（UI 据此弹一次窗）。
+    pub invitation_version: u64,
+}
+
+impl TradeView {
+    /// 新建 10 格空交易窗。
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            items: vec![None; TRADE_SLOTS],
+            partner_items: vec![None; TRADE_SLOTS],
+            ..Self::default()
+        }
+    }
+
+    /// 把两个格子列表补齐到 [`TRADE_SLOTS`]。
+    fn normalize(&mut self) {
+        self.items.resize(TRADE_SLOTS, None);
+        self.partner_items.resize(TRADE_SLOTS, None);
+    }
+}
+
+/// 一名队友（协议里只有名字/地图/坐标）。
+///
+/// 等级/职业/血量来自实体表（同图近距离时服务端会发 `S.ObjectPlayer` 与
+/// `S.ObjectHealth`，`crates/mir-server/src/group.rs` 的 `group_join`），由
+/// [`WorldSnapshot::group_member_infos`] 按名字关联。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GroupMember {
+    /// 名字（`S.AddMember.Name`，顺序即入队顺序）。
+    pub name: String,
+    /// 所在地图标题（`S.GroupMembersMap.PlayerMap`）。
+    pub map: String,
+    /// 最近一次 `S.SendMemberLocation` 的坐标。
+    pub location: Option<Point>,
+}
+
+/// 组队状态（Crystal `GroupDialog.GroupList` + `GroupMembersMap`，
+/// `Client/MirScenes/Dialogs/GroupDialog.cs:12-14`）。
+///
+/// # 包 ↔ 状态
+///
+/// | 包 | 状态变化 |
+/// |---|---|
+/// | `S.SwitchGroup{AllowGroup}` | [`Self::allow_group`]；变假时清空队伍（`GameScene.cs:4970-4976`） |
+/// | `S.AddMember{Name}` | 追加成员 + 组队频道提示（`GameScene.cs:5006-5010`） |
+/// | `S.DeleteMember{Name}` | 移除成员 + 组队频道提示（`:4986-4992`） |
+/// | `S.DeleteGroup{}` | 清空队伍（`:4978-4984`） |
+/// | `S.GroupInvite{Name}` | [`Self::invitation`]（UI 弹「XXX 邀请你组队」，`:4994-5005`） |
+/// | `S.GroupMembersMap{PlayerName,PlayerMap}` | 成员地图（`:5011-5020`） |
+/// | `S.SendMemberLocation{MemberName,MemberLocation}` | 成员坐标（`:5021-5029`，Crystal 用来画大地图队友点） |
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GroupView {
+    /// 成员（`members[0]` 是队长；服务端顺序照抄 Crystal `GroupMembers`）。
+    pub members: Vec<GroupMember>,
+    /// 是否允许组队（默认 `true`；服务端 `S.SwitchGroup` 同步）。
+    pub allow_group: bool,
+    /// 最近的组队邀请（`S.GroupInvite.Name`）。
+    pub invitation: Option<String>,
+    /// 收到过多少次组队邀请（UI 据此弹一次窗）。
+    pub invitation_version: u64,
+}
+
+impl GroupView {
+    /// 新建「默认允许组队、没有队伍」的状态。
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            allow_group: true,
+            ..Self::default()
+        }
+    }
+
+    /// 是否在队伍里。
+    #[must_use]
+    pub fn has_members(&self) -> bool {
+        !self.members.is_empty()
+    }
+
+    /// 队长名字（`members[0]`）。
+    #[must_use]
+    pub fn leader(&self) -> Option<&str> {
+        self.members.first().map(|member| member.name.as_str())
+    }
+
+    /// 按名字找成员（大小写不敏感，与服务端 `string.Compare(..., OrdinalIgnoreCase)` 一致）。
+    #[must_use]
+    pub fn member(&self, name: &str) -> Option<&GroupMember> {
+        self.members
+            .iter()
+            .find(|member| member.name.eq_ignore_ascii_case(name))
+    }
+
+    /// 名字是否是队友。
+    #[must_use]
+    pub fn contains(&self, name: &str) -> bool {
+        self.member(name).is_some()
+    }
+
+    /// 追加成员（已在队里时忽略，Crystal `GroupList.Add` 不会去重，这里按名字去重更安全）。
+    fn add(&mut self, name: &str) {
+        if name.is_empty() || self.contains(name) {
+            return;
+        }
+        self.members.push(GroupMember {
+            name: name.to_owned(),
+            ..GroupMember::default()
+        });
+    }
+
+    /// 移除成员并清掉地图/坐标缓存。
+    fn remove(&mut self, name: &str) {
+        self.members
+            .retain(|member| !member.name.eq_ignore_ascii_case(name));
+    }
+}
+
+/// 组队成员的展示信息（组队面板一行 / HUD 队友血条）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GroupMemberInfo {
+    /// 名字。
+    pub name: String,
+    /// 等级（同图可见时来自 `S.ObjectPlayer.Level`，否则 0 = 未知）。
+    pub level: u16,
+    /// 职业（同图可见时来自 `S.ObjectPlayer.Class`）。
+    pub class: Option<MirClass>,
+    /// 所在地图标题（`S.GroupMembersMap`）。
+    pub map: String,
+    /// 是否在线：队友对象当前在自己的视野里（有 `S.ObjectPlayer` 且没被 `S.ObjectRemove`）。
+    pub online: bool,
+    /// 血量百分比（`S.ObjectHealth`；自己由 `HP / MaxHP` 算）。
+    pub hp_percent: Option<u8>,
+    /// 是否队长（`members[0]`）。
+    pub is_leader: bool,
+    /// 是否自己。
+    pub is_self: bool,
+}
+
 /// 客户端看到的世界。
 #[derive(Debug, Clone)]
 pub struct WorldSnapshot {
@@ -1672,6 +1947,12 @@ pub struct WorldSnapshot {
     pub guild_buff_infos: Vec<GuildBuffInfoView>,
     /// 已获得/激活的行会增益（`S.GuildBuffList.ActiveBuffs`）。
     pub guild_active_buffs: Vec<GuildBuffView>,
+    /// 交易状态（`S.TradeRequest`/`S.TradeAccept`/`S.TradeItem`/`S.TradeGold`/
+    /// `S.TradeConfirm`/`S.TradeCancel`，见 [`TradeView`]）。
+    pub trade: TradeView,
+    /// 组队状态（`S.AddMember`/`S.DeleteMember`/`S.DeleteGroup`/`S.SwitchGroup`/
+    /// `S.GroupInvite`/`S.GroupMembersMap`/`S.SendMemberLocation`，见 [`GroupView`]）。
+    pub group: GroupView,
     /// 收到过多少页 NPC 对话（版本号来源）。
     pub npc_dialog_version: u64,
     /// 收到过多少次商店货架（版本号来源）。
@@ -1725,6 +2006,8 @@ impl Default for WorldSnapshot {
             guild_storage: Vec::new(),
             guild_buff_infos: Vec::new(),
             guild_active_buffs: Vec::new(),
+            trade: TradeView::new(),
+            group: GroupView::new(),
             npc_dialog_version: 0,
             npc_goods_version: 0,
             packet_counts: BTreeMap::new(),
@@ -1873,6 +2156,107 @@ impl WorldSnapshot {
         self.guild_active_buffs
             .iter()
             .find(|buff| buff.id == buff_id)
+    }
+
+    /// 是否在队伍里。
+    #[must_use]
+    pub fn has_group(&self) -> bool {
+        self.group.has_members()
+    }
+
+    /// 名字是否是队友（大小写不敏感）。
+    #[must_use]
+    pub fn is_group_member(&self, name: &str) -> bool {
+        self.group.contains(name)
+    }
+
+    /// 自己是不是队长（`members[0]` 必须是自己）。
+    #[must_use]
+    pub fn is_group_leader(&self) -> bool {
+        self.self_player.as_ref().is_some_and(|me| {
+            self.group
+                .leader()
+                .is_some_and(|leader| leader.eq_ignore_ascii_case(&me.name))
+        })
+    }
+
+    /// 组队成员的展示信息（名字/等级/职业/地图/在线/血量百分比）。
+    ///
+    /// 等级/职业/血量不在协议里：`S.AddMember`/`S.GroupMembersMap` 只带名字与地图，
+    /// `S.SendMemberLocation` 只带坐标。同图近距离时服务端会为队友补发 `S.ObjectPlayer`
+    /// 与 `S.ObjectHealth`（`crates/mir-server/src/group.rs` 的 `group_join`，Crystal
+    /// `PlayerObject.cs:9454-9464`），所以这里按**名字**去实体表 + 自己的快照里关联；
+    /// 视野外的队友只显示名字/地图（在线 = 假）。
+    #[must_use]
+    pub fn group_member_infos(&self) -> Vec<GroupMemberInfo> {
+        let leader = self.group.leader().map(str::to_owned);
+        let me = self.self_player.as_ref();
+        self.group
+            .members
+            .iter()
+            .map(|member| {
+                let is_self = me.is_some_and(|me| me.name.eq_ignore_ascii_case(&member.name));
+                let is_leader = leader
+                    .as_deref()
+                    .is_some_and(|leader| leader.eq_ignore_ascii_case(&member.name));
+                if is_self {
+                    let Some(me) = me else {
+                        return GroupMemberInfo {
+                            name: member.name.clone(),
+                            map: member.map.clone(),
+                            is_leader,
+                            is_self,
+                            ..GroupMemberInfo::default()
+                        };
+                    };
+                    return GroupMemberInfo {
+                        name: me.name.clone(),
+                        level: me.level,
+                        class: Some(me.class),
+                        map: if member.map.is_empty() {
+                            self.map
+                                .as_ref()
+                                .map_or_else(String::new, |map| map.title.clone())
+                        } else {
+                            member.map.clone()
+                        },
+                        online: true,
+                        hp_percent: Some(health_percent(me.hp, me.hp_max)),
+                        is_leader,
+                        is_self,
+                    };
+                }
+                let entity = self.entities.values().find(|entity| {
+                    entity.kind == EntityKind::Player
+                        && entity.name.eq_ignore_ascii_case(&member.name)
+                });
+                let online = entity.is_some_and(|entity| !entity.dead);
+                GroupMemberInfo {
+                    name: member.name.clone(),
+                    level: entity.map_or(0, |entity| entity.level),
+                    class: entity
+                        .filter(|entity| entity.kind == EntityKind::Player)
+                        .map(|entity| entity.class),
+                    map: member.map.clone(),
+                    online,
+                    hp_percent: entity.and_then(|entity| entity.hp_percent),
+                    is_leader,
+                    is_self,
+                }
+            })
+            .collect()
+    }
+
+    /// 设置自己的交易准备状态（发包时乐观更新，服务端不回显「自己的锁定」）。
+    pub fn set_trade_locked(&mut self, locked: bool) {
+        self.trade.locked = locked;
+        self.trade.version = self.trade.version.saturating_add(1);
+    }
+
+    /// 累加自己放上的金币（`C.TradeGold.Amount` 是增量，Crystal `PlayerObject.cs:10755`）。
+    pub fn add_trade_gold(&mut self, amount: u32) {
+        self.trade.gold = self.trade.gold.saturating_add(amount);
+        self.trade.version = self.trade.version.saturating_add(1);
     }
 
     /// 展平成「职位 + 成员」的成员表（成员表按职位序号、再按名字排序）。
@@ -2677,6 +3061,56 @@ fn handle_command(
         NetCommand::RequestGuildInfo { type_ } => {
             ClientPacket::RequestGuildInfo(c::RequestGuildInfo { type_ })
         }
+        NetCommand::TradeRequest => {
+            // 交易只在世界里有意义；服务端自己校验朝向/相邻/冷却（`PlayerObject.TradeRequest`）。
+            ClientPacket::TradeRequest(c::TradeRequest {})
+        }
+        NetCommand::TradeReply { accept } => ClientPacket::TradeReply(c::TradeReply {
+            accept_invite: accept,
+        }),
+        NetCommand::TradeItem { from, to } => {
+            ClientPacket::DepositTradeItem(c::DepositTradeItem { from, to })
+        }
+        NetCommand::TradeTakeBack { from, to } => {
+            ClientPacket::RetrieveTradeItem(c::RetrieveTradeItem { from, to })
+        }
+        NetCommand::TradeGold { amount } => {
+            // 服务端只给**对方**发 `S.TradeGold`，自己这边不会回声，所以本地先累加
+            // （Crystal `TradeDialogs.cs:90-93` 的 `User.TradeGoldAmount += Amount`）。
+            if amount > 0 {
+                snapshot.add_trade_gold(amount);
+            }
+            ClientPacket::TradeGold(c::TradeGold { amount })
+        }
+        NetCommand::TradeConfirm { locked } => {
+            snapshot.set_trade_locked(locked);
+            ClientPacket::TradeConfirm(c::TradeConfirm { locked })
+        }
+        NetCommand::TradeCancel => {
+            // 取消后本地立即关窗（服务端会回 `S.TradeCancel{Unlock=false}`，但那是给双方的）。
+            snapshot.trade.open = false;
+            snapshot.trade.locked = false;
+            snapshot.trade.partner_ready = false;
+            ClientPacket::TradeCancel(c::TradeCancel {})
+        }
+        NetCommand::AddMember { name } => {
+            if name.trim().is_empty() {
+                return Ok(());
+            }
+            ClientPacket::AddMember(c::AddMember { name })
+        }
+        NetCommand::DelMember { name } => {
+            if name.trim().is_empty() {
+                return Ok(());
+            }
+            ClientPacket::DelMember(c::DelMember { name })
+        }
+        NetCommand::GroupReply { accept } => ClientPacket::GroupInvite(c::GroupInvite {
+            accept_invite: accept,
+        }),
+        NetCommand::SwitchGroup { allow_group } => {
+            ClientPacket::SwitchGroup(c::SwitchGroup { allow_group })
+        }
         NetCommand::Quit => return Ok(()),
     };
     send(stream, &packet)
@@ -2784,6 +3218,23 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
         ServerPacket::GuildStorageItemChange(_) => "GuildStorageItemChange",
         ServerPacket::GuildStorageGoldChange(_) => "GuildStorageGoldChange",
         ServerPacket::GuildBuffList(_) => "GuildBuffList",
+        ServerPacket::TradeRequest(_) => "TradeRequest",
+        ServerPacket::TradeAccept(_) => "TradeAccept",
+        ServerPacket::TradeGold(_) => "TradeGold",
+        ServerPacket::TradeItem(_) => "TradeItem",
+        ServerPacket::TradeConfirm(_) => "TradeConfirm",
+        ServerPacket::TradeCancel(_) => "TradeCancel",
+        ServerPacket::DepositTradeItem(_) => "DepositTradeItem",
+        ServerPacket::RetrieveTradeItem(_) => "RetrieveTradeItem",
+        ServerPacket::SwitchGroup(_) => "SwitchGroup",
+        ServerPacket::AddMember(_) => "AddMember",
+        ServerPacket::DeleteMember(_) => "DeleteMember",
+        ServerPacket::DeleteGroup(_) => "DeleteGroup",
+        ServerPacket::GroupInvite(_) => "GroupInvite",
+        ServerPacket::GroupMembersMap(_) => "GroupMembersMap",
+        ServerPacket::SendMemberLocation(_) => "SendMemberLocation",
+        ServerPacket::ColourChanged(_) => "ColourChanged",
+        ServerPacket::ObjectColourChanged(_) => "ObjectColourChanged",
         ServerPacket::ObjectName(_) => "ObjectName",
         ServerPacket::PlayerUpdate(_) => "PlayerUpdate",
         ServerPacket::Disconnect(_) => "Disconnect",
@@ -2952,6 +3403,9 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                     looks,
                     dead: player.dead,
                     hp_percent: None,
+                    level: player.level,
+                    class: player.class,
+                    name_colour: Some(player.name_colour),
                     action: if player.dead {
                         ActorAction::Dead
                     } else {
@@ -3545,6 +3999,181 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
         ServerPacket::GuildBuffList(list) => {
             apply_guild_buff_list(snapshot, list);
         }
+        ServerPacket::TradeRequest(request) => {
+            // 收到邀请：UI 弹「XXX 请求与你交易」接受/拒绝（Crystal `GameScene.cs:6303-6311`）。
+            snapshot.trade.invitation = Some(request.name.clone());
+            snapshot.trade.invitation_version = snapshot.trade.invitation_version.saturating_add(1);
+        }
+        ServerPacket::TradeAccept(accept) => {
+            // 双方都收到 `S.TradeAccept`（Crystal `PlayerObject.cs:10741-10742`）：
+            // 打开交易窗，并像 Crystal 的 `TradeDialog.TradeAccept()` 一样把背包一起显示
+            // （`TradeDialogs.cs:152-161`）。
+            snapshot.trade.open = true;
+            snapshot.trade.open_version = snapshot.trade.open_version.saturating_add(1);
+            snapshot.trade.partner.clone_from(&accept.name);
+            snapshot.trade.items = vec![None; TRADE_SLOTS];
+            snapshot.trade.partner_items = vec![None; TRADE_SLOTS];
+            snapshot.trade.gold = 0;
+            snapshot.trade.partner_gold = 0;
+            snapshot.trade.locked = false;
+            snapshot.trade.partner_ready = false;
+            snapshot.trade.version = snapshot.trade.version.saturating_add(1);
+            snapshot.trade.invitation = None;
+        }
+        ServerPacket::DepositTradeItem(deposit) => {
+            if deposit.success {
+                trade_deposit(snapshot, deposit.from, deposit.to);
+            }
+        }
+        ServerPacket::RetrieveTradeItem(retrieve) => {
+            if retrieve.success {
+                trade_retrieve(snapshot, retrieve.from, retrieve.to);
+            }
+        }
+        ServerPacket::TradeItem(items) => {
+            // 对方改了报价：服务端 `TradeUnlock()` 已经把**双方**的锁定清掉
+            // （`PlayerObject.cs:10761-10786`），客户端同步清自己的准备状态
+            // （Crystal `GameScene.cs:6323-6328` 的 `ChangeLockState(false)`）。
+            snapshot.trade.partner_items = items
+                .trade_items
+                .iter()
+                .map(|item| item.as_ref().map(InventoryItem::from_user_item))
+                .collect();
+            snapshot.trade.partner_items.resize(TRADE_SLOTS, None);
+            snapshot.trade.locked = false;
+            snapshot.trade.partner_ready = false;
+            snapshot.trade.version = snapshot.trade.version.saturating_add(1);
+        }
+        ServerPacket::TradeGold(gold) => {
+            snapshot.trade.partner_gold = gold.amount;
+            snapshot.trade.locked = false;
+            snapshot.trade.partner_ready = false;
+            snapshot.trade.version = snapshot.trade.version.saturating_add(1);
+        }
+        ServerPacket::TradeConfirm(_) => {
+            // 成交（空包）：Crystal 的 `TradeConfirm()` 直接重置并关窗（`GameScene.cs:6329-6332`）。
+            snapshot.trade.open = false;
+            snapshot.trade.partner_ready = snapshot.trade.locked;
+            snapshot.trade.locked = false;
+            snapshot.trade.version = snapshot.trade.version.saturating_add(1);
+            push_chat(
+                snapshot,
+                ChatLine {
+                    speaker: None,
+                    text: "交易完成。".to_owned(),
+                    kind: ChatType::System,
+                },
+            );
+        }
+        ServerPacket::TradeCancel(cancel) => {
+            if cancel.unlock {
+                // `Unlock = true` 只在双方都锁定后的失败分支里发（`PlayerObject.cs:10817-10852`）：
+                // 这是「对方确实准备过」的唯一信号，见 [`TradeView::partner_ready`]。
+                snapshot.trade.partner_ready = true;
+                snapshot.trade.locked = false;
+                snapshot.trade.version = snapshot.trade.version.saturating_add(1);
+            } else {
+                // 交易被取消：关窗（Crystal 弹「交易已取消」提示框，`GameScene.cs:6341-6345`）。
+                snapshot.trade.open = false;
+                snapshot.trade.locked = false;
+                snapshot.trade.partner_ready = false;
+                snapshot.trade.invitation = None;
+                snapshot.trade.version = snapshot.trade.version.saturating_add(1);
+                push_chat(
+                    snapshot,
+                    ChatLine {
+                        speaker: None,
+                        text: "交易已取消。".to_owned(),
+                        kind: ChatType::System,
+                    },
+                );
+            }
+        }
+        ServerPacket::SwitchGroup(switch) => {
+            // Crystal `GameScene.cs:4970-4976`：关掉「允许组队」时本地直接解散队伍显示。
+            snapshot.group.allow_group = switch.allow_group;
+            if !switch.allow_group && snapshot.group.has_members() {
+                snapshot.group.members.clear();
+                push_chat(
+                    snapshot,
+                    ChatLine {
+                        speaker: None,
+                        text: "你已离开队伍。".to_owned(),
+                        kind: ChatType::Group,
+                    },
+                );
+            }
+        }
+        ServerPacket::AddMember(member) => {
+            // `GroupList.Add(p.Name)` + 组队频道提示（`GameScene.cs:5006-5010`）。
+            snapshot.group.add(&member.name);
+            push_chat(
+                snapshot,
+                ChatLine {
+                    speaker: None,
+                    text: format!("{} 加入了队伍。", member.name),
+                    kind: ChatType::Group,
+                },
+            );
+        }
+        ServerPacket::DeleteMember(member) => {
+            snapshot.group.remove(&member.name);
+            push_chat(
+                snapshot,
+                ChatLine {
+                    speaker: None,
+                    text: format!("{} 退出了队伍。", member.name),
+                    kind: ChatType::Group,
+                },
+            );
+        }
+        ServerPacket::DeleteGroup(_) => {
+            snapshot.group.members.clear();
+            push_chat(
+                snapshot,
+                ChatLine {
+                    speaker: None,
+                    text: "你已离开队伍。".to_owned(),
+                    kind: ChatType::Group,
+                },
+            );
+        }
+        ServerPacket::GroupInvite(invite) => {
+            // 弹「XXX 邀请你组队」（Crystal `GameScene.cs:4994-5005`）。
+            snapshot.group.invitation = Some(invite.name.clone());
+            snapshot.group.invitation_version = snapshot.group.invitation_version.saturating_add(1);
+        }
+        ServerPacket::GroupMembersMap(map) => {
+            if let Some(member) = snapshot
+                .group
+                .members
+                .iter_mut()
+                .find(|member| member.name.eq_ignore_ascii_case(&map.player_name))
+            {
+                member.map.clone_from(&map.player_map);
+            }
+        }
+        ServerPacket::SendMemberLocation(location) => {
+            if let Some(member) = snapshot
+                .group
+                .members
+                .iter_mut()
+                .find(|member| member.name.eq_ignore_ascii_case(&location.member_name))
+            {
+                member.location = Some(location.member_location);
+            }
+        }
+        ServerPacket::ColourChanged(changed) => {
+            // 自己的名字颜色（Crystal `PlayerObject.RefreshNameColour` → `S.ColourChanged`，
+            // `Server/MirObjects/PlayerObject.cs:1838-1847`）。自己的头顶名字固定金色，
+            // 所以这里只记下来供以后 HUD/聊天用；快照不做展示。
+            tracing::debug!(colour = changed.name_colour.0, "自己的名字颜色变了");
+        }
+        ServerPacket::ObjectColourChanged(changed) => {
+            update_entity(snapshot, changed.object_id, |entity| {
+                entity.name_colour = Some(changed.name_colour);
+            });
+        }
         ServerPacket::ObjectName(name) => {
             update_entity(snapshot, name.object_id, |entity| {
                 entity.name.clone_from(&name.name);
@@ -3650,6 +4279,42 @@ fn take_back_storage_to_inventory(snapshot: &mut WorldSnapshot, from: i32, to: i
         snapshot.inventory.resize(to + 1, None);
     }
     snapshot.inventory[to] = Some(item);
+}
+
+/// 背包 → 交易格（`S.DepositTradeItem{success=true}`）。
+///
+/// 服务端只回「哪一格搬到哪一格」，物品数据仍以客户端背包里的为准
+/// （Crystal `PlayerObject.DepositTradeItem` 的 `Info.Trade[to] = temp`，
+/// `Server/MirObjects/PlayerObject.cs:10566-10576`）。
+fn trade_deposit(snapshot: &mut WorldSnapshot, from: i32, to: i32) {
+    let (Ok(from), Ok(to)) = (usize::try_from(from), usize::try_from(to)) else {
+        return;
+    };
+    if to >= TRADE_SLOTS {
+        return;
+    }
+    snapshot.trade.normalize();
+    let Some(item) = snapshot.inventory.get_mut(from).and_then(Option::take) else {
+        return;
+    };
+    snapshot.trade.items[to] = Some(item);
+    snapshot.trade.version = snapshot.trade.version.saturating_add(1);
+}
+
+/// 交易格 → 背包（`S.RetrieveTradeItem{success=true}`）。
+fn trade_retrieve(snapshot: &mut WorldSnapshot, from: i32, to: i32) {
+    let (Ok(from), Ok(to)) = (usize::try_from(from), usize::try_from(to)) else {
+        return;
+    };
+    snapshot.trade.normalize();
+    let Some(item) = snapshot.trade.items.get_mut(from).and_then(Option::take) else {
+        return;
+    };
+    if snapshot.inventory.len() <= to {
+        snapshot.inventory.resize(to + 1, None);
+    }
+    snapshot.inventory[to] = Some(item);
+    snapshot.trade.version = snapshot.trade.version.saturating_add(1);
 }
 
 /// 应用一条 `S.ChangeQuest`。

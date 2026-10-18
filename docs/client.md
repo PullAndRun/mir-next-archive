@@ -143,8 +143,9 @@ buff 倒计时都基于它，所以无头测试可以任意拨表。
 | 方向键 / WASD | 与当前朝向相同 → `C.Walk`，不同 → `C.Turn`；按住左键走路时方向键仍可用 |
 | Shift + 方向 | 与朝向相同 → `C.Run`（服务端仍校验跑步计数） |
 | Space | 有锁定目标 → 朝目标攻击（相邻）或朝目标走一步靠近；没有目标 → `C.Attack { direction: 当前朝向 }` |
-| P | `C.PickUp` |
-| T | 打开聊天输入；回车 `C.Chat`，Esc 取消 |
+| Tab | `C.PickUp`（Crystal 的 `KeybindOptions.Pickup = Keys.Tab`，`KeyBindSettings.cs:334`；`P` 让给组队窗口） |
+| T | 打开聊天输入；回车 `C.Chat`，Esc 取消；`!!` 前缀 = 组队频道（§5.14） |
+| Y | 发起交易 `C.TradeRequest`（Crystal 是 `T`，`KeyBindSettings.cs:340`；本作 `T` 已用于聊天，见 §5.13） |
 | I | 开关背包 |
 | E | 开关装备纸娃娃面板 |
 | M | 开关小地图（`ui::minimap`，见 §5.5） |
@@ -152,10 +153,11 @@ buff 倒计时都基于它，所以无头测试可以任意拨表。
 | Q | 开关任务面板（`ui::quests`，见 §5.8；Crystal 的 `KeybindOptions.Quests` 默认就是 `Q`，`KeyBindSettings.cs:219`） |
 | N | 开关邮件面板（`ui::mail`，见 §5.10） |
 | G | 开关行会面板（`ui::guild`，见 §5.11）；打开时自动拉公告/成员/仓库/增益 |
+| P | 开关组队面板（`ui::group`，见 §5.14；Crystal `KeybindOptions.Group = Keys.P`，`KeyBindSettings.cs:225`） |
 | F3 | 开关技能列表 |
 | 1..9 | 施法（未绑定技能会先发 `C.MagicKey`） |
 | 商店打开时 ↑/↓ | 滚动货架（不移动角色） |
-| Esc | 依次关闭：右键菜单 → 拖拽 → 聊天输入 → 大地图 → NPC 对话（发 `@exit`）→ 任务/仓库/邮件/行会/背包/装备/技能（小地图只由 `M` 开关，与 Crystal 的 `MiniMapDialog.Toggle()` 一致）；顺序集中在 `UiState::escape`。输入框聚焦时第一次 `Esc` 只取消焦点 |
+| Esc | 依次关闭：右键菜单 → 拖拽 → 聊天输入 → 大地图 → NPC 对话（发 `@exit`）→ 交易窗（发 `C.TradeCancel`）→ 任务/仓库/邮件/行会/组队/背包/装备/技能（小地图只由 `M` 开关，与 Crystal 的 `MiniMapDialog.Toggle()` 一致）；顺序集中在 `UiState::escape`。输入框聚焦时第一次 `Esc` 只取消焦点 |
 | F1 | 调试叠层 |
 | F2 | 截图到 `build/screenshot-<n>.png` |
 | F10 | 退出（`Q` 现在属于任务面板，与 Crystal 一致） |
@@ -182,6 +184,13 @@ buff 倒计时都基于它，所以无头测试可以任意拨表。
 | 拖拽 | 个人仓库格 → 背包 | 取物品：`C.TakeBackItem { from: 仓库格, to: 背包格 }` |
 | 拖拽 | 背包 / 行会仓库格 → 行会仓库格 | 存物品 / 仓库内移动：`C.GuildStorageItemChange { type: 0/2 }` |
 | 拖拽 | 行会仓库格 → 背包 | 取物品：`C.GuildStorageItemChange { type: 1 }` |
+| 拖拽 | 背包 → 自己的交易格 | 放入交易：`C.DepositTradeItem { from: 背包格, to: 交易格 }`（§5.13） |
+| 拖拽 | 交易格 → 背包 | 取回：`C.RetrieveTradeItem { from: 交易格, to: 背包格 }` |
+| 拖拽 | 交易格 → 交易格 | 交易栏内移动：`C.MoveItem { grid: Trade, from, to }` |
+| 左键单击 | 交易窗「准备 / 确认」/「取消交易」 | `C.TradeConfirm{locked:true}` / `C.TradeCancel`（§5.13） |
+| 左键单击 | 交易窗金币框 / 「放入金币」 | 聚焦 / `C.TradeGold{amount}` |
+| 左键单击 | 交易/组队邀请弹窗的「接受 / 拒绝」 | `C.TradeReply{AcceptInvite}` / `C.GroupInvite{AcceptInvite}` |
+| 左键单击 | 组队成员行 / 「邀请」/「离队」/「踢人」/「允许组队」 | 选中 / `C.AddMember{Name}` / `C.DelMember` / `C.DelMember{队员}` / `C.SwitchGroup`（§5.14） |
 | 左键单击 | 任务行 / 任务「放弃」 | 选中任务 / `C.AbandonQuest`（§5.8） |
 | 左键单击 | 邮件行 / 收取附件 / 锁定 / 删除 | `C.ReadMail` / `C.CollectParcel` / `C.LockMail` / `C.DeleteMail`（§5.10） |
 | 左键单击 | 写信页输入框 / 背包挑选格 / 贴邮票 / 询价 / 发送 | 聚焦输入框 / 切换附件 / 切换邮票 / `C.MailCost` / `C.SendMail` |
@@ -588,6 +597,17 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 | 行会仓库 | `C.GuildStorageItemChange{Type=3}` → `S.GuildStorageList{Items[112]}`；`{Type=0/1/2}` → `S.GuildStorageItemChange` | `guild_storage.rs` | `guild_storage` |
 | 行会资金 | `C.GuildStorageGoldChange{Type,Amount}` → `S.LoseGold`/`S.GainedGold` + `S.GuildStorageGoldChange{Amount,Type,Name}` | `World::guild_storage_gold_change` | `guild.gold` |
 | 行会增益 | `C.GuildBuffUpdate{Action=0}` → `S.GuildBuffList`；`{Action=1/2,Id}` → `S.GuildBuffList`（+ 资金变化） | `guild_buffs.rs` | `guild_buff_infos` / `guild_active_buffs` |
+| 交易邀请 | ← `S.TradeRequest{Name}` | `World::trade_request` | `trade.invitation` / `invitation_version` |
+| 接受/拒绝交易 | `C.TradeReply{AcceptInvite}` → `S.TradeAccept{Name}`（双方各一条） | `World::trade_reply` | `trade.open` / `trade.partner` / `open_version` |
+| 放入 / 取回 | `C.DepositTradeItem{From,To}` / `C.RetrieveTradeItem{From,To}` → `S.DepositTradeItem` / `S.RetrieveTradeItem`（含 `Success`）；对方收 `S.TradeItem{TradeItems[10]}` | `World::trade_deposit_item` / `trade_retrieve_item` | `trade.items` / `trade.partner_items` / `trade.version` |
+| 交易金币 | `C.TradeGold{Amount}`（增量）→ 自己 `S.LoseGold`、对方 `S.TradeGold{Amount=累计}` | `World::trade_gold` | `trade.gold` / `trade.partner_gold` |
+| 准备/确认 | `C.TradeConfirm{Locked}` → 双方都锁定时互换物品 + `S.TradeConfirm{}`（空包） | `World::trade_confirm` | `trade.locked` / `trade.partner_ready` |
+| 取消 | `C.TradeCancel{}` → `S.TradeCancel{Unlock=false}`；双方都已锁定时校验失败发 `{Unlock=true}` | `World::trade_cancel` | `trade.open` / `trade.version` |
+| 组队开关 | `C.SwitchGroup{AllowGroup}` → `S.SwitchGroup{AllowGroup}` | `group.rs`（`World::switch_group`） | `group.allow_group` |
+| 邀请入队 | `C.AddMember{Name}` → 目标 `S.GroupInvite{Name}`；接受后双方 `S.AddMember` | `World::group_invite` | `group.members` |
+| 接受/拒绝组队 | `C.GroupInvite{AcceptInvite}` → `S.AddMember` × N + `S.GroupMembersMap` + `S.SendMemberLocation` + `S.ObjectHealth` | `World::group_join` | `group.members`（含地图/坐标） |
+| 退队 / 踢人 | `C.DelMember{Name}` → `S.DeleteMember` / `S.DeleteGroup` | `World::group_kick` / `leave_group` | `group.members` |
+| 组队聊天 | `C.Chat{"!!…"}` → `S.ObjectChat{Type=Group}` 只发队员 | `World::group_chat` | `chat`（`ChatType::Group`） |
 
 ## 6. 实体图库映射
 

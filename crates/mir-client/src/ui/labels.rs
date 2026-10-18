@@ -249,8 +249,68 @@ pub enum Label {
     Collected,
     /// 邮件没有正文时的占位主题。
     NoBody,
+    /// 升级（装备面板的「升级」按钮）。
+    Upgrade,
     /// 写信页主题框的占位提示（协议没有主题字段）。
     NoSubjectField,
+    /// 交易。
+    Trade,
+    /// 交易邀请文案后半句（「张三 请求与你交易」）。
+    TradeRequestSuffix,
+    /// 交易面板：自己这一栏的标题。
+    TradeYourSide,
+    /// 交易面板：对方金币行。
+    TradePartnerGold,
+    /// 「准备」。
+    TradeReady,
+    /// 「确认」。
+    TradeConfirm,
+    /// 「取消交易」。
+    TradeCancel,
+    /// 「放入金币」。
+    TradeGoldAdd,
+    /// 交易面板底部提示。
+    TradeHint,
+    /// 「未准备」。
+    NotReady,
+    /// 「已准备」。
+    Ready,
+    /// 交易面板：对方状态行前缀。
+    TradePartnerState,
+    /// 「接受」。
+    Accept,
+    /// 「拒绝」。
+    Reject,
+    /// 组队。
+    Group,
+    /// 组队邀请文案后半句（「张三 邀请你组队」）。
+    GroupInviteSuffix,
+    /// 「邀请」。
+    Invite,
+    /// 「离队」。
+    Leave,
+    /// 组队面板：邀请名字输入框的占位。
+    InviteName,
+    /// 「队长」。
+    GroupLeader,
+    /// 「职业」。
+    Profession,
+    /// 组队面板底部提示。
+    GroupHint,
+    /// 组队聊天的 `!!` 前缀提示。
+    GroupChatHint,
+    /// 「允许组队」开关。
+    GroupAllow,
+    /// 「开」。
+    ToggleOn,
+    /// 「关」。
+    ToggleOff,
+    /// 「未组队」。
+    NoGroup,
+    /// 「血量」（组队面板列头）。
+    Health,
+    /// 组队面板：踢人按钮。
+    GroupKick,
 }
 
 impl Label {
@@ -259,7 +319,7 @@ impl Label {
     pub const fn text(self, language: Language) -> &'static str {
         match (self, language) {
             (Self::Hp, Language::ZhCn) => "生命",
-            (Self::Hp, Language::En) => "HP",
+            (Self::Hp | Self::Health, Language::En) => "HP",
             (Self::Mp | Self::MagicAttack, Language::ZhCn) => "魔法",
             (Self::Mp, Language::En) => "MP",
             (Self::Gold, Language::ZhCn) => "金币",
@@ -454,7 +514,7 @@ impl Label {
             (Self::Demote, Language::ZhCn) => "降职",
             (Self::Demote, Language::En) => "Demote",
             (Self::Kick, Language::ZhCn) => "踢人",
-            (Self::Kick, Language::En) => "Kick",
+            (Self::Kick | Self::GroupKick, Language::En) => "Kick",
             (Self::Save, Language::ZhCn) => "保存",
             (Self::Save, Language::En) => "Save",
             (Self::Activate, Language::ZhCn) => "激活",
@@ -488,8 +548,67 @@ impl Label {
             (Self::Collected, Language::En) => "Collected",
             (Self::NoBody, Language::ZhCn) => "（无正文）",
             (Self::NoBody, Language::En) => "(no message)",
+            (Self::Upgrade, Language::ZhCn) => "升级",
+            (Self::Upgrade, Language::En) => "Upgrade",
             (Self::NoSubjectField, Language::ZhCn) => "协议无主题字段，仅本地显示",
             (Self::NoSubjectField, Language::En) => "no subject field on the wire",
+            (Self::Trade, Language::ZhCn) => "交易",
+            (Self::Trade, Language::En) => "Trade",
+            (Self::TradeRequestSuffix, Language::ZhCn) => "请求与你交易",
+            (Self::TradeRequestSuffix, Language::En) => "requests a trade with you",
+            (Self::TradeYourSide, Language::ZhCn) => "自己",
+            (Self::TradeYourSide, Language::En) => "You",
+            (Self::TradePartnerGold, Language::ZhCn) => "对方金币",
+            (Self::TradePartnerGold, Language::En) => "Their gold",
+            (Self::TradeReady, Language::ZhCn) => "准备",
+            (Self::TradeReady | Self::Ready, Language::En) => "Ready",
+            (Self::TradeConfirm, Language::ZhCn) => "确认",
+            (Self::TradeConfirm, Language::En) => "Confirm",
+            (Self::TradeCancel, Language::ZhCn) => "取消交易",
+            (Self::TradeCancel, Language::En) => "Cancel trade",
+            (Self::TradeGoldAdd, Language::ZhCn) => "放入金币",
+            (Self::TradeGoldAdd, Language::En) => "Add gold",
+            (Self::TradeHint, Language::ZhCn) => "拖拽背包物品到交易格 · Esc 关闭",
+            (Self::TradeHint, Language::En) => {
+                "Drag inventory items into the trade grid · Esc closes"
+            }
+            (Self::NotReady, Language::ZhCn) => "未准备",
+            (Self::NotReady, Language::En) => "Not ready",
+            (Self::Ready, Language::ZhCn) => "已准备",
+            (Self::TradePartnerState, Language::ZhCn) => "对方",
+            (Self::TradePartnerState, Language::En) => "Partner",
+            (Self::Accept, Language::ZhCn) => "接受",
+            (Self::Accept, Language::En) => "Accept",
+            (Self::Reject, Language::ZhCn) => "拒绝",
+            (Self::Reject, Language::En) => "Reject",
+            (Self::Group, Language::ZhCn) => "组队",
+            (Self::Group, Language::En) => "Group",
+            (Self::GroupInviteSuffix, Language::ZhCn) => "邀请你组队",
+            (Self::GroupInviteSuffix, Language::En) => "invites you to a group",
+            (Self::Invite, Language::ZhCn) => "邀请",
+            (Self::Invite, Language::En) => "Invite",
+            (Self::Leave, Language::ZhCn) => "离队",
+            (Self::Leave, Language::En) => "Leave",
+            (Self::InviteName, Language::ZhCn) => "输入名字",
+            (Self::InviteName, Language::En) => "Enter a name",
+            (Self::GroupLeader, Language::ZhCn) => "队长",
+            (Self::GroupLeader, Language::En) => "Leader",
+            (Self::Profession, Language::ZhCn) => "职业",
+            (Self::Profession, Language::En) => "Class",
+            (Self::GroupHint, Language::ZhCn) => "P 关闭 · 队长才能邀请/踢人",
+            (Self::GroupHint, Language::En) => "P to close · leader can invite or kick",
+            (Self::GroupChatHint, Language::ZhCn) => "聊天输入 !! 前缀发组队消息",
+            (Self::GroupChatHint, Language::En) => "Prefix chat with !! for group chat",
+            (Self::GroupAllow, Language::ZhCn) => "允许组队",
+            (Self::GroupAllow, Language::En) => "Allow group",
+            (Self::ToggleOn, Language::ZhCn) => "开",
+            (Self::ToggleOn, Language::En) => "On",
+            (Self::ToggleOff, Language::ZhCn) => "关",
+            (Self::ToggleOff, Language::En) => "Off",
+            (Self::NoGroup, Language::ZhCn) => "未组队",
+            (Self::NoGroup, Language::En) => "Not in a group",
+            (Self::Health, Language::ZhCn) => "血量",
+            (Self::GroupKick, Language::ZhCn) => "踢出队伍",
         }
     }
 
@@ -506,6 +625,20 @@ const fn pair(language: Language, zh: &'static str, en: &'static str) -> &'stati
         Language::ZhCn => zh,
         Language::En => en,
     }
+}
+
+/// 职业名（组队面板与以后的玩家信息面板用）。
+#[must_use]
+pub fn class_name(class: mir_core::enums::MirClass, language: Language) -> &'static str {
+    use mir_core::enums::MirClass;
+    let (zh, en) = match class {
+        MirClass::Warrior => ("战士", "Warrior"),
+        MirClass::Wizard => ("法师", "Wizard"),
+        MirClass::Taoist => ("道士", "Taoist"),
+        MirClass::Assassin => ("刺客", "Assassin"),
+        MirClass::Archer => ("弓箭手", "Archer"),
+    };
+    pair(language, zh, en)
 }
 
 /// 物品类型名（tooltip 用；`ItemType` 的 43 个成员全部覆盖）。

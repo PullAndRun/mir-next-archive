@@ -415,6 +415,10 @@ impl Harness {
             group_invite_time: 0,
             allow_group: true,
             guild: None,
+            trade: mir_server::TradeState::default(),
+            trade_invitation: None,
+            next_trade_time: 0,
+            allow_trade: true,
             sender,
         });
         self.receivers.insert(object_id, receiver);
@@ -1477,6 +1481,10 @@ fn real_quest_can_be_completed_end_to_end() {
         group_invite_time: 0,
         allow_group: true,
         guild: None,
+        trade: mir_server::TradeState::default(),
+        trade_invitation: None,
+        next_trade_time: 0,
+        allow_trade: true,
         sender,
     });
 
@@ -1582,6 +1590,10 @@ fn real_luke_script_gates_the_dialog_on_quest_completion() {
         group_invite_time: 0,
         allow_group: true,
         guild: None,
+        trade: mir_server::TradeState::default(),
+        trade_invitation: None,
+        next_trade_time: 0,
+        allow_trade: true,
         sender,
     });
 
@@ -1713,6 +1725,10 @@ fn login_packets_carry_the_quest_catalogue() {
         group_invite_time: 0,
         allow_group: true,
         guild: None,
+        trade: mir_server::TradeState::default(),
+        trade_invitation: None,
+        next_trade_time: 0,
+        allow_trade: true,
         sender,
     });
     assert!(empty.quest_login_packets(9).is_empty());

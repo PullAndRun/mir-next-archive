@@ -229,6 +229,110 @@ fn draw_bar(
     text.draw_center(frame, rect, label, SIZE_SMALL, [255, 255, 255, 255]);
 }
 
+/// 队友血条面板：一行高度。
+pub const PARTY_ROW_HEIGHT: u32 = 18;
+/// 队友血条面板：最多显示多少行（多出来的不画，Crystal 的组队窗一屏也只放得下这些）。
+pub const PARTY_MAX_ROWS: usize = 8;
+/// 队友血条面板宽度。
+pub const PARTY_WIDTH: u32 = 206;
+/// 队友血条颜色（与实体头顶血条的分档一致）。
+pub const PARTY_HP_WARN: [u8; 4] = [240, 200, 60, 255];
+/// 队友血条低血量颜色。
+pub const PARTY_HP_LOW: [u8; 4] = [220, 60, 60, 255];
+/// 队友血条高血量颜色。
+pub const PARTY_HP_GOOD: [u8; 4] = [96, 220, 96, 255];
+
+/// 队友血条面板矩形：贴在聊天面板上方（左侧）。
+///
+/// 没有队伍时返回 `None`（不画）。队友数量超过 [`PARTY_MAX_ROWS`] 时只画前几行。
+#[must_use]
+pub fn party_layout(frame: Rect, member_count: usize) -> Option<Rect> {
+    if member_count == 0 {
+        return None;
+    }
+    let rows = u32::try_from(member_count.min(PARTY_MAX_ROWS)).unwrap_or(0);
+    let chat = chat_layout(frame);
+    let height = rows * PARTY_ROW_HEIGHT + 6;
+    let width = PARTY_WIDTH.min(frame.width.saturating_sub(16)).max(120);
+    Some(Rect::new(
+        chat.x,
+        chat.y - i32::try_from(height).unwrap_or(0) - 4,
+        width,
+        height,
+    ))
+}
+
+/// 画队友血条（HUD）。
+///
+/// 只画**队友**（跳过自己：自己的血条在状态栏）。数据来自
+/// [`WorldSnapshot::group_member_infos`]：名字/在线/血量百分比都由快照关联好，
+/// 视野外的队友没有血量（画空条 + `--`）。
+pub fn draw_party(
+    frame: &mut mir_render::Frame,
+    snapshot: &WorldSnapshot,
+    text: &UiText,
+    language: Language,
+) {
+    let members = snapshot.group_member_infos();
+    let teammates = members.iter().filter(|member| !member.is_self).count();
+    let Some(panel) = party_layout(Rect::screen(frame.width, frame.height), teammates) else {
+        return;
+    };
+    frame.fill_rect_alpha(panel.x, panel.y, panel.width, panel.height, CHAT_BACKGROUND);
+    frame.fill_rect(panel.x, panel.y, panel.width, 1, PANEL_BORDER);
+    frame.fill_rect(panel.x, panel.bottom() - 1, panel.width, 1, PANEL_BORDER);
+    frame.fill_rect(panel.x, panel.y, 1, panel.height, PANEL_BORDER);
+    frame.fill_rect(panel.right() - 1, panel.y, 1, panel.height, PANEL_BORDER);
+    let bar_x = panel.x + 84;
+    let bar_width = panel.width.saturating_sub(84 + 40);
+    let mut y = panel.y + 3;
+    for member in members.iter().filter(|member| !member.is_self) {
+        if y + i32::try_from(PARTY_ROW_HEIGHT).unwrap_or(0) > panel.bottom() {
+            break;
+        }
+        text.draw_clipped(
+            frame,
+            panel.x + 5,
+            y,
+            &member.name,
+            SIZE_SMALL,
+            if member.online {
+                crate::ui::group::GROUP_NAME_COLOR
+            } else {
+                MUTED_COLOR
+            },
+            Rect::new(panel.x + 5, y, 76, SIZE_SMALL + 4),
+        );
+        let bar = Rect::new(bar_x, y + 4, bar_width, 6);
+        frame.fill_rect(bar.x, bar.y, bar.width, bar.height, HP_BACKGROUND);
+        if let Some(percent) = member.hp_percent {
+            let filled = bar.width * u32::from(percent.min(100)) / 100;
+            if filled > 0 {
+                let color = if percent > 50 {
+                    PARTY_HP_GOOD
+                } else if percent > 25 {
+                    PARTY_HP_WARN
+                } else {
+                    PARTY_HP_LOW
+                };
+                frame.fill_rect(bar.x, bar.y, filled, bar.height, color);
+            }
+        }
+        text.draw_right(
+            frame,
+            panel.right() - 5,
+            y,
+            &member.hp_percent.map_or_else(
+                || Label::Empty.text(language).to_owned(),
+                |p| format!("{p}%"),
+            ),
+            SIZE_SMALL,
+            MUTED_COLOR,
+        );
+        y += i32::try_from(PARTY_ROW_HEIGHT).unwrap_or(0);
+    }
+}
+
 /// 聊天面板矩形（左下角）。
 #[must_use]
 pub fn chat_layout(frame: Rect) -> Rect {

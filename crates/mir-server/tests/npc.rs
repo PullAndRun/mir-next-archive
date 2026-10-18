@@ -306,6 +306,10 @@ impl Harness {
             group_invite_time: 0,
             allow_group: true,
             guild: None,
+            trade: mir_server::TradeState::default(),
+            trade_invitation: None,
+            next_trade_time: 0,
+            allow_trade: true,
             sender,
         });
         self.receivers.insert(object_id, receiver);

@@ -118,6 +118,10 @@ impl Harness {
             group_invite_time: 0,
             allow_group: true,
             guild: None,
+            trade: mir_server::TradeState::default(),
+            trade_invitation: None,
+            next_trade_time: 0,
+            allow_trade: true,
             sender,
         });
         // 关掉自然回血，免得 10 秒一次的 +3% 混进药水/治疗断言。

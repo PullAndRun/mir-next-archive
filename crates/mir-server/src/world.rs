@@ -353,6 +353,25 @@ pub struct Player {
     /// 就清空），上线/下线的广播由 [`World::guild_player_online`] /
     /// [`World::guild_player_offline`] 负责。
     pub guild: Option<crate::guild::GuildRef>,
+    /// 交易状态（Crystal `PlayerObject.TradePartner` / `TradeLocked` / `TradeGoldAmount`，
+    /// `Server/MirObjects/PlayerObject.cs:177-179`；交易格 `Info.Trade`，`CharacterInfo.cs:75`）。
+    ///
+    /// 交易是**临时状态**，不持久化：下线、切图、走/跑、转身都会中止交易
+    /// （Crystal 的挂点见 `docs/world/trade.md`）。见 [`crate::trade`]。
+    pub trade: crate::trade::TradeState,
+    /// 收到的交易邀请来自哪个对象（Crystal `PlayerObject.TradeInvitation`，
+    /// `PlayerObject.cs:175`；接受后清空）。
+    pub trade_invitation: Option<u32>,
+    /// 下一次允许发起交易的时刻（Crystal `PlayerObject.NextTradeTime`，`PlayerObject.cs:14`；
+    /// `Settings.TradeDelay = 2000`，`Server/Settings.cs:337`）。
+    pub next_trade_time: i64,
+    /// 是否允许别人向自己发起交易（Crystal `PlayerObject.AllowTrade` → `Info.AllowTrade`，
+    /// `PlayerObject.cs:157-161`）。
+    ///
+    /// 简化：Crystal 把它存在 `CharacterInfo.AllowTrade` 里并随存档持久化
+    /// （`CharacterInfo.cs:62`、`:249`）；本作不改 `mir-store`，所以进世界时默认 `true`、
+    /// 不落盘（偏差说明见 `docs/world/trade.md`）。
+    pub allow_trade: bool,
     /// 发包通道。
     pub sender: UnboundedSender<Vec<u8>>,
 }
@@ -674,6 +693,18 @@ pub struct World {
     pub(crate) conquest_settings: crate::conquest::ConquestSettings,
     /// 下一次跑攻城处理（`Envir.Process` 每 10 秒一次，`Envir.cs:2339-2346`）的时刻。
     pub(crate) next_conquest_tick: i64,
+    /// 市场（摆摊/寄售/拍卖）条目，等价于 Crystal 的 `Envir.Auctions`
+    /// （`Server/MirEnvir/Envir.cs:150`；最新的在**最前面**，源码用 `AddFirst`，
+    /// `PlayerObject.cs:8302`）。见 [`crate::market`]。
+    ///
+    /// 简化：Crystal 把条目写进存档（`AuctionInfo.Save`，`AuctionInfo.cs:71-87`）；
+    /// 本作只在内存里，重启即丢。
+    pub(crate) auctions: Vec<crate::market::Auction>,
+    /// 下一个拍卖编号（Crystal `Envir.NextAuctionID`，`AuctionInfo.cs:33`）。
+    pub(crate) next_auction_id: u64,
+    /// 每个玩家的市场浏览状态（Crystal `PlayerObject.Search`/`PageSent`/`MatchName` 等，
+    /// `PlayerObject.cs:132-139`）：对象 ID → 状态，下线即清。
+    pub(crate) market_searches: HashMap<u32, crate::market::MarketSearchState>,
 }
 
 /// 一条待落盘的行会变更（见 `World::guild_writes`）。
@@ -754,6 +785,9 @@ impl World {
             conquests: Vec::new(),
             conquest_settings: crate::conquest::ConquestSettings::default(),
             next_conquest_tick: 0,
+            auctions: Vec::new(),
+            next_auction_id: 0,
+            market_searches: HashMap::new(),
         }
     }
 
@@ -810,6 +844,9 @@ impl World {
             conquests: Vec::new(),
             conquest_settings: crate::conquest::ConquestSettings::default(),
             next_conquest_tick: 0,
+            auctions: Vec::new(),
+            next_auction_id: 0,
+            market_searches: HashMap::new(),
         }
     }
 
@@ -1057,6 +1094,10 @@ impl World {
         self.leave_group(object_id);
         // 行会成员标记离线（Crystal `PlayerObject.cs:397` 的 `MyGuild.PlayerLogged(this, false)`）。
         self.guild_player_offline(object_id);
+        // `TradeCancel();`（`PlayerObject.cs:407`）：下线中止交易并把东西退回。
+        self.trade_cancel(object_id);
+        // 市场浏览状态随对象销毁（Crystal 的 `PlayerObject.Search` 等字段）。
+        self.market_searches.remove(&object_id);
         self.players.remove(&object_id)
     }
 
@@ -1100,6 +1141,9 @@ impl World {
         if self.queue_movement_trigger(object_id, position) {
             return Ok(());
         }
+        // `if (TradePartner != null) TradeCancel();`（`PlayerObject.cs:4300-4301`）：
+        // Crystal 在 `Turn` 里、广播 `ObjectTurn` **之前**中止交易。
+        self.trade_cancel(object_id);
         let packet = ServerPacket::ObjectTurn(ObjectTurn {
             object_id,
             location: position,
@@ -1156,6 +1200,9 @@ impl World {
             player.cell_time = now + CELL_GRACE_MS;
             player.action_time = now + MOVE_DELAY_MS;
         }
+        // `Moved()`（`PlayerObject.cs:568-574`）在 `S.UserLocation`/`S.ObjectWalk` 之前中止交易
+        // （Crystal `HumanObject.cs:2491-2497`）。
+        self.trade_cancel(object_id);
         let packet = ServerPacket::ObjectWalk(ObjectWalk {
             object_id,
             location: to,
@@ -1232,6 +1279,9 @@ impl World {
                 player.run_time = now + RUN_COUNTER_DECAY_MS;
             }
         }
+        // `Moved()`（`PlayerObject.cs:568-574`）在 `S.UserLocation`/`S.ObjectRun` 之前中止交易
+        // （Crystal `HumanObject.cs:2547`）。
+        self.trade_cancel(object_id);
         let packet = ServerPacket::ObjectRun(ObjectRun {
             object_id,
             location: destination,
@@ -1459,6 +1509,9 @@ impl World {
         // 攻城：Crystal 在 `Envir.Process` 里每 10 秒跑一次 `ConquestObject.Process`
         // （`Envir.cs:2339-2346`），见 [`crate::conquest`]。
         self.tick_conquests(now);
+        // 寄售/拍卖过期：Crystal 在 `Envir.Process` 里逐条标记 `Expired`
+        // （`Envir.cs:2396`），见 [`crate::market`]。
+        self.tick_market();
     }
 
     /// 玩家侧簿记：跑步计数衰减、停顿后清零 `step_counter`、自然回血回蓝、到点复活。
@@ -2213,6 +2266,10 @@ impl World {
             player.revive_time = now + PLAYER_REVIVE_DELAY_MS;
             player.brown_time = now;
         }
+        // 本作扩展：死亡即中止交易并退货。Crystal 的 `Die()` 不清交易状态
+        // （`PlayerObject.cs:578-667` 里没有 `TradeCancel`），只靠随后的移动/切图取消；
+        // 需求要求死亡中断交易，见 `docs/world/trade.md` 的差异 3。
+        self.trade_cancel(player_id);
 
         // 5) `S.Death` + `S.ObjectDied`（`:649-650`）。
         self.send_to_player(
@@ -3324,6 +3381,10 @@ mod tests {
                 group_invite_time: 0,
                 allow_group: true,
                 guild: None,
+                trade: crate::trade::TradeState::default(),
+                trade_invitation: None,
+                next_trade_time: 0,
+                allow_trade: true,
                 sender,
             },
             receiver,

@@ -117,6 +117,10 @@ impl Harness {
             group_invite_time: 0,
             allow_group: true,
             guild: None,
+            trade: mir_server::TradeState::default(),
+            trade_invitation: None,
+            next_trade_time: 0,
+            allow_trade: true,
             sender,
         });
         // `World::enter` 会把 `RegenTime` 推到「一个回复周期之后」；测试里直接关掉，

@@ -7,3 +7,7 @@ AGENTS.md
 __pycache__/
 build/
 github/
+
+# 本地协作状态（看板与团队运行态），不进版本库
+.edict/
+.agent-teams/

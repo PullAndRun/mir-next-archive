@@ -97,6 +97,17 @@ pub const COLLECT_PARCEL_KEY: &str = "[@COLLECTPARCEL]";
 /// （`NPCScript.cs:1050-1062`），玩家回 `C.GuildNameReturn{Name}` 后再创建
 /// （`PlayerObject.cs:10029-10060`）。见 [`crate::guild`]。
 pub const GUILD_CREATE_KEY: &str = "[@CREATEGUILD]";
+/// 寄售（摆摊）面板（`ConsignKey`，`NPCScript.cs:56`）。
+///
+/// 服务端只回一个空的 `S.NPCConsign`（`NPCScript.cs:1043-1045`），客户端据此打开
+/// 「把物品拖进去、填价格」的寄售窗口，之后发 `C.ConsignItem`（`PlayerObject.cs:8218`）。
+/// 见 [`crate::market`]。
+pub const CONSIGN_KEY: &str = "[@CONSIGN]";
+/// 市场（寄售/拍卖）列表（`MarketKey`，`NPCScript.cs:57`）。
+///
+/// 服务端调 `GetMarket("", ItemType.Nothing)` 直接下发 `S.NPCMarket`（`NPCScript.cs:1046-1049`），
+/// 见 [`crate::market`]。
+pub const MARKET_KEY: &str = "[@MARKET]";
 
 /// 可以「买」的页面（Crystal `PlayerObject.BuyItem`，`:7948-7955`）。
 pub const BUY_PAGES: &[&str] = &[
@@ -1721,6 +1732,23 @@ impl World {
                         );
                         self.send_system_chat(player_id, &error.message());
                     }
+                }
+            }
+            CONSIGN_KEY => {
+                // `case ConsignKey: player.Enqueue(new S.NPCConsign());`（`:1043-1045`）。
+                if let Err(error) = self.open_consign(player_id) {
+                    tracing::debug!(npc = %npc.name, %error, "打开寄售面板失败");
+                } else {
+                    opened.push("consign");
+                }
+            }
+            MARKET_KEY => {
+                // `case MarketKey: player.UserMatch = false; player.GetMarket("", ItemType.Nothing);`
+                // （`:1046-1049`）→ `S.NPCMarket`。
+                if let Err(error) = self.open_market(player_id) {
+                    tracing::debug!(npc = %npc.name, %error, "打开市场面板失败");
+                } else {
+                    opened.push("market");
                 }
             }
             _ => {}

@@ -131,10 +131,10 @@ fn view_with_image(snapshot: &WorldSnapshot, terrain: (i32, i32), image_index: u
         .iter()
         .filter(|(object_id, entity)| {
             // 自己已经在 `player` 里画了（`entity_views` 会跳过重复的自己）。
-            Some(**object_id) != self_id && !entity.dead && marker_kind(entity).is_some()
+            Some(**object_id) != self_id && !entity.dead && marker_kind(snapshot, entity).is_some()
         })
         .filter_map(|(_, entity)| {
-            marker_kind(entity).map(|kind| MinimapMarker {
+            marker_kind(snapshot, entity).map(|kind| MinimapMarker {
                 cell: entity.position,
                 kind,
             })
@@ -150,11 +150,15 @@ fn view_with_image(snapshot: &WorldSnapshot, terrain: (i32, i32), image_index: u
 }
 
 /// 对象 → 点位类别；`None` 表示不画（物品/尸体，`MainDialogs.cs:1941`）。
-fn marker_kind(entity: &WorldEntity) -> Option<MarkerKind> {
+///
+/// 队友（名字在组队名单里）画蓝色点（`MarkerKind::Group`，Crystal `MainDialogs.cs:1947-1948`
+/// 的 `Color.Blue`），与自己的黄点、其他玩家的白点、怪物的红点区分开。
+fn marker_kind(snapshot: &WorldSnapshot, entity: &WorldEntity) -> Option<MarkerKind> {
     match entity.kind {
         // 地面物品与金币不画（`ob.Race == ObjectType.Item`，`MainDialogs.cs:1941`）。
         EntityKind::Item => None,
         EntityKind::Npc => Some(MarkerKind::Npc),
+        EntityKind::Player if snapshot.is_group_member(&entity.name) => Some(MarkerKind::Group),
         EntityKind::Player => Some(MarkerKind::Player),
         EntityKind::Monster => Some(MarkerKind::Monster),
     }

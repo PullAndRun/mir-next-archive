@@ -1443,6 +1443,38 @@ impl World {
         false
     }
 
+    /// 给玩家一件物品：Crystal `HumanObject.GainItem`（`HumanObject.cs:7824-7835`）。
+    ///
+    /// 顺序照抄：
+    /// 1. 先发 `S.GainedItem`（发**改动前**的副本——Crystal 的 `Clone` 就是为了这个，
+    ///    `HumanObject.cs:7829-7831`），因为并入堆叠时物品数量会被改写；
+    /// 2. 再走 [`World::add_item_to_inventory`]（Crystal `AddItem`，`:1577-1630`）；
+    /// 3. 背包放不下时兜底寄系统邮件（Crystal `PlayerObject.GainItemMail`，
+    ///    `PlayerObject.cs:7695-7698`），避免物品凭空消失。正常情况下调用方已经用
+    ///    `can_gain_item`/`trade_can_gain_items` 检查过，走不到这里。
+    ///
+    /// 返回是否直接放进了背包。
+    pub fn gain_item(&mut self, object_id: u32, item: UserItem) -> bool {
+        // `Enqueue(new S.GainedItem { Item = clonedItem });`（`HumanObject.cs:7831`）
+        self.send_to_player(
+            object_id,
+            &ServerPacket::GainedItem(mir_protocol::packets::server::GainedItem {
+                item: item.clone(),
+            })
+            .encode_frame(),
+        );
+        if self.add_item_to_inventory(object_id, item.clone()) {
+            return true;
+        }
+        tracing::warn!(
+            player = object_id,
+            unique_id = item.unique_id,
+            "背包放不下，物品改走系统邮件（调用方本应先用 CanGainItem 检查）"
+        );
+        self.mail_item_to_self(object_id, item);
+        false
+    }
+
     /// 拾取脚下（**只扫当前格**）的地面物品：Crystal `PlayerObject.PickUp`（`:7483-7537`）。
     ///
     /// 逐条照抄的判定顺序：

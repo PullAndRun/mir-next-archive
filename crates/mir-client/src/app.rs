@@ -487,7 +487,13 @@ impl ClientApp {
             Key::Named(NamedKey::Enter) => {
                 if let Some(message) = live.chat_input.take() {
                     if !message.trim().is_empty() {
-                        live.send(NetCommand::Chat(message));
+                        // `!!` 前缀是组队频道（Crystal `PlayerObject.cs:2001-2013`）：
+                        // 客户端只发普通 `C.Chat`，服务端按前缀转成组队广播。
+                        if let Some(command) = mir_client::ui::group::group_chat_command(&message) {
+                            live.send(command);
+                        } else {
+                            live.send(NetCommand::Chat(message));
+                        }
                     }
                 }
             }
@@ -650,7 +656,18 @@ impl ClientApp {
             | UiAction::GuildBuffUpdate { .. }
             | UiAction::EditGuildMember { .. }
             | UiAction::EditGuildNotice { .. }
-            | UiAction::RequestGuildInfo { .. }) => {
+            | UiAction::RequestGuildInfo { .. }
+            | UiAction::TradeRequest
+            | UiAction::TradeReply { .. }
+            | UiAction::TradeItem { .. }
+            | UiAction::TradeTakeBack { .. }
+            | UiAction::TradeGold { .. }
+            | UiAction::TradeConfirm { .. }
+            | UiAction::TradeCancel
+            | UiAction::AddMember { .. }
+            | UiAction::DelMember { .. }
+            | UiAction::GroupReply { .. }
+            | UiAction::SwitchGroup { .. }) => {
                 if let Some(command) = action.net_command() {
                     live.send(command);
                 }
@@ -853,6 +870,31 @@ impl ClientApp {
         }
     }
 
+    /// `P`：开关组队面板（Crystal `KeybindOptions.Group = Keys.P`，
+    /// `Client/KeyBindSettings.cs:225` → `GroupDialog.Show()/Hide()`，`GameScene.cs:717-719`）。
+    ///
+    /// 组队数据由服务端推送（`S.AddMember` / `S.GroupMembersMap` / `S.SendMemberLocation`），
+    /// 打开面板不需要额外请求包。
+    fn live_toggle_group(&mut self) {
+        let mut redraw = false;
+        if let Mode::Live(live) = &mut self.mode {
+            live.ui.toggle_group();
+            redraw = true;
+        }
+        if redraw {
+            self.request_redraw();
+        }
+    }
+
+    /// `Y`：发起交易（`C.TradeRequest`；服务端按朝向取相邻玩家）。
+    fn live_request_trade(&mut self) {
+        if let Mode::Live(live) = &mut self.mode {
+            if live.snapshot.is_ready() {
+                live.send(NetCommand::TradeRequest);
+            }
+        }
+    }
+
     /// `M`：开关小地图（Crystal `KeybindOptions.Minimap` → `MiniMapDialog.Toggle()`，
     /// `GameScene.cs:770-772`）。
     fn live_toggle_minimap(&mut self) {
@@ -945,6 +987,8 @@ impl ClientApp {
                 || live.ui.show_storage
                 || live.ui.show_mail
                 || live.ui.show_guild
+                || live.ui.show_group
+                || live.ui.show_trade
                 || live.ui.show_bigmap
                 || live.ui.shop_open
                 || live.ui.dialog.is_some()
@@ -1098,11 +1142,16 @@ impl ClientApp {
                 redraw = true;
             } else {
                 let result = live.ui.escape();
-                if let ui::EscapeResult::Npc { object_id } = result {
-                    live.send(NetCommand::CallNpc {
-                        object_id,
-                        key: "@exit".to_owned(),
-                    });
+                match result {
+                    ui::EscapeResult::Npc { object_id } => {
+                        live.send(NetCommand::CallNpc {
+                            object_id,
+                            key: "@exit".to_owned(),
+                        });
+                    }
+                    // 关交易窗 = 取消交易（Crystal `CloseButton.Click → TradeCancel()`）。
+                    ui::EscapeResult::Trade => live.send(NetCommand::TradeCancel),
+                    _ => {}
                 }
                 redraw = result.closed();
             }
@@ -1301,8 +1350,15 @@ impl ClientApp {
                     self.live_toggle_bigmap();
                     return;
                 }
+                // `P` 在 Crystal 是组队窗口（`KeybindSettings.cs:225` 的 `KeybindOptions.Group`），
+                // 拾取因此挪到 `Tab`（Crystal 的 `KeybindOptions.Pickup = Keys.Tab`，`:334`）。
                 "p" => {
-                    self.live_pickup();
+                    self.live_toggle_group();
+                    return;
+                }
+                // `Y`：发起交易。Crystal 的交易键是 `T`（`:340`），本作 `T` 已用于聊天。
+                "y" => {
+                    self.live_request_trade();
                     return;
                 }
                 // `T` 打开聊天；任务面板按 Crystal 的默认键 `Q`（`KeyBindSettings.cs:219`），
@@ -1364,6 +1420,8 @@ impl ClientApp {
         }
         match &event.logical_key {
             Key::Named(NamedKey::Space) => self.live_attack(),
+            // Crystal 的拾取键就是 `Tab`（`KeybindSettings.cs:334`）；`P` 让给组队窗口。
+            Key::Named(NamedKey::Tab) => self.live_pickup(),
             Key::Named(NamedKey::F1) => {
                 self.show_overlay = !self.show_overlay;
                 self.request_redraw();

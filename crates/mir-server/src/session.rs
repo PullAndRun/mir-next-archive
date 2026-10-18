@@ -7,8 +7,9 @@
 use std::sync::Arc;
 
 use mir_core::enums::{
-    AttackMode, ChatType, HeroBehaviour, IntelligentCreatureType, LightSetting, MirClass,
-    MirDirection, MirGridType, PanelType, WeatherSetting,
+    AttackMode, ChatType, HeroBehaviour, IntelligentCreatureType, LightSetting,
+    MarketCollectionMode, MarketPanelType, MirClass, MirDirection, MirGridType, PanelType,
+    WeatherSetting,
 };
 use mir_core::i18n::LanguageLibrary;
 use mir_core::{DateTimeBinary, LanguageCatalog, Point, TextKey};
@@ -298,6 +299,56 @@ impl<S: AccountStore> Session<S> {
             }
             ClientPacket::MailCost(packet) => {
                 self.on_mail_cost(packet.gold, &packet.items_idx, packet.stamped)
+                    .await;
+            }
+            // 玩家交易：`C.ChangeTrade` / `C.TradeRequest` / `C.TradeReply` /
+            // `C.DepositTradeItem` / `C.RetrieveTradeItem` / `C.TradeGold` /
+            // `C.TradeConfirm` / `C.TradeCancel`
+            // （Crystal `MirConnection.cs:367-371`、`:439-440`、`:589-602` →
+            // `PlayerObject.cs:10528-10960`，见 [`crate::trade`]）。
+            ClientPacket::ChangeTrade(packet) => self.on_change_trade(packet.allow_trade).await,
+            ClientPacket::TradeRequest(_) => self.on_trade_request().await,
+            ClientPacket::TradeReply(packet) => self.on_trade_reply(packet.accept_invite).await,
+            ClientPacket::DepositTradeItem(packet) => {
+                self.on_deposit_trade_item(packet.from, packet.to).await;
+            }
+            ClientPacket::RetrieveTradeItem(packet) => {
+                self.on_retrieve_trade_item(packet.from, packet.to).await;
+            }
+            ClientPacket::TradeGold(packet) => self.on_trade_gold(packet.amount).await,
+            ClientPacket::TradeConfirm(packet) => self.on_trade_confirm(packet.locked).await,
+            ClientPacket::TradeCancel(_) => self.on_trade_cancel().await,
+            // NPC 寄售/拍卖市场：`C.ConsignItem`（70）/ `C.MarketSearch`（71）/
+            // `C.MarketRefresh`（72）/ `C.MarketPage`（73）/ `C.MarketBuy`（74）/
+            // `C.MarketGetBack`（75）/ `C.MarketSellNow`（76）
+            // （Crystal `MirConnection.cs:1685-1700` → `PlayerObject.cs:8217-8802`，
+            // 见 [`crate::market`] 与 `docs/world/market.md`）。
+            ClientPacket::ConsignItem(packet) => {
+                self.on_consign_item(packet.unique_id, packet.price, packet.type_)
+                    .await;
+            }
+            ClientPacket::MarketSearch(packet) => {
+                self.on_market_search(
+                    &packet.match_text,
+                    packet.item_type,
+                    packet.usermode,
+                    packet.min_shape,
+                    packet.max_shape,
+                    packet.market_type,
+                )
+                .await;
+            }
+            ClientPacket::MarketRefresh(_) => self.on_market_refresh().await,
+            ClientPacket::MarketPage(packet) => self.on_market_page(packet.page).await,
+            ClientPacket::MarketBuy(packet) => {
+                self.on_market_buy(packet.auction_id, packet.bid_price)
+                    .await;
+            }
+            ClientPacket::MarketSellNow(packet) => {
+                self.on_market_sell_now(packet.auction_id).await;
+            }
+            ClientPacket::MarketGetBack(packet) => {
+                self.on_market_get_back(packet.mode, packet.auction_id)
                     .await;
             }
             // 行会战（`C.GuildWarReturn`，`PlayerObject.cs:10283-10327`）与行会领地
@@ -712,6 +763,10 @@ impl<S: AccountStore> Session<S> {
             allow_group: true,
             // 行会：由上面的 `guild_ref` 传入（`World::enter` 会校正并在行会里标记上线）。
             guild: guild_ref,
+            trade: crate::trade::TradeState::default(),
+            trade_invitation: None,
+            next_trade_time: 0,
+            allow_trade: true,
             sender: self.out.clone(),
         });
         // 进图资料：Crystal `PlayerObject.CheckMapInfo`（`PlayerObject.cs:1009-1056`）。
@@ -1718,6 +1773,209 @@ impl<S: AccountStore> Session<S> {
         }
         if let Err(error) = crate::mail::persist_mail_writes(self.store.as_ref(), writes).await {
             tracing::warn!(session = self.id, %error, "邮件落盘失败");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 玩家交易（见 [`crate::trade`] 与 `docs/world/trade.md`）
+    // -----------------------------------------------------------------------
+
+    /// 允许/禁止别人向自己发起交易：`C.ChangeTrade{AllowTrade}`
+    /// （Crystal `MirConnection.cs:1448-1452` → `PlayerObject.AllowTrade = p.AllowTrade`）。
+    async fn on_change_trade(&mut self, allow: bool) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        if world.set_allow_trade(object_id, allow) {
+            tracing::debug!(session = self.id, allow, "切换交易开关");
+        }
+    }
+
+    /// 发起交易：`C.TradeRequest{}`（Crystal `PlayerObject.TradeRequest`，
+    /// `PlayerObject.cs:10623-10707`）。目标由「面朝格」决定（协议里没有名字）。
+    async fn on_trade_request(&mut self) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.trade_request(object_id) {
+            Ok(target) => tracing::debug!(session = self.id, target, "已发出交易请求"),
+            Err(error) => tracing::debug!(session = self.id, %error, "交易请求被拒绝"),
+        }
+    }
+
+    /// 回应交易邀请：`C.TradeReply{AcceptInvite}`（`PlayerObject.TradeReply`，`:10708-10743`）。
+    async fn on_trade_reply(&mut self, accept: bool) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.trade_reply(object_id, accept) {
+            Ok(outcome) => tracing::debug!(session = self.id, ?outcome, "回应交易邀请"),
+            Err(error) => tracing::debug!(session = self.id, %error, "回应交易邀请被拒绝"),
+        }
+    }
+
+    /// 把物品放进交易格：`C.DepositTradeItem{From,To}`（`PlayerObject.cs:10530-10581`）。
+    async fn on_deposit_trade_item(&mut self, from: i32, to: i32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.trade_deposit_item(object_id, from, to) {
+            Ok(()) => tracing::debug!(session = self.id, from, to, "物品放进交易格"),
+            Err(error) => tracing::debug!(session = self.id, %error, "放物品进交易格被拒绝"),
+        }
+    }
+
+    /// 从交易格取回物品：`C.RetrieveTradeItem{From,To}`（`PlayerObject.cs:10582-10619`）。
+    async fn on_retrieve_trade_item(&mut self, from: i32, to: i32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.trade_retrieve_item(object_id, from, to) {
+            Ok(()) => tracing::debug!(session = self.id, from, to, "物品取回背包"),
+            Err(error) => tracing::debug!(session = self.id, %error, "取回交易物品被拒绝"),
+        }
+    }
+
+    /// 放金币进交易：`C.TradeGold{Amount}`（`PlayerObject.cs:10744-10760`）。
+    async fn on_trade_gold(&mut self, amount: u32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.trade_gold(object_id, amount) {
+            Ok(()) => tracing::debug!(session = self.id, amount, "金币放进交易"),
+            Err(error) => tracing::debug!(session = self.id, %error, "放金币进交易被拒绝"),
+        }
+    }
+
+    /// 确认交易：`C.TradeConfirm{Locked}`（`PlayerObject.cs:10789-10888`）。
+    async fn on_trade_confirm(&mut self, confirm: bool) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.trade_confirm(object_id, confirm) {
+            Ok(()) => tracing::debug!(session = self.id, confirm, "确认交易"),
+            Err(error) => tracing::debug!(session = self.id, %error, "确认交易被拒绝"),
+        }
+    }
+
+    /// 取消交易：`C.TradeCancel{}`（`PlayerObject.cs:10889-10958`）。
+    ///
+    /// 取消时背包满的物品会转成系统邮件（`PlayerObject.cs:10910-10918`），所以这里
+    /// 顺手把邮件写入落盘。
+    async fn on_trade_cancel(&mut self) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        {
+            let mut world = self.world.lock().await;
+            world.trade_cancel(object_id);
+        }
+        self.flush_mail_writes().await;
+    }
+
+    // -----------------------------------------------------------------------
+    // NPC 寄售/拍卖市场（见 [`crate::market`] 与 `docs/world/market.md`）
+    // -----------------------------------------------------------------------
+
+    /// 上架：`C.ConsignItem{UniqueID,Price,Type}`（Crystal `PlayerObject.ConsignItem`，
+    /// `PlayerObject.cs:8218-8316`）。成功时背包扣物品、扣手续费并回 `S.ConsignItem`。
+    async fn on_consign_item(&mut self, unique_id: u64, price: u32, panel: MarketPanelType) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.consign_item(object_id, unique_id, price, panel) {
+            Ok(auction_id) => tracing::debug!(session = self.id, auction_id, "物品已上架"),
+            Err(error) => tracing::debug!(session = self.id, %error, "上架被拒绝"),
+        }
+    }
+
+    /// 搜索市场：`C.MarketSearch`（Crystal `PlayerObject.MarketSearch`，`:8424-8448`）。
+    async fn on_market_search(
+        &mut self,
+        match_text: &str,
+        item_type: mir_core::enums::ItemType,
+        user_mode: bool,
+        min_shape: i16,
+        max_shape: i16,
+        panel: MarketPanelType,
+    ) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.market_search(
+            object_id, match_text, item_type, user_mode, min_shape, max_shape, panel,
+        ) {
+            Ok(()) => tracing::debug!(session = self.id, "市场搜索"),
+            Err(error) => tracing::debug!(session = self.id, %error, "市场搜索被拒绝"),
+        }
+    }
+
+    /// 刷新市场列表：`C.MarketRefresh`（`MirConnection.cs:1692-1697`）。
+    async fn on_market_refresh(&mut self) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.market_refresh(object_id) {
+            Ok(()) => tracing::debug!(session = self.id, "刷新市场"),
+            Err(error) => tracing::debug!(session = self.id, %error, "刷新市场被拒绝"),
+        }
+    }
+
+    /// 翻页：`C.MarketPage{Page}`（Crystal `PlayerObject.MarketPage`，`:8327-8374`）。
+    async fn on_market_page(&mut self, page: i32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.market_page(object_id, page) {
+            Ok(()) => tracing::debug!(session = self.id, page, "市场翻页"),
+            Err(error) => tracing::debug!(session = self.id, %error, "市场翻页被拒绝"),
+        }
+    }
+
+    /// 购买/出价：`C.MarketBuy{AuctionID,BidPrice}`（`PlayerObject.cs:8450-8589`）。
+    async fn on_market_buy(&mut self, auction_id: u64, bid_price: u32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.market_buy(object_id, auction_id, bid_price) {
+            Ok(()) => tracing::debug!(session = self.id, auction_id, bid_price, "市场成交/出价"),
+            Err(error) => tracing::debug!(session = self.id, %error, "市场成交被拒绝"),
+        }
+    }
+
+    /// 提前成交拍卖：`C.MarketSellNow{AuctionID}`（`PlayerObject.cs:8591-8666`）。
+    async fn on_market_sell_now(&mut self, auction_id: u64) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.market_sell_now(object_id, auction_id) {
+            Ok(()) => tracing::debug!(session = self.id, auction_id, "拍卖提前成交"),
+            Err(error) => tracing::debug!(session = self.id, %error, "拍卖提前成交被拒绝"),
+        }
+    }
+
+    /// 下架/收款：`C.MarketGetBack{Mode,AuctionID}`（`PlayerObject.cs:8668-8793`）。
+    async fn on_market_get_back(&mut self, mode: MarketCollectionMode, auction_id: u64) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.market_get_back(object_id, mode, auction_id) {
+            Ok(count) => tracing::debug!(session = self.id, auction_id, count, "从市场取回"),
+            Err(error) => tracing::debug!(session = self.id, %error, "从市场取回被拒绝"),
         }
     }
 

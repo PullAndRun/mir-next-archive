@@ -13,8 +13,9 @@
 //! **行会**（见 [`guild`]、[`guild_storage`]、[`guild_buffs`] 与 `docs/world/guild.md`；
 //! 联盟/投票未做）、**玩家仓库**（见 [`storage`] 与 `docs/world/storage.md`）、
 //! **邮件**（见 [`mail`] 与 `docs/world/mail.md`）、
-//! **玩家对玩家（PK）**（攻击模式、PK 值/红棕名、死亡掉落与守卫，见 `docs/world/pk.md`）以及
-//! **攻城/城主任命**（见 [`conquest`] 与 `docs/world/conquest.md`；城门/城墙/旗子等建筑未做）。
+//! **玩家对玩家（PK）**（攻击模式、PK 值/红棕名、死亡掉落与守卫，见 `docs/world/pk.md`）、
+//! **攻城/城主任命**（见 [`conquest`] 与 `docs/world/conquest.md`；城门/城墙/旗子等建筑未做）
+//! 以及 **玩家间交易**（见 [`trade`] 与 `docs/world/trade.md`）。
 
 pub mod buffs;
 pub mod combat;
@@ -30,6 +31,7 @@ pub mod items;
 pub mod magic;
 pub mod mail;
 pub mod maps;
+pub mod market;
 pub mod monster;
 pub mod npc;
 pub mod pg_store;
@@ -38,6 +40,7 @@ pub mod server;
 pub mod session;
 pub mod storage;
 pub mod store;
+pub mod trade;
 pub mod world;
 
 pub use buffs::{ActiveBuff, BuffKind, PendingBuff};
@@ -80,6 +83,11 @@ pub use maps::{
     DEFAULT_MAP_CACHE_LIMIT, MAP_CACHE_ENV, MOVEMENT_DELAY_MS, MapChangeError, MapChangeReport,
     MapInitReport, PendingMapMove, ViewCounts,
 };
+pub use market::{
+    AUCTION_COST, Auction, COMMISSION, CONSIGN_KEY, CONSIGNMENT_COST, CONSIGNMENT_LENGTH_DAYS,
+    MARKET_KEY, MARKET_PAGE_SIZE, MAX_CONSIGNMENT, MAX_STARTING_BID, MIN_CONSIGNMENT,
+    MIN_STARTING_BID, MarketError, MarketFailReason, MarketSearchState, SEARCH_DELAY_MS,
+};
 pub use monster::{Monster, MonsterKind};
 pub use npc::{BuyReport, Npc, NpcError, NpcReply, NpcState, RepairReport, SellReport};
 pub use pg_store::PgAccountStore;
@@ -95,6 +103,10 @@ pub use storage::{
 pub use store::{
     Account, AccountStore, Character, ConquestRecord, GuildBuffRecord, GuildMemberRecord,
     GuildRankRecord, GuildRecord, GuildStorageRecord, MailRecord, MemoryStore, StoreError,
+};
+pub use trade::{
+    TRADE_DELAY_MS, TRADE_RANGE, TRADE_SLOTS, TradeError, TradeReplyOutcome, TradeState,
+    facing_each_other,
 };
 pub use world::{
     AttackReport, CombatError, GuildWrite, MoveError, Player, RespawnState, SpawnGroup, World,

@@ -13,6 +13,9 @@
 //! * [`storage`]：个人仓库 80 格（服务端 `S.NPCStorage` 自动打开，与背包拖拽存取）；
 //! * [`mail`]：`N` 邮件面板（收件箱/阅读/写信，`C.ReadMail`/`C.CollectParcel`/`C.SendMail`）；
 //! * [`guild`]：`G` 行会面板（成员/仓库/增益/公告，112 格行会仓库）；
+//! * [`trade`]：交易面板（`S.TradeAccept` 自动打开，左右两栏各 10 格 + 金币 + 准备/确认）；
+//! * [`group`]：`P` 组队面板（成员表 + 邀请/离队/踢人 + `!!` 组队聊天提示）；
+//! * [`notice`]：交易/组队邀请的两按钮弹窗；
 //! * [`grid`] / [`input`]：上面三个面板共用的物品网格与单行输入框；
 //! * [`skills`]：F3 技能列表与 1..9 施法目标选择；
 //! * [`labels`]：中文/英文标签表。
@@ -32,6 +35,7 @@ pub mod buffs;
 pub mod dialog;
 pub mod equipment;
 pub mod grid;
+pub mod group;
 pub mod guild;
 pub mod hud;
 pub mod input;
@@ -39,6 +43,7 @@ pub mod inventory;
 pub mod labels;
 pub mod mail;
 pub mod minimap;
+pub mod notice;
 pub mod quests;
 pub mod shop;
 pub mod skills;
@@ -46,6 +51,7 @@ pub mod storage;
 pub mod target;
 pub mod text;
 pub mod tooltip;
+pub mod trade;
 pub mod worldtext;
 
 use std::collections::HashMap;
@@ -265,6 +271,59 @@ pub enum UiAction {
         /// `0` 公告 / `1` 成员表。
         type_: u8,
     },
+    /// 发起交易（`C.TradeRequest`；`Y` 键或以后的右键菜单）。
+    TradeRequest,
+    /// 回应交易邀请（`C.TradeReply`）。
+    TradeReply {
+        /// `true` = 接受。
+        accept: bool,
+    },
+    /// 背包物品拖进自己的交易格（`C.DepositTradeItem`）。
+    TradeItem {
+        /// 背包格。
+        from: i32,
+        /// 交易格。
+        to: i32,
+    },
+    /// 交易格里的物品拖回背包（`C.RetrieveTradeItem`）。
+    TradeTakeBack {
+        /// 交易格。
+        from: i32,
+        /// 背包格。
+        to: i32,
+    },
+    /// 放入金币（`C.TradeGold`）。
+    TradeGold {
+        /// 增量。
+        amount: u32,
+    },
+    /// 准备 / 确认（`C.TradeConfirm`）。
+    TradeConfirm {
+        /// 是否锁定己方报价。
+        locked: bool,
+    },
+    /// 取消交易（`C.TradeCancel`）。
+    TradeCancel,
+    /// 邀请入队（`C.AddMember`）。
+    AddMember {
+        /// 被邀请者名字。
+        name: String,
+    },
+    /// 退队 / 踢人（`C.DelMember`）。
+    DelMember {
+        /// 目标名字（自己退队时是自己的名字）。
+        name: String,
+    },
+    /// 回应组队邀请（`C.GroupInvite`）。
+    GroupReply {
+        /// `true` = 接受。
+        accept: bool,
+    },
+    /// 开关「允许组队」（`C.SwitchGroup`）。
+    SwitchGroup {
+        /// 是否允许别人邀请自己。
+        allow_group: bool,
+    },
 }
 
 impl UiAction {
@@ -375,6 +434,25 @@ impl UiAction {
             Self::RequestGuildInfo { type_ } => {
                 Some(NetCommand::RequestGuildInfo { type_: *type_ })
             }
+            Self::TradeRequest => Some(NetCommand::TradeRequest),
+            Self::TradeReply { accept } => Some(NetCommand::TradeReply { accept: *accept }),
+            Self::TradeItem { from, to } => Some(NetCommand::TradeItem {
+                from: *from,
+                to: *to,
+            }),
+            Self::TradeTakeBack { from, to } => Some(NetCommand::TradeTakeBack {
+                from: *from,
+                to: *to,
+            }),
+            Self::TradeGold { amount } => Some(NetCommand::TradeGold { amount: *amount }),
+            Self::TradeConfirm { locked } => Some(NetCommand::TradeConfirm { locked: *locked }),
+            Self::TradeCancel => Some(NetCommand::TradeCancel),
+            Self::AddMember { name } => Some(NetCommand::AddMember { name: name.clone() }),
+            Self::DelMember { name } => Some(NetCommand::DelMember { name: name.clone() }),
+            Self::GroupReply { accept } => Some(NetCommand::GroupReply { accept: *accept }),
+            Self::SwitchGroup { allow_group } => Some(NetCommand::SwitchGroup {
+                allow_group: *allow_group,
+            }),
             Self::WalkStep { direction, run } => Some(if *run {
                 NetCommand::Run(*direction)
             } else {
@@ -386,7 +464,7 @@ impl UiAction {
     }
 }
 
-/// 拖拽起点（背包格、装备槽、个人仓库格、行会仓库格）。
+/// 拖拽起点（背包格、装备槽、个人仓库格、行会仓库格、交易格）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DragSource {
     /// 背包格。
@@ -397,15 +475,18 @@ pub enum DragSource {
     Storage(usize),
     /// 行会仓库格（`C.GuildStorageItemChange`）。
     GuildStorage(usize),
+    /// 自己的交易格（`C.DepositTradeItem` / `C.RetrieveTradeItem`）。
+    Trade(usize),
 }
 
 impl DragSource {
-    /// 起点网格（仓库走 `C.StoreItem`/`C.TakeBackItem`，不经过 `C.MoveItem`，这里返回
-    /// 语义最接近的背包网格，仅供日志/诊断）。
+    /// 起点网格（仓库走 `C.StoreItem`/`C.TakeBackItem`，交易走 `C.DepositTradeItem`，
+    /// 都不经过 `C.MoveItem`，这里返回语义最接近的网格，仅供日志/诊断）。
     #[must_use]
     pub const fn grid(self) -> MirGridType {
         match self {
             Self::Inventory(_) | Self::Storage(_) | Self::GuildStorage(_) => MirGridType::Inventory,
+            Self::Trade(_) => MirGridType::Trade,
             Self::Equipment(_) => MirGridType::Equipment,
         }
     }
@@ -417,7 +498,8 @@ impl DragSource {
             Self::Inventory(slot)
             | Self::Equipment(slot)
             | Self::Storage(slot)
-            | Self::GuildStorage(slot) => slot,
+            | Self::GuildStorage(slot)
+            | Self::Trade(slot) => slot,
         }
     }
 }
@@ -595,6 +677,8 @@ pub enum EscapeResult {
         /// 对话 NPC 的对象 ID（未知时为 0）。
         object_id: u32,
     },
+    /// 关掉了交易窗；调用方要给服务端发 `C.TradeCancel`。
+    Trade,
     /// 关掉了背包/装备/技能/右键菜单/拖拽。
     Panels,
     /// 没有可关的面板。
@@ -627,6 +711,10 @@ pub enum FieldId {
     GuildGold,
     /// 行会公告：输入一行公告。
     GuildNotice,
+    /// 交易面板：要放入的金币。
+    TradeGold,
+    /// 组队面板：被邀请者名字。
+    GroupName,
 }
 
 /// 界面状态：面板开关、选中项、鼠标位置、拖拽/右键菜单、飘字与物品图标缓存。
@@ -671,6 +759,24 @@ pub struct UiState {
     pub guild_gold: input::TextField,
     /// 行会公告输入行。
     pub guild_notice: input::TextField,
+    /// 交易面板是否打开（`S.TradeAccept` 自动打开，`S.TradeConfirm`/`S.TradeCancel` 关闭）。
+    pub show_trade: bool,
+    /// 自己是否已准备（Crystal `User.TradeLocked`，`UserObject.cs:24` 附近的客户端状态）。
+    pub trade_locked: bool,
+    /// 交易面板的金币输入框（`C.TradeGold` 的增量）。
+    pub trade_gold: input::TextField,
+    /// 待处理的交易邀请者名字（弹「XXX 请求与你交易」；`None` 表示没有弹窗）。
+    pub trade_invite: Option<String>,
+    /// 组队面板是否打开（`P`）。
+    pub show_group: bool,
+    /// 组队面板的邀请名字输入框（`C.AddMember`）。
+    pub group_name: input::TextField,
+    /// 待处理的组队邀请者名字（弹「XXX 邀请你组队」）。
+    pub group_invite: Option<String>,
+    /// 组队面板选中的成员行。
+    pub group_selected: Option<usize>,
+    /// 组队面板滚动行。
+    pub group_scroll: usize,
     /// 当前聚焦的输入框。
     pub focus: Option<FieldId>,
     /// 小地图面板是否打开（`M`）。
@@ -731,6 +837,14 @@ pub struct UiState {
     storage_open_version: u64,
     /// 已同步的写信页请求版本（`S.MailSendRequest`）。
     mail_send_request_version: u64,
+    /// 已同步的交易打开版本（`S.TradeAccept`）。
+    trade_open_version: u64,
+    /// 已同步的交易内容版本（对方改报价时服务端会把双方解锁）。
+    trade_version: u64,
+    /// 已同步的交易邀请版本（`S.TradeRequest`）。
+    trade_invite_version: u64,
+    /// 已同步的组队邀请版本（`S.GroupInvite`）。
+    group_invite_version: u64,
 }
 
 impl UiState {
@@ -758,6 +872,15 @@ impl UiState {
             guild_buff_scroll: 0,
             guild_gold: input::TextField::numeric(9),
             guild_notice: input::TextField::new(200),
+            show_trade: false,
+            trade_locked: false,
+            trade_gold: input::TextField::numeric(9),
+            trade_invite: None,
+            show_group: false,
+            group_name: input::TextField::new(12),
+            group_invite: None,
+            group_selected: None,
+            group_scroll: 0,
             focus: None,
             show_minimap: false,
             show_bigmap: false,
@@ -788,6 +911,10 @@ impl UiState {
             last_target_click: None,
             storage_open_version: 0,
             mail_send_request_version: 0,
+            trade_open_version: 0,
+            trade_version: 0,
+            trade_invite_version: 0,
+            group_invite_version: 0,
         }
     }
 
@@ -853,6 +980,51 @@ impl UiState {
             self.show_mail = true;
             self.mail_tab = mail::MailTab::Compose;
             self.mail_page = 0;
+        }
+        // 交易：`S.TradeAccept` 每来一次就打开一次面板（Crystal `TradeDialog.TradeAccept()`，
+        // `TradeDialogs.cs:152-161`，连背包一起显示）；成交/取消时快照把 `open` 置假。
+        if snapshot.trade.open_version != self.trade_open_version {
+            self.trade_open_version = snapshot.trade.open_version;
+            self.show_trade = snapshot.trade.open;
+            if self.show_trade {
+                self.show_inventory = true;
+                self.trade_gold = input::TextField::numeric(9);
+                self.trade_locked = snapshot.trade.locked;
+            }
+        }
+        if !snapshot.trade.open {
+            self.show_trade = false;
+        }
+        // 交易内容变化（对方改物品/金币）时服务端会把双方解锁（`PlayerObject.cs:10761-10786`）。
+        if snapshot.trade.version != self.trade_version {
+            self.trade_version = snapshot.trade.version;
+            self.trade_locked = snapshot.trade.locked;
+        }
+        // 交易邀请（`S.TradeRequest`）→ 弹一次窗。
+        if snapshot.trade.invitation_version != self.trade_invite_version {
+            self.trade_invite_version = snapshot.trade.invitation_version;
+            self.trade_invite.clone_from(&snapshot.trade.invitation);
+        }
+        // 组队邀请（`S.GroupInvite`）→ 弹一次窗。
+        if snapshot.group.invitation_version != self.group_invite_version {
+            self.group_invite_version = snapshot.group.invitation_version;
+            self.group_invite.clone_from(&snapshot.group.invitation);
+        }
+        // 组队面板滚动/选中收边。
+        let member_count = snapshot.group.members.len();
+        self.group_scroll = self
+            .group_scroll
+            .min(member_count.saturating_sub(group::ROWS));
+        if self
+            .group_selected
+            .is_some_and(|index| index >= member_count)
+        {
+            self.group_selected = None;
+        }
+        // 队伍解散后收起面板（Crystal 的 `GroupDialog` 也只在组队时才显示成员）。
+        if member_count == 0 {
+            self.group_selected = None;
+            self.group_scroll = 0;
         }
         // 任务滚动/选中收边。
         let quest_scroll_max = snapshot.quests.len().saturating_sub(quests::MAX_QUEST_ROWS);
@@ -925,6 +1097,7 @@ impl UiState {
             DragSource::Equipment(slot) => snapshot.equipment_item(slot).is_none(),
             DragSource::Storage(slot) => snapshot.storage_item(slot).is_none(),
             DragSource::GuildStorage(slot) => snapshot.guild_storage_item(slot).is_none(),
+            DragSource::Trade(slot) => snapshot.trade.items.get(slot).is_none_or(Option::is_none),
         }) {
             self.drag = None;
         }
@@ -1026,7 +1199,9 @@ impl UiState {
         self.show_storage = false;
         self.show_mail = false;
         self.show_guild = false;
+        self.show_group = false;
         self.show_bigmap = false;
+        self.close_trade();
         self.focus = None;
         self.drag = None;
         self.context_menu = None;
@@ -1077,6 +1252,31 @@ impl UiState {
         ]
     }
 
+    /// 开关组队面板（`P`，Crystal `KeybindOptions.Group = Keys.P`，
+    /// `Client/KeyBindSettings.cs:225`、`GameScene.cs:717-719`）。
+    pub fn toggle_group(&mut self) {
+        self.show_group = !self.show_group;
+        if !self.show_group {
+            self.focus = None;
+        }
+    }
+
+    /// 开关交易面板（`S.TradeAccept` 自动打开；也允许手动关掉，等同取消）。
+    pub fn toggle_trade(&mut self) {
+        self.show_trade = !self.show_trade;
+        if !self.show_trade {
+            self.focus = None;
+        }
+    }
+
+    /// 关掉交易面板并清掉本地准备状态（`Esc`/取消按钮；调用方负责发 `C.TradeCancel`）。
+    pub fn close_trade(&mut self) {
+        self.show_trade = false;
+        self.trade_locked = false;
+        self.trade_gold = input::TextField::numeric(9);
+        self.focus = None;
+    }
+
     /// 开关小地图（`M`）。
     pub fn toggle_minimap(&mut self) {
         self.show_minimap = !self.show_minimap;
@@ -1119,6 +1319,12 @@ impl UiState {
             self.close_npc();
             return EscapeResult::Npc { object_id };
         }
+        // 交易窗是「进行中的会话」，关窗等于取消（Crystal `CloseButton.Click → TradeCancel()`，
+        // `TradeDialogs.cs:52-57`）。
+        if self.show_trade {
+            self.close_trade();
+            return EscapeResult::Trade;
+        }
         if self.show_inventory
             || self.show_skills
             || self.show_equipment
@@ -1126,6 +1332,7 @@ impl UiState {
             || self.show_storage
             || self.show_mail
             || self.show_guild
+            || self.show_group
         {
             self.close_panels();
             return EscapeResult::Panels;
@@ -1177,6 +1384,9 @@ impl UiState {
     /// 鼠标是否压在某个打开的面板上（tooltip/高亮/点地走路据此避让）。
     #[must_use]
     pub fn pointer_over_panel(&self, snapshot: &WorldSnapshot, text: &UiText, frame: Rect) -> bool {
+        if self.invite_open() {
+            return true;
+        }
         if self.show_bigmap && bigmap::panel_rect(frame).contains(self.mouse) {
             return true;
         }
@@ -1217,6 +1427,16 @@ impl UiState {
             .panel
             .contains(self.mouse)
         {
+            return true;
+        }
+        if self.show_group
+            && group::group_layout(frame, snapshot.group.members.len(), self.group_scroll)
+                .panel
+                .contains(self.mouse)
+        {
+            return true;
+        }
+        if self.show_trade && trade::trade_layout(frame).panel.contains(self.mouse) {
             return true;
         }
         if self.show_inventory && inventory::inventory_panel_rect(frame).contains(self.mouse) {
@@ -1351,10 +1571,13 @@ impl UiState {
         snapshot.inventory_item(self.selected_slot?)
     }
 
-    /// 滚轮：优先滚动最上层的面板（任务 → 邮件 → 行会 → 商店），返回是否发生了变化。
+    /// 滚轮：优先滚动最上层的面板（组队 → 任务 → 邮件 → 行会 → 商店），返回是否发生了变化。
     ///
     /// `delta > 0` 表示向下滚。
     pub fn on_wheel(&mut self, snapshot: &WorldSnapshot, delta: i32) -> bool {
+        if self.show_group && self.scroll_group(snapshot, delta) {
+            return true;
+        }
         if self.show_quests && self.scroll_quests(snapshot, delta) {
             return true;
         }
@@ -1368,6 +1591,25 @@ impl UiState {
             return false;
         }
         self.scroll_shop(snapshot, delta.signum())
+    }
+
+    /// 滚动组队成员表（超过一屏 12 行时）。
+    pub fn scroll_group(&mut self, snapshot: &WorldSnapshot, delta: i32) -> bool {
+        if delta == 0 {
+            return false;
+        }
+        let max_scroll = snapshot.group.members.len().saturating_sub(group::ROWS);
+        if max_scroll == 0 {
+            return false;
+        }
+        let before = self.group_scroll;
+        self.group_scroll = if delta < 0 {
+            self.group_scroll.saturating_sub(1)
+        } else {
+            self.group_scroll.saturating_add(1)
+        }
+        .min(max_scroll);
+        self.group_scroll != before
     }
 
     /// 滚动任务列表。
@@ -1653,6 +1895,131 @@ impl UiState {
         None
     }
 
+    /// 点击邀请弹窗（交易/组队）。弹窗是模态的：点弹窗外也算「拒绝」。
+    fn click_invite(&mut self, frame: Rect) -> Option<UiAction> {
+        let layout = notice::notice_layout(frame);
+        if let Some(name) = self.trade_invite.clone() {
+            if layout.accept.contains(self.mouse) {
+                self.trade_invite = None;
+                tracing::info!(partner = %name, "接受交易邀请");
+                return Some(UiAction::TradeReply { accept: true });
+            }
+            if layout.reject.contains(self.mouse) {
+                self.trade_invite = None;
+                // 拒绝也要把快照里的邀请清掉，否则下一帧 `sync` 会再弹一次。
+                tracing::info!(partner = %name, "拒绝交易邀请");
+                return Some(UiAction::TradeReply { accept: false });
+            }
+            // 点在弹窗外：吃掉点击（Crystal 的 `MirMessageBox` 也是模态的）。
+            return None;
+        }
+        if let Some(name) = self.group_invite.clone() {
+            if layout.accept.contains(self.mouse) {
+                self.group_invite = None;
+                self.show_group = true;
+                tracing::info!(inviter = %name, "接受组队邀请");
+                return Some(UiAction::GroupReply { accept: true });
+            }
+            if layout.reject.contains(self.mouse) {
+                self.group_invite = None;
+                tracing::info!(inviter = %name, "拒绝组队邀请");
+                return Some(UiAction::GroupReply { accept: false });
+            }
+            return None;
+        }
+        None
+    }
+
+    /// 点击交易面板：金币输入 / 放入金币 / 准备-确认 / 取消 / 拖起自己的交易格。
+    fn click_trade(&mut self, snapshot: &WorldSnapshot, frame: Rect) -> Option<UiAction> {
+        let layout = trade::trade_layout(frame);
+        if !layout.panel.contains(self.mouse) {
+            return None;
+        }
+        if layout.gold_field.contains(self.mouse) {
+            self.focus = Some(FieldId::TradeGold);
+            return None;
+        }
+        if layout.gold_add.contains(self.mouse) {
+            let amount = self.trade_gold.number();
+            if amount > 0 {
+                // 只有本地先加到快照里并不够（快照由网络线程持有），所以这里把输入框清空，
+                // 累计值由 `NetCommand::TradeGold` 在发包时加进快照（见 `net::handle_command`）。
+                self.trade_gold = input::TextField::numeric(9);
+                self.focus = None;
+                return Some(UiAction::TradeGold { amount });
+            }
+            return None;
+        }
+        if layout.ready.contains(self.mouse) {
+            // 两段式：未准备 → 准备（锁住己方报价）；已准备 → 确认（再发一次，服务端幂等）。
+            self.trade_locked = true;
+            self.focus = None;
+            return Some(UiAction::TradeConfirm { locked: true });
+        }
+        if layout.cancel.contains(self.mouse) {
+            self.close_trade();
+            return Some(UiAction::TradeCancel);
+        }
+        if let Some(slot) = layout.own_slot_at(self.mouse) {
+            self.start_drag(snapshot, DragSource::Trade(slot));
+        }
+        None
+    }
+
+    /// 点击组队面板：允许组队开关 / 成员行 / 邀请 / 离队 / 踢人。
+    fn click_group(&mut self, snapshot: &WorldSnapshot, frame: Rect) -> Option<UiAction> {
+        let layout = group::group_layout(frame, snapshot.group.members.len(), self.group_scroll);
+        if !layout.panel.contains(self.mouse) {
+            return None;
+        }
+        if layout.switch.contains(self.mouse) {
+            return Some(UiAction::SwitchGroup {
+                allow_group: !snapshot.group.allow_group,
+            });
+        }
+        if let Some(index) = layout.row_at(self.mouse) {
+            self.group_selected = Some(index);
+            return None;
+        }
+        if layout.invite_field.contains(self.mouse) {
+            self.focus = Some(FieldId::GroupName);
+            return None;
+        }
+        if layout.invite.contains(self.mouse) {
+            let name = self.group_name.value.trim().to_owned();
+            if name.is_empty() {
+                return None;
+            }
+            // 只有队长（或还没组队）能邀请（Crystal `GroupDialog.cs:184-206`）。
+            if !snapshot.is_group_leader() && snapshot.has_group() {
+                return None;
+            }
+            self.group_name = input::TextField::new(12);
+            self.focus = None;
+            return Some(UiAction::AddMember { name });
+        }
+        if layout.leave.contains(self.mouse) {
+            let Some(me) = &snapshot.self_player else {
+                return None;
+            };
+            return Some(UiAction::DelMember {
+                name: me.name.clone(),
+            });
+        }
+        if layout.kick.contains(self.mouse) {
+            if !snapshot.is_group_leader() {
+                return None;
+            }
+            let index = self.group_selected?;
+            let member = snapshot.group.members.get(index)?;
+            return Some(UiAction::DelMember {
+                name: member.name.clone(),
+            });
+        }
+        None
+    }
+
     /// 点击行会面板：页签 / 成员行 / 职位管理 / 仓库拖拽 / 资金 / 增益 / 公告。
     fn click_guild(&mut self, snapshot: &WorldSnapshot, frame: Rect) -> Option<UiAction> {
         let layout = guild::guild_layout(
@@ -1814,6 +2181,13 @@ impl UiState {
             self.context_menu = None;
             return None;
         }
+        // 邀请弹窗是模态的（交易/组队），最优先处理。
+        if let Some(action) = self.click_invite(frame) {
+            return Some(action);
+        }
+        if self.invite_open() {
+            return None;
+        }
         if let Some(page) = &self.dialog {
             let layout =
                 dialog::dialog_layout(frame, page, |label| text.text_width(label, hud::SIZE_BODY));
@@ -1840,6 +2214,16 @@ impl UiState {
         }
         // 任务 / 邮件 / 行会 / 仓库（按「后画的先响应」顺序）：
         // 先问各面板要动作，再统一吞掉落在任一新面板上的点击。
+        if self.show_trade {
+            if let Some(action) = self.click_trade(snapshot, frame) {
+                return Some(action);
+            }
+        }
+        if self.show_group {
+            if let Some(action) = self.click_group(snapshot, frame) {
+                return Some(action);
+            }
+        }
         if self.show_guild {
             if let Some(action) = self.click_guild(snapshot, frame) {
                 return Some(action);
@@ -2116,6 +2500,7 @@ impl UiState {
             DragSource::Equipment(slot) => snapshot.equipment_item(slot),
             DragSource::Storage(slot) => snapshot.storage_item(slot),
             DragSource::GuildStorage(slot) => snapshot.guild_storage_item(slot),
+            DragSource::Trade(slot) => snapshot.trade.items.get(slot).and_then(Option::as_ref),
         };
         self.drag = item.map(|item| DragState {
             source,
@@ -2142,10 +2527,11 @@ impl UiState {
                     to_grid: MirGridType::Equipment,
                 }),
                 DragSource::Equipment(slot) if slot == to => None,
-                // 仓库 → 装备槽没有对应包（Crystal 也要先取回背包）。
-                DragSource::Equipment(_) | DragSource::Storage(_) | DragSource::GuildStorage(_) => {
-                    None
-                }
+                // 仓库/交易格 → 装备槽没有对应包（Crystal 也要先取回背包）。
+                DragSource::Equipment(_)
+                | DragSource::Storage(_)
+                | DragSource::GuildStorage(_)
+                | DragSource::Trade(_) => None,
             };
         }
         // 落在个人仓库格上：背包 → 仓库是 `C.StoreItem`；仓库内部没有移动包。
@@ -2190,6 +2576,31 @@ impl UiState {
                 };
             }
         }
+        // 落在自己的交易格上：背包 → 交易格是 `C.DepositTradeItem`；交易格之间是
+        // `C.MoveItem{Grid = Trade}`（Crystal `MirItemCell.cs:1507-1575`）。
+        if self.show_trade {
+            let layout = trade::trade_layout(frame);
+            if let Some(to) = layout.own_slot_at(self.mouse) {
+                let to_i32 = i32::try_from(to).unwrap_or(0);
+                return match drag.source {
+                    DragSource::Inventory(from) => Some(UiAction::TradeItem {
+                        from: i32::try_from(from).unwrap_or(0),
+                        to: to_i32,
+                    }),
+                    DragSource::Trade(from) if from != to => Some(UiAction::MoveItem {
+                        grid: MirGridType::Trade,
+                        from: i32::try_from(from).unwrap_or(0),
+                        to: to_i32,
+                        to_grid: MirGridType::Trade,
+                    }),
+                    _ => None,
+                };
+            }
+            // 对方那一栏只读（Crystal 的 `GuestTradeDialog` 没有拖拽入口）。
+            if layout.partner_slot_at(self.mouse).is_some() {
+                return None;
+            }
+        }
         let inventory_slot = self
             .show_inventory
             .then(|| {
@@ -2217,6 +2628,10 @@ impl UiState {
             }),
             DragSource::GuildStorage(from) => Some(UiAction::GuildStorageItemChange {
                 type_: 1,
+                from: i32::try_from(from).unwrap_or(0),
+                to: i32::try_from(to).unwrap_or(0),
+            }),
+            DragSource::Trade(from) => Some(UiAction::TradeTakeBack {
                 from: i32::try_from(from).unwrap_or(0),
                 to: i32::try_from(to).unwrap_or(0),
             }),
@@ -2317,7 +2732,20 @@ impl UiState {
         layout.storage_grid.slot_at(self.mouse)
     }
 
-    /// 鼠标是否落在新增的四个面板之一上（任务/仓库/邮件/行会）。
+    /// 鼠标悬停的交易格（tooltip 用；自己/对方两栏都算）。
+    #[must_use]
+    pub fn hovered_trade_slot(&self, frame: Rect) -> Option<(bool, usize)> {
+        if !self.show_trade {
+            return None;
+        }
+        let layout = trade::trade_layout(frame);
+        if let Some(slot) = layout.own_slot_at(self.mouse) {
+            return Some((true, slot));
+        }
+        layout.partner_slot_at(self.mouse).map(|slot| (false, slot))
+    }
+
+    /// 鼠标是否落在新增的面板之一上（任务/仓库/邮件/行会/组队/交易）。
     ///
     /// `on_click_with_path` 用它吞掉「面板内但没命中按钮」的点击，避免穿透成走路。
     #[must_use]
@@ -2358,7 +2786,23 @@ impl UiState {
         {
             return true;
         }
+        if self.show_group
+            && group::group_layout(frame, snapshot.group.members.len(), self.group_scroll)
+                .panel
+                .contains(self.mouse)
+        {
+            return true;
+        }
+        if self.show_trade && trade::trade_layout(frame).panel.contains(self.mouse) {
+            return true;
+        }
         false
+    }
+
+    /// 是否有待处理的邀请弹窗（交易/组队；弹窗是模态的，吃掉所有点击）。
+    #[must_use]
+    pub fn invite_open(&self) -> bool {
+        self.trade_invite.is_some() || self.group_invite.is_some()
     }
 
     /// 当前聚焦的输入框。
@@ -2379,6 +2823,8 @@ impl UiState {
             FieldId::MailMessage => self.mail_compose.message.insert(character),
             FieldId::GuildGold => self.guild_gold.insert(character),
             FieldId::GuildNotice => self.guild_notice.insert(character),
+            FieldId::TradeGold => self.trade_gold.insert(character),
+            FieldId::GroupName => self.group_name.insert(character),
         }
         true
     }
@@ -2395,6 +2841,8 @@ impl UiState {
             FieldId::MailMessage => self.mail_compose.message.backspace(),
             FieldId::GuildGold => self.guild_gold.backspace(),
             FieldId::GuildNotice => self.guild_notice.backspace(),
+            FieldId::TradeGold => self.trade_gold.backspace(),
+            FieldId::GroupName => self.group_name.backspace(),
         }
         true
     }
@@ -2470,6 +2918,8 @@ pub fn draw(
         buffs::bar_left(state.show_equipment, state.shop_open),
     );
     hud::draw_chat(frame, snapshot, text, chat_input, state.language);
+    // 队友血条（HUD）：队伍存在时贴在聊天面板上方（需求：HUD 上显示队友血条）。
+    hud::draw_party(frame, snapshot, text, state.language);
 
     if state.show_equipment {
         let layout = equipment::equipment_layout(screen);
@@ -2606,6 +3056,48 @@ pub fn draw(
         );
     }
 
+    if state.show_group {
+        let layout = group::group_layout(screen, snapshot.group.members.len(), state.group_scroll);
+        let members = snapshot.group_member_infos();
+        let selected = state.group_selected;
+        let name_field = state.group_name.clone();
+        let UiState { focus, mouse, .. } = state;
+        let (focus, mouse) = (*focus, *mouse);
+        group::draw(
+            frame,
+            &layout,
+            &context,
+            &members,
+            selected,
+            &name_field,
+            focus,
+            snapshot.group.allow_group,
+            snapshot.is_group_leader(),
+            mouse,
+        );
+    }
+
+    if state.show_trade {
+        let layout = trade::trade_layout(screen);
+        let trade = snapshot.trade.clone();
+        let locked = state.trade_locked || snapshot.trade.locked;
+        let gold_field = state.trade_gold.clone();
+        let (focus, mouse) = (state.focus, state.mouse);
+        let UiState { icons, .. } = state;
+        let mut icon_fn = |image: u16| -> Option<Image> { load_icon(scene, icons, image) };
+        trade::draw(
+            frame,
+            &layout,
+            &context,
+            &trade,
+            locked,
+            &gold_field,
+            focus,
+            mouse,
+            &mut icon_fn,
+        );
+    }
+
     if state.show_skills {
         let layout = skills::skill_layout(screen, snapshot.magics.len());
         skills::draw(frame, &layout, &context, state.selected_magic);
@@ -2641,6 +3133,17 @@ pub fn draw(
         draw_dialog(frame, screen, page, text, state.language, state.mouse);
     }
 
+    // 邀请弹窗（交易/组队）压在其它面板之上；它们也是模态的（吃掉点击）。
+    if let Some(name) = &state.trade_invite {
+        let layout = notice::notice_layout(screen);
+        let message = trade::invite_message(name, state.language);
+        notice::draw(frame, text, &layout, &message, state.language, state.mouse);
+    } else if let Some(name) = &state.group_invite {
+        let layout = notice::notice_layout(screen);
+        let message = group::invite_message(name, state.language);
+        notice::draw(frame, text, &layout, &message, state.language, state.mouse);
+    }
+
     if state.context_menu.is_none() {
         if let Some(item) = hovered_item(state, snapshot, screen) {
             let content = tooltip::content_for_item(snapshot, item, state.language);
@@ -2665,7 +3168,7 @@ pub fn draw(
     }
 }
 
-/// 当前鼠标下的物品（背包 → 装备槽 → 个人仓库 → 行会仓库，先命中先返回）。
+/// 当前鼠标下的物品（背包 → 装备槽 → 个人仓库 → 行会仓库 → 交易格，先命中先返回）。
 fn hovered_item<'a>(
     state: &UiState,
     snapshot: &'a WorldSnapshot,
@@ -2683,6 +3186,16 @@ fn hovered_item<'a>(
     }
     if let Some(slot) = state.hovered_storage_slot(screen) {
         if let Some(item) = snapshot.storage_item(slot) {
+            return Some(item);
+        }
+    }
+    if let Some((own, slot)) = state.hovered_trade_slot(screen) {
+        let items = if own {
+            &snapshot.trade.items
+        } else {
+            &snapshot.trade.partner_items
+        };
+        if let Some(item) = trade::slot_item(items, slot) {
             return Some(item);
         }
     }
@@ -2904,6 +3417,9 @@ mod tests {
                 looks: crate::net::PlayerLooks::default(),
                 dead: false,
                 hp_percent: None,
+                level: 0,
+                class: MirClass::Warrior,
+                name_colour: None,
                 action: mir_render::animation::ActorAction::Standing,
                 action_started_ms: 0,
             },
@@ -3366,6 +3882,9 @@ mod tests {
                 looks: crate::net::PlayerLooks::default(),
                 dead: false,
                 hp_percent: Some(hp_percent),
+                level: 0,
+                class: MirClass::Warrior,
+                name_colour: None,
                 action: mir_render::animation::ActorAction::Standing,
                 action_started_ms: 0,
             },

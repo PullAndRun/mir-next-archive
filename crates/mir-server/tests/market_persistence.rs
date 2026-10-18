@@ -797,3 +797,92 @@ async fn postgres_market_persistence_roundtrip() {
     run_market_cleanup_is_atomic(&store, &format!("{tag}f")).await;
     store.save_auctions(Vec::new()).await.expect("清空测试挂单");
 }
+
+/// t12：`apply_market_update` 事务失败时，已 drain 的邮件必须回灌队列；
+/// 修复故障后重试必须还能把它写进去，且成功后不能重复写。
+#[tokio::test]
+async fn flush_failure_keeps_mail_queue_for_retry() {
+    let store = MemoryStore::new();
+    let (mut world, npc_id) = build_world();
+    add_player(&mut world, SELLER, 1, "卖家", 100_000, npc_id);
+    add_player(&mut world, BUYER, 2, "买家", 100_000, npc_id);
+    let auction_id = consign(&mut world, SELLER, 1, 5_000, MarketPanelType::Auction);
+    search_market(&mut world, BUYER);
+    world
+        .market_buy(BUYER, auction_id, 6_000)
+        .expect("拍卖出价应成功");
+    set_page(&mut world, SELLER, MARKET_KEY);
+    world
+        .market_sell_now(SELLER, auction_id)
+        .expect("提前成交应成功");
+
+    // 此时成交物品邮件已在世界队列，但 MemoryStore 里还没有角色（id 1/2），事务必失败。
+    let world = tokio::sync::Mutex::new(world);
+    assert_eq!(
+        world.lock().await.pending_mail_writes(),
+        1,
+        "提前成交应产生 1 封待写邮件",
+    );
+    let failed = mir_server::market::flush_market_update(&store, &world, None).await;
+    assert!(failed.is_err(), "缺少角色时事务应失败（注入 StoreError）");
+    assert_eq!(
+        world.lock().await.pending_mail_writes(),
+        1,
+        "事务失败后邮件必须回灌队列，不能丢",
+    );
+    assert!(
+        store.list_mail(2).await.expect("读邮箱").is_empty(),
+        "失败事务不能落库",
+    );
+
+    // 补齐角色（MemoryStore 依次分配 id 1、2，与世界里的一致），重试 flush。
+    let account = store
+        .create_account("flush-retry", "secret", "")
+        .await
+        .expect("建测试账号");
+    let seller = store
+        .create_character(
+            account.id,
+            "卖家重试",
+            MirClass::Warrior,
+            MirGender::Male,
+            MAP,
+            (10, 10),
+        )
+        .await
+        .expect("建卖家");
+    let buyer = store
+        .create_character(
+            account.id,
+            "买家重试",
+            MirClass::Warrior,
+            MirGender::Male,
+            MAP,
+            (10, 10),
+        )
+        .await
+        .expect("建买家");
+    assert_eq!((seller.id, buyer.id), (1, 2), "角色主键应与世界一致");
+
+    mir_server::market::flush_market_update(&store, &world, None)
+        .await
+        .expect("故障修复后重试应成功");
+    let mails = store.list_mail(2).await.expect("读邮箱");
+    assert_eq!(mails.len(), 1, "失败前 drain 的邮件必须在重试时写入");
+    assert!(!mails[0].items.is_empty(), "成交物品应作为附件寄出");
+    assert_eq!(
+        world.lock().await.pending_mail_writes(),
+        0,
+        "事务成功后队列才清空",
+    );
+
+    // 再 flush 一次：成功路径已清空队列，不能重复写同一封邮件。
+    mir_server::market::flush_market_update(&store, &world, None)
+        .await
+        .expect("再次 flush");
+    assert_eq!(
+        store.list_mail(2).await.expect("读邮箱").len(),
+        1,
+        "成功后队列已清空，不能重复写",
+    );
+}

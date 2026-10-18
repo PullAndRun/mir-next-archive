@@ -535,6 +535,12 @@ impl World {
         self.auctions.iter().map(Auction::to_record).collect()
     }
 
+    /// 当前待落盘邮件数量（测试/观测用；只读，不 drain 队列）。
+    #[must_use]
+    pub fn pending_mail_writes(&self) -> usize {
+        self.mail_writes.len()
+    }
+
     /// 启动清理：把已过期（`expired == true` 或已到
     /// [`CONSIGNMENT_LENGTH_DAYS`] 天）且未售出的挂单**退回并删除**。
     ///
@@ -1493,6 +1499,11 @@ pub fn character_snapshot(base: &Character, player: &Player) -> Character {
 /// **不变量**：客户端可见的市场背包/金币变化与 `market_auctions` 行同事务提交；
 /// 崩溃只会发生在「都没写」或「都写了」两种状态，不会出现物品/金币复制或丢失。
 ///
+/// **邮件队列（刑部 t11 medium / t12）**：邮件与事务一起提交，但只有**事务成功后**队列才
+/// 真正算清空。若 `apply_market_update` 失败，本函数会把已 drain 的邮件按原顺序回灌到
+/// `World::mail_writes` 队首（期间新追加的邮件排在其后），下一次 flush 会重试同一批邮件。
+/// 因此 DB 故障不会让退款/通知邮件消失。
+///
 /// # Errors
 /// 存储层失败时返回错误，调用方记日志；下一次操作会以新快照重试整组写入。
 pub async fn flush_market_update<S: AccountStore>(
@@ -1501,7 +1512,7 @@ pub async fn flush_market_update<S: AccountStore>(
     character: Option<Character>,
 ) -> Result<(), StoreError> {
     let _flush_guard = MARKET_FLUSH_LOCK.lock().await;
-    let (auctions, mail_writes) = {
+    let (auctions, mut mail_writes) = {
         let mut world = world.lock().await;
         (world.auction_snapshot(), world.take_mail_writes())
     };
@@ -1511,13 +1522,28 @@ pub async fn flush_market_update<S: AccountStore>(
     if SLOW_NEXT_FLUSH.swap(false, std::sync::atomic::Ordering::SeqCst) {
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
-    store
+    let pending = mail_writes.clone();
+    let result = store
         .apply_market_update(MarketUpdate {
             character,
-            mail_writes,
+            mail_writes: pending,
             auctions,
         })
-        .await
+        .await;
+    if let Err(error) = &result {
+        // t12：事务失败 → 邮件没有落库，必须放回队列，等待下一次 flush 重试。
+        // 期间别的路径可能往队尾追加了新邮件；把本次 drain 的放在前面，保持原顺序。
+        let mut world = world.lock().await;
+        let restored = mail_writes.len();
+        mail_writes.append(&mut world.mail_writes);
+        world.mail_writes = mail_writes;
+        tracing::warn!(
+            %error,
+            restored,
+            "市场事务失败：已把待写邮件回灌队列"
+        );
+    }
+    result
 }
 
 /// 把当前挂单快照落到存储层（整表替换）。

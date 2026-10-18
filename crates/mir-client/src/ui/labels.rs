@@ -543,6 +543,18 @@ pub enum Label {
     SystemGuildMemberLeft,
     /// 任务名缺失时的占位（`任务 #12`）。
     QuestFallback,
+    /// 连接失败：连不上服务器。
+    ConnectUnreachable,
+    /// 连接失败：账号或密码错误。
+    ConnectCredentials,
+    /// 连接失败：服务器拒绝连接。
+    ConnectRefused,
+    /// 连接失败：超时。
+    ConnectTimeout,
+    /// 连接失败：客户端/服务端版本不匹配。
+    ConnectVersionMismatch,
+    /// 连接失败：其它错误。
+    ConnectFailed,
 }
 
 impl Label {
@@ -818,6 +830,12 @@ impl Label {
         Self::SystemGuildMemberKicked,
         Self::SystemGuildMemberLeft,
         Self::QuestFallback,
+        Self::ConnectUnreachable,
+        Self::ConnectCredentials,
+        Self::ConnectRefused,
+        Self::ConnectTimeout,
+        Self::ConnectVersionMismatch,
+        Self::ConnectFailed,
     ];
 }
 
@@ -1348,6 +1366,26 @@ impl Label {
             (Self::SystemGuildMemberLeft, Language::En) => "{} left the guild",
             (Self::QuestFallback, Language::ZhCn) => "任务 #{}",
             (Self::QuestFallback, Language::En) => "Quest #{}",
+            (Self::ConnectUnreachable, Language::ZhCn) => "无法连接服务器，请检查地址与端口。",
+            (Self::ConnectUnreachable, Language::En) => {
+                "Cannot reach the server. Check the address and port."
+            }
+            (Self::ConnectCredentials, Language::ZhCn) => "账号或密码错误，请重试。",
+            (Self::ConnectCredentials, Language::En) => "Wrong account or password. Try again.",
+            (Self::ConnectRefused, Language::ZhCn) => "服务器拒绝连接，请稍后重试。",
+            (Self::ConnectRefused, Language::En) => {
+                "The server refused the connection. Try again later."
+            }
+            (Self::ConnectTimeout, Language::ZhCn) => "连接超时，请重试。",
+            (Self::ConnectTimeout, Language::En) => "Connection timed out. Try again.",
+            (Self::ConnectVersionMismatch, Language::ZhCn) => {
+                "客户端与服务端版本不匹配，请更新客户端。"
+            }
+            (Self::ConnectVersionMismatch, Language::En) => {
+                "Client and server versions do not match. Update the client."
+            }
+            (Self::ConnectFailed, Language::ZhCn) => "连接失败，请重试。",
+            (Self::ConnectFailed, Language::En) => "Connection failed. Try again.",
         }
     }
 
@@ -1802,7 +1840,7 @@ mod tests {
     #[test]
     fn every_label_has_both_languages() {
         // `Label::ALL` 是手工维护的清单：数量对不上说明加了变体没同步。
-        assert_eq!(Label::ALL.len(), 266, "新增 Label 后请同步 Label::ALL");
+        assert_eq!(Label::ALL.len(), 272, "新增 Label 后请同步 Label::ALL");
         for label in Label::ALL {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);
@@ -1971,6 +2009,12 @@ mod tests {
             Label::SystemGuildMemberKicked,
             Label::SystemGuildMemberLeft,
             Label::QuestFallback,
+            Label::ConnectUnreachable,
+            Label::ConnectCredentials,
+            Label::ConnectRefused,
+            Label::ConnectTimeout,
+            Label::ConnectVersionMismatch,
+            Label::ConnectFailed,
         ] {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);

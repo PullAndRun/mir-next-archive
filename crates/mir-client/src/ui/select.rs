@@ -85,23 +85,33 @@ pub enum ConnectError {
     Unreachable,
     /// 账号或口令错误。
     Credentials,
-    /// 服务器拒绝/版本不符。
+    /// 服务器拒绝连接。
     Refused,
     /// 超时。
     Timeout,
-    /// 其它错误（窗口层把文本塞进 `message`）。
+    /// 客户端/服务端版本不匹配。
+    Version,
+    /// 其它错误（原始文本只进日志，不画到 UI）。
     Other,
 }
 
-/// 失败提示文案。
+/// 失败提示文案：只给玩家看**本地化类别**，不含网络/服务端原文。
 #[must_use]
 pub const fn error_label(error: ConnectError) -> Label {
     match error {
-        ConnectError::Unreachable | ConnectError::Other => Label::ConnectionFailed,
-        ConnectError::Credentials => Label::Password,
-        ConnectError::Refused => Label::Server,
-        ConnectError::Timeout => Label::Disconnected,
+        ConnectError::Unreachable => Label::ConnectUnreachable,
+        ConnectError::Credentials => Label::ConnectCredentials,
+        ConnectError::Refused => Label::ConnectRefused,
+        ConnectError::Timeout => Label::ConnectTimeout,
+        ConnectError::Version => Label::ConnectVersionMismatch,
+        ConnectError::Other => Label::ConnectFailed,
     }
+}
+
+/// 失败提示的成品文本（本地化；测试与绘制共用）。
+#[must_use]
+pub const fn error_text(error: ConnectError, language: Language) -> &'static str {
+    error_label(error).text(language)
 }
 
 /// 登录页状态。
@@ -119,7 +129,7 @@ pub struct ServerSelectState {
     pub status: ConnectState,
     /// 失败提示（`None` = 没有错误）。
     pub error: Option<ConnectError>,
-    /// 失败详情（窗口层填的服务端/网络原文，显示在提示下面一行）。
+    /// 失败详情（网络层的原始诊断串，**只进日志/测试，不画到 UI**）。
     pub message: Option<String>,
 }
 
@@ -301,7 +311,7 @@ pub struct CharacterSelectState {
     pub create_gender: MirGender,
     /// 失败提示（创建失败/进入失败）。
     pub error: Option<ConnectError>,
-    /// 失败详情。
+    /// 失败详情（网络层原始诊断串，**只进日志/测试，不画到 UI**）。
     pub message: Option<String>,
     /// 装备摘要缓存（角色名 → 摘要），由窗口层从设置文件灌入。
     pub equipment_cache: BTreeMap<String, String>,
@@ -649,27 +659,16 @@ pub fn draw_server(
     draw_button(frame, text, layout.connect, connect_label, true);
     draw_button(frame, text, layout.quit, Label::Quit.text(language), false);
     if let Some(error) = state.error {
-        // 提示分两行：类别（本地化）+ 详情（服务端/网络原文）。
+        // 只画本地化类别；原始诊断串（`state.message`）留在日志里，避免英文界面泄漏中文。
         text.draw_clipped(
             frame,
             layout.error.x,
             layout.error.y,
-            error_label(error).text(language),
+            error_text(error, language),
             SIZE_SMALL,
             [255, 132, 132, 255],
             Rect::new(layout.error.x, layout.error.y, layout.error.width, 14),
         );
-        if let Some(message) = &state.message {
-            text.draw_clipped(
-                frame,
-                layout.error.x,
-                layout.error.y + 14,
-                message,
-                SIZE_SMALL,
-                MUTED_COLOR,
-                Rect::new(layout.error.x, layout.error.y + 14, layout.error.width, 16),
-            );
-        }
     }
     draw_hint(frame, text, layout.hint, Label::LoginHint.text(language));
 }
@@ -822,26 +821,16 @@ pub fn draw_characters(
     }
 
     if let Some(error) = state.error {
+        // 同服务器选择页：只画本地化类别，原始诊断串不进 UI。
         text.draw_clipped(
             frame,
             layout.error.x,
             layout.error.y,
-            error_label(error).text(language),
+            error_text(error, language),
             SIZE_SMALL,
             [255, 132, 132, 255],
             Rect::new(layout.error.x, layout.error.y, layout.error.width, 14),
         );
-        if let Some(message) = &state.message {
-            text.draw_clipped(
-                frame,
-                layout.error.x,
-                layout.error.y + 14,
-                message,
-                SIZE_SMALL,
-                MUTED_COLOR,
-                Rect::new(layout.error.x, layout.error.y + 14, layout.error.width, 16),
-            );
-        }
     }
     draw_hint(
         frame,
@@ -1048,7 +1037,38 @@ mod tests {
         );
         state.fail(ConnectError::Timeout, Some("超时".to_owned()));
         assert_eq!(state.error, Some(ConnectError::Timeout));
-        assert_eq!(error_label(ConnectError::Timeout), Label::Disconnected);
+        assert_eq!(error_label(ConnectError::Timeout), Label::ConnectTimeout);
+        // 原始诊断只保留在状态里（日志/测试可取），不进 UI 文案。
+        assert_eq!(state.message.as_deref(), Some("超时"));
+    }
+
+    /// 英文提示里不能出现 CJK（避免把中文诊断串漏给英文玩家）。
+    fn has_cjk(text: &str) -> bool {
+        text.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
+    }
+
+    #[test]
+    fn error_text_is_localized_and_never_forwards_raw_diagnostics() {
+        for error in [
+            ConnectError::Unreachable,
+            ConnectError::Credentials,
+            ConnectError::Refused,
+            ConnectError::Timeout,
+            ConnectError::Version,
+            ConnectError::Other,
+        ] {
+            let zh = error_text(error, Language::ZhCn);
+            let en = error_text(error, Language::En);
+            assert!(!zh.is_empty(), "{error:?} 缺中文提示");
+            assert!(!en.is_empty(), "{error:?} 缺英文提示");
+            assert!(!has_cjk(en), "{error:?} 英文提示混进中文：{en}");
+        }
+        // 原始 anyhow 文本仍完整保留在诊断字段里（只由窗口层 eprintln）。
+        let raw = "无法连接服务器 127.0.0.1:7000：连接被拒绝（os error 10061）";
+        let mut state = ServerSelectState::default();
+        state.fail(ConnectError::Unreachable, Some(raw.to_owned()));
+        assert_eq!(state.message.as_deref(), Some(raw));
+        assert!(!error_text(ConnectError::Unreachable, Language::En).contains("127.0.0.1"));
     }
 
     #[test]

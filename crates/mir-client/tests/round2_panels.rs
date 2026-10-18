@@ -1012,3 +1012,66 @@ fn language_switch_redraws_every_open_panel() {
         );
     }
 }
+
+/// 服务器选择页单独渲染一帧（不画世界，便于逐像素比较）。
+fn server_select_frame(
+    layout: &select::ServerLayout,
+    state: &select::ServerSelectState,
+    text: &UiText,
+    language: Language,
+) -> Frame {
+    let mut frame = Frame::new(800, 600);
+    select::draw_server(&mut frame, layout, state, text, language);
+    frame
+}
+
+fn has_cjk(text: &str) -> bool {
+    text.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
+}
+
+#[test]
+fn english_login_error_never_shows_raw_chinese_diagnostics() {
+    let text = text();
+    let layout = select::server_layout(Rect::screen(800, 600));
+    let mut state = select::ServerSelectState::default();
+    state.account.set("hero");
+    state.password.set("secret");
+    // 模拟 net.rs 的中文 anyhow 详情（以前会直接画在类别下面）。
+    let raw = "无法连接服务器 127.0.0.1:7000：连接被拒绝（os error 10061）";
+    state.fail(select::ConnectError::Unreachable, Some(raw.to_owned()));
+
+    // 1) 所有类别在英文下都是纯英文（不含 CJK），中文下非空。
+    for error in [
+        select::ConnectError::Unreachable,
+        select::ConnectError::Credentials,
+        select::ConnectError::Refused,
+        select::ConnectError::Timeout,
+        select::ConnectError::Version,
+        select::ConnectError::Other,
+    ] {
+        let en = select::error_text(error, Language::En);
+        let zh = select::error_text(error, Language::ZhCn);
+        assert!(!zh.is_empty(), "{error:?} 缺中文提示");
+        assert!(!en.is_empty(), "{error:?} 缺英文提示");
+        assert!(!has_cjk(en), "{error:?} 英文提示混进中文：{en}");
+    }
+
+    // 2) 同一类别、不同原始详情画出来的像素完全一致 ⇒ 详情没有被画到 UI 上。
+    let mut other = state.clone();
+    other.message = Some("完全不同的诊断：后台任务 panic，栈里全是中文".to_owned());
+    for language in [Language::ZhCn, Language::En] {
+        let a = server_select_frame(&layout, &state, &text, language);
+        let b = server_select_frame(&layout, &other, &text, language);
+        assert_eq!(
+            changed_pixels(&a, &b, layout.panel),
+            0,
+            "{language:?}: 原始诊断串不应影响画面（只进日志）"
+        );
+    }
+
+    // 3) 英文界面整体渲染仍能出画面（不是空白），原始详情仍在诊断结构里可取。
+    let en = server_select_frame(&layout, &state, &text, Language::En);
+    let blank = Frame::new(800, 600);
+    assert!(changed_pixels(&blank, &en, layout.panel) > 100);
+    assert_eq!(state.message.as_deref(), Some(raw));
+}

@@ -414,12 +414,13 @@ fn load_world_scene(map_name: &str, map_dir: &Path, data_dir: &Path) -> MapScene
     })
 }
 
-/// 把网络层错误文案归类成登录页的提示类别（详情仍原样显示）。
+/// 把网络层错误文案归类成登录页的提示类别（原始详情只进控制台/日志）。
 ///
 /// `NetClient` 的错误是 `anyhow` 文本（例如「登录失败（result = 5）」、
-/// 「连接已关闭：…」），这里只做粗分类，避免在登录页暴露英文枚举。
-/// 匹配的是**内部诊断字符串**（控制台同款），不是玩家可见文案；登录页显示的
-/// 类别文案来自 [`mir_client::ui::select::error_label`]（`Label` 中英双语）。
+/// 「连接已关闭：…」），这里只做粗分类；登录页只显示本地化类别
+/// （[`mir_client::ui::select::error_text`]，`Label` 中英双语），不会把中文诊断串
+/// 画到界面上——英文玩家看到的也是英文。原始 `message` 仍由调用方 `eprintln!`
+/// 输出，并保留在 `ServerSelectState::message` 里供诊断/测试读取。
 #[must_use]
 pub fn classify_login_error(message: &str) -> select::ConnectError {
     let lower = message.to_lowercase();
@@ -432,7 +433,9 @@ pub fn classify_login_error(message: &str) -> select::ConnectError {
         select::ConnectError::Credentials
     } else if message.contains("超时") || lower.contains("timeout") {
         select::ConnectError::Timeout
-    } else if message.contains("拒绝") || lower.contains("version") {
+    } else if message.contains("版本") || lower.contains("version") {
+        select::ConnectError::Version
+    } else if message.contains("拒绝") || lower.contains("refused") {
         select::ConnectError::Refused
     } else if message.contains("连接") || lower.contains("connect") {
         select::ConnectError::Unreachable

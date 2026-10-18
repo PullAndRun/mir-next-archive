@@ -93,6 +93,7 @@ mod lib_container;
 mod library;
 mod palette;
 mod source;
+mod wil;
 mod wzl;
 
 pub use error::AssetError;

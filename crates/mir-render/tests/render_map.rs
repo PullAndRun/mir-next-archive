@@ -159,3 +159,42 @@ fn renders_map_zero_with_animation_frame() {
     }
     assert!(frame.distinct_color_count() > 1);
 }
+
+#[test]
+fn walking_frames_reuse_the_decode_cache() {
+    let Some((map_path, data_dir)) = assets() else {
+        return;
+    };
+    let mut scene = MapScene::load(&map_path, &data_dir).expect("加载地图场景");
+    let mut frame = Frame::new(800, 600);
+    // 预热：把起点附近的可见瓦片解码进缓存。
+    scene.render(&mut frame, Point::new(330, 270));
+    let cached_after_warmup = scene.image_cache_len();
+    assert!(cached_after_warmup > 0, "预热后应该有缓存图像");
+
+    // 模拟走路：相机每帧右移一格，连续 30 帧。
+    let started = Instant::now();
+    for step in 0..30 {
+        scene.render(&mut frame, Point::new(330 + step, 270));
+    }
+    let elapsed = started.elapsed();
+    let average_ms = elapsed.as_secs_f64() * 1000.0 / 30.0;
+    eprintln!(
+        "走路 30 帧：总 {elapsed:?}，平均 {average_ms:.2} ms/帧（≈{:.0} FPS），缓存 {} 张",
+        if average_ms > 0.0 {
+            1000.0 / average_ms
+        } else {
+            0.0
+        },
+        scene.image_cache_len()
+    );
+    // 只做宽松上限（避免 debug 构建在慢机器上抖动）；release 下实测远低于此。
+    assert!(
+        average_ms < 400.0,
+        "单帧 {average_ms:.1} ms 过慢，缓存失效了？"
+    );
+    assert!(
+        scene.image_cache_len() >= cached_after_warmup,
+        "走路时缓存不应当被清空"
+    );
+}

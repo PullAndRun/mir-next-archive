@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use crate::AssetError;
 use crate::image::{Image, ImageInfo};
 use crate::lib_container::LibReader;
+use crate::wil::WilReader;
 use crate::wzl::WzlReader;
 
 /// 素材库容器类型。
@@ -25,6 +26,8 @@ pub enum LibraryKind {
     Lib,
     /// `.wzl` 数据文件 + `.wzx` 索引文件（`LibraryEditor/Graphics/WeMadeLibrary.cs`）。
     Wzl,
+    /// `.wil` 数据文件 + `.wix` 索引文件（WEMADE 旧版 16 位 RGB565 库）。
+    Wil,
 }
 
 impl LibraryKind {
@@ -34,6 +37,7 @@ impl LibraryKind {
         match self {
             Self::Lib => "lib",
             Self::Wzl => "wzl",
+            Self::Wil => "wil",
         }
     }
 }
@@ -43,6 +47,7 @@ impl LibraryKind {
 enum Backend {
     Lib(LibReader),
     Wzl(WzlReader),
+    Wil(WilReader),
 }
 
 /// 打开的图像库。
@@ -96,6 +101,15 @@ impl ImageLibrary {
                     backend: Backend::Wzl(reader),
                 })
             }
+            LibraryKind::Wil => {
+                let (wil_path, wix_path) = resolve_wil(path)?;
+                let reader = WilReader::open(&wil_path, &wix_path)?;
+                Ok(Self {
+                    path: wil_path,
+                    kind,
+                    backend: Backend::Wil(reader),
+                })
+            }
         }
     }
 
@@ -121,6 +135,7 @@ impl ImageLibrary {
         match &self.backend {
             Backend::Lib(reader) => reader.len(),
             Backend::Wzl(reader) => reader.len(),
+            Backend::Wil(reader) => reader.len(),
         }
     }
 
@@ -136,7 +151,7 @@ impl ImageLibrary {
     #[must_use]
     pub fn declared_count(&self) -> Option<u32> {
         match &self.backend {
-            Backend::Lib(_) => None,
+            Backend::Lib(_) | Backend::Wil(_) => None,
             Backend::Wzl(reader) => Some(reader.declared_count()),
         }
     }
@@ -147,6 +162,7 @@ impl ImageLibrary {
         match &self.backend {
             Backend::Lib(_) => None,
             Backend::Wzl(reader) => Some(reader.index_path()),
+            Backend::Wil(reader) => Some(reader.index_path()),
         }
     }
 
@@ -157,6 +173,7 @@ impl ImageLibrary {
         match &self.backend {
             Backend::Lib(reader) => reader.info(index),
             Backend::Wzl(reader) => reader.info(index),
+            Backend::Wil(reader) => reader.info(index),
         }
     }
 
@@ -167,6 +184,7 @@ impl ImageLibrary {
         match &self.backend {
             Backend::Lib(reader) => reader.image(index),
             Backend::Wzl(reader) => reader.image(index),
+            Backend::Wil(reader) => reader.image(index),
         }
     }
 }
@@ -182,6 +200,7 @@ fn detect_kind(path: &Path) -> Result<LibraryKind, AssetError> {
     match extension_of(path).as_deref() {
         Some("lib") => Ok(LibraryKind::Lib),
         Some("wzl" | "wzx") => Ok(LibraryKind::Wzl),
+        Some("wil" | "wix") => Ok(LibraryKind::Wil),
         _ => sniff_kind(path),
     }
 }
@@ -195,6 +214,10 @@ fn sniff_kind(path: &Path) -> Result<LibraryKind, AssetError> {
     crate::source::read_at(&mut file, path, 0, &mut head[..available])?;
     let version = i32::from_le_bytes([head[0], head[1], head[2], head[3]]);
     let count = i32::from_le_bytes([head[4], head[5], head[6], head[7]]);
+    // WIL/WIX 有固定 ASCII 头 `#ILIB` / `#INDX`，优先按签名识别（扩展名可能是大写）。
+    if crate::wil::is_wil_signature(&head) {
+        return Ok(LibraryKind::Wil);
+    }
     let header_len: u64 = match version {
         3 => {
             // 与 `lib_container::parse_header` 同一判据：第三个 i32 等于偏移表末尾时
@@ -241,6 +264,22 @@ fn resolve_wzl(path: &Path) -> Result<(PathBuf, PathBuf), AssetError> {
         extension: "wzx",
     })?;
     Ok((path.to_path_buf(), wzx))
+}
+
+/// `.wil` 入口：确定数据文件与索引文件。
+fn resolve_wil(path: &Path) -> Result<(PathBuf, PathBuf), AssetError> {
+    if extension_of(path).as_deref() == Some("wix") {
+        let wil = find_companion(path, "wil").ok_or(AssetError::MissingCompanion {
+            path: path.to_path_buf(),
+            extension: "wil",
+        })?;
+        return Ok((wil, path.to_path_buf()));
+    }
+    let wix = find_companion(path, "wix").ok_or(AssetError::MissingCompanion {
+        path: path.to_path_buf(),
+        extension: "wix",
+    })?;
+    Ok((path.to_path_buf(), wix))
 }
 
 /// 找同名、指定扩展名的配套文件：先试精确路径，再按大小写不敏感扫目录。

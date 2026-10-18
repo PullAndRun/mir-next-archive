@@ -72,6 +72,13 @@ pub struct TileLibraries {
     directory: PathBuf,
     /// 按 `MapLibs` 编号排序的图库。
     libraries: BTreeMap<u16, ImageLibrary>,
+    /// 目录里额外找到的 `.wil`/`.wix` 图库（WEMADE 旧版 16 位库）。
+    ///
+    /// 平铺语料没有 Crystal 的 Mir3 目录编号（`Tiles110.wil`/`Objects81.wil` 的
+    /// 数字是素材分组，不是 `MapLibs` 下标），且当前 `resource/map` 的 v0/v1 地图
+    /// 只引用 `tiles`/`smtiles`/`objects*` 这些 `.wzl` 库，所以这里只**打开索引**
+    /// 并计数（启动日志/诊断用），不参与 `library(index)` 的选择。
+    wil_libraries: Vec<(String, ImageLibrary)>,
 }
 
 impl TileLibraries {
@@ -100,9 +107,39 @@ impl TileLibraries {
         if libraries.is_empty() {
             return Err(RenderError::NoLibraries { directory });
         }
+        // `.wil`/`.wix`：打开索引（不参与 `library(index)`，见字段文档）。
+        let mut wil_libraries = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&directory) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let is_wil = path
+                    .extension()
+                    .is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case("wil"));
+                if !is_wil {
+                    continue;
+                }
+                match ImageLibrary::open(&path) {
+                    Ok(library) => {
+                        let name = path
+                            .file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        wil_libraries.push((name, library));
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "警告：打开 WIL 图库 {} 失败（{error}），跳过",
+                            path.display()
+                        );
+                    }
+                }
+            }
+        }
+        wil_libraries.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(Self {
             directory,
             libraries,
+            wil_libraries,
         })
     }
 
@@ -112,6 +149,7 @@ impl TileLibraries {
         Self {
             directory: directory.into(),
             libraries: BTreeMap::new(),
+            wil_libraries: Vec::new(),
         }
     }
 
@@ -131,6 +169,17 @@ impl TileLibraries {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.libraries.is_empty()
+    }
+
+    /// 额外打开的 `.wil` 图库数量（WEMADE 旧版 16 位库，不参与瓦片选择）。
+    #[must_use]
+    pub fn wil_len(&self) -> usize {
+        self.wil_libraries.len()
+    }
+
+    /// 额外打开的 `.wil` 文件名（升序）。
+    pub fn wil_names(&self) -> impl Iterator<Item = &str> + '_ {
+        self.wil_libraries.iter().map(|(name, _)| name.as_str())
     }
 
     /// 按 `MapLibs` 编号取图库。
@@ -226,10 +275,39 @@ mod tests {
         let libraries = TileLibraries::empty(".");
         assert!(libraries.is_empty());
         assert_eq!(libraries.len(), 0);
+        assert_eq!(libraries.wil_len(), 0);
         assert!(libraries.library(0).is_none());
         assert!(libraries.info(0, 0).is_none());
         assert!(libraries.image(0, 0).is_none());
         assert_eq!(libraries.indices().count(), 0);
         assert_eq!(libraries.directory(), Path::new("."));
+    }
+
+    #[test]
+    fn real_data_dir_opens_wzl_and_wil_libraries() {
+        let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../resource/data");
+        if !directory.is_dir() {
+            eprintln!("跳过：缺 {}", directory.display());
+            return;
+        }
+        let libraries = TileLibraries::open_dir(&directory).expect("打开真实素材目录");
+        assert!(libraries.len() >= 3, "至少 tiles/smtiles/objects");
+        assert!(
+            libraries.wil_len() >= 4,
+            "resource/data 里的 .wil/.wix 也应当打开：{}",
+            libraries.wil_len()
+        );
+        // 0.map 的铺地层用 `tiles.wzl`：解一张真实瓦片，必须有像素。
+        let info = libraries.info(0, 0).expect("tiles.wzl 第 0 张的头");
+        assert!(info.width > 0 && info.height > 0);
+        let image = libraries.image(0, 0).expect("tiles.wzl 第 0 张");
+        assert!(!image.pixels.is_empty());
+        println!(
+            "图库 {} 个（+WIL {} 个），tiles 第 0 张 {}×{}",
+            libraries.len(),
+            libraries.wil_len(),
+            info.width,
+            info.height
+        );
     }
 }

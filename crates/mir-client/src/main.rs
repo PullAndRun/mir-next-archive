@@ -312,6 +312,19 @@ fn main() -> Result<()> {
         println!("已保存服务器地址：{}", client_settings.server());
     }
 
+    // 素材目录自动探测：`--data-dir` 指向的目录不存在时依次尝试 `resource/data`、
+    // `resource/ld/data`（不同发行包的客户端目录结构不同）。
+    let detected = detect_data_dir(&options.data_dir);
+    if detected != options.data_dir {
+        println!(
+            "素材目录：{} 不存在，改用 {}",
+            options.data_dir.display(),
+            detected.display()
+        );
+        options.data_dir = detected;
+    }
+    println!("素材目录：{}", options.data_dir.display());
+
     if options.login {
         run_login_window(&options, &client_settings, &settings_path);
         return Ok(());
@@ -336,11 +349,12 @@ fn main() -> Result<()> {
         )
     })?;
     println!(
-        "地图 {}：{}×{} · 图库 {} 个 · 中心格 ({}, {})",
+        "地图 {}：{}×{} · 图库 {} 个（+WIL {} 个）· 中心格 ({}, {})",
         scene.map.file_name,
         scene.map.width,
         scene.map.height,
         scene.libraries().len(),
+        scene.libraries().wil_len(),
         options.center.x,
         options.center.y
     );
@@ -497,7 +511,18 @@ fn build_sound_player(options: &Options, settings: &ClientSettings) -> SoundPlay
 /// 联机模式的地图加载：失败时退化成空白地图，但仍然尝试加载实体图库。
 fn load_scene_with_fallback(map_path: &Path, data_dir: &Path) -> MapScene {
     match MapScene::load(map_path, data_dir) {
-        Ok(scene) => scene,
+        Ok(scene) => {
+            println!(
+                "素材：{} · 地图库 {} 个（+WIL {} 个）· 地图 {}（{}×{}）",
+                data_dir.display(),
+                scene.libraries().len(),
+                scene.libraries().wil_len(),
+                map_path.display(),
+                scene.map.width,
+                scene.map.height,
+            );
+            scene
+        }
         Err(error) => {
             eprintln!(
                 "警告：加载地图 {} 失败：{error}；使用空白地图继续（实体仍会尝试绘制）",
@@ -572,6 +597,23 @@ fn resolve_map_path(map: &str, map_dir: &Path) -> PathBuf {
     map_dir.join(format!("{map}.map"))
 }
 
+/// 素材目录自动探测：配置目录存在就用它，否则依次尝试常见客户端数据目录。
+///
+/// 只在**目录存在**时替换；都不存在时保留原值，让后续加载错误信息里能看到用户
+/// 传入的路径（而不是一个猜出来的目录）。
+fn detect_data_dir(configured: &Path) -> PathBuf {
+    if configured.is_dir() {
+        return configured.to_path_buf();
+    }
+    for candidate in ["resource/data", "resource/ld/data"] {
+        let path = PathBuf::from(candidate);
+        if path.is_dir() {
+            return path;
+        }
+    }
+    configured.to_path_buf()
+}
+
 fn print_help() {
     println!("传奇-Next 客户端");
     println!();
@@ -581,7 +623,9 @@ fn print_help() {
     println!("  --map <名称|路径>       地图名（默认 0，即 resource/map/0.map）");
     println!("  --cell <x,y>            相机初始中心格（默认 330,270）");
     println!("  --map-dir <目录>        地图目录（默认 resource/map）");
-    println!("  --data-dir <目录>       素材目录（默认 resource/data）");
+    println!(
+        "  --data-dir <目录>       素材目录（默认 resource/data；缺失时自动探测 resource/ld/data）"
+    );
     println!();
     println!("联机世界：");
     println!("  --login                 打开登录窗口（服务器选择 → 角色选择 → 进入世界）");
@@ -647,6 +691,19 @@ mod tests {
             resolve_map_path("some/where/abc.MAP", Path::new("ignored")),
             PathBuf::from("some/where/abc.MAP")
         );
+    }
+
+    #[test]
+    fn data_dir_detection_keeps_existing_and_falls_back() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let real = root.join("resource/data");
+        if real.is_dir() {
+            // 已存在的目录原样保留。
+            assert_eq!(detect_data_dir(&real), real);
+        }
+        // 不存在且候选也不存在时保留原值（错误信息里能看到用户传入的路径）。
+        let missing = root.join("target/definitely-missing-data-dir");
+        assert_eq!(detect_data_dir(&missing), missing);
     }
 
     #[test]

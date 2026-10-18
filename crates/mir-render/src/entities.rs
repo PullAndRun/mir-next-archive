@@ -118,7 +118,7 @@ use crate::animation::{
     WING_FRAMES_PER_APPEARANCE, wing_frames,
 };
 use crate::geometry::{self, CELL_HEIGHT, CELL_WIDTH, Viewport};
-use crate::scene::{remove_black, remove_black_all};
+use crate::scene::remove_black_all;
 
 /// 每个玩家外观（身体/武器/头发）在扁平 `.wzl` 里占的帧数。
 ///
@@ -1169,13 +1169,10 @@ impl EntityRenderer {
             self.cache.clear();
         }
         let image = self.libraries.image(library, index).map(|mut image| {
-            // 坐骑/翅膀的扁平素材是 RGB565，纯黑背景也要变透明（Crystal `.Lib` 在
-            // 写入时已经做过 removeBlack，见 `MLibraryV2.cs:419-426`）。
-            if matches!(library, SpriteLibrary::Mount | SpriteLibrary::Wing) {
-                remove_black_all(&mut image);
-            } else {
-                remove_black(&mut image);
-            }
+            // `.wzl` 的 8 位调色板与 RGB565 都没有 alpha；纯黑是「空像素」，
+            // 必须统一置透明，否则头发/武器/坐骑会在角色周围留下黑框
+            // （Crystal 的 `.Lib` 在写入时已做过 removeBlack，`MLibraryV2.cs:419-426`）。
+            remove_black_all(&mut image);
             image
         });
         self.cache.insert(key, image.clone());

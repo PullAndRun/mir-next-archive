@@ -381,7 +381,8 @@ pub fn run_login(options: LoginOptions) {
     );
 }
 
-/// 空白地形（登录窗口背景）：1024×1024 全可走格子 + 空图库 + 实体图库。
+/// 空白地形（登录窗口背景）：1024×1024 全可走格子 + 真实瓦片图库（没有地形图像，
+/// 但保留图库供诊断/后续使用）+ 实体图库。
 fn blank_scene(data_dir: &Path) -> MapScene {
     let width = 1024;
     let height = 1024;
@@ -393,9 +394,21 @@ fn blank_scene(data_dir: &Path) -> MapScene {
         version: mir_world::MapVersion::V0,
         doors: Vec::new(),
     };
+    // `open_dir` 失败（素材目录不存在/全缺）时退回空图库，登录窗口仍能开；
+    // 只 warn 一次，避免每帧刷屏。
+    let libraries = mir_render::TileLibraries::open_dir(data_dir).unwrap_or_else(|error| {
+        eprintln!("警告：登录背景加载素材图库失败（{error}），使用空图库");
+        mir_render::TileLibraries::empty(data_dir)
+    });
+    println!(
+        "素材：{} · 图库 {} 个（+WIL {} 个）",
+        data_dir.display(),
+        libraries.len(),
+        libraries.wil_len()
+    );
     MapScene::from_parts_with_entities(
         map,
-        mir_render::TileLibraries::empty(data_dir),
+        libraries,
         mir_render::Viewport::DEFAULT,
         mir_render::EntityLibraries::open_dir(data_dir),
     )
@@ -408,10 +421,24 @@ fn load_world_scene(map_name: &str, map_dir: &Path, data_dir: &Path) -> MapScene
     } else {
         map_dir.join(format!("{map_name}.map"))
     };
-    MapScene::load(&path, data_dir).unwrap_or_else(|error| {
-        eprintln!("加载地图 {} 失败：{error}；使用空白地形", path.display());
-        blank_scene(data_dir)
-    })
+    match MapScene::load(&path, data_dir) {
+        Ok(scene) => {
+            println!(
+                "素材：{} · 地图库 {} 个（+WIL {} 个）· 地图 {}（{}×{}）",
+                data_dir.display(),
+                scene.libraries().len(),
+                scene.libraries().wil_len(),
+                path.display(),
+                scene.map.width,
+                scene.map.height,
+            );
+            scene
+        }
+        Err(error) => {
+            eprintln!("加载地图 {} 失败：{error}；使用空白地形", path.display());
+            blank_scene(data_dir)
+        }
+    }
 }
 
 /// 聊天框提交 → 网络命令。
@@ -541,6 +568,10 @@ struct ClientApp {
     settings_path: PathBuf,
     /// 渲染缩放：1 = 原生，2/3 = 逻辑分辨率缩小后放大（Crystal 的「分辨率/缩放」）。
     ui_scale: u32,
+    /// 已渲染帧数（性能统计用）。
+    render_frames: u64,
+    /// 累计渲染耗时（性能统计用）。
+    render_total: Duration,
 }
 
 impl ClientApp {
@@ -570,6 +601,8 @@ impl ClientApp {
             settings,
             settings_path,
             ui_scale,
+            render_frames: 0,
+            render_total: Duration::ZERO,
         }
     }
 
@@ -654,6 +687,7 @@ impl ClientApp {
     /// 把死亡切到 Dead，再把 `now_ms` 传给 `entity_views` 与渲染器。离线模式只画地形，
     /// 行为不受影响。
     fn render_current(&mut self) {
+        let started = Instant::now();
         let now = now_millis_u64();
         let entities = match &mut self.mode {
             Mode::Offline | Mode::Login(_) => None,
@@ -670,6 +704,26 @@ impl ClientApp {
             None => {
                 self.scene.render(&mut self.frame, self.center);
             }
+        }
+        // 粗略性能统计：每 120 帧打印一次平均耗时（含首次解码），便于现场看 FPS。
+        self.render_frames = self.render_frames.saturating_add(1);
+        self.render_total += started.elapsed();
+        if self.render_frames % 120 == 0 {
+            let average_ms = self.render_total.as_secs_f64() * 1000.0 / 120.0;
+            let fps = if average_ms > 0.0 {
+                1000.0 / average_ms
+            } else {
+                0.0
+            };
+            println!(
+                "渲染统计：{} 帧 · 平均 {average_ms:.1} ms/帧（≈{fps:.0} FPS）· 瓦片缓存 {} · 实体缓存 {} · 地图 {}×{}",
+                self.render_frames,
+                self.scene.image_cache_len(),
+                self.scene.entity_image_cache_len(),
+                self.scene.map.width,
+                self.scene.map.height,
+            );
+            self.render_total = Duration::ZERO;
         }
     }
 
@@ -2656,6 +2710,25 @@ mod tests {
             Some(NetCommand::Chat("你好".to_owned()))
         );
         assert_eq!(chat_submit_command("   "), None);
+    }
+
+    #[test]
+    fn blank_scene_loads_real_tile_libraries_when_assets_exist() {
+        let data_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../resource/data");
+        if !data_dir.is_dir() {
+            eprintln!("跳过：缺 {}", data_dir.display());
+            return;
+        }
+        let scene = blank_scene(&data_dir);
+        assert!(
+            scene.libraries().len() >= 3,
+            "登录背景也应当加载真实瓦片图库：{}",
+            scene.libraries().len()
+        );
+        assert!(scene.libraries().wil_len() >= 4, "WIL 图库也应当打开");
+        // 缺目录时退回空图库（不 panic）。
+        let empty = blank_scene(&data_dir.join("definitely-missing"));
+        assert!(empty.libraries().is_empty());
     }
 
     #[test]

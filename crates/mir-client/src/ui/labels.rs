@@ -6,6 +6,8 @@
 use mir_core::Language;
 use mir_core::enums::{BuffType, ChatType, EquipmentSlot, ItemGrade, ItemType, RequiredType};
 
+use crate::net::{ChatLine, NetStatus, SystemChat};
+
 /// 界面固定标签。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Label {
@@ -401,6 +403,8 @@ pub enum Label {
     Quantity,
     /// 商城页签底部提示。
     GameShopHint,
+    /// 商城操作行提示（选中商品后点购买）。
+    GameShopPickHint,
     /// 商城没有商品。
     NoGameShopItems,
     /// 商品分类列。
@@ -487,6 +491,334 @@ pub enum Label {
     KeyChat,
     /// 设置面板按键表：关闭面板。
     KeyEscape,
+    /// 窗口标题（离线地图）。
+    WindowTitleMap,
+    /// 窗口标题（登录窗口）。
+    WindowTitleLogin,
+    /// 窗口标题（联机世界）。
+    WindowTitleLive,
+    /// 连接状态：版本校验。
+    StatusVerifying,
+    /// 连接状态：登录中。
+    StatusLoggingIn,
+    /// 连接状态：选择角色。
+    StatusSelectingCharacter,
+    /// 连接状态：进入世界。
+    StatusStartingGame,
+    /// 连接状态：已进入世界。
+    StatusInGame,
+    /// 连接状态：失败。
+    StatusFailed,
+    /// 登录窗口详情：网络线程已退出。
+    NetworkThreadExited,
+    /// 登录窗口详情：登录线程已退出。
+    LoginThreadExited,
+    /// 客户端系统消息：获得金币。
+    SystemGoldGained,
+    /// 客户端系统消息：获得物品。
+    SystemItemGained,
+    /// 客户端系统消息：分享任务。
+    SystemQuestShared,
+    /// 客户端系统消息：向行会捐献金币。
+    SystemGuildGoldDeposit,
+    /// 客户端系统消息：从行会取出金币。
+    SystemGuildGoldWithdraw,
+    /// 客户端系统消息：交易完成。
+    SystemTradeComplete,
+    /// 客户端系统消息：交易已取消。
+    SystemTradeCancelled,
+    /// 客户端系统消息：自己离开队伍。
+    SystemGroupLeft,
+    /// 客户端系统消息：队员加入。
+    SystemGroupJoined,
+    /// 客户端系统消息：队员退出。
+    SystemGroupMemberLeft,
+    /// 客户端系统消息：行会成员上线。
+    SystemGuildMemberOnline,
+    /// 客户端系统消息：行会新成员。
+    SystemGuildMemberJoined,
+    /// 客户端系统消息：行会成员被移出。
+    SystemGuildMemberKicked,
+    /// 客户端系统消息：行会成员离开。
+    SystemGuildMemberLeft,
+    /// 任务名缺失时的占位（`任务 #12`）。
+    QuestFallback,
+}
+
+impl Label {
+    /// 全部标签（枚举顺序）。
+    ///
+    /// 新增 `Label` 变体时**必须**同步这个数组：`Label::text` 的穷举 `match` 只保证
+    /// 「每个变体都有分支」，非空/中英不同只能靠 `every_label_has_both_languages`
+    /// 遍历这份列表兜住，数量不符会直接让测试失败。
+    pub const ALL: &[Label] = &[
+        Self::Hp,
+        Self::Mp,
+        Self::Gold,
+        Self::Map,
+        Self::Chat,
+        Self::Inventory,
+        Self::Shop,
+        Self::Dialog,
+        Self::Skills,
+        Self::Close,
+        Self::Sell,
+        Self::Repair,
+        Self::Drop,
+        Self::Level,
+        Self::Price,
+        Self::Rate,
+        Self::Empty,
+        Self::NoSkills,
+        Self::ChatHint,
+        Self::ShopHint,
+        Self::InventoryHint,
+        Self::UnknownItem,
+        Self::UnknownMap,
+        Self::SellAllowed,
+        Self::RepairAllowed,
+        Self::NpcHint,
+        Self::Connecting,
+        Self::Disconnected,
+        Self::CastHint,
+        Self::Equipment,
+        Self::Equip,
+        Self::Use,
+        Self::Type,
+        Self::Require,
+        Self::Durability,
+        Self::Stack,
+        Self::Attack,
+        Self::Defence,
+        Self::MagicDefence,
+        Self::MagicAttack,
+        Self::Taoism,
+        Self::Accuracy,
+        Self::Agility,
+        Self::AttackSpeed,
+        Self::Luck,
+        Self::Totals,
+        Self::Buffs,
+        Self::Seconds,
+        Self::Infinite,
+        Self::Paused,
+        Self::Miss,
+        Self::Critical,
+        Self::WorldHint,
+        Self::InventoryTooltipHint,
+        Self::Minimap,
+        Self::NoMinimap,
+        Self::MinimapHint,
+        Self::NoBigmap,
+        Self::BigmapHint,
+        Self::Quests,
+        Self::QuestDiary,
+        Self::QuestHint,
+        Self::QuestInProgress,
+        Self::QuestComplete,
+        Self::QuestAvailable,
+        Self::Abandon,
+        Self::TimeLeft,
+        Self::Storage,
+        Self::Capacity,
+        Self::StorageHint,
+        Self::Mail,
+        Self::Inbox,
+        Self::Compose,
+        Self::Sender,
+        Self::Subject,
+        Self::Message,
+        Self::Date,
+        Self::Attachment,
+        Self::Collect,
+        Self::Lock,
+        Self::Unlock,
+        Self::Delete,
+        Self::Send,
+        Self::Recipient,
+        Self::Postage,
+        Self::Inquiry,
+        Self::Stamp,
+        Self::Back,
+        Self::NoMail,
+        Self::MailHint,
+        Self::Guild,
+        Self::Members,
+        Self::GuildStorageTab,
+        Self::GuildBuffsTab,
+        Self::Notice,
+        Self::GuildFunds,
+        Self::Rank,
+        Self::Online,
+        Self::Offline,
+        Self::MapColumn,
+        Self::Promote,
+        Self::Demote,
+        Self::Kick,
+        Self::Save,
+        Self::Activate,
+        Self::Purchase,
+        Self::Deposit,
+        Self::Withdraw,
+        Self::Amount,
+        Self::NoGuild,
+        Self::GuildHint,
+        Self::Available,
+        Self::Obtained,
+        Self::Expired,
+        Self::MinutesLeft,
+        Self::NoQuests,
+        Self::Points,
+        Self::Unread,
+        Self::Collected,
+        Self::NoBody,
+        Self::Upgrade,
+        Self::NoSubjectField,
+        Self::Trade,
+        Self::TradeRequestSuffix,
+        Self::TradeYourSide,
+        Self::TradePartnerGold,
+        Self::TradeReady,
+        Self::TradeConfirm,
+        Self::TradeCancel,
+        Self::TradeGoldAdd,
+        Self::TradeHint,
+        Self::NotReady,
+        Self::Ready,
+        Self::TradePartnerState,
+        Self::Accept,
+        Self::Reject,
+        Self::Group,
+        Self::GroupInviteSuffix,
+        Self::Invite,
+        Self::Leave,
+        Self::InviteName,
+        Self::GroupLeader,
+        Self::Profession,
+        Self::GroupHint,
+        Self::GroupChatHint,
+        Self::GroupAllow,
+        Self::ToggleOn,
+        Self::ToggleOff,
+        Self::NoGroup,
+        Self::Health,
+        Self::GroupKick,
+        Self::Market,
+        Self::ItemColumn,
+        Self::Consign,
+        Self::Auction,
+        Self::Search,
+        Self::Refresh,
+        Self::Seller,
+        Self::Expiry,
+        Self::Buy,
+        Self::Bid,
+        Self::BidAmount,
+        Self::ConsignPrice,
+        Self::StartingBid,
+        Self::ListItem,
+        Self::GetBack,
+        Self::SellNow,
+        Self::CollectSold,
+        Self::PrevPage,
+        Self::NextPage,
+        Self::NoListings,
+        Self::MarketHint,
+        Self::ConsignHint,
+        Self::AuctionHint,
+        Self::MarketFailGeneric,
+        Self::MarketFailDead,
+        Self::MarketFailNoDialog,
+        Self::MarketFailSold,
+        Self::MarketFailExpired,
+        Self::MarketFailNoSpace,
+        Self::MarketFailOwnItem,
+        Self::MarketFailLowGold,
+        Self::MarketFailTooFar,
+        Self::MarketFailCannotGainGold,
+        Self::MarketFailBidTooLow,
+        Self::MarketFailAuctionEnded,
+        Self::ConsignSuccess,
+        Self::ConsignFailed,
+        Self::NoSelectedItem,
+        Self::ConsignSelected,
+        Self::GameShop,
+        Self::Credit,
+        Self::Stock,
+        Self::OnSale,
+        Self::Quantity,
+        Self::GameShopHint,
+        Self::GameShopPickHint,
+        Self::NoGameShopItems,
+        Self::Category,
+        Self::Settings,
+        Self::Audio,
+        Self::Music,
+        Self::Sound,
+        Self::Volume,
+        Self::Language,
+        Self::Display,
+        Self::Resolution,
+        Self::UiScale,
+        Self::KeyBindings,
+        Self::SettingsHint,
+        Self::Login,
+        Self::Server,
+        Self::ServerAddress,
+        Self::Account,
+        Self::Password,
+        Self::Connect,
+        Self::Retry,
+        Self::SelectCharacter,
+        Self::CreateCharacter,
+        Self::EnterGame,
+        Self::CharacterName,
+        Self::Gender,
+        Self::Male,
+        Self::Female,
+        Self::NoCharacters,
+        Self::ConnectionFailed,
+        Self::LastAccess,
+        Self::Never,
+        Self::Quit,
+        Self::LoginHint,
+        Self::CharSelectHint,
+        Self::NoEquipmentSummary,
+        Self::BackToServer,
+        Self::Bigmap,
+        Self::KeyMove,
+        Self::KeyRun,
+        Self::KeyAttack,
+        Self::KeyPickUp,
+        Self::KeyChat,
+        Self::KeyEscape,
+        Self::WindowTitleMap,
+        Self::WindowTitleLogin,
+        Self::WindowTitleLive,
+        Self::StatusVerifying,
+        Self::StatusLoggingIn,
+        Self::StatusSelectingCharacter,
+        Self::StatusStartingGame,
+        Self::StatusInGame,
+        Self::StatusFailed,
+        Self::NetworkThreadExited,
+        Self::LoginThreadExited,
+        Self::SystemGoldGained,
+        Self::SystemItemGained,
+        Self::SystemQuestShared,
+        Self::SystemGuildGoldDeposit,
+        Self::SystemGuildGoldWithdraw,
+        Self::SystemTradeComplete,
+        Self::SystemTradeCancelled,
+        Self::SystemGroupLeft,
+        Self::SystemGroupJoined,
+        Self::SystemGroupMemberLeft,
+        Self::SystemGuildMemberOnline,
+        Self::SystemGuildMemberJoined,
+        Self::SystemGuildMemberKicked,
+        Self::SystemGuildMemberLeft,
+        Self::QuestFallback,
+    ];
 }
 
 impl Label {
@@ -831,7 +1163,7 @@ impl Label {
             (Self::AuctionHint, Language::ZhCn) => "在背包选中物品、填起拍价后上架",
             (Self::AuctionHint, Language::En) => "Select a bag item, set a starting bid, then list",
             (Self::MarketFailGeneric, Language::ZhCn) => "操作失败",
-            (Self::MarketFailGeneric, Language::En) => "Failed",
+            (Self::MarketFailGeneric | Self::StatusFailed, Language::En) => "Failed",
             (Self::MarketFailDead, Language::ZhCn) => "角色已死亡",
             (Self::MarketFailDead, Language::En) => "You are dead",
             (Self::MarketFailNoDialog, Language::ZhCn) => "不在市场 NPC 旁",
@@ -873,8 +1205,10 @@ impl Label {
             (Self::Quantity, Language::En) => "Qty",
             (Self::GameShopHint, Language::ZhCn) => "选中商品后点购买 · 元宝结算 · Esc 关闭",
             (Self::GameShopHint, Language::En) => {
-                "Select an item then Buy · paid in credits · Esc closes"
+                "Select an item then Buy · paid in Credits · Esc closes"
             }
+            (Self::GameShopPickHint, Language::ZhCn) => "选中商品后点购买",
+            (Self::GameShopPickHint, Language::En) => "Select an item, then Buy",
             (Self::NoGameShopItems, Language::ZhCn) => "商城暂无商品",
             (Self::NoGameShopItems, Language::En) => "The shop has no items",
             (Self::Category, Language::ZhCn) => "分类",
@@ -917,7 +1251,7 @@ impl Label {
             (Self::Connect, Language::En) => "Connect",
             (Self::Retry, Language::ZhCn) => "重试",
             (Self::Retry, Language::En) => "Retry",
-            (Self::SelectCharacter, Language::ZhCn) => "选择角色",
+            (Self::SelectCharacter | Self::StatusSelectingCharacter, Language::ZhCn) => "选择角色",
             (Self::SelectCharacter, Language::En) => "Select character",
             (Self::CreateCharacter, Language::ZhCn) => "创建角色",
             (Self::CreateCharacter, Language::En) => "Create character",
@@ -964,6 +1298,56 @@ impl Label {
             (Self::KeyChat, Language::En) => "Chat input",
             (Self::KeyEscape, Language::ZhCn) => "关闭面板",
             (Self::KeyEscape, Language::En) => "Close panels",
+            (Self::WindowTitleMap, Language::ZhCn) => "传奇-Next · 地图",
+            (Self::WindowTitleMap, Language::En) => "Legend of Mir Next · Map",
+            (Self::WindowTitleLogin, Language::ZhCn) => "传奇-Next · 登录",
+            (Self::WindowTitleLogin, Language::En) => "Legend of Mir Next · Login",
+            (Self::WindowTitleLive, Language::ZhCn) => "传奇-Next · 联机",
+            (Self::WindowTitleLive, Language::En) => "Legend of Mir Next · Online",
+            (Self::StatusVerifying, Language::ZhCn) => "版本校验",
+            (Self::StatusVerifying, Language::En) => "Verifying",
+            (Self::StatusLoggingIn, Language::ZhCn) => "登录中",
+            (Self::StatusLoggingIn, Language::En) => "Logging in",
+            (Self::StatusSelectingCharacter, Language::En) => "Selecting character",
+            (Self::StatusStartingGame, Language::ZhCn) => "进入世界",
+            (Self::StatusStartingGame, Language::En) => "Entering world",
+            (Self::StatusInGame, Language::ZhCn) => "已进入世界",
+            (Self::StatusInGame, Language::En) => "In game",
+            (Self::StatusFailed, Language::ZhCn) => "失败",
+            (Self::NetworkThreadExited, Language::ZhCn) => "网络线程已退出",
+            (Self::NetworkThreadExited, Language::En) => "Network thread exited",
+            (Self::LoginThreadExited, Language::ZhCn) => "登录线程已退出",
+            (Self::LoginThreadExited, Language::En) => "Login thread exited",
+            (Self::SystemGoldGained, Language::ZhCn) => "获得金币 {}",
+            (Self::SystemGoldGained, Language::En) => "Gained {} gold",
+            (Self::SystemItemGained, Language::ZhCn) => "获得 {} ×{}",
+            (Self::SystemItemGained, Language::En) => "Gained {} ×{}",
+            (Self::SystemQuestShared, Language::ZhCn) => "{} 分享了任务：{}",
+            (Self::SystemQuestShared, Language::En) => "{} shared a quest: {}",
+            (Self::SystemGuildGoldDeposit, Language::ZhCn) => "{} 向行会捐献 {} 金币",
+            (Self::SystemGuildGoldDeposit, Language::En) => "{} donated {} gold to the guild",
+            (Self::SystemGuildGoldWithdraw, Language::ZhCn) => "{} 从行会取出 {} 金币",
+            (Self::SystemGuildGoldWithdraw, Language::En) => "{} withdrew {} gold from the guild",
+            (Self::SystemTradeComplete, Language::ZhCn) => "交易完成。",
+            (Self::SystemTradeComplete, Language::En) => "Trade complete.",
+            (Self::SystemTradeCancelled, Language::ZhCn) => "交易已取消。",
+            (Self::SystemTradeCancelled, Language::En) => "Trade cancelled.",
+            (Self::SystemGroupLeft, Language::ZhCn) => "你已离开队伍。",
+            (Self::SystemGroupLeft, Language::En) => "You left the group.",
+            (Self::SystemGroupJoined, Language::ZhCn) => "{} 加入了队伍。",
+            (Self::SystemGroupJoined, Language::En) => "{} joined the group.",
+            (Self::SystemGroupMemberLeft, Language::ZhCn) => "{} 退出了队伍。",
+            (Self::SystemGroupMemberLeft, Language::En) => "{} left the group.",
+            (Self::SystemGuildMemberOnline, Language::ZhCn) => "{} 上线了",
+            (Self::SystemGuildMemberOnline, Language::En) => "{} is online",
+            (Self::SystemGuildMemberJoined, Language::ZhCn) => "{} 加入了行会",
+            (Self::SystemGuildMemberJoined, Language::En) => "{} joined the guild",
+            (Self::SystemGuildMemberKicked, Language::ZhCn) => "{} 被移出行会",
+            (Self::SystemGuildMemberKicked, Language::En) => "{} was removed from the guild",
+            (Self::SystemGuildMemberLeft, Language::ZhCn) => "{} 离开了行会",
+            (Self::SystemGuildMemberLeft, Language::En) => "{} left the guild",
+            (Self::QuestFallback, Language::ZhCn) => "任务 #{}",
+            (Self::QuestFallback, Language::En) => "Quest #{}",
         }
     }
 
@@ -1211,6 +1595,124 @@ pub fn unknown_item(language: Language, item_index: i32) -> String {
     format!("{} #{item_index}", Label::UnknownItem.text(language))
 }
 
+/// 把 `Label` 模板里的 `{}` 依次替换成参数（编译期 `&'static str` 只能存模板）。
+#[must_use]
+pub fn fill_template(template: &str, args: &[&str]) -> String {
+    let mut out = template.to_owned();
+    for arg in args {
+        let Some(index) = out.find("{}") else {
+            break;
+        };
+        out.replace_range(index..index + 2, arg);
+    }
+    out
+}
+
+/// 客户端合成的系统聊天消息 → 玩家语言文案。
+///
+/// 服务端下发的聊天（`S.Chat` / `S.ObjectChat` / `S.MarketSuccess`）已经由服务端
+/// 按玩家语言翻译好，客户端**原样显示**；这里只处理客户端自己拼的消息（拾取金币/
+/// 交易/组队/行会上下线等），模板在 [`Label`] 里中英各一份。
+#[must_use]
+pub fn system_chat_text(message: &SystemChat, language: Language) -> String {
+    match message {
+        SystemChat::GoldGained { gold } => fill_template(
+            Label::SystemGoldGained.text(language),
+            &[&format_number(u64::from(*gold))],
+        ),
+        SystemChat::ItemGained {
+            name,
+            item_index,
+            count,
+        } => {
+            let name = name
+                .clone()
+                .unwrap_or_else(|| unknown_item(language, *item_index));
+            fill_template(
+                Label::SystemItemGained.text(language),
+                &[&name, &count.to_string()],
+            )
+        }
+        SystemChat::QuestShared {
+            sharer,
+            name,
+            quest_index,
+        } => {
+            let name = name.clone().unwrap_or_else(|| {
+                fill_template(
+                    Label::QuestFallback.text(language),
+                    &[&quest_index.to_string()],
+                )
+            });
+            fill_template(Label::SystemQuestShared.text(language), &[sharer, &name])
+        }
+        SystemChat::GuildGold {
+            name,
+            amount,
+            deposit,
+        } => {
+            let label = if *deposit {
+                Label::SystemGuildGoldDeposit
+            } else {
+                Label::SystemGuildGoldWithdraw
+            };
+            fill_template(
+                label.text(language),
+                &[name, &format_number(u64::from(*amount))],
+            )
+        }
+        SystemChat::TradeComplete => Label::SystemTradeComplete.text(language).to_owned(),
+        SystemChat::TradeCancelled => Label::SystemTradeCancelled.text(language).to_owned(),
+        SystemChat::GroupLeft => Label::SystemGroupLeft.text(language).to_owned(),
+        SystemChat::GroupMemberJoined { name } => {
+            fill_template(Label::SystemGroupJoined.text(language), &[name])
+        }
+        SystemChat::GroupMemberLeft { name } => {
+            fill_template(Label::SystemGroupMemberLeft.text(language), &[name])
+        }
+        SystemChat::GuildMemberOnline { name } => {
+            fill_template(Label::SystemGuildMemberOnline.text(language), &[name])
+        }
+        SystemChat::GuildMemberJoined { name } => {
+            fill_template(Label::SystemGuildMemberJoined.text(language), &[name])
+        }
+        SystemChat::GuildMemberKicked { name } => {
+            fill_template(Label::SystemGuildMemberKicked.text(language), &[name])
+        }
+        SystemChat::GuildMemberLeft { name } => {
+            fill_template(Label::SystemGuildMemberLeft.text(language), &[name])
+        }
+    }
+}
+
+/// 一条聊天记录的显示文本（服务端文本原样，客户端系统消息按语言渲染）。
+#[must_use]
+pub fn chat_line_text(line: &ChatLine, language: Language) -> String {
+    let body = match &line.system {
+        Some(message) => system_chat_text(message, language),
+        None => line.text.clone(),
+    };
+    match &line.speaker {
+        Some(speaker) => format!("[{speaker}] {body}"),
+        None => body,
+    }
+}
+
+/// 连接阶段的状态文案（HUD 在还没有自己的角色时显示）。
+#[must_use]
+pub const fn net_status_label(status: NetStatus, language: Language) -> &'static str {
+    match status {
+        NetStatus::Connecting => Label::Connecting.text(language),
+        NetStatus::Verifying => Label::StatusVerifying.text(language),
+        NetStatus::LoggingIn => Label::StatusLoggingIn.text(language),
+        NetStatus::SelectingCharacter => Label::StatusSelectingCharacter.text(language),
+        NetStatus::StartingGame => Label::StatusStartingGame.text(language),
+        NetStatus::InGame => Label::StatusInGame.text(language),
+        NetStatus::Closed => Label::Disconnected.text(language),
+        NetStatus::Failed => Label::StatusFailed.text(language),
+    }
+}
+
 /// 聊天行颜色（按频道）。
 #[must_use]
 pub const fn chat_color(kind: ChatType) -> [u8; 4] {
@@ -1295,6 +1797,22 @@ mod tests {
             "等级"
         );
         assert_ne!(grade_color(ItemGrade::Rare), grade_color(ItemGrade::None));
+    }
+
+    #[test]
+    fn every_label_has_both_languages() {
+        // `Label::ALL` 是手工维护的清单：数量对不上说明加了变体没同步。
+        assert_eq!(Label::ALL.len(), 266, "新增 Label 后请同步 Label::ALL");
+        for label in Label::ALL {
+            let zh = label.text(Language::ZhCn);
+            let en = label.text(Language::En);
+            assert!(!zh.is_empty(), "{label:?} 缺中文");
+            assert!(!en.is_empty(), "{label:?} 缺英文");
+            assert!(
+                !en.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c)),
+                "{label:?} 英文里混进中文：{en}"
+            );
+        }
     }
 
     #[test]
@@ -1426,6 +1944,33 @@ mod tests {
             Label::ConsignFailed,
             Label::NoSelectedItem,
             Label::ConsignSelected,
+            Label::GameShopPickHint,
+            Label::WindowTitleMap,
+            Label::WindowTitleLogin,
+            Label::WindowTitleLive,
+            Label::StatusVerifying,
+            Label::StatusLoggingIn,
+            Label::StatusSelectingCharacter,
+            Label::StatusStartingGame,
+            Label::StatusInGame,
+            Label::StatusFailed,
+            Label::NetworkThreadExited,
+            Label::LoginThreadExited,
+            Label::SystemGoldGained,
+            Label::SystemItemGained,
+            Label::SystemQuestShared,
+            Label::SystemGuildGoldDeposit,
+            Label::SystemGuildGoldWithdraw,
+            Label::SystemTradeComplete,
+            Label::SystemTradeCancelled,
+            Label::SystemGroupLeft,
+            Label::SystemGroupJoined,
+            Label::SystemGroupMemberLeft,
+            Label::SystemGuildMemberOnline,
+            Label::SystemGuildMemberJoined,
+            Label::SystemGuildMemberKicked,
+            Label::SystemGuildMemberLeft,
+            Label::QuestFallback,
         ] {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);

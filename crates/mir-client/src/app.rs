@@ -418,6 +418,8 @@ fn load_world_scene(map_name: &str, map_dir: &Path, data_dir: &Path) -> MapScene
 ///
 /// `NetClient` 的错误是 `anyhow` 文本（例如「登录失败（result = 5）」、
 /// 「连接已关闭：…」），这里只做粗分类，避免在登录页暴露英文枚举。
+/// 匹配的是**内部诊断字符串**（控制台同款），不是玩家可见文案；登录页显示的
+/// 类别文案来自 [`mir_client::ui::select::error_label`]（`Label` 中英双语）。
 #[must_use]
 pub fn classify_login_error(message: &str) -> select::ConnectError {
     let lower = message.to_lowercase();
@@ -557,9 +559,15 @@ impl ClientApp {
             return;
         }
         let title = match &self.mode {
-            Mode::Live(_) => "传奇-Next · 联机",
-            Mode::Login(_) => "传奇-Next · 登录",
-            Mode::Offline => "传奇-Next · 地图",
+            Mode::Live(_) => {
+                mir_client::ui::labels::Label::WindowTitleLive.text(self.settings.language())
+            }
+            Mode::Login(_) => {
+                mir_client::ui::labels::Label::WindowTitleLogin.text(self.settings.language())
+            }
+            Mode::Offline => {
+                mir_client::ui::labels::Label::WindowTitleMap.text(self.settings.language())
+            }
         };
         // 分辨率来自设置文件（默认 800×600），启动时应用一次。
         let (width, height) = self.settings.resolution();
@@ -1118,6 +1126,11 @@ impl ClientApp {
                 Action::SetLanguage(next) => {
                     live.ui.language = next;
                     language = Some(next);
+                    // 同步服务端账号语言：协议里没有语言包，服务端提供 `/language <代码>`
+                    // 聊天扩展命令（`mir-server/src/session.rs` 的 `on_chat`），会写回
+                    // `accounts.language` 并同步世界层，之后的系统聊天/邮件/市场回执
+                    // 都按新语言下发。不发这条命令的话，界面切了英文但服务端提示仍是中文。
+                    live.send(NetCommand::Chat(format!("/language {}", next.code())));
                 }
                 Action::SetResolution(width, height) => {
                     if let Some(window) = &self.window {
@@ -1379,12 +1392,12 @@ impl ClientApp {
         };
         let (sender, receiver) = mpsc::channel();
         login.pending = Some(receiver);
+        let exited = mir_client::ui::labels::Label::NetworkThreadExited
+            .text(self.settings.language())
+            .to_owned();
         std::thread::spawn(move || {
             if !client.send(NetCommand::SelectCharacter { index }) {
-                let _ = sender.send(LoginOutcome::Failed(
-                    select::ConnectError::Other,
-                    "网络线程已退出".to_owned(),
-                ));
+                let _ = sender.send(LoginOutcome::Failed(select::ConnectError::Other, exited));
                 return;
             }
             match client.wait_until_in_game(Duration::from_secs(20)) {
@@ -1418,16 +1431,16 @@ impl ClientApp {
         };
         let (sender, receiver) = mpsc::channel();
         login.pending = Some(receiver);
+        let exited = mir_client::ui::labels::Label::NetworkThreadExited
+            .text(self.settings.language())
+            .to_owned();
         std::thread::spawn(move || {
             if !client.send(NetCommand::NewCharacter {
                 name: name.clone(),
                 class,
                 gender,
             }) {
-                let _ = sender.send(LoginOutcome::Failed(
-                    select::ConnectError::Other,
-                    "网络线程已退出".to_owned(),
-                ));
+                let _ = sender.send(LoginOutcome::Failed(select::ConnectError::Other, exited));
                 return;
             }
             let wanted = name.clone();
@@ -1475,7 +1488,9 @@ impl ClientApp {
                 Err(mpsc::TryRecvError::Empty) => None,
                 Err(mpsc::TryRecvError::Disconnected) => Some(LoginOutcome::Failed(
                     select::ConnectError::Other,
-                    "登录线程已退出".to_owned(),
+                    mir_client::ui::labels::Label::LoginThreadExited
+                        .text(self.settings.language())
+                        .to_owned(),
                 )),
             }
         };
@@ -1585,7 +1600,9 @@ impl ClientApp {
             last_hover_cell: None,
         }));
         if let Some(window) = &self.window {
-            window.set_title("传奇-Next · 联机");
+            window.set_title(
+                mir_client::ui::labels::Label::WindowTitleLive.text(self.settings.language()),
+            );
         }
     }
 
@@ -2050,7 +2067,15 @@ impl ClientApp {
         let position = snapshot.self_player.as_ref().map(|player| player.position);
         let status = snapshot.status;
         let ready = snapshot.is_ready();
-        let new_chat = snapshot.chat.last().map(mir_client::net::ChatLine::display);
+        let language = match &self.mode {
+            Mode::Live(live) => live.ui.language,
+            _ => self.settings.language(),
+        };
+        // 聊天日志：服务端文本原样显示，客户端合成的系统消息按玩家语言渲染。
+        let new_chat = snapshot
+            .chat
+            .last()
+            .map(|line| mir_client::ui::labels::chat_line_text(line, language));
         let now = now_millis_u64();
         let mut market_actions = Vec::new();
         if let Mode::Live(live) = &mut self.mode {

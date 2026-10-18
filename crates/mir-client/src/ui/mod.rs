@@ -917,6 +917,9 @@ pub struct UiState {
     /// 市场是否是从 `S.NPCConsign` 打开的「纯寄售」会话（NPC 页是 `[@CONSIGN]`，
     /// 此时服务端只接受上架，不接受搜索/翻页；切到其它页签要先 `@MARKET`）。
     pub market_consign_only: bool,
+    /// 已被「切页签」清掉的提示版本：`fail_version` / `message_version` 不大于它时
+    /// 不画底部红/绿字（避免切到商城页签还残留上一页的失败提示）。
+    pub market_notice_dismissed: u64,
     /// 当前聚焦的输入框。
     pub focus: Option<FieldId>,
     /// 小地图面板是否打开（`M`）。
@@ -1039,6 +1042,7 @@ impl UiState {
             market_scroll: 0,
             market_page: 0,
             market_consign_only: false,
+            market_notice_dismissed: 0,
             focus: None,
             show_minimap: false,
             show_bigmap: false,
@@ -2238,6 +2242,25 @@ impl UiState {
         u8::try_from(requested.min(max_by_stacks).clamp(1, 99)).unwrap_or(1)
     }
 
+    /// 市场底部提示（失败原因 / 成功文案）。
+    ///
+    /// 切页签时会把 `market_notice_dismissed` 推到当时的版本号，于是上一页的提示
+    /// 不再显示（新提示的版本号会更大）。返回 `(fail, message)` 交给 [`market::draw`]。
+    #[must_use]
+    pub fn market_notice(&self, snapshot: &WorldSnapshot) -> (Option<u8>, Option<String>) {
+        let fail = if snapshot.market.fail_version > self.market_notice_dismissed {
+            snapshot.market.fail
+        } else {
+            None
+        };
+        let message = if snapshot.market.message_version > self.market_notice_dismissed {
+            snapshot.market.message.clone()
+        } else {
+            None
+        };
+        (fail, message)
+    }
+
     /// 当前页签的搜索动作（关键字取搜索框；外观区间用 Crystal `MarketSearch` 的
     /// 缺省值 0..=5000，`Shared/ClientPackets.cs:1571`）。
     fn market_search_action(&self) -> UiAction {
@@ -2277,6 +2300,11 @@ impl UiState {
             self.market_selected = None;
             self.market_page = 0;
             self.market_scroll = 0;
+            // 切页签同时清掉上一页的失败/成功提示（新提示的版本号会比这里大）。
+            self.market_notice_dismissed = snapshot
+                .market
+                .fail_version
+                .max(snapshot.market.message_version);
             // Crystal 切页签会清空价格框（`PriceTextBox.Text = null`，
             // `TrustMerchantDialog.cs:1183`、`:1233`）；商城页签复用同一个输入框当
             // 「购买数量」，默认 1 份。
@@ -3400,7 +3428,15 @@ pub fn draw(
     worldtext::draw_names(frame, snapshot, scene, center, text);
     // 鼠标下的地面物品名字（只画命中的那一件，Crystal `GameScene.cs:10619-10626`）。
     if let Some(item) = state.hover_item(snapshot, scene, text, center, screen) {
-        worldtext::draw_item_name(frame, snapshot, scene, center, text, item.position);
+        worldtext::draw_item_name(
+            frame,
+            snapshot,
+            scene,
+            center,
+            text,
+            item.position,
+            state.language,
+        );
     }
     // 光标目标：悬停实体画 1px 黄框、锁定目标画 1px 红框（Crystal 用半透明重绘，
     // `GameScene.cs:10973-10980`；这里按需求简化成方框，见 [`target`]）。
@@ -3636,6 +3672,8 @@ pub fn draw(
         let consign_item = state
             .selected_slot
             .and_then(|slot| snapshot.inventory_item(slot));
+        // 切页签时 `market_notice_dismissed` 会记下当时的版本，旧提示不再画。
+        let (fail, message) = state.market_notice(snapshot);
         let UiState { icons, .. } = state;
         let mut icon_fn = |image: u16| -> Option<Image> { load_icon(scene, icons, image) };
         market::draw(
@@ -3652,6 +3690,8 @@ pub fn draw(
             &price,
             consign_item,
             focus,
+            fail,
+            message.as_deref(),
             &mut icon_fn,
         );
     }
@@ -3974,6 +4014,7 @@ mod tests {
                 speaker: Some("甲".to_owned()),
                 text: "你好".to_owned(),
                 kind: ChatType::Normal,
+                system: None,
             }],
             ..WorldSnapshot::default()
         };

@@ -18,19 +18,20 @@
 use std::path::{Path, PathBuf};
 
 use mir_client::geom::Rect;
-use mir_client::net::{CharacterInfo, NetCommand, WorldSnapshot};
+use mir_client::net::{CharacterInfo, NetCommand, SystemChat, WorldSnapshot};
 use mir_client::settings::ClientSettings;
+use mir_client::ui::labels;
 use mir_client::ui::settings::{self as settings_ui, SettingsAction};
 use mir_client::ui::{self, UiAction, UiState, UiText, market, select};
 use mir_core::enums::{
-    ItemType, MarketItemType, MarketPanelType, MirClass, MirDirection, MirGender, Spell,
+    ChatType, ItemType, MarketItemType, MarketPanelType, MirClass, MirDirection, MirGender, Spell,
 };
 use mir_core::{DateTimeBinary, Language, Point};
 use mir_protocol::ServerPacket;
 use mir_protocol::data::{ClientAuction, ItemInfo, SelectInfo, UserItem};
 use mir_protocol::packets::server::{
-    LoginSuccess, Magic, NPCMarket, NewItemInfo, ObjectHidden, ObjectMagic, ObjectSpell,
-    UserInformation,
+    Chat, GainedGold, GainedItem, LoginSuccess, Magic, MarketFail, NPCMarket, NewItemInfo,
+    ObjectHidden, ObjectMagic, ObjectSpell, StartGame, TradeConfirm, UserInformation,
 };
 use mir_render::{Frame, MapScene, TileLibraries, Viewport};
 use mir_world::{Map, MapCell, MapVersion};
@@ -796,4 +797,218 @@ fn login_success_exposes_character_list_for_manual_select() {
     assert_eq!(snapshot.characters[1].name, "李四");
     assert_eq!(snapshot.characters[1].class, MirClass::Taoist);
     assert_eq!(snapshot.characters_version, 1);
+}
+
+// ===== 5. 第 3 轮：i18n 收口与面板打磨 =====
+
+/// 面板开关（名字 + 打开方式）：语言切换重绘测试用。
+type PanelOpener = (&'static str, fn(&mut UiState));
+
+/// 受控渲染：设置语言后整屏画一帧（世界 + UI）。
+fn frame_with_language(
+    state: &mut UiState,
+    snapshot: &WorldSnapshot,
+    text: &UiText,
+    language: Language,
+) -> Frame {
+    state.language = language;
+    let (mut scene, mut frame, center) = scene_and_frame(800, 600);
+    let entities = snapshot.entity_views(0);
+    scene.render_with_entities(&mut frame, center, &entities);
+    ui::draw(state, &mut frame, &mut scene, snapshot, text, None, center);
+    frame
+}
+
+#[test]
+fn server_chat_is_shown_as_sent_and_client_system_chat_is_localized() {
+    let mut snapshot = snapshot_with_player(0, &[]);
+    // 服务端已经按玩家语言翻译好的文本：客户端原样显示（中/英都不二次翻译）。
+    snapshot.apply_packet(&ServerPacket::Chat(Chat {
+        message: "你好，冒险者".to_owned(),
+        type_: ChatType::System,
+    }));
+    snapshot.apply_packet(&ServerPacket::Chat(Chat {
+        message: "Hello, adventurer".to_owned(),
+        type_: ChatType::System,
+    }));
+    let zh_line = &snapshot.chat[snapshot.chat.len() - 2];
+    let en_line = &snapshot.chat[snapshot.chat.len() - 1];
+    assert_eq!(
+        labels::chat_line_text(zh_line, Language::En),
+        "你好，冒险者"
+    );
+    assert_eq!(
+        labels::chat_line_text(en_line, Language::ZhCn),
+        "Hello, adventurer"
+    );
+
+    // 客户端合成的系统消息：结构化存下来，按玩家语言渲染（同一条消息可随时切换语言）。
+    snapshot.apply_packet(&ServerPacket::GainedGold(GainedGold { gold: 500 }));
+    let system = snapshot.chat.last().expect("拾取金币应当有系统消息");
+    assert!(
+        matches!(system.system, Some(SystemChat::GoldGained { gold: 500 })),
+        "客户端系统消息应当结构化保存"
+    );
+    assert!(system.text.is_empty(), "系统消息不预渲染中文");
+    assert_eq!(
+        labels::chat_line_text(system, Language::ZhCn),
+        "获得金币 500"
+    );
+    assert_eq!(
+        labels::chat_line_text(system, Language::En),
+        "Gained 500 gold"
+    );
+
+    // 说话者前缀。
+    let with_speaker = mir_client::net::ChatLine {
+        speaker: Some("甲".to_owned()),
+        text: "hi".to_owned(),
+        kind: ChatType::Normal,
+        system: None,
+    };
+    assert_eq!(
+        labels::chat_line_text(&with_speaker, Language::En),
+        "[甲] hi"
+    );
+    // 连接阶段状态文案也走 `Label`（HUD 在还没有自己的角色时显示）。
+    snapshot.apply_packet(&ServerPacket::StartGame(StartGame {
+        result: 4,
+        ..StartGame::default()
+    }));
+    assert_eq!(snapshot.status, mir_client::net::NetStatus::InGame);
+    assert_eq!(
+        labels::net_status_label(snapshot.status, Language::En),
+        "In game"
+    );
+    assert_eq!(
+        labels::net_status_label(snapshot.status, Language::ZhCn),
+        "已进入世界"
+    );
+}
+
+#[test]
+fn market_tab_switch_clears_selection_and_notice() {
+    let text = text();
+    let mut snapshot = snapshot_with_player(5_000, &[]);
+    snapshot.apply_packet(&ServerPacket::NPCMarket(NPCMarket {
+        listings: vec![auction(4242, 1000, 20, 250)],
+        pages: 1,
+        user_mode: false,
+    }));
+    snapshot.apply_packet(&ServerPacket::MarketFail(MarketFail { reason: 1 }));
+    let mut state = UiState::new(Language::ZhCn);
+    state.sync(&snapshot);
+    state.show_market = true;
+    state.market_tab = MarketPanelType::Market;
+    // 先选中一行。
+    let screen = Rect::screen(800, 600);
+    let layout = market::market_layout(
+        screen,
+        MarketPanelType::Market,
+        snapshot.market.listings.len(),
+        0,
+        0,
+    );
+    state.mouse = Point::new(layout.rows[0].x + 2, layout.rows[0].y + 2);
+    assert!(state.on_click(&snapshot, &text, screen, None).is_none());
+    assert_eq!(state.market_selected, Some(4242));
+    assert_eq!(
+        state.market_notice(&snapshot),
+        (Some(1), None),
+        "失败提示应当先显示"
+    );
+
+    // 切到商城页签：选中行、页码、上一页的失败提示都清掉。
+    state.mouse = Point::new(layout.tabs[3].x + 2, layout.tabs[3].y + 2);
+    let action = state.on_click(&snapshot, &text, screen, None);
+    assert!(matches!(
+        action,
+        Some(UiAction::MarketSearch {
+            panel: MarketPanelType::GameShop,
+            ..
+        })
+    ));
+    assert!(state.market_selected.is_none(), "切页签要清空选中行");
+    assert_eq!(state.market_page, 0);
+    assert_eq!(
+        state.market_notice(&snapshot),
+        (None, None),
+        "切页签要清掉上一页的失败提示"
+    );
+
+    // 新的失败提示（版本更大）仍然要显示。
+    snapshot.apply_packet(&ServerPacket::MarketFail(MarketFail { reason: 4 }));
+    assert_eq!(state.market_notice(&snapshot), (Some(4), None));
+}
+
+#[test]
+fn chat_panel_renders_server_and_client_text_in_both_languages() {
+    let mut snapshot = snapshot_with_player(0, &[]);
+    // 服务端文本（已按玩家语言翻译）+ 客户端系统消息混排。
+    snapshot.apply_packet(&ServerPacket::Chat(Chat {
+        message: "欢迎来到传奇-Next".to_owned(),
+        type_: ChatType::System,
+    }));
+    snapshot.apply_packet(&ServerPacket::GainedGold(GainedGold { gold: 500 }));
+    snapshot.apply_packet(&ServerPacket::GainedItem(GainedItem {
+        item: user_item(99, 1000, 2),
+    }));
+    snapshot.apply_packet(&ServerPacket::TradeConfirm(TradeConfirm {}));
+    assert!(snapshot.chat.len() >= 4, "聊天应当有 4 行");
+
+    let text = text();
+    let mut state = UiState::new(Language::ZhCn);
+    state.sync(&snapshot);
+    let zh = frame_with_language(&mut state, &snapshot, &text, Language::ZhCn);
+    let en = frame_with_language(&mut state, &snapshot, &text, Language::En);
+    let chat = mir_client::ui::hud::chat_layout(Rect::screen(800, 600));
+    assert!(
+        changed_pixels(&zh, &en, chat) > 100,
+        "同一份聊天记录切语言后应当重绘（客户端系统消息按语言渲染）"
+    );
+    zh.save_png(screenshot("chat-zh"))
+        .expect("保存中文聊天截图");
+    en.save_png(screenshot("chat-en"))
+        .expect("保存英文聊天截图");
+}
+
+#[test]
+fn language_switch_redraws_every_open_panel() {
+    let text = text();
+    let mut snapshot = snapshot_with_player(0, &[]);
+    snapshot.apply_packet(&ServerPacket::NPCMarket(NPCMarket {
+        listings: vec![auction(1, 1000, 1, 100)],
+        pages: 1,
+        user_mode: false,
+    }));
+    // 每个面板单独打开，比较中/英两帧的差异（面板内至少有一处 `Label` 文案）。
+    let panels: [PanelOpener; 13] = [
+        ("inventory", |state| state.show_inventory = true),
+        ("equipment", |state| state.show_equipment = true),
+        ("skills", |state| state.show_skills = true),
+        ("quests", |state| state.show_quests = true),
+        ("mail", |state| state.show_mail = true),
+        ("guild", |state| state.show_guild = true),
+        ("group", |state| state.show_group = true),
+        ("storage", |state| state.show_storage = true),
+        ("trade", |state| state.show_trade = true),
+        ("market", |state| state.show_market = true),
+        ("settings", |state| state.show_settings = true),
+        ("bigmap", |state| state.show_bigmap = true),
+        ("minimap", |state| state.show_minimap = true),
+    ];
+    for (name, open) in panels {
+        let mut state = UiState::new(Language::ZhCn);
+        state.sync(&snapshot);
+        // 有的面板会被 `sync` 自动打开，先统一关掉再按用例打开。
+        state.close_panels();
+        open(&mut state);
+        let zh = frame_with_language(&mut state, &snapshot, &text, Language::ZhCn);
+        let en = frame_with_language(&mut state, &snapshot, &text, Language::En);
+        let whole = Rect::screen(800, 600);
+        assert!(
+            changed_pixels(&zh, &en, whole) > 100,
+            "{name} 面板在切语言后应当重绘（文案变化）"
+        );
+    }
 }

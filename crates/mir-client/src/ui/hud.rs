@@ -158,7 +158,7 @@ pub fn draw_status(
             frame,
             layout.name.x,
             layout.name.y,
-            snapshot.status.label(),
+            labels::net_status_label(snapshot.status, language),
             SIZE_BODY,
             BODY_COLOR,
         );
@@ -416,7 +416,7 @@ pub fn draw_chat(
             frame,
             lines_area.x,
             y,
-            &line.display(),
+            &labels::chat_line_text(line, language),
             SIZE_BODY,
             color,
             lines_area,
@@ -466,6 +466,7 @@ mod tests {
                 speaker: None,
                 text: format!("第 {index} 行"),
                 kind: ChatType::Normal,
+                system: None,
             })
             .collect()
     }

@@ -14,7 +14,7 @@ use mir_render::{EntityKind, Frame, MapScene};
 use crate::net::{DamageEvent, WorldEntity, WorldSnapshot};
 use crate::ui::UiText;
 use crate::ui::hud::SIZE_SMALL;
-use crate::ui::labels::Label;
+use crate::ui::labels::{self, Label};
 
 /// 伤害数字存活时长（毫秒）。
 pub const DAMAGE_LIFETIME_MS: i64 = 1000;
@@ -239,6 +239,7 @@ pub fn draw_item_name(
     center: Point,
     text: &UiText,
     cell: Point,
+    language: Language,
 ) {
     let Some(item) = snapshot
         .entities
@@ -248,11 +249,16 @@ pub fn draw_item_name(
     else {
         return;
     };
-    if item.name.is_empty() {
+    // 金币堆的实体名是空的（金额在 `gold_piles`），按玩家语言渲染 `金币 500`。
+    let name = snapshot.gold_piles.get(&item.object_id).map_or_else(
+        || item.name.clone(),
+        |gold| labels::gold_text(language, *gold),
+    );
+    if name.is_empty() {
         return;
     }
     let (cell_x, cell_y) = scene.world_to_screen(center, cell);
-    let width = text.text_width(&item.name, SIZE_SMALL);
+    let width = text.text_width(&name, SIZE_SMALL);
     let x = cell_x + 24 - i32::try_from(width).unwrap_or(0) / 2;
     let y = cell_y + ITEM_NAME_OFFSET_Y;
     if x + i32::try_from(width).unwrap_or(0) < 0
@@ -267,7 +273,7 @@ pub fn draw_item_name(
         frame,
         x,
         y,
-        &item.name,
+        &name,
         SIZE_SMALL,
         ITEM_NAME_COLOR,
         [0, 0, 0, 220],

@@ -179,7 +179,12 @@ pub fn price_text(price: u32, language: Language) -> String {
 #[must_use]
 pub fn row_text(entry: &crate::net::ShopEntry, language: Language) -> String {
     use std::fmt::Write as _;
-    let mut text = entry.name.clone();
+    // 模板缺失时 `name` 是空的：按语言渲染占位（服务端不发模板才走到这里）。
+    let mut text = if entry.name.is_empty() {
+        labels::unknown_item(language, entry.item_index)
+    } else {
+        entry.name.clone()
+    };
     if entry.count > 1 {
         let _ = write!(text, " ×{}", entry.count);
     }
@@ -260,7 +265,11 @@ pub fn draw(
             frame.blit(&image, icon_x, icon_y);
         }
         let name_area = Rect::new(row.x + 30, row.y, row.width.saturating_sub(114), ROW_HEIGHT);
-        let mut label = entry.name.clone();
+        let mut label = if entry.name.is_empty() {
+            labels::unknown_item(language, entry.item_index)
+        } else {
+            entry.name.clone()
+        };
         if entry.count > 1 {
             use std::fmt::Write as _;
             let _ = write!(label, " ×{}", entry.count);

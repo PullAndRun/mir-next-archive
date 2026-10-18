@@ -1067,15 +1067,94 @@ impl WorldEntity {
     }
 }
 
+/// 客户端自己合成的系统聊天消息（服务端不下发这些文案）。
+///
+/// 这些事件以前直接拼中文塞进 [`ChatLine::text`]，切语言后历史消息不会变；
+/// 第 3 轮改成结构化消息，由 `ui::labels::system_chat_text` 按玩家语言渲染
+/// （文案模板在 `ui/labels.rs` 的 `Label` 里中英各一份）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SystemChat {
+    /// 获得金币（`S.GainedGold`）。
+    GoldGained {
+        /// 数量。
+        gold: u32,
+    },
+    /// 获得物品（`S.GainedItem`）。
+    ItemGained {
+        /// 物品名（模板缺失时 `None`，渲染成「未知物品 #n」）。
+        name: Option<String>,
+        /// 模板编号（名字缺失时的占位用）。
+        item_index: i32,
+        /// 数量。
+        count: u16,
+    },
+    /// 分享任务（`S.ShareQuest`）。
+    QuestShared {
+        /// 分享者。
+        sharer: String,
+        /// 任务名（定义缺失时 `None`）。
+        name: Option<String>,
+        /// 任务编号（名字缺失时的占位用）。
+        quest_index: i32,
+    },
+    /// 行会资金变动（`S.GuildStorageGoldChange`）。
+    GuildGold {
+        /// 操作者名字。
+        name: String,
+        /// 金额。
+        amount: u32,
+        /// `true` = 捐献，`false` = 取出。
+        deposit: bool,
+    },
+    /// 交易完成（`S.TradeConfirm`）。
+    TradeComplete,
+    /// 交易已取消（`S.TradeCancel`）。
+    TradeCancelled,
+    /// 自己离开队伍（`S.SwitchGroup` / `S.DeleteGroup`）。
+    GroupLeft,
+    /// 队员加入（`S.AddMember`）。
+    GroupMemberJoined {
+        /// 队员名字。
+        name: String,
+    },
+    /// 队员退出（`S.DeleteMember`）。
+    GroupMemberLeft {
+        /// 队员名字。
+        name: String,
+    },
+    /// 行会成员上线（`S.GuildMemberChange{status=1}`）。
+    GuildMemberOnline {
+        /// 成员名字。
+        name: String,
+    },
+    /// 行会新成员（`S.GuildMemberChange{status=2}`）。
+    GuildMemberJoined {
+        /// 成员名字。
+        name: String,
+    },
+    /// 行会成员被移出（`S.GuildMemberChange{status=3}`）。
+    GuildMemberKicked {
+        /// 成员名字。
+        name: String,
+    },
+    /// 行会成员离开（`S.GuildMemberChange{status=4}`）。
+    GuildMemberLeft {
+        /// 成员名字。
+        name: String,
+    },
+}
+
 /// 一条聊天记录。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatLine {
     /// 说话者；`None` 表示系统消息。
     pub speaker: Option<String>,
-    /// 内容。
+    /// 服务端下发的文本（已按键为玩家语言翻译；客户端系统消息为空）。
     pub text: String,
     /// 频道。
     pub kind: ChatType,
+    /// 客户端合成的系统消息；`None` 表示 `text` 直接用。
+    pub system: Option<SystemChat>,
 }
 
 impl ChatLine {
@@ -2293,6 +2372,9 @@ pub struct WorldSnapshot {
     pub characters: Vec<CharacterInfo>,
     /// 角色列表每次变化 +1（UI 据此刷新选角页）。
     pub characters_version: u64,
+    /// 地面金币堆的对象编号 → 金额（`S.ObjectGold`）。金币堆名字按玩家语言渲染
+    /// （`ui::worldtext`），所以不把中文写进实体名字。
+    pub gold_piles: BTreeMap<u32, u32>,
     /// 收到过多少页 NPC 对话（版本号来源）。
     pub npc_dialog_version: u64,
     /// 收到过多少次商店货架（版本号来源）。
@@ -2353,6 +2435,7 @@ impl Default for WorldSnapshot {
             market: MarketView::default(),
             characters: Vec::new(),
             characters_version: 0,
+            gold_piles: BTreeMap::new(),
             npc_dialog_version: 0,
             npc_goods_version: 0,
             packet_counts: BTreeMap::new(),
@@ -3957,15 +4040,18 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 WorldEntity::new(
                     gold.object_id,
                     EntityKind::Item,
-                    format!("金币 {}", gold.gold),
+                    String::new(),
                     gold.location,
                     MirDirection::Down,
                     image,
                 ),
             );
+            // 名字由 UI 按语言渲染（`ui::worldtext`），这里只记金额。
+            snapshot.gold_piles.insert(gold.object_id, gold.gold);
         }
         ServerPacket::ObjectRemove(remove) => {
             snapshot.entities.remove(&remove.object_id);
+            snapshot.gold_piles.remove(&remove.object_id);
         }
         ServerPacket::ObjectTurn(turn) => {
             update_entity(snapshot, turn.object_id, |entity| {
@@ -4250,16 +4336,20 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             // 拾取音：Crystal 只有宠物拾取音（`MonsterObject.cs:4266` 的 `PetPickup`），
             // 简化：玩家捡东西也用它。
             snapshot.push_local_sound(SoundId::Pickup, Spell::None);
-            let name = snapshot.item_info(item.item_index).map_or_else(
-                || format!("物品 #{}", item.item_index),
-                |info| info.name.clone(),
-            );
+            let name = snapshot
+                .item_info(item.item_index)
+                .map(|info| info.name.clone());
             push_chat(
                 snapshot,
                 ChatLine {
                     speaker: None,
-                    text: format!("获得 {name} ×{}", item.count),
+                    text: String::new(),
                     kind: ChatType::System,
+                    system: Some(SystemChat::ItemGained {
+                        name,
+                        item_index: item.item_index,
+                        count: item.count,
+                    }),
                 },
             );
         }
@@ -4276,8 +4366,9 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 snapshot,
                 ChatLine {
                     speaker: None,
-                    text: format!("获得金币 {}", gained.gold),
+                    text: String::new(),
                     kind: ChatType::System,
+                    system: Some(SystemChat::GoldGained { gold: gained.gold }),
                 },
             );
         }
@@ -4309,6 +4400,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                     speaker: None,
                     text: chat.message.clone(),
                     kind: chat.type_,
+                    system: None,
                 },
             );
         }
@@ -4328,6 +4420,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                     speaker,
                     text: chat.text.clone(),
                     kind: chat.type_,
+                    system: None,
                 },
             );
         }
@@ -4374,10 +4467,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                     ShopEntry {
                         unique_id: item.unique_id,
                         item_index: item.item_index,
-                        name: info.map_or_else(
-                            || format!("物品 #{}", item.item_index),
-                            |info| info.name.clone(),
-                        ),
+                        name: info.map_or_else(String::new, |info| info.name.clone()),
                         image: info.map_or(0, |info| info.image),
                         price: info.map_or(0, |info| info.price),
                         count: item.count,
@@ -4479,6 +4569,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                     speaker: None,
                     text: success.message.clone(),
                     kind: ChatType::System,
+                    system: None,
                 },
             );
         }
@@ -4506,16 +4597,21 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 .clone_from(&complete.completed_quests);
         }
         ServerPacket::ShareQuest(share) => {
-            let name = snapshot.quest_infos.get(&share.quest_index).map_or_else(
-                || format!("任务 #{}", share.quest_index),
-                |info| info.name.clone(),
-            );
+            let name = snapshot
+                .quest_infos
+                .get(&share.quest_index)
+                .map(|info| info.name.clone());
             push_chat(
                 snapshot,
                 ChatLine {
                     speaker: None,
-                    text: format!("{} 分享了任务：{name}", share.sharer_name),
+                    text: String::new(),
                     kind: ChatType::System,
+                    system: Some(SystemChat::QuestShared {
+                        sharer: share.sharer_name.clone(),
+                        name,
+                        quest_index: share.quest_index,
+                    }),
                 },
             );
         }
@@ -4600,18 +4696,27 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             }
             // 行会频道提示：0 = 捐献、1 = 取出；2（买增益）/3（退还）不提示
             // （Crystal `GameScene.cs:5910-5931` 同样只对 0/1 发聊天）。
-            let text = match gold.type_ {
-                0 => Some(format!("{} 向行会捐献 {} 金币", gold.name, gold.amount)),
-                1 => Some(format!("{} 从行会取出 {} 金币", gold.name, gold.amount)),
+            let message = match gold.type_ {
+                0 => Some(SystemChat::GuildGold {
+                    name: gold.name.clone(),
+                    amount: gold.amount,
+                    deposit: true,
+                }),
+                1 => Some(SystemChat::GuildGold {
+                    name: gold.name.clone(),
+                    amount: gold.amount,
+                    deposit: false,
+                }),
                 _ => None,
             };
-            if let Some(text) = text {
+            if let Some(system) = message {
                 push_chat(
                     snapshot,
                     ChatLine {
                         speaker: None,
-                        text,
+                        text: String::new(),
                         kind: ChatType::Guild,
+                        system: Some(system),
                     },
                 );
             }
@@ -4680,8 +4785,9 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 snapshot,
                 ChatLine {
                     speaker: None,
-                    text: "交易完成。".to_owned(),
+                    text: String::new(),
                     kind: ChatType::System,
+                    system: Some(SystemChat::TradeComplete),
                 },
             );
         }
@@ -4703,8 +4809,9 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                     snapshot,
                     ChatLine {
                         speaker: None,
-                        text: "交易已取消。".to_owned(),
+                        text: String::new(),
                         kind: ChatType::System,
+                        system: Some(SystemChat::TradeCancelled),
                     },
                 );
             }
@@ -4718,8 +4825,9 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                     snapshot,
                     ChatLine {
                         speaker: None,
-                        text: "你已离开队伍。".to_owned(),
+                        text: String::new(),
                         kind: ChatType::Group,
+                        system: Some(SystemChat::GroupLeft),
                     },
                 );
             }
@@ -4731,8 +4839,11 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 snapshot,
                 ChatLine {
                     speaker: None,
-                    text: format!("{} 加入了队伍。", member.name),
+                    text: String::new(),
                     kind: ChatType::Group,
+                    system: Some(SystemChat::GroupMemberJoined {
+                        name: member.name.clone(),
+                    }),
                 },
             );
         }
@@ -4742,8 +4853,11 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 snapshot,
                 ChatLine {
                     speaker: None,
-                    text: format!("{} 退出了队伍。", member.name),
+                    text: String::new(),
                     kind: ChatType::Group,
+                    system: Some(SystemChat::GroupMemberLeft {
+                        name: member.name.clone(),
+                    }),
                 },
             );
         }
@@ -4753,8 +4867,9 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 snapshot,
                 ChatLine {
                     speaker: None,
-                    text: "你已离开队伍。".to_owned(),
+                    text: String::new(),
                     kind: ChatType::Group,
+                    system: Some(SystemChat::GroupLeft),
                 },
             );
         }
@@ -5079,8 +5194,9 @@ fn apply_guild_member_change(snapshot: &mut WorldSnapshot, change: &GuildMemberC
                     snapshot,
                     ChatLine {
                         speaker: None,
-                        text: format!("{name} 上线了"),
+                        text: String::new(),
                         kind: ChatType::Guild,
+                        system: Some(SystemChat::GuildMemberOnline { name: name.clone() }),
                     },
                 );
             }
@@ -5090,8 +5206,9 @@ fn apply_guild_member_change(snapshot: &mut WorldSnapshot, change: &GuildMemberC
                 snapshot,
                 ChatLine {
                     speaker: None,
-                    text: format!("{name} 加入了行会"),
+                    text: String::new(),
                     kind: ChatType::Guild,
+                    system: Some(SystemChat::GuildMemberJoined { name: name.clone() }),
                 },
             );
             // 新成员可能已经在别的职位里（重连/重复包）：先摘出来再放到 `rank_index`。
@@ -5115,18 +5232,19 @@ fn apply_guild_member_change(snapshot: &mut WorldSnapshot, change: &GuildMemberC
             }
         }
         3 | 4 => {
-            let verb = if change.status == 3 {
-                "被移出行会"
+            let system = if change.status == 3 {
+                SystemChat::GuildMemberKicked { name: name.clone() }
             } else {
-                "离开了行会"
+                SystemChat::GuildMemberLeft { name: name.clone() }
             };
             if take_guild_member(snapshot, &name).is_some() {
                 push_chat(
                     snapshot,
                     ChatLine {
                         speaker: None,
-                        text: format!("{name} {verb}"),
+                        text: String::new(),
                         kind: ChatType::Guild,
+                        system: Some(system),
                     },
                 );
                 if let Some(guild) = &mut snapshot.guild {
@@ -5680,6 +5798,7 @@ mod tests {
                     speaker: None,
                     text: format!("第 {index} 条"),
                     kind: ChatType::System,
+                    system: None,
                 },
             );
         }
@@ -5689,6 +5808,7 @@ mod tests {
             speaker: Some("甲".to_owned()),
             text: "你好".to_owned(),
             kind: ChatType::Normal,
+            system: None,
         };
         assert_eq!(line.display(), "[甲] 你好");
     }
@@ -6285,12 +6405,16 @@ mod tests {
                 sharer_name: "队长".to_owned(),
             },
         ));
+        let line = snapshot.chat.last().expect("分享任务应当有系统消息");
         assert!(
-            snapshot
-                .chat
-                .last()
-                .is_some_and(|line| line.text.contains("猎鹿") && line.text.contains("队长"))
+            matches!(
+                &line.system,
+                Some(SystemChat::QuestShared { sharer, .. }) if sharer == "队长"
+            ),
+            "分享任务要存成结构化系统消息"
         );
+        let rendered = crate::ui::labels::chat_line_text(line, mir_core::Language::ZhCn);
+        assert!(rendered.contains("猎鹿") && rendered.contains("队长"));
 
         snapshot.apply_packet(&quest_change(5, &[], false, QuestState::Remove));
         assert!(snapshot.quests.is_empty(), "Remove 应移除进行中任务");
@@ -6363,12 +6487,10 @@ mod tests {
         // 1 = 上线。
         snapshot.apply_packet(&member_change("小明", 1, 1, Vec::new()));
         assert!(snapshot.guild_members()[1].1.online);
-        assert!(
-            snapshot
-                .chat
-                .iter()
-                .any(|line| line.text.contains("小明 上线了"))
-        );
+        assert!(snapshot.chat.iter().any(|line| matches!(
+            &line.system,
+            Some(SystemChat::GuildMemberOnline { name }) if name == "小明"
+        )));
 
         // 5 = 被挪到 0 号职位。
         snapshot.apply_packet(&member_change("小明", 5, 0, Vec::new()));

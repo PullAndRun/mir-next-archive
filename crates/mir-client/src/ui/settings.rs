@@ -55,7 +55,8 @@ pub const SCALES: [u32; 3] = [1, 2, 3];
 /// `N` 邮件、`G` 行会、`P` 组队、`Y` 交易、`O` 设置、`Esc` 关面板、`F10` 退出）。
 pub const KEY_BINDINGS: [(&str, Label); 18] = [
     ("WASD / \u{2190}\u{2191}\u{2193}\u{2192}", Label::KeyMove),
-    ("Shift + \u{79fb}\u{52a8}", Label::KeyRun),
+    // 键名只用 ASCII（"Shift + WASD"），动作文案走 `Label::KeyRun`。
+    ("Shift + WASD", Label::KeyRun),
     ("Space", Label::KeyAttack),
     ("Tab", Label::KeyPickUp),
     ("T", Label::KeyChat),

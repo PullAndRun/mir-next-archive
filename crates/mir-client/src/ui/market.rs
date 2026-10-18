@@ -410,9 +410,12 @@ pub fn primary_label(panel: MarketPanelType, listing: Option<&MarketListing>) ->
     if is_user_mode(panel) {
         return Label::GetBack;
     }
+    // 商城页签固定「购买」（元宝结算），与是否选中条目无关。
+    if panel == MarketPanelType::GameShop {
+        return Label::Purchase;
+    }
     match listing.map(|listing| listing.item_type) {
         Some(MarketItemType::Auction) => Label::Bid,
-        // 商城用「购买」（Crystal `GameShopButton`），元宝结算。
         Some(MarketItemType::GameShop) => Label::Purchase,
         _ => Label::Buy,
     }
@@ -554,7 +557,8 @@ pub fn stock_text(listing: &MarketListing, language: Language) -> String {
 /// 画市场面板。
 ///
 /// 参数覆盖「布局 + 快照 + 三个输入框 + 选中/悬停 + 图标」，与 `trade::draw` 一样
-/// 拆结构体只会增加样板。
+/// 拆结构体只会增加样板。`fail` / `message` 由调用方按「是否已被页签切换清掉」
+/// 算好（见 `UiState::market_notice_dismissed`），所以切页签不会残留上一页的提示。
 #[allow(clippy::too_many_arguments)]
 pub fn draw(
     frame: &mut Frame,
@@ -570,6 +574,8 @@ pub fn draw(
     price: &TextField,
     consign_item: Option<&InventoryItem>,
     focus: Option<crate::ui::FieldId>,
+    fail: Option<u8>,
+    message: Option<&str>,
     icon: &mut dyn FnMut(u16) -> Option<Image>,
 ) {
     let text = context.text;
@@ -918,7 +924,7 @@ pub fn draw(
             frame,
             layout.primary.right() + 8,
             layout.action.y + 3,
-            Label::GameShopHint.text(language),
+            Label::GameShopPickHint.text(language),
             SIZE_SMALL,
             MUTED_COLOR,
             Rect::new(
@@ -962,10 +968,10 @@ pub fn draw(
     }
 
     // 底部：失败 > 成功 > 提示。
-    let (footer_text, footer_color) = if let Some(reason) = snapshot.market.fail {
+    let (footer_text, footer_color) = if let Some(reason) = fail {
         (fail_label(reason).text(language).to_owned(), FAIL_COLOR)
-    } else if let Some(message) = &snapshot.market.message {
-        (message.clone(), SUCCESS_COLOR)
+    } else if let Some(message) = message {
+        (message.to_owned(), SUCCESS_COLOR)
     } else if tab == MarketPanelType::GameShop {
         (Label::GameShopHint.text(language).to_owned(), MUTED_COLOR)
     } else if has_sell_form(tab) {
@@ -1055,6 +1061,10 @@ mod tests {
         };
         assert_eq!(price_text(&listing, Language::ZhCn), "1,200 金币");
         assert_eq!(
+            primary_label(MarketPanelType::Market, Some(&listing)),
+            Label::Buy
+        );
+        assert_eq!(
             expiry_text(DateTimeBinary::from_unix_seconds(1_704_067_200)),
             "01-08 00:00"
         );
@@ -1071,6 +1081,15 @@ mod tests {
         assert_eq!(
             primary_label(MarketPanelType::Consign, Some(&auction)),
             Label::GetBack
+        );
+        // 商城页签固定「购买」（没选中条目时也是「购买」，不是「买下」）。
+        assert_eq!(
+            primary_label(MarketPanelType::GameShop, None),
+            Label::Purchase
+        );
+        assert_eq!(
+            primary_label(MarketPanelType::GameShop, Some(&auction)),
+            Label::Purchase
         );
     }
 }

@@ -273,6 +273,8 @@ mod tests {
                 looks: crate::net::PlayerLooks::default(),
                 dead: false,
                 hp_percent: None,
+                action: mir_render::animation::ActorAction::Standing,
+                action_started_ms: 0,
             },
         );
         snapshot

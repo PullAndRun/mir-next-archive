@@ -64,7 +64,8 @@
 //! * 角色的**装备分层已实现**：身体（`hum*.wzl`）、武器（`weapon*.wzl`）、头发
 //!   （`hair*.wzl`）按 Crystal `PlayerObject.Draw` 的顺序叠加（武器在朝上/朝左时画在
 //!   身体之后，朝下/朝右时画在身体之前），见 [`entities`] 模块文档；
-//!   坐骑、翅膀、光效仍未做；
+//!   **站立/走/跑/攻击/受击/死亡**的逐帧动画也已接入（[`animation`]），
+//!   坐骑、翅膀、光效、移动插值仍未做；
 //! * 实体名字文字（[`text`] 已能画中文，但实体层还没接名字绘制）。
 //! * 门的开关状态：静态帧按「门关闭」处理，不做 `DoorOffset` 的帧号调整
 //!   （`GameScene.cs:10902-10917`）；
@@ -84,12 +85,15 @@
 //!
 //! | 实体 | 文件 | 帧号 |
 //! |---|---|---|
-//! | 玩家身体 | `hum.wzl` / `hum2.wzl` / `hum3.wzl` | `block*600 + direction*8 + n` |
+//! | 玩家身体 | `hum.wzl` / `hum2.wzl` / `hum3.wzl` | `block*600 + action.start + direction*stride + n` |
 //! | 玩家武器 | `weapon.wzl` / `weapon2.wzl` / `weapon3.wzl` | 同上（与身体同步） |
 //! | 玩家头发 | `hair.wzl` / `hair2..4.wzl` | 同上（与身体同步） |
-//! | 怪物 | `mon{image/10+1}.wzl` | `(image%10)*430 + direction*8 + n` |
-//! | NPC | `npc.wzl` / `npc2..4.wzl` | `(image%100)*60` |
+//! | 怪物 | `mon{image/10+1}.wzl` | `(image%10)*430 + action.start + direction*stride + n` |
+//! | NPC | `npc.wzl` / `npc2..4.wzl` | `(image%100)*60 + action.start + direction*stride + n` |
 //! | 物品 | `items.wzl` | `image`（金币用 112..116，`ItemObject.cs:55-64`） |
+//!
+//! 动作帧表（站立/走/跑/攻击/受击/死亡）与播放规则见 [`animation`] 模块文档；
+//! 窗口循环用 [`MapScene::render_with_entities_at`] 按真实时间取帧。
 //!
 //! 精灵缺失时画 12×18 的彩色占位方块（按类型着色），所以没有 `resource/` 的 CI
 //! 也能在 `Frame` 里看到实体。血条是 3px 色块，不依赖字体。
@@ -152,6 +156,7 @@
 //! # Ok::<(), mir_render::RenderError>(())
 //! ```
 
+pub mod animation;
 pub mod entities;
 mod error;
 mod frame;
@@ -160,13 +165,20 @@ mod scene;
 pub mod text;
 mod tiles;
 
+pub use animation::{
+    ActorAction, ActorAnimation, BodyKind, DIRECTION_COUNT, FrameChoice, FrameSequence,
+    HUMAN_ATTACK1, HUMAN_ATTACK2, HUMAN_ATTACK3, HUMAN_DEAD, HUMAN_DYING, HUMAN_RUNNING,
+    HUMAN_STANDING, HUMAN_STRUCK, HUMAN_WALKING, MONSTER_ATTACK1, MONSTER_DEAD, MONSTER_DYING,
+    MONSTER_STANDING, MONSTER_STRUCK, MONSTER_WALKING, NPC_HARVEST, NPC_STANDING, frames_for,
+    human_frames, monster_frames, npc_frames,
+};
 pub use entities::{
     EntityKind, EntityLibraries, EntityRenderer, EntityView, HAIR_BLOCKS, HUM_BLOCKS, LayerFrame,
     MAX_ENTITY_CACHED_IMAGES, MONSTER_DIRECTION_STRIDE, MONSTER_FRAMES_PER_IMAGE, NO_LAYER,
     NPC_FRAMES_PER_IMAGE, PLAYER_DIRECTION_STRIDE, PLAYER_FRAMES_PER_APPEARANCE,
     PLAYER_STANDING_FRAMES, PlayerLayer, PlayerLayerPlan, SpriteLibrary, hair_library,
-    monster_library, monster_standing_frame, npc_library, player_layer_plan, player_library,
-    player_standing_frame, weapon_drawn_in_front, weapon_library,
+    monster_library, monster_standing_frame, npc_library, player_layer_plan, player_layer_plan_at,
+    player_library, player_standing_frame, weapon_drawn_in_front, weapon_library,
 };
 pub use error::RenderError;
 pub use frame::{Frame, scale_to_fit};

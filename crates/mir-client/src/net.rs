@@ -97,6 +97,7 @@ use mir_protocol::codec::FrameBuffer;
 use mir_protocol::data::{ClientBuff, ClientMagic, ItemInfo, UserItem};
 use mir_protocol::packets::client as c;
 use mir_protocol::{ClientPacket, DateTimeBinary, ServerPacket};
+use mir_render::animation::{ActorAction, BodyKind};
 use mir_render::{EntityKind, EntityView};
 
 /// 连接超时。
@@ -276,6 +277,23 @@ pub enum NetCommand {
     },
     /// 关闭连接。
     Quit,
+}
+
+impl NetCommand {
+    /// 这条命令是否让**自己**立即切动作；返回 `(动作, 朝向)`。
+    ///
+    /// 走/跑/攻击/转身在 Crystal 客户端都是先本地播放动作再发包
+    /// （`PlayerObject.cs:1313-1334,1356-1429`），本作保留这个顺序。
+    #[must_use]
+    pub const fn local_animation(&self) -> Option<(ActorAction, MirDirection)> {
+        match self {
+            Self::Turn(direction) => Some((ActorAction::Standing, *direction)),
+            Self::Walk(direction) => Some((ActorAction::Walking, *direction)),
+            Self::Run(direction) => Some((ActorAction::Running, *direction)),
+            Self::Attack(direction) => Some((ActorAction::Attacking, *direction)),
+            _ => None,
+        }
+    }
 }
 
 /// 网络线程 → UI 的通知。
@@ -520,8 +538,29 @@ pub struct SelfPlayer {
     pub gold: u32,
     /// 是否死亡。
     pub dead: bool,
+    /// 当前动作（自己的走/跑/攻击由本地命令驱动，死亡/复活由服务器包驱动）。
+    pub action: ActorAction,
+    /// 当前动作开始时间（Unix 毫秒）。
+    pub action_started_ms: u64,
     /// 纸娃娃外观（身体/武器/头发/盾牌）；装备变化后由快照重新推导。
     pub looks: PlayerLooks,
+}
+
+impl SelfPlayer {
+    /// 切到一个新动作并记录开始时间。
+    pub fn set_action(&mut self, action: ActorAction, now_ms: u64) {
+        self.action = action;
+        self.action_started_ms = now_ms;
+        if action == ActorAction::Dying {
+            self.dead = true;
+        }
+        if matches!(
+            action,
+            ActorAction::Standing | ActorAction::Walking | ActorAction::Running
+        ) {
+            self.dead = false;
+        }
+    }
 }
 
 /// 世界里的其他对象。
@@ -545,6 +584,10 @@ pub struct WorldEntity {
     pub dead: bool,
     /// 生命百分比（`S.ObjectHealth`；怪物才有）。
     pub hp_percent: Option<u8>,
+    /// 当前动作（`S.ObjectWalk/ObjectRun/ObjectAttack/ObjectStruck/ObjectDied` 驱动）。
+    pub action: ActorAction,
+    /// 当前动作开始时间（Unix 毫秒）。
+    pub action_started_ms: u64,
 }
 
 impl WorldEntity {
@@ -568,6 +611,23 @@ impl WorldEntity {
             looks: PlayerLooks::default(),
             dead: false,
             hp_percent: None,
+            action: ActorAction::Standing,
+            action_started_ms: 0,
+        }
+    }
+
+    /// 切到一个新动作并记录开始时间。
+    pub fn set_action(&mut self, action: ActorAction, now_ms: u64) {
+        self.action = action;
+        self.action_started_ms = now_ms;
+        if action == ActorAction::Dying {
+            self.dead = true;
+        }
+        if matches!(
+            action,
+            ActorAction::Standing | ActorAction::Walking | ActorAction::Running
+        ) {
+            self.dead = false;
         }
     }
 }
@@ -874,6 +934,46 @@ pub struct NpcPanels {
     pub special_repair: bool,
 }
 
+/// 实体种类 → 动画帧表种类。
+fn body_kind_for(kind: EntityKind) -> BodyKind {
+    match kind {
+        EntityKind::Player => BodyKind::Human,
+        EntityKind::Monster | EntityKind::Item => BodyKind::Monster,
+        EntityKind::Npc => BodyKind::Npc,
+    }
+}
+
+/// 一次性动作播完后应该切到哪个动作；`None` 表示还不到切换的时候。
+fn finished_action(
+    action: ActorAction,
+    started_at_ms: u64,
+    now_ms: u64,
+    body_kind: BodyKind,
+) -> Option<ActorAction> {
+    let duration = mir_render::animation::frames_for(body_kind, action).duration_ms();
+    if now_ms.saturating_sub(started_at_ms) < duration {
+        return None;
+    }
+    match action {
+        ActorAction::Walking
+        | ActorAction::Running
+        | ActorAction::Attacking
+        | ActorAction::Struck => Some(ActorAction::Standing),
+        ActorAction::Dying => Some(ActorAction::Dead),
+        ActorAction::Standing | ActorAction::Dead => None,
+    }
+}
+
+/// 把动作归一化：已经播完的走/跑/攻击/受击显示为 Standing，死亡显示为 Dead。
+fn effective_action(
+    action: ActorAction,
+    started_at_ms: u64,
+    now_ms: u64,
+    body_kind: BodyKind,
+) -> ActorAction {
+    finished_action(action, started_at_ms, now_ms, body_kind).unwrap_or(action)
+}
+
 /// 客户端看到的世界。
 #[derive(Debug, Clone)]
 pub struct WorldSnapshot {
@@ -885,7 +985,7 @@ pub struct WorldSnapshot {
     pub self_player: Option<SelfPlayer>,
     /// 其他对象（玩家/怪物/NPC/地面物品），按对象 ID 排序。
     pub entities: BTreeMap<u32, WorldEntity>,
-    /// 聊天记录（最新在末尾，最多 [`CHAT_LOG_LIMIT`] 条）。
+    /// 聊天记录（最新在末尾，最多 `CHAT_LOG_LIMIT` 条）。
     pub chat: Vec<ChatLine>,
     /// 背包（`S.UserInformation.Inventory`；`None` 槽位为空，长度固定 46）。
     pub inventory: Vec<Option<InventoryItem>>,
@@ -991,12 +1091,20 @@ impl WorldSnapshot {
         self.packet_counts.get(name).copied().unwrap_or(0)
     }
 
-    /// 用一条服务端包更新快照。
+    /// 用一条服务端包更新快照（动作开始时间取当前 Unix 毫秒）。
     ///
     /// 网络线程内部每解码一个包就调用一次；无头 UI 测试也用它注入假的
     /// `NPCResponse`/`NPCGoods`/`UserInformation`，不需要真实 NPC。
     pub fn apply_packet(&mut self, packet: &ServerPacket) {
-        apply_packet_to(self, packet);
+        self.apply_packet_at(packet, now_millis_u64());
+    }
+
+    /// 用一条服务端包更新快照，并显式指定「当前时间」（Unix 毫秒）。
+    ///
+    /// 注入式动画测试用这个入口：同一个包在 `t=1000` 与 `t=1600` 应用会得到
+    /// 不同的帧/动作阶段，不依赖系统时钟。
+    pub fn apply_packet_at(&mut self, packet: &ServerPacket, now_ms: u64) {
+        apply_packet_to(self, packet, now_ms);
     }
 
     /// 取物品模板。
@@ -1095,8 +1203,11 @@ impl WorldSnapshot {
     /// 装备变化后快照会重新算），其他人直接用 `S.ObjectPlayer` / `S.PlayerUpdate` 里的
     /// 外观号（[`PlayerLooks::from_server`]）。自己的实体 ID 如果同时也出现在 `entities`
     /// 里，会被跳过，避免画两遍。
+    ///
+    /// `now_ms` 用来把已经播完的一次性动作归一化：走/跑/攻击/受击结束回 Standing，
+    /// 死亡动画结束变 Dead。窗口每帧传真实的 Unix 毫秒；无头测试可以传任意固定时间。
     #[must_use]
-    pub fn entity_views(&self) -> Vec<EntityView> {
+    pub fn entity_views(&self, now_ms: u64) -> Vec<EntityView> {
         let mut views = Vec::with_capacity(self.entities.len() + 1);
         let self_id = self.self_player.as_ref().map(|me| me.object_id);
         if let Some(me) = &self.self_player {
@@ -1113,6 +1224,8 @@ impl WorldSnapshot {
                 name: Some(me.name.clone()),
                 dead: me.dead,
                 hp_percent: None,
+                action: effective_action(me.action, me.action_started_ms, now_ms, BodyKind::Human),
+                action_started_ms: me.action_started_ms,
             });
         }
         for (object_id, entity) in &self.entities {
@@ -1132,9 +1245,54 @@ impl WorldSnapshot {
                 name: Some(entity.name.clone()),
                 dead: entity.dead,
                 hp_percent: entity.hp_percent,
+                action: effective_action(
+                    entity.action,
+                    entity.action_started_ms,
+                    now_ms,
+                    body_kind_for(entity.kind),
+                ),
+                action_started_ms: entity.action_started_ms,
             });
         }
         views
+    }
+
+    /// 给自己的角色切一个本地动作（走/跑/攻击/转身时立即生效，不等服务器回包）。
+    pub fn apply_local_action(
+        &mut self,
+        action: ActorAction,
+        direction: MirDirection,
+        now_ms: u64,
+    ) {
+        if let Some(me) = &mut self.self_player {
+            if me.dead {
+                return;
+            }
+            me.direction = direction;
+            me.set_action(action, now_ms);
+        }
+    }
+
+    /// 推进动画状态：把已经播完的走/跑/攻击/受击切回 Standing，把死亡切到 Dead。
+    ///
+    /// 帧的逐帧选择在渲染层（[`mir_render::animation::ActorAnimation::frame_at`]）；
+    /// 这里只维护「动作字段」，让快照本身也反映当前阶段。
+    pub fn tick_animations(&mut self, now_ms: u64) {
+        if let Some(me) = &mut self.self_player {
+            if let Some(action) =
+                finished_action(me.action, me.action_started_ms, now_ms, BodyKind::Human)
+            {
+                me.set_action(action, now_ms);
+            }
+        }
+        for entity in self.entities.values_mut() {
+            let body_kind = body_kind_for(entity.kind);
+            if let Some(action) =
+                finished_action(entity.action, entity.action_started_ms, now_ms, body_kind)
+            {
+                entity.set_action(action, now_ms);
+            }
+        }
     }
 
     /// 重新推导自己的纸娃娃外观（装备/模板/职业/发型变化后调用）。
@@ -1305,7 +1463,7 @@ fn session(
                 send_snapshot(events, &snapshot);
                 return Ok(());
             }
-            handle_command(&mut stream, &snapshot, command)?;
+            handle_command(&mut stream, &mut snapshot, command)?;
         }
 
         match stream.read(&mut buffer) {
@@ -1324,7 +1482,7 @@ fn session(
                             if let ServerPacket::MapChanged(changed) = &packet {
                                 map_changes.push((changed.map_index, changed.location));
                             }
-                            apply_packet_to(&mut snapshot, &packet);
+                            apply_packet_to(&mut snapshot, &packet, now_millis_u64());
                             advance(&mut stream, options, &mut stage, &mut snapshot, &packet)?;
                             dirty = true;
                         }
@@ -1568,11 +1726,16 @@ fn send_start_game(stream: &mut TcpStream, character_index: i32) -> Result<()> {
 /// 把 UI 命令转成客户端包；不在游戏里时静默丢弃。
 fn handle_command(
     stream: &mut TcpStream,
-    snapshot: &WorldSnapshot,
+    snapshot: &mut WorldSnapshot,
     command: NetCommand,
 ) -> Result<()> {
     if snapshot.status != NetStatus::InGame {
         return Ok(());
+    }
+    // 自己的动作没有服务器回显（服务端把 `ObjectWalk` 广播给别人，自己只收到
+    // `UserLocation`），所以在发包的同时立即驱动本地动画。
+    if let Some((action, direction)) = command.local_animation() {
+        snapshot.apply_local_action(action, direction, now_millis_u64());
     }
     let packet = match command {
         NetCommand::Turn(direction) => ClientPacket::Turn(c::Turn { direction }),
@@ -1685,6 +1848,15 @@ fn now_millis() -> i64 {
         })
 }
 
+/// 当前 Unix 毫秒（无符号；动作时间戳用）。
+fn now_millis_u64() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| {
+            u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+        })
+}
+
 /// 包种类名；只列会被快照处理的包，其余归到 `"Other"`。
 fn packet_name(packet: &ServerPacket) -> &'static str {
     match packet {
@@ -1744,7 +1916,7 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
 }
 
 /// 用一条服务端包更新快照。
-fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
+fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: u64) {
     *snapshot
         .packet_counts
         .entry(packet_name(packet))
@@ -1804,6 +1976,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
             if let Some(me) = &mut snapshot.self_player {
                 me.position = changed.location;
                 me.direction = changed.direction;
+                me.set_action(ActorAction::Standing, now_ms);
             }
         }
         ServerPacket::UserInformation(info) => {
@@ -1843,6 +2016,8 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
                 hair: info.hair,
                 gold: info.gold,
                 dead: false,
+                action: ActorAction::Standing,
+                action_started_ms: 0,
                 looks,
             });
             snapshot.magics = info
@@ -1879,6 +2054,12 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
                     looks,
                     dead: player.dead,
                     hp_percent: None,
+                    action: if player.dead {
+                        ActorAction::Dead
+                    } else {
+                        ActorAction::Standing
+                    },
+                    action_started_ms: now_ms,
                 },
             );
         }
@@ -1887,6 +2068,12 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
                 snapshot,
                 WorldEntity {
                     dead: monster.dead,
+                    action: if monster.dead {
+                        ActorAction::Dead
+                    } else {
+                        ActorAction::Standing
+                    },
+                    action_started_ms: now_ms,
                     ..WorldEntity::new(
                         monster.object_id,
                         EntityKind::Monster,
@@ -1952,29 +2139,34 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
             update_entity(snapshot, turn.object_id, |entity| {
                 entity.position = turn.location;
                 entity.direction = turn.direction;
+                entity.set_action(ActorAction::Standing, now_ms);
             });
         }
         ServerPacket::ObjectWalk(walk) => {
             update_entity(snapshot, walk.object_id, |entity| {
                 entity.position = walk.location;
                 entity.direction = walk.direction;
+                entity.set_action(ActorAction::Walking, now_ms);
             });
         }
         ServerPacket::ObjectRun(run) => {
             update_entity(snapshot, run.object_id, |entity| {
                 entity.position = run.location;
                 entity.direction = run.direction;
+                entity.set_action(ActorAction::Running, now_ms);
             });
         }
         ServerPacket::ObjectAttack(attack) => {
             update_entity(snapshot, attack.object_id, |entity| {
                 entity.position = attack.location;
                 entity.direction = attack.direction;
+                entity.set_action(ActorAction::Attacking, now_ms);
             });
         }
         ServerPacket::ObjectStruck(struck) => {
             update_entity(snapshot, struck.object_id, |entity| {
                 entity.direction = struck.direction;
+                entity.set_action(ActorAction::Struck, now_ms);
             });
             push_damage_event(
                 snapshot,
@@ -2014,15 +2206,16 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
         }
         ServerPacket::ObjectDied(died) => {
             update_entity(snapshot, died.object_id, |entity| {
-                entity.dead = true;
                 entity.position = died.location;
                 entity.direction = died.direction;
                 entity.hp_percent = Some(0);
+                entity.set_action(ActorAction::Dying, now_ms);
             });
         }
         ServerPacket::ObjectRevived(revived) => {
-            update_entity(snapshot, revived.object_id, |entity| {
-                entity.dead = false;
+            let object_id = revived.object_id;
+            update_entity(snapshot, object_id, |entity| {
+                entity.set_action(ActorAction::Standing, now_ms);
             });
         }
         ServerPacket::ObjectHealth(health) => {
@@ -2032,14 +2225,14 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket) {
         }
         ServerPacket::Death(death) => {
             if let Some(me) = &mut snapshot.self_player {
-                me.dead = true;
                 me.position = death.location;
                 me.direction = death.direction;
+                me.set_action(ActorAction::Dying, now_ms);
             }
         }
         ServerPacket::Revived(_) => {
             if let Some(me) = &mut snapshot.self_player {
-                me.dead = false;
+                me.set_action(ActorAction::Standing, now_ms);
             }
         }
         ServerPacket::HealthChanged(health) => {
@@ -2318,6 +2511,8 @@ fn update_entity(
             me.position = temporary.position;
             me.direction = temporary.direction;
             me.dead = temporary.dead;
+            me.action = temporary.action;
+            me.action_started_ms = temporary.action_started_ms;
         }
     }
 }
@@ -2576,7 +2771,7 @@ mod tests {
             ..ObjectItem::default()
         }));
         assert_eq!(snapshot.entities.len(), 2);
-        assert_eq!(snapshot.entity_views().len(), 3);
+        assert_eq!(snapshot.entity_views(0).len(), 3);
 
         snapshot.apply_packet(&ServerPacket::ObjectWalk(ObjectWalk {
             object_id: 8,
@@ -2940,7 +3135,7 @@ mod tests {
         assert_eq!(looks.shield, mir_render::NO_LAYER, "本作没有盾牌物品类型");
 
         // 渲染层拿到的是同一套外观。
-        let views = snapshot.entity_views();
+        let views = snapshot.entity_views(0);
         let me = views.first().expect("自己永远排第一");
         assert_eq!(me.kind, EntityKind::Player);
         assert_eq!(me.armour, 2);
@@ -3023,7 +3218,7 @@ mod tests {
             ..ObjectPlayer::default()
         }));
         let view = snapshot
-            .entity_views()
+            .entity_views(0)
             .into_iter()
             .find(|view| view.kind == EntityKind::Player)
             .expect("路人玩家");
@@ -3045,7 +3240,7 @@ mod tests {
             wing_effect: 0,
         }));
         let view = snapshot
-            .entity_views()
+            .entity_views(0)
             .into_iter()
             .find(|view| view.kind == EntityKind::Player)
             .expect("路人玩家");

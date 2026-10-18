@@ -347,7 +347,8 @@ fn interaction_tooltip_use_drag_damage_and_buffs() {
         .as_ref()
         .map_or(Point::new(330, 270), |me| me.position);
     let mut frame = Frame::new(800, 600);
-    scene.render_with_entities(&mut frame, center, &snapshot.entity_views());
+    let entities = snapshot.entity_views(0);
+    scene.render_with_entities(&mut frame, center, &entities);
     let world_only = frame.clone();
 
     let text = UiText::load(None);
@@ -485,7 +486,8 @@ fn interaction_tooltip_use_drag_damage_and_buffs() {
     assert!(state.damage_numbers.is_empty(), "2s 后伤害数字应消失");
     assert!(state.effects.is_empty(), "光效应已结束");
     let mut clean = Frame::new(800, 600);
-    scene.render_with_entities(&mut clean, center, &snapshot.entity_views());
+    let clean_entities = snapshot.entity_views(0);
+    scene.render_with_entities(&mut clean, center, &clean_entities);
     ui::draw(
         &mut state, &mut clean, &mut scene, &snapshot, &text, None, center,
     );

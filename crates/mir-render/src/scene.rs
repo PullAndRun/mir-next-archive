@@ -245,8 +245,23 @@ impl MapScene {
         center: Point,
         entities: &[EntityView],
     ) {
+        let now_ms = u64::from(self.animation_frame).saturating_mul(100);
+        self.render_with_entities_at(frame, center, entities, now_ms);
+    }
+
+    /// 画地形 + 实体，并按真实时间（Unix 毫秒）推进实体的动作帧。
+    ///
+    /// 窗口循环用这个入口；它给 [`EntityView::action_started_ms`] 一个真实的时间基准，
+    /// 因此走/跑/攻击/受击/死亡会按 Crystal 的 `Interval` 逐帧播放。
+    pub fn render_with_entities_at(
+        &mut self,
+        frame: &mut Frame,
+        center: Point,
+        entities: &[EntityView],
+        now_ms: u64,
+    ) {
         self.render(frame, center);
-        self.render_entities(frame, center, entities);
+        self.render_entities_at(frame, center, entities, now_ms);
     }
 
     /// 只画实体层（地形已经画好的情况下使用）。
@@ -254,10 +269,21 @@ impl MapScene {
     /// 使用当前的 [`MapScene::viewport`]；如果还没调用过 [`MapScene::render`]，
     /// 视口是 [`Viewport::DEFAULT`]。
     pub fn render_entities(&mut self, frame: &mut Frame, center: Point, entities: &[EntityView]) {
+        let now_ms = u64::from(self.animation_frame).saturating_mul(100);
+        self.render_entities_at(frame, center, entities, now_ms);
+    }
+
+    /// 只画实体层，并按真实时间推进动作帧。
+    pub fn render_entities_at(
+        &mut self,
+        frame: &mut Frame,
+        center: Point,
+        entities: &[EntityView],
+        now_ms: u64,
+    ) {
         let viewport = self.viewport;
-        let animation_frame = self.animation_frame;
         self.entities
-            .render(frame, viewport, center, entities, animation_frame);
+            .render_at(frame, viewport, center, entities, now_ms);
     }
 
     /// 铺地层（`GameScene.cs:10658-10764`）。

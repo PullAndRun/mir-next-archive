@@ -172,7 +172,7 @@ fn live_client_walks_and_renders_a_frame() {
     );
 
     // 4. 渲染一帧并保存 PNG。
-    let entity_views = snapshot.entity_views();
+    let entity_views = snapshot.entity_views(0);
     assert!(
         entity_views.len() >= 2,
         "至少应有自己 + 一只怪物，实际 {}",

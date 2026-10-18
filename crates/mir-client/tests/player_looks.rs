@@ -150,7 +150,7 @@ fn render(snapshot: &WorldSnapshot, root: &Path) -> Frame {
         }
     };
     let mut frame = Frame::new(640, 480);
-    let entities = snapshot.entity_views();
+    let entities = snapshot.entity_views(0);
     scene.render_with_entities(&mut frame, POSITION, &entities);
     let text = UiText::load(None);
     let mut state = UiState::new(Language::ZhCn);
@@ -209,7 +209,7 @@ fn equipment_layers_reach_the_snapshot_and_the_frame() {
     assert_eq!(looks.shield, NO_LAYER, "没有盾牌物品类型");
 
     // 2. 渲染层的唯一输入也必须带上这些层号。
-    let views = snapshot.entity_views();
+    let views = snapshot.entity_views(0);
     assert_eq!(views.len(), 3, "自己 + 两个路人");
     let me = &views[0];
     assert_eq!(
@@ -234,7 +234,8 @@ fn equipment_layers_reach_the_snapshot_and_the_frame() {
     assert_eq!(looks.weapon_shape, 210, "200 段武器");
     assert_eq!(looks.weapon, 10, "块号 = Shape % 100");
     assert_eq!(looks.armour, 2, "衣服不受影响");
-    let view = &snapshot.entity_views()[0];
+    let views = snapshot.entity_views(0);
+    let view = &views[0];
     assert_eq!((view.weapon, view.weapon_shape), (10, 210));
 
     let after = render(&snapshot, &root);

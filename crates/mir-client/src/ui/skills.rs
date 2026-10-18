@@ -365,6 +365,8 @@ mod tests {
                 hair: 0,
                 gold: 0,
                 dead: false,
+                action: mir_render::animation::ActorAction::Standing,
+                action_started_ms: 0,
                 looks: crate::net::PlayerLooks::default(),
             }),
             ..WorldSnapshot::default()
@@ -432,6 +434,8 @@ mod tests {
                     looks: crate::net::PlayerLooks::default(),
                     dead: false,
                     hp_percent: Some(100),
+                    action: mir_render::animation::ActorAction::Standing,
+                    action_started_ms: 0,
                 },
             );
         }

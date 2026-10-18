@@ -81,7 +81,9 @@ Crystal 的版本哈希是客户端 exe 的 MD5（`Client/MirScenes/LoginScene.c
 * `effects`：`S.ObjectEffect` 的短光效事件（魔法盾/元素结界等）；
 * `entities`：`ObjectPlayer`、`ObjectMonster`、`ObjectNPC`、`ObjectItem`、`ObjectGold`、
   `NewMapInfo` 的 NPC 列表建立的 `BTreeMap<u32, WorldEntity>`；
-* `ObjectWalk/ObjectRun/ObjectTurn/ObjectAttack/ObjectStruck/ObjectDied/ObjectRevived` 增量更新；
+* `ObjectWalk/ObjectRun/ObjectTurn/ObjectAttack/ObjectStruck/ObjectDied/ObjectRevived` 增量更新，
+  并把 `action` / `action_started_ms`（`ActorAction`）写到实体上；走/跑/攻击/受击/死亡
+  的逐帧选择由渲染层按真实时间完成（见 §6.3）；
 * `HealthChanged` 更新自己，`ObjectHealth` 更新怪物血量百分比；
 * `Chat`、`ObjectChat` 进聊天记录（最多 100 条）；`NPCResponse` 存对话页，
   `NPCGoods` 记货架；`GainedItem/GainedGold` 写一条系统消息并更新金币；
@@ -96,9 +98,19 @@ Crystal 的版本哈希是客户端 exe 的 MD5（`Client/MirScenes/LoginScene.c
 `UiState::time_millis` 是可注入的客户端时钟（窗口模式每帧写真实时间），伤害飘字与
 buff 倒计时都基于它，所以无头测试可以任意拨表。
 
+动作时间由 `WorldSnapshot::apply_packet_at(packet, now_ms)` 注入（生产代码用
+`apply_packet` 取当前 Unix 毫秒），所以 `tests/anim.rs` 能在不睡觉的情况下断言
+「599 ms 还在走、600 ms 回 Standing」。自己的走/跑/攻击/转身没有服务器回显
+（服务端只给自己发 `UserLocation`），由 `NetCommand::local_animation` 在发包时
+同步写入快照；`tick_animations(now)` 每帧把播完的一次性动作归一化
+（走/跑/攻击/受击 → Standing，死亡 → Dead），渲染层只管按 `frame_at` 选帧。
+
 ## 4. 键盘与鼠标
 
 ### 键盘（联机模式）
+
+本次动作动画改动**不改变任何按键**：走/跑/攻击/受击/死亡都由收到的包或已有的
+移动/攻击键驱动，下面这张表与之前一致。
 
 | 按键 | 行为 |
 |---|---|
@@ -204,11 +216,11 @@ Crystal 的商店同样用滚轮翻页（`Client/MirScenes/Dialogs/NPCDialogs.cs
 
 | 实体 | 文件 | 图像号 → 帧号 | Crystal 出处 |
 |---|---|---|---|
-| 玩家身体 | `hum.wzl` / `hum2.wzl` / `hum3.wzl` | `block*600 + direction*8 + n`（站立 4 帧，步长 8） | 外观选择 `PlayerObject.cs:553`；帧号 `PlayerObject.cs:761`；玩家帧集合 `Frames.cs:157-171`；身体绘制 `PlayerObject.cs:5045` |
-| 玩家武器 | `weapon.wzl` / `weapon2.wzl` / `weapon3.wzl` | 同上（与身体**同步**） | `PlayerObject.cs:415-431`、`:5062-5073` |
+| 玩家身体 | `hum.wzl` / `hum2.wzl` / `hum3.wzl` | `block*600 + action.start + direction*stride + n`（动作表见 §6.3） | 外观选择 `PlayerObject.cs:553`；帧号 `PlayerObject.cs:761`；玩家帧集合 `Frames.cs:157-171`；身体绘制 `PlayerObject.cs:5045` |
+| 玩家武器 | `weapon.wzl` / `weapon2.wzl` / `weapon3.wzl` | 同上（与身体**同步**，同一个动作帧号） | `PlayerObject.cs:415-431`、`:5062-5073` |
 | 玩家头发 | `hair.wzl` / `hair2..4.wzl` | 同上（与身体**同步**） | `PlayerObject.cs:554`、`:5054` |
 | 玩家盾牌 | `shield.wzl`（语料里**没有**） | 同上 | Crystal 没有盾牌层（见 §6.2） |
-| 怪物 | `mon{image/10+1}.wzl` | `(image%10)*430 + direction*8 + n`（站立 4 帧） | 图像 → 图库 `MonsterObject.cs:208`；默认怪物帧集合 `Frames.cs:25-31`；绘制 `MonsterObject.cs:4307-4309` |
+| 怪物 | `mon{image/10+1}.wzl` | `(image%10)*430 + action.start + direction*stride + n`（默认动作表见 §6.3） | 图像 → 图库 `MonsterObject.cs:208`；默认怪物帧集合 `Frames.cs:25-31`；绘制 `MonsterObject.cs:4307-4309` |
 | NPC | `npc.wzl`、`npc2.wzl`…（每 100 个图像换库） | `(image%100)*60`，取站立首帧 | 图像 → 图库 `NPCObject.cs:77-80`；帧号 `NPCObject.cs:101`；默认 NPC 帧集合 `Frames.cs:18-19` |
 | 物品 | `items.wzl`（缺失时 `dnitems.wzl`） | 帧号 = `ObjectItem.image`；金币按数量用 112..116 | `ItemObject.cs:32,37`（物品）、`:49,55-64`（金币）、`:72-73`（绘制） |
 
@@ -282,6 +294,59 @@ DrawFrame = block * 600 + direction * 8 + n     // n = 0..=3（站立 4 帧）
 精确帧 → 该图像站立帧 → 库首帧 → 占位方块，因为并非每个 `monN.wzx` 都恰好有
 `10*430` 帧（例如 `mon1.wzx` 只有 1086 帧）。
 
+### 6.3 动作帧表与时长（`mir-render/src/animation.rs`）
+
+Crystal 的 `Frame` 是 `Start / Count / Skip / Interval`（`Client/MirObjects/Frames.cs:203-244`），
+绘制帧号 `DrawFrame = Frame.Start + (Frame.OffSet * Direction) + FrameIndex`
+（`PlayerObject.cs:761`、`MonsterObject.cs:357`），其中 `Frame.OffSet = Count + Skip`
+（`Frames.cs:209-212`）。**`Skip` 是每个方向段末尾的空槽数，不是播放前跳过的帧**。
+
+扁平 `resource/data/hum.wzl` 每个外观块 600 帧，动作顺序与经典 `Hum.wil` 相同，
+但每个方向固定 8 帧。`Start/Skip` 按这个布局适配，`Count/Interval` 与 Crystal
+完全一致（`Frames.cs:157-170`）：
+
+| 动作 | `ActorAction` | Start | Count | Skip | 步长 | Interval | 时长 |
+|---|---|---|---|---|---|---|---|
+| 站立 | `Standing` | 0 | 4 | 4 | 8 | 500 ms | 循环 |
+| 行走 | `Walking` | 64 | 6 | 2 | 8 | 100 ms | 600 ms |
+| 跑步 | `Running` | 128 | 6 | 2 | 8 | 100 ms | 600 ms |
+| 攻击 1 | `Attacking` | 200 | 6 | 2 | 8 | 100 ms | 600 ms |
+| 攻击 2 | （未选择） | 264 | 6 | 2 | 8 | 100 ms | 600 ms |
+| 攻击 3（双手） | （未选择） | 328 | 8 | 0 | 8 | 100 ms | 800 ms |
+| 受击 | `Struck` | 472 | 3 | 5 | 8 | 100 ms | 300 ms |
+| 死亡 | `Dying` | 536 | 4 | 4 | 8 | 100 ms | 400 ms |
+| 尸体 | `Dead` | 539 | 1 | 7 | 8 | 1000 ms | 保持 |
+
+* 192~199 是 8 个方向的 1 帧姿态，所以攻击 1 从 200 开始；这些起点由
+  `tests/animation_assets.rs` 对真实 `hum.wzl` 逐帧解码验证。
+* 攻击的**输入间隔**在 Crystal 里另由 `User.AttackSpeed` 控制
+  （`UserObject.cs:173-174`：`1400 - AttackSpeed*60 - min(370, Level*14)`，最低 550 ms）；
+  本作只播放 `Frames` 的可见动作（6 帧 × 100 ms），不模拟攻击输入冷却。
+* 攻击统一用 `Attack1`；Crystal 的 `Attack2/Attack3/Attack4`（刺客/双手/随机变招，
+  `PlayerObject.cs:1055-1075`）尚未按职业/武器选择。
+* 播放规则：站立循环 4 帧；走/跑播完回 Standing 第 0 帧；攻击/受击/死亡播完保持
+  最后一帧；`Dead` 永远停尸体帧（`PlayerObject.cs:2317-2323,2500-2508`）。
+
+怪物默认表来自 Crystal `Frames.cs:25-31`（站立 4×500、行走 6×100、攻击 6×100、
+受击 2×200、死亡 10×100、尸体 1×1000）。扁平 `monN.wzl` 没有 Crystal `.Lib` 的
+逐怪物 `Frames` 数据（`MonsterObject.cs:276`），所以按 `mon1.wzl` 图像 0 实测布局
+保守映射为：站立 0、行走 64、攻击 128、受击 280、死亡 344、尸体 349；
+除死亡段按素材实测取 6 帧外，`Count/Interval` 取 Crystal 默认表。未收录怪物至少能
+正确播放站立 4 帧 + 走 6 帧；
+`!Mon.dat` 的逐怪物精确帧表尚未解析。NPC 只有站立 4×450（`Frames.cs:18-19`），
+其它动作回退到站立。
+
+### 6.4 渲染接口
+
+* `EntityView` 新增 `action: ActorAction`（默认 `Standing`）与 `action_started_ms: u64`；
+* `EntityRenderer::render_at(..., now_ms)` 用 `ActorAnimation::frame_at(now_ms)` 选帧，
+  旧的 `render(..., animation_frame)` 把动画计数按 100 ms/拍换算成时间；
+* `MapScene::render_with_entities_at(..., now_ms)` 是窗口用的入口，离线模式仍走
+  `MapScene::render`，不受影响；
+* 玩家身体/武器/头发/盾牌共用同一个动作帧号；怪物/NPC 的帧号加上图像首帧
+  （怪物 `(image%10)*430`、NPC `(image%100)*60`），精确帧缺失时回退站立帧，
+  再缺就回退库首帧/占位方块。
+
 ## 7. 无窗口端到端测试
 
 `crates/mir-client/tests/live_world.rs`：真实服务端 + 登录 + 走路 + 渲染
@@ -301,6 +366,24 @@ DrawFrame = block * 600 + direction * 8 + n     // n = 0..=3（站立 4 帧）
 4. 注入时钟 `T`，在 `T+0.5s` 画帧断言伤害数字像素存在、`T+2.6s` 断言消失；
 5. buff 文本含剩余秒数（`魔法盾 8秒`）且状态栏下方有文字像素；
 6. 输出 `target/client-interact.png`。
+
+`crates/mir-client/tests/anim.rs`：**注入式动作动画测试**（不连服务器）。用
+`WorldSnapshot::apply_packet_at(packet, now_ms)` 注入固定时间：
+
+1. `ObjectWalk` 后实体 `action == Walking`、`action_started_ms` 等于注入时间；
+   `frame_at(t)` 与 `frame_at(t+300ms)` 返回**不同帧**；599 ms 仍在走、600 ms 回
+   `Standing` 且帧号等于站立第 0 帧；
+2. `ObjectAttack` 600 ms、`ObjectStruck` 300 ms、`ObjectDied` 400 ms 后分别回
+   Standing/Dead；
+3. 自己的 Walk/Run/Attack/Turn 通过 `apply_local_action` 驱动（`NetCommand::local_animation`），
+   不依赖服务端回显；
+4. 用真实素材渲染 `target/client-anim.png`（一个走路的玩家 + 一只攻击中的怪物），
+   断言非黑像素 > 2000、颜色 > 8，且两个时间点的画面差异 > 100 像素。
+
+`crates/mir-render/tests/animation_assets.rs`：**真实素材动作帧冒烟**。缺 `resource/`
+时打印跳过；有素材时对 `hum.wzl` 块 0 的站立/走/跑/攻击 1/2/3/受击/死亡/尸体，
+以及 `mon1.wzl` 图像 0 的站立/走/攻击/受击/死亡/尸体，逐个方向、逐帧解码并打印
+「N 帧/方向 · 步长 · 起止帧号 · 间隔」。
 
 `crates/mir-client/tests/player_looks.rs`：**注入式纸娃娃测试**（不连服务器）。用
 `WorldSnapshot::apply_packet` 注入 `S.NewItemInfo`（带 `shape` 的武器/衣服模板）、
@@ -327,17 +410,26 @@ DrawFrame = block * 600 + direction * 8 + n     // n = 0..=3（站立 4 帧）
 ```powershell
 cargo test -p mir-client --test ui_interaction -- --nocapture
 cargo test -p mir-client --test player_looks -- --nocapture
+cargo test -p mir-client --test anim -- --nocapture
 cargo test -p mir-render --test player_layers -- --nocapture
+cargo test -p mir-render --test animation_assets -- --nocapture
 cargo test -p mir-client -p mir-render
-cargo clippy -p mir-client -p mir-render --all-targets -- -D warnings
+# `--no-deps` 只跳过依赖 crate 的 lint（mir-client 的 dev-dependency 会拉进
+# mir-server；并行开发行会系统时它可能暂时有自己的 clippy 告警）。
+cargo clippy -p mir-client -p mir-render --all-targets --no-deps -- -D warnings
 cargo fmt --all -- --check
 ```
 
 ## 8. 尚未实现
 
 * 坐骑、翅膀、武器发光（`CHumEffect`/`WeaponEffect`）、中毒染色与等级特效；
-* 行走/跑步/攻击/受击的逐帧动画（只按动画计数播放站立 4 帧，`Frames.cs:157`），
-  以及移动插值；死亡的 `Dead` 帧也还没接（死亡时停在第 0 帧 + 灰色标记）；
+* 移动插值（Crystal `OffSetMove`/`Movement` 的平滑位移，`PlayerObject.cs:765-810`）：
+  实体直接站在服务端给的格子上，动作帧逐帧播放，但没有格间滑动；
+* 攻击变招（Attack2/3/4 按职业/武器/随机选择，`PlayerObject.cs:1055-1075`）、
+  弓箭手用 `WalkingBow/RunningBow/AttackRange*`、刺客 `Sneek`；目前统一用 Attack1；
+* 怪物逐图像帧表：`!Mon.dat` / Crystal `.Lib` 的 `BodyLibrary.Frames` 尚未解析，
+  只用 §6.3 的保守默认；某些怪物（如 `mon1.wzl` 图像 1/2）的受击/死亡段不在默认
+  偏移上，会回退到站立帧；
 * 刺客双持（`WeaponLibrary2`）与弓箭手第二遍武器（`PlayerObject.cs:4921-4922`）；
 * 装备面板里的角色小预览（面板目前只有 14 个槽的图标 + 名称 + 属性汇总）；
 * A\* 寻路（点地走路只有「朝目标方向一步」）；拾取/攻击的鼠标目标选择；
@@ -384,3 +476,10 @@ cargo fmt --all -- --check
     （块首 8 帧全空；`weapon2.wzl`/`weapon3.wzl` 与 `hum*`/`hair*` 都是对齐的）。
     渲染器用「块首 4 帧里有没有图」判断相位并按块缓存补偿（`EntityRenderer::phase_offset`），
     否则朝上（方向 0）的武器会整层消失、其他方向会取到隔壁方向的帧。
+15. **扁平 `hum.wzl` 的每个方向占 8 帧，而 Crystal 的 `Frames.cs` 是按 `.Lib` 的连续
+    布局写的**（站立每方向 4 帧、行走每方向 6 帧）。所以动作 `Start` 不能直接照抄：
+    扁平布局是站立 0~63、走 64~127、跑 128~191、攻击 192~263（前 8 帧是姿态，
+    攻击 1 从 200 开始）、双手攻击 264~327、强行攻击 328~391、施法 392~455、
+    挖肉 456~471、受击 472~535、死亡 536~599。`Frame.Skip` 在原版里也是
+    「每方向末尾空槽」而不是「播放前跳过」（`Frames.cs:209-212`），
+    `mir-render/src/animation.rs` 的常量表按这个语义填写。

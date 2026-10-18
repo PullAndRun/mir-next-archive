@@ -325,7 +325,7 @@ fn headless_ui_renders_all_panels_and_dispatches_clicks() {
         .as_ref()
         .map_or(mir_core::Point::new(330, 270), |me| me.position);
     let mut frame = Frame::new(800, 600);
-    let entities = snapshot.entity_views();
+    let entities = snapshot.entity_views(0);
     scene.render_with_entities(&mut frame, center, &entities);
     let world_only = frame.clone();
 

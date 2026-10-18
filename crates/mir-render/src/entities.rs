@@ -80,10 +80,19 @@
 //!
 //! * 不画坐骑、翅膀、光效、中毒/等级特效（`EntityView` 没有这些字段）。
 //! * 不画名字文字；`name` 字段保留给调试叠层/以后加字体时使用。
-//! * 不做行走/跑步/攻击的逐帧插值与动画，只按 `animation_frame` 播放站立帧
-//!   （`Frames.cs:157` 的站立集合共有 4 帧、间隔 500 ms）。
+//! * 不做移动插值（Crystal 的 `OffSetMove`/`Movement` 平滑位移，`PlayerObject.cs:765-810`）：
+//!   实体直接站在服务器给的格子上，动作帧仍然逐帧播放。
 //! * 刺客双持（`WeaponLibrary2`）与弓箭手的第二遍武器（`PlayerObject.cs:4921-4922`）
 //!   没有实现：只画一把武器。
+//!
+//! # 动作动画
+//!
+//! [`EntityView::action`] + [`EntityView::action_started_ms`] 描述「现在在做什么、
+//! 什么时候开始的」；帧表与 `frame_at` 在 [`crate::animation`] 里。玩家身体、武器、
+//! 头发、盾牌共用同一个动作帧号（Crystal `DrawFrame` 同时用于 `BodyLibrary`/
+//! `WeaponLibrary`/`HairLibrary`，`PlayerObject.cs:761,5054,5062`），怪物/NPC 用各自的
+//! 图库帧表。没有动作字段的旧调用（[`EntityRenderer::render`]）按动画计数当作
+//! 100 ms 节拍推进时间，行为与之前的站立帧播放兼容。
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -93,6 +102,7 @@ use mir_core::Point;
 use mir_core::enums::MirDirection;
 
 use crate::Frame;
+use crate::animation::{ActorAction, ActorAnimation, FrameChoice, HUMAN_STANDING, NPC_STANDING};
 use crate::geometry::{self, CELL_HEIGHT, CELL_WIDTH, Viewport};
 use crate::scene::remove_black;
 
@@ -201,6 +211,10 @@ pub struct EntityView {
     pub dead: bool,
     /// 生命百分比（0..=100）；`None` 表示不画血条。
     pub hp_percent: Option<u8>,
+    /// 当前动作；默认 [`ActorAction::Standing`]（站立 4 帧循环）。
+    pub action: ActorAction,
+    /// 当前动作的开始时间（Unix 毫秒）。默认 `0`：渲染时按动画计数换算时间。
+    pub action_started_ms: u64,
 }
 
 impl EntityView {
@@ -220,6 +234,8 @@ impl EntityView {
             name: None,
             dead: false,
             hp_percent: None,
+            action: ActorAction::Standing,
+            action_started_ms: 0,
         }
     }
 
@@ -227,6 +243,30 @@ impl EntityView {
     #[must_use]
     pub fn has_weapon(&self) -> bool {
         self.weapon != NO_LAYER && self.weapon_shape != NO_LAYER
+    }
+
+    /// 这个实体当前动作的动画（含帧表、朝向与开始时间）。
+    ///
+    /// 死亡实体如果还没切到 `Dying/Dead`，一律按 [`ActorAction::Dead`] 画尸体帧，
+    /// 对应 Crystal `Dead` 动作（`Frames.cs:170`）。
+    #[must_use]
+    pub fn animation(&self) -> ActorAnimation {
+        ActorAnimation::from_view(self)
+    }
+
+    /// 触发一个新动作（把开始时间改成 `now_ms`）。
+    pub fn set_action(&mut self, action: ActorAction, now_ms: u64) {
+        self.action = action;
+        self.action_started_ms = now_ms;
+        if action == ActorAction::Dying {
+            self.dead = true;
+        }
+        if matches!(
+            action,
+            ActorAction::Standing | ActorAction::Walking | ActorAction::Running
+        ) {
+            self.dead = false;
+        }
     }
 }
 
@@ -431,10 +471,41 @@ pub const fn weapon_drawn_in_front(direction: MirDirection) -> bool {
 /// * 朝 Left/Up/UpLeft/DownLeft：武器 → 身体 → 头发 → 盾牌；
 /// * 朝 UpRight/Right/DownRight/Down：身体 → 头发 → 盾牌 → 武器。
 ///
-/// 空图层（`NO_LAYER`）不会出现在计划里；`dead` 时按第 0 帧画（Crystal 死亡后停在
-/// `Dead` 动作的固定帧，本作不退化成动画）。
+/// 空图层（`NO_LAYER`）不会出现在计划里。四层共用同一个动作帧号：
+/// Crystal 的 `DrawFrame` 同时用于身体/武器/头发（`PlayerObject.cs:761,5054,5062`）。
+///
+/// 这个重载保留旧的「动画计数」接口：`animation` 是 100 ms 节拍的序号，只用于
+/// 站立帧（`animation % 4`）。新代码应使用 [`player_layer_plan_at`]，它按真实
+/// 时间与 [`ActorAction`] 取帧。
 #[must_use]
 pub fn player_layer_plan(entity: &EntityView, animation: u32) -> PlayerLayerPlan {
+    let mut copy = entity.clone();
+    copy.action = if copy.dead {
+        ActorAction::Dead
+    } else {
+        ActorAction::Standing
+    };
+    copy.action_started_ms = 0;
+    // 站立间隔 500 ms；用 `animation` 个 100 ms 节拍推进，局部帧正好是 `animation % 4`。
+    let now_ms = u64::from(animation % PLAYER_STANDING_FRAMES) * HUMAN_STANDING.interval_ms;
+    player_layer_plan_with_choice(&copy, choice_for(&copy, now_ms))
+}
+
+/// 按真实时间（Unix 毫秒）生成一个玩家的层绘制计划。
+///
+/// 身体/武器/头发/盾牌都使用同一个动作帧偏移（见 [`player_layer_plan`]）。
+#[must_use]
+pub fn player_layer_plan_at(entity: &EntityView, now_ms: u64) -> PlayerLayerPlan {
+    player_layer_plan_with_choice(entity, choice_for(entity, now_ms))
+}
+
+/// 实体当前应画的动作帧。
+fn choice_for(entity: &EntityView, now_ms: u64) -> FrameChoice {
+    entity.animation().frame_at(now_ms)
+}
+
+/// 用已经算好的动作帧号拼层计划。
+fn player_layer_plan_with_choice(entity: &EntityView, choice: FrameChoice) -> PlayerLayerPlan {
     let mut plan = PlayerLayerPlan {
         layers: [LayerFrame {
             layer: PlayerLayer::Body,
@@ -443,21 +514,21 @@ pub fn player_layer_plan(entity: &EntityView, animation: u32) -> PlayerLayerPlan
         }; 4],
         len: 0,
     };
-    let animation = if entity.dead { 0 } else { animation };
     let direction = entity.direction;
+    let action_frame = u32::from(choice.index);
 
     let (body_library, body_block) = player_library(entity.armour);
     let body = LayerFrame {
         layer: PlayerLayer::Body,
         library: SpriteLibrary::Hum(body_library),
-        frame: player_standing_frame(body_block, direction, animation),
+        frame: u32::from(body_block) * PLAYER_FRAMES_PER_APPEARANCE + action_frame,
     };
     let weapon = entity.has_weapon().then(|| {
         let (library, block) = weapon_library(entity.weapon_shape);
         LayerFrame {
             layer: PlayerLayer::Weapon,
             library: SpriteLibrary::Weapon(library),
-            frame: player_standing_frame(block, direction, animation),
+            frame: u32::from(block) * PLAYER_FRAMES_PER_APPEARANCE + action_frame,
         }
     });
     let hair = (entity.hair != NO_LAYER).then(|| {
@@ -465,13 +536,13 @@ pub fn player_layer_plan(entity: &EntityView, animation: u32) -> PlayerLayerPlan
         LayerFrame {
             layer: PlayerLayer::Hair,
             library: SpriteLibrary::Hair(library),
-            frame: player_standing_frame(block, direction, animation),
+            frame: u32::from(block) * PLAYER_FRAMES_PER_APPEARANCE + action_frame,
         }
     });
     let shield = (entity.shield != NO_LAYER).then(|| LayerFrame {
         layer: PlayerLayer::Shield,
         library: SpriteLibrary::Shield,
-        frame: player_standing_frame(entity.shield, direction, animation),
+        frame: u32::from(entity.shield) * PLAYER_FRAMES_PER_APPEARANCE + action_frame,
     });
 
     if weapon_drawn_in_front(direction) {
@@ -677,7 +748,8 @@ impl EntityRenderer {
     /// 在已经画好地形的帧上追加实体。
     ///
     /// `animation_frame` 对应 Crystal 的 `MapControl.AnimationCount`
-    /// （`GameScene.cs:1188-1193`），只用于站立帧的循环；`0` 得到确定性的静态帧。
+    /// （`GameScene.cs:1188-1193`），按 100 ms 一个节拍换算成时间交给
+    /// [`Self::render_at`]；`0` 得到确定性的静态帧。
     pub fn render(
         &mut self,
         frame: &mut Frame,
@@ -686,13 +758,34 @@ impl EntityRenderer {
         entities: &[EntityView],
         animation_frame: u32,
     ) {
+        self.render_at(
+            frame,
+            viewport,
+            center,
+            entities,
+            u64::from(animation_frame).saturating_mul(100),
+        );
+    }
+
+    /// 按真实时间（Unix 毫秒）在已经画好地形的帧上追加实体。
+    ///
+    /// 每个实体用 [`ActorAnimation::frame_at`] 根据自己的动作/开始时间取帧；
+    /// 动作缺失的帧先回退到该外观的站立帧，再回退到库首帧，最后画占位方块。
+    pub fn render_at(
+        &mut self,
+        frame: &mut Frame,
+        viewport: Viewport,
+        center: Point,
+        entities: &[EntityView],
+        now_ms: u64,
+    ) {
         // 按 Y 升序、同一行按 X 升序；`sort_by_key` 是稳定排序，同格实体保持输入顺序。
         let mut order: Vec<usize> = (0..entities.len()).collect();
         order.sort_by_key(|&index| (entities[index].position.y, entities[index].position.x));
         for index in order {
             let entity = &entities[index];
             let (origin_x, origin_y) = geometry::world_to_screen(viewport, center, entity.position);
-            let top = self.draw_entity(frame, entity, origin_x, origin_y, animation_frame);
+            let top = self.draw_entity(frame, entity, origin_x, origin_y, now_ms);
             if let Some(percent) = entity.hp_percent {
                 let bar_y = top.unwrap_or(origin_y) - 6;
                 draw_health_bar(frame, origin_x, bar_y, percent, entity.dead);
@@ -709,14 +802,26 @@ impl EntityRenderer {
         entity: &EntityView,
         origin_x: i32,
         origin_y: i32,
-        animation_frame: u32,
+        now_ms: u64,
     ) -> Option<i32> {
         if entity.kind == EntityKind::Player {
-            return self.draw_player(frame, entity, origin_x, origin_y, animation_frame);
+            return self.draw_player(frame, entity, origin_x, origin_y, now_ms);
         }
-        let animation = if entity.dead { 0 } else { animation_frame };
-        let (library, exact, base, item) = sprite_target(entity, animation);
-        let candidates = [exact, base, 0];
+        let (library, exact, base, item) = sprite_target(entity, now_ms);
+        // 动作帧缺失时先回退到该方向的站立帧，再回退图像首帧/库首帧。
+        let standing = match entity.kind {
+            EntityKind::Monster => {
+                base + u32::from(direction_index(entity.direction)) * MONSTER_DIRECTION_STRIDE
+            }
+            EntityKind::Npc => {
+                let (_, npc_base) = npc_library(entity.image);
+                npc_base
+                    + u32::from(direction_index(entity.direction))
+                        * u32::from(NPC_STANDING.stride())
+            }
+            EntityKind::Player | EntityKind::Item => base,
+        };
+        let candidates = [exact, standing, base, 0];
         for index in candidates {
             if let Some(image) = self.image(library, index) {
                 let (x, y) = if item {
@@ -739,10 +844,10 @@ impl EntityRenderer {
         None
     }
 
-    /// 画一个玩家：按 [`player_layer_plan`] 的顺序叠身体/头发/盾牌/武器。
+    /// 画一个玩家：按 [`player_layer_plan_at`] 的顺序叠身体/头发/盾牌/武器。
     ///
     /// 每层都共用一个格原点与各自的图像偏移（Crystal `PlayerObject.cs:5045-5089`）；
-    /// 某一层的精确帧缺失时先回退到该外观块的站立段首帧，仍缺就跳过这一层。身体层是唯一
+    /// 某一层的精确帧缺失时先回退到该外观的站立帧，仍缺就跳过这一层。身体层是唯一
     /// 必需层：身体也缺失时退回占位方块。
     fn draw_player(
         &mut self,
@@ -750,15 +855,18 @@ impl EntityRenderer {
         entity: &EntityView,
         origin_x: i32,
         origin_y: i32,
-        animation_frame: u32,
+        now_ms: u64,
     ) -> Option<i32> {
-        let plan = player_layer_plan(entity, animation_frame);
+        let plan = player_layer_plan_at(entity, now_ms);
         let mut top = None;
         let mut body_drawn = false;
         for item in plan.layers() {
             let offset = self.phase_offset(item.library, item.block_start());
+            let standing = item.block_start()
+                + u32::from(direction_index(entity.direction)) * PLAYER_DIRECTION_STRIDE;
             let candidates = [
                 item.frame.saturating_add(offset),
+                standing.saturating_add(offset),
                 item.block_start().saturating_add(offset),
                 0,
             ];
@@ -830,20 +938,25 @@ impl EntityRenderer {
 
 /// 计算一个非玩家实体要用的图库、精确帧与「该图像首帧」。
 ///
-/// `item` 为真时调用方按物品居中规则定位。
-fn sprite_target(entity: &EntityView, animation: u32) -> (SpriteLibrary, u32, u32, bool) {
+/// `item` 为真时调用方按物品居中规则定位。精确帧来自实体的动作帧表
+/// （[`ActorAnimation::frame_at`]）；怪物/NPC 的动作帧是相对图像首帧的偏移，
+/// 所以要加上 `base`。
+fn sprite_target(entity: &EntityView, now_ms: u64) -> (SpriteLibrary, u32, u32, bool) {
     match entity.kind {
         // 玩家走 `draw_player`，不会到这里；给一个不会命中的组合兜底。
         EntityKind::Player => (SpriteLibrary::Hum(1), 0, 0, false),
         EntityKind::Monster => {
             let library = monster_library(entity.image);
             let base = u32::from(entity.image % 10) * MONSTER_FRAMES_PER_IMAGE;
-            let exact = monster_standing_frame(entity.image, entity.direction, animation);
+            let choice = entity.animation().frame_at(now_ms);
+            let exact = base + u32::from(choice.index);
             (SpriteLibrary::Monster(library), exact, base, false)
         }
         EntityKind::Npc => {
             let (library, base) = npc_library(entity.image);
-            (SpriteLibrary::Npc(library), base, base, false)
+            let choice = entity.animation().frame_at(now_ms);
+            let exact = base + u32::from(choice.index);
+            (SpriteLibrary::Npc(library), exact, base, false)
         }
         EntityKind::Item => {
             let base = u32::from(entity.image);
@@ -1057,7 +1170,7 @@ mod tests {
     fn synthetic_assets() -> TempDir {
         let dir = TempDir::new("assets");
         // 身体：块 0（`hum.wzl`），8 个方向各 1 帧站立，40×60 盖住格子上方。
-        let body: Vec<SyntheticFrame> = (0..8u32)
+        let mut body: Vec<SyntheticFrame> = (0..8u32)
             .map(|direction| SyntheticFrame {
                 index: direction * PLAYER_DIRECTION_STRIDE,
                 width: 40,
@@ -1067,6 +1180,18 @@ mod tests {
                 color: BODY_COLOR,
             })
             .collect();
+        // 走路：扁平布局从 64 开始，每方向 6 帧（`HUMAN_WALKING`）；每帧颜色不同，
+        // 这样「同一实体在两个时间点渲染结果不同」可以被逐像素断言抓到。
+        body.extend((0..8u32).flat_map(|direction| {
+            (0..6u32).map(move |frame| SyntheticFrame {
+                index: 64 + direction * PLAYER_DIRECTION_STRIDE + frame,
+                width: 40,
+                height: 60,
+                offset_x: 0,
+                offset_y: -58,
+                color: walking_color(frame),
+            })
+        }));
         write_library(&dir, "hum", &body);
         // 武器：块 3（`weapon.wzl`）第 2 段，20×20 与身体重叠。
         let weapon: Vec<SyntheticFrame> = (0..8u32)
@@ -1115,6 +1240,11 @@ mod tests {
         [60, 200, u8::try_from(20 + direction * 20).unwrap_or(0)]
     }
 
+    /// 走路第 `frame` 帧的颜色（每帧都不同，用来断言动画确实在动）。
+    fn walking_color(frame: u32) -> [u8; 3] {
+        [u8::try_from(40 + frame * 25).unwrap_or(0), 120, 220]
+    }
+
     fn equipped_player(direction: MirDirection) -> EntityView {
         let mut player = EntityView::new(Point::new(2, 3), direction, EntityKind::Player, 0);
         player.armour = 0;
@@ -1138,6 +1268,27 @@ mod tests {
             center,
             std::slice::from_ref(player),
             0,
+        );
+        let (origin_x, origin_y) = geometry::world_to_screen(viewport, center, player.position);
+        (frame, origin_x, origin_y)
+    }
+
+    /// 按真实时间渲染一个实体到 200×200 的帧。
+    fn render_one_at(
+        renderer: &mut EntityRenderer,
+        player: &EntityView,
+        now_ms: u64,
+    ) -> (Frame, i32, i32) {
+        let mut frame = Frame::new(200, 200);
+        frame.clear([0, 0, 0, 255]);
+        let viewport = Viewport::new(200, 200);
+        let center = player.position;
+        renderer.render_at(
+            &mut frame,
+            viewport,
+            center,
+            std::slice::from_ref(player),
+            now_ms,
         );
         let (origin_x, origin_y) = geometry::world_to_screen(viewport, center, player.position);
         (frame, origin_x, origin_y)
@@ -1189,6 +1340,58 @@ mod tests {
             3,
             "身体/武器/头发各缓存一张（第二次渲染复用同一张身体帧）"
         );
+    }
+
+    #[test]
+    fn walking_animation_changes_the_rendered_frame() {
+        let dir = synthetic_assets();
+        let mut renderer = EntityRenderer::new(EntityLibraries::open_dir(&dir.0));
+        let mut player =
+            EntityView::new(Point::new(2, 3), MirDirection::Down, EntityKind::Player, 0);
+        player.action = ActorAction::Walking;
+        player.action_started_ms = 1_000;
+        player.weapon = NO_LAYER;
+        player.weapon_shape = NO_LAYER;
+        player.hair = NO_LAYER;
+
+        // 同一实体、同一位置：只改时间，走路动作必须换帧。
+        let (first, _, _) = render_one_at(&mut renderer, &player, 1_000);
+        let (second, _, _) = render_one_at(&mut renderer, &player, 1_300);
+        assert!(
+            differing_pixels(&first, &second) > 400,
+            "走路动画在两个时间点必须画出不同的帧（实际差异 {} 像素）",
+            differing_pixels(&first, &second)
+        );
+
+        // 600 ms 后回到站立第 0 帧：颜色应重新变回身体色。
+        let (standing_again, _, _) = render_one_at(&mut renderer, &player, 1_600);
+        assert!(
+            has_color(&standing_again, BODY_COLOR),
+            "走完 6 帧后必须回到站立帧"
+        );
+        assert!(
+            !has_color(&standing_again, walking_color(0)),
+            "回到站立帧后不应再出现走路帧的颜色"
+        );
+    }
+
+    #[test]
+    fn every_player_layer_uses_the_same_action_frame() {
+        let mut player = equipped_player(MirDirection::Down);
+        player.action = ActorAction::Walking;
+        player.action_started_ms = 5_000;
+        let plan = player_layer_plan_at(&player, 5_250);
+        assert_eq!(plan.len(), 3, "身体/武器/头发三层都在");
+        // 走路方向 Down=4、局部帧 2：64 + 4*8 + 2 = 98。
+        let expected = u32::from(crate::animation::HUMAN_WALKING.index_of(MirDirection::Down, 2));
+        for layer in plan.layers() {
+            assert_eq!(
+                layer.frame % PLAYER_FRAMES_PER_APPEARANCE,
+                expected,
+                "图层 {:?} 的动作帧必须与身体同步",
+                layer.layer
+            );
+        }
     }
 
     #[test]

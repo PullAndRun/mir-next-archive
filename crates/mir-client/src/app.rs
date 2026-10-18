@@ -83,7 +83,14 @@ struct LiveState {
 
 impl LiveState {
     /// 发命令；网络线程已退出时打印一次可读原因。
+    ///
+    /// 走/跑/攻击/转身在发包前先更新本地快照的动作，画面不用等服务器回包
+    /// （Crystal 客户端也是先播放动作再发包，`PlayerObject.cs:1313-1334`）。
     fn send(&mut self, command: NetCommand) {
+        if let Some((action, direction)) = command.local_animation() {
+            self.snapshot
+                .apply_local_action(action, direction, now_millis_u64());
+        }
         if !self.net.send(command) {
             eprintln!("网络线程已退出，命令被丢弃");
         }
@@ -256,15 +263,23 @@ impl ClientApp {
     }
 
     /// 渲染当前帧（地形 + 联机实体）。
+    ///
+    /// 实体动作按**真实时间**推进：先让快照把播完的走/跑/攻击切回 Standing、
+    /// 把死亡切到 Dead，再把 `now_ms` 传给 `entity_views` 与渲染器。离线模式只画地形，
+    /// 行为不受影响。
     fn render_current(&mut self) {
-        let entities = match &self.mode {
+        let now = now_millis_u64();
+        let entities = match &mut self.mode {
             Mode::Offline => None,
-            Mode::Live(live) => Some(live.snapshot.entity_views()),
+            Mode::Live(live) => {
+                live.snapshot.tick_animations(now);
+                Some(live.snapshot.entity_views(now))
+            }
         };
         match entities {
             Some(entities) => {
                 self.scene
-                    .render_with_entities(&mut self.frame, self.center, &entities);
+                    .render_with_entities_at(&mut self.frame, self.center, &entities, now);
             }
             None => {
                 self.scene.render(&mut self.frame, self.center);
@@ -1127,6 +1142,15 @@ impl ApplicationHandler for ClientApp {
         }
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_animation));
     }
+}
+
+/// 当前 Unix 毫秒（无符号；动作帧时间戳用）。
+fn now_millis_u64() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| {
+            u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+        })
 }
 
 /// 当前 Unix 毫秒（伤害飘字/增益倒计时用）。

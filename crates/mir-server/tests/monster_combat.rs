@@ -501,3 +501,76 @@ fn rng_is_reproducible_for_the_same_seed() {
     }
     assert_eq!(positions[0], positions[1], "同 seed 必须得到同一结果");
 }
+
+#[test]
+fn newbie_weapon_kills_hen_within_fifteen_swings() {
+    let mut harness = Harness::new(98);
+    let player = harness.add_player(1, Point::new(20, 20));
+    if let Some(player) = harness.world.player_mut(player) {
+        player.stats.min_dc = 2;
+        player.stats.max_dc = 4;
+        player.stats.accuracy = 7;
+    }
+    let mut kind = test_monster(5, 0, 0);
+    kind.stats.agility = 10;
+    let monster = harness.spawn(kind, Point::new(21, 20));
+    harness.wake(monster);
+    let mut swings = 0;
+    while harness
+        .world
+        .monster(monster)
+        .is_some_and(|monster| !monster.dead)
+        && swings < 15
+    {
+        harness.ready_player(player);
+        let _ = harness.world.attack(player, MirDirection::Right);
+        harness.world.advance_clock(1_000);
+        harness.world.tick();
+        if let Some(monster) = harness.world.monster_mut(monster) {
+            monster.operate_time = i64::MAX;
+        }
+        swings += 1;
+    }
+    assert!(
+        harness
+            .world
+            .monster(monster)
+            .is_none_or(|monster| monster.dead),
+        "1 级新号应在 15 次挥砍内杀死 5 HP 的鸡，实际 {swings} 次"
+    );
+}
+
+#[test]
+fn newbie_weapon_hits_hen_at_least_seventy_percent() {
+    let mut harness = Harness::new(99);
+    let player = harness.add_player(1, Point::new(20, 20));
+    if let Some(player) = harness.world.player_mut(player) {
+        player.stats.min_dc = 2;
+        player.stats.max_dc = 4;
+        // 出生武器 +2 Accuracy 的新手扩展（见 `items::starter_items_for`）。
+        player.stats.accuracy = 7;
+    }
+    let mut kind = test_monster(1_000, 0, 0);
+    kind.stats.agility = 10;
+    let monster = harness.spawn(kind, Point::new(21, 20));
+    harness.wake(monster);
+    let mut hits = 0;
+    for _ in 0..100 {
+        harness.ready_player(player);
+        let before = harness.world.monster(monster).expect("怪").hp;
+        let _ = harness.world.attack(player, MirDirection::Right);
+        harness.world.advance_clock(1_000);
+        harness.world.tick();
+        let after = harness.world.monster(monster).map(|monster| monster.hp);
+        if after.is_some_and(|hp| hp < before) {
+            hits += 1;
+        }
+        if let Some(monster) = harness.world.monster_mut(monster) {
+            monster.operate_time = i64::MAX;
+        }
+    }
+    assert!(
+        hits >= 70,
+        "1 级新号对 Hen 的 100 次挥砍命中应 >=70，实际 {hits}"
+    );
+}

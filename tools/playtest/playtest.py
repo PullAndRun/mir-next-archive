@@ -550,6 +550,8 @@ class Playtest:
                 # 字段顺序照 `Shared/ServerPackets.cs:2979-3025`：map_index, file_name,
                 # title, mini_map(u16), big_map(u16), **lights(u8)**, location, direction,
                 # map_dark_light, music(u16), weather(u16)。
+                old_pos = self.self_pos
+                old_map = self.map_file
                 r = Reader(payload)
                 map_index = r.i32()
                 self.map_file = r.string()
@@ -563,7 +565,7 @@ class Playtest:
                 self._walkable = None
                 self.npcs.clear()
                 self.monsters.clear()
-                print(f"  [地图] 切换地图 {self.map_file} @ {self.self_pos}")
+                print(f"  [地图] 切换地图 {old_map}@{old_pos} -> {self.map_file}@{self.self_pos}")
             elif index == S_NEW_MAP_INFO:  # 18：进图详情（含传送点）
                 r = Reader(payload)
                 map_index = r.i32()

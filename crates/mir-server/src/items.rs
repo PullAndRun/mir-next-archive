@@ -1165,7 +1165,16 @@ impl World {
                 info.start_item
                     && (info.required_class.0 == 0 || info.required_class.0 & class_bit != 0)
             })
-            .map(|info| self.create_fresh_item(info))
+            .map(|info| {
+                let mut item = self.create_fresh_item(info);
+                // 新手手感扩展：真实 MirDB 的 WoodenSword 没有 Accuracy，1 级战士
+                // Accuracy=5 对 Hen(Agility=10) 命中率只有约 52%；给出生武器 +2
+                // Accuracy，使新号对鸡的命中率超过 70%（不改 DB 模板）。
+                if info.item_type == ItemType::Weapon {
+                    item.added_stats.set(Stat::Accuracy, 2);
+                }
+                item
+            })
             .collect()
     }
 

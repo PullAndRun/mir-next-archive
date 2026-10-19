@@ -42,7 +42,7 @@
 | 地图与行走（`mir-world` / `mir-server`） | 🟡 | `.map` 9 种版本读取 + 可走性校验；动作计时按 Crystal（走/跑 600ms、转身 350ms、跑需先走一步）、`UserLocation`/`ObjectWalk`/`ObjectRun` 广播、世界 tick 100ms；视野已对齐 16 格（`DataRange`）并接入 8×8 桶 AOI 网格、进出视野差分与门状态机（5 秒自动关）；本轮端到端测试见 `tests/aoi.rs`，待刑部全量验收 |
 | 账号与角色存档（`mir-store`） | ✅ | PostgreSQL + 迁移；内存实现用于无库试玩 |
 | 游戏数据（`mir-db`） | ✅ | Crystal `Server.MirDB` 全量读取（地图/物品/怪物/NPC/任务/技能/商城/攻城/刷怪点），版本 60..117，6 个真实样本 leftover=0 |
-| 怪物 AI 与战斗 | ✅ | 索敌/追击/巡逻、两段式攻击（动作包立即、伤害 300ms 后结算）、护甲与闪避、暴击、死亡与尸体回收、经验升级、死亡复活、自然回血，RNG 顺序与 Crystal 一致；第 4 轮补野生怪索敌/反击召唤物；第 7 轮补**远程攻击**（弓手/守卫/箭塔射程 6/8/9/10、`S.ObjectRangeAttack`、延迟 `距离*50+500ms`）与**目标丢失回位**（`process_return_home`），见 [`docs/world/monster-ai.md`](docs/world/monster-ai.md) |
+| 怪物 AI 与战斗 | ✅ | 索敌/追击/巡逻、两段式攻击（动作包立即、伤害 300ms 后结算）、护甲与闪避、暴击、死亡与尸体回收、经验升级、死亡复活、自然回血，RNG 顺序与 Crystal 一致；第 4 轮补野生怪索敌/反击召唤物；第 7 轮补**远程攻击**（弓手/守卫/箭塔射程 6/8/9/10、`S.ObjectRangeAttack`、延迟 `距离*50+500ms`）与**目标丢失回位**（`process_return_home`）；第 8 轮补**怪物魔法**（AI 55 `HumanWizard` ThunderBolt/射程6/500ms/风筝）与**物理 AOE/直线**（AI 13 RedMoonEvil 自身 AOE、AI 29 BoneSpearman 直线 2 格），见 [`docs/world/monster-ai.md`](docs/world/monster-ai.md) |
 | PK 与攻击模式 | ✅ | Peace/Group/Guild/RedBrown/All 判定、安全区与 NoFight 禁打、PvP 300ms 结算与暴击、PK 值（击杀 +100、红名 200/黄名 100、12 秒衰减、棕名 60 秒）、名字颜色广播、死亡掉落（红名背包全掉）、守卫只打红名并可回位 |
 | 攻城（沙巴克） | 🟡 | 申请校验、时间表开战/停战、四种城主判定（Classic/KingOfHill/ControlPoints/CapturePalace）、夺城广播与城主税收、战区名字色与 PK 保护、攻城传送点城主专属、箭塔只射敌对行会、迁移 0008 持久化；城门/城墙/器械实体与旗子对象未做 |
 | 技能（魔法） | 🟡 | 技能数据/用书学习/施法校验/延迟结算/修炼值升级/存档；已实现 15 个伤害/治疗/位移/召唤/中毒技能（火球系列/HellFire/FireBang/治疗/火墙/雷电/瞬息移动/隐身/召唤骷髅/召唤神兽/施毒）与 9 个增益技能（护盾/加速/魔法盾…）；**宠物命令** `C.ChangePMode`（5 种 `PetMode`，客户端 `V` 键三态循环；`pet_modes` 为 World 侧表、不随角色存档）；其余登记未实现（`docs/world/magic.md` §9） |
@@ -52,8 +52,8 @@
 | 任务 | ✅ | `Envir/Quests` 脚本解析（13 个段）、接取前置（等级/职业/前置任务链/上限）、击杀·收集·标记目标、交付领奖（金币/经验/元宝/固定/任选）、限时超时、放弃、NPC `CHECKQUEST` 与 `[Quests]` 关联、`characters.quests` 存档往返；**任务物品栏**（40 格、`S.GainedQuestItem`/`S.DeleteQuestItem`、掉落截胡、`characters.quest_inventory` 迁移 0012）、**YouFound 提示**（205 → `quest_item_found` → `S.ChangeQuest`）、**`Q` 标记掉落**（先截胡、无人需要才不落地）、**每日任务重置**（迁移 0013 `last_daily_reset_at`，按角色 24h 惰性；Crystal 是服务器 0 点 `ProcessNewDay`）；见 `docs/world/quests.md` |
 | 组队 | ✅ | 邀请/接受/拒绝/退队/踢人、队长顺延、组内 `!!` 聊天、16 格内按人数与等级分配经验、组队任务击杀共享、切图通知；PK 与地图准入规则未做 |
 | 多地图与传送 | ✅ | 按地图文件惰性加载与缓存、`MovementInfo` 传送点（含 `need_hole`/`need_move`）、`S.MapChanged` 包序、NPC `MOVE`/`MAPMOVE`/`ENTERMAP`；客户端地形仍是启动时加载（见 `docs/client.md` §8） |
-| 行会 | ✅ | 创建（NPC `[@CREATEGUILD]`）、邀请/加入、职位与权限位、升降职/踢人、公告、`!~` 行会聊天、行会经验与等级、行会仓库（112 格物品 + 资金）、行会 buff（购买/激活/到期/全员加成）、**行会联盟**（`/ally request|accept|remove`、双向存储、上限 5、盟友 PK 豁免，迁移 0015）、迁移 0005/0006 持久化；行会敌对/行会战与领地未做 |
-| 好友与黑名单 | ✅ | 加/删好友、拉黑（同一列表 `blocked`）、备注 ≤200 字、整表 `S.FriendUpdate`(245)、上限 100、`characters.friends` 持久化（迁移 0015）；只支持在线角色（Crystal 可按名加离线角色）——见 [`docs/world/social.md`](docs/world/social.md) |
+| 行会 | ✅ | 创建（NPC `[@CREATEGUILD]`）、邀请/加入、职位与权限位、升降职/踢人、公告、`!~` 行会聊天、行会经验与等级、行会仓库（112 格物品 + 资金）、行会 buff（购买/激活/到期/全员加成）、**行会联盟**（`/ally request|accept|remove`、双向存储、上限 5、盟友 PK 豁免，迁移 0015）+ **联盟页签 UI**（行会面板第 4 页签）、迁移 0005/0006 持久化；行会敌对/行会战与领地未做 |
+| 好友与黑名单 | ✅ | 加/删好友、拉黑（同一列表 `blocked`）、备注 ≤200 字、整表 `S.FriendUpdate`(245)、上限 100、`characters.friends` 持久化（迁移 0015）、**F 键好友面板**（列表/在线状态/滚轮/增删改备注）；只支持在线角色（Crystal 可按名加离线角色）——见 [`docs/world/social.md`](docs/world/social.md) |
 | 玩家仓库与邮件 | ✅ | 80 格仓库（`[@STORAGE]` 页，`characters.storage` 持久化）、邮件发送（附件/邮票/邮费/限速）、阅读/锁定/领取/删除、迁移 0007、离线按名投递与 30 天过期 |
 | 玩家交易 | ✅ | 面朝格发起/回应、10 格交易栏、金币、双方确认后互换、放物品即清双方确认、取消/走跑转身切图下线死亡中止、背包满时取消改寄邮件（`docs/world/trade.md`） |
 | GM 命令 | ✅ | 20 条：`@level/@exp/@gold/@credit/@item/@map/@heal/@kill/@who/@kick/@recall/@help` + 第 6 轮扩展 `@mob/@clearitem/@revive/@setpk/@warp/@mapinfo/@clearbag/@reboot`；权限 `accounts.admin` 或 `MIR2_GM_ACCOUNTS`；非 GM 的 `@…` 静默走普通聊天；英文回复（不进玩家 i18n 词表）+ `tracing::info!` 审计；`@kill` 是最小死亡、`@reboot` 倒计时优雅停机（见 `docs/world/gm.md`） |
@@ -62,7 +62,7 @@
 | 寄售 / 拍卖市场 | ✅ | NPC `[@CONSIGN]`/`[@MARKET]` 上架、搜索/翻页/买断/出价/提前成交/取回、5% 佣金与手续费、7 天过期、**到期自动成交**（`process_auctions` 每 60s；买家收物品邮件、卖家收「成交价 − 5%」金币邮件）、启动时清理未成交过期单、迁移 0009 持久化与同事务/幂等重试；Crystal 的「卖家上线 `MarketGetBack` 领钱」改为邮件直达（见 `docs/world/market.md` §9） |
 | 商城（GameShop）与元宝 | 🟡 | 市场面板商城页签、`C.GameshopBuy` 真实扣元宝/金币、职业等级与库存校验、背包优先/放不下转商城邮件、库存计数迁移 0011 单事务持久化；独立商城面板与 `S.GameShopInfo`/`S.GameShopStock` 下发未做（`docs/world/gameshop.md`） |
 | 攻城与领地 | ⏳ | `ConquestInfo` 数据已可读，城门/城墙/旗子与领地租借待做 |
-| Rust 客户端（渲染与 UI） | 🟡 | **真实素材渲染**：`.Lib`/`.wzl+.wzx`/`.wil+.wix`（第 6 轮新增）、数据目录 `resource/data`（`--data-dir`）、视口内瓦片解码 + 4096 张缓存（release 800×600 行走 ≈1.17 ms/帧）、缺资源占位回退；等距地图 + 联机 + 实体精灵 + 装备分层外观 + 逐帧动画（站立/走/跑/攻击/受击/死亡；**攻击 6×50ms=300ms** 对齐服务端伤害延迟）+ **攻击挥砍光效**（`magic2.wzl`）+ **技能命中闪光**（`magic.wzl` 10 帧/雷电 `magic2.wzl` 20–29）+ 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能/buff/小地图/大地图/任务/任务物品栏（滚轮翻页）/邮件/仓库/行会/组队/交易/市场/商城页签/设置面板/服务器与角色选择）+ 技能表现（火墙/雷电/瞬息移动/隐身/召唤）+ 宠物命令（`V` 键三态）+ `@` 命令原样发送 + 伤害数字 + 头顶血条 + 目标锁定 + 拖拽穿脱 + 点地走路 + **音效映射/100ms 节流/BGM 按地图切换**（rodio，可无声降级）；HUD 天气随切图显示（`S.MapChanged.weather`），时间/昼夜因服务端未下发 `S.TimeOfDay` 暂不显示；坐骑/翅膀精确素材、移动插值、寻路待做（见 [`docs/client.md`](docs/client.md) §8） |
+| Rust 客户端（渲染与 UI） | 🟡 | **真实素材渲染**：`.Lib`/`.wzl+.wzx`/`.wil+.wix`（第 6 轮新增）、数据目录 `resource/data`（`--data-dir`）、视口内瓦片解码 + 4096 张缓存（release 800×600 行走 ≈1.17 ms/帧）、缺资源占位回退；等距地图 + 联机 + 实体精灵 + 装备分层外观 + 逐帧动画（站立/走/跑/攻击/受击/死亡；**攻击 6×50ms=300ms** 对齐服务端伤害延迟）+ **攻击挥砍光效**（`magic2.wzl`）+ **技能命中闪光**（`magic.wzl` 10 帧/雷电 `magic2.wzl` 20–29）+ 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能/buff/小地图/大地图/任务/任务物品栏（滚轮翻页）/邮件/仓库/行会/组队/交易/市场/商城页签/设置面板/服务器与角色选择/**好友面板（F）**/**行会联盟页签**）+ 技能表现（火墙/雷电/瞬息移动/隐身/召唤）+ 宠物命令（`V` 键三态）+ `@` 命令原样发送 + 伤害数字 + 头顶血条 + 目标锁定 + 拖拽穿脱 + 点地走路 + **音效映射/100ms 节流/BGM 按地图切换**（rodio，可无声降级）；HUD 天气随切图显示（`S.MapChanged.weather`），时间/昼夜因服务端未下发 `S.TimeOfDay` 暂不显示；坐骑/翅膀精确素材、移动插值、寻路待做（见 [`docs/client.md`](docs/client.md) §8） |
 | 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计、MirDB 报告、图库查看/导出；素材库编辑器未做 |
 | 素材索引（`mir2_dev`） | ✅ | `tools/asset-index/` 把 `resource/` 的 233 万文件登记进 PostgreSQL，按名字/扩展名/仓库查询 |
 
@@ -134,10 +134,10 @@ python tools/asset-index/find_asset.py --ext .wzl --top data --limit 20
 - **默认全中文**：内置文本与 `config/lang/zh-cn.json` 都是简体中文，缺语言包时也回落中文。
 - **游戏内切换**：聊天框输入 `/language en` 切换英文、`/language zh-cn` 切回中文，
   服务端回一条该语言的系统提示，并把选择写回 `accounts.language`（迁移 `0002`）。
-- **服务端玩家可见文本全部走 `TextKey`**：聊天/系统提示/邮件/市场回执/攻城公告等
-  **201 个键**都有中英模板；按**收件人自己的语言**渲染（全服公告逐收件人编码），
+- **服务端玩家可见文本全部走 `TextKey`**：聊天/系统提示/邮件/市场回执/攻城公告/`/ally` 回执等
+  **207 个键**都有中英模板；按**收件人自己的语言**渲染（全服公告逐收件人编码），
   `/language en` 后系统提示立刻跟随。第 6 轮把 261 条 `#[error]` Display 日志文本
-  英文化，扫描器 `--no-test --strict` 从 46 降到 **14 处**（剩余为职业名/演示模板名/启动日志）。
+  英文化，第 7/8 轮扫描器 `--no-test --strict` 保持在 **15 处**（剩余为职业名/演示模板名/启动日志）。
 - **内容也跟随语言**：地图标题（`MapInformation.Title`）等文本从语言包的
   `maps` 段取，未收录时用文件名兜底。
 - **客户端本地语言**：`cargo run -p mir-client -- --lang en`（设置存本地，断网也能切）。
@@ -238,6 +238,7 @@ python tools/protocol-gen/generate.py
 | [`docs/server/limits.md`](docs/server/limits.md) | 抗刷与连接限制：单 IP 并发/连接速率、心跳超时、单会话包速率与默认值 |
 | [`docs/server/metrics.md`](docs/server/metrics.md) | 可观测性：`/metrics` 字段表、`MIR2_METRICS_LISTEN`、Prometheus 抓取与 30s 汇总日志 |
 | [`docs/world/social.md`](docs/world/social.md) | 好友与黑名单：数据、包号、上限与持久化 |
+| [`docs/testing/duo-smoke.md`](docs/testing/duo-smoke.md) | 双人联机冒烟：场景矩阵、运行方式与第 8 轮补齐链路 |
 | [`docs/client.md`](docs/client.md) | 客户端：协议流程、按键/鼠标、面板与字体 |
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |
 | [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文、游戏内切换与 i18n 收口清单（逐条 TextKey 表） |

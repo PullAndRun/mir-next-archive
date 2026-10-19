@@ -493,17 +493,60 @@ ALTER TABLE characters ADD COLUMN last_daily_reset_at BIGINT NOT NULL DEFAULT 0;
 
 ---
 
-## 11. 明确未做（TODO）
+## 11. 每日任务闭环（第 8 轮）
+
+**没有迁移 0016**：每日状态全部从现有列推导——
+`characters.last_daily_reset_at`（24h 惰性重置，§8.2）+ `characters.completed_quests`
+（当日已完成的 Daily 记录，重置时清掉），无新增列/表。
+
+### 11.1 流程
+
+1. **列表筛选**：`World::daily_quest_candidates(player_id)` 按等级/职业/前置/未完成/未接筛选；
+   `quest_login_packets` 对 `QuestType::Daily` **只下发当天还能接的任务**（已完成的当天
+   不再下发；已接的仍下发 `S.ChangeQuest{Add}`，客户端按定义渲染）。
+2. **接取**：沿用 `accept_quest`（NPC 发布/距离/等级/职业/前置/并发上限），新增
+   **每日完成数上限**校验。
+3. **完成/领奖**：沿用 `finish_quest`（目标检查、扣任务物品、固定/可选奖励、金币/经验/元宝）。
+4. **放弃**：沿用 `abandon_quest`。
+5. **上限**：`MAX_DAILY_COMPLETIONS = 10` —— **本作扩展**（Crystal 没有次数上限，只有跨天
+   `ClearDailyQuests`）；超限返回 `QuestError::DailyLimit { limit }`。
+6. **重置**：沿用第 5 轮的 24h 惰性重置（§10 的 `DAILY_RESET_INTERVAL_MS`、
+   `apply_daily_reset` / `maybe_reset_daily_quests`），见 §8.2。
+
+**NPC 入口**：Crystal 本版没有 `[@DAILYQUEST]` 脚本段（全库只有 `ClearDailyQuests`），
+Daily 任务仍走现有 `[Quests]` / `CHECKQUEST`，本作不新增 NPC 段。
+
+### 11.2 任务脚本动作核对
+
+| 段/动作 | 状态 | 说明 |
+|---|---|---|
+| `[@CARRYITEMS]` | ✅ | 接取时进**任务物品栏**（`resolve_carry_items` + `gain_quest_item`）；测试 `carry_items_are_given_on_accept_and_taken_on_finish` |
+| `[@ITEMTASKS]` | ✅ | 交付检查 + 从任务物品栏扣除（`finish_deducts_collected_items_from_quest_inventory`）；注意它**不是** `TAKECHECKITEM` 的别名 |
+| `TAKECHECKITEM` | ❌ | NPC `#ACT` 动作（M2 `ObjNpc.pas:11948-11956`、`NPC_Commands.md:227`），需要 `npc.rs` 支持；本轮未做，需另开任务 |
+| `[@GIVENAMELIST]` / `[@GIVEBUFF]` | ❌ | 属 NPC 脚本动作（`npc.rs`），不是 `QuestScript` 段；本轮未做，需另开任务 |
+
+### 11.3 批量奖励校验修正
+
+`can_gain_items` 原来逐件独立判「有没有空格」，背包只剩 1 格时两件奖励会被判成可放；
+已改成按 Crystal `HumanObject.CanGainItems` 的**批量模拟**（先填堆再占格）。
+新测试 `finish_rejects_two_rewards_when_only_one_slot_is_free`：1 空格 + 2 件奖励 →
+`InventoryFull`，且任务进度/完成记录不变。
+
+---
+
+## 12. 明确未做（TODO）
 
 - **地图/区域类目标**（Crystal 的 `//TODO: ZoneTasks`，`QuestInfo.cs:71`）与护送任务
   （`//TODO: EscortTasks`，`:72`）——Crystal 自己也没做。
 - **`CallDefaultNPC`**（`OnAcceptQuest` / `OnFinishQuest`）。
 - **`Settings.DropRate` / `ExpRate` 的可配置化**（现在固定 1.0）。
 - **NPC 任务图标的 `VisibleLog`**（`NPCObject.cs`）：接取时不复查可见性。
+- **`TAKECHECKITEM` / `[@GIVENAMELIST]` / `[@GIVEBUFF]`**：都是 NPC `#ACT` 动作
+  （`npc.rs`），不是 QuestScript 段；本轮未做，需另开任务。
 
 ---
 
-## 12. 测试清单（`crates/mir-server/tests/quests.rs`，36 个用例）
+## 13. 测试清单（`crates/mir-server/tests/quests.rs`，38 个用例）
 
 | 用例 | 覆盖 |
 |---|---|
@@ -526,6 +569,9 @@ ALTER TABLE characters ADD COLUMN last_daily_reset_at BIGINT NOT NULL DEFAULT 0;
 | `carry_items_are_given_on_accept_and_taken_on_finish` | `[@CARRYITEMS]` 发放/收回 + 标记位目标（任务物品栏 + `S.GainedQuestItem`/`S.DeleteQuestItem`） |
 | `quest_items_are_intercepted_only_for_unfinished_collect_tasks` | 截胡只在「有未完成收集任务」时发生；收满/完成任务/没接任务都不截胡，收集进度立即重算 |
 | `quest_inventory_roundtrips_through_world_and_store_blob` | 任务物品栏存档往返（`characters.quest_inventory` + 世界侧表，下线→重登后物品还在） |
+| `finish_deducts_collected_items_from_quest_inventory` | 交付时从任务物品栏扣除收集目标（不足才扣普通背包） |
+| `finish_rejects_two_rewards_when_only_one_slot_is_free` | 批量奖励校验：1 空格 + 2 件奖励 → `InventoryFull`，进度/完成记录不变 |
+| `daily_quests_are_filtered_counted_and_reset` | 每日候选筛选、完成计数上限与 24h 重置的闭环 |
 | `you_found_hint_is_sent_after_gained_quest_item` | YouFound 顺序：`S.GainedQuestItem`(205) → `S.SendOutputMessage{Type=Quest}` → `S.ChangeQuest{Update}`；接取携带不发 |
 | `npc_checkquest_reads_the_real_state` | `CHECKQUEST … ACTIVE` 三分支 + 数字写法的 `COMPLETE` 怪癖 |
 | `npc_finishquest_action_completes_the_quest` | `ACCEPTQUEST` / `FINISHQUEST` / `ABANDONQUEST` 三个动作 |

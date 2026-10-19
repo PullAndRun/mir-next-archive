@@ -1,9 +1,9 @@
-# 怪物 AI：远程攻击 / 回位 / 掉落组（第 7 轮新增）
+# 怪物 AI：远程/魔法攻击、回位与掉落组（第 7/8 轮）
 
-本文件记录第 7 轮补的怪物 AI 分支与掉落组概率语义。基础索敌/追击/两段式攻击见
+本文件记录第 7/8 轮补的怪物 AI 分支与掉落组概率语义。基础索敌/追击/两段式攻击见
 [`docs/world/combat.md`](combat.md)，宠物 AI 见 [`docs/world/magic.md`](magic.md) §6.6。
 
-## 1. 远程攻击 AI
+## 1. 远程物理攻击 AI
 
 `MonsterKind::ranged_attack_range`（`crates/mir-server/src/monster.rs:161`）按 Crystal 的
 AI 编号给射程；`monster.rs:814` 的 `process_target` 在射程内走远程分支，否则走近：
@@ -21,7 +21,11 @@ AI 编号给射程；`monster.rs:814` 的 `process_target` 在射程内走远程
 `max_distance * 50 + 500 ms`（Crystal `MonsterObject.ProjectileAttack`）。
 Crystal 对照：`RightGuard.cs:10-53`、`RedThunderZuma.cs:8-56`。
 
-**未做**：法师/直线/AOE 远程（`MonsterMagic`、AI 10/19/20/26/34/36/38/45/46/50/51/55/61/69/71/72/73/75/83/84/86/88/91/92/93/94/96/101/102/105/107/108/109/118/120/122/123/129/131/140/141/142/143/150/153/156/163/178/182/189/190/200/201 等子类技能）；
+**第 8 轮已补**：真正走 `S.ObjectMagic` 的 **AI 55 `HumanWizard`/`Clone`**（见 §2）；
+物理 AOE/直线（AI 13/29）也在 §2。仍然**未做**的魔法/特殊 AI：
+`AI 14 EvilCentipede`、`AI 50 GreatFoxSpirit`、`AI 100 VenomSpider`（物理特殊 + 毒/减速），
+`AI 26/31/32/36/45/46/93/94/96/101…` 与 `SepWizard/SepHighWizard/SepTaoist`（AI 215+，
+采样库里不存在）。
 AI 113 在真实 Jev 库被用作 `Armadillo`，所以代码用**名字**再确认：只有
 `ArcherGuard`/`弓箭守卫` 才按远程处理，其它 113 模板（如 Armadillo）仍走近战。
 
@@ -30,18 +34,62 @@ AI 113 在真实 Jev 库被用作 `Armadillo`，所以代码用**名字**再确�
 `SpellEvent`（复用 `magic.wzl`/`magic2.wzl` 的命中闪光与闪电束）。物理弹道用挥砍音 +
 命中特效近似，不做独立投射物精灵。
 
-## 2. 追击与回位
+## 2. 怪物魔法攻击（第 8 轮）
+
+### 2.1 真正走 `S.ObjectMagic`：AI 55 `HumanWizard`/`Clone`
+
+| 项 | 值 |
+|---|---|
+| 技能 | `Spell::ThunderBolt`（单体） |
+| 射程 | **6** 格 |
+| 冷却 | `attack_speed`（默认 **2500 ms**） |
+| 伤害 | `base = GetAttackPower(MinMC, MaxMC)` → `UserMagic::damage(ThunderBolt MagicInfo)`（复用 `magic.rs` 公式），按 **MAC** 结算；**与 Crystal 不同**：`HumanWizard.Attack` 是直接 `GetAttackPower`、不套 MagicInfo —— 本项目有意差异 |
+| 包 | `S.ObjectMagic`（`level = 3`，`secondary_target_ids` 为溅射目标） |
+| 延迟 | 施法后 **500 ms** 结算 `PendingHit` |
+| 风筝 | 前 **5 秒**（`FearTime`）只按 `dist < 6` 走位不施法，窗口结束后才放技能 |
+
+实现：`monster.rs:264 monster_magic`、`:1370 process_magic_target`、
+`:1415 cast_monster_magic`（伤害在 `monster.rs:1457` 附近，复用 `UserMagic::damage`）。
+Crystal `Monsters/HumanWizard.cs:25-120`。
+
+### 2.2 物理特殊（走 `S.ObjectAttack`，不是 MonsterMagic）
+
+| AI | 模板 | 形态 | 说明 |
+|---|---|---|---|
+| 13 | `RedMoonEvil` | 自身为中心 AOE，半径/射程 = `ViewRange`（7），站桩 | 收集玩家 + 召唤物；排除安全区/`NoFight`；DC + `ACAgility`；延迟 **300 ms**（Crystal `RedMoonEvil.cs:30-60`） |
+| 29 | `BoneSpearman` | 直线穿透 2 格（蛇形邻域） | 邻域判定 `x<=2 && y<=2 && ((x<=1&&y<=1)||x==y||x%2==y%2)`（`monster.rs:125 in_snake_neighborhood`）；DC + `ACAgility`；每目标延迟 `距离*50 + 250`（第一格 300、第二格 350）；Crystal `BoneSpearman.cs:14-45`、`MonsterObject.LineAttack` |
+
+实现：`monster.rs:288 monster_special`、`magic_targets`（`:1488`）。
+
+### 2.3 目标集合与包序
+
+* `magic_targets` 收 **玩家 + 召唤物**（`master.is_some()`），排除安全区与 `NoFight`；
+  Peace/组队/行会**不参与**怪物 AOE 的目标判定（Crystal 野生怪同口径）；
+* MonsterMagic：`S.ObjectMagic` → 500ms 后 `PendingHit(MAC)`；
+* 物理 AOE/直线：`S.ObjectAttack` → `距离*50 + delay` 后 `PendingHit`；
+* 直线遇到不可走格 `continue`（跳过该格，不截断后续格）。
+
+### 2.4 测试（`tests/skills.rs`）
+
+`magic_monster_does_not_cast_out_of_range`、`magic_monster_casts_and_damages_the_target`、
+`magic_monster_respects_attack_speed_cooldown`、`magic_line_attack_penetrates_two_players`、
+`magic_aoe_hits_multiple_targets_but_not_outside_radius`、
+`magic_cast_is_interrupted_when_target_dies`、
+`bone_spearman_line_damage_is_delayed_by_distance`、
+`aoe_does_not_hit_players_on_no_fight_maps`、`magic_monster_kites_when_adjacent`。
+
+## 3. 追击与回位
 
 * 目标丢失且离家超过 `view_range` → `process_return_home`（`monster.rs:701`）走回出生点；
 * 没有显式的 `Chase/Return` 状态枚举（Crystal 基类只随机漫游，本作用 `home` 兜底）；
 * `TownArcher` 无 Route 时**不追**（测试 `town_archer_does_not_chase_without_a_route`）。
 
-## 3. 逃跑 / 召唤
+## 4. 逃跑 / 召唤
 
 **未做**：各 AI 子类特有的逃跑/召唤分支（本作没有 `MonsterKind` 子类脚本/召唤表）。
 宠物召唤是玩家技能（`SummonSkeleton`/`SummonShinsu`），见 `magic.md` §6.6。
 
-## 4. 掉落组概率语义（`crates/mir-db/src/drops.rs`）
+## 5. 掉落组概率语义（`crates/mir-db/src/drops.rs`）
 
 * `DropInfo::roll`（`:289`）用 `rng.next_bounded(chance)` 对齐 Crystal
   `Random.Next(rate)` 的**左闭右开**；金币 `[Gold/2, Gold + Gold/2)` 同样用
@@ -56,7 +104,7 @@ AI 113 在真实 Jev 库被用作 `Armadillo`，所以代码用**名字**再确�
 测试（`crates/mir-db`）：`group_children_are_independent_probabilities`、
 `guaranteed_rule_and_rate_use_right_open_rng`。
 
-## 5. 怪物 AI 测试（`crates/mir-server/tests/skills.rs`）
+## 6. 怪物 AI 测试（`crates/mir-server/tests/skills.rs`）
 
 `ranged_ai_ranges_cover_the_data_archer_templates`、`ranged_monster_shoots_from_six_cells`、
 `town_archer_does_not_chase_without_a_route`、`target_lost_monster_returns_home`。

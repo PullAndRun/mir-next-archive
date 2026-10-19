@@ -53,7 +53,28 @@ i32 count
 市场/商城落盘快照也带 `friends`（避免旧值覆盖）。与 `characters.pet_mode`、
 `quest_inventory` 同一套「一列一块」约定。
 
-## 5. 测试
+## 5. 客户端（第 8 轮新增）
 
-`crates/mir-server/tests/social.rs` 7 条：好友编解码往返、加/删/拉黑、上限、
-联盟双向与记录往返、联盟上限、盟友判定、`S.FriendUpdate` 包内容。
+**好友面板（`F`）**：`ui::friends`，380×300、小屏自动压缩；列表行含名字/备注/在线
+（绿）/黑名单标记，滚轮滚动、点行选中；底部可加好友/拉黑、改备注、删除、刷新，
+分别对应 §2 的 127/130/128/129。Crystal 也有 `Client/MirScenes/Dialogs/FriendDialog.cs`
+（标题 199、12 行、好友/黑名单两 tab、Add/Remove/Memo/Email/Whisper，
+`KeybindOptions.Friends` 可配键位）；本作是独立轻量面板，固定 **F** 键，暂不做
+Email/Whisper 快捷按钮（用聊天/邮件面板代替）。
+
+**联盟页签**：行会面板（`G`）第 4 个页签 `GuildTab::Ally`（公告页顺延到 index 4），
+输入行会名/ID + 申请/同意/解除三个按钮，发送 `/ally request|accept|remove` 聊天命令。
+页面只是**客户端会话内本地记录**（不发新协议，也不是服务端权威名单）；申请中会标注，
+`accept`/`remove` 不做乐观本地修改，以聊天回执与下一次行会数据刷新为准——已登记为简化。
+后续要权威盟友列表需服务端加 `GuildAllies` 包。
+
+细节（布局、按键、包对照）见 [`docs/client.md`](../client.md) §5.20。
+
+## 6. 测试
+
+`crates/mir-server/tests/social.rs` **10 条**：好友编解码往返、加/删/拉黑、上限、
+联盟双向与记录往返、联盟上限、盟友判定、`S.FriendUpdate` 包内容、好友/联盟上限
+可配置（`0` = 不限）、`/ally` 回执本地化（`ally_replies_are_localized`）。
+客户端 `crates/mir-client/tests/friends_panel.rs` 另 **6 条**：320×240 布局与控件不重叠、
+`row_at(scroll)` 绝对下标、滚动后选中第 7 条并删除、127–130 映射与字节编码、
+245 整表替换 + 中英切换、渲染截图（`client-friends.png`/`client-ally.png`）。

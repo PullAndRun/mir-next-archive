@@ -580,13 +580,14 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 
 ### 5.11 行会面板（G）
 
-`ui::guild`。四个页签（对应 Crystal 的左右两栏按钮）：
+`ui::guild`。**五个页签**（第 8 轮加「联盟」；对应 Crystal 的左右两栏按钮）：
 
 | 页签 | 数据 | 动作 |
 |---|---|---|
 | 成员 | `S.GuildStatus` + `S.GuildMemberChange{Status=255}` | 选中成员；升职/降职 `C.EditGuildMember{ChangeType=2}`、踢人 `{ChangeType=1}`（按 `GuildStatus.MyOptions` 的权限位置灰） |
 | 仓库 | `S.GuildStorageList{Items[112]}`、`S.GuildStorageGoldChange` | 拖拽存取/移动 `C.GuildStorageItemChange{Type=0/1/2}`；存入/取出资金 `C.GuildStorageGoldChange{Type=0/1}` |
 | 增益 | `S.GuildBuffList` 的 `GuildBuffs`（可选）与 `ActiveBuffs`（已获得） | 「购买」（`Action=1`，未获得）/「激活」（`Action=2`，已获得但过期）；已激活时置灰 |
+| 联盟 | 无独立协议（服务端 `/ally` 聊天命令） | 输入行会名/ID → 三个按钮「申请 / 同意 / 解除」，分别发送 `/ally request <name>`、`/ally accept`、`/ally remove <name>` |
 | 公告 | `S.GuildNoticeChange` | 输入一行并「保存」→ `C.EditGuildNotice { notice: [行] }`（需要 `CanChangeNotice`） |
 
 打开面板（`G`）时自动发四条请求（Crystal `GuildDialog.Show()` 的拉取）：
@@ -636,9 +637,12 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 | 行会仓库 | `C.GuildStorageItemChange{Type=3}` → `S.GuildStorageList{Items[112]}`；`{Type=0/1/2}` → `S.GuildStorageItemChange` | `guild_storage.rs` | `guild_storage` |
 | 行会资金 | `C.GuildStorageGoldChange{Type,Amount}` → `S.LoseGold`/`S.GainedGold` + `S.GuildStorageGoldChange{Amount,Type,Name}` | `World::guild_storage_gold_change` | `guild.gold` |
 | 行会增益 | `C.GuildBuffUpdate{Action=0}` → `S.GuildBuffList`；`{Action=1/2,Id}` → `S.GuildBuffList`（+ 资金变化） | `guild_buffs.rs` | `guild_buff_infos` / `guild_active_buffs` |
+| 联盟页签 | 无独立包：`C.Chat{"/ally request|accept|remove …"}` → `S.Chat`（TextKey `ally_*`） | `guild.rs::Guild::…` + `session.rs` 聊天命令 | `chat` |
+| 好友/黑名单 | `C.AddFriend{Name,Blocked}`(127)、`C.RemoveFriend{CharacterIndex}`(128)、`C.RefreshFriends`(129)、`C.AddMemo{CharacterIndex,Memo}`(130) → `S.FriendUpdate{Friends}`(245) | `friends.rs`（`World::add_friend`/`remove_friend`/`set_friend_memo`/`send_friends`） | `friends` |
+| 复活广播 | ← `S.ObjectRevived{effect=true}`（旁观 `S.ObjectRemove` → `S.ObjectRevived` → `S.ObjectAppearance`）；本人另收 `S.Revived` | `World::revive_player`（`world.rs`） | 实体动作/名称颜色 |
 | 交易邀请 | ← `S.TradeRequest{Name}` | `World::trade_request` | `trade.invitation` / `invitation_version` |
 | 接受/拒绝交易 | `C.TradeReply{AcceptInvite}` → `S.TradeAccept{Name}`（双方各一条） | `World::trade_reply` | `trade.open` / `trade.partner` / `open_version` |
-| 放入 / 取回 | `C.DepositTradeItem{From,To}` / `C.RetrieveTradeItem{From,To}` → `S.DepositTradeItem` / `S.RetrieveTradeItem`（含 `Success`）；对方收 `S.TradeItem{TradeItems[10]}` | `World::trade_deposit_item` / `trade_retrieve_item` | `trade.items` / `trade.partner_items` / `trade.version` |
+| 放入 / 取回 | `C.DepositTradeItem{From,To}` / `C.RetrieveTradeItem{From,To}` **或** `C.MoveItem{Grid=Trade}` → `S.DepositTradeItem` / `S.RetrieveTradeItem`（含 `Success`）；对方收 `S.TradeItem{TradeItems[10]}` | `World::trade_deposit_item` / `trade_retrieve_item` / `move_item`（Trade 分支） | `trade.items` / `trade.partner_items` / `trade.version` |
 | 交易金币 | `C.TradeGold{Amount}`（增量）→ 自己 `S.LoseGold`、对方 `S.TradeGold{Amount=累计}` | `World::trade_gold` | `trade.gold` / `trade.partner_gold` |
 | 准备/确认 | `C.TradeConfirm{Locked}` → 双方都锁定时互换物品 + `S.TradeConfirm{}`（空包） | `World::trade_confirm` | `trade.locked` / `trade.partner_ready` |
 | 取消 | `C.TradeCancel{}` → `S.TradeCancel{Unlock=false}`；双方都已锁定时校验失败发 `{Unlock=true}` | `World::trade_cancel` | `trade.open` / `trade.version` |
@@ -675,6 +679,10 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 * 打开方式：对方发起后收到 `S.TradeRequest`，聊天区提示「某某 请求与你交易」；
   按 `T` 或点聊天里的邀请接受/拒绝（`C.TradeReply`）；`Y` 是 Crystal 的发起键，
   本作 `T` 已用于聊天，所以发起固定为 `Y`（见 §4 键位表）。
+* **第 8 轮补齐**：`C.MoveItem{Grid=Trade}` 现支持交易格（`items.rs::move_item` 分支），
+  所以「拖背包进交易格」「交易格拖回背包」也可走 `MoveItem`；协议无方向字段，
+  服务端按 `from` 格在背包有无物品判断存入/取回（成功 `S.DepositTradeItem`/
+  `S.RetrieveTradeItem`，对方始终收整份 `S.TradeItem`）。
 * 面板打开时 `pointer_over_panel` 会拦截世界点击，不会误走路；`Esc` 发 `C.TradeCancel`。
 * 只用一个「准备/确认」按钮：未准备时显示「准备」、已准备显示「确认」，两次点击都发
   `C.TradeConfirm{Locked=true}`，服务端幂等。
@@ -835,6 +843,43 @@ UI 按三类画简化表现（没有逐帧贴图素材）：
   顶部空间不足，不显示这一行。
 * 测试：`tests/round2_panels.rs` 的 `time_and_weather_follow_server_packets`，截图
   `target/client-time-weather.png`。
+
+### 5.20 好友/黑名单面板（F）与联盟页签（第 8 轮）
+
+**好友面板**：`ui::friends`，**F** 开关（本作扩展键）。Crystal 其实有
+`Client/MirScenes/Dialogs/FriendDialog.cs`（标题 199、12 行、好友/黑名单两 tab、
+Add/Remove/Memo/Email/Whisper，`KeybindOptions.Friends` 可配键位）；本作是独立轻量
+面板，固定 `F`，不做 Email/Whisper 快捷按钮（用聊天/邮件面板代替）。
+
+* 数据：`S.FriendUpdate`(245) 整表下发，`WorldSnapshot.friends` 是
+  `ClientFriend{index, name, memo, blocked, online}`；登录/增删/改备注/刷新都会整表重发；
+* 列表：每行 **名字 / 备注 / 在线（绿）或离线 / `[黑名单]` 标记**；鼠标滚轮滚动
+  （clamp 到 `0..len-visible_rows`），点行选中并载入备注；**Enter** 提交当前输入框；
+* 底部三行：
+  | 操作 | 控件 | 包 |
+  |---|---|---|
+  | 添加/拉黑 | 名字输入框 + 「黑名单」开关 + 「添加」 | `C.AddFriend{name, blocked}`(127) |
+  | 改备注 | 备注输入框 + 「保存」 | `C.AddMemo{character_index, memo}`(130)（≤200 字） |
+  | 删除 / 刷新 | 「删除」「刷新」 | `C.RemoveFriend{character_index}`(128) / `C.RefreshFriends`(129) |
+* 面板 380×300（800×600 时最多 8 行），320×240 压缩到约 5 行、输入/按钮全部在面板内；
+  空列表提示「好友列表为空…」；F 打开时自动 `C.RefreshFriends`。
+
+**联盟页签**：行会面板（`G`）第 4 个页签（index 3；公告页顺延到 index 4），没有独立
+协议——输入行会名/ID 后点「申请」「同意」「解除」，分别发聊天命令
+`/ally request <name>`、`/ally accept`、`/ally remove <name>`，回复走服务端
+`S.Chat`（TextKey `ally_*`，中英随语言；`session.rs::on_ally_command`）。
+320×240 下面板宽 304、5 个页签均分内容宽，联盟输入/按钮分两行，全部在屏内。
+
+**已知限制（本作简化）**：服务端没有「盟友名单」协议包，页签里的名单是**客户端本地
+记录**（会话内），不是服务端权威；`accept`/`remove` 不做乐观本地修改，以 `/ally`
+聊天回执与下一次行会数据刷新为准。后续要权威列表需服务端加 `GuildAllies` 包。
+
+测试（`tests/friends_panel.rs`，6 条）：`friends_layout_fits_small_screen_and_row_at_uses_scroll`
+（320×240 控件不重叠、`row_at(scroll)` 绝对下标）、`friend_actions_map_to_packets_127_to_130`
+（含 `AddFriend`/`AddMemo` 字节编码）、`scrolled_click_selects_the_absolute_row_and_removes_that_friend`、
+`friend_update_replaces_the_list_and_language_switch_redraws`（245 整表替换 + 中英切换）、
+`friends_panel_renders_selects_and_saves_png`、`guild_ally_tab_fits_small_screen_and_saves_png`；
+截图 `target/client-friends.png`、`target/client-ally.png`。
 
 
 
@@ -1376,8 +1421,10 @@ cargo fmt --all -- --check
 * **邮件**：回复预填、黑名单/举报按钮、多行正文输入、邮件过期提示（服务端 30 天清理，
   客户端不显示剩余天数）、主题字段（协议没有）；
 * **行会**：新建职位/职位权限编辑/邀请入会（服务端 `C.EditGuildMember{ChangeType=0/3/4/5}`
-  已实现，界面未接）、行会投票、攻城/联盟、成员表「地图」列（协议 `GuildMember` 没有地图）、
+  已实现，界面未接）、行会投票、攻城/行会战、成员表「地图」列（协议 `GuildMember` 没有地图）、
   行会仓库的滚动分页（112 格一屏画完）；
+* **社交**：好友面板没有 Email/Whisper 快捷按钮（用邮件/聊天面板代替）；联盟页签的
+  盟友名单是客户端本地记录（服务端无权威盟友包），缺「申请中」状态的服务端回执；
 * 装备升级/镶嵌/觉醒等数值系统；
 * `!Mon.dat` 精确怪物外观映射（见 §6.2）。
 

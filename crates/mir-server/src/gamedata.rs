@@ -221,10 +221,27 @@ impl GameData {
             }
         }
         Err(last.unwrap_or_else(|| MirDbError::Io {
-            path: PathBuf::from("resource/community/<repo>/Server.MirDB"),
+            // 报**绝对路径** + 已搜索的候选：CI（没有 `resource/`）下测试里打出来的
+            // `跳过：{error}` 才能直接看出缺什么、该放哪儿。
+            path: std::env::current_dir().map_or_else(
+                |_| PathBuf::from("resource/community/<repo>/Server.MirDB"),
+                |cwd| cwd.join("resource/community/<repo>/Server.MirDB"),
+            ),
             source: std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                "no Server.MirDB found (use tools/asset-index/find_asset.py --name Server.MirDB)",
+                format!(
+                    "no Server.MirDB found under {} (searched: {}); \
+                     use tools/asset-index/find_asset.py --name Server.MirDB",
+                    std::env::current_dir().map_or_else(
+                        |_| "<unknown cwd>".to_owned(),
+                        |cwd| cwd.display().to_string(),
+                    ),
+                    candidate_paths()
+                        .iter()
+                        .map(|path| path.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
             ),
         }))
     }

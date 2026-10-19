@@ -175,8 +175,11 @@ python tools/asset-index/find_asset.py --ext .wzl --top data --limit 20
 # 构建全部 crate
 cargo build --release
 
-# 跑测试（不依赖数据库）
+# 跑测试（不依赖数据库；没有 resource/ 也能全绿）
 cargo test --workspace
+
+# 复现 CI 的「无 resource/」环境（构建 → 无素材沙箱执行）
+powershell -NoProfile -File tools/dev/test-no-assets.ps1
 
 # 启动服务端（不配置数据库时用内存存储）
 cargo run -p mir-server
@@ -244,6 +247,7 @@ python tools/protocol-gen/generate.py
 | [`docs/testing/duo-smoke.md`](docs/testing/duo-smoke.md) | 双人联机冒烟：场景矩阵、运行方式与第 8 轮补齐链路 |
 | [`docs/testing/playtest.md`](docs/testing/playtest.md) | 协议级 playtest：Python 直连真服务端、`[OK]/[FAIL]/[SKIP]` 与当前限制 |
 | [`docs/testing/stress.md`](docs/testing/stress.md) | 压测：100/300 连接基线（dev profile）、tick/CPU/RSS/DB 口径与瓶颈 |
+| [`docs/testing/ci-assets.md`](docs/testing/ci-assets.md) | CI 素材依赖审计：哪些测试读 `resource/`、缺素材如何 skip，以及无素材复现脚本 |
 | [`docs/client.md`](docs/client.md) | 客户端：协议流程、按键/鼠标、面板与字体 |
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |
 | [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文、游戏内切换与 i18n 收口清单（逐条 TextKey 表） |

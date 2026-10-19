@@ -91,6 +91,7 @@
 - [`docs/testing/duo-smoke.md`](testing/duo-smoke.md) — 双人联机冒烟：场景矩阵与运行方式
 - [`docs/testing/playtest.md`](testing/playtest.md) — 协议级 playtest：Python 直连真服务端与限制
 - [`docs/testing/stress.md`](testing/stress.md) — 压测：100/300 连接基线、tick/CPU/RSS/DB 口径
+- [`docs/testing/ci-assets.md`](testing/ci-assets.md) — CI 素材依赖审计：30 条用例清单与无 resource/ 复现
 - [`docs/world/magic.md`](world/magic.md) — 技能支持矩阵、15 个伤害/位移/召唤技能与 20 条异常
 - [`docs/client.md`](client.md) — 客户端协议流程与 7 条怪癖
 - [`docs/store/mirdb-format.md`](store/mirdb-format.md) — 数据库格式与版本门

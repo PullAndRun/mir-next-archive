@@ -57,9 +57,10 @@ use mir_protocol::ServerPacket;
 use mir_protocol::data::UserItem;
 use mir_protocol::packets::server::{
     ChangeAMode, ColourChanged, DamageIndicator, Death, GainExperience, HealthChanged,
-    LevelChanged, ObjectAttack, ObjectColourChanged, ObjectDied, ObjectEffect, ObjectHealth,
-    ObjectLeveled, ObjectMonster, ObjectPlayer, ObjectRemove, ObjectRevived, ObjectRun,
-    ObjectStruck, ObjectTurn, ObjectWalk, Opendoor, RefreshItem, Revived, Struck, UserLocation,
+    LevelChanged, MarriageRequest, MentorRequest, MentorUpdate, ObjectAttack, ObjectColourChanged,
+    ObjectDied, ObjectEffect, ObjectHealth, ObjectLeveled, ObjectMonster, ObjectPlayer,
+    ObjectRemove, ObjectRevived, ObjectRun, ObjectStruck, ObjectTurn, ObjectWalk, Opendoor,
+    RefreshItem, Revived, Struck, UserLocation,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -628,6 +629,94 @@ struct RespawnGroupState {
     error_count: u8,
 }
 
+/// 师徒关系（Crystal `CharacterInfo.Mentor` / `IsMentor` / `MentorExp`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MentorLink {
+    /// 师傅的 `object_id`。
+    pub mentor: u32,
+    /// 徒弟的 `object_id`。
+    pub mentee: u32,
+    /// 拜师时刻（毫秒，服务器单调时钟）。
+    pub since: i64,
+    /// 师傅已攒的「徒弟经验分成」（Crystal `MentorExp`，`PlayerObject.cs:888`：
+    /// `MenteeEXP += amount * Settings.MenteeExpBank / 100`）。
+    pub mentee_exp: i64,
+}
+
+/// Crystal `Settings.MentorLevelGap`（`Server/MirEnvir/Settings.cs`，默认 `10`）。
+///
+/// 拜师条件：`徒弟等级 + MENTOR_LEVEL_GAP <= 师傅等级`；出师条件反过来
+/// （`PlayerObject.cs:943`：`Info.Level + Settings.MentorLevelGap > Mentor.Level` 时 `MentorBreak()`）。
+pub const MENTOR_LEVEL_GAP: u16 = 10;
+
+/// Crystal `Settings.MenteeExpBank`（`Settings.cs`，默认 `5`）：徒弟打怪经验的 5% 存入师傅的 `MentorExp`。
+pub const MENTEE_EXP_BANK: i64 = 5;
+
+/// Crystal `Settings.MarriageLevelRequired`（`Settings.cs`，默认 `10`）。
+pub const MARRIAGE_LEVEL_REQUIRED: u16 = 10;
+
+/// 婚姻/师徒操作的失败原因（错误文案走 `TextKey`，见各个调用点）。
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SocialError {
+    /// 玩家不在世界里。
+    #[error("player {0} is not in the world")]
+    NotInWorld(u32),
+    /// 目标玩家不在世界里（需要对方**在场**）。
+    #[error("target player is not in the world")]
+    TargetOffline,
+    /// 已经结婚了。
+    #[error("player {0} is already married")]
+    AlreadyMarried(u32),
+    /// 等级不够（Crystal `Settings.MarriageLevelRequired`）。
+    #[error("level {level} is below the required {required}")]
+    LevelTooLow { level: u16, required: u16 },
+    /// 对象不能是自己。
+    #[error("cannot target yourself")]
+    SelfTarget,
+    /// 距离太远（Crystal `Globals.DataRange`）。
+    #[error("target is out of range")]
+    OutOfRange,
+    /// 任一方已死亡。
+    #[error("one of the players is dead")]
+    Dead,
+    /// 没有待回应的求婚。
+    #[error("no pending marriage proposal")]
+    NoProposal,
+    /// 没有待回应的拜师请求。
+    #[error("no pending mentorship request")]
+    NoMentorRequest,
+    /// 已经有师傅了。
+    #[error("player {0} already has a mentor")]
+    AlreadyHasMentor(u32),
+    /// 已经有徒弟了（一人一徒）。
+    #[error("player {0} already mentors someone")]
+    AlreadyMentors(u32),
+    /// 师徒职业必须相同（Crystal `PlayerObject.cs:13572-13576`）。
+    #[error("mentor and mentee must share the same class")]
+    ClassMismatch,
+    /// 等级差不够（Crystal `Settings.MentorLevelGap`）。
+    #[error("mentor level gap must be at least {gap}")]
+    MentorLevelGap { gap: u16 },
+    /// 对方不接受拜师请求（Crystal `AllowMentor`）。
+    #[error("player {0} does not accept mentorship requests")]
+    MentorNotAllowed(u32),
+}
+
+/// 落库前的社交快照（见 [`World::social_snapshot`]）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SocialSnapshot {
+    /// 配偶 `character_id`（0 = 未婚，Crystal `CharacterInfo.Married`）。
+    pub married: i32,
+    /// 结婚时刻（毫秒）。
+    pub married_date: Option<i64>,
+    /// 师傅 `character_id`（0 = 没有，Crystal `CharacterInfo.Mentor`）。
+    pub mentor: i32,
+    /// 自己是否是别人师傅（Crystal `CharacterInfo.IsMentor`）。
+    pub is_mentor: bool,
+    /// 作为师傅攒下的徒弟经验（Crystal `CharacterInfo.MentorExp`）。
+    pub mentor_exp: i64,
+}
+
 /// 世界状态。
 #[derive(Debug)]
 pub struct World {
@@ -713,6 +802,18 @@ pub struct World {
     respawn_tick_scale: f64,
     next_object_id: u32,
     pub(crate) rng: MirRng,
+    /// 婚姻关系：`character_id -> (配偶 character_id, 结婚时刻)`（Crystal `CharacterInfo.Married`）。
+    ///
+    /// 双向存两条，方便按任一方查；关系本身只有一份（同一对只会出现两次）。
+    pub(crate) marriages: HashMap<i64, (i64, i64)>,
+    /// 待回应的求婚：`被求婚者 object_id -> 求婚者 object_id`（Crystal `MarriageProposal`）。
+    pub(crate) marriage_proposals: HashMap<u32, u32>,
+    /// 师徒关系：`徒弟 object_id -> MentorLink`（Crystal `CharacterInfo.Mentor`/`IsMentor`/`MentorExp`）。
+    pub(crate) mentorships: HashMap<u32, MentorLink>,
+    /// 待回应的拜师请求：`师傅 object_id -> 徒弟 object_id`（Crystal `MentorRequest`）。
+    pub(crate) mentor_requests: HashMap<u32, u32>,
+    /// 允许他人拜师（Crystal `PlayerObject.AllowMentor`，默认开）。
+    pub(crate) allow_mentor: std::collections::HashSet<u32>,
     /// 允许的坐标范围（0..=bound）。没有加载真实地图时用它兜底。
     pub bound: i32,
     /// 已加载的地形缓存：地图文件名 → 地图（Crystal `Envir.MapList`，
@@ -840,6 +941,10 @@ pub struct World {
     /// 怪物 ID → 在 [`World::monsters`] 里的下标，避免按 ID 查询时线性扫描
     /// （地图上怪物数量远大于视野内数量）。
     pub(crate) monster_slots: HashMap<u32, usize>,
+    /// 怪物召唤出来的小怪：召唤者对象 ID → 小怪对象 ID 列表（Crystal `SlaveList`）。
+    pub(crate) monster_slaves: HashMap<u32, Vec<u32>>,
+    /// 召唤冷却截止时刻（World 时钟毫秒）：召唤者对象 ID → 下次可召唤时间。
+    pub(crate) monster_summon_time: HashMap<u32, i64>,
     /// tick 内的 AOI 广播合批队列（`player_id → 多个已编码帧`）。
     /// 只在 `tick_monsters` 的 AI 段开启；每个玩家一 tick 合并成一次 channel/write。
     pub(crate) broadcast_batch: Option<HashMap<u32, Vec<u8>>>,
@@ -916,6 +1021,11 @@ impl World {
             respawn_tick_scale: 1.0,
             next_object_id: 1,
             rng: MirRng::from_entropy(),
+            marriages: HashMap::new(),
+            marriage_proposals: HashMap::new(),
+            mentorships: HashMap::new(),
+            mentor_requests: HashMap::new(),
+            allow_mentor: std::collections::HashSet::new(),
             bound,
             maps: HashMap::new(),
             fallback_map: None,
@@ -952,6 +1062,8 @@ impl World {
             aoi: HashMap::new(),
             visible_players: HashMap::new(),
             monster_slots: HashMap::new(),
+            monster_slaves: HashMap::new(),
+            monster_summon_time: HashMap::new(),
             broadcast_batch: None,
             broadcast_batching: false,
             ground_item_slots: HashMap::new(),
@@ -994,6 +1106,11 @@ impl World {
             respawn_tick_scale: 1.0,
             next_object_id: 1,
             rng: MirRng::from_entropy(),
+            marriages: HashMap::new(),
+            marriage_proposals: HashMap::new(),
+            mentorships: HashMap::new(),
+            mentor_requests: HashMap::new(),
+            allow_mentor: std::collections::HashSet::new(),
             bound,
             maps: HashMap::new(),
             fallback_map: Some(map),
@@ -1030,6 +1147,8 @@ impl World {
             aoi: HashMap::new(),
             visible_players: HashMap::new(),
             monster_slots: HashMap::new(),
+            monster_slaves: HashMap::new(),
+            monster_summon_time: HashMap::new(),
             broadcast_batch: None,
             broadcast_batching: false,
             ground_item_slots: HashMap::new(),
@@ -1159,6 +1278,14 @@ impl World {
     }
 
     /// 按对象 ID 取玩家（可变）。
+    /// 按 `character_id` 找在线玩家（配偶名、师徒名查询用）。
+    #[must_use]
+    pub fn player_of_character(&self, character_id: i64) -> Option<&Player> {
+        self.players
+            .values()
+            .find(|player| player.character_id == character_id)
+    }
+
     pub fn player_mut(&mut self, object_id: u32) -> Option<&mut Player> {
         self.players.get_mut(&object_id)
     }
@@ -2568,6 +2695,9 @@ impl World {
             self.emit_damage_indicator(&map, position, hit.target_id, 0, DamageType::Miss);
             return 0;
         }
+        // Crystal `MonsterObject.Attacked` 在命中后立即 `DamageDura()`（`:3358` 的
+        // `HumanObject.Attacked` 同理）：受击磨损与伤害在同一次结算里完成。
+        self.damage_armour(hit.target_id);
 
         // 暴击：先广播 `ObjectEffect{Critical}`，再发 `DamageIndicator{Critical, 0}`
         // （`MonsterObject.cs:2594-2599`）。
@@ -2680,6 +2810,7 @@ impl World {
             self.emit_damage_indicator(&map, position, hit.target_id, 0, DamageType::Miss);
             return;
         }
+        self.damage_armour(hit.target_id);
 
         // 气功波（`Stat.EnergyShieldPercent`）：`if (Random.Next(100) < Percent) { …回血… }`
         // （`HumanObject.cs:7262-7271`）。抽签位置在「未命中」判定之后、`S.Struck` 之前。
@@ -2805,6 +2936,7 @@ impl World {
             self.emit_damage_indicator(&map, position, hit.target_id, 0, DamageType::Miss);
             return;
         }
+        self.damage_armour(hit.target_id);
 
         // 气功波（`:7145-7154`）：`if (HP + Gain >= Stats[HP]) SetHP(Stats[HP]) else ChangeHP(Gain)`。
         // 注意它在暴击**之前**，会先发一条 `S.HealthChanged`。
@@ -3239,6 +3371,368 @@ impl World {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // 婚姻（Crystal `PlayerObject.MarriageRequest` / `MarriageReply` / `DivorceRequest`）
+    // -----------------------------------------------------------------------
+
+    /// 面前一格上的玩家 `object_id`（Crystal `Functions.PointMove(CurrentLocation, Direction, 1)`）。
+    #[must_use]
+    pub fn player_in_front_of(&self, object_id: u32) -> Option<u32> {
+        let player = self.players.get(&object_id)?;
+        let (dx, dy) = player.direction.delta();
+        let target = mir_core::Point::new(player.position.x + dx, player.position.y + dy);
+        self.players
+            .values()
+            .find(|other| {
+                other.object_id != object_id && other.map == player.map && other.position == target
+            })
+            .map(|other| other.object_id)
+    }
+
+    /// 按名字找在线玩家的 `object_id`（拜师 `C.AddMentor` 用）。
+    #[must_use]
+    pub fn player_object_id_by_name(&self, name: &str) -> Option<u32> {
+        self.players
+            .values()
+            .find(|player| player.name.eq_ignore_ascii_case(name))
+            .map(|player| player.object_id)
+    }
+
+    /// 落库前的社交快照（Crystal `CharacterInfo.Married`/`Mentor`/`IsMentor`/`MentorExp`）。
+    #[must_use]
+    pub fn social_snapshot(&self, object_id: u32) -> Option<SocialSnapshot> {
+        let player = self.players.get(&object_id)?;
+        let character_id = player.character_id;
+        let spouse = self.spouse_of(character_id);
+        let mentee_link = self.mentorship_of(object_id);
+        let mentored_by_me = self
+            .mentorships
+            .values()
+            .any(|link| link.mentor == object_id);
+        Some(SocialSnapshot {
+            married: spouse
+                .and_then(|spouse| i32::try_from(spouse).ok())
+                .unwrap_or(0),
+            married_date: self.married_since(character_id),
+            mentor: mentee_link
+                .and_then(|link| self.players.get(&link.mentor))
+                .and_then(|mentor| i32::try_from(mentor.character_id).ok())
+                .unwrap_or(0),
+            is_mentor: mentored_by_me,
+            mentor_exp: mentee_link.map_or(0, |link| link.mentee_exp),
+        })
+    }
+
+    /// 配偶的 `character_id`（Crystal `CharacterInfo.Married`；0 = 未婚）。
+    #[must_use]
+    pub fn spouse_of(&self, character_id: i64) -> Option<i64> {
+        self.marriages.get(&character_id).map(|(spouse, _)| *spouse)
+    }
+
+    /// 结婚时刻（毫秒）。
+    #[must_use]
+    pub fn married_since(&self, character_id: i64) -> Option<i64> {
+        self.marriages.get(&character_id).map(|(_, since)| *since)
+    }
+
+    /// 求婚：Crystal `PlayerObject.MarriageRequest`（`PlayerObject.cs:13131-13236`）。
+    ///
+    /// 条件按 Crystal 逐条收口：双方未婚、双方等级 ≥ `MARRIAGE_LEVEL_REQUIRED`、
+    /// 同一张图且距离 ≤ [`VIEW_RANGE`]、都不在死亡状态、对方没有待回应的求婚。
+    /// 成功时把求婚记在**对方**名下并发 `S.MarriageRequest { Name }`（`:13229`）。
+    pub fn marriage_request(&mut self, from: u32, to: u32) -> Result<(), SocialError> {
+        let proposer = self
+            .players
+            .get(&from)
+            .ok_or(SocialError::NotInWorld(from))?;
+        if from == to {
+            return Err(SocialError::SelfTarget);
+        }
+        if proposer.dead || self.players.get(&to).is_none_or(|target| target.dead) {
+            return Err(SocialError::Dead);
+        }
+        if self.spouse_of(proposer.character_id).is_some() {
+            return Err(SocialError::AlreadyMarried(from));
+        }
+        if proposer.level < MARRIAGE_LEVEL_REQUIRED {
+            return Err(SocialError::LevelTooLow {
+                level: proposer.level,
+                required: MARRIAGE_LEVEL_REQUIRED,
+            });
+        }
+        let (proposer_map, proposer_pos, proposer_name) = (
+            proposer.map.clone(),
+            proposer.position,
+            proposer.name.clone(),
+        );
+        let target = self.players.get(&to).ok_or(SocialError::TargetOffline)?;
+        if target.map != proposer_map || !target.position.in_range(proposer_pos, VIEW_RANGE) {
+            return Err(SocialError::OutOfRange);
+        }
+        if target.level < MARRIAGE_LEVEL_REQUIRED {
+            return Err(SocialError::LevelTooLow {
+                level: target.level,
+                required: MARRIAGE_LEVEL_REQUIRED,
+            });
+        }
+        if self.spouse_of(target.character_id).is_some() {
+            return Err(SocialError::AlreadyMarried(to));
+        }
+        if self.marriage_proposals.contains_key(&to) {
+            return Err(SocialError::NoProposal);
+        }
+        self.marriage_proposals.insert(to, from);
+        self.send_to_player(
+            to,
+            &ServerPacket::MarriageRequest(MarriageRequest {
+                name: proposer_name,
+            })
+            .encode_frame(),
+        );
+        Ok(())
+    }
+
+    /// 回应求婚：Crystal `PlayerObject.MarriageReply`（`PlayerObject.cs:13238-13280`）。
+    ///
+    /// 接受时双方互相登记 spouse + 结婚时刻；`S.MentorUpdate` 之类的关系包本作协议里没有，
+    /// 所以配偶名通过系统聊天告知双方（见 [`World::spouse_of`] 与 `session.rs` 的下发）。
+    pub fn marriage_reply(&mut self, player: u32, accept: bool) -> Result<u32, SocialError> {
+        let proposer_id = self
+            .marriage_proposals
+            .remove(&player)
+            .ok_or(SocialError::NoProposal)?;
+        let Some(proposer_id) = self
+            .players
+            .contains_key(&proposer_id)
+            .then_some(proposer_id)
+        else {
+            return Err(SocialError::TargetOffline);
+        };
+        if !accept {
+            return Ok(proposer_id);
+        }
+        let (player_character, proposer_character) = {
+            let player = self
+                .players
+                .get(&player)
+                .ok_or(SocialError::NotInWorld(player))?;
+            if self.spouse_of(player.character_id).is_some() {
+                return Err(SocialError::AlreadyMarried(player.object_id));
+            }
+            let proposer = self
+                .players
+                .get(&proposer_id)
+                .ok_or(SocialError::TargetOffline)?;
+            if self.spouse_of(proposer.character_id).is_some() {
+                return Err(SocialError::AlreadyMarried(proposer_id));
+            }
+            (player.character_id, proposer.character_id)
+        };
+        let now = self.wall_now();
+        self.marriages
+            .insert(player_character, (proposer_character, now));
+        self.marriages
+            .insert(proposer_character, (player_character, now));
+        let (player_name, proposer_name) = (
+            self.players
+                .get(&player)
+                .map(|player| player.name.clone())
+                .unwrap_or_default(),
+            self.players
+                .get(&proposer_id)
+                .map(|proposer| proposer.name.clone())
+                .unwrap_or_default(),
+        );
+        let to_proposer = self.format(
+            proposer_id,
+            TextKey::MarriageDone,
+            &[("name", &player_name)],
+        );
+        self.send_system_chat(proposer_id, &to_proposer);
+        let to_player = self.format(player, TextKey::MarriageDone, &[("name", &proposer_name)]);
+        self.send_system_chat(player, &to_player);
+        Ok(proposer_id)
+    }
+
+    /// 离婚：Crystal `PlayerObject.DivorceRequest` / `DivorceReply`（`:13283-13420`）。
+    ///
+    /// 简化：本作协议里没有 `S.DivorceReply`，所以做成「本人发起即离」——
+    /// 与 Crystal 的「对方必须同意」不同，已在 `docs/world/social.md` 登记。
+    pub fn divorce(&mut self, player: u32) -> Result<i64, SocialError> {
+        let character = self
+            .players
+            .get(&player)
+            .ok_or(SocialError::NotInWorld(player))?
+            .character_id;
+        let (spouse, _) = self
+            .marriages
+            .remove(&character)
+            .ok_or(SocialError::AlreadyMarried(player))?;
+        self.marriages.remove(&spouse);
+        Ok(spouse)
+    }
+
+    // -----------------------------------------------------------------------
+    // 师徒（Crystal `PlayerObject.AddMentor` / `MentorReply` / `MentorBreak`）
+    // -----------------------------------------------------------------------
+
+    /// 徒弟当前所属师徒关系。
+    #[must_use]
+    pub fn mentorship_of(&self, mentee: u32) -> Option<&MentorLink> {
+        self.mentorships.get(&mentee)
+    }
+
+    /// 允许/禁止他人拜师：Crystal `PlayerObject.AllowMentor`（`C.PacketHandler.cs` 的 `AllowMentor`）。
+    pub fn set_allow_mentor(&mut self, player: u32, allow: bool) {
+        if allow {
+            self.allow_mentor.insert(player);
+        } else {
+            self.allow_mentor.remove(&player);
+        }
+    }
+
+    /// 拜师：Crystal `PlayerObject.AddMentor`（`PlayerObject.cs:13524-13588`）。
+    ///
+    /// 条件：徒弟没有师傅、不是自己、师傅在线、师傅接受拜师、师傅没有徒弟、
+    /// **同职业**（`:13572`）、`徒弟等级 + MENTOR_LEVEL_GAP <= 师傅等级`（`:13577`）。
+    pub fn mentor_request(&mut self, mentee: u32, mentor: u32) -> Result<(), SocialError> {
+        if mentee == mentor {
+            return Err(SocialError::SelfTarget);
+        }
+        let student = self
+            .players
+            .get(&mentee)
+            .ok_or(SocialError::NotInWorld(mentee))?;
+        if self.mentorships.contains_key(&mentee) {
+            return Err(SocialError::AlreadyHasMentor(mentee));
+        }
+        let (student_class, student_level, student_name) =
+            (student.class, student.level, student.name.clone());
+        let teacher = self
+            .players
+            .get(&mentor)
+            .ok_or(SocialError::TargetOffline)?;
+        if student_class != teacher.class {
+            return Err(SocialError::ClassMismatch);
+        }
+        if student_level + MENTOR_LEVEL_GAP > teacher.level {
+            return Err(SocialError::MentorLevelGap {
+                gap: MENTOR_LEVEL_GAP,
+            });
+        }
+        if !self.allow_mentor.contains(&mentor) {
+            return Err(SocialError::MentorNotAllowed(mentor));
+        }
+        if self.mentorships.values().any(|link| link.mentor == mentor) {
+            return Err(SocialError::AlreadyMentors(mentor));
+        }
+        self.mentor_requests.insert(mentor, mentee);
+        self.send_to_player(
+            mentor,
+            &ServerPacket::MentorRequest(MentorRequest {
+                name: student_name,
+                level: student_level,
+            })
+            .encode_frame(),
+        );
+        Ok(())
+    }
+
+    /// 回应拜师：Crystal `PlayerObject.MentorReply`（`PlayerObject.cs:13590-13660`）。
+    ///
+    /// 师傅接受 → 建立 `MentorLink` 并发 `S.MentorUpdate` 给双方。
+    pub fn mentor_reply(&mut self, mentor: u32, accept: bool) -> Result<u32, SocialError> {
+        let mentee = self
+            .mentor_requests
+            .remove(&mentor)
+            .ok_or(SocialError::NoMentorRequest)?;
+        if !accept {
+            return Ok(mentee);
+        }
+        if !self.players.contains_key(&mentee) {
+            return Err(SocialError::TargetOffline);
+        }
+        if self.mentorships.contains_key(&mentee) {
+            return Err(SocialError::AlreadyHasMentor(mentee));
+        }
+        if self.mentorships.values().any(|link| link.mentor == mentor) {
+            return Err(SocialError::AlreadyMentors(mentor));
+        }
+        let since = self.wall_now();
+        self.mentorships.insert(
+            mentee,
+            MentorLink {
+                mentor,
+                mentee,
+                since,
+                mentee_exp: 0,
+            },
+        );
+        self.mentor_update(mentor);
+        self.mentor_update(mentee);
+        Ok(mentee)
+    }
+
+    /// 解除师徒（Crystal `PlayerObject.MentorBreak`，`PlayerObject.cs:13460-13522`）。
+    ///
+    /// 出师时师傅把攒下的 `mentee_exp` 一次性领走（`:13491-13494`），双方清空关系。
+    pub fn mentor_break(&mut self, mentee: u32) -> Option<MentorLink> {
+        let link = self.mentorships.remove(&mentee)?;
+        if link.mentee_exp > 0 {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            self.gain_experience(link.mentor, link.mentee_exp as u32);
+        }
+        self.mentor_update(link.mentor);
+        self.mentor_update(link.mentee);
+        Some(link)
+    }
+
+    /// 把师徒信息推给客户端（Crystal `S.MentorUpdate`，`server.rs:7083`）。
+    fn mentor_update(&self, player: u32) {
+        let Some(this) = self.players.get(&player) else {
+            return;
+        };
+        for (target, name, level, mentee_exp) in [
+            (
+                this.object_id,
+                self.mentorships
+                    .get(&player)
+                    .and_then(|link| self.players.get(&link.mentor))
+                    .map(|mentor| mentor.name.clone()),
+                this.level,
+                self.mentorships
+                    .get(&player)
+                    .map_or(0, |link| link.mentee_exp),
+            ),
+            (
+                this.object_id,
+                self.mentorships
+                    .values()
+                    .find(|link| link.mentor == this.object_id)
+                    .and_then(|link| self.players.get(&link.mentee))
+                    .map(|mentee| mentee.name.clone()),
+                this.level,
+                self.mentorships
+                    .values()
+                    .find(|link| link.mentor == this.object_id)
+                    .map_or(0, |link| link.mentee_exp),
+            ),
+        ] {
+            let Some(name) = name else { continue };
+            let _ = target;
+            self.send_to_player(
+                player,
+                &ServerPacket::MentorUpdate(MentorUpdate {
+                    name,
+                    level,
+                    online: true,
+                    mentee_exp,
+                })
+                .encode_frame(),
+            );
+        }
+    }
+
     /// Crystal `PlayerObject.GainExp`（`PlayerObject.cs:846-931`）。
     ///
     /// 流程：`Experience += amount` → 本人 `S.GainExperience` → 够阈值就跨级 →
@@ -3246,7 +3740,10 @@ impl World {
     ///
     /// 任务奖励经验走的就是这条路（Crystal `GainExp(ExpReward * Settings.ExpRate)`，
     /// `PlayerObject.cs:11457`），不经过 [`World::win_experience`] 的等级差衰减。
-    pub(crate) fn gain_experience(&mut self, object_id: u32, amount: u32) {
+    /// 给玩家加经验（Crystal `PlayerObject.GainExperience`，`PlayerObject.cs:845-894`）。
+    ///
+    /// 对外公开是为了让测试能直接驱动「师徒经验分成」等逻辑；游戏内由战斗结算调用。
+    pub fn gain_experience(&mut self, object_id: u32, amount: u32) {
         // `if (amount == 0) return;`（`:850`）
         if amount == 0 {
             return;
@@ -3254,6 +3751,14 @@ impl World {
         let Some(player) = self.players.get(&object_id) else {
             return;
         };
+        // `MenteeEXP += (amount * Settings.MenteeExpBank) / 100;`（`PlayerObject.cs:886-889`）：
+        // 徒弟拿经验时，按 `MENTEE_EXP_BANK`% 存进师傅的 `MentorExp`，师傅之后一次性领走。
+        #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+        if let Some(link) = self.mentorships.get_mut(&object_id) {
+            link.mentee_exp = link
+                .mentee_exp
+                .saturating_add(i64::from(amount) * MENTEE_EXP_BANK / 100);
+        }
         let mut level = player.level.max(1);
         let mut experience = player.experience.saturating_add(i64::from(amount));
         let mut max_experience = self.exp.exp_for_level(level);
@@ -3321,7 +3826,10 @@ impl World {
     ///
     /// 1 与 2 是**两条**内容不同的 `HealthChanged`：`SetHP` 先把 HP 补满（此时 MP 还是旧值），
     /// `SetMP` 再把 MP 补满。Crystal 就是这么发的，客户端以最后一条为准。
-    fn player_level_up(&mut self, object_id: u32) {
+    /// 升级结算（Crystal `PlayerObject.LevelUp`，`PlayerObject.cs:932-956`）。
+    ///
+    /// 对外公开是为了让测试驱动「升级自动出师」；游戏内由 [`World::gain_experience`] 调用。
+    pub fn player_level_up(&mut self, object_id: u32) {
         let Some(player) = self.players.get(&object_id) else {
             return;
         };
@@ -3351,6 +3859,35 @@ impl World {
             })
             .encode_frame(),
         );
+        // `PlayerObject.cs:940-945`：徒弟升级后若 `Level + MentorLevelGap > Mentor.Level` → `MentorBreak()`。
+        self.check_mentor_graduation(object_id);
+    }
+
+    /// 升级时的自动出师（Crystal `PlayerObject.LevelUp` 里的 `MentorBreak()`，`PlayerObject.cs:940-945`）。
+    ///
+    /// 触发条件与 Crystal 完全一致：`徒弟等级 + MENTOR_LEVEL_GAP > 师傅等级`。
+    /// 出师会走 [`World::mentor_break`]（师傅一次性领走攒下的 `mentee_exp`）并发提示。
+    fn check_mentor_graduation(&mut self, mentee: u32) {
+        let Some(link) = self.mentorships.get(&mentee).cloned() else {
+            return;
+        };
+        let mentee_level = self.players.get(&mentee).map(|player| player.level);
+        let mentor_level = self.players.get(&link.mentor).map(|player| player.level);
+        let (Some(mentee_level), Some(mentor_level)) = (mentee_level, mentor_level) else {
+            return;
+        };
+        if mentee_level + MENTOR_LEVEL_GAP <= mentor_level {
+            return;
+        }
+        let mentor_name = self
+            .players
+            .get(&link.mentor)
+            .map(|player| player.name.clone())
+            .unwrap_or_default();
+        self.mentor_break(mentee);
+        let message = self.format(mentee, TextKey::MentorGraduated, &[("name", &mentor_name)]);
+        self.send_system_chat(mentee, &message);
+        tracing::info!(mentee, mentor = link.mentor, "徒弟出师");
     }
 
     /// 广播一条伤害指示：本人（如果是玩家）自己收一份，再发给周围玩家
@@ -3583,6 +4120,94 @@ impl World {
     }
 
     /// 在指定地图上刷若干只怪，返回它们的对象 ID（生成顺序）。
+    /// 从真实数据库按名字找怪物模板（召唤 AI 用；找不到时调用方降级）。
+    fn monster_kind_by_name(&self, name: &str) -> Option<MonsterKind> {
+        let data = self.game_data.as_ref()?;
+        for index in 0..data.monster_count() {
+            let Ok(index) = i32::try_from(index) else {
+                continue;
+            };
+            let Some(kind) = data.monster(index) else {
+                continue;
+            };
+            if kind.name.eq_ignore_ascii_case(name) {
+                return Some(kind.clone());
+            }
+        }
+        None
+    }
+
+    /// Crystal `BugBagMaggot.Attack`（`Monsters/BugBagMaggot.cs:30-48`）：AI 12。
+    ///
+    /// 攻击时召唤 `BugBat`，`SlaveList.Count >= 20` 才停；本作用 4 只上限 +
+    /// 3 秒冷却，避免压测/战斗里无限刷怪。召唤物随主人死亡清理。
+    pub(crate) fn process_bugbat_summon(
+        &mut self,
+        master_id: u32,
+        target_id: u32,
+        now: i64,
+    ) -> bool {
+        let Some(master) = self.monster(master_id) else {
+            return false;
+        };
+        if master.kind.ai != 12 || master.dead {
+            return false;
+        }
+        if self
+            .monster_summon_time
+            .get(&master_id)
+            .is_some_and(|next| now < *next)
+        {
+            return false;
+        }
+        let alive = self.monster_slaves.get(&master_id).map_or(0, |slaves| {
+            slaves
+                .iter()
+                .filter(|id| self.monster(**id).is_some_and(|slave| !slave.dead))
+                .count()
+        });
+        if alive >= 4 {
+            return false;
+        }
+        let kind = self
+            .monster_kind_by_name("BugBat")
+            .unwrap_or_else(|| MonsterKind {
+                name: "BugBat".to_owned(),
+                image: mir_core::enums::Monster::BugBat,
+                ai: 0,
+                level: 1,
+                view_range: 7,
+                cool_eye: 0,
+                attack_speed_ms: 3_000,
+                move_speed_ms: 1_800,
+                experience: 0,
+                can_push: true,
+                stats: CombatStats {
+                    hp: 3,
+                    ..CombatStats::default()
+                },
+            });
+        let map = master.map.clone();
+        let position = master.position;
+        let direction = MirDirection::ALL[self.rng.next_bounded(8) as usize];
+        let cell = position.adjacent(direction);
+        let slave_id = self.spawn_monster(&map, kind, cell);
+        if let Some(slave) = self.monster_mut(slave_id) {
+            slave.target = Some(target_id);
+        }
+        self.monster_slaves
+            .entry(master_id)
+            .or_default()
+            .push(slave_id);
+        self.monster_summon_time
+            .insert(master_id, now.saturating_add(3_000));
+        if let Some(master) = self.monster_mut(master_id) {
+            master.action_time = now.saturating_add(300);
+            master.attack_time = now.saturating_add(3_000);
+        }
+        true
+    }
+
     pub fn spawn_monsters(&mut self, map: &str, spawns: &[(MonsterKind, Point)]) -> Vec<u32> {
         spawns
             .iter()

@@ -1027,9 +1027,47 @@ impl World {
         }
         self.process_stacking(monster, now);
         self.process_search(monster, now);
+        // AI 2 `Deer/Sheep` 的低血逃跑：Crystal `Deer.ProcessTarget` 在 `_runAway`
+        // 时远离目标（`Monsters/Deer.cs:36-55`）；本作以 HP < 30% 作为触发阈值。
+        if monster.kind.ai == 2
+            && monster.target.is_some()
+            && monster.hp.saturating_mul(100) <= monster.stats.hp.saturating_mul(30)
+        {
+            self.process_flee(monster, now);
+            return;
+        }
         self.process_roam(monster, now);
         self.process_target(monster, now);
         self.process_return_home(monster, now);
+    }
+
+    /// 低血逃跑：Crystal `Deer.ProcessTarget` 的 `_runAway`（`Monsters/Deer.cs:36-55`）。
+    fn process_flee(&mut self, monster: &mut Monster, now: i64) {
+        let Some(target_id) = monster.target else {
+            return;
+        };
+        let Some(target_position) = self.players.get(&target_id).map(|player| player.position)
+        else {
+            return;
+        };
+        let mut direction = target_position.direction_to(monster.position);
+        if self.monster_walk(monster, direction, now) {
+            return;
+        }
+        // 正向被挡：按 Crystal 的 NextDir/PreviousDir 各试 7 个方向。
+        for _ in 0..7 {
+            direction = direction.next();
+            if self.monster_walk(monster, direction, now) {
+                return;
+            }
+        }
+        direction = target_position.direction_to(monster.position);
+        for _ in 0..7 {
+            direction = direction.previous();
+            if self.monster_walk(monster, direction, now) {
+                return;
+            }
+        }
     }
 
     /// 目标丢失后的「回位」：Crystal 基类只随机漫游，守卫沿 `Route` 回出生点
@@ -1169,6 +1207,12 @@ impl World {
         };
 
         let ranged_range = monster.kind.ranged_attack_range();
+        // AI 12 `BugBatMaggot`：攻击动作是召唤 BugBat（`BugBagMaggot.cs:30-48`），
+        // 不做普通近战；上限/冷却由 `World::process_bugbat_summon` 控制。
+        if monster.kind.ai == 12 {
+            self.process_bugbat_summon(monster.object_id, target_id, now);
+            return;
+        }
         if let Some(spec) = monster.kind.monster_magic() {
             self.process_magic_target(monster, target_id, target_position, same_map, spec, now);
             return;
@@ -2403,5 +2447,16 @@ impl World {
         if master.is_none() && expo_owner.is_some() {
             self.drop_monster_loot(monster_id);
         }
+        // 召唤者死亡 → 自己的小怪一起消失（Crystal `SlaveList` 随主人 `Die()`）。
+        let slaves = self.monster_slaves.remove(&monster_id);
+        if let Some(slaves) = slaves {
+            for slave_id in slaves {
+                self.monster_died(slave_id);
+            }
+        }
+        self.monster_slaves.retain(|_, slaves| {
+            slaves.retain(|slave_id| *slave_id != monster_id);
+            !slaves.is_empty()
+        });
     }
 }

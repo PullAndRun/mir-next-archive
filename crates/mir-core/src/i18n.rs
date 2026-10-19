@@ -460,6 +460,16 @@ pub enum TextKey {
     NpcRepairNoGold,
     /// 场景：`damage_weapon`/`damage_armour`（战斗磨损）；模板：`{name} 的耐久耗尽，已损坏。`；参数：`{name}`。
     ItemBroken,
+    /// 场景：婚姻/师徒（`world.rs`）；模板：`求婚已发出，等待对方回应。`。
+    MarriageProposalSent,
+    /// 场景：婚姻/师徒（`world.rs`）；模板：`{name} 拒绝了你的求婚。`。
+    MarriageRefused,
+    /// 场景：婚姻/师徒（`world.rs`）；模板：`你和 {name} 结为夫妻。`。
+    MarriageDone,
+    /// 场景：婚姻/师徒（`world.rs`）；模板：`你和 {name} 解除了婚姻。`。
+    DivorceDone,
+    /// 场景：婚姻/师徒（`world.rs`）；模板：`你已经出师，师傅是 {name}。`。
+    MentorGraduated,
     /// 场景：`run_script_action`（`npc.rs`）；模板：`没有可交出的物品。`；参数：无。
     NpcNoCheckedItem,
     /// 场景：`run_script_action`（`npc.rs`）；模板：`已交出 {name} ×{count}。`；参数：`{name}`、`{count}`。
@@ -731,6 +741,11 @@ impl TextKey {
         Self::NpcRepairFull,
         Self::NpcRepairNoGold,
         Self::ItemBroken,
+        Self::MarriageProposalSent,
+        Self::MarriageRefused,
+        Self::MarriageDone,
+        Self::DivorceDone,
+        Self::MentorGraduated,
         Self::NpcNoCheckedItem,
         Self::NpcItemTaken,
         Self::NpcNameListPrompt,
@@ -955,6 +970,11 @@ impl TextKey {
             Self::NpcRepairFull => "npc_repair_full",
             Self::NpcRepairNoGold => "npc_repair_no_gold",
             Self::ItemBroken => "item_broken",
+            Self::MarriageProposalSent => "marriage_proposal_sent",
+            Self::MarriageRefused => "marriage_refused",
+            Self::MarriageDone => "marriage_done",
+            Self::DivorceDone => "divorce_done",
+            Self::MentorGraduated => "mentor_graduated",
             Self::NpcNoCheckedItem => "npc_no_checked_item",
             Self::NpcItemTaken => "npc_item_taken",
             Self::NpcNameListPrompt => "npc_name_list_prompt",
@@ -1184,6 +1204,11 @@ impl TextKey {
             Self::NpcRepairFull => &[],
             Self::NpcRepairNoGold => &["cost", "gold"],
             Self::ItemBroken => &["name"],
+            Self::MarriageProposalSent => &[],
+            Self::MarriageRefused => &["name"],
+            Self::MarriageDone => &["name"],
+            Self::DivorceDone => &["name"],
+            Self::MentorGraduated => &["name"],
             Self::NpcNoCheckedItem => &[],
             Self::NpcItemTaken => &["name", "count"],
             Self::NpcNameListPrompt => &[],
@@ -1562,6 +1587,11 @@ const fn text_zh(key: TextKey) -> &'static str {
         TextKey::NpcRepairFull => "这件物品的耐久是满的，不需要修理。",
         TextKey::NpcRepairNoGold => "修理这件物品需要 {cost} 金币，你只有 {gold}。",
         TextKey::ItemBroken => "{name} 的耐久耗尽，已损坏。",
+        TextKey::MarriageProposalSent => "求婚已发出，等待对方回应。",
+        TextKey::MarriageRefused => "{name} 拒绝了你的求婚。",
+        TextKey::MarriageDone => "你和 {name} 结为夫妻。",
+        TextKey::DivorceDone => "你和 {name} 解除了婚姻。",
+        TextKey::MentorGraduated => "你已经出师，师傅是 {name}。",
         TextKey::NpcNoCheckedItem => "没有可交出的物品。",
         TextKey::NpcItemTaken => "已交出 {name} ×{count}。",
         TextKey::NpcNameListPrompt => "请从下列名字中选择，或直接输入名字。",
@@ -1875,6 +1905,11 @@ const fn text_en(key: TextKey) -> &'static str {
             "Repairing this item costs {cost} gold, but you only have {gold}."
         }
         TextKey::ItemBroken => "{name} has worn out and is broken.",
+        TextKey::MarriageProposalSent => "Proposal sent, waiting for the answer.",
+        TextKey::MarriageRefused => "{name} turned down your proposal.",
+        TextKey::MarriageDone => "You and {name} are now married.",
+        TextKey::DivorceDone => "Your marriage to {name} has ended.",
+        TextKey::MentorGraduated => "You have graduated from {name}'s mentorship.",
         TextKey::NpcNoCheckedItem => "There is no item to hand over.",
         TextKey::NpcItemTaken => "Handed over {name} x{count}.",
         TextKey::NpcNameListPrompt => "Pick a name from the list, or type one.",
@@ -2283,7 +2318,7 @@ mod tests {
         //
         // 新增变体时必须同时登记 `TextKey::ALL`，否则这条会挡住——`ALL` 是
         // 语言包校验与参数核对的唯一入口，漏登记等于漏测试。
-        assert_eq!(TextKey::ALL.len(), 218, "新增/删除键时同步更新数量");
+        assert_eq!(TextKey::ALL.len(), 223, "新增/删除键时同步更新数量");
     }
 
     #[test]

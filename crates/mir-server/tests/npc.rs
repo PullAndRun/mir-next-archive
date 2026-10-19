@@ -20,6 +20,7 @@ use mir_core::enums::{
 use mir_db::{MapInfo, MirDb, MovementInfo, NpcInfo};
 use mir_protocol::ServerPacket;
 use mir_protocol::data::{ItemInfo, Stats, UserItem};
+use mir_server::MonsterKind;
 use mir_server::NpcState;
 use mir_server::buffs::BuffKind;
 use mir_server::combat;
@@ -127,6 +128,7 @@ fn database() -> MirDb {
                 shape: i16::from(Spell::FireBall.value()),
                 ..item(7, "FireBallBook", ItemType::Book, 1, 0, 100, 1)
             },
+            item(8, "TestArmour", ItemType::Armour, 10, 1_000, 500, 1),
         ],
         maps: vec![
             MapInfo {
@@ -1968,4 +1970,56 @@ fn durability_survives_an_inventory_round_trip() {
         .expect("物品还在");
     assert_eq!(stored.current_dura, 1_234, "耐久必须随角色存档一起持久化");
     assert_eq!(stored.max_dura, info.durability);
+}
+
+#[test]
+fn monster_hit_wears_armour_in_the_same_settlement() {
+    let (mut harness, _envir) = Harness::new("hit-wear");
+    let player = harness.add_player(1, Point::new(100, 101));
+    let info = harness.world.item_info(8).cloned().expect("测试护甲模板");
+    let mut armour = harness_free_item(&info);
+    armour.current_dura = 100;
+    armour.max_dura = 100;
+    harness.world.player_mut(player).unwrap().equipment[1] = Some(armour);
+    let kind = MonsterKind {
+        name: "打手".to_owned(),
+        image: mir_core::enums::Monster::Oma,
+        ai: 0,
+        level: 1,
+        view_range: 7,
+        cool_eye: 0,
+        attack_speed_ms: 500,
+        move_speed_ms: 1_000,
+        experience: 0,
+        can_push: false,
+        stats: combat::CombatStats {
+            hp: 100,
+            min_dc: 5,
+            max_dc: 5,
+            accuracy: 100,
+            ..combat::CombatStats::default()
+        },
+    };
+    let monster = harness.world.spawn_monster(MAP, kind, Point::new(100, 102));
+    {
+        let monster = harness.world.monster_mut(monster).unwrap();
+        monster.target = Some(player);
+        monster.operate_time = -1;
+        monster.action_time = -1;
+        monster.attack_time = -1;
+        monster.move_time = -1;
+        monster.search_time = -1;
+        monster.alone_time = -1;
+    }
+    harness.world.tick();
+    harness.world.advance_clock(1_000);
+    harness.world.tick();
+    let dura = harness.world.player(player).unwrap().equipment[1]
+        .as_ref()
+        .unwrap()
+        .current_dura;
+    assert!(
+        dura < 100,
+        "怪物命中应在同一次伤害结算里磨损护甲，实际耐久 {dura}"
+    );
 }

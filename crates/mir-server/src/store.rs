@@ -4,7 +4,9 @@
 //! 与测试用的内存实现可以互换。口令哈希复用 `mir-store` 的 Crystal 兼容实现
 //! （PBKDF2-HMAC-SHA1 / 24 字节盐 / 50 次迭代 / 有损 UTF-8 解码）。
 
+use std::collections::HashMap;
 use std::future::Future;
+use std::sync::Arc;
 
 use mir_core::DateTimeBinary;
 use mir_core::enums::{MarketItemType, MirClass, MirDirection, MirGender};
@@ -160,6 +162,20 @@ pub struct Character {
     /// 宠物命令模式（Crystal `CharacterInfo.PMode`；列 `characters.pet_mode`，迁移 0001，
     /// `PetMode::Both = 0`）。登录时写进世界侧表，下线时回写。
     pub pet_mode: i16,
+    /// 配偶的 `character_id`（Crystal `CharacterInfo.Married`；列 `characters.married`，迁移 0001；
+    /// `0` = 未婚）。
+    pub spouse: i64,
+    /// 结婚时刻（Unix 毫秒；列 `characters.married_date`）。
+    pub married_since: Option<i64>,
+    /// 师傅的 `character_id`（Crystal `CharacterInfo.Mentor`；列 `characters.mentor`；`0` = 没有）。
+    pub mentor: i64,
+    /// 自己是否在带徒弟（Crystal `CharacterInfo.IsMentor`；列 `characters.is_mentor`）。
+    ///
+    /// Crystal 也只存这个**布尔量**，徒弟的 `character_id` 不落库（师徒关系由徒弟行的 `mentor`
+    /// 反查），所以这里不设「mentee id」字段，避免造出一个没有列可存的哨兵值。
+    pub is_mentor: bool,
+    /// 作为师傅攒下的徒弟经验（Crystal `CharacterInfo.MentorExp`；列 `characters.mentor_exp`）。
+    pub mentee_exp: i64,
     /// 好友/黑名单（Crystal `CharacterInfo.Friends`，`CharacterInfo.cs:86`；
     /// 格式见 `crate::friends` 的 `encode_friends`/`decode_friends`；迁移 0015）。
     pub friends: Vec<u8>,
@@ -179,6 +195,18 @@ pub struct Character {
 }
 
 impl Character {
+    /// 把世界侧的社交快照并进角色行（保存前调用）。
+    ///
+    /// 对应 Crystal `CharacterInfo.Married` / `Mentor` / `IsMentor` / `MentorExp`
+    /// （`Server/MirDatabase/CharacterInfo.cs`；列见 `migrations/0001_init.sql:102-108`）。
+    pub fn merge_social(&mut self, snapshot: crate::world::SocialSnapshot) {
+        self.spouse = i64::from(snapshot.married);
+        self.married_since = snapshot.married_date;
+        self.mentor = i64::from(snapshot.mentor);
+        self.is_mentor = snapshot.is_mentor;
+        self.mentee_exp = snapshot.mentor_exp;
+    }
+
     /// 用一个新角色模板：等级 0、属性留待首次进世界生成（Crystal 的行为）。
     #[must_use]
     pub fn new(
@@ -214,6 +242,11 @@ impl Character {
             quests: Vec::new(),
             quest_inventory: Vec::new(),
             pet_mode: 0,
+            spouse: 0,
+            married_since: None,
+            mentor: 0,
+            is_mentor: false,
+            mentee_exp: 0,
             friends: Vec::new(),
             last_daily_reset_at: 0,
             // Crystal 的 `CharacterInfo.GuildIndex` 默认 -1（没有行会）。
@@ -572,6 +605,23 @@ pub trait AccountStore: Send + Sync + 'static {
         character: Character,
     ) -> impl Future<Output = Result<(), StoreError>> + Send + '_;
 
+    /// 带版本号保存角色：同一角色只接受**严格更大**的版本，旧快照返回 `Ok(false)` 丢弃。
+    ///
+    /// 默认实现退化为普通 [`AccountStore::save_character`]（给自定义 store 用）；
+    /// [`MemoryStore`] / [`PgAccountStore`](crate::PgAccountStore) 覆盖为「每角色写锁 +
+    /// 版本比较 + 单条整行 UPDATE」，保证同角色不会并发写、旧版本不会覆盖新版本。
+    fn save_character_versioned(
+        &self,
+        character: Character,
+        version: u64,
+    ) -> impl Future<Output = Result<bool, StoreError>> + Send + '_ {
+        async move {
+            self.save_character(character).await?;
+            let _ = version;
+            Ok(true)
+        }
+    }
+
     /// 保存账号的语言设置（游戏内切换后回写）。
     fn set_language(
         &self,
@@ -709,6 +759,10 @@ pub trait AccountStore: Send + Sync + 'static {
 #[derive(Debug, Default)]
 pub struct MemoryStore {
     state: tokio::sync::Mutex<MemoryState>,
+    /// 每角色写锁：同一角色同时只允许一个 `save_character_versioned` 写库。
+    save_locks: tokio::sync::Mutex<HashMap<i64, Arc<tokio::sync::Mutex<()>>>>,
+    /// 每角色最后成功写入的版本号；旧版本直接丢弃（`Ok(false)`）。
+    save_versions: tokio::sync::Mutex<HashMap<i64, u64>>,
 }
 
 #[derive(Debug, Default)]
@@ -767,6 +821,8 @@ impl MemoryStore {
                 next_guild_id: 1,
                 next_mail_id: 1,
             }),
+            save_locks: tokio::sync::Mutex::new(HashMap::new()),
+            save_versions: tokio::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -973,6 +1029,38 @@ impl AccountStore for MemoryStore {
         }
         state.save_character_history.push(character.id);
         Ok(())
+    }
+
+    async fn save_character_versioned(
+        &self,
+        character: Character,
+        version: u64,
+    ) -> Result<bool, StoreError> {
+        let lock = {
+            let mut locks = self.save_locks.lock().await;
+            Arc::clone(
+                locks
+                    .entry(character.id)
+                    .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
+            )
+        };
+        let _write_guard = lock.lock().await;
+        let mut versions = self.save_versions.lock().await;
+        if versions
+            .get(&character.id)
+            .is_some_and(|current| *current >= version)
+        {
+            tracing::debug!(
+                character_id = character.id,
+                version,
+                current = versions.get(&character.id).copied().unwrap_or(0),
+                "save_character_versioned：旧版本快照被丢弃"
+            );
+            return Ok(false);
+        }
+        self.save_character(character.clone()).await?;
+        versions.insert(character.id, version);
+        Ok(true)
     }
 
     async fn set_language(&self, account_id: i64, language: String) -> Result<(), StoreError> {

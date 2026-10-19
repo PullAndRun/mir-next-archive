@@ -14,8 +14,9 @@ use mir_server::guild::GuildAllyError;
 use mir_server::guild::{Guild, GuildRef, GuildSettings, MAX_GUILD_ALLIES};
 use mir_server::items;
 use mir_server::npc::NpcState;
+use mir_server::store::Character;
 use mir_server::store::GuildRecord;
-use mir_server::world::{Player, World};
+use mir_server::world::{MARRIAGE_LEVEL_REQUIRED, MENTOR_LEVEL_GAP, Player, SocialError, World};
 use tokio::sync::mpsc;
 
 const MAP: &str = "0";
@@ -355,4 +356,247 @@ fn ally_replies_are_localized() {
     assert_eq!(world.text(1, TextKey::AllyAccepted), "Alliance formed.");
     assert_eq!(world.text(1, TextKey::AllyRemoved), "Alliance dissolved.");
     assert_eq!(world.text(1, TextKey::AllyFailed), "Ally operation failed.");
+}
+
+// ---------------------------------------------------------------------------
+// 8. 婚姻与师徒（t109）
+// ---------------------------------------------------------------------------
+
+/// 造两个（或更多）玩家并让他们站在同一格附近，返回 `object_id` 列表。
+fn couple(world: &mut World, levels: &[u16]) -> Vec<u32> {
+    let mut ids = Vec::new();
+    for (index, level) in levels.iter().enumerate() {
+        let object_id = u32::try_from(index + 1).unwrap();
+        let character_id = i64::try_from(index + 1).unwrap();
+        add_player(world, object_id, character_id, None);
+        if let Some(player) = world.player_mut(object_id) {
+            player.level = *level;
+            player.position = Point::new(100 + i32::try_from(index).unwrap(), 100);
+        }
+        ids.push(object_id);
+    }
+    ids
+}
+
+#[test]
+fn marriage_request_and_accept_links_both_sides() {
+    let mut world = world();
+    let ids = couple(&mut world, &[20, 20]);
+    world
+        .marriage_request(ids[0], ids[1])
+        .expect("同图相邻、双方 20 级，可以求婚");
+    let proposer = world.marriage_reply(ids[1], true).expect("接受求婚");
+    assert_eq!(proposer, ids[0]);
+    let (a, b) = (world.player(ids[0]).unwrap(), world.player(ids[1]).unwrap());
+    assert_eq!(world.spouse_of(a.character_id), Some(b.character_id));
+    assert_eq!(world.spouse_of(b.character_id), Some(a.character_id));
+    assert!(world.married_since(a.character_id).is_some());
+}
+
+#[test]
+fn marriage_request_rejects_underlevel_and_self() {
+    let mut world = world();
+    let ids = couple(&mut world, &[5, 20]);
+    assert!(matches!(
+        world.marriage_request(ids[0], ids[1]),
+        Err(SocialError::LevelTooLow {
+            required: MARRIAGE_LEVEL_REQUIRED,
+            ..
+        })
+    ));
+    let ids = couple(&mut world, &[20, 20]);
+    assert_eq!(
+        world.marriage_request(ids[1], ids[1]),
+        Err(SocialError::SelfTarget)
+    );
+}
+
+#[test]
+fn marriage_reply_declined_keeps_both_single() {
+    let mut world = world();
+    let ids = couple(&mut world, &[20, 20]);
+    world.marriage_request(ids[0], ids[1]).expect("求婚");
+    world.marriage_reply(ids[1], false).expect("拒绝");
+    assert!(
+        world
+            .spouse_of(world.player(ids[0]).unwrap().character_id)
+            .is_none()
+    );
+    assert!(
+        world
+            .spouse_of(world.player(ids[1]).unwrap().character_id)
+            .is_none()
+    );
+    // 拒绝后没有待回应求婚，再回应会报错。
+    assert_eq!(
+        world.marriage_reply(ids[1], true),
+        Err(SocialError::NoProposal)
+    );
+}
+
+#[test]
+fn divorce_clears_both_sides() {
+    let mut world = world();
+    let ids = couple(&mut world, &[20, 20]);
+    world.marriage_request(ids[0], ids[1]).unwrap();
+    world.marriage_reply(ids[1], true).unwrap();
+    let spouse = world.divorce(ids[0]).expect("离婚");
+    assert_eq!(spouse, world.player(ids[1]).unwrap().character_id);
+    assert!(
+        world
+            .spouse_of(world.player(ids[0]).unwrap().character_id)
+            .is_none()
+    );
+    assert!(
+        world
+            .spouse_of(world.player(ids[1]).unwrap().character_id)
+            .is_none()
+    );
+    assert!(world.divorce(ids[0]).is_err(), "已经离了不能再离");
+}
+
+#[test]
+fn spouse_name_is_lookupable_after_relogin_style_restore() {
+    // 「配偶名显示」的数据来源：`spouse_of(character_id)` → 再按 character_id 找名字。
+    let mut world = world();
+    let ids = couple(&mut world, &[20, 20]);
+    world.marriage_request(ids[0], ids[1]).unwrap();
+    world.marriage_reply(ids[1], true).unwrap();
+    let character = world.player(ids[0]).unwrap().character_id;
+    let spouse_character = world.spouse_of(character).expect("已婚");
+    let spouse_name = world
+        .player_of_character(spouse_character)
+        .map(|player| player.name.clone())
+        .expect("配偶在线时能查到名字");
+    assert_eq!(spouse_name, world.player(ids[1]).unwrap().name);
+}
+
+#[test]
+fn mentor_request_enforces_level_gap_and_class() {
+    let mut world = world();
+    // 徒弟 5 级、师傅 20 级：差 15 >= 10，可以；师傅 12 级则不行（差 7 < 10）。
+    let ids = couple(&mut world, &[5, 20]);
+    world.set_allow_mentor(ids[1], true);
+    world
+        .mentor_request(ids[0], ids[1])
+        .expect("等级差 15 满足");
+    world.mentor_reply(ids[1], true).expect("接受");
+
+    let mut world = self::world();
+    let ids = couple(&mut world, &[5, 12]);
+    world.set_allow_mentor(ids[1], true);
+    assert!(matches!(
+        world.mentor_request(ids[0], ids[1]),
+        Err(SocialError::MentorLevelGap {
+            gap: MENTOR_LEVEL_GAP
+        })
+    ));
+}
+
+#[test]
+fn mentee_experience_banks_for_the_mentor() {
+    let mut world = world();
+    let ids = couple(&mut world, &[5, 20]);
+    world.set_allow_mentor(ids[1], true);
+    world.mentor_request(ids[0], ids[1]).unwrap();
+    world.mentor_reply(ids[1], true).unwrap();
+    world.gain_experience(ids[0], 1_000);
+    let link = world.mentorship_of(ids[0]).expect("师徒关系");
+    // `MenteeExpBank = 5` → 1000 * 5 / 100 = 50。
+    assert_eq!(link.mentee_exp, 50);
+}
+
+#[test]
+fn mentoring_ends_and_mentor_collects_the_bank() {
+    let mut world = world();
+    let ids = couple(&mut world, &[5, 20]);
+    world.set_allow_mentor(ids[1], true);
+    world.mentor_request(ids[0], ids[1]).unwrap();
+    world.mentor_reply(ids[1], true).unwrap();
+    world.gain_experience(ids[0], 2_000);
+    let before = world.player(ids[1]).unwrap().experience;
+    let link = world.mentor_break(ids[0]).expect("解除师徒");
+    assert_eq!(link.mentee_exp, 100);
+    assert!(world.mentorship_of(ids[0]).is_none());
+    let after = world.player(ids[1]).unwrap().experience;
+    assert_eq!(after, before + 100, "师傅一次性领走攒下的徒弟经验");
+}
+
+#[test]
+fn mentee_graduates_automatically_when_level_gap_closes() {
+    // Crystal `PlayerObject.cs:940-945`：升级后 `Level + MentorLevelGap > Mentor.Level` → `MentorBreak()`。
+    let mut world = world();
+    // 徒弟 5 级、师傅 14 级（差 9 < 10 才允许拜师？——差 9 不满足 `5 + 10 <= 14`，所以用 15）。
+    let ids = couple(&mut world, &[5, 15]);
+    world.set_allow_mentor(ids[1], true);
+    world
+        .mentor_request(ids[0], ids[1])
+        .expect("等级差 10 满足");
+    world.mentor_reply(ids[1], true).expect("接受");
+    world.gain_experience(ids[0], 1_000);
+    let banked = world.mentorship_of(ids[0]).unwrap().mentee_exp;
+    assert_eq!(banked, 50);
+
+    // 徒弟升到 6 级：6 + 10 > 15 → 自动出师。
+    world.player_mut(ids[0]).unwrap().level = 6;
+    let mentor_before = world.player(ids[1]).unwrap().experience;
+    world.player_level_up(ids[0]);
+    assert!(
+        world.mentorship_of(ids[0]).is_none(),
+        "等级差不再满足时应自动出师"
+    );
+    let mentor_after = world.player(ids[1]).unwrap().experience;
+    assert_eq!(
+        mentor_after,
+        mentor_before + banked,
+        "出师时师傅领走攒下的经验"
+    );
+}
+
+#[test]
+fn social_snapshot_carries_marriage_and_mentorship_for_persistence() {
+    let mut world = world();
+    let ids = couple(&mut world, &[20, 20]);
+    world.marriage_request(ids[0], ids[1]).unwrap();
+    world.marriage_reply(ids[1], true).unwrap();
+    let character = world.player(ids[0]).unwrap().character_id;
+    let spouse_character = world.player(ids[1]).unwrap().character_id;
+
+    let snapshot = world.social_snapshot(ids[0]).expect("快照");
+    assert_eq!(snapshot.married, i32::try_from(spouse_character).unwrap());
+    assert!(snapshot.married_date.is_some(), "结婚时刻要进快照");
+
+    // 把快照并进角色行（`Character::merge_social`），再把行读回来 —— 等价于「落库 → 重登」。
+    let mut row = Character::new(
+        1,
+        1,
+        "甲",
+        MirClass::Warrior,
+        MirGender::Male,
+        "0",
+        (100, 100),
+    );
+    row.merge_social(snapshot);
+    assert_eq!(row.spouse, spouse_character);
+    assert_eq!(row.mentor, 0);
+    assert!(!row.is_mentor);
+
+    // 师徒方向：徒弟的 mentor 字段、师傅的 is_mentor + mentee_exp。
+    let mut world = self::world();
+    let ids = couple(&mut world, &[5, 20]);
+    world.set_allow_mentor(ids[1], true);
+    world.mentor_request(ids[0], ids[1]).unwrap();
+    world.mentor_reply(ids[1], true).unwrap();
+    world.gain_experience(ids[0], 1_000);
+    let mentee_snapshot = world.social_snapshot(ids[0]).expect("徒弟快照");
+    assert_eq!(
+        mentee_snapshot.mentor,
+        i32::try_from(world.player(ids[1]).unwrap().character_id).unwrap()
+    );
+    assert_eq!(mentee_snapshot.mentor_exp, 50);
+
+    let mentor_snapshot = world.social_snapshot(ids[1]).expect("师傅快照");
+    assert!(mentor_snapshot.is_mentor, "带徒弟的人 is_mentor 要为真");
+    assert_eq!(mentor_snapshot.mentor, 0);
+    let _ = character;
 }

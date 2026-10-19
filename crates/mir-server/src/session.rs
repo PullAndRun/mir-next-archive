@@ -139,19 +139,14 @@ pub struct Session<S: AccountStore> {
     /// （金币/背包/装备/技能/任务/仓库/好友/坐标/HP/MP 全都体现在行里），
     /// 而且天然支持「改了又改回去」这种不该写库的情况。
     saved_row: Option<Character>,
+    /// 本会话最近一次写入的版本号（Unix 毫秒，单调递增）；同一角色只接受更大版本。
+    save_version: u64,
     /// 下一次 autosave 的到点时刻（`World::wall_now()` 毫秒）；`0` = 尽快。
     next_autosave_at_ms: i64,
     /// 写失败后的退避闸门（毫秒；`0` = 没有退避）。
     next_save_retry_at_ms: i64,
     /// 连续 autosave 失败次数（指数退避用，成功后清零）。
     autosave_failures: u32,
-    /// 上一次观察到的 HP。
-    ///
-    /// 本作没有在伤害结算点挂钩（那在 `world.rs`/`combat.rs`，不在本任务的改动范围内），
-    /// 所以「受击磨损护甲」（Crystal `HumanObject.DamageDura`）改为**会话侧观察 HP 下降**：
-    /// 每收到一个客户端包时比较一次，掉了血就结算一次装备磨损。粒度是「下一次收包」，
-    /// 与 Crystal 的「受击瞬间」有差异，已在 `docs` 与回执里登记。
-    last_seen_hp: Option<i32>,
     /// 行会/邮件**重试闸门**（`World::wall_now()` 毫秒；`0` = 没在等重试）。
     ///
     /// 写失败时批次回灌到 `World::{guild,mail}_writes`（与 `market::commit_market_like`
@@ -189,11 +184,11 @@ impl<S: AccountStore> Session<S> {
             rate_window_count: 0,
             rate_warned: false,
             saved_row: None,
+            save_version: 0,
             next_autosave_at_ms: 0,
             next_save_retry_at_ms: 0,
             autosave_failures: 0,
             next_write_retry_at_ms: 0,
-            last_seen_hp: None,
         }
     }
 
@@ -255,8 +250,6 @@ impl<S: AccountStore> Session<S> {
         if !self.rate_allows_packet() {
             return Ok(());
         }
-        // 受击磨损：把「上次看到的 HP」与当前 HP 比一下（见 `last_seen_hp` 的说明）。
-        self.settle_damage_wear().await;
         // GM `@kick` 的兜底路径：连接建立时登记过通道的会话由读循环直接断开；
         // 没登记的（测试/裸 Session）在这里退出。
         if crate::gm::take_pending_kick(self.id) {
@@ -298,6 +291,16 @@ impl<S: AccountStore> Session<S> {
             ClientPacket::Chat(packet) => self.on_chat(&packet.message).await,
             // 好友/黑名单（Crystal `PlayerObject.AddFriend` / `RemoveFriend` / `RefreshFriends` /
             // `AddMemo`，`PlayerObject.cs:12426+`）。
+            // 婚姻/师徒（Crystal `MirConnection.cs:562-581`）。
+            ClientPacket::MarriageRequest(_) => self.on_marriage_request().await,
+            ClientPacket::MarriageReply(packet) => {
+                self.on_marriage_reply(packet.accept_invite).await;
+            }
+            ClientPacket::ChangeMarriage(_) => self.on_divorce().await,
+            ClientPacket::AddMentor(packet) => self.on_add_mentor(packet.name.clone()).await,
+            ClientPacket::MentorReply(packet) => self.on_mentor_reply(packet.accept_invite).await,
+            ClientPacket::AllowMentor(_) => self.on_allow_mentor().await,
+            ClientPacket::CancelMentor(_) => self.on_cancel_mentor().await,
             ClientPacket::AddFriend(packet) => {
                 self.on_add_friend(packet.name.clone(), packet.blocked)
                     .await;
@@ -815,7 +818,7 @@ impl<S: AccountStore> Session<S> {
             character.hp = 15;
             character.mp = 15;
             let started = std::time::Instant::now();
-            let saved = self.store.save_character(character.clone()).await;
+            let saved = self.save_character_row(character.clone()).await;
             crate::metrics::metrics().record_db_save(started.elapsed());
             saved?;
         }
@@ -839,7 +842,7 @@ impl<S: AccountStore> Session<S> {
         };
         if reset_done {
             let started = std::time::Instant::now();
-            let saved = self.store.save_character(character.clone()).await;
+            let saved = self.save_character_row(character.clone()).await;
             crate::metrics::metrics().record_db_save(started.elapsed());
             match saved {
                 Ok(()) => tracing::debug!(
@@ -1191,7 +1194,7 @@ impl<S: AccountStore> Session<S> {
         self.leave_world().await;
         if let Some(character) = self.character.clone() {
             let started = std::time::Instant::now();
-            let saved = self.store.save_character(character).await;
+            let saved = self.save_character_row(character).await;
             crate::metrics::metrics().record_db_save(started.elapsed());
             if saved.is_err() {
                 crate::metrics::metrics().record_db_save_failed();
@@ -1643,6 +1646,102 @@ impl<S: AccountStore> Session<S> {
             character.last_daily_reset_at = now;
         }
         tracing::debug!(session = self.id, "任务交互前补做每日任务重置");
+    }
+
+    /// `C.MarriageRequest`：向面前的人求婚（Crystal `PlayerObject.MarriageRequest`）。
+    async fn on_marriage_request(&mut self) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        let Some(target) = world.player_in_front_of(object_id) else {
+            tracing::debug!(session = self.id, "求婚：面前没有玩家");
+            return;
+        };
+        if let Err(error) = world.marriage_request(object_id, target) {
+            tracing::debug!(session = self.id, %error, "求婚失败");
+        }
+    }
+
+    /// `C.MarriageReply`：回应求婚。
+    async fn on_marriage_reply(&mut self, accept: bool) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.marriage_reply(object_id, accept) {
+            Ok(proposer) => {
+                if accept {
+                    tracing::info!(session = self.id, proposer, "结婚成功");
+                }
+            }
+            Err(error) => tracing::debug!(session = self.id, %error, "回应求婚失败"),
+        }
+    }
+
+    /// `C.ChangeMarriage`：离婚（本作做成一发起即离，见 `World::divorce` 的说明）。
+    async fn on_divorce(&mut self) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.divorce(object_id) {
+            Ok(spouse) => {
+                tracing::info!(session = self.id, spouse, "离婚");
+            }
+            Err(error) => tracing::debug!(session = self.id, %error, "离婚失败"),
+        }
+    }
+
+    /// `C.AddMentor`：拜师（按名字找人）。
+    async fn on_add_mentor(&mut self, name: String) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        let Some(mentor) = world.player_object_id_by_name(&name) else {
+            tracing::debug!(session = self.id, %name, "拜师：找不到该玩家");
+            return;
+        };
+        if let Err(error) = world.mentor_request(object_id, mentor) {
+            tracing::debug!(session = self.id, %error, "拜师失败");
+        }
+    }
+
+    /// `C.MentorReply`：师傅回应拜师请求。
+    async fn on_mentor_reply(&mut self, accept: bool) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.mentor_reply(object_id, accept) {
+            Ok(mentee) => {
+                if accept {
+                    tracing::info!(session = self.id, mentee, "收徒成功");
+                }
+            }
+            Err(error) => tracing::debug!(session = self.id, %error, "回应拜师失败"),
+        }
+    }
+
+    /// `C.AllowMentor`：开关「接受拜师请求」（Crystal `AllowMentor`）。
+    async fn on_allow_mentor(&mut self) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        world.set_allow_mentor(object_id, true);
+    }
+
+    /// `C.CancelMentor`：解除师徒。
+    async fn on_cancel_mentor(&mut self) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        if world.mentor_break(object_id).is_some() {
+            tracing::info!(session = self.id, mentee = object_id, "解除师徒");
+        }
     }
 
     /// `C.AddFriend`：加好友 / 拉黑（Crystal `PlayerObject.AddFriend`，`PlayerObject.cs:12426`）。
@@ -2102,6 +2201,7 @@ impl<S: AccountStore> Session<S> {
                     world.quest_inventory(object_id),
                     world.pet_mode(object_id),
                     world.friends_of(object_id),
+                    world.social_snapshot(object_id),
                 )
             })
         };
@@ -2130,6 +2230,7 @@ impl<S: AccountStore> Session<S> {
         quest_inventory: Option<&crate::quest_inventory::QuestInventory>,
         pet_mode: mir_core::enums::PetMode,
         friends: &[crate::friends::FriendEntry],
+        social: Option<crate::world::SocialSnapshot>,
     ) -> Option<Character> {
         self.character.as_ref().map(|base| {
             // `pet_mode` 由 `market::character_snapshot` 一起写进行（市场/商城/下线口径统一）。
@@ -2139,6 +2240,10 @@ impl<S: AccountStore> Session<S> {
             }
             // 好友/黑名单同理：base 里是登录时的快照，这里覆写成世界里的活值。
             snapshot.friends = crate::friends::encode_friends(friends);
+            // 婚姻/师徒：从世界侧表并进角色行（Crystal `CharacterInfo.Married`/`Mentor`）。
+            if let Some(social) = social {
+                snapshot.merge_social(social);
+            }
             snapshot
         })
     }
@@ -2750,6 +2855,7 @@ impl<S: AccountStore> Session<S> {
                     world.quest_inventory(object_id),
                     world.pet_mode(object_id),
                     world.friends_of(object_id),
+                    world.social_snapshot(object_id),
                 )
             })
         };
@@ -2904,23 +3010,6 @@ impl<S: AccountStore> Session<S> {
     // 周期自动存档（F1：崩服 RPO 有界）
     // -----------------------------------------------------------------------
 
-    /// 观察一次 HP 变化，掉了血就结算「受击磨损」（Crystal `HumanObject.DamageDura`）。
-    async fn settle_damage_wear(&mut self) {
-        let Some(object_id) = self.object_id else {
-            return;
-        };
-        let mut world = self.world.lock().await;
-        let Some(hp) = world.player(object_id).map(|player| player.hp) else {
-            return;
-        };
-        let previous = self.last_seen_hp.replace(hp);
-        // 只在**掉血**时磨损（回血/换图重置不动装备）。
-        if previous.is_none_or(|previous| hp >= previous) {
-            return;
-        }
-        world.damage_armour(object_id);
-    }
-
     /// autosave 周期（毫秒）；`0` = 关闭。
     fn autosave_interval_ms(&self) -> i64 {
         i64::try_from(self.config.autosave_secs)
@@ -2957,6 +3046,7 @@ impl<S: AccountStore> Session<S> {
             world.quest_inventory(object_id),
             world.pet_mode(object_id),
             world.friends_of(object_id),
+            world.social_snapshot(object_id),
         )
     }
 
@@ -2969,6 +3059,34 @@ impl<S: AccountStore> Session<S> {
     /// * 失败**保留脏标记**（不更新 `saved_row`），按 [`Session::autosave_backoff_ms`]
     ///   退避后重试；同时 `tracing::error!` + `mir2_db_save_failed_total`；
     /// * 成功把 `saved_row`/`character` 一起前移，保证后续快照与下线存盘看到同一份底稿。
+    ///
+    /// 带版本地写角色行：同角色只接受更大版本，避免旧快照覆盖新快照。
+    ///
+    /// 版本号取「Unix 毫秒」，同一会话内强制 +1 单调，所以同一毫秒连续两次保存也不会并列；
+    /// 被判定为旧版本时只记 warn、不更新调用方的 `saved_row` 语义（由各调用点自行处理返回值）。
+    async fn save_character_row(
+        &mut self,
+        character: Character,
+    ) -> Result<(), crate::store::StoreError> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_millis() as u64);
+        self.save_version = now_ms.max(self.save_version.saturating_add(1));
+        let written = self
+            .store
+            .save_character_versioned(character.clone(), self.save_version)
+            .await?;
+        if !written {
+            tracing::warn!(
+                session = self.id,
+                character = character.id,
+                version = self.save_version,
+                "角色写版本过旧，已丢弃（有更新的快照先落库）"
+            );
+        }
+        Ok(())
+    }
+
     pub async fn autosave_tick(&mut self) {
         let interval_ms = self.autosave_interval_ms();
         if interval_ms <= 0 {
@@ -2996,7 +3114,7 @@ impl<S: AccountStore> Session<S> {
         }
         let started = std::time::Instant::now();
         crate::metrics::metrics().record_autosave();
-        match self.store.save_character(row.clone()).await {
+        match self.save_character_row(row.clone()).await {
             Ok(()) => {
                 crate::metrics::metrics().record_db_save(started.elapsed());
                 tracing::debug!(session = self.id, character = row.id, "autosave 落盘成功");
@@ -3035,13 +3153,21 @@ impl<S: AccountStore> Session<S> {
         let Some(object_id) = self.object_id.take() else {
             return;
         };
-        let (leaving, quest_inventory, pet_mode, friends) = {
+        let (leaving, quest_inventory, pet_mode, friends, social) = {
             let mut world = self.world.lock().await;
             // 先取走任务物品栏/宠物命令/好友表（`leave` 会清理侧表，取晚了就只剩默认值）。
             let quest_inventory = world.take_quest_inventory(object_id);
             let pet_mode = world.pet_mode(object_id);
             let friends = world.take_friends(object_id);
-            (world.leave(object_id), quest_inventory, pet_mode, friends)
+            // 婚姻/师徒快照同样要在 `leave` 之前取（下线后世界侧表会清掉）。
+            let social = world.social_snapshot(object_id);
+            (
+                world.leave(object_id),
+                quest_inventory,
+                pet_mode,
+                friends,
+                social,
+            )
         };
         if leaving.is_some() {
             crate::metrics::metrics().player_left();
@@ -3050,14 +3176,14 @@ impl<S: AccountStore> Session<S> {
             // 世界 → 角色行的映射与市场落盘共用 `market::character_snapshot`，
             // 保证「下线存盘」与「市场事务落盘」不会写出两套不同的背包/金币语义。
             if let Some(character) =
-                self.character_snapshot(&player, Some(&quest_inventory), pet_mode, &friends)
+                self.character_snapshot(&player, Some(&quest_inventory), pet_mode, &friends, social)
             {
                 self.character = Some(character);
             }
         }
         if let Some(character) = self.character.clone() {
             let started = std::time::Instant::now();
-            let saved = self.store.save_character(character).await;
+            let saved = self.save_character_row(character).await;
             crate::metrics::metrics().record_db_save(started.elapsed());
             match saved {
                 Ok(()) => self.mark_saved(),

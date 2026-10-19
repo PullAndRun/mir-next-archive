@@ -1,5 +1,8 @@
 //! PostgreSQL 存储实现（把 `mir-store` 的仓储适配成服务端的 [`AccountStore`]）。
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use chrono::{DateTime, TimeZone, Utc};
 use mir_core::DateTimeBinary;
 use mir_core::enums::{MarketItemType, MirClass, MirDirection, MirGender};
@@ -15,6 +18,10 @@ use crate::store::{
 #[derive(Debug, Clone)]
 pub struct PgAccountStore {
     pool: PgPool,
+    /// 每角色写锁：同一角色同时只允许一个 `save_character_versioned` 写库。
+    save_locks: Arc<tokio::sync::Mutex<HashMap<i64, Arc<tokio::sync::Mutex<()>>>>>,
+    /// 每角色最后成功写入的版本号；旧版本直接丢弃。
+    save_versions: Arc<tokio::sync::Mutex<HashMap<i64, u64>>>,
 }
 
 impl PgAccountStore {
@@ -29,7 +36,11 @@ impl PgAccountStore {
         mir_store::migrate(&pool)
             .await
             .map_err(|error| StoreError::Internal(error.to_string()))?;
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            save_locks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            save_versions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        })
     }
 
     /// 底层连接池（后台任务、工具会用到）。
@@ -112,6 +123,11 @@ fn from_store_character(character: mir_store::Character) -> Character {
         quest_inventory: character.quest_inventory,
         last_daily_reset_at: character.last_daily_reset_at,
         pet_mode: character.pet_mode,
+        spouse: i64::from(character.married),
+        married_since: character.married_date.map(|date| date.timestamp_millis()),
+        mentor: i64::from(character.mentor),
+        is_mentor: character.is_mentor,
+        mentee_exp: character.mentor_exp,
         friends: character.friends,
         guild_index: character.guild_index,
         last_access: from_datetime(character.last_login_date),
@@ -149,6 +165,15 @@ fn apply_to_store_character(character: &Character, target: &mut mir_store::Chara
         .clone_from(&character.quest_inventory);
     target.last_daily_reset_at = character.last_daily_reset_at;
     target.pet_mode = character.pet_mode;
+    // 婚姻/师徒（Crystal `CharacterInfo.Married`/`Mentor`/`IsMentor`/`MentorExp`，
+    // 列见 `migrations/0001_init.sql:102-108`）。
+    target.married = i32::try_from(character.spouse).unwrap_or(0);
+    target.married_date = character
+        .married_since
+        .and_then(DateTime::from_timestamp_millis);
+    target.mentor = i32::try_from(character.mentor).unwrap_or(0);
+    target.is_mentor = character.is_mentor;
+    target.mentor_exp = character.mentee_exp;
     target.friends.clone_from(&character.friends);
     target.guild_index = character.guild_index;
 }
@@ -583,6 +608,40 @@ impl AccountStore for PgAccountStore {
                     );
                     map_store_error(error)
                 })
+        }
+    }
+
+    fn save_character_versioned(
+        &self,
+        character: Character,
+        version: u64,
+    ) -> impl std::future::Future<Output = Result<bool, StoreError>> + Send + '_ {
+        async move {
+            let lock = {
+                let mut locks = self.save_locks.lock().await;
+                Arc::clone(
+                    locks
+                        .entry(character.id)
+                        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
+                )
+            };
+            let _write_guard = lock.lock().await;
+            let mut versions = self.save_versions.lock().await;
+            if versions
+                .get(&character.id)
+                .is_some_and(|current| *current >= version)
+            {
+                tracing::debug!(
+                    character_id = character.id,
+                    version,
+                    current = versions.get(&character.id).copied().unwrap_or(0),
+                    "save_character_versioned：旧版本快照被丢弃"
+                );
+                return Ok(false);
+            }
+            self.save_character(character.clone()).await?;
+            versions.insert(character.id, version);
+            Ok(true)
         }
     }
 

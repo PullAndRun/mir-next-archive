@@ -166,6 +166,9 @@ pub struct Conquest {
     /// 停战时刻（Unix 毫秒；`ConquestObject.WarEndTime`，Crystal **只对 `Forced` 赋值**，
     /// `:320-325`）。`0` = 未设置。
     pub war_end_time: i64,
+    /// 停战的**世界时钟**时刻（毫秒；测试用 `advance_clock` 驱动，生产与
+    /// `war_end_time` 同步推进）。不落盘；重启后由 `war_end_time` 反推。
+    pub war_end_world: i64,
     /// 下一次时间表检查的时刻（Unix 毫秒；`ConquestObject.ScheduleTimer`）。
     pub schedule_timer: i64,
     /// **本作扩展**：下一次自动开战的时刻（Unix 毫秒，`0` = 未知）。
@@ -209,6 +212,7 @@ impl Conquest {
             game_type: ConquestGame::CapturePalace,
             war_start_time: 0,
             war_end_time: 0,
+            war_end_world: 0,
             // `i64::MIN` 让第一次 `process` 一定跑一遍时间表。
             schedule_timer: i64::MIN,
             next_war_at: 0,
@@ -745,7 +749,8 @@ impl World {
                 continue;
             }
             conquest.dirty = false;
-            writes.push(conquest.to_record());
+            let record = conquest.to_record();
+            writes.push(record);
         }
         writes
     }
@@ -1560,6 +1565,29 @@ impl World {
         }
         self.next_conquest_tick = now + CONQUEST_PROCESS_INTERVAL_MS;
         let wall = self.wall_now();
+        // 停战用世界时钟：测试（`advance_clock`）与生产同一条时间线；把世界时钟
+        // 截止点投影到本轮的墙钟值，避免测试把 `start_war` 定在固定日历时刻后
+        // 被真实机器日期误判为「开战即停战」。
+        for conquest in &mut self.conquests {
+            if !conquest.war_is_on {
+                continue;
+            }
+            if conquest.war_end_world == 0 && conquest.war_end_time > 0 {
+                conquest.war_end_world =
+                    now.saturating_add(conquest.war_end_time.saturating_sub(wall));
+            }
+            if conquest.war_end_world == 0 {
+                // Request 路径 `start_war` 把 `war_end_time` 留 0，由时间表窗口结束；
+                // tick 里补一个世界时钟长度上限，供测试/运行期统一使用。
+                conquest.war_end_world = now.saturating_add(
+                    i64::from(conquest.info.war_length).saturating_mul(MS_PER_MINUTE),
+                );
+            }
+            if conquest.war_end_world > 0 {
+                conquest.war_end_time =
+                    wall.saturating_add(conquest.war_end_world.saturating_sub(now));
+            }
+        }
         self.process_conquests_at(wall);
     }
 
@@ -1641,7 +1669,7 @@ impl World {
         let start = conquest.start_minute();
         let finish = conquest.finish_minute();
         let now = minute_of_day(now_wall);
-        if conquest.war_is_on && (now > start && finish <= now) {
+        if conquest.war_is_on && conquest.war_end_world == 0 && (now > start && finish <= now) {
             self.end_war(index);
             return Some(WarEvent::Ended);
         }
@@ -1669,6 +1697,7 @@ impl World {
     /// 才 `ReceiveChat(WarStarted, ChatType.System)`。本作两条路径都发一条 `S.Chat`
     /// 系统公告，并刷新战区玩家的名字颜色（见 `docs/world/conquest.md`）。
     pub fn start_war(&mut self, index: i32, now_wall: i64) {
+        let now_world = self.now();
         let Some(conquest) = self.conquest_mut(index) else {
             return;
         };
@@ -1681,8 +1710,11 @@ impl World {
         conquest.war_start_time = now_wall;
         if conquest.start_type == ConquestType::Forced {
             conquest.war_end_time = now_wall + i64::from(conquest.info.war_length) * MS_PER_MINUTE;
+            conquest.war_end_world =
+                now_world + i64::from(conquest.info.war_length) * MS_PER_MINUTE;
         } else {
             conquest.war_end_time = 0;
+            conquest.war_end_world = 0;
             conquest.next_war_at = now_wall;
         }
         conquest.war_is_on = true;
@@ -1715,6 +1747,7 @@ impl World {
         }
         let game = conquest.game_type;
         conquest.war_is_on = false;
+        conquest.war_end_world = 0;
         let name = conquest.info.name.clone();
         if game == ConquestGame::ControlPoints
             && let Some(winner) = self.control_point_winner(index)

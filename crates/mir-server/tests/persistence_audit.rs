@@ -759,3 +759,182 @@ async fn character_row_roundtrips_all_audited_columns() {
     assert_eq!(row.mp, 260);
     assert_eq!((row.x, row.y), (12, 34));
 }
+
+// ---------------------------------------------------------------------------
+// 11) 版本化写：旧快照丢弃、并发串行、失败不推进版本
+// ---------------------------------------------------------------------------
+
+async fn versioned_fixture() -> (MemoryStore, mir_server::Account, Character) {
+    let store = MemoryStore::new();
+    let account = store
+        .create_account("gmuser", "secret", "")
+        .await
+        .expect("account");
+    let character = store
+        .create_character(
+            account.id,
+            "VersionHero",
+            MirClass::Warrior,
+            MirGender::Male,
+            "0",
+            (330, 270),
+        )
+        .await
+        .expect("character");
+    (store, account, character)
+}
+
+#[tokio::test]
+async fn versioned_save_rejects_older_snapshot() {
+    let (store, account, mut character) = versioned_fixture().await;
+    character.gold = 10;
+    assert!(
+        store
+            .save_character_versioned(character.clone(), 10)
+            .await
+            .expect("save v10")
+    );
+    character.gold = 99;
+    assert!(
+        !store
+            .save_character_versioned(character.clone(), 9)
+            .await
+            .expect("stale save"),
+        "旧版本必须被拒绝"
+    );
+    let row = store
+        .find_character(account.id, character.id)
+        .await
+        .expect("load")
+        .expect("row");
+    assert_eq!(row.gold, 10, "旧版本不能覆盖新版本");
+}
+
+#[tokio::test]
+async fn concurrent_versioned_saves_are_serialized_and_latest_wins() {
+    let (store, account, mut character) = versioned_fixture().await;
+    let mut older = character.clone();
+    older.gold = 1;
+    let mut newer = character.clone();
+    newer.gold = 2;
+    let (a, b) = tokio::join!(
+        store.save_character_versioned(older, 20),
+        store.save_character_versioned(newer, 21)
+    );
+    a.expect("older request");
+    b.expect("newer request");
+    character = store
+        .find_character(account.id, character.id)
+        .await
+        .expect("load")
+        .expect("row");
+    assert_eq!(character.gold, 2, "最终必须是更大版本 21 的快照");
+}
+
+#[tokio::test]
+async fn failed_versioned_save_does_not_advance_version() {
+    let (store, account, mut character) = versioned_fixture().await;
+    character.gold = 1;
+    store
+        .save_character_versioned(character.clone(), 30)
+        .await
+        .expect("base");
+    character.gold = 2;
+    store.fail_next_save_character().await;
+    assert!(
+        store
+            .save_character_versioned(character.clone(), 31)
+            .await
+            .is_err(),
+        "注入失败必须冒泡"
+    );
+    // 失败没有推进版本：同版本重试应仍然允许（且写的是同一快照）。
+    assert!(
+        store
+            .save_character_versioned(character.clone(), 31)
+            .await
+            .expect("retry"),
+        "失败后同版本重试应成功"
+    );
+    let row = store
+        .find_character(account.id, character.id)
+        .await
+        .expect("load")
+        .expect("row");
+    assert_eq!(row.gold, 2);
+}
+
+#[tokio::test]
+async fn same_version_concurrent_saves_only_one_wins() {
+    let (store, account, mut character) = versioned_fixture().await;
+    let mut a = character.clone();
+    a.gold = 7;
+    let mut b = character.clone();
+    b.gold = 8;
+    let (ra, rb) = tokio::join!(
+        store.save_character_versioned(a, 40),
+        store.save_character_versioned(b, 40)
+    );
+    let ra = ra.expect("a");
+    let rb = rb.expect("b");
+    assert_ne!(ra, rb, "同一版本只能有一个成功");
+    character = store
+        .find_character(account.id, character.id)
+        .await
+        .expect("load")
+        .expect("row");
+    assert!(character.gold == 7 || character.gold == 8);
+}
+
+#[tokio::test]
+async fn autosave_then_logout_keeps_the_latest_versioned_snapshot() {
+    let (address, store, world) = start_server_with_world(1).await;
+    let (mut client, index, _) = enter_world(address).await;
+    let account_id = store
+        .find_account("gmuser")
+        .await
+        .expect("account")
+        .expect("row")
+        .id;
+    grant_gold(&mut client, 500).await;
+    advance(&world, 1_100).await; // autosave 写 500
+    grant_gold(&mut client, 111).await; // 再加 111，LogOut 写 611
+    client
+        .send(ClientPacket::LogOut(c::LogOut::default()))
+        .await;
+    client.expect_index(s::LogOutSuccess::INDEX).await;
+    let row = store
+        .find_character(account_id, i64::from(index))
+        .await
+        .expect("load")
+        .expect("row");
+    assert_eq!(
+        row.gold, 611,
+        "LogOut 的版本必须大于 autosave，不能回退到 500"
+    );
+}
+
+#[tokio::test]
+async fn versioned_saves_still_meet_the_autosave_rpo() {
+    const AUTOSAVE_SECS: u64 = 1;
+    let (address, store, world) = start_server_with_world(AUTOSAVE_SECS).await;
+    let (mut client, index, _) = enter_world(address).await;
+    let account_id = store
+        .find_account("gmuser")
+        .await
+        .expect("account")
+        .expect("row")
+        .id;
+    grant_gold(&mut client, 777).await;
+    advance(
+        &world,
+        i64::try_from(AUTOSAVE_SECS).expect("secs") * 1000 + 100,
+    )
+    .await;
+    let row = store
+        .find_character(account_id, i64::from(index))
+        .await
+        .expect("load")
+        .expect("row");
+    assert_eq!(row.gold, 777, "加锁/版本化后 RPO 仍 ≤ autosave_secs + 1 秒");
+}

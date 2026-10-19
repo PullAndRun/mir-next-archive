@@ -574,3 +574,117 @@ fn newbie_weapon_hits_hen_at_least_seventy_percent() {
         "1 级新号对 Hen 的 100 次挥砍命中应 >=70，实际 {hits}"
     );
 }
+
+fn special_monster(ai: u8, hp: i32) -> MonsterKind {
+    let mut kind = test_monster(hp, 0, 0);
+    kind.ai = ai;
+    kind.name = format!("special-{ai}");
+    kind
+}
+
+fn summon_count(harness: &Harness) -> usize {
+    harness
+        .world
+        .monsters()
+        .iter()
+        .filter(|monster| monster.kind.name == "BugBat" && !monster.dead)
+        .count()
+}
+
+#[test]
+fn summoned_bugbat_inherits_master_target() {
+    let mut harness = Harness::new(44);
+    let player = harness.add_player(1, Point::new(20, 20));
+    let master = harness.spawn(special_monster(12, 100), Point::new(21, 20));
+    harness.world.monster_mut(master).unwrap().target = Some(player);
+    harness.wake(master);
+    harness.world.tick();
+    let bugbat = harness
+        .world
+        .monsters()
+        .iter()
+        .find(|monster| monster.kind.name == "BugBat")
+        .expect("应召唤 BugBat");
+    assert_eq!(bugbat.target, Some(player));
+}
+
+#[test]
+fn healthy_deer_does_not_flee() {
+    let mut harness = Harness::new(45);
+    let player = harness.add_player(1, Point::new(20, 20));
+    let deer = harness.spawn(special_monster(2, 100), Point::new(21, 20));
+    {
+        let monster = harness.world.monster_mut(deer).unwrap();
+        monster.hp = 100;
+        monster.target = Some(player);
+    }
+    harness.wake(deer);
+    harness.world.tick();
+    let position = harness.world.monster(deer).unwrap().position;
+    assert_eq!(position, Point::new(21, 20), "满血不应触发逃跑");
+}
+
+#[test]
+fn bugbat_maggot_summons_with_cap_and_cooldown() {
+    let mut harness = Harness::new(41);
+    let player = harness.add_player(1, Point::new(20, 20));
+    let master = harness.spawn(special_monster(12, 100), Point::new(21, 20));
+    harness.world.monster_mut(master).unwrap().target = Some(player);
+    harness.wake(master);
+    harness.world.tick();
+    assert_eq!(summon_count(&harness), 1, "第一次应召唤 1 只 BugBat");
+    harness.wake(master);
+    harness.world.tick();
+    assert_eq!(summon_count(&harness), 1, "3 秒冷却内不能重复召唤");
+    for _ in 0..6 {
+        harness.world.advance_clock(3_100);
+        harness.wake(master);
+        harness.world.tick();
+    }
+    assert_eq!(summon_count(&harness), 4, "召唤上限 4 只");
+}
+
+#[test]
+fn summoner_death_removes_its_slaves() {
+    let mut harness = Harness::new(42);
+    let player = harness.add_player(1, Point::new(20, 20));
+    {
+        let p = harness.world.player_mut(player).unwrap();
+        p.stats.min_dc = 100;
+        p.stats.max_dc = 100;
+        p.stats.accuracy = 100;
+    }
+    let master = harness.spawn(special_monster(12, 10), Point::new(21, 20));
+    harness.world.monster_mut(master).unwrap().target = Some(player);
+    harness.wake(master);
+    harness.world.tick();
+    assert_eq!(summon_count(&harness), 1);
+    harness.ready_player(player);
+    let _ = harness.world.attack(player, MirDirection::Right);
+    harness.world.advance_clock(1_000);
+    harness.world.tick();
+    harness.world.tick();
+    assert!(
+        harness.world.monster(master).is_none_or(|m| m.dead),
+        "召唤者应被击杀"
+    );
+    assert_eq!(summon_count(&harness), 0, "召唤者死亡后小怪应消失");
+}
+
+#[test]
+fn low_health_deer_flees_away_from_target() {
+    let mut harness = Harness::new(43);
+    let player = harness.add_player(1, Point::new(20, 20));
+    let mut kind = special_monster(2, 100);
+    kind.stats.hp = 100;
+    let deer = harness.spawn(kind, Point::new(21, 20));
+    {
+        let monster = harness.world.monster_mut(deer).unwrap();
+        monster.hp = 20;
+        monster.target = Some(player);
+    }
+    harness.wake(deer);
+    harness.world.tick();
+    let position = harness.world.monster(deer).unwrap().position;
+    assert!(position.x > 21, "低血 Deer 应远离目标，实际 {position:?}");
+}

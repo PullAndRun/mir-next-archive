@@ -1981,3 +1981,28 @@ fn slow_buff_increases_move_delay_and_paralysis_blocks_actions() {
         Err(mir_server::CombatError::Busy { .. })
     ));
 }
+
+#[test]
+fn war_end_uses_world_clock_regardless_of_real_time() {
+    let mut harness = Harness::new(90);
+    // 把世界时钟固定到 MONDAY_18；真实墙钟在当前年份是 2026，旧的
+    // `tick_conquests` 若拿 wall_now 判停战会立刻 end_war 并清空器械。
+    let delta = MONDAY_18 - harness.world.wall_now();
+    harness.world.advance_clock(delta);
+    assert_eq!(harness.world.wall_now(), MONDAY_18);
+    harness.world.start_war(CONQUEST, MONDAY_18);
+    assert_eq!(
+        harness.world.conquest(CONQUEST).unwrap().objects.len(),
+        16,
+        "开战后应生成 16 个器械"
+    );
+    harness.world.advance_clock(400);
+    harness.world.tick();
+    let conquest = harness.world.conquest(CONQUEST).expect("攻城区还在");
+    assert!(conquest.war_is_on, "真实墙钟不应把世界时钟刚开战的战争结束");
+    assert_eq!(conquest.objects.len(), 16, "停战不应提前清空器械");
+    assert!(
+        conquest.war_end_world > harness.world.now(),
+        "war_end_world 应落在世界时钟未来"
+    );
+}

@@ -14,7 +14,7 @@ pwsh -NoProfile -File tools/dev/ci.ps1 -NoAssets      # 额外跑「无 resource
 
 退出码 `0` = 全绿。
 
-## 覆盖的检查
+## 覆盖的检查（共 10 项）
 
 | # | 检查 | 说明 |
 |---|---|---|

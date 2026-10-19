@@ -3,7 +3,7 @@
 # 全部检查在本地跑（无远端 CI）。改代码时常跑 `-SkipTests`，收口前跑全量。
 #
 # 用法（PowerShell 7）：
-#   pwsh -NoProfile -File tools/dev/ci.ps1              # 全跑
+#   pwsh -NoProfile -File tools/dev/ci.ps1              # 全跑（10 项）
 #   pwsh -NoProfile -File tools/dev/ci.ps1 -SkipTests   # 只跑静态检查（快）
 #   pwsh -NoProfile -File tools/dev/ci.ps1 -NoAssets    # 额外跑「无 resource/」沙箱（慢）
 #

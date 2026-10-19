@@ -50,10 +50,10 @@ fn main() {
     let width = parsed.width;
     let height = parsed.height;
     let total = (width as usize) * (height as usize);
-    let mut bits = vec![0u8; (total + 7) / 8];
+    let mut bits = vec![0u8; total.div_ceil(8)];
     for x in 0..width {
         for y in 0..height {
-            if parsed.walkable(x as i32, y as i32) {
+            if parsed.walkable(x, y) {
                 let index = (x as usize) * (height as usize) + (y as usize);
                 bits[index / 8] |= 1 << (index % 8);
             }
@@ -71,7 +71,10 @@ fn main() {
         eprintln!("写出失败 {}：{error}", out_path.display());
         std::process::exit(1);
     }
-    let walkable = bits.iter().map(|byte| byte.count_ones() as usize).sum::<usize>();
+    let walkable = bits
+        .iter()
+        .map(|byte| byte.count_ones() as usize)
+        .sum::<usize>();
     println!(
         "地图 {map}：{width}x{height}，可走 {walkable} 格 → {}（{} 字节）",
         out_path.display(),

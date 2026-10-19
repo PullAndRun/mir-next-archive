@@ -33,8 +33,7 @@ fn main() {
     // 目标图文件名（用索引反查），找不到就打印 `?#index`。
     let target_name = |index: i32| -> String {
         data.map_info_by_index(index)
-            .map(|info| info.file_name.clone())
-            .unwrap_or_else(|| format!("?#{index}"))
+            .map_or_else(|| format!("?#{index}"), |info| info.file_name.clone())
     };
 
     println!(

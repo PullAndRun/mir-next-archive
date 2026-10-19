@@ -59,8 +59,6 @@ fn main() {
         rows.len()
     );
     for (distance, name, count, level, x, y) in rows.iter().take(40) {
-        println!(
-            "  dist={distance:>3}  ({x:>4},{y:>4})  {name} x{count}  lv{level}"
-        );
+        println!("  dist={distance:>3}  ({x:>4},{y:>4})  {name} x{count}  lv{level}");
     }
 }

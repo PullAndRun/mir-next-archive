@@ -616,7 +616,49 @@ if (string.CompareOrdinal(account.Password, p.Password) != 0)
 
 ---
 
-## 8. 给 Rust + PostgreSQL 的映射建议（MVP 范围）
+## 8. 本作（PostgreSQL）的存档触发点与 RPO（t85/t86 审计）
+
+角色行（背包/金币/装备/技能/任务/任务物品栏/仓库/好友/宠物模式/坐标/HP/MP/经验）
+**第 9 轮起有周期 autosave**（t86 F1 修复），RPO 已由 autosave 兜底，完整语义见
+[`docs/world/persistence.md`](../world/persistence.md)：
+
+| 状态 | 写库时机 | 崩溃窗口 |
+|---|---|---|
+| 角色整行 | **周期 autosave（默认 30s，只写脏角色）**、首次进世界补属性、每日重置命中、`C.LogOut`、TCP 断开、market/gameshop 事务 | **≤ autosave_secs + 1s（默认 31 秒）** |
+| 行会 / 攻城 | dirty → server tick（100ms）；会话动作/下线补写；失败回灌 + 5s 重试闸门 | ≤100ms（失败重试） |
+| 邮件 | 每次邮件动作 + 下线补写；失败回灌 + 5s 重试 | 动作后即写 |
+| 寄售/拍卖 | 上架/买断/取回/到期成交事务；tick 到期扫描 + 失败 5s 重试 | 动作后即写，有重试 |
+| 商城元宝/已购计数 | 每次购买同一事务 | 购买后即写 |
+| 账号语言 | 切换立即写 | 立即 |
+
+**周期自动保存（本作扩展）**：配置 `ServerConfig.autosave_secs` / `MIR2_AUTOSAVE_SECS`
+（默认 **30**，`0` = 关闭 → 退回 Crystal 的「仅下线存盘」语义）。会话读循环每 250ms 轮询，
+用世界时钟（`World::wall_now()`）判定到点 → `Session::autosave_tick()`。**只写脏角色**：
+脏判定 = 当前世界快照 != 上次成功写库的角色行（整行 `PartialEq`），在线但没改动的玩家
+一次 IO 都不做。Crystal 只在 `PlayerObject.LogOut` 写 `Characters`，进程崩溃 = 回档到登录时刻；
+本作的 autosave 是对 Crystal 的扩展。
+
+**写失败与重试**：失败 `tracing::error!`（`session`/`character`/`failures`/`backoff_ms`/`error`）
+并保留脏标记；退避 **1s → 2s → 4s → 8s → 16s → 30s（上限 30s）**，成功清零。
+行会/邮件 flush 失败会把批次**回灌到世界队列队首**（保序，`Save` 整行覆盖后写更新），
+另有 5 秒重试闸门避免 DB 故障时按 100ms tick 捶库。
+
+**RPO 口径**：角色行崩溃丢失窗口 **≤ `autosave_secs` + 1 秒（默认 31 秒）**；
+`MIR2_AUTOSAVE_SECS=0` 时退回 Crystal 语义（仅下线存盘，RPO 无上限）。
+
+审计证据（`crates/mir-server/tests/persistence_audit.rs`）：`autosave_bounds_the_crash_window_to_autosave_secs`
+用注入世界 + `World::advance_clock` 快进（不 sleep），断言到点前库里旧值 → 推进 1 秒后新金币已入库
+且会话仍连着；另有「只写脏角色」「失败后重试成功」用例；以及 LogOut/断 TCP 后重连一致、
+并发保存串行化、写失败旧行保持、装备/背包/技能/仓库/任务/攻城/行会字段覆盖。
+
+**失败语义**：Store 层已有 `tracing::error!` 并返回 `Err`，旧行不变、调用方内存不被改写；
+`leave_world` 失败会回灌重试；`mir2_db_save_failed_total` / `mir2_autosave_total` /
+`mir2_batch_write_failed_total` 提供失败与自动存档计数（见 `docs/server/metrics.md`）。
+**结论**：断线一致性与崩溃一致性均达标（RPO 有界，默认 ≤31 秒）。
+
+---
+
+## 9. 给 Rust + PostgreSQL 的映射建议（MVP 范围）
 
 1. **表**：`accounts`、`characters`、`user_items`（`owner_kind`/`owner_id`/`slot` 三列表示背包/装备/仓库/邮件/拍卖），不要把物品塞进 JSON——`UserItem` 有 20 多个字段且需要按 `UniqueID` 独立寻址。
 2. **保留原版 ID 分配器**：`NextAccountID`、`NextCharacterID`、`NextUserItemID`(u64)、`NextMailID`、`NextAuctionID`、`NextGuildID`、`NextHeroID` 都是**全局单调计数器**，迁移时要作为 `sequences` 的起点继续用，避免 ID 复用导致物品串号。
@@ -627,7 +669,7 @@ if (string.CompareOrdinal(account.Password, p.Password) != 0)
 
 ---
 
-## 9. 本作 PostgreSQL 映射：迁移 `0009_market.sql`（寄售/拍卖挂单）
+## 10. 本作 PostgreSQL 映射：迁移 `0009_market.sql`（寄售/拍卖挂单）
 
 Crystal 的 `AuctionInfo` 存在 MirADB 的**全局** `Auctions` 段（见 §5、`Envir.cs:2591-2594` /
 `:3018-3029`），不是角色行。本作沿用「全局表」的语义，把每条挂单落成

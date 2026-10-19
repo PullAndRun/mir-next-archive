@@ -15,6 +15,16 @@ python tools/playtest/playtest.py --server 127.0.0.1:7000 --timeout 8
 * 输出 `[OK]` / `[FAIL]` / `[SKIP]`；失败时打印期望包号与实际收到的包；
 * 退出码：`0` = 全 OK/合理 SKIP，`1` = 有 FAIL。
 
+**环境（重要）**：本机可能接着多台显示器，**不要前台启动 `target\debug\mir-server.exe`**
+（会弹控制台窗口到别的显示器，打断使用者）。本地验证一律用隐藏启动器
+（用法/产物/`-Stop` 详见 [`tools/dev/README.md`](../../tools/dev/README.md)）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Port 7006 -GmAccounts playtest
+# 停：
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Stop -Port 7006
+```
+
 ## 2. 覆盖
 
 | 步骤 | 期望 |

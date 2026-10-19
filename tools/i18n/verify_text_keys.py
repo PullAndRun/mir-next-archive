@@ -72,6 +72,7 @@ EXTENSION_KEYS = (
     "ally_accepted",
     "ally_removed",
     "ally_failed",
+    "newbie_guide",
 )
 
 #: 允许带参数的扩展键（Crystal `ServerTextKeys.YouFound` 是 `You found {0}`）。

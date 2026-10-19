@@ -43,6 +43,10 @@ cargo run -p mir-server
 | `mir2_auctions_sold_total` | counter | 到期自动成交次数 |
 | `mir2_mail_queue` | gauge | 待写邮件队列长度 |
 | `mir2_db_save_total` | counter | 角色落盘次数 |
+| `mir2_db_save_failed_total` | counter | 角色落盘失败次数（含 autosave 与下线存盘） |
+| `mir2_autosave_total` | counter | 周期自动存档**实际写库**次数（快照没变被跳过的不计） |
+| `mir2_autosave_failures_total` | counter | `mir2_db_save_failed_total` 的语义别名（同值） |
+| `mir2_batch_write_failed_total` | counter | 行会/邮件批次写库失败次数（失败即回灌重试） |
 | `mir2_db_save_micros_{avg,p50,p95,p99,max}` | gauge | 角色落盘耗时（微秒） |
 | `mir2_db_flush_total` | counter | 市场/商城落盘次数 |
 | `mir2_db_flush_micros_{avg,p50,p95,p99,max}` | gauge | 市场/商城落盘耗时（微秒） |
@@ -67,11 +71,12 @@ curl -s http://127.0.0.1:9100/metrics | head
 tick 任务每 30 秒打一条 `tracing::info!`，`metrics` 字段是空格分隔的紧凑键值：
 
 ```text
-INFO metrics summary metrics="players=12 maps=3 connections=15 rejected=0 ticks=18342 tick_last_us=412 tick_p99_us=980 db_saves=57 db_save_p95_us=3200 db_flushes=4 db_flush_p95_us=5100 mail_queue=1"
+INFO metrics summary metrics="players=12 maps=3 connections=15 rejected=0 ticks=18342 tick_last_us=412 tick_p99_us=980 db_saves=57 db_save_p95_us=3200 db_save_failed=0 autosaves=12 db_flushes=4 db_flush_p95_us=5100 mail_queue=1"
 ```
 
 字段：`players / maps / connections / rejected / ticks / tick_last_us / tick_p99_us /
-db_saves / db_save_p95_us / db_flushes / db_flush_p95_us / mail_queue`。
+db_saves / db_save_p95_us / db_save_failed / autosaves / db_flushes / db_flush_p95_us /
+mail_queue`。
 
 ## 6. 与 Crystal 的差异
 

@@ -34,7 +34,7 @@
 | `@kick <账号\|角色>` | 目标必须是已登记会话或在线角色 | 立刻断开（`server.rs` 读循环用 `select!` 监听踢线通道）；未登记会话标待踢，下一条包生效（`SessionError::Kicked`） |
 | `@recall <角色名>` | 目标必须在线 | 把目标传送到自己身边；失败回 `Cannot move …` |
 | `@mob <名称\|索引> [数量]` | 数量 `1..=50`（`MAX_SPAWN_BATCH`）；名称支持唯一片段匹配 | **相邻八格优先**（右→下→右下→…，脚下放最后）刷怪；不设归属、不计入刷怪点；回 `Spawned N x … near gm on <map>. object ids: [12, 13, 14]`（>8 只追加 `(+N more)`）；未知怪回 `Monster not found` |
-| `@learn <技能名\|枚举名\|编号> [等级 0-3]` | 等级缺省 **3**（`DEFAULT_LEARN_LEVEL`），`Experience=0` | 直接走 `World::learn_magic` 授予技能：`S.NewMagic`（0 级）+ `S.MagicLeveled`（目标等级）；名字匹配顺序：`Spell` 枚举名（大小写/`_`/`-` 不敏感）→ 中文别名 26 条（`SPELL_ALIASES`：火墙/雷电术/瞬息移动/隐身术/召唤骷髅/召唤神兽/施毒术/火球术…）→ 数字编号；失败回 `You already know X (level N).` / `Spell not found: 'x'. Known spells: …` |
+| `@learn <技能名\|枚举名\|编号> [等级 0-3]` | 等级缺省 **3**（`DEFAULT_LEARN_LEVEL`），`Experience=0` | 直接走 `World::learn_magic` 授予技能：`S.NewMagic`（0 级）+ `S.MagicLeveled`（目标等级）；名字匹配顺序：`Spell` 枚举名（大小写/`_`/`-` 不敏感）→ 中文别名（`config/gm/spell_aliases.json`，27 条：火墙/雷电术/瞬息移动/隐身术/召唤骷髅/召唤神兽/施毒术/火球术…）→ 数字编号；失败回 `You already know X (level N).` / `Spell not found: 'x'. Known spells: …`。**加别名不用改代码**：改 JSON 即可 |
 | `@clearitem` | — | 清掉 GM 当前地图的**地面物品与金币堆**，回 `Cleared N ground item(s) on <map>.` |
 | `@revive [角色名]` | 目标必须在线且已死亡（缺省自己） | `revive_player`；未死亡回 `… is not dead.` |
 | `@setpk <点数>` | `>= 0` | 设 PK 值并立即 `refresh_name_colour`（红/黄/棕名同步广播） |

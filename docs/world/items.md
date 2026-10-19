@@ -546,3 +546,37 @@ Enqueue(new S.LoseGold { Gold = gold });
 | `unknown_item_shapes_and_scrolls_are_rejected_without_consuming` | 未实现卷轴不吃物品 |
 | `using_a_book_still_learns_the_spell` | 书仍可学 |
 | `drop_gold_spawns_a_gold_pile_and_loses_gold` | 落地 + 扣钱 + `S.LoseGold` + `S.ObjectGold` + 钱不够 |
+
+---
+
+## 18. 新角色出生装、书店与新手提示（第 9 轮）
+
+### 18.1 出生装（`ItemInfo.StartItem`）
+
+`World::enter` 对「**1 级 + 空背包**」的角色查 `GameData` 里 `StartItem = true` 且职业位
+匹配的物品，满耐久放进背包（`items.rs::starter_items_for`）；`session.rs` 的登录包改用
+世界里的实际背包，客户端 `UserInformation` 能直接看到出生装。
+
+Crystal 对照：`HumanObject.NewCharacter` 发 `Envir.StartItems`（`HumanObject.cs:234-246`）、
+`CorrectStartItem` 职业过滤（`:248-270`）、`Envir.cs:3380-3386` 装载、`CreateFreshItem`
+（`Envir.cs:4390-4402`）。真实 Jev DB 有 7 件 `StartItem`：WoodenSword（战/法/道）、
+HoaSword（刺客）、WoodenBow（弓）、BaseDress(M)/(F)（全职业，1 件）、(HP)DrugSmall、Candle。
+测试 `starter_items_filter_by_class_from_start_item_flag`（战/法各拿各的、1 级空背包自动装入）。
+
+### 18.2 书店与「书 → 技能」
+
+真实 DB 有 109 本 `ItemType.Book`，`Shape` 就是 `Spell` 枚举值（例：Fencing=1、Slaying=2、
+FireBall=31、ThunderBolt=36、Teleport=37、FireWall=39、Lightning=40）。书店 NPC
+（`Book_Vivian` index=238，脚本 `WhiteValley/Encampment/Book`；`GM_Book` index=261）走现有
+`npc_goods`/`buy_item` 的 `[Trade]`。测试 `book_shop_goods_can_sell_skill_books` 验证货架
+能出 Book 且 `shape` 正确。
+
+读书复用 `World::use_book`（`magic.rs:922`，见 §15.3 与 `docs/world/magic.md` §6.5）：
+学会 → `S.NewMagic`；单本消耗/堆叠减一；重复读 `AlreadyLearned` 不重复学；职业/等级限制。
+
+### 18.3 新手提示
+
+`TextKey::NewbieGuide`（`newbie_guide`）中英双语，与欢迎语合并成进游戏第一条系统 `S.Chat`
+（保持既有包序）；文本「新手提示：背包里已有出生装；到书店买技能书，双击阅读即可学会
+第一个技能。」。`login_flow` 断言欢迎语含「新手提示」。属于扩展键，见
+[`docs/i18n.md`](../i18n.md) §7.7（TextKey 现在 215）。

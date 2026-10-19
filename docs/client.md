@@ -967,15 +967,56 @@ Add/Remove/Memo/Email/Whisper，`KeybindOptions.Friends` 可配键位）；本�
 素材目录缺失/图库打不开 → 空图库 + 空白地形（登录窗仍可开），`warn` 一次；
 缺帧 → 站立帧 → 库首帧 → 彩色占位方块，**不 panic、不黑屏**。
 
-**性能（800×600，release 实测）**
+**素材缺失审计（t84，`asset_scan`）**：`objects.wzl` 候选器械帧 3/4/5 宽高均为 0（空帧），
+且 62–65/94–95/120–123 抽样都是野地/石壁/树木纹理 → 确认素材库没有真实城门/城墙/箭塔，
+器械继续用「半透明色块 + 类型文字」回退（换真实帧号只改常量）。59 个 `mon*.wzl` 全部可打开
+且有非空帧，无整库缺图；`mon7.wzl` 首个非空帧在 **440**（前 100 帧为空），现有
+「站立帧→库首帧→占位方块」回退已覆盖。HUD/人形/武器/头发/NPC/effect/magic/tiles/objects
+等关键库均 present。
 
-| 场景 | 耗时 |
-|---|---|
-| 首帧（含解码） | 13.0 ms |
-| 连续行走 30 帧平均 | **1.17 ms/帧（≈856 FPS）** |
-| debug 构建 | 约 38–41 ms/帧（≈25–26 FPS） |
+**性能（release 实测，t84）**
 
-启动日志每 120 帧打印一次「渲染统计」。
+复现：
+
+```text
+cargo run --release -p mir-render --example perf -- --map resource/map/0.map --data resource/data --out target/perf-render.json
+cargo run --release -p mir-asset --example asset_scan -- --data resource/data --out target/asset-missing.json
+```
+
+`resource/map/0.map`，摄像机每帧横移 1 格，连续 100 帧：
+
+| 视口 | 首帧（含解码） | 平均 | p95 | 最差 | 瓦片缓存命中 |
+|---|---|---|---|---|---|
+| 800×600 | 11.2 ms | **1.01 ms** | 1.10 ms | 2.77 ms | 99.7% |
+| 1280×720 | 14.9 ms | **1.70 ms** | 1.78 ms | 2.67 ms | 99.7% |
+| 1920×1080 | 20.6 ms | **3.53 ms** | 3.85 ms | 4.57 ms | 99.8% |
+
+100 个玩家同屏（1280×720，地形+实体）：平均 **2.20 ms**、p95 2.39 ms、最差 3.07 ms；
+实体层增量约 0.51 ms/帧，实体图库缓存命中 99.9%。
+
+**一次性优化（前后对比）**：`Frame::blit` 的 Over 混合对 `alpha=255` 的不透明像素改为直接
+`copy_from_slice`、`alpha=0` 直接跳过（素材经 `remove_black` 后 alpha 只有 0/255），
+实体绘制改为直接读解码缓存（不再每层 `Image` 克隆）。同机同图对比：
+
+| 场景 | 优化前 | 优化后 | 变化 |
+|---|---|---|---|
+| 1920×1080 平均 | 4.31 ms | 3.53 ms | **-18%** |
+| 1280×720 平均 | 2.00 ms | 1.70 ms | **-15%** |
+| 800×600 平均 | 1.13 ms | 1.01 ms | **-11%** |
+| 100 玩家实体增量（720p） | 0.62 ms | 0.51 ms | **-18%** |
+
+数字是单线程纯 CPU 渲染（含 RGBA 混合），不含窗口呈现/GPU 上传；debug 构建约 25–30 FPS，
+验收仍以 release 为准。JSON 明细见 `target/perf-render.json`（优化前
+`target/perf-render-before.json`）。启动日志每 120 帧打印一次「渲染统计」。
+
+**素材索引（t84）**
+
+* 攻城器械：`objects.wzl` 候选帧 `3/4/5`（Gate/Wall/Archer）全为**空帧**（宽高 0），
+  已在 `target/asset-missing.json` 记录；`objects.wzl` 共 9999 帧，抽查 62–65、94–95、
+  120–123 均为野地/石壁/树木纹理，`tiles.wzl` 为地面瓦片、`Objects81.wil` 为纹理，
+  故维持半透明色块 + 类型文字回退（换帧号只需改 `conquest::object_rect` 旁的常量）；
+* 怪物：59 个 `mon*.wzl` 全部可打开且有非空帧，无整库缺失；`mon7.wzl` 首个非空帧在
+  440（前 100 帧为空），实体渲染已有「站立帧 → 库首帧 → 占位方块」回退，不需要补图。
 
 **截图与测试**
 

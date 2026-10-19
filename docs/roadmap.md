@@ -28,14 +28,15 @@
 | 战斗 | ✅ | 两段式攻击、护甲/闪避/暴击、RNG 顺序照抄；PK 未做 |
 | 经验 / 升级 | ✅ | `ExpList.ini` 真表、高等级衰减、属性重算、包与 Crystal 一致 |
 | 死亡 / 复活 / 回血 | ✅ | 10 秒原地复活（Crystal 走客户端 `C.TownRevive`，本作先自动）、10 秒 3% 回血 |
-| 物品 | ✅ | 掉落表、地面物品、拾取/丢弃/丢金币、46 格背包、14 装备槽、装备加成、消耗品使用、存档；个人仓库见「玩家仓库与邮件」 |
+| 物品 | ✅ | 掉落表、地面物品、拾取/丢弃/丢金币、46 格背包、14 装备槽、装备加成、消耗品使用、存档；第 9 轮补新角色出生装（`StartItem` 职业过滤）、书店/技能书与新手提示；个人仓库见「玩家仓库与邮件」 |
 | NPC | ✅ | 660 份脚本解析、对话条件/动作子集、买卖修（定价公式与价格倍率）、`NewMapInfo` 下发；NPC 营业时段可见性未做 |
 | 技能 | ✅ | 用书学习、施法校验、15 个伤害/治疗/位移/召唤/中毒技能 + 9 个增益技能（火墙/雷电/瞬息移动/隐身/召唤骷髅/召唤神兽/施毒；护盾/加速/减伤…）；第 4 轮补了野生怪索敌/反击召唤物（守卫/箭塔例外同 Crystal）；第 5 轮补宠物命令 `C.ChangePMode`（5 种 PetMode、客户端 V 键三态）；护身符消耗、开关型技能与部分地图级技能未做（见 `docs/world/magic.md`） |
 | Buff | ✅ | 带到期时间的属性修饰层、`S.AddBuff`/`S.RemoveBuff`、药水增益（见 `docs/world/buffs.md`） |
 | 任务 | ✅ | `Envir/Quests` 13 段脚本解析（真实 154/154 份）、接取前置、击杀/收集/标记目标、交付领奖、限时超时、放弃、NPC `[Quests]` 关联与三个任务动作、`characters.quests` 存档；第 4 轮补任务物品栏（40 格、205/206 包、掉落截胡、迁移 0012）；第 5 轮补 YouFound（205 → `quest_item_found` → `S.ChangeQuest`）、`Q` 标记掉落（先截胡、无人需要不落地）、每日重置（迁移 0013、按角色 24h 惰性）（见 `docs/world/quests.md`） |
 | GM 命令 | ✅ | 21 条：12 条基础 + `@mob/@clearitem/@revive/@setpk/@warp/@mapinfo/@clearbag/@reboot` + `@learn`；权限 admin 或 `MIR2_GM_ACCOUNTS`，英文回复 + 审计（见 `docs/world/gm.md`） |
 | 抗刷与连接限制 | ✅ | 单 IP 并发 5、连接速率 10/秒、空闲超时 60s、单会话包速率 200/秒（`MIR2_MAX_CONN_PER_IP` 等，`0`=关闭）；`@reboot` 倒计时优雅停机（见 [`docs/server/limits.md`](server/limits.md)） |
-| 可观测性 | ✅ | `/metrics`（`MIR2_METRICS_LISTEN`）：在线/连接/限流拒绝/丢包/tick 分位数/拍卖扫描/邮件队列/DB 耗时 + 30 秒汇总日志（见 [`docs/server/metrics.md`](server/metrics.md)） |
+| 可观测性 | ✅ | `/metrics`（`MIR2_METRICS_LISTEN`）：在线/连接/限流拒绝/丢包/tick 分位数/拍卖扫描/邮件队列/DB 耗时、autosave/失败计数 + 30 秒汇总日志（见 [`docs/server/metrics.md`](server/metrics.md)） |
+| 数据持久化 | ✅ | 迁移 0001–0016；角色周期 autosave（默认 30s、只写脏行，RPO ≤31s；`MIR2_AUTOSAVE_SECS=0` 退回下线存盘）、行会/攻城 100ms、失败退避 1s→30s 与批次回灌（见 [`docs/store/schema.md`](store/schema.md) §8） |
 | 组队 | ✅ | 邀请/接受/拒绝/踢人/退队、`!!` 组队聊天、同图同范围经验共享与任务杀怪共享、入队血条与切图地图名同步（见 `docs/world/group.md`） |
 | 行会 | 🟡 | 创建/邀请/接受、职位（升/降/踢/职位名/权限）、公告、`!~` 行会聊天、行会经验与升级、行会仓库（物品 + 金币）、行会 buff、退出/转让/解散、五张表持久化、**行会联盟**（`/ally`、上限 5、盟友 PK 豁免、迁移 0015）+ **联盟页签 UI**（`S.GuildAllies`(303) 权威名单）；行会敌对/行会战、攻城建筑未做（见 `docs/world/guild.md`） |
 | 好友与黑名单 | ✅ | 加/删/拉黑/备注、`S.FriendUpdate`(245)、上限 100、`characters.friends` 持久化（迁移 0015）、**F 键好友面板**（320×240 适配）；只支持在线角色（见 [`docs/world/social.md`](world/social.md)） |
@@ -52,7 +53,7 @@
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
 | 图库解码 | ✅ | `.Lib`（4 种变体）、`.wzl+.wzx` 与第 6 轮新增 `.wil+.wix`（WEMADE `#ILIB`/`#INDX`）；调色板/565/RGB24/DXT1/gzip RGBA |
-| 等距地图渲染 | ✅ | Crystal 几何常量与图层映射，真实 `0.map` 出图；视口内瓦片解码 + 4096 张缓存，release 800×600 行走 ≈1.17 ms/帧 |
+| 等距地图渲染 | ✅ | Crystal 几何常量与图层映射，真实 `0.map` 出图；视口内瓦片解码 + 4096 张缓存，release 800×600 ≈1.01 ms/帧、1080p ≈3.53 ms/帧（t84 优化后） |
 | 真实素材渲染 | ✅ | `resource/data`（`--data-dir` 可指定）；28 个 wzl + 5 个可打开 WIL；玩家/怪物/NPC/物品按真实图库与帧渲染，缺资源占位回退 |
 | 联机 | ✅ | 登录/建角/进世界、30+ 包快照、KeepAlive |
 | 实体渲染 | ✅ | 玩家/怪物/NPC/物品精灵（`hum`/`monN`/`npc`/`items` 映射表） |
@@ -86,6 +87,7 @@
 - [`docs/server/limits.md`](server/limits.md) — 抗刷与连接限制：单 IP 并发/连接速率、心跳超时、包速率
 - [`docs/server/metrics.md`](server/metrics.md) — `/metrics` 字段、Prometheus 抓取与 30 秒汇总日志
 - [`docs/world/social.md`](world/social.md) — 好友与黑名单：数据、包号、上限与持久化
+- [`docs/world/persistence.md`](world/persistence.md) — 存档与崩溃一致性：autosave、RPO、失败退避与指标
 - [`docs/testing/duo-smoke.md`](testing/duo-smoke.md) — 双人联机冒烟：场景矩阵与运行方式
 - [`docs/testing/playtest.md`](testing/playtest.md) — 协议级 playtest：Python 直连真服务端与限制
 - [`docs/world/magic.md`](world/magic.md) — 技能支持矩阵、15 个伤害/位移/召唤技能与 20 条异常

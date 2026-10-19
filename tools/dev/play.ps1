@@ -8,7 +8,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/play.ps1 -Display 2 -Server 127.0.0.1:7000
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/play.ps1 -Exe target\release\mir-client.exe
 param(
-    [int]$Display = 2,
+    [int]$Display = 0  # 0 = 自动：显示器 2 开着用它，关了就用显示器 1,
     [string]$Server = "",
     [string]$Exe = "target\debug\mir-client.exe",
     [string]$DataDir = ""

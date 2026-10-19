@@ -19,7 +19,7 @@ param(
     [switch]$Stop,
     # 需要看服务端控制台时用 -Visible；窗口会被强制搬到 -Display 指定的显示器（默认 2）。
     [switch]$Visible,
-    [int]$Display = 2
+    [int]$Display = 0  # 0 = 自动：显示器 2 开着用它，关了就用显示器 1
 )
 
 $ErrorActionPreference = 'Stop'

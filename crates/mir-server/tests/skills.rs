@@ -1985,6 +1985,68 @@ fn town_archer_does_not_chase_without_a_route() {
 }
 
 #[test]
+fn town_archer_only_shoots_red_name_at_the_pk_threshold() {
+    let mut harness = Harness::new(78);
+    let player = harness.add_player(1, MirClass::Warrior, 30, Point::new(20, 20));
+    let mut kind = monster_kind("城镇弓手", 5_000, 10, 0);
+    kind.ai = 57;
+    kind.stats.min_dc = 50;
+    kind.stats.max_dc = 50;
+    kind.stats.accuracy = 100;
+    let archer = harness.spawn_active(kind, Point::new(20, 24));
+
+    // 白名（PK=0）：不锁目标、不广播、不受伤。
+    harness.elapse(0);
+    assert!(
+        !harness.packets(player).iter().any(|packet| matches!(
+            packet,
+            ServerPacket::ObjectRangeAttack(attack) if attack.object_id == archer
+        )),
+        "白名玩家不应被 TownArcher 射击"
+    );
+    assert_eq!(
+        harness.world.player(player).expect("玩家").hp,
+        harness.world.player(player).expect("玩家").stats.hp
+    );
+
+    // 边界 199：仍不是红名（Crystal `PKPoints >= 200`）。
+    if let Some(player) = harness.world.player_mut(player) {
+        player.pk_points = 199;
+    }
+    harness.wake_monster(archer);
+    harness.elapse(0);
+    assert!(
+        !harness.packets(player).iter().any(|packet| matches!(
+            packet,
+            ServerPacket::ObjectRangeAttack(attack) if attack.object_id == archer
+        )),
+        "PK=199 仍不应被射击"
+    );
+
+    // 200 起是红名：应锁定并射击。
+    if let Some(player) = harness.world.player_mut(player) {
+        player.pk_points = 200;
+    }
+    harness.wake_monster(archer);
+    harness.elapse(0);
+    let packets = harness.packets(player);
+    assert!(
+        packets.iter().any(|packet| matches!(
+            packet,
+            ServerPacket::ObjectRangeAttack(attack)
+                if attack.object_id == archer && attack.target_id == player
+        )),
+        "PK=200 应被 TownArcher 射击：{packets:?}"
+    );
+    let hp = harness.world.player(player).expect("玩家").hp;
+    harness.elapse(800);
+    assert!(
+        harness.world.player(player).expect("玩家").hp < hp,
+        "红名应真的掉血"
+    );
+}
+
+#[test]
 fn ranged_monster_shoots_from_six_cells() {
     let mut harness = Harness::new(50);
     let player = harness.add_player(1, MirClass::Warrior, 30, Point::new(20, 20));

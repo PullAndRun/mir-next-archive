@@ -15,15 +15,17 @@
 //!
 //! 命令表与 Crystal 的对应关系见 [`World::run_gm_command`] 的文档。
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt::Write as _;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use mir_core::Point;
+use mir_core::enums::Spell;
 use mir_protocol::ServerPacket;
 use mir_protocol::data::UserItem;
 use mir_protocol::packets::server::{
-    Death, DeleteItem as DeleteItemPacket, LevelChanged, ObjectDied,
+    Death, DeleteItem as DeleteItemPacket, LevelChanged, MagicLeveled, ObjectDied,
 };
 use tokio::sync::Notify;
 use tokio::sync::mpsc::UnboundedSender;
@@ -42,18 +44,68 @@ const MAX_LEVEL: u16 = 255;
 /// `@mob` 单次最多刷多少只（防止手滑把地图刷爆）。
 const MAX_SPAWN_BATCH: u32 = 50;
 
-/// `@mob` 的落点偏移：脚下 → 右 → 右前 → 前 …（3×3 一格一格排，占满就叠在脚下）。
+/// `@mob` 的落点偏移：**相邻八格优先**（右 → 下 → 右下 → …），自己脚下放到最后。
+///
+/// 顺序很重要：GM/脚本文档约定「刷出来的怪就在你身边一格」，这样紧接着的 `C.Attack`
+/// 就能打到（第 10 轮 playtest 因为怪刷在脚下/远处导致打不到，见任务 t77）。
 const SPAWN_OFFSETS: [(i32, i32); 9] = [
-    (0, 0),
     (1, 0),
-    (1, 1),
     (0, 1),
+    (1, 1),
     (-1, 1),
-    (-1, 0),
-    (-1, -1),
-    (0, -1),
     (1, -1),
+    (-1, 0),
+    (0, -1),
+    (-1, -1),
+    (0, 0),
 ];
+
+/// `@learn` 缺省授予的技能等级（满级 3；修炼值固定 0）。
+const DEFAULT_LEARN_LEVEL: u8 = 3;
+
+/// `@mob` 刷出的怪物在回复里最多列多少个 object id（脚本一般只要一两只）。
+const MAX_REPORTED_IDS: usize = 8;
+
+/// `@learn` 接受的中文别名表（数据文件：`config/gm/spell_aliases.json`）。
+///
+/// 这**不是玩家可见文本**：它只是 GM 手里的输入简写（`@learn 火墙`），
+/// 所以放在 `config/gm/` 而不是 i18n 语言包里——也正因如此，
+/// `tools/i18n/scan_hardcoded.py` 的口径（67/15）不再把这张表算成硬编码中文。
+/// 文件缺失/解析失败时降级为空表，`@learn` 仍可用枚举名与编号。
+const SPELL_ALIASES_JSON: &str = include_str!("../../../config/gm/spell_aliases.json");
+
+/// 解析并缓存别名表（首次使用时解析一次）。
+///
+/// 值必须是 `Spell` 的枚举名；认不出来的条目打 `tracing::error!` 后跳过，
+/// 保证「数据写错了」不会让整个 `@learn` 不可用。
+fn spell_aliases() -> &'static BTreeMap<String, Spell> {
+    static ALIASES: OnceLock<BTreeMap<String, Spell>> = OnceLock::new();
+    ALIASES.get_or_init(|| {
+        let raw: BTreeMap<String, String> = match serde_json::from_str(SPELL_ALIASES_JSON) {
+            Ok(raw) => raw,
+            Err(error) => {
+                tracing::error!(
+                    %error,
+                    "config/gm/spell_aliases.json 解析失败，@learn 降级为「仅枚举名/编号」"
+                );
+                return BTreeMap::new();
+            }
+        };
+        let mut table = BTreeMap::new();
+        for (alias, name) in raw {
+            if let Some(spell) = spell_by_enum_name(&name) {
+                table.insert(alias, spell);
+            } else {
+                tracing::error!(
+                    alias = %alias,
+                    spell = %name,
+                    "config/gm/spell_aliases.json 里的技能名不是已知的 Spell 枚举名，已跳过"
+                );
+            }
+        }
+        table
+    })
+}
 
 /// `@reboot` 允许的最大倒计时（秒）：一天。
 const MAX_REBOOT_SECONDS: u32 = 86_400;
@@ -397,6 +449,7 @@ impl World {
             "kick" => vec![self.gm_kick(args)],
             "recall" => vec![self.gm_recall(object_id, args)],
             "mob" => vec![self.gm_spawn_monsters(object_id, args)],
+            "learn" => vec![self.gm_learn_magic(object_id, args)],
             "clearitem" => vec![self.gm_clear_ground_items(object_id)],
             "revive" => vec![self.gm_revive(object_id, args)],
             "setpk" => vec![self.gm_set_pk_points(object_id, args)],
@@ -649,6 +702,131 @@ impl World {
         data.map_info(query).map(|info| info.file_name.clone())
     }
 
+    /// `@learn <技能名|spell 枚举名|编号> [等级 0-3]`：给自己授予一个技能（GM 通道）。
+    ///
+    /// 用途：playtest / 自动化脚本要「先学技能再试技能」，而正常途径（书 + `C.UseItem`）
+    /// 依赖真实数据库里的书物品。这里直接走 [`World::learn_magic`]（与用书同一条路径：
+    /// 会校验模板、防重复、发 `S.NewMagic`），再把等级提到 `level`（缺省
+    /// [`DEFAULT_LEARN_LEVEL`]，修炼值固定 0），补发 `S.MagicLeveled`。
+    ///
+    /// 名称匹配（大小写不敏感，允许下划线/空格/连字符）：
+    /// 1. `Spell` 枚举名（`ThunderBolt` / `thunder_bolt`）；
+    /// 2. 常用中文别名（`config/gm/spell_aliases.json`，如 `火墙` / `雷电术` / `召唤神兽`）；
+    /// 3. 数字编号（`@learn 25` → `Spell::ThunderBolt`）。
+    fn gm_learn_magic(&mut self, object_id: u32, args: &[&str]) -> String {
+        let Some(query) = args.first() else {
+            return "Usage: @learn <spell name|index> [level 0-3]".to_owned();
+        };
+        let level = match args.get(1) {
+            None => DEFAULT_LEARN_LEVEL,
+            Some(raw) => match raw.parse::<u8>() {
+                Ok(level) if level <= 3 => level,
+                _ => return "Usage: @learn <spell name|index> [level 0-3]".to_owned(),
+            },
+        };
+        let Some(player) = self.player(object_id) else {
+            return "ERR: you are not in the world.".to_owned();
+        };
+        let gm_name = player.name.clone();
+
+        let Some(spell) = Self::resolve_spell(query) else {
+            return format!(
+                "Spell not found: '{query}'. Known spells: {}",
+                self.spell_candidates(query).join(", ")
+            );
+        };
+        let spell_name = spell_name(spell);
+        if self
+            .player(object_id)
+            .is_some_and(|player| player.magics.iter().any(|magic| magic.spell == spell))
+        {
+            let current = self
+                .player(object_id)
+                .and_then(|player| player.magics.iter().find(|magic| magic.spell == spell))
+                .map_or(0, |magic| magic.level);
+            return format!("You already know {spell_name} (level {current}).");
+        }
+        match self.learn_magic(object_id, spell) {
+            Ok(mut magic) => {
+                magic.level = level;
+                magic.experience = 0;
+                if let Some(player) = self.players.get_mut(&object_id) {
+                    if let Some(stored) = player
+                        .magics
+                        .iter_mut()
+                        .find(|stored| stored.spell == spell)
+                    {
+                        *stored = magic;
+                    }
+                }
+                // `S.MagicLeveled`：`S.NewMagic` 里带的是 0 级，这里补一条正确等级。
+                self.send_to_player(
+                    object_id,
+                    &ServerPacket::MagicLeveled(MagicLeveled {
+                        object_id,
+                        spell,
+                        level,
+                        experience: 0,
+                    })
+                    .encode_frame(),
+                );
+                let total = self
+                    .player(object_id)
+                    .map_or(0, |player| player.magics.len());
+                tracing::info!(
+                    gm = %gm_name,
+                    object_id,
+                    spell = %spell_name,
+                    level,
+                    "GM learned spell"
+                );
+                format!("Learned {spell_name} at level {level} (you now know {total} spell(s)).")
+            }
+            Err(error) => format!("Cannot learn {spell_name}: {error}"),
+        }
+    }
+
+    /// 把 `@learn` 的查询串解析成 `Spell`：数字编号 → 中文别名 → 枚举名。
+    fn resolve_spell(query: &str) -> Option<Spell> {
+        if let Ok(index) = query.parse::<u8>()
+            && let Some(spell) = Spell::from_value(index)
+        {
+            return Some(spell);
+        }
+        let normalized = normalize_name(query);
+        if let Some(spell) = spell_aliases()
+            .iter()
+            .find(|(alias, _)| normalize_name(alias) == normalized)
+            .map(|(_, spell)| *spell)
+        {
+            return Some(spell);
+        }
+        spell_by_enum_name(query)
+    }
+
+    /// 名字打错时给出的候选：优先「包含查询串的枚举名」，否则列出当前数据库里有模板的技能。
+    fn spell_candidates(&self, query: &str) -> Vec<String> {
+        let normalized = normalize_name(query);
+        let mut hits: Vec<String> = all_spells()
+            .filter(|spell| {
+                let name = normalize_name(&spell_name(*spell));
+                !normalized.is_empty() && (name.contains(&normalized) || normalized.contains(&name))
+            })
+            .map(spell_name)
+            .collect();
+        if hits.is_empty() {
+            hits = all_spells()
+                .filter(|spell| self.magic_info(*spell).is_some())
+                .map(spell_name)
+                .collect();
+        }
+        hits.truncate(12);
+        if hits.is_empty() {
+            hits.push("(no spell templates in the loaded database)".to_owned());
+        }
+        hits
+    }
+
     /// `@mob <名称|索引> [数量]`：在 GM 脚下（3×3 邻格轮着放）刷怪。
     ///
     /// Crystal 的 `@MOB`（`PlayerObject.Chat`）同样是「在施法者附近生成」；本作只做最小实现：
@@ -674,12 +852,28 @@ impl World {
             return "ERR: you are not in the world.".to_owned();
         };
         let kind_name = kind.name.clone();
+        let mut spawned = Vec::with_capacity(usize::try_from(count).unwrap_or(0));
         for step in 0..count {
             let offset = SPAWN_OFFSETS[usize::try_from(step).unwrap_or(0) % SPAWN_OFFSETS.len()];
             let cell = Point::new(position.x + offset.0, position.y + offset.1);
-            self.spawn_monster(&map, kind.clone(), cell);
+            spawned.push(self.spawn_monster(&map, kind.clone(), cell));
         }
-        format!("Spawned {count} x {kind_name} near {name} on {map}.")
+        // 把 object id 写进回复：脚本拿到后可以直接 `C.Attack`/`S.ObjectMonster` 对账，
+        // 不必再靠「刚刷出来的是哪个 ID」去猜。
+        let listed: Vec<String> = spawned
+            .iter()
+            .take(MAX_REPORTED_IDS)
+            .map(u32::to_string)
+            .collect();
+        let mut reply = format!(
+            "Spawned {count} x {kind_name} near {name} on {map}. object ids: [{}]",
+            listed.join(", ")
+        );
+        if spawned.len() > MAX_REPORTED_IDS {
+            // `write!` 到 `String`：clippy 不建议 `push_str(&format!(..))`。
+            let _ = write!(reply, " (+{} more)", spawned.len() - MAX_REPORTED_IDS);
+        }
+        reply
     }
 
     /// `@clearitem`：清掉 GM 当前地图上的所有地面物品（物品堆 + 金币堆）。
@@ -950,6 +1144,30 @@ impl World {
 }
 
 /// `@help` 的命令表（英文，与 [`World::run_gm_command`] 的文档保持一致）。
+/// 遍历 `Spell` 的全部变体（`from_value` 覆盖 0..=255，跳过空洞）。
+fn all_spells() -> impl Iterator<Item = Spell> {
+    (0..=u8::MAX).filter_map(Spell::from_value)
+}
+
+/// 按枚举名（大小写/分隔符不敏感）查 `Spell`。
+fn spell_by_enum_name(name: &str) -> Option<Spell> {
+    let normalized = normalize_name(name);
+    all_spells().find(|spell| normalize_name(&spell_name(*spell)) == normalized)
+}
+
+/// `Spell` 的枚举名（`Spell::ThunderBolt` → `ThunderBolt`），给 GM 回复/匹配用。
+fn spell_name(spell: Spell) -> String {
+    format!("{spell:?}")
+}
+
+/// 名字归一化：只留字母数字与 CJK，统一小写（`thunder-bolt` / `ThunderBolt` 等价）。
+fn normalize_name(raw: &str) -> String {
+    raw.chars()
+        .filter(|ch| ch.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
 fn help_lines() -> Vec<String> {
     vec![
         "GM commands:".to_owned(),
@@ -964,7 +1182,9 @@ fn help_lines() -> Vec<String> {
         "  @who                  list online players".to_owned(),
         "  @kick <account|character>    disconnect a client".to_owned(),
         "  @recall <character>   bring a player to you".to_owned(),
-        "  @mob <name|index> [count]    spawn monsters at your feet".to_owned(),
+        "  @mob <name|index> [count]    spawn monsters in adjacent cells (replies with ids)"
+            .to_owned(),
+        "  @learn <spell> [level 0-3]   learn/grant a spell at level 3 by default".to_owned(),
         "  @clearitem            clear ground items on your map".to_owned(),
         "  @revive [character]   revive a dead player (default: you)".to_owned(),
         "  @setpk <points>       set PK points (refreshes name colour)".to_owned(),

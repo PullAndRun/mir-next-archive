@@ -16,6 +16,7 @@ mir-db.workspace = true
 mir-protocol.workspace = true
 mir-store.workspace = true
 mir-world.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

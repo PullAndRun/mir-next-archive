@@ -56,7 +56,7 @@
 | 好友与黑名单 | ✅ | 加/删好友、拉黑（同一列表 `blocked`）、备注 ≤200 字、整表 `S.FriendUpdate`(245)、上限 100、`characters.friends` 持久化（迁移 0015）、**F 键好友面板**（列表/在线状态/滚轮/增删改备注）；只支持在线角色（Crystal 可按名加离线角色）——见 [`docs/world/social.md`](docs/world/social.md) |
 | 玩家仓库与邮件 | ✅ | 80 格仓库（`[@STORAGE]` 页，`characters.storage` 持久化）、邮件发送（附件/邮票/邮费/限速）、阅读/锁定/领取/删除、迁移 0007、离线按名投递与 30 天过期 |
 | 玩家交易 | ✅ | 面朝格发起/回应、10 格交易栏、金币、双方确认后互换、放物品即清双方确认、取消/走跑转身切图下线死亡中止、背包满时取消改寄邮件（`docs/world/trade.md`） |
-| GM 命令 | ✅ | 20 条：`@level/@exp/@gold/@credit/@item/@map/@heal/@kill/@who/@kick/@recall/@help` + 第 6 轮扩展 `@mob/@clearitem/@revive/@setpk/@warp/@mapinfo/@clearbag/@reboot`；权限 `accounts.admin` 或 `MIR2_GM_ACCOUNTS`；非 GM 的 `@…` 静默走普通聊天；英文回复（不进玩家 i18n 词表）+ `tracing::info!` 审计；`@kill` 是最小死亡、`@reboot` 倒计时优雅停机（见 `docs/world/gm.md`） |
+| GM 命令 | ✅ | 21 条：`@level/@exp/@gold/@credit/@item/@map/@heal/@kill/@who/@kick/@recall/@help` + 第 6 轮扩展 `@mob/@clearitem/@revive/@setpk/@warp/@mapinfo/@clearbag/@reboot` + 第 8 轮 `@learn`；权限 `accounts.admin` 或 `MIR2_GM_ACCOUNTS`；非 GM 的 `@…` 静默走普通聊天；英文回复（不进玩家 i18n 词表）+ `tracing::info!` 审计；`@kill` 是最小死亡、`@reboot` 倒计时优雅停机、`@mob` 相邻八格优先并回 object ids（见 `docs/world/gm.md`） |
 | 抗刷与连接限制 | ✅ | 单 IP 并发 5、连接速率 10 次/秒、空闲超时 60s、单会话包速率 200/秒（均可配置，`0`=关闭）；超限分别关闭连接/丢弃包，见 [`docs/server/limits.md`](docs/server/limits.md) |
 | 可观测性 `/metrics` | ✅ | Prometheus 文本端点（`MIR2_METRICS_LISTEN`，默认关闭）：在线/连接/限流拒绝/丢包/tick 分位数/拍卖扫描/邮件队列/DB 落盘耗时；30 秒汇总日志（见 [`docs/server/metrics.md`](docs/server/metrics.md)） |
 | 寄售 / 拍卖市场 | ✅ | NPC `[@CONSIGN]`/`[@MARKET]` 上架、搜索/翻页/买断/出价/提前成交/取回、5% 佣金与手续费、7 天过期、**到期自动成交**（`process_auctions` 每 60s；买家收物品邮件、卖家收「成交价 − 5%」金币邮件）、启动时清理未成交过期单、迁移 0009 持久化与同事务/幂等重试；Crystal 的「卖家上线 `MarketGetBack` 领钱」改为邮件直达（见 `docs/world/market.md` §9） |
@@ -235,7 +235,7 @@ python tools/protocol-gen/generate.py
 | [`docs/world/trade.md`](docs/world/trade.md) | 玩家交易：发起/接受/交易格/金币/确认/取消、距离与朝向、包序 |
 | [`docs/world/market.md`](docs/world/market.md) | NPC 寄售/拍卖：上架/搜索/翻页/买断/出价/取回/过期、佣金与持久化 |
 | [`docs/world/gameshop.md`](docs/world/gameshop.md) | 商城（GameShop）与元宝：商品数据、购买校验、发货与邮件兜底、库存计数与页签包序 |
-| [`docs/world/gm.md`](docs/world/gm.md) | GM 命令：权限（admin / `MIR2_GM_ACCOUNTS`）、20 条命令、错误口径与审计 |
+| [`docs/world/gm.md`](docs/world/gm.md) | GM 命令：权限（admin / `MIR2_GM_ACCOUNTS`）、21 条命令、错误口径与审计 |
 | [`docs/server/limits.md`](docs/server/limits.md) | 抗刷与连接限制：单 IP 并发/连接速率、心跳超时、单会话包速率与默认值 |
 | [`docs/server/metrics.md`](docs/server/metrics.md) | 可观测性：`/metrics` 字段表、`MIR2_METRICS_LISTEN`、Prometheus 抓取与 30s 汇总日志 |
 | [`docs/world/social.md`](docs/world/social.md) | 好友与黑名单：数据、包号、上限与持久化 |

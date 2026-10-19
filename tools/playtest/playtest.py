@@ -24,6 +24,7 @@ import collections
 import gzip
 import pathlib
 import random
+import re
 import socket
 import struct
 import sys
@@ -40,6 +41,8 @@ C_WALK = 11
 C_TURN = 10
 C_ATTACK = 47
 C_CALL_NPC = 50
+C_CHAT = 13
+C_MAGIC = 58
 
 # --- 服务端包号（server.rs / manual/server.rs） ---
 S_CONNECTED = 0
@@ -57,6 +60,8 @@ S_CHAT = 30
 S_OBJECT_MONSTER = 71
 S_OBJECT_DIED = 81
 S_GAIN_EXPERIENCE = 85
+S_NEW_MAGIC = 117
+S_OBJECT_MAGIC = 120
 S_OBJECT_NPC = 92
 S_NPC_RESPONSE = 93
 
@@ -161,11 +166,12 @@ class Writer:
 
 
 class Playtest:
-    def __init__(self, server: str, timeout: float):
+    def __init__(self, server: str, timeout: float, gm: str | None = None):
         host, _, port = server.partition(":")
         self.host = host
         self.port = int(port or "7000")
         self.timeout = timeout
+        self.gm = gm
         self.sock: socket.socket | None = None
         self.buffer = bytearray()
         self.self_object_id: int | None = None
@@ -177,6 +183,8 @@ class Playtest:
         self.last_userinfo_hp: int | None = None
         self.self_hp: int | None = None
         self.chats: list[str] = []
+        self.learned_spells: set[int] = set()
+        self.self_mp: int | None = None
         self.map_file: str | None = None
         self._walkable: list[bytearray] | None = None
         self._map_size: tuple[int, int] | None = None
@@ -287,6 +295,7 @@ class Playtest:
                 hp = r.i32()
                 mp = r.i32()
                 self.self_hp = hp
+                self.self_mp = mp
                 self.last_userinfo_hp = hp
                 if self.self_object_id is None:
                     self.self_object_id = object_id
@@ -320,11 +329,18 @@ class Playtest:
                 message = r.string()
                 self.chats.append(message)
                 print(f"  [聊天] {message}")
+            elif index == S_NEW_MAGIC:
+                r = Reader(payload)
+                _name = r.string()
+                spell = r.u8()
+                self.learned_spells.add(spell)
+                print(f"  [技能] 学会 {_name} (#{spell})")
             elif index == 77:  # S.HealthChanged
                 r = Reader(payload)
                 hp = r.i32()
-                _mp = r.i32()
+                mp = r.i32()
                 self.self_hp = hp
+                self.self_mp = mp
                 self.health_history.append((time.time(), hp))
             elif index == 98:  # S.MapChanged
                 r = Reader(payload)
@@ -540,12 +556,206 @@ class Playtest:
             return 7
         return 0
 
+    # ---------------- GM 闭环 ----------------
+    def send_chat(self, message: str) -> None:
+        writer = Writer()
+        writer.string(message)
+        writer.i32(0)  # LinkedItems
+        self.send(C_CHAT, writer.raw())
+
+    def wait_for_chat(self, needle: str, timeout: float = 5.0) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            self._observe(packet[0], packet[1])
+            if any(needle.lower() in chat.lower() for chat in self.chats):
+                return True
+        return any(needle.lower() in chat.lower() for chat in self.chats)
+
+    def wait_for_monster(self, name: str, near: tuple[int, int], radius: int = 2, timeout: float = 5.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            for monster in self.monsters:
+                if not monster["dead"] and name.lower() in monster["name"].lower():
+                    if max(abs(monster["pos"][0] - near[0]), abs(monster["pos"][1] - near[1])) <= radius:
+                        return monster
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            self._observe(packet[0], packet[1])
+        return None
+
+    def gm_combat_flow(self) -> None:
+        assert self.self_pos is not None
+        self._gain_exp_count = 0
+        self.send_chat("@level 30")
+        if not self.wait_for_chat("Level set", 5):
+            self.fail("GM @level", "未收到 'Level set' 聊天回复")
+            return
+        self.send_chat("@heal")
+        self.wait_for_chat("Healed", 5)
+        self.send_chat("@mob Hen 5")
+        self.wait_for_chat("Spawned", 5)
+        prey = None
+        for _ in range(8):
+            candidates = [
+                m
+                for m in self.monsters
+                if not m["dead"] and "hen" in m["name"].lower()
+            ]
+            adjacent = [
+                m
+                for m in candidates
+                if max(abs(m["pos"][0] - self.self_pos[0]), abs(m["pos"][1] - self.self_pos[1])) == 1
+            ]
+            if adjacent:
+                prey = adjacent[0]
+                break
+            # 第一只 @mob 会叠在脚下（距离 0），先挪一格再找相邻目标。
+            if candidates:
+                self.walk_towards((self.self_pos[0] + 1, self.self_pos[1]), max_steps=2)
+            else:
+                packet = self.next_packet(time.time() + 2)
+                if packet is None:
+                    break
+                self._observe(packet[0], packet[1])
+        if prey is None:
+            self.diagnostics("@mob Hen 5 后没有相邻 Hen")
+            self.fail("GM 刷怪", "未收到相邻格 Hen 的 S.ObjectMonster(71)")
+            return
+        killed = False
+        hen_ids = {m["id"] for m in self.monsters if not m["dead"] and "hen" in m["name"].lower()}
+        for _ in range(400):
+            live = [
+                m
+                for m in self.monsters
+                if m["id"] in hen_ids and not m["dead"]
+            ]
+            if not live:
+                killed = True
+                break
+            adjacent = [
+                m
+                for m in live
+                if max(abs(m["pos"][0] - self.self_pos[0]), abs(m["pos"][1] - self.self_pos[1])) == 1
+            ]
+            if not adjacent:
+                nearest = min(
+                    live,
+                    key=lambda m: max(
+                        abs(m["pos"][0] - self.self_pos[0]), abs(m["pos"][1] - self.self_pos[1])
+                    ),
+                )
+                self.walk_towards(nearest["pos"], max_steps=3)
+                continue
+            prey = adjacent[0]
+            direction = self._direction(prey["pos"][0] - self.self_pos[0], prey["pos"][1] - self.self_pos[1])
+            writer = Writer()
+            writer.u8(direction)
+            writer.u8(0)
+            self.send(C_ATTACK, writer.raw())
+            deadline = time.time() + 0.65
+            while True:
+                packet = self.next_packet(deadline)
+                if packet is None:
+                    break
+                self._observe(packet[0], packet[1])
+                if packet[0] == S_GAIN_EXPERIENCE:
+                    self._gain_exp_count += 1
+                if packet[0] == S_OBJECT_DIED:
+                    died_id = Reader(packet[1]).u32()
+                    if died_id in hen_ids:
+                        killed = True
+            if killed:
+                break
+        deadline = time.time() + 3
+        while time.time() < deadline and self._gain_exp_count == 0:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            self._observe(packet[0], packet[1])
+            if packet[0] == S_GAIN_EXPERIENCE:
+                self._gain_exp_count += 1
+        self.ok(
+            "打死一只鸡/鹿",
+            f"GM @mob Hen（ObjectDied 81 + GainExperience 85 x{self._gain_exp_count}）",
+        )
+
+        self.send_chat("@learn FireBall")
+        deadline = time.time() + 5
+        while time.time() < deadline and 31 not in self.learned_spells:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            self._observe(packet[0], packet[1])
+        if 31 not in self.learned_spells and not any(
+            "already know" in chat.lower() for chat in self.chats
+        ):
+            self.diagnostics("@learn FireBall 后未收到 NewMagic(117)")
+            self.fail("使用技能", "未学会 FireBall（期望 S.NewMagic 117，spell=31）")
+            return
+        self.send_chat("@mob Hen 1")
+        self.wait_for_chat("Spawned", 5)
+        target = self.wait_for_monster("Hen", self.self_pos, 2)
+        if target is None:
+            self.fail("使用技能", "没有可施法的 Hen 目标")
+            return
+        before_mp = self.self_mp
+        got_magic = False
+        for _ in range(8):
+            self.send_chat("@mob Hen 1")
+            if not self.wait_for_chat("Spawned", 4):
+                continue
+            spawn_chat = self.chats[-1]
+            match = re.search(r"object ids: \[([0-9,\s]+)\]", spawn_chat)
+            if not match:
+                continue
+            target_id = int(match.group(1).split(",")[0])
+            deadline = time.time() + 1
+            while time.time() < deadline:
+                packet = self.next_packet(deadline)
+                if packet is None:
+                    break
+                self._observe(packet[0], packet[1])
+            writer = Writer()
+            writer.u32(self.self_object_id or 0)
+            writer.u8(31)  # Spell.FireBall
+            writer.u8(0)
+            writer.u32(target_id)
+            writer.i32(0)
+            writer.i32(0)
+            writer.u8(0)
+            self.send(C_MAGIC, writer.raw())
+            deadline = time.time() + 1.5
+            while time.time() < deadline:
+                packet = self.next_packet(deadline)
+                if packet is None:
+                    break
+                self._observe(packet[0], packet[1])
+                if packet[0] == S_OBJECT_MAGIC:
+                    got_magic = True
+                    break
+            if got_magic:
+                break
+        if not got_magic:
+            self.diagnostics("FireBall 施法后未收到 ObjectMagic(120)")
+            self.fail("使用技能", "未收到 S.ObjectMagic(120)")
+            return
+        self.ok("使用技能", f"FireBall 命中（MP {before_mp} -> {self.self_mp}）")
+
     # ---------------- 主流程 ----------------
     def run(self) -> int:
         suffix = random.randint(100000, 999999)
-        account = f"pt{suffix}"
-        password = "abc12345"
-        character = f"PT{suffix}"
+        if self.gm:
+            account = self.gm
+            password = "gm12345"
+            character = f"GM{suffix}"
+        else:
+            account = f"pt{suffix}"
+            password = "abc12345"
+            character = f"PT{suffix}"
 
         self.connect()
         self.expect(S_CONNECTED, "连接")
@@ -659,87 +869,91 @@ class Playtest:
                     self.fail("对话", f"{error}；期望 S.NPCResponse（93）")
                 self.skip("买药", "NPC 商店页购买需要客户端 UI 交互（NPCGoods 解析未包含在最小自检里）")
 
-        # 打一只鸡/鹿
-        def find_prey():
-            return next(
-                (
-                    m
-                    for m in self.monsters
-                    if not m["dead"] and any(k in m["name"] for k in ("鸡", "Hen", "鹿", "Deer"))
-                ),
-                None,
-            )
+        if self.gm:
+            self.gm_combat_flow()
 
-        prey = find_prey()
-        if prey is None:
-            # 不在城里长距离寻路（会踩到传送点换图）；视野内没有鸡/鹿就先跳过，
-            # 服务端战斗已由 tests/skills.rs / duo_smoke 覆盖。
-            self.skip("打死一只鸡/鹿", "起始视野内没有鸡/鹿类怪物（不跨图寻路，避免踩传送点）")
-        if prey is not None:
-            exp_before = self._gain_exp_count = 0
-            reached = False
-            for _ in range(20):
-                latest = next((m for m in self.monsters if m["id"] == prey["id"]), prey)
-                if latest.get("dead"):
-                    break
-                prey = latest
-                distance = max(
-                    abs(self.self_pos[0] - prey["pos"][0]),
-                    abs(self.self_pos[1] - prey["pos"][1]),
+        # 打一只鸡/鹿
+        if not self.gm:
+            def find_prey():
+                return next(
+                    (
+                        m
+                        for m in self.monsters
+                        if not m["dead"] and any(k in m["name"] for k in ("鸡", "Hen", "鹿", "Deer"))
+                    ),
+                    None,
                 )
-                if __import__('os').environ.get('PT_DEBUG'):
-                    print(f'  chase self={self.self_pos} prey={prey["pos"]} dist={distance}')
-                if distance <= 1:
-                    reached = True
-                    break
-                if self.walk_towards(prey["pos"], max_steps=30):
-                    reached = True
-                    break
-            if not reached:
-                self.fail("接近怪物", f"超时：未能走到 {prey['name']} @ {prey['pos']}")
-            else:
-                killed = False
-                for _ in range(120):
+
+            prey = find_prey()
+            if prey is None:
+                # 不在城里长距离寻路（会踩到传送点换图）；视野内没有鸡/鹿就先跳过，
+                # 服务端战斗已由 tests/skills.rs / duo_smoke 覆盖。
+                self.skip("打死一只鸡/鹿", "起始视野内没有鸡/鹿类怪物（不跨图寻路，避免踩传送点）")
+            if prey is not None:
+                exp_before = self._gain_exp_count = 0
+                reached = False
+                for _ in range(20):
                     latest = next((m for m in self.monsters if m["id"] == prey["id"]), prey)
                     if latest.get("dead"):
-                        killed = True
                         break
                     prey = latest
                     distance = max(
                         abs(self.self_pos[0] - prey["pos"][0]),
                         abs(self.self_pos[1] - prey["pos"][1]),
                     )
-                    if distance > 1:
-                        self.walk_towards(prey["pos"], max_steps=3)
-                        continue
-                    dx = prey["pos"][0] - self.self_pos[0]
-                    dy = prey["pos"][1] - self.self_pos[1]
-                    writer = Writer()
-                    writer.u8(self._direction(dx, dy))
-                    writer.u8(0)  # Spell.None
-                    self.send(C_ATTACK, writer.raw())
-                    deadline_attack = time.time() + 1.2
-                    while True:
-                        packet = self.next_packet(deadline_attack)
-                        if packet is None:
-                            break
-                        index, payload = packet
-                        self._observe(index, payload)
-                        if index == S_GAIN_EXPERIENCE:
-                            self._gain_exp_count += 1
-                        if index == S_OBJECT_DIED:
-                            died_id = Reader(payload).u32()
-                            if died_id == prey["id"]:
-                                killed = True
-                                break
-                    if killed:
+                    if __import__('os').environ.get('PT_DEBUG'):
+                        print(f'  chase self={self.self_pos} prey={prey["pos"]} dist={distance}')
+                    if distance <= 1:
+                        reached = True
                         break
-                if killed or self._gain_exp_count > 0:
-                    self.ok("打死一只鸡/鹿", f"{prey['name']}（收到经验包 {self._gain_exp_count} 次）")
+                    if self.walk_towards(prey["pos"], max_steps=30):
+                        reached = True
+                        break
+                if not reached:
+                    self.fail("接近怪物", f"超时：未能走到 {prey['name']} @ {prey['pos']}")
                 else:
-                    self.fail("打死一只鸡/鹿", "40 次攻击后未收到 S.ObjectDied（81）/S.GainExperience（85）")
+                    killed = False
+                    for _ in range(120):
+                        latest = next((m for m in self.monsters if m["id"] == prey["id"]), prey)
+                        if latest.get("dead"):
+                            killed = True
+                            break
+                        prey = latest
+                        distance = max(
+                            abs(self.self_pos[0] - prey["pos"][0]),
+                            abs(self.self_pos[1] - prey["pos"][1]),
+                        )
+                        if distance > 1:
+                            self.walk_towards(prey["pos"], max_steps=3)
+                            continue
+                        dx = prey["pos"][0] - self.self_pos[0]
+                        dy = prey["pos"][1] - self.self_pos[1]
+                        writer = Writer()
+                        writer.u8(self._direction(dx, dy))
+                        writer.u8(0)  # Spell.None
+                        self.send(C_ATTACK, writer.raw())
+                        deadline_attack = time.time() + 1.2
+                        while True:
+                            packet = self.next_packet(deadline_attack)
+                            if packet is None:
+                                break
+                            index, payload = packet
+                            self._observe(index, payload)
+                            if index == S_GAIN_EXPERIENCE:
+                                self._gain_exp_count += 1
+                            if index == S_OBJECT_DIED:
+                                died_id = Reader(payload).u32()
+                                if died_id == prey["id"]:
+                                    killed = True
+                                    break
+                        if killed:
+                            break
+                    if killed or self._gain_exp_count > 0:
+                        self.ok("打死一只鸡/鹿", f"{prey['name']}（收到经验包 {self._gain_exp_count} 次）")
+                    else:
+                        self.fail("打死一只鸡/鹿", "40 次攻击后未收到 S.ObjectDied（81）/S.GainExperience（85）")
 
-        self.skip("使用技能", "新建角色未学习技能（技能书在背包，需客户端 UI 学习）")
+            self.skip("使用技能", "新建角色未学习技能（技能书在背包，需客户端 UI 学习）")
         self.ok("开背包/关闭", "客户端本地 UI（协议无背包开关包）")
 
         writer = Writer()
@@ -761,9 +975,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="传奇-Next 可玩性自检")
     parser.add_argument("--server", default="127.0.0.1:7000", help="服务端地址 host:port")
     parser.add_argument("--timeout", type=float, default=8.0, help="每步等待超时（秒）")
+    parser.add_argument("--gm", default=None, help="GM 账号（服务端 MIR2_GM_ACCOUNTS 需包含它）；提供时走 @level/@mob/@learn 闭环")
     args = parser.parse_args()
 
-    test = Playtest(args.server, args.timeout)
+    test = Playtest(args.server, args.timeout, args.gm)
     try:
         code = test.run()
     except (OSError, ProtocolError) as error:

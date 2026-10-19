@@ -33,7 +33,8 @@
 | `@who` | — | 逐行输出在线玩家：`  name lvN @map (#objectId)`，首行 `N player(s) online:` |
 | `@kick <账号\|角色>` | 目标必须是已登记会话或在线角色 | 立刻断开（`server.rs` 读循环用 `select!` 监听踢线通道）；未登记会话标待踢，下一条包生效（`SessionError::Kicked`） |
 | `@recall <角色名>` | 目标必须在线 | 把目标传送到自己身边；失败回 `Cannot move …` |
-| `@mob <名称\|索引> [数量]` | 数量 `1..=50`（`MAX_SPAWN_BATCH`）；名称支持唯一片段匹配 | 在 GM 脚下 3×3 邻格轮流刷怪（不设归属、不计入刷怪点），回 `Spawned N x …`；未知怪回 `Monster not found` |
+| `@mob <名称\|索引> [数量]` | 数量 `1..=50`（`MAX_SPAWN_BATCH`）；名称支持唯一片段匹配 | **相邻八格优先**（右→下→右下→…，脚下放最后）刷怪；不设归属、不计入刷怪点；回 `Spawned N x … near gm on <map>. object ids: [12, 13, 14]`（>8 只追加 `(+N more)`）；未知怪回 `Monster not found` |
+| `@learn <技能名\|枚举名\|编号> [等级 0-3]` | 等级缺省 **3**（`DEFAULT_LEARN_LEVEL`），`Experience=0` | 直接走 `World::learn_magic` 授予技能：`S.NewMagic`（0 级）+ `S.MagicLeveled`（目标等级）；名字匹配顺序：`Spell` 枚举名（大小写/`_`/`-` 不敏感）→ 中文别名 26 条（`SPELL_ALIASES`：火墙/雷电术/瞬息移动/隐身术/召唤骷髅/召唤神兽/施毒术/火球术…）→ 数字编号；失败回 `You already know X (level N).` / `Spell not found: 'x'. Known spells: …` |
 | `@clearitem` | — | 清掉 GM 当前地图的**地面物品与金币堆**，回 `Cleared N ground item(s) on <map>.` |
 | `@revive [角色名]` | 目标必须在线且已死亡（缺省自己） | `revive_player`；未死亡回 `… is not dead.` |
 | `@setpk <点数>` | `>= 0` | 设 PK 值并立即 `refresh_name_colour`（红/黄/棕名同步广播） |
@@ -52,7 +53,8 @@
 * 找不到地图 → `Map not found: '<query>'.`；
 * 未知命令 → `Unknown GM command '@x'. Type @help for the command list.`；
 * 成功回执示例：`Level set to 42 (next level at 123456).`、`Gave 5 x 金创药(小量).`、
-  `Kicked 'alice' (session 7).`
+  `Kicked 'alice' (session 7).`、`Spawned 3 x 鸡 near gm on 0. object ids: [12, 13, 14]`、
+  `Learned FireWall at level 3 (you now know 5 spell(s)).`
 
 ## 4. 审计
 
@@ -72,9 +74,9 @@ info!(gm = %gm_name, object_id, command = %command, args = ?args, "GM command")
 3. **`@kill` 是最小死亡**：不发死亡掉落、不中断交易，10 秒后自动复活；
    Crystal 的 `@KILL` 走完整 `Die()`。
 4. **`@level` 显式刷新属性与下一级经验**（Crystal `RefreshLevelStats` 同款行为，这里写明）。
-5. **命令集**：12 条基础命令 + 8 条第 6 轮扩展（`@mob/@clearitem/@revive/@setpk/@warp/@mapinfo/@clearbag/@reboot`），
-   共 **20 条**；Crystal 还有 `@MOVE/@GIVE/@SET/@CLEARBUFFS…` 未实现。
-6. `@who` / `@mob` / `@clearitem` / `@mapinfo` / `@clearbag` / `@reboot` 是本作扩展
+5. **命令集**：12 条基础命令 + 8 条第 6 轮扩展（`@mob/@clearitem/@revive/@setpk/@warp/@mapinfo/@clearbag/@reboot`）
+   + 第 8 轮 `@learn`，共 **21 条**；Crystal 还有 `@MOVE/@GIVE/@SET/@CLEARBUFFS…` 未实现。
+6. `@who` / `@mob` / `@clearitem` / `@mapinfo` / `@clearbag` / `@reboot` / `@learn` 是本作扩展
    （Crystal 无同名命令）；`@reboot` 的倒计时广播与优雅停机也是本作新增。
 
 ## 6. 宠物命令的 dispatch（同一轮顺带）
@@ -85,8 +87,8 @@ info!(gm = %gm_name, object_id, command = %command, args = ?args, "GM command")
 
 ## 7. 测试
 
-* `crates/mir-server/tests/gm.rs`（23 条）：权限判定、未知命令、各命令成功/失败分支、
-  `@mob/@clearitem/@mapinfo/@revive/@setpk/@warp/@clearbag/@reboot` 的新用例、
+* `crates/mir-server/tests/gm.rs`（**29 条**）：权限判定、未知命令、各命令成功/失败分支、
+  `@mob/@clearitem/@mapinfo/@revive/@setpk/@warp/@clearbag/@reboot/@learn` 的新用例、
   `@kick` 待踢、`@who` 多行；
 * `crates/mir-server/tests/reboot.rs`：`@reboot` 倒计时与优雅停机（踢线 + 停止 accept）；
 * `crates/mir-server/tests/login_flow.rs` 的 GM e2e（登录后 `@help` / `@level`）。

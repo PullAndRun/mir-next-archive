@@ -28,6 +28,24 @@ python tools/playtest/playtest.py --server 127.0.0.1:7000 --timeout 8
 买药（NPC 商店页 `NPCGoods` 102 的完整解析）与「使用技能」（新建角色未学技能）当前标为 SKIP，
 下一步可补。
 
+## GM 闭环：打怪 + 用技能（t78）
+
+服务端启动时把账号加入 GM 名单，并用 `--gm` 让脚本走 GM 闭环：
+
+```powershell
+$env:MIR2_GM_ACCOUNTS = "gmtest"          # 逗号分隔，可多个
+target\debug\mir-server.exe
+python tools/playtest/playtest.py --gm gmtest --timeout 15
+```
+
+脚本会：注册/登录 `gmtest`（密码固定 `gm12345`，不存在会自动注册）→ `@level 30` → `@heal`
+→ `@mob Hen 5`，用 `C.Attack` 打相邻 Hen 直到 `S.ObjectDied`(81) + `S.GainExperience`(85)
+→ `@learn FireBall`（`S.NewMagic` 117，spell=31）→ `@mob Hen 1` 取聊天回复里的
+`object ids: [...]` → `C.Magic{FireBall, target_id, location=0}` → 断言 `S.ObjectMagic`(120)
+且 MP 下降（`S.HealthChanged` 77 的 mp 字段）→ `[OK] 打死一只鸡/鹿` + `[OK] 使用技能`。
+
+不带 `--gm` 时仍只跑普通玩家链路（打怪/技能按原因 SKIP）。
+
 ## 已知问题：新角色 dead（已修/在修）
 
 在真实服务端（`target/debug/mir-server.exe` + 真实 DB/map 资源）上首次运行时发现：

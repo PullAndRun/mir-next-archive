@@ -33,7 +33,7 @@
 | 技能 | ✅ | 用书学习、施法校验、15 个伤害/治疗/位移/召唤/中毒技能 + 9 个增益技能（火墙/雷电/瞬息移动/隐身/召唤骷髅/召唤神兽/施毒；护盾/加速/减伤…）；第 4 轮补了野生怪索敌/反击召唤物（守卫/箭塔例外同 Crystal）；第 5 轮补宠物命令 `C.ChangePMode`（5 种 PetMode、客户端 V 键三态）；护身符消耗、开关型技能与部分地图级技能未做（见 `docs/world/magic.md`） |
 | Buff | ✅ | 带到期时间的属性修饰层、`S.AddBuff`/`S.RemoveBuff`、药水增益（见 `docs/world/buffs.md`） |
 | 任务 | ✅ | `Envir/Quests` 13 段脚本解析（真实 154/154 份）、接取前置、击杀/收集/标记目标、交付领奖、限时超时、放弃、NPC `[Quests]` 关联与三个任务动作、`characters.quests` 存档；第 4 轮补任务物品栏（40 格、205/206 包、掉落截胡、迁移 0012）；第 5 轮补 YouFound（205 → `quest_item_found` → `S.ChangeQuest`）、`Q` 标记掉落（先截胡、无人需要不落地）、每日重置（迁移 0013、按角色 24h 惰性）（见 `docs/world/quests.md`） |
-| GM 命令 | ✅ | 20 条：12 条基础 + `@mob/@clearitem/@revive/@setpk/@warp/@mapinfo/@clearbag/@reboot`；权限 admin 或 `MIR2_GM_ACCOUNTS`，英文回复 + 审计（见 `docs/world/gm.md`） |
+| GM 命令 | ✅ | 21 条：12 条基础 + `@mob/@clearitem/@revive/@setpk/@warp/@mapinfo/@clearbag/@reboot` + `@learn`；权限 admin 或 `MIR2_GM_ACCOUNTS`，英文回复 + 审计（见 `docs/world/gm.md`） |
 | 抗刷与连接限制 | ✅ | 单 IP 并发 5、连接速率 10/秒、空闲超时 60s、单会话包速率 200/秒（`MIR2_MAX_CONN_PER_IP` 等，`0`=关闭）；`@reboot` 倒计时优雅停机（见 [`docs/server/limits.md`](server/limits.md)） |
 | 可观测性 | ✅ | `/metrics`（`MIR2_METRICS_LISTEN`）：在线/连接/限流拒绝/丢包/tick 分位数/拍卖扫描/邮件队列/DB 耗时 + 30 秒汇总日志（见 [`docs/server/metrics.md`](server/metrics.md)） |
 | 组队 | ✅ | 邀请/接受/拒绝/踢人/退队、`!!` 组队聊天、同图同范围经验共享与任务杀怪共享、入队血条与切图地图名同步（见 `docs/world/group.md`） |
@@ -82,7 +82,7 @@
 - [`docs/world/trade.md`](world/trade.md) — 玩家交易状态机、包序与 Crystal 异常
 - [`docs/world/market.md`](world/market.md) — 寄售/拍卖流程、佣金与手续费、过期与持久化
 - [`docs/world/gameshop.md`](world/gameshop.md) — 商城与元宝：商品数据、购买校验、发货/邮件、库存计数与页签包序
-- [`docs/world/gm.md`](world/gm.md) — GM 命令：权限、20 条命令、错误口径与审计
+- [`docs/world/gm.md`](world/gm.md) — GM 命令：权限、21 条命令、错误口径与审计
 - [`docs/server/limits.md`](server/limits.md) — 抗刷与连接限制：单 IP 并发/连接速率、心跳超时、包速率
 - [`docs/server/metrics.md`](server/metrics.md) — `/metrics` 字段、Prometheus 抓取与 30 秒汇总日志
 - [`docs/world/social.md`](world/social.md) — 好友与黑名单：数据、包号、上限与持久化

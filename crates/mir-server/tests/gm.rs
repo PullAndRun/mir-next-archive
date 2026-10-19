@@ -7,7 +7,9 @@
 use std::sync::Arc;
 
 use mir_core::Point;
-use mir_core::enums::{AttackMode, BindMode, ItemType, MirClass, MirDirection, MirGender, Stat};
+use mir_core::enums::{
+    AttackMode, BindMode, ItemType, MirClass, MirDirection, MirGender, Spell, Stat,
+};
 use mir_db::{ItemInfo, MapInfo, MirDb};
 use mir_protocol::ServerPacket;
 use mir_protocol::data::{ItemInfo as ProtoItemInfo, Stats};
@@ -59,6 +61,33 @@ fn database() -> MirDb {
             image: 1,
             ..mir_db::MonsterInfo::default()
         }],
+        // `@learn` 走 `learn_magic`，要求数据库里有对应技能模板。
+        magics: vec![
+            mir_db::MagicInfo {
+                name: "雷电术".to_owned(),
+                spell: 36,
+                level1: 1,
+                level2: 2,
+                level3: 3,
+                ..mir_db::MagicInfo::default()
+            },
+            mir_db::MagicInfo {
+                name: "火墙".to_owned(),
+                spell: 39,
+                level1: 1,
+                level2: 2,
+                level3: 3,
+                ..mir_db::MagicInfo::default()
+            },
+            mir_db::MagicInfo {
+                name: "火球术".to_owned(),
+                spell: 31,
+                level1: 1,
+                level2: 2,
+                level3: 3,
+                ..mir_db::MagicInfo::default()
+            },
+        ],
         maps: vec![MapInfo {
             index: 0,
             file_name: MAP.to_owned(),
@@ -538,4 +567,234 @@ fn help_lists_the_extended_commands() {
     ] {
         assert!(joined.contains(command), "@help 应列出 {command}：{joined}");
     }
+}
+
+#[test]
+fn learn_command_grants_the_spell_at_level_three() {
+    let mut world = build_world();
+    let mut rx = add_player(&mut world, 1, "gm");
+    assert!(world.run_gm_command(1, "@learn 雷电术"));
+    // 一次把包全部取出来（`S.Chat` 与 `S.NewMagic`/`S.MagicLeveled` 在同一个流里）。
+    let all = packets(&mut rx);
+    let reply = all
+        .iter()
+        .find_map(|packet| match packet {
+            ServerPacket::Chat(chat) => Some(chat.message.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    assert!(
+        reply.contains("Learned ThunderBolt at level 3"),
+        "回复：{reply}"
+    );
+
+    // `client_magics` 里能看到它（登录 `S.UserInformation.Magics` 用的就是这份）。
+    let magics = world.client_magics(1);
+    let learned = magics
+        .iter()
+        .find(|magic| magic.spell == Spell::ThunderBolt)
+        .expect("雷电术应已学会");
+    assert_eq!(learned.level, 3);
+    assert_eq!(learned.experience, 0);
+
+    // 包序：`S.NewMagic`（0 级）+ `S.MagicLeveled`（3 级）。
+    assert!(
+        all.iter().any(|packet| matches!(
+            packet,
+            ServerPacket::NewMagic(magic) if magic.magic.spell == Spell::ThunderBolt
+        )),
+        "应发 S.NewMagic：{all:?}"
+    );
+    assert!(
+        all.iter().any(|packet| matches!(
+            packet,
+            ServerPacket::MagicLeveled(leveled)
+                if leveled.spell == Spell::ThunderBolt && leveled.level == 3
+        )),
+        "应发 S.MagicLeveled：{all:?}"
+    );
+}
+
+#[test]
+fn learn_command_accepts_enum_names_indices_and_custom_levels() {
+    let mut world = build_world();
+    let mut rx = add_player(&mut world, 1, "gm");
+    // 枚举名大小写/分隔符都不敏感。
+    assert!(world.run_gm_command(1, "@learn fire_ball 1"));
+    let reply = anyone(&mut rx);
+    assert!(
+        reply.contains("Learned FireBall at level 1"),
+        "回复：{reply}"
+    );
+    let fireball = world
+        .client_magics(1)
+        .into_iter()
+        .find(|magic| magic.spell == Spell::FireBall)
+        .expect("火球术应已学会");
+    assert_eq!(fireball.level, 1, "自定义等级应生效");
+    // 越界等级报用法。
+    assert!(world.run_gm_command(1, "@learn 雷电术 9"));
+    assert!(anyone(&mut rx).contains("Usage: @learn"));
+}
+
+#[test]
+fn learn_command_twice_reports_already_known_without_duplicating() {
+    let mut world = build_world();
+    let mut rx = add_player(&mut world, 1, "gm");
+    assert!(world.run_gm_command(1, "@learn ThunderBolt"));
+    let _ = chat_lines(&mut rx);
+    assert!(world.run_gm_command(1, "@learn thunder_bolt"));
+    let reply = anyone(&mut rx);
+    assert!(
+        reply.contains("You already know ThunderBolt (level 3)"),
+        "回复：{reply}"
+    );
+    let count = world
+        .client_magics(1)
+        .iter()
+        .filter(|magic| magic.spell == Spell::ThunderBolt)
+        .count();
+    assert_eq!(count, 1, "不应重复添加");
+}
+
+#[test]
+fn learn_command_unknown_name_lists_candidates() {
+    let mut world = build_world();
+    let mut rx = add_player(&mut world, 1, "gm");
+    assert!(world.run_gm_command(1, "@learn NoSuchSpell"));
+    let reply = anyone(&mut rx);
+    assert!(reply.contains("Spell not found: 'NoSuchSpell'"), "{reply}");
+    // 候选里至少要有库里真实存在的两条模板。
+    assert!(reply.contains("ThunderBolt"), "{reply}");
+    assert!(reply.contains("FireBall"), "{reply}");
+    assert!(world.client_magics(1).is_empty(), "失败时不应学到任何技能");
+}
+
+#[test]
+fn mob_command_spawns_in_adjacent_cells_and_reports_object_ids() {
+    let mut world = build_world();
+    let mut rx = add_player(&mut world, 1, "gm");
+    assert!(world.run_gm_command(1, "@mob 鸡 3"));
+    let reply = anyone(&mut rx);
+    let ids = parse_mob_ids(&reply);
+    assert_eq!(ids.len(), 3, "回复应带 3 个 object id：{reply}");
+
+    let player_at = world.player(1).expect("玩家").position;
+    for id in &ids {
+        let monster = world
+            .monsters()
+            .iter()
+            .find(|monster| monster.object_id == *id)
+            .unwrap_or_else(|| panic!("回复里的 {id} 应是真实怪物"));
+        let dx = (monster.position.x - player_at.x).abs();
+        let dy = (monster.position.y - player_at.y).abs();
+        assert!(
+            dx <= 1 && dy <= 1,
+            "怪物 {id} 应刷在相邻格，实际 {:?}（玩家 {player_at:?}）",
+            monster.position
+        );
+        assert!(!(dx == 0 && dy == 0), "第一只不应刷在玩家脚下");
+    }
+}
+
+#[test]
+fn mob_command_spawned_monster_can_be_attacked() {
+    let mut world = build_world();
+    let mut rx = add_player(&mut world, 1, "gm");
+    // 提到 50 级保证伤害够，再刷一只在相邻格。
+    assert!(world.run_gm_command(1, "@level 50"));
+    assert!(world.run_gm_command(1, "@mob 鸡 1"));
+    let _ = chat_lines(&mut rx);
+    let id = world
+        .monsters()
+        .iter()
+        .map(|monster| monster.object_id)
+        .next()
+        .expect("应刷出一只怪");
+    let player_at = world.player(1).expect("玩家").position;
+    let monster_at = world.monsters()[0].position;
+    let direction = direction_towards(player_at, monster_at);
+
+    // 攻击一次：伤害是延迟 300ms 落地的，这里把时钟推过去再取结果。
+    world.attack(1, direction).expect("攻击应被接受");
+    world.advance_clock(400);
+    world.tick();
+    let hp = world
+        .monsters()
+        .iter()
+        .find(|monster| monster.object_id == id)
+        .map_or(0, |monster| monster.hp);
+    assert!(hp < 100, "怪物应被打掉血（当前 hp={hp}）");
+    // 5 秒后怪还在（不该刷完就消失）。
+    world.advance_clock(5_000);
+    world.tick();
+    assert!(
+        world
+            .monsters()
+            .iter()
+            .any(|monster| monster.object_id == id),
+        "刷出来的怪 5 秒后不应消失"
+    );
+}
+
+/// 从 `@mob` 的回复里抠出 `object ids: [1, 2, 3]`。
+fn parse_mob_ids(reply: &str) -> Vec<u32> {
+    let Some(start) = reply.find("object ids: [") else {
+        return Vec::new();
+    };
+    let rest = &reply[start + "object ids: [".len()..];
+    let Some(end) = rest.find(']') else {
+        return Vec::new();
+    };
+    rest[..end]
+        .split(',')
+        .filter_map(|part| part.trim().parse::<u32>().ok())
+        .collect()
+}
+
+/// 从 `from` 指向 `to` 的八方向。
+fn direction_towards(from: Point, to: Point) -> MirDirection {
+    let dx = (to.x - from.x).signum();
+    let dy = (to.y - from.y).signum();
+    match (dx, dy) {
+        (1, 0) => MirDirection::Right,
+        (-1, 0) => MirDirection::Left,
+        (0, 1) => MirDirection::Down,
+        (0, -1) => MirDirection::Up,
+        (1, 1) => MirDirection::DownRight,
+        (1, -1) => MirDirection::UpRight,
+        (-1, 1) => MirDirection::DownLeft,
+        (-1, -1) => MirDirection::UpLeft,
+        _ => MirDirection::Down,
+    }
+}
+
+#[test]
+fn learn_command_accepts_chinese_aliases_from_the_data_file() {
+    let mut world = build_world();
+    let mut rx = add_player(&mut world, 1, "gm");
+    // 别名表已搬到 `config/gm/spell_aliases.json`（不在代码里），功能必须照旧可用。
+    assert!(world.run_gm_command(1, "@learn 火墙"));
+    let reply = anyone(&mut rx);
+    assert!(
+        reply.contains("Learned FireWall at level 3"),
+        "回复：{reply}"
+    );
+    let learned = world
+        .client_magics(1)
+        .into_iter()
+        .find(|magic| magic.spell == Spell::FireWall)
+        .expect("中文别名「火墙」应学到 FireWall");
+    assert_eq!(learned.level, 3);
+
+    // 同一张表里的同义词（「雷电」与「雷电术」）都指向 ThunderBolt。
+    assert!(world.run_gm_command(1, "@learn 雷电"));
+    let reply = anyone(&mut rx);
+    assert!(reply.contains("Learned ThunderBolt"), "回复：{reply}");
+    assert!(world.run_gm_command(1, "@learn 雷电术"));
+    let reply = anyone(&mut rx);
+    assert!(
+        reply.contains("You already know ThunderBolt"),
+        "同义词应命中同一个技能：{reply}"
+    );
 }

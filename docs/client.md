@@ -640,6 +640,8 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 | 联盟页签 | 无独立包：`C.Chat{"/ally request|accept|remove …"}` → `S.Chat`（TextKey `ally_*`） | `guild.rs::Guild::…` + `session.rs` 聊天命令 | `chat` |
 | 好友/黑名单 | `C.AddFriend{Name,Blocked}`(127)、`C.RemoveFriend{CharacterIndex}`(128)、`C.RefreshFriends`(129)、`C.AddMemo{CharacterIndex,Memo}`(130) → `S.FriendUpdate{Friends}`(245) | `friends.rs`（`World::add_friend`/`remove_friend`/`set_friend_memo`/`send_friends`） | `friends` |
 | 复活广播 | ← `S.ObjectRevived{effect=true}`（旁观 `S.ObjectRemove` → `S.ObjectRevived` → `S.ObjectAppearance`）；本人另收 `S.Revived` | `World::revive_player`（`world.rs`） | 实体动作/名称颜色 |
+| 攻城状态 | ← `S.ConquestInfo`(300) / `S.ConquestResult`(302) | `conquest.rs`（本作扩展包） | `conquest` |
+| 攻城器械 | ← `S.ConquestObject`(301) | `conquest.rs::spawn_conquest_objects` / `damage_conquest_object` | `conquest.objects` |
 | 交易邀请 | ← `S.TradeRequest{Name}` | `World::trade_request` | `trade.invitation` / `invitation_version` |
 | 接受/拒绝交易 | `C.TradeReply{AcceptInvite}` → `S.TradeAccept{Name}`（双方各一条） | `World::trade_reply` | `trade.open` / `trade.partner` / `open_version` |
 | 放入 / 取回 | `C.DepositTradeItem{From,To}` / `C.RetrieveTradeItem{From,To}` **或** `C.MoveItem{Grid=Trade}` → `S.DepositTradeItem` / `S.RetrieveTradeItem`（含 `Success`）；对方收 `S.TradeItem{TradeItems[10]}` | `World::trade_deposit_item` / `trade_retrieve_item` / `move_item`（Trade 分支） | `trade.items` / `trade.partner_items` / `trade.version` |
@@ -880,6 +882,35 @@ Add/Remove/Memo/Email/Whisper，`KeybindOptions.Friends` 可配键位）；本�
 `friend_update_replaces_the_list_and_language_switch_redraws`（245 整表替换 + 中英切换）、
 `friends_panel_renders_selects_and_saves_png`、`guild_ally_tab_fits_small_screen_and_saves_png`；
 截图 `target/client-friends.png`、`target/client-ally.png`。
+
+### 5.21 攻城 UI（300–302，第 8 轮）
+
+**字段映射**（`ui::conquest`）：
+
+* `S.ConquestInfo`(300) → `ConquestView`（index/name/owner/war_is_on/start_time/end_time/
+  control_points），整表覆盖但**保留已收器械**；
+* `S.ConquestObject`(301) → 按 `object_id` upsert（kind: Gate/Wall/Archer、位置/朝向/
+  hp/max_hp/owner/destroyed）；
+* `S.ConquestResult`(302) → winner/owner/control_points + `received_ms`（供 5 秒横幅）。
+
+**器械渲染**：按地图 `(y, x)` 排序画在格子上方；先试 `objects.wzl` 第 `3 + kind` 帧
+（`scene.libraries().image(2, 3+kind)`）；缺图/空帧回退半透明色块（城门棕/城墙灰/箭塔紫）
++ 本地化类型文字。血条按 `hp/max_hp`，前景色由归属行会 ID 派生稳定色（owner=0 灰色）；
+`destroyed` 后 1 秒内画确定性碎裂粒子再移除，重复 destroyed 包不重复提示。
+
+**HUD**：右上角「攻城进行中 / 剩余 mm:ss（`end_time - 本地时钟`，clamp 0）/ 归属 #id
+（无归属）/ 控制点 max/6 + 进度条」；320 宽缩到 180–250。
+`S.ConquestResult` 到达后居中横幅「攻城结束 · 胜者 #id」，`RESULT_BANNER_MS = 5000` 后消失。
+
+**聊天与 i18n**：开战/结束/器械摧毁生成 SystemChat；新增 14 个双语 `Label`
+（攻城进行中/剩余/归属/控制点/结束/胜者/城门/城墙/箭塔/被摧毁/无归属 + 3 条系统句），
+`Label::ALL` 311→325。
+
+**兼容/回退**：没收到 300–302 时 `conquest = None`，器械/HUD 不画，老服务器与单机行为不变；
+未知索引/解码失败在 net 读循环 `warn` + `decode_errors++` 跳过，不 panic。
+
+测试（`tests/conquest_panel.rs`，5 例）：300–302 往返、快照/摧毁/结算、无包兼容、
+HUD 计时与 5 秒横幅、缺素材回退；截图 `target/client-conquest.png`。
 
 
 

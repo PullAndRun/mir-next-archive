@@ -22,10 +22,11 @@ AI 编号给射程；`monster.rs:814` 的 `process_target` 在射程内走远程
 Crystal 对照：`RightGuard.cs:10-53`、`RedThunderZuma.cs:8-56`。
 
 **第 8 轮已补**：真正走 `S.ObjectMagic` 的 **AI 55 `HumanWizard`/`Clone`**（见 §2）；
-物理 AOE/直线（AI 13/29）也在 §2。仍然**未做**的魔法/特殊 AI：
-`AI 14 EvilCentipede`、`AI 50 GreatFoxSpirit`、`AI 100 VenomSpider`（物理特殊 + 毒/减速），
-`AI 26/31/32/36/45/46/93/94/96/101…` 与 `SepWizard/SepHighWizard/SepTaoist`（AI 215+，
-采样库里不存在）。
+物理 AOE/直线（AI 13/29/**14/50/100**）也在 §2。仍然**未做**的：
+`AI 26/31/32/36/45/46/93/94/96/101…` 等真正 `ObjectMagic` 子类、
+`SepWizard/SepHighWizard/SepTaoist`（AI 215+，采样库里不存在）；
+AI 14 的显隐/回血状态机、Slow/Paralysis 的移动/攻速行为（当前只挂毒状态）、
+毒抗与 `S.ObjectEffect` GreatFoxSpirit 特效、毒效果在出招时结算（Crystal 在伤害落地时）。
 AI 113 在真实 Jev 库被用作 `Armadillo`，所以代码用**名字**再确认：只有
 `ArcherGuard`/`弓箭守卫` 才按远程处理，其它 113 模板（如 Armadillo）仍走近战。
 
@@ -52,14 +53,21 @@ AI 113 在真实 Jev 库被用作 `Armadillo`，所以代码用**名字**再确�
 `:1415 cast_monster_magic`（伤害在 `monster.rs:1457` 附近，复用 `UserMagic::damage`）。
 Crystal `Monsters/HumanWizard.cs:25-120`。
 
-### 2.2 物理特殊（走 `S.ObjectAttack`，不是 MonsterMagic）
+### 2.2 物理特殊（走 `S.ObjectAttack` / `S.ObjectRangeAttack`，不是 MonsterMagic）
 
 | AI | 模板 | 形态 | 说明 |
 |---|---|---|---|
 | 13 | `RedMoonEvil` | 自身为中心 AOE，半径/射程 = `ViewRange`（7），站桩 | 收集玩家 + 召唤物；排除安全区/`NoFight`；DC + `ACAgility`；延迟 **300 ms**（Crystal `RedMoonEvil.cs:30-60`） |
 | 29 | `BoneSpearman` | 直线穿透 2 格（蛇形邻域） | 邻域判定 `x<=2 && y<=2 && ((x<=1&&y<=1)||x==y||x%2==y%2)`（`monster.rs:125 in_snake_neighborhood`）；DC + `ACAgility`；每目标延迟 `距离*50 + 250`（第一格 300、第二格 350）；Crystal `BoneSpearman.cs:14-45`、`MonsterObject.LineAttack` |
+| 14 | `EvilCentipede` | 站桩、射程 7、自身为中心 AOE 半径 7 | `S.ObjectAttack` 物理 AOE；命中后**绿毒**（1/5 概率、15 跳、2000ms）+ **麻痹**（1/15、5 跳、2000ms）；不是 `Poisoning` 魔法（Crystal `EvilCentipede.cs:74-84`） |
+| 50 | `GreatFoxSpirit` | 站桩；距离 >2 远程 AOE 半径 7（广播 `S.ObjectRangeAttack`），否则半径 2 + `S.ObjectAttack` | 命中后 **Slow**（1/5、15 跳、1000ms）+ **Paralysis**（1/5、5 跳、1000ms）；Crystal `GreatFoxSpirit.cs:100-133`（远程形态的 `S.ObjectEffect` 特效本作未发） |
+| 100 | `VenomSpider` | 蛇形邻域、直线 2 格，`S.ObjectAttack` | `LineAttack(2, 300, MACAgility)`；命中后**绿毒**（1/8、5 跳、1000ms）；Crystal `VenomSpider.cs:14-47` |
 
-实现：`monster.rs:288 monster_special`、`magic_targets`（`:1488`）。
+实现：`monster.rs:288 monster_special`、`process_special_target`、`magic_targets`（`:1488`）。
+
+**未做（AI 14 相关）**：显隐/回血状态机；Slow/Paralysis 的移动/攻速行为（`world.rs` 归兵部，
+当前只挂毒状态）；毒抗与 `S.ObjectEffect` GreatFoxSpirit 特效；毒效果在出招时结算
+（Crystal 在伤害落地时）。
 
 ### 2.3 目标集合与包序
 
@@ -67,16 +75,24 @@ Crystal `Monsters/HumanWizard.cs:25-120`。
   Peace/组队/行会**不参与**怪物 AOE 的目标判定（Crystal 野生怪同口径）；
 * MonsterMagic：`S.ObjectMagic` → 500ms 后 `PendingHit(MAC)`；
 * 物理 AOE/直线：`S.ObjectAttack` → `距离*50 + delay` 后 `PendingHit`；
+  **AI 50 距离 > 2** 例外：广播 `S.ObjectRangeAttack`（半径 7），贴身才用 `S.ObjectAttack`（半径 2）；
 * 直线遇到不可走格 `continue`（跳过该格，不截断后续格）。
 
-### 2.4 测试（`tests/skills.rs`）
+### 2.4 测试（`tests/skills.rs`，60 条）
 
-`magic_monster_does_not_cast_out_of_range`、`magic_monster_casts_and_damages_the_target`、
+基础 9 条：`magic_monster_does_not_cast_out_of_range`、`magic_monster_casts_and_damages_the_target`、
 `magic_monster_respects_attack_speed_cooldown`、`magic_line_attack_penetrates_two_players`、
 `magic_aoe_hits_multiple_targets_but_not_outside_radius`、
 `magic_cast_is_interrupted_when_target_dies`、
 `bone_spearman_line_damage_is_delayed_by_distance`、
 `aoe_does_not_hit_players_on_no_fight_maps`、`magic_monster_kites_when_adjacent`。
+
+第 8 轮特殊 AI 6 条：`evil_centipede_is_physical_aoe_with_green_and_paralysis`、
+`great_fox_spirit_close_range_uses_radius_two`、
+`great_fox_spirit_ranged_form_uses_radius_seven_and_range_attack`、
+`venom_spider_line_hits_two_cells_and_poisons`、
+`evil_centipede_aoe_does_not_fire_on_no_fight_maps`、
+`great_fox_spirit_aoe_does_not_fire_on_no_fight_maps`。
 
 ## 3. 追击与回位
 

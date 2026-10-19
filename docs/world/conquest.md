@@ -51,8 +51,10 @@
   没有 `WarZone` 判断）。
 - **只有城主行会的成员能走 `ConquestIndex > 0` 的传送点**
   （`PlayerObject.cs:4489-4493`，真实数据里地图 `3` 有 3 条）。
-- **建筑类对象没做**：守卫（箭塔）刷出来了并能射击；城门 / 城墙 / 器械 / 旗子 /
-  控制点 NPC 的实体与血量都**没有**实现（见 §8）。
+- **建筑类对象（第 8 轮，本项目扩展）**：城门 / 城墙 / 箭塔器械的**简化实体**已实现
+  （HP 5000/3000/2000、可被近战摧毁、摧毁后格变可走），走本项目新增的
+  `S.ConquestObject`(301) 包；Crystal 的 AI 81/82/72、修理、`OPENGATE`/`CLOSEGATE`
+  与旗子/控制点 NPC 实体仍未做（见 §8.6、§11）。
 
 ---
 
@@ -355,20 +357,53 @@ if (info.ConquestIndex > 0) {
 本作：
 
 - [`MonsterKind::is_conquest_archer`] 认 AI 80；
-- [`World::spawn_conquest_archers`] 按 `ConquestInfo.Guards` 刷出，
-  并把 `Monster.conquest` 绑到攻城区上（模板 AI 不是 80 就跳过，
-  Crystal `ConquestGuildArcherInfo.cs:525`）；
+- [`World::spawn_conquest_objects`] 按 `ConquestInfo` 的守卫段刷出器械（第 8 轮起统一由
+  该函数刷 Gate/Wall/Archer，见 §8.6），并把 `Monster.conquest` 绑到攻城区上；
 - `find_target` 里加了「未开战不索敌」+「不射城主行会成员」两条过滤；
 - `process_target` 按守卫的「视野半径内攻击、不追击」处理。
 
 **简化**：Crystal 走 `S.ObjectRangeAttack` + `ProjectileAttack`（`TownArcher.cs:39`、`:47`），
-本作还没移植远程抛射物协议，箭塔按普通攻击广播结算（伤害判定仍是远程）。
+本作箭塔按普通攻击广播结算（伤害判定仍是远程）。
+
+### 8.6 攻城器械实体（第 8 轮，本项目扩展协议）
+
+Crystal 的城门/城墙/器械是 `ConquestGuildGateInfo`/`WallInfo`/`SiegeInfo`（AI 81/82/72），
+本作不移植那套子类，而是用**统一的运行期对象**表示，并新增三个只读包：
+
+| 包 | INDEX | 字段 | 下发时机 |
+|---|---|---|---|
+| `S.ConquestInfo` | 300 | `index, name, owner, war_is_on, start_time, end_time, control_points[]`（`index, owner, points`） | 进入攻城区相关地图、开战/停战/归属变化 |
+| `S.ConquestObject` | 301 | `object_id, conquest_index, kind(Gate=0/Wall=1/Archer=2), location, direction, hp, max_hp, owner, destroyed` | 进入视野、受伤、摧毁 |
+| `S.ConquestResult` | 302 | `index, winner, owner, control_points[]` | 停战 |
+
+三个包均标注「本项目扩展，Crystal 无此包」；控制点列表本地上限 256，计数用
+`read_count()/write_count()`。
+
+**刷出**（`conquest.rs::spawn_conquest_objects`）：开战时按 `ConquestInfo` 配表——
+`gates`→Gate（HP 5000）、`walls`→Wall（3000）、`guards`→Archer（2000），位置/朝向/
+归属取自配表；配表为空时兜底在 `info.location` 放 Gate、`+y` 放 Wall、`+x` 放 Archer。
+停战清空器械，**不持久化耐久**（简化）。
+
+**行为**：
+
+* 玩家近战可打器械：目标格有器械时即使 `walkable_on = false` 也允许攻击；
+  `damage_conquest_object` 扣 HP 并广播 `S.ConquestObject`；
+* Gate/Wall 摧毁后 `conquest_object_blocking` 返回 `false`（格子可走）；Archer 摧毁后停止射击；
+* 箭塔每 **2s** 射 10 格内最近的非本会玩家（`owner = -1` 时所有玩家），**50 伤害**、
+  500ms 延迟、AC 结算（简化：不广播 `S.ObjectRangeAttack`/特效）；
+* 停战：器械 HP 置 0 逐件广播 → 清空 → `S.ConquestResult` + `S.ConquestInfo`；城主仍走
+  `ControlPoints`/`take_conquest` 逻辑。
+
+**客户端**：`ConquestInfo`/`ConquestObject`/`ConquestResult` 只读展示，`kind` 用 0/1/2。
+
+**未做**：器械耐久存档/修理、城门开关动画（`OPENGATE`/`CLOSEGATE`）、箭塔 `S.ObjectRangeAttack`
+与命中特效、旗子/控制点 NPC 实体、`CONQUESTGUARD` 修复动作。
 
 ---
 
 ## 9. 协议与 NPC 动作
 
-### 9.1 没有新建协议包
+### 9.1 Crystal 无专属包；本作扩展 300/301/302
 
 Crystal 的攻城**没有**任何专属包：
 
@@ -379,8 +414,11 @@ Crystal 的攻城**没有**任何专属包：
 | `C.GuildTerritoryPage` / `C.PurchaseGuildTerritory` | **行会领地租赁**（`Envir.GTMapList`，另一套数据表） | `PlayerObject.cs:10438-10525` |
 | `S.GuildStatus` | 行会面板；**没有**城主/税收字段（`Shared/ServerPackets.cs:4533-4588`） | —— |
 
-所以：**攻城不新增包**，全部走 NPC 脚本 + `S.Chat` 系统公告。
-`crates/mir-protocol` 本轮**没有改动**。
+Crystal 的攻城信息只走 NPC 脚本 + `S.Chat` 系统公告（§9.2）。
+
+**本作扩展**（第 8 轮，`crates/mir-protocol/src/manual/server.rs`）：为了让客户端能画攻城器械，
+新增 `S.ConquestInfo`(300) / `S.ConquestObject`(301) / `S.ConquestResult`(302) 三个只读包
+（字段与时机见 §8.6）。Crystal 客户端不认识这三个包；本作客户端按 `kind` 0/1/2 只读展示。
 
 ### 9.2 本作支持的攻城 NPC 动作
 
@@ -392,7 +430,8 @@ Crystal 的攻城**没有**任何专属包：
 | `SETCONQUESTRATE <index> <percent>` | `:4237-4249` | `set_conquest_rate` |
 
 `CONQUESTGUARD` / `CONQUESTGATE` / `CONQUESTWALL` / `CONQUESTREPAIRALL` / `OPENGATE` /
-`CLOSEGATE` 都**没有**实现（需要建筑对象，见 §11）。
+`CLOSEGATE` 都**没有**实现：器械实体已有（§8.6），但这些 NPC 动作（修复/开关门/重新布点）
+未接；见 §11。
 `#IF` 侧的 `CHECKCONQUEST` / `CONQUESTOWNER` / `CONQUESTAVAILABLE` 与
 `$CONQUESTGOLD()` / `$CONQUESTRATE()` / `$CONQUESTSCHEDULE()` 变量同样未实现。
 
@@ -429,8 +468,8 @@ Crystal 的存档是 `Conquests/<index>.mcd` 一个二进制文件
 
 | 项目 | Crystal 出处 | 说明 |
 |---|---|---|
-| 城门 / 城墙 / 器械实体 | `ConquestGuildGateInfo` / `ConquestGuildWallInfo` / `ConquestGuildSiegeInfo`（`ConquestGuildInfo.cs:94-476`） | AI 81 / 82 / 72；血量、修理（`GetRepairCost`/`Repair`）、`OPENGATE`/`CLOSEGATE` 全未实现 |
-| 箭塔血量与「复活」 | `ConquestGuildArcherInfo.Alive`（`:486`、`:503-516`） | 本作不存血量，重启后满血重刷；`CONQUESTGUARD <index> <n>` 修复动作未实现 |
+| 城门 / 城墙 / 器械实体 | `ConquestGuildGateInfo` / `ConquestGuildWallInfo` / `ConquestGuildSiegeInfo`（`ConquestGuildInfo.cs:94-476`） | **简化实体已实现**（§8.6：Gate 5000 / Wall 3000 / Archer 2000 HP、可摧毁、`S.ConquestObject` 扩展包）；Crystal 的 AI 81/82/72、`GetRepairCost`/`Repair`、`OPENGATE`/`CLOSEGATE` 仍未做 |
+| 箭塔血量与「复活」 | `ConquestGuildArcherInfo.Alive`（`:486`、`:503-516`） | Archer 器械已有 HP/摧毁（§8.6），但不持久化、重启后满血重刷；`CONQUESTGUARD <index> <n>` 修复动作未实现 |
 | 旗子 NPC | `ConquestGuildFlagInfo.Spawn`（`:218-243`） | 旗子贴图/颜色随城主变化（`Guild.Info.FlagImage`/`FlagColour`）未实现；对计分无影响 |
 | 控制点 NPC 对象 | `ConquestGuildFlagInfo` | 计分与归属已实现，但控制点没有可点击的旗子对象 |
 | NPC 可见性 | `ConquestObject.NPCVisibility`（`:375-440`）、`NpcInfo.ConquestVisible` | 开战时才显示/隐藏的攻城 NPC 未实现 |
@@ -448,7 +487,8 @@ Crystal 的存档是 `Conquests/<index>.mcd` 一个二进制文件
 1. **`ConquestGuildSiegeInfo.Spawn` 判了错的 AI**（`ConquestGuildInfo.cs:138`）：
    `if (monsterInfo.AI != 72) return;` 又 `if (monsterInfo.AI == 72) Gate = (Gate)…`。
    AI 72 是 `FinialTurtle`（`MonsterObject.cs:171-172`），城门是 AI 81。
-   也就是说**器械永远刷不出来**。本作直接不实现器械。
+   也就是说**器械永远刷不出来**。本作不沿用这条异常：`spawn_conquest_objects`
+   按配表刷 Gate/Wall/Archer（§8.6），并新增 `S.ConquestObject` 包。
 2. **`EndWar` 之后 `StartType` 不复位**（`ConquestObject.cs:915-967`）：
    GM 用 `STARTCONQUEST` 强制开过一次之后，`AutoSchedule` 的
    `if (StartType != Forced)` 永远不成立，**定时攻城从此失效**。

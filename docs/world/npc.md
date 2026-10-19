@@ -151,7 +151,11 @@ Crystal `Path.Combine(Settings.NPCPath, FileName + ".txt")`，`NPCScript.cs:142`
 | `FINISHQUEST <序号>` | ✅（本作扩展） | 替玩家交付任务（可选奖励固定发 `-1`，即不选） |
 | `ABANDONQUEST <序号>` | ✅（本作扩展） | 替玩家放弃任务 |
 | `CREATEGUILD <行会名>` | ✅（本作扩展） | 替玩家创建行会（同一套校验与包序，见 `docs/world/guild.md`）；Crystal **没有**这个动作 |
-| `GIVEITEM` / `TAKEITEM` / `GIVEEXP` / `MOVE` / `MOV` / `CALC` / `MONGEN` / `CALL` / `TIMERECALL` / 行会/攻城/邮件/婚姻/英雄… | ❌ | 记为「不支持」，写进 `NpcReply::unsupported_actions`，不执行 |
+| `TAKECHECKITEM` | ✅ | 取走本页 `CHECKITEM` 选中的物品：删背包那件、发 `S.DeleteItem{UniqueID, Count}`、给玩家一条 `npc_item_taken` 提示。M2 `ObjNpc.pas:11948-11955`（`QuestTakeCheckItem`）；Crystal 无此动作 |
+| `TAKEITEM` | ✅ | `TAKECHECKITEM` 的别名（同一实现）；与 M2 的 `TAKEITEM` 语义一致 |
+| `GIVENAMELIST <名字…>` | ✅ | 每个名字做成「点了就发 `C.CallNPC{key:"@名字"}`」的对话按钮，并补发 `S.NPCRequestInput{NpcID, PageName}` 供客户端弹可编辑输入框；名字为空时发 `npc_name_list_empty` 提示。Crystal 无此动作，M2 的 `GIVENAMELIST` 语义近似 |
+| `GIVEBUFF <buff> [秒]` | ✅ | 给玩家加增益（`S.AddBuff`），时长按**秒**、缺省 60 秒、上限 30 天；增益名取 Crystal `BuffType` 枚举名（大小写/下划线不敏感），不认识的名字发 `npc_unknown_buff`、时长非法发 `npc_buff_bad_duration`。Crystal `NPCSegment.cs:4903-4913` |
+| `GIVEITEM` / `GIVEEXP` / `MOVE` / `MOV` / `CALC` / `MONGEN` / `CALL` / `TIMERECALL` / 行会/攻城/邮件/婚姻/英雄… | ❌ | 记为「不支持」，写进 `NpcReply::unsupported_actions`，不执行 |
 
 > 行会的**正式**写法是页面 `[@CREATEGUILD]`（`GuildCreateKey`，`NPCScript.cs:60`）：
 > 点它时服务端发 `S.GuildNameRequest`（`NPCScript.cs:1050-1062`），客户端再发

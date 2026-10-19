@@ -476,3 +476,16 @@
 - 两个枚举都**没有**重复值，也没有空洞；不存在同一数值对应多个成员的情况。
 - `ServerPacketIds` 末尾追加过若干成员（`GroupMembersMap`、`SendMemberLocation`、`GuildTerritoryPage`、`StorageUnlockResult`、`StoragePasswordResult`），因此这些编号靠后，而对应类分散写在源文件各处——**编号与源码顺序无关**，只能按值查表。
 - `ClientPacketIds` 末尾是 `PurchaseGuildTerritory`、`DeleteItem`、`UnlockStorage`、`SetStoragePassword`、`RemoveStoragePassword`，共 153 个成员。
+
+### 3.4 本作扩展包（不在 Crystal 枚举内）
+
+`crates/mir-protocol/src/manual/server.rs` 新增三个**只读**服务端包（编号从 300 起，
+避开 Crystal 的 0..278；对应 rustdoc 均标注「本项目扩展」）：
+
+| 编号 | 包 | 用途 |
+|---|---|---|
+| 300 | `S.ConquestInfo` | 攻城状态（名称/归属/开战时间/控制点） |
+| 301 | `S.ConquestObject` | 攻城器械实体（Gate=0/Wall=1/Archer=2、HP、摧毁） |
+| 302 | `S.ConquestResult` | 停战结果（winner/owner/控制点） |
+
+字段与下发时机见 [`docs/world/conquest.md`](../world/conquest.md) §8.6。

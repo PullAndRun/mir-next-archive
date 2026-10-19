@@ -316,6 +316,23 @@ impl MapScene {
         self.entities.effect_image(kind, index)
     }
 
+    /// 直接把特效画到帧上（零拷贝；返回宽高供调用方居中）。
+    pub fn draw_effect(
+        &mut self,
+        frame: &mut Frame,
+        kind: crate::entities::FxKind,
+        index: u32,
+        x: i32,
+        y: i32,
+    ) -> bool {
+        self.entities.draw_effect(frame, kind, index, x, y)
+    }
+
+    /// 特效帧尺寸（不克隆像素）。
+    pub fn effect_size(&mut self, kind: crate::entities::FxKind, index: u32) -> Option<(u32, u32)> {
+        self.entities.effect_size(kind, index)
+    }
+
     /// 铺地层（`GameScene.cs:10658-10764`）。
     fn render_floor(
         &mut self,
@@ -593,14 +610,24 @@ impl MapScene {
             self.tile_cache_misses = self.tile_cache_misses.saturating_add(1);
             if self.cache.images.len() >= MAX_CACHED_IMAGES {
                 self.cache.images.clear();
+                self.cache.spans.clear();
             }
             let image = self.libraries.image(library, index).map(|mut image| {
                 remove_black(&mut image);
                 image
             });
+            let spans = image.as_ref().and_then(opaque_spans);
+            self.cache.spans.insert(key, spans);
             self.cache.images.insert(key, image);
         }
         if let Some(Some(image)) = self.cache.images.get(&key) {
+            if !additive
+                && let Some(Some(spans)) = self.cache.spans.get(&key)
+                && !spans.is_empty()
+            {
+                frame.blit_spans(image, spans, x, y);
+                return;
+            }
             if additive {
                 frame.blit_add(image, x, y);
             } else {
@@ -655,6 +682,50 @@ struct DecodeCache {
     infos: HashMap<(u16, u32), Option<ImageInfo>>,
     /// `(图库编号, 图像下标) → 解码结果`；`None` 表示缺图或格式不支持。
     images: HashMap<(u16, u32), Option<Image>>,
+    /// `(图库编号, 图像下标) → 不透明段`（行、列、长度）。
+    ///
+    /// 只有全部 alpha 均为 0/255 的图才有值；含半透明像素的图为 `None`，走逐像素混合。
+    spans: HashMap<ImageKey, Option<Vec<OpaqueSpan>>>,
+}
+
+/// 图库键：`(图库编号, 图像下标)`。
+type ImageKey = (u16, u32);
+/// 一条不透明段：`(行, 起始列, 长度)`。
+type OpaqueSpan = (u32, u32, u32);
+
+/// 预计算一张图每行的不透明段（`(row, col, len)`）；有半透明像素返回 `None`。
+fn opaque_spans(image: &Image) -> Option<Vec<(u32, u32, u32)>> {
+    let width = u32::from(image.info.width);
+    let height = u32::from(image.info.height);
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let width_usize = usize::try_from(width).ok()?;
+    let mut spans = Vec::new();
+    for row in 0..height {
+        let mut column = 0u32;
+        while column < width {
+            let offset = usize::try_from(row * width + column).ok()? * 4 + 3;
+            let alpha = *image.pixels.get(offset)?;
+            if alpha == 255 {
+                let start = column;
+                while column < width {
+                    let offset = usize::try_from(row * width + column).ok()? * 4 + 3;
+                    if image.pixels.get(offset)? != &255 {
+                        break;
+                    }
+                    column += 1;
+                }
+                spans.push((row, start, column - start));
+            } else if alpha == 0 {
+                column += 1;
+            } else {
+                return None;
+            }
+        }
+        let _ = width_usize;
+    }
+    Some(spans)
 }
 
 #[cfg(test)]

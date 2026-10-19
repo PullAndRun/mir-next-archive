@@ -254,15 +254,15 @@ pub fn draw_sprites(
         } else {
             mir_render::FxKind::Magic
         };
-        let Some(image) = scene.effect_image(kind, frame_index) else {
+        let Some((width, height)) = scene.effect_size(kind, frame_index) else {
             continue;
         };
         let (x, y) = scene.world_to_screen(center, event.location);
         // 扁平语料的 `magic*.wzl` 没有可靠的逐帧锚点：把特效按格居中，
         // 视觉上落在命中格中央（雷电束 48×100 居中后不再飘到上一格）。
-        let x = x + (mir_render::CELL_WIDTH - i32::from(image.info.width)) / 2;
-        let y = y + (mir_render::CELL_HEIGHT - i32::from(image.info.height)) / 2;
-        frame.blit(&image, x, y);
+        let x = x + (mir_render::CELL_WIDTH - i32::try_from(width).unwrap_or(0)) / 2;
+        let y = y + (mir_render::CELL_HEIGHT - i32::try_from(height).unwrap_or(0)) / 2;
+        scene.draw_effect(frame, kind, frame_index, x, y);
     }
 }
 

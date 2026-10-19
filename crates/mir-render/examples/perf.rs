@@ -18,10 +18,11 @@ use std::time::Instant;
 
 use mir_core::Point;
 use mir_core::enums::MirDirection;
-use mir_render::{EntityKind, EntityView, Frame, MapScene, Viewport};
+use mir_render::{EntityKind, EntityView, Frame, FxKind, MapScene, Viewport};
 
 const SIZES: [(u32, u32); 3] = [(800, 600), (1280, 720), (1920, 1080)];
 const FRAMES: usize = 100;
+const EFFECTS: u32 = 200;
 
 struct Args {
     map: PathBuf,
@@ -173,8 +174,48 @@ fn main() {
         .map_or(0.0, |row| row.3);
     let entity_delta = (entity_avg - baseline).max(0.0);
 
+    // 特效：200 个/帧 × 100 帧；对比「每次克隆 Image」与「直接读缓存绘制」的分配次数。
+    let mut old_scene = load_scene(&args);
+    let mut old_frame = Frame::new(1280, 720);
+    let old_start = Instant::now();
+    let mut old_allocations = 0usize;
+    for frame_index in 0..FRAMES {
+        for index in 0..EFFECTS {
+            let kind = if index % 5 == 0 {
+                FxKind::Bolt
+            } else {
+                FxKind::Magic
+            };
+            let image_index = (frame_index as u32 + index) % 8;
+            if let Some(image) = old_scene.effect_image(kind, image_index) {
+                old_allocations += 1;
+                old_frame.blit(&image, 8, 8);
+            }
+        }
+    }
+    let old_effect_ms = old_start.elapsed().as_secs_f64() * 1000.0;
+
+    let mut new_scene = load_scene(&args);
+    let mut new_frame = Frame::new(1280, 720);
+    let misses_before = new_scene.entity_cache_stats().1;
+    let new_start = Instant::now();
+    for frame_index in 0..FRAMES {
+        for index in 0..EFFECTS {
+            let kind = if index % 5 == 0 {
+                FxKind::Bolt
+            } else {
+                FxKind::Magic
+            };
+            let image_index = (frame_index as u32 + index) % 8;
+            new_scene.draw_effect(&mut new_frame, kind, image_index, 8, 8);
+        }
+    }
+    let new_effect_ms = new_start.elapsed().as_secs_f64() * 1000.0;
+    let new_allocations =
+        usize::try_from(new_scene.entity_cache_stats().1 - misses_before).unwrap_or(0);
+
     let json = format!(
-        "{{\n  \"generated_by\": \"cargo run --release -p mir-render --example perf -- --map {} --data {} --out {}\",\n  \"map\": \"{}\",\n  \"terrain\": {{\n{}  }},\n  \"entities_100_players_1280x720\": {{\"avg_ms\": {entity_avg:.3}, \"p95_ms\": {entity_p95:.3}, \"worst_ms\": {entity_worst:.3}, \"entity_delta_ms\": {entity_delta:.3}, \"cache_hit_percent\": {entity_hit_rate:.2}}},\n  \"optimization\": \"entity sprite blit reads the decode cache in place (no per-layer Image clone)\",\n  \"viewport\": {:?}\n}}\n",
+        "{{\n  \"generated_by\": \"cargo run --release -p mir-render --example perf -- --map {} --data {} --out {}\",\n  \"map\": \"{}\",\n  \"terrain\": {{\n{}  }},\n  \"entities_100_players_1280x720\": {{\"avg_ms\": {entity_avg:.3}, \"p95_ms\": {entity_p95:.3}, \"worst_ms\": {entity_worst:.3}, \"entity_delta_ms\": {entity_delta:.3}, \"cache_hit_percent\": {entity_hit_rate:.2}}},\n  \"effects_200x100\": {{\"legacy_allocations\": {old_allocations}, \"pooled_allocations\": {new_allocations}, \"legacy_ms\": {old_effect_ms:.3}, \"pooled_ms\": {new_effect_ms:.3}}},\n  \"optimization\": \"tile blit uses precomputed opaque spans; effects draw directly from the entity decode cache\",\n  \"viewport\": {:?}\n}}\n",
         args.map.display(),
         args.data.display(),
         args.out.display(),
@@ -195,6 +236,9 @@ fn main() {
     }
     println!(
         "100 玩家 1280x720: 平均 {entity_avg:.2}ms, p95 {entity_p95:.2}ms, 最差 {entity_worst:.2}ms（实体层约 {entity_delta:.2}ms）, 实体缓存命中 {entity_hit_rate:.1}%"
+    );
+    println!(
+        "特效 200×100: 旧路径分配 {old_allocations} 次 / {old_effect_ms:.1}ms；池化后分配 {new_allocations} 次 / {new_effect_ms:.1}ms"
     );
     println!("已写 {}", args.out.display());
 }

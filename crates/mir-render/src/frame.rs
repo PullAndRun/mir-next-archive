@@ -233,6 +233,43 @@ impl Frame {
         self.blit_impl(image, x, y, BlendMode::Add);
     }
 
+    /// 按预计算的「不透明段」贴图（`(row, col, len)`，坐标相对图像左上角）。
+    ///
+    /// 地图瓦片在 [`crate::MapScene`] 解码时算好段表，绘制时每个连续段一次
+    /// `copy_from_slice`，跳过透明像素的逐点分支；段已裁剪到帧内。
+    pub fn blit_spans(&mut self, image: &Image, spans: &[(u32, u32, u32)], x: i32, y: i32) {
+        let source_width = i64::from(image.info.width);
+        let frame_width = i64::from(self.width);
+        let frame_height = i64::from(self.height);
+        for &(row, column, length) in spans {
+            let destination_y = i64::from(y) + i64::from(row);
+            if destination_y < 0 || destination_y >= frame_height || length == 0 {
+                continue;
+            }
+            let start_x = i64::from(x) + i64::from(column);
+            let left = start_x.max(0);
+            let right = (start_x + i64::from(length)).min(frame_width);
+            if left >= right {
+                continue;
+            }
+            let skipped = usize::try_from(left - start_x).unwrap_or(0);
+            let pixels = usize::try_from(right - left).unwrap_or(0);
+            let source_offset =
+                usize::try_from((i64::from(row) * source_width + i64::from(column)) * 4)
+                    .unwrap_or(0)
+                    + skipped * 4;
+            let destination_offset =
+                usize::try_from((destination_y * frame_width + left) * 4).unwrap_or(0);
+            if let (Some(source), Some(destination)) = (
+                image.pixels.get(source_offset..source_offset + pixels * 4),
+                self.pixels
+                    .get_mut(destination_offset..destination_offset + pixels * 4),
+            ) {
+                destination.copy_from_slice(source);
+            }
+        }
+    }
+
     /// blit 的公共实现；`mode` 决定混合方式。
     fn blit_impl(&mut self, image: &Image, x: i32, y: i32, mode: BlendMode) {
         let source_width = i32::from(image.info.width);
@@ -268,6 +305,53 @@ impl Frame {
             let source_row = usize::try_from(source_y * i64::from(source_width) * 4).unwrap_or(0);
             let destination_row =
                 usize::try_from((destination_y * i64::from(self.width) + left) * 4).unwrap_or(0);
+            let row_pixels = usize::try_from(right - left).unwrap_or(0);
+            if mode == BlendMode::Over {
+                // 行内「不透明段」合批：连续 alpha=255 的像素一次 memcpy，
+                // 只对半透明像素逐点混合。用切片直取（已裁剪，索引必在界内），
+                // 避免逐像素 `get`/Option 检查。
+                let source_x_offset = usize::try_from(left - i64::from(x)).unwrap_or(0) * 4;
+                let Some(source_row_pixels) = image.pixels.get(
+                    source_row + source_x_offset..source_row + source_x_offset + row_pixels * 4,
+                ) else {
+                    break;
+                };
+                let Some(destination_row_pixels) = self
+                    .pixels
+                    .get_mut(destination_row..destination_row + row_pixels * 4)
+                else {
+                    break;
+                };
+                let mut column = 0usize;
+                while column < row_pixels {
+                    let alpha = source_row_pixels[column * 4 + 3];
+                    if alpha != 255 {
+                        if alpha != 0 {
+                            let source = &source_row_pixels[column * 4..column * 4 + 4];
+                            let destination =
+                                &mut destination_row_pixels[column * 4..column * 4 + 4];
+                            let scale = u32::from(alpha);
+                            for channel in 0..3 {
+                                destination[channel] = u8::try_from(
+                                    (u32::from(source[channel]) * scale
+                                        + u32::from(destination[channel]) * (255 - scale))
+                                        / 255,
+                                )
+                                .unwrap_or(255);
+                            }
+                        }
+                        column += 1;
+                        continue;
+                    }
+                    let run_start = column;
+                    while column < row_pixels && source_row_pixels[column * 4 + 3] == 255 {
+                        column += 1;
+                    }
+                    destination_row_pixels[run_start * 4..column * 4]
+                        .copy_from_slice(&source_row_pixels[run_start * 4..column * 4]);
+                }
+                continue;
+            }
             for destination_x in left..right {
                 let source_x = destination_x - i64::from(x);
                 let source_offset = source_row + usize::try_from(source_x * 4).unwrap_or(0);
@@ -276,20 +360,6 @@ impl Frame {
                 let Some(source) = image.pixels.get(source_offset..source_offset + 4) else {
                     break;
                 };
-                // 快路径：地图/实体素材的 alpha 只有 0/255（`remove_black` 之后）。
-                // Over 模式下不透明像素直接拷贝、全透明跳过，省掉逐像素混合函数。
-                if mode == BlendMode::Over && source[3] == 255 {
-                    if let Some(destination) = self
-                        .pixels
-                        .get_mut(destination_offset..destination_offset + 4)
-                    {
-                        destination.copy_from_slice(source);
-                    }
-                    continue;
-                }
-                if mode == BlendMode::Over && source[3] == 0 {
-                    continue;
-                }
                 blend_pixel(&mut self.pixels, destination_offset, source, mode);
             }
         }

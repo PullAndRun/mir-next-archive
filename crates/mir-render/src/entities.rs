@@ -1264,6 +1264,35 @@ impl EntityRenderer {
         self.image(kind.library(), index + kind.start_frame())
     }
 
+    /// 特效帧尺寸（必要时解码进缓存，但不克隆像素）。
+    pub fn effect_size(&mut self, kind: FxKind, index: u32) -> Option<(u32, u32)> {
+        let library = kind.library();
+        let frame_index = index + kind.start_frame();
+        if !self.ensure_image(library, frame_index) {
+            return None;
+        }
+        let info = self.cached_info(library, frame_index)?;
+        Some((info.width.into(), info.height.into()))
+    }
+
+    /// 直接把特效画到帧上（零拷贝）。
+    pub fn draw_effect(
+        &mut self,
+        frame: &mut Frame,
+        kind: FxKind,
+        index: u32,
+        x: i32,
+        y: i32,
+    ) -> bool {
+        let library = kind.library();
+        let frame_index = index + kind.start_frame();
+        if !self.ensure_image(library, frame_index) {
+            return false;
+        }
+        self.blit_cached(frame, library, frame_index, x, y);
+        true
+    }
+
     /// 取一张实体图（带缓存与纯黑透明处理）。
     fn image(&mut self, library: SpriteLibrary, index: u32) -> Option<Image> {
         let key = (library, index);

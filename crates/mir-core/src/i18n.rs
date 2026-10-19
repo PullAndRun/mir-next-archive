@@ -454,6 +454,12 @@ pub enum TextKey {
     NpcCannotRepair,
     /// 场景：`repair_item`（`npc.rs:470`）；模板：`这里不能修理这种物品。`；参数：无。
     NpcRepairTypeNotAllowed,
+    /// 场景：`repair_item`；模板：`这件物品的耐久是满的，不需要修理。`；参数：无。
+    NpcRepairFull,
+    /// 场景：`repair_item`；模板：`修理这件物品需要 {cost} 金币，你只有 {gold}。`；参数：`{cost}`、`{gold}`。
+    NpcRepairNoGold,
+    /// 场景：`damage_weapon`/`damage_armour`（战斗磨损）；模板：`{name} 的耐久耗尽，已损坏。`；参数：`{name}`。
+    ItemBroken,
     /// 场景：`run_script_action`（`npc.rs`）；模板：`没有可交出的物品。`；参数：无。
     NpcNoCheckedItem,
     /// 场景：`run_script_action`（`npc.rs`）；模板：`已交出 {name} ×{count}。`；参数：`{name}`、`{count}`。
@@ -722,6 +728,9 @@ impl TextKey {
         Self::NpcWontBuyType,
         Self::NpcCannotRepair,
         Self::NpcRepairTypeNotAllowed,
+        Self::NpcRepairFull,
+        Self::NpcRepairNoGold,
+        Self::ItemBroken,
         Self::NpcNoCheckedItem,
         Self::NpcItemTaken,
         Self::NpcNameListPrompt,
@@ -943,6 +952,9 @@ impl TextKey {
             Self::NpcWontBuyType => "npc_wont_buy_type",
             Self::NpcCannotRepair => "npc_cannot_repair",
             Self::NpcRepairTypeNotAllowed => "npc_repair_type_not_allowed",
+            Self::NpcRepairFull => "npc_repair_full",
+            Self::NpcRepairNoGold => "npc_repair_no_gold",
+            Self::ItemBroken => "item_broken",
             Self::NpcNoCheckedItem => "npc_no_checked_item",
             Self::NpcItemTaken => "npc_item_taken",
             Self::NpcNameListPrompt => "npc_name_list_prompt",
@@ -1169,6 +1181,9 @@ impl TextKey {
             Self::NpcWontBuyType => &[],
             Self::NpcCannotRepair => &[],
             Self::NpcRepairTypeNotAllowed => &[],
+            Self::NpcRepairFull => &[],
+            Self::NpcRepairNoGold => &["cost", "gold"],
+            Self::ItemBroken => &["name"],
             Self::NpcNoCheckedItem => &[],
             Self::NpcItemTaken => &["name", "count"],
             Self::NpcNameListPrompt => &[],
@@ -1544,6 +1559,9 @@ const fn text_zh(key: TextKey) -> &'static str {
         TextKey::NpcWontBuyType => "这个 NPC 不收购这种物品。",
         TextKey::NpcCannotRepair => "这件物品无法修理。",
         TextKey::NpcRepairTypeNotAllowed => "这里不能修理这种物品。",
+        TextKey::NpcRepairFull => "这件物品的耐久是满的，不需要修理。",
+        TextKey::NpcRepairNoGold => "修理这件物品需要 {cost} 金币，你只有 {gold}。",
+        TextKey::ItemBroken => "{name} 的耐久耗尽，已损坏。",
         TextKey::NpcNoCheckedItem => "没有可交出的物品。",
         TextKey::NpcItemTaken => "已交出 {name} ×{count}。",
         TextKey::NpcNameListPrompt => "请从下列名字中选择，或直接输入名字。",
@@ -1852,6 +1870,11 @@ const fn text_en(key: TextKey) -> &'static str {
         TextKey::NpcWontBuyType => "This NPC does not buy that kind of item.",
         TextKey::NpcCannotRepair => "This item cannot be repaired.",
         TextKey::NpcRepairTypeNotAllowed => "This type of item cannot be repaired here.",
+        TextKey::NpcRepairFull => "This item is already at full durability.",
+        TextKey::NpcRepairNoGold => {
+            "Repairing this item costs {cost} gold, but you only have {gold}."
+        }
+        TextKey::ItemBroken => "{name} has worn out and is broken.",
         TextKey::NpcNoCheckedItem => "There is no item to hand over.",
         TextKey::NpcItemTaken => "Handed over {name} x{count}.",
         TextKey::NpcNameListPrompt => "Pick a name from the list, or type one.",
@@ -2260,7 +2283,7 @@ mod tests {
         //
         // 新增变体时必须同时登记 `TextKey::ALL`，否则这条会挡住——`ALL` 是
         // 语言包校验与参数核对的唯一入口，漏登记等于漏测试。
-        assert_eq!(TextKey::ALL.len(), 215, "新增/删除键时同步更新数量");
+        assert_eq!(TextKey::ALL.len(), 218, "新增/删除键时同步更新数量");
     }
 
     #[test]

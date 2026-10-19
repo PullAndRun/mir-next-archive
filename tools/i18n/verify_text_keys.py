@@ -79,10 +79,10 @@ EXTENSION_KEYS = (
 EXTENSION_KEYS_WITH_ARGS = ("quest_item_found",)
 
 #: §7.2 预期的行数（第 2 轮扫描口径，冻结；文档改口径时同步改这里）。
-EXPECTED_ROWS = 199
+EXPECTED_ROWS = 202
 
 #: §7.2 唯一的键数（192 行里有 7 行是重复键）。
-EXPECTED_UNIQUE_KEYS = 192
+EXPECTED_UNIQUE_KEYS = 195
 
 PLACEHOLDER_RE = re.compile(r"\{([^{}]*)\}")
 SNAKE_RE = re.compile(r"^[a-z][a-z0-9_]*$")

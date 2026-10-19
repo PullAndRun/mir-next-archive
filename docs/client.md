@@ -353,6 +353,11 @@ view.y = (int)(scaleY × 自己.y) - 108/2
   这里按需求改色，`MainDialogs.cs:1950-1962`）。
 * 与 Crystal 一样跳过地面物品、尸体、法术对象（`MainDialogs.cs:1941`）。
   队友点已经支持（`MarkerKind::Group`），但本作还没有组队数据来源，所以目前不会出现。
+* **传送点标记（第 15 轮）**：数据源是 **`S.NewMapInfo.info.movements`**（协议已下发；
+  `MapChanged` 不带 → 切图后清空，等下次 `NewMapInfo`）；`MapSnapshot.movements:
+  Vec<ClientMovementInfo>`，小地图新增 `MarkerKind::Movement`（青色 `[0,220,220]`）。
+  鼠标距标记 **≤4px** 时画提示「传送点：<行会/地图名> (x,y)」（中英双语，`Label::MinimapGateTip`），
+  位置跟随鼠标并夹在屏内。测试 `movement_markers_and_tooltip_cover_gates`。
 * 缺素材（没有 `mmap.wzl`，或 `MapInformation.mini_map == 0`）时：视窗画纯色占位
   （`[26,34,46]`）+ `无小地图素材`，标题仍然显示地图名，不 panic。
   Crystal 对应的处理是把面板切成无图小档（`MainDialogs.cs:1898-1901,2046-2058`）。
@@ -961,6 +966,18 @@ Add/Remove/Memo/Email/Whisper，`KeybindOptions.Friends` 可配键位）；本�
 测试：`typography` 6 例（2/1 宽度、中英混排、避头尾、最多 2 行省略、显式 `\n`、省略号退化）；
 `tests/chat_wrap.rs` 四类消息（长中文/长英文/行会/系统）断言折行 >1 行且无标点行首；
 截图 `target/client-chat-wrap.png`。
+
+### 5.24 断线重连（第 15 轮）
+
+新模块 `ui/reconnect.rs`：阶段 `Idle / Waiting / Connecting / Failed`；
+`BACKOFF_MS = [1000, 2000, 4000]`、`MAX_ATTEMPTS = 3`，重复 `Closed` 不重置进度。
+`NetEvent::Closed` → `disconnected()`；每帧 `due()` 到点用原 `ConnectOptions`（账号/密码/角色）
+发起 `NetClient::connect`；快照 ready → `succeeded()`；单次失败 → `attempt_failed()` 排下一次；
+3 次失败 → 显示「无法连接」并切回 `LoginState`（账号/密码带入，静音占位播放器）。
+
+UI：`draw_ui` 在顶部画提示横幅「连接已断开，正在重连（N/3）」/「无法连接」；
+`Label::Reconnecting` 双语（复用已有 `ConnectFailed`），非 TextKey。测试 5 例：
+首次成功、指数退避 + 3 次失败、提示序号、重复断线不重置（另含 minimap 传送点标记用例）。
 
 
 

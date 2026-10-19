@@ -409,7 +409,7 @@ fn run_connected(
         manual_select: false,
     };
     println!("连接服务器 {server} …");
-    let client = NetClient::connect(connect)?;
+    let client = NetClient::connect(connect.clone())?;
     let snapshot = client
         .wait_until_in_game(CONNECT_LOGIN_TIMEOUT)
         .with_context(|| format!("连接 {server} 并登录失败"))?;
@@ -476,6 +476,7 @@ fn run_connected(
         client,
         snapshot,
         language,
+        connect,
         app::LiveOptions {
             map_dir: options.map_dir.clone(),
             data_dir: options.data_dir.clone(),

@@ -1388,3 +1388,186 @@ async fn auto_sale_crash_window_is_consistent() {
     let store = MemoryStore::new();
     run_auto_sale_crash_window_is_consistent(&store, "mem-sale-crash").await;
 }
+
+// ---------------------------------------------------------------------------
+// 12) 拍卖行批量上架/下架（t119）
+// ---------------------------------------------------------------------------
+
+fn give_batch_items(world: &mut World, object_id: u32, ids: &[u64], gold: i64) {
+    let player = world.player_mut(object_id).expect("玩家应在世界里");
+    for (slot, unique_id) in ids.iter().enumerate() {
+        player.inventory[slot] = Some(UserItem {
+            unique_id: *unique_id,
+            item_index: ITEM_INDEX,
+            count: 1,
+            ..UserItem::default()
+        });
+    }
+    player.gold = gold;
+    player.npc.page_key.clear();
+    player.npc.page_key.push_str(CONSIGN_KEY);
+}
+
+#[test]
+fn batch_consign_rejects_more_than_ten_items() {
+    let (mut world, npc) = build_world();
+    add_player(&mut world, SELLER, 1, "批量卖家", 100_000, npc);
+    let ids: Vec<u64> = (1..=11).collect();
+    give_batch_items(&mut world, SELLER, &ids, 100_000);
+    let requests: Vec<(u64, u32)> = ids.iter().map(|id| (*id, 5_000)).collect();
+    let error = world
+        .consign_items_batch(SELLER, &requests, MarketPanelType::Consign)
+        .expect_err("11 件应被拒绝");
+    assert!(matches!(
+        error,
+        mir_server::MarketError::BatchTooLarge { count: 11, max: 10 }
+    ));
+    assert!(world.auctions().is_empty(), "整批拒绝不能留下挂单");
+    assert_eq!(
+        world.player(SELLER).unwrap().inventory[0]
+            .as_ref()
+            .unwrap()
+            .unique_id,
+        1,
+        "物品不能被拿走"
+    );
+}
+
+#[test]
+fn batch_consign_rolls_back_when_one_item_is_missing() {
+    let (mut world, npc) = build_world();
+    add_player(&mut world, SELLER, 1, "批量卖家", 100_000, npc);
+    give_batch_items(&mut world, SELLER, &[1, 2], 100_000);
+    let requests = vec![(1, 5_000), (999, 5_000)];
+    assert!(
+        world
+            .consign_items_batch(SELLER, &requests, MarketPanelType::Consign)
+            .is_err()
+    );
+    assert!(world.auctions().is_empty(), "失败批次不能留下部分挂单");
+    assert!(
+        world.player(SELLER).unwrap().inventory[0].is_some(),
+        "第一件还在背包"
+    );
+    assert_eq!(
+        world.player(SELLER).unwrap().gold,
+        100_000,
+        "手续费不能扣一半"
+    );
+}
+
+#[test]
+fn batch_consign_fees_must_be_covered_for_all_items() {
+    let (mut world, npc) = build_world();
+    add_player(&mut world, SELLER, 1, "穷卖家", 5_000, npc);
+    give_batch_items(&mut world, SELLER, &[1, 2], 5_000);
+    let requests = vec![(1, 5_000), (2, 5_000)];
+    let error = world
+        .consign_items_batch(SELLER, &requests, MarketPanelType::Consign)
+        .expect_err("两件手续费 10000 > 5000");
+    assert!(matches!(
+        error,
+        mir_server::MarketError::NotEnoughGold {
+            needed: 10_000,
+            held: 5_000
+        }
+    ));
+    assert!(world.auctions().is_empty());
+    assert_eq!(world.player(SELLER).unwrap().gold, 5_000);
+}
+
+#[test]
+fn batch_consign_ten_items_and_batch_get_back_ten() {
+    let (mut world, npc) = build_world();
+    add_player(&mut world, SELLER, 1, "十件卖家", 100_000, npc);
+    let ids: Vec<u64> = (1..=10).collect();
+    give_batch_items(&mut world, SELLER, &ids, 100_000);
+    let requests: Vec<(u64, u32)> = ids.iter().map(|id| (*id, 5_000)).collect();
+    let auction_ids = world
+        .consign_items_batch(SELLER, &requests, MarketPanelType::Consign)
+        .expect("10 件应全成功");
+    assert_eq!(auction_ids.len(), 10);
+    assert_eq!(world.auctions().len(), 10);
+    assert_eq!(
+        world.player(SELLER).unwrap().gold,
+        50_000,
+        "10 x 5000 手续费"
+    );
+
+    set_page(&mut world, SELLER, MARKET_KEY);
+    let collected = world
+        .market_get_back_batch(SELLER, MarketCollectionMode::Any, &auction_ids)
+        .expect("批量下架应成功");
+    assert_eq!(collected, 10);
+    assert!(world.auctions().is_empty());
+    let inventory = &world.player(SELLER).unwrap().inventory;
+    assert_eq!(
+        inventory.iter().filter(|slot| slot.is_some()).count(),
+        10,
+        "10 件全部退回背包"
+    );
+}
+
+#[test]
+fn batch_get_back_rolls_back_when_one_listing_is_missing() {
+    let (mut world, npc) = build_world();
+    add_player(&mut world, SELLER, 1, "批量卖家", 100_000, npc);
+    give_batch_items(&mut world, SELLER, &[1, 2], 100_000);
+    let auction_ids = world
+        .consign_items_batch(SELLER, &[(1, 5_000), (2, 5_000)], MarketPanelType::Consign)
+        .expect("两件上架");
+    set_page(&mut world, SELLER, MARKET_KEY);
+    let mut requests = vec![auction_ids[0], 999_999];
+    requests.push(auction_ids[1]);
+    assert!(
+        world
+            .market_get_back_batch(SELLER, MarketCollectionMode::Any, &requests)
+            .is_err()
+    );
+    assert_eq!(world.auctions().len(), 2, "失败批次不能只下架一部分");
+    assert!(
+        world
+            .player(SELLER)
+            .unwrap()
+            .inventory
+            .iter()
+            .all(Option::is_none),
+        "挂单物品仍在市场，不应回到背包"
+    );
+}
+
+#[test]
+fn auction_expires_after_48_hours_and_mails_the_seller() {
+    let (mut world, npc) = build_world();
+    add_player(&mut world, SELLER, 1, "过期卖家", 100_000, npc);
+    let _ = npc;
+    let item = UserItem {
+        unique_id: 7,
+        item_index: ITEM_INDEX,
+        count: 1,
+        ..UserItem::default()
+    };
+    let record = AuctionRecord {
+        id: 42,
+        item: mir_server::items::encode_slots(&[Some(item)]),
+        consignment_date: DateTimeBinary::from_unix_seconds(1_000),
+        price: 5_000,
+        current_bid: 0,
+        seller_character_id: 1,
+        seller_name: "过期卖家".to_owned(),
+        current_buyer_character_id: None,
+        current_buyer_name: None,
+        expired: false,
+        sold: false,
+        item_type: MarketItemType::Consign,
+    };
+    world.load_auctions(vec![record]);
+    // 49 小时 > 48 小时。
+    let now_ms = (1_000 + 49 * 60 * 60) * 1_000;
+    assert_eq!(world.purge_expired_auctions(now_ms), vec![42]);
+    assert!(world.auctions().is_empty());
+    assert!(
+        world.pending_mail_writes() > 0,
+        "过期物品必须通过邮件退回卖家"
+    );
+}

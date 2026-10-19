@@ -688,3 +688,80 @@ fn low_health_deer_flees_away_from_target() {
     let position = harness.world.monster(deer).unwrap().position;
     assert!(position.x > 21, "低血 Deer 应远离目标，实际 {position:?}");
 }
+
+#[test]
+fn trap_rock_show_spawns_children_once() {
+    let mut harness = Harness::new(46);
+    let player = harness.add_player(1, Point::new(20, 20));
+    let parent = harness.spawn(special_monster(47, 100), Point::new(21, 20));
+    harness.world.monster_mut(parent).unwrap().target = Some(player);
+    harness.wake(parent);
+    harness.world.tick();
+    let children = trace_rock_children(&harness, parent);
+    assert_eq!(children, 3, "TrapRock Show 应生成 3 个角落子石");
+    harness.wake(parent);
+    harness.world.tick();
+    assert_eq!(
+        trace_rock_children(&harness, parent),
+        3,
+        "父石 Show 只能触发一次"
+    );
+}
+
+fn trace_rock_children(harness: &Harness, parent: u32) -> usize {
+    harness
+        .world
+        .monsters()
+        .iter()
+        .filter(|monster| monster.kind.ai == 47 && monster.object_id != parent && !monster.dead)
+        .count()
+}
+
+#[test]
+fn trap_rock_children_expire_after_five_seconds() {
+    let mut harness = Harness::new(47);
+    let player = harness.add_player(1, Point::new(20, 20));
+    let parent = harness.spawn(special_monster(47, 100), Point::new(21, 20));
+    harness.world.monster_mut(parent).unwrap().target = Some(player);
+    harness.wake(parent);
+    harness.world.tick();
+    assert_eq!(trace_rock_children(&harness, parent), 3);
+    harness.world.advance_clock(5_100);
+    harness.world.tick();
+    assert_eq!(
+        trace_rock_children(&harness, parent),
+        0,
+        "子石存活 5 秒后应消失"
+    );
+}
+
+#[test]
+fn tree_and_trainer_are_stationary_scenery() {
+    let mut harness = Harness::new(48);
+    let _player = harness.add_player(1, Point::new(20, 20));
+    for ai in [3, 56] {
+        let id = harness.spawn(special_monster(ai, 100), Point::new(22, 20));
+        let before = harness.world.monster(id).unwrap().position;
+        harness.world.tick();
+        assert_eq!(
+            harness.world.monster(id).unwrap().position,
+            before,
+            "AI {ai} 应固定不动"
+        );
+    }
+}
+
+#[test]
+fn trainer_scenery_is_stationary_and_does_not_attack() {
+    let mut harness = Harness::new(49);
+    let player = harness.add_player(1, Point::new(20, 20));
+    let trainer = harness.spawn(special_monster(56, 100), Point::new(21, 20));
+    harness.world.monster_mut(trainer).unwrap().target = Some(player);
+    harness.wake(trainer);
+    harness.world.tick();
+    assert_eq!(
+        harness.world.monster(trainer).unwrap().position,
+        Point::new(21, 20),
+        "Trainer 不应移动"
+    );
+}

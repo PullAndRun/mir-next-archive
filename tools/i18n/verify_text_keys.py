@@ -77,6 +77,10 @@ EXTENSION_KEYS = (
     "spouse_offline",
     "spouse_recall_needs_ring",
     "spouse_teleported",
+    "lover_recall_allowed",
+    "lover_recall_blocked",
+    "spouse_recall_denied",
+    "spouse_ring_given",
 )
 
 #: 允许带参数的扩展键（Crystal `ServerTextKeys.YouFound` 是 `You found {0}`）。

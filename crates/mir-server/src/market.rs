@@ -170,7 +170,17 @@ pub const MAX_STARTING_BID: u32 = 50_000;
 pub const AUCTION_COST: u32 = 5_000;
 
 /// 寄售/拍卖挂单有效期（天）：`Globals.ConsignmentLength = 7`（`Globals.cs:42`）。
+///
+/// 保留这个 Crystal 常量用于文档/对照；本作运营口径按 t119 使用
+/// [`AUCTION_EXPIRE_MS`]（48 小时）。
 pub const CONSIGNMENT_LENGTH_DAYS: i64 = 7;
+
+/// 挂单超时（毫秒）：默认 **48 小时**（t119；Crystal 没有独立的
+/// `Settings.AuctionDuration`，其 `Globals.ConsignmentLength` 是 7 天，本作按运营要求取 48h）。
+pub const AUCTION_EXPIRE_MS: i64 = 48 * 60 * 60 * 1_000;
+
+/// 单次批量上架/下架的上限（本作扩展；Crystal 没有批量接口）。
+pub const MAX_AUCTION_BATCH: usize = 10;
 
 /// 成交佣金比例：`Globals.Commission = 0.05F`（`Globals.cs:39`）。
 pub const COMMISSION: f64 = 0.05;
@@ -886,6 +896,14 @@ pub enum MarketError {
     /// 这个面板还没做（商城）。
     #[error("the game shop panel is not implemented")]
     UnsupportedPanel,
+    /// 批量上架/下架超过单次上限（本作扩展）。
+    #[error("batch size {count} exceeds the maximum {max}")]
+    BatchTooLarge {
+        /// 请求条数。
+        count: usize,
+        /// 上限。
+        max: usize,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -1197,6 +1215,212 @@ impl World {
             return Err(MarketError::NotEnoughGold { needed: cost, held });
         }
         Ok(auction_id)
+    }
+
+    /// 批量上架（本作扩展；Crystal 只有单件 `ConsignItem`）。
+    ///
+    /// 单次最多 [`MAX_AUCTION_BATCH`] 件；先做**整批前置校验**（面板、价格、绑定性、
+    /// 背包物品、总手续费），再逐个落地；任何一步失败都把背包/金币/挂单表/ID 计数器
+    /// 恢复到调用前，做到「全成或全回滚」。
+    ///
+    /// # Errors
+    ///
+    /// 超过批量上限、面板/价格/绑定性/金币不满足、NPC 不在范围内等；失败时世界状态不变。
+    pub fn consign_items_batch(
+        &mut self,
+        player_id: u32,
+        items: &[(u64, u32)],
+        panel: MarketPanelType,
+    ) -> Result<Vec<u64>, MarketError> {
+        if items.is_empty() || items.len() > MAX_AUCTION_BATCH {
+            return Err(MarketError::BatchTooLarge {
+                count: items.len(),
+                max: MAX_AUCTION_BATCH,
+            });
+        }
+        let Some(player) = self.players.get(&player_id) else {
+            return Err(MarketError::NotInWorld(player_id));
+        };
+        if player.dead || player.npc.npc_object_id == 0 {
+            return Err(if player.dead {
+                MarketError::Dead
+            } else {
+                MarketError::NoDialog
+            });
+        }
+        let (_, cost, min_price, max_price) = match panel {
+            MarketPanelType::Consign => (
+                MarketItemType::Consign,
+                CONSIGNMENT_COST,
+                MIN_CONSIGNMENT,
+                MAX_CONSIGNMENT,
+            ),
+            MarketPanelType::Auction => (
+                MarketItemType::Auction,
+                AUCTION_COST,
+                MIN_STARTING_BID,
+                MAX_STARTING_BID,
+            ),
+            _ => return Err(MarketError::InvalidPanel(panel)),
+        };
+        let mut seen = std::collections::BTreeSet::new();
+        let mut total_fee = 0_u32;
+        for &(unique_id, price) in items {
+            if !seen.insert(unique_id) {
+                return Err(MarketError::ItemNotFound(unique_id));
+            }
+            if price < min_price || price > max_price {
+                return Err(MarketError::PriceOutOfRange {
+                    price,
+                    min: min_price,
+                    max: max_price,
+                });
+            }
+            let Some((_, item)) = self.find_inventory_item(player_id, unique_id) else {
+                return Err(MarketError::ItemNotFound(unique_id));
+            };
+            let unsellable = self.item_info(item.item_index).is_none_or(|info| {
+                info.bind.contains(BindMode::DontSell)
+                    || item
+                        .rental_information
+                        .as_ref()
+                        .is_some_and(|rental| rental.binding_flags.contains(BindMode::DontSell))
+            });
+            if unsellable {
+                return Err(MarketError::ItemUnsellable);
+            }
+            total_fee = total_fee.saturating_add(cost);
+        }
+        let held = self.players[&player_id].gold;
+        if held < i64::from(total_fee) {
+            return Err(MarketError::NotEnoughGold {
+                needed: total_fee,
+                held,
+            });
+        }
+        self.check_npc_in_range(player_id)?;
+
+        // 整批快照：任何一件失败都回到这里。
+        let auctions_before = self.auctions.clone();
+        let next_id_before = self.next_auction_id;
+        let mail_len_before = self.mail_writes.len();
+        let Some(player_before) = self.players.get(&player_id) else {
+            return Err(MarketError::NotInWorld(player_id));
+        };
+        let inventory_before = player_before.inventory.clone();
+        let gold_before = player_before.gold;
+
+        let mut ids = Vec::with_capacity(items.len());
+        for &(unique_id, price) in items {
+            match self.consign_item(player_id, unique_id, price, panel) {
+                Ok(id) => ids.push(id),
+                Err(error) => {
+                    self.auctions = auctions_before;
+                    self.next_auction_id = next_id_before;
+                    self.mail_writes.truncate(mail_len_before);
+                    if let Some(player) = self.players.get_mut(&player_id) {
+                        player.inventory = inventory_before;
+                        player.gold = gold_before;
+                    }
+                    return Err(error);
+                }
+            }
+        }
+        Ok(ids)
+    }
+
+    /// 批量下架/取回（本作扩展）：一次最多 [`MAX_AUCTION_BATCH`] 条。
+    ///
+    /// 先校验全部 `auction_id` 都属于该角色且未成交，再逐条取回；任何一条失败就把
+    /// 挂单表/背包/金币/邮件队列恢复到调用前（全成或全回滚）。
+    ///
+    /// # Errors
+    ///
+    /// 超过批量上限、死亡/无 NPC 对话、挂单不属于本人/已成交、背包放不下等。
+    pub fn market_get_back_batch(
+        &mut self,
+        player_id: u32,
+        mode: MarketCollectionMode,
+        auction_ids: &[u64],
+    ) -> Result<usize, MarketError> {
+        if auction_ids.is_empty() || auction_ids.len() > MAX_AUCTION_BATCH {
+            return Err(MarketError::BatchTooLarge {
+                count: auction_ids.len(),
+                max: MAX_AUCTION_BATCH,
+            });
+        }
+        let Some(player) = self.players.get(&player_id) else {
+            return Err(MarketError::NotInWorld(player_id));
+        };
+        if player.dead {
+            return Err(MarketError::Dead);
+        }
+        let character_id = player.character_id;
+        for &auction_id in auction_ids {
+            let Some(auction) = self.auction(auction_id) else {
+                return Err(MarketError::ListingNotFound(auction_id));
+            };
+            if auction.seller_character_id != character_id || auction.sold {
+                return Err(MarketError::ListingNotFound(auction_id));
+            }
+        }
+        match self.check_market_npc(player_id) {
+            Ok(()) => {}
+            Err(error) => return Err(error),
+        }
+
+        let auctions_before = self.auctions.clone();
+        let next_id_before = self.next_auction_id;
+        let mail_len_before = self.mail_writes.len();
+        let Some(player_before) = self.players.get(&player_id) else {
+            return Err(MarketError::NotInWorld(player_id));
+        };
+        let inventory_before = player_before.inventory.clone();
+        let gold_before = player_before.gold;
+
+        let mut count = 0_usize;
+        for &auction_id in auction_ids {
+            let result = if mode == MarketCollectionMode::Any {
+                self.market_get_back(player_id, mode, auction_id)
+            } else {
+                let Some(auction) = self.auction(auction_id).cloned() else {
+                    return Err(MarketError::ListingNotFound(auction_id));
+                };
+                match self.take_auction(player_id, mode, &auction) {
+                    Ok(true) => {
+                        self.remove_auction(auction_id);
+                        Ok(1)
+                    }
+                    Ok(false) => Ok(0),
+                    Err(error) => Err(error),
+                }
+            };
+            match result {
+                Ok(0) => {
+                    self.auctions = auctions_before;
+                    self.next_auction_id = next_id_before;
+                    self.mail_writes.truncate(mail_len_before);
+                    if let Some(player) = self.players.get_mut(&player_id) {
+                        player.inventory = inventory_before;
+                        player.gold = gold_before;
+                    }
+                    return Err(MarketError::ListingNotFound(auction_id));
+                }
+                Ok(done) => count += done,
+                Err(error) => {
+                    self.auctions = auctions_before;
+                    self.next_auction_id = next_id_before;
+                    self.mail_writes.truncate(mail_len_before);
+                    if let Some(player) = self.players.get_mut(&player_id) {
+                        player.inventory = inventory_before;
+                        player.gold = gold_before;
+                    }
+                    return Err(error);
+                }
+            }
+        }
+        let _ = self.market_refresh(player_id);
+        Ok(count)
     }
 
     /// 搜索市场：`C.MarketSearch`，Crystal `PlayerObject.MarketSearch`（`:8424-8448`）
@@ -1815,8 +2039,7 @@ impl World {
 
     /// 条目是否已到 [`CONSIGNMENT_LENGTH_DAYS`] 天。
     fn auction_expired_at(auction: &Auction, now_ms: i64) -> bool {
-        let length = CONSIGNMENT_LENGTH_DAYS * 24 * 60 * 60;
-        now_ms / 1000 >= auction.consignment_date.to_unix_seconds() + length
+        now_ms.max(0) >= auction.consignment_date.to_unix_seconds() * 1_000 + AUCTION_EXPIRE_MS
     }
 
     /// 分配拍卖 ID（Crystal `++Envir.NextAuctionID`，`AuctionInfo.cs:33`）。

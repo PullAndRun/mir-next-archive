@@ -262,6 +262,10 @@ pub enum Label {
     ConquestGateOpen,
     /// 盟友行会会长。
     GuildAllyLeader,
+    /// 断线重连提示（参数：第几次/总次数）。
+    Reconnecting,
+    /// 小地图传送点悬停提示（参数：目标地图、坐标）。
+    MinimapGateTip,
     /// 无归属。
     ConquestUnclaimed,
     /// 系统：攻城开始。
@@ -1000,6 +1004,8 @@ impl Label {
         Self::ConquestDestroyed,
         Self::ConquestGateOpen,
         Self::GuildAllyLeader,
+        Self::Reconnecting,
+        Self::MinimapGateTip,
         Self::ConquestUnclaimed,
         Self::SystemConquestStarted,
         Self::SystemConquestEnded,
@@ -1645,6 +1651,10 @@ impl Label {
             (Self::ConquestGateOpen, Language::ZhCn) => "城门已开",
             (Self::ConquestGateOpen, Language::En) => "Gate open",
             (Self::GuildAllyLeader, Language::ZhCn) => "会长",
+            (Self::Reconnecting, Language::ZhCn) => "连接已断开，正在重连（{}/3）",
+            (Self::Reconnecting, Language::En) => "Disconnected, reconnecting ({}/3)",
+            (Self::MinimapGateTip, Language::ZhCn) => "传送点：{} ({},{})",
+            (Self::MinimapGateTip, Language::En) => "Teleport: {} ({},{})",
             (Self::ConquestUnclaimed, Language::ZhCn) => "无归属",
             (Self::ConquestUnclaimed, Language::En) => "Unclaimed",
             (Self::SystemConquestStarted, Language::ZhCn) => "攻城开始：{}",
@@ -2204,7 +2214,7 @@ mod tests {
     #[test]
     fn every_label_has_both_languages() {
         // `Label::ALL` 是手工维护的清单：数量对不上说明加了变体没同步。
-        assert_eq!(Label::ALL.len(), 327, "新增 Label 后请同步 Label::ALL");
+        assert_eq!(Label::ALL.len(), 329, "新增 Label 后请同步 Label::ALL");
         for label in Label::ALL {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);

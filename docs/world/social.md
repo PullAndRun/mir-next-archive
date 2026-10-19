@@ -89,21 +89,36 @@ Email/Whisper 快捷按钮（用聊天/邮件面板代替）。
      `S.UseItem{success}` 并把落点写进 `UseItemReport.teleported`；
   2. **`/spouse` 聊天命令**：`session.rs` 入口拦截，**本作扩展**、不进频道；
 * **包**：只发 `S.MapChanged`（复用 `World::change_map`，**同图/跨图都发**）+ 戒指路径的
-  `S.UseItem` + 系统 `S.Chat` 提示；**没有新增协议包**；
-* **简化**：`spouse_recall_needs_ring` 目前只登记、未在流程里强制——本作把戒指当**触发器**
-  而不是前置条件；未做强制「必须先戴戒指」的校验。
+  `S.UseItem` + 系统 `S.Chat` 提示；**没有新增协议包**。
 
-测试（`tests/social.rs` 24/24 中的 4 条）：`spouse_teleport_moves_next_to_the_spouse_same_map`、
-`spouse_teleport_rejects_unmarried_and_offline_spouse`、
-`spouse_teleport_crosses_maps_when_the_spouse_is_elsewhere`、
-`wedding_ring_use_teleports_to_the_spouse`。
+**强制戴戒（第 14 轮收口，`PlayerObject.cs:2596-2604`）**：传送前校验**装备槽 7/8**
+（`WEDDING_RING_SLOTS`）里是否有 `wedding_ring == 配偶 character_id` 的戒指；未戴 →
+`spouse_recall_needs_ring`（**已强制执行**，不再只是登记）。戒指 `C.UseItem` 会**先戴到空
+戒指槽再传送**；两槽都满 → `S.UseItem{success:false}` + 同一条提示。
+**仍简化**：Crystal 还会校验配偶那边也戴着戒（双向），本作只校验发起方。
+
+**`AllowLoverRecall` 同意位（`PlayerObject.cs:2643`，开关 `MirConnection.cs:1805-1812`）**：
+玩家可关闭「允许配偶传送」，关闭后对方 `/spouse` 收到 `spouse_recall_denied`；入口是聊天命令
+**`/allowrecall`（本作扩展）**——Crystal 用设置界面字段，本作没有该设置包，所以用命令；
+提示 `lover_recall_allowed` / `lover_recall_blocked`。
+**差异**：本作**默认允许**（Crystal 字段默认 `false` = 禁止），因为 `/spouse` 是扩展命令，
+默认可用体验更好。
+
+**结婚自动发戒指**：结婚成功时双方各得一枚 `UserItem { wedding_ring = 对方 character_id }`
++ 提示 `spouse_ring_given`；模板挑选：名字带 `wedding`/`结婚` 的 `ItemType::Ring` 优先 →
+否则**第一枚 Ring** → 都没有则**不发**（只 `warn`）。Crystal 的戒指来自真实 `ItemInfo` 的
+`WeddingRing` 语义，本作用「戒指物品 + 该字段」近似，属已登记差异。
+
+测试（`tests/social.rs` **28 条**中的 4 条）：`spouse_teleport_requires_a_worn_wedding_ring`、
+`spouse_teleport_is_refused_when_the_lover_disables_recall`、`marriage_gives_each_side_a_wedding_ring`、
+`wedding_ring_use_equips_it_before_teleporting`；早先同图/跨图/拒绝/戒指 4 条仍在。
 
 ## 7. 测试
 
-`crates/mir-server/tests/social.rs` **24 条**：好友编解码往返、加/删/拉黑、上限、
+`crates/mir-server/tests/social.rs` **28 条**：好友编解码往返、加/删/拉黑、上限、
 联盟双向与记录往返、联盟上限、盟友判定、`S.FriendUpdate` 包内容、好友/联盟上限
 可配置（`0` = 不限）、`/ally` 回执本地化（`ally_replies_are_localized`）、
-配偶传送 4 条（同图/跨图/拒绝/戒指）。
+配偶传送/戴戒/同意位/结婚发戒 8 条。
 客户端 `crates/mir-client/tests/friends_panel.rs` 另 **6 条**：320×240 布局与控件不重叠、
 `row_at(scroll)` 绝对下标、滚动后选中第 7 条并删除、127–130 映射与字节编码、
 245 整表替换 + 中英切换、渲染截图（`client-friends.png`/`client-ally.png`）。

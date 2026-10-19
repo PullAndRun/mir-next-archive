@@ -652,6 +652,9 @@ pub const MENTOR_LEVEL_GAP: u16 = 10;
 /// Crystal `Settings.MenteeExpBank`（`Settings.cs`，默认 `5`）：徒弟打怪经验的 5% 存入师傅的 `MentorExp`。
 pub const MENTEE_EXP_BANK: i64 = 5;
 
+/// 戒指槽（`EquipmentSlot.RingL = 7` / `RingR = 8`，见 `items::equipment_slot_for`）。
+pub const WEDDING_RING_SLOTS: [usize; 2] = [7, 8];
+
 /// Crystal `Settings.MarriageLevelRequired`（`Settings.cs`，默认 `10`）。
 pub const MARRIAGE_LEVEL_REQUIRED: u16 = 10;
 
@@ -712,6 +715,12 @@ pub enum SocialError {
     /// 目标地图没有可站的相邻格（本作扩展的兜底失败）。
     #[error("no free cell next to the spouse")]
     NoFreeCell,
+    /// 没有装备结婚戒指（Crystal `PlayerObject.cs:2596-2604` 要求戴戒）。
+    #[error("player {0} is not wearing a wedding ring")]
+    NoWeddingRing(u32),
+    /// 配偶关闭了「允许配偶传送」（Crystal `PlayerObject.cs:2643`）。
+    #[error("spouse of player {0} does not allow lore recall")]
+    RecallDenied(u32),
 }
 
 /// 配偶传送的结果（见 [`World::spouse_teleport`]）。
@@ -845,6 +854,17 @@ pub struct World {
     pub(crate) mentor_requests: HashMap<u32, u32>,
     /// 允许他人拜师（Crystal `PlayerObject.AllowMentor`，默认开）。
     pub(crate) allow_mentor: std::collections::HashSet<u32>,
+    /// 结婚戒指的**物品模板下标**（`None` = 自动挑）。
+    ///
+    /// 自动挑的规则（**只看字段，不看名字**）：`ItemType::Ring` 里优先取
+    /// **带绑定（`bind` != `None`）** 的那枚 —— Crystal 的婚礼戒指是绑定物品
+    /// （`BindMode`，`Shared/Data/ItemData.cs`）；都未绑定时退化为「第一枚戒指」。
+    pub(crate) wedding_ring_index: Option<i32>,
+    /// 关闭了「允许配偶传送」的玩家（Crystal `PlayerObject.AllowLoverRecall`）。
+    ///
+    /// 存**黑名单**：默认允许（Crystal 该字段默认 `false`＝不允许，但本作的
+    /// `/spouse` 是扩展命令、默认可用体验更好；差异已登记）。
+    pub(crate) lover_recall_blocked: std::collections::HashSet<u32>,
     /// 允许的坐标范围（0..=bound）。没有加载真实地图时用它兜底。
     pub bound: i32,
     /// 已加载的地形缓存：地图文件名 → 地图（Crystal `Envir.MapList`，
@@ -976,6 +996,10 @@ pub struct World {
     pub(crate) monster_slaves: HashMap<u32, Vec<u32>>,
     /// 召唤冷却截止时刻（World 时钟毫秒）：召唤者对象 ID → 下次可召唤时间。
     pub(crate) monster_summon_time: HashMap<u32, i64>,
+    /// `TrapRock` 子石：子石对象 ID → 到期世界时钟（毫秒）。
+    pub(crate) trap_rock_expire: HashMap<u32, i64>,
+    /// 已经触发过 `Show()` 的 TrapRock（防止每 tick 重复生成）。
+    pub(crate) trap_rock_shown: std::collections::HashSet<u32>,
     /// tick 内的 AOI 广播合批队列（`player_id → 多个已编码帧`）。
     /// 只在 `tick_monsters` 的 AI 段开启；每个玩家一 tick 合并成一次 channel/write。
     pub(crate) broadcast_batch: Option<HashMap<u32, Vec<u8>>>,
@@ -1057,6 +1081,8 @@ impl World {
             mentorships: HashMap::new(),
             mentor_requests: HashMap::new(),
             allow_mentor: std::collections::HashSet::new(),
+            lover_recall_blocked: std::collections::HashSet::new(),
+            wedding_ring_index: None,
             bound,
             maps: HashMap::new(),
             fallback_map: None,
@@ -1095,6 +1121,8 @@ impl World {
             monster_slots: HashMap::new(),
             monster_slaves: HashMap::new(),
             monster_summon_time: HashMap::new(),
+            trap_rock_expire: HashMap::new(),
+            trap_rock_shown: std::collections::HashSet::new(),
             broadcast_batch: None,
             broadcast_batching: false,
             ground_item_slots: HashMap::new(),
@@ -1142,6 +1170,8 @@ impl World {
             mentorships: HashMap::new(),
             mentor_requests: HashMap::new(),
             allow_mentor: std::collections::HashSet::new(),
+            lover_recall_blocked: std::collections::HashSet::new(),
+            wedding_ring_index: None,
             bound,
             maps: HashMap::new(),
             fallback_map: Some(map),
@@ -1180,6 +1210,8 @@ impl World {
             monster_slots: HashMap::new(),
             monster_slaves: HashMap::new(),
             monster_summon_time: HashMap::new(),
+            trap_rock_expire: HashMap::new(),
+            trap_rock_shown: std::collections::HashSet::new(),
             broadcast_batch: None,
             broadcast_batching: false,
             ground_item_slots: HashMap::new(),
@@ -3582,6 +3614,9 @@ impl World {
         self.send_system_chat(proposer_id, &to_proposer);
         let to_player = self.format(player, TextKey::MarriageDone, &[("name", &proposer_name)]);
         self.send_system_chat(player, &to_player);
+        // Crystal `PlayerObject.cs:760`：结婚时给双方一枚带 `WeddingRing` 的戒指
+        // （`ItemInfo` 里有戒指模板就用真实模板，没有就发不出并把差异记日志）。
+        self.give_wedding_rings(player, proposer_id);
         Ok(proposer_id)
     }
 
@@ -3636,12 +3671,20 @@ impl World {
         let Some(spouse_character) = self.spouse_of(character) else {
             return Err(SocialError::NotMarried(player));
         };
+        // Crystal `PlayerObject.cs:2596-2604`：**戴着**结婚戒指才能召唤配偶。
+        if !self.is_wearing_wedding_ring(player) {
+            return Err(SocialError::NoWeddingRing(player));
+        }
         let Some(spouse_id) = self
             .player_of_character(spouse_character)
             .map(|spouse| spouse.object_id)
         else {
             return Err(SocialError::SpouseOffline(player));
         };
+        // Crystal `PlayerObject.cs:2643-2648`：对方关掉「允许配偶传送」就拒绝。
+        if !self.allows_lover_recall(spouse_id) {
+            return Err(SocialError::RecallDenied(player));
+        }
         let (spouse_map, spouse_pos, spouse_dead) = {
             let spouse = self
                 .players
@@ -3707,6 +3750,120 @@ impl World {
     #[must_use]
     pub fn mentorship_of(&self, mentee: u32) -> Option<&MentorLink> {
         self.mentorships.get(&mentee)
+    }
+
+    /// 结婚时给双方各发一枚结婚戒指（`wedding_ring` 指向对方 `character_id`）。
+    ///
+    /// Crystal 的戒指来自真实 `ItemInfo`（`UserItem.WeddingRing`，`Shared/Data/ItemData.cs`）；
+    /// 本作优先挑模板名里带 `wedding` 的戒指，其次挑第一枚 `ItemType::Ring`，
+    /// 都找不到就**不发**并记 warn（`docs/world/social.md` 已登记该差异）。
+    fn give_wedding_rings(&mut self, a: u32, b: u32) {
+        let Some((a_id, b_id)) = self
+            .players
+            .get(&a)
+            .zip(self.players.get(&b))
+            .map(|(a_ref, b_ref)| (a_ref.character_id, b_ref.character_id))
+        else {
+            return;
+        };
+        let Some(info) = self.wedding_ring_template().cloned() else {
+            tracing::warn!("没有戒指类物品模板，结婚戒指未发放");
+            return;
+        };
+        for (receiver, partner) in [(a, b_id), (b, a_id)] {
+            let Ok(partner) = i32::try_from(partner) else {
+                continue;
+            };
+            let mut ring = mir_protocol::data::UserItem {
+                unique_id: self.allocate_item_uid(),
+                item_index: info.index,
+                current_dura: info.durability,
+                max_dura: info.durability,
+                count: 1,
+                wedding_ring: partner,
+                ..mir_protocol::data::UserItem::default()
+            };
+            if info.durability > 0 {
+                ring.current_dura = info.durability;
+            }
+            self.gain_item(receiver, ring);
+            let message = self.text(receiver, TextKey::SpouseRingGiven);
+            self.send_system_chat(receiver, &message);
+        }
+        let _ = a_id;
+    }
+
+    /// 显式指定结婚戒指模板（配置/测试用；`None` 恢复自动挑）。
+    pub fn set_wedding_ring_index(&mut self, index: Option<i32>) {
+        self.wedding_ring_index = index;
+    }
+
+    /// 挑一枚结婚戒指模板。
+    ///
+    /// **只按字段判定，不按物品名匹配**（名字是本地化字符串，拿来当键太脆）：
+    /// 1. 先看 [`World::set_wedding_ring_index`] 是否显式指定；
+    /// 2. 否则在 `ItemType::Ring` 里取**带绑定**（`bind != BindMode::None`）的那枚 ——
+    ///    Crystal 的婚礼戒指是绑定物品（`BindMode`，`Shared/Data/ItemData.cs`）；
+    /// 3. 都没有绑定时退化为「第一枚戒指」。
+    #[must_use]
+    pub fn wedding_ring_template(&self) -> Option<&mir_protocol::data::ItemInfo> {
+        let data = self.game_data.as_ref()?;
+        if let Some(index) = self.wedding_ring_index {
+            if let Some(info) = data.item(index) {
+                if info.item_type == mir_core::enums::ItemType::Ring {
+                    return Some(info);
+                }
+            }
+        }
+        let mut fallback = None;
+        for info in &data.db.items {
+            if info.item_type != mir_core::enums::ItemType::Ring {
+                continue;
+            }
+            if info.bind != mir_core::enums::BindMode::None {
+                return Some(info);
+            }
+            if fallback.is_none() {
+                fallback = Some(info);
+            }
+        }
+        fallback
+    }
+
+    /// 配偶是否允许被传送（Crystal `PlayerObject.AllowLoverRecall`，`PlayerObject.cs:2643`）。
+    #[must_use]
+    pub fn allows_lover_recall(&self, player: u32) -> bool {
+        !self.lover_recall_blocked.contains(&player)
+    }
+
+    /// 切换「允许配偶传送」，返回切换后的值（Crystal `MirConnection.cs:1805-1812`）。
+    pub fn toggle_lover_recall(&mut self, player: u32) -> bool {
+        if self.lover_recall_blocked.remove(&player) {
+            true
+        } else {
+            self.lover_recall_blocked.insert(player);
+            false
+        }
+    }
+
+    /// 玩家是否**戴着**结婚戒指（戒指槽 7/8 里有一枚 `wedding_ring == 配偶 character_id`）。
+    ///
+    /// Crystal `PlayerObject.cs:2596-2604`：`Equipment[RingL].WeddingRing == Married`。
+    #[must_use]
+    pub fn is_wearing_wedding_ring(&self, player: u32) -> bool {
+        let Some(player_ref) = self.players.get(&player) else {
+            return false;
+        };
+        let Some(spouse) = self.spouse_of(player_ref.character_id) else {
+            return false;
+        };
+        let Ok(spouse) = i32::try_from(spouse) else {
+            return false;
+        };
+        WEDDING_RING_SLOTS
+            .iter()
+            .filter_map(|slot| player_ref.equipment.get(*slot).and_then(Option::as_ref))
+            .any(|ring| ring.wedding_ring == spouse)
     }
 
     /// 允许/禁止他人拜师：Crystal `PlayerObject.AllowMentor`（`C.PacketHandler.cs` 的 `AllowMentor`）。
@@ -4333,6 +4490,60 @@ impl World {
             master.attack_time = now.saturating_add(3_000);
         }
         true
+    }
+
+    /// Crystal `TrapRock.Show()`（`Monsters/TrapRock.cs` 的 Show）：以目标为中心
+    /// 生成 3 个角落子石；子石不是死亡分裂，带 5 秒存活时间，到点消失。
+    pub(crate) fn process_trap_rock(&mut self, parent_id: u32, target_id: u32, now: i64) -> bool {
+        let Some(parent) = self.monster(parent_id) else {
+            return false;
+        };
+        if parent.kind.ai != 47 || parent.dead || self.trap_rock_shown.contains(&parent_id) {
+            return false;
+        }
+        let Some(target_position) = self.players.get(&target_id).map(|p| p.position) else {
+            return false;
+        };
+        let map = parent.map.clone();
+        let kind = (*parent.kind).clone();
+        self.trap_rock_shown.insert(parent_id);
+        let skip = self.rng.next_bounded(4) as usize * 2;
+        let mut spawned = 0;
+        for turn in 0..8 {
+            if turn % 2 != 0 || turn == skip {
+                continue;
+            }
+            let direction = MirDirection::ALL[turn];
+            let position = target_position.adjacent(direction);
+            let child = self.spawn_monster(&map, kind.clone(), position);
+            if let Some(monster) = self.monster_mut(child) {
+                monster.target = Some(target_id);
+                monster.action_time = now.saturating_add(300);
+                monster.attack_time = now.saturating_add(3_000);
+            }
+            self.trap_rock_shown.insert(child);
+            self.trap_rock_expire
+                .insert(child, now.saturating_add(5_000));
+            spawned += 1;
+        }
+        if spawned == 0 {
+            self.trap_rock_shown.remove(&parent_id);
+        }
+        spawned > 0
+    }
+
+    /// 子石到点消失（Crystal `TrapRock.ProcessAI` 的 `VisibleTime`/目标失效分支）。
+    pub(crate) fn tick_trap_rocks(&mut self, now: i64) {
+        let expired: Vec<u32> = self
+            .trap_rock_expire
+            .iter()
+            .filter_map(|(id, at)| (now >= *at).then_some(*id))
+            .collect();
+        for id in expired {
+            self.trap_rock_expire.remove(&id);
+            self.trap_rock_shown.remove(&id);
+            self.monster_died(id);
+        }
     }
 
     pub fn spawn_monsters(&mut self, map: &str, spawns: &[(MonsterKind, Point)]) -> Vec<u32> {

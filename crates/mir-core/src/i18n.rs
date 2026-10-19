@@ -460,6 +460,14 @@ pub enum TextKey {
     NpcRepairNoGold,
     /// 场景：`damage_weapon`/`damage_armour`（战斗磨损）；模板：`{name} 的耐久耗尽，已损坏。`；参数：`{name}`。
     ItemBroken,
+    /// 场景：配偶传送（`lover_recall_allowed`）；模板：`你已允许配偶传送过来。`。
+    LoverRecallAllowed,
+    /// 场景：配偶传送（`lover_recall_blocked`）；模板：`你已禁止配偶传送过来。`。
+    LoverRecallBlocked,
+    /// 场景：配偶传送（`spouse_recall_denied`）；模板：`对方关闭了配偶传送。`。
+    SpouseRecallDenied,
+    /// 场景：配偶传送（`spouse_ring_given`）；模板：`你们的结婚戒指已经放进背包。`。
+    SpouseRingGiven,
     /// 场景：配偶传送（`spouse_not_married`）；模板：`你还没有结婚，无法召唤配偶。`。
     SpouseNotMarried,
     /// 场景：配偶传送（`spouse_offline`）；模板：`你的配偶不在线。`。
@@ -751,6 +759,10 @@ impl TextKey {
         Self::NpcRepairFull,
         Self::NpcRepairNoGold,
         Self::ItemBroken,
+        Self::LoverRecallAllowed,
+        Self::LoverRecallBlocked,
+        Self::SpouseRecallDenied,
+        Self::SpouseRingGiven,
         Self::SpouseNotMarried,
         Self::SpouseOffline,
         Self::SpouseDead,
@@ -985,6 +997,10 @@ impl TextKey {
             Self::NpcRepairFull => "npc_repair_full",
             Self::NpcRepairNoGold => "npc_repair_no_gold",
             Self::ItemBroken => "item_broken",
+            Self::LoverRecallAllowed => "lover_recall_allowed",
+            Self::LoverRecallBlocked => "lover_recall_blocked",
+            Self::SpouseRecallDenied => "spouse_recall_denied",
+            Self::SpouseRingGiven => "spouse_ring_given",
             Self::SpouseNotMarried => "spouse_not_married",
             Self::SpouseOffline => "spouse_offline",
             Self::SpouseDead => "spouse_dead",
@@ -1224,6 +1240,10 @@ impl TextKey {
             Self::NpcRepairFull => &[],
             Self::NpcRepairNoGold => &["cost", "gold"],
             Self::ItemBroken => &["name"],
+            Self::LoverRecallAllowed => &[],
+            Self::LoverRecallBlocked => &[],
+            Self::SpouseRecallDenied => &[],
+            Self::SpouseRingGiven => &[],
             Self::SpouseNotMarried => &[],
             Self::SpouseOffline => &[],
             Self::SpouseDead => &[],
@@ -1612,6 +1632,10 @@ const fn text_zh(key: TextKey) -> &'static str {
         TextKey::NpcRepairFull => "这件物品的耐久是满的，不需要修理。",
         TextKey::NpcRepairNoGold => "修理这件物品需要 {cost} 金币，你只有 {gold}。",
         TextKey::ItemBroken => "{name} 的耐久耗尽，已损坏。",
+        TextKey::LoverRecallAllowed => "你已允许配偶传送过来。",
+        TextKey::LoverRecallBlocked => "你已禁止配偶传送过来。",
+        TextKey::SpouseRecallDenied => "对方关闭了配偶传送。",
+        TextKey::SpouseRingGiven => "你们的结婚戒指已经放进背包。",
         TextKey::SpouseNotMarried => "你还没有结婚，无法召唤配偶。",
         TextKey::SpouseOffline => "你的配偶不在线。",
         TextKey::SpouseDead => "你的配偶已经死亡，无法召唤。",
@@ -1935,6 +1959,10 @@ const fn text_en(key: TextKey) -> &'static str {
             "Repairing this item costs {cost} gold, but you only have {gold}."
         }
         TextKey::ItemBroken => "{name} has worn out and is broken.",
+        TextKey::LoverRecallAllowed => "You now allow your spouse to recall to you.",
+        TextKey::LoverRecallBlocked => "You no longer allow your spouse to recall to you.",
+        TextKey::SpouseRecallDenied => "Your spouse has disabled spouse recall.",
+        TextKey::SpouseRingGiven => "Your wedding rings have been placed in your inventory.",
         TextKey::SpouseNotMarried => "You are not married, so you cannot recall a spouse.",
         TextKey::SpouseOffline => "Your spouse is not online.",
         TextKey::SpouseDead => "Your spouse is dead and cannot be recalled.",
@@ -2355,7 +2383,7 @@ mod tests {
         //
         // 新增变体时必须同时登记 `TextKey::ALL`，否则这条会挡住——`ALL` 是
         // 语言包校验与参数核对的唯一入口，漏登记等于漏测试。
-        assert_eq!(TextKey::ALL.len(), 228, "新增/删除键时同步更新数量");
+        assert_eq!(TextKey::ALL.len(), 232, "新增/删除键时同步更新数量");
     }
 
     #[test]

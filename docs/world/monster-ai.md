@@ -153,3 +153,37 @@ AI 14/50 命中时按 §2.2 的概率挂上这两种状态。
 
 `ranged_ai_ranges_cover_the_data_archer_templates`、`ranged_monster_shoots_from_six_cells`、
 `town_archer_does_not_chase_without_a_route`、`target_lost_monster_returns_home`。
+
+## 7. 第 15 轮：TrapRock 子石、场景 AI 与巡检（t118）
+
+### 7.1 AI 47 `TrapRock`
+
+对照 Crystal `Monsters/TrapRock.cs` 的 `Show()`：**`Show()` 生成角落子石，不是死亡分裂**。
+本作 `World::process_trap_rock`：父石只触发一次，向目标周围 4 个角落方向取 3 个
+（随机跳过 `SpawnCorner`，与 Crystal `i=0..6 step2` 一致）；子石继承目标，**5 秒**后由
+`tick_trap_rocks` 到期 `monster_died` 消失。测试 `trap_rock_show_spawns_children_once`、
+`trap_rock_children_expire_after_five_seconds`。
+
+### 7.2 AI 3 Tree / AI 56 Trainer
+
+* **AI 3 Tree（场景树）**：Crystal `Tree.cs:5-9` 的 `CanMove/CanAttack/CanRegen=false` →
+  固定不动、不索敌；真实 DB 有 **7** 个模板；
+* **AI 56 Trainer（TrainingMob）**：Crystal `Trainer.cs:9-12` 的 `CanMove/CanAttack=false` →
+  固定不动、可被攻击；真实 DB 有 **2** 个模板；
+* 测试 `tree_and_trainer_are_stationary_scenery`。
+
+### 7.3 AI 巡检工具
+
+新增 `crates/mir-server/examples/ai_audit.rs`：按真实 `Server.MirDB` 的 `MonsterInfo.AI`
+分组输出 `AI / 状态 / 怪物数 / 怪物名`；状态由 `MonsterKind::ai_support()` 统一分类
+（已实现/部分/未实现），稳定排序（BTreeMap + 名称排序去重）。
+
+当前结果：**已实现 AI 覆盖 480/537 个怪物模板 = 89.4%**；AI0 仍是「部分」（278 个模板），
+另有 **47 个 AI 编号标「未实现」**。测试 `audit_support_labels_and_key_ais_are_stable`
+锁定 AI3/12/47/56 = Full、AI0 = Partial、AI53 = Stub 与标签。
+
+运行：
+
+```text
+cargo run -p mir-server --example ai_audit
+```

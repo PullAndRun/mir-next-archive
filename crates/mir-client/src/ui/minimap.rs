@@ -139,6 +139,14 @@ fn view_with_image(snapshot: &WorldSnapshot, terrain: (i32, i32), image_index: u
                 kind,
             })
         })
+        .chain(
+            map.into_iter()
+                .flat_map(|map| map.movements.iter())
+                .map(|movement| MinimapMarker {
+                    cell: movement.location,
+                    kind: mir_render::MarkerKind::Movement,
+                }),
+        )
         .collect();
     MinimapView {
         image_index,
@@ -164,6 +172,31 @@ fn marker_kind(snapshot: &WorldSnapshot, entity: &WorldEntity) -> Option<MarkerK
     }
 }
 
+/// 传送点悬停文案：`传送点：<目标> (x,y)`（双语 Label）。
+#[must_use]
+pub fn movement_tooltip(
+    movement: &mir_protocol::data::ClientMovementInfo,
+    language: Language,
+) -> String {
+    Label::MinimapGateTip
+        .text(language)
+        .replacen("{}", &movement.title, 1)
+        .replacen("{}", &movement.location.x.to_string(), 1)
+        .replacen("{}", &movement.location.y.to_string(), 1)
+}
+
+/// 小地图绘制的数据参数（打包，避免函数参数过多）。
+pub struct MinimapDraw<'a> {
+    /// 视图（玩家/点位/地图尺寸）。
+    pub view: &'a MinimapView,
+    /// 地图标题。
+    pub title: &'a str,
+    /// 当前地图的传送点（悬停提示用）。
+    pub movements: &'a [mir_protocol::data::ClientMovementInfo],
+    /// 鼠标位置（传送点悬停）。
+    pub mouse: Point,
+}
+
 /// 画整个小地图面板。
 ///
 /// `title` 是地图名（`MapSnapshot.title`），坐标行用 `view.player`。
@@ -172,11 +205,16 @@ pub fn draw(
     frame: &mut Frame,
     screen: Rect,
     scene: &mut MinimapScene,
-    view: &MinimapView,
-    title: &str,
+    data: &MinimapDraw<'_>,
     text: &UiText,
     language: Language,
 ) -> bool {
+    let MinimapDraw {
+        view,
+        title,
+        movements,
+        mouse,
+    } = *data;
     let panel = panel_rect(screen);
     // 半透明底 + 边框（需求：右上角、半透明底）。
     crate::ui::draw_panel(frame, panel);
@@ -244,6 +282,33 @@ pub fn draw(
         hud::SIZE_SMALL,
         hud::MUTED_COLOR,
     );
+    // 悬停传送点：显示目标地图 + 坐标（双语 Label）。
+    if view_area.contains(mouse)
+        && let Some(projection) = scene.projection(view)
+    {
+        for movement in movements {
+            let (dx, dy) = projection.cell_to_view(movement.location);
+            let px = view_area.x + dx;
+            let py = view_area.y + dy;
+            if (px - mouse.x).abs() <= 4 && (py - mouse.y).abs() <= 4 {
+                let message = movement_tooltip(movement, language);
+                let width = text.text_width(&message, hud::SIZE_SMALL) + 8;
+                let x = (mouse.x + 8).min(screen.right() - i32::try_from(width).unwrap_or(0));
+                let y = (mouse.y + 8).min(screen.bottom() - 18);
+                frame.fill_rect_alpha(x, y, width, 16, [12, 18, 28, 235]);
+                text.draw_clipped(
+                    frame,
+                    x + 4,
+                    y + 2,
+                    &message,
+                    hud::SIZE_SMALL,
+                    [220, 240, 255, 255],
+                    Rect::new(x, y, width, 16),
+                );
+                break;
+            }
+        }
+    }
     drew
 }
 
@@ -302,6 +367,7 @@ mod tests {
                 mini_map: 9,
                 big_map: 302,
                 music: 0,
+                movements: Vec::new(),
             }),
             self_player: Some(SelfPlayer {
                 object_id: 7,
@@ -401,8 +467,12 @@ mod tests {
             &mut frame,
             screen,
             &mut scene,
-            &view,
-            "比奇省",
+            &MinimapDraw {
+                view: &view,
+                title: "比奇省",
+                movements: &[],
+                mouse: Point::new(0, 0),
+            },
             &text(),
             Language::ZhCn,
         );
@@ -443,8 +513,12 @@ mod tests {
             &mut frame,
             screen,
             &mut scene,
-            &view,
-            "比奇省",
+            &MinimapDraw {
+                view: &view,
+                title: "比奇省",
+                movements: &[],
+                mouse: Point::new(0, 0),
+            },
             &text(),
             Language::ZhCn,
         );
@@ -458,5 +532,45 @@ mod tests {
             ),
             Some(PLACEHOLDER_COLOR)
         );
+    }
+
+    #[test]
+    fn movement_markers_and_tooltip_cover_gates() {
+        let mut snapshot = snapshot();
+        let mut map = snapshot.map.clone().expect("map");
+        map.movements = vec![mir_protocol::data::ClientMovementInfo {
+            destination: 4,
+            title: "比奇省".to_owned(),
+            location: Point::new(330, 270),
+            icon: 0,
+        }];
+        snapshot.map = Some(map);
+        let view = view_for(&snapshot, (700, 700));
+        let movement = view
+            .markers
+            .iter()
+            .find(|marker| marker.kind == mir_render::MarkerKind::Movement)
+            .expect("传送点标记");
+        assert_eq!(movement.cell, Point::new(330, 270));
+        let gate = mir_protocol::data::ClientMovementInfo {
+            destination: 4,
+            title: "比奇省".to_owned(),
+            location: Point::new(330, 270),
+            icon: 0,
+        };
+        assert_eq!(
+            movement_tooltip(&gate, Language::ZhCn),
+            "传送点：比奇省 (330,270)"
+        );
+        let english = movement_tooltip(
+            &mir_protocol::data::ClientMovementInfo {
+                title: "Bichon".to_owned(),
+                destination: 4,
+                location: Point::new(1, 2),
+                icon: 0,
+            },
+            Language::En,
+        );
+        assert!(english.contains("Bichon"));
     }
 }

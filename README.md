@@ -42,7 +42,7 @@
 | 地图与行走（`mir-world` / `mir-server`） | 🟡 | `.map` 9 种版本读取 + 可走性校验；动作计时按 Crystal（走/跑 600ms、转身 350ms、跑需先走一步）、`UserLocation`/`ObjectWalk`/`ObjectRun` 广播、世界 tick 100ms；视野已对齐 16 格（`DataRange`）并接入 8×8 桶 AOI 网格、进出视野差分与门状态机（5 秒自动关）；本轮端到端测试见 `tests/aoi.rs`，待刑部全量验收 |
 | 账号与角色存档（`mir-store`） | ✅ | PostgreSQL + 迁移；内存实现用于无库试玩 |
 | 游戏数据（`mir-db`） | ✅ | Crystal `Server.MirDB` 全量读取（地图/物品/怪物/NPC/任务/技能/商城/攻城/刷怪点），版本 60..117，6 个真实样本 leftover=0 |
-| 怪物 AI 与战斗 | ✅ | 索敌/追击/巡逻、两段式攻击（动作包立即、伤害 300ms 后结算）、护甲与闪避、暴击、死亡与尸体回收、经验升级、死亡复活、自然回血，RNG 顺序与 Crystal 一致；第 4 轮补野生怪索敌/反击召唤物；第 7 轮补**远程攻击**（弓手/守卫/箭塔射程 6/8/9/10、`S.ObjectRangeAttack`、延迟 `距离*50+500ms`）与**目标丢失回位**（`process_return_home`）；第 8 轮补**怪物魔法**（AI 55 `Clone` ThunderBolt/射程6/500ms/风筝；预留 AI 215/216/220 Sep 系）与**物理 AOE/直线**（AI 13 RedMoonEvil、AI 29 BoneSpearman、AI 14 EvilCentipede、AI 50 GreatFoxSpirit、AI 100 VenomSpider），见 [`docs/world/monster-ai.md`](docs/world/monster-ai.md) |
+| 怪物 AI 与战斗 | ✅ | 索敌/追击/巡逻、两段式攻击（动作包立即、伤害 300ms 后结算）、护甲与闪避、暴击、死亡与尸体回收、经验升级、死亡复活、自然回血，RNG 顺序与 Crystal 一致；第 4 轮补野生怪索敌/反击召唤物；第 7 轮补**远程攻击**（弓手/守卫/箭塔射程 6/8/9/10、`S.ObjectRangeAttack`、延迟 `距离*50+500ms`）与**目标丢失回位**（`process_return_home`）；第 8 轮补**怪物魔法**（AI 55 `Clone` ThunderBolt/射程6/500ms/风筝；预留 AI 215/216/220 Sep 系）与**物理 AOE/直线**（AI 13 RedMoonEvil、AI 29 BoneSpearman、AI 14 EvilCentipede、AI 50 GreatFoxSpirit、AI 100 VenomSpider）；第 15 轮补 **TrapRock 子石**（AI 47 `Show()`、5 秒消失）、**场景 AI 3 Tree / 56 Trainer** 与 `ai_audit` 巡检（已实现 **480/537 模板 = 89.4%**，AI0 仍为部分），见 [`docs/world/monster-ai.md`](docs/world/monster-ai.md) |
 | PK 与攻击模式 | ✅ | Peace/Group/Guild/RedBrown/All 判定、安全区与 NoFight 禁打、PvP 300ms 结算与暴击、PK 值（击杀 +100、红名 200/黄名 100、12 秒衰减、棕名 60 秒）、名字颜色广播、死亡掉落（红名背包全掉）、守卫只打红名并可回位 |
 | 攻城（沙巴克） | 🟡 | 申请校验、时间表开战/停战、四种城主判定、夺城广播与城主税收、战区名字色与 PK 保护、攻城传送点城主专属、箭塔只射敌对行会、迁移 0008 持久化；第 8 轮补**器械简化实体**（Gate/Wall/Archer 5000/3000/2000 HP、可摧毁、`S.ConquestInfo/Object/Result` 300–302 扩展包、**迁移 0016 持久化**、`OPENGATE`/`CLOSEGATE`、箭塔 `S.ObjectRangeAttack`）；旗子/控制点 NPC、修理未做 |
 | 技能（魔法） | 🟡 | 技能数据/用书学习/施法校验/延迟结算/修炼值升级（`level_magic`）/存档；**升级书**（已会未满 3 级读同书升 1 级，本作扩展）与**新手免费第一本书**（1 级无技能，Librarian_Steven）；已实现 15 个伤害/治疗/位移/召唤/中毒技能（火球系列/HellFire/FireBang/治疗/火墙/雷电/瞬息移动/隐身/召唤骷髅/召唤神兽/施毒）与 9 个增益技能（护盾/加速/魔法盾…）；**宠物命令** `C.ChangePMode`（5 种 `PetMode`，客户端 `V` 键三态循环；`pet_modes` 为 World 侧表、不随角色存档）；其余登记未实现（`docs/world/magic.md` §9） |
@@ -60,10 +60,10 @@
 | 抗刷与连接限制 | ✅ | 单 IP 并发 5、连接速率 10 次/秒、空闲超时 60s、单会话包速率 200/秒（均可配置，`0`=关闭）；超限分别关闭连接/丢弃包，见 [`docs/server/limits.md`](docs/server/limits.md) |
 | 可观测性 `/metrics` | ✅ | Prometheus 文本端点（`MIR2_METRICS_LISTEN`，默认关闭）：在线/连接/限流拒绝/丢包/tick 分位数/拍卖扫描/邮件队列/DB 落盘耗时、**autosave/失败计数**；30 秒汇总日志（见 [`docs/server/metrics.md`](docs/server/metrics.md)） |
 | 数据持久化 | ✅ | PostgreSQL 迁移 0001–0016；**角色周期 autosave**（`MIR2_AUTOSAVE_SECS` 默认 30s、只写脏行，RPO ≤31s，`0`=退回下线存盘）、行会/攻城 dirty 100ms、失败退避 1s→30s 与批次回灌重试（见 [`docs/store/schema.md`](docs/store/schema.md) §8） |
-| 寄售 / 拍卖市场 | ✅ | NPC `[@CONSIGN]`/`[@MARKET]` 上架、搜索/翻页/买断/出价/提前成交/取回、5% 佣金与手续费、7 天过期、**到期自动成交**（`process_auctions` 每 60s；买家收物品邮件、卖家收「成交价 − 5%」金币邮件）、启动时清理未成交过期单、迁移 0009 持久化与同事务/幂等重试；Crystal 的「卖家上线 `MarketGetBack` 领钱」改为邮件直达（见 `docs/world/market.md` §9） |
+| 寄售 / 拍卖市场 | ✅ | NPC `[@CONSIGN]`/`[@MARKET]` 上架、搜索/翻页/买断/出价/提前成交/取回、5% 佣金与手续费、**48 小时过期**（Crystal 7 天，本作有意差异）、**批量上架/取回 ≤10 全成全回滚**、**到期自动成交**（`process_auctions` 每 60s；买家收物品邮件、卖家收「成交价 − 5%」金币邮件）、启动时清理未成交过期单、迁移 0009 持久化与同事务/幂等重试；Crystal 的「卖家上线 `MarketGetBack` 领钱」改为邮件直达（见 `docs/world/market.md` §9） |
 | 商城（GameShop）与元宝 | 🟡 | 市场面板商城页签、`C.GameshopBuy` 真实扣元宝/金币、职业等级与库存校验、背包优先/放不下转商城邮件、库存计数迁移 0011 单事务持久化；独立商城面板与 `S.GameShopInfo`/`S.GameShopStock` 下发未做（`docs/world/gameshop.md`） |
 | 攻城与领地 | 🟡 | 攻城主体已实现（申请/时间表/城主判定/税收/战区/箭塔/器械简化实体 300–302 扩展包）；旗子/控制点 NPC、城门开关与领地租借未做 |
-| Rust 客户端（渲染与 UI） | 🟡 | **真实素材渲染**：`.Lib`/`.wzl+.wzx`/`.wil+.wix`（第 6 轮新增）、数据目录 `resource/data`（`--data-dir`）、视口内瓦片解码 + 4096 张缓存（release 800×600 行走 ≈0.50 ms/帧、1080p ≈1.45 ms/帧；100 玩家 720p ≈1.42 ms）、缺资源占位回退；等距地图 + 联机 + 实体精灵 + 装备分层外观 + 逐帧动画（站立/走/跑/攻击/受击/死亡；**攻击 6×50ms=300ms** 对齐服务端伤害延迟）+ **攻击挥砍光效**（`magic2.wzl`）+ **技能命中闪光**（`magic.wzl` 10 帧/雷电 `magic2.wzl` 20–29）+ 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能/buff/小地图/大地图/任务/任务物品栏（滚轮翻页）/邮件/仓库/行会/组队/交易/市场/商城页签/设置面板/服务器与角色选择/**好友面板（F）**/**行会联盟页签**/**组队面板（P）与行会成员页刷新**）+ 技能表现（火墙/雷电/瞬息移动/隐身/召唤）+ 宠物命令（`V` 键三态）+ `@` 命令原样发送 + 伤害数字 + 头顶血条 + 目标锁定 + 拖拽穿脱 + 点地走路 + **音效映射/100ms 节流/BGM 按地图切换**（rodio，可无声降级）+ **攻城 UI**（300–302：器械/血条/摧毁、HUD 倒计时与结算横幅）+ **聊天折行/避头尾/字符级 IME 光标**；HUD 天气随切图显示（`S.MapChanged.weather`），时间/昼夜因服务端未下发 `S.TimeOfDay` 暂不显示；坐骑/翅膀精确素材、移动插值、寻路待做（见 [`docs/client.md`](docs/client.md) §8） |
+| Rust 客户端（渲染与 UI） | 🟡 | **真实素材渲染**：`.Lib`/`.wzl+.wzx`/`.wil+.wix`（第 6 轮新增）、数据目录 `resource/data`（`--data-dir`）、视口内瓦片解码 + 4096 张缓存（release 800×600 行走 ≈0.50 ms/帧、1080p ≈1.45 ms/帧；100 玩家 720p ≈1.42 ms）、缺资源占位回退；等距地图 + 联机 + 实体精灵 + 装备分层外观 + 逐帧动画（站立/走/跑/攻击/受击/死亡；**攻击 6×50ms=300ms** 对齐服务端伤害延迟）+ **攻击挥砍光效**（`magic2.wzl`）+ **技能命中闪光**（`magic.wzl` 10 帧/雷电 `magic2.wzl` 20–29）+ 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能/buff/小地图/大地图/任务/任务物品栏（滚轮翻页）/邮件/仓库/行会/组队/交易/市场/商城页签/设置面板/服务器与角色选择/**好友面板（F）**/**行会联盟页签**/**组队面板（P）与行会成员页刷新**）+ 技能表现（火墙/雷电/瞬息移动/隐身/召唤）+ 宠物命令（`V` 键三态）+ `@` 命令原样发送 + 伤害数字 + 头顶血条 + 目标锁定 + 拖拽穿脱 + 点地走路 + **音效映射/100ms 节流/BGM 按地图切换**（rodio，可无声降级）+ **攻城 UI**（300–302：器械/血条/摧毁、HUD 倒计时与结算横幅）+ **聊天折行/避头尾/字符级 IME 光标** + **小地图传送点标记/悬停提示** + **断线重连（1s/2s/4s ×3 + 顶部横幅）**；HUD 天气随切图显示（`S.MapChanged.weather`），时间/昼夜因服务端未下发 `S.TimeOfDay` 暂不显示；坐骑/翅膀精确素材、移动插值、寻路待做（见 [`docs/client.md`](docs/client.md) §8） |
 | 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计、MirDB 报告、图库查看/导出；素材库编辑器未做 |
 | 素材索引（`mir2_dev`） | ✅ | `tools/asset-index/` 把 `resource/` 的 233 万文件登记进 PostgreSQL，按名字/扩展名/仓库查询 |
 
@@ -136,7 +136,7 @@ python tools/asset-index/find_asset.py --ext .wzl --top data --limit 20
 - **游戏内切换**：聊天框输入 `/language en` 切换英文、`/language zh-cn` 切回中文，
   服务端回一条该语言的系统提示，并把选择写回 `accounts.language`（迁移 `0002`）。
 - **服务端玩家可见文本全部走 `TextKey`**：聊天/系统提示/邮件/市场回执/攻城公告/`/ally` 回执等
-  **228 个键**都有中英模板；按**收件人自己的语言**渲染（全服公告逐收件人编码），
+  **232 个键**都有中英模板；按**收件人自己的语言**渲染（全服公告逐收件人编码），
   `/language en` 后系统提示立刻跟随。第 6 轮把 261 条 `#[error]` Display 日志文本
   英文化，第 7/8 轮扫描器 `--no-test --strict` 保持在 **15 处**（剩余为职业名/演示模板名/启动日志）。
 - **内容也跟随语言**：地图标题（`MapInformation.Title`）等文本从语言包的

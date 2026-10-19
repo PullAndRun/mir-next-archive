@@ -48,6 +48,7 @@ pub mod market;
 pub mod minimap;
 pub mod notice;
 pub mod quests;
+pub mod reconnect;
 pub mod select;
 pub mod settings;
 pub mod shop;
@@ -4015,12 +4016,23 @@ pub fn draw(
     if state.show_minimap {
         let view = minimap::view_for(snapshot, (scene.map.width, scene.map.height));
         let title = snapshot.map.as_ref().map_or("", |map| map.title.as_str());
-        let UiState {
-            minimap_scene,
-            language,
-            ..
-        } = state;
-        minimap::draw(frame, screen, minimap_scene, &view, title, text, *language);
+        let movements = snapshot
+            .map
+            .as_ref()
+            .map_or(&[][..], |map| map.movements.as_slice());
+        minimap::draw(
+            frame,
+            screen,
+            &mut state.minimap_scene,
+            &minimap::MinimapDraw {
+                view: &view,
+                title,
+                movements,
+                mouse: state.mouse,
+            },
+            text,
+            state.language,
+        );
     }
 
     // 大地图（`B`）：屏幕居中的对话框，盖住世界与小地图（Crystal 的

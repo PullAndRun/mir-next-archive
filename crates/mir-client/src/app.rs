@@ -29,6 +29,7 @@ use mir_client::geom::Rect;
 use mir_client::net::{
     ConnectOptions, MapReloadRequest, NetClient, NetCommand, NetEvent, NetStatus, WorldSnapshot,
 };
+use mir_client::ui::reconnect::ReconnectState;
 use mir_client::ui::select::{self, CharacterAction, LoginField, ServerAction};
 use mir_client::ui::{self, UiAction, UiState, UiText};
 use mir_core::Language;
@@ -95,6 +96,10 @@ struct LiveState {
     next_walk: Instant,
     /// 上一次鼠标所在的格子（悬停高亮变化时才重绘）。
     last_hover_cell: Option<Point>,
+    /// 断线自动重连状态机。
+    reconnect: ReconnectState,
+    /// 建立连接用的参数（重连时复用账号/角色）。
+    connect: ConnectOptions,
 }
 
 impl LiveState {
@@ -192,6 +197,7 @@ pub fn run_live(
     net: NetClient,
     snapshot: WorldSnapshot,
     language: Language,
+    connect: ConnectOptions,
     options: LiveOptions,
 ) {
     let status = snapshot.status;
@@ -220,6 +226,8 @@ pub fn run_live(
         walk_target: None,
         next_walk: Instant::now(),
         last_hover_cell: None,
+        reconnect: ReconnectState::default(),
+        connect,
     }));
     run_app(
         scene,
@@ -809,6 +817,26 @@ impl ClientApp {
             live.chat_input.as_deref(),
             center,
         );
+        // 断线重连提示（覆盖在世界/面板之上）。
+        if let Some(message) = live.reconnect.message(live.ui.language) {
+            let screen = Rect::screen(self.frame.width, self.frame.height);
+            let width = (self.text.text_width(&message, 14) + 20).min(screen.width);
+            let banner = Rect::new(
+                (screen.width.saturating_sub(width) / 2) as i32,
+                screen.y + 76,
+                width,
+                24,
+            );
+            self.frame.fill_rect_alpha(
+                banner.x,
+                banner.y,
+                banner.width,
+                banner.height,
+                [40, 18, 18, 235],
+            );
+            self.text
+                .draw_center(&mut self.frame, banner, &message, 14, [255, 210, 190, 255]);
+        }
     }
 
     /// 渲染当前状态并呈现到窗口。
@@ -1671,6 +1699,8 @@ impl ClientApp {
             walk_target: None,
             next_walk: Instant::now(),
             last_hover_cell: None,
+            reconnect: ReconnectState::default(),
+            connect: ConnectOptions::default(),
         }));
         if let Some(window) = &self.window {
             window.set_title(
@@ -2187,23 +2217,74 @@ impl ClientApp {
     /// 事件顺序由网络线程保证：先 [`NetEvent::Snapshot`]（快照已按 `S.MapChanged` 清空实体、
     /// 更新坐标与地图号），再 [`NetEvent::MapChanged`]（触发本地地形重载）。
     fn poll_network(&mut self) {
+        let now = now_millis_u64();
         let mut events = Vec::new();
         if let Mode::Live(live) = &mut self.mode {
             while let Some(event) = live.net.try_recv() {
                 events.push(event);
             }
         }
+        let mut closed = false;
+        let mut ready = false;
         for event in events {
             match event {
-                NetEvent::Snapshot(snapshot) => self.apply_snapshot(*snapshot),
+                NetEvent::Snapshot(snapshot) => {
+                    ready |= snapshot.is_ready();
+                    self.apply_snapshot(*snapshot);
+                }
                 NetEvent::MapChanged {
                     map_index,
                     position,
                 } => self.apply_map_changed(map_index, position),
                 NetEvent::Error(message) => eprintln!("{message}"),
-                NetEvent::Closed(reason) => eprintln!("连接关闭：{reason}"),
+                NetEvent::Closed(reason) => {
+                    eprintln!("连接关闭：{reason}");
+                    closed = true;
+                }
             }
         }
+        let Mode::Live(live) = &mut self.mode else {
+            return;
+        };
+        if ready && live.reconnect.is_reconnecting() {
+            live.reconnect.succeeded();
+        }
+        if closed {
+            live.reconnect.disconnected(now);
+        }
+        // 退避到点：发起一次重连（复用账号/角色，自动登录并选角）。
+        if let Some(attempt) = live.reconnect.due(now) {
+            match NetClient::connect(live.connect.clone()) {
+                Ok(client) => {
+                    eprintln!("第 {attempt} 次重连：已发起");
+                    live.net = client;
+                    live.entered = false;
+                }
+                Err(error) => {
+                    eprintln!("第 {attempt} 次重连失败：{error}");
+                    live.reconnect.attempt_failed(now);
+                }
+            }
+        }
+        // 3 次失败：回登录界面（音效播放器随状态带走，模式切换后重新初始化）。
+        if live.reconnect.failed() {
+            let language = live.ui.language;
+            let account = live.connect.account.clone();
+            let password = live.connect.password.clone();
+            let sound = std::mem::replace(&mut live.sound, Self::silent_sound());
+            self.mode = Mode::Login(Box::new(LoginState::new(
+                sound,
+                &self.settings,
+                language,
+                &account,
+                &password,
+            )));
+        }
+    }
+
+    /// 重连失败回登录界面时占位的静音播放器（不打开音频设备）。
+    fn silent_sound() -> SoundPlayer {
+        SoundPlayer::new(SoundLibrary::with_roots(Vec::new()), false, 0.0)
     }
 
     /// 应用一份世界快照：更新状态、聊天日志与相机。

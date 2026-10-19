@@ -104,6 +104,8 @@ pub const PLAYER_OTHER_COLOR: [u8; 4] = [255, 255, 255, 255];
 pub const NPC_COLOR: [u8; 4] = [0, 255, 50, 255];
 /// 怪物等其余对象的点颜色（`MainDialogs.cs:1959`，红）。
 pub const MONSTER_COLOR: [u8; 4] = [255, 0, 0, 255];
+/// 传送点颜色（青色，区分其它点位）。
+pub const MOVEMENT_COLOR: [u8; 4] = [0, 220, 220, 255];
 
 /// 点位类别（决定颜色，见模块文档）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,6 +120,8 @@ pub enum MarkerKind {
     Npc,
     /// 怪物、宠物等其余对象。
     Monster,
+    /// 传送点（`S.NewMapInfo.movements`）。
+    Movement,
 }
 
 impl MarkerKind {
@@ -130,6 +134,7 @@ impl MarkerKind {
             Self::Player => PLAYER_OTHER_COLOR,
             Self::Npc => NPC_COLOR,
             Self::Monster => MONSTER_COLOR,
+            Self::Movement => MOVEMENT_COLOR,
         }
     }
 }

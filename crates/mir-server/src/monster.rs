@@ -187,6 +187,29 @@ pub struct MonsterMagicSpec {
 /// 怪物种类：Crystal `MonsterInfo` 里影响 AI/战斗的那部分。
 ///
 /// 真实数值将来由 `mir-db` 从数据库读出后填进来；本结构不依赖数据库。
+/// 某个 AI 编号在本作里的实现程度（`ai_audit` 巡检工具使用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiSupport {
+    /// 有专属子类行为（或明确的场景对象语义）。
+    Full,
+    /// 只有基类索敌/近战/漫游，没有专属行为。
+    Partial,
+    /// 完全没有行为分支。
+    Stub,
+}
+
+impl AiSupport {
+    /// 巡检输出用的稳定标签。
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Full => "implemented",
+            Self::Partial => "partial",
+            Self::Stub => "missing",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MonsterKind {
     /// 显示名（Crystal `MonsterInfo.Name`）。
@@ -214,6 +237,40 @@ pub struct MonsterKind {
 }
 
 impl MonsterKind {
+    /// 本作对该 AI 的行为覆盖程度（巡检工具用）。
+    #[must_use]
+    pub fn ai_support(&self) -> AiSupport {
+        match self.ai {
+            // 真正按 Crystal 子类实现了分支的 AI。
+            2 | 3 | 6 | 8 | 12 | 13 | 14 | 16 | 29 | 31 | 32 | 47 | 50 | 55 | 56 | 57 | 58 | 80
+            | 100 | 113 => AiSupport::Full,
+            // 基类近战/索敌/漫游对所有怪都生效，但没有专属子类行为。
+            0
+            | 1
+            | 4
+            | 5
+            | 7
+            | 9
+            | 10
+            | 11
+            | 15
+            | 17
+            | 18
+            | 19
+            | 20
+            | 22..=28
+            | 30
+            | 33..=46
+            | 48
+            | 49
+            | 51
+            | 52
+            | 54
+            | 59..=68 => AiSupport::Partial,
+            _ => AiSupport::Stub,
+        }
+    }
+
     /// 是否是守卫类怪物（Crystal `MonsterObject.GetMonster` 的 `Guard` / `ArcherGuard`，
     /// `Server/MirObjects/MonsterObject.cs:30-31`、`:141-142`、`:261-262`）。
     ///
@@ -842,6 +899,7 @@ impl World {
     pub(crate) fn tick_monsters(&mut self, now: i64) {
         const AI_BATCHES: u32 = 8;
         self.remove_expired_corpses(now);
+        self.tick_trap_rocks(now);
         // 空闲短路：没有任何在线玩家时，所有非召唤怪都不需要索敌/AI。
         // Crystal 的 `Settings.MonsterProcessWhenAlone` 默认为 false，怪物在附近没有玩家时
         // 本来就不思考（`MonsterObject.cs` 的 `CheckAlone`）；这里把整张世界直接短路，
@@ -984,6 +1042,12 @@ impl World {
         if monster.master.is_some() {
             monster.alone = false;
             self.process_pet_ai(monster, now);
+            return;
+        }
+        // 树/训练木桩：Crystal `Tree`/`Trainer` 都是 CanMove/CanAttack=false，
+        // 只作为可被攻击的场景对象存在。
+        if matches!(monster.kind.ai, 3 | 56) {
+            monster.alone = false;
             return;
         }
         // 守卫：`Guard.CheckAlone` 在 `Route.Count > 0` 时恒为 false
@@ -1207,6 +1271,11 @@ impl World {
         };
 
         let ranged_range = monster.kind.ranged_attack_range();
+        // AI 47 `TrapRock`：Show() 生成角落子石；父石只触发一次，子石按普通近战。
+        if monster.kind.ai == 47 && !self.trap_rock_shown.contains(&monster.object_id) {
+            self.process_trap_rock(monster.object_id, target_id, now);
+            return;
+        }
         // AI 12 `BugBatMaggot`：攻击动作是召唤 BugBat（`BugBagMaggot.cs:30-48`），
         // 不做普通近战；上限/冷却由 `World::process_bugbat_summon` 控制。
         if monster.kind.ai == 12 {

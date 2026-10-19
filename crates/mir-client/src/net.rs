@@ -728,6 +728,8 @@ pub struct MapSnapshot {
     /// `0` 表示服务器没有配置音乐（Crystal 静音）；示例数据库的所有地图都是 0。
     /// 客户端会用 [`mir_render::music_for_map`] 兜底，见 `mir-client::audio`。
     pub music: u16,
+    /// 传送点（`S.NewMapInfo.info.movements`；`MapChanged` 不带，切图后为空）。
+    pub movements: Vec<mir_protocol::data::ClientMovementInfo>,
 }
 
 /// 客户端收到 `S.MapChanged` 后要做的切图动作：本地地形文件 + 新的相机中心。
@@ -4085,6 +4087,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 mini_map: info.mini_map,
                 big_map: info.big_map,
                 music: info.music,
+                movements: Vec::new(),
             });
         }
         ServerPacket::NewMapInfo(info) => {
@@ -4095,6 +4098,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             map.height = info.info.height;
             // `ClientMapInfo.BigMap` 是 i32（`ClientData.cs:324`），负数/超界按 0 处理。
             map.big_map = u16::try_from(info.info.big_map).unwrap_or(0);
+            map.movements.clone_from(&info.info.movements);
             for npc in &info.info.npcs {
                 if npc.object_id == 0 {
                     continue;
@@ -4128,6 +4132,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 mini_map: changed.mini_map,
                 big_map: changed.big_map,
                 music: changed.music,
+                movements: Vec::new(),
             });
             // 天气随切图下发（协议没有独立的 `S.Weather`，`MapChanged.weather` 就是
             // Crystal `ServerPackets.MapChanged` 的 weather 字段）。

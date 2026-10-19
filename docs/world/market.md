@@ -218,7 +218,9 @@ gold = (uint)Math.Max(0, cost - cost * Globals.Commission)
 
 **手续费是上架时就扣的固定值**（寄售/拍卖都是 5_000），与成交价无关；成交时再扣 5% 佣金。
 
-**到期时间**：`ConsignmentDate + 7 天`（`Envir.ProcessAuction`，`Envir.cs:2396`）。
+**到期时间**：`AUCTION_EXPIRE_MS = 48 小时`（`market.rs`，第 15 轮 t119 起）。
+Crystal 没有独立的 `Settings.AuctionDuration`，其 `Globals.ConsignmentLength = 7 天`
+（`Envir.cs:2396`）；本作取 **48h**，属**有意差异**（更快周转，`market.rs` 常量注释已写明）。
 
 **距离**：复用 `npc::NPC_TALK_RANGE = 16`（`Globals.DataRange`，`Globals.cs:37`）。
 
@@ -387,6 +389,13 @@ MarketSearch(…)
 
 `Sold && Expired` 的挂单不能领取（Crystal 记一条消息后返回 false）。批量模式返回处理的
 条目数；一条都没处理时回 `MarketFail{Reason=7}`。
+
+### 8.3 批量上架 / 批量取回（t119）
+
+`consign_items_batch` / `market_get_back_batch` 单次最多 **`MAX_AUCTION_BATCH = 10`** 件：
+先做**整批前置校验**（面板、价格、绑定性、金币、负重、NPC 距离），任一失败则**整批不生效**
+（全成或全回滚）；成功时逐件扣手续费（寄售/拍卖各 **5000**/件），手续费不因到期退回。
+超过 10 件返回 `BatchTooLarge{count,max}`。测试见 `tests/market_persistence.rs`（21/21）。
 
 ---
 

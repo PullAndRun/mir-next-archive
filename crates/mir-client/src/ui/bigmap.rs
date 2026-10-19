@@ -245,6 +245,7 @@ mod tests {
                 mini_map: 7,
                 big_map: 302,
                 music: 0,
+                movements: Vec::new(),
             }),
             self_player: Some(SelfPlayer {
                 object_id: 7,

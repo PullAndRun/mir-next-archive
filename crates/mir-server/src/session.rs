@@ -1648,6 +1648,22 @@ impl<S: AccountStore> Session<S> {
         tracing::debug!(session = self.id, "任务交互前补做每日任务重置");
     }
 
+    /// `/allowrecall`：切换「允许配偶传送」（**本作扩展**）。
+    async fn on_toggle_lover_recall(&mut self) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        let allowed = world.toggle_lover_recall(object_id);
+        let key = if allowed {
+            TextKey::LoverRecallAllowed
+        } else {
+            TextKey::LoverRecallBlocked
+        };
+        let message = world.text(object_id, key);
+        world.send_system_chat(object_id, &message);
+    }
+
     /// `/spouse`：传送到配偶身边的空位（**本作扩展**，等价 Crystal `@RECALLLOVER`）。
     ///
     /// 失败原因全部走 `TextKey`；成功时 `S.MapChanged` 由
@@ -1677,6 +1693,8 @@ impl<S: AccountStore> Session<S> {
                 let key = match error {
                     crate::world::SocialError::NotMarried(_) => TextKey::SpouseNotMarried,
                     crate::world::SocialError::SpouseDead(_) => TextKey::SpouseDead,
+                    crate::world::SocialError::NoWeddingRing(_) => TextKey::SpouseRecallNeedsRing,
+                    crate::world::SocialError::RecallDenied(_) => TextKey::SpouseRecallDenied,
                     _ => TextKey::SpouseOffline,
                 };
                 let message = world.text(object_id, key);
@@ -3009,6 +3027,14 @@ impl<S: AccountStore> Session<S> {
         // 不报错、也不泄露命令是否存在（Crystal 在 `PlayerObject.Chat` 里做同样的判定）。
         // `/spouse`：配偶传送（**本作扩展**；Crystal 的等价物是 `@RECALLLOVER`，
         // 需要左手戴结婚戒指，`PlayerObject.cs:2577-2700`）。命令不走聊天频道。
+        // `/allowrecall`：开关「允许配偶传送」（**本作扩展**；Crystal 用的是设置界面里的
+        // `AllowLoverRecall`，见 `MirConnection.cs:1805-1812`）。
+        if let Some(rest) = message.strip_prefix("/allowrecall") {
+            if rest.is_empty() || rest.starts_with(' ') {
+                self.on_toggle_lover_recall().await;
+                return;
+            }
+        }
         if let Some(rest) = message.strip_prefix("/spouse") {
             if rest.is_empty() || rest.starts_with(' ') {
                 self.on_spouse_teleport().await;

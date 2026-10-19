@@ -1985,9 +1985,45 @@ impl World {
                 });
             }
             ItemType::Ring if item.wedding_ring >= 0 => {
-                // 结婚戒指：Crystal `RECALLLOVER`（`PlayerObject.cs:2596-2660`）用「左手戒指的
-                // `WeddingRing == Married`」校验；本作把校验放在 `spouse_teleport` 里（只看婚姻关系），
-                // 戒指在这里只充当**触发器**。
+                // 结婚戒指：Crystal `RECALLLOVER`（`PlayerObject.cs:2596-2660`）要求**戴着**它。
+                // 这里先把背包里的戒指戴到空着的戒指槽（7/8 先左后右），戴不上就明确拒绝；
+                // 戴上后再走 `spouse_teleport`（它自己会校验「已戴戒」与配偶同意位）。
+                if !self.is_wearing_wedding_ring(object_id) {
+                    let mut worn = false;
+                    for slot in crate::world::WEDDING_RING_SLOTS {
+                        if self
+                            .players
+                            .get(&object_id)
+                            .and_then(|player| player.equipment.get(slot))
+                            .is_some_and(Option::is_none)
+                        {
+                            let Ok(slot_i32) = i32::try_from(slot) else {
+                                continue;
+                            };
+                            if self
+                                .equip_item(
+                                    object_id,
+                                    unique_id,
+                                    mir_core::enums::MirGridType::Inventory,
+                                    slot_i32,
+                                )
+                                .is_ok()
+                            {
+                                worn = true;
+                                break;
+                            }
+                        }
+                    }
+                    if !worn {
+                        let message = self.text(object_id, TextKey::SpouseRecallNeedsRing);
+                        self.send_system_chat(object_id, &message);
+                        self.send_use_item_failure(object_id, unique_id);
+                        return Err(ItemError::UnsupportedItem {
+                            item_index: info.index,
+                            shape: info.shape,
+                        });
+                    }
+                }
                 match self.spouse_teleport(object_id) {
                     Ok(teleport) => {
                         let message = self.format(

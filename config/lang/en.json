@@ -207,7 +207,14 @@
     "unknown_language": "Unknown language code. Available: zh-cn, en.",
     "unsupported_command": "Unsupported command.",
     "welcome": "Welcome to Mir-Next.",
-    "wrong_password": "Incorrect account or password."
+    "wrong_password": "Incorrect account or password.",
+    "npc_no_checked_item": "There is no item to hand over.",
+    "npc_item_taken": "Handed over {name} x{count}.",
+    "npc_name_list_prompt": "Pick a name from the list, or type one.",
+    "npc_name_list_empty": "The name list is empty.",
+    "npc_unknown_buff": "Unknown buff type: {buff}.",
+    "npc_buff_bad_duration": "The buff duration must be a number of seconds between 1 and 2592000, got: {value}.",
+    "npc_buff_given": "Gained buff {buff} for {seconds} seconds."
   },
   "maps": {
     "0": "Bichon Province"

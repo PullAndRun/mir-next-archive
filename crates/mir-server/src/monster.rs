@@ -38,7 +38,8 @@ use std::sync::Arc;
 use mir_core::MirRng;
 use mir_core::Point;
 use mir_core::enums::{
-    AttackMode, DamageType, DefenceType, MirDirection, Monster as MonsterImage, PetMode, Spell,
+    AttackMode, DamageType, DefenceType, MirDirection, Monster as MonsterImage, PetMode,
+    PoisonType, Spell,
 };
 use mir_protocol::ServerPacket;
 use mir_protocol::packets::server::{
@@ -47,7 +48,7 @@ use mir_protocol::packets::server::{
 
 use crate::aoi::AoiKind;
 use crate::combat::{CombatStats, PendingHit};
-use crate::magic::UserMagic;
+use crate::magic::{PoisonState, UserMagic};
 use crate::world::{RED_NAME_PK_POINTS, VIEW_RANGE, World, monster_info_frame};
 
 /// 隐身玩家对这只怪是否「不可见」：Crystal `ob.Hidden && (!CoolEye || Level < ob.Level)`
@@ -143,6 +144,25 @@ pub struct MonsterSpecialSpec {
     pub snake: bool,
     /// 防御类型（AC / MAC）。
     pub defence: DefenceType,
+    /// 命中后的附加效果（毒/麻痹/减速；Crystal `PoisonTarget`）。
+    pub effects: &'static [MonsterHitEffect],
+}
+
+/// 物理特殊攻击命中后的附加效果（Crystal `PoisonTarget` 调用）。
+///
+/// * `chance` 是「1/N 概率」：`Random.Next(chance) == 0`（`MonsterObject.cs:3527-3545`）；
+/// * `duration` 是**跳数**（Crystal `Poison.Duration`，不是毫秒）；
+/// * `tick_ms` 是两次跳的间隔（Crystal `TickSpeed`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MonsterHitEffect {
+    /// 毒类型（`Green`/`Paralysis`/`Slow`）。
+    pub kind: PoisonType,
+    /// 触发概率：1/N。
+    pub chance: u32,
+    /// 持续跳数。
+    pub duration: u32,
+    /// 每跳间隔（毫秒）。
+    pub tick_ms: i64,
 }
 
 /// 一个怪物魔法模板：Crystal 各 AI 子类的 `Spell`/射程/形态。
@@ -258,8 +278,7 @@ impl MonsterKind {
     ///   `FearTime` 走位后施法（`Monsters/HumanWizard.cs:25-120`）。
     ///
     /// 其余 `ObjectMagic` 子类（SepWizard/AI 215+ 等）在采样 DB 中不存在；
-    /// `AI 13/29` 是物理 AOE/直线（见 [`Self::monster_special`]）；
-    /// `AI 14/50/100` 的物理特殊（毒/骑士邻域）本轮未做，见 docs 差异。
+    /// `AI 13/29/14/50/100` 是物理 AOE/直线（见 [`Self::monster_special`]）。
     #[must_use]
     pub fn monster_magic(&self) -> Option<MonsterMagicSpec> {
         let cooldown = self.attack_speed_ms;
@@ -282,8 +301,12 @@ impl MonsterKind {
     /// * `AI 13` `RedMoonEvil`：站桩，视野内全体 AOE（`Monsters/RedMoonEvil.cs:30-60`）；
     /// * `AI 29` `BoneSpearman`：直线 2 格（`Monsters/BoneSpearman.cs:14-45`）。
     ///
-    /// `AI 14 EvilCentipede`/`AI 50 GreatFoxSpirit`/`AI 100 VenomSpider` 也是物理特殊，
-    /// 但带毒/骑士邻域细节，本轮未做，见 docs 差异。
+    /// * `AI 14` `EvilCentipede`：站桩，自身半径 7 AOE + 绿毒/麻痹
+    ///   （`Monsters/EvilCentipede.cs:74-84`）；
+    /// * `AI 50` `GreatFoxSpirit`：站桩，距离 >2 时半径 7 AOE、否则半径 2，附 Slow/Paralysis
+    ///   （`Monsters/GreatFoxSpirit.cs:100-133`）；
+    /// * `AI 100` `VenomSpider`：蛇形邻域，直线 2 格 + 绿毒
+    ///   （`Monsters/VenomSpider.cs:14-47`）。
     #[must_use]
     pub fn monster_special(&self) -> Option<MonsterSpecialSpec> {
         match self.ai {
@@ -297,6 +320,7 @@ impl MonsterKind {
                 stationary: true,
                 snake: false,
                 defence: DefenceType::ACAgility,
+                effects: &[],
             }),
             29 => Some(MonsterSpecialSpec {
                 range: 2,
@@ -305,6 +329,79 @@ impl MonsterKind {
                 stationary: false,
                 snake: true,
                 defence: DefenceType::ACAgility,
+                effects: &[],
+            }),
+            // `EvilCentipede.cs:74-84`：`FindAllTargets(7, CurrentLocation)` → 逐目标
+            // `Attack()`（`Attacked(..., MAC)`），命中后绿毒（5/15/2000）+ 麻痹（15/5/2000）。
+            14 => Some(MonsterSpecialSpec {
+                range: 7,
+                shape: MonsterMagicShape::Aoe {
+                    radius: 7,
+                    at_target: false,
+                },
+                delay_ms: 500,
+                stationary: true,
+                snake: false,
+                defence: DefenceType::MAC,
+                effects: &[
+                    MonsterHitEffect {
+                        kind: PoisonType::Green,
+                        chance: 5,
+                        duration: 15,
+                        tick_ms: 2_000,
+                    },
+                    MonsterHitEffect {
+                        kind: PoisonType::Paralysis,
+                        chance: 15,
+                        duration: 5,
+                        tick_ms: 2_000,
+                    },
+                ],
+            }),
+            // `GreatFoxSpirit.cs:100-133`：射程 7；距离 >2 时半径 7 的 AOE（远程形态），
+            // 否则半径 2；命中后 Slow（5/15/1000）+ Paralysis（5/5/1000）。
+            // 远程形态 Crystal 还广播 `S.ObjectRangeAttack` + `S.ObjectEffect`，本作统一用
+            // `S.ObjectAttack`（没有 GreatFoxSpirit 特效包），见 docs 差异。
+            50 => Some(MonsterSpecialSpec {
+                range: 7,
+                shape: MonsterMagicShape::Aoe {
+                    radius: 7,
+                    at_target: false,
+                },
+                delay_ms: 300,
+                stationary: true,
+                snake: false,
+                defence: DefenceType::MAC,
+                effects: &[
+                    MonsterHitEffect {
+                        kind: PoisonType::Slow,
+                        chance: 5,
+                        duration: 15,
+                        tick_ms: 1_000,
+                    },
+                    MonsterHitEffect {
+                        kind: PoisonType::Paralysis,
+                        chance: 5,
+                        duration: 5,
+                        tick_ms: 1_000,
+                    },
+                ],
+            }),
+            // `VenomSpider.cs:14-47`：蛇形邻域判定，`LineAttack(damage, 2, 300, MACAgility)`；
+            // 命中后绿毒（8/5/1000）。
+            100 => Some(MonsterSpecialSpec {
+                range: 2,
+                shape: MonsterMagicShape::Line { length: 2 },
+                delay_ms: 300,
+                stationary: false,
+                snake: true,
+                defence: DefenceType::MACAgility,
+                effects: &[MonsterHitEffect {
+                    kind: PoisonType::Green,
+                    chance: 8,
+                    duration: 5,
+                    tick_ms: 1_000,
+                }],
             }),
             _ => None,
         }
@@ -1312,20 +1409,43 @@ impl World {
             }
             return;
         }
-        let targets = self.magic_targets(monster, target_id, target_position, spec.shape);
+        let distance = monster.position.max_distance(target_position);
+        // GreatFoxSpirit：距离 >2 用半径 7 的远程 AOE，否则半径 2（`GreatFoxSpirit.cs:105-126`）。
+        let shape = if monster.kind.ai == 50 {
+            MonsterMagicShape::Aoe {
+                radius: if distance > 2 { 7 } else { 2 },
+                at_target: false,
+            }
+        } else {
+            spec.shape
+        };
+        let targets = self.magic_targets(monster, target_id, target_position, shape);
         if targets.is_empty() {
             monster.target = None;
             return;
         }
         monster.direction = monster.position.direction_to(target_position);
-        let packet = ServerPacket::ObjectAttack(ObjectAttack {
-            object_id: monster.object_id,
-            location: monster.position,
-            direction: monster.direction,
-            spell: Spell::None,
-            level: 0,
-            type_: 0,
-        })
+        let packet = if monster.kind.ai == 50 && distance > 2 {
+            ServerPacket::ObjectRangeAttack(ObjectRangeAttack {
+                object_id: monster.object_id,
+                location: monster.position,
+                direction: monster.direction,
+                target_id,
+                target: target_position,
+                type_: 0,
+                spell: Spell::None,
+                level: 0,
+            })
+        } else {
+            ServerPacket::ObjectAttack(ObjectAttack {
+                object_id: monster.object_id,
+                location: monster.position,
+                direction: monster.direction,
+                spell: Spell::None,
+                level: 0,
+                type_: 0,
+            })
+        }
         .encode_frame();
         self.broadcast(
             &monster.map,
@@ -1340,7 +1460,7 @@ impl World {
         if damage == 0 {
             return;
         }
-        for target in targets {
+        for &target in &targets {
             // Crystal `LineAttack`：每个目标的延迟 = 距离 * 50 + additionalDelay
             // （`MonsterObject.cs:3611-3645`；BoneSpearman additionalDelay=250）。
             let distance_delay = if matches!(spec.shape, MonsterMagicShape::Line { .. }) {
@@ -1363,6 +1483,54 @@ impl World {
                 damage,
                 defence: spec.defence,
             });
+        }
+        if !spec.effects.is_empty() {
+            // Crystal 在 `CompleteAttack` 里对每个命中目标调用 `PoisonTarget`
+            // （`EvilCentipede.cs:82-84`、`GreatFoxSpirit.cs:127-129`、`VenomSpider.cs:40-44`）。
+            // 本作无法在 `world.rs` 的延迟结算里挂效果（文件归兵部），因此在**出招时**按
+            // 同一概率/跳数结算；绿毒数值沿用 `GetAttackPower(MinSC, MaxSC)`。
+            let green_value = monster.stats.attack_power(
+                monster.stats.min_sc,
+                monster.stats.max_sc,
+                &mut self.rng,
+            );
+            for target in &targets {
+                self.apply_special_effects(
+                    monster.object_id,
+                    *target,
+                    spec.effects,
+                    green_value,
+                    now,
+                );
+            }
+        }
+    }
+
+    /// 物理特殊攻击的附加效果：按 Crystal `PoisonTarget` 的概率（`Random.Next(chance)==0`）
+    /// 给目标挂毒；绿毒数值来自 `GetAttackPower(MinSC, MaxSC)`。
+    fn apply_special_effects(
+        &mut self,
+        caster_id: u32,
+        target_id: u32,
+        effects: &[MonsterHitEffect],
+        green_value: i32,
+        now: i64,
+    ) {
+        for effect in effects {
+            if effect.chance > 1 && self.rng.next_bounded(effect.chance) != 0 {
+                continue;
+            }
+            let value = if effect.kind == PoisonType::Green {
+                green_value.max(0)
+            } else {
+                0
+            };
+            let poison = PoisonState::new(effect.kind, value, effect.duration, now, caster_id);
+            if self.monster(target_id).is_some() {
+                self.apply_poison_to_monster(target_id, poison);
+            } else {
+                self.apply_poison_to_player(target_id, poison);
+            }
         }
     }
 

@@ -1925,7 +1925,10 @@ impl World {
 
         // 4) 前方一格（`HumanObject.cs:2978-3026`）。
         let target_cell = position.adjacent(direction);
-        if !self.walkable_on(&map, target_cell) {
+        // 城门/城墙会挡路，但玩家应能攻击它（本项目扩展器械）。
+        if self.conquest_object_at(&map, target_cell).is_none()
+            && !self.walkable_on(&map, target_cell)
+        {
             return Ok(None);
         }
         let Some(target_id) = self.melee_target(object_id, &map, target_cell) else {
@@ -1958,6 +1961,10 @@ impl World {
     /// * 玩家：交给 [`World::is_attack_target_player`]（安全区、攻击模式、红棕名等）；
     /// * 怪物：守卫永远不可攻击（`Monsters/Guard.cs:54-55`），其余野生怪可以。
     fn melee_target(&self, attacker_id: u32, map: &str, cell: Point) -> Option<u32> {
+        // 攻城器械优先占格：玩家攻击城门/城墙/箭塔（本项目扩展）。
+        if let Some(object_id) = self.conquest_object_at(map, cell) {
+            return Some(object_id);
+        }
         // 只查目标格（Crystal `CurrentMap.GetCell(target).Objects`，`HumanObject.cs:3029`）。
         let mut candidates: Vec<(u32, bool)> = Vec::new();
         for entry in self.aoi_in_cell(map, cell) {
@@ -2446,11 +2453,16 @@ impl World {
             .players
             .get(&hit.attacker_id)
             .map(|player| player.stats)
-            .or_else(|| self.monster(hit.attacker_id).map(|monster| monster.stats));
+            .or_else(|| self.monster(hit.attacker_id).map(|monster| monster.stats))
+            .or_else(|| self.conquest_object_attack_stats(hit.attacker_id));
         let Some(attacker_stats) = attacker else {
             return;
         };
 
+        if self.conquest_object_attack_stats(hit.target_id).is_some() {
+            self.damage_conquest_object(hit.target_id, hit.damage);
+            return;
+        }
         if self.monster(hit.target_id).is_some() {
             self.damage_monster(hit, &attacker_stats);
             return;
@@ -3939,6 +3951,9 @@ impl World {
     pub(crate) fn walkable_on(&self, map: &str, cell: Point) -> bool {
         let (max_x, max_y) = self.map_bounds(map);
         if cell.x < 0 || cell.y < 0 || cell.x > max_x || cell.y > max_y {
+            return false;
+        }
+        if self.conquest_object_blocking(map, cell) {
             return false;
         }
         self.map_of(map)

@@ -2314,3 +2314,246 @@ fn bone_spearman_line_wall_without_target_after_does_not_panic() {
     assert!(harness.world.monster(monster).is_some());
     assert!(harness.world.player(player).is_some());
 }
+
+// ---------------------------------------------------------------------------
+// t70：AI 14/50/100 物理特殊攻击（勿写成魔法）
+// ---------------------------------------------------------------------------
+
+/// 特殊 AI 的测试怪：低 DC（避免测试中途打死玩家）、高准确、SC=0（绿毒 0 伤害）。
+fn special_kind(name: &str, ai: u8) -> MonsterKind {
+    let mut kind = monster_kind(name, 5_000, 10, 0);
+    kind.ai = ai;
+    kind.stats.min_dc = 1;
+    kind.stats.max_dc = 1;
+    kind.stats.accuracy = 100;
+    kind.stats.min_sc = 0;
+    kind.stats.max_sc = 0;
+    kind
+}
+
+/// 反复挨打直到目标出现指定毒（Crystal `PoisonTarget` 是概率触发）。
+fn wait_for_poison(harness: &mut Harness, player: u32, kind: PoisonType, cycles: usize) -> bool {
+    for _ in 0..cycles {
+        if harness
+            .world
+            .player(player)
+            .is_some_and(|player| player.magic.poisons.iter().any(|p| p.kind == kind))
+        {
+            return true;
+        }
+        harness.elapse(2_600);
+    }
+    harness
+        .world
+        .player(player)
+        .is_some_and(|player| player.magic.poisons.iter().any(|p| p.kind == kind))
+}
+
+#[test]
+fn evil_centipede_is_physical_aoe_with_green_and_paralysis() {
+    let mut harness = Harness::new(80);
+    let tank = harness.add_player(1, MirClass::Warrior, 40, Point::new(20, 21));
+    let far = harness.add_player(2, MirClass::Warrior, 40, Point::new(20, 27));
+    let outside = harness.add_player(3, MirClass::Warrior, 40, Point::new(20, 28));
+    let tank_hp = harness.world.player(tank).expect("目标").hp;
+    let far_hp = harness.world.player(far).expect("半径 7 内").hp;
+    let outside_hp = harness.world.player(outside).expect("半径 7 外").hp;
+    let monster = harness.spawn_active(special_kind("邪恶蜈蚣", 14), Point::new(20, 20));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    harness.elapse(600);
+    assert!(harness.world.player(tank).expect("目标").hp < tank_hp);
+    assert!(
+        harness.world.player(far).expect("半径 7 内").hp < far_hp,
+        "半径 7 内的第二个玩家也应被 AOE 命中"
+    );
+    assert_eq!(
+        harness.world.player(outside).expect("半径 7 外").hp,
+        outside_hp,
+        "半径 7 外的玩家不应被误伤"
+    );
+    let packets = harness.packets(tank);
+    assert!(
+        packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::ObjectAttack(_))),
+        "AI 14 是 S.ObjectAttack 物理 AOE"
+    );
+    assert!(
+        !packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::ObjectMagic(_))),
+        "AI 14 不是 S.ObjectMagic"
+    );
+    assert!(
+        wait_for_poison(&mut harness, tank, PoisonType::Green, 80),
+        "命中后应挂绿毒（5/15/2000）"
+    );
+    assert!(
+        wait_for_poison(&mut harness, tank, PoisonType::Paralysis, 80),
+        "命中后应挂麻痹（15/5/2000）"
+    );
+}
+
+#[test]
+fn great_fox_spirit_close_range_uses_radius_two() {
+    let mut harness = Harness::new(81);
+    let tank = harness.add_player(1, MirClass::Warrior, 40, Point::new(20, 22));
+    let outside = harness.add_player(2, MirClass::Warrior, 40, Point::new(20, 24));
+    let tank_hp = harness.world.player(tank).expect("目标").hp;
+    let outside_hp = harness.world.player(outside).expect("半径 2 外").hp;
+    let monster = harness.spawn_active(special_kind("大狐灵", 50), Point::new(20, 20));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    harness.elapse(500);
+    assert!(harness.world.player(tank).expect("目标").hp < tank_hp);
+    assert_eq!(
+        harness.world.player(outside).expect("半径 2 外").hp,
+        outside_hp,
+        "贴身形态半径 2，4 格外的玩家不应被误伤"
+    );
+    assert!(
+        wait_for_poison(&mut harness, tank, PoisonType::Slow, 80),
+        "命中后应挂 Slow（5/15/1000）"
+    );
+}
+
+#[test]
+fn great_fox_spirit_ranged_form_uses_radius_seven_and_range_attack() {
+    let mut harness = Harness::new(82);
+    let tank = harness.add_player(1, MirClass::Warrior, 40, Point::new(20, 25));
+    let near = harness.add_player(2, MirClass::Warrior, 40, Point::new(20, 26));
+    let outside = harness.add_player(3, MirClass::Warrior, 40, Point::new(20, 29));
+    let tank_hp = harness.world.player(tank).expect("目标").hp;
+    let near_hp = harness.world.player(near).expect("半径 7 内").hp;
+    let outside_hp = harness.world.player(outside).expect("半径 7 外").hp;
+    let monster = harness.spawn_active(special_kind("大狐灵", 50), Point::new(20, 20));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    harness.elapse(500);
+    assert!(harness.world.player(tank).expect("目标").hp < tank_hp);
+    assert!(
+        harness.world.player(near).expect("半径 7 内").hp < near_hp,
+        "远程形态半径 7"
+    );
+    assert_eq!(
+        harness.world.player(outside).expect("半径 7 外").hp,
+        outside_hp,
+        "半径 7 外的玩家不应被误伤"
+    );
+    let packets = harness.packets(tank);
+    assert!(
+        packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::ObjectRangeAttack(_))),
+        "距离 >2 时 Crystal 广播 S.ObjectRangeAttack"
+    );
+    assert!(
+        wait_for_poison(&mut harness, tank, PoisonType::Paralysis, 80),
+        "命中后应挂 Paralysis（5/5/1000）"
+    );
+}
+
+#[test]
+fn venom_spider_line_hits_two_cells_and_poisons() {
+    let mut harness = Harness::new(83);
+    let front = harness.add_player(1, MirClass::Warrior, 40, Point::new(20, 21));
+    let behind = harness.add_player(2, MirClass::Warrior, 40, Point::new(20, 22));
+    let side = harness.add_player(3, MirClass::Warrior, 40, Point::new(22, 22));
+    let front_hp = harness.world.player(front).expect("第一格").hp;
+    let behind_hp = harness.world.player(behind).expect("第二格").hp;
+    let side_hp = harness.world.player(side).expect("直线外").hp;
+    let monster = harness.spawn_active(special_kind("毒蜘蛛", 100), Point::new(20, 20));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    harness.elapse(500);
+    assert!(harness.world.player(front).expect("第一格").hp < front_hp);
+    assert!(
+        harness.world.player(behind).expect("第二格").hp < behind_hp,
+        "LineAttack(2) 第二格也应命中"
+    );
+    assert_eq!(
+        harness.world.player(side).expect("直线外").hp,
+        side_hp,
+        "直线外玩家不应被误伤"
+    );
+    let packets = harness.packets(front);
+    assert!(
+        packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::ObjectAttack(_))),
+        "AI 100 是 S.ObjectAttack 物理直线"
+    );
+    assert!(
+        !packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::ObjectMagic(_))),
+        "AI 100 不是 S.ObjectMagic"
+    );
+    assert!(
+        wait_for_poison(&mut harness, front, PoisonType::Green, 80),
+        "命中后应挂绿毒（8/5/1000）"
+    );
+}
+
+#[test]
+fn evil_centipede_aoe_does_not_fire_on_no_fight_maps() {
+    let mut map = MapInfo {
+        file_name: MAP.to_owned(),
+        title: "安全地图".to_owned(),
+        no_fight: true,
+        ..MapInfo::default()
+    };
+    map.file_name = MAP.to_owned();
+    let mut harness = Harness::with_data(84, game_data_with_maps(vec![map]));
+    let player = harness.add_player(1, MirClass::Warrior, 40, Point::new(20, 21));
+    let hp = harness.world.player(player).expect("玩家").hp;
+    let monster = harness.spawn_active(special_kind("邪恶蜈蚣", 14), Point::new(20, 20));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    harness.elapse(600);
+    assert_eq!(
+        harness.world.player(player).expect("玩家").hp,
+        hp,
+        "NoFight 地图上 AI 14 不应造成伤害"
+    );
+}
+
+#[test]
+fn great_fox_spirit_aoe_does_not_fire_on_no_fight_maps() {
+    let mut map = MapInfo {
+        file_name: MAP.to_owned(),
+        title: "安全地图".to_owned(),
+        no_fight: true,
+        ..MapInfo::default()
+    };
+    map.file_name = MAP.to_owned();
+    let mut harness = Harness::with_data(85, game_data_with_maps(vec![map]));
+    let player = harness.add_player(1, MirClass::Warrior, 40, Point::new(20, 22));
+    let hp = harness.world.player(player).expect("玩家").hp;
+    let monster = harness.spawn_active(special_kind("大狐灵", 50), Point::new(20, 20));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    harness.elapse(500);
+    assert_eq!(
+        harness.world.player(player).expect("玩家").hp,
+        hp,
+        "NoFight 地图上 AI 50 不应造成伤害"
+    );
+    assert!(
+        harness
+            .world
+            .player(player)
+            .expect("玩家")
+            .magic
+            .poisons
+            .is_empty(),
+        "NoFight 地图上 AI 50 不应挂毒"
+    );
+}

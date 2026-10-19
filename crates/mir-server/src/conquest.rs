@@ -31,7 +31,11 @@ use mir_core::enums::{ChatType, ConquestGame, ConquestType};
 use mir_core::i18n::TextKey;
 use mir_db::ConquestInfo;
 use mir_protocol::ServerPacket;
-use mir_protocol::packets::server::Chat;
+use mir_protocol::packets::server::{
+    Chat, ConquestControlPoint, ConquestInfo as ConquestInfoPacket,
+    ConquestObject as ConquestObjectPacket, ConquestObjectType,
+    ConquestResult as ConquestResultPacket,
+};
 
 use crate::npc::Npc;
 use crate::store::ConquestRecord;
@@ -98,6 +102,36 @@ pub struct ControlPointState {
     pub points: BTreeMap<i32, i32>,
 }
 
+/// 攻城器械运行期状态（**本作扩展**：Crystal 用 `ConquestGuildGateInfo` 等
+/// 存档结构 + `MonsterObject` 实体，本作用独立的轻量对象表示）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConquestObjectState {
+    /// 对象 ID。
+    pub object_id: u32,
+    /// 类型。
+    pub kind: ConquestObjectType,
+    /// 位置。
+    pub location: Point,
+    /// 朝向。
+    pub direction: mir_core::enums::MirDirection,
+    /// 当前 HP。
+    pub hp: i32,
+    /// 最大 HP。
+    pub max_hp: i32,
+    /// 归属行会。
+    pub owner: i32,
+    /// 下次射击时刻（仅箭塔用，Unix 毫秒）。
+    pub next_shot: i64,
+}
+
+impl ConquestObjectState {
+    /// 是否已摧毁。
+    #[must_use]
+    pub const fn destroyed(&self) -> bool {
+        self.hp <= 0
+    }
+}
+
 /// 一个攻城区的运行期状态（Crystal `ConquestObject`，
 /// `Server/MirObjects/ConquestObject.cs:7`）。
 #[derive(Debug, Clone)]
@@ -138,6 +172,8 @@ pub struct Conquest {
     pub king_points: BTreeMap<i32, i32>,
     /// 控制点列表（`ConquestObject.ControlPoints` 的键与归属）。
     pub control_points: Vec<ControlPointState>,
+    /// 攻城器械（城门/城墙/箭塔），仅运行期；停战时清空。
+    pub objects: Vec<ConquestObjectState>,
     /// 需要落盘（Crystal `ConquestGuildInfo.NeedSave`，`:24`）。
     pub dirty: bool,
 }
@@ -176,6 +212,7 @@ impl Conquest {
             next_war_at: 0,
             king_points: BTreeMap::new(),
             control_points,
+            objects: Vec::new(),
             dirty: false,
         }
     }
@@ -977,7 +1014,350 @@ impl World {
         spawned
     }
 
-    /// 记录一笔城主税收：Crystal `NPCScript.Buy` 的
+    /// 攻城器械：按配表的城门/城墙/箭塔位置生成（无配表数据时用中心默认布点）。
+    ///
+    /// 简化：Crystal 用 `ConquestGuildGateInfo` 等存档结构 + 怪物实体；本作只在开战
+    /// 期间维护轻量对象，停战清空，不持久化耐久。
+    pub fn spawn_conquest_objects(&mut self, index: i32) -> Vec<u32> {
+        let Some(conquest) = self.conquest(index) else {
+            return Vec::new();
+        };
+        if !conquest.war_is_on {
+            return Vec::new();
+        }
+        let Some(map) = conquest.map.clone() else {
+            return Vec::new();
+        };
+        let owner = conquest.owner;
+        let mut specs: Vec<(ConquestObjectType, Point, i32)> = Vec::new();
+        for gate in &conquest.info.gates {
+            specs.push((ConquestObjectType::Gate, gate.location, 5_000));
+        }
+        for wall in &conquest.info.walls {
+            specs.push((ConquestObjectType::Wall, wall.location, 3_000));
+        }
+        for guard in &conquest.info.guards {
+            specs.push((ConquestObjectType::Archer, guard.location, 2_000));
+        }
+        if specs.is_empty() {
+            let base = conquest.info.location;
+            specs.push((ConquestObjectType::Gate, base, 5_000));
+            specs.push((
+                ConquestObjectType::Wall,
+                Point {
+                    x: base.x,
+                    y: base.y + 1,
+                },
+                3_000,
+            ));
+            specs.push((
+                ConquestObjectType::Archer,
+                Point {
+                    x: base.x + 1,
+                    y: base.y,
+                },
+                2_000,
+            ));
+        }
+        let mut ids = Vec::with_capacity(specs.len());
+        for (kind, location, max_hp) in specs {
+            let object_id = self.allocate_object_id();
+            if let Some(conquest) = self.conquest_mut(index) {
+                conquest.objects.push(ConquestObjectState {
+                    object_id,
+                    kind,
+                    location,
+                    direction: mir_core::enums::MirDirection::Down,
+                    hp: max_hp,
+                    max_hp,
+                    owner,
+                    next_shot: 0,
+                });
+            }
+            ids.push(object_id);
+        }
+        self.broadcast_conquest_state(index);
+        let _ = map;
+        ids
+    }
+
+    /// 某个格子是否被未摧毁的城门/城墙挡住。
+    #[must_use]
+    pub fn conquest_object_blocking(&self, map: &str, cell: Point) -> bool {
+        self.conquests.iter().any(|conquest| {
+            conquest.map.as_deref() == Some(map)
+                && conquest.objects.iter().any(|object| {
+                    !object.destroyed()
+                        && matches!(
+                            object.kind,
+                            ConquestObjectType::Gate | ConquestObjectType::Wall
+                        )
+                        && object.location == cell
+                })
+        })
+    }
+
+    /// 格子上的攻城器械对象 ID（供近战目标选择）。
+    #[must_use]
+    pub fn conquest_object_at(&self, map: &str, cell: Point) -> Option<u32> {
+        self.conquests.iter().find_map(|conquest| {
+            if conquest.map.as_deref() != Some(map) {
+                return None;
+            }
+            conquest
+                .objects
+                .iter()
+                .find(|object| !object.destroyed() && object.location == cell)
+                .map(|object| object.object_id)
+        })
+    }
+
+    /// 器械受伤：广播 `S.ConquestObject`；HP 归零后 `destroyed = true`（城门/城墙不再挡路）。
+    pub(crate) fn damage_conquest_object(&mut self, object_id: u32, damage: i32) -> i32 {
+        let Some((index, map, actual, destroyed)) = self
+            .conquests
+            .iter()
+            .find_map(|conquest| {
+                let object = conquest
+                    .objects
+                    .iter()
+                    .find(|object| object.object_id == object_id && !object.destroyed())?;
+                Some((
+                    conquest.info.index,
+                    conquest.map.clone(),
+                    object.hp,
+                    object.kind,
+                ))
+            })
+            .and_then(|(index, map, hp, _kind)| {
+                let actual = damage.max(0).min(hp);
+                if actual == 0 {
+                    return None;
+                }
+                let object = self
+                    .conquest_mut(index)?
+                    .objects
+                    .iter_mut()
+                    .find(|object| object.object_id == object_id)?;
+                object.hp = (object.hp - actual).max(0);
+                Some((index, map, actual, object.destroyed()))
+            })
+        else {
+            return 0;
+        };
+        self.broadcast_conquest_object(index, object_id);
+        let _ = (map, destroyed);
+        actual
+    }
+
+    /// 箭塔的伤害属性（走 `combat::resolve_player_attack` 的 MAC/AC 规则）。
+    #[must_use]
+    pub(crate) fn conquest_object_attack_stats(
+        &self,
+        object_id: u32,
+    ) -> Option<crate::combat::CombatStats> {
+        self.conquests
+            .iter()
+            .flat_map(|conquest| &conquest.objects)
+            .find(|object| object.object_id == object_id && !object.destroyed())
+            .map(|_| crate::combat::CombatStats {
+                min_dc: 40,
+                max_dc: 60,
+                accuracy: 100,
+                ..crate::combat::CombatStats::default()
+            })
+    }
+
+    /// 显式时刻驱动箭塔（测试/运维用；不读墙上时钟）。
+    pub fn process_conquest_towers_at(&mut self, now: i64) {
+        self.process_conquest_towers(now);
+    }
+
+    /// 箭塔每 2 秒射击最近的敌对行会玩家（`owner == -1` 时所有玩家敌对）。
+    pub(crate) fn process_conquest_towers(&mut self, now: i64) {
+        let indices: Vec<i32> = self.conquests.iter().map(|c| c.info.index).collect();
+        for index in indices {
+            let Some(conquest) = self.conquest(index) else {
+                continue;
+            };
+            if !conquest.war_is_on {
+                continue;
+            }
+            let Some(map) = conquest.map.clone() else {
+                continue;
+            };
+            let archers: Vec<(u32, Point, i32)> = conquest
+                .objects
+                .iter()
+                .filter(|object| {
+                    object.kind == ConquestObjectType::Archer
+                        && !object.destroyed()
+                        && object.next_shot <= now
+                })
+                .map(|object| (object.object_id, object.location, object.owner))
+                .collect();
+            for (object_id, location, owner) in archers {
+                let target = self
+                    .players
+                    .iter()
+                    .filter(|(_, player)| {
+                        !player.dead
+                            && player.map == map
+                            && player.position.max_distance(location) <= 10
+                            && player
+                                .guild
+                                .map(|guild| guild.guild_id)
+                                .is_none_or(|guild| guild != owner)
+                    })
+                    .min_by_key(|(_, player)| player.position.max_distance(location))
+                    .map(|(id, _)| *id);
+                if let Some(target) = target {
+                    self.pending_hits.push(crate::combat::PendingHit {
+                        at: now + 500,
+                        attacker_id: object_id,
+                        target_id: target,
+                        damage: 50,
+                        defence: mir_core::enums::DefenceType::ACAgility,
+                    });
+                }
+                if let Some(object) = self.conquest_mut(index).and_then(|conquest| {
+                    conquest
+                        .objects
+                        .iter_mut()
+                        .find(|object| object.object_id == object_id)
+                }) {
+                    object.next_shot = now + 2_000;
+                }
+            }
+        }
+    }
+
+    fn conquest_info_packet(&self, index: i32) -> Option<ConquestInfoPacket> {
+        let conquest = self.conquest(index)?;
+        Some(ConquestInfoPacket {
+            index,
+            name: conquest.info.name.clone(),
+            owner: conquest.owner,
+            war_is_on: conquest.war_is_on,
+            start_time: conquest.war_start_time,
+            end_time: conquest.war_end_time,
+            control_points: conquest
+                .control_points
+                .iter()
+                .map(|point| ConquestControlPoint {
+                    index: point.index,
+                    owner: point.owner,
+                    points: point.points.values().copied().sum(),
+                })
+                .collect(),
+        })
+    }
+
+    fn conquest_object_packet(index: i32, object: &ConquestObjectState) -> ConquestObjectPacket {
+        ConquestObjectPacket {
+            object_id: object.object_id,
+            conquest_index: index,
+            kind: object.kind,
+            location: object.location,
+            direction: object.direction,
+            hp: object.hp,
+            max_hp: object.max_hp,
+            owner: object.owner,
+            destroyed: object.destroyed(),
+        }
+    }
+
+    fn conquest_recipients(&self, index: i32) -> Vec<u32> {
+        let Some(conquest) = self.conquest(index) else {
+            return Vec::new();
+        };
+        self.players
+            .iter()
+            .filter(|(_, player)| conquest.owns_map(&player.map))
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    /// 给一个玩家下发 `S.ConquestInfo` + 当前可见器械。
+    pub fn send_conquest_state_to(&self, player_id: u32, index: i32) {
+        let Some(info) = self.conquest_info_packet(index) else {
+            return;
+        };
+        self.send_to_player(player_id, &ServerPacket::ConquestInfo(info).encode_frame());
+        let Some(conquest) = self.conquest(index) else {
+            return;
+        };
+        let Some(map) = conquest.map.clone() else {
+            return;
+        };
+        let Some(player) = self.players.get(&player_id) else {
+            return;
+        };
+        if player.map != map {
+            return;
+        }
+        for object in &conquest.objects {
+            let packet = Self::conquest_object_packet(index, object);
+            self.send_to_player(
+                player_id,
+                &ServerPacket::ConquestObject(packet).encode_frame(),
+            );
+        }
+    }
+
+    fn broadcast_conquest_state(&self, index: i32) {
+        for player_id in self.conquest_recipients(index) {
+            self.send_conquest_state_to(player_id, index);
+        }
+    }
+
+    fn broadcast_conquest_object(&self, index: i32, object_id: u32) {
+        let Some(conquest) = self.conquest(index) else {
+            return;
+        };
+        let Some(object) = conquest
+            .objects
+            .iter()
+            .find(|object| object.object_id == object_id)
+        else {
+            return;
+        };
+        let Some(map) = conquest.map.clone() else {
+            return;
+        };
+        let packet = ServerPacket::ConquestObject(Self::conquest_object_packet(index, object))
+            .encode_frame();
+        for (player_id, player) in &self.players {
+            if player.map == map {
+                self.send_to_player(*player_id, &packet);
+            }
+        }
+    }
+
+    fn broadcast_conquest_result(&self, index: i32, winner: i32, owner: i32) {
+        let Some(conquest) = self.conquest(index) else {
+            return;
+        };
+        let packet = ConquestResultPacket {
+            index,
+            winner,
+            owner,
+            control_points: conquest
+                .control_points
+                .iter()
+                .map(|point| ConquestControlPoint {
+                    index: point.index,
+                    owner: point.owner,
+                    points: point.points.values().copied().sum(),
+                })
+                .collect(),
+        };
+        let frame = ServerPacket::ConquestResult(packet).encode_frame();
+        for player_id in self.conquest_recipients(index) {
+            self.send_to_player(player_id, &frame);
+        }
+    }
+
     /// `callingNPC.Conq.GuildInfo.GoldStorage += (cost - baseCost)`（`:1211-1214`）
     /// 与 `PlayerObject.RepairItem` 的同名逻辑（`:8150`）。
     pub fn add_conquest_tax(&mut self, conquest_index: i32, amount: u32) {
@@ -1037,7 +1417,11 @@ impl World {
     /// 每 10 秒一次的攻城处理：Crystal `Envir.Process` 的
     /// `conquestTime = Time + Settings.Second * 10`（`Envir.cs:2341`）。
     pub(crate) fn tick_conquests(&mut self, now: i64) {
-        if self.conquests.is_empty() || now < self.next_conquest_tick {
+        if self.conquests.is_empty() {
+            return;
+        }
+        self.process_conquest_towers(now);
+        if now < self.next_conquest_tick {
             return;
         }
         self.next_conquest_tick = now + CONQUEST_PROCESS_INTERVAL_MS;
@@ -1176,6 +1560,7 @@ impl World {
             mir_core::i18n::TextKey::ConquestWarStarted,
             &[("name", &name)],
         );
+        self.spawn_conquest_objects(index);
     }
 
     /// 停战：Crystal `ConquestObject.EndWar`（`:915-967`）+ `AtWarChanged` 的 else 分支
@@ -1225,6 +1610,36 @@ impl World {
             mir_core::i18n::TextKey::ConquestWarEnded,
             &[("name", &name)],
         );
+        // 停战：器械先以 hp=0/destroyed 广播，再清空（简化：不保留耐久）。
+        let object_ids: Vec<u32> = self
+            .conquest(index)
+            .map(|conquest| {
+                conquest
+                    .objects
+                    .iter()
+                    .map(|object| object.object_id)
+                    .collect()
+            })
+            .unwrap_or_default();
+        for object_id in object_ids {
+            if let Some(conquest) = self.conquest_mut(index) {
+                if let Some(object) = conquest
+                    .objects
+                    .iter_mut()
+                    .find(|object| object.object_id == object_id)
+                {
+                    object.hp = 0;
+                }
+            }
+            self.broadcast_conquest_object(index, object_id);
+        }
+        if let Some(conquest) = self.conquest_mut(index) {
+            conquest.objects.clear();
+        }
+        let owner_after = self.conquest(index).map_or(-1, |conquest| conquest.owner);
+        let winner = owner_after;
+        self.broadcast_conquest_result(index, winner, owner_after);
+        self.broadcast_conquest_state(index);
     }
 
     /// 计分：Crystal `ConquestObject.ScorePoints`（`:716-905`）。
@@ -1599,6 +2014,15 @@ impl World {
             return;
         };
         let map = player.map.clone();
+        // 进入攻城区相关地图时先下发配置 + 器械状态（本项目扩展包）。
+        if let Some(index) = self
+            .conquests
+            .iter()
+            .find(|conquest| conquest.owns_map(&map))
+            .map(|conquest| conquest.info.index)
+        {
+            self.send_conquest_state_to(player_id, index);
+        }
         let Some(guild) = player.guild.map(|reference| reference.guild_id) else {
             return;
         };

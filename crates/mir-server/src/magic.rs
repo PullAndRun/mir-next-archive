@@ -2779,7 +2779,7 @@ impl World {
     /// 给怪物上毒（Crystal `MonsterObject.ApplyPoison`，`MonsterObject.cs:2782-2836`）。
     ///
     /// 同类型毒：绿毒只接受更高伤害、红毒只接受更长时长，否则忽略（`:2805-2813`）。
-    fn apply_poison_to_monster(&mut self, target_id: u32, poison: PoisonState) -> bool {
+    pub(crate) fn apply_poison_to_monster(&mut self, target_id: u32, poison: PoisonState) -> bool {
         let Some((map, position)) = self
             .monster(target_id)
             .map(|monster| (monster.map.clone(), monster.position))
@@ -2814,7 +2814,7 @@ impl World {
     }
 
     /// 给玩家上毒（Crystal `HumanObject.ApplyPoison`，`HumanObject.cs:7380-7425`）。
-    fn apply_poison_to_player(&mut self, target_id: u32, poison: PoisonState) -> bool {
+    pub(crate) fn apply_poison_to_player(&mut self, target_id: u32, poison: PoisonState) -> bool {
         let Some((map, position)) = self
             .players
             .get(&target_id)

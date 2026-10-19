@@ -452,6 +452,20 @@ pub enum TextKey {
     NpcCannotRepair,
     /// 场景：`repair_item`（`npc.rs:470`）；模板：`这里不能修理这种物品。`；参数：无。
     NpcRepairTypeNotAllowed,
+    /// 场景：`run_script_action`（`npc.rs`）；模板：`没有可交出的物品。`；参数：无。
+    NpcNoCheckedItem,
+    /// 场景：`run_script_action`（`npc.rs`）；模板：`已交出 {name} ×{count}。`；参数：`{name}`、`{count}`。
+    NpcItemTaken,
+    /// 场景：`run_script_action`（`npc.rs`）；模板：`请从下列名字中选择，或直接输入名字。`；参数：无。
+    NpcNameListPrompt,
+    /// 场景：`run_script_action`（`npc.rs`）；模板：`名字列表为空。`；参数：无。
+    NpcNameListEmpty,
+    /// 场景：`run_script_action`（`npc.rs`）；模板：`未知的增益类型：{buff}。`；参数：`{buff}`。
+    NpcUnknownBuff,
+    /// 场景：`run_script_action`（`npc.rs`）；模板：`增益时长必须是 1~2592000 之间的秒数，收到：{value}。`；参数：`{value}`。
+    NpcBuffBadDuration,
+    /// 场景：`run_script_action`（`npc.rs`）；模板：`获得增益：{buff}，持续 {seconds} 秒。`；参数：`{buff}`、`{seconds}`。
+    NpcBuffGiven,
     /// 场景：`share_quest`（`quests.rs:476`）；模板：`组队并且附近有队友时才能分享任务。`；参数：无。
     QuestShareNeedsParty,
     /// 场景：`S.SendOutputMessage{Quest}`（`quests.rs:477`）；模板：`你杀死了 {monster}`；参数：`{monster}`。
@@ -705,6 +719,13 @@ impl TextKey {
         Self::NpcWontBuyType,
         Self::NpcCannotRepair,
         Self::NpcRepairTypeNotAllowed,
+        Self::NpcNoCheckedItem,
+        Self::NpcItemTaken,
+        Self::NpcNameListPrompt,
+        Self::NpcNameListEmpty,
+        Self::NpcUnknownBuff,
+        Self::NpcBuffBadDuration,
+        Self::NpcBuffGiven,
         Self::QuestShareNeedsParty,
         Self::QuestKilledMonster,
         Self::QuestTaskDoneSuffix,
@@ -918,6 +939,13 @@ impl TextKey {
             Self::NpcWontBuyType => "npc_wont_buy_type",
             Self::NpcCannotRepair => "npc_cannot_repair",
             Self::NpcRepairTypeNotAllowed => "npc_repair_type_not_allowed",
+            Self::NpcNoCheckedItem => "npc_no_checked_item",
+            Self::NpcItemTaken => "npc_item_taken",
+            Self::NpcNameListPrompt => "npc_name_list_prompt",
+            Self::NpcNameListEmpty => "npc_name_list_empty",
+            Self::NpcUnknownBuff => "npc_unknown_buff",
+            Self::NpcBuffBadDuration => "npc_buff_bad_duration",
+            Self::NpcBuffGiven => "npc_buff_given",
             Self::QuestShareNeedsParty => "quest_share_needs_party",
             Self::QuestKilledMonster => "quest_killed_monster",
             Self::QuestTaskDoneSuffix => "quest_task_done_suffix",
@@ -1136,6 +1164,13 @@ impl TextKey {
             Self::NpcWontBuyType => &[],
             Self::NpcCannotRepair => &[],
             Self::NpcRepairTypeNotAllowed => &[],
+            Self::NpcNoCheckedItem => &[],
+            Self::NpcItemTaken => &["name", "count"],
+            Self::NpcNameListPrompt => &[],
+            Self::NpcNameListEmpty => &[],
+            Self::NpcUnknownBuff => &["buff"],
+            Self::NpcBuffBadDuration => &["value"],
+            Self::NpcBuffGiven => &["buff", "seconds"],
             Self::QuestShareNeedsParty => &[],
             Self::QuestKilledMonster => &["monster"],
             Self::QuestTaskDoneSuffix => &[],
@@ -1501,6 +1536,13 @@ const fn text_zh(key: TextKey) -> &'static str {
         TextKey::NpcWontBuyType => "这个 NPC 不收购这种物品。",
         TextKey::NpcCannotRepair => "这件物品无法修理。",
         TextKey::NpcRepairTypeNotAllowed => "这里不能修理这种物品。",
+        TextKey::NpcNoCheckedItem => "没有可交出的物品。",
+        TextKey::NpcItemTaken => "已交出 {name} ×{count}。",
+        TextKey::NpcNameListPrompt => "请从下列名字中选择，或直接输入名字。",
+        TextKey::NpcNameListEmpty => "名字列表为空。",
+        TextKey::NpcUnknownBuff => "未知的增益类型：{buff}。",
+        TextKey::NpcBuffBadDuration => "增益时长必须是 1~2592000 之间的秒数，收到：{value}。",
+        TextKey::NpcBuffGiven => "获得增益：{buff}，持续 {seconds} 秒。",
         TextKey::QuestShareNeedsParty => "组队并且附近有队友时才能分享任务。",
         TextKey::QuestKilledMonster => "你杀死了 {monster}",
         TextKey::QuestTaskDoneSuffix => "（已完成）",
@@ -1799,6 +1841,15 @@ const fn text_en(key: TextKey) -> &'static str {
         TextKey::NpcWontBuyType => "This NPC does not buy that kind of item.",
         TextKey::NpcCannotRepair => "This item cannot be repaired.",
         TextKey::NpcRepairTypeNotAllowed => "This type of item cannot be repaired here.",
+        TextKey::NpcNoCheckedItem => "There is no item to hand over.",
+        TextKey::NpcItemTaken => "Handed over {name} x{count}.",
+        TextKey::NpcNameListPrompt => "Pick a name from the list, or type one.",
+        TextKey::NpcNameListEmpty => "The name list is empty.",
+        TextKey::NpcUnknownBuff => "Unknown buff type: {buff}.",
+        TextKey::NpcBuffBadDuration => {
+            "The buff duration must be a number of seconds between 1 and 2592000, got: {value}."
+        }
+        TextKey::NpcBuffGiven => "Gained buff {buff} for {seconds} seconds.",
         TextKey::QuestShareNeedsParty => {
             "You can only share a quest while in a group with a member nearby."
         }
@@ -2191,13 +2242,14 @@ mod tests {
 
     #[test]
     fn text_key_all_is_complete() {
-        // 第 1 轮 11 个键 + `docs/i18n.md` §7.2 的 185 个键 + 4 个行会权限扩展键
+        // 第 1 轮 11 个键 + `docs/i18n.md` §7.2 的 192 个键 + 4 个行会权限扩展键
         // （`guild_not_allowed_*`，Crystal `ServerTextKeys.NotAllowed*`；§7.2 里
-        // `guild_no_permission` 那一行仍保留，作未知权限兜底）。
+        // `guild_no_permission` 那一行仍保留，作未知权限兜底）+ 7 个 NPC 脚本动作键
+        // （`npc_*`：`TAKECHECKITEM` / `GIVENAMELIST` / `GIVEBUFF` 的玩家可见提示）。
         //
         // 新增变体时必须同时登记 `TextKey::ALL`，否则这条会挡住——`ALL` 是
         // 语言包校验与参数核对的唯一入口，漏登记等于漏测试。
-        assert_eq!(TextKey::ALL.len(), 207, "新增/删除键时同步更新数量");
+        assert_eq!(TextKey::ALL.len(), 214, "新增/删除键时同步更新数量");
     }
 
     #[test]

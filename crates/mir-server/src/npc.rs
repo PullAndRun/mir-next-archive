@@ -35,11 +35,15 @@ use mir_db::npc_script::{
 };
 use mir_db::{MapInfo, NpcInfo};
 use mir_protocol::ServerPacket;
-use mir_protocol::data::{ClientMapInfo, ClientMovementInfo, ClientNPCInfo, ItemInfo, UserItem};
+use mir_protocol::data::{
+    ClientMapInfo, ClientMovementInfo, ClientNPCInfo, ItemInfo, Stats, UserItem,
+};
 use mir_protocol::packets::server::{
-    NPCGoods, NPCRepair, NPCResponse, NPCSRepair, NPCSell, ObjectNPC, SellItem,
+    DeleteItem as DeleteItemPacket, NPCGoods, NPCRepair, NPCRequestInput, NPCResponse, NPCSRepair,
+    NPCSell, ObjectNPC, SellItem,
 };
 
+use crate::buffs::{BuffKind, SECOND_MS};
 use crate::items::item_weight;
 use crate::world::{Player, World};
 
@@ -54,6 +58,57 @@ use crate::world::{Player, World};
 /// 注意它与 [`crate::world::VIEW_RANGE`]（10）不是一回事：后者是本作简化的广播半径，
 /// 这里用的是 Crystal 原文里的 NPC 交互距离。
 pub const NPC_TALK_RANGE: i32 = 16;
+
+/// `GIVEBUFF <buff> [秒]` 缺时长时的默认值。
+///
+/// Crystal 必须给时长（`NPCSegment.cs:4907`）；本作把它做成可选，缺省按 1 分钟，够脚本
+/// 写「给个短增益」的简写。
+pub const DEFAULT_NPC_BUFF_SECONDS: u32 = 60;
+
+/// `GIVEBUFF` 允许的最长时长（30 天）：防止脚本里写错数量级把增益挂到地老天荒。
+pub const MAX_NPC_BUFF_SECONDS: u32 = 30 * 24 * 60 * 60;
+
+/// `GIVEBUFF` 认识的增益名（大小写/下划线/连字符都不敏感）。
+///
+/// 名字取 Crystal `BuffType` 的枚举名（`Shared/Enums.cs:1334-1399`），与
+/// [`BuffKind::buff_type`] 一一对应；本作没实现的 `BuffType`（如 `Weak`/`Cloak`）不在表里，
+/// 脚本用到会收到「未知增益」提示，而不会静默吞掉。
+pub const NPC_BUFF_NAMES: &[(&str, BuffKind)] = &[
+    ("protectionfield", BuffKind::ProtectionField),
+    ("magicshield", BuffKind::MagicShield),
+    ("soulshield", BuffKind::SoulShield),
+    ("blessedarmour", BuffKind::BlessedArmour),
+    ("energyshield", BuffKind::EnergyShield),
+    ("haste", BuffKind::Haste),
+    ("lightbody", BuffKind::LightBody),
+    ("fury", BuffKind::Fury),
+    ("magicbooster", BuffKind::MagicBooster),
+    ("impact", BuffKind::Impact),
+    ("magic", BuffKind::Magic),
+    ("taoist", BuffKind::Taoist),
+    ("storm", BuffKind::Storm),
+    ("healthaid", BuffKind::HealthAid),
+    ("manaaid", BuffKind::ManaAid),
+    ("defence", BuffKind::Defence),
+    ("magicdefence", BuffKind::MagicDefence),
+    ("bagweight", BuffKind::BagWeight),
+    ("exp", BuffKind::Exp),
+    ("drop", BuffKind::Drop),
+];
+
+/// 按脚本里的名字找增益种类（大小写/下划线/连字符/空格都不敏感）。
+#[must_use]
+pub fn parse_buff_kind(name: &str) -> Option<BuffKind> {
+    let normalized: String = name
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|ch| ch.to_ascii_lowercase())
+        .collect();
+    NPC_BUFF_NAMES
+        .iter()
+        .find(|(key, _)| *key == normalized)
+        .map(|(_, kind)| *kind)
+}
 
 /// 一次对话最多跟进多少个脚本 `GOTO`（防脚本自跳导致的死循环）。
 /// Crystal 靠 `ActionList` 的 `Time == -1` 逐个处理（`PlayerObject.cs:7930-7942`），没有上限。
@@ -887,8 +942,10 @@ impl World {
     /// 6. 逐段跑检查 → `S.NPCResponse`（`NPCScript.cs:870-900`）；
     /// 7. 处理 `@exit`：客户端自己关窗（`NPCDialog.cs:288-293`），这里顺便清掉服务端状态。
     ///
-    /// 与 Crystal 的差异：`NPCDelayed`（`:831-861`）与 `S.NPCRequestInput`（`[@@"` 输入框，
-    /// `:863-868`）没有实现，见 `docs/world/npc.md`。
+    /// `S.NPCRequestInput`（`[@@"` 输入框，`NPCScript.cs:863-868`）由 `GIVENAMELIST` 触发：
+    /// 页面跑完后若动作要求输入，这里补发一条请求，客户端把玩家输入当成按钮 key 发回
+    /// `@名字` 即可（白名单在 `GIVENAMELIST` 里已登记）。`NPCDelayed`（`:831-861`）仍未实现，
+    /// 见 `docs/world/npc.md`。
     pub fn call_npc(
         &mut self,
         player_id: u32,
@@ -982,6 +1039,18 @@ impl World {
             reply
                 .panels
                 .extend(self.open_npc_panel(player_id, &npc, &page.key));
+            // `GIVENAMELIST` 要求可编辑输入：同 Crystal 的 `[@@"` 输入框
+            // （`NPCScript.cs:863-868`），客户端把玩家输入当成按钮 key 发回 `@名字`。
+            if run.request_input {
+                self.send_to_player(
+                    player_id,
+                    &ServerPacket::NPCRequestInput(NPCRequestInput {
+                        npcid: npc.object_id,
+                        page_name: page.key.clone(),
+                    })
+                    .encode_frame(),
+                );
+            }
             reply.unsupported_checks.extend(run.unsupported_checks);
             reply.unsupported_actions.extend(run.unsupported_actions);
             if let Some(player) = self.players.get_mut(&player_id) {
@@ -1038,8 +1107,12 @@ impl World {
                 // Crystal `page.BreakFromSegments`：本页剩下的段落不再处理。
                 break;
             }
-            let outcome =
-                self.evaluate_checks(player_id, &segment.checks, &mut run.unsupported_checks);
+            let outcome = self.evaluate_checks(
+                player_id,
+                &segment.checks,
+                &mut run.unsupported_checks,
+                &mut run.checked_item,
+            );
             let (actions, say, segment_buttons) = match outcome {
                 ChecksOutcome::Pass => (&segment.actions, &segment.say, &segment.buttons),
                 ChecksOutcome::Fail => (
@@ -1057,7 +1130,8 @@ impl World {
             }
             buttons.extend(segment_buttons.iter().cloned());
         }
-        run.buttons = buttons;
+        // 合并而不是覆盖：`GIVENAMELIST` 这类动作会往 `run.buttons` 里直接加按钮。
+        run.buttons.extend(buttons);
         run
     }
 
@@ -1133,6 +1207,7 @@ impl World {
                 // （见 [`World::run_map_action`]）与元宝增减（[`World::run_credit_action`]）。
                 if !self.run_map_action(player_id, npc, action)
                     && !self.run_credit_action(player_id, action)
+                    && !self.run_script_action(player_id, npc, action, run)
                 {
                     run.unsupported_actions.push(action.source.clone());
                 }
@@ -1218,6 +1293,201 @@ impl World {
                 }
             }
         }
+    }
+
+    /// 脚本动作补做：`TAKECHECKITEM` / `TAKEITEM` / `GIVENAMELIST` / `GIVEBUFF`。
+    ///
+    /// 返回 `true` 表示「认识这个关键字」（即使因为参数缺失/前置条件不满足而没有执行），
+    /// 调用方就不会把它记进 `unsupported_actions`。
+    ///
+    /// | 动作 | 出处 | 语义 |
+    /// |---|---|---|
+    /// | `TAKECHECKITEM` | M2 `ObjNpc.pas:11948-11955`（`QuestTakeCheckItem`） | 取走本页 `CHECKITEM` 选中的物品，发 `S.DeleteItem` |
+    /// | `TAKEITEM` | M2 的别名（任务书要求） | 与 `TAKECHECKITEM` 同实现 |
+    /// | `GIVENAMELIST <名字…>` | M2 `GIVENAMELIST`（Crystal 无对应动作） | 名字做成对话按钮；同时发 `S.NPCRequestInput` 供可编辑输入 |
+    /// | `GIVEBUFF <buff> [秒]` | Crystal `NPCSegment.cs:4903-4913`（`ActionType.GiveBuff`） | 加一个增益，时长按**秒**（Crystal `Settings.Second * tempInt`） |
+    fn run_script_action(
+        &mut self,
+        player_id: u32,
+        npc: &Npc,
+        action: &NpcAction,
+        run: &mut PageRun,
+    ) -> bool {
+        let keyword = action
+            .source
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_ascii_uppercase();
+        match keyword.as_str() {
+            "TAKECHECKITEM" | "TAKEITEM" => {
+                self.take_checked_item(player_id, npc, run);
+                true
+            }
+            "GIVENAMELIST" => {
+                self.give_name_list(player_id, npc, action, run);
+                true
+            }
+            "GIVEBUFF" => {
+                self.give_buff(player_id, npc, action);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// `TAKECHECKITEM` / `TAKEITEM`：把 `CHECKITEM` 选中的物品交给 NPC。
+    ///
+    /// M2 的行为是「没有选中物品就记一条脚本动作错误」（`ObjNpc.pas:11953`）；本作除了打日志，
+    /// 还给玩家发一条 `TextKey::NpcNoCheckedItem`，避免点了没反应。
+    fn take_checked_item(&mut self, player_id: u32, npc: &Npc, run: &mut PageRun) {
+        let Some(checked) = run.checked_item.take() else {
+            tracing::debug!(
+                npc = %npc.name,
+                "TAKECHECKITEM/TAKEITEM 前面没有通过的 CHECKITEM，忽略"
+            );
+            let message = self.text(player_id, TextKey::NpcNoCheckedItem);
+            self.send_system_chat(player_id, &message);
+            run.quest_events
+                .push("TAKECHECKITEM: no checked item".to_owned());
+            return;
+        };
+        // 先取出物品名（删掉之后就查不到了）。
+        let name = self
+            .item_info(checked.item_index)
+            .map(|info| info.name.clone())
+            .unwrap_or_default();
+        let taken = self.remove_checked_item(player_id, checked);
+        if taken == 0 {
+            let message = self.text(player_id, TextKey::NpcNoCheckedItem);
+            self.send_system_chat(player_id, &message);
+            run.quest_events
+                .push("TAKECHECKITEM: item already gone".to_owned());
+            return;
+        }
+        // `S.DeleteItem{UniqueID, Count}`（Crystal `UserItem.TakeItem` 的 `Enqueue`）。
+        self.send_to_player(
+            player_id,
+            &ServerPacket::DeleteItem(DeleteItemPacket {
+                unique_id: checked.unique_id,
+                count: taken,
+            })
+            .encode_frame(),
+        );
+        let message = self.format(
+            player_id,
+            TextKey::NpcItemTaken,
+            &[("name", &name), ("count", &taken.to_string())],
+        );
+        self.send_system_chat(player_id, &message);
+        tracing::debug!(npc = %npc.name, %name, taken, "NPC 动作取走 CHECKITEM 选中的物品");
+    }
+
+    /// 从背包里扣掉 `CHECKITEM` 选中的物品，返回实际扣掉的数量。
+    ///
+    /// 优先按下标删（`CheckedItem::slot`），下标对不上时按 UUID 兜底找一遍——两者都失败
+    /// 说明物品在这几行动作之间被别的逻辑拿走了，按「没取到」处理。
+    fn remove_checked_item(&mut self, player_id: u32, checked: CheckedItem) -> u16 {
+        let Some(player) = self.players.get_mut(&player_id) else {
+            return 0;
+        };
+        let matches = |slot: usize, item: &UserItem| {
+            slot == checked.slot || (item.unique_id == checked.unique_id && checked.unique_id != 0)
+        };
+        let Some(slot) = player.inventory.iter().position(|item| {
+            item.as_ref()
+                .is_some_and(|item| matches(checked.slot, item))
+        }) else {
+            return 0;
+        };
+        let Some(item) = player.inventory[slot].as_mut() else {
+            return 0;
+        };
+        let taken = checked.count.min(item.count);
+        if taken == 0 {
+            return 0;
+        }
+        if taken >= item.count {
+            player.inventory[slot] = None;
+        } else if let Some(item) = player.inventory[slot].as_mut() {
+            item.count -= taken;
+        }
+        taken
+    }
+
+    /// `GIVENAMELIST <名字…>`：名字做成「点了就发 `C.CallNPC{key:"@名字"}`」的对话按钮，
+    /// 同时把本页标记成「需要可编辑输入」——`call_npc` 会补发 `S.NPCRequestInput`（同
+    /// Crystal 的 `[@@"` 输入框，`NPCScript.cs:863-868`），支持输入框的客户端把玩家输入
+    /// 当成按钮 key 发回来（`@名字`）即可，服务端这条路径已经通了。
+    fn give_name_list(&mut self, player_id: u32, npc: &Npc, action: &NpcAction, run: &mut PageRun) {
+        let names: Vec<&String> = action
+            .params
+            .iter()
+            .filter(|name| !name.trim().is_empty())
+            .collect();
+        if names.is_empty() {
+            tracing::debug!(npc = %npc.name, "GIVENAMELIST 没有给名字：{}", action.source);
+            let message = self.text(player_id, TextKey::NpcNameListEmpty);
+            self.send_system_chat(player_id, &message);
+            run.request_input = true;
+            return;
+        }
+        for name in names {
+            // 白名单 key 与脚本按钮同格式：`normalize_key` 负责大写并补方括号（`@alice` → `[@ALICE]`）。
+            run.buttons
+                .insert(mir_db::npc_script::normalize_key(name.trim()));
+        }
+        run.request_input = true;
+        let message = self.text(player_id, TextKey::NpcNameListPrompt);
+        self.send_system_chat(player_id, &message);
+    }
+
+    /// `GIVEBUFF <buff> [秒]`：加一个增益（Crystal `NPCSegment.cs:4907-4912`：时长按秒，
+    /// `new Stats()` 不给属性加成，`AddBuff` 会自己发 `S.AddBuff`）。
+    ///
+    /// 缺时长时用 [`DEFAULT_NPC_BUFF_SECONDS`]；buff 名不认识、时长写错都给玩家一条提示
+    /// （走 TextKey），并记一条 `quest_events`。
+    fn give_buff(&mut self, player_id: u32, npc: &Npc, action: &NpcAction) {
+        let Some(name) = action.params.first() else {
+            tracing::debug!(npc = %npc.name, "GIVEBUFF 缺参数：{}", action.source);
+            let message = self.format(
+                player_id,
+                TextKey::NpcUnknownBuff,
+                &[("buff", action.source.as_str())],
+            );
+            self.send_system_chat(player_id, &message);
+            return;
+        };
+        let Some(kind) = parse_buff_kind(name) else {
+            tracing::debug!(npc = %npc.name, buff = %name, "GIVEBUFF 的增益名不认识");
+            let message = self.format(player_id, TextKey::NpcUnknownBuff, &[("buff", name)]);
+            self.send_system_chat(player_id, &message);
+            return;
+        };
+        let seconds = match action.params.get(1) {
+            Some(raw) => match raw.parse::<u32>() {
+                Ok(value) if value > 0 && value <= MAX_NPC_BUFF_SECONDS => value,
+                _ => {
+                    tracing::debug!(npc = %npc.name, value = %raw, "GIVEBUFF 的时长不合法");
+                    let message =
+                        self.format(player_id, TextKey::NpcBuffBadDuration, &[("value", raw)]);
+                    self.send_system_chat(player_id, &message);
+                    return;
+                }
+            },
+            None => DEFAULT_NPC_BUFF_SECONDS,
+        };
+        let duration_ms = i64::from(seconds) * SECOND_MS;
+        if !self.add_buff(player_id, kind, duration_ms, Stats::default(), player_id) {
+            return;
+        }
+        let message = self.format(
+            player_id,
+            TextKey::NpcBuffGiven,
+            &[("buff", name), ("seconds", &seconds.to_string())],
+        );
+        self.send_system_chat(player_id, &message);
+        tracing::debug!(npc = %npc.name, buff = %name, seconds, "NPC 动作给出增益");
     }
 
     /// 切图类 NPC 动作：`MOVE` / `MAPMOVE` / `ENTERMAP`。
@@ -1458,9 +1728,10 @@ impl World {
         player_id: u32,
         checks: &[NpcCheck],
         unsupported: &mut Vec<String>,
+        checked_item: &mut Option<CheckedItem>,
     ) -> ChecksOutcome {
         for check in checks {
-            match self.evaluate_check(player_id, check, unsupported) {
+            match self.evaluate_check(player_id, check, unsupported, checked_item) {
                 CheckOutcome::Pass => {}
                 CheckOutcome::Fail => return ChecksOutcome::Fail,
                 CheckOutcome::InvalidOperator => return ChecksOutcome::Pass,
@@ -1475,6 +1746,7 @@ impl World {
         player_id: u32,
         check: &NpcCheck,
         unsupported: &mut Vec<String>,
+        checked_item: &mut Option<CheckedItem>,
     ) -> CheckOutcome {
         match check.kind {
             NpcCheckKind::Level => {
@@ -1507,7 +1779,7 @@ impl World {
                 };
                 op.compare(&0, &value).into()
             }
-            NpcCheckKind::Item => self.evaluate_item_check(player_id, check),
+            NpcCheckKind::Item => self.evaluate_item_check(player_id, check, checked_item),
             NpcCheckKind::Class => {
                 let Some(name) = check.params.first() else {
                     return CheckOutcome::Fail;
@@ -1629,7 +1901,15 @@ impl World {
     ///
     /// 语义照抄：遍历背包里模板相同的物品；给了持久就跳过 `CurrentDura < 持久*1000` 的；
     /// 数量够就通过。`[数量]` 缺省 1。
-    fn evaluate_item_check(&self, player_id: u32, check: &NpcCheck) -> CheckOutcome {
+    ///
+    /// 通过时把「满足条件的那一格」记进 `checked_item`，供 `TAKECHECKITEM` 取走
+    /// （M2 `ObjNpc.pas:11950-11952`：`if UserItem <> nil then QuestTakeCheckItem(UserItem)`）。
+    fn evaluate_item_check(
+        &self,
+        player_id: u32,
+        check: &NpcCheck,
+        checked_item: &mut Option<CheckedItem>,
+    ) -> CheckOutcome {
         let Some(name) = check.params.first() else {
             return CheckOutcome::Fail;
         };
@@ -1647,7 +1927,8 @@ impl World {
             return CheckOutcome::Fail;
         };
         let mut remaining = wanted;
-        for item in player.inventory.iter().flatten() {
+        for (slot, item) in player.inventory.iter().enumerate() {
+            let Some(item) = item else { continue };
             if item.item_index != item_index {
                 continue;
             }
@@ -1660,6 +1941,13 @@ impl World {
                 remaining -= item.count;
                 continue;
             }
+            // 条件满足：记下这一格（`remaining` 就是这件物品要交出的数量）。
+            *checked_item = Some(CheckedItem {
+                slot,
+                unique_id: item.unique_id,
+                item_index: item.item_index,
+                count: remaining.max(1),
+            });
             return CheckOutcome::Pass;
         }
         CheckOutcome::Fail
@@ -1922,6 +2210,26 @@ struct PageRun {
     unsupported_actions: Vec<String>,
     /// 任务动作（本作扩展的 `ACCEPTQUEST`/`FINISHQUEST`/`ABANDONQUEST`）的失败原因。
     quest_events: Vec<String>,
+    /// 本页 `#IF` 里 `CHECKITEM` 选中的那件物品（M2 `TAKECHECKITEM` 取的就是它）。
+    checked_item: Option<CheckedItem>,
+    /// 本页要弹一次「可编辑输入框」（`GIVENAMELIST` 的输入路径）。
+    request_input: bool,
+}
+
+/// `CHECKITEM` 选中的物品快照。
+///
+/// M2 `ObjNpc.pas:11948-11955` 的语义是「条件里 `CHECKITEM` 记下 `UserItem`，
+/// 后面的 `TAKECHECKITEM` 把它取走」；本作把「哪一格、哪件、要几个」记在这里。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CheckedItem {
+    /// 背包格下标（找得到时优先按下标删，避免 UUID 重复的脏数据误删）。
+    slot: usize,
+    /// 物品 UUID（`S.DeleteItem` 要带）。
+    unique_id: u64,
+    /// 模板编号（用来回显物品名）。
+    item_index: i32,
+    /// 条件要求交出的数量（`CHECKITEM` 的第 2 个参数，缺省 1；已夹到该格持有量）。
+    count: u16,
 }
 
 /// 一条检查的结论。

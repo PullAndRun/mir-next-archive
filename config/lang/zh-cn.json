@@ -207,7 +207,14 @@
     "unknown_language": "未知的语言代码，可用：zh-cn、en。",
     "unsupported_command": "不支持的命令。",
     "welcome": "欢迎来到传奇-Next。",
-    "wrong_password": "账号或密码错误。"
+    "wrong_password": "账号或密码错误。",
+    "npc_no_checked_item": "没有可交出的物品。",
+    "npc_item_taken": "已交出 {name} ×{count}。",
+    "npc_name_list_prompt": "请从下列名字中选择，或直接输入名字。",
+    "npc_name_list_empty": "名字列表为空。",
+    "npc_unknown_buff": "未知的增益类型：{buff}。",
+    "npc_buff_bad_duration": "增益时长必须是 1~2592000 之间的秒数，收到：{value}。",
+    "npc_buff_given": "获得增益：{buff}，持续 {seconds} 秒。"
   },
   "maps": {
     "0": "比奇省"

@@ -20,11 +20,13 @@ use mir_db::{MapInfo, MirDb, MovementInfo, NpcInfo};
 use mir_protocol::ServerPacket;
 use mir_protocol::data::{ItemInfo, Stats, UserItem};
 use mir_server::NpcState;
+use mir_server::buffs::BuffKind;
 use mir_server::combat;
 use mir_server::gamedata::GameData;
 use mir_server::items;
 use mir_server::npc::{
-    BUY_KEY, NPC_TALK_RANGE, NpcError, SELL_KEY, item_price, repair_price, strip_color_markup,
+    BUY_KEY, NPC_TALK_RANGE, NpcError, SELL_KEY, item_price, parse_buff_kind, repair_price,
+    strip_color_markup,
 };
 use mir_server::world::{Player, World};
 use tokio::sync::mpsc;
@@ -241,6 +243,34 @@ impl Harness {
             },
             envir,
         )
+    }
+
+    /// 用自定义的 `Test/Shop` 脚本建世界（`#ACT` 动作测试用）。
+    fn new_with_script(tag: &str, script: &str) -> (Self, Envir) {
+        let envir = Envir::new(tag);
+        envir.script("Test/Shop", script);
+        envir.script("Test/Repair", REPAIR_SCRIPT);
+        let data = GameData::from_db(database(), Some(envir.drop_dir()));
+        let mut world = World::new(999);
+        world.seed_rng(0x5EED);
+        world.set_game_data(Arc::new(data));
+        let spawned = world.spawn_npcs(MAP);
+        assert_eq!(spawned.len(), 2, "两个 NPC 都应该刷出来");
+        (
+            Self {
+                world,
+                receivers: HashMap::new(),
+            },
+            envir,
+        )
+    }
+
+    /// 进世界 + 站到 NPC 旁边，返回玩家对象 ID 与 NPC 对象 ID。
+    fn ready(&mut self) -> (u32, u32) {
+        let npc_id = self.npc_id("测试商人");
+        let player = self.add_player(1, Point::new(100, 101));
+        self.packets(player);
+        (player, npc_id)
     }
 
     fn add_player(&mut self, object_id: u32, position: Point) -> u32 {
@@ -1298,4 +1328,306 @@ fn constants_are_exposed() {
     assert!(mir_server::npc::BUY_PAGES.contains(&BUY_KEY));
     assert!(mir_server::npc::SELL_PAGES.contains(&SELL_KEY));
     assert_eq!(mir_server::npc::REPAIR_PAGES, &["[@REPAIR]"]);
+}
+
+// ---------------------------------------------------------------------------
+// 9. `#ACT` 脚本动作：TAKECHECKITEM / TAKEITEM / GIVENAMELIST / GIVEBUFF
+// ---------------------------------------------------------------------------
+
+/// 系统聊天（`S.Chat{System}`）里有这条文案吗。
+fn has_system_chat(packets: &[ServerPacket], expected: &str) -> bool {
+    packets.iter().any(|packet| match packet {
+        ServerPacket::Chat(chat) => chat.message == expected,
+        _ => false,
+    })
+}
+
+/// 「交出一件 `CHECKITEM` 选中的物品」脚本。
+const TAKE_CHECK_ITEM_SCRIPT: &str = "\
+[@Main]\n\
+#IF\n\
+CHECKITEM WoodenSword 1\n\
+#ACT\n\
+TAKECHECKITEM\n\
+#SAY\n\
+收下了。\n";
+
+#[test]
+fn take_check_item_hands_over_the_item_and_sends_delete_item() {
+    let (mut harness, _envir) = Harness::new_with_script("takecheckitem", TAKE_CHECK_ITEM_SCRIPT);
+    let (player, npc_id) = harness.ready();
+    let info = harness
+        .world
+        .item_info_by_name("WoodenSword")
+        .expect("模板")
+        .clone();
+    let sword = harness.give_item(player, &info);
+    harness.packets(player);
+
+    let reply = harness
+        .world
+        .call_npc(player, npc_id, "@main")
+        .expect("对话应当成功");
+    assert_eq!(reply.page, vec!["收下了。".to_owned()]);
+    // 动作被认领，不再进 `unsupported_actions`。
+    assert!(reply.unsupported_actions.is_empty(), "{reply:?}");
+    // 物品真的没了。
+    assert!(
+        harness
+            .world
+            .find_inventory_item(player, sword.unique_id)
+            .is_none(),
+        "交出的物品应从背包消失"
+    );
+    let packets = harness.packets(player);
+    let deleted: Vec<(u64, u16)> = packets
+        .iter()
+        .filter_map(|packet| match packet {
+            ServerPacket::DeleteItem(item) => Some((item.unique_id, item.count)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(deleted, vec![(sword.unique_id, 1)], "应发一条 S.DeleteItem");
+    assert!(
+        has_system_chat(&packets, "已交出 WoodenSword ×1。"),
+        "{packets:?}"
+    );
+}
+
+#[test]
+fn take_item_keyword_shares_the_take_check_item_path() {
+    let (mut harness, _envir) = Harness::new_with_script(
+        "takeitem",
+        "[@Main]\n#IF\nCHECKITEM WoodenSword 1\n#ACT\nTAKEITEM\n#SAY\n收下了。\n",
+    );
+    let (player, npc_id) = harness.ready();
+    let info = harness
+        .world
+        .item_info_by_name("WoodenSword")
+        .expect("模板")
+        .clone();
+    let sword = harness.give_item(player, &info);
+    harness.packets(player);
+
+    let reply = harness
+        .world
+        .call_npc(player, npc_id, "@main")
+        .expect("对话应当成功");
+    assert!(reply.unsupported_actions.is_empty(), "{reply:?}");
+    assert!(
+        harness
+            .world
+            .find_inventory_item(player, sword.unique_id)
+            .is_none()
+    );
+    let packets = harness.packets(player);
+    assert!(packets.iter().any(|packet| matches!(
+        packet,
+        ServerPacket::DeleteItem(item) if item.unique_id == sword.unique_id
+    )));
+}
+
+#[test]
+fn take_check_item_without_a_checked_item_refuses_and_says_why() {
+    let (mut harness, _envir) = Harness::new_with_script(
+        "takecheckitem-missing",
+        "[@Main]\n#ACT\nTAKECHECKITEM\n#SAY\n没东西可收。\n",
+    );
+    let (player, npc_id) = harness.ready();
+    // 背包里有一把剑，但这一页没有 `CHECKITEM`，动作不该凭空拿走任何东西。
+    let info = harness
+        .world
+        .item_info_by_name("WoodenSword")
+        .expect("模板")
+        .clone();
+    let sword = harness.give_item(player, &info);
+    harness.packets(player);
+
+    let reply = harness
+        .world
+        .call_npc(player, npc_id, "@main")
+        .expect("对话仍然成功");
+    assert!(reply.unsupported_actions.is_empty());
+    assert!(
+        harness
+            .world
+            .find_inventory_item(player, sword.unique_id)
+            .is_some(),
+        "没有 CHECKITEM 选中物品时不能删东西"
+    );
+    let packets = harness.packets(player);
+    assert!(
+        !packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::DeleteItem(_)))
+    );
+    assert!(
+        has_system_chat(&packets, "没有可交出的物品。"),
+        "应给玩家一条失败原因：{packets:?}"
+    );
+}
+
+#[test]
+fn give_buff_adds_the_buff_with_the_scripted_duration() {
+    let (mut harness, _envir) = Harness::new_with_script(
+        "givebuff",
+        "[@Main]\n#ACT\nGIVEBUFF magicshield 30\n#SAY\n好了。\n",
+    );
+    let (player, npc_id) = harness.ready();
+
+    let reply = harness
+        .world
+        .call_npc(player, npc_id, "@main")
+        .expect("对话应当成功");
+    assert!(reply.unsupported_actions.is_empty(), "{reply:?}");
+    assert!(
+        harness.world.has_buff(player, BuffKind::MagicShield),
+        "脚本给了魔法盾"
+    );
+    let packets = harness.packets(player);
+    let duration = packets
+        .iter()
+        .find_map(|packet| match packet {
+            ServerPacket::AddBuff(buff) => Some(buff.buff.expire_time),
+            _ => None,
+        })
+        .expect("应发 S.AddBuff");
+    // 30 秒（允许实现里有几百毫秒的时钟误差）。
+    assert!(
+        (29_000..=30_000).contains(&duration),
+        "时长应约 30 秒，实际 {duration}"
+    );
+    assert!(
+        has_system_chat(&packets, "获得增益：magicshield，持续 30 秒。"),
+        "{packets:?}"
+    );
+}
+
+#[test]
+fn give_buff_defaults_to_one_minute_when_the_duration_is_missing() {
+    let (mut harness, _envir) = Harness::new_with_script(
+        "givebuff-default",
+        "[@Main]\n#ACT\nGIVEBUFF Fury\n#SAY\n好了。\n",
+    );
+    let (player, npc_id) = harness.ready();
+    harness
+        .world
+        .call_npc(player, npc_id, "@main")
+        .expect("对话应当成功");
+    assert!(harness.world.has_buff(player, BuffKind::Fury));
+    let packets = harness.packets(player);
+    let duration = packets
+        .iter()
+        .find_map(|packet| match packet {
+            ServerPacket::AddBuff(buff) => Some(buff.buff.expire_time),
+            _ => None,
+        })
+        .expect("应发 S.AddBuff");
+    assert!(
+        (59_000..=60_000).contains(&duration),
+        "缺时长时默认 60 秒，实际 {duration}"
+    );
+}
+
+#[test]
+fn give_buff_rejects_unknown_names_and_bad_durations() {
+    let (mut harness, _envir) = Harness::new_with_script(
+        "givebuff-bad",
+        "[@Main]\n#ACT\nGIVEBUFF NoSuchBuff 10\nGIVEBUFF Haste abc\n#SAY\n完了。\n",
+    );
+    let (player, npc_id) = harness.ready();
+    harness
+        .world
+        .call_npc(player, npc_id, "@main")
+        .expect("对话应当成功");
+    // 两条都失败：名字不认识、时长不是数字。
+    assert!(!harness.world.has_buff(player, BuffKind::Haste));
+    let packets = harness.packets(player);
+    assert!(
+        has_system_chat(&packets, "未知的增益类型：NoSuchBuff。"),
+        "{packets:?}"
+    );
+    assert!(
+        has_system_chat(&packets, "增益时长必须是 1~2592000 之间的秒数，收到：abc。"),
+        "{packets:?}"
+    );
+}
+
+#[test]
+fn give_name_list_offers_buttons_and_requests_input() {
+    let (mut harness, _envir) = Harness::new_with_script(
+        "givenamelist",
+        "[@Main]\n#ACT\nGIVENAMELIST Alice Bob\n#SAY\n选一个。\n\
+         \n[@Alice]\n#SAY\n我是爱丽丝。\n\
+         \n[@Bob]\n#SAY\n我是鲍勃。\n",
+    );
+    let (player, npc_id) = harness.ready();
+
+    let reply = harness
+        .world
+        .call_npc(player, npc_id, "@main")
+        .expect("对话应当成功");
+    assert!(reply.unsupported_actions.is_empty(), "{reply:?}");
+    // 名字进白名单（与脚本按钮同格式）。
+    let buttons = harness.world.player(player).unwrap().npc.buttons.clone();
+    assert!(buttons.contains("[@ALICE]"), "{buttons:?}");
+    assert!(buttons.contains("[@BOB]"), "{buttons:?}");
+    // 输入框请求（`S.NPCRequestInput`）。
+    let packets = harness.packets(player);
+    let input = packets
+        .iter()
+        .find_map(|packet| match packet {
+            ServerPacket::NPCRequestInput(input) => Some(input.clone()),
+            _ => None,
+        })
+        .expect("应发 S.NPCRequestInput");
+    assert_eq!(input.npcid, npc_id);
+    assert_eq!(input.page_name, "[@MAIN]");
+    assert!(
+        has_system_chat(&packets, "请从下列名字中选择，或直接输入名字。"),
+        "{packets:?}"
+    );
+
+    // 「点了某个名字」就等于发回 `@名字`：白名单放行，进入对应页面。
+    let reply = harness
+        .world
+        .call_npc(player, npc_id, "@alice")
+        .expect("点名字按钮应当成功");
+    assert_eq!(reply.page_key, "[@ALICE]");
+    assert_eq!(reply.page, vec!["我是爱丽丝。".to_owned()]);
+}
+
+#[test]
+fn give_name_list_without_names_reports_empty_list() {
+    let (mut harness, _envir) = Harness::new_with_script(
+        "givenamelist-empty",
+        "[@Main]\n#ACT\nGIVENAMELIST\n#SAY\n没有名字。\n",
+    );
+    let (player, npc_id) = harness.ready();
+    harness
+        .world
+        .call_npc(player, npc_id, "@main")
+        .expect("对话应当成功");
+    let packets = harness.packets(player);
+    assert!(
+        has_system_chat(&packets, "名字列表为空。"),
+        "应提示名字列表为空：{packets:?}"
+    );
+    // 即使列表为空，也仍然请求输入（玩家可以自己敲名字）。
+    assert!(
+        packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::NPCRequestInput(_)))
+    );
+}
+
+#[test]
+fn parse_buff_kind_ignores_case_and_separators() {
+    assert_eq!(parse_buff_kind("MagicShield"), Some(BuffKind::MagicShield));
+    assert_eq!(parse_buff_kind("magic_shield"), Some(BuffKind::MagicShield));
+    assert_eq!(parse_buff_kind("MAGIC-SHIELD"), Some(BuffKind::MagicShield));
+    assert_eq!(parse_buff_kind("exp"), Some(BuffKind::Exp));
+    // 本作没有实现的 Crystal `BuffType`（`Weak`）与拼错的名字都返回 `None`。
+    assert_eq!(parse_buff_kind("Weak"), None);
+    assert_eq!(parse_buff_kind("NoSuchBuff"), None);
 }

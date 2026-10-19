@@ -268,6 +268,12 @@ impl<S: AccountStore> Session<S> {
             ClientPacket::CallNPC(packet) => {
                 self.on_call_npc(packet.object_id, &packet.key).await;
             }
+            // NPC 输入框回执（`C.NPCConfirmInput`，Crystal `NPCScript.cs:863-868` 的
+            // `[@@"` 输入框）：客户端把玩家敲的名字发回来，服务端当成「点了名为该值的按钮」
+            // ——与 `GIVENAMELIST` 登记的白名单 key 同一套语义（`@名字` → `[@名字]` 页）。
+            ClientPacket::NPCConfirmInput(packet) => {
+                self.on_npc_confirm_input(packet.npcid, &packet.value).await;
+            }
             ClientPacket::BuyItem(packet) => {
                 self.on_buy_item(packet.item_index, packet.count, packet.type_)
                     .await;
@@ -1318,6 +1324,29 @@ impl<S: AccountStore> Session<S> {
             ),
             Err(error) => tracing::debug!(session = self.id, %error, "NPC 对话被拒绝"),
         }
+    }
+
+    /// NPC 输入框回执（`C.NPCConfirmInput`）。
+    ///
+    /// Crystal 的输入框是脚本页里的 `[@@"` 标记（`NPCScript.cs:863-868`）：服务端发
+    /// `S.NPCRequestInput{NpcID, PageName}`，客户端弹框，玩家确认后把字符串发回；服务端拿这个
+    /// 字符串**当成按钮 key** 再走一次 `CallNPC`（`NPCScript.cs:877-890`）。
+    ///
+    /// 本作同语义：值前面补 `@`（`Alice` → `@Alice`，由 `normalize_key` 规范成 `[@ALICE]`），
+    /// 然后走与 `C.CallNPC` 完全相同的路径。`GIVENAMELIST` 会把候选名字预先写进按钮白名单，
+    /// 所以玩家选列表项或自己敲都能落到对应页面；敲了不存在的名字则按「不是当前页按钮」拒绝。
+    async fn on_npc_confirm_input(&mut self, npc_object_id: u32, value: &str) {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            tracing::debug!(
+                session = self.id,
+                npc = npc_object_id,
+                "NPC 输入框回执为空，忽略"
+            );
+            return;
+        }
+        self.on_call_npc(npc_object_id, &format!("@{trimmed}"))
+            .await;
     }
 
     /// 买（`C.BuyItem`，Crystal `PlayerObject.BuyItem`，`PlayerObject.cs:7944-7969`）。

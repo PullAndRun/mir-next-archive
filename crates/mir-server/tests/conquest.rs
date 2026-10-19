@@ -1579,3 +1579,262 @@ fn score_and_owner_text_roundtrip() {
     // 坏数据不 panic。
     assert!(mir_server::decode_points("abc,,1:x,:5").is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// 12. 攻城器械（本项目扩展协议：ConquestInfo/Object/Result）
+// ---------------------------------------------------------------------------
+
+fn gate_location(world: &World) -> Point {
+    world
+        .conquest(CONQUEST)
+        .expect("攻城区")
+        .objects
+        .iter()
+        .find(|object| object.kind == mir_protocol::packets::server::ConquestObjectType::Gate)
+        .expect("城门")
+        .location
+}
+
+#[test]
+fn start_war_spawns_gate_walls_and_archers() {
+    let mut harness = Harness::new(80);
+    harness.world.start_war(CONQUEST, MONDAY_18);
+    let conquest = harness.world.conquest(CONQUEST).expect("攻城区");
+    assert!(conquest.war_is_on);
+    assert_eq!(
+        conquest
+            .objects
+            .iter()
+            .filter(|object| object.kind == mir_protocol::packets::server::ConquestObjectType::Gate)
+            .count(),
+        1
+    );
+    assert_eq!(
+        conquest
+            .objects
+            .iter()
+            .filter(|object| object.kind == mir_protocol::packets::server::ConquestObjectType::Wall)
+            .count(),
+        3
+    );
+    assert_eq!(
+        conquest
+            .objects
+            .iter()
+            .filter(
+                |object| object.kind == mir_protocol::packets::server::ConquestObjectType::Archer
+            )
+            .count(),
+        12
+    );
+    let mut ids: Vec<u32> = conquest
+        .objects
+        .iter()
+        .map(|object| object.object_id)
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    assert_eq!(ids.len(), 16, "器械对象 ID 应唯一");
+}
+
+#[test]
+fn entering_conquest_map_sends_info_and_objects() {
+    let mut harness = Harness::new(81);
+    let player = harness.add_player(1, "甲", 30, 0);
+    harness.world.start_war(CONQUEST, MONDAY_18);
+    // 真正走一次地图切换：从皇宫回到攻城区主图，触发 check_conquest_after_map_change。
+    harness
+        .world
+        .change_map(player, PALACE, Point::new(10, 10), MirDirection::Down)
+        .expect("进皇宫");
+    harness.clear(player);
+    harness
+        .world
+        .change_map(player, MAP, Point::new(10, 10), MirDirection::Down)
+        .expect("回攻城区");
+    let packets = harness.packets(player);
+    assert!(
+        packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::ConquestInfo(info) if info.index == CONQUEST && info.war_is_on)),
+        "进入攻城区应收到 S.ConquestInfo：{packets:?}"
+    );
+    assert!(
+        packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::ConquestObject(object) if object.conquest_index == CONQUEST)),
+        "进入攻城区应收到 S.ConquestObject：{packets:?}"
+    );
+}
+
+#[test]
+fn attacking_a_gate_broadcasts_its_reduced_hp() {
+    let mut harness = Harness::new(82);
+    let player = harness.add_player(1, "甲", 30, 0);
+    harness.world.start_war(CONQUEST, MONDAY_18);
+    let gate = gate_location(&harness.world);
+    harness.teleport(player, MAP, Point::new(gate.x - 1, gate.y));
+    if let Some(player) = harness.world.player_mut(player) {
+        player.stats.min_dc = 10_000;
+        player.stats.max_dc = 10_000;
+        player.stats.accuracy = 100;
+        player.direction = MirDirection::Right;
+    }
+    harness.clear(player);
+    harness
+        .world
+        .attack(player, MirDirection::Right)
+        .expect("攻击城门");
+    harness.world.advance_clock(400);
+    harness.world.tick();
+    let packets = harness.packets(player);
+    let object = packets.iter().find_map(|packet| match packet {
+        ServerPacket::ConquestObject(object) if object.hp < object.max_hp => Some(object),
+        _ => None,
+    });
+    assert!(object.is_some(), "受伤应广播 S.ConquestObject：{packets:?}");
+}
+
+#[test]
+fn destroying_a_gate_makes_the_cell_walkable() {
+    let mut harness = Harness::new(83);
+    let player = harness.add_player(1, "甲", 30, 0);
+    harness.world.start_war(CONQUEST, MONDAY_18);
+    let gate = gate_location(&harness.world);
+    assert!(harness.world.conquest_object_blocking(MAP, gate));
+    harness.teleport(player, MAP, Point::new(gate.x - 1, gate.y));
+    if let Some(player) = harness.world.player_mut(player) {
+        player.stats.min_dc = 10_000;
+        player.stats.max_dc = 10_000;
+        player.stats.accuracy = 100;
+    }
+    harness
+        .world
+        .attack(player, MirDirection::Right)
+        .expect("攻击城门");
+    harness.world.advance_clock(400);
+    harness.world.tick();
+    assert!(
+        !harness.world.conquest_object_blocking(MAP, gate),
+        "城门摧毁后格子应可走"
+    );
+}
+
+#[test]
+fn conquest_archer_shoots_enemy_player_in_range() {
+    let mut harness = Harness::new(84);
+    let player = harness.add_player(1, "攻方", 30, 0);
+    harness.world.start_war(CONQUEST, MONDAY_18);
+    let archer = harness
+        .world
+        .conquest(CONQUEST)
+        .expect("攻城区")
+        .objects
+        .iter()
+        .find(|object| object.kind == mir_protocol::packets::server::ConquestObjectType::Archer)
+        .expect("箭塔")
+        .location;
+    harness.teleport(player, MAP, Point::new(archer.x, archer.y + 5));
+    let before = harness.world.player(player).expect("玩家").hp;
+    harness.world.advance_clock(1_000);
+    let now = harness.world.now();
+    harness.world.process_conquest_towers_at(now);
+    harness.world.advance_clock(600);
+    harness.world.tick();
+    assert!(
+        harness.world.player(player).expect("玩家").hp < before,
+        "箭塔应射击敌对行会玩家"
+    );
+}
+
+#[test]
+fn conquest_archer_does_not_shoot_same_guild_player() {
+    let mut harness = Harness::new(85);
+    let player = harness.add_player(1, "守方", LEADER_LEVEL, GOLD);
+    let guild = harness.create_guild(player, "守方行会");
+    if let Some(conquest) = harness.world.conquest_mut(CONQUEST) {
+        conquest.owner = guild;
+    }
+    harness.world.start_war(CONQUEST, MONDAY_18);
+    let archer = harness
+        .world
+        .conquest(CONQUEST)
+        .expect("攻城区")
+        .objects
+        .iter()
+        .find(|object| object.kind == mir_protocol::packets::server::ConquestObjectType::Archer)
+        .expect("箭塔")
+        .location;
+    harness.teleport(player, MAP, Point::new(archer.x, archer.y + 5));
+    let before = harness.world.player(player).expect("玩家").hp;
+    harness.world.advance_clock(1_000);
+    let now = harness.world.now();
+    harness.world.process_conquest_towers_at(now);
+    assert_eq!(
+        harness.world.player(player).expect("玩家").hp,
+        before,
+        "同会玩家不应被箭塔射击"
+    );
+}
+
+#[test]
+fn destroyed_conquest_archer_stops_shooting() {
+    let mut harness = Harness::new(87);
+    let player = harness.add_player(1, "攻方", 30, 0);
+    harness.world.start_war(CONQUEST, MONDAY_18);
+    let archer = harness
+        .world
+        .conquest(CONQUEST)
+        .expect("攻城区")
+        .objects
+        .iter()
+        .find(|object| object.kind == mir_protocol::packets::server::ConquestObjectType::Archer)
+        .expect("箭塔")
+        .location;
+    if let Some(conquest) = harness.world.conquest_mut(CONQUEST) {
+        for tower in conquest.objects.iter_mut().filter(|object| {
+            object.kind == mir_protocol::packets::server::ConquestObjectType::Archer
+        }) {
+            tower.hp = 0;
+        }
+    }
+    harness.teleport(player, MAP, Point::new(archer.x, archer.y + 5));
+    let before = harness.world.player(player).expect("玩家").hp;
+    harness.world.advance_clock(1_000);
+    let now = harness.world.now();
+    harness.world.process_conquest_towers_at(now);
+    harness.world.advance_clock(600);
+    harness.world.tick();
+    assert_eq!(
+        harness.world.player(player).expect("玩家").hp,
+        before,
+        "摧毁后的箭塔不应再射击"
+    );
+}
+
+#[test]
+fn ending_war_resets_objects_and_sends_result() {
+    let mut harness = Harness::new(86);
+    let player = harness.add_player(1, "甲", 30, 0);
+    harness.world.start_war(CONQUEST, MONDAY_18);
+    assert!(
+        !harness
+            .world
+            .conquest(CONQUEST)
+            .expect("攻城区")
+            .objects
+            .is_empty()
+    );
+    harness.clear(player);
+    harness.world.end_war(CONQUEST);
+    let conquest = harness.world.conquest(CONQUEST).expect("攻城区");
+    assert!(!conquest.war_is_on);
+    assert!(conquest.objects.is_empty(), "停战应清空器械");
+    let packets = harness.packets(player);
+    assert!(
+        packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::ConquestResult(result) if result.index == CONQUEST)),
+        "停战应广播 S.ConquestResult：{packets:?}"
+    );
+}

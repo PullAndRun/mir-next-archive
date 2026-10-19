@@ -2266,3 +2266,336 @@ mod tests {
         roundtrip!(UpdateRentalItem, absent);
     }
 }
+
+/// 本项目扩展，Crystal 无此包：攻城区配置/状态（索引 300）。
+///
+/// 进入攻城区地图或攻城区状态变化（开战/停战/归属变化）时下发；客户端只读展示。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConquestInfo {
+    /// 攻城区编号。
+    pub index: i32,
+    /// 攻城区名称。
+    pub name: String,
+    /// 当前城主行会 ID，`-1` = 无主。
+    pub owner: i32,
+    /// 是否正在开战。
+    pub war_is_on: bool,
+    /// 开战时刻（Unix 毫秒；0 = 未开战）。
+    pub start_time: i64,
+    /// 停战时刻（Unix 毫秒；0 = 未设置）。
+    pub end_time: i64,
+    /// 控制点归属与分数。
+    pub control_points: Vec<ConquestControlPoint>,
+}
+
+impl ConquestInfo {
+    /// 本项目扩展的包编号（生成包 0..=278 之外）。
+    pub const INDEX: i16 = 300;
+    /// 是否 gzip 压缩。
+    pub const COMPRESSED: bool = false;
+
+    /// 解码。
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let index = r.read_i32()?;
+        let name = r.read_string()?;
+        let owner = r.read_i32()?;
+        let war_is_on = r.read_bool()?;
+        let start_time = r.read_i64()?;
+        let end_time = r.read_i64()?;
+        let count = r.read_count()?;
+        if count > 256 {
+            return Err(crate::ProtocolError::CollectionTooLong {
+                length: count,
+                limit: 256,
+            });
+        }
+        let mut control_points = Vec::with_capacity(count);
+        for _ in 0..count {
+            control_points.push(ConquestControlPoint::decode(r)?);
+        }
+        Ok(Self {
+            index,
+            name,
+            owner,
+            war_is_on,
+            start_time,
+            end_time,
+            control_points,
+        })
+    }
+
+    /// 编码。
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        w.write_i32(self.index);
+        w.write_string(&self.name);
+        w.write_i32(self.owner);
+        w.write_bool(self.war_is_on);
+        w.write_i64(self.start_time);
+        w.write_i64(self.end_time);
+        w.write_count(self.control_points.len());
+        for point in &self.control_points {
+            point.encode(w);
+        }
+    }
+}
+
+/// 本项目扩展：控制点归属与分数。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConquestControlPoint {
+    /// 控制点编号。
+    pub index: i32,
+    /// 归属行会 ID，`-1` = 无主。
+    pub owner: i32,
+    /// 当前分数。
+    pub points: i32,
+}
+
+impl ConquestControlPoint {
+    /// 解码。
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        Ok(Self {
+            index: r.read_i32()?,
+            owner: r.read_i32()?,
+            points: r.read_i32()?,
+        })
+    }
+
+    /// 编码。
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        w.write_i32(self.index);
+        w.write_i32(self.owner);
+        w.write_i32(self.points);
+    }
+}
+
+/// 本项目扩展：攻城器械类型（`ConquestObject.kind`）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ConquestObjectType {
+    /// 城门。
+    #[default]
+    Gate,
+    /// 城墙。
+    Wall,
+    /// 箭塔。
+    Archer,
+}
+
+impl ConquestObjectType {
+    /// 数值编码。
+    pub const fn value(self) -> u8 {
+        match self {
+            Self::Gate => 0,
+            Self::Wall => 1,
+            Self::Archer => 2,
+        }
+    }
+
+    /// 从数值解码；未知值返回 `None`。
+    pub const fn from_value(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::Gate),
+            1 => Some(Self::Wall),
+            2 => Some(Self::Archer),
+            _ => None,
+        }
+    }
+}
+
+/// 本项目扩展，Crystal 无此包：攻城器械对象（索引 301）。
+///
+/// 进入视野、受伤、摧毁时下发；`hp == 0` 表示已摧毁。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConquestObject {
+    /// 器械对象 ID（与玩家/怪物共用 ID 空间）。
+    pub object_id: u32,
+    /// 所属攻城区编号。
+    pub conquest_index: i32,
+    /// 器械类型。
+    pub kind: ConquestObjectType,
+    /// 位置。
+    pub location: Point,
+    /// 朝向。
+    pub direction: MirDirection,
+    /// 当前 HP。
+    pub hp: i32,
+    /// 最大 HP。
+    pub max_hp: i32,
+    /// 归属行会 ID，`-1` = 无主。
+    pub owner: i32,
+    /// 是否已摧毁。
+    pub destroyed: bool,
+}
+
+impl ConquestObject {
+    /// 本项目扩展的包编号（生成包 0..=278 之外）。
+    pub const INDEX: i16 = 301;
+    /// 是否 gzip 压缩。
+    pub const COMPRESSED: bool = false;
+
+    /// 解码。
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let object_id = r.read_u32()?;
+        let conquest_index = r.read_i32()?;
+        let kind = ConquestObjectType::from_value(r.read_u8()?).unwrap_or_default();
+        let location = Point {
+            x: r.read_i32()?,
+            y: r.read_i32()?,
+        };
+        let direction = MirDirection::from_value(r.read_u8()?).unwrap_or_default();
+        let hp = r.read_i32()?;
+        let max_hp = r.read_i32()?;
+        let owner = r.read_i32()?;
+        let destroyed = r.read_bool()?;
+        Ok(Self {
+            object_id,
+            conquest_index,
+            kind,
+            location,
+            direction,
+            hp,
+            max_hp,
+            owner,
+            destroyed,
+        })
+    }
+
+    /// 编码。
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        w.write_u32(self.object_id);
+        w.write_i32(self.conquest_index);
+        w.write_u8(self.kind.value());
+        w.write_i32(self.location.x);
+        w.write_i32(self.location.y);
+        w.write_u8(self.direction as u8);
+        w.write_i32(self.hp);
+        w.write_i32(self.max_hp);
+        w.write_i32(self.owner);
+        w.write_bool(self.destroyed);
+    }
+}
+
+/// 本项目扩展，Crystal 无此包：攻城结束结果（索引 302）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConquestResult {
+    /// 攻城区编号。
+    pub index: i32,
+    /// 胜者行会 ID，`-1` = 无胜者/守城成功。
+    pub winner: i32,
+    /// 结束后归属行会 ID，`-1` = 无主。
+    pub owner: i32,
+    /// 结束后控制点归属。
+    pub control_points: Vec<ConquestControlPoint>,
+}
+
+impl ConquestResult {
+    /// 本项目扩展的包编号（生成包 0..=278 之外）。
+    pub const INDEX: i16 = 302;
+    /// 是否 gzip 压缩。
+    pub const COMPRESSED: bool = false;
+
+    /// 解码。
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let index = r.read_i32()?;
+        let winner = r.read_i32()?;
+        let owner = r.read_i32()?;
+        let count = r.read_count()?;
+        if count > 256 {
+            return Err(crate::ProtocolError::CollectionTooLong {
+                length: count,
+                limit: 256,
+            });
+        }
+        let mut control_points = Vec::with_capacity(count);
+        for _ in 0..count {
+            control_points.push(ConquestControlPoint::decode(r)?);
+        }
+        Ok(Self {
+            index,
+            winner,
+            owner,
+            control_points,
+        })
+    }
+
+    /// 编码。
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        w.write_i32(self.index);
+        w.write_i32(self.winner);
+        w.write_i32(self.owner);
+        w.write_count(self.control_points.len());
+        for point in &self.control_points {
+            point.encode(w);
+        }
+    }
+}
+
+#[cfg(test)]
+mod conquest_packet_tests {
+    use super::*;
+    use crate::packets::server::ServerPacket;
+
+    fn point() -> ConquestControlPoint {
+        ConquestControlPoint {
+            index: 2,
+            owner: 7,
+            points: 42,
+        }
+    }
+
+    #[test]
+    fn conquest_info_roundtrips_through_server_packet() {
+        let packet = ConquestInfo {
+            index: 3,
+            name: "沙巴克".to_owned(),
+            owner: 7,
+            war_is_on: true,
+            start_time: 1_700_000_000_000,
+            end_time: 1_700_003_600_000,
+            control_points: vec![point()],
+        };
+        let frame = ServerPacket::ConquestInfo(packet.clone()).encode_frame();
+        assert_eq!(&frame[2..4], &ConquestInfo::INDEX.to_le_bytes());
+        let decoded = ServerPacket::decode(ConquestInfo::INDEX, &frame[4..]).expect("解码");
+        assert_eq!(decoded, ServerPacket::ConquestInfo(packet));
+    }
+
+    #[test]
+    fn conquest_object_roundtrips_through_server_packet() {
+        let packet = ConquestObject {
+            object_id: 99,
+            conquest_index: 3,
+            kind: ConquestObjectType::Archer,
+            location: Point { x: 120, y: 88 },
+            direction: MirDirection::Left,
+            hp: 300,
+            max_hp: 500,
+            owner: 7,
+            destroyed: false,
+        };
+        let frame = ServerPacket::ConquestObject(packet.clone()).encode_frame();
+        assert_eq!(&frame[2..4], &ConquestObject::INDEX.to_le_bytes());
+        let decoded = ServerPacket::decode(ConquestObject::INDEX, &frame[4..]).expect("解码");
+        assert_eq!(decoded, ServerPacket::ConquestObject(packet));
+    }
+
+    #[test]
+    fn conquest_result_roundtrips_through_server_packet() {
+        let packet = ConquestResult {
+            index: 3,
+            winner: 7,
+            owner: 7,
+            control_points: vec![point()],
+        };
+        let frame = ServerPacket::ConquestResult(packet.clone()).encode_frame();
+        assert_eq!(&frame[2..4], &ConquestResult::INDEX.to_le_bytes());
+        let decoded = ServerPacket::decode(ConquestResult::INDEX, &frame[4..]).expect("解码");
+        assert_eq!(decoded, ServerPacket::ConquestResult(packet));
+    }
+
+    #[test]
+    fn conquest_packet_indices_are_outside_generated_range() {
+        assert_eq!(ConquestInfo::INDEX, 300);
+        assert_eq!(ConquestObject::INDEX, 301);
+        assert_eq!(ConquestResult::INDEX, 302);
+    }
+}

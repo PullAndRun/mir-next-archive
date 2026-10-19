@@ -20,6 +20,8 @@ use crate::world::World;
 
 /// 汇总日志的间隔（30 秒）。
 const METRICS_LOG_INTERVAL_MS: i64 = 30_000;
+/// 单连接写任务的合批上限：一次 `write_all` 最多发送这么多字节。
+const OUTBOX_BATCH_BYTES: usize = 64 * 1024;
 
 /// 连接被拒的原因（只用于日志/测试断言）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,6 +140,7 @@ pub async fn serve_forever_with_world<S: AccountStore>(
     store: Arc<S>,
     world: Arc<Mutex<World>>,
 ) -> anyhow::Result<()> {
+    world.lock().await.set_broadcast_batching(true);
     // 行会：启动时把库里的行会灌进世界（Crystal `Envir.LoadGuilds`，`Envir.cs:3089-3117`）。
     match store.list_guilds().await {
         Ok(guilds) => {
@@ -552,9 +555,19 @@ async fn serve<S: AccountStore>(
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Vec<u8>>();
 
     // 写任务：所有发包（含世界广播）都走同一条通道，保证帧不交错。
+    // 关键优化：一次最多把 64KB 的帧合并到同一个 `write_all`，把每 tick 每玩家
+    // 的多次 syscall 降到一次；超过阈值先写掉，避免单连接无限占内存。
     let writer_task = tokio::spawn(async move {
-        while let Some(frame) = out_rx.recv().await {
-            if writer.write_all(&frame).await.is_err() {
+        while let Some(first) = out_rx.recv().await {
+            let mut batch = first;
+            while batch.len() < OUTBOX_BATCH_BYTES {
+                match out_rx.try_recv() {
+                    Ok(frame) => batch.extend_from_slice(&frame),
+                    Err(_) => break,
+                }
+            }
+            if writer.write_all(&batch).await.is_err() {
+                crate::metrics::metrics().packet_dropped();
                 break;
             }
         }

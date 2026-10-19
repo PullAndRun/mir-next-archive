@@ -145,6 +145,13 @@ pub struct Session<S: AccountStore> {
     next_save_retry_at_ms: i64,
     /// 连续 autosave 失败次数（指数退避用，成功后清零）。
     autosave_failures: u32,
+    /// 上一次观察到的 HP。
+    ///
+    /// 本作没有在伤害结算点挂钩（那在 `world.rs`/`combat.rs`，不在本任务的改动范围内），
+    /// 所以「受击磨损护甲」（Crystal `HumanObject.DamageDura`）改为**会话侧观察 HP 下降**：
+    /// 每收到一个客户端包时比较一次，掉了血就结算一次装备磨损。粒度是「下一次收包」，
+    /// 与 Crystal 的「受击瞬间」有差异，已在 `docs` 与回执里登记。
+    last_seen_hp: Option<i32>,
     /// 行会/邮件**重试闸门**（`World::wall_now()` 毫秒；`0` = 没在等重试）。
     ///
     /// 写失败时批次回灌到 `World::{guild,mail}_writes`（与 `market::commit_market_like`
@@ -186,6 +193,7 @@ impl<S: AccountStore> Session<S> {
             next_save_retry_at_ms: 0,
             autosave_failures: 0,
             next_write_retry_at_ms: 0,
+            last_seen_hp: None,
         }
     }
 
@@ -247,6 +255,8 @@ impl<S: AccountStore> Session<S> {
         if !self.rate_allows_packet() {
             return Ok(());
         }
+        // 受击磨损：把「上次看到的 HP」与当前 HP 比一下（见 `last_seen_hp` 的说明）。
+        self.settle_damage_wear().await;
         // GM `@kick` 的兜底路径：连接建立时登记过通道的会话由读循环直接断开；
         // 没登记的（测试/裸 Session）在这里退出。
         if crate::gm::take_pending_kick(self.id) {
@@ -1149,7 +1159,19 @@ impl<S: AccountStore> Session<S> {
         self.character = Some(character);
         // autosave 的「脏」基准：登录时刚写过的行就是已入库的行。
         self.mark_saved();
-        self.next_autosave_at_ms = 0;
+        // 同一波登录（压测/开服）如果都从 now 开始，30 秒后会在同一 tick 集中写 300 次库，
+        // tick p99 直接被 autosave 尖峰拉爆。按连接 id 做确定性错峰，仍保持每角色
+        // `autosave_secs` 周期不变。
+        let interval_ms = self.autosave_interval_ms();
+        if interval_ms > 0 {
+            let spread_ms = self.id.wrapping_mul(97) % u64::try_from(interval_ms).unwrap_or(1);
+            self.next_autosave_at_ms = self
+                .clock_now()
+                .await
+                .saturating_add(i64::try_from(spread_ms).unwrap_or(0));
+        } else {
+            self.next_autosave_at_ms = 0;
+        }
         crate::metrics::metrics().player_entered();
         // 让 `@kick <账号|角色>` 能在会话登记表里按名字反查（见 `crate::gm`）。
         if let Some(account) = &self.account {
@@ -1270,6 +1292,8 @@ impl<S: AccountStore> Session<S> {
                                 damage = report.damage,
                                 "发起攻击"
                             );
+                            // Crystal `HumanObject.cs:3353`：命中一次 `DamageWeapon()`（1..=4 点）。
+                            world.damage_weapon(object_id);
                         }
                         return;
                     }
@@ -2879,6 +2903,23 @@ impl<S: AccountStore> Session<S> {
     // -----------------------------------------------------------------------
     // 周期自动存档（F1：崩服 RPO 有界）
     // -----------------------------------------------------------------------
+
+    /// 观察一次 HP 变化，掉了血就结算「受击磨损」（Crystal `HumanObject.DamageDura`）。
+    async fn settle_damage_wear(&mut self) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        let Some(hp) = world.player(object_id).map(|player| player.hp) else {
+            return;
+        };
+        let previous = self.last_seen_hp.replace(hp);
+        // 只在**掉血**时磨损（回血/换图重置不动装备）。
+        if previous.is_none_or(|previous| hp >= previous) {
+            return;
+        }
+        world.damage_armour(object_id);
+    }
 
     /// autosave 周期（毫秒）；`0` = 关闭。
     fn autosave_interval_ms(&self) -> i64 {

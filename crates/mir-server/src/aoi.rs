@@ -225,6 +225,60 @@ impl AoiGrid {
         true
     }
 
+    /// 查询闭区间矩形内**某一类**对象（按 `(y, x, 对象 ID)` 排序）。
+    ///
+    /// 广播/AOI 同步只需要玩家或只需要怪物时用它：直接跳过无关类别，
+    /// 避免把整张视野里的怪物/地面物品都先收集再过滤。
+    #[must_use]
+    pub fn query_rect_kind(&self, min: Point, max: Point, kind: AoiKind) -> Vec<AoiEntry> {
+        let left = min.x.min(max.x);
+        let right = min.x.max(max.x);
+        let top = min.y.min(max.y);
+        let bottom = min.y.max(max.y);
+        let mut found = Vec::new();
+        if self.entries.is_empty() {
+            return found;
+        }
+        let start = self.bucket_key(Point::new(left, top));
+        let end = self.bucket_key(Point::new(right, bottom));
+        for bucket_x in start.0..=end.0 {
+            for bucket_y in start.1..=end.1 {
+                let Some(bucket) = self.buckets.get(&(bucket_x, bucket_y)) else {
+                    continue;
+                };
+                for key in bucket {
+                    if key.0 != kind {
+                        continue;
+                    }
+                    let Some(entry) = self.entries.get(key) else {
+                        continue;
+                    };
+                    if entry.position.x < left
+                        || entry.position.x > right
+                        || entry.position.y < top
+                        || entry.position.y > bottom
+                    {
+                        continue;
+                    }
+                    found.push(*entry);
+                }
+            }
+        }
+        found.sort_by_key(|entry| (entry.position.y, entry.position.x, entry.object_id));
+        found
+    }
+
+    /// 查询切比雪夫半径内某一类对象（广播按玩家类别查询时用）。
+    #[must_use]
+    pub fn query_radius_kind(&self, center: Point, radius: i32, kind: AoiKind) -> Vec<AoiEntry> {
+        let radius = radius.max(0);
+        self.query_rect_kind(
+            Point::new(center.x - radius, center.y - radius),
+            Point::new(center.x + radius, center.y + radius),
+            kind,
+        )
+    }
+
     /// 查询闭区间矩形 `[min, max]` 内的对象（按 `(y, x, 对象 ID)` 排序）。
     ///
     /// 参数顺序反了也能工作：内部会取 `min/max` 的分量最小值/最大值。

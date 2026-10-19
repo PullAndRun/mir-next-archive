@@ -843,6 +843,9 @@ pub struct World {
     /// tick 内的 AOI 广播合批队列（`player_id → 多个已编码帧`）。
     /// 只在 `tick_monsters` 的 AI 段开启；每个玩家一 tick 合并成一次 channel/write。
     pub(crate) broadcast_batch: Option<HashMap<u32, Vec<u8>>>,
+    /// 生产服务端开启：所有 AOI 广播先按玩家聚合，由 `World::tick` 统一 flush。
+    /// 测试/嵌入式世界默认关闭，保持 `world.walk(...)` 后立即可读包的旧语义。
+    pub(crate) broadcast_batching: bool,
     /// 地面物品 ID → 在 [`World::ground_items`] 里的下标，理由同 [`World::monster_slots`]。
     pub(crate) ground_item_slots: HashMap<u32, usize>,
     /// 每张地图的门的运行时状态：地图名 → (门索引 → 状态)。
@@ -950,6 +953,7 @@ impl World {
             visible_players: HashMap::new(),
             monster_slots: HashMap::new(),
             broadcast_batch: None,
+            broadcast_batching: false,
             ground_item_slots: HashMap::new(),
             doors: HashMap::new(),
         }
@@ -1027,6 +1031,7 @@ impl World {
             visible_players: HashMap::new(),
             monster_slots: HashMap::new(),
             broadcast_batch: None,
+            broadcast_batching: false,
             ground_item_slots: HashMap::new(),
             doors: HashMap::new(),
         }
@@ -1309,12 +1314,12 @@ impl World {
         radius: i32,
         kind: AoiKind,
     ) -> Vec<u32> {
-        let mut ids: Vec<u32> = self
-            .aoi_in_radius(map, center, radius)
-            .into_iter()
-            .filter(|entry| entry.kind == kind)
-            .map(|entry| entry.object_id)
-            .collect();
+        let mut ids: Vec<u32> = self.aoi.get(map).map_or_else(Vec::new, |grid| {
+            grid.query_radius_kind(center, radius, kind)
+                .into_iter()
+                .map(|entry| entry.object_id)
+                .collect()
+        });
         ids.sort_unstable();
         ids
     }
@@ -2183,6 +2188,15 @@ impl World {
         // 寄售/拍卖过期：Crystal 在 `Envir.Process` 里逐条标记 `Expired`
         // （`Envir.cs:2396`），见 [`crate::market`]。
         self.tick_market();
+        // 生产模式的 AOI 广播在这里统一按玩家 flush：一次 channel 消息/一次 write。
+        if self.broadcast_batching {
+            self.flush_broadcast_batch();
+        }
+    }
+
+    /// 生产服务端开启 AOI 广播按 tick 聚合（测试世界保持默认关闭）。
+    pub fn set_broadcast_batching(&mut self, enabled: bool) {
+        self.broadcast_batching = enabled;
     }
 
     /// 玩家侧簿记：跑步计数衰减、停顿后清零 `step_counter`、自然回血回蓝、到点复活。
@@ -3892,24 +3906,26 @@ impl World {
         };
         let map = player.map.clone();
         let position = player.position;
-        let self_frame = self.appearance_packet(player);
         let visible: BTreeSet<u32> = self
             .aoi_ids_in_radius(&map, position, VIEW_RANGE, AoiKind::Player)
             .into_iter()
             .filter(|object_id| *object_id != player_id)
             .collect();
-        let previous = self
-            .visible_players
-            .get(&player_id)
-            .cloned()
-            .unwrap_or_default();
+        let empty = BTreeSet::new();
+        let previous = self.visible_players.get(&player_id).unwrap_or(&empty);
         let removals: Vec<u32> = previous.difference(&visible).copied().collect();
-        let add_frames: Vec<(u32, Vec<u8>)> = visible
-            .difference(&previous)
+        let add_ids: Vec<u32> = visible.difference(previous).copied().collect();
+        let self_frame = if add_ids.is_empty() {
+            None
+        } else {
+            Some(self.appearance_packet(player))
+        };
+        let add_frames: Vec<(u32, Vec<u8>)> = add_ids
+            .into_iter()
             .filter_map(|other_id| {
                 self.players
-                    .get(other_id)
-                    .map(|other| (*other_id, self.appearance_packet(other)))
+                    .get(&other_id)
+                    .map(|other| (other_id, self.appearance_packet(other)))
             })
             .collect();
 
@@ -3933,7 +3949,9 @@ impl World {
         }
         for (other_id, _) in &add_frames {
             if let Some(other) = self.players.get(other_id) {
-                let _ = other.sender.send(self_frame.clone());
+                if let Some(frame) = &self_frame {
+                    let _ = other.sender.send(frame.clone());
+                }
             }
             self.visible_players
                 .entry(*other_id)
@@ -4147,19 +4165,20 @@ impl World {
         packet: &[u8],
         actor: u32,
     ) -> usize {
-        let recipients: Vec<u32> = self
-            .aoi_in_radius(map, position, VIEW_RANGE)
-            .into_iter()
-            .filter(|entry| entry.kind == AoiKind::Player)
-            .map(|entry| entry.object_id)
-            .filter(|id| exclude != Some(*id) && *id != actor)
-            .collect();
+        let recipients: Vec<u32> = self.aoi.get(map).map_or_else(Vec::new, |grid| {
+            grid.query_radius_kind(position, VIEW_RANGE, AoiKind::Player)
+                .into_iter()
+                .map(|entry| entry.object_id)
+                .filter(|id| exclude != Some(*id) && *id != actor)
+                .collect()
+        });
         let mut sent = 0;
         for object_id in recipients {
             if !self.players.contains_key(&object_id) {
                 continue;
             }
-            if let Some(batch) = self.broadcast_batch.as_mut() {
+            if self.broadcast_batching || self.broadcast_batch.is_some() {
+                let batch = self.broadcast_batch.get_or_insert_with(HashMap::new);
                 batch
                     .entry(object_id)
                     .or_default()

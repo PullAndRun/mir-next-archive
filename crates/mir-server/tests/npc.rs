@@ -1734,3 +1734,238 @@ fn parse_buff_kind_ignores_case_and_separators() {
     assert_eq!(parse_buff_kind("Weak"), None);
     assert_eq!(parse_buff_kind("NoSuchBuff"), None);
 }
+
+// ---------------------------------------------------------------------------
+// 7. 耐久损耗与装备失效（Crystal `HumanObject.DamageWeapon` / `DamageDura`）
+// ---------------------------------------------------------------------------
+
+/// 把一件物品直接塞进**装备栏**（`EquipmentSlot.Weapon = 0`），返回它的 `unique_id`。
+fn equip_weapon(harness: &mut Harness, player: u32) -> UserItem {
+    let info = harness.world.item_info(4).cloned().expect("铁剑模板");
+    let item = equip_item(harness, player, &info, items::EQUIPMENT_SLOT_WEAPON);
+    harness.world.refresh_stats(player);
+    item
+}
+
+/// 把物品塞进指定装备槽（`current_dura` 先设满）。
+fn equip_item(harness: &mut Harness, player: u32, info: &ItemInfo, slot: usize) -> UserItem {
+    let mut item = UserItem {
+        unique_id: 900_000 + u64::from(slot as u32),
+        item_index: info.index,
+        current_dura: info.durability,
+        max_dura: info.durability,
+        count: 1,
+        ..UserItem::default()
+    };
+    if let Some(player_ref) = harness.world.player_mut(player) {
+        player_ref.equipment[slot] = Some(item.clone());
+    }
+    item.unique_id = 900_000 + u64::from(slot as u32);
+    item
+}
+
+#[test]
+fn attacking_wears_the_weapon_by_one_to_four_points() {
+    let (mut harness, _envir) = Harness::new("wear-weapon");
+    let player = harness.add_player(1, Point::new(101, 101));
+    let item = equip_weapon(&mut harness, player);
+    harness.packets(player);
+
+    let before = harness.world.player(player).unwrap().equipment[items::EQUIPMENT_SLOT_WEAPON]
+        .as_ref()
+        .unwrap()
+        .current_dura;
+
+    // 打 200 次，统计每次的损耗：Crystal `Random.Next(4) + 1` → 1..=4。
+    let mut losses = Vec::new();
+    for _ in 0..200 {
+        let loss = harness.world.damage_weapon(player).expect("有武器就该磨损");
+        losses.push(i32::from(before) - i32::from(loss.current_dura));
+        // 复原，保证每次都从满耐久开始算。
+        harness.world.player_mut(player).unwrap().equipment[items::EQUIPMENT_SLOT_WEAPON]
+            .as_mut()
+            .unwrap()
+            .current_dura = before;
+    }
+    assert!(
+        losses.iter().all(|loss| (1..=4).contains(loss)),
+        "每次磨损应在 1..=4 点（Crystal `Random.Next(4)+1`），实际 {losses:?}"
+    );
+    assert!(
+        losses.iter().any(|loss| *loss > 1),
+        "200 次里应该出现过 >1 点的磨损（否则 RNG 没生效）"
+    );
+    let _ = item;
+}
+
+#[test]
+fn broken_weapon_loses_its_stats_and_notifies_once() {
+    let (mut harness, _envir) = Harness::new("wear-broken");
+    let player = harness.add_player(1, Point::new(101, 101));
+    equip_weapon(&mut harness, player);
+    harness.world.refresh_stats(player);
+    let attack_with_full = harness.world.player(player).unwrap().stats.max_dc;
+    harness.packets(player);
+
+    // 把耐久打到 1，再磨一次 → 归零。
+    if let Some(item) = harness
+        .world
+        .player_mut(player)
+        .unwrap()
+        .equipment
+        .get_mut(items::EQUIPMENT_SLOT_WEAPON)
+        .and_then(Option::as_mut)
+    {
+        item.current_dura = 1;
+    }
+    let loss = harness.world.damage_weapon(player).expect("应该能磨损");
+    assert!(loss.broke, "这一下应该把武器打坏");
+    assert_eq!(loss.current_dura, 0);
+
+    // 装备失效：不再提供属性（`apply_equipment_stats` 的 `CurrentDura == 0` 早退）。
+    let attack_broken = harness.world.player(player).unwrap().stats.max_dc;
+    assert!(
+        attack_broken < attack_with_full,
+        "耐久归零后武器不该再加攻击（{attack_broken} 应小于 {attack_with_full}）"
+    );
+
+    let packets = harness.packets(player);
+    assert!(
+        packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::DuraChanged(changed) if changed.current_dura == 0)),
+        "打坏时要发 S.DuraChanged(76)"
+    );
+    let notices = packets
+        .iter()
+        .filter(
+            |packet| matches!(packet, ServerPacket::Chat(chat) if chat.message.contains("耐久")),
+        )
+        .count();
+    assert_eq!(
+        notices, 1,
+        "「装备损坏」提示只发一次（TextKey::ItemBroken）"
+    );
+
+    // 再磨一次：已经 0 耐久，什么都不该发生（Crystal `DamageItem` 早退）。
+    assert!(
+        harness.world.damage_weapon(player).is_none(),
+        "耐久为 0 的装备不再参与磨损"
+    );
+}
+
+#[test]
+fn taking_damage_wears_every_slot_except_the_weapon() {
+    let (mut harness, _envir) = Harness::new("wear-armour");
+    let player = harness.add_player(1, Point::new(101, 101));
+    // 0 = 武器，1 = 盔甲（`EquipmentSlot.Armour`）。
+    let weapon = equip_weapon(&mut harness, player);
+    let armour_info = harness.world.item_info(4).cloned().unwrap();
+    let armour = equip_item(&mut harness, player, &armour_info, 1);
+    harness.packets(player);
+
+    let losses = harness.world.damage_armour(player);
+    assert!(
+        losses
+            .iter()
+            .all(|loss| loss.slot != items::EQUIPMENT_SLOT_WEAPON),
+        "受击磨损不碰武器槽（Crystal `DamageDura` 的 `i != Weapon`）"
+    );
+    assert!(losses.iter().any(|loss| loss.slot == 1), "盔甲槽应该 -1");
+    let weapon_now = harness.world.player(player).unwrap().equipment[items::EQUIPMENT_SLOT_WEAPON]
+        .as_ref()
+        .unwrap()
+        .current_dura;
+    assert_eq!(weapon_now, weapon.current_dura, "武器耐久不该被受击磨损改");
+    let armour_now = harness.world.player(player).unwrap().equipment[1]
+        .as_ref()
+        .unwrap()
+        .current_dura;
+    assert_eq!(armour_now, armour.current_dura - 1, "每个槽位固定 -1");
+}
+
+#[test]
+fn repairing_a_full_durability_item_is_rejected_with_a_notice() {
+    let (mut harness, _envir) = Harness::new("repair-full");
+    let (player, item) = open_repair(&mut harness);
+    harness.world.player_mut(player).unwrap().gold = 10_000;
+    // 修满：`open_repair` 已经把耐久压到 1000，先修一次。
+    harness
+        .world
+        .repair_item(player, item.unique_id)
+        .expect("第一次能修");
+    harness.packets(player);
+
+    let error = harness
+        .world
+        .repair_item(player, item.unique_id)
+        .expect_err("满耐久不该能修");
+    assert_eq!(error, NpcError::DurabilityFull(item.unique_id));
+    let packets = harness.packets(player);
+    assert!(
+        !packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::ItemRepaired(_))),
+        "满耐久时不该发 ItemRepaired"
+    );
+    assert!(
+        packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::Chat(chat) if chat.message.contains("耐久是满的"))),
+        "要给「耐久已满」提示（TextKey::NpcRepairFull）"
+    );
+}
+
+#[test]
+fn repairing_without_gold_explains_the_cost() {
+    let (mut harness, _envir) = Harness::new("repair-poor-notice");
+    let (player, item) = open_repair(&mut harness);
+    harness.world.player_mut(player).unwrap().gold = 50;
+    harness.packets(player);
+
+    assert!(harness.world.repair_item(player, item.unique_id).is_err());
+    let packets = harness.packets(player);
+    let notice = packets
+        .iter()
+        .find_map(|packet| match packet {
+            ServerPacket::Chat(chat)
+                if chat.message.contains("100") && chat.message.contains("50") =>
+            {
+                Some(chat.message.clone())
+            }
+            _ => None,
+        })
+        .expect("要给「金币不足」提示（TextKey::NpcRepairNoGold）");
+    assert!(notice.contains("金币"), "提示里应有金币字样：{notice}");
+}
+
+#[test]
+fn durability_survives_an_inventory_round_trip() {
+    // `CurrentDurability` 在 `characters.inventory` 的字节块里（`UserItem` 的第 3 个字段），
+    // 所以「重登后耐久保持」= 编码→解码后 `current_dura` 不变。
+    let (mut harness, _envir) = Harness::new("dura-roundtrip");
+    let player = harness.add_player(1, Point::new(101, 101));
+    let info = harness.world.item_info(4).cloned().unwrap();
+    let item = harness.give_item(player, &info);
+    if let Some(slot) = harness
+        .world
+        .player_mut(player)
+        .unwrap()
+        .inventory
+        .iter_mut()
+        .flatten()
+        .find(|slot| slot.unique_id == item.unique_id)
+    {
+        slot.current_dura = 1_234;
+    }
+    let inventory = harness.world.player(player).unwrap().inventory.clone();
+    let blob = items::encode_slots(&inventory);
+    let decoded = items::decode_inventory(&blob).expect("背包字节块应能解析");
+    let stored = decoded
+        .iter()
+        .flatten()
+        .find(|slot| slot.unique_id == item.unique_id)
+        .expect("物品还在");
+    assert_eq!(stored.current_dura, 1_234, "耐久必须随角色存档一起持久化");
+    assert_eq!(stored.max_dura, info.durability);
+}

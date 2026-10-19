@@ -460,6 +460,142 @@ fn ground_item_expires_after_the_configured_timeout_and_broadcasts_remove() {
     );
 }
 
+#[test]
+fn gold_drop_pickup_end_to_end_credits_gold_and_broadcasts() {
+    let mut harness = Harness::new(30);
+    let data = game_data("gold-chain", "1/1 Gold 100\n");
+    harness.world.set_game_data(Arc::clone(&data));
+    let player = harness.add_player(1, Point::new(20, 20));
+    let monster = harness
+        .world
+        .spawn_monster(MAP, test_monster(), Point::new(22, 20));
+    harness.packets(player);
+    kill_monster(&mut harness, player, monster);
+
+    let gold = harness
+        .world
+        .ground_items()
+        .iter()
+        .find(|ground| ground.is_gold())
+        .cloned()
+        .expect("怪物应掉金币");
+    assert!(gold.gold > 0);
+    // 踩到金币格再拾取：与客户端「走到物品格 → C.PickUp」等价。
+    assert!(harness.world.place_player(player, MAP, gold.position));
+    harness.packets(player);
+    let report = harness.world.pickup(player).expect("捡金币");
+    assert_eq!(report.gold, gold.gold);
+    assert_eq!(
+        harness.world.player(player).unwrap().gold,
+        i64::from(gold.gold)
+    );
+    assert!(harness.world.ground_item(gold.object_id).is_none());
+    assert!(
+        harness.has(player, |packet| matches!(
+            packet,
+            ServerPacket::GainedGold(value) if value.gold == gold.gold
+        )),
+        "拾取金币应发 S.GainedGold"
+    );
+}
+
+#[test]
+fn gold_pile_splits_at_max_drop_gold() {
+    let mut harness = Harness::new(31);
+    // 配置 5000：Crystal 的 `MaxDropGold = 2000` 要求拆成多堆，总和在 [2500,7500)。
+    let data = game_data("gold-split", "1/1 Gold 5000\n");
+    harness.world.set_game_data(data);
+    let player = harness.add_player(1, Point::new(20, 20));
+    let monster = harness
+        .world
+        .spawn_monster(MAP, test_monster(), Point::new(22, 20));
+    kill_monster(&mut harness, player, monster);
+    let piles: Vec<u32> = harness
+        .world
+        .ground_items()
+        .iter()
+        .filter(|ground| ground.is_gold())
+        .map(|ground| ground.gold)
+        .collect();
+    assert!(
+        (2..=4).contains(&piles.len()),
+        "5000 应拆 2..=4 堆，实际 {piles:?}"
+    );
+    assert!(piles.iter().all(|gold| *gold <= 2_000), "单堆不得超过 2000");
+    assert!(
+        (2_500_u32..7_500).contains(&piles.iter().sum::<u32>()),
+        "总金币应在 [2500,7500)，实际 {piles:?}"
+    );
+}
+
+#[test]
+fn drop_cells_stack_at_most_five_and_overflow_to_neighbors() {
+    let mut harness = Harness::new(32);
+    let data = game_data(
+        "stack",
+        "1/1 测试之剑\n1/1 测试之剑\n1/1 测试之剑\n1/1 测试之剑\n1/1 测试之剑\n1/1 测试之剑\n1/1 测试之剑\n1/1 测试之剑\n",
+    );
+    harness.world.set_game_data(data);
+    let player = harness.add_player(1, Point::new(20, 20));
+    let monster = harness
+        .world
+        .spawn_monster(MAP, test_monster(), Point::new(22, 20));
+    kill_monster(&mut harness, player, monster);
+    let mut per_cell: HashMap<Point, usize> = HashMap::new();
+    for ground in harness.world.ground_items() {
+        *per_cell.entry(ground.position).or_default() += 1;
+    }
+    assert_eq!(per_cell.values().sum::<usize>(), 8);
+    assert!(
+        per_cell
+            .values()
+            .all(|count| *count <= items::DROP_STACK_SIZE),
+        "同格最多 {} 个，实际 {per_cell:?}",
+        items::DROP_STACK_SIZE
+    );
+    assert!(per_cell.len() >= 2, "超过堆叠上限应换格，实际 {per_cell:?}");
+}
+
+#[test]
+fn quest_required_drop_never_lands_on_the_ground() {
+    let mut harness = Harness::new(33);
+    let data = game_data("quest-q", "1/1 测试之剑 Q\n");
+    harness.world.set_game_data(data);
+    let player = harness.add_player(1, Point::new(20, 20));
+    let monster = harness
+        .world
+        .spawn_monster(MAP, test_monster(), Point::new(22, 20));
+    kill_monster(&mut harness, player, monster);
+    assert!(
+        harness.world.ground_items().is_empty(),
+        "Q 标记物品没人截胡时绝不落地"
+    );
+}
+
+#[test]
+fn gold_pile_expires_and_broadcasts_object_remove() {
+    let mut harness = Harness::new(34);
+    harness.world.set_item_expire_ms(ITEM_EXPIRE_MS);
+    let player = harness.add_player(1, Point::new(20, 20));
+    let ground = harness
+        .world
+        .spawn_ground_item(MAP, Point::new(20, 20), None, 777, None);
+    harness.packets(player);
+    let expire_time = harness.world.ground_item(ground).unwrap().expire_time;
+    harness
+        .world
+        .advance_clock(expire_time - harness.world.now() + 1);
+    harness.world.tick();
+    assert!(harness.world.ground_item(ground).is_none(), "金币也应过期");
+    assert!(
+        harness.has(player, |packet| matches!(
+            packet,
+            ServerPacket::ObjectRemove(remove) if remove.object_id == ground
+        )),
+        "金币过期应广播 ObjectRemove"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // 4. 拾取（Crystal `PlayerObject.PickUp`）
 // ---------------------------------------------------------------------------

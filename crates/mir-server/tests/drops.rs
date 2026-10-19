@@ -63,6 +63,30 @@ fn empty_or_gold_only_rolls_keep_the_flag_array_aligned() {
 }
 
 #[test]
+fn measured_drop_rate_matches_configured_chance_within_tolerance() {
+    // 固定种子，让「配置 1/10 实测 1%」这类错误可直接被测试抓住。
+    let table = DropTable::parse("1/10 Egg\n");
+    let mut rng = MirRng::from_seed(0x1_05);
+    let rolls = 10_000_u32;
+    let hits = (0..rolls)
+        .filter(|_| {
+            table
+                .roll(&mut rng, 1)
+                .items
+                .iter()
+                .any(|name| name == "Egg")
+        })
+        .count();
+    let hits = u32::try_from(hits).expect("hits <= rolls");
+    let rate = f64::from(hits) / f64::from(rolls);
+    assert!(
+        (0.08..=0.12).contains(&rate),
+        "1/10 的实测掉率应在 10%±2%，实际 {:.2}%（{hits}/{rolls}）",
+        rate * 100.0
+    );
+}
+
+#[test]
 fn quest_required_only_table_still_reports_the_item_for_interception() {
     let table = DropTable::parse("1/1 QuestEgg Q\n");
     let reward = table.roll(&mut rng(), 1);

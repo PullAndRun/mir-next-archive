@@ -59,9 +59,9 @@ use mir_core::enums::{
 use mir_core::{Language, TextKey};
 use mir_protocol::data::{ItemInfo, UserItem};
 use mir_protocol::packets::server::{
-    DeleteItem as DeleteItemPacket, DropItem as DropItemPacket, EquipItem as EquipItemPacket,
-    GainedGold, GainedItem, LoseGold, MoveItem as MoveItemPacket, ObjectGold, ObjectItem,
-    PlayerUpdate, RemoveItem as RemoveItemPacket, UseItem as UseItemPacket,
+    DeleteItem as DeleteItemPacket, DropItem as DropItemPacket, DuraChanged,
+    EquipItem as EquipItemPacket, GainedGold, GainedItem, LoseGold, MoveItem as MoveItemPacket,
+    ObjectGold, ObjectItem, PlayerUpdate, RemoveItem as RemoveItemPacket, UseItem as UseItemPacket,
 };
 use mir_protocol::{PacketReader, PacketWriter, ProtocolError, ServerPacket};
 
@@ -79,6 +79,11 @@ use crate::world::{MINUTE_MS, VIEW_RANGE, World};
 pub const INVENTORY_SIZE: usize = 46;
 /// 装备槽数：Crystal `EquipmentSlot` 共 14 个（`Shared/Enums.cs:954-970`，`Weapon` … `Mount`）。
 pub const EQUIPMENT_SLOTS: usize = 14;
+
+/// `EquipmentSlot.Weapon`（Crystal `EquipmentSlot` 枚举的第 0 项）。
+///
+/// 只有它走 `DamageWeapon`（攻击时 1..=4 点），其余槽位走 `DamageDura`（受击时各 -1）。
+pub const EQUIPMENT_SLOT_WEAPON: usize = 0;
 /// 背包里「腰带区」的结束下标：Crystal `HumanObject.BeltSize => 6`（`HumanObject.cs:182`）。
 pub const BELT_SIZE: usize = 6;
 /// 药水优先落位区间上界：Crystal `PotionBeltMaximum => 4`（`HumanObject.cs:179`）。
@@ -91,12 +96,13 @@ pub const AMULET_BELT_MAX: usize = 6;
 ///
 /// 本作**还没有**扩容背包的功能，这里只用来给解码器一个上界。
 pub const MAX_INVENTORY_SIZE: usize = 86;
-/// 地面物品存活时间：**本作默认 3 分钟**。
+/// 地面物品存活时间：**120 秒**。
 ///
-/// Crystal 的对应物是 `Settings.ItemTimeOut = 30`（分钟，`Settings.cs:115`），
-/// `ItemObject` 构造函数里 `ExpireTime = Envir.Time + Settings.ItemTimeOut * Settings.Minute`
-/// （`ItemObject.cs:56-58`、`:85`、`:112`、`:121`）。3 分钟是本项目的调试友好默认值。
-pub const ITEM_EXPIRE_MS: i64 = 3 * MINUTE_MS;
+/// Crystal 的对应物是 `Settings.DropDuration`（默认 120 秒），`ItemObject` 构造函数里
+/// `ExpireTime = Envir.Time + Settings.DropDuration * 1000`（`ItemObject.cs:56-58`、`:85`、
+/// `:112`、`:121`）。本作此前用 3 分钟的调试值，t105 起对齐 120 秒；单测可用
+/// [`World::set_item_expire_ms`] 快进/缩短，不依赖真实 sleep。
+pub const ITEM_EXPIRE_MS: i64 = 120 * 1_000;
 /// 玩家死亡掉落物的存活时间：Crystal `Settings.PlayerDiedItemTimeOut = 120` 分钟
 /// （`Server/Settings.cs:116`），`ItemObject` 的 `deathDrop` 构造用它
 /// （`Server/MirObjects/ItemObject.cs:53-56`）。
@@ -672,6 +678,143 @@ pub(crate) fn add_stat(target: &mut CombatStats, stat: Stat, value: i32) {
         Stat::ManaPenaltyPercent => target.mana_penalty_percent += value,
         // 简化：毒/冰冻/圣/吸血/上限百分比等属性尚未进入战斗结算，叠上去也观察不到。
         _ => {}
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 耐久损耗（Crystal `HumanObject.DamageItem` / `DamageWeapon` / `DamageDura`）
+// ---------------------------------------------------------------------------
+
+/// 一次耐久变化的结果（`items::World::damage_*` 的返回值）。
+///
+/// `broke == true` 表示这一下把耐久打到了 0：装备**失效**（`apply_equipment_stats`
+/// 与外观都会跳过它），调用方负责给玩家一次「装备损坏」提示。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DurabilityLoss {
+    /// 槽位下标（`EquipmentSlot` 的 `as usize`）。
+    pub slot: usize,
+    /// 物品唯一 ID（`S.DuraChanged` 用）。
+    pub unique_id: u64,
+    /// 剩多少耐久（0 = 已损坏）。
+    pub current_dura: u16,
+    /// 这一下是否**打坏**了它。
+    pub broke: bool,
+    /// 物品模板名（`{name}` 参数用；`TextKey::ItemBroken` 的提示）。
+    pub name: String,
+}
+
+impl World {
+    /// 攻击命中后的**武器**磨损：Crystal `HumanObject.DamageWeapon()`（`HumanObject.cs:3353`）。
+    ///
+    /// ```csharp
+    /// if (!SpecialMode.HasFlag(SpecialItemMode.NoDuraLoss))
+    ///     DamageItem(Info.Equipment[(int)EquipmentSlot.Weapon], Envir.Random.Next(4) + 1);
+    /// ```
+    ///
+    /// 本作没有 `SpecialItemMode`（特戒系统未实现），所以恒走扣耐久分支。
+    pub fn damage_weapon(&mut self, player_id: u32) -> Option<DurabilityLoss> {
+        let amount = self.rng.next_bounded(4) + 1; // `Random.Next(4) + 1` → 1..=4
+        let item = self
+            .players
+            .get(&player_id)?
+            .equipment
+            .get(EQUIPMENT_SLOT_WEAPON)?
+            .clone()?;
+        self.apply_durability_loss(player_id, EQUIPMENT_SLOT_WEAPON, &item, amount as u16)
+    }
+
+    /// 受击后的**护甲/其它装备**磨损：Crystal `HumanObject.DamageDura()`（`HumanObject.cs:3358-3365`）。
+    ///
+    /// ```csharp
+    /// if (!SpecialMode.HasFlag(SpecialItemMode.NoDuraLoss))
+    ///     for (int i = 0; i < Info.Equipment.Length; i++)
+    ///         if (i != (int)EquipmentSlot.Weapon)
+    ///             DamageItem(Info.Equipment[i], Envir.Random.Next(1) + 1);   // 每个槽位 -1
+    /// ```
+    ///
+    /// `Random.Next(1)` 恒为 0，所以每个槽位固定 -1。返回本次变化（可能为空）。
+    pub fn damage_armour(&mut self, player_id: u32) -> Vec<DurabilityLoss> {
+        let mut losses = Vec::new();
+        let Some(player) = self.players.get(&player_id) else {
+            return losses;
+        };
+        let items: Vec<(usize, Option<UserItem>)> = player
+            .equipment
+            .iter()
+            .cloned()
+            .enumerate()
+            .filter(|(slot, _)| *slot != EQUIPMENT_SLOT_WEAPON)
+            .collect();
+        for (slot, item) in items {
+            let Some(item) = item else { continue };
+            if let Some(loss) = self.apply_durability_loss(player_id, slot, &item, 1) {
+                losses.push(loss);
+            }
+        }
+        losses
+    }
+
+    /// Crystal `DamageItem(item, amount)`（`HumanObject.cs:3366-3380`）的移植。
+    ///
+    /// * 空槽 / 耐久已为 0 / `Amulet` 类 → 不动（Crystal 原样）；
+    /// * 有 `Strong` 属性的物品按 `amount = max(1, amount - Strong)` 减免；
+    /// * 扣到 0 时发 `S.DuraChanged`（客户端据此把装备置灰），并让调用方给一次提示。
+    fn apply_durability_loss(
+        &mut self,
+        player_id: u32,
+        slot: usize,
+        item: &UserItem,
+        amount: u16,
+    ) -> Option<DurabilityLoss> {
+        if item.current_dura == 0 {
+            return None;
+        }
+        let info = self.item_info(item.item_index)?.clone();
+        if info.durability == 0 || info.item_type == ItemType::Amulet {
+            // 模板没有耐久的物品（药水、箭袋…）不磨损。
+            return None;
+        }
+        let strong = u16::try_from(info.stats.get(Stat::Strong).max(0)).unwrap_or(0);
+        let amount = amount.saturating_sub(strong).max(1);
+        let current_dura = item.current_dura.saturating_sub(amount);
+        let broke = current_dura == 0;
+        if let Some(slot_item) = self
+            .players
+            .get_mut(&player_id)
+            .and_then(|player| player.equipment.get_mut(slot))
+            .and_then(Option::as_mut)
+        {
+            slot_item.current_dura = current_dura;
+        }
+        // 耐久归零（或本来就 0）时才需要通知客户端 —— Crystal 用 `DuraChanged` 懒发，
+        // 这里简化成「扣到 0 才发」，避免每次攻击都刷一条包。
+        if broke {
+            self.send_to_player(
+                player_id,
+                &ServerPacket::DuraChanged(DuraChanged {
+                    unique_id: item.unique_id,
+                    current_dura,
+                })
+                .encode_frame(),
+            );
+            self.refresh_stats(player_id);
+            // 装备**失效**提示：只在这一下打坏时发一次（`TextKey::ItemBroken`）。
+            let message = self.format(player_id, TextKey::ItemBroken, &[("name", &info.name)]);
+            self.send_system_chat(player_id, &message);
+            tracing::debug!(
+                player = player_id,
+                item = %info.name,
+                slot,
+                "装备耐久归零，已失效"
+            );
+        }
+        Some(DurabilityLoss {
+            slot,
+            unique_id: item.unique_id,
+            current_dura,
+            broke,
+            name: info.name.clone(),
+        })
     }
 }
 

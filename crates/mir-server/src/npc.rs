@@ -482,6 +482,9 @@ pub enum NpcError {
     /// 这件物品被绑定禁止修理（`BindMode.DontRepair`）。
     #[error("item {0} cannot be repaired")]
     CannotRepair(u64),
+    /// 耐久已经是满的（Crystal `PlayerObject.cs:5941`：`MaxDura == CurrentDura` 直接返回）。
+    #[error("item {0} is already at full durability")]
+    DurabilityFull(u64),
     /// 这个 NPC 的 `[Types]` 不允许交易该物品类型。
     #[error("this NPC does not buy items of that type")]
     TypeNotAllowed,
@@ -2570,11 +2573,28 @@ impl World {
                 return Err(NpcError::TypeNotAllowed);
             }
         }
+        // Crystal `PlayerObject.cs:5941-5942`：`MaxDura == CurrentDura` 时**不发任何包**、
+        // 静默返回。本作改成给一条明确提示（玩家点修理却什么都没发生体验太差），
+        // 文案走 `TextKey::NpcRepairFull`。
+        if item.current_dura >= item.max_dura {
+            let message = self.text(player_id, TextKey::NpcRepairFull);
+            self.send_system_chat(player_id, &message);
+            return Err(NpcError::DurabilityFull(unique_id));
+        }
         let repair = repair_price(&info, &item);
         let cost = apply_price_rate(repair, self.price_rate(&npc, player_id));
         let base_cost = apply_price_rate(repair, self.base_price_rate(&npc));
         let gold = self.players[&player_id].gold;
         if i64::from(cost) > gold {
+            // 金币不足也要说清楚（Crystal 静默返回；本作给 `TextKey::NpcRepairNoGold`）。
+            let cost_text = cost.to_string();
+            let gold_text = gold.to_string();
+            let message = self.format(
+                player_id,
+                TextKey::NpcRepairNoGold,
+                &[("cost", &cost_text), ("gold", &gold_text)],
+            );
+            self.send_system_chat(player_id, &message);
             return Err(NpcError::NotEnoughGold { cost, gold });
         }
         if cost > 0 {

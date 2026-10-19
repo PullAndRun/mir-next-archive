@@ -460,6 +460,16 @@ pub enum TextKey {
     NpcRepairNoGold,
     /// 场景：`damage_weapon`/`damage_armour`（战斗磨损）；模板：`{name} 的耐久耗尽，已损坏。`；参数：`{name}`。
     ItemBroken,
+    /// 场景：配偶传送（`spouse_not_married`）；模板：`你还没有结婚，无法召唤配偶。`。
+    SpouseNotMarried,
+    /// 场景：配偶传送（`spouse_offline`）；模板：`你的配偶不在线。`。
+    SpouseOffline,
+    /// 场景：配偶传送（`spouse_dead`）；模板：`你的配偶已经死亡，无法召唤。`。
+    SpouseDead,
+    /// 场景：配偶传送（`spouse_teleported`）；模板：`你已传送到 {name} 身边。`。
+    SpouseTeleported,
+    /// 场景：配偶传送（`spouse_recall_needs_ring`）；模板：`需要戴上结婚戒指才能召唤配偶。`。
+    SpouseRecallNeedsRing,
     /// 场景：婚姻/师徒（`world.rs`）；模板：`求婚已发出，等待对方回应。`。
     MarriageProposalSent,
     /// 场景：婚姻/师徒（`world.rs`）；模板：`{name} 拒绝了你的求婚。`。
@@ -741,6 +751,11 @@ impl TextKey {
         Self::NpcRepairFull,
         Self::NpcRepairNoGold,
         Self::ItemBroken,
+        Self::SpouseNotMarried,
+        Self::SpouseOffline,
+        Self::SpouseDead,
+        Self::SpouseTeleported,
+        Self::SpouseRecallNeedsRing,
         Self::MarriageProposalSent,
         Self::MarriageRefused,
         Self::MarriageDone,
@@ -970,6 +985,11 @@ impl TextKey {
             Self::NpcRepairFull => "npc_repair_full",
             Self::NpcRepairNoGold => "npc_repair_no_gold",
             Self::ItemBroken => "item_broken",
+            Self::SpouseNotMarried => "spouse_not_married",
+            Self::SpouseOffline => "spouse_offline",
+            Self::SpouseDead => "spouse_dead",
+            Self::SpouseTeleported => "spouse_teleported",
+            Self::SpouseRecallNeedsRing => "spouse_recall_needs_ring",
             Self::MarriageProposalSent => "marriage_proposal_sent",
             Self::MarriageRefused => "marriage_refused",
             Self::MarriageDone => "marriage_done",
@@ -1204,6 +1224,11 @@ impl TextKey {
             Self::NpcRepairFull => &[],
             Self::NpcRepairNoGold => &["cost", "gold"],
             Self::ItemBroken => &["name"],
+            Self::SpouseNotMarried => &[],
+            Self::SpouseOffline => &[],
+            Self::SpouseDead => &[],
+            Self::SpouseTeleported => &["name"],
+            Self::SpouseRecallNeedsRing => &[],
             Self::MarriageProposalSent => &[],
             Self::MarriageRefused => &["name"],
             Self::MarriageDone => &["name"],
@@ -1587,6 +1612,11 @@ const fn text_zh(key: TextKey) -> &'static str {
         TextKey::NpcRepairFull => "这件物品的耐久是满的，不需要修理。",
         TextKey::NpcRepairNoGold => "修理这件物品需要 {cost} 金币，你只有 {gold}。",
         TextKey::ItemBroken => "{name} 的耐久耗尽，已损坏。",
+        TextKey::SpouseNotMarried => "你还没有结婚，无法召唤配偶。",
+        TextKey::SpouseOffline => "你的配偶不在线。",
+        TextKey::SpouseDead => "你的配偶已经死亡，无法召唤。",
+        TextKey::SpouseTeleported => "你已传送到 {name} 身边。",
+        TextKey::SpouseRecallNeedsRing => "需要戴上结婚戒指才能召唤配偶。",
         TextKey::MarriageProposalSent => "求婚已发出，等待对方回应。",
         TextKey::MarriageRefused => "{name} 拒绝了你的求婚。",
         TextKey::MarriageDone => "你和 {name} 结为夫妻。",
@@ -1905,6 +1935,13 @@ const fn text_en(key: TextKey) -> &'static str {
             "Repairing this item costs {cost} gold, but you only have {gold}."
         }
         TextKey::ItemBroken => "{name} has worn out and is broken.",
+        TextKey::SpouseNotMarried => "You are not married, so you cannot recall a spouse.",
+        TextKey::SpouseOffline => "Your spouse is not online.",
+        TextKey::SpouseDead => "Your spouse is dead and cannot be recalled.",
+        TextKey::SpouseTeleported => "You have been teleported next to {name}.",
+        TextKey::SpouseRecallNeedsRing => {
+            "You need to wear your wedding ring to recall your spouse."
+        }
         TextKey::MarriageProposalSent => "Proposal sent, waiting for the answer.",
         TextKey::MarriageRefused => "{name} turned down your proposal.",
         TextKey::MarriageDone => "You and {name} are now married.",
@@ -2318,7 +2355,7 @@ mod tests {
         //
         // 新增变体时必须同时登记 `TextKey::ALL`，否则这条会挡住——`ALL` 是
         // 语言包校验与参数核对的唯一入口，漏登记等于漏测试。
-        assert_eq!(TextKey::ALL.len(), 223, "新增/删除键时同步更新数量");
+        assert_eq!(TextKey::ALL.len(), 228, "新增/删除键时同步更新数量");
     }
 
     #[test]

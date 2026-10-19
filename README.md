@@ -136,7 +136,7 @@ python tools/asset-index/find_asset.py --ext .wzl --top data --limit 20
 - **游戏内切换**：聊天框输入 `/language en` 切换英文、`/language zh-cn` 切回中文，
   服务端回一条该语言的系统提示，并把选择写回 `accounts.language`（迁移 `0002`）。
 - **服务端玩家可见文本全部走 `TextKey`**：聊天/系统提示/邮件/市场回执/攻城公告/`/ally` 回执等
-  **218 个键**都有中英模板；按**收件人自己的语言**渲染（全服公告逐收件人编码），
+  **228 个键**都有中英模板；按**收件人自己的语言**渲染（全服公告逐收件人编码），
   `/language en` 后系统提示立刻跟随。第 6 轮把 261 条 `#[error]` Display 日志文本
   英文化，第 7/8 轮扫描器 `--no-test --strict` 保持在 **15 处**（剩余为职业名/演示模板名/启动日志）。
 - **内容也跟随语言**：地图标题（`MapInformation.Title`）等文本从语言包的

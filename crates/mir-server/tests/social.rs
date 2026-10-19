@@ -6,12 +6,14 @@
 use std::sync::Arc;
 
 use mir_core::Point;
-use mir_core::enums::{MirClass, MirDirection, MirGender};
+use mir_core::enums::{ItemType, MirClass, MirDirection, MirGender, RequiredClass};
 use mir_db::MirDb;
+use mir_protocol::ServerPacket;
+use mir_protocol::data::{ItemInfo, UserItem};
 use mir_server::combat;
 use mir_server::friends::{FriendEntry, MAX_FRIENDS, decode_friends, encode_friends};
 use mir_server::guild::GuildAllyError;
-use mir_server::guild::{Guild, GuildRef, GuildSettings, MAX_GUILD_ALLIES};
+use mir_server::guild::{Guild, GuildSettings, MAX_GUILD_ALLIES};
 use mir_server::items;
 use mir_server::npc::NpcState;
 use mir_server::store::Character;
@@ -32,17 +34,39 @@ fn world() -> World {
 }
 
 fn add_player(world: &mut World, object_id: u32, character_id: i64, guild_id: Option<i32>) {
-    let stats = combat::player_base_stats(10, MirClass::Warrior);
     let (sender, _receiver) = mpsc::unbounded_channel();
+    let _ = guild_id;
+    add_player_with_channel(
+        world,
+        object_id,
+        character_id,
+        10,
+        Point::new(100, 100),
+        MAP,
+        sender,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_player_with_channel(
+    world: &mut World,
+    object_id: u32,
+    character_id: i64,
+    level: u16,
+    position: Point,
+    map: &str,
+    sender: mpsc::UnboundedSender<Vec<u8>>,
+) {
+    let stats = combat::player_base_stats(level, MirClass::Warrior);
     world.enter(Player {
         object_id,
         session_id: u64::from(object_id),
         character_id,
         name: format!("玩家{object_id}"),
-        map: MAP.to_owned(),
-        position: Point::new(100, 100),
+        map: map.to_owned(),
+        position,
         direction: MirDirection::Down,
-        level: 10,
+        level,
         experience: 0,
         max_experience: 0,
         class: MirClass::Warrior,
@@ -93,10 +117,7 @@ fn add_player(world: &mut World, object_id: u32, character_id: i64, guild_id: Op
         group_invitation: None,
         group_invite_time: 0,
         allow_group: true,
-        guild: guild_id.map(|guild_id| GuildRef {
-            guild_id,
-            rank_index: 0,
-        }),
+        guild: None,
         trade: mir_server::TradeState::default(),
         trade_invitation: None,
         next_trade_time: 0,
@@ -362,6 +383,31 @@ fn ally_replies_are_localized() {
 // 8. 婚姻与师徒（t109）
 // ---------------------------------------------------------------------------
 
+/// 建一个能收包的玩家：`add_player` 会把接收端丢掉，这里改成返回接收端。
+fn add_player_with_receiver(
+    world: &mut World,
+    object_id: u32,
+    character_id: i64,
+    level: u16,
+    position: Point,
+    map: &str,
+) -> tokio::sync::mpsc::UnboundedReceiver<Vec<u8>> {
+    let (sender, receiver) = mpsc::unbounded_channel();
+    add_player_with_channel(world, object_id, character_id, level, position, map, sender);
+    receiver
+}
+
+fn drain_packets(
+    receiver: &mut tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+) -> Vec<ServerPacket> {
+    let mut packets = Vec::new();
+    while let Ok(frame) = receiver.try_recv() {
+        let index = i16::from_le_bytes([frame[2], frame[3]]);
+        packets.push(ServerPacket::decode(index, &frame[4..]).expect("解码服务端包"));
+    }
+    packets
+}
+
 /// 造两个（或更多）玩家并让他们站在同一格附近，返回 `object_id` 列表。
 fn couple(world: &mut World, levels: &[u16]) -> Vec<u32> {
     let mut ids = Vec::new();
@@ -599,4 +645,137 @@ fn social_snapshot_carries_marriage_and_mentorship_for_persistence() {
     assert!(mentor_snapshot.is_mentor, "带徒弟的人 is_mentor 要为真");
     assert_eq!(mentor_snapshot.mentor, 0);
     let _ = character;
+}
+
+// ---------------------------------------------------------------------------
+// 9. 配偶传送（t114）：`/spouse` 命令 + 结婚戒指 `UseItem`
+// ---------------------------------------------------------------------------
+
+/// 同图 + 已结婚的一对（返回 [丈夫, 妻子]）。
+fn married_couple(world: &mut World) -> Vec<u32> {
+    let ids = couple(world, &[20, 20]);
+    world.marriage_request(ids[0], ids[1]).expect("求婚");
+    world.marriage_reply(ids[1], true).expect("结婚");
+    ids
+}
+
+#[test]
+fn spouse_teleport_moves_next_to_the_spouse_same_map() {
+    let mut world = world();
+    let ids = married_couple(&mut world);
+    // 把配偶挪远一点，确认传送后**挨着**她。
+    if let Some(spouse) = world.player_mut(ids[1]) {
+        spouse.position = Point::new(110, 110);
+    }
+    let report = world
+        .spouse_teleport(ids[0])
+        .expect("已婚且配偶在线，应能传送");
+    assert_eq!(report.spouse, ids[1]);
+    assert!(!report.map_changed, "同图传送不应标记换图");
+    let wife = world.player(ids[1]).unwrap().position;
+    let me = world.player(ids[0]).unwrap().position;
+    assert!(
+        me.in_range(wife, 1),
+        "应落在配偶相邻格：我 {me:?} / 配偶 {wife:?}"
+    );
+    assert_ne!(me, wife, "不要叠在配偶身上");
+}
+
+#[test]
+fn spouse_teleport_rejects_unmarried_and_offline_spouse() {
+    let mut world = world();
+    let ids = couple(&mut world, &[20, 20]);
+    assert!(matches!(
+        world.spouse_teleport(ids[0]),
+        Err(SocialError::NotMarried(_))
+    ));
+
+    // 结婚后让配偶下线 → 提示「配偶不在线」。
+    world.marriage_request(ids[0], ids[1]).unwrap();
+    world.marriage_reply(ids[1], true).unwrap();
+    world.leave(ids[1]);
+    assert!(matches!(
+        world.spouse_teleport(ids[0]),
+        Err(SocialError::SpouseOffline(_))
+    ));
+}
+
+#[test]
+fn spouse_teleport_crosses_maps_when_the_spouse_is_elsewhere() {
+    // 用真实地形：比奇 `0` 与 `0108` 都能加载，跨图传送必须发 `S.MapChanged`。
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut world = World::new(999);
+    world.seed_rng(0x5EED);
+    world.set_map_root(root.join("resource/map"));
+    world.set_game_data(Arc::new(mir_server::gamedata::GameData::from_db(
+        MirDb::default(),
+        None,
+    )));
+    let mut rx = add_player_with_receiver(&mut world, 1, 1, 20, Point::new(100, 100), "0");
+    add_player_with_receiver(&mut world, 2, 2, 20, Point::new(101, 100), "0");
+    world.marriage_request(1, 2).unwrap();
+    world.marriage_reply(2, true).unwrap();
+    // 婚后把配偶挪到另一张图（真实地形：比奇 0 → 0108）。
+    if let Some(spouse) = world.player_mut(2) {
+        spouse.map = "0108".to_owned();
+        spouse.position = Point::new(8, 12);
+    }
+    let _ = drain_packets(&mut rx);
+    let report = world.spouse_teleport(1).expect("跨图配偶传送");
+    assert!(report.map_changed, "跨图应标记换图");
+    assert_eq!(report.map, "0108");
+    let packet_list = drain_packets(&mut rx);
+    assert!(
+        packet_list
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::MapChanged(_))),
+        "跨图传送要发 S.MapChanged：{packet_list:?}"
+    );
+    let me = world.player(1).unwrap();
+    assert_eq!(me.map, "0108");
+    assert!(
+        me.position.in_range(Point::new(8, 12), 1),
+        "落点应是配偶相邻格"
+    );
+}
+
+#[test]
+fn wedding_ring_use_teleports_to_the_spouse() {
+    // 结婚戒指 = 带 `WeddingRing` 的戒指（Crystal `UserItem.WeddingRing`），
+    // 本作把「戴戒指」简化成「用它」：`C.UseItem` 触发配偶传送。
+    let mut world = world();
+    // 自建一件「任何职业都能戴的戒指」模板（真实 DB 里戒指带职业限制，测试不该赌）。
+    let mut ring_info = ItemInfo {
+        index: 9_001,
+        name: "WeddingRing".to_owned(),
+        item_type: ItemType::Ring,
+        durability: 1_000,
+        price: 1_000,
+        stack_size: 1,
+        ..ItemInfo::default()
+    };
+    ring_info.required_class = RequiredClass::Warrior;
+    let mut db = MirDb::default();
+    db.items.push(ring_info);
+    world.set_game_data(Arc::new(mir_server::gamedata::GameData::from_db(db, None)));
+    let ids = married_couple(&mut world);
+    if let Some(spouse) = world.player_mut(ids[1]) {
+        spouse.position = Point::new(120, 120);
+    }
+    let mut ring = UserItem {
+        unique_id: 700_001,
+        item_index: 9_001,
+        current_dura: 1_000,
+        max_dura: 1_000,
+        count: 1,
+        ..UserItem::default()
+    };
+    ring.wedding_ring = 2; // 配偶的 character_id
+    if let Some(player) = world.player_mut(ids[0]) {
+        player.inventory[0] = Some(ring.clone());
+    }
+    let report = world.use_item(ids[0], ring.unique_id).expect("戴戒指传送");
+    let (map, position) = report.teleported.expect("应记录传送落点");
+    assert_eq!(map, world.player(ids[0]).unwrap().map);
+    assert!(position.in_range(Point::new(120, 120), 1));
 }

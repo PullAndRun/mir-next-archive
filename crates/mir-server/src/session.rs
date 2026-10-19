@@ -1648,6 +1648,44 @@ impl<S: AccountStore> Session<S> {
         tracing::debug!(session = self.id, "任务交互前补做每日任务重置");
     }
 
+    /// `/spouse`：传送到配偶身边的空位（**本作扩展**，等价 Crystal `@RECALLLOVER`）。
+    ///
+    /// 失败原因全部走 `TextKey`；成功时 `S.MapChanged` 由
+    /// [`crate::maps::World::change_map`] 下发（同图也会发），客户端照常刷新视野。
+    async fn on_spouse_teleport(&mut self) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.spouse_teleport(object_id) {
+            Ok(report) => {
+                let message = world.format(
+                    object_id,
+                    TextKey::SpouseTeleported,
+                    &[("name", &report.spouse_name)],
+                );
+                world.send_system_chat(object_id, &message);
+                tracing::info!(
+                    session = self.id,
+                    spouse = report.spouse,
+                    map = %report.map,
+                    changed = report.map_changed,
+                    "配偶传送"
+                );
+            }
+            Err(error) => {
+                let key = match error {
+                    crate::world::SocialError::NotMarried(_) => TextKey::SpouseNotMarried,
+                    crate::world::SocialError::SpouseDead(_) => TextKey::SpouseDead,
+                    _ => TextKey::SpouseOffline,
+                };
+                let message = world.text(object_id, key);
+                world.send_system_chat(object_id, &message);
+                tracing::debug!(session = self.id, %error, "配偶传送失败");
+            }
+        }
+    }
+
     /// `C.MarriageRequest`：向面前的人求婚（Crystal `PlayerObject.MarriageRequest`）。
     async fn on_marriage_request(&mut self) {
         let Some(object_id) = self.object_id else {
@@ -2969,6 +3007,14 @@ impl<S: AccountStore> Session<S> {
         }
         // GM 命令：只有 GM 账号才消费 `@...`；非 GM 的 `@...` 按普通聊天走，
         // 不报错、也不泄露命令是否存在（Crystal 在 `PlayerObject.Chat` 里做同样的判定）。
+        // `/spouse`：配偶传送（**本作扩展**；Crystal 的等价物是 `@RECALLLOVER`，
+        // 需要左手戴结婚戒指，`PlayerObject.cs:2577-2700`）。命令不走聊天频道。
+        if let Some(rest) = message.strip_prefix("/spouse") {
+            if rest.is_empty() || rest.starts_with(' ') {
+                self.on_spouse_teleport().await;
+                return;
+            }
+        }
         if message.starts_with('@') && self.is_gm() {
             let mut world = self.world.lock().await;
             if world.run_gm_command(object_id, message) {

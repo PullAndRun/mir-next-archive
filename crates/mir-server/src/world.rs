@@ -700,6 +700,37 @@ pub enum SocialError {
     /// 对方不接受拜师请求（Crystal `AllowMentor`）。
     #[error("player {0} does not accept mentorship requests")]
     MentorNotAllowed(u32),
+    /// 自己没结婚，不能召唤配偶（Crystal `PlayerObject.cs:2578-2582`）。
+    #[error("player {0} is not married")]
+    NotMarried(u32),
+    /// 配偶不在线（Crystal `:2617-2621`）。
+    #[error("spouse of player {0} is offline")]
+    SpouseOffline(u32),
+    /// 配偶已死亡（Crystal `:2623-2627`）。
+    #[error("spouse of player {0} is dead")]
+    SpouseDead(u32),
+    /// 目标地图没有可站的相邻格（本作扩展的兜底失败）。
+    #[error("no free cell next to the spouse")]
+    NoFreeCell,
+}
+
+/// 配偶传送的结果（见 [`World::spouse_teleport`]）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpouseTeleport {
+    /// 配偶的 `object_id`。
+    pub spouse: u32,
+    /// 配偶的名字（提示文案用）。
+    pub spouse_name: String,
+    /// 传送后的地图。
+    pub map: String,
+    /// 传送后的落点。
+    pub position: Point,
+    /// 是否换了地图（同图传送为 `false`，但同样会发 `S.MapChanged`）。
+    pub map_changed: bool,
+    /// 传送前的地图。
+    pub from_map: String,
+    /// 传送前的位置。
+    pub from_position: Point,
 }
 
 /// 落库前的社交快照（见 [`World::social_snapshot`]）。
@@ -3570,6 +3601,102 @@ impl World {
             .ok_or(SocialError::AlreadyMarried(player))?;
         self.marriages.remove(&spouse);
         Ok(spouse)
+    }
+
+    // -----------------------------------------------------------------------
+    // 配偶传送（Crystal `PlayerObject.cs:2577-2700` 的 `RECALLLOVER`）
+    // -----------------------------------------------------------------------
+
+    /// 传送到配偶身边的空位：Crystal `RECALLLOVER`（`PlayerObject.cs:2577-2700`）。
+    ///
+    /// Crystal 通过聊天命令 `@RECALLLOVER` 触发，并用「左手戒指的 `WeddingRing` 等于配偶
+    /// `character_id`」做校验（`:2596-2604`）。本作把它拆成两层：
+    /// * [`World::spouse_teleport`] 只管「能不能传、传哪儿」（本函数）；
+    /// * 触发方式有两种：**结婚戒指 `C.UseItem`**（真实物品路径，`items.rs`）与聊天
+    ///   `/spouse`（本作扩展，`session.rs`）。
+    ///
+    /// 落地复用 [`World::change_map`]（同图也会发 `S.MapChanged`，见 `maps.rs:145`），
+    /// 所以跨图会带视野刷新，不另造传送包。
+    pub fn spouse_teleport(&mut self, player: u32) -> Result<SpouseTeleport, SocialError> {
+        let (character, self_pos, self_map, self_dead) = {
+            let player_ref = self
+                .players
+                .get(&player)
+                .ok_or(SocialError::NotInWorld(player))?;
+            (
+                player_ref.character_id,
+                player_ref.position,
+                player_ref.map.clone(),
+                player_ref.dead,
+            )
+        };
+        if self_dead {
+            return Err(SocialError::Dead);
+        }
+        let Some(spouse_character) = self.spouse_of(character) else {
+            return Err(SocialError::NotMarried(player));
+        };
+        let Some(spouse_id) = self
+            .player_of_character(spouse_character)
+            .map(|spouse| spouse.object_id)
+        else {
+            return Err(SocialError::SpouseOffline(player));
+        };
+        let (spouse_map, spouse_pos, spouse_dead) = {
+            let spouse = self
+                .players
+                .get(&spouse_id)
+                .ok_or(SocialError::SpouseOffline(player))?;
+            (spouse.map.clone(), spouse.position, spouse.dead)
+        };
+        if spouse_dead {
+            return Err(SocialError::SpouseDead(player));
+        }
+        // 配偶身边找一个能站的空位（同图优先原地；跨图要求地形可加载）。
+        let target = self
+            .free_cell_next_to(&spouse_map, spouse_pos, player)
+            .ok_or(SocialError::NoFreeCell)?;
+        let direction = MirDirection::default();
+        let report = self
+            .change_map(player, &spouse_map, target, direction)
+            .map_err(|_| SocialError::NoFreeCell)?;
+        Ok(SpouseTeleport {
+            spouse: spouse_id,
+            spouse_name: self
+                .players
+                .get(&spouse_id)
+                .map(|spouse| spouse.name.clone())
+                .unwrap_or_default(),
+            map: spouse_map,
+            position: target,
+            map_changed: report.map_changed,
+            from_map: self_map,
+            from_position: self_pos,
+        })
+    }
+
+    /// 在 `around` 周围 8 向里找一个「地形可走且没被别人占」的格子。
+    fn free_cell_next_to(&self, map: &str, around: Point, mover: u32) -> Option<Point> {
+        let mut candidates = Vec::with_capacity(9);
+        for (dx, dy) in [
+            (0, 0),
+            (0, -1),
+            (1, -1),
+            (1, 0),
+            (1, 1),
+            (0, 1),
+            (-1, 1),
+            (-1, 0),
+            (-1, -1),
+        ] {
+            candidates.push(Point::new(around.x + dx, around.y + dy));
+        }
+        candidates.into_iter().find(|cell| {
+            self.walkable_on(map, *cell)
+                && !self.players.values().any(|other| {
+                    other.object_id != mover && other.map == map && other.position == *cell
+                })
+        })
     }
 
     // -----------------------------------------------------------------------

@@ -70,11 +70,40 @@ Email/Whisper 快捷按钮（用聊天/邮件面板代替）。
 细节（布局、按键、包对照）见 [`docs/client.md`](../client.md) §5.20；协议见
 [`docs/world/guild.md`](guild.md) §15.3。
 
-## 6. 测试
+## 6. 婚姻 / 师徒（第 14 轮）
 
-`crates/mir-server/tests/social.rs` **10 条**：好友编解码往返、加/删/拉黑、上限、
+**持久化字段来自迁移 0001，本作未新增迁移**：`characters` 表在
+`0001_init.sql:102-108` 就有 `married` / `married_date` / `mentor` / `mentor_date` /
+`is_mentor` / `mentor_exp`（对齐 Crystal `CharacterInfo` 的社交字段）；当前迁移最新为
+`0016_conquest_objects.sql`，**没有 0017**。详见
+[`docs/store/schema.md`](../store/schema.md) §11。
+
+**配偶传送（第 14 轮，本作扩展；Crystal 对应 `@RECALLLOVER`，`PlayerObject.cs:2577-2700`）**：
+
+* **核心**：`World::spouse_teleport(player)` —— 未结婚 / 配偶离线 / 配偶死亡 / 无空位 →
+  `SocialError`（全部走 TextKey）；成功则 `free_cell_next_to()` 在配偶周围 **9 格**里取第一个
+  「可走且无人占」的格子（配偶自身格作为最后兜底候选）；
+* **两条入口**：
+  1. **结婚戒指**：`C.UseItem` 的 `ItemType::Ring && item.wedding_ring >= 0` 分支
+     （Crystal `UserItem.WeddingRing == Married`，`:2596-2604`）；成功回
+     `S.UseItem{success}` 并把落点写进 `UseItemReport.teleported`；
+  2. **`/spouse` 聊天命令**：`session.rs` 入口拦截，**本作扩展**、不进频道；
+* **包**：只发 `S.MapChanged`（复用 `World::change_map`，**同图/跨图都发**）+ 戒指路径的
+  `S.UseItem` + 系统 `S.Chat` 提示；**没有新增协议包**；
+* **简化**：`spouse_recall_needs_ring` 目前只登记、未在流程里强制——本作把戒指当**触发器**
+  而不是前置条件；未做强制「必须先戴戒指」的校验。
+
+测试（`tests/social.rs` 24/24 中的 4 条）：`spouse_teleport_moves_next_to_the_spouse_same_map`、
+`spouse_teleport_rejects_unmarried_and_offline_spouse`、
+`spouse_teleport_crosses_maps_when_the_spouse_is_elsewhere`、
+`wedding_ring_use_teleports_to_the_spouse`。
+
+## 7. 测试
+
+`crates/mir-server/tests/social.rs` **24 条**：好友编解码往返、加/删/拉黑、上限、
 联盟双向与记录往返、联盟上限、盟友判定、`S.FriendUpdate` 包内容、好友/联盟上限
-可配置（`0` = 不限）、`/ally` 回执本地化（`ally_replies_are_localized`）。
+可配置（`0` = 不限）、`/ally` 回执本地化（`ally_replies_are_localized`）、
+配偶传送 4 条（同图/跨图/拒绝/戒指）。
 客户端 `crates/mir-client/tests/friends_panel.rs` 另 **6 条**：320×240 布局与控件不重叠、
 `row_at(scroll)` 绝对下标、滚动后选中第 7 条并删除、127–130 映射与字节编码、
 245 整表替换 + 中英切换、渲染截图（`client-friends.png`/`client-ally.png`）。

@@ -724,4 +724,24 @@ Crystal 的 `AuctionInfo` 存在 MirADB 的**全局** `Auctions` 段（见 §5�
 Rust 结构：`mir_store::MarketAuction`（存储层）↔ `mir_server::store::AuctionRecord`
 （服务端世界层）。字段以迁移文件为准，二者按列名一一映射。
 
+---
+
+## 11. 婚姻 / 师徒字段：复用 `0001_init.sql`，**没有 0017 迁移**
+
+`characters` 表在 `crates/mir-store/migrations/0001_init.sql:102-108` 就已经带了
+Crystal `CharacterInfo` 的社交字段（`Married`/`MarriedDate`/`Mentor`/`MentorDate`/
+`IsMentor`/`MentorExp`）：
+
+| 列 | 类型 | 语义 |
+|---|---|---|
+| `married` | `INTEGER NOT NULL DEFAULT 0` | 配偶角色 Index（0 = 未婚） |
+| `married_date` | `TIMESTAMPTZ` | 结婚时间 |
+| `mentor` | `INTEGER NOT NULL DEFAULT 0` | 师傅/徒弟角色 Index |
+| `mentor_date` | `TIMESTAMPTZ` | 拜师/收徒时间 |
+| `is_mentor` | `BOOLEAN NOT NULL DEFAULT FALSE` | 该角色是否为师傅方 |
+| `mentor_exp` | `BIGINT NOT NULL DEFAULT 0` | 师徒经验池 |
+
+**当前迁移最新为 `0016_conquest_objects.sql`；婚姻/师徒没有新增迁移**（也没有 0017）。
+以后再翻迁移列表时不要以为漏了——这些列从 0001 起就在。
+
 

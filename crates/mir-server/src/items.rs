@@ -536,6 +536,8 @@ pub struct UseItemReport {
     pub pot_mana: u32,
     /// 本次套上的增益（药水增益，按 Crystal 的 `AddBuff` 顺序）。
     pub buffs: Vec<BuffKind>,
+    /// 结婚戒指触发的配偶传送落点（地图文件名 + 坐标）；`None` = 没传送。
+    pub teleported: Option<(String, mir_core::Point)>,
     /// 若是技能书，这里带着学会的技能。
     pub learned: Option<UserMagic>,
     /// 消耗一件之后这一格的剩余内容（`None` = 整格清空）。
@@ -1944,6 +1946,7 @@ impl World {
             unique_id,
             item_index: info.index,
             item_name: info.name.clone(),
+            teleported: None,
             hp: 0,
             mp: 0,
             pot_health: 0,
@@ -1980,6 +1983,46 @@ impl World {
                     item_index: info.index,
                     shape: info.shape,
                 });
+            }
+            ItemType::Ring if item.wedding_ring >= 0 => {
+                // 结婚戒指：Crystal `RECALLLOVER`（`PlayerObject.cs:2596-2660`）用「左手戒指的
+                // `WeddingRing == Married`」校验；本作把校验放在 `spouse_teleport` 里（只看婚姻关系），
+                // 戒指在这里只充当**触发器**。
+                match self.spouse_teleport(object_id) {
+                    Ok(teleport) => {
+                        let message = self.format(
+                            object_id,
+                            TextKey::SpouseTeleported,
+                            &[("name", &teleport.spouse_name)],
+                        );
+                        self.send_system_chat(object_id, &message);
+                        self.send_to_player(
+                            object_id,
+                            &ServerPacket::UseItem(UseItemPacket {
+                                unique_id,
+                                grid: mir_core::enums::MirGridType::Inventory,
+                                success: true,
+                            })
+                            .encode_frame(),
+                        );
+                        report.teleported = Some((teleport.map.clone(), teleport.position));
+                        return Ok(report);
+                    }
+                    Err(error) => {
+                        let key = match error {
+                            crate::world::SocialError::NotMarried(_) => TextKey::SpouseNotMarried,
+                            crate::world::SocialError::SpouseDead(_) => TextKey::SpouseDead,
+                            _ => TextKey::SpouseOffline,
+                        };
+                        let message = self.text(object_id, key);
+                        self.send_system_chat(object_id, &message);
+                        self.send_use_item_failure(object_id, unique_id);
+                        return Err(ItemError::UnsupportedItem {
+                            item_index: info.index,
+                            shape: info.shape,
+                        });
+                    }
+                }
             }
             ItemType::Book => {
                 // 书走技能系统（`PlayerObject.cs:6077-6089`），它会自己发 `S.NewMagic`

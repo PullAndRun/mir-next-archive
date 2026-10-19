@@ -72,11 +72,15 @@ EXTENSION_KEYS = (
     "ally_accepted",
     "ally_removed",
     "ally_failed",
-    "newbie_guide",
+    "newbie_guide",    "spouse_dead",
+    "spouse_not_married",
+    "spouse_offline",
+    "spouse_recall_needs_ring",
+    "spouse_teleported",
 )
 
 #: 允许带参数的扩展键（Crystal `ServerTextKeys.YouFound` 是 `You found {0}`）。
-EXTENSION_KEYS_WITH_ARGS = ("quest_item_found",)
+EXTENSION_KEYS_WITH_ARGS = ("quest_item_found", "spouse_teleported")
 
 #: §7.2 预期的行数（第 2 轮扫描口径，冻结；文档改口径时同步改这里）。
 EXPECTED_ROWS = 207

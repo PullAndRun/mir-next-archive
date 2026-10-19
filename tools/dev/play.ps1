@@ -4,9 +4,9 @@
 # 服务端仍用 `serve.ps1` 以**隐藏窗口**方式启动（服务端不需要可见窗口）。
 #
 # 用法：
-#   powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/play.ps1
-#   powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/play.ps1 -Display 2 -Server 127.0.0.1:7000
-#   powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/play.ps1 -Exe target\release\mir-client.exe
+#   pwsh -NoProfile -File tools/dev/play.ps1
+#   pwsh -NoProfile -File tools/dev/play.ps1 -Display 2 -Server 127.0.0.1:7000
+#   pwsh -NoProfile -File tools/dev/play.ps1 -Exe target\release\mir-client.exe
 param(
     [int]$Display = 0  # 0 = 自动：显示器 2 开着用它，关了就用显示器 1,
     [string]$Server = "",

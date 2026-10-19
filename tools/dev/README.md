@@ -1,4 +1,4 @@
-# 本地开发脚本
+﻿# 本地开发脚本
 
 ## 显示器约定（**仅限本机测试**）
 
@@ -28,17 +28,17 @@
 
 ```powershell
 # 启动（默认 127.0.0.1:7000，debug 构建）
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Port 7000
+pwsh -NoProfile -File tools/dev/serve.ps1 -Port 7000
 
 # 带 GM 账号（playtest 的 --gm 需要）
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Port 7004 -GmAccounts playtest
+pwsh -NoProfile -File tools/dev/serve.ps1 -Port 7004 -GmAccounts playtest
 
 # 指定构建/数据目录
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 `
+pwsh -NoProfile -File tools/dev/serve.ps1 `
     -Port 7000 -Exe target\release\mir-server.exe -DataDir resource/data
 
 # 停止（按端口找 PID 文件）
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Stop -Port 7000
+pwsh -NoProfile -File tools/dev/serve.ps1 -Stop -Port 7000
 ```
 
 产物：
@@ -58,14 +58,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Stop -P
 ### 配合 playtest
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Port 7004 -GmAccounts playtest
+pwsh -NoProfile -File tools/dev/serve.ps1 -Port 7004 -GmAccounts playtest
 python tools/playtest/playtest.py --server 127.0.0.1:7004 --gm playtest --timeout 15
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Stop -Port 7004
+pwsh -NoProfile -File tools/dev/serve.ps1 -Stop -Port 7004
 ```
 
 ### 注意
 
 - 用完**立刻**停掉：残留进程会占住 `target\debug\mir-server.exe`，让下一次 `cargo build`/
   `cargo test` 报 `failed to remove file (os error 5)`。
-- 脚本存为 **UTF-8 with BOM**：Windows PowerShell 5.1 按 ANSI(GBK) 读无 BOM 脚本，中文注释
+- 脚本存为 **UTF-8 with BOM**：若用 Windows PowerShell 5.1 会按 ANSI(GBK) 读无 BOM 脚本，中文注释
   会导致解析失败。

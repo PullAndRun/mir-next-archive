@@ -10,10 +10,10 @@
 # 所以整套在没有素材时应当**全绿**（只是跳过那些用例）。
 #
 # 用法：
-#   powershell -NoProfile -File tools/dev/test-no-assets.ps1
-#   powershell -NoProfile -File tools/dev/test-no-assets.ps1 -Jobs 4 -TargetDir target/ci-sim
+#   pwsh -NoProfile -File tools/dev/test-no-assets.ps1
+#   pwsh -NoProfile -File tools/dev/test-no-assets.ps1 -Jobs 4 -TargetDir target/ci-sim
 #
-# 注意：本文件必须存成 **UTF-8 with BOM**——Windows PowerShell 5.1 会按 ANSI(GBK) 读无 BOM
+# 注意：本文件存成 **UTF-8 with BOM**（兼容仍用 PS 5.1 的人；pwsh 7 无此问题）——Windows PowerShell 5.1 会按 ANSI(GBK) 读无 BOM
 # 脚本，中文注释会把语法读坏（`Unexpected token`）。另外：PowerShell 变量名大小写不敏感，
 # 参数 `$Jobs` 与局部变量 `$jobs` 是同一个变量，所以局部变量叫 `$running/$results`。
 param(
@@ -40,7 +40,7 @@ if (Test-Path (Join-Path $sandbox "resource")) {
 Write-Host "==> 构建测试二进制（CARGO_TARGET_DIR=$TargetDir）"
 $env:CARGO_TARGET_DIR = $targetPath
 $buildLog = Join-Path $targetPath "no-run.log"
-# 用 cmd 包一层：PowerShell 5.1 在 $ErrorActionPreference=Stop 下会把原生命令写 stderr 的
+# 用 cmd 包一层（兼容 PS 5.1；pwsh 7 下 `2>&1` 本身没问题，这样两边行为一致）：PS 5.1 在 $ErrorActionPreference=Stop 下会把原生命令写 stderr 的
 # 正常输出（cargo 进度、tracing 日志）当成异常抛出。
 cmd /c "cargo test --workspace --no-run > `"$buildLog`" 2>&1"
 if ($LASTEXITCODE -ne 0) {

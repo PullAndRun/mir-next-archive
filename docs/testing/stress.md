@@ -1,4 +1,4 @@
-# 压测（`tools/stress/stress.py`，第 9/12 轮）
+﻿# 压测（`tools/stress/stress.py`，第 9/12 轮）
 
 用途：用真实协议、真实服务端拉 N 个并发连接，测握手/进世界成功率、tick 延迟、CPU/RSS、
 DB 写次数与限流/丢包，作为容量基线。脚本纯 stdlib，协议复用 `tools/playtest/playtest.py`；
@@ -8,7 +8,7 @@ DB 写次数与限流/丢包，作为容量基线。脚本纯 stdlib，协议复
 
 ```powershell
 # 先隐藏起服务端（见 docs/testing/playtest.md 的环境段）
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Port 7006 -GmAccounts playtest
+pwsh -NoProfile -File tools/dev/serve.ps1 -Port 7006 -GmAccounts playtest
 python tools/stress/stress.py --server 127.0.0.1:7006 --clients 100 --seconds 60
 python tools/stress/stress.py --server 127.0.0.1:7006 --clients 0 --seconds 60   # 空闲基线
 ```

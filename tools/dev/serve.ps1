@@ -4,13 +4,13 @@
 # 控制台窗口，它会出现在**主显示器**上，打断正在工作的人。这里统一用
 # `-WindowStyle Hidden` 启动，并把 stdout/stderr 重定向到日志文件。
 #
-# 兼容 Windows PowerShell 5.1（不用 `Start-Process -Environment`）。
+# 目标运行时：**PowerShell 7（pwsh）**；仍兼容 Windows PowerShell 5.1（因此不用 `Start-Process -Environment`）。
 #
 # 用法：
-#   powershell -NoProfile -File tools/dev/serve.ps1 -Port 7000
-#   powershell -NoProfile -File tools/dev/serve.ps1 -Port 7000 -GmAccounts playtest
-#   powershell -NoProfile -File tools/dev/serve.ps1 -Port 7000 -Exe target\release\mir-server.exe
-#   powershell -NoProfile -File tools/dev/serve.ps1 -Stop -Port 7000
+#   pwsh -NoProfile -File tools/dev/serve.ps1 -Port 7000
+#   pwsh -NoProfile -File tools/dev/serve.ps1 -Port 7000 -GmAccounts playtest
+#   pwsh -NoProfile -File tools/dev/serve.ps1 -Port 7000 -Exe target\release\mir-server.exe
+#   pwsh -NoProfile -File tools/dev/serve.ps1 -Stop -Port 7000
 param(
     [int]$Port = 7000,
     [string]$Exe = "target\debug\mir-server.exe",

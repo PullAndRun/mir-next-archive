@@ -1,4 +1,4 @@
-# 并发压测（`tools/stress`）
+﻿# 并发压测（`tools/stress`）
 
 用真实 TCP 连接模拟 N 个玩家：每个连接走完整的「版本 → 注册/登录 → 建角/选角 → 进世界」
 握手，然后按固定频率走动 / 攻击 / 发聊天，同时每秒抓一次服务端 `/metrics`
@@ -14,7 +14,7 @@
 $env:MIR2_METRICS_LISTEN = '127.0.0.1:9110'
 $env:MIR2_MAX_CONN_PER_IP = '2000'          # 300 个连接都来自 127.0.0.1
 $env:MIR2_MAX_CONN_PER_SEC = '2000'
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Port 7042
+pwsh -NoProfile -File tools/dev/serve.ps1 -Port 7042
 
 # 2) 三档（空闲基线 / 100 / 300，各 60 秒）
 py tools/stress/stress.py --server 127.0.0.1:7042 --metrics-port 9110 --clients 0   --duration 60 --out target/stress-0.json
@@ -22,7 +22,7 @@ py tools/stress/stress.py --server 127.0.0.1:7042 --metrics-port 9110 --clients 
 py tools/stress/stress.py --server 127.0.0.1:7042 --metrics-port 9110 --clients 300 --duration 60 --out target/stress-300.json
 
 # 3) 停服务端
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Stop -Port 7042
+pwsh -NoProfile -File tools/dev/serve.ps1 -Stop -Port 7042
 ```
 
 结果写到 `target/stress-<N>.json`（`--out` 可改），字段含义见 `report()`。

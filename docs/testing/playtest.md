@@ -1,4 +1,4 @@
-# 协议级 playtest（`tools/playtest/playtest.py`，第 8/9 轮）
+﻿# 协议级 playtest（`tools/playtest/playtest.py`，第 8/9 轮）
 
 用途：不启动图形客户端，用 Python 直接连真实服务端，按 Crystal 协议把「登录 → 建角 →
 进世界 → 走一步 → 看包」跑一遍，用于冒烟与排障。详细说明与覆盖表见
@@ -34,9 +34,9 @@ py tools/playtest/playtest.py --self-check
 （用法/产物/`-Stop` 详见 [`tools/dev/README.md`](../../tools/dev/README.md)）：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Port 7006 -GmAccounts playtest
+pwsh -NoProfile -File tools/dev/serve.ps1 -Port 7006 -GmAccounts playtest
 # 停：
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Stop -Port 7006
+pwsh -NoProfile -File tools/dev/serve.ps1 -Stop -Port 7006
 ```
 
 > 这条「窗口放显示器 2」的规则**只约束开发与测试**：`mir-client` 本身不控制窗口位置

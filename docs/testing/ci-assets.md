@@ -1,4 +1,4 @@
-# CI 素材依赖审计（没有 `resource/` 也要全绿）
+﻿# CI 素材依赖审计（没有 `resource/` 也要全绿）
 
 CI（GitHub Actions）只有源码，**没有 `resource/`**：地图（`resource/map/*.map`）、
 图库（`*.wzl`）、真实数据库（`resource/community/<repo>/Server.MirDB`）都不存在。
@@ -55,10 +55,10 @@ CI（GitHub Actions）只有源码，**没有 `resource/`**：地图（`resource
 
 ```powershell
 # 一步到位：构建测试二进制 → 丢进没有 resource/ 的沙箱目录 → 逐个执行
-powershell -NoProfile -File tools/dev/test-no-assets.ps1
+pwsh -NoProfile -File tools/dev/test-no-assets.ps1
 
 # 只跑某个 crate
-powershell -NoProfile -File tools/dev/test-no-assets.ps1 -Jobs 8
+pwsh -NoProfile -File tools/dev/test-no-assets.ps1 -Jobs 8
 ```
 
 脚本做的事：

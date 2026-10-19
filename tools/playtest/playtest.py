@@ -3,6 +3,7 @@
 
 连接真实服务端（默认 127.0.0.1:7000），按「新玩家 10 分钟能玩到的东西」逐项验证并
 打印 [OK]/[FAIL]/[SKIP]；任一项失败时退出码为 1，全部通过/跳过为 0。
+末行按实际计数输出「全部通过（0 跳过）」或「全部通过（含 N 个跳过项）」并列出跳过项。
 
 用法：
     python tools/playtest/playtest.py
@@ -11,7 +12,9 @@
 设计要点：
 * 所有等待都有超时（默认 8s），超时时打印「期望收到什么包」的诊断；
 * 不发 KeepAlive、不 sleep 死等：每次等待都是「收包直到目标包或超时」；
-* 服务端缺资源（例如起始地图没有 NPC/鸡鹿）时该项打印 [SKIP] 并说明原因。
+* 服务端缺资源（例如起始地图没有 NPC/鸡鹿）时该项打印 [SKIP] 并说明原因；
+* **幂等**：同一服务端可以连续跑多次——GM 模式下进世界后先 `@map` 回起始图并校验落点
+  （跨图传送那一步会把角色留在目标图），非 GM 模式每次注册新账号新角色。
 
 协议：帧 = u16 总长（含 4 字节头）+ i16 包号 + 负载；字符串为 7-bit 变长长度 + UTF-8；
 标了 Compressed 的包（NPCGoods 等）负载是 gzip。
@@ -48,6 +51,13 @@ C_BUY_ITEM = 51
 #: 比奇药店最便宜的初级红药（`Server.MirDB` 里 `(HP)DrugSmall` 的模板号）。
 POTION_ITEM_INDEX = 658
 
+#: 起始图（比奇省）的候选标识：`@map 0 330 270` 里的 "0" 是**地图文件名**，
+#: 但有些数据集里 `map_index 0` 不存在（本仓库的 `Server.MirDB` 里比奇的 index 是 1、
+#: 文件名才是 "0"），`@map` 先按 index 解析、失败才按文件名 → 这里两个都试一遍。
+DEFAULT_START_MAPS = ("0", "1")
+#: 起始坐标（`ServerConfig.start_point` 默认值）。
+DEFAULT_START_POINT = (330, 270)
+
 # --- 服务端包号（server.rs / manual/server.rs） ---
 S_CONNECTED = 0
 S_CLIENT_VERSION = 1
@@ -74,6 +84,7 @@ S_GAINED_GOLD = 67
 S_LOSE_GOLD = 68
 S_MAP_CHANGED = 98
 S_NPC_GOODS = 102
+S_LOG_OUT_SUCCESS = 58
 
 DIRECTIONS = ["Up", "UpRight", "Right", "DownRight", "Down", "DownLeft", "Left", "UpLeft"]
 
@@ -234,7 +245,14 @@ class Writer:
 
 
 class Playtest:
-    def __init__(self, server: str, timeout: float, gm: str | None = None):
+    def __init__(
+        self,
+        server: str,
+        timeout: float,
+        gm: str | None = None,
+        start_maps: tuple[str, ...] = DEFAULT_START_MAPS,
+        start_point: tuple[int, int] = DEFAULT_START_POINT,
+    ):
         host, _, port = server.partition(":")
         self.host = host
         self.port = int(port or "7000")
@@ -269,6 +287,12 @@ class Playtest:
         self.map_npcs: list[dict] = []
         self.map_index: int | None = None
         self.map_size: tuple[int, int] | None = None
+        # 幂等（同一服务端可重复跑）：进世界后先回起始图，起点由 CLI 覆盖。
+        self.start_maps = start_maps
+        self.start_point = start_point
+        # 进世界时角色实际所在的图/坐标（用于诊断「上一轮把角色留在别处」）。
+        self.entry_map: str | None = None
+        self.entry_pos: tuple[int, int] | None = None
 
     # ---------------- 结果输出 ----------------
     def ok(self, step: str, detail: str = "") -> None:
@@ -692,6 +716,101 @@ class Playtest:
             self.diagnostics(f"GM @map 也没能站到 {npc['name']} 旁边")
             return False
         return self.goto(npc["pos"], max_steps=160)
+
+    # ---------------- 幂等：回到起始图 ----------------
+    def return_to_start(self, char_index: int) -> bool:
+        """把角色拉回起始图/起点，保证脚本可以在**同一服务端上重复运行**。
+
+        为什么需要：跨图传送那一步会把角色留在目标图（本数据集是 `D011`），下一次运行
+        进世界后视野里一个 NPC 都没有 → `[FAIL] 走到 NPC`。
+
+        为什么还要「下线再进」：GM `@map` 走的是 `World::place_player`，它只改坐标、
+        **不发** `S.MapChanged`/视野对象（服务端在 GM 注释里写明是测试助手路径），
+        所以挪完位置后必须重新 `StartGame` 一遍，才能拿到新图的
+        `MapInformation`/`NewMapInfo`/`S.ObjectNPC`。非 GM 模式每次跑都是新账号新角色，
+        天然幂等，直接返回。
+        """
+        if not self.gm:
+            return True
+        x, y = self.start_point
+        attempts = []
+        landed = False
+        for map_name in self.start_maps:
+            before = len(self.chats)
+            self.chat(f"@map {map_name} {x} {y}")
+            receipt = self._wait_gm_reply(before)
+            attempts.append(f"@map {map_name} {x} {y} → {receipt}")
+            if self.self_pos == (x, y):
+                landed = True
+                break
+        if not landed:
+            self.fail(
+                "回到起始图",
+                f"GM `@map` 没能把角色放回起点 {(x, y)}；尝试记录：{attempts}；"
+                f"当前 {self.map_file} @ {self.self_pos}"
+                "（用 `--start-map/--start-point` 指定本数据集的起始图）",
+            )
+            return False
+        # 下线再进：重拿地图信息与视野内的 NPC/怪物（`@map` 自己不发这些包）。
+        writer = Writer()
+        self.send(C_LOGOUT, writer.raw())
+        try:
+            self.wait_for(S_LOG_OUT_SUCCESS, "下线", 5)
+        except ProtocolError:
+            self.diagnostics("下线没收到 S.LogOutSuccess")
+        self.self_object_id = None
+        self.self_pos = None
+        self.npcs.clear()
+        self.monsters.clear()
+        self.map_npcs.clear()
+        self.movements.clear()
+        writer = Writer()
+        writer.i32(char_index)
+        self.send(C_START_GAME, writer.raw())
+        try:
+            _, payload = self.wait_for(S_START_GAME, "重新进入游戏")
+        except ProtocolError as error:
+            self.fail("回到起始图", f"重新进入游戏失败：{error}")
+            return False
+        result = Reader(payload).u8()
+        if result != 4:
+            self.fail("回到起始图", f"重新 StartGame 被拒：Result={result}（期望 4）")
+            return False
+        # 收集 Login 流（UserInformation + 至少一条 NPC/怪物）。
+        deadline = time.time() + self.timeout
+        while time.time() < deadline and (self.self_object_id is None or not (self.npcs or self.monsters)):
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            self._observe(*packet)
+        if self.self_object_id is None:
+            self.fail(
+                "回到起始图",
+                f"重新进世界没拿到 S.UserInformation；最近包 {list(self.recent_packets)}",
+            )
+            return False
+        self.ok(
+            "回到起始图",
+            f"{self.map_file} @ {self.self_pos}，视野 NPC {len(self.npcs)} 个"
+            f"（本图 NPC {len(self.map_npcs)} 个）",
+        )
+        return True
+
+    #: GM `@map` 的三种回执前缀（`Teleported to` / `Map not found` / `Usage:` / `Cannot enter map`）。
+    GM_REPLY_PREFIXES = ("Teleported to", "Map not found", "Usage:", "Cannot enter map")
+
+    def _wait_gm_reply(self, since: int, timeout: float | None = None) -> str:
+        """等到**GM 回执**为止（登录欢迎语之类的普通聊天不算），返回回执文本。"""
+        deadline = time.time() + (timeout if timeout is not None else self.timeout)
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            self._observe(*packet)
+            for text in self.chats[since:]:
+                if text.startswith(self.GM_REPLY_PREFIXES):
+                    return text
+        return "（无回执）"
 
     def _walkable_at(self, pos: tuple[int, int] | None) -> bool:
         """落点是否在本地地形图里可站立（没有地形文件时不判定）。"""
@@ -1448,6 +1567,10 @@ class Playtest:
             self.fail("进入世界", f"未收到 S.UserInformation（期望 21）；已收到 {seen_ids[-15:]}")
             return 1
         self.ok("进入世界", f"object_id={self.self_object_id} pos={self.self_pos}")
+        self.entry_map, self.entry_pos = self.map_file, self.self_pos
+        # 幂等：上一轮的跨图传送会把角色留在别的图（NPC=0），每次运行先回起点。
+        if not self.return_to_start(char_index if char_index is not None else 0):
+            return 1
 
         # 走到 NPC 并对话
         if not self.npcs:
@@ -1581,14 +1704,62 @@ class Playtest:
         return max(abs(self.self_pos[0] - pos[0]), abs(self.self_pos[1] - pos[1]))
 
 
+def summarize(results: list[tuple[str, str, str]], code: int) -> list[str]:
+    """结果汇总文案（纯函数，便于单测文案）。
+
+    * 0 跳过 → `结果：全部通过（0 跳过）`
+    * N 跳过 → `结果：全部通过（含 N 个跳过项）` + 逐条列出
+    * 有失败 → `结果：存在失败项（OK x / SKIP y / FAIL z）` + 逐条列出
+    """
+    counts: dict[str, int] = collections.Counter(kind for kind, _, _ in results)
+    skipped = [(step, detail) for kind, step, detail in results if kind == "SKIP"]
+    failed = [(step, detail) for kind, step, detail in results if kind == "FAIL"]
+    lines: list[str] = []
+    if code == 0:
+        if skipped:
+            lines.append(f"结果：全部通过（含 {len(skipped)} 个跳过项）")
+            lines.extend(f"  - [SKIP] {step} —— {reason}" for step, reason in skipped)
+        else:
+            lines.append("结果：全部通过（0 跳过）")
+    else:
+        lines.append(
+            "结果：存在失败项"
+            f"（OK {counts.get('OK', 0)} / SKIP {len(skipped)} / FAIL {len(failed)}）"
+        )
+        lines.extend(f"  - [FAIL] {step} —— {reason}" for step, reason in failed)
+    return lines
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="传奇-Next 可玩性自检")
     parser.add_argument("--server", default="127.0.0.1:7000", help="服务端地址 host:port")
     parser.add_argument("--timeout", type=float, default=8.0, help="每步等待超时（秒）")
     parser.add_argument("--gm", default=None, help="GM 账号（服务端 MIR2_GM_ACCOUNTS 需包含它）；提供时走 @level/@mob/@learn 闭环")
+    parser.add_argument(
+        "--start-map",
+        default=",".join(DEFAULT_START_MAPS),
+        help="起始图标识候选（逗号分隔，`@map` 依次尝试；默认 '0,1' = 比奇的 map_index 与文件名）",
+    )
+    parser.add_argument(
+        "--start-point",
+        default=f"{DEFAULT_START_POINT[0]},{DEFAULT_START_POINT[1]}",
+        help="起始坐标 x,y（默认 330,270 = ServerConfig.start_point）",
+    )
     args = parser.parse_args()
 
-    test = Playtest(args.server, args.timeout, args.gm)
+    try:
+        start_point = tuple(int(part) for part in args.start_point.split(","))
+        if len(start_point) != 2:
+            raise ValueError
+    except ValueError:
+        parser.error("--start-point 需要形如 330,270")
+    test = Playtest(
+        args.server,
+        args.timeout,
+        args.gm,
+        tuple(part.strip() for part in args.start_map.split(",") if part.strip()),
+        start_point,
+    )
     try:
         code = test.run()
     except (OSError, ProtocolError) as error:
@@ -1597,10 +1768,8 @@ def main() -> int:
     finally:
         test.close()
     print()
-    if code == 0:
-        print("结果：全部通过（含跳过项）")
-    else:
-        print("结果：存在失败项")
+    for line in summarize(test.results, code):
+        print(line)
     return code
 
 

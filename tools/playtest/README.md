@@ -6,10 +6,21 @@
 ```text
 python tools/playtest/playtest.py
 python tools/playtest/playtest.py --server 127.0.0.1:7000 --timeout 8
+python tools/playtest/playtest.py --server 127.0.0.1:7000 --gm playtest --timeout 8
 ```
 
 * 每步都有超时（`--timeout`，默认 8s）；超时会打印**期望收到的服务端包号/包名**。
 * 退出码：0 = 没有失败项（允许 SKIP，例如服务端没下发 NPC/鸡鹿）；1 = 有 `[FAIL]`。
+* 末行按**实际计数**输出：`结果：全部通过（0 跳过）` 或 `结果：全部通过（含 N 个跳过项）`
+  （后者会把跳过项逐条列出来）；失败时输出 `结果：存在失败项（OK x / SKIP y / FAIL z）`
+  并列出失败项。
+* **幂等**：同一服务端可以连续跑多次。跨图传送那一步会把角色留在目标图（本数据集是
+  `D011`），所以 GM 模式下进世界后先 `@map` 回起始图 → **下线再进**（`@map` 走的是
+  `World::place_player`，只改坐标不发世界包，必须重新 `StartGame` 才能拿到新图的
+  `MapInformation`/`NewMapInfo`/`S.ObjectNPC`）→ 校验落点后继续。非 GM 模式每次都注册
+  新账号 + 建新角色，天然幂等。起始图/坐标可用 `--start-map`（默认 `0,1`，逗号分隔依次
+  尝试，兼容「map_index 与文件名不一致」的数据集）与 `--start-point`（默认 `330,270`）
+  覆盖；回不去就报清楚并退出，不静默继续。
 * 只依赖 Python 标准库；协议实现见 `crates/mir-protocol`（帧 = u16 总长 + i16 包号 + 负载，
   Compressed 包为 gzip）。
 
@@ -22,11 +33,15 @@ python tools/playtest/playtest.py --server 127.0.0.1:7000 --timeout 8
 | 建角 / 进游戏 | `C.NewCharacter`(6) → `S.NewCharacterSuccess`(11)，`C.StartGame`(8) → `S.StartGame`(14) |
 | 进入世界 | `S.MapInformation`(17)、`S.UserInformation`(21)、`S.ObjectNPC`(92)、`S.ObjectMonster`(71) |
 | 走到 NPC / 对话 | `C.Walk`(11) → `S.ObjectWalk`(28)；`C.CallNPC`(50) → `S.NPCResponse`(93) |
+| 回到起始图（幂等） | `C.Chat`(`@map`) → GM 回执 `Teleported to …` → `C.LogOut`(9) → `S.LogOutSuccess`(58) → `C.StartGame`(8) → `S.StartGame`(14) |
 | 打鸡/鹿 | `C.Attack`(47) → `S.ObjectDied`(81)/`S.GainExperience`(85) |
-| 下线 | `C.LogOut`(9) |
+| 买药（NPC 商店） | `C.CallNPC`(50) 逐页 BFS → `S.NPCGoods`(102) → `C.BuyItem`(51) → `S.GainedItem`(66) + `S.LoseGold`(68) |
+| 使用技能 | `@learn` → `S.NewMagic`(117) → `C.Magic`(58) → `S.ObjectMagic`(120) + `C.HealthChanged`(77) |
+| 跨图传送 | `S.NewMapInfo`(18) 的传送点 / 传送 NPC / GM `@map` 兜底 → `S.MapChanged`(98) |
+| 下线 | `C.LogOut`(9) → `S.LogOutSuccess`(58) |
 
-买药（NPC 商店页 `NPCGoods` 102 的完整解析）与「使用技能」（新建角色未学技能）当前标为 SKIP，
-下一步可补。
+当前真服务端（真实 `Server.MirDB` + `--gm`）跑满 **15 项全 `[OK]`、0 `SKIP`**；不带 `--gm`
+时会退回普通玩家链路（打怪/技能按原因 SKIP）。
 
 ## GM 闭环：打怪 + 用技能（t78）
 
@@ -46,30 +61,37 @@ python tools/playtest/playtest.py --gm gmtest --timeout 15
 
 不带 `--gm` 时仍只跑普通玩家链路（打怪/技能按原因 SKIP）。
 
-## 已知问题：新角色 dead（已修/在修）
+## 历史问题（已修复，留档）
 
-在真实服务端（`target/debug/mir-server.exe` + 真实 DB/map 资源）上首次运行时发现：
-注册/登录/建角/进游戏/收实体列表均 `[OK]`，但**第一步移动就被服务端拒绝**：
-`MoveError::Dead { object_id }`，而 `S.UserInformation` 里 `hp=15`。原因是新角色进入世界时
-`Player.dead` 被 tick 判死（`world.rs` 的移动门禁判 `player.dead`），并非脚本协议问题
-（同样的 `C.Walk` 包在 `tests/` 的世界内用例可通过）。
+**新角色进世界即被判死**（`MoveError::Dead`，而 `S.UserInformation` 里 `hp=15`）：原因是
+新角色进入世界时 `Player.dead` 被 tick 判死（`world.rs` 的移动门禁判 `player.dead`），
+不是脚本的协议问题。已由兵部修复（新角色满血、TownArcher 只锁红名）。
 
-**状态（2026-10-19 13:52，最终）：** 两处服务端 bug 已由兵部修复（新角色满血、TownArcher 只锁红名）；
-脚本已加真寻路（读 `resource/map/<map>.map` v0 → BFS + 斜向不穿墙角 + 每步重算 + 服务器回拉拉黑）、
-`S.UserLocation`(23) 本人坐标、`S.MapChanged`(98) 换图、`S.ObjectWalk`(28) 怪物走位、超时/最近包/HP 诊断。
-本轮真服务端复跑：
+脚本随后补齐了真寻路（读 `resource/map/<map>.map` v0 → BFS + 斜向不穿墙角 + 每步重算 +
+服务器回拉拉黑）、`S.UserLocation`(23) 本人坐标、`S.MapChanged`(98) 换图、`S.ObjectWalk`(28)
+怪物走位、超时/最近包/HP 诊断，以及买药、使用技能、跨图传送三步。
+
+## 本轮真服务端复跑（`--gm`，同一服务端连跑 3 次，每次 exit 0）
 
 ```
-[OK] 连接 / 版本校验 / 注册 / 登录 / 建角 / 进游戏 / 进入世界
-[OK] 走到 NPC / 对话
-[SKIP] 买药（NPCGoods 商店页解析未做）
-[SKIP] 打死一只鸡/鹿（起始视野内只有守卫，不跨图寻路，避免踩传送点换图）
-[SKIP] 使用技能（新建角色未学技能）
-[OK] 开背包/关闭
-[OK] 下线
-结果：全部通过（含跳过项），exit 0
+[OK]   连接服务端 / 版本校验 / 注册账号 / 登录 / 创建角色 / 进入游戏 / 进入世界
+[OK]   回到起始图 —— 0 @ (330, 270)，视野 NPC 7 个（本图 NPC 40 个）
+[OK]   走到 NPC / 对话 —— Premium_Elijah
+[OK]   买药 —— Alchemist_Samuel（@BuySell 页）买模板 #658 x1，花费 40 金币，货架倍率 1.00
+[OK]   打死一只鸡/鹿 —— GM @mob Hen（ObjectDied 81 + GainExperience 85 x1）
+[OK]   使用技能 —— FireBall 命中（MP 260 -> 251）
+[OK]   开背包/关闭 —— 客户端本地 UI（协议无背包开关包）
+[OK]   跨图传送 —— 0 (371, 315) → map#34 D011 @ (100, 100)（GM @map 兜底：最近的自然传送点 (324, 41) 距起点 274 格（超过 60 格预算））
+[OK]   下线
+结果：全部通过（0 跳过）
 ```
 
-「打怪」步骤在更早的实验里已能接近并交战（HP 15↔16 波动），但鸡/鹿会走位且远在城外；
-跨图追击会踩传送点，脚本选择显式 SKIP。服务端战斗链路由 `tests/skills.rs`（66 条）与
-`duo_smoke` 覆盖，本脚本的这一步属锦上添花。
+第 2/3 次进世界时角色还停在上一次的 `D011`（`进入世界 pos=(100, 100)`），
+`[OK] 回到起始图` 会把它拉回比奇再继续，所以三次输出完全一致。
+
+## 已知缺口（不影响自检）
+
+* `S.NPCGoods` 只有 `Vec<UserItem>`，**没有价格字段**（Crystal 的 `ClientGoodsInfo.Price`
+  未建模），脚本只能按已知最便宜药水模板 `#658` 选、再用 `S.LoseGold` 反查成交价。
+* GM `@map` 走 `World::place_player`，只改坐标、不发 `S.MapChanged`/视野对象；
+  脚本因此用「下线再进」重建视野（见上文幂等说明）。

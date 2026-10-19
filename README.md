@@ -36,7 +36,7 @@
 | 模块 | 状态 | 说明 |
 | --- | --- | --- |
 | 仓库初始化、许可证、README | ✅ | |
-| Cargo workspace 与 CI | ✅ | `cargo fmt` / `clippy` / `test` + 协议生成一致性检查；仓库已迁到**私有** `PullAndRun/mir-next`，私有库 Actions 需付费额度（当前账号未就绪），改用 `pwsh -NoProfile -File tools/dev/ci.ps1` 跑同一套门禁，见 [`docs/testing/local-ci.md`](docs/testing/local-ci.md) |
+| Cargo workspace 与 CI | ✅ | `cargo fmt` / `clippy` / `test` + 协议生成一致性检查；**不使用远端 CI**：全部开发、测试、门禁都在本地跑，`pwsh -NoProfile -File tools/dev/ci.ps1` 一条命令覆盖 9 项检查，见 [`docs/testing/local-ci.md`](docs/testing/local-ci.md) |
 | 协议层（`mir-protocol`） | ✅ | **432/432 个包全覆盖**：408 个由 C# 源码自动生成 + 24 个手写；每个包都有 encode→decode 往返测试 |
 | 登录网关与会话（`mir-server`） | ✅ | 版本校验、注册、登录、建角/删角、进世界、聊天、语言切换 |
 | 地图与行走（`mir-world` / `mir-server`） | 🟡 | `.map` 9 种版本读取 + 可走性校验；动作计时按 Crystal（走/跑 600ms、转身 350ms、跑需先走一步）、`UserLocation`/`ObjectWalk`/`ObjectRun` 广播、世界 tick 100ms；视野已对齐 16 格（`DataRange`）并接入 8×8 桶 AOI 网格、进出视野差分与门状态机（5 秒自动关）；本轮端到端测试见 `tests/aoi.rs`，待刑部全量验收 |
@@ -77,7 +77,7 @@
 
 生成器**同时翻译读侧与写侧**，只有当两边推导出的线格式完全一致时才产出代码；不一致的包会被列进
 `tools/protocol-gen/report.md` 并改为手写（例如 `MapInformation` 的位标记、
-`UserInformation` 的三组可选背包）。CI 会校验「生成结果与仓库中提交的一致」。
+`UserInformation` 的三组可选背包）。`tools/dev/ci.ps1` 会校验「生成结果与仓库中提交的一致」（全部在本地跑，无远端 CI）。
 
 ## 仓库结构
 
@@ -146,7 +146,7 @@ python tools/asset-index/find_asset.py --ext .wzl --top data --limit 20
   **不进** `config/lang/`（后者只镜像服务端 `TextKey`）。
 
 细节、新增文本流程与覆盖审计见 [`docs/i18n.md`](docs/i18n.md)；硬编码中文可用
-`py tools/i18n/scan_hardcoded.py --player-visible --no-test --strict` 复跑（CI 以此作棘轮）。
+`py tools/i18n/scan_hardcoded.py --player-visible --no-test --strict` 复跑（`tools/dev/ci.ps1` 以此作棘轮）。
 
 ## 技术选型
 

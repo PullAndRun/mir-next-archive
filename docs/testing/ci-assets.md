@@ -1,6 +1,6 @@
-﻿# CI 素材依赖审计（没有 `resource/` 也要全绿）
+# CI 素材依赖审计（没有 `resource/` 也要全绿）
 
-CI（GitHub Actions）只有源码，**没有 `resource/`**：地图（`resource/map/*.map`）、
+无素材的干净环境（原远端 CI）只有源码，**没有 `resource/`**：地图（`resource/map/*.map`）、
 图库（`*.wzl`）、真实数据库（`resource/community/<repo>/Server.MirDB`）都不存在。
 本页记录「哪些测试会碰真实素材、它们缺素材时怎么办」，以及怎么在本地复现 CI。
 
@@ -51,7 +51,7 @@ CI（GitHub Actions）只有源码，**没有 `resource/`**：地图（`resource
 3. 测试**不要**自己拼 `resource/...` 相对路径去 `expect()`：要么走 `GameData::discover()`，
    要么用 `env!("CARGO_MANIFEST_DIR")` 拼绝对路径并先判断存在性。
 
-## 复现 CI（本地没有 `resource/` 也能验）
+## 复现「没有素材」的环境（本地也能验）
 
 ```powershell
 # 一步到位：构建测试二进制 → 丢进没有 resource/ 的沙箱目录 → 逐个执行

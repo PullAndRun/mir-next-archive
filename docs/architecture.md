@@ -73,7 +73,7 @@ World::tick ──► 结算伤害 ──► S.ObjectStruck / S.HealthChanged / 
 只有两处是「从 Crystal 源码生成」的：`mir-core` 的枚举与 `mir-protocol` 的包。
 生成器（`tools/protocol-gen/`）同时翻译 C# 的读侧与写侧，只有两侧推导出的线格式签名
 完全一致才产出代码；不一致的包登记到 `tools/protocol-gen/report.md` 并改为手写实现
-（`crates/mir-protocol/src/manual/`）。CI 会校验「生成结果与提交的一致」。
+（`crates/mir-protocol/src/manual/`）。`tools/dev/ci.ps1` 会校验「生成结果与提交的一致」（本项目不使用远端 CI）。
 
 ## 测试策略
 

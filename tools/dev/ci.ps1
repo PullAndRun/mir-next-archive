@@ -1,8 +1,6 @@
-﻿# 本地全量门禁 —— 与 `.github/workflows/ci.yml` 的 5 个 job 一一对应。
+﻿# 本地全量门禁 —— 本项目**不使用远端 CI**，这是唯一的自动化门禁入口。
 #
-# 为什么需要它：仓库改为**私有**后，GitHub Actions 需要付费额度（当前账号的
-# spending limit / 账单未就绪，Action 会在 runner 分配前失败）。所有者随时可能恢复，
-# 但**门禁不能靠别人的账单**，所以把同样的检查做成本地一条命令。
+# 全部检查在本地跑（无远端 CI）。改代码时常跑 `-SkipTests`，收口前跑全量。
 #
 # 用法（PowerShell 7）：
 #   pwsh -NoProfile -File tools/dev/ci.ps1              # 全跑
@@ -41,13 +39,13 @@ function Invoke-Gate {
 # Python 解释器：Windows 上 `python` 常是 Microsoft Store 的占位 stub，优先用 `py`。
 $python = "python"
 if (Get-Command py -ErrorAction SilentlyContinue) { $python = "py" }
-Write-Host "== 本地 CI（与 .github/workflows/ci.yml 对应；python=$python）==" -ForegroundColor Cyan
+Write-Host "== 本地门禁（无远端 CI；python=$python）==" -ForegroundColor Cyan
 
 # 1) Rust：fmt / clippy / test
 Invoke-Gate "cargo fmt --all --check" "cargo fmt --all --check"
 Invoke-Gate "cargo clippy --workspace --all-targets -D warnings" "cargo clippy --workspace --all-targets -- -D warnings"
 if (-not $SkipTests) {
-    # duo_smoke 串行跑（与 CI 一致：两个客户端抢同一个战斗槽，并行会 flake）
+    # duo_smoke 必须串行：两个客户端抢同一个战斗槽，并行会 flake
     Invoke-Gate "cargo test -p mir-server --test duo_smoke（串行）" "cargo test -p mir-server --test duo_smoke -- --test-threads=1"
     Invoke-Gate "cargo test --workspace" "cargo test --workspace"
 }

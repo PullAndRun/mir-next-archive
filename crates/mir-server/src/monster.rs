@@ -242,8 +242,10 @@ impl MonsterKind {
     pub fn ai_support(&self) -> AiSupport {
         match self.ai {
             // 真正按 Crystal 子类实现了分支的 AI。
-            2 | 3 | 6 | 8 | 12 | 13 | 14 | 16 | 29 | 31 | 32 | 47 | 50 | 55 | 56 | 57 | 58 | 80
-            | 100 | 113 => AiSupport::Full,
+            2 | 3 | 6 | 8 | 12 | 13 | 14 | 15 | 16 | 29 | 31 | 32 | 47 | 50 | 55 | 56 | 57 | 58
+            | 80 | 97 | 99 | 100 | 102 | 113 | 119 | 120 | 128 | 164 | 165 | 181 | 210 => {
+                AiSupport::Full
+            }
             // 基类近战/索敌/漫游对所有怪都生效，但没有专属子类行为。
             0
             | 1
@@ -253,7 +255,6 @@ impl MonsterKind {
             | 9
             | 10
             | 11
-            | 15
             | 17
             | 18
             | 19
@@ -306,8 +307,10 @@ impl MonsterKind {
     pub fn ranged_attack_range(&self) -> Option<i32> {
         match self.ai {
             8 | 164 | 175 | 199 => Some(6),
+            165 => Some(4),
+            102 | 31 | 32 => Some(8),
+            181 | 210 => Some(self.view_range),
             16 => Some(9),
-            31 | 32 => Some(8),
             57 | 80 => Some(10),
             113 if self.is_archer_guard() => Some(self.view_range),
             _ => None,
@@ -1046,7 +1049,7 @@ impl World {
         }
         // 树/训练木桩：Crystal `Tree`/`Trainer` 都是 CanMove/CanAttack=false，
         // 只作为可被攻击的场景对象存在。
-        if matches!(monster.kind.ai, 3 | 56) {
+        if matches!(monster.kind.ai, 3 | 15 | 56 | 99 | 119 | 120 | 128) {
             monster.alone = false;
             return;
         }

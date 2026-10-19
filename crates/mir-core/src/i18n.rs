@@ -478,6 +478,10 @@ pub enum TextKey {
     SpouseTeleported,
     /// 场景：配偶传送（`spouse_recall_needs_ring`）；模板：`需要戴上结婚戒指才能召唤配偶。`。
     SpouseRecallNeedsRing,
+    /// 场景：配偶传送（`SocialError::PartnerRing`）；模板：`对方的结婚戒指不见了（或与你不匹配），无法传送。`。
+    SpouseRecallPartnerRing,
+    /// 场景：平滑重启倒计时（`server.rs`）；模板：`服务器将在 {seconds} 秒后重启，请安全下线。`；参数：`{seconds}`。
+    RebootCountdown,
     /// 场景：婚姻/师徒（`world.rs`）；模板：`求婚已发出，等待对方回应。`。
     MarriageProposalSent,
     /// 场景：婚姻/师徒（`world.rs`）；模板：`{name} 拒绝了你的求婚。`。
@@ -768,6 +772,8 @@ impl TextKey {
         Self::SpouseDead,
         Self::SpouseTeleported,
         Self::SpouseRecallNeedsRing,
+        Self::SpouseRecallPartnerRing,
+        Self::RebootCountdown,
         Self::MarriageProposalSent,
         Self::MarriageRefused,
         Self::MarriageDone,
@@ -1006,6 +1012,8 @@ impl TextKey {
             Self::SpouseDead => "spouse_dead",
             Self::SpouseTeleported => "spouse_teleported",
             Self::SpouseRecallNeedsRing => "spouse_recall_needs_ring",
+            Self::SpouseRecallPartnerRing => "spouse_recall_partner_ring",
+            Self::RebootCountdown => "reboot_countdown",
             Self::MarriageProposalSent => "marriage_proposal_sent",
             Self::MarriageRefused => "marriage_refused",
             Self::MarriageDone => "marriage_done",
@@ -1249,6 +1257,8 @@ impl TextKey {
             Self::SpouseDead => &[],
             Self::SpouseTeleported => &["name"],
             Self::SpouseRecallNeedsRing => &[],
+            Self::SpouseRecallPartnerRing => &[],
+            Self::RebootCountdown => &["seconds"],
             Self::MarriageProposalSent => &[],
             Self::MarriageRefused => &["name"],
             Self::MarriageDone => &["name"],
@@ -1641,6 +1651,8 @@ const fn text_zh(key: TextKey) -> &'static str {
         TextKey::SpouseDead => "你的配偶已经死亡，无法召唤。",
         TextKey::SpouseTeleported => "你已传送到 {name} 身边。",
         TextKey::SpouseRecallNeedsRing => "需要戴上结婚戒指才能召唤配偶。",
+        TextKey::SpouseRecallPartnerRing => "对方的结婚戒指不见了（或与你不匹配），无法传送。",
+        TextKey::RebootCountdown => "服务器将在 {seconds} 秒后重启，请安全下线。",
         TextKey::MarriageProposalSent => "求婚已发出，等待对方回应。",
         TextKey::MarriageRefused => "{name} 拒绝了你的求婚。",
         TextKey::MarriageDone => "你和 {name} 结为夫妻。",
@@ -1962,6 +1974,9 @@ const fn text_en(key: TextKey) -> &'static str {
         TextKey::LoverRecallAllowed => "You now allow your spouse to recall to you.",
         TextKey::LoverRecallBlocked => "You no longer allow your spouse to recall to you.",
         TextKey::SpouseRecallDenied => "Your spouse has disabled spouse recall.",
+        TextKey::RebootCountdown => {
+            "The server will reboot in {seconds} second(s). Please log out safely."
+        }
         TextKey::SpouseRingGiven => "Your wedding rings have been placed in your inventory.",
         TextKey::SpouseNotMarried => "You are not married, so you cannot recall a spouse.",
         TextKey::SpouseOffline => "Your spouse is not online.",
@@ -1969,6 +1984,9 @@ const fn text_en(key: TextKey) -> &'static str {
         TextKey::SpouseTeleported => "You have been teleported next to {name}.",
         TextKey::SpouseRecallNeedsRing => {
             "You need to wear your wedding ring to recall your spouse."
+        }
+        TextKey::SpouseRecallPartnerRing => {
+            "Your spouse is not wearing a matching wedding ring, so the recall is refused."
         }
         TextKey::MarriageProposalSent => "Proposal sent, waiting for the answer.",
         TextKey::MarriageRefused => "{name} turned down your proposal.",
@@ -2383,7 +2401,7 @@ mod tests {
         //
         // 新增变体时必须同时登记 `TextKey::ALL`，否则这条会挡住——`ALL` 是
         // 语言包校验与参数核对的唯一入口，漏登记等于漏测试。
-        assert_eq!(TextKey::ALL.len(), 232, "新增/删除键时同步更新数量");
+        assert_eq!(TextKey::ALL.len(), 234, "新增/删除键时同步更新数量");
     }
 
     #[test]

@@ -80,11 +80,13 @@ EXTENSION_KEYS = (
     "lover_recall_allowed",
     "lover_recall_blocked",
     "spouse_recall_denied",
+    "spouse_recall_partner_ring",
+    "reboot_countdown",
     "spouse_ring_given",
 )
 
 #: 允许带参数的扩展键（Crystal `ServerTextKeys.YouFound` 是 `You found {0}`）。
-EXTENSION_KEYS_WITH_ARGS = ("quest_item_found", "spouse_teleported")
+EXTENSION_KEYS_WITH_ARGS = ("quest_item_found", "spouse_teleported", "reboot_countdown")
 
 #: §7.2 预期的行数（第 2 轮扫描口径，冻结；文档改口径时同步改这里）。
 EXPECTED_ROWS = 207

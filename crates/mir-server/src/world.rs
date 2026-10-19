@@ -721,6 +721,10 @@ pub enum SocialError {
     /// 配偶关闭了「允许配偶传送」（Crystal `PlayerObject.cs:2643`）。
     #[error("spouse of player {0} does not allow lore recall")]
     RecallDenied(u32),
+    /// 配偶没戴结婚戒指，或戒指的 `wedding_ring` 没有指向发起方
+    /// （Crystal `PlayerObject.cs:2629-2641` 对**双方**都做校验）。
+    #[error("spouse of player {0} is not wearing a matching wedding ring")]
+    PartnerRing(u32),
 }
 
 /// 配偶传送的结果（见 [`World::spouse_teleport`]）。
@@ -3684,6 +3688,13 @@ impl World {
         // Crystal `PlayerObject.cs:2643-2648`：对方关掉「允许配偶传送」就拒绝。
         if !self.allows_lover_recall(spouse_id) {
             return Err(SocialError::RecallDenied(player));
+        }
+        // Crystal `PlayerObject.cs:2629-2641`：**对方也得戴着**戒指、且两枚戒指互指对方
+        // （`A.ring.wedding_ring == B.character_id && B.ring.wedding_ring == A.character_id`）。
+        // 豁免：配偶**离线**时不校验（离线查不到装备），已在
+        // `docs/world/social.md` 与本任务回执里登记。
+        if !self.is_wearing_wedding_ring(spouse_id) {
+            return Err(SocialError::PartnerRing(player));
         }
         let (spouse_map, spouse_pos, spouse_dead) = {
             let spouse = self

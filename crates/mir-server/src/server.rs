@@ -272,12 +272,8 @@ pub async fn serve_forever_with_world<S: AccountStore>(
                     let message =
                         crate::gm::reboot_message(u32::try_from(remaining).unwrap_or_default());
                     world.broadcast_system(&message);
-                    let kicked = if remaining == 0 {
-                        crate::gm::kick_all_sessions()
-                    } else {
-                        0
-                    };
-                    tracing::info!(remaining, kicked, "重启倒计时");
+                    let _ = remaining;
+                    tracing::info!(remaining, "重启倒计时：读循环收到通知后将强制存盘再退出");
                 }
                 crate::metrics::metrics().record_tick(tick_started.elapsed());
                 crate::metrics::metrics().set_mail_queue(world.pending_mail_writes());
@@ -623,7 +619,8 @@ async fn serve<S: AccountStore>(
             },
             // 服务端重启：`@reboot` 到点时也把读循环收掉（踢线通道之外的第二条路径）。
             () = crate::gm::wait_for_reboot() => {
-                tracing::info!(session = id, %peer, "服务端重启：断开连接");
+                tracing::info!(session = id, %peer, "服务端重启：强制存盘后断开连接");
+                session.force_save_for_shutdown().await;
                 break 'read;
             },
             // 周期自动存档（F1）：每 `AUTOSAVE_POLL_MS` 看一次「到点没」。

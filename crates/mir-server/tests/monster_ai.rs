@@ -28,6 +28,14 @@ fn audit_support_labels_and_key_ais_are_stable() {
     assert_eq!(kind(3).ai_support(), AiSupport::Full);
     assert_eq!(kind(56).ai_support(), AiSupport::Full);
     assert_eq!(kind(12).ai_support(), AiSupport::Full);
+    assert_eq!(kind(15).ai_support(), AiSupport::Full);
+    assert_eq!(kind(99).ai_support(), AiSupport::Full);
+    assert_eq!(kind(97).ai_support(), AiSupport::Full);
+    assert_eq!(kind(102).ai_support(), AiSupport::Full);
+    assert_eq!(kind(181).ai_support(), AiSupport::Full);
+    assert_eq!(kind(210).ai_support(), AiSupport::Full);
+    assert_eq!(kind(164).ai_support(), AiSupport::Full);
+    assert_eq!(kind(165).ai_support(), AiSupport::Full);
     assert_eq!(kind(2).ai_support(), AiSupport::Full);
 
     assert_eq!(

@@ -230,6 +230,12 @@ impl ClientSettings {
             language: self.language(),
             resolution: self.resolution(),
             scale: self.scale(),
+            master_volume: 50,
+            window_mode: crate::client_config::WindowMode::Windowed,
+            show_minimap_gates: true,
+            keys: crate::client_config::KeyBindings::default(),
+            rebinding: None,
+            rebind_error: None,
         }
     }
 

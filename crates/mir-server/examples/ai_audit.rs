@@ -15,6 +15,7 @@ use mir_server::gamedata::GameData;
 use mir_server::monster::{AiSupport, MonsterKind};
 
 fn main() {
+    let missing_only = std::env::args().any(|arg| arg == "--missing");
     let data = match GameData::discover() {
         Ok(data) => data,
         Err(error) => {
@@ -45,6 +46,9 @@ fn main() {
             covered += kinds.len();
         }
         total += kinds.len();
+        if missing_only && status != AiSupport::Stub {
+            continue;
+        }
         let mut names: Vec<&str> = kinds.iter().map(|kind| kind.name.as_str()).collect();
         names.sort_unstable();
         names.dedup();

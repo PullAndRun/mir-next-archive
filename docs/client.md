@@ -30,16 +30,17 @@ cargo run -p mir-client -- --connect 127.0.0.1:7000 `
   再按 `--map-dir` 在本地找 `<name>.map`。本地地图缺失时退化为空白地图，仍然显示实体。
 * 窗口创建失败（无显示器 CI）只打印原因并返回，不 panic；`NetClient` 的 `Drop` 会发送
   `Quit` 并回收网络线程。
-* 界面默认中文；`--lang en` 切换成英文（写入 `settings.json`，`--set-language` 只改设置）。
+* 界面默认中文；`--lang en` 切换成英文（写入 `config/client.toml` 的 `language`，
+  `--set-language` 只改设置；旧 `settings.json` 仍兼容）。
   所有固定文案都在 `crates/mir-client/src/ui/labels.rs`。
-* 音效默认开启、音量 0.5（`settings.json` 的 `sound` / `volume`）；`--no-sound` 与
+* 音效默认开启、音量 0.5（`client.toml` 的 `sound_volume`）；`--no-sound` 与
   `--volume <0..1>` 只影响本次启动，`--sound-dir <目录>` 可追加音效目录。
   没有音频设备时只打印一次警告，窗口照常运行（见 §5.6）。
-* 背景音乐默认开启、独立音量 0.5（`settings.json` 的 `music` / `music_volume`）；
+* 背景音乐默认开启、独立音量 0.5（`client.toml` 的 `music_volume`）；
   `--no-music` 与 `--music-volume <0..1>` 只影响本次启动。切图时按
   `S.MapInformation.Music` / `S.MapChanged.Music` 换曲；编号为 0（示例数据库全部如此）
   时用 `music_for_map` 的主题曲兜底，缺少 `300xx.wav` 时安静静音（见 §5.6）。
-* 游戏内设置面板：`F12`（备用 `O`）——音效/音乐/语言/分辨率/渲染缩放 + 按键说明表（§5.15）。
+* 游戏内设置面板：`O`（Crystal 默认 `F12` 作备用）——音效/音乐/主音量/语言/分辨率/缩放/窗口模式/小地图传送点 + 6 行可重绑键位（§5.15）。
 * 商城页签：市场面板的第四个页签，用元宝购买（§5.16）；技能表现（火墙/雷电/瞬息移动/
   隐身/召唤）见 §5.18。
 
@@ -739,27 +740,28 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 测试：`crates/mir-client/tests/market_panel.rs`（布局/快照/失败码/搜索翻页/购买出价/上架/
 商城页签/截图，见文件内用例）。
 
-### 5.15 设置面板（F12 / O）
+### 5.15 设置面板（O / F12）
 
-`ui::settings`（Crystal `OptionDialog`，`Client/MirScenes/Dialogs/OptionDialog.cs`；
-默认键 `F12`、备用 `O`，`Client/KeyBindSettings.cs:221-224`）。分四组，改动**即时生效并写回**
-`settings.json`：
+`ui::settings`（Crystal `OptionDialog`，`Client/MirScenes/Dialogs/OptionDialog.cs`）。
+**`O` 打开、`Esc` 关闭**（`F12` 备用）。四组：
 
 | 分组 | 控件 | 行为 |
 |---|---|---|
-| 音频 | 音效开关、音效音量（±10%） | 写入 `settings.sound` / `volume`；下一次播放立即用新音量（`audio.rs`） |
-| 音频 | 背景音乐开关、音乐音量 | 写入 `settings.music` / `music_volume`；切图换曲时生效 |
-| 语言 | 中文 / English | 写 `settings.language`；**面板自己的文案立即切换**（`Label::text(language)`） |
-| 显示 | 分辨率预设（800×600 / 1024×768 / 1280×720 / 1600×900）、渲染缩放（1/2/3） | 写 `settings.resolution` / `scale`；缩放按比例降采样再放大（`frame.rs`） |
+| 音频 | **主音量 / 背景音乐 / 音效三条 0~100 滑杆**（左右 −/+ 每次 10） | 写入 `client.toml` 的 `master_volume` / `music_volume` / `sound_volume`，下一次播放立即生效 |
+| 语言 | 简体中文 / English | 点击**即时重绘**并写盘，同时发 `/language` 给服务端 |
+| 显示 | 分辨率 4 档、缩放 **1x/2x/3x**、窗口模式按钮（Windowed/Fullscreen/Borderless，点击循环并调 winit `set_fullscreen`）、**小地图传送点开关** | 写 `client.toml`；缩放按整数档降采样再放大（`frame.rs`） |
+| 键位 | **6 行可重绑**（攻击 Space / 魔法 F1 / 背包 I / 组队 P / 好友 F / 设置 O） | 点行尾按钮进入捕获，下一次按键绑定；**冲突时 footer 红字「键位冲突：X 已被 Y 使用」并保留原键** |
 
-底部是**按键说明表**（`KEY_BINDINGS`，18 条：WASD/方向键、Shift 跑、Space 攻击、Tab 拾取、
-T 聊天、I 背包、E 装备、F3 技能、M 小地图、B 大地图、Q 任务、N 邮件、G 行会、P 组队、
-Y 交易、O 设置、Esc 关面板、F10 退出），动作文案走 `Label`，键名本身是固定串。
-`Esc` / 右上角「关闭」收起；小窗口下按 `MIN_PANEL_WIDTH/HEIGHT` 收缩布局。
+**持久化**：新模块 `client_config.rs`，自写 TOML 子集解析/序列化（**零新增依赖**）；
+字段 `language/master_volume/sound_volume/music_volume/window_mode/scale/show_minimap_gates`
++ `[keys]` 6 项。缺失 → `ConfigIssue::Missing` 回落默认并在启动时生成默认文件；坏文件 →
+`Invalid` 回落默认 + `eprintln!` 提示，**不 panic**；未知键/类型错误/非法缩放同样报错回落。
+每次设置动作后保存 `config/client.toml`；旧 `settings.json` 仍保留兼容。
 
-测试：`crates/mir-client/tests/round2_panels.rs`（`settings_roundtrip_through_disk_survives_restart`、
-`settings_panel_layout_and_clicks`、`settings_panel_is_modal_in_the_ui_state`）与
-`ui/settings.rs` 内单元测试。
+测试 5 例：默认值、TOML+磁盘往返、缺失/坏文件回落、键位冲突拒绝、语言归一化。
+截图 `target/client-settings.png`（800×600）。
+
+> 说明：缩放沿用 **1x/2x/3x 整数档**；1.5x 受整数缩放限制本轮未加（如需可下轮补分数缩放）。
 
 ### 5.16 商城页签（市场面板第四个页签）
 

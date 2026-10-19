@@ -4,6 +4,7 @@
 //! （可注册/登录）→ `Select`（已登录，可建/删/选角）→ `Game`（在世界里）。
 //! 每个处理函数都自己判定阶段，与 Crystal 一致：阶段不对就静默丢弃。
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use mir_core::enums::{
@@ -39,6 +40,53 @@ use crate::store::{
     StoreError,
 };
 use crate::world::{Player, World};
+
+/// 平滑重启后的重连宽限期：90 秒（t123）。
+///
+/// 停机时 `force_save_for_shutdown` 把「账号 → 最后角色」记进进程内登记表；重启后
+/// 客户端在 90 秒内用同一账号登录时，`on_login` 直接 `StartGame` 恢复该角色，
+/// 不再停在选角界面。超过宽限期则走正常选角流程。
+pub const RECONNECT_GRACE_MS: i64 = 90_000;
+
+fn reconnect_slots() -> &'static std::sync::Mutex<HashMap<i64, (i64, i64)>> {
+    static SLOTS: std::sync::OnceLock<std::sync::Mutex<HashMap<i64, (i64, i64)>>> =
+        std::sync::OnceLock::new();
+    SLOTS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+/// 停机存盘时登记「账号 → 角色 + 时间」。
+pub fn remember_reconnect(account_id: i64, character_id: i64) {
+    remember_reconnect_at(account_id, character_id, now_unix());
+}
+
+/// 测试/运维用：按指定时间登记重连快照。
+pub fn remember_reconnect_at(account_id: i64, character_id: i64, saved_at_secs: i64) {
+    let mut slots = reconnect_slots()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    slots.insert(account_id, (character_id, saved_at_secs));
+}
+
+/// 测试用：清掉某个账号的重连快照。
+pub fn clear_reconnect(account_id: i64) {
+    reconnect_slots()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(&account_id);
+}
+
+/// 取宽限期内的重连角色；过期条目顺手删掉。
+fn take_reconnect(account_id: i64) -> Option<i64> {
+    let mut slots = reconnect_slots()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (character_id, saved_at) = slots.remove(&account_id)?;
+    if now_unix().saturating_sub(saved_at) <= RECONNECT_GRACE_MS / 1_000 {
+        Some(character_id)
+    } else {
+        None
+    }
+}
 
 /// 商城购买的失败/成功回包风格：`C.GameshopBuy` 用系统聊天（Crystal 的 `ReceiveChat`），
 /// 商城页签发的 `C.MarketBuy` 用 `S.MarketSuccess`/`S.MarketFail`。
@@ -687,6 +735,18 @@ impl<S: AccountStore> Session<S> {
         self.send(ServerPacket::LoginSuccess(LoginSuccess {
             characters: characters.iter().map(select_info).collect(),
         }));
+        // 平滑重启宽限期：同一账号在 90s 内连回，直接恢复最后角色，不停在选角界面。
+        if let Some(character_id) = self.reconnect_character() {
+            let Ok(index) = i32::try_from(character_id) else {
+                return Ok(());
+            };
+            tracing::info!(
+                session = self.id,
+                character = character_id,
+                "重连宽限期内登录：直接恢复角色"
+            );
+            self.start_game(index).await?;
+        }
         Ok(())
     }
 
@@ -782,6 +842,10 @@ impl<S: AccountStore> Session<S> {
         &mut self,
         packet: &mir_protocol::packets::client::StartGame,
     ) -> Result<(), SessionError> {
+        self.start_game(packet.character_index).await
+    }
+
+    async fn start_game(&mut self, character_index: i32) -> Result<(), SessionError> {
         if self.stage != Stage::Select {
             return Ok(());
         }
@@ -801,7 +865,7 @@ impl<S: AccountStore> Session<S> {
         }
         let Some(mut character) = self
             .store
-            .find_character(account.id, i64::from(packet.character_index))
+            .find_character(account.id, i64::from(character_index))
             .await?
         else {
             self.send(ServerPacket::StartGame(StartGame {
@@ -1695,6 +1759,7 @@ impl<S: AccountStore> Session<S> {
                     crate::world::SocialError::SpouseDead(_) => TextKey::SpouseDead,
                     crate::world::SocialError::NoWeddingRing(_) => TextKey::SpouseRecallNeedsRing,
                     crate::world::SocialError::RecallDenied(_) => TextKey::SpouseRecallDenied,
+                    crate::world::SocialError::PartnerRing(_) => TextKey::SpouseRecallPartnerRing,
                     _ => TextKey::SpouseOffline,
                 };
                 let message = world.text(object_id, key);
@@ -3219,6 +3284,70 @@ impl<S: AccountStore> Session<S> {
         self.saved_row = self.character.clone();
         self.autosave_failures = 0;
         self.next_save_retry_at_ms = 0;
+    }
+
+    /// 停机前强制把本会话的完整角色行写库（`@reboot` 到点时由读循环在退出前调用）。
+    ///
+    /// 失败**不静默**：记录 `mir2_db_save_failed_total` 与 error 日志，并立即重试一次；
+    /// 第二次仍失败再记 warn（管理员可据此告警）。社交/任务/好友通过
+    /// `current_row` 的同一份快照落盘，市场/邮件/行会队列也会 flush。
+    pub async fn force_save_for_shutdown(&mut self) {
+        let Some(row) = self.current_row().await else {
+            return;
+        };
+        let started = std::time::Instant::now();
+        match self.save_character_row(row.clone()).await {
+            Ok(()) => {
+                crate::metrics::metrics().record_db_save(started.elapsed());
+                self.mark_saved();
+                tracing::info!(session = self.id, character = row.id, "停机强制存盘成功");
+            }
+            Err(first) => {
+                crate::metrics::metrics().record_db_save_failed();
+                tracing::error!(
+                    session = self.id,
+                    character = row.id,
+                    %first,
+                    "停机强制存盘失败，立即重试一次"
+                );
+                let retry = self.save_character_row(row.clone()).await;
+                match retry {
+                    Ok(()) => {
+                        crate::metrics::metrics().record_db_save(started.elapsed());
+                        self.mark_saved();
+                        tracing::info!(
+                            session = self.id,
+                            character = row.id,
+                            "停机强制存盘重试成功"
+                        );
+                    }
+                    Err(second) => {
+                        crate::metrics::metrics().record_db_save_failed();
+                        tracing::warn!(
+                            session = self.id,
+                            character = row.id,
+                            %second,
+                            "停机强制存盘重试仍失败：需人工检查数据库"
+                        );
+                    }
+                }
+            }
+        }
+        // 社交/市场/邮件/行会：与下线路径同一套 flush，避免只写角色行。
+        self.flush_auction_writes().await;
+        self.flush_guild_writes().await;
+        self.flush_mail_writes().await;
+        if let (Some(account), Some(character)) = (&self.account, &self.character) {
+            remember_reconnect(account.id, character.id);
+        }
+    }
+
+    /// 重连宽限期的候选角色 ID（`None` = 没有快照/已超期）。
+    #[must_use]
+    pub fn reconnect_character(&self) -> Option<i64> {
+        self.account
+            .as_ref()
+            .and_then(|account| take_reconnect(account.id))
     }
 
     pub async fn leave_world(&mut self) {

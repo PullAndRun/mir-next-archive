@@ -266,6 +266,14 @@ pub enum Label {
     Reconnecting,
     /// 小地图传送点悬停提示（参数：目标地图、坐标）。
     MinimapGateTip,
+    /// 主音量。
+    MasterVolume,
+    /// 窗口模式。
+    WindowMode,
+    /// 小地图传送点开关。
+    MinimapGates,
+    /// 键位动作：魔法。
+    KeyMagic,
     /// 无归属。
     ConquestUnclaimed,
     /// 系统：攻城开始。
@@ -1006,6 +1014,10 @@ impl Label {
         Self::GuildAllyLeader,
         Self::Reconnecting,
         Self::MinimapGateTip,
+        Self::MasterVolume,
+        Self::WindowMode,
+        Self::MinimapGates,
+        Self::KeyMagic,
         Self::ConquestUnclaimed,
         Self::SystemConquestStarted,
         Self::SystemConquestEnded,
@@ -1020,7 +1032,7 @@ impl Label {
         match (self, language) {
             (Self::Hp, Language::ZhCn) => "生命",
             (Self::Hp | Self::Health, Language::En) => "HP",
-            (Self::Mp | Self::MagicAttack, Language::ZhCn) => "魔法",
+            (Self::Mp | Self::MagicAttack | Self::KeyMagic, Language::ZhCn) => "魔法",
             (Self::Mp, Language::En) => "MP",
             (Self::Gold, Language::ZhCn) => "金币",
             (Self::Gold, Language::En) => "Gold",
@@ -1655,6 +1667,13 @@ impl Label {
             (Self::Reconnecting, Language::En) => "Disconnected, reconnecting ({}/3)",
             (Self::MinimapGateTip, Language::ZhCn) => "传送点：{} ({},{})",
             (Self::MinimapGateTip, Language::En) => "Teleport: {} ({},{})",
+            (Self::MasterVolume, Language::ZhCn) => "主音量",
+            (Self::MasterVolume, Language::En) => "Master volume",
+            (Self::WindowMode, Language::ZhCn) => "窗口模式",
+            (Self::WindowMode, Language::En) => "Window mode",
+            (Self::MinimapGates, Language::ZhCn) => "传送点",
+            (Self::MinimapGates, Language::En) => "Gates",
+            (Self::KeyMagic, Language::En) => "Spell",
             (Self::ConquestUnclaimed, Language::ZhCn) => "无归属",
             (Self::ConquestUnclaimed, Language::En) => "Unclaimed",
             (Self::SystemConquestStarted, Language::ZhCn) => "攻城开始：{}",
@@ -2214,7 +2233,7 @@ mod tests {
     #[test]
     fn every_label_has_both_languages() {
         // `Label::ALL` 是手工维护的清单：数量对不上说明加了变体没同步。
-        assert_eq!(Label::ALL.len(), 329, "新增 Label 后请同步 Label::ALL");
+        assert_eq!(Label::ALL.len(), 333, "新增 Label 后请同步 Label::ALL");
         for label in Label::ALL {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);

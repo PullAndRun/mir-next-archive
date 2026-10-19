@@ -210,6 +210,13 @@ pub fn run_live(
     // 设置面板的初始值与设置文件一致（命令行 `--volume` 等只覆盖播放器，不写文件）。
     ui.settings = options.settings.panel();
     ui.settings.language = language;
+    // 统一配置：语言按 client.toml（缺失/损坏已回落默认并生成）。
+    let (config, _issue) =
+        mir_client::client_config::ClientConfig::load(mir_client::client_config::default_path());
+    if config.language == "en" {
+        ui.language = Language::En;
+        ui.settings.language = Language::En;
+    }
     ui.language = language;
     let mode = Mode::Live(Box::new(LiveState {
         net,
@@ -574,6 +581,8 @@ struct ClientApp {
     settings: ClientSettings,
     /// 设置文件路径。
     settings_path: PathBuf,
+    /// 统一设置（`config/client.toml`）。
+    client_config: mir_client::client_config::ClientConfig,
     /// 渲染缩放：1 = 原生，2/3 = 逻辑分辨率缩小后放大（Crystal 的「分辨率/缩放」）。
     ui_scale: u32,
     /// 已渲染帧数（性能统计用）。
@@ -593,6 +602,14 @@ impl ClientApp {
         settings_path: PathBuf,
     ) -> Self {
         let ui_scale = settings.scale();
+        let (client_config, config_issue) = mir_client::client_config::ClientConfig::load(
+            mir_client::client_config::default_path(),
+        );
+        if config_issue.is_some()
+            && let Err(error) = client_config.save(mir_client::client_config::default_path())
+        {
+            eprintln!("生成 config/client.toml 失败：{error}");
+        }
         Self {
             scene,
             center,
@@ -608,6 +625,7 @@ impl ClientApp {
             next_animation: Instant::now() + ANIMATION_INTERVAL,
             settings,
             settings_path,
+            client_config,
             ui_scale,
             render_frames: 0,
             render_total: Duration::ZERO,
@@ -1226,12 +1244,37 @@ impl ClientApp {
                 }
                 Action::SetLanguage(next) => {
                     live.ui.language = next;
+                    self.client_config.language.clear();
+                    self.client_config.language.push_str(next.code());
                     language = Some(next);
                     // 同步服务端账号语言：协议里没有语言包，服务端提供 `/language <代码>`
                     // 聊天扩展命令（`mir-server/src/session.rs` 的 `on_chat`），会写回
                     // `accounts.language` 并同步世界层，之后的系统聊天/邮件/市场回执
                     // 都按新语言下发。不发这条命令的话，界面切了英文但服务端提示仍是中文。
                     live.send(NetCommand::Chat(format!("/language {}", next.code())));
+                }
+                Action::MasterVolume(percent) => {
+                    self.client_config.master_volume =
+                        ui::settings::SettingsState::fraction(percent);
+                }
+                Action::NextWindowMode => {
+                    self.client_config.window_mode = panel.window_mode;
+                    if let Some(window) = &self.window {
+                        use winit::window::Fullscreen;
+                        window.set_fullscreen(match panel.window_mode {
+                            mir_client::client_config::WindowMode::Windowed => None,
+                            mir_client::client_config::WindowMode::Fullscreen
+                            | mir_client::client_config::WindowMode::Borderless => {
+                                Some(Fullscreen::Borderless(None))
+                            }
+                        });
+                    }
+                }
+                Action::ToggleMinimapGates => {
+                    self.client_config.show_minimap_gates = panel.show_minimap_gates;
+                }
+                Action::RebindKey(_) => {
+                    live.ui.settings.rebind_error = None;
                 }
                 Action::SetResolution(width, height) => {
                     if let Some(window) = &self.window {
@@ -1257,12 +1300,25 @@ impl ClientApp {
         if let Err(error) = self.settings.save(&self.settings_path) {
             eprintln!("保存设置失败（{}）：{error}", self.settings_path.display());
         }
+        if let Err(error) = self
+            .client_config
+            .save(mir_client::client_config::default_path())
+        {
+            eprintln!("保存 config/client.toml 失败：{error}");
+        }
     }
 
     /// 打开设置面板前把设置文件的值同步进面板（命令行覆盖只影响本次运行）。
     fn sync_settings_panel(&mut self) {
         if let Mode::Live(live) = &mut self.mode {
-            let panel = self.settings.panel();
+            let mut panel = self.settings.panel();
+            panel.master_volume =
+                ui::settings::SettingsState::percent(self.client_config.master_volume);
+            panel.window_mode = self.client_config.window_mode;
+            panel.show_minimap_gates = self.client_config.show_minimap_gates;
+            panel.keys = self.client_config.keys.clone();
+            panel.rebinding = None;
+            panel.rebind_error = None;
             live.ui.settings = panel;
         }
     }
@@ -2429,6 +2485,34 @@ impl ClientApp {
     /// 物品时是「丢弃」，否则是向右走；`S` 在商店打开且有选中物品时是「出售」，
     /// 否则是向下走；商店打开时 ↑/↓ 滚动货架。
     fn handle_live_key(&mut self, event_loop: &ActiveEventLoop, event: &KeyEvent) {
+        // 设置面板的键位捕获：下一次按键（非修饰键）直接绑定，冲突则提示并保留原键。
+        if let Mode::Live(live) = &mut self.mode
+            && live.ui.show_settings
+            && let Some(index) = live.ui.settings.rebinding
+        {
+            if let Some(name) = key_binding_name(&event.logical_key) {
+                let action = mir_client::client_config::KEY_ACTIONS[index];
+                match live.ui.settings.keys.set(action, &name) {
+                    Ok(()) => {
+                        live.ui.settings.rebind_error = None;
+                        self.client_config.keys = live.ui.settings.keys.clone();
+                        if let Err(error) = self
+                            .client_config
+                            .save(mir_client::client_config::default_path())
+                        {
+                            eprintln!("保存 config/client.toml 失败：{error}");
+                        }
+                    }
+                    Err(conflict) => {
+                        live.ui.settings.rebind_error =
+                            Some(format!("键位冲突：{name} 已被 {conflict} 使用"));
+                    }
+                }
+                live.ui.settings.rebinding = None;
+            }
+            self.request_redraw();
+            return;
+        }
         // 表单输入优先：写信页/行会公告/行会资金聚焦时，字符键只进输入框。
         let mut text_handled = false;
         let mut text_consumed_key = true;
@@ -2590,6 +2674,8 @@ impl ClientApp {
             Key::Named(NamedKey::F3) => self.live_toggle_skills(),
             // 退出从 `Q` 挪到 `F10`：`Q` 现在是任务面板（Crystal 的默认键）。
             Key::Named(NamedKey::F10) => event_loop.exit(),
+            // F12：打开/关闭统一设置面板（与 O 等价，便于文档/快捷键发现）。
+            Key::Named(NamedKey::F12) => self.open_settings(),
             Key::Named(NamedKey::Escape) => self.live_escape(),
             _ => {}
         }
@@ -2779,6 +2865,41 @@ impl ApplicationHandler for ClientApp {
             }
         }
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_animation));
+    }
+}
+
+/// 把 winit 按键转成配置里的键名（设置面板捕获用；修饰键返回 `None`）。
+fn key_binding_name(key: &Key) -> Option<String> {
+    match key {
+        Key::Character(text) => {
+            let upper = text.to_uppercase();
+            if upper.chars().count() == 1 {
+                Some(upper)
+            } else {
+                None
+            }
+        }
+        Key::Named(NamedKey::Space) => Some("Space".to_owned()),
+        Key::Named(NamedKey::Enter) => Some("Enter".to_owned()),
+        Key::Named(NamedKey::Tab) => Some("Tab".to_owned()),
+        Key::Named(NamedKey::Escape) => Some("Escape".to_owned()),
+        Key::Named(NamedKey::ArrowUp) => Some("Up".to_owned()),
+        Key::Named(NamedKey::ArrowDown) => Some("Down".to_owned()),
+        Key::Named(NamedKey::ArrowLeft) => Some("Left".to_owned()),
+        Key::Named(NamedKey::ArrowRight) => Some("Right".to_owned()),
+        Key::Named(NamedKey::F1) => Some("F1".to_owned()),
+        Key::Named(NamedKey::F2) => Some("F2".to_owned()),
+        Key::Named(NamedKey::F3) => Some("F3".to_owned()),
+        Key::Named(NamedKey::F4) => Some("F4".to_owned()),
+        Key::Named(NamedKey::F5) => Some("F5".to_owned()),
+        Key::Named(NamedKey::F6) => Some("F6".to_owned()),
+        Key::Named(NamedKey::F7) => Some("F7".to_owned()),
+        Key::Named(NamedKey::F8) => Some("F8".to_owned()),
+        Key::Named(NamedKey::F9) => Some("F9".to_owned()),
+        Key::Named(NamedKey::F10) => Some("F10".to_owned()),
+        Key::Named(NamedKey::F11) => Some("F11".to_owned()),
+        Key::Named(NamedKey::F12) => Some("F12".to_owned()),
+        _ => None,
     }
 }
 

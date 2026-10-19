@@ -12,6 +12,7 @@
 //! 画一帧 UI 到 PNG。
 
 pub mod audio;
+pub mod client_config;
 pub mod geom;
 pub mod net;
 pub mod settings;

@@ -317,9 +317,11 @@ fn reboot_deadline_slot() -> &'static Mutex<Option<i64>> {
 }
 
 /// accept/读循环用的「该停下来了」通知：`@reboot` 到点时触发。
-fn reboot_notify() -> &'static Notify {
-    static NOTIFY: OnceLock<Notify> = OnceLock::new();
-    NOTIFY.get_or_init(Notify::new)
+fn reboot_notify() -> std::sync::Arc<Notify> {
+    let mut guard = lock(reboot_notify_slot());
+    guard
+        .get_or_insert_with(|| std::sync::Arc::new(Notify::new()))
+        .clone()
 }
 
 /// 已经广播过的倒计时秒数（避免每个 tick 重复喊同一句）。
@@ -360,7 +362,14 @@ pub fn reboot_deadline() -> Option<i64> {
 pub fn clear_reboot() {
     *lock(reboot_deadline_slot()) = None;
     *lock(reboot_announced()) = None;
+    // 丢弃旧通知对象：它可能还留着上一轮 `notify_one` 的许可；新服务器/watch 用新对象。
+    *lock(reboot_notify_slot()) = None;
     REBOOTING.store(false, Ordering::Release);
+}
+
+fn reboot_notify_slot() -> &'static Mutex<Option<std::sync::Arc<Notify>>> {
+    static NOTIFY: OnceLock<Mutex<Option<std::sync::Arc<Notify>>>> = OnceLock::new();
+    NOTIFY.get_or_init(|| Mutex::new(None))
 }
 
 /// 是否已经安排了重启。
@@ -412,8 +421,9 @@ pub fn poll_reboot(now: i64) -> Option<i64> {
         drop(announced);
         // `notify_waiters` 叫醒已在等的人；`notify_one` 留一张「许可」给还没进入
         // `select!` 的 accept/读循环（`Notify` 的语义：无等待者时许可会被保留）。
-        reboot_notify().notify_waiters();
-        reboot_notify().notify_one();
+        let notify = reboot_notify();
+        notify.notify_waiters();
+        notify.notify_one();
         return Some(0);
     }
     if !reboot_should_announce(remaining) {
@@ -430,7 +440,8 @@ pub fn poll_reboot(now: i64) -> Option<i64> {
 
 /// 等重启到点（`serve_forever` 的 accept 循环 select 它）。
 pub async fn wait_for_reboot() {
-    reboot_notify().notified().await;
+    let notify = reboot_notify();
+    notify.notified().await;
 }
 
 impl World {

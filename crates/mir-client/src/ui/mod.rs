@@ -4016,10 +4016,14 @@ pub fn draw(
     if state.show_minimap {
         let view = minimap::view_for(snapshot, (scene.map.width, scene.map.height));
         let title = snapshot.map.as_ref().map_or("", |map| map.title.as_str());
-        let movements = snapshot
-            .map
-            .as_ref()
-            .map_or(&[][..], |map| map.movements.as_slice());
+        let movements = if state.settings.show_minimap_gates {
+            snapshot
+                .map
+                .as_ref()
+                .map_or(&[][..], |map| map.movements.as_slice())
+        } else {
+            &[][..]
+        };
         minimap::draw(
             frame,
             screen,

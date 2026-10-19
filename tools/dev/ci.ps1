@@ -12,7 +12,10 @@ param(
     [switch]$SkipTests,
     [switch]$NoAssets,
     # 跳过 PostgreSQL 集成测试（没有本地 PG 时用）。
-    [switch]$SkipPostgres
+    [switch]$SkipPostgres,
+    # 构建前强制结束残留的 mir-server / mir-client（它们会锁住 target\debug\*.exe，
+    # 表现为 `failed to remove file ... (os error 5)`）。
+    [switch]$KillStale
 )
 
 $ErrorActionPreference = "Continue"
@@ -39,6 +42,21 @@ function Invoke-Gate {
 # Python 解释器：Windows 上 `python` 常是 Microsoft Store 的占位 stub，优先用 `py`。
 $python = "python"
 if (Get-Command py -ErrorAction SilentlyContinue) { $python = "py" }
+# 预检：残留的 mir-server / mir-client 会锁住 target\debug\*.exe，构建直接失败。
+$stale = @(Get-Process -Name mir-server, mir-client -ErrorAction SilentlyContinue)
+if ($stale.Count -gt 0) {
+    $list = ($stale | ForEach-Object { "$($_.Id)@$($_.StartTime.ToString('HH:mm:ss'))" }) -join ", "
+    if ($KillStale) {
+        $stale | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+        Write-Host "==> 已结束残留进程：$list" -ForegroundColor Yellow
+        Start-Sleep -Seconds 1
+    } else {
+        Write-Host "==> 警告：发现残留进程 $list" -ForegroundColor Yellow
+        Write-Host "    它们会锁住 target\debug\*.exe 导致构建失败（os error 5）。" -ForegroundColor Yellow
+        Write-Host "    加 -KillStale 自动结束，或手动：Get-Process mir-server,mir-client | Stop-Process -Force" -ForegroundColor Yellow
+    }
+}
+
 Write-Host "== 本地门禁（无远端 CI；python=$python）==" -ForegroundColor Cyan
 
 # 1) Rust：fmt / clippy / test

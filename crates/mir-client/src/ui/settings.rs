@@ -10,6 +10,7 @@
 
 use mir_core::{Language, Point};
 
+use crate::client_config::{KEY_ACTIONS, KeyBindings, WindowMode};
 use crate::geom::Rect;
 use crate::ui::hud::{BODY_COLOR, GOLD_COLOR, MUTED_COLOR, SIZE_SMALL, TITLE_COLOR};
 use crate::ui::labels::Label;
@@ -88,12 +89,24 @@ pub struct SettingsState {
     pub sound_volume: i32,
     /// 背景音乐音量（0..=100）。
     pub music_volume: i32,
+    /// 主音量（0..=100）。
+    pub master_volume: i32,
     /// 界面语言。
     pub language: Language,
     /// 分辨率预设（窗口像素）。
     pub resolution: (u32, u32),
     /// 渲染缩放（[`SCALES`] 之一）。
     pub scale: u32,
+    /// 窗口模式。
+    pub window_mode: WindowMode,
+    /// 小地图是否显示传送点。
+    pub show_minimap_gates: bool,
+    /// 可重绑键位。
+    pub keys: KeyBindings,
+    /// 正在等待按键的动作下标（`None` = 不在捕获）。
+    pub rebinding: Option<usize>,
+    /// 上次重绑的冲突提示（按键名冲突/空键）。
+    pub rebind_error: Option<String>,
 }
 
 impl Default for SettingsState {
@@ -103,9 +116,15 @@ impl Default for SettingsState {
             music_on: true,
             sound_volume: 50,
             music_volume: 50,
+            master_volume: 50,
             language: Language::default(),
             resolution: RESOLUTIONS[0],
             scale: 1,
+            window_mode: WindowMode::Windowed,
+            show_minimap_gates: true,
+            keys: KeyBindings::default(),
+            rebinding: None,
+            rebind_error: None,
         }
     }
 }
@@ -152,6 +171,14 @@ pub enum SettingsAction {
     MusicVolume(i32),
     /// 切换界面语言。
     SetLanguage(Language),
+    /// 主音量（0..=100）。
+    MasterVolume(i32),
+    /// 切换窗口模式。
+    NextWindowMode,
+    /// 切换小地图传送点显示。
+    ToggleMinimapGates,
+    /// 进入键位捕获（动作下标）。
+    RebindKey(usize),
     /// 设置分辨率（窗口像素）。
     SetResolution(u32, u32),
     /// 设置渲染缩放。
@@ -211,6 +238,24 @@ pub struct SettingsLayout {
     pub keys: Rect,
     /// 按键说明的可见行（面板放不下时截断）。
     pub key_rows: Vec<Rect>,
+    /// 键位行的重绑按钮（与 `key_rows` 同序）。
+    pub key_buttons: Vec<Rect>,
+    /// 主音量行。
+    pub master_label: Rect,
+    /// 主音量减。
+    pub master_down: Rect,
+    /// 主音量条。
+    pub master_bar: Rect,
+    /// 主音量加。
+    pub master_up: Rect,
+    /// 窗口模式标签。
+    pub window_label: Rect,
+    /// 窗口模式按钮。
+    pub window_button: Rect,
+    /// 传送点标签。
+    pub gates_label: Rect,
+    /// 传送点开关。
+    pub gates_button: Rect,
 }
 
 impl SettingsLayout {
@@ -260,6 +305,17 @@ pub fn settings_layout(frame: Rect) -> SettingsLayout {
 
     let audio = Rect::new(content_x, y, content_width, SECTION_HEIGHT);
     y += section;
+    // 主音量（新增，三条滑杆之一）。
+    let master_label = Rect::new(content_x, y, label_width, ROW_HEIGHT);
+    let master_down = Rect::new(
+        content_x + i32::try_from(label_width + button).unwrap_or(0),
+        y,
+        18,
+        ROW_HEIGHT,
+    );
+    let master_bar = Rect::new(master_down.right() + 4, y, bar_width, ROW_HEIGHT);
+    let master_up = Rect::new(master_bar.right() + 4, y, 18, ROW_HEIGHT);
+    y += row + gap;
     let music_label = Rect::new(content_x, y, label_width, ROW_HEIGHT);
     let music_toggle = Rect::new(
         content_x + i32::try_from(label_width).unwrap_or(0),
@@ -308,17 +364,24 @@ pub fn settings_layout(frame: Rect) -> SettingsLayout {
     let scale_down = Rect::new(scale_label.right() + 6, y, 22, ROW_HEIGHT);
     let scale_value = Rect::new(scale_down.right() + 4, y, 48, ROW_HEIGHT);
     let scale_up = Rect::new(scale_value.right() + 4, y, 22, ROW_HEIGHT);
+    y += row + gap;
+    // 画面：窗口模式 + 小地图传送点。
+    let window_label = Rect::new(content_x, y, 64, ROW_HEIGHT);
+    let window_button = Rect::new(window_label.right() + 6, y, 96, ROW_HEIGHT);
+    let gates_label = Rect::new(window_button.right() + 10, y, 96, ROW_HEIGHT);
+    let gates_button = Rect::new(gates_label.right() + 4, y, 70, ROW_HEIGHT);
     y += row + gap * 2;
 
     let keys = Rect::new(content_x, y, content_width, SECTION_HEIGHT);
     y += section;
     let footer_top = panel.bottom() - i32::try_from(PADDING + FOOTER_HEIGHT).unwrap_or(0);
-    // 按键说明表排成两列（18 条 → 9 行），窄屏时才够放。
-    let key_row_count = KEY_BINDINGS.len().div_ceil(2);
+    // 6 个可重绑动作，每个一行（行尾是键位按钮）。
     let mut key_rows = Vec::new();
+    let mut key_buttons = Vec::new();
     let mut row_y = y;
-    while row_y + row <= footer_top - 2 && key_rows.len() < key_row_count {
+    while row_y + row <= footer_top - 2 && key_rows.len() < KEY_ACTIONS.len() {
         key_rows.push(Rect::new(content_x, row_y, content_width, ROW_HEIGHT));
+        key_buttons.push(Rect::new(content_right - 96, row_y, 96, ROW_HEIGHT));
         row_y += row;
     }
 
@@ -347,6 +410,15 @@ pub fn settings_layout(frame: Rect) -> SettingsLayout {
         scale_up,
         keys,
         key_rows,
+        key_buttons,
+        master_label,
+        master_down,
+        master_bar,
+        master_up,
+        window_label,
+        window_button,
+        gates_label,
+        gates_button,
     }
 }
 
@@ -447,6 +519,18 @@ pub fn draw(
         GOLD_COLOR,
         layout.audio,
     );
+    text.draw_clipped(
+        frame,
+        layout.master_label.x,
+        layout.master_label.y + 4,
+        Label::MasterVolume.text(language),
+        SIZE_SMALL,
+        BODY_COLOR,
+        layout.master_label,
+    );
+    draw_button(frame, text, layout.master_down, "-", false);
+    draw_volume_bar(frame, text, layout.master_bar, state.master_volume);
+    draw_button(frame, text, layout.master_up, "+", false);
     text.draw_clipped(
         frame,
         layout.music_label.x,
@@ -572,8 +656,48 @@ pub fn draw(
         BODY_COLOR,
     );
     draw_button(frame, text, layout.scale_up, "+", false);
+    text.draw_clipped(
+        frame,
+        layout.window_label.x,
+        layout.window_label.y + 4,
+        Label::WindowMode.text(language),
+        SIZE_SMALL,
+        BODY_COLOR,
+        layout.window_label,
+    );
+    draw_button(
+        frame,
+        text,
+        layout.window_button,
+        match state.window_mode {
+            WindowMode::Windowed => "Windowed",
+            WindowMode::Fullscreen => "Fullscreen",
+            WindowMode::Borderless => "Borderless",
+        },
+        true,
+    );
+    text.draw_clipped(
+        frame,
+        layout.gates_label.x,
+        layout.gates_label.y + 4,
+        Label::MinimapGates.text(language),
+        SIZE_SMALL,
+        BODY_COLOR,
+        layout.gates_label,
+    );
+    draw_button(
+        frame,
+        text,
+        layout.gates_button,
+        if state.show_minimap_gates {
+            Label::ToggleOn.text(language)
+        } else {
+            Label::ToggleOff.text(language)
+        },
+        state.show_minimap_gates,
+    );
 
-    // 按键说明
+    // 键位（6 个可重绑动作：点击行尾按钮后按任意键）
     text.draw_clipped(
         frame,
         layout.keys.x,
@@ -583,42 +707,38 @@ pub fn draw(
         GOLD_COLOR,
         layout.keys,
     );
-    // 按键说明（两列：每行左右各一条）。
-    let half_width = layout.panel.width.saturating_sub(PADDING * 2) / 2;
-    let key_width = half_width / 3;
-    for (row_index, rect) in layout.key_rows.iter().enumerate() {
-        for column in 0..2 {
-            let index = row_index * 2 + column;
-            let Some((key, label)) = KEY_BINDINGS.get(index) else {
-                break;
-            };
-            let cell_x = rect.x
-                + i32::try_from(column).unwrap_or(0) * i32::try_from(half_width).unwrap_or(0);
-            let key_rect = Rect::new(cell_x, rect.y, key_width, ROW_HEIGHT);
-            text.draw_clipped(
-                frame,
-                key_rect.x + 2,
-                key_rect.y + 4,
-                key,
-                SIZE_SMALL,
-                [255, 216, 96, 255],
-                key_rect,
-            );
-            text.draw_clipped(
-                frame,
-                key_rect.right() + 4,
-                key_rect.y + 4,
-                label.text(language),
-                SIZE_SMALL,
-                BODY_COLOR,
-                Rect::new(
-                    key_rect.right() + 4,
-                    key_rect.y,
-                    half_width.saturating_sub(key_width + 8),
-                    ROW_HEIGHT,
-                ),
-            );
-        }
+    for (index, (row, button)) in layout
+        .key_rows
+        .iter()
+        .zip(layout.key_buttons.iter())
+        .enumerate()
+    {
+        let Some(action) = KEY_ACTIONS.get(index) else {
+            break;
+        };
+        let label = match *action {
+            "attack" => Label::Attack,
+            "magic" => Label::KeyMagic,
+            "inventory" => Label::Inventory,
+            "group" => Label::Group,
+            "friends" => Label::Friends,
+            _ => Label::Settings,
+        };
+        text.draw_clipped(
+            frame,
+            row.x + 2,
+            row.y + 4,
+            label.text(language),
+            SIZE_SMALL,
+            BODY_COLOR,
+            *row,
+        );
+        let bound = if state.rebinding == Some(index) {
+            "…".to_owned()
+        } else {
+            state.keys.get(action).to_owned()
+        };
+        draw_button(frame, text, *button, &bound, state.rebinding == Some(index));
     }
 
     // 底部提示
@@ -632,9 +752,16 @@ pub fn draw(
         frame,
         footer.x,
         footer.y,
-        Label::SettingsHint.text(language),
+        state
+            .rebind_error
+            .as_deref()
+            .unwrap_or_else(|| Label::SettingsHint.text(language)),
         SIZE_SMALL,
-        MUTED_COLOR,
+        if state.rebind_error.is_some() {
+            [255, 120, 110, 255]
+        } else {
+            MUTED_COLOR
+        },
         footer,
     );
 }
@@ -650,6 +777,30 @@ pub fn click(
     }
     if layout.close.contains(point) {
         return Some(SettingsAction::Close);
+    }
+    if layout.master_down.contains(point) {
+        state.master_volume = (state.master_volume - VOLUME_STEP).clamp(0, 100);
+        return Some(SettingsAction::MasterVolume(state.master_volume));
+    }
+    if layout.master_up.contains(point) {
+        state.master_volume = (state.master_volume + VOLUME_STEP).clamp(0, 100);
+        return Some(SettingsAction::MasterVolume(state.master_volume));
+    }
+    if layout.window_button.contains(point) {
+        state.window_mode = state.window_mode.next();
+        return Some(SettingsAction::NextWindowMode);
+    }
+    if layout.gates_button.contains(point) {
+        state.show_minimap_gates = !state.show_minimap_gates;
+        return Some(SettingsAction::ToggleMinimapGates);
+    }
+    if let Some(index) = layout
+        .key_buttons
+        .iter()
+        .position(|button| button.contains(point))
+    {
+        state.rebinding = Some(index);
+        return Some(SettingsAction::RebindKey(index));
     }
     if layout.music_toggle.contains(point) {
         state.music_on = !state.music_on;

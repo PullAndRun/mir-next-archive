@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use mir_core::Point;
-use mir_core::enums::{ItemType, MirClass, MirDirection, MirGender, RequiredClass};
+use mir_core::enums::{ItemType, MirClass, MirDirection, MirGender};
 use mir_db::MirDb;
 use mir_protocol::ServerPacket;
 use mir_protocol::data::{ItemInfo, UserItem};
@@ -675,14 +675,70 @@ fn married_couple(world: &mut World) -> Vec<u32> {
     ids
 }
 
+/// 造两枚戒指模板：`9_002` = 绑定的（新规则优先选它）、`9_003` = 未绑定的干扰项。
+fn install_wedding_ring_template(world: &mut World) -> i32 {
+    let bound_ring = ItemInfo {
+        index: 9_002,
+        name: "WeddingRing".to_owned(),
+        item_type: ItemType::Ring,
+        durability: 1_000,
+        price: 1_000,
+        stack_size: 1,
+        bind: mir_core::enums::BindMode::DontSell,
+        ..ItemInfo::default()
+    };
+    let plain_ring = ItemInfo {
+        index: 9_003,
+        name: "PlainRing".to_owned(),
+        item_type: ItemType::Ring,
+        durability: 1_000,
+        price: 100,
+        stack_size: 1,
+        ..ItemInfo::default()
+    };
+    let mut db = MirDb::default();
+    db.items.push(plain_ring);
+    db.items.push(bound_ring);
+    world.set_game_data(Arc::new(mir_server::gamedata::GameData::from_db(db, None)));
+    // 字段判定：应挑到**绑定的**那枚（不靠物品名）。
+    assert_eq!(
+        world.wedding_ring_template().map(|info| info.index),
+        Some(9_002),
+        "应优先挑绑定的戒指模板"
+    );
+    9_002
+}
+
+/// 把一枚结婚戒指直接戴到玩家的左戒指槽（`wedding_ring` 指向配偶 `character_id`）。
+fn wear_wedding_ring(world: &mut World, player: u32, ring_index: i32, spouse_character: i32) {
+    let ring = UserItem {
+        unique_id: world.allocate_item_uid(),
+        item_index: ring_index,
+        current_dura: 1_000,
+        max_dura: 1_000,
+        count: 1,
+        wedding_ring: spouse_character,
+        ..UserItem::default()
+    };
+    if let Some(player_ref) = world.player_mut(player) {
+        player_ref.equipment[WEDDING_RING_SLOT_L] = Some(ring);
+    }
+}
+
+/// 左戒指槽（`EquipmentSlot.RingL = 7`）。
+const WEDDING_RING_SLOT_L: usize = 7;
+
 #[test]
 fn spouse_teleport_moves_next_to_the_spouse_same_map() {
     let mut world = world();
     let ids = married_couple(&mut world);
     // t116：传送要求**戴着**结婚戒指（Crystal `PlayerObject.cs:2596-2604`）。
     let _ = install_wedding_ring_template(&mut world);
-    let spouse_character = i32::try_from(world.player(ids[1]).unwrap().character_id).unwrap();
-    wear_wedding_ring(&mut world, ids[0], 9_002, spouse_character);
+    // t120：**双方**都要戴戒且互指（Crystal `:2629-2641`）。
+    let a_character = i32::try_from(world.player(ids[0]).unwrap().character_id).unwrap();
+    let b_character = i32::try_from(world.player(ids[1]).unwrap().character_id).unwrap();
+    wear_wedding_ring(&mut world, ids[0], 9_002, b_character);
+    wear_wedding_ring(&mut world, ids[1], 9_002, a_character);
     // 把配偶挪远一点，确认传送后**挨着**她。
     if let Some(spouse) = world.player_mut(ids[1]) {
         spouse.position = Point::new(110, 110);
@@ -717,6 +773,7 @@ fn spouse_teleport_rejects_unmarried_and_offline_spouse() {
     let _ = install_wedding_ring_template(&mut world);
     let spouse_character = i32::try_from(world.player(ids[1]).unwrap().character_id).unwrap();
     wear_wedding_ring(&mut world, ids[0], 9_002, spouse_character);
+    // 配偶**离线**：按 t120 的豁免，不校验对方戒指 —— 这条用例正是豁免的回归。
     world.leave(ids[1]);
     assert!(matches!(
         world.spouse_teleport(ids[0]),
@@ -735,9 +792,10 @@ fn spouse_teleport_crosses_maps_when_the_spouse_is_elsewhere() {
     add_player_with_receiver(&mut world, 2, 2, 20, Point::new(101, 100), "0");
     world.marriage_request(1, 2).unwrap();
     world.marriage_reply(2, true).unwrap();
-    // t116：先戴戒（戒指模板与配偶 character_id=2）。
+    // t116/t120：双方都戴戒且互指（1↔2）。
     let _ = install_wedding_ring_template(&mut world);
     wear_wedding_ring(&mut world, 1, 9_002, 2);
+    wear_wedding_ring(&mut world, 2, 9_002, 1);
     // 婚后把配偶挪到另一张图。
     if let Some(spouse) = world.player_mut(2) {
         spouse.map = "0108".to_owned();
@@ -765,101 +823,31 @@ fn spouse_teleport_crosses_maps_when_the_spouse_is_elsewhere() {
 
 #[test]
 fn wedding_ring_use_teleports_to_the_spouse() {
-    // 结婚戒指 = 带 `WeddingRing` 的戒指（Crystal `UserItem.WeddingRing`），
-    // 本作把「戴戒指」简化成「用它」：`C.UseItem` 触发配偶传送。
+    // t114 的用例；t120 起要求**双方**戴戒互指，所以给双方都戴上。
     let mut world = world();
-    // 自建一件「任何职业都能戴的戒指」模板（真实 DB 里戒指带职业限制，测试不该赌）。
-    let mut ring_info = ItemInfo {
-        index: 9_001,
-        name: "WeddingRing".to_owned(),
-        item_type: ItemType::Ring,
-        durability: 1_000,
-        price: 1_000,
-        stack_size: 1,
-        ..ItemInfo::default()
-    };
-    ring_info.required_class = RequiredClass::Warrior;
-    let mut db = MirDb::default();
-    db.items.push(ring_info);
-    world.set_game_data(Arc::new(mir_server::gamedata::GameData::from_db(db, None)));
+    let ring_index = install_wedding_ring_template(&mut world);
     let ids = married_couple(&mut world);
     if let Some(spouse) = world.player_mut(ids[1]) {
         spouse.position = Point::new(120, 120);
     }
-    let mut ring = UserItem {
-        unique_id: 700_001,
-        item_index: 9_001,
-        current_dura: 1_000,
-        max_dura: 1_000,
-        count: 1,
-        ..UserItem::default()
-    };
-    ring.wedding_ring = 2; // 配偶的 character_id
-    if let Some(player) = world.player_mut(ids[0]) {
-        player.inventory[0] = Some(ring.clone());
-    }
+    let a_character = i32::try_from(world.player(ids[0]).unwrap().character_id).unwrap();
+    let b_character = i32::try_from(world.player(ids[1]).unwrap().character_id).unwrap();
+    wear_wedding_ring(&mut world, ids[1], ring_index, a_character);
+    let ring = world
+        .player(ids[0])
+        .unwrap()
+        .inventory
+        .iter()
+        .flatten()
+        .find(|item| item.item_index == ring_index)
+        .cloned()
+        .expect("结婚戒指");
+    assert_eq!(ring.wedding_ring, b_character);
     let report = world.use_item(ids[0], ring.unique_id).expect("戴戒指传送");
     let (map, position) = report.teleported.expect("应记录传送落点");
     assert_eq!(map, world.player(ids[0]).unwrap().map);
     assert!(position.in_range(Point::new(120, 120), 1));
 }
-
-// ---------------------------------------------------------------------------
-// 10. 配偶传送收口（t116）：强制戴戒 / 同意位 / 结婚发戒指
-// ---------------------------------------------------------------------------
-
-/// 造一件「结婚戒指」模板并给世界装上，返回（物品 index, 模板耐久）。
-fn install_wedding_ring_template(world: &mut World) -> i32 {
-    // 9_002 = 绑定的戒指（新规则优先选它）；9_003 = 未绑定的干扰项。
-    let bound_ring = ItemInfo {
-        index: 9_002,
-        name: "WeddingRing".to_owned(),
-        item_type: ItemType::Ring,
-        durability: 1_000,
-        price: 1_000,
-        stack_size: 1,
-        bind: mir_core::enums::BindMode::DontSell,
-        ..ItemInfo::default()
-    };
-    let plain_ring = ItemInfo {
-        index: 9_003,
-        name: "PlainRing".to_owned(),
-        item_type: ItemType::Ring,
-        durability: 1_000,
-        price: 100,
-        stack_size: 1,
-        ..ItemInfo::default()
-    };
-    let mut db = MirDb::default();
-    db.items.push(plain_ring);
-    db.items.push(bound_ring);
-    world.set_game_data(Arc::new(mir_server::gamedata::GameData::from_db(db, None)));
-    // 字段判定：应挑到**绑定的**那枚（不靠物品名）。
-    assert_eq!(
-        world.wedding_ring_template().map(|info| info.index),
-        Some(9_002),
-        "应优先挑绑定的戒指模板"
-    );
-    9_002
-}
-
-/// 把一枚结婚戒指直接放进玩家的戒指槽（`wedding_ring` 指向配偶）。
-fn wear_wedding_ring(world: &mut World, player: u32, ring_index: i32, spouse_character: i32) {
-    let mut ring = UserItem {
-        unique_id: world.allocate_item_uid(),
-        item_index: ring_index,
-        current_dura: 1_000,
-        max_dura: 1_000,
-        count: 1,
-        ..UserItem::default()
-    };
-    ring.wedding_ring = spouse_character;
-    if let Some(player_ref) = world.player_mut(player) {
-        player_ref.equipment[crate::WEDDING_RING_SLOT_L] = Some(ring);
-    }
-}
-
-const WEDDING_RING_SLOT_L: usize = 7;
 
 #[test]
 fn spouse_teleport_requires_a_worn_wedding_ring() {
@@ -874,14 +862,22 @@ fn spouse_teleport_requires_a_worn_wedding_ring() {
         Err(SocialError::NoWeddingRing(_))
     ));
 
-    // 戴上（`wedding_ring` 指向配偶的 character_id）→ 成功。
-    let spouse_character = i32::try_from(world.player(ids[1]).unwrap().character_id).unwrap();
-    wear_wedding_ring(&mut world, ids[0], 9_002, spouse_character);
+    // 戴上（`wedding_ring` 指向配偶）→ 但**对方还没戴** → t120 起仍拒绝。
+    let a_character = i32::try_from(world.player(ids[0]).unwrap().character_id).unwrap();
+    let b_character = i32::try_from(world.player(ids[1]).unwrap().character_id).unwrap();
+    wear_wedding_ring(&mut world, ids[0], 9_002, b_character);
     assert!(
         world.is_wearing_wedding_ring(ids[0]),
         "戴上后应判定为已戴戒"
     );
-    let report = world.spouse_teleport(ids[0]).expect("戴戒后应能传送");
+    assert!(matches!(
+        world.spouse_teleport(ids[0]),
+        Err(SocialError::PartnerRing(_))
+    ));
+    // 对方也戴上互指戒指 → 成功。
+    wear_wedding_ring(&mut world, ids[1], 9_002, a_character);
+    assert!(world.is_wearing_wedding_ring(ids[1]), "对方也戴上了");
+    let report = world.spouse_teleport(ids[0]).expect("双方戴戒后应能传送");
     assert_eq!(report.spouse, ids[1]);
 }
 
@@ -889,10 +885,11 @@ fn spouse_teleport_requires_a_worn_wedding_ring() {
 fn spouse_teleport_is_refused_when_the_lover_disables_recall() {
     let mut world = world();
     let ids = married_couple(&mut world);
-    let spacer = install_wedding_ring_template(&mut world);
-    let _ = spacer;
-    let spouse_character = i32::try_from(world.player(ids[1]).unwrap().character_id).unwrap();
-    wear_wedding_ring(&mut world, ids[0], 9_002, spouse_character);
+    let _ = install_wedding_ring_template(&mut world);
+    let a_character = i32::try_from(world.player(ids[0]).unwrap().character_id).unwrap();
+    let b_character = i32::try_from(world.player(ids[1]).unwrap().character_id).unwrap();
+    wear_wedding_ring(&mut world, ids[0], 9_002, b_character);
+    wear_wedding_ring(&mut world, ids[1], 9_002, a_character);
 
     // 配偶关闭「允许配偶传送」。
     assert!(world.allows_lover_recall(ids[1]), "默认允许");
@@ -970,7 +967,88 @@ fn wedding_ring_use_equips_it_before_teleporting() {
     assert_eq!(ring.wedding_ring, spouse_character);
     assert!(!world.is_wearing_wedding_ring(ids[0]), "使用前还没戴上");
 
+    // t120：对方也要戴着互指戒指，否则会返回 `PartnerRing`。
+    let a_character = i32::try_from(world.player(ids[0]).unwrap().character_id).unwrap();
+    wear_wedding_ring(&mut world, ids[1], ring_index, a_character);
     let report = world.use_item(ids[0], ring.unique_id).expect("使用戒指");
     assert!(report.teleported.is_some(), "用戒指应触发传送");
     assert!(world.is_wearing_wedding_ring(ids[0]), "用完后戒指应已戴上");
+}
+
+// ---------------------------------------------------------------------------
+// 11. 双向戴戒 + 戒指互指（t120）
+// ---------------------------------------------------------------------------
+
+/// 给这一对戴上**互指**的戒指（A.ring → B、B.ring → A）。
+fn wear_mutual_rings(world: &mut World, a: u32, b: u32, ring_index: i32) {
+    let a_character = i32::try_from(world.player(a).unwrap().character_id).unwrap();
+    let b_character = i32::try_from(world.player(b).unwrap().character_id).unwrap();
+    wear_wedding_ring(world, a, ring_index, b_character);
+    wear_wedding_ring(world, b, ring_index, a_character);
+}
+
+#[test]
+fn spouse_teleport_refuses_when_partner_wears_no_ring() {
+    // 发起方戴了、配偶没戴 → `PartnerRing`（新增 TextKey `spouse_recall_partner_ring`）。
+    let mut world = world();
+    let ring_index = install_wedding_ring_template(&mut world);
+    let ids = married_couple(&mut world);
+    let b_character = i32::try_from(world.player(ids[1]).unwrap().character_id).unwrap();
+    wear_wedding_ring(&mut world, ids[0], ring_index, b_character);
+    assert!(matches!(
+        world.spouse_teleport(ids[0]),
+        Err(SocialError::PartnerRing(_))
+    ));
+
+    // 配偶戴上（互指）→ 成功。
+    wear_mutual_rings(&mut world, ids[0], ids[1], ring_index);
+    world
+        .spouse_teleport(ids[0])
+        .expect("双方戴戒互指后应能传送");
+}
+
+#[test]
+fn spouse_teleport_refuses_when_rings_do_not_point_at_each_other() {
+    // 双方都戴了，但戒指都指向**第三方** character_id → 互指校验失败（`PartnerRing`）。
+    let mut world = world();
+    let ring_index = install_wedding_ring_template(&mut world);
+    let ids = married_couple(&mut world);
+    wear_wedding_ring(&mut world, ids[0], ring_index, 9_999);
+    wear_wedding_ring(&mut world, ids[1], ring_index, 9_999);
+    assert!(
+        !world.is_wearing_wedding_ring(ids[0]),
+        "戒指不指向配偶时不算「戴着婚戒」"
+    );
+    assert!(matches!(
+        world.spouse_teleport(ids[0]),
+        Err(SocialError::NoWeddingRing(_))
+    ));
+
+    // 只有一方指向错误：发起方正确、配偶错误 → `PartnerRing`。
+    let a_character = i32::try_from(world.player(ids[0]).unwrap().character_id).unwrap();
+    let b_character = i32::try_from(world.player(ids[1]).unwrap().character_id).unwrap();
+    wear_wedding_ring(&mut world, ids[0], ring_index, b_character);
+    wear_wedding_ring(&mut world, ids[1], ring_index, 9_999);
+    assert!(matches!(
+        world.spouse_teleport(ids[0]),
+        Err(SocialError::PartnerRing(_))
+    ));
+    // 修正配偶那枚 → 成功。
+    wear_wedding_ring(&mut world, ids[1], ring_index, a_character);
+    world.spouse_teleport(ids[0]).expect("修正后应能传送");
+}
+
+#[test]
+fn spouse_teleport_skips_partner_ring_check_when_spouse_is_offline() {
+    // 豁免：配偶离线时无法查询装备，只校验发起方 → 报「配偶不在线」而不是 `PartnerRing`。
+    let mut world = world();
+    let ring_index = install_wedding_ring_template(&mut world);
+    let ids = married_couple(&mut world);
+    let b_character = i32::try_from(world.player(ids[1]).unwrap().character_id).unwrap();
+    wear_wedding_ring(&mut world, ids[0], ring_index, b_character);
+    world.leave(ids[1]);
+    assert!(matches!(
+        world.spouse_teleport(ids[0]),
+        Err(SocialError::SpouseOffline(_))
+    ));
 }

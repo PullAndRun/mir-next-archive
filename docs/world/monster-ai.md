@@ -187,3 +187,25 @@ AI 14/50 命中时按 §2.2 的概率挂上这两种状态。
 ```text
 cargo run -p mir-server --example ai_audit
 ```
+
+## 8. 第 13 轮收口（t121）
+
+| AI | 模板数 | Crystal 对照 | 本作行为 |
+|---|---:|---|---|
+| 15 | 20 | `ZumaMonster.cs:15-60`（石化，靠近 2 格才 Wake） | 无目标时站桩，不移动/不索敌；`newly_audited_scenery_ais_stay_stationary` |
+| 47 | 2 | `TrapRock.cs` 的 `Show()` | 父石只触发一次，目标周围 3 个角落子石，5 秒存活后消失 |
+| 97 | 4 | `HellKnight.cs:8-24`（只有 `Summoned` 标记，其余走基类） | 基类索敌/近战；`hellknight_uses_generic_melee_path` |
+| 99 | 3 | `HellBomb.cs:11-35`（CanMove=false，到点自爆） | 站桩、不移动；`newly_audited_scenery_ais_stay_stationary` |
+| 102 | 2 | `IceGuard.cs:8-85`（射程 8） | `ranged_attack_range=8`；`horned_archer_and_warrior_have_audited_ranges` |
+| 119 / 120 | 2 | `Jar1.cs` / `Jar2.cs`（CanMove=false） | 站桩；`newly_audited_scenery_ais_stay_stationary` |
+| 128 | 1 | `TucsonEgg.cs`（CanMove=false） | 站桩；同上 |
+| 164 | 1 | `HornedArcher.cs`（继承 AxeSkeleton 射程 6） | `ranged_attack_range=6` |
+| 165 | 1 | `HornedWarrior.cs:8`（AttackRange=4） | `ranged_attack_range=4` |
+| 181 | 2 | `WaterDragon.cs`（远程用 ViewRange） | `ranged_attack_range=view_range` |
+| 210 | 4 | `HoodedSummonerScrolls.cs`（远程用 ViewRange） | `ranged_attack_range=view_range` |
+
+巡检结果：**已实现 AI 覆盖 500/537 个怪物模板（93.1%）**。AI97 的 Crystal 子类本身只有
+`Summoned` 标记，行为等价基类，因此按「基类路径已覆盖」计入；其余表格项均有对应确定性测试。
+仍未做的 AI：97 以外的 53/69/70/72/79/86/88/98/112/115/116/117/118/121/122/123/124/
+125/126/127/130/131/163/169/170/171/173/174/179/180/182/186/187/188/189/190/192 等
+（详见 `ai_audit` 输出；其中不少是 `ObjectMagic`/复杂 Boss 行为，不在本轮简单 AI 范围）。

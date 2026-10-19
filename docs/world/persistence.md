@@ -79,7 +79,17 @@ autosave/版本相关（t111 新增 6 条）：旧版本拒绝、并发时最新
 * 「只写脏角色」：未改动玩家不产生写库；
 * 「失败后重试成功」：注入失败 → 计数/退避 → 恢复后同一条脏行写成功。
 
-## 7. 与其它文档
+## 7. 平滑重启（第 16 轮 t123）
+
+* **强制存盘**：停机倒计时到点后，每个在线会话先 `force_save_for_shutdown`——完整角色行
+  + 好友/婚姻师徒/任务 + 市场/行会/邮件 flush；失败记录并**重试一次**，再失败告警；
+* **倒计时**：**60 / 30 / 10 秒**三个节点广播，最后每秒广播；`TextKey::RebootCountdown`
+  （`reboot_countdown`，参数 `{seconds}`）中英双语；
+* **重连宽限**：`RECONNECT_GRACE_MS = 90 秒`；停机时登记「账号 → 最后角色」，重启后 90 秒内
+  登录自动 `StartGame` 恢复（Crystal StartGame 成功 result=4），超期走正常选角；
+* 测试：`tests/reboot.rs` **6/6**。
+
+## 8. 与其它文档
 
 * 表结构/字段：`docs/store/schema.md` §8（RPO 已由本文件的 autosave 兜底）；
 * 指标端点：`docs/server/metrics.md`；

@@ -765,3 +765,52 @@ fn trainer_scenery_is_stationary_and_does_not_attack() {
         "Trainer 不应移动"
     );
 }
+
+#[test]
+fn newly_audited_scenery_ais_stay_stationary() {
+    let mut harness = Harness::new(50);
+    let _player = harness.add_player(1, Point::new(20, 20));
+    for ai in [15, 99, 119, 120, 128] {
+        let id = harness.spawn(special_monster(ai, 100), Point::new(22, 20));
+        let before = harness.world.monster(id).unwrap().position;
+        harness.wake(id);
+        harness.world.tick();
+        assert_eq!(
+            harness.world.monster(id).unwrap().position,
+            before,
+            "AI {ai} 应是站桩/石化"
+        );
+    }
+}
+
+#[test]
+fn horned_archer_and_warrior_have_audited_ranges() {
+    assert_eq!(special_monster(164, 100).ranged_attack_range(), Some(6));
+    assert_eq!(special_monster(165, 100).ranged_attack_range(), Some(4));
+    assert_eq!(special_monster(102, 100).ranged_attack_range(), Some(8));
+    assert_eq!(
+        special_monster(181, 100).ranged_attack_range(),
+        Some(7),
+        "WaterDragon 使用 view_range 远程"
+    );
+    assert_eq!(
+        special_monster(210, 100).ranged_attack_range(),
+        Some(7),
+        "HoodedSummonerScrolls 使用 view_range 远程"
+    );
+}
+
+#[test]
+fn hellknight_uses_generic_melee_path() {
+    let mut harness = Harness::new(51);
+    let player = harness.add_player(1, Point::new(20, 20));
+    let knight = harness.spawn(special_monster(97, 100), Point::new(21, 20));
+    harness.world.monster_mut(knight).unwrap().target = Some(player);
+    harness.wake(knight);
+    harness.world.tick();
+    assert_eq!(
+        harness.world.monster(knight).unwrap().target,
+        Some(player),
+        "HellKnight 应走基类索敌/近战路径"
+    );
+}

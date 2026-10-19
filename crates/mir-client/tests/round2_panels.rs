@@ -236,6 +236,11 @@ fn settings_panel_layout_and_clicks() {
         frame
             .save_png(screenshot(&format!("settings-{width}x{height}")))
             .expect("保存设置面板截图");
+        if width == 800 {
+            frame
+                .save_png(screenshot("settings"))
+                .expect("保存统一设置截图");
+        }
 
         // 点击：音效开关 → 音量 → 语言 → 分辨率 → 缩放。
         let point = |rect: Rect| Point::new(rect.x + 2, rect.y + 2);

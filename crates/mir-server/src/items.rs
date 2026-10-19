@@ -2048,6 +2048,15 @@ impl World {
                         let key = match error {
                             crate::world::SocialError::NotMarried(_) => TextKey::SpouseNotMarried,
                             crate::world::SocialError::SpouseDead(_) => TextKey::SpouseDead,
+                            crate::world::SocialError::NoWeddingRing(_) => {
+                                TextKey::SpouseRecallNeedsRing
+                            }
+                            crate::world::SocialError::RecallDenied(_) => {
+                                TextKey::SpouseRecallDenied
+                            }
+                            crate::world::SocialError::PartnerRing(_) => {
+                                TextKey::SpouseRecallPartnerRing
+                            }
                             _ => TextKey::SpouseOffline,
                         };
                         let message = self.text(object_id, key);

@@ -134,22 +134,49 @@ pub fn group_layout(frame: Rect, member_count: usize, scroll: usize) -> GroupLay
     let visible = member_count.min(ROWS);
     let max_scroll = member_count.saturating_sub(visible.max(1));
     let first_row = scroll.min(max_scroll);
+    // 320×240：三按钮 + 输入框放不进一行，改两行并把成员行数收窄到不压按钮。
+    let two_rows = content_width < 380;
+    let extra_row = if two_rows {
+        i32::try_from(BUTTON_HEIGHT + 4).unwrap_or(0)
+    } else {
+        0
+    };
+    let buttons_top = panel.bottom() - i32::try_from(BUTTON_HEIGHT + 26).unwrap_or(0) - extra_row;
+    let row_area_top = header.y + i32::try_from(HEADER_HEIGHT).unwrap_or(0);
+    let row_capacity = usize::try_from(
+        (buttons_top - 6 - row_area_top).max(0) / i32::try_from(ROW_HEIGHT).unwrap_or(1),
+    )
+    .unwrap_or(0);
+    let visible = visible.min(row_capacity.max(1));
+    let max_scroll = member_count.saturating_sub(visible.max(1));
+    let first_row = first_row.min(max_scroll);
     let mut rows = Vec::with_capacity(visible);
     for index in 0..visible {
         rows.push(Rect::new(
             content_x,
-            header.y
-                + i32::try_from(HEADER_HEIGHT).unwrap_or(0)
+            row_area_top
                 + i32::try_from(index).unwrap_or(0) * i32::try_from(ROW_HEIGHT).unwrap_or(0),
             content_width,
             ROW_HEIGHT,
         ));
     }
-    let button_y = panel.bottom() - i32::try_from(BUTTON_HEIGHT + 26).unwrap_or(0);
-    let invite_field = Rect::new(content_x, button_y, 132, BUTTON_HEIGHT);
-    let invite = Rect::new(invite_field.right() + 6, button_y, 70, BUTTON_HEIGHT);
-    let leave = Rect::new(invite.right() + 6, button_y, 70, BUTTON_HEIGHT);
-    let kick = Rect::new(leave.right() + 6, button_y, 84, BUTTON_HEIGHT);
+    let (invite_field, invite, leave, kick) = if two_rows {
+        let row1 = buttons_top;
+        let row2 = buttons_top + i32::try_from(BUTTON_HEIGHT + 4).unwrap_or(0);
+        let field_width = content_width.saturating_sub(76);
+        let invite_field = Rect::new(content_x, row1, field_width, BUTTON_HEIGHT);
+        let invite = Rect::new(invite_field.right() + 6, row1, 70, BUTTON_HEIGHT);
+        let leave = Rect::new(content_x, row2, 70, BUTTON_HEIGHT);
+        let kick = Rect::new(leave.right() + 6, row2, 84, BUTTON_HEIGHT);
+        (invite_field, invite, leave, kick)
+    } else {
+        let button_y = panel.bottom() - i32::try_from(BUTTON_HEIGHT + 26).unwrap_or(0);
+        let invite_field = Rect::new(content_x, button_y, 132, BUTTON_HEIGHT);
+        let invite = Rect::new(invite_field.right() + 6, button_y, 70, BUTTON_HEIGHT);
+        let leave = Rect::new(invite.right() + 6, button_y, 70, BUTTON_HEIGHT);
+        let kick = Rect::new(leave.right() + 6, button_y, 84, BUTTON_HEIGHT);
+        (invite_field, invite, leave, kick)
+    };
     let switch = Rect::new(
         panel.right() - i32::try_from(PADDING + 108).unwrap_or(0),
         panel.y + 4,

@@ -2908,6 +2908,25 @@ impl WorldSnapshot {
         rows
     }
 
+    /// 按名字找可见玩家的等级（行会成员页用；离线/不在视野返回 `None`）。
+    ///
+    /// `S.GuildMemberChange` 本身不带等级，只能从同屏 `S.ObjectPlayer.Level` 关联。
+    #[must_use]
+    pub fn player_level_by_name(&self, name: &str) -> Option<u16> {
+        if let Some(me) = &self.self_player
+            && me.name.eq_ignore_ascii_case(name)
+        {
+            return Some(me.level);
+        }
+        self.entities
+            .values()
+            .find(|entity| {
+                entity.kind == mir_render::EntityKind::Player
+                    && entity.name.eq_ignore_ascii_case(name)
+            })
+            .map(|entity| entity.level)
+    }
+
     /// 某个对象（含自己）所在格；未知对象返回 `None`。
     #[must_use]
     pub fn object_position(&self, object_id: u32) -> Option<Point> {

@@ -141,6 +141,8 @@ pub struct GuildLayout {
     pub demote: Rect,
     /// 踢人。
     pub kick: Rect,
+    /// 刷新成员/职位（`C.RequestGuildInfo{type=1}`）。
+    pub refresh: Rect,
     /// 资金行。
     pub gold_row: Rect,
     /// 资金输入框。
@@ -276,21 +278,12 @@ pub fn guild_layout(
             MEMBER_ROW_HEIGHT,
         ));
     }
-    let action_width = 78;
+    let action_width = ((content_width.saturating_sub(18)) / 4).clamp(52, 78);
+    let refresh = Rect::new(content.x, button_y, action_width, BUTTON_HEIGHT);
+    let promote = Rect::new(refresh.right() + 6, button_y, action_width, BUTTON_HEIGHT);
+    let demote = Rect::new(promote.right() + 6, button_y, action_width, BUTTON_HEIGHT);
     let kick = Rect::new(
-        panel.right() - i32::try_from(PADDING + action_width).unwrap_or(0),
-        button_y,
-        action_width,
-        BUTTON_HEIGHT,
-    );
-    let demote = Rect::new(
-        kick.x - i32::try_from(action_width + 6).unwrap_or(0),
-        button_y,
-        action_width,
-        BUTTON_HEIGHT,
-    );
-    let promote = Rect::new(
-        demote.x - i32::try_from(action_width + 6).unwrap_or(0),
+        (demote.right() + 6).min(content.right() - i32::try_from(action_width).unwrap_or(0)),
         button_y,
         action_width,
         BUTTON_HEIGHT,
@@ -373,6 +366,7 @@ pub fn guild_layout(
         promote,
         demote,
         kick,
+        refresh,
         gold_row,
         gold_field,
         deposit,
@@ -597,15 +591,17 @@ pub fn draw(
             );
         }
     }
-    text.draw_clipped(
-        frame,
-        layout.footer.x,
-        layout.footer.y,
-        Label::GuildHint.text(language),
-        SIZE_SMALL,
-        MUTED_COLOR,
-        layout.footer,
-    );
+    if tab != GuildTab::Members {
+        text.draw_clipped(
+            frame,
+            layout.footer.x,
+            layout.footer.y,
+            Label::GuildHint.text(language),
+            SIZE_SMALL,
+            MUTED_COLOR,
+            layout.footer,
+        );
+    }
 }
 
 /// 画一个按钮。
@@ -653,42 +649,28 @@ fn draw_members(
 ) {
     let members = snapshot.guild_members();
     let header = layout.member_header;
-    text.draw_clipped(
-        frame,
-        header.x + 6,
-        header.y,
-        Label::Rank.text(language),
-        SIZE_SMALL,
-        MUTED_COLOR,
-        Rect::new(header.x + 6, header.y, 120, HEADER_HEIGHT),
-    );
-    text.draw_clipped(
-        frame,
-        header.x + 130,
-        header.y,
-        Label::Members.text(language),
-        SIZE_SMALL,
-        MUTED_COLOR,
-        Rect::new(header.x + 130, header.y, 200, HEADER_HEIGHT),
-    );
-    text.draw_clipped(
-        frame,
-        header.x + 300,
-        header.y,
-        Label::Online.text(language),
-        SIZE_SMALL,
-        MUTED_COLOR,
-        Rect::new(header.x + 300, header.y, 80, HEADER_HEIGHT),
-    );
-    text.draw_clipped(
-        frame,
-        header.x + 380,
-        header.y,
-        Label::MapColumn.text(language),
-        SIZE_SMALL,
-        MUTED_COLOR,
-        Rect::new(header.x + 380, header.y, 80, HEADER_HEIGHT),
-    );
+    let columns = guild_member_columns(header.width);
+    for (label, column) in [
+        (Label::Rank, 0),
+        (Label::Members, 1),
+        (Label::Level, 2),
+        (Label::Online, 3),
+    ] {
+        text.draw_clipped(
+            frame,
+            header.x + columns[column],
+            header.y,
+            label.text(language),
+            SIZE_SMALL,
+            MUTED_COLOR,
+            Rect::new(
+                header.x + columns[column],
+                header.y,
+                column_width(header.width, column),
+                HEADER_HEIGHT,
+            ),
+        );
+    }
     for (visible_index, row) in layout.member_rows.iter().enumerate() {
         let index = layout.first_member + visible_index;
         let Some(entry) = members.get(index) else {
@@ -703,51 +685,52 @@ fn draw_members(
         } else if visible_index % 2 == 1 {
             frame.fill_rect(row.x, row.y, row.width, row.height, [26, 30, 38, 160]);
         }
-        text.draw_clipped(
-            frame,
-            row.x + 6,
-            row.y + 3,
-            &rank.name,
-            SIZE_SMALL,
-            MUTED_COLOR,
-            Rect::new(row.x + 6, row.y + 3, 120, SIZE_SMALL + 4),
-        );
-        text.draw_clipped(
-            frame,
-            row.x + 130,
-            row.y + 3,
-            &member.name,
-            SIZE_BODY,
-            if member.online {
-                ONLINE_COLOR
-            } else {
-                BODY_COLOR
-            },
-            Rect::new(row.x + 130, row.y + 3, 200, SIZE_BODY + 4),
-        );
-        text.draw_clipped(
-            frame,
-            row.x + 300,
-            row.y + 3,
-            member_status_text(member, language),
-            SIZE_SMALL,
-            if member.online {
-                ONLINE_COLOR
-            } else {
-                MUTED_COLOR
-            },
-            Rect::new(row.x + 300, row.y + 3, 80, SIZE_SMALL + 4),
-        );
-        // 简化：协议里的 GuildMember 没有地图字段（见模块文档），这里显示 `--`。
-        text.draw_clipped(
-            frame,
-            row.x + 380,
-            row.y + 3,
-            "--",
-            SIZE_SMALL,
-            MUTED_COLOR,
-            Rect::new(row.x + 380, row.y + 3, 80, SIZE_SMALL + 4),
-        );
+        for (text_value, column, color, size) in [
+            (rank.name.clone(), 0, MUTED_COLOR, SIZE_SMALL),
+            (
+                member.name.clone(),
+                1,
+                if member.online {
+                    ONLINE_COLOR
+                } else {
+                    BODY_COLOR
+                },
+                SIZE_BODY,
+            ),
+            (
+                snapshot
+                    .player_level_by_name(&member.name)
+                    .map_or_else(|| "--".to_owned(), |level| level.to_string()),
+                2,
+                BODY_COLOR,
+                SIZE_SMALL,
+            ),
+            (
+                member_status_text(member, language).to_owned(),
+                3,
+                if member.online {
+                    ONLINE_COLOR
+                } else {
+                    MUTED_COLOR
+                },
+                SIZE_SMALL,
+            ),
+        ] {
+            text.draw_clipped(
+                frame,
+                row.x + columns[column],
+                row.y + 3,
+                &text_value,
+                size,
+                color,
+                Rect::new(
+                    row.x + columns[column],
+                    row.y + 3,
+                    column_width(row.width, column),
+                    size + 4,
+                ),
+            );
+        }
     }
     let can_change_rank = snapshot
         .guild
@@ -786,11 +769,37 @@ fn draw_members(
     draw_button(
         frame,
         text,
+        layout.refresh,
+        Label::Refresh.text(language),
+        mouse,
+        true,
+    );
+    draw_button(
+        frame,
+        text,
         layout.kick,
         Label::Kick.text(language),
         mouse,
         can_kick && selected.is_some(),
     );
+}
+
+/// 成员页列偏移：职位 / 名字 / 等级 / 在线（按内容宽度收窄，窄屏不互相压）。
+#[must_use]
+pub fn guild_member_columns(content_width: u32) -> [i32; 4] {
+    let scale = |ratio: u32| i32::try_from(content_width * ratio / 100).unwrap_or(0);
+    [6, scale(30), scale(62), scale(82)]
+}
+
+/// 成员页列宽。
+fn column_width(content_width: u32, column: usize) -> u32 {
+    let columns = guild_member_columns(content_width);
+    match column {
+        0 => u32::try_from(columns[1] - columns[0] - 4).unwrap_or(0),
+        1 => u32::try_from(columns[2] - columns[1] - 4).unwrap_or(0),
+        2 => u32::try_from(columns[3] - columns[2] - 4).unwrap_or(0),
+        _ => content_width.saturating_sub(u32::try_from(columns[3]).unwrap_or(0)),
+    }
 }
 
 /// 仓库页（112 格 + 资金）。

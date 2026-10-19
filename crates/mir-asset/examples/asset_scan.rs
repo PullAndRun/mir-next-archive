@@ -48,7 +48,7 @@ fn main() {
         );
     }
 
-    let mut monsters = Vec::new();
+    let mut monsters_json = String::new();
     let mut mon_files = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&data) {
         for entry in entries.flatten() {
@@ -73,35 +73,63 @@ fn main() {
             .unwrap_or("?")
             .to_owned();
         let Ok(library) = ImageLibrary::open(path) else {
-            monsters.push((name, 0usize, 0usize, 0usize));
+            let _ = writeln!(
+                monsters_json,
+                "    {{\"library\": \"{name}\", \"frames\": 0, \"non_empty\": 0, \"first_non_empty\": 0, \"empty_intervals\": [], \"empty_standing_blocks_first10\": 0}},\n"
+            );
             continue;
         };
         let limit = library.len();
         let mut non_empty = 0usize;
         let mut first_non_empty = None;
+        let mut empty_intervals = Vec::new();
+        let mut run_start = None;
         for index in 0..limit {
-            if library
+            let present = library
                 .info(index)
-                .is_ok_and(|info| info.width > 0 && info.height > 0)
-            {
+                .is_ok_and(|info| info.width > 0 && info.height > 0);
+            if present {
                 non_empty += 1;
                 first_non_empty.get_or_insert(index);
+                if let Some(start) = run_start.take()
+                    && index - start >= 8
+                {
+                    empty_intervals.push((start, index - 1));
+                }
+            } else if run_start.is_none() {
+                run_start = Some(index);
             }
         }
-        if non_empty == 0 {
-            monsters.push((name, library.len(), 0, 0));
-        } else if first_non_empty.unwrap_or(0) >= 100 {
-            // 不是缺图，但首帧偏移异常：单独列出方便核对怪物图库起点。
-            monsters.push((name, library.len(), non_empty, first_non_empty.unwrap_or(0)));
+        if let Some(start) = run_start
+            && limit - start >= 8
+        {
+            empty_intervals.push((start, limit - 1));
         }
-    }
-
-    let mut monsters_json = String::new();
-    for (name, total, non_empty, first) in &monsters {
-        let _ = writeln!(
-            monsters_json,
-            "    {{\"library\": \"{name}\", \"frames\": {total}, \"non_empty\": {non_empty}, \"first_non_empty\": {first}}},\n"
-        );
+        // 每个图像块 430 帧，站立段起点 = block*430；统计前 10 块里站立帧为空的块。
+        let mut empty_standing = 0usize;
+        let blocks = (limit / 430).min(10);
+        for block in 0..blocks {
+            let base = block * 430;
+            let present = library
+                .info(base)
+                .is_ok_and(|info| info.width > 0 && info.height > 0);
+            if !present {
+                empty_standing += 1;
+            }
+        }
+        if non_empty == 0 || first_non_empty.unwrap_or(0) >= 100 || !empty_intervals.is_empty() {
+            let intervals = empty_intervals
+                .iter()
+                .take(5)
+                .map(|(start, end)| format!("[{start},{end}]"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let _ = writeln!(
+                monsters_json,
+                "    {{\"library\": \"{name}\", \"frames\": {limit}, \"non_empty\": {non_empty}, \"first_non_empty\": {}, \"empty_intervals\": [{intervals}], \"empty_standing_blocks_first10\": {empty_standing}}},\n",
+                first_non_empty.unwrap_or(0)
+            );
+        }
     }
 
     let mut essential = String::new();
@@ -126,7 +154,7 @@ fn main() {
     }
 
     let json = format!(
-        "{{\n  \"data_dir\": \"{}\",\n  \"conquest_candidates\": [\n{}  ],\n  \"monster_libraries_missing_or_empty\": [\n{}  ],\n  \"essential_libraries\": {{\n{}  }}\n}}\n",
+        "{{\n  \"data_dir\": \"{}\",\n  \"conquest_candidates\": [\n{}  ],\n  \"monster_libraries_audit\": [\n{}  ],\n  \"essential_libraries\": {{\n{}  }}\n}}\n",
         data.display(),
         conquest,
         monsters_json,
@@ -138,9 +166,8 @@ fn main() {
     std::fs::write(&out, json).expect("写缺图清单");
 
     println!(
-        "扫描 {} 个 mon*.wzl：{} 个整库空/打不开；objects.wzl 候选帧见 {}",
+        "扫描 {} 个 mon*.wzl（首帧偏移/空帧区间/空站立块）；objects.wzl 候选帧见 {}",
         mon_files.len(),
-        monsters.len(),
         out.display()
     );
 }

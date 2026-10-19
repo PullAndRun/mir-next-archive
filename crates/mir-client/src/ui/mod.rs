@@ -2752,6 +2752,10 @@ impl UiState {
                     .guild_selected_member
                     .and_then(|index| members.get(index).copied());
                 let max_rank = snapshot.guild_ranks.len().saturating_sub(1);
+                if layout.refresh.contains(self.mouse) {
+                    // 成员表由服务端 `S.GuildMemberChange` 整表下发；点刷新只发请求。
+                    return Some(UiAction::RequestGuildInfo { type_: 1 });
+                }
                 if layout.promote.contains(self.mouse) {
                     if let Some((rank, member)) = selected {
                         if rank.index > 0 {
@@ -3737,7 +3741,10 @@ pub fn draw(
     );
     hud::draw_chat(frame, snapshot, text, chat_input, state.language);
     // 队友血条（HUD）：队伍存在时贴在聊天面板上方（需求：HUD 上显示队友血条）。
-    hud::draw_party(frame, snapshot, text, state.language);
+    // 组队面板打开时不重复画（面板已有完整成员表，320×240 会互相遮挡）。
+    if !state.show_group {
+        hud::draw_party(frame, snapshot, text, state.language);
+    }
 
     if state.show_equipment {
         let layout = equipment::equipment_layout(screen);

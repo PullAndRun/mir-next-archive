@@ -19,6 +19,7 @@ use mir_server::npc::NpcState;
 use mir_server::store::Character;
 use mir_server::store::GuildRecord;
 use mir_server::world::{MARRIAGE_LEVEL_REQUIRED, MENTOR_LEVEL_GAP, Player, SocialError, World};
+use mir_world::{Map, MapCell, MapVersion};
 use tokio::sync::mpsc;
 
 const MAP: &str = "0";
@@ -408,6 +409,21 @@ fn drain_packets(
     packets
 }
 
+/// 60×60 的可走空地（与 `tests/maps.rs` 的 `synthetic_map` 同口径）。
+fn synthetic_map(name: &str) -> Arc<mir_world::Map> {
+    let width = 60;
+    let height = 60;
+    Map {
+        width,
+        height,
+        cells: vec![MapCell::default(); usize::try_from(width * height).unwrap_or(0)],
+        file_name: name.to_owned(),
+        version: MapVersion::V0,
+        doors: Vec::new(),
+    }
+    .into()
+}
+
 /// 造两个（或更多）玩家并让他们站在同一格附近，返回 `object_id` 列表。
 fn couple(world: &mut World, levels: &[u16]) -> Vec<u32> {
     let mut ids = Vec::new();
@@ -702,20 +718,16 @@ fn spouse_teleport_rejects_unmarried_and_offline_spouse() {
 
 #[test]
 fn spouse_teleport_crosses_maps_when_the_spouse_is_elsewhere() {
-    // 用真实地形：比奇 `0` 与 `0108` 都能加载，跨图传送必须发 `S.MapChanged`。
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut world = World::new(999);
-    world.seed_rng(0x5EED);
-    world.set_map_root(root.join("resource/map"));
-    world.set_game_data(Arc::new(mir_server::gamedata::GameData::from_db(
-        MirDb::default(),
-        None,
-    )));
+    // 用**合成地图**（60×60 可走空地）而不是真实 `resource/map`：
+    // CI 上没有素材目录，真实地形加载不出来会让「找相邻空位」失败。
+    let mut world = world();
+    world.insert_map("0", synthetic_map("0"));
+    world.insert_map("0108", synthetic_map("0108"));
     let mut rx = add_player_with_receiver(&mut world, 1, 1, 20, Point::new(100, 100), "0");
     add_player_with_receiver(&mut world, 2, 2, 20, Point::new(101, 100), "0");
     world.marriage_request(1, 2).unwrap();
     world.marriage_reply(2, true).unwrap();
-    // 婚后把配偶挪到另一张图（真实地形：比奇 0 → 0108）。
+    // 婚后把配偶挪到另一张图。
     if let Some(spouse) = world.player_mut(2) {
         spouse.map = "0108".to_owned();
         spouse.position = Point::new(8, 12);
@@ -735,7 +747,8 @@ fn spouse_teleport_crosses_maps_when_the_spouse_is_elsewhere() {
     assert_eq!(me.map, "0108");
     assert!(
         me.position.in_range(Point::new(8, 12), 1),
-        "落点应是配偶相邻格"
+        "落点应是配偶相邻格：{}",
+        me.position
     );
 }
 

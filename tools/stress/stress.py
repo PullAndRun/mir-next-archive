@@ -36,6 +36,33 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+def _safe_console() -> None:
+    """把 stdout/stderr 切到 UTF-8（`errors="replace"`），否则 Windows 默认 GBK 下
+    打印表格里的 `µs` 会抛 `UnicodeEncodeError: 'gbk' codec can't encode '\xb5'`，
+    整条命令 exit 1、JSON 写了但表格看不见（刑部第 12 轮 F3）。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        except (AttributeError, OSError, ValueError):
+            # 老 Python / 被重定向到不支持 reconfigure 的流：交给 `_emit` 逐行兜底。
+            pass
+
+
+def _emit(text: str = "", *, flush: bool = False) -> None:
+    """打印的统一出口：编不出来就按错误替换降级，绝不因为一个符号把整条命令打崩。"""
+    try:
+        print(text, flush=flush)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(
+            text.encode(encoding, "replace").decode(encoding, "replace"),
+            flush=flush,
+        )
+
+
+_safe_console()
+
+
 def load_playtest():
     """复用 playtest 的协议实现（Reader/Writer/包号），避免两处协议口径漂移。"""
     path = os.path.join(ROOT, "tools", "playtest", "playtest.py")
@@ -131,6 +158,44 @@ class ProcessProbe:
             return None
 
 
+def host_cpu_percent() -> float | None:
+    """宿主机整体 CPU 使用率（两次采样之间的空闲时间占比）。
+
+    `Win32_Processor.LoadPercentage` 是瞬时值，在 32 逻辑核的机器上抖得厉害（0~80% 乱跳），
+    不适合当「机器空闲」的证据；这里用 `GetSystemTimes` 的 idle/kernel/user 增量算真实利用率。
+    """
+    if os.name != "nt":
+        return None
+    try:
+        class FILETIME(ctypes.Structure):
+            _fields_ = [("dwLowDateTime", ctypes.c_ulong), ("dwHighDateTime", ctypes.c_ulong)]
+
+        idle, kernel, user = FILETIME(), FILETIME(), FILETIME()
+        if not ctypes.windll.kernel32.GetSystemTimes(
+            ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user)
+        ):
+            return None
+
+        def to_int(ft):
+            return (ft.dwHighDateTime << 32) | ft.dwLowDateTime
+
+        now = (to_int(idle), to_int(kernel), to_int(user))
+        previous = host_cpu_percent._last  # type: ignore[attr-defined]
+        host_cpu_percent._last = now  # type: ignore[attr-defined]
+        if previous is None:
+            return None
+        idle_delta = now[0] - previous[0]
+        total_delta = (now[1] - previous[1]) + (now[2] - previous[2])
+        if total_delta <= 0:
+            return None
+        return max(0.0, min(100.0, (1.0 - idle_delta / total_delta) * 100.0))
+    except Exception:  # noqa: BLE001 - 指标拿不到不该打断压测
+        return None
+
+
+host_cpu_percent._last = None  # type: ignore[attr-defined]
+
+
 def read_pid(port: int) -> int | None:
     path = os.path.join(ROOT, "target", f"server-{port}.pid")
     try:
@@ -166,12 +231,22 @@ def scrape_metrics(url: str, timeout: float = 2.0) -> dict[str, float]:
 # 单个虚拟玩家
 # ---------------------------------------------------------------------------
 class Worker(threading.Thread):
-    def __init__(self, index: int, server: tuple[str, int], duration: float, rate: float):
+    def __init__(
+        self,
+        index: int,
+        server: tuple[str, int],
+        duration: float,
+        rate: float,
+        mix: tuple[int, int, int] = (2, 2, 1),
+        spread: bool = False,
+    ):
         super().__init__(daemon=True)
         self.index = index
         self.host, self.port = server
         self.duration = duration
         self.rate = rate
+        self.mix = mix
+        self.spread = spread
         self.connected = False
         self.entered = False
         self.error: str | None = None
@@ -313,16 +388,22 @@ class Worker(threading.Thread):
         step = 0
         try:
             while time.time() < end and not self._stop.is_set():
-                # 走动 / 攻击 / 聊天：1:1:0.5 的混合比例
-                kind = step % 5
+                # 默认走动/攻击/聊天 2:2:1；--mix 可改比例，--spread 让每个客户端走不同方向。
+                kind = step % max(1, sum(self.mix))
+                walk, attack, _chat = self.mix
+                direction = WALK_DIRECTIONS[
+                    (step + self.index * 3) % len(WALK_DIRECTIONS)
+                    if self.spread
+                    else step % len(WALK_DIRECTIONS)
+                ]
                 try:
-                    if kind in (0, 1):
+                    if kind < walk:
                         writer = pt.Writer()
-                        writer.u8(WALK_DIRECTIONS[step % len(WALK_DIRECTIONS)])
+                        writer.u8(direction)
                         self._send(pt.C_WALK, writer.raw())
-                    elif kind in (2, 3):
+                    elif kind < walk + attack:
                         writer = pt.Writer()
-                        writer.u8(WALK_DIRECTIONS[step % len(WALK_DIRECTIONS)])
+                        writer.u8(direction)
                         writer.u8(0)  # Spell.None
                         self._send(pt.C_ATTACK, writer.raw())
                     else:
@@ -371,11 +452,25 @@ def run(args) -> dict:
     probe = ProcessProbe(read_pid(port))
     rss_samples: list[int] = []
     cpu_samples: list[float] = []
+    host_load_samples: list[float] = []
 
     workers = [
-        Worker(i, (host, port), args.duration, args.rate) for i in range(args.clients)
+        Worker(
+            i,
+            (host, port),
+            args.duration,
+            args.rate,
+            mix=args.mix,
+            spread=args.spread,
+        )
+        for i in range(args.clients)
     ]
-    print(
+    if not workers:
+        _emit(
+            f"空闲基线：不建连接，只采 {args.duration:.0f}s 的 /metrics 与进程指标"
+            "（跑满 60s 才能让 512 tick 的环形窗口只包含本次样本）"
+        )
+    _emit(
         f"压测开始：{args.clients} 连接 × {args.duration:.0f}s，速率 {args.rate:.1f} pkt/s/连接，"
         f"服务端 {host}:{port}"
     )
@@ -391,15 +486,21 @@ def run(args) -> dict:
         cpu = probe.cpu_percent()
         if cpu is not None:
             cpu_samples.append(cpu)
+        host = host_cpu_percent()
+        if host is not None:
+            host_load_samples.append(host)
         alive = sum(1 for worker in workers if worker.is_alive())
-        print(
+        if not workers:
+            alive = 0
+        _emit(
             f"  t={time.time() - started:5.1f}s 存活={alive:3d}/{args.clients}"
             f"  RSS={(rss or 0) / 1048576:7.1f} MiB"
-            + (f"  CPU={cpu:5.1f}%" if cpu is not None else ""),
+            + (f"  服务端CPU={cpu:6.1f}%" if cpu is not None else "")
+            + (f"  整机CPU={host:5.1f}%" if host is not None else ""),
             flush=True,
         )
         time.sleep(args.sample_interval)
-        if alive == 0 and time.time() - started > 5:
+        if workers and alive == 0 and time.time() - started > 5:
             break
 
     for worker in workers:
@@ -458,6 +559,12 @@ def run(args) -> dict:
             "rss_mib_peak": round(max(rss_samples) / 1048576, 1) if rss_samples else None,
             "cpu_percent_avg": round(statistics.fmean(cpu_samples), 1) if cpu_samples else None,
             "cpu_percent_peak": round(max(cpu_samples), 1) if cpu_samples else None,
+            "host_cpu_percent_avg": (
+                round(statistics.fmean(host_load_samples), 1) if host_load_samples else None
+            ),
+            "host_cpu_percent_peak": (
+                round(max(host_load_samples), 1) if host_load_samples else None
+            ),
         },
         "baseline_metrics_url": metrics_url,
         "baseline_available": bool(baseline),
@@ -470,9 +577,9 @@ def print_table(reports: list[dict]) -> None:
         f"{'连接数':<8}{'成功率':<10}{'tick p50(µs)':<14}{'tick p99(µs)':<14}"
         f"{'tick max(µs)':<14}{'CPU%':<10}{'RSS(MiB)':<12}{'DB写':<8}{'拒绝':<8}{'丢包':<8}"
     )
-    print()
-    print(header)
-    print("-" * len(header))
+    _emit()
+    _emit(header)
+    _emit("-" * len(header))
     for report in reports:
         metrics = report["metrics"]
         process = report["process"]
@@ -482,10 +589,14 @@ def print_table(reports: list[dict]) -> None:
                 return "-"
             return f"{value:.{digits}f}"
 
-        print(
+        _emit(
             f"{report['clients']:<8}"
-            f"{report['connect_success_rate'] * 100:>6.1f}%   "
-            f"{show(metrics['tick_micros_p50']):<14}"
+            + (
+                "     -     "
+                if report["clients"] == 0
+                else f"{report['connect_success_rate'] * 100:>6.1f}%   "
+            )
+            + f"{show(metrics['tick_micros_p50']):<14}"
             f"{show(metrics['tick_micros_p99']):<14}"
             f"{show(metrics['tick_micros_max']):<14}"
             f"{show(process['cpu_percent_avg'], 1):<10}"
@@ -509,6 +620,16 @@ def main() -> int:
     parser.add_argument("--out", default=None, help="JSON 输出路径（默认 target/stress-<clients>.json）")
     parser.add_argument("--repeat", type=int, default=1, help="重复轮数（多轮结果打印同一张表）")
     parser.add_argument(
+        "--mix",
+        default="2:2:1",
+        help="走动/攻击/聊天权重，如 2:2:1 或 1:0:0（只走动）",
+    )
+    parser.add_argument(
+        "--spread",
+        action="store_true",
+        help="每个客户端用不同方向走动，测试同图散开 vs 挤出生点的 AOI 差异",
+    )
+    parser.add_argument(
         "--max-tick-p99",
         type=float,
         default=100.0,
@@ -521,17 +642,24 @@ def main() -> int:
         help="tick p99 告警线（毫秒，默认 50 = 半个 tick 预算，只提示不算失败）",
     )
     args = parser.parse_args()
+    try:
+        mix = tuple(int(part) for part in args.mix.split(":"))
+    except ValueError as error:
+        parser.error(f"--mix 格式应为 walk:attack:chat，收到 {args.mix!r}（{error}）")
+    if len(mix) != 3 or sum(mix) <= 0 or any(part < 0 for part in mix):
+        parser.error("--mix 需要三个非负整数且总和 > 0")
+    args.mix = mix
 
     reports = []
     for round_index in range(args.repeat):
         if args.repeat > 1:
-            print(f"\n=== 第 {round_index + 1}/{args.repeat} 轮 ===")
+            _emit(f"\n=== 第 {round_index + 1}/{args.repeat} 轮 ===")
         report = run(args)
         reports.append(report)
         out = args.out or os.path.join(ROOT, "target", f"stress-{args.clients}.json")
         with open(out, "w", encoding="utf-8") as handle:
             json.dump(reports, handle, ensure_ascii=False, indent=2)
-        print(f"结果已写入 {out}")
+        _emit(f"结果已写入 {out}")
 
     print_table(reports)
     # 判据（供 CI/回执用）：连接成功 ≥ 95%，tick p99 ≤ --max-tick-p99（默认 = tick 预算 100ms），
@@ -540,7 +668,8 @@ def main() -> int:
     warned = []
     for report in reports:
         clients = report["clients"]
-        if report["connect_success_rate"] < 0.95:
+        # `--clients 0`（空闲基线）不建连接，天然没有「连接成功率」可判。
+        if report["clients"] > 0 and report["connect_success_rate"] < 0.95:
             failed.append(f"{clients} 连接成功率 {report['connect_success_rate']:.1%} < 95%")
         p99 = report["metrics"]["tick_micros_p99"]
         if p99 is not None and p99 > args.max_tick_p99 * 1000:
@@ -550,16 +679,15 @@ def main() -> int:
         rejected = report["metrics"]["connections_rejected_delta"]
         if rejected:
             failed.append(f"{clients} 有 {rejected:.0f} 条连接被限流拒绝")
-    print()
+    _emit()
     for line in warned:
-        print(f"[WARN] {line}")
+        _emit(f"[WARN] {line}")
     if failed:
         for line in failed:
-            print(f"[FAIL] {line}")
+            _emit(f"[FAIL] {line}")
         return 1
-    print(
-        f"[OK] 压测判据通过（成功率 ≥95%、tick p99 ≤{args.max_tick_p99:.0f}ms、无连接被拒）"
-    )
+    rate_note = "成功率 ≥95%、" if args.clients > 0 else "（空闲档不判连接成功率）"
+    _emit(f"[OK] 压测判据通过（{rate_note}tick p99 ≤{args.max_tick_p99:.0f}ms、无连接被拒）")
     return 0
 
 

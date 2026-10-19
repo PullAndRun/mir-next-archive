@@ -115,7 +115,30 @@ python tools/playtest/playtest.py --gm gmtest --timeout 15
 第 2/3 次进世界时角色还停在上一次的 `D011`（`进入世界 pos=(100, 100)`），
 `[OK] 回到起始图` 会把它拉回比奇再继续，所以三次输出完全一致。
 
+## 已知限制：长距离自然寻路在拥挤区域不稳定（`--newbie`）
+
+`--newbie` 的「自然打怪」步骤当前显式 `[SKIP]`，原因与实测观测：
+
+* 目标：从出生点 `(330,270)` 走到 Hen 群锚点 `(342,312)`（服务端导出的最近刷怪点
+  `(340,310) Hen x5`，约 40 格）；
+* 现象：脚本在 map0 的城市边缘会反复「本地期望位移 vs 服务端 `UserLocation`」不一致，
+  例如 `(310,327) -> (311,326)` 后 pathlen 不降、同一格连续被回拉；180s 打猎预算耗尽仍
+  到不了锚点；
+* 换图门实测：map0 `(344,309)/(345,309) -> 0103`、`(355,319) -> 0107`、`(322,247) -> 0104`；
+  已用 `gates.json`（94 条传送点）做硬障碍、并接入服务端同源
+  `target/mapgrid-<map>.bin` 位图、换图 2.1s 移动冷却、被拒 500ms 退避与回程坐标；
+* 结论：这是**脚本自身状态机能力边界，不是服务端缺陷**。新号战斗已由
+  `tests/newbie_flow.rs`（真 socket：穿出生装 → 掉血 → 击杀）、
+  `tests/monster_combat.rs` 的 `newbie_weapon_hits_hen_at_least_seventy_percent` /
+  `newbie_weapon_kills_hen_within_fifteen_swings` 与 `duo_smoke` 覆盖；
+* 后续若要继续做自然打猎：把 `walk_towards` 改成「发送后必须等 `UserLocation` 等于预期格，
+  否则回退/重算」的严格状态机，再考虑多锚点轮换。
+
+`--newbie` 仍保留并验证：新手提示、出生装、穿装备、自然传送去 0104 书店、买书/读书、
+对自身施法（`S.ObjectMagic` 120）、`C.LogOut` 重连持久化（等级/经验/背包/技能）。
+
 ## 已知缺口（不影响自检）
+
 
 * `S.NPCGoods` 只有 `Vec<UserItem>`，**没有价格字段**（Crystal 的 `ClientGoodsInfo.Price`
   未建模），脚本只能按已知最便宜药水模板 `#658` 选、再用 `S.LoseGold` 反查成交价。

@@ -15,7 +15,7 @@ python tools/playtest/playtest.py --server 127.0.0.1:7000 --timeout 8
 * 输出 `[OK]` / `[FAIL]` / `[SKIP]`；失败时打印期望包号与实际收到的包；
 * 退出码：`0` = 全 OK/合理 SKIP，`1` = 有 FAIL。
 
-**环境（重要）**：本机可能接着多台显示器，**不要前台启动 `target\debug\mir-server.exe`**
+**环境（重要，仅限本机测试）**：本机可能接着多台显示器，**不要前台启动 `target\debug\mir-server.exe`**
 （会弹控制台窗口到别的显示器，打断使用者）。本地验证一律用隐藏启动器
 （用法/产物/`-Stop` 详见 [`tools/dev/README.md`](../../tools/dev/README.md)）：
 
@@ -24,6 +24,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Port 70
 # 停：
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Stop -Port 7006
 ```
+
+> 这条「窗口放显示器 2」的规则**只约束开发与测试**：`mir-client` 本身不控制窗口位置
+> （用 `Window::default_attributes()` 交给操作系统），正式产品在玩家自己的机器上按系统默认
+> 摆放；搬运逻辑只存在于 `tools/dev/*.ps1`。
 
 ## 2. 覆盖
 

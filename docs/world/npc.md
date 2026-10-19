@@ -253,12 +253,32 @@ Rust：`npc::item_price` / `npc::repair_price`（`f32` 运算 + 向零截断，�
 2. 死亡 / 当前页不是 `[@REPAIR]` → 返回；
 3. 离开 16 格 → 返回；背包里找不到物品 → 返回（不再发别的包）；
 4. `BindMode.DontRepair` → 系统聊天「无法修理」；`[Types]` 不含该类型 → 系统聊天「这里不能修」；
-5. `cost = RepairPrice() * PriceRate`；`cost > Gold` → 返回（一包不发，除了第 1 步那条）；
+5. `cost = RepairPrice() * PriceRate`；**已满耐久** → `DurabilityFull` + 提示 `npc_repair_full`
+   （Crystal 静默返回）；`cost > Gold` → 提示 `npc_repair_no_gold`（含 cost/gold，Crystal 静默返回）；
 6. 扣钱 → `S.LoseGold`；
 7. `MaxDura = max(0, MaxDura - (MaxDura - CurrentDura)/30)`，`CurrentDura = MaxDura`；
 8. `S.ItemRepaired{UniqueID, MaxDura, CurrentDura}`。
 
 特修（`[@SREPAIR]`，费用 ×3）**未接入**：客户端包 `C.SRepairItem` 本作还没有对应入口。
+
+#### 耐久损耗（t103）
+
+| 时机 | 公式 | 出处 |
+|---|---|---|
+| **攻击命中** | 武器 `-（Random.Next(4)+1）`，即 **1..=4** 点；有 `Strong` 属性则 `amount = max(1, amount - Strong)` | `HumanObject.cs:3353` |
+| **受击** | 除武器槽外**每个装备槽各 -1**（`Random.Next(1)+1` 恒为 1） | `HumanObject.cs:3358-3365` |
+| **跳过** | 空槽 / 已为 0 / 模板 `Durability == 0` / `ItemType.Amulet` | `HumanObject.cs:3368` |
+
+**归零**：发 `S.DuraChanged{76}` → `refresh_stats()` → 一次系统提示 `item_broken`；
+装备**失效** = `current_dura == 0 && info.durability > 0` 时 `apply_equipment_stats` 与外观
+都跳过它（`HumanObject.cs:1836`）。
+
+**字段与存档**：`UserItem.current_dura/max_dura`（`u16`）随 `characters.inventory` /
+`characters.equipment` 字节块存档（`items::encode_slots`/`decode_inventory`），**无需迁移**。
+
+**简化**：受击磨损本作在**会话侧按 HP 下降**结算（`session.rs::settle_damage_wear`，
+粒度 = 下一次收包），因为伤害结算点在 `world.rs`/`combat.rs`；Crystal 是受击瞬间结算。
+攻击磨损（武器）仍命中即刻，与 Crystal 一致。
 
 ---
 

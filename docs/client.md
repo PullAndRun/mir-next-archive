@@ -993,40 +993,51 @@ Add/Remove/Memo/Email/Whisper，`KeybindOptions.Friends` 可配键位）；本�
 （产物 `target/asset-missing.json`）。HUD/人形/武器/头发/NPC/effect/magic/tiles/objects
 等关键库均 present。
 
-**性能（release 实测，t84）**
+**性能（release 实测，t84/t104）**
 
 复现：
 
 ```text
-cargo run --release -p mir-render --example perf -- --map resource/map/0.map --data resource/data --out target/perf-render.json
+cargo run --release -p mir-render --example perf -- --map resource/map/0.map --data resource/data --out target/perf-render-t104.json
 cargo run --release -p mir-asset --example asset_scan -- --data resource/data --out target/asset-missing.json
 ```
 
-`resource/map/0.map`，摄像机每帧横移 1 格，连续 100 帧：
+`resource/map/0.map`，摄像机每帧横移 1 格，连续 100 帧（**t104 优化后**）：
 
 | 视口 | 首帧（含解码） | 平均 | p95 | 最差 | 瓦片缓存命中 |
 |---|---|---|---|---|---|
-| 800×600 | 11.2 ms | **1.01 ms** | 1.10 ms | 2.77 ms | 99.7% |
-| 1280×720 | 14.9 ms | **1.70 ms** | 1.78 ms | 2.67 ms | 99.7% |
-| 1920×1080 | 20.6 ms | **3.53 ms** | 3.85 ms | 4.57 ms | 99.8% |
+| 800×600 | — | **0.50 ms** | — | — | 99.7% |
+| 1280×720 | — | **0.76 ms** | — | — | 99.7% |
+| 1920×1080 | 25.0 ms | **1.45 ms** | 1.63 ms | 3.17 ms | 99.8% |
 
-100 个玩家同屏（1280×720，地形+实体）：平均 **2.20 ms**、p95 2.39 ms、最差 3.07 ms；
-实体层增量约 0.51 ms/帧，实体图库缓存命中 99.9%。
+100 个玩家同屏（1280×720，地形+实体）：平均 **1.42 ms**、p95 1.54 ms；
+特效 200×100：**16 次分配 / 77.7 ms**（优化前 17,500 次分配 / 96.3 ms，分配 -99.9%）。
+目标「1080p <2.5ms、100 实体 <2.0ms」均达成；首帧 1080p 25.0ms 是多了**一次性 spans 预计算**，
+之后每帧受益。
 
-**一次性优化（前后对比）**：`Frame::blit` 的 Over 混合对 `alpha=255` 的不透明像素改为直接
-`copy_from_slice`、`alpha=0` 直接跳过（素材经 `remove_black` 后 alpha 只有 0/255），
-实体绘制改为直接读解码缓存（不再每层 `Image` 克隆）。同机同图对比：
+**优化手段（t104）**：
 
-| 场景 | 优化前 | 优化后 | 变化 |
+* **帧合并**：`MapScene` 解码时预计算每张图的「不透明段」表（只含 alpha 0/255 的图建表，
+  含半透明像素的图回退逐像素混合）；`Frame::blit_spans` 每段一次 `copy_from_slice`，
+  地图瓦片/实体层不再逐像素判断；
+* **特效池化**：`EntityRenderer::effect_size/draw_effect` 直接读实体解码缓存并返回尺寸供居中，
+  `ui/spellfx.rs` 不再每帧克隆 `Image`；特效缓存复用固定槽位，首次解码后零分配；
+* 保留 `Frame::blit` 逐像素路径作为半透明/加法混合回退，行为不变。
+
+**与 t84 基线对比**：
+
+| 场景 | t84 | t104 | 变化 |
 |---|---|---|---|
-| 1920×1080 平均 | 4.31 ms | 3.53 ms | **-18%** |
-| 1280×720 平均 | 2.00 ms | 1.70 ms | **-15%** |
-| 800×600 平均 | 1.13 ms | 1.01 ms | **-11%** |
-| 100 玩家实体增量（720p） | 0.62 ms | 0.51 ms | **-18%** |
+| 1920×1080 平均 | 3.53 ms | **1.45 ms** | **-59%** |
+| 1280×720 平均 | 1.70 ms | **0.76 ms** | **-55%** |
+| 800×600 平均 | 1.01 ms | **0.50 ms** | **-50%** |
+| 100 玩家 720p | 2.20 ms | **1.42 ms** | **-35%** |
+| 首帧 1080p | 20.6 ms | 25.0 ms（一次性 spans） | — |
 
 数字是单线程纯 CPU 渲染（含 RGBA 混合），不含窗口呈现/GPU 上传；debug 构建约 25–30 FPS，
-验收仍以 release 为准。JSON 明细见 `target/perf-render.json`（优化前
-`target/perf-render-before.json`）。启动日志每 120 帧打印一次「渲染统计」。
+验收仍以 release 为准。JSON 明细见 `target/perf-render-t104.json`（t84 为
+`target/perf-render.json`，更早的优化前为 `target/perf-render-before.json`）。
+启动日志每 120 帧打印一次「渲染统计」。
 
 **素材索引（t84）**
 

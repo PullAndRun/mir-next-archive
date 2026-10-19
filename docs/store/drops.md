@@ -75,3 +75,22 @@ python tools/asset-index/find_asset.py --name Drops --top community
 - **掉落物落地成地面物品与拾取**：见 `docs/world/items.md`（`World::drop_monster_loot` /
   `World::pickup`，`crates/mir-server/src/items.rs`）；
 - 金币落地的拆堆规则：`Settings.MaxDropGold = 2000`（`Settings.cs:228`）。
+
+## 金币 / 过期 / 堆叠（t105）
+
+| 项 | 口径 |
+|---|---|
+| 金币数量 | `DropInfo.Gold` 为基准 `base`，实际 `[base/2, base + base/2)`（左闭右开，`next_bounded`） |
+| 金币拆堆 | 按 `MaxDropGold = 2000` 拆；地面发 `S.ObjectGold`，拾取发 `S.GainedGold`（角色金币 i64） |
+| 地面物品/金币过期 | `ITEM_EXPIRE_MS = 120_000`（Crystal `Settings.DropDuration` 默认 120 秒）；严格 `now > expire_time` 才移除并广播 `S.ObjectRemove`；金币/物品同一路径 |
+| 堆叠落地 | `DROP_STACK_SIZE = 5`（Crystal `Settings.DropStackSize`）；同格满 5 个换格 |
+| Q 标记 | 从不落地：先尝试任务截胡，截不到直接跳过（见上） |
+
+**掉率样例**（Hen 2000 次，固定种子 `0xD00D1E`）：Chicken 1/1 实测 **100%**；
+Feather 1/20 实测 **5.05%**。工具：
+
+```text
+cargo run -p mir-server --example droprates -- <怪物> <次数>
+```
+
+测试（新增 6 条）：金币全链路、金币过期、堆叠、掉率容差、Q 不落地、金币拆堆。

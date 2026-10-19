@@ -2522,6 +2522,16 @@ fn evil_centipede_aoe_does_not_fire_on_no_fight_maps() {
         hp,
         "NoFight 地图上 AI 14 不应造成伤害"
     );
+    assert!(
+        harness
+            .world
+            .player(player)
+            .expect("玩家")
+            .magic
+            .poisons
+            .is_empty(),
+        "NoFight 地图上 AI 14 不应挂毒（绿毒/麻痹）"
+    );
 }
 
 #[test]
@@ -2556,4 +2566,48 @@ fn great_fox_spirit_aoe_does_not_fire_on_no_fight_maps() {
             .is_empty(),
         "NoFight 地图上 AI 50 不应挂毒"
     );
+}
+
+#[test]
+fn venom_spider_line_does_not_fire_on_no_fight_maps() {
+    let mut map = MapInfo {
+        file_name: MAP.to_owned(),
+        title: "安全地图".to_owned(),
+        no_fight: true,
+        ..MapInfo::default()
+    };
+    map.file_name = MAP.to_owned();
+    let mut harness = Harness::with_data(86, game_data_with_maps(vec![map]));
+    // 直线两格都站人：若 NoFight 失效，两格都会被 LineAttack 命中。
+    let front = harness.add_player(1, MirClass::Warrior, 40, Point::new(20, 21));
+    let behind = harness.add_player(2, MirClass::Warrior, 40, Point::new(20, 22));
+    let front_hp = harness.world.player(front).expect("第一格").hp;
+    let behind_hp = harness.world.player(behind).expect("第二格").hp;
+    let monster = harness.spawn_active(special_kind("毒蜘蛛", 100), Point::new(20, 20));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    harness.elapse(600);
+    assert_eq!(
+        harness.world.player(front).expect("第一格").hp,
+        front_hp,
+        "NoFight 地图上 AI 100 直线不应命中第一格"
+    );
+    assert_eq!(
+        harness.world.player(behind).expect("第二格").hp,
+        behind_hp,
+        "NoFight 地图上 AI 100 直线不应命中第二格"
+    );
+    for player in [front, behind] {
+        assert!(
+            harness
+                .world
+                .player(player)
+                .expect("玩家")
+                .magic
+                .poisons
+                .is_empty(),
+            "NoFight 地图上 AI 100 不应挂绿毒"
+        );
+    }
 }

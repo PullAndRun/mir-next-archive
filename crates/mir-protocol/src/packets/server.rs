@@ -5957,9 +5957,6 @@ impl DeleteQuestItem {
 }
 
 pub use crate::manual::server::GameShopInfo;
-pub use crate::manual::server::{
-    ConquestControlPoint, ConquestInfo, ConquestObject, ConquestObjectType, ConquestResult,
-};
 
 /// Crystal `ServerPackets.GameShopStock` (index 251).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -7727,6 +7724,16 @@ impl NewNPCInfo {
     }
 }
 
+pub use crate::manual::server::ConquestInfo;
+
+pub use crate::manual::server::ConquestObject;
+
+pub use crate::manual::server::ConquestResult;
+
+pub use crate::manual::server::ConquestObjectType;
+
+pub use crate::manual::server::ConquestControlPoint;
+
 /// Every server→client packet Crystal understands.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ServerPacket {
@@ -7942,9 +7949,6 @@ pub enum ServerPacket {
     GainedQuestItem(GainedQuestItem),
     DeleteQuestItem(DeleteQuestItem),
     GameShopInfo(GameShopInfo),
-    ConquestInfo(ConquestInfo),
-    ConquestObject(ConquestObject),
-    ConquestResult(ConquestResult),
     GameShopStock(GameShopStock),
     CancelReincarnation(CancelReincarnation),
     RequestReincarnation(RequestReincarnation),
@@ -8012,6 +8016,9 @@ pub enum ServerPacket {
     SetCompass(SetCompass),
     NewMonsterInfo(NewMonsterInfo),
     NewNPCInfo(NewNPCInfo),
+    ConquestInfo(ConquestInfo),
+    ConquestObject(ConquestObject),
+    ConquestResult(ConquestResult),
 }
 
 impl ServerPacket {
@@ -8231,9 +8238,6 @@ impl ServerPacket {
             Self::GainedQuestItem(_) => GainedQuestItem::INDEX,
             Self::DeleteQuestItem(_) => DeleteQuestItem::INDEX,
             Self::GameShopInfo(_) => GameShopInfo::INDEX,
-            Self::ConquestInfo(_) => ConquestInfo::INDEX,
-            Self::ConquestObject(_) => ConquestObject::INDEX,
-            Self::ConquestResult(_) => ConquestResult::INDEX,
             Self::GameShopStock(_) => GameShopStock::INDEX,
             Self::CancelReincarnation(_) => CancelReincarnation::INDEX,
             Self::RequestReincarnation(_) => RequestReincarnation::INDEX,
@@ -8301,6 +8305,9 @@ impl ServerPacket {
             Self::SetCompass(_) => SetCompass::INDEX,
             Self::NewMonsterInfo(_) => NewMonsterInfo::INDEX,
             Self::NewNPCInfo(_) => NewNPCInfo::INDEX,
+            Self::ConquestInfo(_) => ConquestInfo::INDEX,
+            Self::ConquestObject(_) => ConquestObject::INDEX,
+            Self::ConquestResult(_) => ConquestResult::INDEX,
         }
     }
 
@@ -8520,9 +8527,6 @@ impl ServerPacket {
             Self::GainedQuestItem(_) => GainedQuestItem::COMPRESSED,
             Self::DeleteQuestItem(_) => DeleteQuestItem::COMPRESSED,
             Self::GameShopInfo(_) => GameShopInfo::COMPRESSED,
-            Self::ConquestInfo(_) => ConquestInfo::COMPRESSED,
-            Self::ConquestObject(_) => ConquestObject::COMPRESSED,
-            Self::ConquestResult(_) => ConquestResult::COMPRESSED,
             Self::GameShopStock(_) => GameShopStock::COMPRESSED,
             Self::CancelReincarnation(_) => CancelReincarnation::COMPRESSED,
             Self::RequestReincarnation(_) => RequestReincarnation::COMPRESSED,
@@ -8590,6 +8594,9 @@ impl ServerPacket {
             Self::SetCompass(_) => SetCompass::COMPRESSED,
             Self::NewMonsterInfo(_) => NewMonsterInfo::COMPRESSED,
             Self::NewNPCInfo(_) => NewNPCInfo::COMPRESSED,
+            Self::ConquestInfo(_) => ConquestInfo::COMPRESSED,
+            Self::ConquestObject(_) => ConquestObject::COMPRESSED,
+            Self::ConquestResult(_) => ConquestResult::COMPRESSED,
         }
     }
 
@@ -9693,21 +9700,6 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::GameShopInfo(GameShopInfo::decode(&mut r)?))
             }
-            ConquestInfo::INDEX => {
-                let body = crate::codec::decompress_if(ConquestInfo::COMPRESSED, payload)?;
-                let mut r = crate::PacketReader::new(&body);
-                Ok(Self::ConquestInfo(ConquestInfo::decode(&mut r)?))
-            }
-            ConquestObject::INDEX => {
-                let body = crate::codec::decompress_if(ConquestObject::COMPRESSED, payload)?;
-                let mut r = crate::PacketReader::new(&body);
-                Ok(Self::ConquestObject(ConquestObject::decode(&mut r)?))
-            }
-            ConquestResult::INDEX => {
-                let body = crate::codec::decompress_if(ConquestResult::COMPRESSED, payload)?;
-                let mut r = crate::PacketReader::new(&body);
-                Ok(Self::ConquestResult(ConquestResult::decode(&mut r)?))
-            }
             GameShopStock::INDEX => {
                 let body = crate::codec::decompress_if(GameShopStock::COMPRESSED, payload)?;
                 let mut r = crate::PacketReader::new(&body);
@@ -10076,6 +10068,21 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::NewNPCInfo(NewNPCInfo::decode(&mut r)?))
             }
+            ConquestInfo::INDEX => {
+                let body = crate::codec::decompress_if(ConquestInfo::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::ConquestInfo(ConquestInfo::decode(&mut r)?))
+            }
+            ConquestObject::INDEX => {
+                let body = crate::codec::decompress_if(ConquestObject::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::ConquestObject(ConquestObject::decode(&mut r)?))
+            }
+            ConquestResult::INDEX => {
+                let body = crate::codec::decompress_if(ConquestResult::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::ConquestResult(ConquestResult::decode(&mut r)?))
+            }
             other => Err(crate::ProtocolError::UnknownPacket { index: other }),
         }
     }
@@ -10295,9 +10302,6 @@ impl ServerPacket {
             Self::GainedQuestItem(p) => p.encode(w),
             Self::DeleteQuestItem(p) => p.encode(w),
             Self::GameShopInfo(p) => p.encode(w),
-            Self::ConquestInfo(p) => p.encode(w),
-            Self::ConquestObject(p) => p.encode(w),
-            Self::ConquestResult(p) => p.encode(w),
             Self::GameShopStock(p) => p.encode(w),
             Self::CancelReincarnation(p) => p.encode(w),
             Self::RequestReincarnation(p) => p.encode(w),
@@ -10365,6 +10369,9 @@ impl ServerPacket {
             Self::SetCompass(p) => p.encode(w),
             Self::NewMonsterInfo(p) => p.encode(w),
             Self::NewNPCInfo(p) => p.encode(w),
+            Self::ConquestInfo(p) => p.encode(w),
+            Self::ConquestObject(p) => p.encode(w),
+            Self::ConquestResult(p) => p.encode(w),
         }
     }
 
@@ -10668,6 +10675,9 @@ mod roundtrip {
             super::ServerPacket::SetCompass(super::SetCompass::default()),
             super::ServerPacket::NewMonsterInfo(super::NewMonsterInfo::default()),
             super::ServerPacket::NewNPCInfo(super::NewNPCInfo::default()),
+            super::ServerPacket::ConquestInfo(super::ConquestInfo::default()),
+            super::ServerPacket::ConquestObject(super::ConquestObject::default()),
+            super::ServerPacket::ConquestResult(super::ConquestResult::default()),
         ];
         for packet in packets {
             let frame = packet.encode_frame();

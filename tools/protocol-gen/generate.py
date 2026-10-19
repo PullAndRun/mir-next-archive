@@ -107,6 +107,46 @@ HAND_WRITTEN = {
     },
 }
 
+# 本项目**自定义**的包：Crystal 那一版没有，所以生成器无法从 C# 推导，全部手写在
+# `crates/mir-protocol/src/manual/<direction>.rs`，这里登记后生成器会把它们接进
+# `ServerPacket`/`ClientPacket` 枚举（变体、`index`、`compressed`、`decode`、`encode`
+# 五个分支 + 默认值往返测试），这样 `generate.py --check` 的自检仍然成立。
+#
+# 编号约定：从 300 起，避开 Crystal 生成包的 0–278。
+EXTRA_PACKETS: dict[str, list[PacketDef]] = {
+    "client": [],
+    "server": [
+        PacketDef(
+            name="ConquestInfo",
+            index_name="ConquestInfo",
+            index_value=300,
+            compressed=False,
+            direction="server",
+        ),
+        PacketDef(
+            name="ConquestObject",
+            index_name="ConquestObject",
+            index_value=301,
+            compressed=False,
+            direction="server",
+        ),
+        PacketDef(
+            name="ConquestResult",
+            index_name="ConquestResult",
+            index_value=302,
+            compressed=False,
+            direction="server",
+        ),
+    ],
+}
+
+# 自定义包用到的枚举/附属类型（同样生活在 manual/ 里），需要从 `packets::<direction>`
+# 再导出，否则使用方要写两层路径。
+EXTRA_REEXPORTS: dict[str, list[str]] = {
+    "client": [],
+    "server": ["ConquestObjectType", "ConquestControlPoint"],
+}
+
 
 def build_registry(enums: dict) -> TypeRegistry:
     underlying = {name: enum.underlying for name, enum in enums.items()}
@@ -249,6 +289,14 @@ def emit_packet_module(packets: list[PacketDef], registry: TypeRegistry, directi
             emitted.append(packet)
         except TranslationError as error:
             failures.append((packet.name, str(error)))
+    # 本项目**自定义**的包（Crystal 那一版没有）：手写在 manual/ 里，
+    # 这里只把它们接进枚举，保证「生成结果 == 提交结果」的自检能通过。
+    for extra in EXTRA_PACKETS[direction]:
+        chunks.append(f"pub use crate::manual::{direction}::{extra.name};\n")
+        emitted.append(extra)
+    # 自定义包用到的附属类型也一并再导出，客户端/服务端才能从 `packets::server` 取到。
+    for extra_name in EXTRA_REEXPORTS[direction]:
+        chunks.append(f"pub use crate::manual::{direction}::{extra_name};\n")
     chunks.append(emit_packet_enum(emitted, direction))
     return "\n".join(chunks), failures
 

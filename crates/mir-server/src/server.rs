@@ -567,7 +567,7 @@ async fn serve<S: AccountStore>(
                 }
             }
             if writer.write_all(&batch).await.is_err() {
-                crate::metrics::metrics().packet_dropped();
+                crate::metrics::metrics().write_failed();
                 break;
             }
         }

@@ -174,8 +174,10 @@ pub struct Metrics {
     db_flushes_total: AtomicU64,
     /// 市场落盘耗时（微秒，最近 N 次）。
     db_flush_micros: Ring,
-    /// 因包速率超限被丢弃的客户端包数。
+    /// 因包速率超限/背压被丢弃的客户端包数。
     packets_dropped: AtomicU64,
+    /// 连接 writer 写失败/断开的次数（与限流丢包分开统计）。
+    write_failed: AtomicU64,
 }
 
 /// 全局指标（进程内唯一；测试也可以自己 [`Metrics::new`] 造一个）。
@@ -296,6 +298,17 @@ impl Metrics {
         self.packets_dropped.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// writer 写失败或对端断开（连接关闭）一次。
+    pub fn write_failed(&self) {
+        self.write_failed.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 累计 writer 写失败/断开次数（测试/日志用）。
+    #[must_use]
+    pub fn write_failures(&self) -> u64 {
+        self.write_failed.load(Ordering::Relaxed)
+    }
+
     /// 当前在线玩家数（日志/测试用）。
     #[must_use]
     pub fn players_online(&self) -> u64 {
@@ -389,8 +402,14 @@ impl Metrics {
         push_counter(
             &mut out,
             "mir2_packets_dropped_total",
-            "client packets dropped by the per-session rate limit",
+            "client packets dropped by the per-session rate limit or outbox backpressure",
             self.packets_dropped.load(Ordering::Relaxed),
+        );
+        push_counter(
+            &mut out,
+            "mir2_write_failed_total",
+            "connection writer failures or peer disconnects",
+            self.write_failed.load(Ordering::Relaxed),
         );
         push_counter(
             &mut out,
@@ -467,7 +486,7 @@ impl Metrics {
     #[must_use]
     pub fn summary_line(&self, per_map: usize) -> String {
         format!(
-            "players={} maps={} connections={} rejected={} ticks={} tick_last_us={} tick_p99_us={} db_saves={} db_save_p95_us={} db_save_failed={} autosaves={} db_flushes={} db_flush_p95_us={} mail_queue={}",
+            "players={} maps={} connections={} rejected={} ticks={} tick_last_us={} tick_p99_us={} db_saves={} db_save_p95_us={} db_save_failed={} autosaves={} db_flushes={} db_flush_p95_us={} mail_queue={} dropped={} write_failed={}",
             self.players_online(),
             per_map,
             self.connections_active(),
@@ -482,6 +501,8 @@ impl Metrics {
             self.db_flushes_total.load(Ordering::Relaxed),
             self.db_flush_micros.quantile(0.95).unwrap_or(0),
             self.mail_queue.load(Ordering::Relaxed),
+            self.packets_dropped.load(Ordering::Relaxed),
+            self.write_failed.load(Ordering::Relaxed),
         )
     }
 }
@@ -703,6 +724,23 @@ mod tests {
     }
 
     #[test]
+    fn write_failures_and_packet_drops_are_independent() {
+        let metrics = Metrics::new();
+        metrics.packet_dropped();
+        assert_eq!(metrics.write_failures(), 0);
+        metrics.write_failed();
+        assert_eq!(metrics.write_failures(), 1);
+        let body = metrics.render(&[]);
+        assert!(body.contains("mir2_packets_dropped_total 1"), "{body}");
+        assert!(body.contains("mir2_write_failed_total 1"), "{body}");
+        assert!(
+            metrics.summary_line(1).contains("dropped=1 write_failed=1"),
+            "{}",
+            metrics.summary_line(1)
+        );
+    }
+
+    #[test]
     fn render_contains_the_documented_fields() {
         let metrics = Metrics::new();
         metrics.connection_opened();
@@ -714,6 +752,7 @@ mod tests {
         metrics.record_db_save(Duration::from_micros(120));
         metrics.record_db_flush(Duration::from_micros(340));
         metrics.packet_dropped();
+        metrics.write_failed();
         let body = metrics.render(&[("0".to_owned(), 1)]);
         for needle in [
             "mir2_players_online 1",
@@ -721,6 +760,7 @@ mod tests {
             "mir2_connections_active 1",
             "mir2_connections_rejected 1",
             "mir2_packets_dropped_total 1",
+            "mir2_write_failed_total 1",
             "mir2_ticks_total 1",
             "mir2_tick_micros_last 900",
             "mir2_tick_micros_p50 900",

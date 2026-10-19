@@ -34,7 +34,8 @@ cargo run -p mir-server
 | `mir2_connections_active` | gauge | 当前 TCP 连接数 |
 | `mir2_connections_total` | counter | 启动以来接受的连接数 |
 | `mir2_connections_rejected` | counter | 被抗刷限流拒绝的连接数 |
-| `mir2_packets_dropped_total` | counter | 单会话包速率超限丢弃的包数 |
+| `mir2_packets_dropped_total` | counter | 因限流/背压真正丢弃的客户端包数 |
+| `mir2_write_failed_total` | counter | 连接 writer 写失败或对端断开次数（不与丢包混算） |
 | `mir2_ticks_total` | counter | 世界 tick 次数 |
 | `mir2_tick_micros_last` | gauge | 最近一次 tick 耗时（微秒） |
 | `mir2_tick_samples` | gauge | tick 耗时环形缓冲当前样本数 |
@@ -71,12 +72,12 @@ curl -s http://127.0.0.1:9100/metrics | head
 tick 任务每 30 秒打一条 `tracing::info!`，`metrics` 字段是空格分隔的紧凑键值：
 
 ```text
-INFO metrics summary metrics="players=12 maps=3 connections=15 rejected=0 ticks=18342 tick_last_us=412 tick_p99_us=980 db_saves=57 db_save_p95_us=3200 db_save_failed=0 autosaves=12 db_flushes=4 db_flush_p95_us=5100 mail_queue=1"
+INFO metrics summary metrics="players=12 maps=3 connections=15 rejected=0 ticks=18342 tick_last_us=412 tick_p99_us=980 db_saves=57 db_save_p95_us=3200 db_save_failed=0 autosaves=12 db_flushes=4 db_flush_p95_us=5100 mail_queue=1 dropped=0 write_failed=0"
 ```
 
 字段：`players / maps / connections / rejected / ticks / tick_last_us / tick_p99_us /
 db_saves / db_save_p95_us / db_save_failed / autosaves / db_flushes / db_flush_p95_us /
-mail_queue`。
+mail_queue / dropped / write_failed`。
 
 ## 6. 与 Crystal 的差异
 

@@ -539,6 +539,7 @@ def run(args) -> dict:
             "connections_total": final.get("mir2_connections_total"),
             "connections_rejected_delta": delta("mir2_connections_rejected"),
             "packets_dropped_delta": delta("mir2_packets_dropped_total"),
+            "write_failed_delta": delta("mir2_write_failed_total"),
             "ticks_total_delta": delta("mir2_ticks_total"),
             "tick_micros_last": final.get("mir2_tick_micros_last"),
             "tick_micros_avg": final.get("mir2_tick_micros_avg"),
@@ -575,7 +576,7 @@ def run(args) -> dict:
 def print_table(reports: list[dict]) -> None:
     header = (
         f"{'连接数':<8}{'成功率':<10}{'tick p50(µs)':<14}{'tick p99(µs)':<14}"
-        f"{'tick max(µs)':<14}{'CPU%':<10}{'RSS(MiB)':<12}{'DB写':<8}{'拒绝':<8}{'丢包':<8}"
+        f"{'tick max(µs)':<14}{'CPU%':<10}{'RSS(MiB)':<12}{'DB写':<8}{'拒绝':<8}{'丢包':<8}{'写失败':<8}"
     )
     _emit()
     _emit(header)
@@ -604,6 +605,7 @@ def print_table(reports: list[dict]) -> None:
             f"{show(metrics['db_saves_delta']):<8}"
             f"{show(metrics['connections_rejected_delta']):<8}"
             f"{show(metrics['packets_dropped_delta']):<8}"
+            f"{show(metrics['write_failed_delta']):<8}"
         )
 
 

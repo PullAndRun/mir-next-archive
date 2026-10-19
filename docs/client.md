@@ -993,22 +993,18 @@ Add/Remove/Memo/Email/Whisper，`KeybindOptions.Friends` 可配键位）；本�
 （产物 `target/asset-missing.json`）。HUD/人形/武器/头发/NPC/effect/magic/tiles/objects
 等关键库均 present。
 
-**性能（release 实测，t84/t104）**
+**性能（release 实测，第 13 轮）**
 
-复现：
-
-```text
-cargo run --release -p mir-render --example perf -- --map resource/map/0.map --data resource/data --out target/perf-render-t104.json
-cargo run --release -p mir-asset --example asset_scan -- --data resource/data --out target/asset-missing.json
-```
-
-`resource/map/0.map`，摄像机每帧横移 1 格，连续 100 帧（**t104 优化后**）：
+测法：`cargo run --release -p mir-render --example perf -- --map resource/map/0.map --data
+resource/data --out target/perf-render.json`；摄像机每帧横移 1 格，连续 100 帧，单线程纯 CPU
+渲染（含 RGBA 混合），不含窗口呈现/GPU 上传。兵部与刑部两次测量取区间（1080p 平均
+**1.45 ~ 1.61 ms**：兵部 1.45 / 刑部 1.614）。
 
 | 视口 | 首帧（含解码） | 平均 | p95 | 最差 | 瓦片缓存命中 |
 |---|---|---|---|---|---|
 | 800×600 | — | **0.50 ms** | — | — | 99.7% |
 | 1280×720 | — | **0.76 ms** | — | — | 99.7% |
-| 1920×1080 | 25.0 ms | **1.45 ms** | 1.63 ms | 3.17 ms | 99.8% |
+| 1920×1080 | 25.0 ms | **1.45 ~ 1.61 ms** | 1.63 ms | 3.17 ms | 99.8% |
 
 100 个玩家同屏（1280×720，地形+实体）：平均 **1.42 ms**、p95 1.54 ms；
 特效 200×100：**16 次分配 / 77.7 ms**（优化前 17,500 次分配 / 96.3 ms，分配 -99.9%）。
@@ -1028,15 +1024,15 @@ cargo run --release -p mir-asset --example asset_scan -- --data resource/data --
 
 | 场景 | t84 | t104 | 变化 |
 |---|---|---|---|
-| 1920×1080 平均 | 3.53 ms | **1.45 ms** | **-59%** |
+| 1920×1080 平均 | 3.53 ms | **1.45 ~ 1.61 ms** | **-59% ~ -54%** |
 | 1280×720 平均 | 1.70 ms | **0.76 ms** | **-55%** |
 | 800×600 平均 | 1.01 ms | **0.50 ms** | **-50%** |
 | 100 玩家 720p | 2.20 ms | **1.42 ms** | **-35%** |
 | 首帧 1080p | 20.6 ms | 25.0 ms（一次性 spans） | — |
 
 数字是单线程纯 CPU 渲染（含 RGBA 混合），不含窗口呈现/GPU 上传；debug 构建约 25–30 FPS，
-验收仍以 release 为准。JSON 明细见 `target/perf-render-t104.json`（t84 为
-`target/perf-render.json`，更早的优化前为 `target/perf-render-before.json`）。
+验收仍以 release 为准。JSON 明细见 `target/perf-render.json`（t104 为
+`target/perf-render-t104.json`，更早的优化前为 `target/perf-render-before.json`）。
 启动日志每 120 帧打印一次「渲染统计」。
 
 **素材索引（t84）**

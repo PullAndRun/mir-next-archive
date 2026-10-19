@@ -654,6 +654,34 @@ pub struct Conquest {
     pub flag_owners: String,
     /// **本作扩展**：下一次自动开战时刻（Crystal 每分钟现算，不落盘）。
     pub next_war_at: Option<DateTime<Utc>>,
+    /// 本作扩展：攻城器械（从 `conquest_objects` 表加载；sqlx 跳过该列）。
+    #[sqlx(skip)]
+    pub objects: Vec<ConquestObject>,
+}
+
+/// `conquest_objects` 表的一行（本项目扩展：城门/城墙/箭塔耐久）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromRow)]
+pub struct ConquestObject {
+    /// 所属攻城区。
+    pub conquest_index: i32,
+    /// 0 Gate / 1 Wall / 2 Archer。
+    pub kind: i16,
+    /// 横坐标。
+    pub x: i32,
+    /// 纵坐标。
+    pub y: i32,
+    /// `MirDirection` 数值。
+    pub direction: i16,
+    /// 当前耐久。
+    pub hp: i32,
+    /// 最大耐久。
+    pub max_hp: i32,
+    /// 归属行会；`None` = 无主。
+    pub owner_guild_id: Option<i32>,
+    /// 是否已摧毁。
+    pub destroyed: bool,
+    /// 城门是否打开。
+    pub open: bool,
 }
 
 /// `guilds` 表的一行（不加联表信息，[`Guild`] 是它的展开版）。

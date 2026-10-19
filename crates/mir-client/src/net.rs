@@ -2058,6 +2058,8 @@ pub struct ConquestObjectView {
     pub owner: i32,
     /// 是否已被摧毁。
     pub destroyed: bool,
+    /// 城门是否已开（服务端 `ConquestObject.open`；其它类型恒 false）。
+    pub open: bool,
     /// 收到摧毁包的时间（本地毫秒；用来只播一次碎裂）。
     pub destroyed_at_ms: u64,
 }
@@ -2073,6 +2075,17 @@ pub struct ConquestResultView {
     pub control_points: Vec<ConquestPointView>,
     /// 收到结算包的本地时间（横幅显示 5 秒）。
     pub received_ms: u64,
+}
+
+/// 箭塔远程攻击弹道（`S.ObjectRangeAttack`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConquestArrowView {
+    /// 起点（箭塔格）。
+    pub from: Point,
+    /// 终点（目标格）。
+    pub to: Point,
+    /// 收到包的时间（本地毫秒；飞行 400ms）。
+    pub started_ms: u64,
 }
 
 impl GuildView {
@@ -2487,6 +2500,10 @@ pub struct WorldSnapshot {
     pub guild: Option<GuildView>,
     /// 攻城状态（`S.ConquestInfo` 300；`None` = 没收到新包，老服务器行为不变）。
     pub conquest: Option<ConquestView>,
+    /// 箭塔弹道（`S.ObjectRangeAttack` 且对象是攻城箭塔；尾部最新）。
+    pub conquest_arrows: Vec<ConquestArrowView>,
+    /// 权威盟友名单（`S.GuildAllies`(303) 整表下发）。
+    pub guild_allies: Vec<mir_protocol::packets::server::GuildAlly>,
     /// 好友/黑名单（`S.FriendUpdate`(245) 整表下发）。
     pub friends: Vec<ClientFriend>,
     /// 行会职位与成员（`S.GuildMemberChange`，按职位序号排序）。
@@ -2578,6 +2595,8 @@ impl Default for WorldSnapshot {
             mail_locked_items: BTreeMap::new(),
             guild: None,
             conquest: None,
+            conquest_arrows: Vec::new(),
+            guild_allies: Vec::new(),
             friends: Vec::new(),
             guild_ranks: Vec::new(),
             guild_notice: Vec::new(),
@@ -3960,6 +3979,7 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
         ServerPacket::ConquestInfo(_) => "ConquestInfo",
         ServerPacket::ConquestObject(_) => "ConquestObject",
         ServerPacket::ConquestResult(_) => "ConquestResult",
+        ServerPacket::GuildAllies(_) => "GuildAllies",
         ServerPacket::GuildMemberChange(_) => "GuildMemberChange",
         ServerPacket::GuildNoticeChange(_) => "GuildNoticeChange",
         ServerPacket::GuildStorageList(_) => "GuildStorageList",
@@ -4366,6 +4386,24 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                     false,
                     now_ms,
                 );
+            }
+            // 攻城箭塔：多一条自己的弹道（服务端箭塔普攻 `spell = None`）。
+            let is_archer = snapshot.conquest.as_ref().is_some_and(|view| {
+                view.objects.get(&attack.object_id).is_some_and(|object| {
+                    object.kind == mir_protocol::packets::server::ConquestObjectType::Archer
+                        && !object.destroyed
+                })
+            });
+            if is_archer {
+                snapshot.conquest_arrows.push(ConquestArrowView {
+                    from: attack.location,
+                    to: attack.target,
+                    started_ms: now_ms,
+                });
+                if snapshot.conquest_arrows.len() > 16 {
+                    let excess = snapshot.conquest_arrows.len() - 16;
+                    snapshot.conquest_arrows.drain(..excess);
+                }
             }
         }
         ServerPacket::ObjectStruck(struck) => {
@@ -4990,6 +5028,10 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 .mail_locked_items
                 .insert(locked.unique_id, locked.locked);
         }
+        ServerPacket::GuildAllies(allies) => {
+            // 整表替换：结盟/解除/攻城结算后服务端都会重发（`S.GuildAllies` 303）。
+            snapshot.guild_allies.clone_from(&allies.allies);
+        }
         ServerPacket::ConquestInfo(info) => {
             // 类 Crystal `ConquestObject`：整表覆盖状态；第一次收到且 war_is_on 时提示开战。
             let was_off = snapshot
@@ -5049,6 +5091,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                     max_hp: object.max_hp,
                     owner: object.owner,
                     destroyed: object.destroyed,
+                    open: object.open,
                     destroyed_at_ms,
                 },
             );
@@ -5123,6 +5166,8 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 snapshot.guild_notice.clear();
                 snapshot.guild_storage.clear();
                 snapshot.guild_active_buffs.clear();
+                // 无行会时服务端不发 `S.GuildAllies`：收到空 GuildStatus 即清空联盟列表。
+                snapshot.guild_allies.clear();
             }
         }
         ServerPacket::GuildMemberChange(change) => {

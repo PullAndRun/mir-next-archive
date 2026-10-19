@@ -49,6 +49,7 @@ fn object(object_id: u32, kind: ConquestObjectType, x: i32, y: i32) -> ConquestO
         max_hp: 100,
         owner: 7,
         destroyed: false,
+        open: false,
     }
 }
 
@@ -290,4 +291,82 @@ fn objects_render_with_fallback_blocks_and_save_png() {
         mir_client::ui::labels::conquest_object_name(ConquestObjectType::Gate, Language::ZhCn),
         ""
     );
+}
+
+fn render_at(snapshot: &WorldSnapshot, now: u64) -> Frame {
+    let mut scene = scene();
+    let text = ui::UiText::load(None);
+    let mut state = UiState::new(Language::ZhCn);
+    state.set_time(i64::try_from(now).unwrap_or(i64::MAX));
+    let mut frame = Frame::new(800, 600);
+    ui::draw(
+        &mut state,
+        &mut frame,
+        &mut scene,
+        snapshot,
+        &text,
+        None,
+        Point::new(30, 30),
+    );
+    frame
+}
+
+#[test]
+fn gate_open_state_changes_the_rendering() {
+    let mut snapshot = snapshot_with_conquest();
+    let closed = render_at(&snapshot, 1_000);
+    // 服务端 `ConquestObject.open = true`：城门开启（同一格、同一 HP）。
+    let mut gate = object(10, ConquestObjectType::Gate, 30, 30);
+    gate.open = true;
+    snapshot.apply_packet_at(&ServerPacket::ConquestObject(gate), 2_000);
+    let view = snapshot.conquest.as_ref().expect("征服状态");
+    assert!(conquest::gate_is_open(&view.objects[&10]));
+    let opened = render_at(&snapshot, 2_000);
+    let changed = closed
+        .pixels
+        .chunks_exact(4)
+        .zip(opened.pixels.chunks_exact(4))
+        .filter(|(a, b)| a != b)
+        .count();
+    assert!(changed > 100, "开/关城门应有明显像素差：{changed}");
+    let output = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("target/client-conquest-gate.png");
+    std::fs::create_dir_all(output.parent().expect("target")).expect("创建 target");
+    opened.save_png(&output).expect("写城门截图");
+}
+
+#[test]
+fn archer_range_attack_spawns_a_projectile() {
+    let mut snapshot = snapshot_with_conquest();
+    // 城墙旁边那只箭塔（object_id=12）开火。
+    snapshot.apply_packet_at(
+        &ServerPacket::ObjectRangeAttack(mir_protocol::packets::server::ObjectRangeAttack {
+            object_id: 12,
+            location: Point::new(31, 28),
+            direction: mir_core::enums::MirDirection::Down,
+            target_id: 7,
+            target: Point::new(30, 30),
+            type_: 0,
+            spell: mir_core::enums::Spell::None,
+            level: 1,
+        }),
+        5_000,
+    );
+    assert_eq!(snapshot.conquest_arrows.len(), 1);
+    let arrow = snapshot.conquest_arrows[0];
+    assert_eq!(arrow.from, Point::new(31, 28));
+    assert_eq!(arrow.to, Point::new(30, 30));
+    assert_eq!(arrow.started_ms, 5_000);
+    let with_arrow = render_at(&snapshot, 5_100);
+    let mut plain = snapshot.clone();
+    plain.conquest_arrows.clear();
+    let without_arrow = render_at(&plain, 5_100);
+    let changed = with_arrow
+        .pixels
+        .chunks_exact(4)
+        .zip(without_arrow.pixels.chunks_exact(4))
+        .filter(|(a, b)| a != b)
+        .count();
+    assert!(changed > 10, "箭塔弹道应当画出来：{changed}");
 }

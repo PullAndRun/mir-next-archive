@@ -943,10 +943,6 @@ pub struct UiState {
     pub guild_notice: input::TextField,
     /// 行会联盟：盟友行会名输入。
     pub guild_ally: input::TextField,
-    /// 行会联盟：客户端本地记录的盟友行会名。
-    pub guild_allies: Vec<String>,
-    /// 行会联盟：已申请、等待对方同意的行会名。
-    pub guild_ally_pending: Option<String>,
     /// 交易面板是否打开（`S.TradeAccept` 自动打开，`S.TradeConfirm`/`S.TradeCancel` 关闭）。
     pub show_trade: bool,
     /// 自己是否已准备（Crystal `User.TradeLocked`，`UserObject.cs:24` 附近的客户端状态）。
@@ -1097,8 +1093,6 @@ impl UiState {
             guild_gold: input::TextField::numeric(9),
             guild_notice: input::TextField::new(200),
             guild_ally: input::TextField::new(40),
-            guild_allies: Vec::new(),
-            guild_ally_pending: None,
             show_trade: false,
             trade_locked: false,
             trade_gold: input::TextField::numeric(9),
@@ -2837,20 +2831,15 @@ impl UiState {
                     if name.is_empty() {
                         return None;
                     }
-                    self.guild_ally_pending = Some(name.clone());
                     return Some(UiAction::Chat(format!("/ally request {name}")));
                 }
                 if layout.ally_accept.contains(self.mouse) {
-                    // 服务端不推盟友名单：不在客户端「假装成功」，只发命令。
-                    self.guild_ally_pending = None;
+                    // 名单由 `S.GuildAllies` 广播回填，这里只发命令。
                     return Some(UiAction::Chat("/ally accept".to_owned()));
                 }
                 if layout.ally_remove.contains(self.mouse) {
                     if name.is_empty() {
                         return None;
-                    }
-                    if self.guild_ally_pending.as_deref() == Some(name.as_str()) {
-                        self.guild_ally_pending = None;
                     }
                     return Some(UiAction::Chat(format!("/ally remove {name}")));
                 }
@@ -3875,8 +3864,7 @@ pub fn draw(
         let gold_field = state.guild_gold.clone();
         let notice_field = state.guild_notice.clone();
         let ally_field = state.guild_ally.clone();
-        let guild_allies = state.guild_allies.clone();
-        let guild_ally_pending = state.guild_ally_pending.clone();
+        let guild_allies = snapshot.guild_allies.clone();
         let UiState {
             icons,
             guild_tab,
@@ -3900,7 +3888,6 @@ pub fn draw(
             &notice_field,
             &ally_field,
             &guild_allies,
-            guild_ally_pending.as_deref(),
             focus,
             mouse,
             &mut icon_fn,

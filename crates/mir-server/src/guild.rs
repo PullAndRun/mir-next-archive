@@ -55,8 +55,8 @@ use mir_protocol::ServerPacket;
 use mir_protocol::data::guild_rank::{GuildMember, GuildRank};
 use mir_protocol::data::{GuildBuff, GuildBuffInfo, GuildStorageItem, Stats};
 use mir_protocol::packets::server::{
-    Chat, GuildExpGain, GuildInvite as GuildInvitePacket, GuildMemberChange, GuildNameRequest,
-    GuildNoticeChange, GuildStatus,
+    Chat, GuildAllies, GuildAlly, GuildExpGain, GuildInvite as GuildInvitePacket,
+    GuildMemberChange, GuildNameRequest, GuildNoticeChange, GuildStatus,
 };
 
 use crate::store::{
@@ -1607,6 +1607,52 @@ impl World {
         }
     }
 
+    /// 组一个行会的盟友名单包（本项目扩展，`S.GuildAllies`，索引 303）。
+    ///
+    /// 整表下发：按盟友行会 ID 升序，带上行会名与会长名；找不到的盟友（数据脏了）跳过。
+    #[must_use]
+    pub fn guild_allies_packet(&self, guild_id: i32) -> GuildAllies {
+        let Some(guild) = self.guilds.get(&guild_id) else {
+            return GuildAllies::default();
+        };
+        let allies = guild
+            .allies
+            .iter()
+            .filter_map(|ally_id| {
+                let ally = self.guilds.get(ally_id)?;
+                Some(GuildAlly {
+                    index: ally.id,
+                    name: ally.name.clone(),
+                    leader: ally.leader_name(),
+                })
+            })
+            .collect();
+        GuildAllies { allies }
+    }
+
+    /// 给一个玩家发他的行会盟友名单（无行会时什么都不发）。
+    ///
+    /// 登录时由 [`World::guild_player_online`] 调一次（排在 `S.GuildStatus` 之后），
+    /// 客户端据此渲染联盟面板；[`World::guild_bind_player`] 只接状态、不发包。
+    pub(crate) fn send_guild_allies(&self, player_id: u32) {
+        let Some(guild_ref) = self.players.get(&player_id).and_then(|player| player.guild) else {
+            return;
+        };
+        let packet = self.guild_allies_packet(guild_ref.guild_id);
+        self.send_to_player(player_id, &ServerPacket::GuildAllies(packet).encode_frame());
+    }
+
+    /// 把盟友名单发给某个行会的所有在线成员（联盟变更时用）。
+    pub(crate) fn send_guild_allies_to_all(&self, guild_id: i32) {
+        let Some(guild) = self.guilds.get(&guild_id) else {
+            return;
+        };
+        let packet = ServerPacket::GuildAllies(self.guild_allies_packet(guild_id)).encode_frame();
+        for object_id in guild.online_members() {
+            self.send_to_player(object_id, &packet);
+        }
+    }
+
     /// 给某个玩家发一条系统提示（按该玩家当前语言渲染）。
     pub(crate) fn guild_error_to(&self, player_id: u32, error: &GuildError) {
         self.send_system_chat(player_id, &error.message(self.player_language(player_id)));
@@ -1752,6 +1798,8 @@ impl World {
         let frame = member_change_frame(&name, 1, reference.rank_index, Vec::new());
         self.send_to_guild(reference.guild_id, &frame);
         self.send_guild_status(object_id);
+        // 权威盟友名单（本项目扩展，`S.GuildAllies`）：登录补一次，客户端据此渲染联盟面板。
+        self.send_guild_allies(object_id);
         // Crystal 只在**加入行会**时下发已激活增益（`PlayerObject.cs:10009-10010`）；
         // 登录时补一条，否则重登后客户端不知道哪些增益还开着（**本作修正**，见文档）。
         self.send_active_guild_buffs(object_id);
@@ -2386,9 +2434,20 @@ impl World {
         }
 
         if disband {
+            // 解散前记下盟友：解散后要把对方那边的反向链接也清掉，并通知对方在线成员。
+            let allies: Vec<i32> = self
+                .guilds
+                .get(&guild_id)
+                .map(|guild| guild.allies.iter().copied().collect())
+                .unwrap_or_default();
             self.guilds.remove(&guild_id);
             self.guild_writes
                 .push(crate::world::GuildWrite::Delete { guild_id });
+            for ally in allies {
+                // 只清对方那一侧：本行会已经不在表里，`dissolve_guild_alliance` 会跳过它，
+                // 同时给双方在线成员各发一次最新的（已经少了一个的）名单。
+                self.dissolve_guild_alliance(guild_id, ally);
+            }
             tracing::info!(guild = guild_id, "行会已解散");
             return Ok(());
         }
@@ -3065,6 +3124,9 @@ impl World {
         }
         self.ally_requests.clear();
         self.ally_request_times.clear();
+        // 联盟变了：双方在线成员各收一份权威名单（整表）。
+        self.send_guild_allies_to_all(a);
+        self.send_guild_allies_to_all(b);
         Ok(())
     }
 
@@ -3082,5 +3144,8 @@ impl World {
             self.guild_writes
                 .push(crate::world::GuildWrite::Save(Box::new(record)));
         }
+        // 解除后双方在线成员各收一份（内容里已经没有对方了）。
+        self.send_guild_allies_to_all(a);
+        self.send_guild_allies_to_all(b);
     }
 }

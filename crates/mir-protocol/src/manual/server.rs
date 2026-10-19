@@ -1502,6 +1502,82 @@ impl HeroInformation {
     }
 }
 
+/// 本项目扩展，Crystal 无此包：行会盟友名单（索引 303）。
+///
+/// 第 9 轮的联盟 UI 只有本地台账（客户端自己记「刚申请了谁」），换个客户端/重登就丢。
+/// 这个包把**服务端权威的整份盟友名单**下发给行会成员：结盟/解除/行会解散后广播给两方
+/// 在线成员，进世界（`World::guild_bind_player`）时给有行会的玩家补发一次。
+///
+/// 整表下发（而不是增量）是刻意的：盟友表最多 `MAX_GUILD_ALLIES = 5` 项，重发成本可以忽略，
+/// 却省掉「增量丢包后名单永久错位」的整类问题。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GuildAllies {
+    /// 本行会当前的盟友（按行会 ID 升序，服务端保证顺序稳定）。
+    pub allies: Vec<GuildAlly>,
+}
+
+/// 盟友名单里的一行。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GuildAlly {
+    /// 盟友行会 ID（Crystal `GuildInfo.Guildindex`）。
+    pub index: i32,
+    /// 盟友行会名。
+    pub name: String,
+    /// 盟友会长角色名（离线也照发，UI 用来显示「与谁结盟」）。
+    pub leader: String,
+}
+
+impl GuildAlly {
+    /// 解码一行。
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        Ok(Self {
+            index: r.read_i32()?,
+            name: r.read_string()?,
+            leader: r.read_string()?,
+        })
+    }
+
+    /// 编码一行。
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        w.write_i32(self.index);
+        w.write_string(&self.name);
+        w.write_string(&self.leader);
+    }
+}
+
+impl GuildAllies {
+    /// 本项目扩展的包编号（生成包 0..=278 之外；300–302 已被攻城占用）。
+    pub const INDEX: i16 = 303;
+    /// 是否 gzip 压缩。
+    pub const COMPRESSED: bool = false;
+    /// 盟友数量的解码上限（与攻城类包的 256 同一口径）。
+    pub const MAX_ALLIES: usize = 256;
+
+    /// 解码。
+    pub fn decode(r: &mut crate::PacketReader<'_>) -> Result<Self, crate::ProtocolError> {
+        let count = r.read_count()?;
+        if count > Self::MAX_ALLIES {
+            return Err(crate::ProtocolError::CollectionTooLong {
+                length: count,
+                limit: Self::MAX_ALLIES,
+            });
+        }
+        let mut allies = Vec::with_capacity(count);
+        for _ in 0..count {
+            allies.push(GuildAlly::decode(r)?);
+        }
+        Ok(Self { allies })
+    }
+
+    /// 编码。
+    pub fn encode(&self, w: &mut crate::PacketWriter) {
+        w.write_count(self.allies.len());
+        for ally in &self.allies {
+            ally.encode(w);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use mir_core::enums::{ItemGrade, ItemType};
@@ -2424,6 +2500,8 @@ pub struct ConquestObject {
     pub owner: i32,
     /// 是否已摧毁。
     pub destroyed: bool,
+    /// 城门是否已打开（仅 Gate 有意义；本项目扩展）。
+    pub open: bool,
 }
 
 impl ConquestObject {
@@ -2446,6 +2524,7 @@ impl ConquestObject {
         let max_hp = r.read_i32()?;
         let owner = r.read_i32()?;
         let destroyed = r.read_bool()?;
+        let open = r.read_bool()?;
         Ok(Self {
             object_id,
             conquest_index,
@@ -2456,6 +2535,7 @@ impl ConquestObject {
             max_hp,
             owner,
             destroyed,
+            open,
         })
     }
 
@@ -2471,6 +2551,7 @@ impl ConquestObject {
         w.write_i32(self.max_hp);
         w.write_i32(self.owner);
         w.write_bool(self.destroyed);
+        w.write_bool(self.open);
     }
 }
 
@@ -2571,6 +2652,7 @@ mod conquest_packet_tests {
             max_hp: 500,
             owner: 7,
             destroyed: false,
+            open: false,
         };
         let frame = ServerPacket::ConquestObject(packet.clone()).encode_frame();
         assert_eq!(&frame[2..4], &ConquestObject::INDEX.to_le_bytes());
@@ -2590,6 +2672,37 @@ mod conquest_packet_tests {
         assert_eq!(&frame[2..4], &ConquestResult::INDEX.to_le_bytes());
         let decoded = ServerPacket::decode(ConquestResult::INDEX, &frame[4..]).expect("解码");
         assert_eq!(decoded, ServerPacket::ConquestResult(packet));
+    }
+
+    #[test]
+    fn guild_allies_roundtrips_through_server_packet() {
+        let packet = GuildAllies {
+            allies: vec![
+                GuildAlly {
+                    index: 7,
+                    name: "沙巴克".to_owned(),
+                    leader: "会长甲".to_owned(),
+                },
+                GuildAlly {
+                    index: 12,
+                    name: "比奇".to_owned(),
+                    leader: "会长乙".to_owned(),
+                },
+            ],
+        };
+        let frame = ServerPacket::GuildAllies(packet.clone()).encode_frame();
+        assert_eq!(&frame[2..4], &GuildAllies::INDEX.to_le_bytes());
+        let decoded = ServerPacket::decode(GuildAllies::INDEX, &frame[4..]).expect("解码");
+        assert_eq!(decoded, ServerPacket::GuildAllies(packet));
+    }
+
+    #[test]
+    fn guild_allies_index_is_303_and_empty_table_roundtrips() {
+        assert_eq!(GuildAllies::INDEX, 303);
+        let empty = GuildAllies::default();
+        let frame = ServerPacket::GuildAllies(empty.clone()).encode_frame();
+        let decoded = ServerPacket::decode(GuildAllies::INDEX, &frame[4..]).expect("解码");
+        assert_eq!(decoded, ServerPacket::GuildAllies(empty));
     }
 
     #[test]

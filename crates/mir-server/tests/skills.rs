@@ -309,6 +309,9 @@ fn game_data_with_maps(maps: Vec<MapInfo>) -> Arc<GameData> {
             magic_info(Spell::SummonSkeleton, 10, 1_800, 0),
             magic_info(Spell::SummonShinsu, 10, 1_800, 0),
             magic_info(Spell::Poisoning, 5, 1_800, 8),
+            magic_info(Spell::GreatFireBall, 10, 1_800, 8),
+            magic_info(Spell::SoulFireBall, 10, 1_800, 8),
+            magic_info(Spell::FireBang, 10, 1_800, 8),
         ],
         items: vec![mir_protocol::data::ItemInfo {
             index: 1,
@@ -2610,4 +2613,129 @@ fn venom_spider_line_does_not_fire_on_no_fight_maps() {
             "NoFight 地图上 AI 100 不应挂绿毒"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// t75：Crystal 参考魔法系（AI 215/216/220）
+// ---------------------------------------------------------------------------
+
+fn s_object_magic_count(harness: &mut Harness, player: u32) -> usize {
+    harness
+        .packets(player)
+        .iter()
+        .filter(|packet| matches!(packet, ServerPacket::ObjectMagic(_)))
+        .count()
+}
+
+#[test]
+fn sep_wizard_casts_great_fire_ball_and_deals_damage() {
+    let mut harness = Harness::new(90);
+    let player = harness.add_player(1, MirClass::Warrior, 40, Point::new(20, 23));
+    let hp = harness.world.player(player).expect("玩家").hp;
+    let monster = harness.spawn_active(magic_kind("分身法师", 215), Point::new(20, 20));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    assert_eq!(
+        s_object_magic_count(&mut harness, player),
+        1,
+        "应广播 S.ObjectMagic"
+    );
+    assert_eq!(
+        harness.world.player(player).expect("玩家").hp,
+        hp,
+        "伤害延迟 500ms 后才落地"
+    );
+    harness.elapse(600);
+    assert!(
+        harness.world.player(player).expect("玩家").hp < hp,
+        "GreatFireBall 应造成伤害"
+    );
+}
+
+#[test]
+fn monster_magic_does_not_cast_out_of_range() {
+    let mut harness = Harness::new(91);
+    let player = harness.add_player(1, MirClass::Warrior, 40, Point::new(20, 27));
+    let monster = harness.spawn_active(magic_kind("分身法师", 215), Point::new(20, 20));
+    let start = harness.world.monster(monster).expect("法师").position;
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    assert_eq!(
+        s_object_magic_count(&mut harness, player),
+        0,
+        "射程 6 外不应施法"
+    );
+    let moved = harness.world.monster(monster).expect("法师").position;
+    assert_ne!(moved, start, "射程外应靠近而不是原地空放");
+}
+
+#[test]
+fn monster_magic_respects_cooldown() {
+    let mut harness = Harness::new(92);
+    let player = harness.add_player(1, MirClass::Warrior, 40, Point::new(20, 23));
+    let monster = harness.spawn_active(magic_kind("分身法师", 215), Point::new(20, 20));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    assert_eq!(s_object_magic_count(&mut harness, player), 1);
+    harness.elapse(100);
+    assert_eq!(
+        s_object_magic_count(&mut harness, player),
+        0,
+        "冷却 2500ms 内不应再次施法"
+    );
+    harness.elapse(2_500);
+    assert!(
+        s_object_magic_count(&mut harness, player) >= 1,
+        "冷却结束后应再次施法"
+    );
+}
+
+#[test]
+fn monster_magic_stops_when_target_is_dead() {
+    let mut harness = Harness::new(93);
+    let player = harness.add_player(1, MirClass::Warrior, 40, Point::new(20, 23));
+    let monster = harness.spawn_active(magic_kind("分身法师", 215), Point::new(20, 20));
+    harness.wake_monster(monster);
+    if let Some(state) = harness.world.player_mut(player) {
+        state.dead = true;
+    }
+    let hp = harness.world.player(player).expect("玩家").hp;
+
+    harness.elapse(0);
+    harness.elapse(600);
+    assert_eq!(
+        s_object_magic_count(&mut harness, player),
+        0,
+        "死亡目标不再施法"
+    );
+    assert_eq!(harness.world.player(player).expect("玩家").hp, hp);
+}
+
+#[test]
+fn sep_high_wizard_fire_bang_aoe_hits_multiple_targets() {
+    let mut harness = Harness::new(94);
+    let target = harness.add_player(1, MirClass::Warrior, 40, Point::new(20, 23));
+    let nearby = harness.add_player(2, MirClass::Warrior, 40, Point::new(20, 24));
+    let outside = harness.add_player(3, MirClass::Warrior, 40, Point::new(20, 28));
+    let target_hp = harness.world.player(target).expect("目标").hp;
+    let nearby_hp = harness.world.player(nearby).expect("AOE 内").hp;
+    let outside_hp = harness.world.player(outside).expect("AOE 外").hp;
+    let monster = harness.spawn_active(magic_kind("高阶分身法师", 220), Point::new(20, 20));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    harness.elapse(600);
+    assert!(harness.world.player(target).expect("目标").hp < target_hp);
+    assert!(
+        harness.world.player(nearby).expect("AOE 内").hp < nearby_hp,
+        "FireBang 半径 1 应命中目标相邻格"
+    );
+    assert_eq!(
+        harness.world.player(outside).expect("AOE 外").hp,
+        outside_hp,
+        "AOE 外不应被误伤"
+    );
 }

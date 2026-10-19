@@ -637,7 +637,7 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 | 行会仓库 | `C.GuildStorageItemChange{Type=3}` → `S.GuildStorageList{Items[112]}`；`{Type=0/1/2}` → `S.GuildStorageItemChange` | `guild_storage.rs` | `guild_storage` |
 | 行会资金 | `C.GuildStorageGoldChange{Type,Amount}` → `S.LoseGold`/`S.GainedGold` + `S.GuildStorageGoldChange{Amount,Type,Name}` | `World::guild_storage_gold_change` | `guild.gold` |
 | 行会增益 | `C.GuildBuffUpdate{Action=0}` → `S.GuildBuffList`；`{Action=1/2,Id}` → `S.GuildBuffList`（+ 资金变化） | `guild_buffs.rs` | `guild_buff_infos` / `guild_active_buffs` |
-| 联盟页签 | 无独立包：`C.Chat{"/ally request|accept|remove …"}` → `S.Chat`（TextKey `ally_*`） | `guild.rs::Guild::…` + `session.rs` 聊天命令 | `chat` |
+| 联盟页签 | 无独立请求包：`C.Chat{"/ally request|accept|remove …"}` → `S.Chat`（TextKey `ally_*`）；名单 ← `S.GuildAllies`(303) | `guild.rs::Guild::…` + `session.rs` 聊天命令 | `chat` / `guild_allies` |
 | 好友/黑名单 | `C.AddFriend{Name,Blocked}`(127)、`C.RemoveFriend{CharacterIndex}`(128)、`C.RefreshFriends`(129)、`C.AddMemo{CharacterIndex,Memo}`(130) → `S.FriendUpdate{Friends}`(245) | `friends.rs`（`World::add_friend`/`remove_friend`/`set_friend_memo`/`send_friends`） | `friends` |
 | 复活广播 | ← `S.ObjectRevived{effect=true}`（旁观 `S.ObjectRemove` → `S.ObjectRevived` → `S.ObjectAppearance`）；本人另收 `S.Revived` | `World::revive_player`（`world.rs`） | 实体动作/名称颜色 |
 | 攻城状态 | ← `S.ConquestInfo`(300) / `S.ConquestResult`(302) | `conquest.rs`（本作扩展包） | `conquest` |
@@ -866,22 +866,23 @@ Add/Remove/Memo/Email/Whisper，`KeybindOptions.Friends` 可配键位）；本�
 * 面板 380×300（800×600 时最多 8 行），320×240 压缩到约 5 行、输入/按钮全部在面板内；
   空列表提示「好友列表为空…」；F 打开时自动 `C.RefreshFriends`。
 
-**联盟页签**：行会面板（`G`）第 4 个页签（index 3；公告页顺延到 index 4），没有独立
-协议——输入行会名/ID 后点「申请」「同意」「解除」，分别发聊天命令
+**联盟页签**：行会面板（`G`）第 4 个页签（index 3；公告页顺延到 index 4）。
+输入行会名/ID 后点「申请」「同意」「解除」，分别发聊天命令
 `/ally request <name>`、`/ally accept`、`/ally remove <name>`，回复走服务端
 `S.Chat`（TextKey `ally_*`，中英随语言；`session.rs::on_ally_command`）。
-320×240 下面板宽 304、5 个页签均分内容宽，联盟输入/按钮分两行，全部在屏内。
+名单由 **`S.GuildAllies`(303)** 整表下发（本项目扩展；登录/结盟/解除/对方解散时刷新，
+按行会 ID 升序，最多 5 条），客户端整表替换、不做乐观更新；每行显示「行会名 + 会长」
+（`leader` 为空显示 `—`），空表给提示；`S.GuildStatus` 收到空行会时清空名单
+（无行会服务端不发 303）。320×240 下面板宽 304、5 个页签均分内容宽，联盟输入/按钮分两行，
+全部在屏内。
 
-**已知限制（本作简化）**：服务端没有「盟友名单」协议包，页签里的名单是**客户端本地
-记录**（会话内），不是服务端权威；`accept`/`remove` 不做乐观本地修改，以 `/ally`
-聊天回执与下一次行会数据刷新为准。后续要权威列表需服务端加 `GuildAllies` 包。
-
-测试（`tests/friends_panel.rs`，6 条）：`friends_layout_fits_small_screen_and_row_at_uses_scroll`
+测试（`tests/friends_panel.rs`，7 条）：`friends_layout_fits_small_screen_and_row_at_uses_scroll`
 （320×240 控件不重叠、`row_at(scroll)` 绝对下标）、`friend_actions_map_to_packets_127_to_130`
 （含 `AddFriend`/`AddMemo` 字节编码）、`scrolled_click_selects_the_absolute_row_and_removes_that_friend`、
 `friend_update_replaces_the_list_and_language_switch_redraws`（245 整表替换 + 中英切换）、
-`friends_panel_renders_selects_and_saves_png`、`guild_ally_tab_fits_small_screen_and_saves_png`；
-截图 `target/client-friends.png`、`target/client-ally.png`。
+`friends_panel_renders_selects_and_saves_png`、`guild_ally_tab_fits_small_screen_and_saves_png`、
+`guild_allies_packet_roundtrips_and_clears_without_guild`（303 往返/整表/无行会清空）；
+截图 `target/client-friends.png`、`target/client-ally.png`、`target/client-guild-allies.png`。
 
 ### 5.21 攻城 UI（300–302，第 8 轮）
 
@@ -890,13 +891,22 @@ Add/Remove/Memo/Email/Whisper，`KeybindOptions.Friends` 可配键位）；本�
 * `S.ConquestInfo`(300) → `ConquestView`（index/name/owner/war_is_on/start_time/end_time/
   control_points），整表覆盖但**保留已收器械**；
 * `S.ConquestObject`(301) → 按 `object_id` upsert（kind: Gate/Wall/Archer、位置/朝向/
-  hp/max_hp/owner/destroyed）；
+  hp/max_hp/owner/destroyed/**open**）；
 * `S.ConquestResult`(302) → winner/owner/control_points + `received_ms`（供 5 秒横幅）。
 
 **器械渲染**：按地图 `(y, x)` 排序画在格子上方；先试 `objects.wzl` 第 `3 + kind` 帧
 （`scene.libraries().image(2, 3+kind)`）；缺图/空帧回退半透明色块（城门棕/城墙灰/箭塔紫）
-+ 本地化类型文字。血条按 `hp/max_hp`，前景色由归属行会 ID 派生稳定色（owner=0 灰色）；
++ 本地化类型文字（第 8 轮全量扫过 `objects.wzl` 9999 帧、抽样 62–65/94–95/120–123 与
+`tiles.wzl`/`Objects81.wil`，没有公认的城门/城墙/箭塔帧，故维持回退；换真实帧号只需改常量）。
+血条按 `hp/max_hp`，前景色由归属行会 ID 派生稳定色（owner=0 灰色）；
 `destroyed` 后 1 秒内画确定性碎裂粒子再移除，重复 destroyed 包不重复提示。
+
+**城门开关**：`gate_is_open = open || destroyed || hp <= 0`。关闭=色块 + 底部暗红阻挡条；
+开启=绿色通道 + 「城门已开」（`draw_gate_open`），仍保留血条；摧毁先播 1 秒碎裂再保留开启标记。
+
+**箭塔弹道**：`S.ObjectRangeAttack` 命中未毁 Archer 时生成弹道事件（from/to/started_ms，
+上限 16 条），画 **400ms** 点状拖尾；复用第 8 轮远程表现（Swing 音效 + spell 命中闪光），
+`spell=None` 时只画弹道。
 
 **HUD**：右上角「攻城进行中 / 剩余 mm:ss（`end_time - 本地时钟`，clamp 0）/ 归属 #id
 （无归属）/ 控制点 max/6 + 进度条」；320 宽缩到 180–250。
@@ -904,13 +914,16 @@ Add/Remove/Memo/Email/Whisper，`KeybindOptions.Friends` 可配键位）；本�
 
 **聊天与 i18n**：开战/结束/器械摧毁生成 SystemChat；新增 14 个双语 `Label`
 （攻城进行中/剩余/归属/控制点/结束/胜者/城门/城墙/箭塔/被摧毁/无归属 + 3 条系统句），
-`Label::ALL` 311→325。
+后续 t74 又加了 2 个（城门已开/弹道），`Label::ALL` 325→**327**。
 
 **兼容/回退**：没收到 300–302 时 `conquest = None`，器械/HUD 不画，老服务器与单机行为不变；
 未知索引/解码失败在 net 读循环 `warn` + `decode_errors++` 跳过，不 panic。
 
-测试（`tests/conquest_panel.rs`，5 例）：300–302 往返、快照/摧毁/结算、无包兼容、
-HUD 计时与 5 秒横幅、缺素材回退；截图 `target/client-conquest.png`。
+测试（`tests/conquest.rs`，7 例）：`conquest_packets_roundtrip_through_encode_decode`、
+`snapshot_tracks_objects_and_destroyed_chat`、`no_conquest_packets_leave_snapshot_and_ui_unchanged`、
+`hud_timer_and_result_banner_expire`、`objects_render_with_fallback_blocks_and_save_png`、
+`gate_open_state_changes_the_rendering`、`archer_range_attack_spawns_a_projectile`；
+截图 `target/client-conquest.png`、`target/client-conquest-gate.png`。
 
 
 

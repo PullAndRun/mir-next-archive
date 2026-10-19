@@ -495,9 +495,10 @@ ALTER TABLE characters ADD COLUMN last_daily_reset_at BIGINT NOT NULL DEFAULT 0;
 
 ## 11. 每日任务闭环（第 8 轮）
 
-**没有迁移 0016**：每日状态全部从现有列推导——
+**每日任务不需要新迁移**：状态全部从现有列推导——
 `characters.last_daily_reset_at`（24h 惰性重置，§8.2）+ `characters.completed_quests`
-（当日已完成的 Daily 记录，重置时清掉），无新增列/表。
+（当日已完成的 Daily 记录，重置时清掉），无新增列/表。（迁移 0016 是攻城区器械的
+`conquest_objects`，与任务无关，见 [`docs/world/conquest.md`](conquest.md) §10。）
 
 ### 11.1 流程
 

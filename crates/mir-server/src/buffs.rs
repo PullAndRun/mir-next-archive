@@ -106,6 +106,10 @@ pub enum BuffKind {
     Exp,
     /// 爆率加成药水（`BuffType.Drop`，`:5887-5891`）。
     Drop,
+    /// 减速（`BuffType.Slow`，Crystal `PoisonType.Slow`）：移动间隔按 `values[0]` 百分比放大。
+    Slow,
+    /// 麻痹（`BuffType.Paralysis`）：不能移动/攻击。
+    Paralysis,
 }
 
 impl BuffKind {
@@ -132,6 +136,9 @@ impl BuffKind {
             Self::BagWeight => BuffType::BagWeight,
             Self::Exp => BuffType::Exp,
             Self::Drop => BuffType::Drop,
+            // Crystal 把 Slow/Paralysis 归在 `PoisonType`，不是 `BuffType`；这里保留
+            // `BuffKind` 变体供移动/攻击路径判定，协议层没有对应 BuffType，映射 None。
+            Self::Slow | Self::Paralysis => BuffType::None,
         }
     }
 
@@ -275,6 +282,15 @@ impl World {
             .iter()
             .map(|buff| buff.stats.get(stat))
             .sum()
+    }
+
+    /// 某种增益的第一个数值参数（Slow 的百分比等）；没有该增益返回 `None`。
+    #[must_use]
+    pub fn buff_value(&self, object_id: u32, kind: BuffKind) -> Option<i32> {
+        self.buffs(object_id)
+            .iter()
+            .find(|buff| buff.kind == kind)
+            .and_then(|buff| buff.values.first().copied())
     }
 
     /// 登记一个增益（Crystal `HumanObject.AddBuff`，`HumanObject.cs:7460-7489`）。

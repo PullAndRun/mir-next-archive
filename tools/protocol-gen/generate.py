@@ -137,6 +137,13 @@ EXTRA_PACKETS: dict[str, list[PacketDef]] = {
             compressed=False,
             direction="server",
         ),
+        PacketDef(
+            name="GuildAllies",
+            index_name="GuildAllies",
+            index_value=303,
+            compressed=False,
+            direction="server",
+        ),
     ],
 }
 
@@ -144,7 +151,7 @@ EXTRA_PACKETS: dict[str, list[PacketDef]] = {
 # 再导出，否则使用方要写两层路径。
 EXTRA_REEXPORTS: dict[str, list[str]] = {
     "client": [],
-    "server": ["ConquestObjectType", "ConquestControlPoint"],
+    "server": ["ConquestObjectType", "ConquestControlPoint", "GuildAlly"],
 }
 
 

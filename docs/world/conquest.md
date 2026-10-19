@@ -373,31 +373,40 @@ Crystal 的城门/城墙/器械是 `ConquestGuildGateInfo`/`WallInfo`/`SiegeInfo
 | 包 | INDEX | 字段 | 下发时机 |
 |---|---|---|---|
 | `S.ConquestInfo` | 300 | `index, name, owner, war_is_on, start_time, end_time, control_points[]`（`index, owner, points`） | 进入攻城区相关地图、开战/停战/归属变化 |
-| `S.ConquestObject` | 301 | `object_id, conquest_index, kind(Gate=0/Wall=1/Archer=2), location, direction, hp, max_hp, owner, destroyed` | 进入视野、受伤、摧毁 |
+| `S.ConquestObject` | 301 | `object_id, conquest_index, kind(Gate=0/Wall=1/Archer=2), location, direction, hp, max_hp, owner, destroyed, open` | 进入视野、受伤、摧毁、城门开关 |
 | `S.ConquestResult` | 302 | `index, winner, owner, control_points[]` | 停战 |
 
 三个包均标注「本项目扩展，Crystal 无此包」；控制点列表本地上限 256，计数用
-`read_count()/write_count()`。
+`read_count()/write_count()`。`open` 是本作扩展字段（Crystal 的 `ConquestGuildGateInfo.Open`）。
 
 **刷出**（`conquest.rs::spawn_conquest_objects`）：开战时按 `ConquestInfo` 配表——
 `gates`→Gate（HP 5000）、`walls`→Wall（3000）、`guards`→Archer（2000），位置/朝向/
 归属取自配表；配表为空时兜底在 `info.location` 放 Gate、`+y` 放 Wall、`+x` 放 Archer。
-停战清空器械，**不持久化耐久**（简化）。
+**持久化**：迁移 `0016_conquest_objects.sql` 的 `conquest_objects` 表
+（主键 `(conquest_index, kind, x, y)`，`direction 0..7`、`hp/max_hp`、`owner_guild_id`、
+`destroyed`、`open`，FK `conquests` CASCADE）；启动 `load_conquests` 恢复对象并重新分配
+`object_id`，无记录则按配表生成；停战/受伤 `mark_conquest_dirty` 落盘。
 
 **行为**：
 
 * 玩家近战可打器械：目标格有器械时即使 `walkable_on = false` 也允许攻击；
   `damage_conquest_object` 扣 HP 并广播 `S.ConquestObject`；
 * Gate/Wall 摧毁后 `conquest_object_blocking` 返回 `false`（格子可走）；Archer 摧毁后停止射击；
+* **城门开关**：NPC 动作 `OPENGATE` / `CLOSEGATE`（`npc.rs::run_script_action`，大小写不敏感）
+  要求 NPC `conquest > 0` 且执行者行会 == 攻城区 owner；`World::set_conquest_gate`
+  `open=true` 时格可通行、关闭恢复阻挡，每次变化广播 `S.ConquestObject`；无器械时按配表
+  补生成，开战前/停战后都可操作；
 * 箭塔每 **2s** 射 10 格内最近的非本会玩家（`owner = -1` 时所有玩家），**50 伤害**、
-  500ms 延迟、AC 结算（简化：不广播 `S.ObjectRangeAttack`/特效）；
-* 停战：器械 HP 置 0 逐件广播 → 清空 → `S.ConquestResult` + `S.ConquestInfo`；城主仍走
-  `ControlPoints`/`take_conquest` 逻辑。
+  500ms 延迟、AC 结算；射击时广播 `S.ObjectRangeAttack{object_id=箭塔, location, direction,
+  target_id, target, spell=None}`（第 8 轮补）；
+* 停战：器械 HP 置 0 逐件广播 → 清空**内存对象**（耐久记录保留，下一轮按持久化/配表恢复）
+  → `S.ConquestResult` + `S.ConquestInfo`；城主仍走 `ControlPoints`/`take_conquest` 逻辑。
 
-**客户端**：`ConquestInfo`/`ConquestObject`/`ConquestResult` 只读展示，`kind` 用 0/1/2。
+**客户端**：`ConquestInfo`/`ConquestObject`（含 `open`）/`ConquestResult` 只读展示，
+`kind` 用 0/1/2；箭塔的 `S.ObjectRangeAttack` 复用第 7 轮的弹道表现。
 
-**未做**：器械耐久存档/修理、城门开关动画（`OPENGATE`/`CLOSEGATE`）、箭塔 `S.ObjectRangeAttack`
-与命中特效、旗子/控制点 NPC 实体、`CONQUESTGUARD` 修复动作。
+**未做**：器械修理（`GetRepairCost`/`Repair`、`CONQUESTREPAIRALL`）、
+`CONQUESTGUARD` 重新布点、旗子/控制点 NPC 实体、城门开关的开门动画/音效。
 
 ---
 
@@ -428,10 +437,11 @@ Crystal 的攻城信息只走 NPC 脚本 + `S.Chat` 系统公告（§9.2）。
 | `STARTCONQUEST <index>` | `:4250-4286`（开/停战切换） | `toggle_conquest_war` |
 | `TAKECONQUESTGOLD <index>` | `:4223-4236` | `take_conquest_gold` |
 | `SETCONQUESTRATE <index> <percent>` | `:4237-4249` | `set_conquest_rate` |
+| `OPENGATE` / `CLOSEGATE` | `:4310-4330` 等 | `npc.rs` 识别 → `World::set_conquest_gate`（第 8 轮） |
 
-`CONQUESTGUARD` / `CONQUESTGATE` / `CONQUESTWALL` / `CONQUESTREPAIRALL` / `OPENGATE` /
-`CLOSEGATE` 都**没有**实现：器械实体已有（§8.6），但这些 NPC 动作（修复/开关门/重新布点）
-未接；见 §11。
+`CONQUESTGUARD` / `CONQUESTGATE` / `CONQUESTWALL` / `CONQUESTREPAIRALL` 仍**没有**实现
+（修复/重新布点）；`OPENGATE` / `CLOSEGATE` 已实现（§8.6，`npc.rs` 识别后调
+`World::set_conquest_gate`）。
 `#IF` 侧的 `CHECKCONQUEST` / `CONQUESTOWNER` / `CONQUESTAVAILABLE` 与
 `$CONQUESTGOLD()` / `$CONQUESTRATE()` / `$CONQUESTSCHEDULE()` 变量同样未实现。
 
@@ -455,12 +465,27 @@ Crystal 的存档是 `Conquests/<index>.mcd` 一个二进制文件
 | `king_points` / `flag_owners` | `ConquestObject.KingPoints` / 控制点归属（文本编码） |
 | `next_war_at` | **本作扩展**：下一次开战时刻（Crystal 每分钟现算） |
 
+第 8 轮新增 `crates/mir-store/migrations/0016_conquest_objects.sql`（本项目扩展，
+Crystal 的器械耐久在 `.mcd` 里）：
+
+| 列 | 含义 |
+|---|---|
+| `conquest_index` | FK → `conquests`，`ON DELETE CASCADE` |
+| `kind` | 0 Gate / 1 Wall / 2 Archer（CHECK） |
+| `x` / `y` | 格子坐标；主键 `(conquest_index, kind, x, y)` |
+| `direction` | 0..7（CHECK） |
+| `hp` / `max_hp` | 当前/最大耐久（CHECK hp） |
+| `owner_guild_id` | 归属行会，`NULL` = `-1` |
+| `destroyed` / `open` | 摧毁状态 / 城门开关（`open` 本作扩展） |
+
 流程：
 
-- 启动：`server.rs` 先 `init_conquests()`（配表）→ 刷箭塔 → `list_conquests()` →
-  [`World::load_conquests`]（状态覆盖配表）；
+- 启动：`server.rs` 先 `init_conquests()`（配表）→ `list_conquests()` →
+  [`World::load_conquests`]（状态覆盖配表；`conquest_objects` 恢复器械并重新分配
+  `object_id`，无记录则按配表生成）；
 - 运行：tick 里状态一改就 `dirty = true`，主循环用
-  [`persist_conquest_writes`] 落盘（与行会落盘同一条路）。
+  [`persist_conquest_writes`] 落盘（与行会落盘同一条路）；停战/受伤/开关门
+  `mark_conquest_dirty` 也会落盘。
 
 ---
 
@@ -468,8 +493,8 @@ Crystal 的存档是 `Conquests/<index>.mcd` 一个二进制文件
 
 | 项目 | Crystal 出处 | 说明 |
 |---|---|---|
-| 城门 / 城墙 / 器械实体 | `ConquestGuildGateInfo` / `ConquestGuildWallInfo` / `ConquestGuildSiegeInfo`（`ConquestGuildInfo.cs:94-476`） | **简化实体已实现**（§8.6：Gate 5000 / Wall 3000 / Archer 2000 HP、可摧毁、`S.ConquestObject` 扩展包）；Crystal 的 AI 81/82/72、`GetRepairCost`/`Repair`、`OPENGATE`/`CLOSEGATE` 仍未做 |
-| 箭塔血量与「复活」 | `ConquestGuildArcherInfo.Alive`（`:486`、`:503-516`） | Archer 器械已有 HP/摧毁（§8.6），但不持久化、重启后满血重刷；`CONQUESTGUARD <index> <n>` 修复动作未实现 |
+| 城门 / 城墙 / 器械实体 | `ConquestGuildGateInfo` / `ConquestGuildWallInfo` / `ConquestGuildSiegeInfo`（`ConquestGuildInfo.cs:94-476`） | **简化实体已实现**（§8.6：Gate 5000 / Wall 3000 / Archer 2000 HP、可摧毁、`S.ConquestObject` 扩展包、0016 持久化、`OPENGATE`/`CLOSEGATE`）；Crystal 的 AI 81/82/72 子类与修理未做 |
+| 箭塔血量与「复活」 | `ConquestGuildArcherInfo.Alive`（`:486`、`:503-516`） | Archer 器械已有 HP/摧毁/0016 持久化与 `S.ObjectRangeAttack`（§8.6）；`CONQUESTGUARD <index> <n>` 修复动作未实现 |
 | 旗子 NPC | `ConquestGuildFlagInfo.Spawn`（`:218-243`） | 旗子贴图/颜色随城主变化（`Guild.Info.FlagImage`/`FlagColour`）未实现；对计分无影响 |
 | 控制点 NPC 对象 | `ConquestGuildFlagInfo` | 计分与归属已实现，但控制点没有可点击的旗子对象 |
 | NPC 可见性 | `ConquestObject.NPCVisibility`（`:375-440`）、`NpcInfo.ConquestVisible` | 开战时才显示/隐藏的攻城 NPC 未实现 |

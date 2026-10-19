@@ -7730,9 +7730,13 @@ pub use crate::manual::server::ConquestObject;
 
 pub use crate::manual::server::ConquestResult;
 
+pub use crate::manual::server::GuildAllies;
+
 pub use crate::manual::server::ConquestObjectType;
 
 pub use crate::manual::server::ConquestControlPoint;
+
+pub use crate::manual::server::GuildAlly;
 
 /// Every server→client packet Crystal understands.
 #[derive(Debug, Clone, PartialEq)]
@@ -8019,6 +8023,7 @@ pub enum ServerPacket {
     ConquestInfo(ConquestInfo),
     ConquestObject(ConquestObject),
     ConquestResult(ConquestResult),
+    GuildAllies(GuildAllies),
 }
 
 impl ServerPacket {
@@ -8308,6 +8313,7 @@ impl ServerPacket {
             Self::ConquestInfo(_) => ConquestInfo::INDEX,
             Self::ConquestObject(_) => ConquestObject::INDEX,
             Self::ConquestResult(_) => ConquestResult::INDEX,
+            Self::GuildAllies(_) => GuildAllies::INDEX,
         }
     }
 
@@ -8597,6 +8603,7 @@ impl ServerPacket {
             Self::ConquestInfo(_) => ConquestInfo::COMPRESSED,
             Self::ConquestObject(_) => ConquestObject::COMPRESSED,
             Self::ConquestResult(_) => ConquestResult::COMPRESSED,
+            Self::GuildAllies(_) => GuildAllies::COMPRESSED,
         }
     }
 
@@ -10083,6 +10090,11 @@ impl ServerPacket {
                 let mut r = crate::PacketReader::new(&body);
                 Ok(Self::ConquestResult(ConquestResult::decode(&mut r)?))
             }
+            GuildAllies::INDEX => {
+                let body = crate::codec::decompress_if(GuildAllies::COMPRESSED, payload)?;
+                let mut r = crate::PacketReader::new(&body);
+                Ok(Self::GuildAllies(GuildAllies::decode(&mut r)?))
+            }
             other => Err(crate::ProtocolError::UnknownPacket { index: other }),
         }
     }
@@ -10372,6 +10384,7 @@ impl ServerPacket {
             Self::ConquestInfo(p) => p.encode(w),
             Self::ConquestObject(p) => p.encode(w),
             Self::ConquestResult(p) => p.encode(w),
+            Self::GuildAllies(p) => p.encode(w),
         }
     }
 
@@ -10678,6 +10691,7 @@ mod roundtrip {
             super::ServerPacket::ConquestInfo(super::ConquestInfo::default()),
             super::ServerPacket::ConquestObject(super::ConquestObject::default()),
             super::ServerPacket::ConquestResult(super::ConquestResult::default()),
+            super::ServerPacket::GuildAllies(super::GuildAllies::default()),
         ];
         for packet in packets {
             let frame = packet.encode_frame();

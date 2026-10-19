@@ -1332,6 +1332,12 @@ impl World {
                 self.give_buff(player_id, npc, action);
                 true
             }
+            "OPENGATE" | "CLOSEGATE" => {
+                if npc.conquest > 0 {
+                    self.set_conquest_gate(npc.conquest, player_id, keyword == "OPENGATE");
+                }
+                true
+            }
             _ => false,
         }
     }

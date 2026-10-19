@@ -15,7 +15,7 @@ use mir_core::Language;
 use mir_core::Point;
 use mir_protocol::data::ClientFriend;
 use mir_protocol::packets::client as c;
-use mir_protocol::packets::server::{FriendUpdate, GuildStatus};
+use mir_protocol::packets::server::{FriendUpdate, GuildAllies, GuildAlly, GuildStatus};
 use mir_protocol::{PacketWriter, ServerPacket};
 use mir_render::{Frame, MapScene};
 
@@ -319,11 +319,16 @@ fn guild_ally_tab_fits_small_screen_and_saves_png() {
         gold: 10_000,
         ..GuildStatus::default()
     }));
+    snapshot.apply_packet(&ServerPacket::GuildAllies(GuildAllies {
+        allies: vec![GuildAlly {
+            index: 7,
+            name: "盟友会".to_owned(),
+            leader: "盟主".to_owned(),
+        }],
+    }));
     let mut state = UiState::new(Language::ZhCn);
     state.show_guild = true;
     state.guild_tab = guild::GuildTab::Ally;
-    state.guild_allies.push("盟友会".to_owned());
-    state.guild_ally_pending = Some("待同意会".to_owned());
 
     let small = guild::guild_layout(Rect::screen(320, 240), 0, 0, 0, 0);
     assert!(
@@ -341,5 +346,54 @@ fn guild_ally_tab_fits_small_screen_and_saves_png() {
     let output = workspace("target/client-ally.png");
     std::fs::create_dir_all(output.parent().expect("target")).expect("创建 target");
     frame.save_png(&output).expect("写联盟截图");
+    let allies_output = workspace("target/client-guild-allies.png");
+    frame.save_png(&allies_output).expect("写盟友名单截图");
     assert!(frame.distinct_color_count() > 10);
+}
+
+#[test]
+fn guild_allies_packet_roundtrips_and_clears_without_guild() {
+    let packet = GuildAllies {
+        allies: vec![
+            GuildAlly {
+                index: 7,
+                name: "盟友会".to_owned(),
+                leader: "盟主".to_owned(),
+            },
+            GuildAlly {
+                index: 9,
+                name: "兄弟会".to_owned(),
+                leader: "二哥".to_owned(),
+            },
+        ],
+    };
+    let mut writer = PacketWriter::new();
+    packet.encode(&mut writer);
+    let bytes = writer.into_inner();
+    let decoded =
+        GuildAllies::decode(&mut mir_protocol::PacketReader::new(&bytes)).expect("解码盟友名单");
+    assert_eq!(decoded, packet);
+    assert_eq!(GuildAllies::INDEX, 303);
+
+    let mut snapshot = WorldSnapshot::default();
+    snapshot.apply_packet(&ServerPacket::GuildAllies(packet));
+    assert_eq!(snapshot.guild_allies.len(), 2);
+    assert_eq!(snapshot.guild_allies[0].leader, "盟主");
+
+    // 空表（解除联盟）整表替换为 0。
+    snapshot.apply_packet(&ServerPacket::GuildAllies(GuildAllies {
+        allies: Vec::new(),
+    }));
+    assert!(snapshot.guild_allies.is_empty());
+
+    // 登录进无行会：服务端不发 GuildAllies，收到空 GuildStatus 要清空列表。
+    snapshot.apply_packet(&ServerPacket::GuildAllies(GuildAllies {
+        allies: vec![GuildAlly {
+            index: 7,
+            name: "盟友会".to_owned(),
+            leader: "盟主".to_owned(),
+        }],
+    }));
+    snapshot.apply_packet(&ServerPacket::GuildStatus(GuildStatus::default()));
+    assert!(snapshot.guild_allies.is_empty(), "无行会时应清空盟友列表");
 }

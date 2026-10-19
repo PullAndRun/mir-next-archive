@@ -705,10 +705,11 @@ Crystal 的行会 buff **没有暂停机制**（`GuildObject.Process` 不看安�
 
 ---
 
-## 15. 行会联盟（第 7 轮扩展）
+## 15. 行会联盟（第 7/8 轮扩展）
 
 Crystal 本版 `GuildInfo.AllyGuilds`（`GuildObject.cs:63`）**字段未被任何逻辑使用**，
-本作按任务书补全，并加了一条 Crystal 没有的「盟友 PK 豁免」。
+本作按任务书补全，并加了一条 Crystal 没有的「盟友 PK 豁免」；第 8 轮再补
+`S.GuildAllies` 权威名单包。
 
 ### 15.1 数据与上限
 
@@ -732,18 +733,41 @@ Crystal 本版 `GuildInfo.AllyGuilds`（`GuildObject.cs:63`）**字段未被任�
 `ally_guild_not_found` / `ally_requested` / `ally_accepted` / `ally_removed` / `ally_failed`，
 按玩家语言渲染）。
 
-### 15.3 盟友 PK 豁免（本作扩展）
+### 15.3 `S.GuildAllies`（索引 303，本项目扩展）
+
+Crystal 没有盟友名单包；本作新增**整表下发**的只读包（索引 **303**，不压缩）：
+
+```rust
+GuildAllies { allies: Vec<GuildAlly> }              // count: u16（上限 256）
+GuildAlly  { index: i32, name: String, leader: String } // 行会 ID / 行会名 / 会长名
+```
+
+广播时机（按行会 ID 升序，整表替换）：
+
+1. **结盟成功**（`form_guild_alliance`，含「申请 → 对方会长同意」）→ 双方在线成员各一份；
+2. **解除联盟**（任一方会长）→ 双方各一份（空表）；
+3. **对方行会解散** → 存活方收到去掉该行会的表，同时服务端清掉**反向链接**
+   （本轮修掉了以前会留下的死链接）；
+4. **登录进世界**（`guild_player_online`，排在 `S.GuildStatus` 之后）→ 有行会才发；
+   无行会**不下发**。
+
+为什么整表而不是增量：盟友上限只有 5，整表重发成本可忽略，却能避免「增量丢包后
+名单永久错位」。
+
+### 15.4 盟友 PK 豁免（本作扩展）
 
 `World::players_are_allied(a, b)` 在**棕名**与 **PK 点**两个分支都加了判断：
 盟友互杀**不加 PK 点、不给棕名**（`world.rs` 的两处 `players_are_allied` 调用）。
 Crystal 原版没有盟友 PK 豁免逻辑，这是本作按任务书新增的行为。
 
-### 15.4 未做
+### 15.5 未做
 
 * 盟友聊天频道；
 * 敌对行会（`WarringGuilds`）、行会战。
 
-### 15.5 测试
+### 15.6 测试
 
-`crates/mir-server/tests/social.rs` 7 条覆盖：联盟双向写入与记录往返、上限、盟友判定、
-`S.FriendUpdate` 包；`tests/postgres_guild.rs` 的 `GuildRecord` 已带 `allies` 构造。
+`crates/mir-server/tests/social.rs` 10 条覆盖好友/联盟基础（编解码、上限、双向、盟友判定、
+`S.FriendUpdate`、`/ally` 回执本地化）；`crates/mir-server/tests/guild_allies.rs` **6 条**
+覆盖结盟/解除/解散清理与 `S.GuildAllies` 广播（协议往返 2 条在 `mir-protocol`）；
+`tests/postgres_guild.rs` 的 `GuildRecord` 已带 `allies` 构造。

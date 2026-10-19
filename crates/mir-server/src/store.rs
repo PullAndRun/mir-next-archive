@@ -299,6 +299,31 @@ pub struct ConquestRecord {
     pub flag_owners: String,
     /// **本作扩展**：下一次自动开战时刻（Unix 毫秒）。
     pub next_war_at: i64,
+    /// 本作扩展：攻城器械（`conquest_objects` 表）。
+    pub objects: Vec<ConquestObjectRecord>,
+}
+
+/// 一件攻城器械的存储视图（本项目扩展）。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ConquestObjectRecord {
+    /// 0 Gate / 1 Wall / 2 Archer。
+    pub kind: u8,
+    /// 横坐标。
+    pub x: i32,
+    /// 纵坐标。
+    pub y: i32,
+    /// `MirDirection`。
+    pub direction: u8,
+    /// 当前耐久。
+    pub hp: i32,
+    /// 最大耐久。
+    pub max_hp: i32,
+    /// 归属行会；`None` = 无主。
+    pub owner: Option<i32>,
+    /// 是否已摧毁。
+    pub destroyed: bool,
+    /// 城门是否打开。
+    pub open: bool,
 }
 
 /// 行会里的一行职位。

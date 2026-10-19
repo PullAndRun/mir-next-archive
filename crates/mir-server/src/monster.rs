@@ -292,6 +292,40 @@ impl MonsterKind {
                 stationary: false,
                 use_magic_stats: true,
             }),
+            // 下列 AI 在 Crystal 里是 `S.ObjectMagic` 子类（`SepWizard.cs:68-84`、
+            // `SepTaoist.cs:92-97`、`SepHighWizard.cs:58-79`）。**注意**：采样 `Server.MirDB`
+            // （cjlaaa/Jev/Daneo/airen/masmx86 等全部 12 份）里唯一真实存在的 ObjectMagic 是
+            // AI 55 `Clone`（已实现）；这三个编号是按 Crystal 参考类预留，供导入新版 DB 时直接生效。
+            215 => Some(MonsterMagicSpec {
+                spell: Spell::GreatFireBall,
+                range: 5,
+                cooldown_ms: cooldown,
+                shape: MonsterMagicShape::Single,
+                kite: false,
+                stationary: false,
+                use_magic_stats: true,
+            }),
+            216 => Some(MonsterMagicSpec {
+                spell: Spell::SoulFireBall,
+                range: 5,
+                cooldown_ms: cooldown,
+                shape: MonsterMagicShape::Single,
+                kite: false,
+                stationary: false,
+                use_magic_stats: true,
+            }),
+            220 => Some(MonsterMagicSpec {
+                spell: Spell::FireBang,
+                range: 6,
+                cooldown_ms: cooldown,
+                shape: MonsterMagicShape::Aoe {
+                    radius: 1,
+                    at_target: true,
+                },
+                kite: false,
+                stationary: false,
+                use_magic_stats: true,
+            }),
             _ => None,
         }
     }
@@ -1830,6 +1864,11 @@ impl World {
             // 守卫只攻击红名（`PlayerObject.IsAttackTarget(MonsterObject)`，
             // `PlayerObject.cs:4679`：`AI == 6 || 58 || 113 → return PKPoints >= 200`）。
             if monster.kind.is_guard() && player.pk_points < RED_NAME_PK_POINTS {
+                continue;
+            }
+            // TownArcher `FindTarget`：只锁定 PKPoints >= 200 的红名玩家
+            // （`Monsters/TownArcher.cs:96-112`）。
+            if monster.kind.is_town_archer() && player.pk_points < RED_NAME_PK_POINTS {
                 continue;
             }
             if monster.kind.is_conquest_archer() {

@@ -709,3 +709,37 @@ fn attacking_postpones_regen_but_walking_does_not() {
         "走路期间没有额外回血"
     );
 }
+
+#[test]
+fn zero_hp_character_enters_at_full_health_and_can_move() {
+    let mut harness = Harness::new(77);
+    let player = harness.add_player(1, Point::new(20, 20));
+    // 模拟新建角色的存档默认值：hp/mp 都是 0，但 dead=false。
+    let mut stored = harness.world.leave(player).expect("先离开世界");
+    stored.hp = 0;
+    stored.mp = 0;
+    stored.dead = false;
+    harness.world.enter(stored);
+    let state = harness.world.player(player).expect("玩家");
+    assert_eq!(state.hp, WARRIOR_HP, "登录应以满血开始");
+    assert_eq!(state.mp, WARRIOR_MP, "登录应以满蓝开始");
+    assert!(!state.dead);
+    harness.ready_player(player);
+    for _ in 0..5 {
+        harness
+            .world
+            .walk(player, MirDirection::Right)
+            .expect("满血新角色应能连续移动");
+        harness.ready_player(player);
+    }
+    harness.world.advance_clock(1_000);
+    harness.world.tick();
+    assert!(!harness.world.player(player).expect("玩家").dead);
+    assert!(
+        !harness
+            .packets(player)
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::Death(_))),
+        "新登录不应收到 S.Death"
+    );
+}

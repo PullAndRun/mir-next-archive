@@ -35,9 +35,9 @@ use sqlx::{PgConnection, PgExecutor};
 
 use crate::error::{Result, StoreError};
 use crate::models::{
-    Account, Character, CharacterSummary, Conquest, DEFAULT_LANGUAGE, GameShopPurchase,
-    GameShopStock, Guild, GuildBuffRow, GuildMemberRow, GuildRankRow, GuildRow, GuildStorageRow,
-    Mail, MarketAuction, NewAccount, NewCharacter,
+    Account, Character, CharacterSummary, Conquest, ConquestObject, DEFAULT_LANGUAGE,
+    GameShopPurchase, GameShopStock, Guild, GuildBuffRow, GuildMemberRow, GuildRankRow, GuildRow,
+    GuildStorageRow, Mail, MarketAuction, NewAccount, NewCharacter,
 };
 use crate::password::{encode_hash, generate_salt, hash_password};
 
@@ -1361,22 +1361,43 @@ const CONQUEST_COLUMNS: &str = "conquest_index, owner_guild_id, attacker_guild_i
 pub async fn list_conquests(conn: &mut PgConnection) -> Result<Vec<Conquest>> {
     let sql = format!("SELECT {CONQUEST_COLUMNS} FROM conquests ORDER BY conquest_index");
 
-    sqlx::query_as::<_, Conquest>(&sql)
+    let mut conquests = sqlx::query_as::<_, Conquest>(&sql)
         .fetch_all(&mut *conn)
         .await
-        .map_err(StoreError::Database)
+        .map_err(StoreError::Database)?;
+    for conquest in &mut conquests {
+        conquest.objects = list_conquest_objects(conn, conquest.conquest_index).await?;
+    }
+    Ok(conquests)
 }
 
 /// 读一个攻城区的状态；不存在返回 [`StoreError::NotFound`]。
 pub async fn load_conquest(conn: &mut PgConnection, conquest_index: i32) -> Result<Conquest> {
     let sql = format!("SELECT {CONQUEST_COLUMNS} FROM conquests WHERE conquest_index = $1");
 
-    sqlx::query_as::<_, Conquest>(&sql)
+    let mut conquest = sqlx::query_as::<_, Conquest>(&sql)
         .bind(conquest_index)
         .fetch_optional(&mut *conn)
         .await
         .map_err(StoreError::Database)?
-        .ok_or(StoreError::NotFound("攻城"))
+        .ok_or(StoreError::NotFound("攻城"))?;
+    conquest.objects = list_conquest_objects(conn, conquest_index).await?;
+    Ok(conquest)
+}
+
+/// 读一个攻城区的器械列表（`conquest_objects` 表，本项目扩展）。
+pub async fn list_conquest_objects(
+    conn: &mut PgConnection,
+    conquest_index: i32,
+) -> Result<Vec<ConquestObject>> {
+    sqlx::query_as::<_, ConquestObject>(
+        "SELECT conquest_index, kind, x, y, direction, hp, max_hp, owner_guild_id, destroyed, \
+         open FROM conquest_objects WHERE conquest_index = $1 ORDER BY kind, x, y",
+    )
+    .bind(conquest_index)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(StoreError::Database)
 }
 
 /// 写入（插入或整行更新）一个攻城区的状态。
@@ -1429,6 +1450,32 @@ pub async fn save_conquest(conn: &mut PgConnection, conquest: &Conquest) -> Resu
         .execute(&mut *conn)
         .await
         .map_err(StoreError::Database)?;
+
+    // 器械整表替换（本项目扩展）。
+    sqlx::query("DELETE FROM conquest_objects WHERE conquest_index = $1")
+        .bind(conquest.conquest_index)
+        .execute(&mut *conn)
+        .await
+        .map_err(StoreError::Database)?;
+    for object in &conquest.objects {
+        sqlx::query(
+            "INSERT INTO conquest_objects (conquest_index, kind, x, y, direction, hp, max_hp, \
+             owner_guild_id, destroyed, open) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+        )
+        .bind(conquest.conquest_index)
+        .bind(object.kind)
+        .bind(object.x)
+        .bind(object.y)
+        .bind(object.direction)
+        .bind(object.hp)
+        .bind(object.max_hp)
+        .bind(object.owner_guild_id)
+        .bind(object.destroyed)
+        .bind(object.open)
+        .execute(&mut *conn)
+        .await
+        .map_err(StoreError::Database)?;
+    }
     Ok(())
 }
 

@@ -58,7 +58,7 @@ pub fn format_remaining(seconds: i64) -> String {
 /// 归属行会颜色：0 为灰色，其余按 ID 派生稳定色。
 #[must_use]
 pub fn owner_color(owner: i32) -> [u8; 4] {
-    if owner == 0 {
+    if owner <= 0 {
         return [150, 150, 150, 255];
     }
     let hash = u32::from_ne_bytes(i32::to_ne_bytes(owner));
@@ -112,7 +112,16 @@ pub fn draw_objects(
         if object.destroyed {
             if now_ms.saturating_sub(object.destroyed_at_ms) < SHATTER_MS {
                 draw_shatter(frame, rect, object.kind);
+            } else if gate_is_open(object) {
+                // 城门被打破 = 开城：保留一个「已开」标记，而不是整段消失。
+                draw_gate_open(frame, rect, text, language);
             }
+            continue;
+        }
+        if gate_is_open(object) {
+            // 服务端 `open`：门已开，画开启态（通道 + 文字），但仍保留器械血条。
+            draw_gate_open(frame, rect, text, language);
+            draw_health_bar(frame, rect, object.hp, object.max_hp, object.owner);
             continue;
         }
         // 真实素材尝试：objects.wzl 的 3+kind；空帧/缺库时回退色块。
@@ -140,6 +149,10 @@ pub fn draw_objects(
             );
         }
         draw_health_bar(frame, rect, object.hp, object.max_hp, object.owner);
+        if object.kind == ConquestObjectType::Gate && !gate_is_open(object) {
+            // 关门状态：底部画一条暗红阻挡条（开城后不再画）。
+            frame.fill_rect(rect.x, rect.bottom() - 3, rect.width, 3, [170, 50, 40, 220]);
+        }
         text.draw_clipped(
             frame,
             rect.x,
@@ -149,6 +162,63 @@ pub fn draw_objects(
             [255, 236, 180, 255],
             Rect::new(rect.x, rect.y - 14, rect.width, 14),
         );
+    }
+    draw_arrows(frame, snapshot, scene, center, now_ms);
+}
+
+/// 城门是否已开：服务端用 `destroyed`（hp<=0）表示城门被打破，即开城。
+#[must_use]
+pub fn gate_is_open(object: &crate::net::ConquestObjectView) -> bool {
+    object.kind == ConquestObjectType::Gate && (object.open || object.destroyed || object.hp <= 0)
+}
+
+/// 开城标记：半透明绿色通道 + 「城门已开」。
+fn draw_gate_open(frame: &mut Frame, rect: Rect, text: &UiText, language: Language) {
+    frame.fill_rect_alpha(rect.x, rect.y, rect.width, rect.height, [40, 140, 60, 110]);
+    frame.fill_rect(
+        rect.x,
+        rect.bottom() - 2,
+        rect.width,
+        2,
+        [120, 220, 140, 220],
+    );
+    text.draw_center(
+        frame,
+        rect,
+        Label::ConquestGateOpen.text(language),
+        11,
+        [210, 255, 210, 255],
+    );
+}
+
+/// 箭塔弹道：从箭塔格飞向目标格（400ms，点状拖尾）。
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+fn draw_arrows(
+    frame: &mut Frame,
+    snapshot: &WorldSnapshot,
+    scene: &MapScene,
+    center: Point,
+    now_ms: u64,
+) {
+    const FLIGHT_MS: u64 = 400;
+    for arrow in &snapshot.conquest_arrows {
+        let age = now_ms.saturating_sub(arrow.started_ms);
+        if age >= FLIGHT_MS {
+            continue;
+        }
+        let progress = age as f32 / FLIGHT_MS as f32;
+        let (from_x, from_y) = scene.world_to_screen(center, arrow.from);
+        let (to_x, to_y) = scene.world_to_screen(center, arrow.to);
+        let start_x = from_x + CELL_WIDTH / 2;
+        let start_y = from_y + 8;
+        let end_x = to_x + CELL_WIDTH / 2;
+        let end_y = to_y + 8;
+        for step in 0..6 {
+            let t = (progress - step as f32 * 0.05).clamp(0.0, 1.0);
+            let x = start_x + ((end_x - start_x) as f32 * t) as i32;
+            let y = start_y + ((end_y - start_y) as f32 * t) as i32;
+            frame.fill_rect_alpha(x, y, 3, 3, [255, 220, 120, 220]);
+        }
     }
 }
 

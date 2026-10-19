@@ -34,7 +34,7 @@ use mir_protocol::ServerPacket;
 use mir_protocol::packets::server::{
     Chat, ConquestControlPoint, ConquestInfo as ConquestInfoPacket,
     ConquestObject as ConquestObjectPacket, ConquestObjectType,
-    ConquestResult as ConquestResultPacket,
+    ConquestResult as ConquestResultPacket, ObjectRangeAttack,
 };
 
 use crate::npc::Npc;
@@ -120,6 +120,8 @@ pub struct ConquestObjectState {
     pub max_hp: i32,
     /// 归属行会。
     pub owner: i32,
+    /// 城门是否打开（仅 Gate）。
+    pub open: bool,
     /// 下次射击时刻（仅箭塔用，Unix 毫秒）。
     pub next_shot: i64,
 }
@@ -553,6 +555,21 @@ impl Conquest {
                     .collect(),
             ),
             next_war_at: self.next_war_at,
+            objects: self
+                .objects
+                .iter()
+                .map(|object| crate::store::ConquestObjectRecord {
+                    kind: object.kind.value(),
+                    x: object.location.x,
+                    y: object.location.y,
+                    direction: object.direction as u8,
+                    hp: object.hp,
+                    max_hp: object.max_hp,
+                    owner: (object.owner >= 0).then_some(object.owner),
+                    destroyed: object.destroyed(),
+                    open: object.open,
+                })
+                .collect(),
         }
     }
 
@@ -579,6 +596,25 @@ impl Conquest {
         for point in &mut self.control_points {
             point.owner = owners.get(&point.index).copied().unwrap_or(-1);
         }
+        self.objects = record
+            .objects
+            .iter()
+            .map(|object| ConquestObjectState {
+                object_id: 0,
+                kind: ConquestObjectType::from_value(object.kind).unwrap_or_default(),
+                location: Point {
+                    x: object.x,
+                    y: object.y,
+                },
+                direction: mir_core::enums::MirDirection::from_value(object.direction)
+                    .unwrap_or(mir_core::enums::MirDirection::Down),
+                hp: object.hp,
+                max_hp: object.max_hp,
+                owner: object.owner.unwrap_or(-1),
+                open: object.open,
+                next_shot: 0,
+            })
+            .collect();
         self.dirty = false;
     }
 }
@@ -676,10 +712,26 @@ impl World {
         }
         let mut loaded = 0;
         for record in records {
-            if let Some(conquest) = self.conquest_mut(record.conquest_index) {
-                conquest.apply_record(&record);
-                loaded += 1;
+            let Some(conquest) = self.conquest_mut(record.conquest_index) else {
+                continue;
+            };
+            conquest.apply_record(&record);
+            let empty = conquest.objects.is_empty();
+            if empty {
+                self.spawn_conquest_objects(record.conquest_index);
+            } else {
+                let count = conquest.objects.len();
+                for slot in 0..count {
+                    let id = self.allocate_object_id();
+                    if let Some(object) = self
+                        .conquest_mut(record.conquest_index)
+                        .and_then(|conquest| conquest.objects.get_mut(slot))
+                    {
+                        object.object_id = id;
+                    }
+                }
             }
+            loaded += 1;
         }
         loaded
     }
@@ -1022,8 +1074,12 @@ impl World {
         let Some(conquest) = self.conquest(index) else {
             return Vec::new();
         };
-        if !conquest.war_is_on {
-            return Vec::new();
+        if !conquest.objects.is_empty() {
+            return conquest
+                .objects
+                .iter()
+                .map(|object| object.object_id)
+                .collect();
         }
         let Some(map) = conquest.map.clone() else {
             return Vec::new();
@@ -1071,6 +1127,7 @@ impl World {
                     hp: max_hp,
                     max_hp,
                     owner,
+                    open: false,
                     next_shot: 0,
                 });
             }
@@ -1079,6 +1136,64 @@ impl World {
         self.broadcast_conquest_state(index);
         let _ = map;
         ids
+    }
+
+    /// 城主行会开关城门（`OPENGATE`/`CLOSEGATE`）；返回是否执行。
+    pub fn set_conquest_gate(&mut self, index: i32, player_id: u32, open: bool) -> bool {
+        let Some(conquest) = self.conquest(index) else {
+            return false;
+        };
+        let owner = conquest.owner;
+        if owner < 0 {
+            return false;
+        }
+        let allowed = self
+            .players
+            .get(&player_id)
+            .and_then(|player| player.guild)
+            .is_some_and(|guild| guild.guild_id == owner);
+        if !allowed {
+            return false;
+        }
+        let mut ids: Vec<u32> = conquest
+            .objects
+            .iter()
+            .filter(|object| object.kind == ConquestObjectType::Gate && !object.destroyed())
+            .map(|object| object.object_id)
+            .collect();
+        if ids.is_empty() {
+            // 开战前/停战后也能操作：按配表补生成一次器械。
+            self.spawn_conquest_objects(index);
+            ids = self
+                .conquest(index)
+                .map(|conquest| {
+                    conquest
+                        .objects
+                        .iter()
+                        .filter(|object| {
+                            object.kind == ConquestObjectType::Gate && !object.destroyed()
+                        })
+                        .map(|object| object.object_id)
+                        .collect()
+                })
+                .unwrap_or_default();
+        }
+        if ids.is_empty() {
+            return false;
+        }
+        for object_id in &ids {
+            if let Some(object) = self.conquest_mut(index).and_then(|conquest| {
+                conquest
+                    .objects
+                    .iter_mut()
+                    .find(|object| object.object_id == *object_id)
+            }) {
+                object.open = open;
+            }
+            self.broadcast_conquest_object(index, *object_id);
+        }
+        self.mark_conquest_dirty(index);
+        true
     }
 
     /// 某个格子是否被未摧毁的城门/城墙挡住。
@@ -1092,6 +1207,7 @@ impl World {
                             object.kind,
                             ConquestObjectType::Gate | ConquestObjectType::Wall
                         )
+                        && (object.kind == ConquestObjectType::Wall || !object.open)
                         && object.location == cell
                 })
         })
@@ -1146,6 +1262,7 @@ impl World {
             return 0;
         };
         self.broadcast_conquest_object(index, object_id);
+        self.mark_conquest_dirty(index);
         let _ = (map, destroyed);
         actual
     }
@@ -1212,6 +1329,22 @@ impl World {
                     .min_by_key(|(_, player)| player.position.max_distance(location))
                     .map(|(id, _)| *id);
                 if let Some(target) = target {
+                    if let Some(target_position) =
+                        self.players.get(&target).map(|player| player.position)
+                    {
+                        let packet = ServerPacket::ObjectRangeAttack(ObjectRangeAttack {
+                            object_id,
+                            location,
+                            direction: location.direction_to(target_position),
+                            target_id: target,
+                            target: target_position,
+                            type_: 0,
+                            spell: mir_core::enums::Spell::None,
+                            level: 0,
+                        })
+                        .encode_frame();
+                        self.broadcast(&map, location, Some(object_id), &packet, object_id);
+                    }
                     self.pending_hits.push(crate::combat::PendingHit {
                         at: now + 500,
                         attacker_id: object_id,
@@ -1264,6 +1397,7 @@ impl World {
             max_hp: object.max_hp,
             owner: object.owner,
             destroyed: object.destroyed(),
+            open: object.open,
         }
     }
 

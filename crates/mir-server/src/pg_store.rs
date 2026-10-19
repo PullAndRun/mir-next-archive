@@ -346,6 +346,22 @@ fn to_store_conquest(conquest: &ConquestRecord) -> mir_store::Conquest {
         king_points: conquest.king_points.clone(),
         flag_owners: conquest.flag_owners.clone(),
         next_war_at: optional_millis(conquest.next_war_at),
+        objects: conquest
+            .objects
+            .iter()
+            .map(|object| mir_store::ConquestObject {
+                conquest_index: conquest.conquest_index,
+                kind: i16::from(object.kind),
+                x: object.x,
+                y: object.y,
+                direction: i16::from(object.direction),
+                hp: object.hp,
+                max_hp: object.max_hp,
+                owner_guild_id: object.owner,
+                destroyed: object.destroyed,
+                open: object.open,
+            })
+            .collect(),
     }
 }
 
@@ -368,6 +384,21 @@ fn from_store_conquest(conquest: mir_store::Conquest) -> ConquestRecord {
         king_points: conquest.king_points,
         flag_owners: conquest.flag_owners,
         next_war_at: millis_or_zero(conquest.next_war_at),
+        objects: conquest
+            .objects
+            .into_iter()
+            .map(|object| crate::store::ConquestObjectRecord {
+                kind: u8::try_from(object.kind).unwrap_or(0),
+                x: object.x,
+                y: object.y,
+                direction: u8::try_from(object.direction).unwrap_or(0),
+                hp: object.hp,
+                max_hp: object.max_hp,
+                owner: object.owner_guild_id,
+                destroyed: object.destroyed,
+                open: object.open,
+            })
+            .collect(),
     }
 }
 

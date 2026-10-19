@@ -1518,6 +1518,24 @@ impl World {
         }
         let now = self.now();
         let mut player = player;
+        // 新角色/旧档缺省值可能是 hp=0、mp=0；进世界时按当前最大 HP/MP 补满，
+        // 否则 tick 的血量检查会把「还没开始玩」的玩家判死（Crystal 构造/StartGame 以满血开始）。
+        if player.hp <= 0 {
+            player.hp = player.stats.hp.max(1);
+            player.dead = false;
+            player.death_time = 0;
+            player.revive_time = 0;
+        }
+        if player.mp <= 0 {
+            player.mp = player.stats.mp.max(0);
+        }
+        tracing::debug!(
+            player = player.object_id,
+            hp = player.hp,
+            max_hp = player.stats.hp,
+            dead = player.dead,
+            "进入世界：初始化 HP"
+        );
         // `RefreshNameColour()` 的初值：新进世界时按 PK 值/棕名时间算一次
         // （Crystal 在 `Load` 之后的第一次 `Process` 里做，这里提前到广播外观之前，
         // 否则周围玩家会先看到一帧白色名字）。
@@ -1708,6 +1726,10 @@ impl World {
             self.send_user_location(object_id);
             return Err(MoveError::Dead { object_id });
         }
+        if self.has_buff(object_id, crate::buffs::BuffKind::Paralysis) {
+            self.send_user_location(object_id);
+            return Err(MoveError::Busy { until: now + 1_000 });
+        }
         if !player.can_move(now) {
             self.send_user_location(object_id);
             return Err(MoveError::Busy {
@@ -1734,12 +1756,17 @@ impl World {
             return Ok(from);
         }
 
+        let slow = self
+            .buff_value(object_id, crate::buffs::BuffKind::Slow)
+            .unwrap_or(0)
+            .clamp(0, 300);
         if let Some(player) = self.players.get_mut(&object_id) {
             player.position = to;
             player.direction = direction;
             player.step_counter += 1;
             player.cell_time = now + CELL_GRACE_MS;
-            player.action_time = now + MOVE_DELAY_MS;
+            // Crystal `BuffType.Slow`：移动间隔按百分比放大（values[0]）。
+            player.action_time = now + MOVE_DELAY_MS * (100 + i64::from(slow)) / 100;
         }
         // Crystal `GetCell(CurrentLocation).Remove(this); … GetCell(CurrentLocation).Add(this);`
         // （`HumanObject.cs:2468-2474`）：AOI 网格随落格同步移动。
@@ -1880,6 +1907,9 @@ impl World {
         };
         if player.dead {
             return Err(CombatError::Dead { object_id });
+        }
+        if self.has_buff(object_id, crate::buffs::BuffKind::Paralysis) {
+            return Err(CombatError::Busy { until: now + 1_000 });
         }
         if !player.can_attack(now) {
             return Err(CombatError::Busy {
@@ -3095,6 +3125,14 @@ impl World {
             player.hp = 0;
         }
         let died = !player.dead && player.hp == 0;
+        tracing::debug!(
+            player = object_id,
+            amount,
+            hp = player.hp,
+            max_hp,
+            died,
+            "ChangeHP"
+        );
         if died {
             self.player_died(object_id);
         }

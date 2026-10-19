@@ -473,6 +473,20 @@ Crystal 服务端**没有**复活计时器：客户端在死亡动画结束（`D
 
 死亡期间走/跑/转身/攻击全部返回 `MoveError::Dead` / `CombatError::Dead`。
 
+### 10.4 登录时 HP/MP 初始化（第 8 轮修复）
+
+`World::enter`（`world.rs` 约 `:1508`）在把角色放进世界前做兜底：
+
+```rust
+if player.hp <= 0 { player.hp = player.stats.hp.max(1); player.dead = false; /* 清 death/revive 计时 */ }
+if player.mp <= 0 { player.mp = player.stats.mp.max(0); }
+```
+
+修复「新角色 `UserInformation.hp = 15` / 实际 `hp = 0` 一进世界就 dead」的 bug；
+保留 debug 日志「进入世界：初始化 HP hp=… max_hp=… dead=false」便于登录链路排查。
+测试 `tests/world_lifecycle.rs::zero_hp_character_enters_at_full_health_and_can_move`：
+hp/mp=0、dead=false 进世界 → 满血满蓝、连续走 5 步、tick 后不 dead、无 `S.Death`。
+
 ---
 
 ## 11. 玩家自然回血回蓝（`HumanObject.ProcessRegen`）

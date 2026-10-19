@@ -479,7 +479,7 @@
 
 ### 3.4 本作扩展包（不在 Crystal 枚举内）
 
-`crates/mir-protocol/src/manual/server.rs` 新增三个**只读**服务端包（编号从 300 起，
+`crates/mir-protocol/src/manual/server.rs` 新增四个**只读**服务端包（编号从 300 起，
 避开 Crystal 的 0..278；对应 rustdoc 均标注「本项目扩展」）：
 
 | 编号 | 包 | 用途 |
@@ -487,5 +487,7 @@
 | 300 | `S.ConquestInfo` | 攻城状态（名称/归属/开战时间/控制点） |
 | 301 | `S.ConquestObject` | 攻城器械实体（Gate=0/Wall=1/Archer=2、HP、摧毁） |
 | 302 | `S.ConquestResult` | 停战结果（winner/owner/控制点） |
+| 303 | `S.GuildAllies` | 行会盟友名单（`index/name/leader`，结盟/解除/解散/登录时整表下发） |
 
-字段与下发时机见 [`docs/world/conquest.md`](../world/conquest.md) §8.6。
+字段与下发时机见 [`docs/world/conquest.md`](../world/conquest.md) §8.6；
+盟友包见 [`docs/world/guild.md`](../world/guild.md) §15.3。

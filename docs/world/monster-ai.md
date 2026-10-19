@@ -13,7 +13,7 @@ AI 编号给射程；`monster.rs:814` 的 `process_target` 在射程内走远程
 | 8、164、175、199 | 弓箭手类 | **6** | `AttackRange` |
 | 16 | `RedThunderZuma` | **9** | 贴身改近战（`melee_when_adjacent`，`:173`） |
 | 31 / 32 | `RightGuard` / `LeftGuard` | **8** | 贴身改近战 |
-| 57 | `TownArcher` | **10** | 不追、无 Route 站桩（`is_town_archer`，`:180`；Crystal `TownArcher.CanMove`，`TownArcher.cs:52-120`） |
+| 57 | `TownArcher` | **10** | 不追、无 Route 站桩（`is_town_archer`，`:180`；Crystal `TownArcher.CanMove`，`TownArcher.cs:52-120`）；**只锁定红名**（`pk_points >= 200`，Crystal `TownArcher.cs:96-112`），白名新角色不会被出生点旁的 Royal_Archer 秒杀 |
 | 80 | `ConquestArcher` | **10** | 攻城中箭塔只射敌对行会 |
 | 113 | `ArcherGuard`（名字含 `ArcherGuard`/`弓箭守卫`） | `view_range` | 站桩远程守卫（`is_archer_guard`，`:180`；Crystal `ArcherGuard.cs:22-44`）；**Armadillo 等其它 113 模板仍不远程** |
 
@@ -21,12 +21,15 @@ AI 编号给射程；`monster.rs:814` 的 `process_target` 在射程内走远程
 `max_distance * 50 + 500 ms`（Crystal `MonsterObject.ProjectileAttack`）。
 Crystal 对照：`RightGuard.cs:10-53`、`RedThunderZuma.cs:8-56`。
 
-**第 8 轮已补**：真正走 `S.ObjectMagic` 的 **AI 55 `HumanWizard`/`Clone`**（见 §2）；
-物理 AOE/直线（AI 13/29/**14/50/100**）也在 §2。仍然**未做**的：
-`AI 26/31/32/36/45/46/93/94/96/101…` 等真正 `ObjectMagic` 子类、
-`SepWizard/SepHighWizard/SepTaoist`（AI 215+，采样库里不存在）；
-AI 14 的显隐/回血状态机、Slow/Paralysis 的移动/攻速行为（当前只挂毒状态）、
-毒抗与 `S.ObjectEffect` GreatFoxSpirit 特效、毒效果在出招时结算（Crystal 在伤害落地时）。
+**第 8 轮已补**：真正走 `S.ObjectMagic` 的 **AI 55 `Clone`/`HumanWizard`**（见 §2）；
+另有按 Crystal 参考类**预留**的 `AI 215 SepWizard`（GreatFireBall）、`AI 216 SepTaoist`
+（SoulFireBall）、`AI 220 SepHighWizard`（FireBang AOE）——采样 12 份 `Server.MirDB` 里
+都不存在，导入新版数据后可直接生效。物理 AOE/直线（AI 13/29/**14/50/100**）也在 §2。
+仍然**未做**的：`AI 26/31/32/36/45/46/101…` 等其余 `ObjectMagic` 子类；
+`AI 93/94/96` **不是魔法**——它们是 `S.ObjectRangeAttack`/`S.ObjectAttack` 物理攻击；
+AI 14 的显隐/回血状态机、Slow/Paralysis 的完整移动/攻速表现（第 8 轮已接 `BuffKind::Slow`/
+`Paralysis` 的基础行为，见 §2.5）、毒抗与 `S.ObjectEffect` GreatFoxSpirit 特效、
+毒效果在出招时结算（Crystal 在伤害落地时）。
 AI 113 在真实 Jev 库被用作 `Armadillo`，所以代码用**名字**再确认：只有
 `ArcherGuard`/`弓箭守卫` 才按远程处理，其它 113 模板（如 Armadillo）仍走近战。
 
@@ -37,7 +40,7 @@ AI 113 在真实 Jev 库被用作 `Armadillo`，所以代码用**名字**再确�
 
 ## 2. 怪物魔法攻击（第 8 轮）
 
-### 2.1 真正走 `S.ObjectMagic`：AI 55 `HumanWizard`/`Clone`
+### 2.1 真正走 `S.ObjectMagic`：AI 55 `Clone` / `HumanWizard`
 
 | 项 | 值 |
 |---|---|
@@ -52,6 +55,18 @@ AI 113 在真实 Jev 库被用作 `Armadillo`，所以代码用**名字**再确�
 实现：`monster.rs:264 monster_magic`、`:1370 process_magic_target`、
 `:1415 cast_monster_magic`（伤害在 `monster.rs:1457` 附近，复用 `UserMagic::damage`）。
 Crystal `Monsters/HumanWizard.cs:25-120`。
+
+**预留的 Sep 系魔法 AI**（`monster.rs:295` 附近；采样 12 份 `Server.MirDB` 里都不存在，
+按 Crystal 参考类预留，导入新版数据后生效）：
+
+| AI | 模板 | 技能 | 射程 | 形态 |
+|---|---|---|---|---|
+| 215 | `SepWizard` | `GreatFireBall` | 5 | 单体 |
+| 216 | `SepTaoist` | `SoulFireBall` | 5 | 单体 |
+| 220 | `SepHighWizard` | `FireBang` | 6 | AOE 半径 1 |
+
+注意：`AI 93/94/96` **不是** `ObjectMagic` 系——它们走 `S.ObjectRangeAttack`/`S.ObjectAttack`
+物理攻击，不在本表。
 
 ### 2.2 物理特殊（走 `S.ObjectAttack` / `S.ObjectRangeAttack`，不是 MonsterMagic）
 
@@ -78,7 +93,18 @@ Crystal `Monsters/HumanWizard.cs:25-120`。
   **AI 50 距离 > 2** 例外：广播 `S.ObjectRangeAttack`（半径 7），贴身才用 `S.ObjectAttack`（半径 2）；
 * 直线遇到不可走格 `continue`（跳过该格，不截断后续格）。
 
-### 2.4 测试（`tests/skills.rs`，60 条）
+### 2.4 Slow / Paralysis（第 8 轮）
+
+`BuffKind` 新增 `Slow` / `Paralysis`（`buff_type` 映射 `BuffType::None`，因为 Crystal 把它们
+归在 `PoisonType`）：
+
+* `Slow`：`walk`/`run` 读 `values[0]` 百分比，移动间隔变为 `600 * (100 + pct) / 100`；
+* `Paralysis`：`walk`/`attack` 直接返回 `Busy`（不能移动/攻击），到期由 buff tick 清理；
+* 读取入口 `buff_value`。
+
+AI 14/50 命中时按 §2.2 的概率挂上这两种状态。
+
+### 2.5 测试（`tests/skills.rs`，66 条）
 
 基础 9 条：`magic_monster_does_not_cast_out_of_range`、`magic_monster_casts_and_damages_the_target`、
 `magic_monster_respects_attack_speed_cooldown`、`magic_line_attack_penetrates_two_players`、
@@ -93,6 +119,9 @@ Crystal `Monsters/HumanWizard.cs:25-120`。
 `venom_spider_line_hits_two_cells_and_poisons`、
 `evil_centipede_aoe_does_not_fire_on_no_fight_maps`、
 `great_fox_spirit_aoe_does_not_fire_on_no_fight_maps`。
+
+预留 Sep 魔法 AI 2 条：`sep_wizard_casts_great_fire_ball_and_deals_damage`、
+`sep_high_wizard_fire_bang_aoe_hits_multiple_targets`。
 
 ## 3. 追击与回位
 

@@ -488,8 +488,7 @@ pub fn draw(
     gold_field: &TextField,
     notice_field: &TextField,
     ally_field: &TextField,
-    allies: &[String],
-    ally_pending: Option<&str>,
+    allies: &[mir_protocol::packets::server::GuildAlly],
     focus: Option<FieldId>,
     mouse: Point,
     icon: &mut dyn FnMut(u16) -> Option<Image>,
@@ -582,15 +581,7 @@ pub fn draw(
         GuildTab::Buffs => draw_buffs(frame, text, layout, snapshot, mouse, language),
         GuildTab::Ally => {
             draw_ally(
-                frame,
-                text,
-                layout,
-                ally_field,
-                allies,
-                ally_pending,
-                focus,
-                mouse,
-                language,
+                frame, text, layout, ally_field, allies, focus, mouse, language,
             );
         }
         GuildTab::Notice => {
@@ -952,19 +943,15 @@ fn draw_buffs(
     }
 }
 
-/// 联盟页：本地记录的盟友列表 + 输入框 + 申请/同意/解除按钮。
-///
-/// 服务端没有「盟友名单」协议包（`/ally` 是聊天命令扩展），所以列表是**客户端
-/// 本地台账**：申请加入「申请中」，同意/解除按输入的名字更新；真实状态以服务端
-/// 聊天回执为准。
+/// 联盟页：服务端下发的权威盟友名单 + 行会名输入 + 申请/同意/解除按钮。
+/// `/ally` 只发命令，名单等待 `S.GuildAllies` 广播回填（不做乐观更新）。
 #[allow(clippy::too_many_arguments)]
 fn draw_ally(
     frame: &mut Frame,
     text: &UiText,
     layout: &GuildLayout,
     ally_field: &TextField,
-    allies: &[String],
-    pending: Option<&str>,
+    allies: &[mir_protocol::packets::server::GuildAlly],
     focus: Option<FieldId>,
     mouse: Point,
     language: Language,
@@ -980,57 +967,34 @@ fn draw_ally(
         Rect::new(content.x, content.y, content.width, 16),
     );
     let mut y = content.y + 18;
-    let mut rows = 0;
-    for name in allies.iter().take(10) {
+    for ally in allies.iter().take(10) {
         let row = Rect::new(content.x, y, content.width, 22);
         frame.fill_rect(row.x, row.y, row.width, row.height, [30, 34, 42, 220]);
         text.draw_clipped(
             frame,
             row.x + 6,
             row.y + 3,
-            name,
+            &ally.name,
             SIZE_SMALL,
             BODY_COLOR,
-            Rect::new(row.x, row.y, row.width, row.height),
+            Rect::new(row.x, row.y, row.width.saturating_sub(120), row.height),
         );
-        if pending == Some(name.as_str()) {
-            text.draw_right(
-                frame,
-                row.right() - 6,
-                row.y + 3,
-                Label::GuildAllyPending.text(language),
-                SIZE_SMALL,
-                GOLD_COLOR,
-            );
-        }
-        y += 22;
-        rows += 1;
-    }
-    if let Some(pending) = pending
-        && !allies.iter().any(|name| name == pending)
-        && rows < 10
-    {
-        let row = Rect::new(content.x, y, content.width, 22);
-        frame.fill_rect(row.x, row.y, row.width, row.height, [44, 40, 28, 220]);
-        text.draw_clipped(
-            frame,
-            row.x + 6,
-            row.y + 3,
-            pending,
-            SIZE_SMALL,
-            BODY_COLOR,
-            Rect::new(row.x, row.y, row.width.saturating_sub(80), row.height),
-        );
+        let leader = if ally.leader.is_empty() {
+            format!("{} —", Label::GuildAllyLeader.text(language))
+        } else {
+            format!("{} {}", Label::GuildAllyLeader.text(language), ally.leader)
+        };
         text.draw_right(
             frame,
             row.right() - 6,
             row.y + 3,
-            Label::GuildAllyPending.text(language),
+            &leader,
             SIZE_SMALL,
-            GOLD_COLOR,
+            MUTED_COLOR,
         );
+        y += 22;
     }
-    if allies.is_empty() && pending.is_none() {
+    if allies.is_empty() {
         text.draw_clipped(
             frame,
             content.x,

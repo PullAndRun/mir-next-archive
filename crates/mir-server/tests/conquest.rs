@@ -25,11 +25,12 @@ use mir_db::{
     MonsterInfo, NpcInfo,
 };
 use mir_protocol::ServerPacket;
+use mir_protocol::data::Stats;
 use mir_server::conquest::persist_conquest_writes;
 use mir_server::gamedata::GameData;
 use mir_server::{
-    ConquestError, ConquestSettings, GuildSettings, MemoryStore, Npc, NpcState, Player, World,
-    combat, minute_of_day, weekday_index,
+    ActiveBuff, BuffKind, ConquestError, ConquestSettings, GuildSettings, MemoryStore, Npc,
+    NpcState, Player, World, combat, minute_of_day, weekday_index,
 };
 use mir_world::{Map, MapCell, MapVersion};
 use tokio::sync::mpsc;
@@ -1745,6 +1746,14 @@ fn conquest_archer_shoots_enemy_player_in_range() {
         harness.world.player(player).expect("玩家").hp < before,
         "箭塔应射击敌对行会玩家"
     );
+    let packets = harness.packets(player);
+    assert!(
+        packets.iter().any(|packet| matches!(
+            packet,
+            ServerPacket::ObjectRangeAttack(attack) if attack.object_id != 0
+        )),
+        "箭塔应广播 S.ObjectRangeAttack：{packets:?}"
+    );
 }
 
 #[test]
@@ -1837,4 +1846,138 @@ fn ending_war_resets_objects_and_sends_result() {
             .any(|packet| matches!(packet, ServerPacket::ConquestResult(result) if result.index == CONQUEST)),
         "停战应广播 S.ConquestResult：{packets:?}"
     );
+}
+
+#[test]
+fn open_and_close_gate_changes_walkability_and_broadcasts() {
+    let mut harness = Harness::new(88);
+    let player = harness.add_player(1, "城主", LEADER_LEVEL, GOLD);
+    let guild = harness.create_guild(player, "城主会");
+    if let Some(conquest) = harness.world.conquest_mut(CONQUEST) {
+        conquest.owner = guild;
+    }
+    harness.world.start_war(CONQUEST, MONDAY_18);
+    let gate = gate_location(&harness.world);
+    assert!(harness.world.conquest_object_blocking(MAP, gate));
+    harness.clear(player);
+
+    assert!(harness.world.set_conquest_gate(CONQUEST, player, true));
+    assert!(
+        !harness.world.conquest_object_blocking(MAP, gate),
+        "OPENGATE 后城门格应可通行"
+    );
+    let packets = harness.packets(player);
+    assert!(
+        packets.iter().any(|packet| matches!(
+            packet,
+            ServerPacket::ConquestObject(object) if object.open
+        )),
+        "开门应广播 S.ConquestObject：{packets:?}"
+    );
+
+    harness.clear(player);
+    assert!(harness.world.set_conquest_gate(CONQUEST, player, false));
+    assert!(harness.world.conquest_object_blocking(MAP, gate));
+    let packets = harness.packets(player);
+    assert!(
+        packets.iter().any(|packet| matches!(
+            packet,
+            ServerPacket::ConquestObject(object) if !object.open
+        )),
+        "关门应广播 S.ConquestObject：{packets:?}"
+    );
+}
+
+#[tokio::test]
+async fn object_durability_survives_a_restart() {
+    let store = MemoryStore::new();
+    let mut harness = Harness::new(89);
+    let player = harness.add_player(1, "甲", 30, 0);
+    harness.world.start_war(CONQUEST, MONDAY_18);
+    let gate = gate_location(&harness.world);
+    harness.teleport(player, MAP, Point::new(gate.x - 1, gate.y));
+    if let Some(player) = harness.world.player_mut(player) {
+        player.stats.min_dc = 10_000;
+        player.stats.max_dc = 10_000;
+        player.stats.accuracy = 100;
+    }
+    harness
+        .world
+        .attack(player, MirDirection::Right)
+        .expect("攻击城门");
+    harness.world.advance_clock(400);
+    harness.world.tick();
+    harness.flush(&store).await;
+    let rows = store.conquests().await;
+    let row = rows.first().expect("攻城记录");
+    assert_eq!(row.objects.len(), 16, "器械应落盘");
+    let saved_gate = row
+        .objects
+        .iter()
+        .find(|object| object.kind == 0)
+        .expect("城门记录");
+    assert_eq!(saved_gate.hp, 0, "城门 HP 应落盘为 0");
+    assert!(saved_gate.destroyed);
+
+    let mut restarted = Harness::new(90);
+    assert_eq!(restarted.world.load_conquests(rows), 1);
+    let gate_state = restarted
+        .world
+        .conquest(CONQUEST)
+        .expect("攻城区")
+        .objects
+        .iter()
+        .find(|object| object.kind == mir_protocol::packets::server::ConquestObjectType::Gate)
+        .expect("恢复的城门");
+    assert_eq!(gate_state.hp, 0);
+    assert!(gate_state.destroyed());
+    assert_ne!(gate_state.object_id, 0, "恢复后应重新分配对象 ID");
+}
+
+#[test]
+fn slow_buff_increases_move_delay_and_paralysis_blocks_actions() {
+    let mut harness = Harness::new(91);
+    let player = harness.add_player(1, "甲", 30, 0);
+    let now = harness.world.now();
+    if let Some(player) = harness.world.player_mut(player) {
+        player.buffs.push(ActiveBuff {
+            kind: BuffKind::Slow,
+            expire_at: now + 10_000,
+            values: vec![50],
+            stats: Stats::default(),
+            caster_id: 0,
+        });
+    }
+    harness
+        .world
+        .walk(player, MirDirection::Right)
+        .expect("减速仍可走");
+    let until = match harness.world.walk(player, MirDirection::Right) {
+        Err(mir_server::MoveError::Busy { until }) => until,
+        other => panic!("减速第二次走应被冷却挡住：{other:?}"),
+    };
+    assert!(
+        until >= harness.world.now() + 850,
+        "50% 减速后移动间隔应从 600ms 放大到 900ms（until={until}）"
+    );
+
+    let paralysis_now = harness.world.now();
+    if let Some(player) = harness.world.player_mut(player) {
+        player.buffs.retain(|buff| buff.kind != BuffKind::Slow);
+        player.buffs.push(ActiveBuff {
+            kind: BuffKind::Paralysis,
+            expire_at: paralysis_now + 10_000,
+            values: Vec::new(),
+            stats: Stats::default(),
+            caster_id: 0,
+        });
+    }
+    assert!(matches!(
+        harness.world.walk(player, MirDirection::Right),
+        Err(mir_server::MoveError::Busy { .. })
+    ));
+    assert!(matches!(
+        harness.world.attack(player, MirDirection::Right),
+        Err(mir_server::CombatError::Busy { .. })
+    ));
 }

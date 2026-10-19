@@ -258,6 +258,10 @@ pub enum Label {
     ConquestArcher,
     /// 被摧毁。
     ConquestDestroyed,
+    /// 城门已开。
+    ConquestGateOpen,
+    /// 盟友行会会长。
+    GuildAllyLeader,
     /// 无归属。
     ConquestUnclaimed,
     /// 系统：攻城开始。
@@ -994,6 +998,8 @@ impl Label {
         Self::ConquestWall,
         Self::ConquestArcher,
         Self::ConquestDestroyed,
+        Self::ConquestGateOpen,
+        Self::GuildAllyLeader,
         Self::ConquestUnclaimed,
         Self::SystemConquestStarted,
         Self::SystemConquestEnded,
@@ -1280,7 +1286,7 @@ impl Label {
             (Self::InviteName, Language::ZhCn) => "输入名字",
             (Self::InviteName, Language::En) => "Enter a name",
             (Self::GroupLeader, Language::ZhCn) => "队长",
-            (Self::GroupLeader, Language::En) => "Leader",
+            (Self::GroupLeader | Self::GuildAllyLeader, Language::En) => "Leader",
             (Self::Profession, Language::ZhCn) => "职业",
             (Self::Profession, Language::En) => "Class",
             (Self::GroupHint, Language::ZhCn) => "P 关闭 · 队长才能邀请/踢人",
@@ -1636,6 +1642,9 @@ impl Label {
             (Self::ConquestArcher, Language::En) => "Archer tower",
             (Self::ConquestDestroyed, Language::ZhCn) => "被摧毁",
             (Self::ConquestDestroyed, Language::En) => "Destroyed",
+            (Self::ConquestGateOpen, Language::ZhCn) => "城门已开",
+            (Self::ConquestGateOpen, Language::En) => "Gate open",
+            (Self::GuildAllyLeader, Language::ZhCn) => "会长",
             (Self::ConquestUnclaimed, Language::ZhCn) => "无归属",
             (Self::ConquestUnclaimed, Language::En) => "Unclaimed",
             (Self::SystemConquestStarted, Language::ZhCn) => "攻城开始：{}",
@@ -2195,7 +2204,7 @@ mod tests {
     #[test]
     fn every_label_has_both_languages() {
         // `Label::ALL` 是手工维护的清单：数量对不上说明加了变体没同步。
-        assert_eq!(Label::ALL.len(), 325, "新增 Label 后请同步 Label::ALL");
+        assert_eq!(Label::ALL.len(), 327, "新增 Label 后请同步 Label::ALL");
         for label in Label::ALL {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);

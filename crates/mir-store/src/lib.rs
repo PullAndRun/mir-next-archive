@@ -114,9 +114,9 @@ pub fn decode_i32_list(bytes: &[u8]) -> Vec<i32> {
 
 pub use error::{Result, StoreError};
 pub use models::{
-    Account, Character, CharacterSummary, Conquest, DEFAULT_LANGUAGE, GameShopPurchase,
-    GameShopStock, Guild, GuildBuffRow, GuildMemberRow, GuildRankRow, GuildStorageRow, LoginGate,
-    Mail, MarketAuction, NewAccount, NewCharacter,
+    Account, Character, CharacterSummary, Conquest, ConquestObject, DEFAULT_LANGUAGE,
+    GameShopPurchase, GameShopStock, Guild, GuildBuffRow, GuildMemberRow, GuildRankRow,
+    GuildStorageRow, LoginGate, Mail, MarketAuction, NewAccount, NewCharacter,
 };
 pub use password::{
     HASH_LEN, ITERATIONS, SALT_LEN, encode_hash, generate_salt, hash_password, verify_password,

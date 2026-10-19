@@ -42,9 +42,9 @@
 | 地图与行走（`mir-world` / `mir-server`） | 🟡 | `.map` 9 种版本读取 + 可走性校验；动作计时按 Crystal（走/跑 600ms、转身 350ms、跑需先走一步）、`UserLocation`/`ObjectWalk`/`ObjectRun` 广播、世界 tick 100ms；视野已对齐 16 格（`DataRange`）并接入 8×8 桶 AOI 网格、进出视野差分与门状态机（5 秒自动关）；本轮端到端测试见 `tests/aoi.rs`，待刑部全量验收 |
 | 账号与角色存档（`mir-store`） | ✅ | PostgreSQL + 迁移；内存实现用于无库试玩 |
 | 游戏数据（`mir-db`） | ✅ | Crystal `Server.MirDB` 全量读取（地图/物品/怪物/NPC/任务/技能/商城/攻城/刷怪点），版本 60..117，6 个真实样本 leftover=0 |
-| 怪物 AI 与战斗 | ✅ | 索敌/追击/巡逻、两段式攻击（动作包立即、伤害 300ms 后结算）、护甲与闪避、暴击、死亡与尸体回收、经验升级、死亡复活、自然回血，RNG 顺序与 Crystal 一致；第 4 轮补野生怪索敌/反击召唤物；第 7 轮补**远程攻击**（弓手/守卫/箭塔射程 6/8/9/10、`S.ObjectRangeAttack`、延迟 `距离*50+500ms`）与**目标丢失回位**（`process_return_home`）；第 8 轮补**怪物魔法**（AI 55 `HumanWizard` ThunderBolt/射程6/500ms/风筝）与**物理 AOE/直线**（AI 13 RedMoonEvil 自身 AOE、AI 29 BoneSpearman 直线 2 格、AI 14 EvilCentipede 毒/麻痹 AOE、AI 50 GreatFoxSpirit 远/近 AOE、AI 100 VenomSpider 直线毒），见 [`docs/world/monster-ai.md`](docs/world/monster-ai.md) |
+| 怪物 AI 与战斗 | ✅ | 索敌/追击/巡逻、两段式攻击（动作包立即、伤害 300ms 后结算）、护甲与闪避、暴击、死亡与尸体回收、经验升级、死亡复活、自然回血，RNG 顺序与 Crystal 一致；第 4 轮补野生怪索敌/反击召唤物；第 7 轮补**远程攻击**（弓手/守卫/箭塔射程 6/8/9/10、`S.ObjectRangeAttack`、延迟 `距离*50+500ms`）与**目标丢失回位**（`process_return_home`）；第 8 轮补**怪物魔法**（AI 55 `Clone` ThunderBolt/射程6/500ms/风筝；预留 AI 215/216/220 Sep 系）与**物理 AOE/直线**（AI 13 RedMoonEvil、AI 29 BoneSpearman、AI 14 EvilCentipede、AI 50 GreatFoxSpirit、AI 100 VenomSpider），见 [`docs/world/monster-ai.md`](docs/world/monster-ai.md) |
 | PK 与攻击模式 | ✅ | Peace/Group/Guild/RedBrown/All 判定、安全区与 NoFight 禁打、PvP 300ms 结算与暴击、PK 值（击杀 +100、红名 200/黄名 100、12 秒衰减、棕名 60 秒）、名字颜色广播、死亡掉落（红名背包全掉）、守卫只打红名并可回位 |
-| 攻城（沙巴克） | 🟡 | 申请校验、时间表开战/停战、四种城主判定（Classic/KingOfHill/ControlPoints/CapturePalace）、夺城广播与城主税收、战区名字色与 PK 保护、攻城传送点城主专属、箭塔只射敌对行会、迁移 0008 持久化；第 8 轮补**器械简化实体**（Gate/Wall/Archer 5000/3000/2000 HP、可摧毁、`S.ConquestInfo/Object/Result` 300–302 扩展包）；旗子/控制点 NPC 与城门开关/修理未做 |
+| 攻城（沙巴克） | 🟡 | 申请校验、时间表开战/停战、四种城主判定、夺城广播与城主税收、战区名字色与 PK 保护、攻城传送点城主专属、箭塔只射敌对行会、迁移 0008 持久化；第 8 轮补**器械简化实体**（Gate/Wall/Archer 5000/3000/2000 HP、可摧毁、`S.ConquestInfo/Object/Result` 300–302 扩展包、**迁移 0016 持久化**、`OPENGATE`/`CLOSEGATE`、箭塔 `S.ObjectRangeAttack`）；旗子/控制点 NPC、修理未做 |
 | 技能（魔法） | 🟡 | 技能数据/用书学习/施法校验/延迟结算/修炼值升级/存档；已实现 15 个伤害/治疗/位移/召唤/中毒技能（火球系列/HellFire/FireBang/治疗/火墙/雷电/瞬息移动/隐身/召唤骷髅/召唤神兽/施毒）与 9 个增益技能（护盾/加速/魔法盾…）；**宠物命令** `C.ChangePMode`（5 种 `PetMode`，客户端 `V` 键三态循环；`pet_modes` 为 World 侧表、不随角色存档）；其余登记未实现（`docs/world/magic.md` §9） |
 | 物品与背包 | ✅ | 掉落、地面物品与过期、拾取/丢弃、46 格背包、14 装备槽、装备加成、药水/卷轴/丢金币、`UserItem[]` 存档；仓库见「玩家仓库与邮件」 |
 | Buff | ✅ | 带到期时间的属性修饰层、`AddBuff`/`RemoveBuff` 广播、魔法盾按伤害扣时、到期重算属性并补发血量 |
@@ -52,7 +52,7 @@
 | 任务 | ✅ | `Envir/Quests` 脚本解析（13 个段）、接取前置（等级/职业/前置任务链/上限）、击杀·收集·标记目标、交付领奖（金币/经验/元宝/固定/任选）、限时超时、放弃、NPC `CHECKQUEST` 与 `[Quests]` 关联、`characters.quests` 存档往返；**任务物品栏**（40 格、`S.GainedQuestItem`/`S.DeleteQuestItem`、掉落截胡、`characters.quest_inventory` 迁移 0012）、**YouFound 提示**（205 → `quest_item_found` → `S.ChangeQuest`）、**`Q` 标记掉落**（先截胡、无人需要才不落地）、**每日任务重置**（迁移 0013 `last_daily_reset_at`，按角色 24h 惰性；Crystal 是服务器 0 点 `ProcessNewDay`）；见 `docs/world/quests.md` |
 | 组队 | ✅ | 邀请/接受/拒绝/退队/踢人、队长顺延、组内 `!!` 聊天、16 格内按人数与等级分配经验、组队任务击杀共享、切图通知；PK 与地图准入规则未做 |
 | 多地图与传送 | ✅ | 按地图文件惰性加载与缓存、`MovementInfo` 传送点（含 `need_hole`/`need_move`）、`S.MapChanged` 包序、NPC `MOVE`/`MAPMOVE`/`ENTERMAP`；客户端地形仍是启动时加载（见 `docs/client.md` §8） |
-| 行会 | ✅ | 创建（NPC `[@CREATEGUILD]`）、邀请/加入、职位与权限位、升降职/踢人、公告、`!~` 行会聊天、行会经验与等级、行会仓库（112 格物品 + 资金）、行会 buff（购买/激活/到期/全员加成）、**行会联盟**（`/ally request|accept|remove`、双向存储、上限 5、盟友 PK 豁免，迁移 0015）+ **联盟页签 UI**（行会面板第 4 页签）、迁移 0005/0006 持久化；行会敌对/行会战与领地未做 |
+| 行会 | ✅ | 创建（NPC `[@CREATEGUILD]`）、邀请/加入、职位与权限位、升降职/踢人、公告、`!~` 行会聊天、行会经验与等级、行会仓库（112 格物品 + 资金）、行会 buff（购买/激活/到期/全员加成）、**行会联盟**（`/ally request|accept|remove`、双向存储、上限 5、盟友 PK 豁免、迁移 0015）+ **联盟页签 UI**（行会面板第 4 页签，`S.GuildAllies`(303) 权威名单）、迁移 0005/0006 持久化；行会敌对/行会战与领地未做 |
 | 好友与黑名单 | ✅ | 加/删好友、拉黑（同一列表 `blocked`）、备注 ≤200 字、整表 `S.FriendUpdate`(245)、上限 100、`characters.friends` 持久化（迁移 0015）、**F 键好友面板**（列表/在线状态/滚轮/增删改备注）；只支持在线角色（Crystal 可按名加离线角色）——见 [`docs/world/social.md`](docs/world/social.md) |
 | 玩家仓库与邮件 | ✅ | 80 格仓库（`[@STORAGE]` 页，`characters.storage` 持久化）、邮件发送（附件/邮票/邮费/限速）、阅读/锁定/领取/删除、迁移 0007、离线按名投递与 30 天过期 |
 | 玩家交易 | ✅ | 面朝格发起/回应、10 格交易栏、金币、双方确认后互换、放物品即清双方确认、取消/走跑转身切图下线死亡中止、背包满时取消改寄邮件（`docs/world/trade.md`） |
@@ -240,6 +240,7 @@ python tools/protocol-gen/generate.py
 | [`docs/server/metrics.md`](docs/server/metrics.md) | 可观测性：`/metrics` 字段表、`MIR2_METRICS_LISTEN`、Prometheus 抓取与 30s 汇总日志 |
 | [`docs/world/social.md`](docs/world/social.md) | 好友与黑名单：数据、包号、上限与持久化 |
 | [`docs/testing/duo-smoke.md`](docs/testing/duo-smoke.md) | 双人联机冒烟：场景矩阵、运行方式与第 8 轮补齐链路 |
+| [`docs/testing/playtest.md`](docs/testing/playtest.md) | 协议级 playtest：Python 直连真服务端、`[OK]/[FAIL]/[SKIP]` 与当前限制 |
 | [`docs/client.md`](docs/client.md) | 客户端：协议流程、按键/鼠标、面板与字体 |
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |
 | [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文、游戏内切换与 i18n 收口清单（逐条 TextKey 表） |

@@ -124,6 +124,22 @@
   `MapChangeReport::fallback_from` 记录原始请求点。
 - 简化：Crystal 里 `Teleport` 本身也会拒绝非法落点，所以「回退」是本作的有意扩展。
 
+### 3.5 真实数据与大地图可见性（t93）
+
+- 比奇 `MapInfo.Movements` 在真实 `Server.MirDB` 里是 **72 条**，其中 `ShowOnBigMap`
+  **只有 6 条**；
+- Crystal `PlayerObject.CheckMapInfo`（`PlayerObject.cs:1009-1056`）**只把 `ShowOnBigMap`
+  的传送点传给客户端**（`S.NewMapInfo.Movements` 是大地图图标），本作照抄，行为一致；
+  所以脚本客户端「看不到附近传送点坐标」是正常的（Crystal 也不给），playtest 用 GM `@map`
+  兜底是对的；
+- 广场 40 格内实际有多条可走传送点：**最近 `(326,288) → 地图 4（文件 0108）的 (8,12)`，
+  距离 18 格**；
+- 测试 `tests/maps.rs`：`bichon_has_a_walkable_movement_point_near_the_plaza`（比奇 ≥20 条、
+  `ShowOnBigMap` 只占少数、40 格内有可走点）与
+  `player_can_walk_from_the_plaza_into_a_natural_teleport_point`（真实 `0.map` + 真实传送点表，
+  BFS 34 步走到传送点 → 下一 tick 换图到 `0108 @ (8,12)` 并收到 `S.MapChanged`）。
+  即「玩家从比奇广场自然走进传送点换图」在服务端成立。
+
 ---
 
 ## 4. 切图流程与包序（`World::change_map`）

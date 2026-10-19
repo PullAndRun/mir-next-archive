@@ -43,6 +43,9 @@ C_LOGOUT = 9
 C_WALK = 11
 C_TURN = 10
 C_ATTACK = 47
+C_EQUIP_ITEM = 18
+C_PICKUP = 35
+C_USE_ITEM = 22
 C_CALL_NPC = 50
 C_CHAT = 13
 C_MAGIC = 58
@@ -60,10 +63,12 @@ DEFAULT_START_POINT = (330, 270)
 
 # --- 服务端包号（server.rs / manual/server.rs） ---
 S_CONNECTED = 0
+C_KEEP_ALIVE = 2
 S_CLIENT_VERSION = 1
 S_NEW_ACCOUNT = 4
 S_LOGIN = 7
 S_LOGIN_SUCCESS = 9
+S_LOGOUT_SUCCESS = 58
 S_NEW_CHARACTER_SUCCESS = 11
 S_START_GAME = 14
 S_MAP_INFORMATION = 17
@@ -72,6 +77,7 @@ S_USER_LOCATION = 23
 S_OBJECT_WALK = 28
 S_CHAT = 30
 S_OBJECT_MONSTER = 71
+S_OBJECT_ITEM = 64
 S_OBJECT_DIED = 81
 S_GAIN_EXPERIENCE = 85
 S_NEW_MAGIC = 117
@@ -80,6 +86,8 @@ S_OBJECT_NPC = 92
 S_NPC_RESPONSE = 93
 S_NEW_MAP_INFO = 18
 S_GAINED_ITEM = 66
+S_EQUIP_ITEM = 38
+S_USE_ITEM = 52
 S_GAINED_GOLD = 67
 S_LOSE_GOLD = 68
 S_MAP_CHANGED = 98
@@ -250,6 +258,7 @@ class Playtest:
         server: str,
         timeout: float,
         gm: str | None = None,
+        newbie: bool = False,
         start_maps: tuple[str, ...] = DEFAULT_START_MAPS,
         start_point: tuple[int, int] = DEFAULT_START_POINT,
     ):
@@ -258,7 +267,9 @@ class Playtest:
         self.port = int(port or "7000")
         self.timeout = timeout
         self.gm = gm
+        self.newbie = newbie
         self.sock: socket.socket | None = None
+        self.last_send = time.time()
         self.buffer = bytearray()
         self.self_object_id: int | None = None
         self.self_pos: tuple[int, int] | None = None
@@ -271,6 +282,12 @@ class Playtest:
         self.chats: list[str] = []
         self.learned_spells: set[int] = set()
         self.self_mp: int | None = None
+        self.self_level: int | None = None
+        self.self_exp: int | None = None
+        self.self_gold: int | None = None
+        self.inventory_items: list[dict] = []
+        self.equipment_items: list[dict] = []
+        self.ground_items: list[dict] = []
         self.map_file: str | None = None
         self._walkable: list[bytearray] | None = None
         self._map_size: tuple[int, int] | None = None
@@ -321,6 +338,7 @@ class Playtest:
 
     def send(self, index: int, payload: bytes) -> None:
         assert self.sock is not None
+        self.last_send = time.time()
         total = 4 + len(payload)
         if total > 0xFFFF:
             raise ProtocolError(f"包 {index} 过长：{total}")
@@ -339,7 +357,14 @@ class Playtest:
         self.buffer += chunk
         return True
 
+    def keepalive(self) -> None:
+        writer = Writer()
+        writer.i64(int(time.time() * 1000))
+        self.send(C_KEEP_ALIVE, writer.raw())
+
     def next_packet(self, deadline: float) -> tuple[int, bytes] | None:
+        if time.time() - self.last_send > 20:
+            self.keepalive()
         while True:
             if len(self.buffer) >= 4:
                 total, index = struct.unpack_from("<Hh", self.buffer, 0)
@@ -401,6 +426,46 @@ class Playtest:
                 self.self_hp = hp
                 self.self_mp = mp
                 self.last_userinfo_hp = hp
+                self.self_level = _level
+                self.self_exp = r.i64()
+                _max_experience = r.i64()
+                _level_effects = r.u16()
+                _has_hero = r.boolean()
+                _hero_behaviour = r.u8()
+
+                def optional_items():
+                    if not r.boolean():
+                        return []
+                    count = r.i32()
+                    return [r.user_item() if r.boolean() else None for _ in range(count)]
+
+                self.inventory_items = [item for item in optional_items() if item]
+                self.equipment_items = [item for item in optional_items() if item]
+                _quest_items = optional_items()
+                self.self_gold = r.u32()
+                _credit = r.u32()
+                _expanded = r.boolean()
+                _has_storage_password = r.boolean()
+                _require_storage_password = r.boolean()
+                _storage_password_last_set = r.i64()
+                _expanded_storage_expiry = r.i64()
+                magic_count = r.i32()
+                for _ in range(magic_count):
+                    _magic_name = r.string()
+                    spell = r.u8()
+                    r.u8()  # base_cost
+                    r.u8()  # level_cost
+                    r.u8()  # icon
+                    r.u8()  # level1
+                    r.u8()  # level2
+                    r.u8()  # level3
+                    r.u16()  # need1
+                    r.u16()  # need2
+                    r.u16()  # need3
+                    r.u8()  # level
+                    r.u8()  # key
+                    r.u16()  # experience
+                    self.learned_spells.add(spell)
                 if self.self_object_id is None:
                     self.self_object_id = object_id
                     self.self_pos = location
@@ -422,6 +487,31 @@ class Playtest:
                 location = r.point()
                 if not any(m["id"] == object_id for m in self.monsters):
                     self.monsters.append({"id": object_id, "name": name, "pos": location, "dead": False})
+                    if __import__("os").environ.get("PT_DEBUG"):
+                        print(f"  [怪] {name} #{object_id} @ {location}")
+            elif index == S_OBJECT_ITEM:  # 64：地面物品
+                r = Reader(payload)
+                object_id = r.u32()
+                name = r.string()
+                r.i32()  # name colour
+                location = r.point()
+                image = r.u16()
+                grade = r.u8()
+                self.ground_items = [item for item in self.ground_items if item["id"] != object_id]
+                self.ground_items.append(
+                    {
+                        "id": object_id,
+                        "name": name,
+                        "pos": location,
+                        "image": image,
+                        "grade": grade,
+                    }
+                )
+            elif index == 26:  # S.ObjectRemove
+                r = Reader(payload)
+                object_id = r.u32()
+                self.ground_items = [item for item in self.ground_items if item["id"] != object_id]
+                self.monsters = [m for m in self.monsters if m["id"] != object_id]
             elif index == S_OBJECT_DIED:
                 r = Reader(payload)
                 object_id = r.u32()
@@ -649,6 +739,8 @@ class Playtest:
         blocked = blocked or set()
         goals = {cell for cell in goals if self._is_walkable(cell) and cell not in blocked}
         if not goals:
+            if __import__("os").environ.get("PT_DEBUG"):
+                print(f"  [BFS] 无可行邻格 target={target} self={start} blocked={len(blocked)}")
             return None
         from collections import deque
 
@@ -673,6 +765,8 @@ class Playtest:
                 previous[nxt] = current
                 queue.append(nxt)
         if found is None:
+            if __import__("os").environ.get("PT_DEBUG"):
+                print(f"  [BFS] 搜不到 target={target} self={start} blocked={len(blocked)} goals={sorted(goals)[:8]}")
             return None
         path = []
         node = found
@@ -1047,6 +1141,58 @@ class Playtest:
         )
         return False
 
+    # ---------------- 自然传送点（来自 GM `@mapinfo`） ----------------
+    #: `@mapinfo` 里传送点行的格式（见 `crates/mir-server/src/gm.rs::movement_lines`）：
+    #: `    (326,288) -> 0108(#4) (8,12) dist=18 [bigmap]`
+    MOVEMENT_LINE = re.compile(
+        r"^\(\s*(?P<x>-?\d+)\s*,\s*(?P<y>-?\d+)\s*\)\s*->\s*(?P<map>\S+?)\(#(?P<index>-?\d+)\)\s*"
+        r"\((?P<tx>-?\d+)\s*,\s*(?P<ty>-?\d+)\)\s*dist=(?P<dist>\d+)(?P<marks>.*)$"
+    )
+
+    def nearby_movements(self) -> list[dict]:
+        """问 GM `@mapinfo` 要「附近传送点」列表（含 `ShowOnBigMap = false` 的那些）。
+
+        为什么要走 GM：Crystal 的 `S.NewMapInfo` 只带 `ShowOnBigMap` 的条目
+        （`Server/MirObjects/PlayerObject.cs:1009-1056`），脚本按客户端协议说话就看不到
+        「走进城门就换图」的格子。`@mapinfo` 是开发者旁路：**只观察数据**，换图仍然靠
+        玩家自己走进去触发（服务端 `maps.rs::check_movement`），不改变客户端语义。
+        """
+        before = len(self.chats)
+        self.chat("@mapinfo")
+        deadline = time.time() + self.timeout
+        lines: list[str] = []
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            self._observe(*packet)
+            lines = self.chats[before:]
+            if any("movements:" in line for line in lines) and len(lines) > 0:
+                # 名单是逐条发的，等最后一行的下一小段安静期再收尾。
+                self._drain(0.25)
+                lines = self.chats[before:]
+                break
+        movements = []
+        for line in lines:
+            match = self.MOVEMENT_LINE.match(line.strip())
+            if not match:
+                continue
+            marks = match.group("marks")
+            movements.append(
+                {
+                    "pos": (int(match.group("x")), int(match.group("y"))),
+                    "map": match.group("map"),
+                    "index": int(match.group("index")),
+                    "target": (int(match.group("tx")), int(match.group("ty"))),
+                    "dist": int(match.group("dist")),
+                    # 只有「走进去就换图」的点能当自然传送用。
+                    "walkable": not ("[hole]" in marks or "[move]" in marks),
+                    "big_map": "[bigmap]" in marks,
+                }
+            )
+        movements.sort(key=lambda movement: movement["dist"])
+        return movements
+
     # ---------------- 跨图传送（去掉 SKIP） ----------------
     #: 自然传送点（`S.NewMapInfo.movements`）的步行预算：超了就不硬走（700×700 的比奇太小、
     #: 传送点又在角落，硬走要 2 分钟以上）。
@@ -1058,37 +1204,92 @@ class Playtest:
             self.fail("跨图传送", "还没进世界")
             return False
         start_map, start_pos = self.map_file, self.self_pos
-        # ① 自然传送点：优先，但只在步行预算内尝试。
-        nearest = sorted(
-            self.movements,
-            key=lambda mv: self._distance(mv["pos"]),
-        )
-        if nearest and self._distance(nearest[0]["pos"]) <= self.NATURAL_MOVEMENT_BUDGET:
-            movement = nearest[0]
+        # ① 自然传送点：GM `@mapinfo` 给出的**全部**传送点（含非 ShowOnBigMap），
+        #    挑最近的可走点走过去；这一步失败才降级。
+        natural = [movement for movement in self.nearby_movements() if movement["walkable"]]
+        if natural:
+            print(
+                f"  [传送点] @mapinfo 给了 {len(natural)} 个可走传送点，"
+                f"最近 {natural[0]['pos']} → {natural[0]['map']} {natural[0]['target']}"
+                f"（{natural[0]['dist']} 格）"
+            )
+        for movement in natural[:3]:
+            if self._distance(movement["pos"]) > self.NATURAL_MOVEMENT_BUDGET:
+                continue
             if self._take_movement(movement, start_map, start_pos):
+                return True
+        # 客户端协议里能看到的大地图传送点（`S.NewMapInfo.movements`）作为次选。
+        nearest = sorted(
+            (
+                {
+                    "pos": mv["pos"],
+                    "index": mv["destination"],
+                    "map": None,
+                    "target": None,
+                    "dist": self._distance(mv["pos"]),
+                    "walkable": True,
+                }
+                for mv in self.movements
+            ),
+            key=lambda mv: mv["dist"],
+        )
+        if nearest and nearest[0]["dist"] <= self.NATURAL_MOVEMENT_BUDGET:
+            if self._take_movement(nearest[0], start_map, start_pos):
                 return True
         # ② 城镇里的传送 NPC（比奇有 Teleport_Jason/Harrison/Kyle…，脚本用 `MOVE` 切图）。
         if self._teleport_by_npc(start_map, start_pos):
             return True
-        reason = "最近的自然传送点 " + (
-            f"{nearest[0]['pos']} 距起点 {self._distance(nearest[0]['pos'])} 格（超过 "
-            f"{self.NATURAL_MOVEMENT_BUDGET} 格预算）" if nearest else "缺失（服务端没下发 movements）"
-        )
+        if natural:
+            reason = (
+                f"@mapinfo 找到的最近可走传送点 {natural[0]['pos']} 距起点 "
+                f"{self._distance(natural[0]['pos'])} 格（超过 {self.NATURAL_MOVEMENT_BUDGET} 格预算）"
+            )
+        else:
+            reason = "缺失（`@mapinfo` 没给出可走传送点，服务端也没下发 movements）"
         # ③ 兜底：GM `@map`。
         return self._cross_map_via_gm(reason)
 
     def _take_movement(self, movement: dict, start_map, start_pos) -> bool:
-        """走到传送点格子上 → 断言 `S.MapChanged` / 落点正确。"""
+        """走到传送点格子上 → 断言 `S.MapChanged` / 落点正确。
+
+        `movement` 统一形状：`pos`（源格）、`index`（目标图编号）、`map`/`target`（目标图文件名
+        与落点，`@mapinfo` 才有）、`dist`（距玩家的距离）。
+
+        踩上格子那一步可能被「目标格被占」（城门上常有 NPC/怪物/别的玩家）挡下来，
+        所以最后一步要重试几次；服务端把换图排到下一个 tick 结算。
+        """
         source = movement["pos"]
+        self._load_map()
         if not self.goto(source, max_steps=self.NATURAL_MOVEMENT_BUDGET + 10):
             self.diagnostics(f"走不到传送点 {source}")
             return False
-        dx = source[0] - self.self_pos[0]
-        dy = source[1] - self.self_pos[1]
-        if (dx, dy) != (0, 0):
+        for attempt in range(8):
+            if self.self_pos == source:
+                break
+            dx = source[0] - self.self_pos[0]
+            dy = source[1] - self.self_pos[1]
             writer = Writer()
             writer.u8(self._direction(dx, dy))
             self.send(C_WALK, writer.raw())
+            deadline = time.time() + 1.5
+            while time.time() < deadline:
+                packet = self.next_packet(deadline)
+                if packet is None:
+                    break
+                index, payload = packet
+                self._observe(index, payload)
+                if index == S_MAP_CHANGED:
+                    return self._confirm_map_change(movement)
+                if index == S_USER_LOCATION:
+                    break
+            time.sleep(0.3)
+        if self.self_pos != source:
+            self.diagnostics(
+                f"踩不上传送点 {source}（当前位置 {self.self_pos}，"
+                f"格子被 NPC/怪物/玩家占住？）"
+            )
+            return False
+        # 人已经站在传送点格子上：换图由服务端的 tick 结算，等 `S.MapChanged`。
         deadline = time.time() + self.timeout
         while time.time() < deadline:
             packet = self.next_packet(deadline)
@@ -1097,22 +1298,28 @@ class Playtest:
             index, payload = packet
             self._observe(index, payload)
             if index == S_MAP_CHANGED:
-                if self.map_index != movement["destination"]:
-                    self.fail(
-                        "跨图传送",
-                        f"目标地图 #{movement['destination']}，实际 #{self.map_index}",
-                    )
-                    return False
-                if not self._walkable_at(self.self_pos):
-                    self.fail("跨图传送", f"落点 {self.self_pos} 不可站立（{self.map_file}）")
-                    return False
-                self.ok(
-                    "跨图传送",
-                    f"自然传送点 {start_map} {source} → {self.map_file} @ {self.self_pos}",
-                )
-                return True
+                return self._confirm_map_change(movement)
         self.diagnostics(f"踩传送点 {source} 后 {self.timeout:.0f}s 内没收到 S.MapChanged")
         return False
+
+    def _confirm_map_change(self, movement: dict) -> bool:
+        """换图后的断言：目标图编号/落点可站，并输出「自然传送点 …」那一行。"""
+        if movement.get("index") is not None and self.map_index != movement["index"]:
+            self.fail("跨图传送", f"目标地图 #{movement['index']}，实际 #{self.map_index}")
+            return False
+        if not self._walkable_at(self.self_pos):
+            self.fail("跨图传送", f"落点 {self.self_pos} 不可站立（{self.map_file}）")
+            return False
+        target = movement.get("target")
+        target_text = (
+            f"{movement['map']} {target}" if target and movement.get("map") else self.map_file
+        )
+        self.ok(
+            "跨图传送",
+            f"自然传送点 {movement['pos']} → {target_text}"
+            f"（{movement.get('dist', 0)} 格）",
+        )
+        return True
 
     def _teleport_by_npc(self, start_map, start_pos) -> bool:
         """走到传送 NPC（名字以 `Teleport` 开头）→ `@Main` → 点 `@tele`/`@move` 页 → 换图。"""
@@ -1203,9 +1410,8 @@ class Playtest:
         blocked = blocked or set()
         if self.self_pos is None:
             return False
-        entity_cells = {tuple(n["pos"]) for n in self.npcs}
-        entity_cells |= {tuple(m["pos"]) for m in self.monsters if not m["dead"] and tuple(m["pos"]) != target}
-        local_blocked = set(entity_cells) | blocked
+        # 不预判 NPC/怪物占位（NPC 可能堵住唯一通道）；服务器拒绝的格子进 local_blocked。
+        local_blocked = set(blocked)
         for _ in range(max_steps):
             if max(abs(self.self_pos[0] - target[0]), abs(self.self_pos[1] - target[1])) <= 1:
                 return True
@@ -1281,6 +1487,342 @@ class Playtest:
             return 7
         return 0
 
+    # ---------------- 新手 10 分钟（非 GM） ----------------
+    PREY_KEYWORDS = ("hen", "deer", "鸡", "鹿")
+
+    def _live_prey(self) -> list[dict]:
+        return [
+            m
+            for m in self.monsters
+            if not m.get("dead")
+            and any(key in m["name"].lower() for key in self.PREY_KEYWORDS)
+        ]
+
+    def _attack_until_dead(self, prey: dict, timeout: float = 40.0) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            latest = next((m for m in self.monsters if m["id"] == prey["id"]), prey)
+            if latest.get("dead"):
+                return True
+            prey = latest
+            distance = max(
+                abs(self.self_pos[0] - prey["pos"][0]),
+                abs(self.self_pos[1] - prey["pos"][1]),
+            )
+            if distance > 1:
+                self.walk_towards(prey["pos"], max_steps=12)
+                continue
+            # 鸡会走位/朝向可能过期：八方向轮打一轮，必有一发命中相邻格。
+            for direction in range(8):
+                writer = Writer()
+                writer.u8(direction)
+                writer.u8(0)
+                self.send(C_ATTACK, writer.raw())
+                wait = time.time() + 0.15
+                while time.time() < wait:
+                    packet = self.next_packet(wait)
+                    if packet is None:
+                        break
+                    index, payload = packet
+                    self._observe(index, payload)
+                    if index == S_OBJECT_DIED and Reader(payload).u32() == prey["id"]:
+                        return True
+            if __import__("os").environ.get("PT_DEBUG"):
+                print(f"  [攻击] self={self.self_pos} prey={prey['name']}@{prey['pos']} 八方向一轮")
+        return False
+
+    def newbie_equip(self) -> int:
+        """把出生装逐件试穿到 0..13 槽；返回穿上的件数（服务端 S.EquipItem.success）。"""
+        equipped = 0
+        for item in list(self.inventory_items):
+            for slot in range(14):
+                writer = Writer()
+                writer.u8(0)  # MirGridType.Inventory
+                writer.u64(item["unique_id"])
+                writer.i32(slot)
+                self.send(C_EQUIP_ITEM, writer.raw())
+                deadline = time.time() + 0.15
+                success = False
+                while time.time() < deadline:
+                    packet = self.next_packet(deadline)
+                    if packet is None:
+                        break
+                    index, payload = packet
+                    self._observe(index, payload)
+                    if index == S_EQUIP_ITEM:
+                        success = Reader(payload).boolean()
+                        break
+                if success:
+                    equipped += 1
+                    break
+        return equipped
+
+    def newbie_hunt(self, count: int) -> bool:
+        exp_before = self.self_exp or 0
+        kills = 0
+        equipped = self.newbie_equip()
+        if equipped:
+            self.ok("穿上出生装", f"{equipped} 件")
+        anchor = (355, 312)
+        teleports = {tuple(m["pos"]) for m in self.movements}
+        self.walk_towards(anchor, max_steps=120, blocked=teleports)
+        deadline = time.time() + max(180.0, self.timeout * 18)
+        while kills < count and time.time() < deadline:
+            prey_list = self._live_prey()
+            if __import__("os").environ.get("PT_DEBUG"):
+                print(f"  [打猎] self={self.self_pos} prey={[(m['name'],m['pos']) for m in prey_list]}")
+            adjacent = [m for m in prey_list if self._distance(m["pos"]) <= 1]
+            if adjacent:
+                prey = adjacent[0]
+                if self._attack_until_dead(prey):
+                    kills += 1
+                    print(f"  [击杀] {prey['name']} {kills}/{count}")
+                continue
+            # 不追：鸡会走位，站着等它自己靠近；只在完全没目标时小范围挪。
+            if prey_list:
+                nearest = min(prey_list, key=lambda m: self._distance(m["pos"]))
+                if self._distance(nearest["pos"]) <= 12:
+                    self.walk_towards(nearest["pos"], max_steps=8, blocked=teleports)
+            else:
+                self.walk_towards((anchor[0] + 1, anchor[1]), max_steps=2)
+            self._drain(1.0)
+        exp_after = self.self_exp or 0
+        if kills < count:
+            self.fail("打 3 只鸡/鹿", f"只击杀 {kills}/{count}（经验 {exp_before}->{exp_after}）")
+            return False
+        if exp_after <= exp_before:
+            self.fail("打 3 只鸡/鹿", f"击杀 {kills} 只但经验未增长（{exp_before}->{exp_after}）")
+            return False
+        self.ok(
+            "打 3 只鸡/鹿",
+            f"击杀 {kills} 只，经验 {exp_before}->{exp_after}，等级 {self.self_level}",
+        )
+        return True
+
+    def newbie_pickup(self) -> bool:
+        for item in sorted(self.ground_items, key=lambda g: self._distance(g["pos"])):
+            if not self.walk_towards(item["pos"], max_steps=30):
+                continue
+            self.last_gained_items.clear()
+            self.send(C_PICKUP, b"")
+            deadline = time.time() + self.timeout
+            picked = None
+            while time.time() < deadline:
+                packet = self.next_packet(deadline)
+                if packet is None:
+                    break
+                index, payload = packet
+                self._observe(index, payload)
+                if index == S_GAINED_ITEM:
+                    picked = self.last_gained_items[-1]
+                    break
+                if index == 67:  # S.GainedGold：鸡也可能只掉金币
+                    break
+            if picked is not None:
+                self.ok("捡起掉落", f"{picked.get('item_index')} x{picked.get('count')}")
+                return True
+        self.fail("捡起掉落", f"击杀后没有可拾取的地面物品（S.ObjectItem=0，包 {list(self.recent_packets)}）")
+        return False
+
+    def _shop_pages(self, npc: dict) -> list[dict]:
+        spawn = dict(npc, id=npc.get("object_id", npc.get("id")))
+        queue: list[tuple[str, int]] = [("Main", 0)]
+        seen: set[str] = set()
+        pages: list[dict] = []
+        clicks = 0
+        while queue and clicks < 16:
+            key, depth = queue.pop(0)
+            if key in seen:
+                continue
+            seen.add(key)
+            clicks += 1
+            self.last_goods = None
+            response = self.call_npc(spawn, key, timeout=3)
+            self._drain(0.35)
+            if self.last_goods is not None:
+                pages.append(self.last_goods)
+                continue
+            if response == S_NPC_RESPONSE and depth < 3:
+                for nxt in self._button_keys(self.last_npc_page):
+                    if nxt not in seen:
+                        queue.append((nxt, depth + 1))
+        return pages
+
+    def newbie_book_and_cast(self) -> bool:
+        book_npcs = [
+            npc
+            for npc in self.npcs
+            if any(
+                key in npc["name"].lower()
+                for key in ("book", "librarian", "书", "书店", "技能", "skill")
+            )
+        ]
+        if not book_npcs:
+            self.skip("读书学技能", "当前地图没有书商 NPC（t92 新手书商未落地/需跨图）")
+            return False
+        for npc in book_npcs:
+            if not self._stand_next_to(npc):
+                continue
+            pages = self._shop_pages(npc)
+            for goods in pages:
+                for item in goods["items"]:
+                    self.last_gained_items.clear()
+                    self.gold_delta = 0
+                    writer = Writer()
+                    writer.u64(item["unique_id"])
+                    writer.u16(1)
+                    writer.u8(0)
+                    self.send(C_BUY_ITEM, writer.raw())
+                    deadline = time.time() + 3
+                    bought = None
+                    while time.time() < deadline:
+                        packet = self.next_packet(deadline)
+                        if packet is None:
+                            break
+                        index, payload = packet
+                        self._observe(index, payload)
+                        if index == S_GAINED_ITEM:
+                            bought = self.last_gained_items[-1]
+                            break
+                    if bought is None:
+                        continue
+                    # 读书：UseItem 成功 + S.NewMagic 才算学会。
+                    before = set(self.learned_spells)
+                    writer = Writer()
+                    writer.u64(bought["unique_id"])
+                    writer.u8(0)  # MirGridType.Inventory
+                    self.send(C_USE_ITEM, writer.raw())
+                    deadline = time.time() + 4
+                    learned = False
+                    while time.time() < deadline:
+                        packet = self.next_packet(deadline)
+                        if packet is None:
+                            break
+                        index, payload = packet
+                        self._observe(index, payload)
+                        if index == S_NEW_MAGIC and self.learned_spells - before:
+                            learned = True
+                            break
+                    if not learned:
+                        continue
+                    spell = next(iter(self.learned_spells - before))
+                    self.ok("读书学技能", f"{bought.get('item_index')} -> spell #{spell}")
+                    # 施放一次：对最近的活怪；没有目标就对自身方向空放（服务端仍回 ObjectMagic/失败包）。
+                    targets = self._live_prey()
+                    target = min(targets, key=lambda m: self._distance(m["pos"])) if targets else None
+                    if target is not None:
+                        dx = target["pos"][0] - self.self_pos[0]
+                        dy = target["pos"][1] - self.self_pos[1]
+                    else:
+                        dx, dy = 0, 1
+                    writer = Writer()
+                    writer.u32(self.self_object_id or 0)
+                    writer.u8(spell)
+                    writer.u8(self._direction(dx, dy))
+                    writer.u32(target["id"] if target else 0)
+                    writer.i32(target["pos"][0] if target else 0)
+                    writer.i32(target["pos"][1] if target else 0)
+                    writer.u8(0)
+                    self.send(C_MAGIC, writer.raw())
+                    deadline = time.time() + 4
+                    casted = False
+                    while time.time() < deadline:
+                        packet = self.next_packet(deadline)
+                        if packet is None:
+                            break
+                        index, payload = packet
+                        self._observe(index, payload)
+                        if index == 120:  # S.ObjectMagic
+                            casted = True
+                            break
+                    if casted:
+                        self.ok("使用技能", f"spell #{spell} 收到 S.ObjectMagic(120)")
+                        return True
+                    self.fail("使用技能", f"spell #{spell} 施放后未收到 S.ObjectMagic(120)")
+                    return False
+        self.skip("读书学技能", "书店货架没有可买/可学的技能书（等待 t92 新手书商低价书）")
+        return False
+
+    def newbie_flow(self, char_index: int) -> int:
+        self.ok("进入世界", f"object_id={self.self_object_id} pos={self.self_pos}")
+        deadline = time.time() + self.timeout
+        while time.time() < deadline and not any("新手" in chat for chat in self.chats):
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            self._observe(packet[0], packet[1])
+        if not any("新手" in chat for chat in self.chats):
+            self.fail("新手引导", f"第一条聊天不是新手提示：{self.chats[:1]}")
+            return 1
+        self.ok("新手引导", next(chat for chat in self.chats if "新手" in chat).splitlines()[0])
+        if not self.inventory_items:
+            self.fail("出生装", "S.UserInformation 背包为空（期望 StartItem 出生装）")
+            return 1
+        indices = [item["item_index"] for item in self.inventory_items]
+        self.ok("出生装", f"背包 {len(indices)} 件：{indices[:8]}")
+
+        if not self.newbie_hunt(3):
+            return 1
+        if not self.newbie_pickup():
+            return 1
+        self.newbie_book_and_cast()  # 数据缺失时 SKIP，不阻断其余步骤
+        # 重登持久化：等级/经验/背包/技能都还在。
+        level_before = self.self_level
+        exp_before = self.self_exp
+        inv_before = len(self.inventory_items)
+        spells_before = set(self.learned_spells)
+        writer = Writer()
+        self.send(C_LOGOUT, writer.raw())
+        try:
+            self.expect(S_LOGOUT_SUCCESS, "下线", 5)
+        except ProtocolError:
+            self.fail("重登", "LogOut 未收到 S.LogOutSuccess")
+            return 1
+        self.close()
+        self.connect()
+        self.expect(S_CONNECTED, "重连")
+        writer = Writer()
+        writer.bytes_prefixed(bytes(16))
+        self.send(C_CLIENT_VERSION, writer.raw())
+        self.expect(S_CLIENT_VERSION, "版本校验")
+        writer = Writer()
+        writer.string(self.account)
+        writer.string(self.password)
+        self.send(C_LOGIN, writer.raw())
+        _, payload = self.expect(S_LOGIN_SUCCESS, "重登")
+        if Reader(payload).i32() <= 0:
+            self.fail("重登", "重登后角色列表为空")
+            return 1
+        self.self_object_id = None
+        self.self_pos = None
+        self.inventory_items = []
+        self.equipment_items = []
+        self.learned_spells.clear()
+        writer = Writer()
+        writer.i32(char_index)
+        self.send(C_START_GAME, writer.raw())
+        self.expect(S_START_GAME, "重登进游戏")
+        deadline = time.time() + self.timeout
+        while time.time() < deadline and self.self_object_id is None:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            self._observe(packet[0], packet[1])
+        ok = (
+            self.self_level == level_before
+            and self.self_exp == exp_before
+            and len(self.inventory_items) >= inv_before
+            and spells_before <= set(self.learned_spells)
+        )
+        detail = (
+            f"等级 {level_before}->{self.self_level}，经验 {exp_before}->{self.self_exp}，"
+            f"背包 {inv_before}->{len(self.inventory_items)}，技能 {sorted(spells_before)}"
+        )
+        if ok:
+            self.ok("重登持久化", detail)
+            return 0
+        self.fail("重登持久化", detail)
+        return 1
     # ---------------- GM 闭环 ----------------
     def send_chat(self, message: str) -> None:
         writer = Writer()
@@ -1482,6 +2024,8 @@ class Playtest:
             password = "abc12345"
             character = f"PT{suffix}"
 
+        self.account = account
+        self.password = password
         self.connect()
         self.expect(S_CONNECTED, "连接")
         self.ok("连接服务端", f"{self.host}:{self.port}")
@@ -1566,6 +2110,8 @@ class Playtest:
         if self.self_object_id is None:
             self.fail("进入世界", f"未收到 S.UserInformation（期望 21）；已收到 {seen_ids[-15:]}")
             return 1
+        if self.newbie:
+            return self.newbie_flow(char_index if char_index is not None else 0)
         self.ok("进入世界", f"object_id={self.self_object_id} pos={self.self_pos}")
         self.entry_map, self.entry_pos = self.map_file, self.self_pos
         # 幂等：上一轮的跨图传送会把角色留在别的图（NPC=0），每次运行先回起点。
@@ -1598,6 +2144,11 @@ class Playtest:
                     self.fail("对话", f"{error}；期望 S.NPCResponse（93）")
         # 买药：走真实商店页（`S.NPCGoods` 102）→ `C.BuyItem`（51）→ `S.GainedItem`/`S.LoseGold`
         self.buy_potion()
+
+        # 跨图传送：① 自然传送点（`@mapinfo` 拿到全部传送点、挑最近的走过去）→ ② 传送 NPC
+        # → ③ GM `@map` 兜底。放在打怪之前：后面的 `@mob` 会刷出一群怪把周围格子占满
+        # （服务端拒绝移动：`target cell is occupied`），那时再想自然走进城门就没路了。
+        self.cross_map()
 
         if self.gm:
             self.gm_combat_flow()
@@ -1686,9 +2237,6 @@ class Playtest:
             self.skip("使用技能", "新建角色未学习技能（技能书在背包，需客户端 UI 学习）")
         self.ok("开背包/关闭", "客户端本地 UI（协议无背包开关包）")
 
-        # 跨图传送：优先自然传送点（S.NewMapInfo 下发的 movements），GM @map 只作兜底。
-        self.cross_map()
-
         writer = Writer()
         self.send(C_LOGOUT, writer.raw())
         try:
@@ -1702,6 +2250,47 @@ class Playtest:
         if self.self_pos is None:
             return 10**9
         return max(abs(self.self_pos[0] - pos[0]), abs(self.self_pos[1] - pos[1]))
+
+
+def self_check() -> int:
+    """脚本自检：`@mapinfo` 的传送点行解析 + 结果文案（不连服务端）。"""
+    samples = [
+        ("    (326,288) -> 0108(#4) (8,12) dist=18", (326, 288), "0108", 4, (8, 12), 18, ""),
+        ("    (400,225) -> 0120(#20) (11,15) dist=74 [bigmap]", (400, 225), "0120", 20, (11, 15), 74, "bigmap"),
+        ("    (335,299) -> 0103(#10) (5,12) dist=29 [hole]", (335, 299), "0103", 10, (5, 12), 29, "hole"),
+        ("    (317,301) -> 0106(#12) (20,12) dist=31 [bigmap] [move]", (317, 301), "0106", 12, (20, 12), 31, "bigmap+move"),
+    ]
+    failures = []
+    for line, pos, map_file, index, target, dist, marks in samples:
+        match = Playtest.MOVEMENT_LINE.match(line.strip())
+        if not match:
+            failures.append(f"解析失败：{line}")
+            continue
+        got = {
+            "pos": (int(match.group("x")), int(match.group("y"))),
+            "map": match.group("map"),
+            "index": int(match.group("index")),
+            "target": (int(match.group("tx")), int(match.group("ty"))),
+            "dist": int(match.group("dist")),
+        }
+        expected = {"pos": pos, "map": map_file, "index": index, "target": target, "dist": dist}
+        if got != expected:
+            failures.append(f"{line} → {got}，期望 {expected}")
+    # 结果文案三条分支
+    if summarize([("OK", "连接", "")], 0) != ["结果：全部通过（0 跳过）"]:
+        failures.append("0 跳过文案不对")
+    skipped = summarize([("OK", "连接", ""), ("SKIP", "打怪", "无怪")], 0)
+    if skipped[0] != "结果：全部通过（含 1 个跳过项）" or "打怪" not in skipped[1]:
+        failures.append(f"含跳过项文案不对：{skipped}")
+    failed = summarize([("OK", "连接", ""), ("FAIL", "买药", "没开商店页")], 1)
+    if failed[0] != "结果：存在失败项（OK 1 / SKIP 0 / FAIL 1）" or "买药" not in failed[1]:
+        failures.append(f"失败文案不对：{failed}")
+    if failures:
+        for line in failures:
+            print(f"[FAIL] {line}")
+        return 1
+    print("[OK] 自检通过：@mapinfo 传送点行解析 4/4、结果文案 3/3")
+    return 0
 
 
 def summarize(results: list[tuple[str, str, str]], code: int) -> list[str]:
@@ -1735,6 +2324,12 @@ def main() -> int:
     parser.add_argument("--server", default="127.0.0.1:7000", help="服务端地址 host:port")
     parser.add_argument("--timeout", type=float, default=8.0, help="每步等待超时（秒）")
     parser.add_argument("--gm", default=None, help="GM 账号（服务端 MIR2_GM_ACCOUNTS 需包含它）；提供时走 @level/@mob/@learn 闭环")
+    parser.add_argument("--newbie", action="store_true", help="非 GM「新手 10 分钟」完整链路（出生装/打 3 只/买书读书/捡物/重登）")
+    parser.add_argument(
+        "--self-check",
+        action="store_true",
+        help="只跑脚本内自检（@mapinfo 传送点行解析 + 结果文案），不连服务端",
+    )
     parser.add_argument(
         "--start-map",
         default=",".join(DEFAULT_START_MAPS),
@@ -1746,6 +2341,8 @@ def main() -> int:
         help="起始坐标 x,y（默认 330,270 = ServerConfig.start_point）",
     )
     args = parser.parse_args()
+    if args.self_check:
+        return self_check()
 
     try:
         start_point = tuple(int(part) for part in args.start_point.split(","))
@@ -1757,6 +2354,7 @@ def main() -> int:
         args.server,
         args.timeout,
         args.gm,
+        args.newbie,
         tuple(part.strip() for part in args.start_map.split(",") if part.strip()),
         start_point,
     )

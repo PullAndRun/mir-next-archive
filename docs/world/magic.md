@@ -196,12 +196,17 @@ per magic (14 bytes):
 4. 类型必须是 ItemType.Book              // :6077
 5. CanUseItem：性别 / 职业 / 等级        // HumanObject.cs:1020-1160
 6. Shape → Spell，且 GameData 里查得到    // PlayerObject.cs:6078-6084
-7. 不能已经学会（本作扩展，见 §10）       //
+7. 已会且未满 3 级 → **升级书**（本作扩展，见下）；已满 3 级才拒绝
 8. push UserMagic{level:0, key:0, exp:0} // :6086
 9. 发 S.NewMagic（SendMagicInfo，HumanObject.cs:2275-2278）
 10. 扣一本（count-- 或清空格）            // :6330-6331
 11. 发 S.UseItem{Success=true}           // :6336-6337
 ```
+
+**升级书（第 9 轮扩展）**：真实 `ItemInfo` **没有 MagicLevel 字段**，所以本作用「已会即升级书」
+区分——`use_book` 对已会技能不再直接拒绝，而是 `level + 1`、`experience = 0`、发
+`S.MagicLeveled`（+ `S.MagicDelay`）并扣书；满 3 级仍发 `MagicAlreadyLearned` 并拒绝。
+这与 Crystal「已会即拒绝」不同，属**本作扩展**。
 
 失败路径（`use_book` 内部已发 `S.UseItem{Success=false}`）：
 
@@ -216,11 +221,17 @@ per magic (14 bytes):
 | 等级不够（`required_type = Level`） | `S.Chat` 系统 | `LowLevel` |
 | 等级过高（`required_type = MaxLevel`） | `S.Chat` 系统 | `LowLevel` |
 | 模板里没有这个 `Spell` | — | `UnknownSpell` |
-| 已学会 | `S.Chat` 系统 | `AlreadyLearned` |
+| 已学会且已满 3 级 | `S.Chat` 系统 | `AlreadyLearned` |
 
 真实数据核对（Jev 样本）：109 本书，`Shape` 就是 `Spell` 值，
 `RequiredClass` 是职业位（战士 1 / 法师 2 / 道士 4）、`RequiredType = Level`、
 `RequiredAmount` 是最低角色等级，例如 `FireBall` 书 = shape 31 / class 2 / level 7。
+
+**技能成长（`World::level_magic`，`magic.rs:2085`）**：命中/击杀时每次
+`roll = 1..=3` 累加到 `UserMagic.experience`；0→1 用 `MagicInfo.need1`、1→2 `need2`、
+2→3 `need3`，且角色等级必须 ≥ `level1/2/3`；升级后扣本级需求、满 3 级清零，
+发 `S.MagicLeveled`（+ `S.MagicDelay`）。测试：`killing_a_monster_grants_magic_experience`、
+`magic_level_up_sends_magic_leveled_and_magic_delay`、`skill_experience_is_capped_at_three`。
 
 ---
 

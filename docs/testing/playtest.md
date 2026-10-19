@@ -9,6 +9,7 @@
 ```powershell
 python tools/playtest/playtest.py --gm playtest
 python tools/playtest/playtest.py --server 127.0.0.1:7006 --gm playtest --timeout 8
+py tools/playtest/playtest.py --self-check
 ```
 
 * `--server host:port` 直连已有服务端（不自己起服务）；
@@ -16,7 +17,9 @@ python tools/playtest/playtest.py --server 127.0.0.1:7006 --gm playtest --timeou
 * `--gm <账号>` 用 GM 账号跑完整链路（买药/打怪/跨图都依赖 GM 定位与 `@map` 兜底）；
   **验收口径以 `--gm playtest` 为准**；
 * `--start-map`（默认 `0,1` 依次尝试，兼容 map_index 与文件名不一致的数据集）、
-  `--start-point`（默认 `330,270`）。
+  `--start-point`（默认 `330,270`）；
+* `--self-check` 不连服务端，只验 `@mapinfo` 传送点行解析（含四种标记）与三种结果文案，
+  可放进 CI。
 
 **结果文案**：
 
@@ -40,25 +43,30 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Stop -P
 > （用 `Window::default_attributes()` 交给操作系统），正式产品在玩家自己的机器上按系统默认
 > 摆放；搬运逻辑只存在于 `tools/dev/*.ps1`。
 
-## 2. 覆盖（`--gm playtest`，真实 `Server.MirDB`，15 项全 OK、0 SKIP）
+## 2. 覆盖（`--gm playtest`，真实 `Server.MirDB`；14 项全 OK、0 SKIP）
 
-| # | 步骤 |
-|---|---|
-| 1 | 连接 + `C.ClientVersion` |
-| 2 | 注册 / 角色列表 |
-| 3 | 登录 |
-| 4 | 建角 |
-| 5 | 进游戏（`S.UserInformation`） |
-| 6 | 进入世界 |
-| 7 | 回到起始图（见 §3） |
-| 8 | 走到 NPC + 对话 |
-| 9 | 买药 |
-| 10 | 打怪 |
-| 11 | 用技能 |
-| 12 | 开背包 |
-| 13 | 跨图传送 |
-| 14 | 下线 |
-| 15 | （GM 回执/包序校验等） |
+真机顺序（3 连跑一致）：**连接/注册/登录 → 建角/进游戏/进世界 → 回到起始图 → 走到 NPC →
+买药 → 跨图（自然）→ 打怪 → 使用技能 → 开背包 → 下线**。
+
+| # | 步骤 | 协议/说明 |
+|---|---|---|
+| 1 | 连接 / 版本校验 | `S.Connected` → `C.ClientVersion` → `S.ClientVersion` |
+| 2 | 注册 / 登录 | `C.NewAccount` → `S.NewAccount`；`C.Login` → `S.LoginSuccess` |
+| 3 | 建角 / 进游戏 | `C.NewCharacter` → `S.NewCharacterSuccess`；`C.StartGame` → `S.StartGame` |
+| 4 | 进入世界 | `S.MapInformation` / `S.UserInformation` / `S.ObjectNPC` / `S.ObjectMonster` |
+| 5 | 回到起始图（幂等） | `@map` → GM 回执 `Teleported to …` → `C.LogOut` → `S.LogOutSuccess` → `C.StartGame` |
+| 6 | 走到 NPC / 对话 | `C.Walk` → `S.ObjectWalk`；`C.CallNPC` → `S.NPCResponse` |
+| 7 | 买药（NPC 商店） | `C.CallNPC` 逐页 BFS → `S.NPCGoods` → `C.BuyItem` → `S.GainedItem` + `S.LoseGold` |
+| 8 | **跨图传送（自然）** | `@mapinfo` 附近传送点 → BFS 走过去踩点 → `S.MapChanged`；失败才降级传送 NPC → GM `@map` |
+| 9 | 打怪（GM `@mob`） | `C.Attack` → `S.ObjectDied` / `S.GainExperience` |
+| 10 | 使用技能 | `@learn` → `S.NewMagic` → `C.Magic` → `S.ObjectMagic` + `C.HealthChanged` |
+| 11 | 开背包 / 关闭 | 客户端本地 UI（协议无背包开关包） |
+| 12 | 下线 | `C.LogOut` → `S.LogOutSuccess` |
+| 13–14 | 其它包序/回执校验 | GM 回执、视野对象、包序检查等 |
+
+**跨图必须在打怪之前**：`@mob` 会刷一群随从把周围格子占满，服务端会拒绝移动
+（`target cell is occupied`），之后再想自然走进城门就无路；买药结束时角色正好在药店旁，
+离城门 4 格，所以顺序是「买药 → 跨图 → 打怪 → 技能 → 开背包 → 下线」。
 
 不带 `--gm` 时买药、打怪、跨图会 `[FAIL]`（没有 GM 定位与 `@map` 兜底），所以文档/验收
 以 `--gm playtest` 为准。
@@ -75,16 +83,39 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/serve.ps1 -Stop -P
 （`C.LogOut` → `S.LogOutSuccess` → `C.StartGame`）重建视野。为什么要重进：GM `@map` 走
 `World::place_player`，只改坐标、**不发** `S.MapChanged`/视野对象（服务端既有实现，不是 bug）。
 
-## 4. 当前状态（t76/t88）
+## 4. 自然传送点（t96）
+
+跨图传送的**第一选择是「真走进去」**：GM `@mapinfo` 会追加「附近传送点」段——
+`movements: 72 total, 6 on big map (nearest 10)` + 按切比雪夫距离升序最多 10 行
+`(326,288) -> 0108(#4) (8,12) dist=18`，带 `[bigmap]`/`[hole]`/`[move]`/`[conquest]` 标记。
+为什么要走 GM 拿这份数据：Crystal 的 `S.NewMapInfo` 只带 `ShowOnBigMap` 的 6 条
+（`PlayerObject.cs:1009-1056`），脚本按客户端协议看不到「走进城门就换图」的格子；
+`@mapinfo` 是**开发者旁路**，只观察数据，换图仍由玩家走进去触发（`maps.rs::check_movement`），
+不改变客户端语义。
+
+本步真机输出（3 次连跑一致）：
+
+```text
+[OK]   跨图传送 —— 自然传送点 (326, 288) → 0108 (8, 12)（4 格）
+```
+
+三级降级：自然传送点 → 传送 NPC（`Teleport_*` 的 `@tele → @move*`）→ GM `@map`（打印降级原因）。
+服务端数据与测试见 [`docs/world/maps.md`](../world/maps.md) §3.5。
+
+## 5. 当前状态（t76/t88/t96）
 
 - 新角色满血（`World::enter` 兜底，`docs/world/combat.md` §10.4）与 TownArcher 红名过滤
   （`docs/world/monster-ai.md` §1）均已修复；
-- `--gm playtest` 在真实 DB 上 15 项全 OK、0 SKIP；连续 3 次 exit 0、输出一致；
+- `--gm playtest` 在真实 DB 上 14 项全 OK、0 SKIP；连续 3 次 exit 0、输出一致；
+- **三件套全绿（2026-10-19 实测）**：`cargo test -p mir-server` **39 目标全绿**
+  （含 `tests/maps` 20/20、`tests/duo_smoke` 7/7）；`cargo clippy -p mir-server --all-targets
+  -- -D warnings` 0；`rustfmt --check` 0；
+- `--self-check`：`[OK] 自检通过：@mapinfo 传送点行解析 4/4、结果文案 3/3`（不连服务端）；
 - **NPC 商店价格缺口**：`S.NPCGoods` 没有价格字段，脚本只能验证「货架能出 Book/物品」，
   买药的价格校验依赖客户端 `[Trade]` 页（完整说明见 `tools/playtest/README.md`）；
 - 真实数据里没有 `ObjectMagic` AI，魔法链路靠合成用例（`tests/skills.rs`）或预留的 AI 215/216/220。
 
-## 5. 与其它测试的关系
+## 6. 与其它测试的关系
 
 playtest 是「真服务端 + 真 socket + Python 客户端」的冒烟，不替代 Rust 集成测试；
 它补的是「换个语言实现的客户端也能按协议玩」这一层。

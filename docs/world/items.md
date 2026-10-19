@@ -571,8 +571,19 @@ FireBall=31、ThunderBolt=36、Teleport=37、FireWall=39、Lightning=40）。书
 `npc_goods`/`buy_item` 的 `[Trade]`。测试 `book_shop_goods_can_sell_skill_books` 验证货架
 能出 Book 且 `shape` 正确。
 
-读书复用 `World::use_book`（`magic.rs:922`，见 §15.3 与 `docs/world/magic.md` §6.5）：
-学会 → `S.NewMagic`；单本消耗/堆叠减一；重复读 `AlreadyLearned` 不重复学；职业/等级限制。
+读书复用 `World::use_book`（`magic.rs:922`，见 §15.3 与 `docs/world/magic.md` §4）：
+学会 → `S.NewMagic`；单本消耗/堆叠减一；职业/等级限制。
+
+**升级书（第 9 轮扩展）**：真实 `ItemInfo` 没有 `MagicLevel` 字段，所以「已会即升级书」——
+对已会且未满 3 级的技能，读同一本书 `level + 1`、`experience = 0`、发 `S.MagicLeveled` 并扣书；
+满 3 级仍 `MagicAlreadyLearned` 拒绝。测试 `using_a_known_spell_book_upgrades_one_level`、
+`learning_the_same_book_at_max_level_is_rejected`。
+
+**新手书商（第 9 轮扩展）**：真实 DB 没有 ≤1 级技能书，故对「**1 级且无技能**」的角色，
+第一本本职业技能书**免费**（`buy_item cost=0`）+ **等级检查豁免**（`npc.rs`/`items.rs`）。
+真实 NPC：`Librarian_Steven` @ `0104 (5,8)`；示例书 Wizard `FireBall` index 990、
+Warrior `Fencing` 973。测试 `first_skill_book_ignores_level_for_a_level_one_newbie`、
+`level_one_newbie_gets_the_first_skill_book_for_free`。
 
 ### 18.3 新手提示
 

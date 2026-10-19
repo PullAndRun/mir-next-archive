@@ -39,7 +39,7 @@
 | `@revive [角色名]` | 目标必须在线且已死亡（缺省自己） | `revive_player`；未死亡回 `… is not dead.` |
 | `@setpk <点数>` | `>= 0` | 设 PK 值并立即 `refresh_name_colour`（红/黄/棕名同步广播） |
 | `@warp <角色> <地图> [x y]` | 目标在线；地图名/索引 + 可选整数坐标 | 把**别的**角色传送到指定地图（GM 自己用 `@map`），回 `Warped …` |
-| `@mapinfo` | — | 当前地图/坐标/站立格可走性 + 本图怪物/玩家/地面物品数（多行） |
+| `@mapinfo` | — | 当前地图/坐标/站立格可走性 + 本图怪物/玩家/地面物品数；第 9 轮追加「附近传送点」：`movements: 72 total, 6 on big map (nearest 10)` + 按切比雪夫距离升序最多 10 行，格式 `(源x,源y) -> <目标文件名>(#index) (落点x,落点y) dist=<距离>`，带 `[bigmap]`/`[hole]`/`[move]`/`[conquest]` 标记；同图显示当前地图文件名，解析不出显示 `?#index`。**开发者旁路**：只读数据，不改变换图/客户端语义（`S.NewMapInfo` 仍只发 `ShowOnBigMap`） |
 | `@clearbag` | — | 清空背包（**不碰装备栏/仓库**），逐件 `S.DeleteItem`，回 `Cleared N item stack(s) from the bag.` |
 | `@reboot <秒>` | `0..=86400` | 安排优雅停机：广播倒计时（每个整秒只喊一次）→ 到点踢掉全部会话并停止 accept；`0` = 立即重启 |
 | `@help` | — | 命令表（`help_lines()`） |

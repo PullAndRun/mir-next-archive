@@ -925,6 +925,18 @@ Add/Remove/Memo/Email/Whisper，`KeybindOptions.Friends` 可配键位）；本�
 `gate_open_state_changes_the_rendering`、`archer_range_attack_spawns_a_projectile`；
 截图 `target/client-conquest.png`、`target/client-conquest-gate.png`。
 
+### 5.22 组队面板（P）与行会成员页（第 9 轮）
+
+**组队面板（`P`，`ui::group`）**：成员表列 **名字 / 等级 / 职业 / 地图 / 在线 / HP 条与百分比**；
+`members[0]` 标队长；底部「输入+邀请」「离队」「踢人」。离队发 `C.DelMember{name=自己}`（原有）；
+320×240 下内容宽 <380 时按钮分两行、成员行容量按按钮上方空间收敛，面板/控件/行全部在屏内；
+打开面板时**隐藏 HUD 队友条**避免遮挡。截图 `target/client-group.png`。
+
+**行会成员页（`G` → 成员）**：响应式四列 **职位 / 队员 / 等级 / 在线**；等级从同屏
+`S.ObjectPlayer` 或自己关联（离线显示 `--`）；新增「刷新」按钮发
+`C.RequestGuildInfo{type=1}`，等 `S.GuildMemberChange` 回填；窄屏四按钮均分不出屏，
+成员页不画底部提示避免压按钮。截图 `target/client-guild-members.png`。
+
 
 
 ## 6. 素材加载与渲染
@@ -967,11 +979,18 @@ Add/Remove/Memo/Email/Whisper，`KeybindOptions.Friends` 可配键位）；本�
 素材目录缺失/图库打不开 → 空图库 + 空白地形（登录窗仍可开），`warn` 一次；
 缺帧 → 站立帧 → 库首帧 → 彩色占位方块，**不 panic、不黑屏**。
 
-**素材缺失审计（t84，`asset_scan`）**：`objects.wzl` 候选器械帧 3/4/5 宽高均为 0（空帧），
+**素材缺失审计（t84/t91，`asset_scan`）**：`objects.wzl` 候选器械帧 3/4/5 宽高均为 0（空帧），
 且 62–65/94–95/120–123 抽样都是野地/石壁/树木纹理 → 确认素材库没有真实城门/城墙/箭塔，
-器械继续用「半透明色块 + 类型文字」回退（换真实帧号只改常量）。59 个 `mon*.wzl` 全部可打开
-且有非空帧，无整库缺图；`mon7.wzl` 首个非空帧在 **440**（前 100 帧为空），现有
-「站立帧→库首帧→占位方块」回退已覆盖。HUD/人形/武器/头发/NPC/effect/magic/tiles/objects
+器械继续用「半透明色块 + 类型文字」回退（换真实帧号只改常量）。
+
+59 个 `mon*.wzl` 全部可打开，无整库缺图；但有**空帧区间**（t91 清单）：
+`mon7.wzl` 首非空帧 **440**（前 440 空）；`Mon11.wzl` [340,359]/[700,719]/[1060,1079]/[1420,1439]；
+`Mon6.wzl` [850,859]/[1280,1289]/[1710,1719]；`mon-kulou.wzl` [345,359]/[705,719]；
+`mon1.wzl` [190,279]/[548,559]/[620,687]/[750,760]/[820,839]，且前 10 块中有 1 块站立帧为空。
+`hum.wzl`/`objects.wzl` 没有怪物动作帧、mon 库间也无可替换块，所以保留
+「站立帧→库首帧→占位方块」**静默回退**（不画错帧）。`asset_scan` JSON 新增
+`first_non_empty` / `empty_intervals` / `empty_standing_blocks_first10` 字段
+（产物 `target/asset-missing.json`）。HUD/人形/武器/头发/NPC/effect/magic/tiles/objects
 等关键库均 present。
 
 **性能（release 实测，t84）**

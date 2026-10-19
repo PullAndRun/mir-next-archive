@@ -37,11 +37,37 @@ python tools/playtest/playtest.py --server 127.0.0.1:7000 --gm playtest --timeou
 | 打鸡/鹿 | `C.Attack`(47) → `S.ObjectDied`(81)/`S.GainExperience`(85) |
 | 买药（NPC 商店） | `C.CallNPC`(50) 逐页 BFS → `S.NPCGoods`(102) → `C.BuyItem`(51) → `S.GainedItem`(66) + `S.LoseGold`(68) |
 | 使用技能 | `@learn` → `S.NewMagic`(117) → `C.Magic`(58) → `S.ObjectMagic`(120) + `C.HealthChanged`(77) |
-| 跨图传送 | `S.NewMapInfo`(18) 的传送点 / 传送 NPC / GM `@map` 兜底 → `S.MapChanged`(98) |
+| 跨图传送（自然） | GM `@mapinfo` 的「附近传送点」→ BFS 走过去踩上传送点 → `S.MapChanged`(98)；失败才降级「传送 NPC」→「GM `@map`」 |
 | 下线 | `C.LogOut`(9) → `S.LogOutSuccess`(58) |
 
-当前真服务端（真实 `Server.MirDB` + `--gm`）跑满 **15 项全 `[OK]`、0 `SKIP`**；不带 `--gm`
+当前真服务端（真实 `Server.MirDB` + `--gm`）跑满 **14 项全 `[OK]`、0 `SKIP`**；不带 `--gm`
 时会退回普通玩家链路（打怪/技能按原因 SKIP）。
+
+### 自然传送点（t96）
+
+跨图传送的**第一选择是「真走进去」**：GM `@mapinfo` 现在会追加一段「附近传送点」——
+`Movements (72 total, 6 on big map)` + 按距离升序的最多 10 条
+`(326,288) -> 0108(#4) (8,12) dist=18`（`[bigmap]`/`[hole]`/`[move]`/`[conquest]` 标记）。
+
+为什么要走 GM 拿这份数据：Crystal 的 `S.NewMapInfo` 只带 `ShowOnBigMap` 的 6 条
+（`Server/MirObjects/PlayerObject.cs:1009-1056`，客户端画大地图图标用），脚本按客户端协议
+根本看不到「走进城门就换图」的格子。`@mapinfo` 是**开发者旁路**：只观察数据，换图仍然由
+玩家自己走进去触发（服务端 `maps.rs::check_movement`），不改变客户端语义。
+
+本步现在输出：
+```
+[OK]   跨图传送 —— 自然传送点 (326, 288) → 0108 (8, 12)（4 格）
+```
+（打怪会 `@mob` 刷出一群跟屁虫把周围格子占满，所以跨图这一步排在**买药之后、打怪之前**；
+买药结束时人正好在药店旁，离 (326,288) 的城门 4 格。）
+
+### 脚本自检
+
+```text
+py tools/playtest/playtest.py --self-check
+# [OK] 自检通过：@mapinfo 传送点行解析 4/4、结果文案 3/3
+```
+不连服务端，只验 `@mapinfo` 传送点行的解析（含 `[bigmap]`/`[hole]`/`[move]` 标记）与三种结果文案。
 
 ## GM 闭环：打怪 + 用技能（t78）
 

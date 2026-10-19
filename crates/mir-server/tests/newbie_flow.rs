@@ -15,6 +15,7 @@ use mir_protocol::manual::server::UserInformation;
 use mir_protocol::packets::client as c;
 use mir_protocol::{ClientPacket, ServerPacket};
 use mir_server::gamedata::GameData;
+use mir_server::store::AccountStore;
 use mir_server::world::{Player, World};
 use mir_server::{MemoryStore, NpcState, ServerConfig, combat, items, serve_forever};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -119,16 +120,12 @@ fn real_config() -> Option<ServerConfig> {
     })
 }
 
-async fn boot(config: ServerConfig) -> std::net::SocketAddr {
+async fn boot(config: ServerConfig, store: Arc<MemoryStore>) -> std::net::SocketAddr {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("绑定临时端口");
     let address = listener.local_addr().expect("取端口");
-    tokio::spawn(serve_forever(
-        listener,
-        Arc::new(config),
-        Arc::new(MemoryStore::new()),
-    ));
+    tokio::spawn(serve_forever(listener, Arc::new(config), store));
     address
 }
 
@@ -250,6 +247,75 @@ async fn enter_new_character(
     (client, info, bookshop_id)
 }
 
+/// 用已有账号/角色重新登录并进世界（不做 GM，不新建角色）。
+async fn relogin_existing(
+    address: std::net::SocketAddr,
+    account: &str,
+    character_index: i32,
+) -> (TestClient, UserInformation, u32) {
+    let mut client = TestClient::connect(address).await;
+    client
+        .wait_for("S.Connected", |packet| {
+            matches!(packet, ServerPacket::Connected(_))
+        })
+        .await;
+    client
+        .send(ClientPacket::ClientVersion(c::ClientVersion {
+            version_hash: Vec::new(),
+        }))
+        .await;
+    client
+        .wait_for("S.ClientVersion", |packet| {
+            matches!(packet, ServerPacket::ClientVersion(_))
+        })
+        .await;
+    client
+        .send(ClientPacket::Login(c::Login {
+            account_id: account.to_owned(),
+            password: "secret".to_owned(),
+        }))
+        .await;
+    client
+        .wait_for("S.LoginSuccess", |packet| {
+            matches!(packet, ServerPacket::LoginSuccess(_))
+        })
+        .await;
+    client
+        .send(ClientPacket::StartGame(c::StartGame { character_index }))
+        .await;
+    let mut info = None;
+    let mut hint = None;
+    let mut bookshop_id = 0;
+    loop {
+        let Some(packet) = client.next(WAIT).await else {
+            panic!("重新登录后连接提前关闭");
+        };
+        match &packet {
+            ServerPacket::UserInformation(user) => {
+                client.object_id = user.object_id;
+                info = Some(user.clone());
+            }
+            ServerPacket::Chat(chat) if hint.is_none() => {
+                assert_eq!(chat.type_, mir_core::enums::ChatType::System);
+                hint = Some(chat.message.clone());
+            }
+            ServerPacket::ObjectNPC(npc) if npc.name.contains("Librarian") => {
+                bookshop_id = npc.object_id;
+            }
+            _ => {}
+        }
+        if hint.is_some() {
+            break;
+        }
+    }
+    let info = info.expect("重新登录应收到 UserInformation");
+    assert!(
+        hint.expect("重新登录应收到欢迎语").contains("新手"),
+        "欢迎语仍应带新手引导"
+    );
+    (client, info, bookshop_id)
+}
+
 #[tokio::test]
 async fn new_player_gets_starter_items_and_learns_from_bookshop() {
     let _ = tracing_subscriber::fmt()
@@ -258,8 +324,9 @@ async fn new_player_gets_starter_items_and_learns_from_bookshop() {
     let Some(config) = real_config() else {
         return;
     };
-    let address = boot(config).await;
-    let (mut client, info, bookshop_id) = enter_new_character(address, "newbie").await;
+    let store = Arc::new(MemoryStore::new());
+    let address = boot(config, store.clone()).await;
+    let (mut client, info, _bookshop_id) = enter_new_character(address, "newbie").await;
 
     // 1) 出生装：真实 DB 的 StartItem（战士至少拿 WoodenSword/BaseDress/HP 药/蜡烛。
     let inventory = info.inventory.expect("登录包应带背包");
@@ -274,14 +341,44 @@ async fn new_player_gets_starter_items_and_learns_from_bookshop() {
         "新角色应有 StartItem 出生装，实际背包：{inventory:?}"
     );
 
-    // 2) 走到书店：从 (7,8) 向左一格到 (6,8)，再与 (5,8) 的 NPC 对话。
-    if bookshop_id == 0 || info.level < 7 {
-        eprintln!(
-            "跳过 socket 书店段：视野 NPC={bookshop_id}, level={}（技能书要求 7 级）",
-            info.level
-        );
-        return;
-    }
+    // 2) store 夹具：角色已通过正常协议建好；先下线让服务端把世界状态存盘，
+    //    再把 level/gold 写回存储（不是 GM 命令），重新登录后走书店。
+    client.send(ClientPacket::LogOut(c::LogOut {})).await;
+    let ServerPacket::LogOutSuccess(logout) = client
+        .wait_for("S.LogOutSuccess", |packet| {
+            matches!(packet, ServerPacket::LogOutSuccess(_))
+        })
+        .await
+    else {
+        unreachable!()
+    };
+    let character_index = logout.characters.first().expect("下线包应带角色槽位").index;
+    drop(client);
+    let account = store
+        .find_account("newbie")
+        .await
+        .expect("注册账号应存在")
+        .expect("账号");
+    let mut character = store
+        .list_characters(account.id)
+        .await
+        .expect("列角色")
+        .into_iter()
+        .next()
+        .expect("角色已建");
+    character.level = 7;
+    character.gold = 1_000;
+    store
+        .save_character(character.clone())
+        .await
+        .expect("store 夹具写回");
+    let (mut client, info, bookshop_id) =
+        relogin_existing(address, "newbie", character_index).await;
+    assert_eq!(info.level, 7, "重新登录应读到 store 里的 7 级");
+    assert_eq!(info.gold, 1_000, "重新登录应读到 store 里的 1000 金币");
+    assert_ne!(bookshop_id, 0, "重新登录后书店 NPC 必须在视野里");
+
+    // 3) 走到书店：从 (7,8) 向左一格到 (6,8)，再与 (5,8) 的 NPC 对话。
     client
         .send(ClientPacket::Walk(c::Walk {
             direction: MirDirection::Left,
@@ -332,15 +429,22 @@ async fn new_player_gets_starter_items_and_learns_from_bookshop() {
             type_: PanelType::Buy,
         }))
         .await;
-    let ServerPacket::GainedItem(gained) = client
-        .wait_for("S.GainedItem", |packet| {
-            matches!(packet, ServerPacket::GainedItem(_))
-        })
-        .await
-    else {
-        unreachable!()
-    };
+    let mut gained = None;
+    let mut lost = None;
+    while gained.is_none() || lost.is_none() {
+        let Some(packet) = client.next(WAIT).await else {
+            panic!("买书后连接关闭；gained={gained:?} lost={lost:?}");
+        };
+        match packet {
+            ServerPacket::GainedItem(item) => gained = Some(item),
+            ServerPacket::LoseGold(gold) => lost = Some(gold),
+            _ => {}
+        }
+    }
+    let gained = gained.expect("S.GainedItem");
+    let lost = lost.expect("S.LoseGold");
     assert_eq!(gained.item.item_index, FENCING_BOOK);
+    assert_eq!(lost.gold, 500, "买 Fencing 应扣 500 金币");
     let item_uid = gained.item.unique_id;
 
     // 4) 读书 → S.NewMagic；再读同一本应失败（书已消耗）。
@@ -350,16 +454,22 @@ async fn new_player_gets_starter_items_and_learns_from_bookshop() {
             grid: MirGridType::Inventory,
         }))
         .await;
-    client
-        .wait_for("S.UseItem 成功", |packet| {
-            matches!(packet, ServerPacket::UseItem(use_item) if use_item.unique_id == item_uid && use_item.success)
-        })
-        .await;
-    client
-        .wait_for("S.NewMagic", |packet| {
-            matches!(packet, ServerPacket::NewMagic(_))
-        })
-        .await;
+    let mut used = false;
+    let mut learned = false;
+    while !used || !learned {
+        let Some(packet) = client.next(WAIT).await else {
+            panic!("读书后连接关闭；used={used} learned={learned}");
+        };
+        match packet {
+            ServerPacket::UseItem(use_item)
+                if use_item.unique_id == item_uid && use_item.success =>
+            {
+                used = true;
+            }
+            ServerPacket::NewMagic(_) => learned = true,
+            _ => {}
+        }
+    }
 
     client
         .send(ClientPacket::UseItem(c::UseItem {

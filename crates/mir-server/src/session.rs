@@ -311,6 +311,10 @@ impl<S: AccountStore> Session<S> {
             ClientPacket::MoveItem(packet) => {
                 self.on_move_item(packet.grid, packet.from, packet.to).await;
             }
+            ClientPacket::EquipItem(packet) => {
+                self.on_equip_item(packet.grid, packet.unique_id, packet.to)
+                    .await;
+            }
             // 玩家仓库：`C.StoreItem` / `C.TakeBackItem`（Crystal `MirConnection.cs:346-347`、
             // `:485` → `PlayerObject.cs:5376-5526`，见 [`crate::storage`]）。
             ClientPacket::StoreItem(packet) => {
@@ -1368,6 +1372,18 @@ impl<S: AccountStore> Session<S> {
         match world.move_item(object_id, grid, from, to) {
             Ok(()) => tracing::debug!(session = self.id, ?grid, from, to, "物品移动成功"),
             Err(error) => tracing::debug!(session = self.id, %error, "物品移动被拒绝"),
+        }
+    }
+
+    /// 穿戴背包物品（`C.EquipItem`，Crystal `MirConnection.cs:1217-1307`）。
+    async fn on_equip_item(&mut self, grid: MirGridType, unique_id: u64, to: i32) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let mut world = self.world.lock().await;
+        match world.equip_item(object_id, unique_id, grid, to) {
+            Ok(()) => tracing::debug!(session = self.id, unique_id, to, "装备穿戴成功"),
+            Err(error) => tracing::debug!(session = self.id, %error, "装备穿戴被拒绝"),
         }
     }
 

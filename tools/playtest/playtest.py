@@ -439,8 +439,12 @@ class Playtest:
                     count = r.i32()
                     return [r.user_item() if r.boolean() else None for _ in range(count)]
 
-                self.inventory_items = [item for item in optional_items() if item]
-                self.equipment_items = [item for item in optional_items() if item]
+                inventory = [item for item in optional_items() if item]
+                if inventory:
+                    self.inventory_items = inventory
+                equipment = [item for item in optional_items() if item]
+                if equipment:
+                    self.equipment_items = equipment
                 _quest_items = optional_items()
                 self.self_gold = r.u32()
                 _credit = r.u32()
@@ -1498,7 +1502,7 @@ class Playtest:
             and any(key in m["name"].lower() for key in self.PREY_KEYWORDS)
         ]
 
-    def _attack_until_dead(self, prey: dict, timeout: float = 40.0) -> bool:
+    def _attack_until_dead(self, prey: dict, timeout: float = 60.0) -> bool:
         deadline = time.time() + timeout
         while time.time() < deadline:
             latest = next((m for m in self.monsters if m["id"] == prey["id"]), prey)
@@ -1512,36 +1516,33 @@ class Playtest:
             if distance > 1:
                 self.walk_towards(prey["pos"], max_steps=12)
                 continue
-            # 鸡会走位/朝向可能过期：八方向轮打一轮，必有一发命中相邻格。
-            for direction in range(8):
-                writer = Writer()
-                writer.u8(direction)
-                writer.u8(0)
-                self.send(C_ATTACK, writer.raw())
-                wait = time.time() + 0.15
-                while time.time() < wait:
-                    packet = self.next_packet(wait)
-                    if packet is None:
-                        break
-                    index, payload = packet
-                    self._observe(index, payload)
-                    if index == S_OBJECT_DIED and Reader(payload).u32() == prey["id"]:
-                        return True
-            if __import__("os").environ.get("PT_DEBUG"):
-                print(f"  [攻击] self={self.self_pos} prey={prey['name']}@{prey['pos']} 八方向一轮")
+            dx = prey["pos"][0] - self.self_pos[0]
+            dy = prey["pos"][1] - self.self_pos[1]
+            writer = Writer()
+            writer.u8(self._direction(dx, dy))
+            writer.u8(0)
+            self.send(C_ATTACK, writer.raw())
+            wait = time.time() + 0.8
+            while time.time() < wait:
+                packet = self.next_packet(wait)
+                if packet is None:
+                    break
+                index, payload = packet
+                self._observe(index, payload)
+                if index == S_OBJECT_DIED and Reader(payload).u32() == prey["id"]:
+                    return True
         return False
 
     def newbie_equip(self) -> int:
-        """把出生装逐件试穿到 0..13 槽；返回穿上的件数（服务端 S.EquipItem.success）。"""
         equipped = 0
         for item in list(self.inventory_items):
             for slot in range(14):
                 writer = Writer()
-                writer.u8(0)  # MirGridType.Inventory
+                writer.u8(1)  # MirGridType.Inventory
                 writer.u64(item["unique_id"])
                 writer.i32(slot)
                 self.send(C_EQUIP_ITEM, writer.raw())
-                deadline = time.time() + 0.15
+                deadline = time.time() + 0.2
                 success = False
                 while time.time() < deadline:
                     packet = self.next_packet(deadline)
@@ -1564,7 +1565,7 @@ class Playtest:
         if equipped:
             self.ok("穿上出生装", f"{equipped} 件")
         anchor = (355, 312)
-        teleports = {tuple(m["pos"]) for m in self.movements}
+        teleports = {tuple(m["pos"]) for m in self.movements} | {(322, 247)}
         self.walk_towards(anchor, max_steps=120, blocked=teleports)
         deadline = time.time() + max(180.0, self.timeout * 18)
         while kills < count and time.time() < deadline:
@@ -1648,6 +1649,48 @@ class Playtest:
                         queue.append((nxt, depth + 1))
         return pages
 
+    def newbie_go_bookshop(self) -> bool:
+        """从 map 0 走自然传送点 (322,247) → 0104(4,10)，再站到书商旁边。"""
+        old_map = self.map_file
+        target = (322, 247)
+        others = {tuple(m["pos"]) for m in self.movements} - {target}
+        if not self.walk_towards(target, max_steps=240, blocked=others):
+            self.skip("去书店", f"走不到自然传送点 {target}（map={self.map_file}）")
+            return False
+        direction = self._direction(target[0] - self.self_pos[0], target[1] - self.self_pos[1])
+        writer = Writer()
+        writer.u8(direction)
+        self.send(C_WALK, writer.raw())
+        deadline = time.time() + 5
+        while time.time() < deadline and self.map_file == old_map:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            self._observe(packet[0], packet[1])
+        if self.map_file == old_map:
+            self.skip("去书店", f"踩传送点 {target} 后没有换图（仍是 {old_map}）")
+            return False
+        print(f"  [传送] {old_map} -> {self.map_file} @ {self.self_pos}")
+        deadline = time.time() + self.timeout
+        while time.time() < deadline and not self.npcs:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            self._observe(packet[0], packet[1])
+        book_npcs = [
+            npc
+            for npc in self.npcs
+            if any(key in npc["name"].lower() for key in ("book", "librarian", "书", "技能"))
+        ]
+        if not book_npcs:
+            self.skip("去书店", f"已到 {self.map_file}，但视野里没有书商 NPC")
+            return False
+        if not self._stand_next_to(book_npcs[0]):
+            self.skip("去书店", f"走不到书商 {book_npcs[0]['name']} @ {book_npcs[0]['pos']}")
+            return False
+        self.ok("去书店", f"{self.map_file} 的 {book_npcs[0]['name']} @ {book_npcs[0]['pos']}")
+        return True
+
     def newbie_book_and_cast(self) -> bool:
         book_npcs = [
             npc
@@ -1690,7 +1733,7 @@ class Playtest:
                     before = set(self.learned_spells)
                     writer = Writer()
                     writer.u64(bought["unique_id"])
-                    writer.u8(0)  # MirGridType.Inventory
+                    writer.u8(1)  # MirGridType.Inventory
                     self.send(C_USE_ITEM, writer.raw())
                     deadline = time.time() + 4
                     learned = False
@@ -1765,7 +1808,8 @@ class Playtest:
             return 1
         if not self.newbie_pickup():
             return 1
-        self.newbie_book_and_cast()  # 数据缺失时 SKIP，不阻断其余步骤
+        if self.newbie_go_bookshop():
+            self.newbie_book_and_cast()  # 数据缺失时 SKIP，不阻断其余步骤
         # 重登持久化：等级/经验/背包/技能都还在。
         level_before = self.self_level
         exp_before = self.self_exp

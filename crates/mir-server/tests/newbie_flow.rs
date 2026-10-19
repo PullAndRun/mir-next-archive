@@ -340,6 +340,29 @@ async fn new_player_gets_starter_items_and_learns_from_bookshop() {
         !starter.is_empty(),
         "新角色应有 StartItem 出生装，实际背包：{inventory:?}"
     );
+    // F1：用真实 C.EquipItem 穿上出生木剑（之前 session 未分派 EquipItem，客户端发来即被忽略）。
+    let sword = inventory
+        .iter()
+        .flatten()
+        .find(|item| item.item_index == 221)
+        .expect("出生装应有 WoodenSword");
+    client
+        .send(ClientPacket::EquipItem(c::EquipItem {
+            grid: MirGridType::Inventory,
+            unique_id: sword.unique_id,
+            to: 0,
+        }))
+        .await;
+    let ServerPacket::EquipItem(equipped) = client
+        .wait_for("S.EquipItem", |packet| {
+            matches!(packet, ServerPacket::EquipItem(_))
+        })
+        .await
+    else {
+        unreachable!()
+    };
+    assert!(equipped.success, "出生木剑应能穿上：{equipped:?}");
+    assert_eq!(equipped.unique_id, sword.unique_id);
 
     // 2) store 夹具：角色已通过正常协议建好；先下线让服务端把世界状态存盘，
     //    再把 level/gold 写回存储（不是 GM 命令），重新登录后走书店。
@@ -376,6 +399,13 @@ async fn new_player_gets_starter_items_and_learns_from_bookshop() {
         relogin_existing(address, "newbie", character_index).await;
     assert_eq!(info.level, 7, "重新登录应读到 store 里的 7 级");
     assert_eq!(info.gold, 1_000, "重新登录应读到 store 里的 1000 金币");
+    assert!(
+        info.equipment.as_ref().is_some_and(|equipment| equipment
+            .iter()
+            .flatten()
+            .any(|item| item.item_index == 221)),
+        "重新登录后木剑应仍在装备栏"
+    );
     assert_ne!(bookshop_id, 0, "重新登录后书店 NPC 必须在视野里");
 
     // 3) 走到书店：从 (7,8) 向左一格到 (6,8)，再与 (5,8) 的 NPC 对话。

@@ -2312,6 +2312,25 @@ impl World {
     ///
     /// 成功后，穿上发 `S.EquipItem`、脱下发 `S.RemoveItem`（Crystal 用的就是这两条包），
     /// 外观有变化时再广播 `S.PlayerUpdate`（`HumanObject.UpdateLooks`，`HumanObject.cs:7058-7061`）。
+    /// `C.EquipItem`（Crystal `ClientPackets.EquipItem`）：按背包里的 `unique_id` 找到
+    /// 物品所在格，再走 [`World::move_equipment`] 的穿戴路径。`grid` 只接受 `Inventory`；
+    /// 客户端发来的 `to` 是目标装备槽。
+    pub fn equip_item(
+        &mut self,
+        object_id: u32,
+        unique_id: u64,
+        grid: MirGridType,
+        to: i32,
+    ) -> Result<(), ItemError> {
+        if grid != MirGridType::Inventory {
+            return Err(ItemError::UnsupportedGrid(grid));
+        }
+        let Some((from, _)) = self.find_inventory_item(object_id, unique_id) else {
+            return Err(ItemError::ItemNotFound { unique_id });
+        };
+        self.move_equipment(object_id, from as i32, to)
+    }
+
     pub fn move_equipment(&mut self, object_id: u32, from: i32, to: i32) -> Result<(), ItemError> {
         let fail = |world: &World, error: ItemError| {
             world.send_to_player(

@@ -69,7 +69,7 @@ pub const BUTTON_HEIGHT: u32 = 22;
 /// 在线成员的名字颜色。
 pub const ONLINE_COLOR: [u8; 4] = [140, 240, 150, 255];
 
-/// 行会面板的四个页签。
+/// 行会面板的五个页签。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum GuildTab {
     /// 成员。
@@ -79,13 +79,21 @@ pub enum GuildTab {
     Storage,
     /// 增益。
     Buffs,
+    /// 联盟。
+    Ally,
     /// 公告。
     Notice,
 }
 
 impl GuildTab {
     /// 全部页签（按钮顺序）。
-    pub const ALL: [Self; 4] = [Self::Members, Self::Storage, Self::Buffs, Self::Notice];
+    pub const ALL: [Self; 5] = [
+        Self::Members,
+        Self::Storage,
+        Self::Buffs,
+        Self::Ally,
+        Self::Notice,
+    ];
 
     /// 页签名。
     #[must_use]
@@ -94,6 +102,7 @@ impl GuildTab {
             Self::Members => Label::Members.text(language),
             Self::Storage => Label::GuildStorageTab.text(language),
             Self::Buffs => Label::GuildBuffsTab.text(language),
+            Self::Ally => Label::GuildAllyTab.text(language),
             Self::Notice => Label::Notice.text(language),
         }
     }
@@ -105,18 +114,19 @@ impl GuildTab {
             Self::Members => 0,
             Self::Storage => 1,
             Self::Buffs => 2,
-            Self::Notice => 3,
+            Self::Ally => 3,
+            Self::Notice => 4,
         }
     }
 }
 
-/// 行会面板布局（四个页签共用同一块面板）。
+/// 行会面板布局（五个页签共用同一块面板）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuildLayout {
     /// 面板矩形。
     pub panel: Rect,
-    /// 四个页签按钮。
-    pub tabs: [Rect; 4],
+    /// 五个页签按钮。
+    pub tabs: [Rect; 5],
     /// 内容区。
     pub content: Rect,
     /// 成员表表头。
@@ -153,6 +163,14 @@ pub struct GuildLayout {
     pub notice_field: Rect,
     /// 保存公告。
     pub save_notice: Rect,
+    /// 联盟：盟友行会名输入框。
+    pub ally_field: Rect,
+    /// 联盟：申请结盟。
+    pub ally_request: Rect,
+    /// 联盟：同意申请。
+    pub ally_accept: Rect,
+    /// 联盟：解除联盟。
+    pub ally_remove: Rect,
     /// 底部提示。
     pub footer: Rect,
 }
@@ -201,19 +219,28 @@ pub fn guild_layout(
     member_scroll: usize,
     buff_scroll: usize,
 ) -> GuildLayout {
-    let width = PANEL_WIDTH.min(frame.width.saturating_sub(16)).max(360);
-    let height = PANEL_HEIGHT.min(frame.height.saturating_sub(16)).max(180);
+    let width = PANEL_WIDTH.min(frame.width.saturating_sub(16)).max(200);
+    let height = PANEL_HEIGHT.min(frame.height.saturating_sub(16)).max(160);
     // 靠左、状态栏下方；高度 520 在 800×600 里正好放满 14 行仓库格。
-    let panel = Rect::new(frame.x + 8, frame.y + 60, width, height);
+    let panel = Rect::new(
+        frame.x + 8,
+        (frame.y + 60).min(frame.bottom() - i32::try_from(height).unwrap_or(0) - 8),
+        width,
+        height,
+    );
     let content_x = panel.x + i32::try_from(PADDING).unwrap_or(0);
     let content_width = width.saturating_sub(PADDING * 2);
     let tabs_y = panel.y + i32::try_from(TITLE_HEIGHT + 2).unwrap_or(0);
-    let mut tabs = [Rect::default(); 4];
+    let mut tabs = [Rect::default(); 5];
+    let tab_gap = 4;
+    let tab_width = content_width.saturating_sub(4 * tab_gap) / 5;
     for (index, tab) in tabs.iter_mut().enumerate() {
         *tab = Rect::new(
-            content_x + i32::try_from(index).unwrap_or(0) * 82,
+            content_x
+                + i32::try_from(index).unwrap_or(0)
+                    * i32::try_from(tab_width + tab_gap).unwrap_or(0),
             tabs_y,
-            76,
+            tab_width,
             TABS_HEIGHT - 4,
         );
     }
@@ -327,6 +354,15 @@ pub fn guild_layout(
     );
     let save_notice = Rect::new(notice_field.right() + 6, notice_field.y, 80, 22);
 
+    // 联盟页：输入框一行 + 三个命令按钮一行（都在内容区底部，窄屏也不会出屏）。
+    let ally_row2 = content.bottom() - 26;
+    let ally_row1 = ally_row2 - 26;
+    let ally_field = Rect::new(content.x, ally_row1, content.width, 22);
+    let ally_button = content.width.saturating_sub(12) / 3;
+    let ally_request = Rect::new(content.x, ally_row2, ally_button, 22);
+    let ally_accept = Rect::new(ally_request.right() + 6, ally_row2, ally_button, 22);
+    let ally_remove = Rect::new(ally_accept.right() + 6, ally_row2, ally_button, 22);
+
     GuildLayout {
         panel,
         tabs,
@@ -348,6 +384,10 @@ pub fn guild_layout(
         notice_area,
         notice_field,
         save_notice,
+        ally_field,
+        ally_request,
+        ally_accept,
+        ally_remove,
         footer,
     }
 }
@@ -447,6 +487,9 @@ pub fn draw(
     selected_member: Option<usize>,
     gold_field: &TextField,
     notice_field: &TextField,
+    ally_field: &TextField,
+    allies: &[String],
+    ally_pending: Option<&str>,
     focus: Option<FieldId>,
     mouse: Point,
     icon: &mut dyn FnMut(u16) -> Option<Image>,
@@ -537,6 +580,19 @@ pub fn draw(
             frame, text, layout, snapshot, gold_field, focus, mouse, icon, language,
         ),
         GuildTab::Buffs => draw_buffs(frame, text, layout, snapshot, mouse, language),
+        GuildTab::Ally => {
+            draw_ally(
+                frame,
+                text,
+                layout,
+                ally_field,
+                allies,
+                ally_pending,
+                focus,
+                mouse,
+                language,
+            );
+        }
         GuildTab::Notice => {
             draw_notice(
                 frame,
@@ -893,6 +949,118 @@ fn draw_buffs(
             mouse,
             can_activate && !active,
         );
+    }
+}
+
+/// 联盟页：本地记录的盟友列表 + 输入框 + 申请/同意/解除按钮。
+///
+/// 服务端没有「盟友名单」协议包（`/ally` 是聊天命令扩展），所以列表是**客户端
+/// 本地台账**：申请加入「申请中」，同意/解除按输入的名字更新；真实状态以服务端
+/// 聊天回执为准。
+#[allow(clippy::too_many_arguments)]
+fn draw_ally(
+    frame: &mut Frame,
+    text: &UiText,
+    layout: &GuildLayout,
+    ally_field: &TextField,
+    allies: &[String],
+    pending: Option<&str>,
+    focus: Option<FieldId>,
+    mouse: Point,
+    language: Language,
+) {
+    let content = layout.content;
+    text.draw_clipped(
+        frame,
+        content.x,
+        content.y,
+        Label::GuildAllyHint.text(language),
+        SIZE_SMALL,
+        MUTED_COLOR,
+        Rect::new(content.x, content.y, content.width, 16),
+    );
+    let mut y = content.y + 18;
+    let mut rows = 0;
+    for name in allies.iter().take(10) {
+        let row = Rect::new(content.x, y, content.width, 22);
+        frame.fill_rect(row.x, row.y, row.width, row.height, [30, 34, 42, 220]);
+        text.draw_clipped(
+            frame,
+            row.x + 6,
+            row.y + 3,
+            name,
+            SIZE_SMALL,
+            BODY_COLOR,
+            Rect::new(row.x, row.y, row.width, row.height),
+        );
+        if pending == Some(name.as_str()) {
+            text.draw_right(
+                frame,
+                row.right() - 6,
+                row.y + 3,
+                Label::GuildAllyPending.text(language),
+                SIZE_SMALL,
+                GOLD_COLOR,
+            );
+        }
+        y += 22;
+        rows += 1;
+    }
+    if let Some(pending) = pending
+        && !allies.iter().any(|name| name == pending)
+        && rows < 10
+    {
+        let row = Rect::new(content.x, y, content.width, 22);
+        frame.fill_rect(row.x, row.y, row.width, row.height, [44, 40, 28, 220]);
+        text.draw_clipped(
+            frame,
+            row.x + 6,
+            row.y + 3,
+            pending,
+            SIZE_SMALL,
+            BODY_COLOR,
+            Rect::new(row.x, row.y, row.width.saturating_sub(80), row.height),
+        );
+        text.draw_right(
+            frame,
+            row.right() - 6,
+            row.y + 3,
+            Label::GuildAllyPending.text(language),
+            SIZE_SMALL,
+            GOLD_COLOR,
+        );
+    }
+    if allies.is_empty() && pending.is_none() {
+        text.draw_clipped(
+            frame,
+            content.x,
+            content.y + 20,
+            Label::GuildAllyEmpty.text(language),
+            SIZE_SMALL,
+            MUTED_COLOR,
+            Rect::new(content.x, content.y, content.width, content.height),
+        );
+    }
+    input::draw(
+        frame,
+        text,
+        layout.ally_field,
+        ally_field,
+        focus == Some(FieldId::GuildAlly),
+        Label::GuildAllyName.text(language),
+    );
+    for (rect, label) in [
+        (layout.ally_request, Label::GuildAllyRequest),
+        (layout.ally_accept, Label::GuildAllyAccept),
+        (layout.ally_remove, Label::GuildAllyRemove),
+    ] {
+        let fill = if rect.contains(mouse) {
+            [92, 82, 42, 255]
+        } else {
+            [52, 64, 84, 255]
+        };
+        frame.fill_rect(rect.x, rect.y, rect.width, rect.height, fill);
+        text.draw_center(frame, rect, label.text(language), SIZE_SMALL, BODY_COLOR);
     }
 }
 

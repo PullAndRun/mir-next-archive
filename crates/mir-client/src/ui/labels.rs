@@ -202,6 +202,42 @@ pub enum Label {
     GuildStorageTab,
     /// 行会增益页。
     GuildBuffsTab,
+    /// 行会联盟页。
+    GuildAllyTab,
+    /// 盟友行会名（输入框）。
+    GuildAllyName,
+    /// 申请结盟。
+    GuildAllyRequest,
+    /// 同意结盟。
+    GuildAllyAccept,
+    /// 解除联盟。
+    GuildAllyRemove,
+    /// 暂无盟友。
+    GuildAllyEmpty,
+    /// 申请中。
+    GuildAllyPending,
+    /// 联盟操作提示。
+    GuildAllyHint,
+    /// 好友面板标题。
+    Friends,
+    /// 好友名字输入框。
+    FriendName,
+    /// 好友备注。
+    FriendMemo,
+    /// 黑名单标记。
+    FriendBlocked,
+    /// 好友列表为空。
+    FriendEmpty,
+    /// 添加好友。
+    FriendAdd,
+    /// 删除好友。
+    FriendRemove,
+    /// 保存备注。
+    FriendSaveMemo,
+    /// 刷新好友列表。
+    FriendRefresh,
+    /// 好友面板操作提示。
+    FriendHint,
     /// 行会公告页。
     Notice,
     /// 行会资金。
@@ -902,6 +938,24 @@ impl Label {
         Self::NoPetHint,
         Self::QuestItemsScrollHint,
         Self::PetMode,
+        Self::GuildAllyTab,
+        Self::GuildAllyName,
+        Self::GuildAllyRequest,
+        Self::GuildAllyAccept,
+        Self::GuildAllyRemove,
+        Self::GuildAllyEmpty,
+        Self::GuildAllyPending,
+        Self::GuildAllyHint,
+        Self::Friends,
+        Self::FriendName,
+        Self::FriendMemo,
+        Self::FriendBlocked,
+        Self::FriendEmpty,
+        Self::FriendAdd,
+        Self::FriendRemove,
+        Self::FriendSaveMemo,
+        Self::FriendRefresh,
+        Self::FriendHint,
     ];
 }
 
@@ -1069,7 +1123,7 @@ impl Label {
             (Self::Lock, Language::En) => "Lock",
             (Self::Unlock, Language::ZhCn) => "解锁",
             (Self::Unlock, Language::En) => "Unlock",
-            (Self::Delete, Language::ZhCn) => "删除",
+            (Self::Delete | Self::FriendRemove, Language::ZhCn) => "删除",
             (Self::Delete, Language::En) => "Delete",
             (Self::Send, Language::ZhCn) => "发送",
             (Self::Send, Language::En) => "Send",
@@ -1170,7 +1224,7 @@ impl Label {
             (Self::TradePartnerState, Language::ZhCn) => "对方",
             (Self::TradePartnerState, Language::En) => "Partner",
             (Self::Accept, Language::ZhCn) => "接受",
-            (Self::Accept, Language::En) => "Accept",
+            (Self::Accept | Self::GuildAllyAccept, Language::En) => "Accept",
             (Self::Reject, Language::ZhCn) => "拒绝",
             (Self::Reject, Language::En) => "Reject",
             (Self::Group, Language::ZhCn) => "组队",
@@ -1211,8 +1265,8 @@ impl Label {
             (Self::Auction, Language::En) => "Auction",
             (Self::Search, Language::ZhCn) => "搜索",
             (Self::Search, Language::En) => "Search",
-            (Self::Refresh, Language::ZhCn) => "刷新",
-            (Self::Refresh, Language::En) => "Refresh",
+            (Self::Refresh | Self::FriendRefresh, Language::ZhCn) => "刷新",
+            (Self::Refresh | Self::FriendRefresh, Language::En) => "Refresh",
             (Self::Seller, Language::ZhCn) => "卖家",
             (Self::Seller, Language::En) => "Seller",
             (Self::Expiry, Language::ZhCn) => "到期",
@@ -1342,7 +1396,7 @@ impl Label {
             (Self::EnterGame, Language::ZhCn) => "进入游戏",
             (Self::EnterGame, Language::En) => "Enter game",
             (Self::CharacterName, Language::ZhCn) => "角色名",
-            (Self::CharacterName, Language::En) => "Name",
+            (Self::CharacterName | Self::FriendName, Language::En) => "Name",
             (Self::Gender, Language::ZhCn) => "性别",
             (Self::Gender, Language::En) => "Gender",
             (Self::Male, Language::ZhCn) => "男",
@@ -1492,6 +1546,36 @@ impl Label {
             (Self::QuestItemsScrollHint, Language::En) => "Wheel to page",
             (Self::PetMode, Language::ZhCn) => "宠物模式",
             (Self::PetMode, Language::En) => "Pet mode",
+            (Self::GuildAllyTab, Language::ZhCn) => "联盟",
+            (Self::GuildAllyTab, Language::En) => "Allies",
+            (Self::GuildAllyName, Language::ZhCn) => "盟友行会名",
+            (Self::GuildAllyName, Language::En) => "Ally guild",
+            (Self::GuildAllyRequest, Language::ZhCn) => "申请结盟",
+            (Self::GuildAllyRequest, Language::En) => "Request ally",
+            (Self::GuildAllyAccept, Language::ZhCn) => "同意",
+            (Self::GuildAllyRemove, Language::ZhCn) => "解除",
+            (Self::FriendRemove | Self::GuildAllyRemove, Language::En) => "Remove",
+            (Self::GuildAllyEmpty, Language::ZhCn) => "暂无盟友（客户端本地记录）",
+            (Self::GuildAllyEmpty, Language::En) => "No allies (local record)",
+            (Self::GuildAllyPending, Language::ZhCn) => "申请中",
+            (Self::GuildAllyPending, Language::En) => "Pending",
+            (Self::GuildAllyHint, Language::ZhCn) => "命令：/ally request|accept|remove <行会名>",
+            (Self::GuildAllyHint, Language::En) => "Command: /ally request|accept|remove <guild>",
+            (Self::Friends, Language::ZhCn) => "好友",
+            (Self::Friends, Language::En) => "Friends",
+            (Self::FriendName, Language::ZhCn) => "名字",
+            (Self::FriendMemo, Language::ZhCn) => "备注",
+            (Self::FriendMemo, Language::En) => "Memo",
+            (Self::FriendBlocked, Language::ZhCn) => "黑名单",
+            (Self::FriendBlocked, Language::En) => "Block",
+            (Self::FriendEmpty, Language::ZhCn) => "好友列表为空：输入名字后点「添加」",
+            (Self::FriendEmpty, Language::En) => "No friends yet — enter a name and Add",
+            (Self::FriendAdd, Language::ZhCn) => "添加",
+            (Self::FriendAdd, Language::En) => "Add",
+            (Self::FriendSaveMemo, Language::ZhCn) => "保存备注",
+            (Self::FriendSaveMemo, Language::En) => "Save memo",
+            (Self::FriendHint, Language::ZhCn) => "F 关闭 · 回车提交当前输入",
+            (Self::FriendHint, Language::En) => "F closes · Enter submits the focused field",
         }
     }
 
@@ -2018,7 +2102,7 @@ mod tests {
     #[test]
     fn every_label_has_both_languages() {
         // `Label::ALL` 是手工维护的清单：数量对不上说明加了变体没同步。
-        assert_eq!(Label::ALL.len(), 293, "新增 Label 后请同步 Label::ALL");
+        assert_eq!(Label::ALL.len(), 311, "新增 Label 后请同步 Label::ALL");
         for label in Label::ALL {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);

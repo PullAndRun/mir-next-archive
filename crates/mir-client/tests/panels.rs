@@ -840,8 +840,27 @@ fn guild_panel_shows_members_storage_buffs_and_notice_actions() {
         })
     );
 
-    // 公告页：输入公告并保存 → `C.EditGuildNotice`。
+    // 联盟页（5 个页签，Ally 在 Notice 前）：点 index 3 进入联盟页。
     state.mouse = layout.tabs[3].center();
+    assert!(state.on_click(&snapshot, &text, screen, None).is_none());
+    assert_eq!(state.guild_tab, guild::GuildTab::Ally);
+    // Alliance 页输入名字后点「申请」→ `/ally request 名字` 聊天命令。
+    state.mouse = layout.ally_field.center();
+    assert!(state.on_click(&snapshot, &text, screen, None).is_none());
+    assert_eq!(state.focus, Some(ui::FieldId::GuildAlly));
+    state.guild_ally.set("盟友会");
+    state.mouse = layout.ally_request.center();
+    let action = state
+        .on_click(&snapshot, &text, screen, None)
+        .expect("申请结盟应产生聊天命令");
+    assert_eq!(action, UiAction::Chat("/ally request 盟友会".to_owned()));
+    assert_eq!(
+        action.net_command(),
+        Some(NetCommand::Chat("/ally request 盟友会".to_owned()))
+    );
+
+    // 公告页：输入公告并保存 → `C.EditGuildNotice`。
+    state.mouse = layout.tabs[4].center();
     assert!(state.on_click(&snapshot, &text, screen, None).is_none());
     assert_eq!(state.guild_tab, guild::GuildTab::Notice);
     let (_, notice_frame) = render(&mut state, &snapshot, &text);

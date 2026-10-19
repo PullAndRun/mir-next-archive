@@ -114,8 +114,8 @@ use mir_core::enums::{
 use mir_protocol::codec::FrameBuffer;
 use mir_protocol::data::guild_rank::{GuildMember, GuildRank};
 use mir_protocol::data::{
-    ClientAuction, ClientBuff, ClientMagic, ClientMail, ClientQuestProgress, GuildBuff,
-    GuildBuffInfo, GuildStorageItem, ItemInfo, UserItem,
+    ClientAuction, ClientBuff, ClientFriend, ClientMagic, ClientMail, ClientQuestProgress,
+    GuildBuff, GuildBuffInfo, GuildStorageItem, ItemInfo, UserItem,
 };
 use mir_protocol::packets::client as c;
 use mir_protocol::packets::server::{GuildBuffList, GuildMemberChange, GuildStorageItemChange};
@@ -294,6 +294,27 @@ pub enum NetCommand {
     PickUp,
     /// 切换宠物模式（`C.ChangePMode`，index 45）：跟随 / 攻击 / 休息。
     ChangePetMode(PetMode),
+    /// 加好友 / 拉黑（`C.AddFriend`，index 127）。
+    AddFriend {
+        /// 角色名。
+        name: String,
+        /// 是否直接加入黑名单。
+        blocked: bool,
+    },
+    /// 删好友（`C.RemoveFriend`，index 128）。
+    RemoveFriend {
+        /// 好友在服务器数据库里的编号。
+        character_index: i32,
+    },
+    /// 刷新好友列表（`C.RefreshFriends`，index 129）。
+    RefreshFriends,
+    /// 改好友备注（`C.AddMemo`，index 130；服务端限制 200 字）。
+    AddMemo {
+        /// 好友编号。
+        character_index: i32,
+        /// 备注。
+        memo: String,
+    },
     /// 聊天（`C.Chat`）。
     Chat(String),
     /// 点 NPC 按钮（`C.CallNPC`）；`key = "@exit"` 关闭对话。
@@ -2377,6 +2398,8 @@ pub struct WorldSnapshot {
     pub mail_locked_items: BTreeMap<u64, bool>,
     /// 行会概况（`S.GuildStatus`；`None` 表示没收到过）。
     pub guild: Option<GuildView>,
+    /// 好友/黑名单（`S.FriendUpdate`(245) 整表下发）。
+    pub friends: Vec<ClientFriend>,
     /// 行会职位与成员（`S.GuildMemberChange`，按职位序号排序）。
     pub guild_ranks: Vec<GuildRankView>,
     /// 行会公告（`S.GuildNoticeChange`）。
@@ -2465,6 +2488,7 @@ impl Default for WorldSnapshot {
             parcel_collected_result: None,
             mail_locked_items: BTreeMap::new(),
             guild: None,
+            friends: Vec::new(),
             guild_ranks: Vec::new(),
             guild_notice: Vec::new(),
             guild_storage: Vec::new(),
@@ -3470,6 +3494,25 @@ fn handle_command(
         // 宠物模式（`C.ChangePMode`，index 45；Crystal `GameScene.ChangePetMode`，
         // `Client/MirScenes/GameScene.cs` 的 `ChangePMode` 发送处）。
         NetCommand::ChangePetMode(mode) => ClientPacket::ChangePMode(c::ChangePMode { mode }),
+        NetCommand::AddFriend { name, blocked } => {
+            ClientPacket::AddFriend(c::AddFriend { name, blocked })
+        }
+        NetCommand::RemoveFriend { character_index } => {
+            ClientPacket::RemoveFriend(c::RemoveFriend { character_index })
+        }
+        NetCommand::RefreshFriends => ClientPacket::RefreshFriends(c::RefreshFriends {}),
+        NetCommand::AddMemo {
+            character_index,
+            memo,
+        } => {
+            // 服务端 `set_friend_memo` 只接受 200 字（`session.rs` 与 Crystal
+            // `AddMemo` 同口径），客户端先截断避免超长包。
+            let memo = memo.chars().take(200).collect::<String>();
+            ClientPacket::AddMemo(c::AddMemo {
+                character_index,
+                memo,
+            })
+        }
         NetCommand::Chat(message) => {
             if message.trim().is_empty() {
                 return Ok(());
@@ -3823,6 +3866,7 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
         ServerPacket::ParcelCollected(_) => "ParcelCollected",
         ServerPacket::MailLockedItem(_) => "MailLockedItem",
         ServerPacket::GuildStatus(_) => "GuildStatus",
+        ServerPacket::FriendUpdate(_) => "FriendUpdate",
         ServerPacket::GuildMemberChange(_) => "GuildMemberChange",
         ServerPacket::GuildNoticeChange(_) => "GuildNoticeChange",
         ServerPacket::GuildStorageList(_) => "GuildStorageList",
@@ -4852,6 +4896,10 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             snapshot
                 .mail_locked_items
                 .insert(locked.unique_id, locked.locked);
+        }
+        ServerPacket::FriendUpdate(update) => {
+            // 整表下发：服务端在加/删/改备注/刷新后都会重发（`S.FriendUpdate`(245)）。
+            snapshot.friends.clone_from(&update.friends);
         }
         ServerPacket::GuildStatus(status) => {
             snapshot.guild = Some(GuildView {

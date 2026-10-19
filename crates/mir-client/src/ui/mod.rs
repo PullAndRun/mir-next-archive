@@ -34,6 +34,7 @@ pub mod bigmap;
 pub mod buffs;
 pub mod dialog;
 pub mod equipment;
+pub mod friends;
 pub mod grid;
 pub mod group;
 pub mod guild;
@@ -330,6 +331,29 @@ pub enum UiAction {
         /// 是否允许别人邀请自己。
         allow_group: bool,
     },
+    /// 发送聊天/命令（`C.Chat`；`/ally ...` 也走这里）。
+    Chat(String),
+    /// 加好友/拉黑（`C.AddFriend`，127）。
+    AddFriend {
+        /// 角色名。
+        name: String,
+        /// 是否加入黑名单。
+        blocked: bool,
+    },
+    /// 删除好友（`C.RemoveFriend`，128）。
+    RemoveFriend {
+        /// 好友编号。
+        character_index: i32,
+    },
+    /// 刷新好友列表（`C.RefreshFriends`，129）。
+    RefreshFriends,
+    /// 改好友备注（`C.AddMemo`，130）。
+    AddMemo {
+        /// 好友编号。
+        character_index: i32,
+        /// 备注。
+        memo: String,
+    },
     /// 搜索市场（`C.MarketSearch`）。
     MarketSearch {
         /// 搜索关键字（空串 = 全部）。
@@ -578,6 +602,22 @@ impl UiAction {
                 NetCommand::Walk(*direction)
             }),
             Self::PickUp => Some(NetCommand::PickUp),
+            Self::Chat(message) => Some(NetCommand::Chat(message.clone())),
+            Self::AddFriend { name, blocked } => Some(NetCommand::AddFriend {
+                name: name.clone(),
+                blocked: *blocked,
+            }),
+            Self::RemoveFriend { character_index } => Some(NetCommand::RemoveFriend {
+                character_index: *character_index,
+            }),
+            Self::RefreshFriends => Some(NetCommand::RefreshFriends),
+            Self::AddMemo {
+                character_index,
+                memo,
+            } => Some(NetCommand::AddMemo {
+                character_index: *character_index,
+                memo: memo.clone(),
+            }),
             _ => None,
         }
     }
@@ -838,6 +878,12 @@ pub enum FieldId {
     MarketSearch,
     /// 市场面板：寄售售价 / 拍卖出价。
     MarketPrice,
+    /// 好友面板：要添加的名字。
+    FriendName,
+    /// 好友面板：备注。
+    FriendMemo,
+    /// 行会联盟：盟友行会名。
+    GuildAlly,
 }
 
 /// 界面状态：面板开关、选中项、鼠标位置、拖拽/右键菜单、飘字与物品图标缓存。
@@ -876,6 +922,12 @@ pub struct UiState {
     pub mail_compose: mail::MailCompose,
     /// 行会面板是否打开（`G`）。
     pub show_guild: bool,
+    /// 好友面板是否打开（`F`）。
+    pub show_friends: bool,
+    /// 好友面板状态。
+    pub friends: friends::FriendsState,
+    /// 好友列表当前可见行数（每次绘制更新，滚轮 clamp 用）。
+    pub friends_visible_rows: usize,
     /// 行会页签。
     pub guild_tab: guild::GuildTab,
     /// 行会成员表选中的行（展平下标）。
@@ -888,6 +940,12 @@ pub struct UiState {
     pub guild_gold: input::TextField,
     /// 行会公告输入行。
     pub guild_notice: input::TextField,
+    /// 行会联盟：盟友行会名输入。
+    pub guild_ally: input::TextField,
+    /// 行会联盟：客户端本地记录的盟友行会名。
+    pub guild_allies: Vec<String>,
+    /// 行会联盟：已申请、等待对方同意的行会名。
+    pub guild_ally_pending: Option<String>,
     /// 交易面板是否打开（`S.TradeAccept` 自动打开，`S.TradeConfirm`/`S.TradeCancel` 关闭）。
     pub show_trade: bool,
     /// 自己是否已准备（Crystal `User.TradeLocked`，`UserObject.cs:24` 附近的客户端状态）。
@@ -1028,12 +1086,18 @@ impl UiState {
             mail_selected: None,
             mail_compose: mail::MailCompose::default(),
             show_guild: false,
+            show_friends: false,
+            friends: friends::FriendsState::default(),
+            friends_visible_rows: 8,
             guild_tab: guild::GuildTab::Members,
             guild_selected_member: None,
             guild_member_scroll: 0,
             guild_buff_scroll: 0,
             guild_gold: input::TextField::numeric(9),
             guild_notice: input::TextField::new(200),
+            guild_ally: input::TextField::new(40),
+            guild_allies: Vec::new(),
+            guild_ally_pending: None,
             show_trade: false,
             trade_locked: false,
             trade_gold: input::TextField::numeric(9),
@@ -1439,6 +1503,7 @@ impl UiState {
         self.show_storage = false;
         self.show_mail = false;
         self.show_guild = false;
+        self.show_friends = false;
         self.show_group = false;
         self.show_bigmap = false;
         self.show_settings = false;
@@ -1473,6 +1538,14 @@ impl UiState {
     pub fn toggle_guild(&mut self) {
         self.show_guild = !self.show_guild;
         if !self.show_guild {
+            self.focus = None;
+        }
+    }
+
+    /// 开关好友面板（`F`）。打开时保持当前选中；关闭清掉输入焦点。
+    pub fn toggle_friends(&mut self) {
+        self.show_friends = !self.show_friends;
+        if !self.show_friends {
             self.focus = None;
         }
     }
@@ -1604,6 +1677,7 @@ impl UiState {
             || self.show_storage
             || self.show_mail
             || self.show_guild
+            || self.show_friends
             || self.show_group
         {
             self.close_panels();
@@ -1886,6 +1960,9 @@ impl UiState {
         if self.show_guild && self.scroll_guild(snapshot, delta) {
             return true;
         }
+        if self.show_friends && self.scroll_friends(snapshot, delta) {
+            return true;
+        }
         if !self.shop_open {
             return false;
         }
@@ -1965,6 +2042,26 @@ impl UiState {
     }
 
     /// 滚动行会成员/增益页（按当前页签）。
+    /// 好友列表滚轮：只在面板打开时消费，clamp 到 `0..len-visible_rows`。
+    pub fn scroll_friends(&mut self, snapshot: &WorldSnapshot, delta: i32) -> bool {
+        if delta == 0 || !self.show_friends {
+            return false;
+        }
+        let visible = self.friends_visible_rows.max(1);
+        let max_scroll = snapshot.friends.len().saturating_sub(visible);
+        if max_scroll == 0 {
+            return false;
+        }
+        let before = self.friends.scroll;
+        self.friends.scroll = if delta < 0 {
+            self.friends.scroll.saturating_sub(1)
+        } else {
+            self.friends.scroll.saturating_add(1)
+        }
+        .min(max_scroll);
+        self.friends.scroll != before
+    }
+
     pub fn scroll_guild(&mut self, snapshot: &WorldSnapshot, delta: i32) -> bool {
         if delta == 0 {
             return false;
@@ -2577,6 +2674,62 @@ impl UiState {
     }
 
     /// 点击行会面板：页签 / 成员行 / 职位管理 / 仓库拖拽 / 资金 / 增益 / 公告。
+    fn click_friends(&mut self, snapshot: &WorldSnapshot, frame: Rect) -> Option<UiAction> {
+        let layout = friends::friends_layout(frame);
+        if !layout.panel.contains(self.mouse) {
+            return None;
+        }
+        if let Some(index) = layout.row_at(self.mouse, self.friends.scroll) {
+            self.friends.selected = Some(index);
+            if let Some(friend) = snapshot.friends.get(index) {
+                self.friends.memo.set(&friend.memo);
+            }
+            self.focus = None;
+            return None;
+        }
+        if layout.name_field.contains(self.mouse) {
+            self.focus = Some(FieldId::FriendName);
+            return None;
+        }
+        if layout.memo_field.contains(self.mouse) {
+            self.focus = Some(FieldId::FriendMemo);
+            return None;
+        }
+        if layout.blocked.contains(self.mouse) {
+            self.friends.blocked = !self.friends.blocked;
+            return None;
+        }
+        if layout.add.contains(self.mouse) {
+            let name = self.friends.name.value.trim().to_owned();
+            if name.is_empty() {
+                return None;
+            }
+            return Some(UiAction::AddFriend {
+                name,
+                blocked: self.friends.blocked,
+            });
+        }
+        if layout.remove.contains(self.mouse) {
+            let index = self.friends.selected?;
+            let friend = snapshot.friends.get(index)?;
+            return Some(UiAction::RemoveFriend {
+                character_index: friend.index,
+            });
+        }
+        if layout.save_memo.contains(self.mouse) {
+            let index = self.friends.selected?;
+            let friend = snapshot.friends.get(index)?;
+            return Some(UiAction::AddMemo {
+                character_index: friend.index,
+                memo: self.friends.memo.value.clone(),
+            });
+        }
+        if layout.refresh.contains(self.mouse) {
+            return Some(UiAction::RefreshFriends);
+        }
+        None
+    }
+
     fn click_guild(&mut self, snapshot: &WorldSnapshot, frame: Rect) -> Option<UiAction> {
         let layout = guild::guild_layout(
             frame,
@@ -2671,6 +2824,34 @@ impl UiState {
                             id: info.id,
                         });
                     }
+                }
+            }
+            guild::GuildTab::Ally => {
+                if layout.ally_field.contains(self.mouse) {
+                    self.focus = Some(FieldId::GuildAlly);
+                    return None;
+                }
+                let name = self.guild_ally.value.trim().to_owned();
+                if layout.ally_request.contains(self.mouse) {
+                    if name.is_empty() {
+                        return None;
+                    }
+                    self.guild_ally_pending = Some(name.clone());
+                    return Some(UiAction::Chat(format!("/ally request {name}")));
+                }
+                if layout.ally_accept.contains(self.mouse) {
+                    // 服务端不推盟友名单：不在客户端「假装成功」，只发命令。
+                    self.guild_ally_pending = None;
+                    return Some(UiAction::Chat("/ally accept".to_owned()));
+                }
+                if layout.ally_remove.contains(self.mouse) {
+                    if name.is_empty() {
+                        return None;
+                    }
+                    if self.guild_ally_pending.as_deref() == Some(name.as_str()) {
+                        self.guild_ally_pending = None;
+                    }
+                    return Some(UiAction::Chat(format!("/ally remove {name}")));
                 }
             }
             guild::GuildTab::Notice => {
@@ -2796,6 +2977,11 @@ impl UiState {
         }
         if self.show_group {
             if let Some(action) = self.click_group(snapshot, frame) {
+                return Some(action);
+            }
+        }
+        if self.show_friends {
+            if let Some(action) = self.click_friends(snapshot, frame) {
                 return Some(action);
             }
         }
@@ -3415,6 +3601,9 @@ impl UiState {
             FieldId::GroupName => self.group_name.insert(character),
             FieldId::MarketSearch => self.market_search.insert(character),
             FieldId::MarketPrice => self.market_price.insert(character),
+            FieldId::FriendName => self.friends.name.insert(character),
+            FieldId::FriendMemo => self.friends.memo.insert(character),
+            FieldId::GuildAlly => self.guild_ally.insert(character),
         }
         true
     }
@@ -3435,6 +3624,9 @@ impl UiState {
             FieldId::GroupName => self.group_name.backspace(),
             FieldId::MarketSearch => self.market_search.backspace(),
             FieldId::MarketPrice => self.market_price.backspace(),
+            FieldId::FriendName => self.friends.name.backspace(),
+            FieldId::FriendMemo => self.friends.memo.backspace(),
+            FieldId::GuildAlly => self.guild_ally.backspace(),
         }
         true
     }
@@ -3665,6 +3857,9 @@ pub fn draw(
         );
         let gold_field = state.guild_gold.clone();
         let notice_field = state.guild_notice.clone();
+        let ally_field = state.guild_ally.clone();
+        let guild_allies = state.guild_allies.clone();
+        let guild_ally_pending = state.guild_ally_pending.clone();
         let UiState {
             icons,
             guild_tab,
@@ -3686,9 +3881,30 @@ pub fn draw(
             selected_member,
             &gold_field,
             &notice_field,
+            &ally_field,
+            &guild_allies,
+            guild_ally_pending.as_deref(),
             focus,
             mouse,
             &mut icon_fn,
+        );
+    }
+
+    if state.show_friends {
+        let layout = friends::friends_layout(screen);
+        state.friends_visible_rows = layout.rows.len().max(1);
+        let friends_list = &snapshot.friends;
+        let friends_state = &state.friends;
+        let focus = state.focus;
+        let mouse = state.mouse;
+        friends::draw(
+            frame,
+            &layout,
+            &context,
+            friends_list,
+            friends_state,
+            focus,
+            mouse,
         );
     }
 

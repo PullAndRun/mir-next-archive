@@ -1058,6 +1058,11 @@ impl ClientApp {
             | UiAction::MarketSellNow { .. }
             | UiAction::MarketGetBack { .. }
             | UiAction::GameShopBuy { .. }
+            | UiAction::Chat(_)
+            | UiAction::AddFriend { .. }
+            | UiAction::RemoveFriend { .. }
+            | UiAction::RefreshFriends
+            | UiAction::AddMemo { .. }
             | UiAction::ConsignItem { .. }) => {
                 if let Some(command) = action.net_command() {
                     live.send(command);
@@ -1923,6 +1928,52 @@ impl ClientApp {
         }
     }
 
+    /// 好友面板：回车提交当前输入框（名字 → 加好友；备注 → 保存备注）。
+    fn live_friend_enter(&mut self) {
+        let Mode::Live(live) = &mut self.mode else {
+            return;
+        };
+        match live.ui.focused_field() {
+            Some(ui::FieldId::FriendName) => {
+                let name = live.ui.friends.name.value.trim().to_owned();
+                if name.is_empty() {
+                    return;
+                }
+                let blocked = live.ui.friends.blocked;
+                live.send(NetCommand::AddFriend { name, blocked });
+                live.ui.friends.name.set("");
+            }
+            Some(ui::FieldId::FriendMemo) => {
+                let Some(selected) = live.ui.friends.selected else {
+                    return;
+                };
+                let Some(friend) = live.snapshot.friends.get(selected) else {
+                    return;
+                };
+                let memo = live.ui.friends.memo.value.clone();
+                live.send(NetCommand::AddMemo {
+                    character_index: friend.index,
+                    memo,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    /// 开关好友面板（`F`）；打开时发一次 `C.RefreshFriends`(129)。
+    fn live_toggle_friends(&mut self) {
+        let mut refresh = false;
+        if let Mode::Live(live) = &mut self.mode {
+            let was_open = live.ui.show_friends;
+            live.ui.toggle_friends();
+            refresh = live.ui.show_friends && !was_open;
+        }
+        if refresh {
+            self.dispatch_ui_action(ui::UiAction::RefreshFriends);
+            self.request_redraw();
+        }
+    }
+
     /// 鼠标移动：记录位置；面板打开、悬停格子变化时重绘（更新悬停高亮与目标框）。
     fn handle_cursor_moved(&mut self, position: winit::dpi::PhysicalPosition<f64>) {
         // 窗口坐标 → 逻辑坐标（缩放 > 1 时 UI/世界格都按逻辑坐标算）。
@@ -2301,6 +2352,7 @@ impl ClientApp {
         let mut text_handled = false;
         let mut text_consumed_key = true;
         let mut market_search_enter = false;
+        let mut friend_enter = false;
         if let Mode::Live(live) = &mut self.mode {
             if live.ui.focused_field().is_some() {
                 text_handled = true;
@@ -2322,6 +2374,10 @@ impl ClientApp {
                         // `TrustMerchantDialog.cs:1044-1056`）。
                         market_search_enter =
                             live.ui.focused_field() == Some(ui::FieldId::MarketSearch);
+                        friend_enter = matches!(
+                            live.ui.focused_field(),
+                            Some(ui::FieldId::FriendName | ui::FieldId::FriendMemo)
+                        );
                     }
                     _ => text_consumed_key = false,
                 }
@@ -2330,6 +2386,9 @@ impl ClientApp {
         if text_handled && text_consumed_key {
             if market_search_enter {
                 self.live_market_search();
+            }
+            if friend_enter {
+                self.live_friend_enter();
             }
             self.request_redraw();
             return;
@@ -2380,6 +2439,11 @@ impl ClientApp {
                 }
                 "g" => {
                     self.live_toggle_guild();
+                    return;
+                }
+                // `F`：好友/黑名单面板（本作扩展键；Crystal 没有好友 UI）。
+                "f" => {
+                    self.live_toggle_friends();
                     return;
                 }
                 // `O`：设置面板（Crystal `KeybindOptions.Options2` 的默认键，

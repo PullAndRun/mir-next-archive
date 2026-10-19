@@ -840,6 +840,9 @@ pub struct World {
     /// 怪物 ID → 在 [`World::monsters`] 里的下标，避免按 ID 查询时线性扫描
     /// （地图上怪物数量远大于视野内数量）。
     pub(crate) monster_slots: HashMap<u32, usize>,
+    /// tick 内的 AOI 广播合批队列（`player_id → 多个已编码帧`）。
+    /// 只在 `tick_monsters` 的 AI 段开启；每个玩家一 tick 合并成一次 channel/write。
+    pub(crate) broadcast_batch: Option<HashMap<u32, Vec<u8>>>,
     /// 地面物品 ID → 在 [`World::ground_items`] 里的下标，理由同 [`World::monster_slots`]。
     pub(crate) ground_item_slots: HashMap<u32, usize>,
     /// 每张地图的门的运行时状态：地图名 → (门索引 → 状态)。
@@ -946,6 +949,7 @@ impl World {
             aoi: HashMap::new(),
             visible_players: HashMap::new(),
             monster_slots: HashMap::new(),
+            broadcast_batch: None,
             ground_item_slots: HashMap::new(),
             doors: HashMap::new(),
         }
@@ -1022,6 +1026,7 @@ impl World {
             aoi: HashMap::new(),
             visible_players: HashMap::new(),
             monster_slots: HashMap::new(),
+            broadcast_batch: None,
             ground_item_slots: HashMap::new(),
             doors: HashMap::new(),
         }
@@ -4135,31 +4140,50 @@ impl World {
 
     /// 同图、视野内的**其它**玩家接收 `packet`（Crystal `Broadcast` 不发给本人）。
     pub(crate) fn broadcast(
-        &self,
+        &mut self,
         map: &str,
         position: Point,
         exclude: Option<u32>,
         packet: &[u8],
         actor: u32,
     ) -> usize {
+        let recipients: Vec<u32> = self
+            .aoi_in_radius(map, position, VIEW_RANGE)
+            .into_iter()
+            .filter(|entry| entry.kind == AoiKind::Player)
+            .map(|entry| entry.object_id)
+            .filter(|id| exclude != Some(*id) && *id != actor)
+            .collect();
         let mut sent = 0;
-        // 只查广播点 ±VIEW_RANGE 的玩家（Crystal `Broadcast` 用 `Functions.InRange`，
-        // `MapObject.cs:408-420`；这里用 AOI 网格代替遍历全服玩家）。
-        for entry in self.aoi_in_radius(map, position, VIEW_RANGE) {
-            if entry.kind != AoiKind::Player {
+        for object_id in recipients {
+            if !self.players.contains_key(&object_id) {
                 continue;
             }
-            if exclude == Some(entry.object_id) || entry.object_id == actor {
-                continue;
-            }
-            let Some(other) = self.players.get(&entry.object_id) else {
-                continue;
-            };
-            if other.sender.send(packet.to_vec()).is_ok() {
+            if let Some(batch) = self.broadcast_batch.as_mut() {
+                batch
+                    .entry(object_id)
+                    .or_default()
+                    .extend_from_slice(packet);
                 sent += 1;
+            } else if let Some(other) = self.players.get(&object_id) {
+                if other.sender.send(packet.to_vec()).is_ok() {
+                    sent += 1;
+                }
             }
         }
         sent
+    }
+
+    /// 把本 tick 合批的 AOI 广播按玩家合并成一次 channel 写入。
+    pub(crate) fn flush_broadcast_batch(&mut self) {
+        let Some(batch) = self.broadcast_batch.take() else {
+            return;
+        };
+        for (object_id, frame) in batch {
+            if let Some(player) = self.players.get(&object_id) {
+                let _ = player.sender.send(frame);
+            }
+        }
     }
 
     /// 取一份玩家快照，避免在结算过程中长时间占用 `&mut self`。

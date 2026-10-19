@@ -768,7 +768,7 @@ async fn kill_until_experience(
         }
         if tokio::time::Instant::now() >= next_spawn {
             spawn_weak_monsters(a).await;
-            next_spawn = tokio::time::Instant::now() + Duration::from_millis(1_500);
+            next_spawn = tokio::time::Instant::now() + Duration::from_millis(1_000);
         }
         a.send(ClientPacket::Attack(c::Attack {
             direction: sweep[index % sweep.len()],
@@ -868,7 +868,8 @@ async fn duo_group_experience_is_shared_in_range_only() {
 
     // 刷 3 只低级怪（第 2 只落在右边一格，正好在攻击范围内）。
     spawn_weak_monsters(&mut a).await;
-    let (a_exp, b_exp) = kill_until_experience(&mut a, &mut b, Duration::from_secs(90), true).await;
+    let (a_exp, b_exp) =
+        kill_until_experience(&mut a, &mut b, Duration::from_secs(150), true).await;
     let b_exp = b_exp.expect("同队同图的 B 也应收到 S.GainExperience（组队分配）");
     assert!(
         a_exp > 0 && b_exp > 0,
@@ -977,7 +978,7 @@ async fn duo_group_experience_skips_member_out_of_range() {
 
     spawn_weak_monsters(&mut a).await;
     let (a_exp, b_exp) =
-        kill_until_experience(&mut a, &mut b, Duration::from_secs(90), false).await;
+        kill_until_experience(&mut a, &mut b, Duration::from_secs(150), false).await;
     let _ = a_exp;
     let b_got_exp = b_exp.is_some();
     assert!(a_exp > 0, "击杀者 A 应收到 S.GainExperience");

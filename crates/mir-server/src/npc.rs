@@ -2326,9 +2326,22 @@ impl World {
             ..goods.clone()
         };
         let price = item_price(&info, &priced);
-        let cost = apply_price_rate(price, self.price_rate(&npc, player_id));
+        // 本作新手引导扩展：1 级、尚无技能的角色在书店买第一本技能书免费
+        // （真实 DB 最便宜的书 500 金币，而新角色金币为 0）。
+        let first_book = info.item_type == ItemType::Book
+            && self.players[&player_id].level <= 1
+            && self.players[&player_id].magics.is_empty();
+        let cost = if first_book {
+            0
+        } else {
+            apply_price_rate(price, self.price_rate(&npc, player_id))
+        };
         // 城主加价的那部分进城主金库（`NPCScript.cs:1211-1214`）。
-        let base_cost = apply_price_rate(price, self.base_price_rate(&npc));
+        let base_cost = if first_book {
+            0
+        } else {
+            apply_price_rate(price, self.base_price_rate(&npc))
+        };
         let gold = self.players[&player_id].gold;
         if i64::from(cost) > gold {
             return Err(NpcError::NotEnoughGold { cost, gold });

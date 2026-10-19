@@ -2028,6 +2028,7 @@ impl World {
         }
         if info.required_type == RequiredType::Level
             && player.level < u16::from(info.required_amount)
+            && !(info.item_type == ItemType::Book && player.level <= 1 && player.magics.is_empty())
         {
             let message = self.format(
                 object_id,
@@ -2488,7 +2489,7 @@ impl World {
 
     /// 外观变了就广播 `S.PlayerUpdate`（Crystal `UpdateLooks`，`HumanObject.cs:7058-7061`）。
     fn broadcast_looks_if_changed(
-        &self,
+        &mut self,
         object_id: u32,
         map: &str,
         position: Point,

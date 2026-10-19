@@ -955,15 +955,62 @@ impl World {
             self.use_item_failure(object_id, unique_id);
             return Err(MagicError::UnknownSpell(spell));
         }
-        if self.player_magic(object_id, spell).is_some() {
-            let message = self.format(
+        if let Some(existing) = self.player_magic(object_id, spell).copied() {
+            if existing.level >= MAGIC_LEVEL_MAX {
+                let message = self.format(
+                    object_id,
+                    TextKey::MagicAlreadyLearned,
+                    &[("spell", &info.name)],
+                );
+                self.send_system_chat(object_id, &message);
+                self.use_item_failure(object_id, unique_id);
+                return Err(MagicError::AlreadyLearned(spell));
+            }
+            // 本作扩展：真实 `Server.MirDB` 没有独立的 `MagicLevel` 书字段，
+            // 已会技能再读同 Shape 的书按 Crystal 技能升级书处理（+1 级，封顶 3 级）。
+            let mut upgraded = existing;
+            upgraded.level = upgraded.level.saturating_add(1);
+            upgraded.experience = 0;
+            let mut book = None;
+            if let Some(player) = self.players.get_mut(&object_id) {
+                let magic_index = player.magics.iter().position(|magic| magic.spell == spell);
+                if let Some(slot) = magic_index.and_then(|i| player.magics.get_mut(i)) {
+                    *slot = upgraded;
+                }
+                if let Some(slot) = player.inventory.get_mut(index) {
+                    if let Some(stack) = slot {
+                        if stack.count > 1 {
+                            stack.count -= 1;
+                            book = Some(stack.clone());
+                        } else {
+                            *slot = None;
+                        }
+                    }
+                }
+            }
+            self.send_to_player(
                 object_id,
-                TextKey::MagicAlreadyLearned,
-                &[("spell", &info.name)],
+                &ServerPacket::MagicLeveled(MagicLeveled {
+                    object_id,
+                    spell,
+                    level: upgraded.level,
+                    experience: u16::try_from(upgraded.experience).unwrap_or(u16::MAX),
+                })
+                .encode_frame(),
             );
-            self.send_system_chat(object_id, &message);
-            self.use_item_failure(object_id, unique_id);
-            return Err(MagicError::AlreadyLearned(spell));
+            self.send_to_player(
+                object_id,
+                &ServerPacket::UseItem(UseItem {
+                    unique_id,
+                    success: true,
+                    grid: MirGridType::Inventory,
+                })
+                .encode_frame(),
+            );
+            return Ok(LearnedMagic {
+                magic: upgraded,
+                book,
+            });
         }
 
         let magic = self.learn_magic(object_id, spell)?;
@@ -2852,7 +2899,7 @@ impl World {
 
     /// 广播某一格的毒类型变化（Crystal `S.ObjectPoisoned`，`MonsterObject.cs:1568`、
     /// `HumanObject.cs:730`）。
-    fn sync_monster_poison(&self, map: &str, object_id: u32, position: Point) {
+    fn sync_monster_poison(&mut self, map: &str, object_id: u32, position: Point) {
         let Some(kind) = self
             .monster(object_id)
             .map(crate::monster::Monster::poison_type)
@@ -2869,7 +2916,7 @@ impl World {
 
     /// 玩家毒类型变化：本人 `S.Poisoned` + 周围 `S.ObjectPoisoned`
     /// （Crystal `HumanObject.cs:727-732`）。
-    fn sync_player_poison(&self, object_id: u32, map: &str, position: Point) {
+    fn sync_player_poison(&mut self, object_id: u32, map: &str, position: Point) {
         let Some(kind) = self.players.get(&object_id).map(Player::poison_type) else {
             return;
         };

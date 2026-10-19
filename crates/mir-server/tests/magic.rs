@@ -361,7 +361,89 @@ fn book_learning_adds_magic_sends_new_magic_and_consumes_book() {
 }
 
 #[test]
-fn learning_the_same_book_twice_is_rejected() {
+fn using_a_known_spell_book_upgrades_one_level() {
+    let mut harness = Harness::new(2);
+    let player = harness.add_player(1, MirClass::Wizard, 1, Point::new(20, 20));
+    harness.learn(player, Spell::FireBall);
+    let book = harness.give(player, 1);
+    harness.drain(player);
+
+    let upgraded = harness.world.use_book(player, book).expect("升一级");
+    assert_eq!(upgraded.magic.spell, Spell::FireBall);
+    assert_eq!(upgraded.magic.level, 1, "已会技能读书应升 1 级");
+    assert!(upgraded.book.is_none(), "单本书应被消耗");
+    assert!(
+        harness.packets(player).iter().any(|packet| matches!(
+            packet,
+            ServerPacket::MagicLeveled(leveled)
+                if leveled.spell == Spell::FireBall && leveled.level == 1
+        )),
+        "升级应发 S.MagicLeveled"
+    );
+}
+
+#[test]
+fn first_skill_book_ignores_level_for_a_level_one_newbie() {
+    let mut harness = Harness::new(5);
+    // 3 号书是法师 10 级书；新手引导扩展允许 1 级、尚无技能的角色读第一本。
+    let player = harness.add_player(1, MirClass::Wizard, 1, Point::new(20, 20));
+    let book = harness.give(player, 3);
+    harness.drain(player);
+    let learned = harness
+        .world
+        .use_book(player, book)
+        .expect("第一本书应可读");
+    assert_eq!(learned.magic.spell, Spell::GreatFireBall);
+    assert_eq!(learned.magic.level, 0);
+}
+
+#[test]
+fn skill_experience_is_capped_at_three() {
+    let mut harness = Harness::new(6);
+    let player = harness.add_player(1, MirClass::Wizard, 50, Point::new(20, 20));
+    let monster = harness.spawn(test_monster(100_000, 0, 0), Point::new(22, 20));
+    harness.learn(player, Spell::FireBall);
+    let info = harness
+        .world
+        .magic_info(Spell::FireBall)
+        .expect("模板")
+        .clone();
+    if let Some(magic) = harness
+        .world
+        .player_mut(player)
+        .expect("玩家")
+        .magics
+        .iter_mut()
+        .find(|magic| magic.spell == Spell::FireBall)
+    {
+        magic.level = 2;
+        magic.experience = u32::from(info.need3);
+    }
+    for _ in 0..3 {
+        harness.ready_all(player);
+        harness
+            .world
+            .cast_magic(
+                player,
+                Spell::FireBall,
+                MirDirection::Right,
+                monster,
+                Point::new(22, 20),
+            )
+            .expect("施法成功");
+        harness.elapse(600);
+    }
+    let magic = harness
+        .world
+        .player_magic(player, Spell::FireBall)
+        .copied()
+        .expect("技能");
+    assert_eq!(magic.level, 3, "技能最高 3 级");
+    assert_eq!(magic.experience, 0, "满级后经验清零且不再增长");
+}
+
+#[test]
+fn learning_the_same_book_at_max_level_is_rejected() {
     let mut harness = Harness::new(2);
     let player = harness.add_player(1, MirClass::Wizard, 1, Point::new(20, 20));
     let first = harness.give(player, 1);
@@ -369,10 +451,20 @@ fn learning_the_same_book_twice_is_rejected() {
     harness.drain(player);
 
     harness.world.use_book(player, first).expect("第一次学会");
+    if let Some(magic) = harness
+        .world
+        .player_mut(player)
+        .expect("玩家")
+        .magics
+        .iter_mut()
+        .find(|magic| magic.spell == Spell::FireBall)
+    {
+        magic.level = 3;
+    }
     let error = harness
         .world
         .use_book(player, second)
-        .expect_err("第二次应当被拒绝");
+        .expect_err("满级后应被拒绝");
     assert_eq!(error, MagicError::AlreadyLearned(Spell::FireBall));
     assert_eq!(
         harness.world.player(player).unwrap().magics.len(),

@@ -1123,3 +1123,247 @@ fn real_map_files_load_and_change_map_moves_between_them() {
         max_y + 1
     );
 }
+
+// ---------------------------------------------------------------------------
+// 7. 自然传送点：比奇广场能不能**走进**一个传送点（t93）
+// ---------------------------------------------------------------------------
+//
+// 背景（t93）：playtest 之前只能靠 GM `@map` 兜底，理由是「最近的自然传送点在 274 格外」。
+// 那个 274 格是**客户端可见**的传送点（`S.NewMapInfo.movements`）——Crystal 的
+// `PlayerObject.CheckMapInfo`（`Server/MirObjects/PlayerObject.cs:1009-1056`）只把
+// `MovementInfo.ShowOnBigMap` 的那些发给客户端（大地图图标），本作照抄。
+// 真正的传送点表是 `MapInfo.Movements`（`Shared/MapInfo.cs`），比奇有 72 条，
+// 其中有好几条就在广场 30 格内。下面两个用例分别锁住「数据在」与「走得过去」。
+
+/// 起始点（`ServerConfig.start_point` 默认值，比奇广场）。
+const BICHON_START: Point = Point { x: 330, y: 270 };
+
+/// 自然传送点：`MapInfo.Movements` 里**能走进去**（不需要挖洞/不需要 `need_move`）、
+/// 目标地图存在且 `.map` 文件在磁盘上的那些。
+fn walkable_movements_of_bichon(
+    data: &GameData,
+    map_root: &Path,
+) -> Vec<(String, MovementInfo, String)> {
+    let Some(info) = data.map_info("0") else {
+        return Vec::new();
+    };
+    info.movements
+        .iter()
+        .filter(|movement| movement.map_index > 0 && !movement.need_hole && !movement.need_move)
+        .filter_map(|movement| {
+            let target = data.map_info_by_index(movement.map_index)?;
+            map_root
+                .join(format!("{}.map", target.file_name))
+                .is_file()
+                .then(|| {
+                    (
+                        info.file_name.clone(),
+                        movement.clone(),
+                        target.file_name.clone(),
+                    )
+                })
+        })
+        .collect()
+}
+
+/// 数据侧：比奇的传送点表来自真实 `Server.MirDB`，且**广场附近就有**可用的。
+#[test]
+fn bichon_has_a_walkable_movement_point_near_the_plaza() {
+    let Ok(data) = GameData::discover() else {
+        eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
+        return;
+    };
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let map_root = root.join("resource/map");
+    let Some(info) = data.map_info("0") else {
+        eprintln!("跳过：样本里没有比奇（map \"0\"）");
+        return;
+    };
+    assert!(
+        info.movements.len() >= 20,
+        "比奇应该有几十条传送点（真实数据 72 条），实际 {}",
+        info.movements.len()
+    );
+
+    // 客户端可见的（`ShowOnBigMap`）只是大地图图标那一小撮——这正是 playtest 之前
+    // 「最近传送点 274 格」的原因，不是解析缺失。
+    let big_map = info.movements.iter().filter(|m| m.show_on_big_map).count();
+    assert!(
+        big_map < info.movements.len(),
+        "真实数据里 ShowOnBigMap 只占少数（大地图图标），不该等于全部"
+    );
+    println!(
+        "比奇传送点：{} 条（其中 ShowOnBigMap {} 条；客户端 `S.NewMapInfo` 只收后者）",
+        info.movements.len(),
+        big_map
+    );
+
+    let walkable = walkable_movements_of_bichon(&data, &map_root);
+    assert!(
+        !walkable.is_empty(),
+        "比奇至少要有 1 条不需要挖洞、目标图存在的传送点"
+    );
+    let (_, nearest, target) = walkable
+        .iter()
+        .min_by_key(|(_, movement, _)| {
+            let dx = (movement.source.x - BICHON_START.x).abs();
+            let dy = (movement.source.y - BICHON_START.y).abs();
+            dx.max(dy)
+        })
+        .expect("非空");
+    let distance = (nearest.source.x - BICHON_START.x)
+        .abs()
+        .max((nearest.source.y - BICHON_START.y).abs());
+    println!(
+        "广场 {BICHON_START:?} 最近的可走传送点：{:?} → 地图 {} 的 {:?}（{} 格）",
+        nearest.source, target, nearest.destination, distance
+    );
+    assert!(
+        distance <= 40,
+        "广场 40 格内应该有一条自然传送点（实际最近 {distance} 格），否则玩家没法自然换图"
+    );
+}
+
+/// 端到端：从广场一步步走进最近的传送点 → 下一个 tick 完成换图。
+///
+/// 用真实地形（`resource/map/*.map`）+ 真实传送点表，玩家按贪心方向走（撞墙换方向），
+/// 断言「踩上传送点 → `world.tick()` 结算 → 地图/坐标变成传送点的目的地」。
+#[test]
+fn player_can_walk_from_the_plaza_into_a_natural_teleport_point() {
+    let Ok(data) = GameData::discover() else {
+        eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
+        return;
+    };
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let map_root = root.join("resource/map");
+    if !map_root.is_dir() {
+        eprintln!("跳过：{} 不存在", map_root.display());
+        return;
+    }
+    let data = Arc::new(data);
+    let mut walkable = walkable_movements_of_bichon(&data, &map_root);
+    if walkable.is_empty() {
+        eprintln!("跳过：比奇没有可走的跨图传送点");
+        return;
+    }
+    walkable.sort_by_key(|(_, movement, _)| {
+        (movement.source.x - BICHON_START.x)
+            .abs()
+            .max((movement.source.y - BICHON_START.y).abs())
+    });
+    let (_, movement, target_file) = walkable.remove(0);
+    let target_index = movement.map_index;
+
+    let mut harness = Harness::real(7, &map_root);
+    // 传送点解析要按 `MapIndex` 查 `MapInfo`（`maps::resolve_movement_target`），
+    // 所以世界必须挂上真实 `GameData`；否则那条传送点会被当成「目标图不存在」跳过。
+    harness.world.set_game_data(Arc::clone(&data));
+    // 传送点表必须**在地形加载之后**设置：`World` 第一次走到某张图时才会载入 `.map`
+    // 并注册 `MapInfo.Movements`，先设置会被那次注册覆盖。这里先走生产路径
+    // （`initialize_map` 载入地形 + NPC + 刷怪点），再把真实传送点表覆写一遍。
+    let report = harness.world.initialize_map("0");
+    assert!(
+        report.initialized,
+        "比奇地形应该能加载（resource/map/0.map）"
+    );
+    harness
+        .world
+        .set_map_movements("0", data.map_info("0").expect("比奇").movements.clone());
+    let player = harness.add_player(1, "0", BICHON_START);
+    harness.packets(player);
+
+    // 4 邻域 BFS 找一条真路（比奇是城镇，直线走会撞进建筑凹角）。
+    let map = harness.world.map_of("0").expect("比奇地形").clone();
+    let mut queue = std::collections::VecDeque::from([BICHON_START]);
+    let mut came_from: HashMap<(i32, i32), Point> = HashMap::new();
+    let mut seen = std::collections::HashSet::from([(BICHON_START.x, BICHON_START.y)]);
+    let mut found = false;
+    while let Some(cell) = queue.pop_front() {
+        if cell == movement.source {
+            found = true;
+            break;
+        }
+        for (dx, dy) in [(1, 0), (0, 1), (-1, 0), (0, -1)] {
+            let next = Point::new(cell.x + dx, cell.y + dy);
+            if !map.walkable(next.x, next.y) || !seen.insert((next.x, next.y)) {
+                continue;
+            }
+            came_from.insert((next.x, next.y), cell);
+            queue.push_back(next);
+        }
+    }
+    assert!(
+        found,
+        "比奇地形上从 {BICHON_START:?} 走不到传送点 {:?}（BFS 无路）",
+        movement.source
+    );
+
+    // 回溯出路径（不含起点）。
+    let mut path = Vec::new();
+    let mut cursor = movement.source;
+    while let Some(previous) = came_from.get(&(cursor.x, cursor.y)) {
+        path.push(cursor);
+        cursor = *previous;
+    }
+    path.reverse();
+    println!(
+        "自然换图：{BICHON_START:?} → {:?} 共 {} 步",
+        movement.source,
+        path.len()
+    );
+
+    // 沿路径真走（每步清冷却并推进世界时钟，模拟 600ms 的走位间隔）。
+    for cell in &path {
+        let position = harness.world.player(player).expect("玩家还在").position;
+        let direction = match (cell.x - position.x, cell.y - position.y) {
+            (1, 0) => MirDirection::Right,
+            (0, 1) => MirDirection::Down,
+            (-1, 0) => MirDirection::Left,
+            (0, -1) => MirDirection::Up,
+            other => panic!("路径上出现非四邻格 {other:?}（{position:?} → {cell:?}）"),
+        };
+        // 真实图上有怪：被临时占格时推进 tick 再试（怪物会走位）。
+        let mut walked = false;
+        for _ in 0..6 {
+            harness.ready(player);
+            harness
+                .world
+                .advance_clock(mir_server::world::MOVE_DELAY_MS);
+            if harness.world.walk(player, direction).is_ok() {
+                walked = true;
+                break;
+            }
+            harness.world.tick();
+        }
+        assert!(
+            walked,
+            "沿 BFS 路径走 {position:?} → {cell:?} 连续 6 次被拒"
+        );
+        harness.world.tick();
+        if harness.world.player(player).expect("玩家还在").map != "0" {
+            // 踩上传送点 → tick 已经把人物换到目标图，后面的路不用走了。
+            break;
+        }
+    }
+
+    // 踩上传送点那一步会被作废、换图排队到下一个 tick（`walking_onto_a_movement_source_*`），
+    // 上面每走一步都 `tick()` 过一次，所以走到传送点后地图已经切换。
+    let me = harness.world.player(player).expect("玩家还在");
+    assert_eq!(me.map, target_file, "应该换到传送点的目标地图");
+    assert_eq!(
+        (me.position.x, me.position.y),
+        (movement.destination.x, movement.destination.y),
+        "落点应该是传送点的目的地"
+    );
+    assert!(
+        harness.has(
+            player,
+            |packet| matches!(packet, ServerPacket::MapChanged(changed) if changed.map_index == target_index)
+        ),
+        "本人应收到目标地图的 S.MapChanged"
+    );
+    println!(
+        "自然换图：比奇 {:?} → 地图 {target_file}（#{target_index}）{:?}",
+        movement.source, movement.destination
+    );
+}

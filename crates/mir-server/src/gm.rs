@@ -41,6 +41,66 @@ pub const GM_ACCOUNTS_ENV: &str = "MIR2_GM_ACCOUNTS";
 /// 角色等级上限（Crystal `Globals.MaxLevel = 255`）。
 const MAX_LEVEL: u16 = 255;
 
+/// `@mapinfo` 最多列多少条附近传送点（够脚本挑一个最近的，又不至于刷爆聊天）。
+const MOVEMENT_LIST_LIMIT: usize = 10;
+
+/// 把传送点表格式化成 `@mapinfo` 的几行：**按距玩家的距离升序**、最多 [`MOVEMENT_LIST_LIMIT`] 条。
+///
+/// 每行：`    (326,288) -> 0108(#4) (8,12) dist=18 [bigmap]`。
+/// 标记含义（脚本据此筛）：
+/// * `[bigmap]`：`ShowOnBigMap = true`（客户端 `S.NewMapInfo` 也会拿到它）；
+/// * `[hole]`：要挖洞才能过（`NeedHole`）；
+/// * `[move]`：只记录目的地、由 NPC 的 `ENTERMAP` 触发（`NeedMove`）；
+/// * `[conquest]`：攻城区域专属（`ConquestIndex > 0`，只有城主行会能过）。
+fn movement_lines(
+    movements: &[mir_db::MovementInfo],
+    current_map: &str,
+    position: Point,
+    resolve: &dyn Fn(i32) -> Option<String>,
+) -> Vec<String> {
+    let distance = |info: &mir_db::MovementInfo| {
+        (info.source.x - position.x)
+            .abs()
+            .max((info.source.y - position.y).abs())
+    };
+    let mut sorted: Vec<&mir_db::MovementInfo> = movements.iter().collect();
+    sorted.sort_by_key(|info| (distance(info), info.source.x, info.source.y));
+    sorted
+        .into_iter()
+        .take(MOVEMENT_LIST_LIMIT)
+        .map(|info| {
+            // `MapIndex == 0` 是**同图**传送（`maps.rs::resolve_movement_target`）。
+            let target = if info.map_index == 0 {
+                current_map.to_owned()
+            } else {
+                resolve(info.map_index).unwrap_or_else(|| format!("?#{}", info.map_index))
+            };
+            let mut marks = String::new();
+            if info.show_on_big_map {
+                marks.push_str(" [bigmap]");
+            }
+            if info.need_hole {
+                marks.push_str(" [hole]");
+            }
+            if info.need_move {
+                marks.push_str(" [move]");
+            }
+            if info.conquest_index > 0 {
+                marks.push_str(" [conquest]");
+            }
+            format!(
+                "    ({},{}) -> {target}(#{}) ({},{}) dist={}{marks}",
+                info.source.x,
+                info.source.y,
+                info.map_index,
+                info.destination.x,
+                info.destination.y,
+                distance(info),
+            )
+        })
+        .collect()
+}
+
 /// `@mob` 单次最多刷多少只（防止手滑把地图刷爆）。
 const MAX_SPAWN_BATCH: u32 = 50;
 
@@ -979,7 +1039,14 @@ impl World {
         }
     }
 
-    /// `@mapinfo`：当前地图/坐标/站立格是否可走/本图怪物、玩家与地面物品数。
+    /// `@mapinfo`：当前地图/坐标/站立格是否可走/本图怪物、玩家与地面物品数，
+    /// 以及**附近的传送点**（`MapInfo.Movements`，含 `ShowOnBigMap = false` 的那些）。
+    ///
+    /// 为什么要列非大地图传送点：Crystal 的 `S.NewMapInfo` 只带 `ShowOnBigMap` 的条目
+    /// （`Server/MirObjects/PlayerObject.cs:1009-1056`，客户端用来画大地图图标），所以
+    /// playtest 这类「照客户端协议说话」的脚本看不到「走进城门就换图」的那些格子。
+    /// 这条 GM 命令是**开发者视角**的旁路：只用于观察数据，真正换图仍然由玩家走进去触发
+    /// （`maps.rs::check_movement`），不改变客户端语义。
     fn gm_map_info(&mut self, object_id: u32) -> Vec<String> {
         let Some(player) = self.player(object_id) else {
             return vec!["ERR: you are not in the world.".to_owned()];
@@ -1003,14 +1070,29 @@ impl World {
             .iter()
             .filter(|ground| ground.map == map)
             .count();
-        vec![
+        let mut lines = vec![
             format!("Map info for {name}:"),
             format!("  map {map} at ({}, {})", position.x, position.y),
             format!("  walkable: {}", if walkable { "yes" } else { "no" }),
             format!("  monsters on map: {monsters}"),
             format!("  players on map: {players}"),
             format!("  ground items on map: {ground}"),
-        ]
+        ];
+        // 附近传送点：按距玩家的**切比雪夫距离**升序（与世界层的 `Point` 距离口径一致）。
+        let movements = self.movements_on(&map).to_vec();
+        let resolver = |index: i32| -> Option<String> {
+            self.game_data()
+                .and_then(|data| data.map_info_by_index(index))
+                .map(|info| info.file_name.clone())
+        };
+        lines.push(format!(
+            "  movements: {} total, {} on big map (nearest {})",
+            movements.len(),
+            movements.iter().filter(|info| info.show_on_big_map).count(),
+            MOVEMENT_LIST_LIMIT.min(movements.len()),
+        ));
+        lines.extend(movement_lines(&movements, &map, position, &resolver));
+        lines
     }
 
     /// `@clearbag`：清空背包（不碰装备栏/仓库），逐件下发 `S.DeleteItem`。
@@ -1224,6 +1306,103 @@ mod tests {
             vec!["admin".to_owned(), "GM_Alice".to_owned()]
         );
         assert!(parse_gm_accounts("  ,, ").is_empty());
+    }
+
+    /// 造一条传送点（`need_hole`/`need_move`/`show_on_big_map` 由调用方指定）。
+    fn movement(
+        map_index: i32,
+        source: (i32, i32),
+        destination: (i32, i32),
+    ) -> mir_db::MovementInfo {
+        mir_db::MovementInfo {
+            map_index,
+            source: Point::new(source.0, source.1),
+            destination: Point::new(destination.0, destination.1),
+            need_hole: false,
+            need_move: false,
+            conquest_index: 0,
+            show_on_big_map: false,
+            icon: 0,
+        }
+    }
+
+    #[test]
+    fn movement_lines_are_sorted_by_distance_and_capped() {
+        let movements = vec![
+            movement(4, (400, 400), (8, 12)), // 距 (330,270) 的切比雪夫距离 130
+            movement(6, (332, 271), (4, 10)), // 2
+            movement(3, (340, 268), (3, 7)),  // 10
+        ];
+        let resolve = |index: i32| match index {
+            3 => Some("0107".to_owned()),
+            4 => Some("0108".to_owned()),
+            6 => Some("0109".to_owned()),
+            _ => None,
+        };
+        let lines = movement_lines(&movements, "0", Point::new(330, 270), &resolve);
+        assert_eq!(lines.len(), 3, "三条都列得下");
+        assert!(
+            lines[0].contains("(332,271)") && lines[0].contains("dist=2"),
+            "nearest movement must be first: {lines:?}"
+        );
+        assert!(lines[1].contains("(340,268)") && lines[1].contains("dist=10"));
+        assert!(lines[2].contains("(400,400)") && lines[2].contains("dist=130"));
+        // 目标图文件名来自 resolver（`MapInfo.MapIndex → FileName`）。
+        assert!(lines[0].contains("0109(#6)"), "{}", lines[0]);
+    }
+
+    #[test]
+    fn movement_lines_mark_special_kinds_and_same_map() {
+        let mut big = movement(4, (331, 270), (8, 12));
+        big.show_on_big_map = true;
+        let mut hole = movement(5, (332, 270), (1, 1));
+        hole.need_hole = true;
+        let mut need_move = movement(6, (333, 270), (2, 2));
+        need_move.need_move = true;
+        let mut conquest = movement(7, (334, 270), (3, 3));
+        conquest.conquest_index = 69;
+        // `MapIndex == 0` 是**同图**传送：目标图就是当前地图。
+        let same_map = movement(0, (335, 270), (300, 300));
+
+        let lines = movement_lines(
+            &[big, hole, need_move, conquest, same_map],
+            "0",
+            Point::new(330, 270),
+            &|index| Some(format!("map{index}")),
+        );
+        assert!(lines[0].contains("[bigmap]") && lines[0].contains("map4(#4)"));
+        assert!(lines[1].contains("[hole]"));
+        assert!(lines[2].contains("[move]"));
+        assert!(lines[3].contains("[conquest]"));
+        assert!(
+            lines[4].contains(" -> 0(#0) "),
+            "same-map movement points at current map name: {}",
+            lines[4]
+        );
+        // 无法解析目标图时用 `?#index` 标出来，不 panic。
+        let unknown = movement_lines(
+            &[movement(999, (330, 270), (1, 1))],
+            "0",
+            Point::new(330, 270),
+            &|_| None,
+        );
+        assert!(unknown[0].contains("?#999"), "{}", unknown[0]);
+    }
+
+    #[test]
+    fn movement_lines_never_exceed_the_list_limit() {
+        let movements: Vec<mir_db::MovementInfo> = (0..25)
+            .map(|offset| movement(4, (330 + offset, 270), (1, 1)))
+            .collect();
+        let lines = movement_lines(&movements, "0", Point::new(330, 270), &|_| {
+            Some("m".to_owned())
+        });
+        assert_eq!(
+            lines.len(),
+            MOVEMENT_LIST_LIMIT,
+            "movement list must cap at MOVEMENT_LIST_LIMIT"
+        );
+        assert!(lines[0].contains("dist=0"), "最近的（同格）排第一");
     }
 
     #[test]

@@ -840,7 +840,40 @@ impl Monster {
 impl World {
     /// 推进所有怪物：先清理到期的尸体，再按生成顺序跑 AI。
     pub(crate) fn tick_monsters(&mut self, now: i64) {
+        const AI_BATCHES: u32 = 8;
         self.remove_expired_corpses(now);
+        // 空闲短路：没有任何在线玩家时，所有非召唤怪都不需要索敌/AI。
+        // Crystal 的 `Settings.MonsterProcessWhenAlone` 默认为 false，怪物在附近没有玩家时
+        // 本来就不思考（`MonsterObject.cs` 的 `CheckAlone`）；这里把整张世界直接短路，
+        // 避免每 tick 遍历 1900+ 只怪。
+        if self.players.is_empty() && self.monsters.len() > 512 {
+            return;
+        }
+        // 大地图（真实 MirDB 约 1900+ 只怪）按 object_id 分 4 批，每 tick 只跑一批；
+        // 有目标/召唤物的怪仍然每 tick 处理，保证攻击节奏不变。小世界（测试/空世界）
+        // 保持全量，避免把测试里的 AI 时序摊到 4 个 tick。
+        let batch = u32::try_from((now / 100).rem_euclid(i64::from(AI_BATCHES))).unwrap_or(0);
+        let batched = self.monsters.len() > 512;
+        // 大世界预计算「玩家附近 16×16 大格」集合：怪物 AI 只处理玩家附近区域，
+        // 避免 1900+ 只怪每 tick 做 AOI 索敌（Crystal `CheckAlone` 的口径）。
+        let mut player_cells = std::collections::HashSet::new();
+        if batched {
+            for player in self.players.values() {
+                if player.dead {
+                    continue;
+                }
+                let cx = player.position.x.div_euclid(16);
+                let cy = player.position.y.div_euclid(16);
+                for dx in -1..=1 {
+                    for dy in -1..=1 {
+                        player_cells.insert((player.map.clone(), cx + dx, cy + dy));
+                    }
+                }
+            }
+        }
+        if batched {
+            self.broadcast_batch = Some(std::collections::HashMap::new());
+        }
 
         for index in 0..self.monsters.len() {
             if self.monsters[index].dead {
@@ -849,6 +882,23 @@ impl World {
             }
             // `Envir.cs:2130`：`if (Time > current.Value.OperateTime)`（严格大于）。
             if now <= self.monsters[index].operate_time {
+                continue;
+            }
+            // 只摊薄「无目标、非召唤物」的野生怪；有 AI 交互的怪保持每 tick 处理。
+            let idle = self.monsters[index].target.is_none()
+                && self.monsters[index].master.is_none()
+                && !self.monsters[index].kind.is_guard();
+            if batched && idle {
+                let cell = (
+                    self.monsters[index].map.clone(),
+                    self.monsters[index].position.x.div_euclid(16),
+                    self.monsters[index].position.y.div_euclid(16),
+                );
+                if !player_cells.contains(&cell) {
+                    continue;
+                }
+            }
+            if batched && idle && self.monsters[index].object_id % AI_BATCHES != batch {
                 continue;
             }
             // 克隆一份出来处理，避免 `&mut Monster` 与 `&mut World`（广播、随机数、待结算队列）
@@ -862,6 +912,9 @@ impl World {
             if self.monsters[index].hp <= 0 && !self.monsters[index].dead {
                 self.monster_died(object_id);
             }
+        }
+        if batched {
+            self.flush_broadcast_batch();
         }
     }
 

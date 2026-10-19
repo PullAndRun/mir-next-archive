@@ -1657,6 +1657,33 @@ fn book_shop_goods_can_sell_skill_books() {
 }
 
 #[test]
+fn level_one_newbie_gets_the_first_skill_book_for_free() {
+    let script = "[@Main]\n#SAY\n书店\n<买/@BuySell> <关闭/@exit>\n[@BuySell]\n#SAY\n技能书\n<关闭/@exit>\n[Trade]\nFireBallBook 1\n";
+    let (mut harness, _envir) = Harness::new_with_script("newbie-book", script);
+    let (player, npc_id) = harness.ready();
+    if let Some(player) = harness.world.player_mut(player) {
+        player.level = 1;
+        player.gold = 0;
+    }
+    harness
+        .world
+        .call_npc(player, npc_id, "@main")
+        .expect("打开书店");
+    harness
+        .world
+        .call_npc(player, npc_id, "@BuySell")
+        .expect("打开买卖页");
+    let npc = harness.world.npc(npc_id).expect("NPC").clone();
+    let goods = harness.world.npc_goods(&npc);
+    let report = harness
+        .world
+        .buy_item(player, goods[0].unique_id, 1, PanelType::Buy)
+        .expect("新手第一本书应免费");
+    assert_eq!(report.cost, 0, "新手第一本技能书免金币");
+    assert_eq!(harness.world.player(player).unwrap().gold, 0);
+}
+
+#[test]
 fn starter_items_filter_by_class_from_start_item_flag() {
     let (harness, _envir) = Harness::new("starter-items");
     let warrior = harness.world.starter_items_for(MirClass::Warrior);

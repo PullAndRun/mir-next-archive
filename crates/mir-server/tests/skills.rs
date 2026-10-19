@@ -349,6 +349,18 @@ fn monster_kind(name: &str, hp: i32, level: u16, cool_eye: u8) -> MonsterKind {
     }
 }
 
+/// 魔法怪：给足 MC/DC/准确，保证命中与伤害可断言。
+fn magic_kind(name: &str, ai: u8) -> MonsterKind {
+    let mut kind = monster_kind(name, 5_000, 10, 0);
+    kind.ai = ai;
+    kind.stats.min_mc = 80;
+    kind.stats.max_mc = 80;
+    kind.stats.min_dc = 80;
+    kind.stats.max_dc = 80;
+    kind.stats.accuracy = 100;
+    kind
+}
+
 // ---------------------------------------------------------------------------
 // 火墙（`Map.cs:1101-1183` + `SpellObject.cs:111-135`）
 // ---------------------------------------------------------------------------
@@ -2016,4 +2028,213 @@ fn target_lost_monster_returns_home() {
         position.max_distance(Point::new(20, 20)) < 10,
         "目标丢失后应朝出生点回位，实际 {position:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 怪物魔法攻击（MonsterMagic）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn magic_monster_does_not_cast_out_of_range() {
+    let mut harness = Harness::new(60);
+    let player = harness.add_player(1, MirClass::Warrior, 30, Point::new(20, 20));
+    let monster = harness.spawn_active(magic_kind("远程法师", 55), Point::new(20, 28));
+    // 手动锁目标，避免视野半径掩盖射程判定。
+    harness.world.monster_mut(monster).expect("法师").target = Some(player);
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    assert!(
+        !harness.packets(player).iter().any(
+            |packet| matches!(packet, ServerPacket::ObjectMagic(magic) if magic.object_id == monster)
+        ),
+        "射程 8 > 6，不应施法"
+    );
+}
+
+#[test]
+fn magic_monster_casts_and_damages_the_target() {
+    let mut harness = Harness::new(61);
+    let player = harness.add_player(1, MirClass::Warrior, 30, Point::new(20, 20));
+    let max_hp = harness.world.player(player).expect("玩家").stats.hp;
+    let monster = harness.spawn_active(magic_kind("远程法师", 55), Point::new(20, 24));
+    // 跳过 HumanWizard 的首轮 5 秒 FearTime 走位（该行为由 kite 用例单独覆盖）。
+    harness.world.monster_mut(monster).expect("法师").fear_time = -1;
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    assert!(
+        harness.packets(player).iter().any(|packet| matches!(
+            packet,
+            ServerPacket::ObjectMagic(magic)
+                if magic.object_id == monster && magic.spell == Spell::ThunderBolt
+        )),
+        "应广播 S.ObjectMagic（ThunderBolt）"
+    );
+    harness.elapse(600);
+    assert!(
+        harness.world.player(player).expect("玩家").hp < max_hp,
+        "魔法伤害应在 500ms 延迟后落地"
+    );
+}
+
+#[test]
+fn magic_monster_respects_attack_speed_cooldown() {
+    let mut harness = Harness::new(62);
+    let player = harness.add_player(1, MirClass::Warrior, 30, Point::new(20, 20));
+    let monster = harness.spawn_active(magic_kind("远程法师", 55), Point::new(20, 24));
+    // 跳过 HumanWizard 的首轮 5 秒 FearTime 走位（该行为由 kite 用例单独覆盖）。
+    harness.world.monster_mut(monster).expect("法师").fear_time = -1;
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    let first = harness
+        .packets(player)
+        .iter()
+        .filter(|packet| matches!(packet, ServerPacket::ObjectMagic(_)))
+        .count();
+    assert_eq!(first, 1, "首轮施法一次");
+    harness.elapse(0);
+    let second = harness
+        .packets(player)
+        .iter()
+        .filter(|packet| matches!(packet, ServerPacket::ObjectMagic(_)))
+        .count();
+    assert_eq!(second, 0, "冷却内不应再次施法");
+    harness.elapse(3_000);
+    let third = harness
+        .packets(player)
+        .iter()
+        .filter(|packet| matches!(packet, ServerPacket::ObjectMagic(_)))
+        .count();
+    assert_eq!(third, 1, "冷却结束后再次施法");
+}
+
+#[test]
+fn magic_line_attack_penetrates_two_players() {
+    let mut harness = Harness::new(63);
+    let first = harness.add_player(1, MirClass::Warrior, 30, Point::new(20, 21));
+    let second = harness.add_player(2, MirClass::Warrior, 30, Point::new(20, 22));
+    let first_hp = harness.world.player(first).expect("玩家1").hp;
+    let second_hp = harness.world.player(second).expect("玩家2").hp;
+    let monster = harness.spawn_active(magic_kind("骷髅长枪兵", 29), Point::new(20, 20));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    harness.elapse(600);
+    assert!(harness.world.player(first).expect("玩家1").hp < first_hp);
+    assert!(
+        harness.world.player(second).expect("玩家2").hp < second_hp,
+        "直线技能应穿透到第二格"
+    );
+}
+
+#[test]
+fn magic_aoe_hits_multiple_targets_but_not_outside_radius() {
+    let mut harness = Harness::new(64);
+    let near1 = harness.add_player(1, MirClass::Warrior, 30, Point::new(19, 20));
+    let near2 = harness.add_player(2, MirClass::Warrior, 30, Point::new(21, 20));
+    let far = harness.add_player(3, MirClass::Warrior, 30, Point::new(28, 20));
+    let near1_hp = harness.world.player(near1).expect("近1").hp;
+    let near2_hp = harness.world.player(near2).expect("近2").hp;
+    let far_hp = harness.world.player(far).expect("远").hp;
+    let monster = harness.spawn_active(magic_kind("赤月恶魔", 13), Point::new(20, 20));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    harness.elapse(600);
+    assert!(harness.world.player(near1).expect("近1").hp < near1_hp);
+    assert!(harness.world.player(near2).expect("近2").hp < near2_hp);
+    assert_eq!(
+        harness.world.player(far).expect("远").hp,
+        far_hp,
+        "AOE 视野半径 7 以外不应受伤"
+    );
+}
+
+#[test]
+fn magic_cast_is_interrupted_when_target_dies() {
+    let mut harness = Harness::new(65);
+    let player = harness.add_player(1, MirClass::Warrior, 30, Point::new(20, 20));
+    let monster = harness.spawn_active(magic_kind("远程法师", 55), Point::new(20, 24));
+    // 跳过 HumanWizard 的首轮 5 秒 FearTime 走位（该行为由 kite 用例单独覆盖）。
+    harness.world.monster_mut(monster).expect("法师").fear_time = -1;
+    harness.wake_monster(monster);
+    harness.elapse(0); // 施法入队，500ms 后结算
+    {
+        let target = harness.world.player_mut(player).expect("玩家");
+        target.dead = true;
+        target.hp = 0;
+    }
+    harness.elapse(600);
+    assert!(
+        harness
+            .world
+            .player(player)
+            .is_some_and(|target| target.dead),
+        "目标死亡不应崩，延迟伤害直接丢弃"
+    );
+    assert!(harness.world.monster(monster).is_some());
+}
+
+#[test]
+fn bone_spearman_line_damage_is_delayed_by_distance() {
+    let mut harness = Harness::new(67);
+    let first = harness.add_player(1, MirClass::Warrior, 30, Point::new(20, 21));
+    let second = harness.add_player(2, MirClass::Warrior, 30, Point::new(20, 22));
+    let first_hp = harness.world.player(first).expect("第一格").hp;
+    let second_hp = harness.world.player(second).expect("第二格").hp;
+    let monster = harness.spawn_active(magic_kind("骷髅长枪兵", 29), Point::new(20, 20));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    // 第一格：250 + 1*50 = 300ms；第二格：250 + 2*50 = 350ms。
+    harness.elapse(310);
+    assert!(harness.world.player(first).expect("第一格").hp < first_hp);
+    assert_eq!(
+        harness.world.player(second).expect("第二格").hp,
+        second_hp,
+        "第二格伤害应晚 50ms"
+    );
+    harness.elapse(60);
+    assert!(harness.world.player(second).expect("第二格").hp < second_hp);
+}
+
+#[test]
+fn aoe_does_not_hit_players_on_no_fight_maps() {
+    let mut map = MapInfo {
+        file_name: MAP.to_owned(),
+        title: "安全地图".to_owned(),
+        no_fight: true,
+        ..MapInfo::default()
+    };
+    map.file_name = MAP.to_owned();
+    let mut harness = Harness::with_data(68, game_data_with_maps(vec![map]));
+    let player = harness.add_player(1, MirClass::Warrior, 30, Point::new(20, 20));
+    let hp = harness.world.player(player).expect("玩家").hp;
+    let monster = harness.spawn_active(magic_kind("赤月恶魔", 13), Point::new(20, 22));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    harness.elapse(600);
+    assert_eq!(
+        harness.world.player(player).expect("玩家").hp,
+        hp,
+        "NoFight 地图上怪物 AOE 不应造成伤害"
+    );
+}
+
+#[test]
+fn magic_monster_kites_when_adjacent() {
+    let mut harness = Harness::new(66);
+    let player = harness.add_player(1, MirClass::Warrior, 30, Point::new(20, 20));
+    let monster = harness.spawn_active(magic_kind("远程法师", 55), Point::new(20, 21));
+    let start = harness.world.monster(monster).expect("法师").position;
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    let moved = harness.world.monster(monster).expect("法师").position;
+    assert_ne!(moved, start, "HumanWizard 贴身应拉开距离（kite）");
+    assert!(moved.max_distance(Point::new(20, 20)) > 1);
+    assert!(harness.world.player(player).expect("玩家").hp > 0);
 }

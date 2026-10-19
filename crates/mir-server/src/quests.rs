@@ -56,6 +56,10 @@ use crate::world::{Player, World};
 /// 同时能接多少个任务：Crystal `Globals.MaxConcurrentQuests = 20`（`Shared/Globals.cs:33`）。
 pub const MAX_CONCURRENT_QUESTS: usize = 20;
 
+/// 每日任务每天最多完成几次（**本作扩展**：Crystal 的 `QuestType.Daily` 没有完成次数上限，
+/// 只有跨天 `ClearDailyQuests`；这里加一个可预期的防刷上限，超出后当天不能再接每日任务）。
+pub const MAX_DAILY_COMPLETIONS: usize = 10;
+
 /// 「新任务」高亮窗口：Crystal `New => StartDateTime > Envir.Now.AddDays(-1)`
 /// （`QuestProgressInfo.cs:40-43`）。
 pub const QUEST_NEW_WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
@@ -303,6 +307,12 @@ pub enum QuestError {
         object_id: u32,
         /// 距离上限。
         range: i32,
+    },
+    /// 当天完成的每日任务数已达上限（**本作扩展**；Crystal 无此上限）。
+    #[error("daily quest limit reached ({limit} per day)")]
+    DailyLimit {
+        /// 每日完成上限。
+        limit: usize,
     },
     /// 背包放不下携带物品或奖励。
     #[error("quest items do not fit in the inventory")]
@@ -719,6 +729,14 @@ impl World {
                 limit: MAX_CONCURRENT_QUESTS,
             });
         }
+        // 每日任务完成上限（本作扩展）。
+        if definition.info.quest_type == QuestType::Daily.value()
+            && self.daily_completed_count(player_id) >= MAX_DAILY_COMPLETIONS
+        {
+            return Err(QuestError::DailyLimit {
+                limit: MAX_DAILY_COMPLETIONS,
+            });
+        }
         // 前置任务链：Crystal 从 `RequiredQuest` 一路往上查（`PlayerObject.cs:11288-11299`）。
         // 这里同样走一遍，只是加了步数上限防止数据成环。
         let mut needed = definition.info.required_quest;
@@ -769,9 +787,46 @@ impl World {
         player_id: u32,
         items: &[(mir_protocol::data::ItemInfo, u16)],
     ) -> bool {
-        items
+        let Some(player) = self.players.get(&player_id) else {
+            return false;
+        };
+        // 按 Crystal `HumanObject.CanGainItems`（`HumanObject.cs:7629-7660`）批量模拟：
+        // 先填已有堆叠，再逐件占用空格；前面的奖励占掉的槽位会影响后面的判定。
+        // 背包快照：`(item_index, count)`，`None` = 空格。
+        let mut slots: Vec<Option<(i32, u16)>> = player
+            .inventory
             .iter()
-            .all(|(info, count)| self.can_gain_item(player_id, info, *count))
+            .map(|slot| slot.as_ref().map(|item| (item.item_index, item.count)))
+            .collect();
+        for (info, count) in items {
+            if *count == 0 {
+                continue;
+            }
+            let stack = info.stack_size.max(1);
+            let mut remaining = *count;
+            if stack > 1 {
+                for slot in slots.iter_mut().flatten() {
+                    if remaining == 0 {
+                        break;
+                    }
+                    if slot.0 == info.index && slot.1 < stack {
+                        let room = stack - slot.1;
+                        let add = remaining.min(room);
+                        slot.1 += add;
+                        remaining -= add;
+                    }
+                }
+            }
+            while remaining > 0 {
+                let Some(position) = slots.iter().position(Option::is_none) else {
+                    return false;
+                };
+                let add = remaining.min(stack);
+                slots[position] = Some((info.index, add));
+                remaining -= add;
+            }
+        }
+        true
     }
 
     /// 交任务（`C.FinishQuest`，Crystal `PlayerObject.FinishQuest`，`PlayerObject.cs:11350-11461`）。
@@ -1296,6 +1351,41 @@ impl World {
             .unwrap_or_default()
     }
 
+    /// 玩家今天已完成（且尚未被每日重置清掉）的每日任务数量。
+    #[must_use]
+    pub fn daily_completed_count(&self, player_id: u32) -> usize {
+        let Some(player) = self.players.get(&player_id) else {
+            return 0;
+        };
+        let daily = self.daily_quest_indexes();
+        player
+            .completed_quests
+            .iter()
+            .filter(|index| daily.contains(index))
+            .count()
+    }
+
+    /// 当前角色**可接**的每日任务编号（按等级/职业/前置/是否已完成/是否已接筛选）。
+    ///
+    /// 登录时 `S.NewQuestInfo` 只用这个列表下发 Daily 任务（见 [`World::quest_login_packets`]），
+    /// 这样客户端不会看到当天已完成的每日任务。
+    #[must_use]
+    pub fn daily_quest_candidates(&self, player_id: u32) -> Vec<i32> {
+        if !self.players.contains_key(&player_id) {
+            return Vec::new();
+        }
+        self.daily_quest_indexes()
+            .into_iter()
+            .filter(|quest_index| {
+                let Some(definition) = self.quest_definition(*quest_index) else {
+                    return false;
+                };
+                self.check_can_accept(&definition, player_id, *quest_index)
+                    .is_ok()
+            })
+            .collect()
+    }
+
     /// 惰性每日重置（Crystal `Envir.ProcessNewDay` → `ClearDailyQuests`，`Envir.cs:4856-4866`、
     /// `:5009-5024`）：把 `QuestType.Daily` 的完成记录清掉，让每日任务可以再接。
     ///
@@ -1446,7 +1536,26 @@ impl World {
         {
             return packets;
         }
+        // 每日任务按角色筛选（本作扩展）：只下发当天还能接的 Daily 任务；已接的仍要下发，
+        // 因为客户端要靠定义渲染 `S.ChangeQuest{Add}`（Crystal 全量下发，客户端自己过滤）。
+        let daily_candidates: std::collections::BTreeSet<i32> =
+            self.daily_quest_candidates(player_id).into_iter().collect();
+        let in_progress: std::collections::BTreeSet<i32> = player
+            .quests
+            .iter()
+            .filter(|progress| progress.is_in_progress())
+            .map(|progress| progress.quest_index)
+            .collect();
         for quest_index in self.quest_indexes() {
+            let is_daily = self
+                .quest_definition(quest_index)
+                .is_some_and(|definition| definition.info.quest_type == QuestType::Daily.value());
+            if is_daily
+                && !daily_candidates.contains(&quest_index)
+                && !in_progress.contains(&quest_index)
+            {
+                continue;
+            }
             if let Some(info) = self.client_quest_info(quest_index) {
                 packets.push(ServerPacket::NewQuestInfo(NewQuestInfo { info }));
             }

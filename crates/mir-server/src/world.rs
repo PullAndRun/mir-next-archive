@@ -3024,6 +3024,9 @@ impl World {
                 let _ = other.sender.send(frame.clone());
             }
         }
+        // Crystal `Broadcast(GetInfo())` 之外，复活者本人也要收到 `S.ObjectRevived`
+        // （`HumanObject.Revive` 的广播包含自己；本作之前只给本人发 `S.Revived`）。
+        self.send_to_player(player_id, &revived);
         self.send_to_player(player_id, &ServerPacket::Revived(Revived {}).encode_frame());
         // `GroupMemberMapNameChanged(); GetPlayerLocation();`（`PlayerObject.cs:1389-1390`，
         // 原地复活同见 `:1448-1449`）：复活后把「我在哪张图/哪个坐标」重新同步给队友。

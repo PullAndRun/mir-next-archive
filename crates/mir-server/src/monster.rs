@@ -32,6 +32,7 @@
 //! * 目标只可能是玩家（怪物之间互相友好，Crystal 的 `IsAttackTarget(MonsterObject)`
 //!   对两个野生怪物返回 `HallucinationTime`/`RageTime` 判断，见 `MonsterObject.cs:2537-2539`）。
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use mir_core::MirRng;
@@ -41,11 +42,12 @@ use mir_core::enums::{
 };
 use mir_protocol::ServerPacket;
 use mir_protocol::packets::server::{
-    ObjectAttack, ObjectDied, ObjectRangeAttack, ObjectTurn, ObjectWalk,
+    ObjectAttack, ObjectDied, ObjectMagic, ObjectRangeAttack, ObjectTurn, ObjectWalk,
 };
 
 use crate::aoi::AoiKind;
 use crate::combat::{CombatStats, PendingHit};
+use crate::magic::UserMagic;
 use crate::world::{RED_NAME_PK_POINTS, VIEW_RANGE, World, monster_info_frame};
 
 /// 隐身玩家对这只怪是否「不可见」：Crystal `ob.Hidden && (!CoolEye || Level < ob.Level)`
@@ -98,6 +100,69 @@ pub const DEFAULT_VIEW_RANGE: i32 = 7;
 pub const DEFAULT_ATTACK_SPEED_MS: i64 = 2_500;
 /// 默认移动间隔（毫秒）：Crystal `MonsterInfo.MoveSpeed = 1800`（`Server/MirDatabase/MonsterInfo.cs:32`）。
 pub const DEFAULT_MOVE_SPEED_MS: i64 = 1_800;
+
+/// 怪物的魔法攻击形态（Crystal `MonsterMagic` 子类的简化统一模型）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MonsterMagicShape {
+    /// 单体指向（如 `HumanWizard` 的 `ThunderBolt`）。
+    Single,
+    /// 以目标/自身为中心的 AOE。
+    Aoe {
+        /// 半径（格）。
+        radius: i32,
+        /// `true` 以目标位置为中心，`false` 以施法者位置为中心。
+        at_target: bool,
+    },
+    /// 朝目标方向的直线穿透。
+    Line {
+        /// 穿透长度（格）。
+        length: i32,
+    },
+}
+
+/// Crystal 子类的蛇形邻域判定（`BoneSpearman.cs:14-25`、`VenomSpider.cs:14-25`）：
+/// `x<=2 && y<=2 && ((x<=1&&y<=1)||x==y||x%2==y%2)`。
+fn in_snake_neighborhood(from: Point, to: Point) -> bool {
+    let x = (to.x - from.x).abs();
+    let y = (to.y - from.y).abs();
+    x <= 2 && y <= 2 && ((x <= 1 && y <= 1) || x == y || x % 2 == y % 2)
+}
+
+/// 怪物的物理特殊攻击（Crystal 子类的 AOE/直线 `ObjectAttack`，**不是** `MonsterMagic`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MonsterSpecialSpec {
+    /// 触发射程。
+    pub range: i32,
+    /// 伤害形态。
+    pub shape: MonsterMagicShape,
+    /// 伤害延迟（毫秒）。
+    pub delay_ms: i64,
+    /// 是否站桩。
+    pub stationary: bool,
+    /// 是否按 Crystal 的蛇形邻域判定（`x<=2 && y<=2 && ((x<=1&&y<=1)||x==y||x%2==y%2)`）。
+    pub snake: bool,
+    /// 防御类型（AC / MAC）。
+    pub defence: DefenceType,
+}
+
+/// 一个怪物魔法模板：Crystal 各 AI 子类的 `Spell`/射程/形态。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MonsterMagicSpec {
+    /// 技能编号（`S.ObjectMagic.spell`）。
+    pub spell: Spell,
+    /// 施法射程（格）。
+    pub range: i32,
+    /// 冷却（毫秒，Crystal `AttackSpeed`）。
+    pub cooldown_ms: i64,
+    /// 伤害形态。
+    pub shape: MonsterMagicShape,
+    /// 贴身时是否先拉开距离（`HumanWizard` 的 kite 行为）。
+    pub kite: bool,
+    /// 是否站桩（`CanMove => false`）。
+    pub stationary: bool,
+    /// 用 MC 还是 DC 作为基础攻击力（Crystal 各子类的 `Stat.MinMC/MaxMC` vs `MinDC/MaxDC`）。
+    pub use_magic_stats: bool,
+}
 
 /// 怪物种类：Crystal `MonsterInfo` 里影响 AI/战斗的那部分。
 ///
@@ -185,6 +250,64 @@ impl MonsterKind {
     #[must_use]
     pub const fn melee_when_adjacent(&self) -> bool {
         matches!(self.ai, 16 | 31 | 32)
+    }
+
+    /// 怪物魔法模板：当前 Crystal 参考版本里唯一走 `S.ObjectMagic` 的 AI。
+    ///
+    /// * `AI 55` `HumanWizard`/`Clone`：`ThunderBolt`，单体，射程 6，首轮 5 秒
+    ///   `FearTime` 走位后施法（`Monsters/HumanWizard.cs:25-120`）。
+    ///
+    /// 其余 `ObjectMagic` 子类（SepWizard/AI 215+ 等）在采样 DB 中不存在；
+    /// `AI 13/29` 是物理 AOE/直线（见 [`Self::monster_special`]）；
+    /// `AI 14/50/100` 的物理特殊（毒/骑士邻域）本轮未做，见 docs 差异。
+    #[must_use]
+    pub fn monster_magic(&self) -> Option<MonsterMagicSpec> {
+        let cooldown = self.attack_speed_ms;
+        match self.ai {
+            55 => Some(MonsterMagicSpec {
+                spell: Spell::ThunderBolt,
+                range: 6,
+                cooldown_ms: cooldown,
+                shape: MonsterMagicShape::Single,
+                kite: true,
+                stationary: false,
+                use_magic_stats: true,
+            }),
+            _ => None,
+        }
+    }
+
+    /// 物理特殊攻击（Crystal 子类里的 AOE/直线，走 `S.ObjectAttack`，不是魔法）：
+    ///
+    /// * `AI 13` `RedMoonEvil`：站桩，视野内全体 AOE（`Monsters/RedMoonEvil.cs:30-60`）；
+    /// * `AI 29` `BoneSpearman`：直线 2 格（`Monsters/BoneSpearman.cs:14-45`）。
+    ///
+    /// `AI 14 EvilCentipede`/`AI 50 GreatFoxSpirit`/`AI 100 VenomSpider` 也是物理特殊，
+    /// 但带毒/骑士邻域细节，本轮未做，见 docs 差异。
+    #[must_use]
+    pub fn monster_special(&self) -> Option<MonsterSpecialSpec> {
+        match self.ai {
+            13 => Some(MonsterSpecialSpec {
+                range: self.view_range,
+                shape: MonsterMagicShape::Aoe {
+                    radius: self.view_range,
+                    at_target: false,
+                },
+                delay_ms: 300,
+                stationary: true,
+                snake: false,
+                defence: DefenceType::ACAgility,
+            }),
+            29 => Some(MonsterSpecialSpec {
+                range: 2,
+                shape: MonsterMagicShape::Line { length: 2 },
+                delay_ms: 250,
+                stationary: false,
+                snake: true,
+                defence: DefenceType::ACAgility,
+            }),
+            _ => None,
+        }
     }
 
     /// 是否是站桩型弓箭手（Crystal `TownArcher.CanMove` 要求 `Route.Count > 0`，
@@ -380,6 +503,8 @@ pub struct Monster {
     pub move_time: i64,
     /// 攻击冷却截止（Crystal `AttackTime`）。
     pub attack_time: i64,
+    /// `HumanWizard` 的 `FearTime`：进入射程后的首轮 5 秒走位窗口。
+    pub fear_time: i64,
     /// 下次搜索目标的时刻（Crystal `SearchTime`）。
     pub search_time: i64,
     /// 下次漫游的时刻（Crystal `RoamTime`）。
@@ -490,6 +615,7 @@ impl Monster {
             action_time: now + MONSTER_SPAWN_ACTION_MS,
             move_time: 0,
             attack_time: 0,
+            fear_time: 0,
             search_time,
             roam_time,
             regen_time,
@@ -689,6 +815,17 @@ impl World {
             self.process_target(monster, now);
             return;
         }
+        // 站桩魔法怪（GreatFoxSpirit/RedMoonEvil/EvilCentipede）：只索敌 + 施法，不漫游。
+        if monster
+            .kind
+            .monster_magic()
+            .is_some_and(|spec| spec.stationary)
+        {
+            monster.alone = false;
+            self.process_search(monster, now);
+            self.process_target(monster, now);
+            return;
+        }
         // 攻城箭塔/城弓箭手：`CanMove` 要求 `Route.Count > 0`
         // （`ConquestArcher.cs:11-14`、`TownArcher.cs:52-120`），本作没有路线表 →
         // 站桩：只索敌 + 攻击，不漫游、不追击。
@@ -848,6 +985,14 @@ impl World {
         };
 
         let ranged_range = monster.kind.ranged_attack_range();
+        if let Some(spec) = monster.kind.monster_magic() {
+            self.process_magic_target(monster, target_id, target_position, same_map, spec, now);
+            return;
+        }
+        if let Some(spec) = monster.kind.monster_special() {
+            self.process_special_target(monster, target_id, target_position, same_map, spec, now);
+            return;
+        }
         if monster.kind.is_guard() || monster.kind.is_conquest_archer() {
             // `Guard.InAttackRange`：同图、不同格、切比雪夫距离 <= 视野半径
             // （`Monsters/Guard.cs:40-45`）。攻城箭塔/TownArcher 用 `AttackRange = 10`
@@ -1140,6 +1285,281 @@ impl World {
             defence: DefenceType::ACAgility,
         });
         true
+    }
+
+    /// 物理特殊攻击（AOE/直线）：广播 `S.ObjectAttack`，DC 伤害，按 Crystal 子类延迟。
+    fn process_special_target(
+        &mut self,
+        monster: &mut Monster,
+        target_id: u32,
+        target_position: Point,
+        same_map: bool,
+        spec: MonsterSpecialSpec,
+        now: i64,
+    ) {
+        if !same_map || target_position == monster.position {
+            return;
+        }
+        if spec.snake && !in_snake_neighborhood(monster.position, target_position) {
+            if !spec.stationary {
+                self.monster_move_to(monster, target_position, now);
+            }
+            return;
+        }
+        if monster.position.max_distance(target_position) > spec.range {
+            if !spec.stationary {
+                self.monster_move_to(monster, target_position, now);
+            }
+            return;
+        }
+        let targets = self.magic_targets(monster, target_id, target_position, spec.shape);
+        if targets.is_empty() {
+            monster.target = None;
+            return;
+        }
+        monster.direction = monster.position.direction_to(target_position);
+        let packet = ServerPacket::ObjectAttack(ObjectAttack {
+            object_id: monster.object_id,
+            location: monster.position,
+            direction: monster.direction,
+            spell: Spell::None,
+            level: 0,
+            type_: 0,
+        })
+        .encode_frame();
+        self.broadcast(
+            &monster.map,
+            monster.position,
+            Some(monster.object_id),
+            &packet,
+            monster.object_id,
+        );
+        monster.action_time = now + MONSTER_ATTACK_ACTION_MS;
+        monster.attack_time = now + monster.attack_speed_ms;
+        let damage = monster.stats.physical_attack(&mut self.rng);
+        if damage == 0 {
+            return;
+        }
+        for target in targets {
+            // Crystal `LineAttack`：每个目标的延迟 = 距离 * 50 + additionalDelay
+            // （`MonsterObject.cs:3611-3645`；BoneSpearman additionalDelay=250）。
+            let distance_delay = if matches!(spec.shape, MonsterMagicShape::Line { .. }) {
+                self.players
+                    .get(&target)
+                    .map(|player| i64::from(monster.position.max_distance(player.position)) * 50)
+                    .or_else(|| {
+                        self.monster(target).map(|target| {
+                            i64::from(monster.position.max_distance(target.position)) * 50
+                        })
+                    })
+                    .unwrap_or(0)
+            } else {
+                0
+            };
+            self.pending_hits.push(PendingHit {
+                at: now + distance_delay + spec.delay_ms,
+                attacker_id: monster.object_id,
+                target_id: target,
+                damage,
+                defence: spec.defence,
+            });
+        }
+    }
+
+    /// 处理魔法怪的施法决策：射程内施法；站桩怪不追；HumanWizard 贴身先拉开。
+    fn process_magic_target(
+        &mut self,
+        monster: &mut Monster,
+        target_id: u32,
+        target_position: Point,
+        same_map: bool,
+        spec: MonsterMagicSpec,
+        now: i64,
+    ) {
+        if !same_map || target_position == monster.position {
+            return;
+        }
+        let distance = monster.position.max_distance(target_position);
+        if distance > spec.range {
+            if !spec.stationary {
+                self.monster_move_to(monster, target_position, now);
+            }
+            return;
+        }
+        // HumanWizard：`dist < AttackRange → Walk(awayFromTarget)`（`HumanWizard.cs:80-115`）；
+        // `FearTime` 首轮 5 秒只走位，窗口结束后才施法。
+        if spec.kite && distance < spec.range {
+            if monster.fear_time == 0 {
+                monster.fear_time = now + 5_000;
+                let away = target_position.direction_to(monster.position);
+                if self.monster_walk(monster, away, now) {
+                    return;
+                }
+            } else if now < monster.fear_time {
+                let away = target_position.direction_to(monster.position);
+                if self.monster_walk(monster, away, now) {
+                    return;
+                }
+            }
+        }
+        if !monster.can_attack(now) {
+            return;
+        }
+        if !self.cast_monster_magic(monster, target_id, target_position, spec, now) {
+            monster.target = None;
+        }
+    }
+
+    /// 怪物魔法施法：广播 `S.ObjectMagic`，用 `magic.rs` 的 `UserMagic::damage`
+    /// 计算伤害（与玩家魔法同公式），按单体/直线/AOE 收集目标后延迟结算。
+    fn cast_monster_magic(
+        &mut self,
+        monster: &mut Monster,
+        target_id: u32,
+        target_position: Point,
+        spec: MonsterMagicSpec,
+        now: i64,
+    ) -> bool {
+        let targets = self.magic_targets(monster, target_id, target_position, spec.shape);
+        if targets.is_empty() {
+            return false;
+        }
+        let direction = monster.position.direction_to(target_position);
+        let secondary_target_ids = targets
+            .iter()
+            .copied()
+            .filter(|id| *id != target_id)
+            .collect();
+        let packet = ServerPacket::ObjectMagic(ObjectMagic {
+            object_id: monster.object_id,
+            location: monster.position,
+            direction,
+            spell: spec.spell,
+            target_id,
+            target: target_position,
+            cast: true,
+            level: 3,
+            self_broadcast: false,
+            secondary_target_ids,
+        })
+        .encode_frame();
+        self.broadcast(
+            &monster.map,
+            monster.position,
+            Some(monster.object_id),
+            &packet,
+            monster.object_id,
+        );
+
+        monster.direction = direction;
+        monster.action_time = now + MONSTER_ATTACK_ACTION_MS;
+        monster.attack_time = now + spec.cooldown_ms;
+        // 口径（任务书要求复用玩家魔法公式）：
+        // `base = GetAttackPower(MinMC, MaxMC)` → `UserMagic::damage(ThunderBolt MagicInfo)`。
+        // Crystal `HumanWizard.Attack`（`HumanWizard.cs:55-70`）是直接 `GetAttackPower`
+        // 不套 MagicInfo；这里按任务书统一走 `magic.rs` 公式，差异在 docs 登记。
+        let base = if spec.use_magic_stats {
+            monster
+                .stats
+                .attack_power(monster.stats.min_mc, monster.stats.max_mc, &mut self.rng)
+        } else {
+            monster.stats.physical_attack(&mut self.rng)
+        };
+        if base == 0 {
+            return true;
+        }
+        let magic_info = self.magic_info(spec.spell).cloned();
+        let user_magic = UserMagic {
+            spell: spec.spell,
+            level: 3,
+            key: 0,
+            experience: 0,
+        };
+        let damage = magic_info.map_or(base, |info| user_magic.damage(&info, base, &mut self.rng));
+        for target in targets {
+            self.pending_hits.push(PendingHit {
+                at: now + 500,
+                attacker_id: monster.object_id,
+                target_id: target,
+                damage,
+                defence: DefenceType::MAC,
+            });
+        }
+        true
+    }
+
+    /// 怪物魔法的目标集合：单体 / 以目标或自身为中心的 AOE / 直线穿透。
+    fn magic_targets(
+        &self,
+        monster: &Monster,
+        target_id: u32,
+        target_position: Point,
+        shape: MonsterMagicShape,
+    ) -> Vec<u32> {
+        // 玩家：Crystal `PlayerObject.IsAttackTarget(MonsterObject)`——死亡/安全区/
+        // `NoFight` 地图不可打；Peace/组队/行会由**玩家**攻击模式决定，怪物 AOE
+        // 不按这些过滤（Crystal 同口径，见 docs 差异）。
+        let valid_player = |id: u32| {
+            id != monster.object_id
+                && self.players.get(&id).is_some_and(|player| {
+                    !player.dead
+                        && player.map == monster.map
+                        && !self.in_safe_zone(id)
+                        && !self.map_no_fight(&player.map)
+                })
+        };
+        // 召唤物（Crystal `FindAllTargets` 的 Monster/Hero；野生怪之间不互殴）。
+        let valid_monster = |id: u32| {
+            id != monster.object_id
+                && self.monster(id).is_some_and(|target| {
+                    target.master.is_some()
+                        && !target.dead
+                        && target.map == monster.map
+                        && !target.kind.is_guard()
+                })
+        };
+        let valid = |id: u32| valid_player(id) || valid_monster(id);
+        let mut targets = BTreeSet::new();
+        match shape {
+            MonsterMagicShape::Single => {
+                if valid(target_id) {
+                    targets.insert(target_id);
+                }
+            }
+            MonsterMagicShape::Aoe { radius, at_target } => {
+                let center = if at_target {
+                    target_position
+                } else {
+                    monster.position
+                };
+                for kind in [AoiKind::Player, AoiKind::Monster] {
+                    for id in self.aoi_ids_in_radius(&monster.map, center, radius, kind) {
+                        if valid(id) {
+                            targets.insert(id);
+                        }
+                    }
+                }
+            }
+            MonsterMagicShape::Line { length } => {
+                let direction = monster.position.direction_to(target_position);
+                let mut point = monster.position;
+                for _ in 0..length {
+                    point = point.moved(direction, 1);
+                    if !self.walkable_on(&monster.map, point) {
+                        // Crystal `LineAttack` 遇墙继续扫后续格，不截断整条线。
+                        continue;
+                    }
+                    for entry in self.aoi_in_cell(&monster.map, point) {
+                        if matches!(entry.kind, AoiKind::Player | AoiKind::Monster)
+                            && valid(entry.object_id)
+                        {
+                            targets.insert(entry.object_id);
+                        }
+                    }
+                }
+            }
+        }
+        targets.into_iter().collect()
     }
 
     /// 远程物理攻击（Crystal `AxeSkeleton.Attack`/`TownArcher.Attack`，

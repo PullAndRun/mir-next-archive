@@ -261,6 +261,9 @@ pub enum ItemError {
     /// 不支持的操作网格。
     #[error("unsupported item grid {0:?}")]
     UnsupportedGrid(MirGridType),
+    /// 交易窗移动被 `trade.rs` 拒绝（穿/取校验失败）。
+    #[error("trade rejected: {0}")]
+    Trade(#[from] crate::trade::TradeError),
     /// 附近找不到可放置的空格（Crystal `ItemObject.Drop` 返回 false）。
     #[error("no free cell nearby")]
     NoDropCell,
@@ -2185,7 +2188,9 @@ impl World {
     ///
     /// * `Inventory` → 背包内交换（Crystal `PlayerObject.MoveItem`）；
     /// * `Equipment` → 穿上/脱下（Crystal `EquipItem`/`RemoveItem`，见 [`World::move_equipment`]）；
-    /// * 其它网格（仓库/交易/英雄背包…）本作还没有，返回 [`ItemError::UnsupportedGrid`]。
+    /// * `Trade` → 背包 ↔ 交易窗（`from` 在背包有物品则当存入，否则当取回；
+    ///   Crystal 的独立包 `C.DepositTradeItem`/`C.RetrieveTradeItem` 走
+    ///   [`World::trade_deposit_item`]/[`World::trade_retrieve_item`]）。
     pub fn move_item(
         &mut self,
         object_id: u32,
@@ -2196,6 +2201,22 @@ impl World {
         match grid {
             MirGridType::Inventory => self.move_inventory(object_id, from, to),
             MirGridType::Equipment => self.move_equipment(object_id, from, to),
+            MirGridType::Trade => {
+                // `C.MoveItem` 没有方向字段：`from` 指向背包里有物品的格子 → 存入；
+                // 否则按从交易窗取回处理（交易格为空/背包格被占由 trade 层拒绝）。
+                let deposit = usize::try_from(from).is_ok_and(|slot| {
+                    self.players
+                        .get(&object_id)
+                        .and_then(|player| player.inventory.get(slot))
+                        .is_some_and(Option::is_some)
+                });
+                if deposit {
+                    self.trade_deposit_item(object_id, from, to)?;
+                } else {
+                    self.trade_retrieve_item(object_id, from, to)?;
+                }
+                Ok(())
+            }
             other => Err(ItemError::UnsupportedGrid(other)),
         }
     }

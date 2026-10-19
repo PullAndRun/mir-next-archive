@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use mir_core::Point;
 use mir_core::enums::{
-    AttackMode, BindMode, ChatType, ItemType, MirClass, MirDirection, MirGender, Stat,
+    AttackMode, BindMode, ChatType, ItemType, MirClass, MirDirection, MirGender, MirGridType, Stat,
 };
 use mir_db::MirDb;
 use mir_protocol::ServerPacket;
@@ -848,6 +848,112 @@ fn a_single_confirmation_does_not_trade() {
             .iter()
             .any(|packet| matches!(packet, ServerPacket::TradeConfirm(_))),
         "单方确认不应成交"
+    );
+}
+
+#[test]
+fn move_item_trade_grid_deposits_retrieves_and_completes_trade() {
+    let mut harness = Harness::new(70);
+    let (a, b) = harness.duet();
+    let uid = harness.put_item(a, 6, SWORD);
+    harness.start_trade(a, b);
+    harness.clear(a);
+    harness.clear(b);
+
+    // 背包 6 → 交易格 0（`C.MoveItem{Grid=Trade}`，无方向字段，按 from 是否有物品判存入）。
+    harness
+        .world
+        .move_item(a, MirGridType::Trade, 6, 0)
+        .expect("MoveItem 存入");
+    assert!(harness.world.player(a).expect("甲").inventory[6].is_none());
+    assert_eq!(
+        harness.world.trade_state(a).expect("甲").items[0]
+            .as_ref()
+            .map(|item| item.unique_id),
+        Some(uid)
+    );
+    let a_packets = harness.packets(a);
+    assert!(
+        a_packets.iter().any(|packet| matches!(
+            packet,
+            ServerPacket::DepositTradeItem(ack) if ack.success && ack.from == 6 && ack.to == 0
+        )),
+        "本人应收到 S.DepositTradeItem 成功：{a_packets:?}"
+    );
+    let b_packets = harness.packets(b);
+    assert!(
+        b_packets.iter().any(|packet| matches!(
+            packet,
+            ServerPacket::TradeItem(trade)
+                if trade.trade_items[0].as_ref().is_some_and(|item| item.unique_id == uid)
+        )),
+        "对方应收到 S.TradeItem 同步：{b_packets:?}"
+    );
+
+    // 交易格 0 → 背包 6（`from` 在背包没有物品，按取回处理）。
+    harness
+        .world
+        .move_item(a, MirGridType::Trade, 0, 6)
+        .expect("MoveItem 取回");
+    assert_eq!(harness.inventory_uids(a), vec![uid]);
+    assert!(harness.world.trade_state(a).expect("甲").items[0].is_none());
+    let a_packets = harness.packets(a);
+    assert!(
+        a_packets.iter().any(|packet| matches!(
+            packet,
+            ServerPacket::RetrieveTradeItem(ack) if ack.success && ack.from == 0 && ack.to == 6
+        )),
+        "本人应收到 S.RetrieveTradeItem 成功：{a_packets:?}"
+    );
+
+    // 再存入并成交：B 收到物品。
+    harness
+        .world
+        .move_item(a, MirGridType::Trade, 6, 0)
+        .expect("再次存入");
+    harness.clear(a);
+    harness.clear(b);
+    harness.world.trade_confirm(a, true).expect("甲确认");
+    harness.world.trade_confirm(b, true).expect("乙确认");
+    assert_eq!(harness.inventory_uids(b), vec![uid]);
+    let b_packets = harness.packets(b);
+    assert!(
+        b_packets.iter().any(
+            |packet| matches!(packet, ServerPacket::GainedItem(item) if item.item.unique_id == uid)
+        ),
+        "成交后乙应收到 S.GainedItem：{b_packets:?}"
+    );
+}
+
+#[test]
+fn revive_broadcasts_object_revived_to_observer_and_self() {
+    let mut harness = Harness::new(71);
+    let (observer, revived) = harness.duet();
+    {
+        let target = harness.world.player_mut(revived).expect("乙");
+        target.dead = true;
+        target.hp = 0;
+    }
+    harness.clear(observer);
+    harness.clear(revived);
+
+    assert!(harness.world.revive_player(revived));
+    let observer_packets = harness.packets(observer);
+    let revived_packets = harness.packets(revived);
+    for (id, packets) in [(observer, &observer_packets), (revived, &revived_packets)] {
+        assert!(
+            packets.iter().any(|packet| matches!(
+                packet,
+                ServerPacket::ObjectRevived(object) if object.object_id == revived
+            )),
+            "玩家 {id} 应收到 S.ObjectRevived{{object_id={revived}}}：{packets:?}"
+        );
+    }
+    assert!(
+        revived_packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::Revived(_))),
+        "复活者本人仍应收到 S.Revived"
     );
 }
 

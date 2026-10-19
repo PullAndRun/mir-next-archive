@@ -26,7 +26,7 @@ use mir_server::combat;
 use mir_server::gamedata::GameData;
 use mir_server::items;
 use mir_server::npc::NpcState;
-use mir_server::quests::{QuestError, QuestProgressState, QuestSave};
+use mir_server::quests::{MAX_DAILY_COMPLETIONS, QuestError, QuestProgressState, QuestSave};
 use mir_server::world::{Player, World};
 use tokio::sync::mpsc;
 
@@ -264,6 +264,10 @@ fn quest_scripts() -> Vec<(&'static str, &'static str)> {
              [@CarryItems]\nOil 2\n\
              [@FlagTasks]\n7 \"Light the lamp\"\n",
         ),
+        (
+            "Test/MultiReward",
+            "[@Description]\nTwo fixed rewards.\n[@FixedRewards]\nMeat\nOil\n",
+        ),
     ]
 }
 
@@ -329,6 +333,10 @@ struct Harness {
 
 impl Harness {
     fn new(tag: &str) -> (Self, Envir) {
+        Self::from_db(tag, database())
+    }
+
+    fn from_db(tag: &str, db: MirDb) -> (Self, Envir) {
         let envir = Envir::new(tag);
         for (name, text) in quest_scripts() {
             envir.script(name, text);
@@ -336,12 +344,13 @@ impl Harness {
         envir.npc_script("Test/Giver", GIVER_SCRIPT);
         envir.npc_script("Test/Bystander", BYSTANDER_SCRIPT);
         envir.npc_script("Test/CraftLady", CRAFT_LADY_SCRIPT);
-        let data = GameData::from_db(database(), Some(envir.drop_dir()));
+        let expected_npcs = db.npcs.len();
+        let data = GameData::from_db(db, Some(envir.drop_dir()));
         let mut world = World::new(999);
         world.seed_rng(0x5EED);
         world.set_game_data(Arc::new(data));
         let spawned = world.spawn_npcs(MAP);
-        assert_eq!(spawned.len(), 3, "三个 NPC 都应该刷出来");
+        assert_eq!(spawned.len(), expected_npcs, "库里的 NPC 都应该刷出来");
         (
             Self {
                 world,
@@ -2226,4 +2235,175 @@ fn harness_helpers_are_wired() {
     let _ = QuestProgressState::NotStarted;
     let _ = <MirDb as Clone>::clone(&database());
     let _ = mir_core::enums::QuestType::General;
+}
+
+// ---------------------------------------------------------------------------
+// 每日任务（t61）：列表筛选、完成计数上限、重置
+// ---------------------------------------------------------------------------
+
+/// 12 个可接的 Daily（1~12）+ 1 个等级不够的 Daily（13）+ 1 个普通任务（14）。
+fn daily_database() -> MirDb {
+    let mut quests: Vec<QuestInfo> = (1..=12)
+        .map(|index| {
+            let mut info = quest(
+                index,
+                &format!("每日{index}"),
+                "Test/Daily",
+                (1, 31),
+                (0, 31, 0),
+            );
+            info.quest_type = 1; // QuestType::Daily
+            info
+        })
+        .collect();
+    let mut high = quest(13, "高级每日", "Test/Daily", (99, 0), (0, 31, 0));
+    high.quest_type = 1;
+    quests.push(high);
+    quests.push(quest(14, "普通任务", "Test/Daily", (1, 31), (0, 31, 0)));
+    quests.push(quest(15, "双奖励", "Test/MultiReward", (1, 31), (0, 31, 0)));
+    MirDb {
+        items: vec![
+            item(10, "Meat", ItemType::Meat, 1, 10),
+            item(11, "Egg", ItemType::Meat, 20, 5),
+            item(14, "Oil", ItemType::Meat, 5, 8),
+        ],
+        maps: vec![MapInfo {
+            index: 1,
+            file_name: MAP.to_owned(),
+            title: "比奇省".to_owned(),
+            ..MapInfo::default()
+        }],
+        npcs: vec![NpcInfo {
+            index: 1,
+            map_index: 1,
+            file_name: "Test/DailyGiver".to_owned(),
+            name: "每日使者".to_owned(),
+            location: Point::new(100, 100),
+            image: 5,
+            rate: 100,
+            collect_quest_indexes: (1..=15).collect(),
+            finish_quest_indexes: (1..=15).collect(),
+            ..NpcInfo::default()
+        }],
+        quests,
+        ..MirDb::default()
+    }
+}
+
+#[test]
+fn daily_quests_are_filtered_counted_and_reset() {
+    let (mut harness, _envir) = Harness::from_db("daily-quest", daily_database());
+    let player = harness.add_player(1, Point::new(100, 100));
+    let npc = harness.npc_id("每日使者");
+
+    // 1) 列表只含当前角色可接的 Daily；等级不够的 13 被过滤。
+    assert_eq!(
+        harness.world.daily_quest_candidates(player),
+        (1..=12).collect::<Vec<i32>>(),
+        "12 个可接的每日任务"
+    );
+
+    // 2) 接取 + 完成 10 个（空任务目标 → 直接可交，奖励路径走现有 finish_quest）。
+    for index in 1..=10 {
+        harness
+            .world
+            .accept_quest(player, npc, index)
+            .expect("接取每日任务");
+        harness
+            .world
+            .finish_quest(player, index, -1)
+            .expect("交付每日任务");
+    }
+    assert_eq!(harness.world.daily_completed_count(player), 10);
+
+    // 3) 第 11 个被每日完成上限拒绝；其它错误路径不受影响。
+    assert!(matches!(
+        harness.world.accept_quest(player, npc, 11),
+        Err(QuestError::DailyLimit { limit }) if limit == MAX_DAILY_COMPLETIONS
+    ));
+
+    // 4) 登录下发：当天已完成的 Daily 不再下发，仍可接的 11/12、等级不够的 13、
+    //    以及普通任务 14 的规则：11/12 下发，13（等级不够）与普通任务 14 都照常下发（非 Daily 全量）。
+    let infos: Vec<i32> = harness
+        .world
+        .quest_login_packets(player)
+        .into_iter()
+        .filter_map(|packet| match packet {
+            ServerPacket::NewQuestInfo(info) => Some(info.info.index),
+            _ => None,
+        })
+        .collect();
+    assert!(!infos.contains(&1), "当天已完成的每日任务不再下发");
+    assert!(
+        !infos.contains(&11),
+        "完成数已达上限时当天不再下发任何可接的每日任务"
+    );
+    assert!(!infos.contains(&13), "等级不够的每日任务不下发");
+    assert!(infos.contains(&14), "普通任务全量下发");
+
+    // 5) 跨天重置后计数清零、全部每日任务重新下发。
+    assert_eq!(harness.world.reset_daily_quests(player), 10);
+    assert_eq!(harness.world.daily_completed_count(player), 0);
+    let reset_infos: Vec<i32> = harness
+        .world
+        .quest_login_packets(player)
+        .into_iter()
+        .filter_map(|packet| match packet {
+            ServerPacket::NewQuestInfo(info) => Some(info.info.index),
+            _ => None,
+        })
+        .collect();
+    for index in 1..=12 {
+        assert!(
+            reset_infos.contains(&index),
+            "重置后每日任务 {index} 重新下发"
+        );
+    }
+    assert!(!reset_infos.contains(&13), "等级不够的仍然不下发");
+    assert!(reset_infos.contains(&14));
+    assert!(harness.world.daily_quest_candidates(player).contains(&1));
+}
+
+#[test]
+fn finish_rejects_two_rewards_when_only_one_slot_is_free() {
+    let (mut harness, _envir) = Harness::from_db("quest-multi-reward", daily_database());
+    let player = harness.add_player(1, Point::new(100, 100));
+    let npc = harness.npc_id("每日使者");
+    harness
+        .world
+        .accept_quest(player, npc, 15)
+        .expect("接取双奖励任务");
+
+    // 背包只留 1 个空格，其余全是满堆的 Egg（stack_size = 20）。
+    let length = harness.world.player(player).expect("玩家").inventory.len();
+    {
+        let player_state = harness.world.player_mut(player).expect("玩家");
+        for (index, slot) in player_state.inventory.iter_mut().enumerate() {
+            *slot = if index + 1 == length {
+                None
+            } else {
+                Some(UserItem {
+                    item_index: 11,
+                    count: 20,
+                    ..UserItem::default()
+                })
+            };
+        }
+    }
+
+    // Meat（1 格）+ Oil（1 格）需要 2 格：批量判定必须拒绝，且不改变任务进度。
+    let error = harness
+        .world
+        .finish_quest(player, 15, -1)
+        .expect_err("1 空格放不下 2 件奖励");
+    assert!(matches!(error, QuestError::InventoryFull));
+    let player_state = harness.world.player(player).expect("玩家");
+    assert!(
+        player_state
+            .quests
+            .iter()
+            .any(|progress| progress.quest_index == 15 && progress.is_in_progress()),
+        "失败后任务仍在进行中"
+    );
+    assert!(!player_state.completed_quests.contains(&15));
 }

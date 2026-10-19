@@ -32,6 +32,7 @@
 
 pub mod bigmap;
 pub mod buffs;
+pub mod conquest;
 pub mod dialog;
 pub mod equipment;
 pub mod friends;
@@ -3654,6 +3655,21 @@ pub fn draw(
     state.sync(snapshot);
     let screen = Rect::screen(frame.width, frame.height);
     worldtext::draw_names(frame, snapshot, scene, center, text);
+    let conquest_now = if state.time_millis > 0 {
+        u64::try_from(state.time_millis).unwrap_or(0)
+    } else {
+        conquest::now_millis()
+    };
+    // 攻城器械：地形/实体之后、HUD 之前（没有 S.Conquest* 包时直接返回）。
+    conquest::draw_objects(
+        frame,
+        snapshot,
+        scene,
+        center,
+        text,
+        state.language,
+        conquest_now,
+    );
     // 鼠标下的地面物品名字（只画命中的那一件，Crystal `GameScene.cs:10619-10626`）。
     if let Some(item) = state.hover_item(snapshot, scene, text, center, screen) {
         worldtext::draw_item_name(
@@ -3721,6 +3737,7 @@ pub fn draw(
         language: state.language,
     };
     hud::draw_status(frame, snapshot, text, state.language);
+    conquest::draw_hud(frame, snapshot, text, state.language, conquest_now);
     buffs::draw(
         frame,
         snapshot,

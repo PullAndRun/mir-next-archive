@@ -238,6 +238,34 @@ pub enum Label {
     FriendRefresh,
     /// 好友面板操作提示。
     FriendHint,
+    /// 攻城进行中。
+    ConquestWar,
+    /// 剩余时间。
+    ConquestRemaining,
+    /// 当前归属。
+    ConquestOwner,
+    /// 控制点。
+    ConquestControlPoints,
+    /// 攻城结算。
+    ConquestResult,
+    /// 胜者。
+    ConquestWinner,
+    /// 城门。
+    ConquestGate,
+    /// 城墙。
+    ConquestWall,
+    /// 箭塔。
+    ConquestArcher,
+    /// 被摧毁。
+    ConquestDestroyed,
+    /// 无归属。
+    ConquestUnclaimed,
+    /// 系统：攻城开始。
+    SystemConquestStarted,
+    /// 系统：攻城结束。
+    SystemConquestEnded,
+    /// 系统：攻城器械被摧毁。
+    SystemConquestObjectDestroyed,
     /// 行会公告页。
     Notice,
     /// 行会资金。
@@ -956,6 +984,20 @@ impl Label {
         Self::FriendSaveMemo,
         Self::FriendRefresh,
         Self::FriendHint,
+        Self::ConquestWar,
+        Self::ConquestRemaining,
+        Self::ConquestOwner,
+        Self::ConquestControlPoints,
+        Self::ConquestResult,
+        Self::ConquestWinner,
+        Self::ConquestGate,
+        Self::ConquestWall,
+        Self::ConquestArcher,
+        Self::ConquestDestroyed,
+        Self::ConquestUnclaimed,
+        Self::SystemConquestStarted,
+        Self::SystemConquestEnded,
+        Self::SystemConquestObjectDestroyed,
     ];
 }
 
@@ -1093,8 +1135,8 @@ impl Label {
             (Self::QuestAvailable | Self::Available, Language::En) => "Available",
             (Self::Abandon, Language::ZhCn) => "放弃",
             (Self::Abandon, Language::En) => "Abandon",
-            (Self::TimeLeft, Language::ZhCn) => "剩余",
-            (Self::TimeLeft, Language::En) => "Left",
+            (Self::TimeLeft | Self::ConquestRemaining, Language::ZhCn) => "剩余",
+            (Self::TimeLeft | Self::ConquestRemaining, Language::En) => "Left",
             (Self::Storage | Self::GuildStorageTab, Language::ZhCn) => "仓库",
             (Self::Storage | Self::GuildStorageTab, Language::En) => "Storage",
             (Self::Capacity, Language::ZhCn) => "容量",
@@ -1576,6 +1618,32 @@ impl Label {
             (Self::FriendSaveMemo, Language::En) => "Save memo",
             (Self::FriendHint, Language::ZhCn) => "F 关闭 · 回车提交当前输入",
             (Self::FriendHint, Language::En) => "F closes · Enter submits the focused field",
+            (Self::ConquestWar, Language::ZhCn) => "攻城进行中",
+            (Self::ConquestWar, Language::En) => "Siege in progress",
+            (Self::ConquestOwner, Language::ZhCn) => "归属",
+            (Self::ConquestOwner, Language::En) => "Owner",
+            (Self::ConquestControlPoints, Language::ZhCn) => "控制点",
+            (Self::ConquestControlPoints, Language::En) => "Control points",
+            (Self::ConquestResult, Language::ZhCn) => "攻城结束",
+            (Self::ConquestResult, Language::En) => "Siege ended",
+            (Self::ConquestWinner, Language::ZhCn) => "胜者",
+            (Self::ConquestWinner, Language::En) => "Winner",
+            (Self::ConquestGate, Language::ZhCn) => "城门",
+            (Self::ConquestGate, Language::En) => "Gate",
+            (Self::ConquestWall, Language::ZhCn) => "城墙",
+            (Self::ConquestWall, Language::En) => "Wall",
+            (Self::ConquestArcher, Language::ZhCn) => "箭塔",
+            (Self::ConquestArcher, Language::En) => "Archer tower",
+            (Self::ConquestDestroyed, Language::ZhCn) => "被摧毁",
+            (Self::ConquestDestroyed, Language::En) => "Destroyed",
+            (Self::ConquestUnclaimed, Language::ZhCn) => "无归属",
+            (Self::ConquestUnclaimed, Language::En) => "Unclaimed",
+            (Self::SystemConquestStarted, Language::ZhCn) => "攻城开始：{}",
+            (Self::SystemConquestStarted, Language::En) => "Siege started: {}",
+            (Self::SystemConquestEnded, Language::ZhCn) => "攻城结束：行会 {} 获胜",
+            (Self::SystemConquestEnded, Language::En) => "Siege ended: guild {} wins",
+            (Self::SystemConquestObjectDestroyed, Language::ZhCn) => "{} 被摧毁",
+            (Self::SystemConquestObjectDestroyed, Language::En) => "{} destroyed",
         }
     }
 
@@ -1941,6 +2009,17 @@ pub fn system_chat_text(message: &SystemChat, language: Language) -> String {
             &[pet_mode_label(*mode).text(language)],
         ),
         SystemChat::NoPet => Label::NoPetHint.text(language).to_owned(),
+        SystemChat::ConquestStarted { name } => {
+            fill_template(Label::SystemConquestStarted.text(language), &[name])
+        }
+        SystemChat::ConquestEnded { name: _, winner } => fill_template(
+            Label::SystemConquestEnded.text(language),
+            &[&winner.to_string()],
+        ),
+        SystemChat::ConquestObjectDestroyed { kind } => fill_template(
+            Label::SystemConquestObjectDestroyed.text(language),
+            &[conquest_object_name(*kind, language)],
+        ),
     }
 }
 
@@ -2001,7 +2080,21 @@ pub const fn weather_label(setting: WeatherSetting) -> Label {
     }
 }
 
-/// 宠物模式文案（`S.ChangePMode` / `C.ChangePMode`）：
+/// 攻城器械类型名（`S.ConquestObject.kind`）。
+#[must_use]
+pub const fn conquest_object_name(
+    kind: mir_protocol::packets::server::ConquestObjectType,
+    language: Language,
+) -> &'static str {
+    use mir_protocol::packets::server::ConquestObjectType;
+    match kind {
+        ConquestObjectType::Gate => Label::ConquestGate.text(language),
+        ConquestObjectType::Wall => Label::ConquestWall.text(language),
+        ConquestObjectType::Archer => Label::ConquestArcher.text(language),
+    }
+}
+
+/// 攻城状态文案（`S.ChangePMode` / `C.ChangePMode`）：
 /// `Both` = 跟随、`AttackOnly` = 攻击、`None` = 休息；其余值按跟随显示。
 #[must_use]
 pub const fn pet_mode_label(mode: PetMode) -> Label {
@@ -2102,7 +2195,7 @@ mod tests {
     #[test]
     fn every_label_has_both_languages() {
         // `Label::ALL` 是手工维护的清单：数量对不上说明加了变体没同步。
-        assert_eq!(Label::ALL.len(), 311, "新增 Label 后请同步 Label::ALL");
+        assert_eq!(Label::ALL.len(), 325, "新增 Label 后请同步 Label::ALL");
         for label in Label::ALL {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);

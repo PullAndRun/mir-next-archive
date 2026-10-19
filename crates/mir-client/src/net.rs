@@ -1191,6 +1191,23 @@ pub enum SystemChat {
     },
     /// 没有宠物时按宠物模式键的提示。
     NoPet,
+    /// 攻城开始（`S.ConquestInfo.war_is_on` 从 false → true）。
+    ConquestStarted {
+        /// 攻城名。
+        name: String,
+    },
+    /// 攻城结束（`S.ConquestResult`）。
+    ConquestEnded {
+        /// 攻城名。
+        name: String,
+        /// 胜者行会 ID。
+        winner: i32,
+    },
+    /// 攻城器械被摧毁（`S.ConquestObject.destroyed`）。
+    ConquestObjectDestroyed {
+        /// 器械类型。
+        kind: mir_protocol::packets::server::ConquestObjectType,
+    },
 }
 
 /// 一条聊天记录。
@@ -1988,6 +2005,76 @@ pub struct GuildView {
     pub my_rank_id: i32,
 }
 
+/// 攻城概况（`S.ConquestInfo` 300，服务端 t67 扩展）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConquestView {
+    /// 攻城编号。
+    pub index: i32,
+    /// 攻城名（如「沙巴克」）。
+    pub name: String,
+    /// 当前归属行会 ID（0 = 无归属）。
+    pub owner: i32,
+    /// 是否正在攻城。
+    pub war_is_on: bool,
+    /// 开战时间（Unix 毫秒）。
+    pub start_time: i64,
+    /// 停战时间（Unix 毫秒）。
+    pub end_time: i64,
+    /// 控制点。
+    pub control_points: Vec<ConquestPointView>,
+    /// 器械（`S.ConquestObject` 301 逐个下发）。
+    pub objects: BTreeMap<u32, ConquestObjectView>,
+    /// 结算（`S.ConquestResult` 302，保留 5 秒横幅）。
+    pub result: Option<ConquestResultView>,
+}
+
+/// 攻城控制点。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ConquestPointView {
+    /// 控制点编号。
+    pub index: i32,
+    /// 归属行会 ID。
+    pub owner: i32,
+    /// 进度（0..=6）。
+    pub points: i32,
+}
+
+/// 攻城器械。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConquestObjectView {
+    /// 对象 ID。
+    pub object_id: u32,
+    /// 城门/城墙/箭塔。
+    pub kind: mir_protocol::packets::server::ConquestObjectType,
+    /// 地图坐标。
+    pub location: Point,
+    /// 朝向。
+    pub direction: MirDirection,
+    /// 当前血量。
+    pub hp: i32,
+    /// 最大血量。
+    pub max_hp: i32,
+    /// 归属行会 ID（0 = 无归属）。
+    pub owner: i32,
+    /// 是否已被摧毁。
+    pub destroyed: bool,
+    /// 收到摧毁包的时间（本地毫秒；用来只播一次碎裂）。
+    pub destroyed_at_ms: u64,
+}
+
+/// 攻城结算。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConquestResultView {
+    /// 胜者行会 ID。
+    pub winner: i32,
+    /// 结算后的归属行会 ID。
+    pub owner: i32,
+    /// 控制点。
+    pub control_points: Vec<ConquestPointView>,
+    /// 收到结算包的本地时间（横幅显示 5 秒）。
+    pub received_ms: u64,
+}
+
 impl GuildView {
     /// 我是否拥有某项职位权限。
     #[must_use]
@@ -2398,6 +2485,8 @@ pub struct WorldSnapshot {
     pub mail_locked_items: BTreeMap<u64, bool>,
     /// 行会概况（`S.GuildStatus`；`None` 表示没收到过）。
     pub guild: Option<GuildView>,
+    /// 攻城状态（`S.ConquestInfo` 300；`None` = 没收到新包，老服务器行为不变）。
+    pub conquest: Option<ConquestView>,
     /// 好友/黑名单（`S.FriendUpdate`(245) 整表下发）。
     pub friends: Vec<ClientFriend>,
     /// 行会职位与成员（`S.GuildMemberChange`，按职位序号排序）。
@@ -2488,6 +2577,7 @@ impl Default for WorldSnapshot {
             parcel_collected_result: None,
             mail_locked_items: BTreeMap::new(),
             guild: None,
+            conquest: None,
             friends: Vec::new(),
             guild_ranks: Vec::new(),
             guild_notice: Vec::new(),
@@ -3867,6 +3957,9 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
         ServerPacket::MailLockedItem(_) => "MailLockedItem",
         ServerPacket::GuildStatus(_) => "GuildStatus",
         ServerPacket::FriendUpdate(_) => "FriendUpdate",
+        ServerPacket::ConquestInfo(_) => "ConquestInfo",
+        ServerPacket::ConquestObject(_) => "ConquestObject",
+        ServerPacket::ConquestResult(_) => "ConquestResult",
         ServerPacket::GuildMemberChange(_) => "GuildMemberChange",
         ServerPacket::GuildNoticeChange(_) => "GuildNoticeChange",
         ServerPacket::GuildStorageList(_) => "GuildStorageList",
@@ -4896,6 +4989,111 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             snapshot
                 .mail_locked_items
                 .insert(locked.unique_id, locked.locked);
+        }
+        ServerPacket::ConquestInfo(info) => {
+            // 类 Crystal `ConquestObject`：整表覆盖状态；第一次收到且 war_is_on 时提示开战。
+            let was_off = snapshot
+                .conquest
+                .as_ref()
+                .is_none_or(|view| !view.war_is_on);
+            let view = snapshot.conquest.get_or_insert_with(ConquestView::default);
+            view.index = info.index;
+            view.name.clone_from(&info.name);
+            view.owner = info.owner;
+            view.war_is_on = info.war_is_on;
+            view.start_time = info.start_time;
+            view.end_time = info.end_time;
+            view.control_points = info
+                .control_points
+                .iter()
+                .map(|point| ConquestPointView {
+                    index: point.index,
+                    owner: point.owner,
+                    points: point.points,
+                })
+                .collect();
+            if info.war_is_on && was_off {
+                push_chat(
+                    snapshot,
+                    ChatLine {
+                        speaker: None,
+                        text: String::new(),
+                        kind: ChatType::System,
+                        system: Some(SystemChat::ConquestStarted {
+                            name: info.name.clone(),
+                        }),
+                    },
+                );
+            }
+        }
+        ServerPacket::ConquestObject(object) => {
+            let now = now_ms;
+            let view = snapshot.conquest.get_or_insert_with(ConquestView::default);
+            let previous = view.objects.get(&object.object_id).copied();
+            let destroyed_at_ms = if object.destroyed {
+                match previous {
+                    Some(old) if old.destroyed => old.destroyed_at_ms,
+                    _ => now,
+                }
+            } else {
+                0
+            };
+            view.objects.insert(
+                object.object_id,
+                ConquestObjectView {
+                    object_id: object.object_id,
+                    kind: object.kind,
+                    location: object.location,
+                    direction: object.direction,
+                    hp: object.hp,
+                    max_hp: object.max_hp,
+                    owner: object.owner,
+                    destroyed: object.destroyed,
+                    destroyed_at_ms,
+                },
+            );
+            if object.destroyed && previous.is_none_or(|old| !old.destroyed) {
+                push_chat(
+                    snapshot,
+                    ChatLine {
+                        speaker: None,
+                        text: String::new(),
+                        kind: ChatType::System,
+                        system: Some(SystemChat::ConquestObjectDestroyed { kind: object.kind }),
+                    },
+                );
+            }
+        }
+        ServerPacket::ConquestResult(result) => {
+            let now = now_ms;
+            let view = snapshot.conquest.get_or_insert_with(ConquestView::default);
+            let name = view.name.clone();
+            view.result = Some(ConquestResultView {
+                winner: result.winner,
+                owner: result.owner,
+                control_points: result
+                    .control_points
+                    .iter()
+                    .map(|point| ConquestPointView {
+                        index: point.index,
+                        owner: point.owner,
+                        points: point.points,
+                    })
+                    .collect(),
+                received_ms: now,
+            });
+            push_chat(
+                snapshot,
+                ChatLine {
+                    speaker: None,
+                    text: String::new(),
+                    kind: ChatType::System,
+                    system: Some(SystemChat::ConquestEnded {
+                        name,
+                        winner: result.winner,
+                    }),
+                },
+            );
         }
         ServerPacket::FriendUpdate(update) => {
             // 整表下发：服务端在加/删/改备注/刷新后都会重发（`S.FriendUpdate`(245)）。

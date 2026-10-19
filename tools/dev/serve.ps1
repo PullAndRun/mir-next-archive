@@ -16,7 +16,10 @@ param(
     [string]$Exe = "target\debug\mir-server.exe",
     [string]$GmAccounts = "",
     [string]$DataDir = "",
-    [switch]$Stop
+    [switch]$Stop,
+    # 需要看服务端控制台时用 -Visible；窗口会被强制搬到 -Display 指定的显示器（默认 2）。
+    [switch]$Visible,
+    [int]$Display = 2
 )
 
 $ErrorActionPreference = 'Stop'
@@ -59,7 +62,7 @@ if ($GmAccounts) { $env:MIR2_GM_ACCOUNTS = $GmAccounts }
 
 $startArgs = @{
     FilePath               = $exePath
-    WindowStyle            = 'Hidden'
+    WindowStyle            = if ($Visible) { 'Normal' } else { 'Hidden' }
     PassThru               = $true
     RedirectStandardOutput = $logFile
     RedirectStandardError  = $errFile
@@ -71,6 +74,16 @@ try {
 } finally {
     $env:MIR2_LISTEN = $savedListen
     $env:MIR2_GM_ACCOUNTS = $savedGm
+}
+
+if ($Visible) {
+    # 用户要求：可见窗口一律放显示器 2，不能弹在显示器 1 上。
+    # 注意：控制台窗口属于 conhost，`MainWindowHandle` 拿不到它，脚本通常搬不动；
+    # 所以**默认还是隐藏模式**，`-Visible` 只是调试时的临时手段。
+    . (Join-Path $PSScriptRoot 'display.ps1')
+    if (-not (Wait-WindowOnDisplay -ProcessId $process.Id -Display $Display -TimeoutSeconds 5)) {
+        Write-Warning "控制台窗口通常无法被脚本搬动（属于 conhost）。若它出现在显示器 1 上，请改用默认隐藏模式。"
+    }
 }
 
 $targetDir = Split-Path -Parent $pidFile

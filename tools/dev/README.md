@@ -1,5 +1,19 @@
 # 本地开发脚本
 
+## 显示器约定（重要）
+
+本机有两块显示器：**显示器 1 是用户工作用的，显示器 2 是测试用的**。
+
+- 任何**可见窗口**都必须出现在显示器 2，绝不能弹到显示器 1（否则会打断用户工作）。
+- 服务端一律**隐藏窗口**启动（不需要可见窗口）。
+- 客户端用 `play.ps1` 启动，它会等窗口出现后把窗口搬到显示器 2（已实测：窗口落在 `X=2560`，
+  即显示器 2 的起点）。
+- 移动窗口的工具函数在 `display.ps1`（`Wait-WindowOnDisplay -ProcessId <pid> -Display 2`），
+  可被其它脚本 dot-source 复用。
+
+> 注意：**控制台窗口搬不动**（它属于 conhost，`MainWindowHandle` 拿不到），所以服务端不要用
+> `-Visible`；要看日志直接 `Get-Content target/server-<port>.log -Wait`。
+
 ## `serve.ps1` —— 隐藏窗口启动本地服务端
 
 **为什么需要它**：直接运行 `target\debug\mir-server.exe` 会分配一个控制台窗口，它会出现在

@@ -1149,6 +1149,26 @@ impl World {
         }
     }
 
+    /// 新角色的出生装：真实数据库里 `ItemInfo.StartItem = true` 且职业匹配的物品
+    /// （Crystal `HumanObject.NewCharacter`，`HumanObject.cs:234-246` +
+    /// `CorrectStartItem`，`:248-270`；`StartItems` 由 `Envir.cs:3380-3386` 装载）。
+    #[must_use]
+    pub fn starter_items_for(&self, class: MirClass) -> Vec<UserItem> {
+        let Some(data) = self.game_data.as_ref() else {
+            return Vec::new();
+        };
+        let class_bit = class_flag(class);
+        data.db
+            .items
+            .iter()
+            .filter(|info| {
+                info.start_item
+                    && (info.required_class.0 == 0 || info.required_class.0 & class_bit != 0)
+            })
+            .map(|info| self.create_fresh_item(info))
+            .collect()
+    }
+
     /// 地面物品对外的 `GetInfo` 包（Crystal `ItemObject.GetInfo`，`ItemObject.cs:365-383`）。
     ///
     /// 物品发 `S.ObjectItem`、金币发 `S.ObjectGold`——Crystal 就是这么分的两条包。

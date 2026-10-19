@@ -207,6 +207,7 @@
     "unknown_language": "Unknown language code. Available: zh-cn, en.",
     "unsupported_command": "Unsupported command.",
     "welcome": "Welcome to Mir-Next.",
+    "newbie_guide": "Newbie tip: your starter equipment is in the bag; buy a skill book from the bookshop and double-click it to learn your first skill.",
     "wrong_password": "Incorrect account or password.",
     "npc_no_checked_item": "There is no item to hand over.",
     "npc_item_taken": "Handed over {name} x{count}.",

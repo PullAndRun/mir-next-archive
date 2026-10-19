@@ -108,7 +108,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use mir_asset::{Image, ImageLibrary};
+use mir_asset::{Image, ImageInfo, ImageLibrary};
 use mir_core::Point;
 use mir_core::enums::MirDirection;
 
@@ -984,6 +984,10 @@ pub struct EntityRenderer {
     libraries: EntityLibraries,
     /// `(图库, 帧号) → 解码结果`；`None` 表示该帧不存在或解码失败。
     cache: BTreeMap<(SpriteLibrary, u32), Option<Image>>,
+    /// 解码缓存命中次数。
+    cache_hits: u64,
+    /// 解码缓存未命中次数（真正解码）。
+    cache_misses: u64,
     /// `(图库, 外观块首帧) → 站立段的实际起点偏移`（`0` 或 [`PLAYER_DIRECTION_STRIDE`]）。
     ///
     /// `weapon.wzl` 里有 25/76 个武器外观块的站立段整体**后移 8 帧**（块首 8 帧是空的，
@@ -999,6 +1003,8 @@ impl EntityRenderer {
         Self {
             libraries,
             cache: BTreeMap::new(),
+            cache_hits: 0,
+            cache_misses: 0,
             phase: BTreeMap::new(),
         }
     }
@@ -1104,19 +1110,22 @@ impl EntityRenderer {
         };
         let candidates = [exact, standing, base, 0];
         for index in candidates {
-            if let Some(image) = self.image(library, index) {
+            if self.ensure_image(library, index) {
+                let Some(info) = self.cached_info(library, index) else {
+                    continue;
+                };
                 let (x, y) = if item {
                     (
-                        origin_x + (CELL_WIDTH - i32::from(image.info.width)) / 2,
-                        origin_y + (CELL_HEIGHT - i32::from(image.info.height)) / 2,
+                        origin_x + (CELL_WIDTH - i32::from(info.width)) / 2,
+                        origin_y + (CELL_HEIGHT - i32::from(info.height)) / 2,
                     )
                 } else {
                     (
-                        origin_x + i32::from(image.info.offset_x),
-                        origin_y + i32::from(image.info.offset_y),
+                        origin_x + i32::from(info.offset_x),
+                        origin_y + i32::from(info.offset_y),
                     )
                 };
-                frame.blit(&image, x, y);
+                self.blit_cached(frame, library, index, x, y);
                 return Some(y);
             }
         }
@@ -1153,10 +1162,13 @@ impl EntityRenderer {
             ];
             let mut drawn = None;
             for index in candidates {
-                if let Some(image) = self.image(item.library, index) {
-                    let x = origin_x + i32::from(image.info.offset_x);
-                    let y = origin_y + i32::from(image.info.offset_y);
-                    frame.blit(&image, x, y);
+                if self.ensure_image(item.library, index) {
+                    let Some(info) = self.cached_info(item.library, index) else {
+                        continue;
+                    };
+                    let x = origin_x + i32::from(info.offset_x);
+                    let y = origin_y + i32::from(info.offset_y);
+                    self.blit_cached(frame, item.library, index, x, y);
                     drawn = Some(y);
                     break;
                 }
@@ -1270,6 +1282,49 @@ impl EntityRenderer {
         });
         self.cache.insert(key, image.clone());
         image
+    }
+
+    /// 确保 `(图库, 帧号)` 已解码进缓存；只返回是否存在，不克隆图像。
+    ///
+    /// 每帧画实体走这条路径：命中时零拷贝，避免把整张 RGBA 图从缓存复制出来
+    /// （100 个玩家 × 4 层/帧的克隆曾是实体绘制的主要开销）。
+    fn ensure_image(&mut self, library: SpriteLibrary, index: u32) -> bool {
+        let key = (library, index);
+        if self.cache.contains_key(&key) {
+            self.cache_hits = self.cache_hits.saturating_add(1);
+            return matches!(self.cache.get(&key), Some(Some(_)));
+        }
+        self.cache_misses = self.cache_misses.saturating_add(1);
+        if self.cache.len() >= MAX_ENTITY_CACHED_IMAGES {
+            self.cache.clear();
+        }
+        let image = self.libraries.image(library, index).map(|mut image| {
+            remove_black_all(&mut image);
+            image
+        });
+        self.cache.insert(key, image);
+        matches!(self.cache.get(&key), Some(Some(_)))
+    }
+
+    /// 缓存里已解码图像的头信息（用于定位，不克隆像素）。
+    fn cached_info(&self, library: SpriteLibrary, index: u32) -> Option<ImageInfo> {
+        self.cache
+            .get(&(library, index))
+            .and_then(Option::as_ref)
+            .map(|image| image.info)
+    }
+
+    /// 把缓存里的图直接贴到帧上（零拷贝）。
+    fn blit_cached(&self, frame: &mut Frame, library: SpriteLibrary, index: u32, x: i32, y: i32) {
+        if let Some(Some(image)) = self.cache.get(&(library, index)) {
+            frame.blit(image, x, y);
+        }
+    }
+
+    /// 实体图库缓存统计：`(命中, 未命中)`（命中 = 该帧已在缓存里）。
+    #[must_use]
+    pub const fn cache_stats(&self) -> (u64, u64) {
+        (self.cache_hits, self.cache_misses)
     }
 }
 

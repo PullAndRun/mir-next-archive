@@ -74,6 +74,10 @@ pub struct MapScene {
     cache: DecodeCache,
     /// 动画计数（Crystal `MapControl.AnimationCount`）。
     animation_frame: u32,
+    /// 瓦片解码缓存命中次数。
+    tile_cache_hits: u64,
+    /// 瓦片解码缓存未命中次数（真正解码）。
+    tile_cache_misses: u64,
 }
 
 impl MapScene {
@@ -97,6 +101,8 @@ impl MapScene {
             entities,
             cache: DecodeCache::default(),
             animation_frame: DEFAULT_ANIMATION_FRAME,
+            tile_cache_hits: 0,
+            tile_cache_misses: 0,
         })
     }
 
@@ -110,6 +116,8 @@ impl MapScene {
             entities: EntityRenderer::empty(),
             cache: DecodeCache::default(),
             animation_frame: DEFAULT_ANIMATION_FRAME,
+            tile_cache_hits: 0,
+            tile_cache_misses: 0,
         }
     }
 
@@ -128,6 +136,8 @@ impl MapScene {
             entities: EntityRenderer::new(entity_libraries),
             cache: DecodeCache::default(),
             animation_frame: DEFAULT_ANIMATION_FRAME,
+            tile_cache_hits: 0,
+            tile_cache_misses: 0,
         }
     }
 
@@ -206,6 +216,18 @@ impl MapScene {
     #[must_use]
     pub fn image_cache_len(&self) -> usize {
         self.cache.images.len()
+    }
+
+    /// 瓦片解码缓存统计：`(命中, 未命中)`。
+    #[must_use]
+    pub const fn tile_cache_stats(&self) -> (u64, u64) {
+        (self.tile_cache_hits, self.tile_cache_misses)
+    }
+
+    /// 实体图库解码缓存统计：`(命中, 未命中)`。
+    #[must_use]
+    pub fn entity_cache_stats(&self) -> (u64, u64) {
+        self.entities.cache_stats()
     }
 
     /// 地图坐标 → 屏幕坐标（格原点，鼠标拾取与角色绘制用）。
@@ -565,7 +587,10 @@ impl MapScene {
         additive: bool,
     ) {
         let key = (library, index);
-        if !self.cache.images.contains_key(&key) {
+        if self.cache.images.contains_key(&key) {
+            self.tile_cache_hits = self.tile_cache_hits.saturating_add(1);
+        } else {
+            self.tile_cache_misses = self.tile_cache_misses.saturating_add(1);
             if self.cache.images.len() >= MAX_CACHED_IMAGES {
                 self.cache.images.clear();
             }

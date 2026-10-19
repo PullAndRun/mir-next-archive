@@ -14,7 +14,8 @@ use std::sync::Arc;
 
 use mir_core::Point;
 use mir_core::enums::{
-    BindMode, ItemGrade, ItemType, MirClass, MirDirection, MirGender, PanelType, Stat,
+    BindMode, ItemGrade, ItemType, MirClass, MirDirection, MirGender, PanelType, RequiredClass,
+    Spell, Stat,
 };
 use mir_db::{MapInfo, MirDb, MovementInfo, NpcInfo};
 use mir_protocol::ServerPacket;
@@ -112,6 +113,20 @@ fn database() -> MirDb {
                 ..item(3, "BoundSword", ItemType::Weapon, 10, 5_000, 1_000, 1)
             },
             item(4, "BrokenSword", ItemType::Weapon, 10, 5_000, 1_000, 1),
+            ItemInfo {
+                start_item: true,
+                required_class: RequiredClass::Warrior,
+                ..item(5, "StarterSword", ItemType::Weapon, 5, 1_000, 10, 1)
+            },
+            ItemInfo {
+                start_item: true,
+                required_class: RequiredClass::Wizard,
+                ..item(6, "StarterStaff", ItemType::Weapon, 3, 1_000, 10, 1)
+            },
+            ItemInfo {
+                shape: i16::from(Spell::FireBall.value()),
+                ..item(7, "FireBallBook", ItemType::Book, 1, 0, 100, 1)
+            },
         ],
         maps: vec![
             MapInfo {
@@ -1619,6 +1634,67 @@ fn give_name_list_without_names_reports_empty_list() {
             .iter()
             .any(|packet| matches!(packet, ServerPacket::NPCRequestInput(_)))
     );
+}
+
+#[test]
+fn book_shop_goods_can_sell_skill_books() {
+    let script = "[@Main]\n#SAY\n书店\n<关闭/@exit>\n[@BUY]\n#SAY\n技能书\n<关闭/@exit>\n[Trade]\nFireBallBook 1\n";
+    let (harness, _envir) = Harness::new_with_script("book-shop", script);
+    let npc = harness
+        .world
+        .npc(harness.npc_id("测试商人"))
+        .expect("书店 NPC")
+        .clone();
+    let goods = harness.world.npc_goods(&npc);
+    assert_eq!(goods.len(), 1);
+    let book = harness
+        .world
+        .item_info(goods[0].item_index)
+        .expect("书模板");
+    assert_eq!(book.item_type, ItemType::Book);
+    assert_eq!(book.shape, i16::from(Spell::FireBall.value()));
+    assert_eq!(goods[0].count, 1);
+}
+
+#[test]
+fn starter_items_filter_by_class_from_start_item_flag() {
+    let (harness, _envir) = Harness::new("starter-items");
+    let warrior = harness.world.starter_items_for(MirClass::Warrior);
+    assert_eq!(
+        warrior
+            .iter()
+            .map(|item| item.item_index)
+            .collect::<Vec<_>>(),
+        vec![5],
+        "战士只拿到 Warrior 的 StartItem"
+    );
+    let wizard = harness.world.starter_items_for(MirClass::Wizard);
+    assert_eq!(
+        wizard
+            .iter()
+            .map(|item| item.item_index)
+            .collect::<Vec<_>>(),
+        vec![6],
+        "法师只拿到 Wizard 的 StartItem"
+    );
+
+    // 真正走一次 enter：1 级空背包角色应把出生装放进背包。
+    let mut harness = harness;
+    let player = harness.add_player(1, Point::new(10, 10));
+    let mut stored = harness.world.leave(player).expect("离开");
+    stored.level = 1;
+    stored.inventory = items::new_inventory();
+    harness.world.enter(stored);
+    let equipped: Vec<i32> = harness
+        .world
+        .player(player)
+        .expect("玩家")
+        .inventory
+        .iter()
+        .flatten()
+        .map(|item| item.item_index)
+        .collect();
+    assert_eq!(equipped, vec![5], "1 级战士进世界应自动获得出生装");
 }
 
 #[test]

@@ -574,7 +574,15 @@ impl AccountStore for PgAccountStore {
             apply_to_store_character(&character, &mut row);
             mir_store::save_character(&self.pool, &row)
                 .await
-                .map_err(map_store_error)
+                .map_err(|error| {
+                    // 写失败不能静默：记录角色/错误，调用方还会收到 Err 并向客户端回滚。
+                    tracing::error!(
+                        character_id = character.id,
+                        %error,
+                        "save_character 失败：数据库行保持上一次成功值"
+                    );
+                    map_store_error(error)
+                })
         }
     }
 

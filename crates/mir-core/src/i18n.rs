@@ -91,6 +91,8 @@ pub enum TextKey {
     // ---- 第 1 轮：11 个无参键（文案冻结，防回归）----
     /// 进入世界时的欢迎语。
     Welcome,
+    /// 新角色进游戏的第一条新手提示（出生装 + 书店学技能）。
+    NewbieGuide,
     /// 账号被封禁。
     AccountBanned,
     /// 口令错误。
@@ -546,6 +548,7 @@ impl TextKey {
     /// 必须与枚举变体一一对应；`text_key_all_is_complete` 用数量守住这一步。
     pub const ALL: &'static [Self] = &[
         Self::Welcome,
+        Self::NewbieGuide,
         Self::AccountBanned,
         Self::WrongPassword,
         Self::TooManyCharacters,
@@ -766,6 +769,7 @@ impl TextKey {
     pub const fn key(self) -> &'static str {
         match self {
             Self::Welcome => "welcome",
+            Self::NewbieGuide => "newbie_guide",
             Self::AccountBanned => "account_banned",
             Self::WrongPassword => "wrong_password",
             Self::TooManyCharacters => "too_many_characters",
@@ -991,6 +995,7 @@ impl TextKey {
     pub const fn args(self) -> &'static [&'static str] {
         match self {
             Self::Welcome => &[],
+            Self::NewbieGuide => &[],
             Self::AccountBanned => &[],
             Self::WrongPassword => &[],
             Self::TooManyCharacters => &[],
@@ -1347,6 +1352,9 @@ fn render_template(template: &str, args: &[(&str, &str)]) -> String {
 const fn text_zh(key: TextKey) -> &'static str {
     match key {
         TextKey::Welcome => "欢迎来到传奇-Next。",
+        TextKey::NewbieGuide => {
+            "新手提示：背包里已有出生装；到书店买技能书，双击阅读即可学会第一个技能。"
+        }
         TextKey::AccountBanned => "该账号已被封禁。",
         TextKey::WrongPassword => "账号或密码错误。",
         TextKey::TooManyCharacters => "角色数量已达上限。",
@@ -1584,6 +1592,9 @@ const fn text_zh(key: TextKey) -> &'static str {
 const fn text_en(key: TextKey) -> &'static str {
     match key {
         TextKey::Welcome => "Welcome to Mir-Next.",
+        TextKey::NewbieGuide => {
+            "Newbie tip: your starter equipment is in the bag; buy a skill book from the bookshop and double-click it to learn your first skill."
+        }
         TextKey::AccountBanned => "This account is banned.",
         TextKey::WrongPassword => "Incorrect account or password.",
         TextKey::TooManyCharacters => "You have too many characters.",
@@ -2249,7 +2260,7 @@ mod tests {
         //
         // 新增变体时必须同时登记 `TextKey::ALL`，否则这条会挡住——`ALL` 是
         // 语言包校验与参数核对的唯一入口，漏登记等于漏测试。
-        assert_eq!(TextKey::ALL.len(), 214, "新增/删除键时同步更新数量");
+        assert_eq!(TextKey::ALL.len(), 215, "新增/删除键时同步更新数量");
     }
 
     #[test]

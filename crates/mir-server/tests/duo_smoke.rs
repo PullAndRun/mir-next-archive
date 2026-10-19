@@ -183,6 +183,10 @@ fn db_config() -> Option<ServerConfig> {
         load_game_data: true,
         db_path: Some(db.display().to_string()),
         gm_accounts: vec!["duoa".to_owned(), "duob".to_owned()],
+        // 战斗/组队用例只关心即时战斗与经验分配：关掉周期自动存档，
+        // 免得后台每 30 秒写一次角色行（持久化语义由 `tests/persistence_audit.rs`
+        // 的 autosave 用例覆盖），也让这些用例的时序保持确定性。
+        autosave_secs: 0,
         ..base_config()
     })
 }

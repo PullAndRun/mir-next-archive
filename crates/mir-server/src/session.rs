@@ -50,6 +50,38 @@ enum GameShopReply {
     Market,
 }
 
+/// 把**写库失败**的行会批次回灌到世界队列的队首（F3）。
+///
+/// 顺序语义：失败的批次在前、期间新追加的在后面。`GuildWrite::Save` 是整行覆盖，
+/// 后写的更新，所以按原顺序重放不会让旧数据盖掉新数据。
+pub fn requeue_guild_writes(world: &mut World, writes: Vec<crate::world::GuildWrite>) {
+    let mut retry = writes;
+    retry.append(&mut world.guild_writes);
+    world.guild_writes = retry;
+}
+
+/// 把**写库失败**的邮件批次回灌到世界队列的队首（F3）。语义同 [`requeue_guild_writes`]。
+pub fn requeue_mail_writes(world: &mut World, writes: Vec<crate::mail::MailWrite>) {
+    let mut retry = writes;
+    retry.append(&mut world.mail_writes);
+    world.mail_writes = retry;
+}
+
+/// autosave 的轮询粒度：读循环每这么久看一次「到点没」。
+///
+/// 真正的周期由 [`ServerConfig::autosave_secs`] 决定，判定用的是**世界时钟**
+/// （[`World::wall_now`]），所以测试可以 `advance_clock` 快进，不用 sleep 等 30 秒。
+pub const AUTOSAVE_POLL_MS: u64 = 250;
+
+/// autosave 写失败后的**最小**退避（同角色连续失败时不让 100ms/250ms 的轮询捶库）。
+pub const AUTOSAVE_RETRY_MIN_MS: i64 = 1_000;
+
+/// autosave 写失败后的**最大**退避（指数退避上限，避免 DB 长时间故障时日志/连接刷屏）。
+pub const AUTOSAVE_RETRY_MAX_MS: i64 = 30_000;
+
+/// 行会/邮件写入失败后的重试间隔（与市场成交落盘同一个 5 秒口径）。
+pub const WRITE_FLUSH_RETRY_MS: i64 = 5_000;
+
 /// 会话阶段。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
@@ -101,6 +133,23 @@ pub struct Session<S: AccountStore> {
     rate_window_count: u32,
     /// 本窗口是否已经因为超速记过 warn（每个窗口只喊一次，避免日志刷屏）。
     rate_warned: bool,
+    /// 上次**成功写库**的角色行快照。
+    ///
+    /// autosave 的「脏」判定就是「当前世界快照 != 这一行」：比逐字段置位更难漏
+    /// （金币/背包/装备/技能/任务/仓库/好友/坐标/HP/MP 全都体现在行里），
+    /// 而且天然支持「改了又改回去」这种不该写库的情况。
+    saved_row: Option<Character>,
+    /// 下一次 autosave 的到点时刻（`World::wall_now()` 毫秒）；`0` = 尽快。
+    next_autosave_at_ms: i64,
+    /// 写失败后的退避闸门（毫秒；`0` = 没有退避）。
+    next_save_retry_at_ms: i64,
+    /// 连续 autosave 失败次数（指数退避用，成功后清零）。
+    autosave_failures: u32,
+    /// 行会/邮件**重试闸门**（`World::wall_now()` 毫秒；`0` = 没在等重试）。
+    ///
+    /// 写失败时批次回灌到 `World::{guild,mail}_writes`（与 `market::commit_market_like`
+    /// 回灌邮件同一做法），这里只管「别在 100ms tick 上捶库」。
+    next_write_retry_at_ms: i64,
 }
 
 impl<S: AccountStore> Session<S> {
@@ -132,6 +181,11 @@ impl<S: AccountStore> Session<S> {
             rate_window_start: std::time::Instant::now(),
             rate_window_count: 0,
             rate_warned: false,
+            saved_row: None,
+            next_autosave_at_ms: 0,
+            next_save_retry_at_ms: 0,
+            autosave_failures: 0,
+            next_write_retry_at_ms: 0,
         }
     }
 
@@ -944,6 +998,10 @@ impl<S: AccountStore> Session<S> {
             allow_trade: true,
             sender: self.out.clone(),
         });
+        // `World::enter` 可能给新角色补发 `StartItems`，登录包要以世界里的实际背包为准。
+        let inventory = world
+            .player(object_id)
+            .map_or(inventory, |player| player.inventory.clone());
         // 玩家语言：账号语言随登录写进世界层映射，World 的市场/交易/邮件/NPC 提示据此渲染。
         world.set_player_language(object_id, self.language.language());
         // 任务物品栏：装进世界侧表，下线时由 `leave_world` 取走存盘。
@@ -1021,6 +1079,8 @@ impl<S: AccountStore> Session<S> {
                 },
             ));
         }
+        // 新角色的引导提示与欢迎语合并成一条系统提示，避免登录后多一条 Chat 影响
+        // 既有客户端的包序（`docs/i18n.md` 的 `newbie_guide`）。
         self.send(ServerPacket::UserInformation(user_information(
             object_id,
             &character,
@@ -1072,7 +1132,10 @@ impl<S: AccountStore> Session<S> {
             world.guild_player_online(object_id);
         }
         let welcome = self.language.text_with(&self.languages, TextKey::Welcome);
-        self.send_system_chat(&welcome);
+        let newbie = self
+            .language
+            .text_with(&self.languages, TextKey::NewbieGuide);
+        self.send_system_chat(&format!("{welcome}\n{newbie}"));
         tracing::info!(
             session = self.id,
             character = %character.name,
@@ -1080,6 +1143,9 @@ impl<S: AccountStore> Session<S> {
             "进入世界"
         );
         self.character = Some(character);
+        // autosave 的「脏」基准：登录时刚写过的行就是已入库的行。
+        self.mark_saved();
+        self.next_autosave_at_ms = 0;
         crate::metrics::metrics().player_entered();
         // 让 `@kick <账号|角色>` 能在会话登记表里按名字反查（见 `crate::gm`）。
         if let Some(account) = &self.account {
@@ -1101,6 +1167,9 @@ impl<S: AccountStore> Session<S> {
             let started = std::time::Instant::now();
             let saved = self.store.save_character(character).await;
             crate::metrics::metrics().record_db_save(started.elapsed());
+            if saved.is_err() {
+                crate::metrics::metrics().record_db_save_failed();
+            }
             saved?;
         }
         self.character = None;
@@ -1934,7 +2003,19 @@ impl<S: AccountStore> Session<S> {
     }
 
     /// 把世界上积压的行会写入落盘（见 [`crate::guild::persist_guild_writes`]）。
-    async fn flush_guild_writes(&self) {
+    ///
+    /// **F3（批次不能丢）**：`take_guild_writes` 已经把批次从世界取走，写库失败时若只记
+    /// 日志，这批行会变更（创建/解散/成员/等级/盟友）就永久丢了。这里的做法与
+    /// `market::commit_market_like` 回灌邮件一致：把失败批次放回**队首**，期间新追加的
+    /// 排在它后面（`Save` 语义是「整行覆盖」，后写的更新，顺序正好保序）。
+    async fn flush_guild_writes(&mut self) {
+        let now_ms = {
+            let world = self.world.lock().await;
+            world.wall_now()
+        };
+        if now_ms < self.next_write_retry_at_ms {
+            return;
+        }
         let writes = {
             let mut world = self.world.lock().await;
             world.take_guild_writes()
@@ -1942,8 +2023,22 @@ impl<S: AccountStore> Session<S> {
         if writes.is_empty() {
             return;
         }
-        if let Err(error) = crate::guild::persist_guild_writes(self.store.as_ref(), writes).await {
-            tracing::warn!(session = self.id, %error, "行会落盘失败");
+        let count = writes.len();
+        if let Err(error) =
+            crate::guild::persist_guild_writes(self.store.as_ref(), writes.clone()).await
+        {
+            {
+                let mut world = self.world.lock().await;
+                requeue_guild_writes(&mut world, writes);
+            }
+            self.next_write_retry_at_ms = now_ms.saturating_add(WRITE_FLUSH_RETRY_MS);
+            crate::metrics::metrics().record_batch_write_failed();
+            tracing::warn!(
+                session = self.id,
+                count,
+                %error,
+                "行会落盘失败：批次已回灌队列，下一次 flush 重试"
+            );
         }
     }
 
@@ -2204,7 +2299,17 @@ impl<S: AccountStore> Session<S> {
     }
 
     /// 把世界上积压的邮件写入落盘（见 [`crate::mail::persist_mail_writes`]）。
-    async fn flush_mail_writes(&self) {
+    ///
+    /// **F3**：与行会同口径——写失败把批次回灌队首，下一次 flush 重试，绝不静默丢弃
+    /// （邮件可能是成交收款/退货，丢了就是玩家资产损失）。
+    async fn flush_mail_writes(&mut self) {
+        let now_ms = {
+            let world = self.world.lock().await;
+            world.wall_now()
+        };
+        if now_ms < self.next_write_retry_at_ms {
+            return;
+        }
         let writes = {
             let mut world = self.world.lock().await;
             world.take_mail_writes()
@@ -2212,8 +2317,22 @@ impl<S: AccountStore> Session<S> {
         if writes.is_empty() {
             return;
         }
-        if let Err(error) = crate::mail::persist_mail_writes(self.store.as_ref(), writes).await {
-            tracing::warn!(session = self.id, %error, "邮件落盘失败");
+        let count = writes.len();
+        if let Err(error) =
+            crate::mail::persist_mail_writes(self.store.as_ref(), writes.clone()).await
+        {
+            {
+                let mut world = self.world.lock().await;
+                requeue_mail_writes(&mut world, writes);
+            }
+            self.next_write_retry_at_ms = now_ms.saturating_add(WRITE_FLUSH_RETRY_MS);
+            crate::metrics::metrics().record_batch_write_failed();
+            tracing::warn!(
+                session = self.id,
+                count,
+                %error,
+                "邮件落盘失败：批次已回灌队列，下一次 flush 重试"
+            );
         }
     }
 
@@ -2735,12 +2854,126 @@ impl<S: AccountStore> Session<S> {
         }));
     }
 
-    /// 离开世界并按需存盘。
+    // 离开世界并按需存盘。
+    //
+    // 存盘时把世界里的**当前**状态回写到角色行：背包/装备编成 Crystal 的 `UserItem[]`
+    // 字节块（`CharacterInfo.cs:431-447`），金币/HP/MP/等级/经验/坐标也一并同步——
+    // Crystal 的 `CharacterInfo` 是整行落盘的（`Envir.cs` 的 `SaveAccounts`），
+    // 本作的角色行同样是整行回写（`mir_store::save_character`）。
+    // -----------------------------------------------------------------------
+    // 周期自动存档（F1：崩服 RPO 有界）
+    // -----------------------------------------------------------------------
+
+    /// autosave 周期（毫秒）；`0` = 关闭。
+    fn autosave_interval_ms(&self) -> i64 {
+        i64::try_from(self.config.autosave_secs)
+            .unwrap_or(i64::MAX)
+            .saturating_mul(1000)
+    }
+
+    /// 连续失败 `failures` 次后的退避毫秒数：1s → 2s → 4s …（上限 30s）。
     ///
-    /// 存盘时把世界里的**当前**状态回写到角色行：背包/装备编成 Crystal 的 `UserItem[]`
-    /// 字节块（`CharacterInfo.cs:431-447`），金币/HP/MP/等级/经验/坐标也一并同步——
-    /// Crystal 的 `CharacterInfo` 是整行落盘的（`Envir.cs` 的 `SaveAccounts`），
-    /// 本作的角色行同样是整行回写（`mir_store::save_character`）。
+    /// 目的是「DB 挂了不要按轮询频率捶库、也不要每 250ms 刷一条 error 日志」，
+    /// 而不是放弃重试：脏标记一直保留，退避到点就再试。
+    #[must_use]
+    pub fn autosave_backoff_ms(failures: u32) -> i64 {
+        let shift = failures.saturating_sub(1).min(5);
+        AUTOSAVE_RETRY_MIN_MS
+            .saturating_mul(1_i64 << shift)
+            .min(AUTOSAVE_RETRY_MAX_MS)
+    }
+
+    /// 世界时钟（`World::wall_now()`，毫秒）。autosave 的所有时间判定都走它，
+    /// 这样测试可以 `World::advance_clock` 快进，不用真的 sleep 等待。
+    async fn clock_now(&self) -> i64 {
+        let world = self.world.lock().await;
+        world.wall_now()
+    }
+
+    /// 用世界里的活值构建「当前应当写进库」的角色行。
+    async fn current_row(&self) -> Option<Character> {
+        let object_id = self.object_id?;
+        let world = self.world.lock().await;
+        let player = world.player(object_id)?;
+        self.character_snapshot(
+            player,
+            world.quest_inventory(object_id),
+            world.pet_mode(object_id),
+            world.friends_of(object_id),
+        )
+    }
+
+    /// 周期自动存档的**一次触发**（读循环每 [`AUTOSAVE_POLL_MS`] 毫秒调一次）。
+    ///
+    /// 语义：
+    /// * 只有 `Stage::Game`（真正在世界里）才存；
+    /// * 只写**脏**角色：当前快照与 [`Session::saved_row`]（上次成功写库的行）相等就跳过，
+    ///   所以在线但不动的玩家不会 30 秒一次空写；
+    /// * 失败**保留脏标记**（不更新 `saved_row`），按 [`Session::autosave_backoff_ms`]
+    ///   退避后重试；同时 `tracing::error!` + `mir2_db_save_failed_total`；
+    /// * 成功把 `saved_row`/`character` 一起前移，保证后续快照与下线存盘看到同一份底稿。
+    pub async fn autosave_tick(&mut self) {
+        let interval_ms = self.autosave_interval_ms();
+        if interval_ms <= 0 {
+            // `MIR2_AUTOSAVE_SECS=0`：关闭周期存档（仍会在 LogOut/断线时保存）。
+            return;
+        }
+        if self.stage != Stage::Game || self.character.is_none() || self.object_id.is_none() {
+            return;
+        }
+        let now_ms = self.clock_now().await;
+        if now_ms < self.next_autosave_at_ms {
+            return;
+        }
+        self.next_autosave_at_ms = now_ms.saturating_add(interval_ms);
+        if now_ms < self.next_save_retry_at_ms {
+            // 退避窗口内：脏标记还在，等下一轮。
+            return;
+        }
+        let Some(row) = self.current_row().await else {
+            return;
+        };
+        if self.saved_row.as_ref() == Some(&row) {
+            // 干净角色：一次 IO 都不做。
+            return;
+        }
+        let started = std::time::Instant::now();
+        crate::metrics::metrics().record_autosave();
+        match self.store.save_character(row.clone()).await {
+            Ok(()) => {
+                crate::metrics::metrics().record_db_save(started.elapsed());
+                tracing::debug!(session = self.id, character = row.id, "autosave 落盘成功");
+                self.saved_row = Some(row.clone());
+                self.character = Some(row);
+                self.autosave_failures = 0;
+                self.next_save_retry_at_ms = 0;
+            }
+            Err(error) => {
+                self.autosave_failures = self.autosave_failures.saturating_add(1);
+                let backoff_ms = Self::autosave_backoff_ms(self.autosave_failures);
+                self.next_save_retry_at_ms = now_ms.saturating_add(backoff_ms);
+                crate::metrics::metrics().record_db_save_failed();
+                tracing::error!(
+                    session = self.id,
+                    character = row.id,
+                    failures = self.autosave_failures,
+                    backoff_ms,
+                    %error,
+                    "autosave 落盘失败：保留脏标记，退避后重试"
+                );
+            }
+        }
+    }
+
+    /// 把「当前行已入库」这一事实记下来（登录/市场事务/下线存盘之后调用）。
+    ///
+    /// 不这样做的话，autosave 会把登录时刚写过的同一份行再写一遍。
+    fn mark_saved(&mut self) {
+        self.saved_row = self.character.clone();
+        self.autosave_failures = 0;
+        self.next_save_retry_at_ms = 0;
+    }
+
     pub async fn leave_world(&mut self) {
         let Some(object_id) = self.object_id.take() else {
             return;
@@ -2769,8 +3002,12 @@ impl<S: AccountStore> Session<S> {
             let started = std::time::Instant::now();
             let saved = self.store.save_character(character).await;
             crate::metrics::metrics().record_db_save(started.elapsed());
-            if let Err(error) = saved {
-                tracing::warn!(session = self.id, %error, "下线存盘失败");
+            match saved {
+                Ok(()) => self.mark_saved(),
+                Err(error) => {
+                    crate::metrics::metrics().record_db_save_failed();
+                    tracing::warn!(session = self.id, %error, "下线存盘失败");
+                }
             }
         }
         // 下线期间可能还积压着行会写入（成员离线、行会经验……），一起落盘。
@@ -2901,5 +3138,83 @@ mod tests {
         assert!(!is_valid_character_name("战士!"), "标点不允许");
         assert!(!is_valid_character_name("裁决"), "至少 3 个字");
         assert!(!is_valid_character_name("ab"));
+    }
+
+    // -----------------------------------------------------------------------
+    // F1：autosave 的退避曲线
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn autosave_backoff_doubles_and_saturates() {
+        // 1s → 2s → 4s → 8s → 16s → 30s（上限）→ 一直是 30s。
+        let curve: Vec<i64> = (1..=8)
+            .map(Session::<crate::store::MemoryStore>::autosave_backoff_ms)
+            .collect();
+        assert_eq!(
+            curve,
+            vec![1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000],
+            "连续失败按指数退避，且不超过 AUTOSAVE_RETRY_MAX_MS"
+        );
+        assert_eq!(
+            Session::<crate::store::MemoryStore>::autosave_backoff_ms(0),
+            AUTOSAVE_RETRY_MIN_MS,
+            "0 次失败也按最小值算（防御性）"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // F3：失败批次回灌队列（顺序 + 不丢）
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn requeue_guild_writes_puts_failed_batch_first() {
+        let mut world = World::new(999);
+        let guild = |id: i32, name: &str| {
+            crate::world::GuildWrite::Save(Box::new(crate::store::GuildRecord {
+                id,
+                name: name.to_owned(),
+                ..crate::store::GuildRecord::default()
+            }))
+        };
+        // 失败批次：g1、g2；期间新追加：g2 的新版、g3。
+        world.guild_writes = vec![guild(2, "g2-new"), guild(3, "g3")];
+        requeue_guild_writes(&mut world, vec![guild(1, "g1"), guild(2, "g2-old")]);
+
+        let names: Vec<String> = world
+            .guild_writes
+            .iter()
+            .map(|write| match write {
+                crate::world::GuildWrite::Save(record) => record.name.clone(),
+                other => panic!("unexpected {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            names,
+            vec!["g1", "g2-old", "g2-new", "g3"],
+            "失败批次回到队首，期间新追加的排在后面（整行覆盖，后写更新）"
+        );
+        assert_eq!(
+            world.take_guild_writes().len(),
+            4,
+            "回灌的批次必须能被下一次 take 取到（不丢）"
+        );
+    }
+
+    #[test]
+    fn requeue_mail_writes_keeps_every_mail() {
+        let mut world = World::new(999);
+        let mail = |id: u64| crate::mail::MailWrite::Delete { mail_id: id };
+        world.mail_writes = vec![mail(3)];
+        requeue_mail_writes(&mut world, vec![mail(1), mail(2)]);
+
+        let ids: Vec<u64> = world
+            .mail_writes
+            .iter()
+            .map(|write| match write {
+                crate::mail::MailWrite::Delete { mail_id } => *mail_id,
+                other => panic!("unexpected {other:?}"),
+            })
+            .collect();
+        assert_eq!(ids, vec![1, 2, 3], "回灌顺序与原批次一致");
     }
 }

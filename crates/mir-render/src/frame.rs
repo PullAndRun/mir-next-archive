@@ -276,6 +276,20 @@ impl Frame {
                 let Some(source) = image.pixels.get(source_offset..source_offset + 4) else {
                     break;
                 };
+                // 快路径：地图/实体素材的 alpha 只有 0/255（`remove_black` 之后）。
+                // Over 模式下不透明像素直接拷贝、全透明跳过，省掉逐像素混合函数。
+                if mode == BlendMode::Over && source[3] == 255 {
+                    if let Some(destination) = self
+                        .pixels
+                        .get_mut(destination_offset..destination_offset + 4)
+                    {
+                        destination.copy_from_slice(source);
+                    }
+                    continue;
+                }
+                if mode == BlendMode::Over && source[3] == 0 {
+                    continue;
+                }
                 blend_pixel(&mut self.pixels, destination_offset, source, mode);
             }
         }

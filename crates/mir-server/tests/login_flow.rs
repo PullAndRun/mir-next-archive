@@ -226,6 +226,11 @@ async fn full_login_character_and_world_flow() {
                 "默认中文欢迎语：{}",
                 chat.message
             );
+            assert!(
+                chat.message.contains("新手提示"),
+                "新角色进游戏应带新手引导：{}",
+                chat.message
+            );
         }
         other => panic!("期望 Chat，收到 {other:?}"),
     }

@@ -101,7 +101,7 @@ pub use quests::{
     QuestProgressState, QuestReport, QuestSave, decode_quests, encode_quests,
     is_objectives_complete, monster_matches_task,
 };
-pub use server::{run, serve_forever};
+pub use server::{run, serve_forever, serve_forever_with_world};
 pub use storage::{
     STORAGE_MAX_SIZE, STORAGE_SIZE, StorageError, decode_storage, encode_storage, new_storage,
 };

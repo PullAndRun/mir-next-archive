@@ -82,6 +82,14 @@ pub struct ServerConfig {
     /// `0` = 不限（与本文件其它抗刷阈值口径一致）。
     /// **本作扩展**：Crystal `CharacterInfo.Friends` 是无上限 `List<FriendInfo>`。
     pub max_friends: usize,
+    /// **周期自动存档**：每隔多少秒把**脏**角色行刷一次库（`MIR2_AUTOSAVE_SECS`，默认 30）。
+    ///
+    /// `0` = 关闭（只在 LogOut/断线/市场事务里落盘）。取 N 意味着**进程崩溃最多丢
+    /// N + 1 秒的改动**（RPO 有界；多出来的 1 秒是 autosave 轮询粒度）。
+    ///
+    /// Crystal 没有周期存档（`Envir.cs` 只在 `PlayerObject.LogOut` 写 `Characters` 表），
+    /// 本作是**扩展**：崩服回档到登录时刻是不可接受的玩家资产问题（见 `docs/world/persistence.md`）。
+    pub autosave_secs: u64,
     /// 行会盟友上限（`MIR2_MAX_GUILD_ALLIES`，默认 5）。
     ///
     /// `0` = 不限。**本作扩展**：Crystal `GuildObject.AllyGuilds` 是无上限 `List`，
@@ -133,6 +141,7 @@ impl Default for ServerConfig {
             idle_timeout_secs: 60,
             max_packets_per_second: 200,
             max_friends: 100,
+            autosave_secs: 30,
             max_guild_allies: 5,
         }
     }
@@ -191,6 +200,9 @@ impl ServerConfig {
         }
         if let Some(value) = parse_env_usize("MIR2_MAX_GUILD_ALLIES") {
             config.max_guild_allies = value;
+        }
+        if let Some(value) = parse_env_usize("MIR2_AUTOSAVE_SECS") {
+            config.autosave_secs = u64::try_from(value).unwrap_or(u64::MAX);
         }
         config
     }

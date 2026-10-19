@@ -1529,6 +1529,17 @@ impl World {
         if player.mp <= 0 {
             player.mp = player.stats.mp.max(0);
         }
+        // Crystal `HumanObject.NewCharacter`：空背包的新角色领取 `StartItems`
+        // （`HumanObject.cs:234-246`、`Envir.cs:3380-3386`）。
+        if player.inventory.iter().all(Option::is_none) && player.level <= 1 {
+            for (slot, item) in player
+                .inventory
+                .iter_mut()
+                .zip(self.starter_items_for(player.class))
+            {
+                *slot = Some(item);
+            }
+        }
         tracing::debug!(
             player = player.object_id,
             hp = player.hp,

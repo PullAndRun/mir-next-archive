@@ -374,7 +374,7 @@ mod tests {
             assert_eq!(table.exp_for_level(1), 100);
             assert!(
                 table.exp_for_level(10) > table.exp_for_level(9),
-                "经验必须单调"
+                "experience must be monotonic"
             );
             assert!(
                 matches!(table.source(), ExpSource::File(_)),

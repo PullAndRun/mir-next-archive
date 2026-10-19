@@ -733,6 +733,11 @@ struct MemoryState {
     fail_next_market_update: bool,
     /// **仅测试**：让下一次 `save_character` 失败（模拟角色行落盘失败）。
     fail_next_save_character: bool,
+    /// **仅测试**：每次成功 `save_character` 记下角色 ID（按发生顺序）。
+    ///
+    /// autosave 的「只写脏角色」用例靠它断言「干净角色一次都没写」——只看行的内容
+    /// 是看不出「写了一次相同的值」的。
+    save_character_history: Vec<i64>,
     next_account_id: i64,
     next_character_id: i64,
     next_guild_id: i32,
@@ -756,6 +761,7 @@ impl MemoryStore {
                 fail_next_gameshop_update: false,
                 fail_next_market_update: false,
                 fail_next_save_character: false,
+                save_character_history: Vec::new(),
                 next_account_id: 1,
                 next_character_id: 1,
                 next_guild_id: 1,
@@ -836,6 +842,18 @@ impl MemoryStore {
     /// **仅测试**：让下一次 [`AccountStore::save_character`] 返回错误。
     ///
     /// 用来测「登录每日重置落盘失败仍继续登录」。只影响一次调用，之后自动复位。
+    /// **仅测试**：到目前为止成功落盘的角色 ID 序列（见 `save_character_history`）。
+    pub async fn save_history(&self) -> Vec<i64> {
+        let state = self.state.lock().await;
+        state.save_character_history.clone()
+    }
+
+    /// **仅测试**：清空落盘历史（统计「这一段操作写了几次」）。
+    pub async fn clear_save_history(&self) {
+        let mut state = self.state.lock().await;
+        state.save_character_history.clear();
+    }
+
     pub async fn fail_next_save_character(&self) {
         self.state.lock().await.fail_next_save_character = true;
     }
@@ -937,6 +955,11 @@ impl AccountStore for MemoryStore {
         // 仅测试：注入一次落盘失败（见 [MemoryStore::fail_next_save_character]）。
         if state.fail_next_save_character {
             state.fail_next_save_character = false;
+            // 写失败不能静默：即使调用方忘记记录，存储层也要留下 error 日志。
+            tracing::error!(
+                character_id = character.id,
+                "save_character 失败：注入的测试错误（数据库行保持上一次成功值）"
+            );
             return Err(StoreError::Internal(
                 "injected save_character failure (test hook)".to_owned(),
             ));
@@ -946,8 +969,9 @@ impl AccountStore for MemoryStore {
             .iter_mut()
             .find(|candidate| candidate.id == character.id)
         {
-            *existing = character;
+            *existing = character.clone();
         }
+        state.save_character_history.push(character.id);
         Ok(())
     }
 

@@ -159,6 +159,15 @@ pub struct Metrics {
     mail_queue: AtomicU64,
     /// 累计 `save_character` 次数。
     db_saves_total: AtomicU64,
+    /// 角色落盘**失败**次数（含 autosave 与下线存盘）。
+    ///
+    /// 与 `db_saves_total` 分开记：失败不增加成功计数，Prometheus 上
+    /// `rate(mir2_db_save_failed_total[5m])` 直接就是「写库现在坏没坏」。
+    db_save_failed_total: AtomicU64,
+    /// autosave 实际写库次数（含失败），用于区分「周期存档在工作」与「只是下线存盘」。
+    autosave_total: AtomicU64,
+    /// 行会/邮件**批次**写库失败次数（失败即回灌队列重试，见 `session::flush_*_writes`）。
+    batch_write_failed_total: AtomicU64,
     /// `save_character` 耗时（微秒，最近 N 次）。
     db_save_micros: Ring,
     /// 累计 `flush_market_update` / `flush_gameshop_update` 次数。
@@ -234,6 +243,40 @@ impl Metrics {
             .store(u64::try_from(len).unwrap_or(u64::MAX), Ordering::Relaxed);
     }
 
+    /// 记一次角色落盘失败（`save_character` 返回错误）。
+    pub fn record_db_save_failed(&self) {
+        self.db_save_failed_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 记一次行会/邮件批次落盘失败（批次已回灌队列，下一次 flush 重试）。
+    pub fn record_batch_write_failed(&self) {
+        self.batch_write_failed_total
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 行会/邮件批次落盘失败累计次数。
+    #[must_use]
+    pub fn batch_write_failures(&self) -> u64 {
+        self.batch_write_failed_total.load(Ordering::Relaxed)
+    }
+
+    /// 记一次 autosave 真正发起写库（不含「快照没变化所以跳过的」那一类）。
+    pub fn record_autosave(&self) {
+        self.autosave_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 角色落盘失败累计次数。
+    #[must_use]
+    pub fn db_save_failed(&self) -> u64 {
+        self.db_save_failed_total.load(Ordering::Relaxed)
+    }
+
+    /// autosave 写库累计次数。
+    #[must_use]
+    pub fn autosaves(&self) -> u64 {
+        self.autosave_total.load(Ordering::Relaxed)
+    }
+
     /// 记一次 `save_character` 的耗时。
     pub fn record_db_save(&self, elapsed: Duration) {
         self.db_saves_total.fetch_add(1, Ordering::Relaxed);
@@ -303,6 +346,10 @@ impl Metrics {
     /// | `mir2_auctions_sold_total` | 拍卖成交次数 |
     /// | `mir2_mail_queue` | 邮件队列长度 |
     /// | `mir2_db_save_total` / `mir2_db_save_micros_{avg,p95,max}` | 角色落盘次数/耗时 |
+    /// | `mir2_db_save_failed_total` | 角色落盘失败次数（含 autosave/下线存盘） |
+    /// | `mir2_autosave_total` | 周期自动存档实际写库次数 |
+    /// | `mir2_batch_write_failed_total` | 行会/邮件批次写库失败次数（失败即回灌重试） |
+    /// | `mir2_autosave_failures_total` | 同 `mir2_db_save_failed_total` 的语义别名（按「autosave 失败」取名） |
     /// | `mir2_db_flush_total` / `mir2_db_flush_micros_{avg,p95,max}` | 市场落盘次数/耗时 |
     #[must_use]
     pub fn render(&self, per_map: &[(String, usize)]) -> String {
@@ -385,6 +432,27 @@ impl Metrics {
             self.db_saves_total.load(Ordering::Relaxed),
         );
         push_ring(&mut out, "mir2_db_save_micros", &self.db_save_micros);
+        let _ = writeln!(
+            out,
+            "# TYPE mir2_db_save_failed_total counter\nmir2_db_save_failed_total {}",
+            self.db_save_failed_total.load(Ordering::Relaxed),
+        );
+        let _ = writeln!(
+            out,
+            "# TYPE mir2_autosave_total counter\nmir2_autosave_total {}",
+            self.autosave_total.load(Ordering::Relaxed),
+        );
+        let _ = writeln!(
+            out,
+            "# TYPE mir2_batch_write_failed_total counter\nmir2_batch_write_failed_total {}",
+            self.batch_write_failed_total.load(Ordering::Relaxed),
+        );
+        // 别名（队长口径）：与 `mir2_db_save_failed_total` 同值，按语义命名更直观。
+        let _ = writeln!(
+            out,
+            "# TYPE mir2_autosave_failures_total counter\nmir2_autosave_failures_total {}",
+            self.db_save_failed_total.load(Ordering::Relaxed),
+        );
         push_counter(
             &mut out,
             "mir2_db_flush_total",
@@ -399,7 +467,7 @@ impl Metrics {
     #[must_use]
     pub fn summary_line(&self, per_map: usize) -> String {
         format!(
-            "players={} maps={} connections={} rejected={} ticks={} tick_last_us={} tick_p99_us={} db_saves={} db_save_p95_us={} db_flushes={} db_flush_p95_us={} mail_queue={}",
+            "players={} maps={} connections={} rejected={} ticks={} tick_last_us={} tick_p99_us={} db_saves={} db_save_p95_us={} db_save_failed={} autosaves={} db_flushes={} db_flush_p95_us={} mail_queue={}",
             self.players_online(),
             per_map,
             self.connections_active(),
@@ -409,6 +477,8 @@ impl Metrics {
             self.tick_micros.quantile(0.99).unwrap_or(0),
             self.db_saves_total.load(Ordering::Relaxed),
             self.db_save_micros.quantile(0.95).unwrap_or(0),
+            self.db_save_failed_total.load(Ordering::Relaxed),
+            self.autosave_total.load(Ordering::Relaxed),
             self.db_flushes_total.load(Ordering::Relaxed),
             self.db_flush_micros.quantile(0.95).unwrap_or(0),
             self.mail_queue.load(Ordering::Relaxed),
@@ -617,6 +687,15 @@ mod tests {
         assert_eq!(metrics.ticks_total(), 1);
         assert_eq!(metrics.last_tick_micros(), 1_500);
         assert_eq!(metrics.db_saves_total.load(Ordering::Relaxed), 1);
+        assert_eq!(metrics.db_save_failed(), 0);
+        assert_eq!(metrics.autosaves(), 0);
+        assert_eq!(metrics.batch_write_failures(), 0);
+        metrics.record_db_save_failed();
+        metrics.record_autosave();
+        metrics.record_batch_write_failed();
+        assert_eq!(metrics.db_save_failed(), 1);
+        assert_eq!(metrics.autosaves(), 1);
+        assert_eq!(metrics.batch_write_failures(), 1);
         assert_eq!(metrics.db_flushes_total.load(Ordering::Relaxed), 1);
         assert_eq!(metrics.tick_micros.max(), Some(1_500));
         assert_eq!(metrics.db_save_micros.max(), Some(700));

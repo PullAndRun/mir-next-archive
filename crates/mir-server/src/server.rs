@@ -124,6 +124,20 @@ pub async fn serve_forever<S: AccountStore>(
     store: Arc<S>,
 ) -> anyhow::Result<()> {
     let world = Arc::new(Mutex::new(build_world(&config)));
+    serve_forever_with_world(listener, config, store, world).await
+}
+
+/// [`serve_forever`] 的可注入世界版本：**测试**用它拿世界句柄（`World::advance_clock`
+/// 快进世界时钟来驱动 autosave / 拍卖扫描，不用 sleep 等真实时间）。
+///
+/// 生产路径不调用它；除了「世界由调用方构造」之外，行为与 [`serve_forever`] 完全一致
+/// （启动装载行会/攻城/拍卖、100ms tick、accept 循环都在这里）。
+pub async fn serve_forever_with_world<S: AccountStore>(
+    listener: TcpListener,
+    config: Arc<ServerConfig>,
+    store: Arc<S>,
+    world: Arc<Mutex<World>>,
+) -> anyhow::Result<()> {
     // 行会：启动时把库里的行会灌进世界（Crystal `Envir.LoadGuilds`，`Envir.cs:3089-3117`）。
     match store.list_guilds().await {
         Ok(guilds) => {
@@ -281,11 +295,21 @@ pub async fn serve_forever<S: AccountStore>(
                     "metrics summary"
                 );
             }
-            if !writes.is_empty()
-                && let Err(error) =
-                    crate::guild::persist_guild_writes(tick_store.as_ref(), writes).await
-            {
-                tracing::warn!(%error, "tick 里的行会落盘失败");
+            if !writes.is_empty() {
+                let count = writes.len();
+                if let Err(error) =
+                    crate::guild::persist_guild_writes(tick_store.as_ref(), writes.clone()).await
+                {
+                    // F3：批次已从世界取走，失败必须回灌，否则行会变更永久丢失。
+                    {
+                        let mut world = tick_world.lock().await;
+                        let mut retry = writes;
+                        retry.append(&mut world.guild_writes);
+                        world.guild_writes = retry;
+                    }
+                    crate::metrics::metrics().record_batch_write_failed();
+                    tracing::warn!(count, %error, "tick 里的行会落盘失败：批次已回灌队列");
+                }
             }
             if !conquest_writes.is_empty()
                 && let Err(error) =
@@ -514,14 +538,6 @@ fn spawn_demo_monsters(world: &mut World, config: &ServerConfig) {
 /// 心跳超时的等待器：`secs == 0` 表示不超时（永远 pending）。
 ///
 /// 放在 `select!` 里是 cancel-safe 的：每位客户端的「无包时长」按每帧重新计时。
-async fn idle_wait(secs: u64) {
-    if secs == 0 {
-        std::future::pending::<()>().await;
-    } else {
-        tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
-    }
-}
-
 async fn serve<S: AccountStore>(
     stream: TcpStream,
     peer: String,
@@ -563,6 +579,10 @@ async fn serve<S: AccountStore>(
 
     let mut frames = FrameBuffer::new();
     let mut chunk = [0u8; 8192];
+    // 心跳截止时刻：每收到**任何**客户端数据就往后推（Crystal 的 `LastPacket` 语义）。
+    // 不能每轮 `sleep(...)` 重建——autosave 分支每 250ms 醒一次，会被无限推后。
+    let idle_timeout = std::time::Duration::from_secs(config.idle_timeout_secs);
+    let mut idle_deadline = tokio::time::Instant::now() + idle_timeout;
     'read: loop {
         let read = tokio::select! {
             read = reader.read(&mut chunk) => match read {
@@ -579,7 +599,7 @@ async fn serve<S: AccountStore>(
             },
             // 心跳超时（抗刷）：`MIR2_IDLE_TIMEOUT_SECS` 秒内没收到**任何**客户端包就断开。
             // Crystal 客户端每分钟发一次 `C.KeepAlive`，所以「有包」=「客户端还活着」。
-            () = idle_wait(config.idle_timeout_secs) => {
+            () = tokio::time::sleep_until(idle_deadline), if config.idle_timeout_secs > 0 => {
                 tracing::info!(
                     session = id,
                     %peer,
@@ -592,8 +612,24 @@ async fn serve<S: AccountStore>(
             () = crate::gm::wait_for_reboot() => {
                 tracing::info!(session = id, %peer, "服务端重启：断开连接");
                 break 'read;
+            },
+            // 周期自动存档（F1）：每 `AUTOSAVE_POLL_MS` 看一次「到点没」。
+            // 周期本身由 `MIR2_AUTOSAVE_SECS` 决定，判定用世界时钟（测试可快进）。
+            // `session` 此刻不在别的 `select!` 分支里，借用是安全的。
+            () = tokio::time::sleep(std::time::Duration::from_millis(
+                crate::session::AUTOSAVE_POLL_MS,
+            )) => {
+                if config.autosave_secs > 0 {
+                    session.autosave_tick().await;
+                }
+                // 本分支不产生「读到的字节数」，用 continue 回到 select（帧缓冲保留）。
+                continue 'read;
             }
         };
+        // 收到了数据 → 心跳计时重新开始。
+        if config.idle_timeout_secs > 0 {
+            idle_deadline = tokio::time::Instant::now() + idle_timeout;
+        }
         frames.push(&chunk[..read]);
         loop {
             let frame = match frames.next_frame() {

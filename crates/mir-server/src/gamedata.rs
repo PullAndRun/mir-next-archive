@@ -731,7 +731,7 @@ mod tests {
         assert!(!data.db.maps.is_empty());
         assert!(
             data.map_info("0").is_some(),
-            "样本里一定有比奇省（地图文件名 0）"
+            "sample must contain BichonProvince (map filename 0)"
         );
     }
 
@@ -770,7 +770,7 @@ mod tests {
         }
         assert!(
             world.monsters().len() > 10,
-            "比奇省应该刷出不少怪，实际 {}",
+            "BichonProvince should spawn many monsters, got {}",
             world.monsters().len()
         );
         // 怪物名字应该来自数据库（不是演示怪的占位名）。
@@ -782,7 +782,7 @@ mod tests {
         assert!(names.len() > 1, "至少有两种怪");
         assert!(
             names.iter().all(|name| !name.is_empty()),
-            "怪物名字来自 MonsterInfo.Name"
+            "monster name comes from MonsterInfo.Name"
         );
     }
 

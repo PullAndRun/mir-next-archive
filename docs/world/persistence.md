@@ -31,6 +31,16 @@ Crystal 只在 `PlayerObject.LogOut` 把角色写回 `Characters`（`PlayerObjec
 * **退出不丢**：`C.LogOut` 与 TCP 断线仍走「离开世界 → 立即保存」，与之前一致；
 * 写盘直接复用 `Character` 整行 UPDATE（与市场/商城事务同一套 `save_character`）。
 
+### 3.1 并发写：每角色锁 + 版本号（t111）
+
+* **锁/队列**：每个角色一把 `Arc<tokio::sync::Mutex>`（`MemoryStore`/`PgStore` 内
+  `save_locks`）——同一角色同时只有一个写，不同角色并行；
+* **版本语义**：session 的 `save_version = max(Unix ms, last + 1)`；store 按角色记录
+  **最后成功版本**，只接受**严格更大**的版本；旧快照返回 `Ok(false)` 直接丢弃；
+  失败不推进版本、可重试；整行仍是**单条 UPDATE 原子**；
+* **RPO 验证**：`autosave_secs=1` 时，+1.1s 后读到最新 777 金币，仍满足
+  **≤ autosave_secs + 1 秒**。
+
 ## 4. 写失败语义与重试
 
 * 失败：`tracing::error!`（字段 `session` / `character` / `failures` / `backoff_ms` / `error`），
@@ -55,12 +65,13 @@ Crystal 只在 `PlayerObject.LogOut` 把角色写回 `Characters`（`PlayerObjec
 30 秒汇总日志（`metrics summary`）新增 `db_save_failed=` / `autosaves=` 两个字段；
 完整字段见 metrics.md §5。
 
-## 6. 测试证据（`crates/mir-server/tests/persistence_audit.rs`）
+## 6. 测试证据（`crates/mir-server/tests/persistence_audit.rs`，**18/18**）
 
 基础 10 条：LogOut 与直接断 TCP 后重连金币一致、只恢复到上次成功写库、并发保存串行化、
 写失败旧行保持、装备/背包/技能/仓库/任务/攻城/行会字段覆盖等。
 
-autosave 相关：
+autosave/版本相关（t111 新增 6 条）：旧版本拒绝、并发时最新版本胜出、同版本仅一个成功、
+失败后可重试、autosave 与 LogOut 的版本顺序、RPO 断言（`autosave_secs=1` + 1.1s 读到最新值）。
 
 * `autosave_bounds_the_crash_window_to_autosave_secs`：用注入世界 + `World::advance_clock`
   快进（**不 sleep**），断言 autosave 到点前库里是旧值 → 推进 1 秒后新金币已入库，

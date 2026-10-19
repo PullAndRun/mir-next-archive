@@ -33,6 +33,8 @@ pub struct TextField {
     pub max_chars: usize,
     /// 是否只接受 ASCII 数字（金币/金额输入）。
     pub numeric: bool,
+    /// 光标位置（**字符**下标，0..=字符数；不是字节下标）。
+    pub cursor: usize,
 }
 
 impl TextField {
@@ -43,6 +45,7 @@ impl TextField {
             value: String::new(),
             max_chars,
             numeric: false,
+            cursor: 0,
         }
     }
 
@@ -53,6 +56,7 @@ impl TextField {
             value: String::new(),
             max_chars,
             numeric: true,
+            cursor: 0,
         }
     }
 
@@ -69,17 +73,49 @@ impl TextField {
         if self.value.chars().count() >= self.max_chars {
             return;
         }
-        self.value.push(character);
+        let byte = self.cursor_byte_index();
+        self.value.insert(byte, character);
+        self.cursor += 1;
     }
 
-    /// 删掉最后一个字符。
+    /// 删掉光标前的一个字符（按 UTF-8 字符边界，中文/表情不会切一半）。
     pub fn backspace(&mut self) {
-        self.value.pop();
+        if self.cursor == 0 {
+            return;
+        }
+        let end = self.cursor_byte_index();
+        let start = self
+            .value
+            .char_indices()
+            .nth(self.cursor - 1)
+            .map_or(0, |(index, _)| index);
+        self.value.replace_range(start..end, "");
+        self.cursor -= 1;
+    }
+
+    /// 光标左移一个字符。
+    pub fn move_left(&mut self) {
+        self.cursor = self.cursor.saturating_sub(1);
+    }
+
+    /// 光标右移一个字符。
+    pub fn move_right(&mut self) {
+        self.cursor = (self.cursor + 1).min(self.value.chars().count());
+    }
+
+    /// 光标所在的字节下标（绘制/切分用）。
+    #[must_use]
+    pub fn cursor_byte_index(&self) -> usize {
+        self.value
+            .char_indices()
+            .nth(self.cursor)
+            .map_or(self.value.len(), |(index, _)| index)
     }
 
     /// 直接写入文本（测试与「回填」用）；会按上限截断并过滤非数字。
     pub fn set(&mut self, text: &str) {
         self.value.clear();
+        self.cursor = 0;
         for character in text.chars() {
             self.insert(character);
         }
@@ -136,9 +172,10 @@ pub fn draw(
         );
         return;
     }
-    // 聚焦时在末尾画光标；`|` 是 ASCII，缺字体时也有像素。
+    // 聚焦时在**光标位置**画竖线（字符边界之间，中文/表情不会切一半）。
     let shown = if focused {
-        format!("{}|", field.value)
+        let byte = field.cursor_byte_index();
+        format!("{}|{}", &field.value[..byte], &field.value[byte..])
     } else {
         field.value.clone()
     };
@@ -188,5 +225,33 @@ mod tests {
         let mut field = TextField::new(2);
         field.set("屠龙刀");
         assert_eq!(field.value, "屠龙");
+    }
+
+    #[test]
+    fn cursor_edits_stay_on_utf8_boundaries() {
+        let mut field = TextField::new(16);
+        field.set("中文abc");
+        assert_eq!(field.cursor, 5);
+        // 光标退到 'a' 前面，插入/退格都按字符边界处理，不 panic。
+        field.move_left();
+        field.move_left();
+        field.move_left();
+        assert_eq!(field.cursor, 2);
+        assert_eq!(field.cursor_byte_index(), "中文".len());
+        field.insert('好');
+        assert_eq!(field.value, "中文好abc");
+        field.backspace();
+        assert_eq!(field.value, "中文abc");
+        field.backspace();
+        assert_eq!(field.value, "中abc");
+        // 连续退格到空、再退格不 panic（光标在中间时先把光标移到末尾）。
+        for _ in 0..10 {
+            field.move_right();
+            field.backspace();
+        }
+        assert!(field.value.is_empty());
+        assert_eq!(field.cursor, 0);
+        field.move_right();
+        assert_eq!(field.cursor, 0);
     }
 }

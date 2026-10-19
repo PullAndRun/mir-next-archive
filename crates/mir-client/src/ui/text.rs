@@ -118,6 +118,15 @@ impl UiText {
         color: [u8; 4],
         clip: Rect,
     ) {
+        // 超宽时尾部加省略号（物品名/技能/任务/按钮都走这里，悬停不换行）。
+        let fitted = if clip.width > 0 && self.text_width(text, size) > clip.width {
+            crate::ui::typography::truncate_with_ellipsis(text, clip.width, &|probe: &str| {
+                self.text_width(probe, size)
+            })
+        } else {
+            text.to_owned()
+        };
+        let text = fitted.as_str();
         let text_clip = TextClip::new(clip.x, clip.y, clip.width, clip.height);
         match &self.renderer {
             Some(renderer) => renderer.draw_clipped(frame, x, y, text, size, color, text_clip),

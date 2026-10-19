@@ -937,6 +937,31 @@ Add/Remove/Memo/Email/Whisper，`KeybindOptions.Friends` 可配键位）；本�
 `C.RequestGuildInfo{type=1}`，等 `S.GuildMemberChange` 回填；窄屏四按钮均分不出屏，
 成员页不画底部提示避免压按钮。截图 `target/client-guild-members.png`。
 
+### 5.23 文本折行、避头尾与输入（第 13 轮）
+
+**折行**：新模块 `ui/typography.rs`——`char_display_width`（CJK=2、ASCII=1、控制字符=0、
+`…`=2）与 `wrap_by_width(text, max_width, max_lines, width_fn)`。聊天用
+`UiText::text_width` 的**真实像素宽**折行；每条消息最多 **3 行**，超出时最后一行预留
+省略号宽度后加 `…`。普通/队伍/行会/系统颜色仍由 `labels::chat_color` 逐行保留。
+
+**避头尾**：
+
+* 收尾标点 `，。、；：？！）】》」』”’…·～` 与 ASCII `;:?!,.)]}` **不得行首**——折行点
+  正好在标点前时，把本行最后一个字符一起挪到下一行；
+* 开头标点 `（【《「『“‘([{` **不得行尾**，同样下移。
+
+**截断**：`UiText::draw_clipped` 全局处理——`text_width > clip.width` 时尾部省略号，
+退化顺序 `…` → `..` → `.`；物品名/技能描述/任务文本/按钮共用，不换行。
+
+**IME/输入框**：`TextField` 新增**字符级光标**（`cursor`、`cursor_byte_index()`、
+`move_left/move_right`）；`insert` 在光标处插入，`backspace` 用 `char_indices` 删光标前
+一个字符（不会切 UTF-8）；聚焦时在光标位置画 `|`。中文中间插入、退格、连续退到空、
+空串右移都不 panic；测试 `cursor_edits_stay_on_utf8_boundaries`。
+
+测试：`typography` 6 例（2/1 宽度、中英混排、避头尾、最多 2 行省略、显式 `\n`、省略号退化）；
+`tests/chat_wrap.rs` 四类消息（长中文/长英文/行会/系统）断言折行 >1 行且无标点行首；
+截图 `target/client-chat-wrap.png`。
+
 
 
 ## 6. 素材加载与渲染

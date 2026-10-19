@@ -646,10 +646,13 @@ if (string.CompareOrdinal(account.Password, p.Password) != 0)
 **RPO 口径**：角色行崩溃丢失窗口 **≤ `autosave_secs` + 1 秒（默认 31 秒）**；
 `MIR2_AUTOSAVE_SECS=0` 时退回 Crystal 语义（仅下线存盘，RPO 无上限）。
 
-审计证据（`crates/mir-server/tests/persistence_audit.rs`）：`autosave_bounds_the_crash_window_to_autosave_secs`
+审计证据（`crates/mir-server/tests/persistence_audit.rs`，18/18）：`autosave_bounds_the_crash_window_to_autosave_secs`
 用注入世界 + `World::advance_clock` 快进（不 sleep），断言到点前库里旧值 → 推进 1 秒后新金币已入库
-且会话仍连着；另有「只写脏角色」「失败后重试成功」用例；以及 LogOut/断 TCP 后重连一致、
-并发保存串行化、写失败旧行保持、装备/背包/技能/仓库/任务/攻城/行会字段覆盖。
+且会话仍连着；另有旧版本拒绝/并发最新胜/同版本仅一胜/失败重试、只写脏角色等用例；
+以及 LogOut/断 TCP 后重连一致、并发保存串行化、写失败旧行保持、装备/背包/技能/仓库/任务/攻城/行会字段覆盖。
+
+**并发写**：每角色一把 `save_locks` 互斥锁 + `save_version`（严格递增，旧快照 `Ok(false)` 丢弃），
+整行单条 UPDATE 原子；详见 [`docs/world/persistence.md`](../world/persistence.md) §3.1。
 
 **失败语义**：Store 层已有 `tracing::error!` 并返回 `Err`，旧行不变、调用方内存不被改写；
 `leave_world` 失败会回灌重试；`mir2_db_save_failed_total` / `mir2_autosave_total` /

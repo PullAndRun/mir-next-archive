@@ -58,6 +58,7 @@ pub mod target;
 pub mod text;
 pub mod tooltip;
 pub mod trade;
+pub mod typography;
 pub mod worldtext;
 
 use std::collections::HashMap;

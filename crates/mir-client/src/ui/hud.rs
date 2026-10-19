@@ -445,21 +445,25 @@ pub fn draw_chat(
         .unwrap_or(1)
         .min(CHAT_VISIBLE_LINES);
     let visible = visible_chat_lines(&snapshot.chat, max_lines);
-    let total_height = u32::try_from(visible.len())
+    // 按显示宽度折行（中文 2/ASCII 1 的真实像素宽），每条消息最多 3 行。
+    let mut wrapped: Vec<(String, [u8; 4])> = Vec::new();
+    for line in visible {
+        let color = labels::chat_color(line.kind);
+        let message = labels::chat_line_text(line, language);
+        for piece in crate::ui::typography::wrap_by_width(&message, lines_area.width, 3, |probe| {
+            text.text_width(probe, SIZE_BODY)
+        }) {
+            wrapped.push((piece, color));
+        }
+    }
+    let total = wrapped.len();
+    let start = total.saturating_sub(max_lines);
+    let total_height = u32::try_from(total - start)
         .unwrap_or(0)
         .saturating_mul(line_height);
     let mut y = lines_area.bottom() - i32::try_from(total_height).unwrap_or(0);
-    for line in visible {
-        let color = labels::chat_color(line.kind);
-        text.draw_clipped(
-            frame,
-            lines_area.x,
-            y,
-            &labels::chat_line_text(line, language),
-            SIZE_BODY,
-            color,
-            lines_area,
-        );
+    for (line, color) in &wrapped[start..] {
+        text.draw_clipped(frame, lines_area.x, y, line, SIZE_BODY, *color, lines_area);
         y = y.saturating_add(i32::try_from(line_height).unwrap_or(0));
     }
 

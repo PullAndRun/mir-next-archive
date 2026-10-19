@@ -32,14 +32,17 @@ use tokio::net::TcpStream;
 /// 出生点（`ServerConfig::start_point` 默认值）。
 const START: (i32, i32) = (330, 270);
 const START_Y: i32 = 270;
-/// 真实 `Server.MirDB`（有物品/怪物模板；没有它时相关用例会明确 skip）。
 /// 真实 `Server.MirDB` 的绝对路径（测试的工作目录是 crate 目录，用 `CARGO_MANIFEST_DIR` 回仓库根）。
+/// 数据库不存在时相关用例会明确 skip 并打印原因。
 fn real_db_path() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../resource/community/clgforever910-mir2database/Daneo1989/Server.MirDB")
 }
-/// 单步等待上限：够服务端处理一个包即可。
-const WAIT: Duration = Duration::from_secs(5);
+/// 单步等待上限。
+///
+/// 15 秒是「够慢机器/并行抖动，又不至于让失败用例卡太久」的折中：本地正常路径都是
+/// 毫秒级返回，只有真出问题才会跑满这个预算（见 `wait_for` 的超时诊断）。
+const WAIT: Duration = Duration::from_secs(15);
 
 struct TestClient {
     stream: TcpStream,
@@ -88,32 +91,58 @@ impl TestClient {
         }
     }
 
-    /// 等到满足 `pred` 的包；超时 panic 并带上「等的是什么」。
+    /// 等到满足 `pred` 的包；超时 panic 并带上「等的是什么 + 等了多久 + 最后收到的包」。
+    ///
+    /// 超时诊断刻意包含**包索引序列**：排查 flake 时一眼能看出「服务端最后一个发的是
+    /// 哪个包、是不是根本没发」（比整段 `Debug` 好读，也不受日志长度限制）。
     async fn wait_for(
         &mut self,
         timeout: Duration,
         what: &str,
         pred: impl Fn(&ServerPacket) -> bool,
     ) -> ServerPacket {
-        let deadline = tokio::time::Instant::now() + timeout;
-        let mut seen = Vec::new();
+        let started = tokio::time::Instant::now();
+        let deadline = started + timeout;
+        let mut seen_indices: Vec<i16> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
         loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             assert!(
                 !remaining.is_zero(),
-                "等待「{what}」超时；期间收到的包：{seen:?}"
+                "{}",
+                timeout_report(what, timeout, started.elapsed(), &seen_indices, &seen)
             );
             let Some(packet) = self.next(remaining).await else {
-                panic!("等待「{what}」超时（连接关闭或无包）；期间收到的包：{seen:?}");
+                panic!(
+                    "{}",
+                    timeout_report(what, timeout, started.elapsed(), &seen_indices, &seen)
+                );
             };
             if pred(&packet) {
                 return packet;
             }
-            if seen.len() < 32 {
+            if seen_indices.len() < 32 {
+                seen_indices.push(packet.index());
                 seen.push(format!("{packet:?}"));
             }
         }
     }
+}
+
+/// 超时诊断文本：等的是什么、预算/实际等了多久、最后收到的包索引序列（+ 前几个包的详情）。
+fn timeout_report(
+    what: &str,
+    budget: Duration,
+    waited: Duration,
+    indices: &[i16],
+    seen: &[String],
+) -> String {
+    let preview: Vec<&String> = seen.iter().take(8).collect();
+    format!(
+        "等待「{what}」超时：预算 {budget:?}，实际等了 {waited:?}；\
+         期间收到 {} 个不匹配的包，最后包索引序列 {indices:?}；前几个包：{preview:?}",
+        indices.len()
+    )
 }
 
 /// 起一个服务端，返回地址。

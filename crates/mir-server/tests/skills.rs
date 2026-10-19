@@ -2238,3 +2238,79 @@ fn magic_monster_kites_when_adjacent() {
     assert!(moved.max_distance(Point::new(20, 20)) > 1);
     assert!(harness.world.player(player).expect("玩家").hp > 0);
 }
+
+// ---------------------------------------------------------------------------
+// F3：BoneSpearman（AI 29）直线遇高墙 continue 的回归
+// ---------------------------------------------------------------------------
+
+#[test]
+fn bone_spearman_line_continues_past_high_wall() {
+    let mut harness = Harness::new(72);
+    // 直线第一格 (21,20) 是高墙，目标在墙后的 (22,20)。
+    harness
+        .world
+        .insert_map(MAP, synthetic_map(&[Point::new(21, 20)]));
+    assert!(
+        !harness
+            .world
+            .map_of(MAP)
+            .expect("合成地图")
+            .walkable(21, 20),
+        "合成地图的 (21,20) 应是不可走高墙"
+    );
+    let player = harness.add_player(1, MirClass::Warrior, 30, Point::new(22, 20));
+    let hp = harness.world.player(player).expect("玩家").hp;
+    let monster = harness.spawn_active(magic_kind("骷髅长枪兵", 29), Point::new(20, 20));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    harness.elapse(600);
+    assert!(
+        harness.world.player(player).expect("玩家").hp < hp,
+        "高墙后的目标仍应被直线命中（遇墙 continue，不是 break）"
+    );
+}
+
+#[test]
+fn bone_spearman_line_hits_target_before_high_wall() {
+    let mut harness = Harness::new(73);
+    // 直线第二格 (22,20) 是墙，目标在墙前 (21,20)；证明墙前目标正常命中。
+    harness
+        .world
+        .insert_map(MAP, synthetic_map(&[Point::new(22, 20)]));
+    assert!(
+        !harness
+            .world
+            .map_of(MAP)
+            .expect("合成地图")
+            .walkable(22, 20)
+    );
+    let player = harness.add_player(1, MirClass::Warrior, 30, Point::new(21, 20));
+    let hp = harness.world.player(player).expect("玩家").hp;
+    let monster = harness.spawn_active(magic_kind("骷髅长枪兵", 29), Point::new(20, 20));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    harness.elapse(600);
+    assert!(
+        harness.world.player(player).expect("玩家").hp < hp,
+        "墙前目标应正常被命中"
+    );
+}
+
+#[test]
+fn bone_spearman_line_wall_without_target_after_does_not_panic() {
+    let mut harness = Harness::new(74);
+    // 目标在墙前，墙后没有目标；continue 扫到墙后空格不应 panic。
+    harness
+        .world
+        .insert_map(MAP, synthetic_map(&[Point::new(22, 20)]));
+    let player = harness.add_player(1, MirClass::Warrior, 30, Point::new(21, 20));
+    let monster = harness.spawn_active(magic_kind("骷髅长枪兵", 29), Point::new(20, 20));
+    harness.wake_monster(monster);
+
+    harness.elapse(0);
+    harness.elapse(600);
+    assert!(harness.world.monster(monster).is_some());
+    assert!(harness.world.player(player).is_some());
+}

@@ -42,6 +42,27 @@ function Invoke-Gate {
 # Python 解释器：Windows 上 `python` 常是 Microsoft Store 的占位 stub，优先用 `py`。
 $python = "python"
 if (Get-Command py -ErrorAction SilentlyContinue) { $python = "py" }
+
+# 测试库连接串：**必须在跑 `cargo test --workspace` 之前就设好**。
+# 现在有一批「真 PG」用例（如 `conquest_reload_from_postgres_*`）是 fail-loud 的：
+# 没有 `MIR2_TEST_DATABASE_URL` 会直接 FAILED 而不是 skip —— 若只在 PG 那一项里设置，
+# 前面的 workspace 测试门禁就会红。
+# 优先级：显式环境变量 → 仓库根 `.env` 的 `MIR2_DEV_DATABASE_URL` 换库名 → 本地默认。
+if (-not $env:MIR2_TEST_DATABASE_URL) {
+    $envFile = Join-Path $root ".env"
+    if (Test-Path $envFile) {
+        $devLine = Get-Content $envFile | Where-Object { $_ -match '^\s*MIR2_DEV_DATABASE_URL\s*=' } | Select-Object -First 1
+        if ($devLine) {
+            $devUrl = ($devLine -split '=', 2)[1].Trim().Trim('"')
+            $env:MIR2_TEST_DATABASE_URL = $devUrl -replace '/[^/]+$', '/mir2_test'
+        }
+    }
+}
+if (-not $env:MIR2_TEST_DATABASE_URL) {
+    $env:MIR2_TEST_DATABASE_URL = "postgres://postgres:postgres@127.0.0.1:5432/mir2_test"
+}
+Write-Host "    测试库（workspace 测试与 PG 门禁共用）：$($env:MIR2_TEST_DATABASE_URL -replace ':[^:@]+@', ':***@')" -ForegroundColor DarkGray
+
 # 预检：残留的 mir-server / mir-client 会锁住 target\debug\*.exe，构建直接失败。
 $stale = @(Get-Process -Name mir-server, mir-client -ErrorAction SilentlyContinue)
 if ($stale.Count -gt 0) {
@@ -85,27 +106,8 @@ Invoke-Gate "TextKey 完整性" "$python tools/i18n/verify_text_keys.py"
 Invoke-Gate "硬编码棘轮（player-visible，阈值 70）" "$python tools/i18n/scan_hardcoded.py --player-visible --strict --fail-above 70"
 Invoke-Gate "硬编码棘轮（no-test，阈值 15）" "$python tools/i18n/scan_hardcoded.py --no-test --player-visible --strict --fail-above 15"
 
-# 5) PostgreSQL 集成测试
+# 5) PostgreSQL 集成测试（连接串已在脚本开头统一设好，这里只跑门禁）
 if (-not $SkipTests -and -not $SkipPostgres) {
-    # 测试库连接串的来源（按优先级）：
-    #   1) 已显式设置的 `MIR2_TEST_DATABASE_URL`
-    #   2) 从仓库根的 `.env` 里取 `MIR2_DEV_DATABASE_URL`，把库名换成 `mir2_test`
-    #      （本机 PG 在 nas:3001，写死 127.0.0.1 会 `PoolTimedOut`）
-    #   3) 最后才回落到本地默认值
-    if (-not $env:MIR2_TEST_DATABASE_URL) {
-        $envFile = Join-Path $root ".env"
-        if (Test-Path $envFile) {
-            $devLine = Get-Content $envFile | Where-Object { $_ -match '^\s*MIR2_DEV_DATABASE_URL\s*=' } | Select-Object -First 1
-            if ($devLine) {
-                $devUrl = ($devLine -split '=', 2)[1].Trim().Trim('"')
-                $env:MIR2_TEST_DATABASE_URL = $devUrl -replace '/[^/]+$', '/mir2_test'
-            }
-        }
-    }
-    if (-not $env:MIR2_TEST_DATABASE_URL) {
-        $env:MIR2_TEST_DATABASE_URL = "postgres://postgres:postgres@127.0.0.1:5432/mir2_test"
-    }
-    Write-Host "    测试库：$($env:MIR2_TEST_DATABASE_URL -replace ':[^:@]+@', ':***@')" -ForegroundColor DarkGray
     Invoke-Gate "PostgreSQL 集成测试（mir-store 串行）" "cargo test -p mir-store -- --test-threads=1"
 }
 

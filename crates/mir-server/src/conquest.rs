@@ -151,6 +151,12 @@ pub struct Conquest {
     pub owner: i32,
     /// 已排队的攻打方行会 ID（`ConquestGuildInfo.AttackerID`），`-1` = 没人申请。
     pub attacker: i32,
+    /// 当前最高攻城竞价（本作扩展；0 = 尚未竞价）。
+    pub highest_bid: u32,
+    /// 当前最高竞价行会（`-1` = 无）。
+    pub highest_bidder: i32,
+    /// 已被超越的竞价退款记录：`(行会, 金额)`。
+    pub bid_refunds: Vec<(i32, u32)>,
     /// 城主税收池（`ConquestGuildInfo.GoldStorage`）。
     pub gold_storage: u32,
     /// 城主设置的加价百分比（`ConquestGuildInfo.NPCRate`）。
@@ -205,6 +211,9 @@ impl Conquest {
             extra_maps: Vec::new(),
             owner: -1,
             attacker: -1,
+            highest_bid: 0,
+            highest_bidder: -1,
+            bid_refunds: Vec::new(),
             gold_storage: 0,
             npc_rate: 0,
             war_is_on: false,
@@ -416,6 +425,14 @@ pub enum ConquestError {
     /// 不是城主行会（`NPCSegment.cs:4229`、`:4244` 的 `Guildindex == Owner`）。
     #[error("only the owning guild can perform this action")]
     NotOwnerGuild,
+    /// 竞价必须严格高于当前最高价。
+    #[error("bid {bid} must be higher than current bid {current}")]
+    BidTooLow {
+        /// 当前最高价。
+        current: u32,
+        /// 本次出价。
+        bid: u32,
+    },
 }
 
 impl ConquestError {
@@ -442,7 +459,9 @@ impl ConquestError {
             ),
             Self::AlreadyOwner => format_text(language, TextKey::ConquestAlreadyOwner, &[]),
             Self::AtWar => format_text(language, TextKey::ConquestAtWar, &[]),
-            Self::AlreadyScheduled => format_text(language, TextKey::ConquestAlreadyScheduled, &[]),
+            Self::AlreadyScheduled | Self::BidTooLow { .. } => {
+                format_text(language, TextKey::ConquestAlreadyScheduled, &[])
+            }
             Self::LevelTooLow { required, level } => format_text(
                 language,
                 TextKey::ConquestLevelTooLow,
@@ -478,6 +497,21 @@ pub struct WarRequestReport {
     pub war_started: bool,
     /// 下一次自动开战的时刻（Unix 毫秒，0 = 未知）。
     pub next_war_at: i64,
+}
+
+/// 一次攻城竞价的结果（本作扩展，世界级测试用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WarBidReport {
+    /// 攻城区主键。
+    pub conquest_index: i32,
+    /// 最高价行会。
+    pub guild_id: i32,
+    /// 当前最高价。
+    pub highest_bid: u32,
+    /// 被超越并获得退款的行会（`-1` = 首次出价）。
+    pub refunded_guild: i32,
+    /// 退款金额（首次出价为 0）。
+    pub refunded_amount: u32,
 }
 
 /// 一轮攻城处理的结果（[`World::process_conquests_at`] 的返回值，测试与日志用）。
@@ -905,6 +939,79 @@ impl World {
             gold_spent: settings.war_cost,
             war_started,
             next_war_at,
+        })
+    }
+
+    /// 对攻城资格出价（本作扩展的竞价模型）：严格高于当前最高价才接受；
+    /// 被超越的行会立即拿回原出价，最高价/退款记录只在接受时变化。
+    ///
+    /// # Errors
+    /// 非会长、无行会、开战中、已是城主或出价不高于当前最高价时返回 [`ConquestError`]。
+    pub fn place_conquest_bid(
+        &mut self,
+        player_id: u32,
+        conquest_index: i32,
+        bid: u32,
+    ) -> Result<WarBidReport, ConquestError> {
+        let Some(player) = self.players.get(&player_id) else {
+            return Err(ConquestError::NotInWorld(player_id));
+        };
+        let Some(reference) = player.guild else {
+            return Err(ConquestError::NotInGuild);
+        };
+        if reference.rank_index != 0 {
+            return Err(ConquestError::NotLeader);
+        }
+        let guild_id = reference.guild_id;
+        let Some((current, bidder, owner, at_war)) = self
+            .conquest(conquest_index)
+            .map(|c| (c.highest_bid, c.highest_bidder, c.owner, c.war_is_on))
+        else {
+            return Err(ConquestError::NotFound(conquest_index));
+        };
+        if at_war {
+            return Err(ConquestError::AtWar);
+        }
+        if owner == guild_id {
+            return Err(ConquestError::AlreadyOwner);
+        }
+        if bid <= current {
+            return Err(ConquestError::BidTooLow { current, bid });
+        }
+        let Some(guild_gold) = self.guilds.get(&guild_id).map(|guild| guild.gold) else {
+            return Err(ConquestError::NotInGuild);
+        };
+        if guild_gold < bid {
+            return Err(ConquestError::NotEnoughGold {
+                required: bid,
+                gold: guild_gold,
+            });
+        }
+        let mut refunded = (-1, 0);
+        if bidder >= 0 && current > 0 {
+            if let Some(previous) = self.guilds.get_mut(&bidder) {
+                previous.gold = previous.gold.saturating_add(current);
+            }
+            refunded = (bidder, current);
+        }
+        if let Some(guild) = self.guilds.get_mut(&guild_id) {
+            guild.gold = guild.gold.saturating_sub(bid);
+        }
+        if let Some(conquest) = self.conquest_mut(conquest_index) {
+            conquest.attacker = guild_id;
+            conquest.highest_bid = bid;
+            conquest.highest_bidder = guild_id;
+            if refunded.0 >= 0 {
+                conquest.bid_refunds.push(refunded);
+            }
+            conquest.dirty = true;
+        }
+        Ok(WarBidReport {
+            conquest_index,
+            guild_id,
+            highest_bid: bid,
+            refunded_guild: refunded.0,
+            refunded_amount: refunded.1,
         })
     }
 

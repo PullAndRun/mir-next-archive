@@ -185,27 +185,31 @@ async fn wait_port(port: u16, timeout: Duration) {
     }
 }
 
-async fn http_metric(port: u16, name: &str) -> Option<u64> {
-    // 用 Windows 自带 curl.exe 读端点，避免手写 HTTP 分块/编码差异。
-    let output = Command::new("C:\\Windows\\System32\\curl.exe")
-        .args([
-            "-s",
-            "--max-time",
-            "3",
-            &format!("http://127.0.0.1:{port}/metrics"),
-        ])
-        .output()
-        .ok()?;
-    let body = String::from_utf8_lossy(&output.stdout);
-    for line in body.lines() {
-        if let Some(rest) = line.strip_prefix(name) {
-            if let Some(value) = rest.trim_start().strip_prefix(' ') {
-                return value.trim().parse().ok();
+fn latest_db_save_log(dir: &std::path::Path) -> Option<(u64, i64)> {
+    let text = std::fs::read_to_string(dir.join("server.err.log")).ok()?;
+    let mut best: Option<(u64, i64)> = None;
+    for line in text.lines() {
+        let Some(rest) = line.split("db_save ok ").nth(1) else {
+            continue;
+        };
+        let mut seq = None;
+        let mut t = None;
+        for token in rest.split_whitespace() {
+            if let Some(value) = token.strip_prefix("seq=") {
+                seq = value.parse::<u64>().ok();
+            } else if let Some(value) = token.strip_prefix("t=") {
+                t = value.parse::<i64>().ok();
             }
         }
+        if let (Some(seq), Some(t)) = (seq, t)
+            && best.is_none_or(|(old, _)| seq > old)
+        {
+            best = Some((seq, t));
+        }
     }
-    None
+    best
 }
+
 struct RpoClient {
     stream: TcpStream,
     frames: FrameBuffer,
@@ -336,6 +340,7 @@ fn spawn_rpo_server(
     if !copy.exists() {
         std::fs::copy(exe, &copy).expect("复制 server");
     }
+    let log = std::fs::File::create(dir.join("server.err.log")).expect("创建 server 日志");
     let child = Command::new(&copy)
         .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
         .env("MIR2_LISTEN", format!("127.0.0.1:{port}"))
@@ -345,6 +350,8 @@ fn spawn_rpo_server(
         .env("MIR2_GM_ACCOUNTS", gm)
         .env("MIR2_DATABASE_URL", url)
         .env("RUST_LOG", "info")
+        .stdout(std::process::Stdio::from(log))
+        .stderr(std::process::Stdio::null())
         .spawn()
         .expect("启动 server");
     let pid = child.id();
@@ -356,7 +363,7 @@ fn spawn_rpo_server(
 }
 
 #[tokio::test]
-#[ignore = "RPO harness 未完成：metrics 探测与 T_save 尚未可靠；禁止在噪声窗口跑"]
+
 async fn rpo_bounded_by_autosave_after_hard_kill() {
     let Ok(url) = std::env::var("MIR2_TEST_DATABASE_URL") else {
         panic!("MIR2_TEST_DATABASE_URL 未设置；fail-loud")
@@ -379,13 +386,8 @@ async fn rpo_bounded_by_autosave_after_hard_kill() {
     let mut client = RpoClient::connect(port).await;
     let _ = client.login_new(&user).await;
     let start_gold = 0u64;
-    println!(
-        "probe metric={:?}",
-        http_metric(metrics_port, "mir2_db_save_total").await
-    );
-    let base_saves = http_metric(metrics_port, "mir2_db_save_total")
-        .await
-        .unwrap_or(0);
+    let base_seq = latest_db_save_log(&dir).map_or(0, |(seq, _)| seq);
+    println!("base save seq={base_seq}");
 
     let mut writes: Vec<u128> = Vec::new();
     for _ in 0..5 {
@@ -398,33 +400,32 @@ async fn rpo_bounded_by_autosave_after_hard_kill() {
         writes.push(now_millis());
         tokio::time::sleep(Duration::from_millis(1_100)).await;
     }
-    // T_save：等待服务端 metrics 出现新的成功存盘；取第一次观察到的时刻。
+    // T_save：读服务端日志里 max(seq) 的 t（不依赖 /metrics，也不取文件尾行）。
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut t_save = None;
     while Instant::now() < deadline {
-        if let Some(value) = http_metric(metrics_port, "mir2_db_save_total").await {
-            if value > base_saves {
-                t_save = Some(now_millis());
-                break;
-            }
+        if let Some((seq, t)) = latest_db_save_log(&dir)
+            && seq > base_seq
+        {
+            t_save = Some(t);
+            break;
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
     let t_save = match t_save {
         Some(t) => t,
         None => {
             panic!(
-                "10s 内没有观察到 autosave 成功；saves={:?} auto={:?} failed={:?}",
-                http_metric(metrics_port, "mir2_db_save_total").await,
-                http_metric(metrics_port, "mir2_autosave_total").await,
-                http_metric(metrics_port, "mir2_db_save_failed_total").await
+                "10s 内没有观察到 db_save 日志；latest={:?}",
+                latest_db_save_log(&dir)
             )
         }
     };
+    let t_save_ms = u128::try_from(t_save).expect("t_save");
     let offset = 300 + (stamp % 600);
     tokio::time::sleep(Duration::from_millis(u64::try_from(offset).unwrap())).await;
     let kill_wall = now_millis();
-    let kill_time = Instant::now();
+
     let pid = server.pid;
     let kill_status = Command::new("powershell")
         .args([
@@ -457,13 +458,13 @@ async fn rpo_bounded_by_autosave_after_hard_kill() {
     });
     drop(restarted);
     let killed_after = writes.iter().filter(|&&t| t + 2000 <= kill_wall).count();
-    let elapsed_since_save = kill_time.elapsed().as_millis();
+    let kill_minus_save = kill_wall.saturating_sub(t_save_ms);
     println!(
         "RPO K=5 persisted={} start_gold={start_gold} T_save={t_save} kill={kill_wall} \
-         killed_after_2s={killed_after} elapsed_after_save_ms={elapsed_since_save}",
+         killed_after_2s={killed_after} kill_minus_save_ms={kill_minus_save}",
         persisted - start_gold
     );
-    assert!(kill_wall > t_save, "kill 应在 T_save 后发生");
+    assert!(kill_wall > t_save_ms, "kill 应在 T_save 后发生");
     assert!(
         (persisted - start_gold) as usize >= killed_after,
         "kill-2s 前的写必须全部在 DB"
@@ -471,5 +472,9 @@ async fn rpo_bounded_by_autosave_after_hard_kill() {
     assert!(
         5usize.saturating_sub((persisted - start_gold) as usize) <= 1,
         "loss 必须 ≤1"
+    );
+    assert!(
+        kill_minus_save <= 2_000,
+        "kill 距最近成功存盘必须 ≤2s，实际 {kill_minus_save}ms"
     );
 }

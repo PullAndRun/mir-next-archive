@@ -13,8 +13,8 @@
 * §7.2 的「原文」把旧占位（`{}` / `{0}` / `{CONST}`）按「参数占位」列改成 `{snake_case}` 后，
   必须与 zh 模板**逐字相同**；英文模板的占位符集合必须与 `args()` 相同；
 * 第 1 轮的 11 个无参键不在 §7.2 内，单列核对；另有 4 个 `guild_not_allowed_*`
-  扩展键（行会权限的具体提示，替换会泄漏给玩家的内部标识符），走白名单单列核对，
-  不进 §7.2；除这 15 个键之外的键都必须是 §7.2 的键（没有孤儿键，也没有漏登记的键）。
+  扩展键（行会权限的具体提示，替换会泄漏给玩家的内部标识符）以及后续扩展键（当前共 25 个），
+  走白名单单列核对，不进 §7.2；除这些键之外的键都必须是 §7.2 的键（无孤儿键、无漏登记）。
 
 用法::
 
@@ -57,7 +57,7 @@ LEGACY_KEYS = (
 
 #: 第 2 轮在 §7.2 之外追加的扩展键：把 `GuildError::Permission` 里会泄漏给玩家的
 #: 内部标识符（`CanRecruit` 等）换成具体提示（Crystal `ServerTextKeys.NotAllowed*`）。
-#: 口径：§7.2 是**冻结的扫描清单**（192 行 / 185 键），这 4 个键不进 §7.2 表格，
+#: 口径：§7.2 是**冻结的扫描清单**（192 行 / 185 键），这些扩展键不进 §7.2 表格，
 #: 由下面的白名单单独核对（对照表里也单列一节）；§7.2 的 `guild_no_permission`
 #: 仍保留，作未知权限兜底。
 EXTENSION_KEYS = (
@@ -66,6 +66,9 @@ EXTENSION_KEYS = (
     "guild_not_allowed_change_rank",
     "guild_not_allowed_change_notice",
     "quest_item_found",
+    # 第 24 轮：C.AcceptQuest 失败反馈（Crystal AcceptQuest 的 ReceiveChat）。
+    "quest_accept_failed",
+    "quest_too_many",
     "ally_usage",
     "ally_guild_not_found",
     "ally_requested",
@@ -353,7 +356,7 @@ def build_markdown(
         f"| §7.2 表格行 | {len(rows)} |",
         f"| §7.2 唯一键 | {len({row.key for row in rows})}（{len(rows) - len({row.key for row in rows})} 行是重复出现的键） |",
         f"| 第 1 轮无参键 | {len(LEGACY_KEYS)} |",
-        f"| 扩展键（行会权限，不在 §7.2 内） | {len(EXTENSION_KEYS)} |",
+        f"| 扩展键（不在 §7.2 内） | {len(EXTENSION_KEYS)} |",
         f"| `TextKey` 变体 / `ALL` | {len(tables.variants)} / {len(tables.all_entries)} |",
         f"| 带参数的键 | {parameterized} |",
         f"| 语言包 server 键（zh / en） | {len(zh_pack)} / {len(en_pack)} |",
@@ -392,7 +395,7 @@ def build_markdown(
 
     lines += [
         "",
-        "## 扩展键（4 个，不属于 §7.2）",
+        f"## 扩展键（{len(EXTENSION_KEYS)} 个，不属于 §7.2）",
         "",
         "用于替换 `GuildError::Permission` 会泄漏给玩家的内部标识符（Crystal `ServerTextKeys.NotAllowed*`）；"
         "§7.2 的 `guild_no_permission` 仍保留，作未知权限兜底。",
@@ -490,7 +493,7 @@ def verify() -> tuple[list[str], list[DocRow], RustTables, dict[str, str], dict[
     )
     check(
         set(zh_pack) - doc_keys == set(LEGACY_KEYS) | set(EXTENSION_KEYS),
-        "除第 1 轮 11 个键与 4 个扩展键外还有不在 §7.2 里的键："
+        f"除第 1 轮 {len(LEGACY_KEYS)} 个键与 {len(EXTENSION_KEYS)} 个扩展键外还有不在 §7.2 里的键："
         f"{sorted(set(zh_pack) - doc_keys - set(LEGACY_KEYS) - set(EXTENSION_KEYS))}",
     )
     check(
@@ -555,7 +558,7 @@ def verify() -> tuple[list[str], list[DocRow], RustTables, dict[str, str], dict[
         if en_pack.get(key) != tables.en.get(variant):
             problems.append(f"第 1 轮的键 {key}：en.json 与内置模板不一致")
 
-    # ---- 5) 4 个行会权限扩展键（不属于 §7.2）：无参、且两份语言包与内置模板一致 ----
+    # ---- 5) 扩展键（不属于 §7.2）：无参、且两份语言包与内置模板一致 ----
     for key in EXTENSION_KEYS:
         variant = camel_case(key)
         check(
@@ -644,3 +647,5 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
+
+

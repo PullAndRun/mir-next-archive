@@ -983,6 +983,15 @@ impl World {
         self.mail_writes.len()
     }
 
+    /// `/metrics` 用：当前有多少个玩家持有「市场搜索态」（每个在线玩家至多 1 条，下线即 `remove`）。
+    ///
+    /// 慢泄漏观测（第 24 轮）：这个数应当**跟着在线人数走**（`<= players_online`），
+    /// 若它随运行时间单调上涨而在线人数不变，就是清理路径漏了。
+    #[must_use]
+    pub fn market_search_count(&self) -> usize {
+        self.market_searches.len()
+    }
+
     /// 启动清理：把已过期（`expired == true` 或已到
     /// [`CONSIGNMENT_LENGTH_DAYS`] 天）且未售出的挂单**退回并删除**。
     ///

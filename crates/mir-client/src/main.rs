@@ -493,12 +493,14 @@ fn run_connected(
 /// 没有音频设备时 [`SoundPlayer::new`] 会打印一次警告并退化成空操作
 /// （CI 上没有声卡也能照常跑窗口）。
 fn build_sound_player(options: &Options, settings: &ClientSettings) -> SoundPlayer {
+    // 音量以统一配置 `config/client.toml` 为准（缺失/损坏时 ClientConfig 已回落默认）；
+    // 命令行 `--volume`/`--music-volume` 只覆盖本次运行。
+    let (config, _issue) =
+        mir_client::client_config::ClientConfig::load(mir_client::client_config::default_path());
     let enabled = settings.sound && !options.no_sound;
-    let volume = options.volume.unwrap_or_else(|| settings.sound_volume());
+    let volume = options.volume.unwrap_or(config.sound_volume);
     let music_enabled = settings.music && !options.no_music;
-    let music_volume = options
-        .music_volume
-        .unwrap_or_else(|| settings.music_volume());
+    let music_volume = options.music_volume.unwrap_or(config.music_volume);
     // 素材目录：`--sound-dir` 最优先，其次是按 `--data-dir` 推出来的
     // `resource/wav` 与 Crystal 完整音效/音乐集，最后是相对当前目录的默认值兜底。
     let mut library = SoundLibrary::around_data_dir(&options.data_dir);
@@ -506,7 +508,10 @@ fn build_sound_player(options: &Options, settings: &ClientSettings) -> SoundPlay
     for directory in options.sound_dirs.iter().rev() {
         library.push_front(directory.clone());
     }
-    SoundPlayer::new_with_music(library, enabled, volume, music_enabled, music_volume)
+    let mut player =
+        SoundPlayer::new_with_music(library, enabled, volume, music_enabled, music_volume);
+    player.set_master_volume(config.master_volume);
+    player
 }
 
 /// 联机模式的地图加载：失败时退化成空白地图，但仍然尝试加载实体图库。

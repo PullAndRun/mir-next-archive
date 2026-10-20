@@ -508,6 +508,10 @@ pub enum TextKey {
     NpcBuffGiven,
     /// 场景：`share_quest`（`quests.rs:476`）；模板：`组队并且附近有队友时才能分享任务。`；参数：无。
     QuestShareNeedsParty,
+    /// 场景：`on_accept_quest` 失败（过多任务）；模板：`你同时接取的任务太多了。`；参数：无。
+    QuestTooMany,
+    /// 场景：`on_accept_quest` 其它失败；模板：`接取任务失败。`；参数：无。
+    QuestAcceptFailed,
     /// 场景：`S.SendOutputMessage{Quest}`（`quests.rs:477`）；模板：`你杀死了 {monster}`；参数：`{monster}`。
     QuestKilledMonster,
     /// 场景：`任务进度文本后缀`（`quests.rs:478`）；模板：`（已完成）`；参数：无。
@@ -787,6 +791,8 @@ impl TextKey {
         Self::NpcBuffBadDuration,
         Self::NpcBuffGiven,
         Self::QuestShareNeedsParty,
+        Self::QuestTooMany,
+        Self::QuestAcceptFailed,
         Self::QuestKilledMonster,
         Self::QuestTaskDoneSuffix,
         Self::QuestTaskKill,
@@ -1027,6 +1033,8 @@ impl TextKey {
             Self::NpcBuffBadDuration => "npc_buff_bad_duration",
             Self::NpcBuffGiven => "npc_buff_given",
             Self::QuestShareNeedsParty => "quest_share_needs_party",
+            Self::QuestTooMany => "quest_too_many",
+            Self::QuestAcceptFailed => "quest_accept_failed",
             Self::QuestKilledMonster => "quest_killed_monster",
             Self::QuestTaskDoneSuffix => "quest_task_done_suffix",
             Self::QuestTaskKill => "quest_task_kill",
@@ -1272,6 +1280,8 @@ impl TextKey {
             Self::NpcBuffBadDuration => &["value"],
             Self::NpcBuffGiven => &["buff", "seconds"],
             Self::QuestShareNeedsParty => &[],
+            Self::QuestTooMany => &[],
+            Self::QuestAcceptFailed => &[],
             Self::QuestKilledMonster => &["monster"],
             Self::QuestTaskDoneSuffix => &[],
             Self::QuestTaskKill => &["monster", "count", "total"],
@@ -1666,6 +1676,8 @@ const fn text_zh(key: TextKey) -> &'static str {
         TextKey::NpcBuffBadDuration => "增益时长必须是 1~2592000 之间的秒数，收到：{value}。",
         TextKey::NpcBuffGiven => "获得增益：{buff}，持续 {seconds} 秒。",
         TextKey::QuestShareNeedsParty => "组队并且附近有队友时才能分享任务。",
+        TextKey::QuestTooMany => "你同时接取的任务太多了。",
+        TextKey::QuestAcceptFailed => "接取任务失败。",
         TextKey::QuestKilledMonster => "你杀死了 {monster}",
         TextKey::QuestTaskDoneSuffix => "（已完成）",
         TextKey::QuestTaskKill => "击杀 {monster} {count}/{total}",
@@ -2005,6 +2017,8 @@ const fn text_en(key: TextKey) -> &'static str {
         TextKey::QuestShareNeedsParty => {
             "You can only share a quest while in a group with a member nearby."
         }
+        TextKey::QuestTooMany => "You are already on too many quests.",
+        TextKey::QuestAcceptFailed => "Failed to accept the quest.",
         TextKey::QuestKilledMonster => "You killed {monster}",
         TextKey::QuestTaskDoneSuffix => " (done)",
         TextKey::QuestTaskKill => "Kill {monster} {count}/{total}",
@@ -2401,7 +2415,11 @@ mod tests {
         //
         // 新增变体时必须同时登记 `TextKey::ALL`，否则这条会挡住——`ALL` 是
         // 语言包校验与参数核对的唯一入口，漏登记等于漏测试。
-        assert_eq!(TextKey::ALL.len(), 234, "新增/删除键时同步更新数量");
+        //
+        // 第 24 轮又追加 2 个「任务接取失败」键（`quest_too_many` /
+        // `quest_accept_failed`，对齐 Crystal `AcceptQuest` 的 `ReceiveChat`），
+        // 故 234 → 236。
+        assert_eq!(TextKey::ALL.len(), 236, "新增/删除键时同步更新数量");
     }
 
     #[test]

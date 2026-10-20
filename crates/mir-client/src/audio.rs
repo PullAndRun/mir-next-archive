@@ -53,6 +53,11 @@ pub const DEFAULT_VOLUME: f32 = 0.5;
 /// 背景音乐默认音量（独立于音效；需求：`--music-volume`，默认 0.5）。
 pub const DEFAULT_MUSIC_VOLUME: f32 = 0.5;
 
+/// 登录音（Crystal `SoundList.LoginEffect = 10100`，`SoundList.lst` 映射到 `100.wav`）。
+pub const LOGIN_SOUND_FILE: &str = "100.wav";
+/// 切图音（Crystal `SoundList.SelectMusic = 10147`，`SoundList.lst` 映射到 `Select2.wav`）。
+pub const MAP_CHANGE_SOUND_FILE: &str = "Select2.wav";
+
 /// 100 ms 频控表：`文件名 → 上次播放时间（Unix 毫秒）`。
 #[derive(Debug, Default, Clone)]
 pub struct SoundThrottle {
@@ -184,6 +189,18 @@ impl SoundLibrary {
 
     /// 这个文件能不能找到。
     #[must_use]
+    pub fn has_any_audio_file(&self) -> bool {
+        self.roots.iter().any(|root| {
+            std::fs::read_dir(root).is_ok_and(|entries| {
+                entries.flatten().any(|entry| {
+                    entry.path().extension().is_some_and(|ext| {
+                        ext.eq_ignore_ascii_case("wav") || ext.eq_ignore_ascii_case("mp3")
+                    })
+                })
+            })
+        })
+    }
+
     pub fn contains(&self, file: &str) -> bool {
         self.resolve(file).is_some()
     }
@@ -206,6 +223,8 @@ pub struct SoundPlayer {
     throttle: SoundThrottle,
     /// 音量（0.0..=1.0）。
     volume: f32,
+    /// 主音量（`client.toml` 的 `master_volume`，0.0..=1.0；与音效/音乐音量乘算）。
+    master_volume: f32,
     /// 是否启用音效（`--no-sound` / 设置文件关掉时为 `false`）。
     enabled: bool,
     /// 是否启用背景音乐（`--no-music` / 设置文件关掉时为 `false`）。
@@ -234,6 +253,7 @@ impl std::fmt::Debug for SoundPlayer {
         debug
             .field("roots", &self.library.roots)
             .field("volume", &self.volume)
+            .field("master_volume", &self.master_volume)
             .field("enabled", &self.enabled)
             .field("music_volume", &self.music_volume)
             .field("music_enabled", &self.music_enabled)
@@ -272,6 +292,9 @@ impl SoundPlayer {
     ) -> Self {
         let mut player =
             Self::without_device(library, enabled, volume).with_music(music_enabled, music_volume);
+        if enabled && !player.library.has_any_audio_file() {
+            eprintln!("音频不可用：未找到音效素材（检查 resource/wav 或 --sound-dir）");
+        }
         if enabled || music_enabled {
             match rodio::DeviceSinkBuilder::open_default_sink() {
                 Ok(mut sink) => {
@@ -282,7 +305,7 @@ impl SoundPlayer {
                 }
                 Err(error) => {
                     eprintln!(
-                        "警告：无法打开音频设备（{error}）；音效/音乐已禁用，窗口与渲染照常运行。"
+                        "音频不可用：无法打开音频设备（{error}）；音效/音乐已禁用，窗口与渲染照常运行。"
                     );
                 }
             }
@@ -297,6 +320,7 @@ impl SoundPlayer {
             library,
             throttle: SoundThrottle::new(),
             volume: volume.clamp(0.0, 1.0),
+            master_volume: 1.0,
             enabled,
             music_enabled: true,
             music_volume: DEFAULT_MUSIC_VOLUME,
@@ -367,6 +391,26 @@ impl SoundPlayer {
         self.volume = volume.clamp(0.0, 1.0);
     }
 
+    /// 音效的实际增益：`sound_volume × master_volume`（0 表示静音）。
+    #[must_use]
+    pub fn effective_sound_volume(&self) -> f32 {
+        if self.enabled {
+            self.volume * self.master_volume
+        } else {
+            0.0
+        }
+    }
+
+    /// 背景音乐的实际增益：`music_volume × master_volume`（0 表示静音）。
+    #[must_use]
+    pub fn effective_music_volume(&self) -> f32 {
+        if self.music_enabled {
+            self.music_volume * self.master_volume
+        } else {
+            0.0
+        }
+    }
+
     /// 是否启用背景音乐（不看设备）。
     #[must_use]
     pub fn is_music_enabled(&self) -> bool {
@@ -379,6 +423,20 @@ impl SoundPlayer {
         self.music_enabled && self.backend.is_some()
     }
 
+    /// 设置主音量（`client.toml` 的 `master_volume`，夹到 0.0..=1.0）。
+    pub fn set_master_volume(&mut self, volume: f32) {
+        self.master_volume = volume.clamp(0.0, 1.0);
+        if let Some(player) = &self.music {
+            player.set_volume(self.music_volume * self.master_volume);
+        }
+    }
+
+    /// 主音量（0.0..=1.0）。
+    #[must_use]
+    pub fn master_volume(&self) -> f32 {
+        self.master_volume
+    }
+
     /// 背景音乐音量（0.0..=1.0）。
     #[must_use]
     pub fn music_volume(&self) -> f32 {
@@ -389,7 +447,7 @@ impl SoundPlayer {
     pub fn set_music_volume(&mut self, volume: f32) {
         self.music_volume = volume.clamp(0.0, 1.0);
         if let Some(player) = &self.music {
-            player.set_volume(self.music_volume);
+            player.set_volume(self.music_volume * self.master_volume);
         }
     }
 
@@ -438,7 +496,9 @@ impl SoundPlayer {
             .map_err(|error| error.to_string())
             .and_then(|handle| Decoder::try_from(handle).map_err(|error| error.to_string()))
         {
-            Ok(decoder) => decoder.repeat_infinite().amplify(self.music_volume),
+            Ok(decoder) => decoder
+                .repeat_infinite()
+                .amplify(self.music_volume * self.master_volume),
             Err(error) => {
                 eprintln!("警告：背景音乐 {} 解码失败：{error}", path.display());
                 return false;
@@ -487,7 +547,8 @@ impl SoundPlayer {
     ///
     /// 跳过的情况：音效关闭、没有设备、100 ms 内播过同一个文件、素材缺失、解码失败。
     pub fn play(&mut self, file: &str, now_ms: u64) -> bool {
-        if !self.enabled || !self.has_output() {
+        let gain = self.volume * self.master_volume;
+        if !self.enabled || gain <= 0.0 || !self.has_output() {
             return false;
         }
         if !self.throttle.allow(file, now_ms) {
@@ -503,7 +564,7 @@ impl SoundPlayer {
             .map_err(|error| error.to_string())
             .and_then(|handle| Decoder::try_from(handle).map_err(|error| error.to_string()))
         {
-            Ok(decoder) => decoder.amplify(self.volume),
+            Ok(decoder) => decoder.amplify(gain),
             Err(error) => {
                 if self.warned.insert(file.to_owned()) {
                     eprintln!("警告：音效 {} 解码失败：{error}", path.display());
@@ -740,10 +801,96 @@ mod tests {
         assert_eq!(counter.get(), 2);
         player.set_volume(0.0);
         player.set_enabled(true);
-        // 音量 0 仍然「播放」（rodio amplify 0），只是听不见；计数照常。
-        assert!(player.play("fx.wav", 1_400));
-        assert_eq!(counter.get(), 3);
+        // 音量 0 = 静音：不送进混音器（需求：sound_volume=0 静音）。
+        assert!(!player.play("fx.wav", 1_400));
+        assert_eq!(counter.get(), 2);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn audio_mapping_uses_crystal_soundlist_ids() {
+        // Crystal `SoundList.cs` 常量 → `SoundList.lst` 文件（不是 Mir1 sound.lst）。
+        assert_eq!(SoundId::Hit.index(), 10_070);
+        assert_eq!(sound_for_sex(SoundId::Hit, false), Some("70.wav")); // 10070 → 70.wav
+        assert_eq!(SoundId::Pickup.index(), 10_520);
+        assert_eq!(
+            sound_for_sex(SoundId::Pickup, false),
+            Some("pet_pickup.wav")
+        ); // 10520
+        assert_eq!(SoundId::LevelUp.index(), 10_156);
+        assert_eq!(sound_for_sex(SoundId::LevelUp, false), Some("levelup.wav")); // 10156
+        assert_eq!(SoundId::Struck.index(), 10_138);
+        assert_eq!(sound_for_sex(SoundId::Struck, false), Some("138.wav")); // 10138
+        assert_eq!(sound_for_sex(SoundId::Struck, true), Some("139.wav")); // 10139
+        assert_eq!(SoundId::Die.index(), 10_144);
+        assert_eq!(sound_for_sex(SoundId::Die, false), Some("144.wav")); // 10144
+        assert_eq!(sound_for_sex(SoundId::Die, true), Some("145.wav")); // 10145
+        // 登录/切图不在 SoundId（mir-render 不在本任务范围），常量在 audio.rs。
+        assert_eq!(LOGIN_SOUND_FILE, "100.wav"); // 10100 LoginEffect
+        assert_eq!(MAP_CHANGE_SOUND_FILE, "Select2.wav"); // 10147 SelectMusic
+    }
+
+    #[test]
+    fn seven_events_reach_the_injectable_sink() {
+        let dir = std::env::temp_dir().join(format!("mir-audio-seven-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        for file in [
+            LOGIN_SOUND_FILE,
+            MAP_CHANGE_SOUND_FILE,
+            "70.wav",
+            "pet_pickup.wav",
+            "levelup.wav",
+            "138.wav",
+            "144.wav",
+        ] {
+            write_silent_wav(&dir.join(file));
+        }
+        let library = SoundLibrary::with_roots(vec![dir.clone()]);
+        let counter = std::rc::Rc::new(std::cell::Cell::new(0usize));
+        let mut player = SoundPlayer::without_device(library, true, 1.0);
+        player.set_master_volume(1.0);
+        player.set_test_sink(counter.clone());
+        assert!(player.play(LOGIN_SOUND_FILE, 1_000)); // 登录
+        assert!(player.play(MAP_CHANGE_SOUND_FILE, 1_001)); // 切图
+        assert!(player.play_event(SoundId::Hit, false, 1_002)); // 攻击命中
+        assert!(player.play_event(SoundId::Pickup, false, 1_003)); // 拾取
+        assert!(player.play_event(SoundId::LevelUp, false, 1_004)); // 升级
+        assert!(player.play_event(SoundId::Struck, false, 1_005)); // 受伤
+        assert!(player.play_event(SoundId::Die, false, 1_006)); // 死亡
+        assert_eq!(counter.get(), 7, "七个事件各触发一次播放调用");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn master_volume_multiplies_and_zero_is_silent() {
+        let mut player = SoundPlayer::without_device(SoundLibrary::default_roots(), true, 0.5);
+        player.set_master_volume(0.5);
+        assert!((player.effective_sound_volume() - 0.25).abs() < f32::EPSILON);
+        player.set_master_volume(0.0);
+        assert!(player.effective_sound_volume().abs() < f32::EPSILON);
+        assert!(!player.play(LOGIN_SOUND_FILE, 0), "master=0 必须静音");
+        player.set_master_volume(1.0);
+        assert!((player.effective_sound_volume() - 0.5).abs() < f32::EPSILON);
+        player.set_volume(1.0);
+        assert!((player.effective_sound_volume() - 1.0).abs() < f32::EPSILON);
+        player.set_volume(0.0);
+        assert!(player.effective_sound_volume().abs() < f32::EPSILON);
+        assert!(!player.play(LOGIN_SOUND_FILE, 0), "sound_volume=0 必须静音");
+        player.set_music_volume(0.8);
+        assert!((player.effective_music_volume() - 0.8).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn missing_device_and_missing_assets_are_silent_without_panic() {
+        let empty = std::env::temp_dir().join(format!("mir-audio-empty-{}", std::process::id()));
+        std::fs::create_dir_all(&empty).expect("建临时目录");
+        let mut player =
+            SoundPlayer::without_device(SoundLibrary::with_roots(vec![empty.clone()]), true, 1.0);
+        assert!(!player.library.has_any_audio_file());
+        assert!(!player.play(LOGIN_SOUND_FILE, 0));
+        assert!(!player.play_event(SoundId::Hit, false, 0));
+        assert!(!player.is_active(), "没有设备/后端时 is_active=false");
+        let _ = std::fs::remove_dir_all(&empty);
     }
 }

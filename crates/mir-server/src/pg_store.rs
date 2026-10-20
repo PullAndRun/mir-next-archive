@@ -1,12 +1,81 @@
 //! PostgreSQL 存储实现（把 `mir-store` 的仓储适配成服务端的 [`AccountStore`]）。
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, VecDeque};
+use std::io::Write as _;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use chrono::{DateTime, TimeZone, Utc};
 use mir_core::DateTimeBinary;
 use mir_core::enums::{MarketItemType, MirClass, MirDirection, MirGender};
 use mir_store::PgPool;
+
+/// 写库成功后单调递增的全局序号；进程重启从 0 重新开始（下一条为 1）。
+static DB_SAVE_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// 诊断记录上限：生产构建也保留最近 1024 条，内存恒定（≈16KB），避免长期运行无界增长。
+const DB_SAVE_RECORD_CAP: usize = 1024;
+
+/// 测试/诊断记录：`(seq, unix_ms, character_id)`；环形缓冲，只保留最近 N 条。
+static DB_SAVE_RECORDS: OnceLock<Mutex<VecDeque<(u64, i64, i64)>>> = OnceLock::new();
+
+fn remember_db_save(seq: u64, t: i64, character_id: i64) {
+    let mut records = DB_SAVE_RECORDS
+        .get_or_init(|| Mutex::new(VecDeque::with_capacity(DB_SAVE_RECORD_CAP)))
+        .lock()
+        .expect("db save records");
+    records.push_back((seq, t, character_id));
+    while records.len() > DB_SAVE_RECORD_CAP {
+        records.pop_front();
+    }
+}
+
+/// `/metrics` 用：当前诊断记录条数（环形缓冲，上限 `DB_SAVE_RECORD_CAP` = 1024）。
+///
+/// 慢泄漏观测：这个值**到 1024 就不再涨**（有界），所以它只该涨到 cap；
+/// 若 gauge 持续等于 cap 说明环形在正常工作，而不是泄漏。
+#[must_use]
+pub fn db_save_record_count() -> usize {
+    DB_SAVE_RECORDS
+        .get_or_init(|| Mutex::new(VecDeque::with_capacity(DB_SAVE_RECORD_CAP)))
+        .lock()
+        .expect("db save records")
+        .len()
+}
+
+/// 测试/工具：读本次进程的 `db_save ok` 记录（最近 ≤1024 条）。
+#[doc(hidden)]
+#[must_use]
+pub fn db_save_records() -> Vec<(u64, i64, i64)> {
+    DB_SAVE_RECORDS
+        .get_or_init(|| Mutex::new(VecDeque::with_capacity(DB_SAVE_RECORD_CAP)))
+        .lock()
+        .expect("db save records")
+        .iter()
+        .copied()
+        .collect()
+}
+
+/// 测试用：往诊断记录里注入一条（模拟一次落盘），返回注入后的条数。
+///
+/// 存在的意义：`/metrics` 的 `mir2_internal_records{kind="db_save"}` 必须**真能随集合增长**，
+/// 否则「慢泄漏观测」就是摆设。集成测试无法调私有函数，所以留这个 `#[doc(hidden)]` 入口。
+///
+/// **仅测试/诊断使用；不要在服务端业务路径调用**（会往环形缓冲里塞假记录，
+/// 污染 `db_save_records()` 的语义，也会让 `mir2_internal_records{kind="db_save"}` 虚高）。
+#[doc(hidden)]
+pub fn inject_db_save_record_for_test(character_id: i64) -> usize {
+    let seq = DB_SAVE_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
+    let now = chrono::Utc::now().timestamp_millis();
+    remember_db_save(seq, now, character_id);
+    db_save_record_count()
+}
+
+/// 测试/工具：模拟进程重启（seq 重置为 0，不清空已记录的历史）。
+#[doc(hidden)]
+pub fn reset_db_save_seq() {
+    DB_SAVE_SEQ.store(0, Ordering::SeqCst);
+}
 
 use crate::store::{
     Account, AccountStore, AuctionRecord, Character, ConquestRecord, GameShopPurchaseRecord,
@@ -628,17 +697,28 @@ impl AccountStore for PgAccountStore {
                 Err(error) => return Err(map_store_error(error)),
             };
             apply_to_store_character(&character, &mut row);
-            mir_store::save_character(&self.pool, &row)
-                .await
-                .map_err(|error| {
+            let character_id = character.id;
+            match mir_store::save_character(&self.pool, &row).await {
+                Ok(()) => {
+                    // 序号必须在**写库成功之后**分配；t 是实际完成落盘后的 Unix 毫秒。
+                    let seq = DB_SAVE_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
+                    let t = Utc::now().timestamp_millis();
+                    tracing::info!("db_save ok character={character_id} seq={seq} t={t}");
+                    remember_db_save(seq, t, character_id);
+                    // 让立刻强杀前的日志尽可能落到 stderr，供 RPO 解析 T_save。
+                    let _ = std::io::stderr().flush();
+                    Ok(())
+                }
+                Err(error) => {
                     // 写失败不能静默：记录角色/错误，调用方还会收到 Err 并向客户端回滚。
                     tracing::error!(
-                        character_id = character.id,
+                        character_id,
                         %error,
                         "save_character 失败：数据库行保持上一次成功值"
                     );
-                    map_store_error(error)
-                })
+                    Err(map_store_error(error))
+                }
+            }
         }
     }
 
@@ -1136,5 +1216,30 @@ mod tests {
         let date = to_datetime(value).expect("合法时间");
         assert_eq!(date.timestamp(), 1_704_067_200);
         assert_eq!(from_datetime(Some(date)), value);
+    }
+
+    #[test]
+    fn db_save_records_are_bounded_and_drop_oldest() {
+        DB_SAVE_RECORDS
+            .get_or_init(|| Mutex::new(VecDeque::with_capacity(DB_SAVE_RECORD_CAP)))
+            .lock()
+            .expect("records")
+            .clear();
+        let total = DB_SAVE_RECORD_CAP + 76;
+        for seq in 1..=u64::try_from(total).expect("len") {
+            remember_db_save(seq, i64::try_from(seq).expect("t"), 7);
+        }
+        let records = db_save_records();
+        assert_eq!(records.len(), DB_SAVE_RECORD_CAP, "记录必须有界");
+        assert_eq!(
+            records.first().map(|(seq, _, _)| *seq),
+            Some(77),
+            "最旧的 76 条应被丢弃"
+        );
+        assert_eq!(
+            records.last().map(|(seq, _, _)| *seq),
+            Some(u64::try_from(total).expect("len")),
+            "必须保留最新的 seq"
+        );
     }
 }

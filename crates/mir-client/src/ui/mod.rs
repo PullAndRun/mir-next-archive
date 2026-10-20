@@ -34,6 +34,7 @@ pub mod bigmap;
 pub mod buffs;
 pub mod conquest;
 pub mod dialog;
+pub mod door;
 pub mod equipment;
 pub mod friends;
 pub mod grid;

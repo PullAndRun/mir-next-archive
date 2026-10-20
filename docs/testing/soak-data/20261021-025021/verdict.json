@@ -1,0 +1,199 @@
+{
+  "window": "fail_early",
+  "verdict": "FAIL_EARLY",
+  "checks": [
+    {
+      "name": "时长自证：requested ≥ 14400s",
+      "ok": true,
+      "detail": "requested=14400s"
+    },
+    {
+      "name": "时长自证：elapsed ≥ requested",
+      "ok": false,
+      "detail": "elapsed=1807.3s requested=14400s 差额=-12592.7s"
+    },
+    {
+      "name": "采样点 ≥ requested/interval = 1440",
+      "ok": false,
+      "detail": "samples=181 required=1440"
+    },
+    {
+      "name": "clients_requested == 100",
+      "ok": true,
+      "detail": "clients_requested=100"
+    },
+    {
+      "name": "clients_entered == 100（100 个都进入世界）",
+      "ok": false,
+      "detail": "clients_entered=97"
+    },
+    {
+      "name": "绝对：每点 p50 ≤30.0ms",
+      "ok": true,
+      "detail": "max_p50=0.58ms 超限点=0"
+    },
+    {
+      "name": "绝对：每点 p99 ≤80.0ms",
+      "ok": true,
+      "detail": "max_p99=1.06ms 超限点=0 首个=[]"
+    },
+    {
+      "name": "稳态连接数 active_min ≥ 95（≥95% 持续在线）",
+      "ok": true,
+      "detail": "active_min=97 active_max=99"
+    },
+    {
+      "name": "服务端未拒绝连接（connections_rejected == 0）",
+      "ok": true,
+      "detail": "rejected_max=0"
+    },
+    {
+      "name": "RSS 增长 ≤10%",
+      "ok": false,
+      "detail": "基线(预热后首点)=44.6MB 峰值=51.6MB 增长=+15.74%"
+    },
+    {
+      "name": "句柄波动 ≤5",
+      "ok": true,
+      "detail": "min=372 max=375 swing=3"
+    },
+    {
+      "name": "DB 连接数不增长",
+      "ok": true,
+      "detail": "首=5 峰=5 末=3"
+    },
+    {
+      "name": "后 1/4 窗口 p99 ≤ 前 1/4 ×1.2",
+      "ok": true,
+      "detail": "head=0.83ms tail=0.88ms ratio=1.062"
+    },
+    {
+      "name": "无连续 6 点单调上升",
+      "ok": false,
+      "detail": "最长连续上升段=6"
+    },
+    {
+      "name": "趋势：RSS 斜率 ≤2.0MB/h",
+      "ok": false,
+      "detail": "rss_slope=+20.712MB/h（样本 163）"
+    },
+    {
+      "name": "趋势：句柄斜率 ≤2.0/h",
+      "ok": true,
+      "detail": "handle_slope=-1.381/h"
+    }
+  ],
+  "stats": {
+    "slope_window_seconds": [
+      185,
+      1807
+    ],
+    "samples": 181,
+    "warm_samples": 163,
+    "requested_duration_seconds": 14400.0,
+    "elapsed_seconds": 1807.3,
+    "p50_ms_max": 0.578,
+    "p99_ms_max": 1.064,
+    "rss_first_mb": 44.61,
+    "rss_max_mb": 51.63,
+    "handle_swing": 3.0,
+    "db_pool_first": 5.0,
+    "db_pool_max": 5.0,
+    "rss_slope_mb_per_hour": 19.174,
+    "handle_slope_per_hour": -3.463,
+    "write_failed_final": 0.0,
+    "dropped_final": 0.0,
+    "clients_requested": 100,
+    "clients_entered": 97,
+    "active_min": 97.0,
+    "active_max": 99.0
+  },
+  "warnings": [],
+  "chunks": [
+    {
+      "window": "chunk-1 [0s,1800s)",
+      "verdict": "FAIL",
+      "checks": [
+        {
+          "name": "绝对：每点 p50 ≤30.0ms",
+          "ok": true,
+          "detail": "max_p50=0.58ms 超限点=0"
+        },
+        {
+          "name": "绝对：每点 p99 ≤80.0ms",
+          "ok": true,
+          "detail": "max_p99=1.06ms 超限点=0 首个=[]"
+        },
+        {
+          "name": "RSS 增长 ≤10%（区间）",
+          "ok": false,
+          "detail": "区间基线=44.6MB 峰值=51.6MB 增长=+15.64%"
+        }
+      ],
+      "stats": {
+        "samples": 180,
+        "warm_samples": 162,
+        "requested_duration_seconds": 14400.0,
+        "elapsed_seconds": 1800.0,
+        "p50_ms_max": 0.578,
+        "p99_ms_max": 1.064,
+        "rss_first_mb": 44.61,
+        "rss_max_mb": 51.58,
+        "handle_swing": 3.0,
+        "db_pool_first": 5.0,
+        "db_pool_max": 5.0,
+        "rss_slope_mb_per_hour": 19.235,
+        "handle_slope_per_hour": -3.37,
+        "write_failed_final": 0.0,
+        "dropped_final": 0.0,
+        "clients_requested": 100,
+        "clients_entered": null,
+        "active_min": null,
+        "active_max": null
+      },
+      "warnings": [],
+      "index": 1,
+      "range_seconds": [
+        0.0,
+        1800.0
+      ],
+      "cumulative_slope": {
+        "rss_slope_mb_per_hour": 19.235,
+        "handle_slope_per_hour": -3.37,
+        "samples": 180
+      }
+    }
+  ],
+  "meta": {
+    "started_at": "2026-10-21T02:50:34",
+    "requested_duration_seconds": 14400.0,
+    "clients": 100,
+    "clients_requested": 100,
+    "warmup_seconds": 180.0,
+    "sample_interval_seconds": 10.0,
+    "chunk_seconds": 1800.0,
+    "rate_per_client": 1.0,
+    "mix": "2,2,1",
+    "server": "127.0.0.1:7000",
+    "metrics_url": "http://127.0.0.1:9090/metrics",
+    "pid": 55236,
+    "short_run": false,
+    "criteria": {
+      "long_run_min_seconds": 14400,
+      "chunk_seconds": 1800,
+      "warmup_seconds": 180,
+      "max_rss_growth_ratio": 0.1,
+      "max_handle_swing": 5,
+      "max_p99_quarter_ratio": 1.2,
+      "max_monotonic_run": 6,
+      "abs_p50_ms": 30.0,
+      "abs_p99_ms": 80.0,
+      "max_rss_slope_mb_per_hour": 2.0,
+      "max_handle_slope_per_hour": 2.0,
+      "slope_skip_seconds": 1800
+    },
+    "elapsed_seconds": 1807.3,
+    "failed_chunk": 1,
+    "clients_entered": 97
+  }
+}

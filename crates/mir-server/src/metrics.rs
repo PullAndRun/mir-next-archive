@@ -355,6 +355,7 @@ impl Metrics {
     /// | `mir2_players_on_map{map="0"}` | 每地图在线人数 |
     /// | `mir2_connections_active` | 当前连接数 |
     /// | `mir2_db_pool_connections` / `mir2_db_pool_idle` | 数据库连接池：当前管理/空闲连接数（soak 判据用，内存实现不发） |
+    /// | `mir2_internal_records{kind=...}` | 内部集合长度（`kind` 编译期固定 5 项，慢泄漏观测；见 `INTERNAL_COLLECTION_KINDS`） |
     /// | `mir2_connections_total` | 累计连接数 |
     /// | `mir2_connections_rejected` | 被限流拒绝的连接数 |
     /// | `mir2_packets_dropped_total` | 包速率超限丢弃的包数 |
@@ -372,7 +373,12 @@ impl Metrics {
     /// | `mir2_autosave_failures_total` | 同 `mir2_db_save_failed_total` 的语义别名（按「autosave 失败」取名） |
     /// | `mir2_db_flush_total` / `mir2_db_flush_micros_{avg,p95,max}` | 市场落盘次数/耗时 |
     #[must_use]
-    pub fn render(&self, per_map: &[(String, usize)], pool: Option<(u32, u32)>) -> String {
+    pub fn render(
+        &self,
+        per_map: &[(String, usize)],
+        pool: Option<(u32, u32)>,
+        internal: &[(&'static str, usize)],
+    ) -> String {
         let mut out = String::with_capacity(2048);
         push_gauge(
             &mut out,
@@ -401,6 +407,23 @@ impl Metrics {
                 "DB pool idle connections",
                 u64::from(idle),
             );
+        }
+        if !internal.is_empty() {
+            let _ = writeln!(
+                out,
+                "# HELP mir2_internal_records lengths of internal collections (slow-leak watch)"
+            );
+            let _ = writeln!(out, "# TYPE mir2_internal_records gauge");
+            for (kind, len) in internal {
+                // `kind` 只能来自 INTERNAL_COLLECTION_KINDS（编译期固定集合）。
+                // 断言文案是**开发者可见**的（`debug_assert!` 只在 debug 构建触发，
+                // 玩家看不到），所以用英文，不占玩家可见硬编码棘轮的名额。
+                debug_assert!(
+                    INTERNAL_COLLECTION_KINDS.contains(kind),
+                    "unknown internal collection kind: {kind}"
+                );
+                let _ = writeln!(out, "mir2_internal_records{{kind=\"{kind}\"}} {len}");
+            }
         }
         push_gauge(
             &mut out,
@@ -540,6 +563,18 @@ fn decrement(counter: &AtomicU64) {
     }
 }
 
+/// 内部集合的**编译期固定** `kind` 集合（禁止运行时动态 label：基数必须可枚举）。
+///
+/// 慢泄漏观测（第 24 轮）：4h soak 的 RSS 判据对「每天 +4.6MB」这类慢增长不敏感
+/// （4h 只涨 800KB，淹没在噪声里），所以把关键集合的长度做成 gauge 单独观测。
+pub const INTERNAL_COLLECTION_KINDS: [&str; 5] = [
+    "db_save",           // pg_store::DB_SAVE_RECORDS —— 环形 cap=1024（有界）
+    "mail_writes",       // world::mail_writes —— 每包 drain（take_mail_writes），失败保留
+    "pending_hits",      // world::pending_hits —— 300ms 后 resolve_pending_hits 结算
+    "pending_map_moves", // world::pending_map_moves —— 每 tick resolve_pending_map_moves
+    "market_searches",   // world::market_searches —— 每个在线玩家至多 1 条，离开即 remove
+];
+
 fn push_gauge(out: &mut String, name: &str, help: &str, value: u64) {
     let _ = writeln!(out, "# HELP {name} {help}");
     let _ = writeln!(out, "# TYPE {name} gauge");
@@ -625,11 +660,20 @@ async fn serve_http(
                 .unwrap_or("/");
             let (status, body) = if path == "/metrics" || path.starts_with("/metrics?") {
                 let metrics = metrics();
-                let per_map = {
+                let (per_map, internal) = {
                     let world = world.lock().await;
-                    world.player_counts_by_map()
+                    let per_map = world.player_counts_by_map();
+                    // 慢泄漏观测：同一把锁里取内部集合长度，保证与 per_map 是同一时刻的快照。
+                    let internal: Vec<(&'static str, usize)> = vec![
+                        ("db_save", crate::pg_store::db_save_record_count()),
+                        ("mail_writes", world.pending_mail_writes()),
+                        ("pending_hits", world.pending_hits().len()),
+                        ("pending_map_moves", world.pending_map_moves().len()),
+                        ("market_searches", world.market_search_count()),
+                    ];
+                    (per_map, internal)
                 };
-                ("200 OK", metrics.render(&per_map, pool()))
+                ("200 OK", metrics.render(&per_map, pool(), &internal))
             } else if path == "/healthz" {
                 ("200 OK", "ok\n".to_owned())
             } else {
@@ -759,7 +803,7 @@ mod tests {
         assert_eq!(metrics.write_failures(), 0);
         metrics.write_failed();
         assert_eq!(metrics.write_failures(), 1);
-        let body = metrics.render(&[], None);
+        let body = metrics.render(&[], None, &[]);
         assert!(body.contains("mir2_packets_dropped_total 1"), "{body}");
         assert!(body.contains("mir2_write_failed_total 1"), "{body}");
         assert!(
@@ -782,7 +826,7 @@ mod tests {
         metrics.record_db_flush(Duration::from_micros(340));
         metrics.packet_dropped();
         metrics.write_failed();
-        let body = metrics.render(&[("0".to_owned(), 1)], None);
+        let body = metrics.render(&[("0".to_owned(), 1)], None, &[]);
         for needle in [
             "mir2_players_online 1",
             "mir2_players_on_map{map=\"0\"} 1",

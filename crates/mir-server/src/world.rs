@@ -765,6 +765,8 @@ pub struct SocialSnapshot {
 #[derive(Debug)]
 pub struct World {
     pub(crate) players: HashMap<u32, Player>,
+    /// 每个玩家最后一次**失败回拉**的 (坐标, 朝向, 时刻)：200ms 节流/去重。
+    pub(crate) move_rejections: HashMap<u32, ((Point, MirDirection), i64)>,
     /// 怪物列表：**按生成顺序**存放，等价于 Crystal `Envir.Objects` 链表的插入顺序。
     pub(crate) monsters: Vec<Monster>,
     /// NPC 列表（Crystal `Envir.NPCs`，`Server/MirEnvir/Envir.cs:146`）。
@@ -1054,6 +1056,7 @@ impl World {
     pub fn new(bound: i32) -> Self {
         Self {
             players: HashMap::new(),
+            move_rejections: HashMap::new(),
             monsters: Vec::new(),
             npcs: Vec::new(),
             pending_hits: Vec::new(),
@@ -1143,6 +1146,7 @@ impl World {
         let bound = map.width.max(map.height).saturating_sub(1);
         Self {
             players: HashMap::new(),
+            move_rejections: HashMap::new(),
             monsters: Vec::new(),
             npcs: Vec::new(),
             pending_hits: Vec::new(),
@@ -1934,28 +1938,30 @@ impl World {
     pub fn walk(&mut self, object_id: u32, direction: MirDirection) -> Result<Point, MoveError> {
         let now = self.now();
         self.refresh_idle(object_id, now);
-        let Some(player) = self.players.get(&object_id) else {
-            return Err(MoveError::NotInWorld(object_id));
+        let (dead, can_move, action_time) = {
+            let Some(player) = self.players.get(&object_id) else {
+                return Err(MoveError::NotInWorld(object_id));
+            };
+            (player.dead, player.can_move(now), player.action_time)
         };
-        if player.dead {
-            self.send_user_location(object_id);
+        if dead {
+            self.send_move_rejection(object_id);
             return Err(MoveError::Dead { object_id });
         }
         if self.has_buff(object_id, crate::buffs::BuffKind::Paralysis) {
-            self.send_user_location(object_id);
             return Err(MoveError::Busy { until: now + 1_000 });
         }
-        if !player.can_move(now) {
-            self.send_user_location(object_id);
-            return Err(MoveError::Busy {
-                until: player.action_time,
-            });
+        if !can_move {
+            return Err(MoveError::Busy { until: action_time });
         }
+        let Some(player) = self.players.get(&object_id) else {
+            return Err(MoveError::NotInWorld(object_id));
+        };
         let map = player.map.clone();
         let from = player.position;
         let to = from.adjacent(direction);
         if let Err(error) = self.check_cell(&map, to, object_id, now) {
-            self.send_user_location(object_id);
+            self.send_move_rejection(object_id);
             return Err(error);
         }
         // 落格前先更新朝向（Crystal `HumanObject.Walk` 的 `Direction = dir` 在
@@ -2013,23 +2019,31 @@ impl World {
     pub fn run(&mut self, object_id: u32, direction: MirDirection) -> Result<Point, MoveError> {
         let now = self.now();
         self.refresh_idle(object_id, now);
+        let (dead, can_move, action_time, can_run) = {
+            let Some(player) = self.players.get(&object_id) else {
+                return Err(MoveError::NotInWorld(object_id));
+            };
+            (
+                player.dead,
+                player.can_move(now),
+                player.action_time,
+                player.can_run(now),
+            )
+        };
+        if dead {
+            self.send_move_rejection(object_id);
+            return Err(MoveError::Dead { object_id });
+        }
+        if !can_move {
+            return Err(MoveError::Busy { until: action_time });
+        }
+        if !can_run {
+            self.send_move_rejection(object_id);
+            return Err(MoveError::CannotRunYet);
+        }
         let Some(player) = self.players.get(&object_id) else {
             return Err(MoveError::NotInWorld(object_id));
         };
-        if player.dead {
-            self.send_user_location(object_id);
-            return Err(MoveError::Dead { object_id });
-        }
-        if !player.can_move(now) {
-            self.send_user_location(object_id);
-            return Err(MoveError::Busy {
-                until: player.action_time,
-            });
-        }
-        if !player.can_run(now) {
-            self.send_user_location(object_id);
-            return Err(MoveError::CannotRunYet);
-        }
         let map = player.map.clone();
         let from = player.position;
         let steps = 2;
@@ -2044,7 +2058,7 @@ impl World {
         for step in 1..=steps {
             let cell = from.moved(direction, step);
             if let Err(error) = self.check_cell(&map, cell, object_id, now) {
-                self.send_user_location(object_id);
+                self.send_move_rejection(object_id);
                 return Err(error);
             }
             if self.queue_movement_trigger(object_id, cell) {
@@ -5116,6 +5130,31 @@ impl World {
                 player.step_counter = 0;
             }
         }
+    }
+
+    /// 移动失败回显：≥200ms 节流 + 真实位置去重，避免连按撞墙时包洪/弹跳。
+    ///
+    /// 同状态去重最多 2 秒：玩家离开再回来、或站着持续撞墙时，新的 episode 仍会再收到一次；
+    /// 不能永久失声（长时间会话下第二次撞同一面墙必须仍有反馈）。
+    pub(crate) fn send_move_rejection(&mut self, object_id: u32) {
+        let Some(player) = self.players.get(&object_id) else {
+            return;
+        };
+        let state = (player.position, player.direction);
+        let now = self.now();
+        if let Some((last_state, at)) = self.move_rejections.get(&object_id) {
+            let elapsed = now.saturating_sub(*at);
+            if elapsed < 200 || (*last_state == state && elapsed < 2_000) {
+                return;
+            }
+        }
+        let packet = ServerPacket::UserLocation(UserLocation {
+            location: state.0,
+            direction: state.1,
+        })
+        .encode_frame();
+        let _ = player.sender.send(packet);
+        self.move_rejections.insert(object_id, (state, now));
     }
 
     /// 给本人发一条坐标回显（成功与失败都发，与 Crystal 一致）。

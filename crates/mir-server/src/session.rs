@@ -187,6 +187,13 @@ pub struct Session<S: AccountStore> {
     /// （金币/背包/装备/技能/任务/仓库/好友/坐标/HP/MP 全都体现在行里），
     /// 而且天然支持「改了又改回去」这种不该写库的情况。
     saved_row: Option<Character>,
+    /// 最后已发给客户端确认的移动坐标/朝向。
+    ///
+    /// 拒绝反馈只在「服务端真实位置」与它不同时才回拉；成功移动/Busy 重试成功后更新，
+    /// 避免连按撞墙时把已经正确的客户端预测反复打回。
+    last_confirmed_move: Option<(Point, MirDirection)>,
+    /// 上一次移动拒绝回拉的发送时刻（200ms 节流；每动作最多一包）。
+    last_move_reject_at: Option<std::time::Instant>,
     /// 本会话最近一次写入的版本号（Unix 毫秒，单调递增）；同一角色只接受更大版本。
     save_version: u64,
     /// 下一次 autosave 的到点时刻（`World::wall_now()` 毫秒）；`0` = 尽快。
@@ -232,6 +239,8 @@ impl<S: AccountStore> Session<S> {
             rate_window_count: 0,
             rate_warned: false,
             saved_row: None,
+            last_confirmed_move: None,
+            last_move_reject_at: None,
             save_version: 0,
             next_autosave_at_ms: 0,
             next_save_retry_at_ms: 0,
@@ -1325,6 +1334,8 @@ impl<S: AccountStore> Session<S> {
                                 character.map = map;
                             }
                         }
+                        // 成功路径（包括 Busy 重试成功）更新确认值，绝不能回拉。
+                        self.last_confirmed_move = Some((position, direction));
                         return;
                     }
                     Err(error) => error,
@@ -1333,9 +1344,57 @@ impl<S: AccountStore> Session<S> {
             if attempt == 0 && self.wait_for_action(&error).await {
                 continue;
             }
-            tracing::debug!(session = self.id, %error, "移动被拒绝");
+            // 世界层已在失败分支发送 23/S.UserLocation（含 200ms 节流+去重）；
+            // 这里只记录 WARN，不能再发一条，否则一次拒绝会出现两个包。
+            tracing::warn!(session = self.id, %error, "移动被拒绝（世界层已回拉）");
             return;
         }
+    }
+
+    /// 移动被拒绝时回拉客户端的真实坐标（23 = `S.UserLocation`，不是 28 = 旁观者广播）。
+    ///
+    /// * 只发一次：调用方是 `on_move` 的最终失败分支，重试成功会提前 return；
+    /// * ≥200ms 节流：键盘连发/连按撞墙时避免每个包都回拉；
+    /// * 去重：真实位置 == `last_confirmed_move` 时客户端预测已经正确，不弹跳。
+    #[allow(dead_code)]
+    async fn send_move_rejection(&mut self, object_id: u32, error: &crate::world::MoveError) {
+        let real = {
+            let world = self.world.lock().await;
+            world
+                .player(object_id)
+                .map(|player| (player.position, player.direction))
+        };
+        let Some((location, direction)) = real else {
+            tracing::warn!(session = self.id, %error, "移动被拒绝且对象不在世界，无法回拉");
+            return;
+        };
+        if self.last_confirmed_move == Some((location, direction)) {
+            tracing::debug!(session = self.id, %error, "移动被拒绝；位置已确认，无需回拉");
+            return;
+        }
+        if self
+            .last_move_reject_at
+            .is_some_and(|at| at.elapsed() < std::time::Duration::from_millis(200))
+        {
+            tracing::debug!(session = self.id, %error, "移动拒绝回拉被 200ms 节流");
+            return;
+        }
+        tracing::warn!(
+            session = self.id,
+            x = location.x,
+            y = location.y,
+            ?direction,
+            %error,
+            "移动被拒绝：回拉真实坐标"
+        );
+        self.send(ServerPacket::UserLocation(
+            mir_protocol::packets::server::UserLocation {
+                location,
+                direction,
+            },
+        ));
+        self.last_confirmed_move = Some((location, direction));
+        self.last_move_reject_at = Some(std::time::Instant::now());
     }
 
     /// 物理攻击（`C.Attack`，Crystal `ClientPackets.Attack`）。
@@ -1975,7 +2034,15 @@ impl<S: AccountStore> Session<S> {
                 tasks = report.task_list.len(),
                 "接取任务"
             ),
-            Err(error) => tracing::debug!(session = self.id, %error, "接取任务被拒绝"),
+            Err(error) => {
+                // Crystal `AcceptQuest` 失败会 `ReceiveChat(MaximumQuestsTaken / ...)`；
+                // 不能只 debug，否则客户端永远不知道失败原因。
+                let key = quest_accept_failure_key(&error);
+                tracing::warn!(session = self.id, %error, "接取任务被拒绝");
+                let message = world.text(object_id, key);
+                drop(world);
+                self.send_system_chat(&message);
+            }
         }
     }
 
@@ -3501,10 +3568,29 @@ pub fn is_valid_character_name(value: &str) -> bool {
         })
 }
 
+fn quest_accept_failure_key(error: &crate::quests::QuestError) -> mir_core::i18n::TextKey {
+    if matches!(error, crate::quests::QuestError::TooManyQuests { .. }) {
+        mir_core::i18n::TextKey::QuestTooMany
+    } else {
+        mir_core::i18n::TextKey::QuestAcceptFailed
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn quest_accept_failure_uses_specific_too_many_key() {
+        assert_eq!(
+            quest_accept_failure_key(&crate::quests::QuestError::TooManyQuests { limit: 5 }),
+            mir_core::i18n::TextKey::QuestTooMany
+        );
+        assert_eq!(
+            quest_accept_failure_key(&crate::quests::QuestError::AlreadyTaken(7)),
+            mir_core::i18n::TextKey::QuestAcceptFailed
+        );
+    }
     #[test]
     fn account_rules_match_crystal() {
         assert!(is_valid_account_id("tester"));

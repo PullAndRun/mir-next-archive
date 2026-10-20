@@ -332,6 +332,85 @@ CHECKQUEST <任务序号> ACTIVE|COMPLETE
 `NPCScript.cs:685-721`）：非数字行被 `int.TryParse` 解成 0 后**静默跳过**
 （样本里 `BichonProvince/BorderVillage/Pedlar.txt` 的 `[Quests]` 段里混进了一个 `<Close/@exit>` 按钮）。
 
+### 7.4 真实任务候选表（8 条，第 23 轮核对）
+
+起点为比奇出生点 `(330,270)`，用 `target/mapgrid-0.bin` 做 BFS（≤2500 步）算 pickup/handin
+可达性（pd/hd = 步数；`None` = 不可达）。表只保留 7 列；「物品/携带」两列在候选筛选时
+已确认 8 条均为空（quest 7/9/10/13/15/16/19/21）。
+
+| id | 名称 | pickup NPC | handin NPC | 击杀要求 | 奖励金币 | 奖励经验 |
+|---:|---|---|---|---|---:|---:|
+| 7 | Meet the Warrior Instructor | Assistant_Jane (284,606) | Master_Wa (110,317) | — | **60** | **48** |
+| 9 | To Bichon | Wa_Master (110,317) | MirGuide_Peter (328,258) | — | 60 | 48 |
+| 10 | Meet the Mage Instructor | Assistant_Jane (284,606) | ArchMage_Robert (8,11)（BFS 不可达） | — | 60 | 48 |
+| 13 | Meet the Taoist Instructor | Assistant_Jane (284,606) | HighPriest_Jude (429,475) | — | 60 | 48 |
+| 15 | To Bichon | HighPriest_Jude (429,475) | MirGuide_Peter (328,258) | — | 60 | 48 |
+| 16 | Meet the Assassin Instructor | Assistant_Jane (284,606) | HighAssassin_Cloud (101,411)（BFS 不可达） | — | 60 | 48 |
+| 19 | Meet the Archer Instructor | Assistant_Jane (284,606) | Captain_Jerald (320,476) | — | 60 | 48 |
+| 21 | To Bichon | Captain_Jerald (320,476) | MirGuide_Peter (328,258) | — | 60 | 48 |
+
+**quest 7 是战士链第一步**：无击杀、无物品、无携带要求，`[@GoldReward] 60`、
+`[@ExpReward] 48`；pickup = `Assistant_Jane` @ `(284,606)`，handin = `Master_Wa` @
+`(110,317)`。它是 8 条里**唯一同时满足「无击杀/无物品/无携带 + pickup/handin 均可达 +
+有金币」**的任务；9/13/15/19/21 是后续「To Bichon」链（需前置），10/16 的 handin 在 BFS
+可达集之外。
+
+**数据来源与核对命令**：
+
+1. **任务元数据（id/名称/脚本文件/required 等级）**来自 `Jev/Server.MirDB` 的 `QuestInfo`
+   段（154 条）。第 23 轮用 `mir-db` 读取后落了一份临时 dump
+   `target/questdump.txt`（首行 `quests=154`），可直接查：
+
+   ```powershell
+   Get-Content target\questdump.txt | Select-String '^index=(7|9|10|13|15|16|19|21)\b'
+   ```
+
+   ```text
+   index=7 name=Meet the Warrior Instructor file=BichonProvince/BorderVillage/7 required=1
+   index=9 name=To Bichon file=BichonProvince/BorderVillage/9 required=1
+   index=10 name=Meet the Mage Instructor file=BichonProvince/BorderVillage/10 required=2
+   index=13 name=Meet the Taoist Instructor file=BichonProvince/BorderVillage/13 required=4
+   index=15 name=To Bichon file=BichonProvince/BorderVillage/15 required=4
+   index=16 name=Meet the Assassin Instructor file=BichonProvince/BorderVillage/16 required=8
+   index=19 name=Meet the Archer Instructor file=BichonProvince/BorderVillage/19 required=16
+   index=21 name=To Bichon file=BichonProvince/BorderVillage/21 required=16
+   ```
+
+   若该临时文件不存在，用项目 `mir-db` 的 `QuestInfo` 读取器重新生成（字段：
+   `Index/Name/FileName/RequiredClass/RequiredLevel/...`）；`QuestInfo` 的 `FileName` 不含
+   `.txt`、相对 `Envir/Quests`。
+
+2. **任务细节（reward/kill/pickup/handin）**来自脚本
+   `resource/community/suprcode-crystal-database/Jev/Envir/Quests/<FileName>.txt`：
+
+   ```powershell
+   $q='resource\community\suprcode-crystal-database\Jev\Envir\Quests\BichonProvince\BorderVillage\7.txt'
+   Get-Content $q -Encoding utf8
+   ```
+
+   关键段：`[@GoldReward] 60`、`[@ExpReward] 48`、`[@KillTasks]`/`[@ItemTasks]`/`[@CarryItems]`
+   为空、`// Pickup - Assistant_Jane 0 284 606`、`// Hand In - Master_Wa 0 110 317`。
+
+3. **NPC 的 `[Quests]` 发布/交付声明**：
+
+   ```powershell
+   $npc='resource\community\suprcode-crystal-database\Jev\Envir\NPCs\BichonProvince\BorderVillage'
+   Get-Content "$npc\Jane.txt" -Encoding utf8 | Select-String '\[Quests\]' -Context 0,8
+   Get-Content "$npc\Wa-Master.txt" -Encoding utf8 | Select-String '\[Quests\]' -Context 0,4
+   ```
+
+   实测：`Jane.txt` = `[Quests] 1 -2 3 7 10 13 16 19`；`Wa-Master.txt` = `[Quests] -7 8 -8 9`
+   （正数=发布、负数=交付，见 §7.3）。
+
+4. **整张候选表的复跑**：`py target/newbie_table.py`（临时脚本，需
+   `target/mapgrid-0.bin` + `target/questdump.txt`；读 `Envir/Quests/**` 的 `// Pickup` /
+   `// Hand In` 与 `[@KillTasks]/[@GoldReward]/[@ExpReward]`，输出 154 行全表 + 过滤结果）。
+
+> ⚠️ **当前服务端尚不能接取 quest 7**：第 23 轮实测 `C.AcceptQuest{7}` 失败且静默（gate
+> 走到 Jane 旁发送后等不到 `S.ChangeQuest{7}`）。已知 `Jane.txt` 的 `[Quests]` 含 7、
+> `Server.MirDB` 的 quest 7 元数据存在，问题在 `npc_gives_quest`/脚本加载/包语义链路；
+> 第 24 轮兵部正在修。修好前，本表只作数据核对与新手指引设计输入，不代表线上可接。
+
 ---
 
 ## 8. 持久化

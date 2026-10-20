@@ -1,0 +1,24 @@
+{
+  "commit": "9ede73f",
+  "build_at": "2026-10-21T04:11:04+08:00",
+  "binary_size": 8749056,
+  "tree_dirty": [
+    " M crates/mir-client/src/app.rs",
+    " M crates/mir-client/src/audio.rs",
+    " M crates/mir-client/src/main.rs",
+    " M crates/mir-server/src/pg_store.rs",
+    " M crates/mir-server/src/session.rs",
+    " M crates/mir-server/src/world.rs",
+    " M crates/mir-server/tests/fault_injection.rs",
+    " M docs/deploy.md",
+    " M docs/testing/fault-injection.md",
+    " M docs/testing/soak.md",
+    " M tools/playtest/playtest.py",
+    " M tools/stress/soak.py",
+    "?? crates/mir-server/tests/move_feedback.rs",
+    "?? crates/mir-server/tests/save_seq.rs",
+    "?? docs/testing/soak-data/20261021-025021/",
+    "?? tools/playtest/doors.json"
+  ],
+  "run_note": "本次 run 启动时 soak.py 为第23轮版本：samples 里没有 internal_* 五列与 clients_entered/active_min（08:20 之后的 run 才有）；chunk-1 区间 RSS 按新规仅观察（+18.48% 记 observe_warnings，verdict=PASS）。"
+}

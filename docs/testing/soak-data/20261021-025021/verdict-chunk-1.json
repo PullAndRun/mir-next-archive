@@ -1,0 +1,53 @@
+{
+  "window": "chunk-1 [0s,1800s)",
+  "verdict": "FAIL",
+  "checks": [
+    {
+      "name": "绝对：每点 p50 ≤30.0ms",
+      "ok": true,
+      "detail": "max_p50=0.58ms 超限点=0"
+    },
+    {
+      "name": "绝对：每点 p99 ≤80.0ms",
+      "ok": true,
+      "detail": "max_p99=1.06ms 超限点=0 首个=[]"
+    },
+    {
+      "name": "RSS 增长 ≤10%（区间）",
+      "ok": false,
+      "detail": "区间基线=44.6MB 峰值=51.6MB 增长=+15.64%"
+    }
+  ],
+  "stats": {
+    "samples": 180,
+    "warm_samples": 162,
+    "requested_duration_seconds": 14400.0,
+    "elapsed_seconds": 1800.0,
+    "p50_ms_max": 0.578,
+    "p99_ms_max": 1.064,
+    "rss_first_mb": 44.61,
+    "rss_max_mb": 51.58,
+    "handle_swing": 3.0,
+    "db_pool_first": 5.0,
+    "db_pool_max": 5.0,
+    "rss_slope_mb_per_hour": 19.235,
+    "handle_slope_per_hour": -3.37,
+    "write_failed_final": 0.0,
+    "dropped_final": 0.0,
+    "clients_requested": 100,
+    "clients_entered": null,
+    "active_min": null,
+    "active_max": null
+  },
+  "warnings": [],
+  "index": 1,
+  "range_seconds": [
+    0.0,
+    1800.0
+  ],
+  "cumulative_slope": {
+    "rss_slope_mb_per_hour": 19.235,
+    "handle_slope_per_hour": -3.37,
+    "samples": 180
+  }
+}

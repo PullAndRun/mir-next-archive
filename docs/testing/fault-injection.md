@@ -55,16 +55,36 @@ Test-Path target/soak.lock            # 期望 False
 ```
 
 - 独立 server 进程 + 专用端口（7041+）+ 专用 metrics（9095）+ `MIR2_AUTOSAVE_SECS=1`；
+- **seq 日志（第 23 轮 B）**：`save_character` 写库成功后分配进程级 `AtomicU64`，输出
+  `db_save ok character=<id> seq=<n> t=<unix_ms>` 并 flush；`T_save` 取 **max(seq)** 行的 `t`，
+  不能取文件尾行。测试 `crates/mir-server/tests/save_seq.rs` 覆盖 ≥8 并发（seq 唯一、t 非降）
+  和模拟重启后 seq=1。
+- **诊断记录有界**：`DB_SAVE_RECORDS` 是容量 1024 的 `VecDeque` 环形缓冲（生产构建也生效），
+  满了丢最旧，内存恒定 ≈16KB；`pg_store` 单测 `db_save_records_are_bounded_and_drop_oldest`
+  断言超限后首条 seq 前进、末条保留最新。
 - 主判据：所有写入序号墙钟早于 `kill_time − 2s` 的写**都必须在 DB 中**；
 - `loss ≤ 1` 仅在 K 次写间隔 ≥1s 时保留，否则删除该计数断言；
-- `T_save` 尽量使用服务端实际落盘时间（metrics 的 `db_save_total` 增量时刻）；
+- **T_save 读法**：服务端 stdout/stderr 的 `db_save ok character=<id> seq=<n> t=<unix_ms>`；
+  取 `seq` 最大的一条的 `t`，不是文件尾行；轮询/日志采集粒度需在回执写明。
+- **边界**：`save_seq.rs` 覆盖 ≥8 并发（同进程 seq 唯一、按 seq 排序 t 非降）与模拟重启 seq=1；
+  强杀后新进程 natural 从 1 重新开始。
 - Windows 强杀记录 `Stop-Process -Id <pid> -Force`（= TerminateProcess，等价 SIGKILL）与 PID；
 - **清理契约**：`try/finally` 内必须执行 `Stop-Process -Id <精确 PID> -Force`（服务端与任何指标/代理子进程）、删除临时目录、删除 pid 文件；任何断言失败也不得留下进程。
-- 当前状态：**未执行**（等待工部停 31204 后的空载确认），本文件不写伪造结果。
+- 当前状态：**第 23 轮已实测通过**（空载窗口 03:30–03:45）：
+  - `K=5` 次 `@gold 1`（间隔 1.1s），`P=5`，`loss=0`；
+  - `T_save=1792525156961`（max(seq) 日志行），`kill_time=1792525158372`，
+    `kill−T_save=1411ms ≤2000ms`；
+  - 所有写入墙钟早于 `kill−2s` 的数量 =4，DB 持久化 ≥4（实际 5）；
+  - `Stop-Process -Id <pid> -Force` 强杀，重启核验后无残留进程/端口/临时目录。
+- 负向自证仍未执行（关 autosave 必须红）；列入第 24 轮。
+- **stdout 日志发现**：`tracing_subscriber` 默认写 **stdout**；若部署/测试把 stdout 丢弃（`Stdio::null()`），
+  `db_save ok ...` 等于不存在，RPO 无法计算 `T_save`。服务端启动模板必须把 stdout 重定向到文件/
+  日志采集器，不能只捕获 stderr。
 
-## 负向自证
-- 关 autosave → RPO 必须红：随 RPO 顺延；
-- 清重试计数 → 写失败必须红：随 RPO 顺延。
+## 未完成（顺延第 24 轮）
+- **RPO 负向自证**：关闭 autosave 后重跑 `rpo_bounded_by_autosave_after_hard_kill`，必须变红并贴输出；
+  本轮因 04:10 的 4h soak 窗口未执行。
+- 写失败负向自证（清重试计数）同样顺延第 24 轮。
 
 ## 已知边界
 - 同一已关闭 pool 不自愈；生产不会主动 close。

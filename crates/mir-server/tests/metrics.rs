@@ -260,8 +260,55 @@ async fn metrics_exposes_db_pool_gauges_when_probe_present() {
         body.contains("mir2_db_pool_connections 7"),
         "缺少连接池总量：\n{body}"
     );
+    // 慢泄漏观测（第 24 轮）：内部集合长度必须以**固定 kind 集合**暴露
+    for kind in mir_server::metrics::INTERNAL_COLLECTION_KINDS {
+        assert!(
+            body.contains(&format!("mir2_internal_records{{kind=\"{kind}\"}}")),
+            "缺少内部集合 gauge：kind={kind}\n{body}"
+        );
+    }
     assert!(
         body.contains("mir2_db_pool_idle 3"),
         "缺少空闲连接数：\n{body}"
+    );
+}
+
+/// **增长注入自证**：往 `DB_SAVE_RECORDS` 塞记录后，`/metrics` 的
+/// `mir2_internal_records{kind="db_save"}` 必须跟着涨；塞到 cap（1024）后必须**不再涨**。
+///
+/// 目的：证明这条 gauge 真的能抓到「慢增长」，而不是一个恒为常量的装饰。
+#[tokio::test]
+async fn internal_records_gauge_tracks_growth_and_stops_at_cap() {
+    let world = Arc::new(Mutex::new(World::new(7)));
+    let address = bind_metrics(
+        "127.0.0.1:0".parse().expect("addr"),
+        Arc::clone(&world),
+        Arc::new(|| None),
+    )
+    .await
+    .expect("绑定 metrics 端口");
+
+    let before = mir_server::pg_store::db_save_record_count();
+    let injected = mir_server::pg_store::inject_db_save_record_for_test(42);
+    assert_eq!(injected, before + 1, "注入一条后计数应 +1");
+
+    let (status, body) = http_get(address, "/metrics").await;
+    assert!(status.contains("200"), "{status}");
+    let line = format!("mir2_internal_records{{kind=\"db_save\"}} {injected}");
+    assert!(
+        body.contains(&line),
+        "gauge 未跟随集合增长（期望出现 `{line}`）：\n{body}"
+    );
+
+    // 塞到 cap 以上：有界环形应当**停在 1024**
+    for character_id in 0..(1024 + 16) {
+        mir_server::pg_store::inject_db_save_record_for_test(character_id);
+    }
+    let capped = mir_server::pg_store::db_save_record_count();
+    assert_eq!(capped, 1024, "环形缓冲上限必须是 1024（无界=慢泄漏）");
+    let (_, body2) = http_get(address, "/metrics").await;
+    assert!(
+        body2.contains("mir2_internal_records{kind=\"db_save\"} 1024"),
+        "塞到上限后 gauge 应停在 1024：\n{body2}"
     );
 }

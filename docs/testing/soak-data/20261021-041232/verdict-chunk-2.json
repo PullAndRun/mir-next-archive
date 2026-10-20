@@ -1,0 +1,65 @@
+{
+  "window": "chunk-2 [1800s,3600s)",
+  "verdict": "FAIL",
+  "checks": [
+    {
+      "name": "绝对：每点 p50 ≤30.0ms",
+      "ok": true,
+      "detail": "max_p50=0.57ms 超限点=0"
+    },
+    {
+      "name": "绝对：每点 p99 ≤80.0ms",
+      "ok": true,
+      "detail": "max_p99=1.15ms 超限点=0 首个=[]"
+    },
+    {
+      "name": "RSS 增长 ≤10%（区间）",
+      "ok": false,
+      "detail": "区间基线=46.9MB 峰值=51.7MB 增长=+10.06%"
+    }
+  ],
+  "stats": {
+    "samples": 180,
+    "warm_samples": 180,
+    "requested_duration_seconds": 14400.0,
+    "elapsed_seconds": 3600.0,
+    "p50_ms_max": 0.566,
+    "p99_ms_max": 1.149,
+    "rss_first_mb": 46.94,
+    "rss_max_mb": 51.67,
+    "handle_swing": 6.0,
+    "db_pool_first": 3.0,
+    "db_pool_max": 3.0,
+    "rss_slope_mb_per_hour": 21.473,
+    "handle_slope_per_hour": -1.97,
+    "write_failed_final": 0.0,
+    "dropped_final": 0.0,
+    "clients_requested": 100,
+    "clients_entered": null,
+    "active_min": null,
+    "active_max": null
+  },
+  "warnings": [
+    {
+      "kind": "rss_step_persistent",
+      "at_t": 3409.3,
+      "step_mb": 12.06,
+      "pre_mb": 39.61,
+      "lowest_after_mb": 51.67,
+      "held_above_pre_mb": 12.06,
+      "hold_window_seconds": 600.0,
+      "note": "单步 >5MB 且 600s 内仍高于台阶前 ≥2MB：WARN（仅观察，不参与 FAIL）"
+    }
+  ],
+  "observe_warnings": [],
+  "index": 2,
+  "range_seconds": [
+    1800.0,
+    3600.0
+  ],
+  "cumulative_slope": {
+    "rss_slope_mb_per_hour": -0.866,
+    "handle_slope_per_hour": -3.665,
+    "samples": 360
+  }
+}

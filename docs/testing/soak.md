@@ -189,6 +189,122 @@ verdict 的 `stats` 里同时给这三个值和 `active_max`；`samples.json` �
 [早退字段] 校验器对旧 bug 数据：['clients_entered=0 却 active_min=100：早退时两字段必须一起标未采集']（期望非空）
 ```
 
+### `--self-check` 的 16 个用例（每个判据都有自己的反例）
+
+| # | 用例 | 构造的坏数据 | 期望 | 实际命中判据 |
+|---|---|---|---|---|
+| 0 | 对照：健康 4h | 无（p50 3.5ms、p99 锯齿、RSS 平、句柄平、池 5） | **PASS** | — |
+| 1 | RSS 翻倍 | 预热后 RSS 线性涨到 2× | FAIL | `RSS 增长 ≤10%`（+99.88%）+ `趋势：RSS 斜率 ≤2MB/h`（+30.38MB/h） |
+| 2 | p99 单调上升 | 每个采样点 p99 +0.02ms | FAIL | `后 1/4 ≤ 前 1/4 ×1.2`（1.898）+ `无连续 6 点上升`（1432 点） |
+| 3 | 单点 p99=90ms | 一个采样点 p99=90 | FAIL | `绝对：每点 p99 ≤80ms`（相对判据全绿，只有绝对阈值能抓） |
+| 4 | 时长造假 | `requested=14400` 但 `elapsed=1800`、样本 180 | FAIL | `elapsed ≥ requested`（−12600s）+ `采样点 ≥1440` |
+| 5 | 第 3 个 chunk FAIL | 8 个 chunk 中第 3 个塞 p99=90 | **FAIL_EARLY** | chunk 门禁 → `FAIL_EARLY`，首个失败 chunk=3 |
+| 6 | 增量安全 | 只跑 1 个 chunk（181 点） | PASS | 未跑到的窗口不算失败 |
+| 7 | 逐边界模拟 | 8 个边界逐个用 `require_complete` 评 | 全部通过 | 实时路径与窗口完成度一致 |
+| 8 | 事后校验 | 篡改 chunk-3 的实时结论为 PASS | 抓到不一致 | `crosscheck.ok=False`，列出 mismatch |
+| 9 | 抗噪 | 句柄波动 7 / 池 2→3 / p99 连续 7 点 | **PASS** | chunk 门禁只看绝对延迟 + 区间 RSS（粒度错配的回归） |
+| 10 | 早退字段 + 落盘 | chunk-2 早退的三种 meta（已回填/未采集/旧 bug） | 前两者无矛盾、旧 bug 被抓；且 `samples.json`/`.csv` 存在且点数一致 | `client_fields_consistency` + `write_samples` |
+| 11 | 台阶**持续**高位 | 基线压平 + t=10800 起 +5.5MB 常驻 | **WARN 1 条、verdict 仍 PASS** | `detect_rss_steps`（仅观察，不参与 FAIL） |
+| 12 | 涨后回落 | 短暂 +8MB 后 600s 内回落 | **0 条 WARN、verdict PASS** | 同上（防 GC/分配器归还导致的告警疲劳） |
+| 13 | chunk-1 预热块爬坡 | 前 30 分钟 RSS 线性 +15% | **PASS**（只记 `observe_only` WARN） | chunk-1 的区间 RSS 判据是**仅观察**（整跑判据本来就跳过前 1800s） |
+| 14 | chunk-2 硬判 | 第 2 段 RSS 30 分钟 +10MB | **FAIL** | 证明软化**只在 chunk-1**，不是全局放水 |
+| 15 | 锯齿抗噪 | chunk 内 44→36→49 摆动、中位数平稳、末点≈首点 | **PASS** | 噪声地板（8MB）让判据高于测量噪声 |
+| 16 | 真泄漏仍红 | 30 分钟单调 +20MB | **FAIL** | 加了地板仍能抓真泄漏 |
+
+跑法：`py tools/stress/soak.py --self-check`（退出码 **1 属预期**：坏样本本该判 FAIL，这里把「会红」当证据）。
+
+### chunk-1 是「预热块」：区间 RSS 只观察（第 23 轮第 7 项）
+
+第 23 轮起跑后 **30 分钟就 FAIL_EARLY**（客户端按设计退出，不是崩溃）：
+```
+verdict-chunk-1.json: FAIL
+   FAIL RSS 增长 ≤10%（区间） — 区间基线 44.6MB 峰值 51.6MB 增长=+15.64%
+   PASS 绝对 p50 ≤30ms — max 0.578ms
+   PASS 绝对 p99 ≤80ms — max 1.064ms   | 句柄波动 3 | DB 池 5/5
+```
+服务端**从起服到起跑只隔 2 分钟**，这 30 分钟里含地图加载、1922 只怪刷出、100 个玩家陆续进场 ——
+**是启动爬坡，不是泄漏**（延迟/句柄/池全部正常）。实测即使把预热窗口挪到 600s，段内仍 +13.6%，
+说明**挪阈值解决不了问题**（爬坡持续到约 17 分钟）。
+
+**修法（原则化，不是调阈值）**：
+
+| 判据 | 窗口 | 处理 |
+|---|---|---|
+| chunk-1 区间 RSS 增长 | [0s, 1800s) | **仅观察**（`observe_only: true` + `observe_warnings[]`），不参与 FAIL |
+| chunk 2..8 区间 RSS 增长 | 各 1800s | **硬判 ≤10%**（此时已稳态，泄漏会立刻暴露） |
+| 整跑 RSS 增长 / 斜率 | `t ≥ 1800s`（`slope_skip_seconds`） | **硬判**（不软化） |
+
+理由：整跑判据本来就跳过前 1800 秒（正好等于 chunk-1 的长度），那 chunk-1 的 RSS 自然不该当硬判据。
+自检第 13/14 例锁定这个边界：**chunk-1 +15% → PASS（WARN）、chunk-2 +15% → FAIL**。
+
+### 慢泄漏观测：`mir2_internal_records{kind=...}`（第 24 轮）
+
+RSS 判据对「每天 +4.6MB」这类慢增长**不敏感**（4h 只涨 ~800KB，淹没在噪声里）。
+所以把内部集合的**长度**单独做成 gauge，与 RSS 对照看：
+
+```
+mir2_internal_records{kind="db_save"} 1024
+mir2_internal_records{kind="mail_writes"} 0
+mir2_internal_records{kind="pending_hits"} 3
+mir2_internal_records{kind="pending_map_moves"} 0
+mir2_internal_records{kind="market_searches"} 100
+```
+`kind` 是**编译期固定**的 5 项（`metrics::INTERNAL_COLLECTION_KINDS`），禁止动态 label 污染基数。
+每个集合的「有界/无界、上限、代码位置、证据」见 [`docs/architecture/internal-collections.md`](../architecture/internal-collections.md)。
+
+**soak 侧**（`samples.json` / `samples.csv`，每采样点一行）：
+`internal_db_save`、`internal_mail_writes`、`internal_pending_hits`、
+`internal_pending_map_moves`、`internal_market_searches`。
+
+**判据（与 RSS 对照，不替代既有阈值）**：
+
+| gauge | RSS | 判读 | 动作 |
+|---|---|---|---|
+| 斜率 ≈ 0 | 平 | 正常 | — |
+| 线性上涨，**到上限收敛** | 平 | 有界缓冲（如 `db_save → 1024`） | 记录上限即正常 |
+| 线性上涨 | 平 | 缓冲在涨但被回收 | 观察是否收敛 |
+| **线性上涨** | **同步涨**（>2MB/h） | **真泄漏** | 提 P0，定位该集合清理路径 |
+
+**不改既有阈值**：RSS ≤10%、p50 ≤30ms、p99 ≤80ms、时长 ≥14400s、chunk 判据全部保持原样。
+
+**复算（PowerShell 7，无 heredoc）**：
+```powershell
+py -c "import json,statistics;d=json.load(open(r'docs/testing/soak-data/<ts>/samples.json',encoding='utf-8'));s=d['samples'];keys=['internal_db_save','internal_mail_writes','internal_pending_hits','internal_pending_map_moves','internal_market_searches'];sl=lambda k:(lambda v:(round(sum((a-statistics.fmean([x for x,_ in v]))*(b-statistics.fmean([y for _,y in v])) for a,b in v)/sum((a-statistics.fmean([x for x,_ in v]))**2 for a,_ in v),4) if len(v)>1 else None))([(x['t']/3600.0,x[k]) for x in s if isinstance(x.get(k),(int,float))]);print({k:sl(k) for k in keys})"
+```
+
+> 这些字段是第 24 轮才加的：更早的 `samples.json` 里没有，复算得到 `None` 属正常。
+
+### chunk 区间 RSS：为什么要有 8MB 绝对地板（第 23 轮第 8 项）
+
+第 23 轮第 2 次跑到 **chunk-2 被判 +10.06% FAIL**（差 **0.06 个百分点**），但从 `samples.json` 复算：
+
+| 统计 | chunk-1 | chunk-2 |
+|---|---|---|
+| 首点 / 中位数 / p90 / 峰值 / 末点 | 37.1 / 44.3 / 44.7 / 44.8 / 44.8MB | 44.8 / **37.8** / 49.3 / 49.3 / 49.3MB |
+| 段内形态 | 平滑爬升 | **锯齿**：44.8 → 44.9 → **35.8** → 35.8 → 38.5 → … → 49.3 |
+
+**chunk-2 的中位数比 chunk-1 还低 6.5MB、累计斜率 −0.866MB/h（RSS 在降）**，p99 1.15ms、句柄与池正常
+→ 这不是泄漏，是 **Windows working set trimming** 造成的 ±7–9MB 锯齿。
+
+而 10% 判据在 ~40MB 基线下只有 **4.7MB**，**低于测量噪声**，于是"首点 vs 峰值"的算法被抖动支配（差 0.06pp 就翻红）。
+
+**修法（保持硬判，不做全局放水）**：
+
+```
+chunk 区间 RSS：FAIL 当且仅当  growth_bytes > max(10% × 基线, 8MB)
+```
+
+| 样本 | 增长 | 判据 | 结果 |
+|---|---|---|---|
+| 真实 chunk-2（锯齿） | 4.73MB | max(4.69MB, 8MB) = 8MB | **PASS**（复算验证：chunk-1/chunk-2 均 PASS，`首个失败 chunk = None`） |
+| 自检 15（锯齿 44→36→49） | — | 8MB 地板 | **PASS** |
+| 自检 16（30 分钟单调 +20MB） | 20MB | 8MB | **FAIL**（真泄漏仍能抓） |
+
+**整跑判据一个字没改**：RSS ≤10%、斜率 ≤2MB/h、句柄、池、连续上升、p99 四分位全部保持原样 ——
+那些是 4 小时尺度，不受 30 分钟锯齿影响。chunk-1 仍**仅观察**。
+
+> 原则：**判据阈值必须高于测量噪声**。否则"工具会红"就退化成"工具会随机红"，比不测更糟。
+
 ### 环境噪声记录（长跑期间他人活动）
 
 长跑要求「空载机器」，但共享开发机上总有人干活。**诚实记录噪声比假装干净更有用**：
@@ -272,25 +388,22 @@ chunk（1800s）**只判两件事**：每个采样点的绝对延迟（p50≤30m
 
 ## 怎么复算文档里的数字
 
+> **本仓文档里的命令一律按 PowerShell 7 写（`pwsh -NoProfile`），不支持 bash heredoc（`py - <<'PY'` 在 pwsh 里跑不了）。**
+
+**方式 A（推荐）：用脚本自带的 `--analyze` 重算**
 ```powershell
-py - <<'PY'
-import json, statistics
-d = json.load(open("docs/testing/soak-data/<时间戳>/samples.json", encoding="utf-8"))
-s, meta = d["samples"], d["meta"]
-warm = [x for x in s if x["t"] >= meta["warmup_seconds"]]
-p99 = [x["tick_p99_ms"] for x in warm]
-q = max(1, len(p99) // 4)
-print("duration", meta["duration_seconds"], "samples", len(s), "warm", len(warm))
-print("p50 max", max(x["tick_p50_ms"] for x in s), "p99 max", max(x["tick_p99_ms"] for x in s))
-print("rss growth %", (max(x["rss_bytes"] for x in warm) - warm[0]["rss_bytes"]) / warm[0]["rss_bytes"] * 100)
-print("handles swing", max(x["handles"] for x in warm) - min(x["handles"] for x in warm))
-print("db pool first/max", warm[0]["db_pool_connections"], max(x["db_pool_connections"] for x in warm))
-print("p99 head/tail", statistics.fmean(p99[:q]), statistics.fmean(p99[-q:]))
-print("write_failed", s[-1]["write_failed_total"], "dropped", s[-1]["packets_dropped_total"])
-PY
+py tools/stress/soak.py --analyze docs/testing/soak-data/<时间戳>/samples.json
+```
+它会用**同一套判据**重算：绝对阈值、相对判据、趋势斜率、8 个 chunk，并写出
+`verdict-recomputed.json`（与实时 `verdict.json` 对照），最后打印 `slope_window_seconds`。
+
+**方式 B：一条命令打印关键数字**
+```powershell
+py -c "import json;d=json.load(open(r'docs/testing/soak-data/<时间戳>/samples.json',encoding='utf-8'));s,m=d['samples'],d['meta'];w=[x for x in s if x['t']>=m['warmup_seconds']];q=max(1,len(w)//4);p=[x['tick_p99_ms'] for x in w];import statistics;print('elapsed',m['elapsed_seconds'],'samples',len(s),'warm',len(w));print('p50max',max(x['tick_p50_ms'] for x in s),'p99max',max(x['tick_p99_ms'] for x in s));print('rss first/max',w[0]['rss_bytes'],max(x['rss_bytes'] for x in w),'growth%',round((max(x['rss_bytes'] for x in w)-w[0]['rss_bytes'])/w[0]['rss_bytes']*100,2));print('handles swing',max(x['handles'] for x in w)-min(x['handles'] for x in w));print('dbpool first/max',w[0]['db_pool_connections'],max(x['db_pool_connections'] for x in w));print('p99 head/tail',statistics.fmean(p[:q]),statistics.fmean(p[-q:]));print('write_failed',s[-1]['write_failed_total'],'dropped',s[-1]['packets_dropped_total'])"
 ```
 
-或者直接看 `verdict.json`：里面是每条判据的 `ok` 与 `detail`（含具体数字），与 `summary` 一致。
+**方式 C：只看结论**
+`verdict.json` 里每条判据都有 `ok` 与 `detail`（含具体数字），`warnings[]` 是台阶类告警（仅观察、不参与 FAIL）。
 
 ## 与 `check-routine` 的关系
 

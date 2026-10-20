@@ -8,6 +8,15 @@
 
 服务端全部通过环境变量配置；未设置时使用括号内默认值。
 
+> **`/metrics` 默认关闭**：必须显式设置 `MIR2_METRICS_LISTEN=127.0.0.1:9090` 才会启动；
+> 未设置时没有 HTTP 端点（不是端口冲突/防火墙）。生产建议只绑 `127.0.0.1` 或内网，
+> 不要暴露公网；soak/监控脚本必须显式配置该变量。
+
+> **必须捕获服务端 stdout**：`tracing_subscriber` 的日志默认写 **stdout**（不是 stderr）。
+> 部署/测试若把 stdout 丢弃（`Stdio::null()` / 未重定向），`db_save ok character=... seq=... t=...`
+> 等结构化日志等于没有；RPO/审计也无法计算 `T_save`。请把 stdout 重定向到日志文件或采集器，
+> 并同时保留 stderr。
+
 | 名称 | 必填 | 默认值 | 说明 |
 |---|---|---|---|
 | `DATABASE_URL` | 否 | 未设置 → MemoryStore | PostgreSQL 连接串（如 `postgres://user:pass@host:5432/mir_next`）。设置后使用 PostgreSQL 并**自动执行 `migrations/`**；不设置则内存存储，重启丢档（仅开发/冒烟）。 |

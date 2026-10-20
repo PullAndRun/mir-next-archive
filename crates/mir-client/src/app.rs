@@ -202,6 +202,9 @@ pub fn run_live(
 ) {
     let status = snapshot.status;
     let mut ui = UiState::new(language);
+    // 登录事件：进入世界后的第一帧播放（Crystal LoginScene.cs:314 的 LoginEffect）。
+    let mut sound = options.sound;
+    sound.play(mir_client::audio::LOGIN_SOUND_FILE, now_millis_u64());
     let (minimap_scene, reason) = mir_render::MinimapScene::open_dir(&options.data_dir);
     if let Some(reason) = reason {
         println!("小地图素材不可用：{reason}（M 面板会显示纯色占位）");
@@ -224,7 +227,7 @@ pub fn run_live(
         net,
         ui,
         snapshot,
-        sound: options.sound,
+        sound,
         last_sound_id: 0,
         chat_input: None,
         shift: false,
@@ -1256,8 +1259,9 @@ impl ClientApp {
                     live.send(NetCommand::Chat(format!("/language {}", next.code())));
                 }
                 Action::MasterVolume(percent) => {
-                    self.client_config.master_volume =
-                        ui::settings::SettingsState::fraction(percent);
+                    let master = ui::settings::SettingsState::fraction(percent);
+                    self.client_config.master_volume = master;
+                    live.sound.set_master_volume(master);
                 }
                 Action::NextWindowMode => {
                     self.client_config.window_mode = panel.window_mode;
@@ -2114,6 +2118,7 @@ impl ClientApp {
         let frame = Rect::screen(self.frame.width, self.frame.height);
         let mut action = None;
         let mut cell = None;
+        let mut door_target = None;
         if let Mode::Live(live) = &mut self.mode {
             if !live.snapshot.is_ready() {
                 return;
@@ -2122,6 +2127,7 @@ impl ClientApp {
             let mouse = live.ui.mouse;
             let world_cell = self.scene.screen_to_cell(self.center, mouse);
             cell = Some(world_cell);
+            door_target = mir_client::ui::door::click(&self.scene.map, world_cell);
             // 地图可走性闭包：A* 只在点到空地时使用（`UiState::on_click_with_path`）。
             let map = &self.scene.map;
             let walkable = |x: i32, y: i32| map.walkable(x, y);
@@ -2132,6 +2138,15 @@ impl ClientApp {
                 Some(world_cell),
                 Some(&walkable),
             );
+        }
+        // 门优先于“点地走路”：面板/菜单动作仍优先（只在无动作或 WorldMove 时开门）。
+        if let Some(door) = door_target
+            && matches!(action.as_ref(), None | Some(UiAction::WorldMove { .. }))
+        {
+            if let Mode::Live(live) = &mut self.mode {
+                live.send(NetCommand::OpenDoor(door.door_index));
+            }
+            action = None;
         }
         if let Some(action) = action {
             // 双击目标产生的「靠近一步」不进按住连续走：它由 `UiState::tick_approach`
@@ -2428,6 +2443,11 @@ impl ClientApp {
                     position.y
                 );
                 self.center = self.clamp_center(position);
+                // 切图事件：SelectMusic（SoundList.cs:38，10147 → Select2.wav）。
+                if let Mode::Live(live) = &mut self.mode {
+                    live.sound
+                        .play(mir_client::audio::MAP_CHANGE_SOUND_FILE, now_millis_u64());
+                }
                 self.request_redraw();
             }
             Err(error) => eprintln!("警告：{error}"),

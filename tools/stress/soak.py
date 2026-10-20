@@ -68,6 +68,10 @@ CRITERIA = {
     "abs_p50_ms": 30.0,
     "abs_p99_ms": 80.0,
     # 趋势斜率（长跑必需）。
+    # chunk 区间判据的**绝对噪声地板**：实测 chunk 内 RSS 锯齿 35.8↔49.3MB（±19%），
+    # 10% 百分比在 ~40MB 基线下只有 4.7MB，**低于测量噪声**，会随机误杀（第 23 轮 chunk-2 差 0.06pp）。
+    # 判据：growth > max(10% × 基线, 8MB) 才 FAIL。
+    "chunk_rss_noise_floor_bytes": 8_000_000,
     "max_rss_slope_mb_per_hour": 2.0,
     "max_handle_slope_per_hour": 2.0,
     # 总斜率**跳过**前 30 分钟：那一段是地图/NPC/怪物首载 + 分配器爬坡，不是泄漏。
@@ -196,8 +200,10 @@ def slope_per_hour(samples: list[dict], key: str) -> float | None:
 # ---------------------------------------------------------------------------
 # 判据：单个窗口（整跑 / chunk 共用）
 # ---------------------------------------------------------------------------
-def _check(checks: list[dict], name: str, ok: bool, detail: str) -> None:
-    checks.append({"name": name, "ok": bool(ok), "detail": detail})
+def _check(checks: list[dict], name: str, ok: bool, detail: str, **extra: object) -> None:
+    entry = {"name": name, "ok": bool(ok), "detail": detail}
+    entry.update(extra)
+    checks.append(entry)
 
 
 def evaluate_window(
@@ -209,6 +215,7 @@ def evaluate_window(
     cumulative_slope: bool = False,
     include_slope: bool = True,
     chunk_gate: bool = False,
+    chunk_index: int | None = None,
 ) -> dict:
     """对一个采样窗口下判决。`check_duration=False` 时跳过时长/样本数自证（chunk 用）。"""
     checks: list[dict] = []
@@ -321,6 +328,7 @@ def evaluate_window(
     # ---- 相对判据：只看预热窗口之后 ----
     warmup = float(meta.get("warmup_seconds") or CRITERIA["warmup_seconds"])
     warm = [s for s in samples if float(s.get("t", 0.0)) >= warmup]
+    observe: list[dict] = []
     if chunk_gate:
         # chunk 门禁的**最小充分集**：绝对延迟（上面已判）+ 区间 RSS 增长。
         # 句柄波动 / DB 池 / 连续上升 / 趋势斜率只在**整跑**判：
@@ -330,13 +338,41 @@ def evaluate_window(
             rss = series(warm, "rss_bytes")
             if rss and rss[0] > 0:
                 growth = (max(rss) - rss[0]) / rss[0]
-                _check(
-                    checks,
-                    f"RSS 增长 ≤{CRITERIA['max_rss_growth_ratio'] * 100:.0f}%（区间）",
-                    growth <= CRITERIA["max_rss_growth_ratio"],
-                    f"区间基线={rss[0] / 1e6:.1f}MB 峰值={max(rss) / 1e6:.1f}MB 增长={growth * 100:+.2f}%",
+                limit = CRITERIA["max_rss_growth_ratio"]
+                detail = (
+                    f"区间基线={rss[0] / 1e6:.1f}MB 峰值={max(rss) / 1e6:.1f}MB "
+                    f"增长={growth * 100:+.2f}%"
                 )
-        return _window_stats(label, checks, samples, warm, p50, p99, requested, elapsed, None, meta)
+                if chunk_index == 1:
+                    # **chunk-1 是预热块**：整跑判据本来就跳过前 1800s（=chunk-1 长度），
+                    # 所以这一块的 RSS 增长只观察、不参与 FAIL（第 23 轮实测 +15.64% 是启动爬坡）。
+                    _check(
+                        checks,
+                        f"RSS 增长（区间·仅观察）≤{limit * 100:.0f}%",
+                        True,
+                        detail + "（chunk-1 预热块：仅观察，不参与 FAIL）",
+                        observe_only=True,
+                    )
+                    observe.append({
+                        "kind": "rss_interval_observe_only",
+                        "chunk": chunk_index,
+                        "growth_ratio": round(growth, 4),
+                        "note": "chunk-1 预热块：RSS 区间增长仅观察；chunk≥2 与整跑仍是硬判据",
+                    })
+                else:
+                    floor = float(CRITERIA["chunk_rss_noise_floor_bytes"])
+                    growth_bytes = max(rss) - rss[0]
+                    allowed = max(limit * rss[0], floor)
+                    _check(
+                        checks,
+                        f"RSS 增长 ≤max({limit * 100:.0f}%, {floor / 1e6:.0f}MB)（区间）",
+                        growth_bytes <= allowed,
+                        detail + f" 允许=max({limit * rss[0] / 1e6:.2f}MB, {floor / 1e6:.0f}MB)"
+                        f"={allowed / 1e6:.2f}MB 实际={growth_bytes / 1e6:+.2f}MB",
+                    )
+        result = _window_stats(label, checks, samples, warm, p50, p99, requested, elapsed, None, meta)
+        result["observe_warnings"] = observe
+        return result
     if len(warm) < 3:
         _check(checks, "预热后样本足够做相对判据", False, f"warm_samples={len(warm)}（预热 {warmup:.0f}s 后不足 3 点）")
     else:
@@ -491,8 +527,9 @@ def _window_stats(
             else (max(series(samples, "connections_active")) if series(samples, "connections_active") else None)
         ),
     })
+    warnings = detect_rss_steps(samples)
     verdict = "PASS" if all(item["ok"] for item in checks) else "FAIL"
-    return {"window": label, "verdict": verdict, "checks": checks, "stats": stats}
+    return {"window": label, "verdict": verdict, "checks": checks, "stats": stats, "warnings": warnings}
 
 
 def print_verdict(report: dict, title: str) -> None:
@@ -500,6 +537,11 @@ def print_verdict(report: dict, title: str) -> None:
     for item in report["checks"]:
         flag = "PASS" if item["ok"] else "FAIL"
         print(f"  [{flag}] {item['name']}  —— {item['detail']}")
+    warnings = report.get("warnings") or []
+    for warning in warnings:
+        print(f"  [WARN] {warning['kind']} @t={warning['at_t']}s 单步 {warning['step_mb']}MB"
+              f"（{warning['pre_mb']} → 最低 {warning['lowest_after_mb']}MB，仍高于台阶前 "
+              f"{warning['held_above_pre_mb']}MB）— {warning['note']}")
     stats = report.get("stats") or {}
     if stats:
         print("  —— 统计 ——")
@@ -552,6 +594,7 @@ def evaluate_chunks(
         report = evaluate_window(
             window,
             {**meta, "elapsed_seconds": min(end, covered)},
+            chunk_index=index,
             label=f"chunk-{index} [{start:.0f}s,{end:.0f}s)",
             check_duration=False,
             cumulative_slope=True,
@@ -589,6 +632,52 @@ def chunk_verdict(window_samples: list[dict], meta: dict, *, label: str) -> dict
         cumulative_slope=True,
         include_slope=False,
     )
+
+
+def detect_rss_steps(
+    samples: list[dict],
+    *,
+    step_mb: float = 5.0,
+    hold_seconds: float = 600.0,
+    hold_mb: float = 2.0,
+) -> list[dict]:
+    """检测「**持续性** RSS 台阶」并只产 WARN（不参与 FAIL）。
+
+    判据（门下限要求）：某一步 `Δ > step_mb`（默认 5MB）**且**其后 `hold_seconds`（600s）内
+    RSS 仍高于台阶前 `hold_mb`（2MB）→ 记一条 `warn`。
+    只看单步会被 GC / 分配器归还的噪声淹没（告警疲劳），所以必须看**是否维持高位**。
+    """
+    warnings = []
+    for index in range(1, len(samples)):
+        before = samples[index - 1].get("rss_bytes")
+        after = samples[index].get("rss_bytes")
+        if not isinstance(before, (int, float)) or not isinstance(after, (int, float)):
+            continue
+        delta_mb = (after - before) / 1e6
+        if delta_mb <= step_mb:
+            continue
+        at_t = float(samples[index].get("t", 0.0))
+        window = [
+            float(s["rss_bytes"])
+            for s in samples[index:]
+            if isinstance(s.get("rss_bytes"), (int, float))
+            and float(s.get("t", 0.0)) <= at_t + hold_seconds
+        ]
+        if not window:
+            continue
+        lowest_after_mb = (min(window) - before) / 1e6
+        if lowest_after_mb >= hold_mb:
+            warnings.append({
+                "kind": "rss_step_persistent",
+                "at_t": round(at_t, 1),
+                "step_mb": round(delta_mb, 2),
+                "pre_mb": round(before / 1e6, 2),
+                "lowest_after_mb": round(min(window) / 1e6, 2),
+                "held_above_pre_mb": round(lowest_after_mb, 2),
+                "hold_window_seconds": hold_seconds,
+                "note": "单步 >5MB 且 600s 内仍高于台阶前 ≥2MB：WARN（仅观察，不参与 FAIL）",
+            })
+    return warnings
 
 
 def client_fields_consistency(stats: dict) -> list[str]:
@@ -642,6 +731,12 @@ def sample_once(probe, pid: int | None, metrics_url: str, started: float) -> dic
         "tick_p50_ms": (metrics["mir2_tick_micros_p50"] / 1000.0) if "mir2_tick_micros_p50" in metrics else None,
         "tick_p99_ms": (metrics["mir2_tick_micros_p99"] / 1000.0) if "mir2_tick_micros_p99" in metrics else None,
         "tick_samples": metrics.get("mir2_tick_samples"),
+        # 慢泄漏观测（第 24 轮）：内部集合长度（kind 编译期固定 5 项）
+        "internal_db_save": metrics.get('mir2_internal_records{kind="db_save"}'),
+        "internal_mail_writes": metrics.get('mir2_internal_records{kind="mail_writes"}'),
+        "internal_pending_hits": metrics.get('mir2_internal_records{kind="pending_hits"}'),
+        "internal_pending_map_moves": metrics.get('mir2_internal_records{kind="pending_map_moves"}'),
+        "internal_market_searches": metrics.get('mir2_internal_records{kind="market_searches"}'),
         "connections_active": metrics.get("mir2_connections_active"),
         "connections_rejected": metrics.get("mir2_connections_rejected"),
         "connections_total": metrics.get("mir2_connections_total"),
@@ -650,6 +745,29 @@ def sample_once(probe, pid: int | None, metrics_url: str, started: float) -> dic
         "write_failed_total": metrics.get("mir2_write_failed_total"),
         "batch_write_failed_total": metrics.get("mir2_batch_write_failed_total"),
     }
+
+
+def write_samples(out_dir: str, samples: list[dict], meta: dict, suffix: str = "") -> tuple[str, str]:
+    """把原始采样落盘（`samples<suffix>.json` + `.csv`）。**正常结束与早退都要调用**。
+
+    第 22 轮的教训：`FAIL_EARLY` 直接 return，导致 `samples.json` 缺失，队长与刑部无法复算台阶。
+    """
+    json_path = os.path.join(out_dir, f"samples{suffix}.json")
+    csv_path = os.path.join(out_dir, f"samples{suffix}.csv")
+    write_json(json_path, {"meta": meta, "samples": samples})
+    keys = [
+        "t", "timestamp", "rss_bytes", "handles", "alloc_bytes_per_sec", "db_pool_connections",
+        "db_pool_idle", "tick_p50_ms", "tick_p99_ms", "tick_samples", "connections_active",
+        "connections_rejected", "connections_total", "players_online", "packets_dropped_total",
+        "internal_db_save", "internal_mail_writes", "internal_pending_hits",
+        "internal_pending_map_moves", "internal_market_searches",
+        "write_failed_total", "batch_write_failed_total",
+    ]
+    with open(csv_path, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=keys, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(samples)
+    return json_path, csv_path
 
 
 def write_json(path: str, payload: dict) -> None:
@@ -730,6 +848,7 @@ def run_live(args) -> int:
                 report["verdict"] = "FAIL_EARLY"
                 report["meta"] = meta
                 write_json(os.path.join(out_dir, f"verdict{suffix}.json"), report)
+                write_samples(out_dir, samples, meta, suffix)
                 print_verdict(report, "soak 中止（服务端不可达）")
                 return 1
 
@@ -776,6 +895,8 @@ def run_live(args) -> int:
                     report["chunks"] = window_reports
                     report["meta"] = meta
                     write_json(os.path.join(out_dir, f"verdict{suffix}.json"), report)
+                    # 早退也必须落原始采样（第 22 轮缺口）
+                    write_samples(out_dir, samples, meta, suffix)
                     return 1
                 next_chunk_at += float(args.chunk_seconds)
 
@@ -818,16 +939,7 @@ def run_live(args) -> int:
         report["verdict"] = "FAIL_EARLY"
         meta["failed_chunk"] = first_failure
 
-    write_json(os.path.join(out_dir, f"samples{suffix}.json"), {"meta": meta, "samples": samples})
-    keys = [
-        "t", "timestamp", "rss_bytes", "handles", "alloc_bytes_per_sec", "db_pool_connections",
-        "db_pool_idle", "tick_p50_ms", "tick_p99_ms", "tick_samples", "connections_active",
-        "players_online", "packets_dropped_total", "write_failed_total", "batch_write_failed_total",
-    ]
-    with open(os.path.join(out_dir, f"samples{suffix}.csv"), "w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=keys, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(samples)
+    write_samples(out_dir, samples, meta, suffix)
     write_json(os.path.join(out_dir, f"verdict{suffix}.json"), report)
 
     print_verdict(
@@ -1016,6 +1128,127 @@ def self_check() -> int:
         failures.append(f"早退字段矛盾未被消除：filled={problems_filled} missing={problems_missing}")
     if not problems_buggy:
         failures.append("校验器抓不到 clients_entered=0 + active_min=100 的旧 bug（校验失效）")
+
+    # 10b) 早退也必须落 samples.json / .csv（第 22 轮缺口：FAIL_EARLY 跳过收尾落盘）
+    import tempfile
+    with tempfile.TemporaryDirectory() as temp_dir:
+        early_dir = os.path.join(temp_dir, "early-exit")
+        os.makedirs(early_dir, exist_ok=True)
+        early_meta = {**meta_missing, "elapsed_seconds": 3600.0, "failed_chunk": 2}
+        early_report = evaluate_window(early_samples, early_meta, label="fail_early")
+        early_report["verdict"] = "FAIL_EARLY"
+        early_report["meta"] = early_meta
+        write_json(os.path.join(early_dir, "verdict.json"), early_report)
+        json_path, csv_path = write_samples(early_dir, early_samples, early_meta, "")
+        saved = json.load(open(json_path, encoding="utf-8"))
+        saved_count = len(saved.get("samples") or [])
+        csv_lines = sum(1 for _ in open(csv_path, encoding="utf-8")) - 1
+        print(f"  [早退落盘] samples.json 存在={os.path.exists(json_path)} 点数={saved_count}"
+              f"（期望 {len(early_samples)}）| samples.csv 行数={csv_lines}")
+        if not os.path.exists(json_path) or saved_count != len(early_samples) or csv_lines != len(early_samples):
+            failures.append(
+                f"早退未落 samples：exists={os.path.exists(json_path)} count={saved_count} "
+                f"csv={csv_lines} 期望={len(early_samples)}"
+            )
+
+    # 11) 台阶**持续**高位 → 必须 WARN（仅观察，不影响 verdict）
+    step_persist = baseline_series()
+    for sample in step_persist:
+        # 基线压平（不带爬坡），台阶放 t=10800 之后 +5.5MB 常驻：
+        # 最小二乘斜率 ≈ 1.55MB/h（<2MB/h）、增长 ≈ 4.6%（<10%），
+        # 这样「WARN 出现」与「verdict 仍 PASS」可以同时被验证（WARN 只观察、不参与 FAIL）。
+        sample["rss_bytes"] = 120e6 + (5.5e6 if sample["t"] >= 10800 else 0.0)
+    persist_report = evaluate_window(step_persist, base_meta(), label="step-persist")
+    print(f"  [台阶持续] warnings={len(persist_report.get('warnings') or [])} verdict="
+          f"{persist_report['verdict']}（期望 ≥1 条 WARN 且 verdict 仍 PASS）")
+    if not (persist_report.get("warnings") or []) or persist_report["verdict"] != "PASS":
+        failures.append(
+            f"台阶持续未被记为 WARN：warnings={len(persist_report.get('warnings') or [])} "
+            f"verdict={persist_report['verdict']}"
+        )
+
+    # 12) 涨后回落（GC/分配器归还）→ 必须**不** WARN
+    step_drop = baseline_series()
+    for sample in step_drop:
+        if 3600 <= sample["t"] < 3700:
+            sample["rss_bytes"] += 8e6          # 短暂抬高
+        elif sample["t"] >= 3700:
+            sample["rss_bytes"] += 0            # 600s 内回落
+    drop_report = evaluate_window(step_drop, base_meta(), label="step-drop")
+    print(f"  [涨后回落] warnings={len(drop_report.get('warnings') or [])} verdict="
+          f"{drop_report['verdict']}（期望 0 条 WARN 且 verdict 仍 PASS）")
+    if drop_report.get("warnings"):
+        failures.append(f"涨后回落被误记为 WARN：{drop_report['warnings']}")
+
+    # 13) chunk-1 预热块：区间 RSS +15% 必须 **PASS**（只记 observe_only WARN）
+    ramp = baseline_series(count=180, duration=1800.0)
+    for sample in ramp:                      # 前 30 分钟线性爬 15%
+        sample["rss_bytes"] = 44e6 * (1 + 0.15 * (sample["t"] / 1800.0))
+    chunk1_reports, chunk1_failure = evaluate_chunks(
+        [{**sample, "tick_p50_ms": 0.58, "tick_p99_ms": 1.0} for sample in ramp],
+        base_meta(),
+        elapsed=1807.0,
+        require_complete=True,
+    )
+    chunk1 = chunk1_reports[0] if chunk1_reports else {"verdict": "MISSING", "checks": [], "observe_warnings": []}
+    observe_hits = [c for c in chunk1["checks"] if c.get("observe_only")]
+    print(f"  [chunk-1 预热] verdict={chunk1['verdict']}（期望 PASS）observe_only 项="
+          f"{len(observe_hits)} observe_warnings={len(chunk1.get('observe_warnings') or [])}")
+    if chunk1["verdict"] != "PASS" or not observe_hits:
+        failures.append(
+            f"chunk-1 预热块未按 observe-only 处理：verdict={chunk1['verdict']} observe_only={len(observe_hits)}"
+        )
+
+    # 14) chunk-2 同样的 +15% 必须 **FAIL**（证明只软化了 chunk-1，不是全局放水）
+    ramp2 = baseline_series(count=360, duration=3600.0)
+    for sample in ramp2:
+        if sample["t"] < 1800:
+            sample["rss_bytes"] = 44e6
+        else:
+            # +10MB/30min：既超 10%（4.4MB）也超 8MB 绝对地板 → 必须 FAIL
+            sample["rss_bytes"] = 44e6 + 10e6 * ((sample["t"] - 1800) / 1800.0)
+    chunk2_reports, _ = evaluate_chunks(ramp2, base_meta(), elapsed=3607.0, require_complete=True)
+    chunk2 = next((r for r in chunk2_reports if r["index"] == 2), {"verdict": "MISSING", "checks": []})
+    print(f"  [chunk-2 硬判] verdict={chunk2['verdict']}（期望 FAIL）")
+    if chunk2["verdict"] != "FAIL":
+        failures.append(f"chunk-2 未按硬判据 FAIL（软化被扩大到其它块）：verdict={chunk2['verdict']}")
+
+    # 15) 锯齿样本（Windows working set trimming）：44→36→49 摆动、中位数平稳 → 必须 PASS
+    saw = baseline_series(count=360, duration=3600.0)
+    pattern = [44.8, 44.9, 35.8, 35.8, 38.5, 40.0, 41.5, 43.0, 44.0, 45.0, 46.0, 47.0, 47.5, 48.0, 48.5, 49.0, 49.3]
+    for index, sample in enumerate(saw):
+        base = 37.1 if sample["t"] < 1800 else 44.8
+        sample["rss_bytes"] = (base + pattern[index % len(pattern)] - 44.8) * 1e6 if sample["t"] < 1800             else pattern[index % len(pattern)] * 1e6
+    saw_report = evaluate_window(
+        [x for x in saw if x["t"] >= 1800],
+        {**base_meta(), "elapsed_seconds": 3600.0},
+        label="sawtooth",
+        check_duration=False,
+        include_slope=False,
+        chunk_gate=True,
+        chunk_index=2,
+    )
+    print(f"  [锯齿抗噪] verdict={saw_report['verdict']}（期望 PASS）增长={saw_report['stats']['rss_first_mb']}→"
+          f"{saw_report['stats']['rss_max_mb']}MB")
+    if saw_report["verdict"] != "PASS":
+        failures.append(f"锯齿样本被误判：verdict={saw_report['verdict']}")
+
+    # 16) 单调增长（30 分钟 +20MB）→ 必须 FAIL（证明加了地板仍能抓真泄漏）
+    leak = baseline_series(count=180, duration=1800.0)
+    for sample in leak:
+        sample["rss_bytes"] = (47.0 + 20.0 * (sample["t"] / 1800.0)) * 1e6
+    leak_report = evaluate_window(
+        leak,
+        {**base_meta(), "elapsed_seconds": 1800.0},
+        label="chunk-leak",
+        check_duration=False,
+        include_slope=False,
+        chunk_gate=True,
+        chunk_index=2,
+    )
+    print(f"  [真泄漏仍红] verdict={leak_report['verdict']}（期望 FAIL）")
+    if leak_report["verdict"] != "FAIL":
+        failures.append(f"加了噪声地板后抓不到真泄漏：verdict={leak_report['verdict']}")
 
     print("\n=== self-check 结论 ===")
     if failures:

@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import collections
 import gzip
+import json
 import pathlib
 import random
 import re
@@ -52,6 +53,7 @@ C_MAGIC = 58
 C_BUY_ITEM = 51
 C_ACCEPT_QUEST = 104
 C_FINISH_QUEST = 105
+C_OPENDOOR = 136
 
 #: 比奇药店最便宜的初级红药（`Server.MirDB` 里 `(HP)DrugSmall` 的模板号）。
 POTION_ITEM_INDEX = 658
@@ -99,6 +101,27 @@ S_NPC_GOODS = 102
 S_LOG_OUT_SUCCESS = 58
 
 DIRECTIONS = ["Up", "UpRight", "Right", "DownRight", "Down", "DownLeft", "Left", "UpLeft"]
+
+#: 新手链 BFS 走位时已知的“门未开”格（从 `resource/map/0.map` v0 的 `o+8 & 0x7F` 解析）。
+#: 只用于 gate 脚本；产品侧的门交互是第 24 轮候选。
+def _load_doors() -> dict[tuple[int, int], int]:
+    path = pathlib.Path(__file__).with_name("doors.json")
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    doors = {}
+    for key, value in raw.items():
+        if key.startswith("_") or "," not in key:
+            continue
+        x, y = key.split(",", 1)
+        doors[(int(x), int(y))] = int(value)
+    return doors
+
+
+NEWBIE_DOORS = _load_doors()
 
 
 class ProtocolError(Exception):
@@ -503,7 +526,12 @@ class Playtest:
                 r.u16()  # image
                 r.i32()  # colour
                 location = r.point()
-                self.npcs.append({"id": object_id, "name": name, "pos": location})
+                r.u8()  # direction
+                quest_count = r.i32()
+                quest_ids = [r.i32() for _ in range(max(0, min(quest_count, 64)))]
+                self.npcs.append(
+                    {"id": object_id, "name": name, "pos": location, "quest_ids": quest_ids}
+                )
             elif index == S_OBJECT_MONSTER:
                 r = Reader(payload)
                 object_id = r.u32()
@@ -1928,13 +1956,19 @@ class Playtest:
         """按 `mapgrid-*.bin` 的 BFS 路径逐格走（绕开建筑；不依赖贪心 walker）。"""
         if self._distance(npc["pos"]) <= 1:
             return True
-        for walked in range(500):
+        dynamic_blocked: set[tuple[int, int]] = set()
+        for walked in range(1200):
             if self._distance(npc["pos"]) <= 1:
                 return True
             blocked = {tuple(npc["pos"])}
+            blocked |= dynamic_blocked
             blocked |= {tuple(item["pos"]) for item in self.npcs}
+            blocked |= {tuple(item["pos"]) for item in self.map_npcs}
             blocked |= {tuple(item["pos"]) for item in self.monsters if not item.get("dead")}
-            path = self._bfs_path(tuple(npc["pos"]), blocked=blocked)
+            # 优先不走门（42 个门格当软障碍）；实在绕不开才允许穿门并在卡住时开门。
+            path = self._bfs_path(tuple(npc["pos"]), blocked=blocked | set(NEWBIE_DOORS))
+            if not path:
+                path = self._bfs_path(tuple(npc["pos"]), blocked=blocked)
             if not path:
                 print(f"  [新手链] BFS 无路径：当前 {self.self_pos} -> {npc.get('name')} @ {npc.get('pos')}")
                 return False
@@ -1962,11 +1996,23 @@ class Playtest:
             if stale:
                 continue
             if not moved:
-                print(
-                    f"  [新手链] 放弃 BFS 行走：卡在 {self.self_pos}，下一格 {cell}，"
-                    f"目标 NPC {npc.get('name')} @ {npc.get('pos')}"
-                )
-                return False
+                door = NEWBIE_DOORS.get(cell)
+                if door is not None:
+                    print(f"  [新手链] 门未开？door_index={door} @ {cell}，尝试 C.Opendoor")
+                    writer = Writer()
+                    writer.u8(door)
+                    self.send(C_OPENDOOR, writer.raw())
+                    self._drain(0.2)
+                    if self.step_onto(cell):
+                        moved = True
+                if not moved:
+                    # 动态障碍：记下并重新规划整条路径，而不是一直硬走同一格。
+                    dynamic_blocked.add(cell)
+                    print(
+                        f"  [新手链] 该格拒绝，加入动态障碍并重算路径：{cell}；"
+                        f"目标 NPC {npc.get('name')} @ {npc.get('pos')}"
+                    )
+                    continue
         print(f"  [新手链] BFS 行走超过 500 步：当前 {self.self_pos}，目标 {npc.get('pos')}")
         return False
 
@@ -1982,6 +2028,17 @@ class Playtest:
         if not self._stand_next_to(npc) and not self._newbie_walk_bfs(npc):
             self.fail("接任务", f"走不到 Assistant_Jane @ {npc['pos']}")
             return False
+        visible = next((n for n in self.npcs if n["id"] == npc.get("object_id")), None)
+        if visible is not None:
+            print(
+                f"  [诊断] Jane NPC: object_id={visible['id']} "
+                f"quest_ids={visible.get('quest_ids')} file={npc.get('file')}"
+            )
+        else:
+            print(
+                f"  [诊断] Jane NPC: object_id={npc.get('object_id')} "
+                f"quest_ids=None（不在 S.ObjectNPC 可见集） file={npc.get('file')}"
+            )
         writer = Writer()
         writer.u32(npc.get("object_id", npc.get("id", 0)))
         writer.i32(7)
@@ -2505,7 +2562,7 @@ class Playtest:
             writer = Writer()
             writer.string(character)
             writer.u8(0)  # MirGender.Male
-            writer.u8(2)  # MirClass.Wizard
+            writer.u8(0 if self.newbie else 2)  # 新手链走战士（quest 7 required=1）；其余仍 Wizard
             self.send(C_NEW_CHARACTER, writer.raw())
             index, created = self.expect({S_NEW_CHARACTER_SUCCESS, S_LOGIN_SUCCESS}, "创建角色")
             char_index = Reader(created).i32()

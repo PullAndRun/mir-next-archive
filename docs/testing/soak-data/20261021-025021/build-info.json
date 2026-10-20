@@ -1,0 +1,22 @@
+{
+  "commit": "9ede73f",
+  "build_at": "2026-10-21T02:48:50+08:00",
+  "binary": "target/soak-run/soak-stability.exe",
+  "binary_size": 8749056,
+  "tree_dirty": [
+    " M crates/mir-client/src/app.rs",
+    " M crates/mir-client/src/audio.rs",
+    " M crates/mir-client/src/main.rs",
+    " M crates/mir-server/src/pg_store.rs",
+    " M crates/mir-server/src/session.rs",
+    " M crates/mir-server/src/world.rs",
+    " M docs/deploy.md",
+    " M docs/testing/fault-injection.md",
+    " M docs/testing/soak.md",
+    " M tools/playtest/playtest.py",
+    " M tools/stress/soak.py",
+    "?? crates/mir-server/tests/move_feedback.rs",
+    "?? crates/mir-server/tests/save_seq.rs"
+  ],
+  "note": "本次 soak 代表 9ede73f + 上述工作树改动（兵部 session.rs/world.rs/pg_store.rs、工部 mir-client 音频、户部 soak.py/soak.md、礼部文档）"
+}

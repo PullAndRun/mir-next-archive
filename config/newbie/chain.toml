@@ -1,0 +1,46 @@
+# 新手引导任务链（表驱动，客户端读取；不新增协议）。
+#
+# 目标：接任务 → 自然刷 3 只鸡 → 交任务（奖励到账）→ 学技能 → 买第一件装备。
+# 步骤顺序即展示顺序；objective 用于客户端判断当前步骤：
+#   quest_accept / kill / quest_finish / learn_spell / buy_item
+[[steps]]
+id = "accept"
+zh = "找新手向导接任务"
+en = "Accept the newbie quest"
+hint_zh = "到 map0 (284,606) 找 Assistant_Jane，接下「Meet the Warrior Instructor」。"
+hint_en = "Find Assistant_Jane at map0 (284,606) and accept 'Meet the Warrior Instructor'."
+objective = "quest_accept"
+
+[[steps]]
+id = "hunt"
+zh = "自然刷 3 只鸡"
+en = "Hunt 3 hens"
+hint_zh = "在城外打 3 只鸡；任务进度到 3/3 即可。"
+hint_en = "Kill 3 hens outside the town until progress reaches 3/3."
+objective = "kill"
+target = "鸡"
+count = 3
+
+[[steps]]
+id = "deliver"
+zh = "回去交任务"
+en = "Turn in the quest"
+hint_zh = "回 map0 (110,317) 找 Master_Wa 交任务；奖励为 60 金币 + 48 经验。"
+hint_en = "Return to Master_Wa at map0 (110,317); reward is 60 gold + 48 exp."
+objective = "quest_finish"
+
+[[steps]]
+id = "learn"
+zh = "学第一个技能"
+en = "Learn your first spell"
+hint_zh = "到书店买第一本技能书并学习（1 级新号免费）。"
+hint_en = "Buy the first skill book from the bookshop and learn it."
+objective = "learn_spell"
+
+[[steps]]
+id = "buy"
+zh = "买第一件装备"
+en = "Buy your first equipment"
+hint_zh = "到装备店买一件可穿的装备，确认扣金币并入包。"
+hint_en = "Buy a wearable item from the equipment shop; verify gold spent and item in bag."
+objective = "buy_item"

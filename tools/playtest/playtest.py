@@ -50,6 +50,8 @@ C_CALL_NPC = 50
 C_CHAT = 13
 C_MAGIC = 58
 C_BUY_ITEM = 51
+C_ACCEPT_QUEST = 104
+C_FINISH_QUEST = 105
 
 #: 比奇药店最便宜的初级红药（`Server.MirDB` 里 `(HP)DrugSmall` 的模板号）。
 POTION_ITEM_INDEX = 658
@@ -90,6 +92,8 @@ S_EQUIP_ITEM = 38
 S_USE_ITEM = 52
 S_GAINED_GOLD = 67
 S_LOSE_GOLD = 68
+S_CHANGE_QUEST = 201
+S_COMPLETE_QUEST = 202
 S_MAP_CHANGED = 98
 S_NPC_GOODS = 102
 S_LOG_OUT_SUCCESS = 58
@@ -1919,6 +1923,204 @@ class Playtest:
         self.fail("读书学技能", "书店货架没有可买/可学的技能书")
         return False
 
+    # ---- 新手链 quest 7：经队长临时授权新增（勿改其它逻辑）----
+    def _newbie_walk_bfs(self, npc: dict) -> bool:
+        """按 `mapgrid-*.bin` 的 BFS 路径逐格走（绕开建筑；不依赖贪心 walker）。"""
+        if self._distance(npc["pos"]) <= 1:
+            return True
+        for walked in range(500):
+            if self._distance(npc["pos"]) <= 1:
+                return True
+            blocked = {tuple(npc["pos"])}
+            blocked |= {tuple(item["pos"]) for item in self.npcs}
+            blocked |= {tuple(item["pos"]) for item in self.monsters if not item.get("dead")}
+            path = self._bfs_path(tuple(npc["pos"]), blocked=blocked)
+            if not path:
+                print(f"  [新手链] BFS 无路径：当前 {self.self_pos} -> {npc.get('name')} @ {npc.get('pos')}")
+                return False
+            cell = path[0]
+            if abs(cell[0] - self.self_pos[0]) > 1 or abs(cell[1] - self.self_pos[1]) > 1:
+                # 服务端回拉/纠正后路径会过期，下一轮用新位置重算。
+                continue
+            moved = False
+            stale = False
+            for attempt in range(1, 4):
+                if abs(cell[0] - self.self_pos[0]) > 1 or abs(cell[1] - self.self_pos[1]) > 1:
+                    stale = True
+                    break
+                if time.time() < self.move_ready_at:
+                    time.sleep(self.move_ready_at - time.time())
+                if self.step_onto(cell):
+                    self.move_ready_at = time.time() + 0.68
+                    moved = True
+                    break
+                self.move_ready_at = time.time() + 0.68
+                print(
+                    f"  [新手链] 移动被拒 第 {attempt}/3 次：当前 {self.self_pos} -> 目标 {cell}，"
+                    f"地图 {self.map_file}"
+                )
+            if stale:
+                continue
+            if not moved:
+                print(
+                    f"  [新手链] 放弃 BFS 行走：卡在 {self.self_pos}，下一格 {cell}，"
+                    f"目标 NPC {npc.get('name')} @ {npc.get('pos')}"
+                )
+                return False
+        print(f"  [新手链] BFS 行走超过 500 步：当前 {self.self_pos}，目标 {npc.get('pos')}")
+        return False
+
+    def newbie_quest_accept(self) -> bool:
+        """走到 Assistant_Jane 接 quest 7，断言 S.ChangeQuest 里任务号=7。"""
+        npc = next(
+            (n for n in self.map_npcs if "jane" in n["name"].lower()),
+            None,
+        )
+        if npc is None:
+            self.fail("接任务", f"map0 没有 Assistant_Jane：{ [n['name'] for n in self.map_npcs[:12]] }")
+            return False
+        if not self._stand_next_to(npc) and not self._newbie_walk_bfs(npc):
+            self.fail("接任务", f"走不到 Assistant_Jane @ {npc['pos']}")
+            return False
+        writer = Writer()
+        writer.u32(npc.get("object_id", npc.get("id", 0)))
+        writer.i32(7)
+        self.send(C_ACCEPT_QUEST, writer.raw())
+        deadline = time.time() + self.timeout
+        accepted = False
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            index, payload = packet
+            self._observe(index, payload)
+            if index == S_CHANGE_QUEST:
+                quest_id = Reader(payload).i32()
+                if quest_id == 7:
+                    accepted = True
+                    break
+        if not accepted:
+            self.fail("接任务", "发 C.AcceptQuest{7} 后未收到 S.ChangeQuest{7}")
+            return False
+        self.ok("接任务", f"Assistant_Jane @ {npc['pos']} -> quest 7 accepted")
+        return True
+
+    def newbie_quest_finish(self) -> bool:
+        """走到 Master_Wa 交 quest 7：精确断言金币 +60、经验 +48、CompleteQuest{7}。"""
+        npc = next(
+            (n for n in self.map_npcs if "master_wa" in n["name"].lower() or "master wa" in n["name"].lower()),
+            None,
+        )
+        if npc is None:
+            self.fail("交任务", f"map0 没有 Master_Wa：{ [n['name'] for n in self.map_npcs[:12]] }")
+            return False
+        if not self._stand_next_to(npc) and not self._newbie_walk_bfs(npc):
+            self.fail("交任务", f"走不到 Master_Wa @ {npc['pos']}")
+            return False
+        gold_before = self.self_gold
+        exp_before = self.self_exp or 0
+        self.gold_delta = 0
+        writer = Writer()
+        writer.i32(7)
+        writer.i32(-1)
+        self.send(C_FINISH_QUEST, writer.raw())
+        deadline = time.time() + self.timeout
+        completed = False
+        while time.time() < deadline and not completed:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            index, payload = packet
+            self._observe(index, payload)
+            if index == S_COMPLETE_QUEST:
+                reader = Reader(payload)
+                count = reader.i32()
+                ids = [reader.i32() for _ in range(max(0, min(count, 64)))]
+                completed = 7 in ids
+        if not completed:
+            self.fail("交任务", "发 C.FinishQuest{7} 后未收到 S.CompleteQuest{7}")
+            return False
+        exp_after = self.self_exp or 0
+        gold_after = (gold_before or 0) + self.gold_delta
+        if self.gold_delta != 60:
+            self.fail("交任务奖励", f"S.GainedGold 累计 {self.gold_delta:+d}，期望 +60")
+            return False
+        if exp_after - exp_before != 48:
+            self.fail("交任务奖励", f"经验 {exp_before}->{exp_after}，期望 +48")
+            return False
+        self.ok(
+            "交任务奖励",
+            f"quest 7 completed；金币 {gold_before}->{gold_after}（+{self.gold_delta}），"
+            f"经验 {exp_before}->{exp_after}（+{exp_after - exp_before}）",
+        )
+        self.self_gold = gold_after
+        return True
+
+    def newbie_buy_equipment(self) -> bool:
+        """买第一件装备：断言 S.LoseGold 金额、S.GainedItem 模板/数量、背包 +1。"""
+        keywords = ("smith", "armour", "armor", "weapon", "装备", "铁匠", "武器", "衣服")
+        candidates = [
+            npc for npc in self.map_npcs if any(word in npc["name"].lower() for word in keywords)
+        ]
+        if not candidates:
+            self.fail("买装备", f"map0 没有装备店 NPC：{ [n['name'] for n in self.map_npcs[:12]] }")
+            return False
+        for npc in candidates:
+            if not self._stand_next_to(npc):
+                continue
+            pages = self._shop_pages(npc)
+            for goods in pages:
+                items = goods["items"]
+                pick = next((item for item in items if item["item_index"] != POTION_ITEM_INDEX), None)
+                if pick is None:
+                    continue
+                gold_before = self.self_gold
+                bag_before = len(self.inventory_items)
+                self.gold_delta = 0
+                self.last_gained_items.clear()
+                writer = Writer()
+                writer.u64(pick["unique_id"])
+                writer.u16(1)
+                writer.u8(0)
+                self.send(C_BUY_ITEM, writer.raw())
+                deadline = time.time() + self.timeout
+                got = None
+                spent = 0
+                while time.time() < deadline:
+                    packet = self.next_packet(deadline)
+                    if packet is None:
+                        break
+                    index, payload = packet
+                    self._observe(index, payload)
+                    if index == S_GAINED_ITEM:
+                        got = self.last_gained_items[-1]
+                    if index == S_LOSE_GOLD and spent == 0:
+                        spent = Reader(payload).u32()
+                    if got is not None and spent > 0:
+                        break
+                if got is None or spent == 0:
+                    continue
+                if got["item_index"] != pick["item_index"] or got["count"] != 1:
+                    self.fail(
+                        "买装备",
+                        f"S.GainedItem #{got['item_index']}x{got['count']} 与货架 #{pick['item_index']} 不一致",
+                    )
+                    return False
+                bag_after = len(self.inventory_items)
+                gold_after = (gold_before or 0) - spent
+                if bag_after != bag_before + 1:
+                    self.fail("买装备", f"背包槽 {bag_before}->{bag_after}，期望 +1")
+                    return False
+                self.ok(
+                    "买装备",
+                    f"{npc['name']} 货架 #{pick['item_index']}，扣金币 {spent}（余额 {gold_before}->{gold_after}），"
+                    f"背包 {bag_before}->{bag_after}",
+                )
+                self.self_gold = gold_after
+                return True
+        self.fail("买装备", f"装备店没有可买货架：{ [n['name'] for n in candidates] }")
+        return False
+
     def newbie_flow(self, char_index: int) -> int:
         self.ok("进入世界", f"object_id={self.self_object_id} pos={self.self_pos}")
         deadline = time.time() + self.timeout
@@ -1940,6 +2142,9 @@ class Playtest:
         equipped = self.newbie_equip()
         if equipped:
             self.ok("穿上出生装", f"{equipped} 件")
+        # 经队长临时授权：quest 7 接取（Assistant_Jane）。
+        if not self.newbie_quest_accept():
+            return 1
         if not self.newbie_go_bookshop():
             self.fail("使用技能", "书商不可达，无法学技能")
             return 1
@@ -1966,6 +2171,11 @@ class Playtest:
         if not self.newbie_hunt(3):
             return 1
         if not self.newbie_pickup():
+            return 1
+        # 经队长临时授权：quest 7 交付（Master_Wa）→ 精确 +60 金币/+48 经验；随后买第一件装备。
+        if not self.newbie_quest_finish():
+            return 1
+        if not self.newbie_buy_equipment():
             return 1
         if self.gm_commands:
             self.fail("新号禁 GM", f"检测到 @ 命令：{self.gm_commands}")

@@ -152,8 +152,16 @@ pub const DEFAULT_STATEMENT_TIMEOUT: Duration = Duration::from_secs(30);
 /// 获取连接 5 秒超时、空闲 10 分钟回收、最长存活 30 分钟，并在每条连接建立后把
 /// `statement_timeout` 设为 [`DEFAULT_STATEMENT_TIMEOUT`]，避免慢查询把连接池拖死。
 pub async fn connect(database_url: &str) -> Result<PgPool> {
+    connect_with_max_connections(database_url, DEFAULT_MAX_CONNECTIONS).await
+}
+
+/// 仅测试/工具用：用指定连接上限建池；生产入口仍固定 [`DEFAULT_MAX_CONNECTIONS`]。
+pub async fn connect_with_max_connections(
+    database_url: &str,
+    max_connections: u32,
+) -> Result<PgPool> {
     let pool = PgPoolOptions::new()
-        .max_connections(DEFAULT_MAX_CONNECTIONS)
+        .max_connections(max_connections)
         .acquire_timeout(Duration::from_secs(5))
         .idle_timeout(Duration::from_secs(600))
         .max_lifetime(Duration::from_secs(1800))

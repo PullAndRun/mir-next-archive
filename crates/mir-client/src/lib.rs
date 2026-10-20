@@ -15,5 +15,6 @@ pub mod audio;
 pub mod client_config;
 pub mod geom;
 pub mod net;
+pub mod newbie;
 pub mod settings;
 pub mod ui;

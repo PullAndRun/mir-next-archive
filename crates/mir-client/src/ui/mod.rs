@@ -46,6 +46,7 @@ pub mod labels;
 pub mod mail;
 pub mod market;
 pub mod minimap;
+pub mod newbie;
 pub mod notice;
 pub mod quests;
 pub mod reconnect;
@@ -995,6 +996,10 @@ pub struct UiState {
     pub show_settings: bool,
     /// 设置面板的可编辑状态（窗口层用设置文件初始化，每个动作写回文件）。
     pub settings: settings::SettingsState,
+    /// 新手引导链（`config/newbie/chain.toml`，窗口层加载；缺失时内置默认）。
+    pub newbie_chain: crate::newbie::NewbieChain,
+    /// 是否显示新手引导追踪面板。
+    pub show_newbie_guide: bool,
     /// 小地图渲染器（`resource/data/mmap.wzl`；缺素材时是空场景，画纯色占位）。
     pub minimap_scene: mir_render::MinimapScene,
     /// 鼠标位置（物理像素，与帧坐标一致）。
@@ -1121,6 +1126,8 @@ impl UiState {
             bigmap_destination: None,
             show_settings: false,
             settings: settings::SettingsState::default(),
+            newbie_chain: crate::newbie::NewbieChain::default(),
+            show_newbie_guide: true,
             minimap_scene: mir_render::MinimapScene::empty(),
             mouse: Point::new(0, 0),
             target_object_id: None,
@@ -3744,6 +3751,16 @@ pub fn draw(
         state.time_millis,
         buffs::bar_left(state.show_equipment, state.shop_open),
     );
+    if state.show_newbie_guide {
+        newbie::draw(
+            frame,
+            screen,
+            snapshot,
+            &state.newbie_chain,
+            text,
+            state.language,
+        );
+    }
     hud::draw_chat(frame, snapshot, text, chat_input, state.language);
     // 队友血条（HUD）：队伍存在时贴在聊天面板上方（需求：HUD 上显示队友血条）。
     // 组队面板打开时不重复画（面板已有完整成员表，320×240 会互相遮挡）。

@@ -250,6 +250,7 @@ python tools/protocol-gen/generate.py
 | [`docs/testing/ci-assets.md`](docs/testing/ci-assets.md) | CI 素材依赖审计：哪些测试读 `resource/`、缺素材如何 skip，以及无素材复现脚本 |
 | [`docs/client.md`](docs/client.md) | 客户端：协议流程、按键/鼠标、面板与字体 |
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |
+| [`docs/audio/feasibility.md`](docs/audio/feasibility.md) | 音效可行性：2917 个 WAV 的格式/映射/授权/播放冒烟与接入步骤 |
 | [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文、游戏内切换与 i18n 收口清单（逐条 TextKey 表） |
 | [`docs/architecture.md`](docs/architecture.md) | 架构总览：crate 分层、数据流、时间与随机、测试策略 |
 | [`docs/deploy.md`](docs/deploy.md) | 部署：环境变量、首次建库/迁移、端口防火墙、备份与升级回滚 |

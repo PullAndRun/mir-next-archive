@@ -43,6 +43,30 @@ impl PgAccountStore {
         })
     }
 
+    /// 仅测试/工具用：指定连接上限建池；生产仍走 [`PgAccountStore::connect`]（16 条）。
+    ///
+    /// 该构造器不改变生产默认值，只为故障注入 T3 制造可控的连接池饱和。
+    ///
+    /// # Errors
+    /// 连接失败或迁移失败时返回错误。
+    #[doc(hidden)]
+    pub async fn connect_with_max_connections(
+        database_url: &str,
+        max_connections: u32,
+    ) -> Result<Self, StoreError> {
+        let pool = mir_store::connect_with_max_connections(database_url, max_connections)
+            .await
+            .map_err(|error| StoreError::Internal(error.to_string()))?;
+        mir_store::migrate(&pool)
+            .await
+            .map_err(|error| StoreError::Internal(error.to_string()))?;
+        Ok(Self {
+            pool,
+            save_locks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            save_versions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        })
+    }
+
     /// 底层连接池（后台任务、工具会用到）。
     #[must_use]
     pub fn pool(&self) -> &PgPool {

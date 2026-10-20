@@ -14,3 +14,5 @@ github/
 
 # check-routine 的巡检证据（可随时清理；不进版本库）
 tools/dev/evidence/
+# 本地运行时生成（launcher -FirstRun 写入），每个部署各不相同
+config/client.toml

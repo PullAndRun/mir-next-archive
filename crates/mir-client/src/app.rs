@@ -210,6 +210,8 @@ pub fn run_live(
     // 设置面板的初始值与设置文件一致（命令行 `--volume` 等只覆盖播放器，不写文件）。
     ui.settings = options.settings.panel();
     ui.settings.language = language;
+    // 新手链数据表（缺失/损坏时用内置默认，不 panic）。
+    ui.newbie_chain = mir_client::newbie::NewbieChain::load("config/newbie/chain.toml").0;
     // 统一配置：语言按 client.toml（缺失/损坏已回落默认并生成）。
     let (config, _issue) =
         mir_client::client_config::ClientConfig::load(mir_client::client_config::default_path());

@@ -240,19 +240,29 @@ def evaluate_window(
         # 第 21 轮实测有 1 个客户端在握手后自行退出（服务端 accepted=100、entered=99、rejected=0），
         # 所以判据不能只看「请求 100」，必须看 entered 与 active_min。
         requested_clients = int(meta.get("clients") or 0)
-        entered = int(meta.get("clients_entered") or 0)
+        entered = meta.get("clients_entered")
         _check(
             checks,
             f"clients_requested == {REQUIRED_CLIENTS}",
             requested_clients == REQUIRED_CLIENTS,
             f"clients_requested={requested_clients}",
         )
-        _check(
-            checks,
-            f"clients_entered == {REQUIRED_CLIENTS}（100 个都进入世界）",
-            entered == REQUIRED_CLIENTS,
-            f"clients_entered={entered}",
-        )
+        if entered is None:
+            # 早退路径可能还没汇总「进入世界」的人数：此时 clients_entered 与 active_min **一起**标未采集，
+            # 绝不允许「clients_entered=0 却 active_min=100」这种自相矛盾（第 21 轮刑部 medium）。
+            _check(
+                checks,
+                "连接字段采集完整（早退时 clients_entered / active_min 一起标未采集）",
+                True,
+                "未采集：早退路径未汇总 clients_entered，因此 active_min 也不判定",
+            )
+        else:
+            _check(
+                checks,
+                f"clients_entered == {REQUIRED_CLIENTS}（100 个都进入世界）",
+                int(entered) == REQUIRED_CLIENTS,
+                f"clients_entered={entered}",
+            )
 
     if not samples:
         _check(checks, "采样非空", False, "窗口内没有采样点")
@@ -280,7 +290,10 @@ def evaluate_window(
 
     active = series(samples, "connections_active")
     active_min = min(active) if active else None
-    if active:
+    if meta.get("clients_entered") is None:
+        # 与 clients_entered 同进同退：早退时不单独判 active_min（否则就是 0 vs 100 的矛盾）。
+        pass
+    elif active:
         _check(
             checks,
             "稳态连接数 active_min ≥ 95（≥95% 持续在线）",
@@ -463,9 +476,20 @@ def _window_stats(
         "write_failed_final": samples[-1].get("write_failed_total"),
         "dropped_final": samples[-1].get("packets_dropped_total"),
         "clients_requested": int((meta or {}).get("clients") or 0),
-        "clients_entered": int((meta or {}).get("clients_entered") or 0),
-        "active_min": (min(series(samples, "connections_active")) if series(samples, "connections_active") else None),
-        "active_max": (max(series(samples, "connections_active")) if series(samples, "connections_active") else None),
+        "clients_entered": (
+            None if (meta or {}).get("clients_entered") is None else int((meta or {})["clients_entered"])
+        ),
+        # 与 clients_entered **同进同退**：早退未采集时两者都写 None（绝不写 0 / 100 并存）。
+        "active_min": (
+            None
+            if (meta or {}).get("clients_entered") is None
+            else (min(series(samples, "connections_active")) if series(samples, "connections_active") else None)
+        ),
+        "active_max": (
+            None
+            if (meta or {}).get("clients_entered") is None
+            else (max(series(samples, "connections_active")) if series(samples, "connections_active") else None)
+        ),
     })
     verdict = "PASS" if all(item["ok"] for item in checks) else "FAIL"
     return {"window": label, "verdict": verdict, "checks": checks, "stats": stats}
@@ -565,6 +589,21 @@ def chunk_verdict(window_samples: list[dict], meta: dict, *, label: str) -> dict
         cumulative_slope=True,
         include_slope=False,
     )
+
+
+def client_fields_consistency(stats: dict) -> list[str]:
+    """检查「连接字段」是否自相矛盾：**禁止** `clients_entered=0` 与 `active_min>0` 并存。
+
+    早退路径要么把 `clients_entered` 汇总出来，要么把它与 `active_min` **一起**标 `None`（未采集）。
+    """
+    entered = stats.get("clients_entered")
+    active_min = stats.get("active_min")
+    problems = []
+    if entered == 0 and isinstance(active_min, (int, float)) and active_min > 0:
+        problems.append(
+            f"clients_entered=0 却 active_min={active_min}：早退时两字段必须一起标未采集"
+        )
+    return problems
 
 
 def crosscheck_chunks(realtime: dict[int, dict], recomputed: dict[int, dict]) -> dict:
@@ -686,6 +725,7 @@ def run_live(args) -> int:
                 print(f"  [ABORT] t=+{sample['t']:.0f}s 服务端进程/指标都读不到（PID {pid}）")
                 meta["elapsed_seconds"] = round(time.time() - started, 1)
                 meta["aborted"] = "server_unreachable"
+                meta["clients_entered"] = sum(1 for worker in workers if worker.entered)
                 report = evaluate_window(samples, meta, label="aborted")
                 report["verdict"] = "FAIL_EARLY"
                 report["meta"] = meta
@@ -729,6 +769,8 @@ def run_live(args) -> int:
                     print_verdict(failed, f"chunk-{first_failure} 失败明细")
                     meta["elapsed_seconds"] = round(elapsed, 1)
                     meta["failed_chunk"] = first_failure
+                    # 早退也要把「已进入世界的人数」汇总出来，避免 clients_entered 与 active_min 矛盾。
+                    meta["clients_entered"] = sum(1 for worker in workers if worker.entered)
                     report = evaluate_window(samples, meta, label="fail_early")
                     report["verdict"] = "FAIL_EARLY"
                     report["chunks"] = window_reports
@@ -950,6 +992,30 @@ def self_check() -> int:
           f"{noisy_report['verdict']}（期望 PASS）")
     if noisy_report["verdict"] != "PASS":
         failures.append("chunk 门禁被 30 分钟噪声误杀（应只在绝对延迟或区间 RSS 上判）")
+
+    # 10) 早退字段一致性：构造「chunk-2 FAIL 早退」的两种 meta，断言不出现
+    #     「clients_entered=0 + active_min=100」这类矛盾（第 21 轮刑部 medium）。
+    early_samples = [s for s in baseline_series() if s["t"] < 3600]
+    #  (a) 早退时**已回填**：entered=100 + active_min=100 → 一致
+    meta_filled = {**base_meta(), "elapsed_seconds": 3600.0, "clients_entered": 100}
+    report_filled = evaluate_window(early_samples, meta_filled, label="early-filled")
+    problems_filled = client_fields_consistency(report_filled["stats"])
+    #  (b) 早退时**未采集**：两个字段都应写 None（而不是 0 与 100 并存）
+    meta_missing = {**base_meta(), "elapsed_seconds": 3600.0}
+    meta_missing.pop("clients_entered", None)
+    report_missing = evaluate_window(early_samples, meta_missing, label="early-missing")
+    problems_missing = client_fields_consistency(report_missing["stats"])
+    #  (c) 负例：故意造出旧 bug 的数据，断言校验器**能抓到**
+    problems_buggy = client_fields_consistency({"clients_entered": 0, "active_min": 100})
+    print(f"  [早退字段] 已回填：entered={report_filled['stats'].get('clients_entered')} "
+          f"active_min={report_filled['stats'].get('active_min')} 矛盾={problems_filled}")
+    print(f"  [早退字段] 未采集：entered={report_missing['stats'].get('clients_entered')} "
+          f"active_min={report_missing['stats'].get('active_min')} 矛盾={problems_missing}")
+    print(f"  [早退字段] 校验器对旧 bug 数据：{problems_buggy}（期望非空）")
+    if problems_filled or problems_missing:
+        failures.append(f"早退字段矛盾未被消除：filled={problems_filled} missing={problems_missing}")
+    if not problems_buggy:
+        failures.append("校验器抓不到 clients_entered=0 + active_min=100 的旧 bug（校验失效）")
 
     print("\n=== self-check 结论 ===")
     if failures:

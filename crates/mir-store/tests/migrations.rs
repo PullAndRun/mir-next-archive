@@ -114,6 +114,40 @@ fn unique_drill_database() -> String {
     format!("mir2_drill_{}_{ts}", std::process::id())
 }
 
+/// 从仓库根 `.env` 里读某个键（本机 PG 在 `nas:3001`，常写在 `.env` 而不是环境变量里）。
+///
+/// 只用于**只读快照**的连接串兜底；演练目标库仍然只认 `MIR2_DRILL_DATABASE_URL`。
+fn read_dotenv(key: &str) -> Option<String> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.env");
+    let text = std::fs::read_to_string(path).ok()?;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        let Some((name, value)) = trimmed.split_once('=') else {
+            continue;
+        };
+        if name.trim() == key {
+            let value = value.trim().trim_matches('"').trim_matches('\'').to_owned();
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+/// `.env` 里的 `DATABASE_URL`。
+fn env_from_dotenv() -> Option<String> {
+    read_dotenv("DATABASE_URL")
+}
+
+/// `.env` 里的 `MIR2_DEV_DATABASE_URL`（开发库）。
+fn dev_env_from_dotenv() -> Option<String> {
+    read_dotenv("MIR2_DEV_DATABASE_URL")
+}
+
 /// 把 `postgres://.../dbname` 换库名（保留账号/主机/端口）。
 fn with_database(url: &str, database: &str) -> String {
     let (head, tail) = url.rsplit_once('/').expect("连接串里至少有 host/db 分隔符");
@@ -227,7 +261,12 @@ async fn drill_body(
     evidence.push(format!("[DRILL] base_database={current}"));
 
     // ---- 1) mir2 开发库只读前后快照 ----
-    let mir2_url = std::env::var("DATABASE_URL").ok();
+    // 连接串优先级：`DATABASE_URL` → 仓库根 `.env` 里的 `DATABASE_URL` / `MIR2_DEV_DATABASE_URL`。
+    // 注意：这里只是**只读快照**用的连接，**不参与**「演练目标库只认 MIR2_DRILL_DATABASE_URL」这条约束。
+    let mir2_url = std::env::var("DATABASE_URL")
+        .ok()
+        .or_else(env_from_dotenv)
+        .or_else(dev_env_from_dotenv);
     let mut before = None;
     if let Some(url) = &mir2_url {
         let pool = mir_store::connect(url).await?;
@@ -241,7 +280,10 @@ async fn drill_body(
         before = Some(snap);
         pool.close().await;
     } else {
-        evidence.push("[DRILL] mir2_snapshot=skipped（未设置 DATABASE_URL）".to_owned());
+        evidence.push(
+            "[DRILL] mir2_snapshot=skipped（未设置 DATABASE_URL，且仓库根 .env 里也没有）"
+                .to_owned(),
+        );
     }
 
     // ---- 2) 建唯一演练库并跑迁移 ----

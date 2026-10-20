@@ -1,4 +1,4 @@
-# 新手链路 3 连跑 gate（t123 第 17 轮）
+﻿# 新手链路 3 连跑 gate（t123 第 17 轮）
 #
 # 用法（在仓库根目录）：
 #   pwsh -NoProfile -File tools/dev/newbie-gate.ps1
@@ -61,13 +61,22 @@ if (-not (Test-Port $Port)) {
         Write-Host "[FAIL] 服务端 exe 不存在：$Exe（先 cargo build -p mir-server 并复制）"
         exit 1
     }
-    & pwsh -NoProfile -ExecutionPolicy Bypass -File "tools/dev/serve.ps1" -Port $Port -Exe $Exe | Out-Host
+    # 用 Start-Process 而不是 `& pwsh ... | Out-Host`：
+    # 后者会把 serve.ps1 启动的**隐藏服务端子进程**的输出句柄也留在管道上，
+    # 管道永远等不到 EOF，脚本就挂住（刑部第 17 轮 F1 复现的就是这个）。
+    $serveLog = Join-Path $PSScriptRoot "..\..\target\newbie-gate-serve.log"
+    $serveErr = Join-Path $PSScriptRoot "..\..\target\newbie-gate-serve.err.log"
+    $serveArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools/dev/serve.ps1", "-Port", "$Port", "-Exe", $Exe)
+    $serveProc = Start-Process -FilePath "pwsh" -ArgumentList $serveArgs -PassThru -WindowStyle Hidden `
+        -RedirectStandardOutput $serveLog -RedirectStandardError $serveErr
+    $serveProc.WaitForExit(30000) | Out-Null
     $startedHere = $true
     for ($i = 0; $i -lt 40 -and -not (Test-Port $Port); $i++) {
         Start-Sleep -Milliseconds 250
     }
     if (-not (Test-Port $Port)) {
-        Write-Host "[FAIL] 服务端未在 $server 监听"
+        Write-Host "[FAIL] 服务端未在 $server 监听（serve 日志：$serveLog）"
+        if (Test-Path $serveLog) { Get-Content $serveLog -Tail 15 | Out-Host }
         exit 1
     }
 }

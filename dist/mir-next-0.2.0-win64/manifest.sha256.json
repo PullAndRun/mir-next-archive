@@ -19,12 +19,12 @@
     },
     {
       "path": "mir-client.exe",
-      "sha256": "3b7546266bccb950b72aa8ec5ca97a372b5251607f305e908f777a6458df8fab",
+      "sha256": "6016b862d4d5196675d82f5c8c2ec8b272152097a2d6276286f4feee84e91e2f",
       "bytes": 4516864
     },
     {
       "path": "mir-server.exe",
-      "sha256": "4139cfdf27a376823a6dacb017f0179ce9c8164677e45b1b1053a984f107ee47",
+      "sha256": "4eac80b750883e7903e78416757fe52d8455f07a233de19080890264b3ff3892",
       "bytes": 8743936
     },
     {

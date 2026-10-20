@@ -221,6 +221,9 @@ pub enum AiBehaviour {
     TrapRock,
     Magic,
     Special,
+    Aoe,
+    Delayed,
+    Immune,
     Generic,
 }
 
@@ -523,6 +526,48 @@ pub const AI_BEHAVIOURS: &[AiBehaviourEntry] = &[
         crystal: "TucsonMage.cs:8-60",
         test_name: "extra_missing_ai_ranges_and_stationary",
     },
+    AiBehaviourEntry {
+        ai: 69,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "PoisonHugger.cs:8-50",
+        test_name: "poison_hugger_has_ranged_five",
+    },
+    AiBehaviourEntry {
+        ai: 122,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "RestlessJar.cs:8-45",
+        test_name: "restless_jar_stays_stationary_and_ranged_six",
+    },
+    AiBehaviourEntry {
+        ai: 130,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "CannibalTentacles.cs:8-45",
+        test_name: "cannibal_tentacles_uses_view_range_ranged",
+    },
+    AiBehaviourEntry {
+        ai: 190,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "SnowYeti.cs:8-35",
+        test_name: "snow_yeti_has_ranged_nine",
+    },
+    AiBehaviourEntry {
+        ai: 179,
+        behaviour: AiBehaviour::Aoe,
+        crystal: "SnowWolf.cs:8-45",
+        test_name: "snow_wolf_aoe_radius_two",
+    },
+    AiBehaviourEntry {
+        ai: 187,
+        behaviour: AiBehaviour::Aoe,
+        crystal: "FrozenMiner.cs:8-45",
+        test_name: "frozen_miner_aoe_radius_one",
+    },
+    AiBehaviourEntry {
+        ai: 115,
+        behaviour: AiBehaviour::Aoe,
+        crystal: "SandSnail.cs:8-45",
+        test_name: "sand_snail_aoe_radius_one",
+    },
 ];
 
 /// 查 AI 行为族（`AI_BEHAVIOURS` 是唯一来源）。
@@ -628,13 +673,13 @@ impl MonsterKind {
     #[must_use]
     pub fn ranged_attack_range(&self) -> Option<i32> {
         match self.ai {
-            8 | 72 | 164 | 175 | 199 => Some(6),
+            8 | 72 | 122 | 164 | 175 | 199 => Some(6),
             165 | 192 => Some(4),
             102 | 31 | 32 => Some(8),
             4 | 116 | 117 | 121 | 127 | 173 => Some(2),
-            70 => Some(5),
-            181 | 210 => Some(self.view_range),
-            16 => Some(9),
+            69 | 70 => Some(5),
+            130 | 181 | 210 => Some(self.view_range),
+            16 | 190 => Some(9),
             57 | 80 => Some(10),
             113 if self.is_archer_guard() => Some(self.view_range),
             _ => None,
@@ -736,6 +781,30 @@ impl MonsterKind {
                 },
                 delay_ms: 300,
                 stationary: true,
+                snake: false,
+                defence: DefenceType::ACAgility,
+                effects: &[],
+            }),
+            115 | 187 => Some(MonsterSpecialSpec {
+                range: 1,
+                shape: MonsterMagicShape::Aoe {
+                    radius: 1,
+                    at_target: false,
+                },
+                delay_ms: 300,
+                stationary: false,
+                snake: false,
+                defence: DefenceType::ACAgility,
+                effects: &[],
+            }),
+            179 => Some(MonsterSpecialSpec {
+                range: 2,
+                shape: MonsterMagicShape::Aoe {
+                    radius: 2,
+                    at_target: false,
+                },
+                delay_ms: 350,
+                stationary: false,
                 snake: false,
                 defence: DefenceType::ACAgility,
                 effects: &[],
@@ -1375,7 +1444,7 @@ impl World {
         // 只作为可被攻击的场景对象存在。
         if matches!(
             monster.kind.ai,
-            3 | 15 | 56 | 79 | 99 | 119 | 120 | 128 | 170
+            3 | 15 | 56 | 79 | 99 | 119 | 120 | 122 | 128 | 170
         ) {
             monster.alone = false;
             return;

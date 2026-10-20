@@ -15,6 +15,7 @@ use mir_core::enums::{MirClass, MirDirection, Monster as MonsterImage};
 use mir_protocol::ServerPacket;
 use mir_server::MonsterKind;
 use mir_server::combat::{self, CombatStats};
+use mir_server::monster::AiSupport;
 use mir_server::world::{Player, World};
 use tokio::sync::mpsc;
 
@@ -930,4 +931,84 @@ fn death_and_experience_packets_survive_large_world_batch_flush() {
             .any(|packet| matches!(packet, ServerPacket::GainExperience(exp) if exp.amount == 18)),
         "合批路径应同时保留 GainExperience，实际 {packets:?}"
     );
+}
+
+#[test]
+fn poison_hugger_has_ranged_five() {
+    assert_eq!(special_monster(69, 100).ai_support(), AiSupport::Full);
+    assert_eq!(special_monster(69, 100).ranged_attack_range(), Some(5));
+    assert!(special_monster(69, 100).monster_special().is_none());
+}
+
+#[test]
+fn restless_jar_stays_stationary_and_ranged_six() {
+    assert_eq!(special_monster(122, 100).ai_support(), AiSupport::Full);
+    let mut harness = Harness::new(55);
+    let player = harness.add_player(1, Point::new(20, 20));
+    let jar = harness.spawn(special_monster(122, 100), Point::new(22, 20));
+    harness.world.monster_mut(jar).unwrap().target = Some(player);
+    harness.wake(jar);
+    harness.world.tick();
+    assert_eq!(
+        harness.world.monster(jar).unwrap().position,
+        Point::new(22, 20),
+        "RestlessJar CanMove=false"
+    );
+    assert_eq!(special_monster(122, 100).ranged_attack_range(), Some(6));
+}
+
+#[test]
+fn cannibal_tentacles_uses_view_range_ranged() {
+    assert_eq!(special_monster(130, 100).ai_support(), AiSupport::Full);
+    assert_eq!(
+        special_monster(130, 100).ranged_attack_range(),
+        Some(7),
+        "CannibalTentacles 用 ViewRange 远程"
+    );
+    assert!(special_monster(130, 100).monster_special().is_none());
+}
+
+#[test]
+fn snow_yeti_has_ranged_nine() {
+    assert_eq!(special_monster(190, 100).ai_support(), AiSupport::Full);
+    assert_eq!(special_monster(190, 100).ranged_attack_range(), Some(9));
+}
+
+#[test]
+fn snow_wolf_aoe_radius_two() {
+    assert_eq!(special_monster(179, 100).ai_support(), AiSupport::Full);
+    let spec = special_monster(179, 100)
+        .monster_special()
+        .expect("SnowWolf AoE");
+    assert_eq!(spec.range, 2);
+    assert!(matches!(
+        spec.shape,
+        mir_server::monster::MonsterMagicShape::Aoe { radius: 2, .. }
+    ));
+}
+
+#[test]
+fn frozen_miner_aoe_radius_one() {
+    assert_eq!(special_monster(187, 100).ai_support(), AiSupport::Full);
+    let spec = special_monster(187, 100)
+        .monster_special()
+        .expect("FrozenMiner AoE");
+    assert_eq!(spec.range, 1);
+    assert!(matches!(
+        spec.shape,
+        mir_server::monster::MonsterMagicShape::Aoe { radius: 1, .. }
+    ));
+}
+
+#[test]
+fn sand_snail_aoe_radius_one() {
+    assert_eq!(special_monster(115, 100).ai_support(), AiSupport::Full);
+    let spec = special_monster(115, 100)
+        .monster_special()
+        .expect("SandSnail AoE");
+    assert_eq!(spec.range, 1);
+    assert!(matches!(
+        spec.shape,
+        mir_server::monster::MonsterMagicShape::Aoe { radius: 1, .. }
+    ));
 }

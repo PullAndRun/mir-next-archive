@@ -11,3 +11,6 @@ github/
 # 本地协作状态（看板与团队运行态），不进版本库
 .edict/
 .agent-teams/
+
+# check-routine 的巡检证据（可随时清理；不进版本库）
+tools/dev/evidence/

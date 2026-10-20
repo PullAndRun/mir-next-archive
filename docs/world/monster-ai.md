@@ -178,8 +178,8 @@ AI 14/50 命中时按 §2.2 的概率挂上这两种状态。
 分组输出 `AI / 状态 / 怪物数 / 怪物名`；状态由 `MonsterKind::ai_support()` 统一分类
 （已实现/部分/未实现），稳定排序（BTreeMap + 名称排序去重）。
 
-当前结果：**已实现 AI 覆盖 480/537 个怪物模板 = 89.4%**；AI0 仍是「部分」（278 个模板），
-另有 **47 个 AI 编号标「未实现」**。测试 `audit_support_labels_and_key_ais_are_stable`
+第 13 轮时的结果（**历史快照，最新数字见 §9**）：**已实现 AI 覆盖 480/537 个怪物模板 = 89.4%**；
+AI0 仍是「部分」（278 个模板），另有 **47 个 AI 编号标「未实现」**。测试 `audit_support_labels_and_key_ais_are_stable`
 锁定 AI3/12/47/56 = Full、AI0 = Partial、AI53 = Stub 与标签。
 
 运行：
@@ -209,6 +209,31 @@ cargo run -p mir-server --example ai_audit
 - **AI 号 Full 口径**：implemented **46**、partial 44、missing **21**，分母 implemented+missing=**67**，Full 覆盖率 **46/67 = 68.66%**（满足 ≥44/66 的目标；Partial 不计分子/分母）。
 - `AI_BEHAVIOURS` 是 Full 的唯一来源，`ai_support()` 从表派生；`full_ai_table_entries_have_branch_and_named_test` 反向守卫遍历表，并要求 Crystal 出处、行为族、测试名齐全。`ai_audit` 还会输出「Full 但无用例」计数（当前 0）。
 
-Full 表新增 AI：4/70/72/79/97/99/102/116/117/118/119/120/121/124/125/126/127/128/163/164/165/169/170/173/181/192/210（另有既有 2/3/6/8/12/13/14/15/16/29/31/32/47/50/55/56/57/58/80/100/113）。每个 Full 条目都给出 Crystal 出处与同名行为测试；AI97 的 Crystal 子类本身只有 `Summoned` 标记，行为等价基类，按基类路径计入。
-仍未做的 AI：53/69/86/88/98/112/115/123/130/131/171/174/179/180/182/186/187/188/189/190 等
+Full 表新增 AI（第17轮）：4/70/72/79/97/99/102/116/117/118/119/120/121/124/125/126/127/128/163/164/165/169/170/173/181/192/210（另有既有 2/3/6/8/12/13/14/15/16/29/31/32/47/50/55/56/57/58/80/100/113）。第18轮再补 69/115/122/130/179/187/190，见 §9。每个 Full 条目都给出 Crystal 出处与同名行为测试；AI97 的 Crystal 子类本身只有 `Summoned` 标记，行为等价基类，按基类路径计入。
+仍未做的 AI（第18轮后剩 14 个）：53/86/88/98/112/123/131/171/174/180/182/186/188/189 等
 （详见 `ai_audit` 输出；其中不少是 `ObjectMagic`/复杂 Boss 行为，不在本轮简单 AI 范围）。
+
+## 9. 第 18 轮：7 个 missing AI 收口（t92b496a3）
+
+| AI | 模板 | Crystal 专属出处 | 行为维度 | 用例 |
+|---:|---|---|---|---|
+| 69 | PoisonHugger | `Monsters/PoisonHugger.cs:8-50` | Ranged(5) | `poison_hugger_has_ranged_five` |
+| 115 | SandSnail | `Monsters/SandSnail.cs:8-45` | Aoe(1) | `sand_snail_aoe_radius_one` |
+| 122 | RestlessJar | `Monsters/RestlessJar.cs:8-45` | Ranged(6)+Stationary | `restless_jar_stays_stationary_and_ranged_six` |
+| 130 | CannibalTentacles | `Monsters/CannibalTentacles.cs:8-45` | Ranged(ViewRange) | `cannibal_tentacles_uses_view_range_ranged` |
+| 179 | SnowWolf | `Monsters/SnowWolf.cs:8-45` | Aoe(2) | `snow_wolf_aoe_radius_two` |
+| 187 | FrozenMiner | `Monsters/FrozenMiner.cs:8-45` | Aoe(1) | `frozen_miner_aoe_radius_one` |
+| 190 | SnowYeti | `Monsters/SnowYeti.cs:8-35` | Ranged(9) | `snow_yeti_has_ranged_nine` |
+
+`AiBehaviour` 现含 `Stationary/Flee/Ranged/Guardian/Summon/TrapRock/Magic/Special/Aoe/Delayed/Immune/Generic`，本轮新增 Full 全部映射非 `Generic` 变体；RestlessJar 的站桩断言独立命名，不复用旧站桩用例。
+
+巡检（第 18 轮）：AI 数 **implemented=53 / partial=44 / missing=14**，AI 号 Full 覆盖率 **53/67 = 79.10%**；模板 **implemented=133 / partial=390 / missing=14**，全模板口径 **97.39%（523/537）**；`Full 但无用例=0`。
+
+负向自测（临时从 `AI_BEHAVIOURS` 移除表项 → 自己的用例变红 → 恢复）：
+
+| AI | 用例 | 移除后 |
+|---:|---|---|
+| 69 | `poison_hugger_has_ranged_five` | FAILED（`ai_support` 不是 Full） |
+| 179 | `snow_wolf_aoe_radius_two` | FAILED（`ai_support` 不是 Full） |
+| 187 | `frozen_miner_aoe_radius_one` | FAILED（`ai_support` 不是 Full） |
+

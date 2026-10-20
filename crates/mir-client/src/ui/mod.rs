@@ -989,6 +989,8 @@ pub struct UiState {
     pub show_minimap: bool,
     /// 大地图面板是否打开（`B`，Crystal `BigMapDialog.Toggle()`，`GameScene.cs:774`）。
     pub show_bigmap: bool,
+    /// 大地图上点击选中的传送目的地（地图名 + 坐标）。
+    pub bigmap_destination: Option<bigmap::MapDestination>,
     /// 设置面板是否打开（`O` / `F12`，Crystal `OptionDialog`）。
     pub show_settings: bool,
     /// 设置面板的可编辑状态（窗口层用设置文件初始化，每个动作写回文件）。
@@ -1116,6 +1118,7 @@ impl UiState {
             focus: None,
             show_minimap: false,
             show_bigmap: false,
+            bigmap_destination: None,
             show_settings: false,
             settings: settings::SettingsState::default(),
             minimap_scene: mir_render::MinimapScene::empty(),
@@ -4014,25 +4017,22 @@ pub fn draw(
     // 小地图（右上角）。放在世界/面板之后、tooltip 之前：它盖住地图与其它面板的右上角，
     // 但下面的 tooltip/右键菜单仍然可以压在它上面（与 Crystal 的控件层级不同，简化）。
     if state.show_minimap {
-        let view = minimap::view_for(snapshot, (scene.map.width, scene.map.height));
+        let mut view = minimap::view_for(snapshot, (scene.map.width, scene.map.height));
+        if !state.settings.show_minimap_gates {
+            view.markers
+                .retain(|marker| marker.kind != mir_render::MarkerKind::Movement);
+        }
         let title = snapshot.map.as_ref().map_or("", |map| map.title.as_str());
-        let movements = if state.settings.show_minimap_gates {
-            snapshot
-                .map
-                .as_ref()
-                .map_or(&[][..], |map| map.movements.as_slice())
-        } else {
-            &[][..]
-        };
         minimap::draw(
             frame,
             screen,
             &mut state.minimap_scene,
             &minimap::MinimapDraw {
+                snapshot,
                 view: &view,
                 title,
-                movements,
                 mouse: state.mouse,
+                show_movements: state.settings.show_minimap_gates,
             },
             text,
             state.language,

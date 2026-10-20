@@ -1546,15 +1546,24 @@ async fn postgres_gameshop_purchase_persists() {
         .await
         .expect("连接测试库并迁移");
 
-    // 唯一后缀：账号名 3..=15 位，只取时间戳后 9 位。
+    // 唯一后缀：账号名 3..=15 位。进程号 + 纳秒低 6 位，重复概率可忽略；
+    // 仍撞名时（历史残留）自动换一个后缀重试，保证**重复跑不会因为残留账号而红**。
     let suffix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |duration| duration.as_nanos());
-    let username = format!("gs{}", suffix % 1_000_000_000);
-    let account = store
-        .create_account(&username, "secret", "")
-        .await
-        .expect("建测试账号");
+    let pid = u128::from(std::process::id() % 1_000);
+    let mut attempt = 0_u128;
+    let (username, account) = loop {
+        let candidate = format!("gs{pid}{:06}", (suffix / 1_000 + attempt) % 1_000_000);
+        match store.create_account(&candidate, "secret", "").await {
+            Ok(account) => break (candidate, account),
+            Err(error) if attempt < 16 => {
+                println!("账号 {candidate} 不可用（{error}），换下一个后缀重试");
+                attempt += 1;
+            }
+            Err(error) => panic!("建测试账号失败（已重试 16 次）：{error}"),
+        }
+    };
     let mut character = store
         .create_character(
             account.id,

@@ -185,16 +185,63 @@ pub fn movement_tooltip(
         .replacen("{}", &movement.location.y.to_string(), 1)
 }
 
+/// 悬停在小地图上的文本：传送点优先，其次 NPC；空格返回 `None`。
+///
+/// 数据全部来自快照（`S.NewMapInfo.movements` + 同屏 `S.ObjectNPC`），
+/// 投影来自 `MinimapScene`（无底图素材时返回 `None`，不 panic）。
+#[must_use]
+pub fn hover_text(
+    snapshot: &WorldSnapshot,
+    view: &MinimapView,
+    scene: &mut MinimapScene,
+    screen: Rect,
+    mouse: Point,
+    language: Language,
+    show_movements: bool,
+) -> Option<String> {
+    let panel = panel_rect(screen);
+    let view_area = view_rect(panel);
+    if !view_area.contains(mouse) {
+        return None;
+    }
+    let projection = scene.projection(view)?;
+    let near = |cell: Point| {
+        let (dx, dy) = projection.cell_to_view(cell);
+        (view_area.x + dx - mouse.x).abs() <= 4 && (view_area.y + dy - mouse.y).abs() <= 4
+    };
+    if let Some(map) = &snapshot.map
+        && show_movements
+    {
+        for movement in &map.movements {
+            if near(movement.location) {
+                return Some(movement_tooltip(movement, language));
+            }
+        }
+    }
+    for entity in snapshot.entities.values() {
+        if entity.kind == mir_render::EntityKind::Npc && !entity.dead && near(entity.position) {
+            return Some(
+                Label::MinimapNpcTip
+                    .text(language)
+                    .replacen("{}", &entity.name, 1),
+            );
+        }
+    }
+    None
+}
+
 /// 小地图绘制的数据参数（打包，避免函数参数过多）。
 pub struct MinimapDraw<'a> {
+    /// 快照（传送点 + NPC 名字来自这里）。
+    pub snapshot: &'a WorldSnapshot,
     /// 视图（玩家/点位/地图尺寸）。
     pub view: &'a MinimapView,
     /// 地图标题。
     pub title: &'a str,
-    /// 当前地图的传送点（悬停提示用）。
-    pub movements: &'a [mir_protocol::data::ClientMovementInfo],
-    /// 鼠标位置（传送点悬停）。
+    /// 鼠标位置（传送点/NPC 悬停）。
     pub mouse: Point,
+    /// 是否显示传送点（设置面板开关；关闭时不画也不悬停）。
+    pub show_movements: bool,
 }
 
 /// 画整个小地图面板。
@@ -210,10 +257,11 @@ pub fn draw(
     language: Language,
 ) -> bool {
     let MinimapDraw {
+        snapshot,
         view,
         title,
-        movements,
         mouse,
+        show_movements,
     } = *data;
     let panel = panel_rect(screen);
     // 半透明底 + 边框（需求：右上角、半透明底）。
@@ -282,32 +330,29 @@ pub fn draw(
         hud::SIZE_SMALL,
         hud::MUTED_COLOR,
     );
-    // 悬停传送点：显示目标地图 + 坐标（双语 Label）。
-    if view_area.contains(mouse)
-        && let Some(projection) = scene.projection(view)
-    {
-        for movement in movements {
-            let (dx, dy) = projection.cell_to_view(movement.location);
-            let px = view_area.x + dx;
-            let py = view_area.y + dy;
-            if (px - mouse.x).abs() <= 4 && (py - mouse.y).abs() <= 4 {
-                let message = movement_tooltip(movement, language);
-                let width = text.text_width(&message, hud::SIZE_SMALL) + 8;
-                let x = (mouse.x + 8).min(screen.right() - i32::try_from(width).unwrap_or(0));
-                let y = (mouse.y + 8).min(screen.bottom() - 18);
-                frame.fill_rect_alpha(x, y, width, 16, [12, 18, 28, 235]);
-                text.draw_clipped(
-                    frame,
-                    x + 4,
-                    y + 2,
-                    &message,
-                    hud::SIZE_SMALL,
-                    [220, 240, 255, 255],
-                    Rect::new(x, y, width, 16),
-                );
-                break;
-            }
-        }
+    // 悬停传送点/NPC：精确文案（传送点优先）。
+    if let Some(message) = hover_text(
+        snapshot,
+        view,
+        scene,
+        screen,
+        mouse,
+        language,
+        show_movements,
+    ) {
+        let width = text.text_width(&message, hud::SIZE_SMALL) + 8;
+        let x = (mouse.x + 8).min(screen.right() - i32::try_from(width).unwrap_or(0));
+        let y = (mouse.y + 8).min(screen.bottom() - 18);
+        frame.fill_rect_alpha(x, y, width, 16, [12, 18, 28, 235]);
+        text.draw_clipped(
+            frame,
+            x + 4,
+            y + 2,
+            &message,
+            hud::SIZE_SMALL,
+            [220, 240, 255, 255],
+            Rect::new(x, y, width, 16),
+        );
     }
     drew
 }
@@ -459,7 +504,8 @@ mod tests {
     fn draws_map_image_and_player_dot() {
         let screen = Rect::screen(800, 600);
         let panel = panel_rect(screen);
-        let view = view_for(&snapshot(), (700, 700));
+        let snapshot = snapshot();
+        let view = view_for(&snapshot, (700, 700));
         let mut scene = synthetic_scene();
         let mut frame = Frame::new(800, 600);
         frame.clear([0, 0, 0, 255]);
@@ -468,10 +514,11 @@ mod tests {
             screen,
             &mut scene,
             &MinimapDraw {
+                snapshot: &snapshot,
                 view: &view,
                 title: "比奇省",
-                movements: &[],
                 mouse: Point::new(0, 0),
+                show_movements: true,
             },
             &text(),
             Language::ZhCn,
@@ -505,7 +552,8 @@ mod tests {
     fn missing_assets_draw_placeholder_instead_of_panicking() {
         let screen = Rect::screen(800, 600);
         let panel = panel_rect(screen);
-        let view = view_for(&snapshot(), (700, 700));
+        let snapshot = snapshot();
+        let view = view_for(&snapshot, (700, 700));
         let mut scene = MinimapScene::empty();
         let mut frame = Frame::new(800, 600);
         frame.clear([0, 0, 0, 255]);
@@ -514,10 +562,11 @@ mod tests {
             screen,
             &mut scene,
             &MinimapDraw {
+                snapshot: &snapshot,
                 view: &view,
                 title: "比奇省",
-                movements: &[],
                 mouse: Point::new(0, 0),
+                show_movements: true,
             },
             &text(),
             Language::ZhCn,

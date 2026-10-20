@@ -28,10 +28,10 @@
 //!   世界格，所以 `UiState::bigmap_clicked`
 //!   会把面板上的点击吃掉，避免误触发「点地走路」。
 
-use mir_core::Language;
+use mir_core::{Language, Point};
 use mir_render::{
-    BIG_MAP_OFFSET_X, BIG_MAP_OFFSET_Y, BIG_MAP_VIEW_HEIGHT, BIG_MAP_VIEW_WIDTH, Frame,
-    MinimapScene, MinimapView,
+    BIG_MAP_OFFSET_X, BIG_MAP_OFFSET_Y, BIG_MAP_VIEW_HEIGHT, BIG_MAP_VIEW_WIDTH, BigMapProjection,
+    Frame, MinimapScene, MinimapView,
 };
 
 use crate::geom::Rect;
@@ -187,6 +187,58 @@ pub fn draw(
         hud::MUTED_COLOR,
     );
     drew
+}
+
+/// 大地图点击后选中的目的地。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MapDestination {
+    /// 目标地图名（`ClientMovementInfo.title`，通常就是目的地地图名）。
+    pub map: String,
+    /// 目标坐标（传送点坐标）。
+    pub cell: Point,
+}
+
+/// 大地图点击命中传送点：返回精确目的地（地图名 + 坐标）。
+///
+/// 只认 `S.NewMapInfo.movements`（与 `gates.json` 同源）；`view_area` 是
+/// [`view_rect`]，`projection` 是 [`MinimapScene::big_map_projection`] 的结果。
+/// 点击空白处返回 `None`（不把任意格当目的地）。
+#[must_use]
+pub fn destination_at(
+    view_area: Rect,
+    projection: &BigMapProjection,
+    movements: &[mir_protocol::data::ClientMovementInfo],
+    point: Point,
+) -> Option<MapDestination> {
+    for movement in movements {
+        let (dx, dy) = projection.cell_to_view(movement.location);
+        let screen_x = view_area.x + dx;
+        let screen_y = view_area.y + dy;
+        if (screen_x - point.x).abs() <= 5 && (screen_y - point.y).abs() <= 5 {
+            return Some(MapDestination {
+                map: movement.title.clone(),
+                cell: movement.location,
+            });
+        }
+    }
+    None
+}
+
+/// 大地图点击：设置 [`crate::ui::UiState::bigmap_destination`] 并返回是否命中。
+pub fn click_destination(
+    state: &mut crate::ui::UiState,
+    view_area: Rect,
+    projection: &BigMapProjection,
+    movements: &[mir_protocol::data::ClientMovementInfo],
+) -> bool {
+    let point = state.mouse;
+    match destination_at(view_area, projection, movements, point) {
+        Some(destination) => {
+            state.bigmap_destination = Some(destination);
+            true
+        }
+        None => false,
+    }
 }
 
 #[cfg(test)]

@@ -274,6 +274,8 @@ pub enum Label {
     MinimapGates,
     /// 键位动作：魔法。
     KeyMagic,
+    /// 小地图 NPC 悬停提示（参数：NPC 名）。
+    MinimapNpcTip,
     /// 无归属。
     ConquestUnclaimed,
     /// 系统：攻城开始。
@@ -1018,6 +1020,7 @@ impl Label {
         Self::WindowMode,
         Self::MinimapGates,
         Self::KeyMagic,
+        Self::MinimapNpcTip,
         Self::ConquestUnclaimed,
         Self::SystemConquestStarted,
         Self::SystemConquestEnded,
@@ -1674,6 +1677,8 @@ impl Label {
             (Self::MinimapGates, Language::ZhCn) => "传送点",
             (Self::MinimapGates, Language::En) => "Gates",
             (Self::KeyMagic, Language::En) => "Spell",
+            (Self::MinimapNpcTip, Language::ZhCn) => "NPC：{}",
+            (Self::MinimapNpcTip, Language::En) => "NPC: {}",
             (Self::ConquestUnclaimed, Language::ZhCn) => "无归属",
             (Self::ConquestUnclaimed, Language::En) => "Unclaimed",
             (Self::SystemConquestStarted, Language::ZhCn) => "攻城开始：{}",
@@ -2233,7 +2238,7 @@ mod tests {
     #[test]
     fn every_label_has_both_languages() {
         // `Label::ALL` 是手工维护的清单：数量对不上说明加了变体没同步。
-        assert_eq!(Label::ALL.len(), 333, "新增 Label 后请同步 Label::ALL");
+        assert_eq!(Label::ALL.len(), 334, "新增 Label 后请同步 Label::ALL");
         for label in Label::ALL {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);

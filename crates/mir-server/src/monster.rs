@@ -1256,7 +1256,7 @@ impl World {
                 }
             }
         }
-        if batched {
+        if batched && self.broadcast_batch.is_none() {
             self.broadcast_batch = Some(std::collections::HashMap::new());
         }
 

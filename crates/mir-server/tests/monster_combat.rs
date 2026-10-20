@@ -150,8 +150,20 @@ impl Harness {
         let receiver = self.receivers.get_mut(&object_id).expect("玩家通道");
         let mut packets = Vec::new();
         while let Ok(frame) = receiver.try_recv() {
-            let index = i16::from_le_bytes([frame[2], frame[3]]);
-            packets.push(ServerPacket::decode(index, &frame[4..]).expect("解码服务端包"));
+            // 生产服务端会把同一 tick 的多帧合并成一个 channel 消息；测试也要逐帧解码。
+            let mut offset = 0;
+            while offset + 4 <= frame.len() {
+                let total = usize::from(u16::from_le_bytes([frame[offset], frame[offset + 1]]));
+                if total < 4 || offset + total > frame.len() {
+                    break;
+                }
+                let index = i16::from_le_bytes([frame[offset + 2], frame[offset + 3]]);
+                packets.push(
+                    ServerPacket::decode(index, &frame[offset + 4..offset + total])
+                        .expect("解码服务端包"),
+                );
+                offset += total;
+            }
         }
         packets
     }
@@ -866,5 +878,56 @@ fn hellknight_uses_generic_melee_path() {
         harness.world.monster(knight).unwrap().target,
         Some(player),
         "HellKnight 应走基类索敌/近战路径"
+    );
+}
+
+#[test]
+fn death_and_experience_packets_survive_large_world_batch_flush() {
+    let mut harness = Harness::new(54);
+    let player = harness.add_player(1, Point::new(20, 20));
+    // `tick_monsters` 只在大世界（>512 只）才启用 AI 合批；填充物放远处，避免干扰玩家。
+    for i in 0..513 {
+        let x = 30 + (i % 50);
+        let y = 30 + (i / 50);
+        let _ = harness.spawn(special_monster(3, 100), Point::new(x, y));
+    }
+    let mut kind = test_monster(1, 5, 5);
+    kind.experience = 18;
+    let monster = harness.spawn(kind, Point::new(21, 20));
+    if let Some(p) = harness.world.player_mut(player) {
+        p.stats.min_dc = 50;
+        p.stats.max_dc = 50;
+        p.stats.accuracy = 100;
+    }
+    // 生产服务端开启按 tick 合批；死亡发生在 `resolve_pending_hits`，早于 `tick_monsters`。
+    harness.world.set_broadcast_batching(true);
+    harness.ready_player(player);
+    harness
+        .world
+        .attack(player, MirDirection::Right)
+        .expect("攻击应被接受")
+        .expect("前方有怪物");
+    harness.world.advance_clock(300);
+    harness.world.tick();
+    assert!(
+        harness
+            .world
+            .monster(monster)
+            .is_none_or(|monster| monster.dead),
+        "怪物应被击杀"
+    );
+    let packets = harness.packets(player);
+    assert!(
+        packets.iter().any(|packet| matches!(
+            packet,
+            ServerPacket::ObjectDied(died) if died.object_id == monster
+        )),
+        "合批路径不能丢掉 ObjectDied，实际 {packets:?}"
+    );
+    assert!(
+        packets
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::GainExperience(exp) if exp.amount == 18)),
+        "合批路径应同时保留 GainExperience，实际 {packets:?}"
     );
 }

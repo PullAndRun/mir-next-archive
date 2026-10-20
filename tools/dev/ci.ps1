@@ -87,7 +87,25 @@ Invoke-Gate "硬编码棘轮（no-test，阈值 15）" "$python tools/i18n/scan_
 
 # 5) PostgreSQL 集成测试
 if (-not $SkipTests -and -not $SkipPostgres) {
-    $env:MIR2_TEST_DATABASE_URL = if ($env:MIR2_TEST_DATABASE_URL) { $env:MIR2_TEST_DATABASE_URL } else { "postgres://postgres:postgres@127.0.0.1:5432/mir2_test" }
+    # 测试库连接串的来源（按优先级）：
+    #   1) 已显式设置的 `MIR2_TEST_DATABASE_URL`
+    #   2) 从仓库根的 `.env` 里取 `MIR2_DEV_DATABASE_URL`，把库名换成 `mir2_test`
+    #      （本机 PG 在 nas:3001，写死 127.0.0.1 会 `PoolTimedOut`）
+    #   3) 最后才回落到本地默认值
+    if (-not $env:MIR2_TEST_DATABASE_URL) {
+        $envFile = Join-Path $root ".env"
+        if (Test-Path $envFile) {
+            $devLine = Get-Content $envFile | Where-Object { $_ -match '^\s*MIR2_DEV_DATABASE_URL\s*=' } | Select-Object -First 1
+            if ($devLine) {
+                $devUrl = ($devLine -split '=', 2)[1].Trim().Trim('"')
+                $env:MIR2_TEST_DATABASE_URL = $devUrl -replace '/[^/]+$', '/mir2_test'
+            }
+        }
+    }
+    if (-not $env:MIR2_TEST_DATABASE_URL) {
+        $env:MIR2_TEST_DATABASE_URL = "postgres://postgres:postgres@127.0.0.1:5432/mir2_test"
+    }
+    Write-Host "    测试库：$($env:MIR2_TEST_DATABASE_URL -replace ':[^:@]+@', ':***@')" -ForegroundColor DarkGray
     Invoke-Gate "PostgreSQL 集成测试（mir-store 串行）" "cargo test -p mir-store -- --test-threads=1"
 }
 

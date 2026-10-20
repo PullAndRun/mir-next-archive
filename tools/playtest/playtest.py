@@ -320,19 +320,26 @@ class Playtest:
         # 进世界时角色实际所在的图/坐标（用于诊断「上一轮把角色留在别处」）。
         self.entry_map: str | None = None
         self.entry_pos: tuple[int, int] | None = None
+        self.run_started_at = time.time()
+        self.gm_commands: list[str] = []
+        self.kill_count = 0
 
     # ---------------- 结果输出 ----------------
+    def _stamp(self) -> str:
+        elapsed = int(time.time() - getattr(self, "run_started_at", time.time()))
+        return f"t=+{elapsed // 60:02d}:{elapsed % 60:02d}"
+
     def ok(self, step: str, detail: str = "") -> None:
         self.results.append(("OK", step, detail))
-        print(f"[OK]   {step}" + (f" —— {detail}" if detail else ""))
+        print(f"[{self._stamp()}] [OK]   {step}" + (f" —— {detail}" if detail else ""))
 
     def skip(self, step: str, reason: str) -> None:
         self.results.append(("SKIP", step, reason))
-        print(f"[SKIP] {step} —— {reason}")
+        print(f"[{self._stamp()}] [SKIP] {step} —— {reason}")
 
     def fail(self, step: str, detail: str) -> None:
         self.results.append(("FAIL", step, detail))
-        print(f"[FAIL] {step} —— {detail}")
+        print(f"[{self._stamp()}] [FAIL] {step} —— {detail}")
 
     # ---------------- 网络 ----------------
     def connect(self) -> None:
@@ -535,6 +542,8 @@ class Playtest:
                 for monster in self.monsters:
                     if monster["id"] == object_id:
                         monster["dead"] = True
+                        if any(key in monster["name"].lower() for key in self.PREY_KEYWORDS):
+                            self.kill_count += 1
             elif index == S_CHAT:
                 r = Reader(payload)
                 message = r.string()
@@ -1468,64 +1477,67 @@ class Playtest:
         max_steps: int = 200,
         blocked: set[tuple[int, int]] | None = None,
     ) -> bool:
+        """服务端确认制逐步移动：发一步 → 等 S.UserLocation 确认落在**目标格** → 下一步。
+
+        确认失败（没有 S.UserLocation / 落在别的格）不重试同一步掩盖问题：把该格加入
+        本次局部障碍后重新 BFS；连续 3 步无确认直接带诊断返回 False。
+        """
         blocked = set(blocked or set()) | self._map_gates(target)
         if self.self_pos is None:
             return False
-        # 不预判 NPC/怪物占位（NPC 可能堵住唯一通道）；服务器拒绝的格子进 local_blocked。
         local_blocked = set(blocked)
+        rejected = 0
         for _ in range(max_steps):
             if max(abs(self.self_pos[0] - target[0]), abs(self.self_pos[1] - target[1])) <= 1:
                 return True
             path = self._bfs_path(target, local_blocked)
             if path is None and local_blocked != blocked:
-                # 本次拒绝格可能堵住了唯一通道：丢弃它们，按原始 gate 障碍重算一次。
                 local_blocked = set(blocked)
                 path = self._bfs_path(target, local_blocked)
             if path is None:
-                if __import__('os').environ.get('PT_DEBUG'):
-                    print(f'  BFS no path from {self.self_pos} to {target}')
-                self.diagnostics(f"BFS 无路 {self.self_pos}->{target}")
+                self.diagnostics(f"BFS 无路 {self.self_pos}->{target}（blocked={len(local_blocked)}）")
                 return False
             before = self.self_pos
+            nxt = path[0]
             if time.time() < self.move_ready_at:
                 time.sleep(self.move_ready_at - time.time())
-            nxt = path[0]
-            if __import__('os').environ.get('PT_DEBUG'):
-                print(f'  step {before}->{nxt} target={target} pathlen={len(path)}')
             direction = self._direction(nxt[0] - before[0], nxt[1] - before[1])
-            moved = False
-            for attempt in range(3):
-                writer = Writer()
-                writer.u8(direction)
-                self.send(C_WALK, writer.raw())
-                deadline = time.time() + 2.5
-                while True:
-                    packet = self.next_packet(deadline)
-                    if packet is None:
-                        break
-                    index, payload = packet
-                    self._observe(index, payload)
-                    if index == S_USER_LOCATION:
-                        if self.self_pos != before:
-                            moved = True
-                            break
-                        break
-                    if index == S_OBJECT_WALK:
-                        reader = Reader(payload)
-                        object_id = reader.u32()
-                        location = reader.point()
-                        if object_id == self.self_object_id:
-                            self.self_pos = location
-                            moved = True
-                            break
-                if moved:
+            writer = Writer()
+            writer.u8(direction)
+            self.send(C_WALK, writer.raw())
+            confirmed = False
+            deadline = time.time() + 1.2
+            while time.time() < deadline:
+                packet = self.next_packet(deadline)
+                if packet is None:
                     break
-                time.sleep(0.5)
-            if not moved:
-                local_blocked.add(nxt)
+                index, payload = packet
+                self._observe(index, payload)
+                if index == S_USER_LOCATION:
+                    # `_observe` 已把 self_pos 更新成服务端实际位置。
+                    confirmed = self.self_pos == nxt
+                    break
+            if confirmed:
+                rejected = 0
+                local_blocked = set(blocked)
+                # Crystal `PlayerObject.MovementDelay`（600ms）：等动作冷却再发下一步。
+                self.move_ready_at = time.time() + 0.68
                 continue
-            # 成功走一步后清空「本次拒绝格」，避免一次失败把整条路永久拉黑。
-            local_blocked = set(blocked)
+            if self.self_pos is not None and self.self_pos != before:
+                # 服务端确认了另一格（位移修正）：以服务端为准重算，不重复发同一步。
+                self.diagnostics(f"移动确认偏离：期望 {nxt}，服务端 {self.self_pos}（从 {before} 出发）")
+                local_blocked = set(blocked)
+                self.move_ready_at = time.time() + 0.68
+                continue
+            rejected += 1
+            self.diagnostics(
+                f"第 {rejected} 次无移动确认：cell={nxt} 目标={target} 当前位置={before} 地图={self.map_file}"
+            )
+            local_blocked.add(nxt)
+            if rejected >= 8:
+                self.diagnostics("连续 8 步服务端未确认，停止并交由 service/data owner 修")
+                return False
+            time.sleep(0.35)
         return False
 
     @staticmethod
@@ -1560,11 +1572,14 @@ class Playtest:
     PREY_KEYWORDS = ("hen", "deer", "鸡", "鹿")
 
     def _live_prey(self) -> list[dict]:
+        gates = self.gate_map.get(self.map_file or "", set())
         return [
             m
             for m in self.monsters
             if not m.get("dead")
             and any(key in m["name"].lower() for key in self.PREY_KEYWORDS)
+            # 别把怪杀在传送格上：掉落会落在门上，踩上去会换图，永远捡不到。
+            and tuple(m["pos"]) not in gates
         ]
 
     def _attack_until_dead(self, prey: dict, timeout: float = 60.0) -> bool:
@@ -1671,16 +1686,53 @@ class Playtest:
         return self.map_file == "0"
 
     def newbie_hunt(self, count: int) -> bool:
-        self.skip(
-            "打死一只鸡/鹿",
-            "自然寻路在拥挤区域不稳定（脚本能力边界，非服务端缺陷）；"
-            "新号战斗由 newbie_flow/monster_combat 的 socket/确定性测试覆盖",
-        )
+        """自然打猎：走到 Hen/Deer 群，打到 S.ObjectDied；用服务端确认的击杀计数 + 经验断言。"""
+        exp_before = self.self_exp or 0
+        kills_before = self.kill_count
+        deadline = time.time() + 900
+        anchors = [(342, 312), (280, 260)]
+        anchor_index = 0
+        empty_waits = 0
+        while self.kill_count - kills_before < count and time.time() < deadline:
+            preys = self._live_prey()
+            if not preys:
+                anchor = anchors[anchor_index % len(anchors)]
+                if not self.walk_towards(anchor, max_steps=160):
+                    self.diagnostics(f"无法走到 Hen 群锚点 {anchor}，当前位置 {self.self_pos}")
+                    anchor_index += 1
+                    continue
+                self._drain(1.5)
+                empty_waits += 1
+                print(f"  [打猎 t=+{int(time.time()-self.run_started_at)//60:02d}:{int(time.time()-self.run_started_at)%60:02d}] 锚点 {anchor} 无猎物（monsters={len(self.monsters)}，等待 {empty_waits}）")
+                if empty_waits >= 3:
+                    empty_waits = 0
+                    anchor_index += 1
+                time.sleep(1.0)
+                continue
+            prey = min(preys, key=lambda m: self._distance(m["pos"]))
+            print(f"  [打猎 t=+{int(time.time()-self.run_started_at)//60:02d}:{int(time.time()-self.run_started_at)%60:02d}] kills={self.kill_count - kills_before}/{count} pos={self.self_pos} 目标={prey['name']}@{prey['pos']} 距离={self._distance(prey['pos'])}")
+            if not self._attack_until_dead(prey, timeout=45):
+                self.diagnostics(f"打 {prey['name']}#{prey['id']}@{prey['pos']} 45s 未击杀，换目标")
+            self._drain(0.4)
+        kills = self.kill_count - kills_before
+        exp_after = self.self_exp or 0
+        if kills < count:
+            self.fail("打死一只鸡/鹿", f"只击杀 {kills}/{count}（经验 {exp_before}->{exp_after}）")
+            return False
+        if exp_after <= exp_before:
+            self.fail("打死一只鸡/鹿", f"击杀 {kills} 只但经验未增长（{exp_before}->{exp_after}）")
+            return False
+        self.ok("打死一只鸡/鹿", f"{kills} 只，经验 {exp_before}->{exp_after}（ObjectDied+GainExperience）")
         return True
 
     def newbie_pickup(self) -> bool:
         for item in sorted(self.ground_items, key=lambda g: self._distance(g["pos"])):
-            if not self.walk_towards(item["pos"], max_steps=30):
+            if not self.walk_towards(item["pos"], max_steps=60):
+                self.diagnostics(f"拾取走不到 {item['pos']}（{item['name']}），当前位置 {self.self_pos} 地图 {self.map_file}")
+                continue
+            # `C.PickUp` 要求与物品同格（服务端只看当前格 AOI），先确认制踩上去。
+            if self.self_pos != tuple(item["pos"]) and not self.step_onto(tuple(item["pos"])):
+                self.diagnostics(f"踩不上物品格 {item['pos']}，当前位置 {self.self_pos}")
                 continue
             self.last_gained_items.clear()
             self.send(C_PICKUP, b"")
@@ -1700,8 +1752,8 @@ class Playtest:
             if picked is not None:
                 self.ok("捡起掉落", f"{picked.get('item_index')} x{picked.get('count')}")
                 return True
-        self.skip("捡起掉落", "自然打怪已 SKIP，本轮没有地面掉落可验证（C.PickUp 路径已实现）")
-        return True
+        self.fail("捡起掉落", f"附近没有可拾取的地面物品（ground={len(self.ground_items)}）")
+        return False
 
     def _shop_pages(self, npc: dict) -> list[dict]:
         spawn = dict(npc, id=npc.get("object_id", npc.get("id")))
@@ -1744,7 +1796,7 @@ class Playtest:
                 reached = True
                 break
         if not reached:
-            self.skip("去书店", f"踩传送点 {target} 后没有换图（仍是 {old_map}）")
+            self.fail("去书店", f"踩传送点 {target} 后没有换图（仍是 {old_map}，位置 {self.self_pos}）")
             return False
         print(f"  [传送] {old_map} -> {self.map_file} @ {self.self_pos}")
         deadline = time.time() + self.timeout
@@ -1759,10 +1811,10 @@ class Playtest:
             if any(key in npc["name"].lower() for key in ("book", "librarian", "书", "技能"))
         ]
         if not book_npcs:
-            self.skip("去书店", f"已到 {self.map_file}，但视野里没有书商 NPC")
+            self.fail("去书店", f"已到 {self.map_file}，但视野里没有书商 NPC（NPC={[n['name'] for n in self.npcs]}）")
             return False
         if not self._stand_next_to(book_npcs[0]):
-            self.skip("去书店", f"走不到书商 {book_npcs[0]['name']} @ {book_npcs[0]['pos']}")
+            self.fail("去书店", f"走不到书商 {book_npcs[0]['name']} @ {book_npcs[0]['pos']}，位置 {self.self_pos}")
             return False
         self.ok("去书店", f"{self.map_file} 的 {book_npcs[0]['name']} @ {book_npcs[0]['pos']}")
         return True
@@ -1777,7 +1829,7 @@ class Playtest:
             )
         ]
         if not book_npcs:
-            self.skip("读书学技能", "当前地图没有书商 NPC（t92 新手书商未落地/需跨图）")
+            self.fail("读书学技能", "当前地图没有书商 NPC")
             return False
         for npc in book_npcs:
             if not self._stand_next_to(npc):
@@ -1830,8 +1882,8 @@ class Playtest:
                     targets = self._live_prey()
                     target = min(targets, key=lambda m: self._distance(m["pos"])) if targets else None
                     if target is None and spell != 61:
-                        self.skip("使用技能", f"已学会 spell #{spell}，但附近没有可施法目标（自然怪已 SKIP）")
-                        return True
+                        self.fail("使用技能", f"已学会 spell #{spell}，但附近没有可施法目标")
+                        return False
                     if target is not None:
                         dx = target["pos"][0] - self.self_pos[0]
                         dy = target["pos"][1] - self.self_pos[1]
@@ -1864,7 +1916,7 @@ class Playtest:
                         return True
                     self.fail("使用技能", f"spell #{spell} 施放后未收到 S.ObjectMagic(120)")
                     return False
-        self.skip("读书学技能", "书店货架没有可买/可学的技能书（等待 t92 新手书商低价书）")
+        self.fail("读书学技能", "书店货架没有可买/可学的技能书")
         return False
 
     def newbie_flow(self, char_index: int) -> int:
@@ -1888,14 +1940,36 @@ class Playtest:
         equipped = self.newbie_equip()
         if equipped:
             self.ok("穿上出生装", f"{equipped} 件")
+        if not self.newbie_go_bookshop():
+            self.fail("使用技能", "书商不可达，无法学技能")
+            return 1
+        if not self.newbie_book_and_cast():
+            return 1
+        # 从 0104 的书商传送点回 map0（落点 334,300，离 Hen 群很近），再打猎。
+        # gates.json: 0104 回 map0 的传送格是 (4,11) → (322,248)，不是落点 (4,10)。
+        return_gate = {"0104": (4, 11), "0103": (16, 25), "0107": (10, 13)}.get(self.map_file)
+        if self.map_file != "0" and return_gate is not None:
+            if self.self_pos == return_gate:
+                for dx, dy in ((0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, 1), (1, -1), (-1, -1)):
+                    cell = (return_gate[0] + dx, return_gate[1] + dy)
+                    if self._is_walkable(cell) and self.step_onto(cell):
+                        break
+            if not self.step_onto(return_gate):
+                self.walk_towards(return_gate, max_steps=20)
+                self.step_onto(return_gate)
+        if self.map_file != "0":
+            self.fail("返回 map0", f"回程失败，当前位置 {self.self_pos} 地图 {self.map_file}")
+            return 1
+        if self.map_file != "0":
+            self.fail("返回 map0", f"回程后仍是 {self.map_file}@{self.self_pos}")
+            return 1
         if not self.newbie_hunt(3):
             return 1
         if not self.newbie_pickup():
             return 1
-        if self.newbie_go_bookshop():
-            self.newbie_book_and_cast()
-        else:
-            self.skip("使用技能", "书商不可达，未学技能（自然寻路能力边界）")  # 数据缺失时 SKIP，不阻断其余步骤
+        if self.gm_commands:
+            self.fail("新号禁 GM", f"检测到 @ 命令：{self.gm_commands}")
+            return 1
         # 重登持久化：等级/经验/背包/技能都还在。
         level_before = self.self_level
         exp_before = self.self_exp
@@ -1948,13 +2022,24 @@ class Playtest:
             f"等级 {level_before}->{self.self_level}，经验 {exp_before}->{self.self_exp}，"
             f"背包 {inv_before}->{len(self.inventory_items)}，技能 {sorted(spells_before)}"
         )
-        if ok:
-            self.ok("重登持久化", detail)
-            return 0
-        self.fail("重登持久化", detail)
-        return 1
+        if not ok:
+            self.fail("重登持久化", detail)
+            return 1
+        self.ok("重登持久化", detail)
+        elapsed = int(time.time() - self.run_started_at)
+        if elapsed > 30 * 60:
+            self.fail("墙钟 ≤30:00", f"实际 {elapsed // 60:02d}:{elapsed % 60:02d}")
+            return 1
+        self.ok("墙钟 ≤30:00", f"{elapsed // 60:02d}:{elapsed % 60:02d}")
+        if self.gm_commands:
+            self.fail("新号禁 GM", f"检测到 @ 命令：{self.gm_commands}")
+            return 1
+        self.ok("新号禁 GM", "全程未发送 @ 命令")
+        return 0
     # ---------------- GM 闭环 ----------------
     def send_chat(self, message: str) -> None:
+        if message.lstrip().startswith("@"):
+            self.gm_commands.append(message)
         writer = Writer()
         writer.string(message)
         writer.i32(0)  # LinkedItems
@@ -2297,9 +2382,7 @@ class Playtest:
 
             prey = find_prey()
             if prey is None:
-                # 不在城里长距离寻路（会踩到传送点换图）；视野内没有鸡/鹿就先跳过，
-                # 服务端战斗已由 tests/skills.rs / duo_smoke 覆盖。
-                self.skip("打死一只鸡/鹿", "起始视野内没有鸡/鹿类怪物（不跨图寻路，避免踩传送点）")
+                self.fail("打死一只鸡/鹿", f"起始视野内没有鸡/鹿类怪物（当前 {self.map_file}@{self.self_pos}，monsters={len(self.monsters)}）")
             if prey is not None:
                 exp_before = self._gain_exp_count = 0
                 reached = False
@@ -2364,7 +2447,7 @@ class Playtest:
                     else:
                         self.fail("打死一只鸡/鹿", "40 次攻击后未收到 S.ObjectDied（81）/S.GainExperience（85）")
 
-            self.skip("使用技能", "新建角色未学习技能（技能书在背包，需客户端 UI 学习）")
+            self.fail("使用技能", "新建角色未学习技能（技能书仍在背包时需先 C.UseItem 读书）")
         self.ok("开背包/关闭", "客户端本地 UI（协议无背包开关包）")
 
         writer = Writer()
@@ -2495,6 +2578,11 @@ def main() -> int:
         code = 1
     finally:
         test.close()
+    if test.newbie:
+        if any(kind == "SKIP" for kind, _, _ in test.results):
+            code = 1
+        if time.time() - test.run_started_at > 30 * 60:
+            code = 1
     print()
     for line in summarize(test.results, code):
         print(line)

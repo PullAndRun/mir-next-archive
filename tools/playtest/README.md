@@ -115,27 +115,65 @@ python tools/playtest/playtest.py --gm gmtest --timeout 15
 第 2/3 次进世界时角色还停在上一次的 `D011`（`进入世界 pos=(100, 100)`），
 `[OK] 回到起始图` 会把它拉回比奇再继续，所以三次输出完全一致。
 
-## 已知限制：长距离自然寻路在拥挤区域不稳定（`--newbie`）
+## `--newbie`：服务端确认制移动与 0 SKIP（第 17 轮）
 
-`--newbie` 的「自然打怪」步骤当前显式 `[SKIP]`，原因与实测观测：
+`--newbie` 现在走**真实非 GM 链路**，任何一步 `[SKIP]` 都会让脚本 exit 非 0（末行仍会列出
+跳过项，便于诊断）；`--gm` 的 GM 闭环不受影响。
 
-* 目标：从出生点 `(330,270)` 走到 Hen 群锚点 `(342,312)`（服务端导出的最近刷怪点
-  `(340,310) Hen x5`，约 40 格）；
-* 现象：脚本在 map0 的城市边缘会反复「本地期望位移 vs 服务端 `UserLocation`」不一致，
-  例如 `(310,327) -> (311,326)` 后 pathlen 不降、同一格连续被回拉；180s 打猎预算耗尽仍
-  到不了锚点；
-* 换图门实测：map0 `(344,309)/(345,309) -> 0103`、`(355,319) -> 0107`、`(322,247) -> 0104`；
-  已用 `gates.json`（94 条传送点）做硬障碍、并接入服务端同源
-  `target/mapgrid-<map>.bin` 位图、换图 2.1s 移动冷却、被拒 500ms 退避与回程坐标；
-* 结论：这是**脚本自身状态机能力边界，不是服务端缺陷**。新号战斗已由
-  `tests/newbie_flow.rs`（真 socket：穿出生装 → 掉血 → 击杀）、
-  `tests/monster_combat.rs` 的 `newbie_weapon_hits_hen_at_least_seventy_percent` /
-  `newbie_weapon_kills_hen_within_fifteen_swings` 与 `duo_smoke` 覆盖；
-* 后续若要继续做自然打猎：把 `walk_towards` 改成「发送后必须等 `UserLocation` 等于预期格，
-  否则回退/重算」的严格状态机，再考虑多锚点轮换。
+### 移动协议依据
 
-`--newbie` 仍保留并验证：新手提示、出生装、穿装备、自然传送去 0104 书店、买书/读书、
-对自身施法（`S.ObjectMagic` 120）、`C.LogOut` 重连持久化（等级/经验/背包/技能）。
+Crystal/本作的 `C.Walk` 只带方向，服务端 `World::walk` 在落格后回 `S.UserLocation`
+（包 23，`Point + MirDirection`）；被拒绝时也会回 `S.UserLocation` 且坐标不变
+（`world.rs` 的 `send_user_location`），动作冷却 `MOVE_DELAY_MS = 600ms`。
+
+因此脚本的 `walk_towards` 是**逐步确认**：
+
+1. 从当前位置 BFS 出下一格 `nxt`；
+2. 发 `C.Walk(direction)`；
+3. **等 `S.UserLocation`**：只有服务端坐标等于 `nxt` 才算走成；坐标仍是起点按拒绝处理，
+   坐标变成别的格以服务端为准；
+4. 成功后等 680ms（>600ms 动作冷却）再走下一步；被拒则把 `nxt` 加入本次局部障碍重算。
+
+`gates.json` 的当前地图传送格是硬障碍（目标就是该格时才允许踩，用于主动换图）；
+`target/mapgrid-<map>.bin` 是服务端同源位图（`cargo run --example mapgrid -- <map> --data resource`），
+换图后等 2.1s 移动冷却。诊断会打印坐标/最近包/当前地图，不会用“重试 N 次”掩盖拒绝。
+
+### 精确断言
+
+| 步骤 | 断言 |
+|---|---|
+| 击杀 Hen/Deer | `S.ObjectDied`（81） + `S.GainExperience`（85），经验 > 0，至少 3 只 |
+| 拾取 | `C.PickUp` → `S.GainedItem`（66） |
+| 书商买书 | `C.BuyItem` → `S.NewMagic`（117） |
+| 施法 | `C.Magic` → `S.ObjectMagic`（120） |
+
+墙钟由脚本自断言 ≤ 30:00，每条结果行带 `t=+MM:SS` 阶段时间线；`--newbie` 全程记录并断言
+**未发送任何 `@` 开头命令**。
+
+### 三次连跑 gate
+
+```powershell
+pwsh -NoProfile -File tools/dev/newbie-gate.ps1
+# 可选：-Port 7019 -Exe target/libu-playtest-server.exe -Timeout 15
+```
+
+脚本会（若端口未监听）用 `tools/dev/serve.ps1` 起隐藏服务端，连续跑 3 次 `--newbie`，
+逐次检查 `exit=0`、`[SKIP]` 计数为 0、脚本时间线 ≤ 30:00，任何一次失败即 exit 1。
+
+
+## 已知问题（P0，兵部排查中）：自然击杀收不到 `S.ObjectDied(81)`
+
+第 17 轮真服务端复现（非 GM 新号，真实 DB/map，playtest 确认制移动已走到 Hen 群附近）：
+
+* `S.GainExperience(85)` 正常到达，`self_exp` 从 `0 -> 18`（至少 3 只 Hen 的经验）；
+* **`S.ObjectDied(81)` 一次都没到**；经验包到达时最近 20 个包索引为
+  `[71,23,28,23,23,23,72,75,23,23,72,23,75,139,23,75,23,72,139,85]`（无 81）；
+* 同服务端的 GM `@mob` 路径（`tests/gm.rs`）能收到 81，说明协议/framing 没问题；
+* 服务端 `crates/mir-server/src/monster.rs::monster_died` 确有
+  `broadcast(ObjectDied{...})`（`:2816-2823`）。怀疑 t102 的 AOI 写聚合/合批 flush
+  时序或自然击杀未走该分支；具体由兵部 world.rs/monster.rs owner 定位。
+* **脚本处理**：不为此回退断言或加 SKIP；`newbie-gate.ps1` 会红在「打死一只鸡/鹿」，
+  直到服务端修复。
 
 ## 已知缺口（不影响自检）
 

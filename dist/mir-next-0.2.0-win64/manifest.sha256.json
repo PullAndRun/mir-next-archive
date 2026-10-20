@@ -1,0 +1,36 @@
+{
+  "name": "mir-next-0.2.0-win64",
+  "version": "0.2.0",
+  "files": [
+    {
+      "path": "config/client.toml.example",
+      "sha256": "bb5cfaf9580ab88b1e923b20b24778214138fd8fcbb647c45950ca5ae5a3128f",
+      "bytes": 325
+    },
+    {
+      "path": "config/lang/en.json",
+      "sha256": "bdddc5aba62856297df22cc0422a17fa04d24021aee8e652ca267a7effb79425",
+      "bytes": 17745
+    },
+    {
+      "path": "config/lang/zh-cn.json",
+      "sha256": "381ec4f706507bdfc2c444300b917c3a27b2765ff3893194ea865c65edbd5358",
+      "bytes": 16521
+    },
+    {
+      "path": "mir-client.exe",
+      "sha256": "3b7546266bccb950b72aa8ec5ca97a372b5251607f305e908f777a6458df8fab",
+      "bytes": 4516864
+    },
+    {
+      "path": "mir-server.exe",
+      "sha256": "4139cfdf27a376823a6dacb017f0179ce9c8164677e45b1b1053a984f107ee47",
+      "bytes": 8743936
+    },
+    {
+      "path": "resources/README.txt",
+      "sha256": "8ab63761008cc0c9cb457b5b42ceddc4ca862c83bbbf7de81eb7b023dfa2f338",
+      "bytes": 361
+    }
+  ]
+}

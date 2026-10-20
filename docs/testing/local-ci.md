@@ -39,12 +39,13 @@ pwsh -NoProfile -File tools/dev/ci.ps1 -NoAssets      # 额外跑「无 resource
 pwsh -NoProfile -File tools/dev/check-routine.ps1 -Full      # 发版前 / 冻结前：迁移演练 + 无素材沙箱 + 关键 PG 用例
 pwsh -NoProfile -File tools/dev/check-routine.ps1 -Quick     # 日常：跳过迁移演练（summary 标 SKIPPED）
 pwsh -NoProfile -File tools/dev/check-routine.ps1 -SelfTest  # 自证会红：注入真实失败 + 随后 -Quick 恢复
+pwsh -NoProfile -File tools/dev/check-routine.ps1 -Soak      # 长时 soak 1800s（独占路径，不在 -Quick/-Full 里）
 ```
 
 - 证据落在 `tools/dev/evidence/check-routine/<时间戳>/`（`summary.md` + 逐步 `.log`，已 gitignore）；
 - 退出码：`0` 全过、`1` 有步骤失败、`2` 参数/环境错误（缺 `MIR2_DRILL_DATABASE_URL` 等）；
 - **不并入** `ci.ps1`：无素材沙箱要另建 target 跑全套二进制（分钟级），迁移演练要真 PG。
-- 细节见 [`check-routine.md`](check-routine.md)。
+- 细节见 [`check-routine.md`](check-routine.md)；长时稳定性另见 [`soak.md`](soak.md)（发版前跑 1800s）。
 
 ## 约定
 

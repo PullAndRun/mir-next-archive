@@ -22,6 +22,15 @@ param(
     # 自证会红：注入一次**真实失败**（关键 PG 用例指向不存在的库），然后确认正常 `-Quick` 能恢复。
     [Parameter(ParameterSetName = 'SelfTest')]
     [switch]$SelfTest,
+    # 长时 soak（**1800s 完整版**）：只在显式开关时跑，绝不并入 -Quick/-Full 的日常路径。
+    [Parameter(ParameterSetName = 'Soak')]
+    [switch]$Soak,
+    # soak 用的 /metrics 地址（-Soak 时必填，默认 127.0.0.1:9090）。
+    [string]$SoakMetricsUrl = "http://127.0.0.1:9090/metrics",
+    # soak 的服务端地址。
+    [string]$SoakServer = "127.0.0.1:7000",
+    # soak 时长（秒）。**默认 1800；调小会让 soak 判决必定 FAIL**（不许缩时长）。
+    [int]$SoakSeconds = 1800,
     # 证据目录（默认 tools/dev/evidence/check-routine/<yyyyMMdd-HHmmss>）。
     [string]$EvidenceDir = "",
     # 无素材沙箱的编译 target 目录（透传给 test-no-assets.ps1）。
@@ -74,8 +83,9 @@ function Get-RelativeEvidencePath([string]$Path) {
 # 模式与环境准备
 # ---------------------------------------------------------------------------
 
-$mode = if ($Quick) { 'Quick' } elseif ($SelfTest) { 'SelfTest' } else { 'Full' }
-$runDrill = $mode -ne 'Quick'
+$mode = if ($Quick) { 'Quick' } elseif ($SelfTest) { 'SelfTest' } elseif ($Soak) { 'Soak' } else { 'Full' }
+# Soak 是独立路径：不跑迁移演练、也不跑日常两步（否则一次 30 分钟以上）。
+$runDrill = $mode -notin @('Quick', 'Soak')
 
 $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
 if ([string]::IsNullOrWhiteSpace($EvidenceDir)) {
@@ -125,6 +135,31 @@ if ($runDrill -and -not (Test-Path $drillScript)) {
 
 $steps = New-Object System.Collections.Generic.List[object]
 
+if ($mode -eq 'Soak') {
+    $soakScript = Join-Path $root 'tools/stress/soak.py'
+    if (-not (Test-Path $soakScript)) {
+        Write-Host "[REFUSED] 找不到 soak 脚本：$soakScript（exit 2）" -ForegroundColor Red
+        exit 2
+    }
+    $soakOut = Join-Path $root ("docs/testing/soak-data/" + $stamp)
+    $steps.Add([pscustomobject]@{
+        Name        = '01-soak'
+        Title       = "长时 soak（$SoakSeconds s / 100 连接 / 10s 采样）"
+        # soak.py 用 2 表示环境错误（抓不到 /metrics），与巡检的 2 = 环境错误口径一致。
+        EnvTreat2As = 'environment'
+        FilePath    = 'py'
+        Arguments   = @(
+            $soakScript,
+            '--server', $SoakServer,
+            '--metrics-url', $SoakMetricsUrl,
+            '--clients', '100',
+            '--duration', "$SoakSeconds",
+            '--sample-interval', '10',
+            '--out-dir', $soakOut
+        )
+    })
+}
+
 if ($runDrill) {
     $drillEvidence = Join-Path $EvidenceDir 'migrate-drill.md'
     $steps.Add([pscustomobject]@{
@@ -137,6 +172,9 @@ if ($runDrill) {
     })
 }
 
+if ($mode -eq 'Soak') {
+    # soak 是独占路径：不追加无素材沙箱与 PG 用例（30 分钟跑完再排它们没有意义）。
+} else {
 $steps.Add([pscustomobject]@{
     Name       = '02-no-assets'
     Title      = '无素材沙箱（没有 resource/ 时全套测试必须全绿）'
@@ -163,6 +201,7 @@ $steps.Add([pscustomobject]@{
     Arguments   = @('test', '-p', 'mir-server', '--no-fail-fast', 'postgres_')
     ExtraEnv    = @{ MIR2_TEST_DATABASE_URL = $pgUrlForRun }
 })
+}
 
 # ---------------------------------------------------------------------------
 # 执行
@@ -224,6 +263,9 @@ $lines.Add("- 仓库根：$root")
 $lines.Add("- PG 用例连接串来源：$pgSource")
 if ($mode -eq 'Quick') {
     $lines.Add('- **迁移演练：SKIPPED**（`-Quick` 模式跳过；发版前请用 `-Full`）')
+}
+if ($mode -eq 'Soak') {
+    $lines.Add("- **soak 独立路径**：只跑长时 soak（$SoakSeconds s / 100 连接 / 10s 采样），不含迁移演练与无素材沙箱；日常请用 `-Quick`、发版前用 `-Full`。")
 }
 if ($pgInjectionNote) {
     $lines.Add("- **故障注入（-SelfTest）**：$pgInjectionNote")
@@ -329,6 +371,7 @@ $results | Sort-Object Name | ForEach-Object {
     Write-Host ("    {0} {1,-18} exit={2,-3} {3,6}s  {4}" -f $flag, $_.Name, $_.Code, $_.Seconds, $_.Log)
 }
 if ($mode -eq 'Quick') { Write-Host "    SKIP 01-migrate-drill  （-Quick 跳过迁移演练）" -ForegroundColor Yellow }
+if ($mode -eq 'Soak') { Write-Host "    （-Soak 独立路径：不含迁移演练与无素材沙箱）" -ForegroundColor Yellow }
 Write-Host "    证据目录：$(Get-RelativeEvidencePath $EvidenceDir)" -ForegroundColor Cyan
 
 if ($envErrors.Count -gt 0) {

@@ -1,0 +1,16 @@
+# 客户端统一设置示例（复制为 config/client.toml 后按需修改）。
+language = "zh-cn"
+master_volume = 0.500
+sound_volume = 0.500
+music_volume = 0.500
+window_mode = "windowed"
+scale = 1.0
+show_minimap_gates = true
+
+[keys]
+attack = "Space"
+magic = "F1"
+inventory = "I"
+group = "P"
+friends = "F"
+settings = "O"

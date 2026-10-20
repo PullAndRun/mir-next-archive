@@ -304,11 +304,11 @@ def emit_packet_module(packets: list[PacketDef], registry: TypeRegistry, directi
     # 自定义包用到的附属类型也一并再导出，客户端/服务端才能从 `packets::server` 取到。
     for extra_name in EXTRA_REEXPORTS[direction]:
         chunks.append(f"pub use crate::manual::{direction}::{extra_name};\n")
-    chunks.append(emit_packet_enum(emitted, direction))
+    chunks.append(emit_packet_enum(emitted, direction, registry))
     return "\n".join(chunks), failures
 
 
-def emit_packet_enum(packets: list[PacketDef], direction: str) -> str:
+def emit_packet_enum(packets: list[PacketDef], direction: str, registry: TypeRegistry) -> str:
     enum_name = "ClientPacket" if direction == "client" else "ServerPacket"
     lines = [f"/// Every {direction}→{'server' if direction == 'client' else 'client'} packet Crystal understands."]
     lines.append("#[derive(Debug, Clone, PartialEq)]")
@@ -368,8 +368,191 @@ def emit_packet_enum(packets: list[PacketDef], direction: str) -> str:
     lines.append("    }")
     lines.append("}")
     lines.append("")
+    indices_const = "ALL_CLIENT_INDICES" if direction == "client" else "ALL_SERVER_INDICES"
+    decode_fn = "decode_client_packet" if direction == "client" else "decode_server_packet"
+    indices = ", ".join(f"{packet.name}::INDEX" for packet in packets)
+    lines.append(f"/// Every {direction} packet index emitted by this generator.")
+    lines.append(f"pub const {indices_const}: &[i16] = &[{indices}];")
+    lines.append("")
+    lines.append(f"/// Decode a {direction} packet payload by wire index (same dispatch as the enum).")
+    lines.append(
+        f"pub fn {decode_fn}(index: i16, payload: &[u8]) -> Result<{enum_name}, crate::ProtocolError> {{"
+    )
+    lines.append(f"    {enum_name}::decode(index, payload)")
+    lines.append("}")
+    lines.append("")
     lines.extend(emit_roundtrip_test(packets, enum_name))
+    lines.extend(emit_boundary_module(packets, direction, enum_name, registry))
     return "\n".join(lines)
+
+
+def emit_boundary_module(
+    packets: list[PacketDef], direction: str, enum_name: str, registry: TypeRegistry
+) -> list[str]:
+    """Emit field-boundary samples for every encodable field in the packet.
+
+    A sample contains the default bytes of all preceding fields followed by an
+    invalid target value.  Fields behind variable/optional/struct payloads are
+    listed in `packets_with_uncovered_boundary_fields` instead of being silently
+    skipped; packets with no string/list/blob/enum/float field at all go into
+    `packets_without_boundary_fields`.
+    """
+    widths = {
+        "bool": 1, "u8": 1, "i8": 1, "u16": 2, "i16": 2,
+        "u32": 4, "i32": 4, "u64": 8, "i64": 8, "f32": 4, "f64": 8,
+    }
+    def default_bytes(op) -> bytes | None:
+        if op.kind == "prim":
+            width = widths.get(op.rust_type)
+            return b"\x00" * width if width else None
+        if op.kind == "enum":
+            underlying = registry.enum_underlying.get(op.cs_type)
+            width = widths.get(underlying or "")
+            return b"\x00" * width if width else None
+        if op.kind == "string":
+            return b"\x00"
+        if op.kind in {"list", "blob"}:
+            return b"\x00\x00\x00\x00"
+        if op.kind == "point":
+            return b"\x00" * 8
+        return None
+
+    def invalid_bytes(op) -> tuple[bytes, str] | None:
+        if op.kind == "string":
+            # 7-bit varint for MAX_COLLECTION_LEN + 1 = 1_048_577.
+            return bytes([0x81, 0x80, 0x40]), "StringTooLong"
+        if op.kind in {"list", "blob"}:
+            # count = 0xFFFF, no element bytes -> decoder must error on the first element.
+            return bytes([0xFF, 0xFF, 0x00, 0x00]), "CollectionCountHuge"
+        if op.kind == "enum":
+            return bytes([0xFF]), "EnumUnknown"
+        if op.kind == "prim" and op.rust_type == "f32":
+            return bytes([0x00, 0x00, 0xC0, 0x7F]), "FloatNotFinite"
+        if op.kind == "prim" and op.rust_type == "f64":
+            return bytes([0, 0, 0, 0, 0, 0, 0xF8, 0x7F]), "FloatNotFinite"
+        return None
+
+    samples: list[tuple[PacketDef, str, bytes, str]] = []
+    without: list[PacketDef] = []
+    uncovered: list[PacketDef] = []
+    for packet in packets:
+        has_boundary_field = any(
+            op.kind in {"string", "list", "blob", "enum"}
+            or (op.kind == "prim" and op.rust_type in {"f32", "f64"})
+            for op in packet.ops
+        )
+        if not has_boundary_field:
+            without.append(packet)
+            continue
+        covered = False
+        for target_index, target in enumerate(packet.ops):
+            invalid = invalid_bytes(target)
+            if invalid is None:
+                continue
+            prefix = bytearray()
+            encodable = True
+            for previous in packet.ops[:target_index]:
+                default = default_bytes(previous)
+                if default is None:
+                    encodable = False
+                    break
+                prefix.extend(default)
+            if not encodable:
+                continue
+            suffix = bytearray()
+            for following in packet.ops[target_index + 1 :]:
+                default = default_bytes(following)
+                if default is None:
+                    encodable = False
+                    break
+                suffix.extend(default)
+            if not encodable:
+                continue
+            payload, kind = invalid
+            samples.append(
+                (packet, target.field_name, bytes(prefix) + payload + bytes(suffix), kind)
+            )
+            covered = True
+        if not covered:
+            uncovered.append(packet)
+
+    lines = ["", "/// Field-boundary sample emitted by the protocol generator."]
+    lines.append("#[derive(Debug, Clone, PartialEq, Eq)]")
+    lines.append("pub struct BoundarySample {")
+    lines.append("    pub index: i16,")
+    lines.append("    pub field: &'static str,")
+    lines.append("    pub bytes: Vec<u8>,")
+    lines.append("}")
+    lines.append("")
+    lines.append("/// Boundary sample kind for reporting.")
+    lines.append("#[derive(Debug, Clone, Copy, PartialEq, Eq)]")
+    lines.append(
+        "pub enum BoundaryKind { StringTooLong, CollectionCountHuge, EnumUnknown, FloatNotFinite }"
+    )
+    lines.append("")
+    lines.append("/// Samples that exercise field boundaries.")
+    lines.append("#[must_use]")
+    lines.append("pub fn boundary_samples() -> Vec<(BoundarySample, BoundaryKind)> {")
+    lines.append("    vec![")
+    for packet, field, payload, kind in samples:
+        literal = ", ".join(str(byte) for byte in payload)
+        lines.append(
+            f'        (BoundarySample {{ index: {packet.name}::INDEX, field: "{field}", bytes: vec![{literal}] }}, BoundaryKind::{kind}),'
+        )
+    lines.append("    ]")
+    lines.append("}")
+    lines.append("")
+    lines.append("/// Four category counts for the receipt.")
+    lines.append("#[must_use]")
+    lines.append("pub fn boundary_kind_counts() -> (usize, usize, usize, usize) {")
+    lines.append("    let samples = boundary_samples();")
+    lines.append("    (")
+    lines.append("        samples.iter().filter(|(_, k)| *k == BoundaryKind::StringTooLong).count(),")
+    lines.append("        samples.iter().filter(|(_, k)| *k == BoundaryKind::CollectionCountHuge).count(),")
+    lines.append("        samples.iter().filter(|(_, k)| *k == BoundaryKind::EnumUnknown).count(),")
+    lines.append("        samples.iter().filter(|(_, k)| *k == BoundaryKind::FloatNotFinite).count(),")
+    lines.append("    )")
+    lines.append("}")
+    lines.append("")
+    lines.append("/// Packets with no string/list/blob/enum/float field at all (pure fixed-width integers).")
+    lines.append("#[must_use]")
+    lines.append("pub fn packets_without_boundary_fields() -> Vec<i16> {")
+    lines.append("    vec![")
+    for packet in without:
+        lines.append(f"        {packet.name}::INDEX,")
+    lines.append("    ]")
+    lines.append("}")
+    lines.append("")
+    lines.append("/// Packets with boundary fields but a preceding non-encodable field; listed, not silently skipped.")
+    lines.append("#[must_use]")
+    lines.append("pub fn packets_with_uncovered_boundary_fields() -> Vec<i16> {")
+    lines.append("    vec![")
+    for packet in uncovered:
+        lines.append(f"        {packet.name}::INDEX,")
+    lines.append("    ]")
+    lines.append("}")
+    lines.append("")
+    lines.append("/// Explicit exemptions: packet + concrete reason; still uncovered, never claimed as tested.")
+    lines.append("#[derive(Debug, Clone, Copy, PartialEq, Eq)]")
+    lines.append("pub struct BoundaryExemption { pub index: i16, pub reason: &'static str }")
+    lines.append("")
+    lines.append("#[must_use]")
+    lines.append("pub fn boundary_exempt_packets() -> Vec<BoundaryExemption> {")
+    lines.append("    vec![")
+    for packet in uncovered:
+        reason = (
+            "nested ClientQuestProgress cannot be Default-encoded; hand-written constructor needed; "
+            "its task_list string/count boundaries remain uncovered"
+            if packet.name == "ChangeQuest"
+            else "preceding field is not encodable by the generator"
+        )
+        lines.append(
+            f'        BoundaryExemption {{ index: {packet.name}::INDEX, reason: "{reason}" }},'
+        )
+    lines.append("    ]")
+    lines.append("}")
+    lines.append("")
+    return lines
 
 
 # 这些包在 Crystal 里读写就不对称（写侧会省略内容、读侧却无条件读），
@@ -490,3 +673,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+

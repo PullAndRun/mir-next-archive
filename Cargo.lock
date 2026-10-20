@@ -1373,7 +1373,7 @@ dependencies = [
 
 [[package]]
 name = "mir-asset"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "flate2",
  "png",
@@ -1382,7 +1382,7 @@ dependencies = [
 
 [[package]]
 name = "mir-client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "mir-core",
@@ -1402,7 +1402,7 @@ dependencies = [
 
 [[package]]
 name = "mir-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "serde",
@@ -1412,7 +1412,7 @@ dependencies = [
 
 [[package]]
 name = "mir-db"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "mir-core",
  "mir-protocol",
@@ -1421,7 +1421,7 @@ dependencies = [
 
 [[package]]
 name = "mir-protocol"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "flate2",
  "mir-core",
@@ -1431,7 +1431,7 @@ dependencies = [
 
 [[package]]
 name = "mir-render"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ab_glyph",
  "flate2",
@@ -1444,7 +1444,7 @@ dependencies = [
 
 [[package]]
 name = "mir-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1462,7 +1462,7 @@ dependencies = [
 
 [[package]]
 name = "mir-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "pbkdf2",
@@ -1477,7 +1477,7 @@ dependencies = [
 
 [[package]]
 name = "mir-tools"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "mir-asset",
@@ -1492,7 +1492,7 @@ dependencies = [
 
 [[package]]
 name = "mir-world"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "mir-core",
  "thiserror 2.0.21",

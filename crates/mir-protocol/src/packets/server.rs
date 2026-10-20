@@ -10397,6 +10397,301 @@ impl ServerPacket {
     }
 }
 
+/// Every server packet index emitted by this generator.
+pub const ALL_SERVER_INDICES: &[i16] = &[
+    KeepAlive::INDEX,
+    Connected::INDEX,
+    ClientVersion::INDEX,
+    Disconnect::INDEX,
+    NewAccount::INDEX,
+    ChangePassword::INDEX,
+    ChangePasswordBanned::INDEX,
+    StorageUnlockResult::INDEX,
+    StoragePasswordResult::INDEX,
+    Login::INDEX,
+    LoginBanned::INDEX,
+    LoginSuccess::INDEX,
+    NewCharacter::INDEX,
+    NewCharacterSuccess::INDEX,
+    DeleteCharacter::INDEX,
+    DeleteCharacterSuccess::INDEX,
+    StartGame::INDEX,
+    StartGameBanned::INDEX,
+    StartGameDelay::INDEX,
+    MapInformation::INDEX,
+    NewMapInfo::INDEX,
+    WorldMapSetupInfo::INDEX,
+    SearchMapResult::INDEX,
+    UserInformation::INDEX,
+    UserSlotsRefresh::INDEX,
+    UserLocation::INDEX,
+    ObjectPlayer::INDEX,
+    ObjectHero::INDEX,
+    ObjectRemove::INDEX,
+    ObjectTurn::INDEX,
+    ObjectWalk::INDEX,
+    ObjectRun::INDEX,
+    Chat::INDEX,
+    ObjectChat::INDEX,
+    NewItemInfo::INDEX,
+    NewHeroInfo::INDEX,
+    NewChatItem::INDEX,
+    MoveItem::INDEX,
+    EquipItem::INDEX,
+    MergeItem::INDEX,
+    RemoveItem::INDEX,
+    RemoveSlotItem::INDEX,
+    TakeBackItem::INDEX,
+    StoreItem::INDEX,
+    DepositRefineItem::INDEX,
+    RetrieveRefineItem::INDEX,
+    RefineCancel::INDEX,
+    RefineItem::INDEX,
+    DepositTradeItem::INDEX,
+    RetrieveTradeItem::INDEX,
+    SplitItem::INDEX,
+    SplitItem1::INDEX,
+    UseItem::INDEX,
+    DropItem::INDEX,
+    TakeBackHeroItem::INDEX,
+    TransferHeroItem::INDEX,
+    PlayerUpdate::INDEX,
+    PlayerInspect::INDEX,
+    MarriageRequest::INDEX,
+    DivorceRequest::INDEX,
+    MentorRequest::INDEX,
+    TradeRequest::INDEX,
+    TradeAccept::INDEX,
+    TradeGold::INDEX,
+    TradeItem::INDEX,
+    TradeConfirm::INDEX,
+    TradeCancel::INDEX,
+    LogOutSuccess::INDEX,
+    LogOutFailed::INDEX,
+    ReturnToLogin::INDEX,
+    TimeOfDay::INDEX,
+    ChangeAMode::INDEX,
+    ChangePMode::INDEX,
+    ObjectItem::INDEX,
+    ObjectGold::INDEX,
+    GainedItem::INDEX,
+    GainedGold::INDEX,
+    LoseGold::INDEX,
+    GainedCredit::INDEX,
+    LoseCredit::INDEX,
+    ObjectMonster::INDEX,
+    ObjectAttack::INDEX,
+    Struck::INDEX,
+    ObjectStruck::INDEX,
+    DamageIndicator::INDEX,
+    DuraChanged::INDEX,
+    HealthChanged::INDEX,
+    HeroHealthChanged::INDEX,
+    DeleteItem::INDEX,
+    Death::INDEX,
+    ObjectDied::INDEX,
+    ColourChanged::INDEX,
+    ObjectColourChanged::INDEX,
+    ObjectGuildNameChanged::INDEX,
+    GainExperience::INDEX,
+    GainHeroExperience::INDEX,
+    LevelChanged::INDEX,
+    HeroLevelChanged::INDEX,
+    ObjectLeveled::INDEX,
+    ObjectHarvest::INDEX,
+    ObjectHarvested::INDEX,
+    ObjectNPC::INDEX,
+    NPCResponse::INDEX,
+    ObjectHide::INDEX,
+    ObjectShow::INDEX,
+    Poisoned::INDEX,
+    ObjectPoisoned::INDEX,
+    MapChanged::INDEX,
+    ObjectTeleportOut::INDEX,
+    ObjectTeleportIn::INDEX,
+    TeleportIn::INDEX,
+    NPCGoods::INDEX,
+    NPCSell::INDEX,
+    NPCRepair::INDEX,
+    NPCSRepair::INDEX,
+    NPCRefine::INDEX,
+    NPCCheckRefine::INDEX,
+    NPCCollectRefine::INDEX,
+    NPCReplaceWedRing::INDEX,
+    NPCStorage::INDEX,
+    SellItem::INDEX,
+    RepairItem::INDEX,
+    ItemRepaired::INDEX,
+    ItemSlotSizeChanged::INDEX,
+    ItemSealChanged::INDEX,
+    NewMagic::INDEX,
+    RemoveMagic::INDEX,
+    MagicLeveled::INDEX,
+    Magic::INDEX,
+    MagicDelay::INDEX,
+    MagicCast::INDEX,
+    ObjectMagic::INDEX,
+    ObjectEffect::INDEX,
+    ObjectProjectile::INDEX,
+    RangeAttack::INDEX,
+    Pushed::INDEX,
+    ObjectPushed::INDEX,
+    ObjectName::INDEX,
+    UserStorage::INDEX,
+    SwitchGroup::INDEX,
+    DeleteGroup::INDEX,
+    DeleteMember::INDEX,
+    GroupInvite::INDEX,
+    AddMember::INDEX,
+    GroupMembersMap::INDEX,
+    SendMemberLocation::INDEX,
+    Revived::INDEX,
+    ObjectRevived::INDEX,
+    SpellToggle::INDEX,
+    ObjectHealth::INDEX,
+    ObjectMana::INDEX,
+    MapEffect::INDEX,
+    AllowObserve::INDEX,
+    ObjectRangeAttack::INDEX,
+    AddBuff::INDEX,
+    RemoveBuff::INDEX,
+    PauseBuff::INDEX,
+    ObjectHidden::INDEX,
+    RefreshItem::INDEX,
+    ObjectSpell::INDEX,
+    UserDash::INDEX,
+    ObjectDash::INDEX,
+    UserDashFail::INDEX,
+    ObjectDashFail::INDEX,
+    RemoveDelayedExplosion::INDEX,
+    NPCConsign::INDEX,
+    NPCMarket::INDEX,
+    NPCMarketPage::INDEX,
+    GuildTerritoryPage::INDEX,
+    ConsignItem::INDEX,
+    MarketFail::INDEX,
+    MarketSuccess::INDEX,
+    ObjectSitDown::INDEX,
+    InTrapRock::INDEX,
+    BaseStatsInfo::INDEX,
+    HeroBaseStatsInfo::INDEX,
+    UserName::INDEX,
+    ChatItemStats::INDEX,
+    GuildNoticeChange::INDEX,
+    GuildMemberChange::INDEX,
+    GuildStatus::INDEX,
+    GuildInvite::INDEX,
+    GuildExpGain::INDEX,
+    GuildNameRequest::INDEX,
+    GuildStorageGoldChange::INDEX,
+    GuildStorageItemChange::INDEX,
+    GuildStorageList::INDEX,
+    GuildRequestWar::INDEX,
+    HeroCreateRequest::INDEX,
+    NewHero::INDEX,
+    HeroInformation::INDEX,
+    UpdateHeroSpawnState::INDEX,
+    UnlockHeroAutoPot::INDEX,
+    SetAutoPotValue::INDEX,
+    SetAutoPotItem::INDEX,
+    SetHeroBehaviour::INDEX,
+    ManageHeroes::INDEX,
+    ChangeHero::INDEX,
+    DefaultNPC::INDEX,
+    NPCUpdate::INDEX,
+    NPCImageUpdate::INDEX,
+    MountUpdate::INDEX,
+    TransformUpdate::INDEX,
+    EquipSlotItem::INDEX,
+    FishingUpdate::INDEX,
+    ChangeQuest::INDEX,
+    CompleteQuest::INDEX,
+    ShareQuest::INDEX,
+    NewQuestInfo::INDEX,
+    GainedQuestItem::INDEX,
+    DeleteQuestItem::INDEX,
+    GameShopInfo::INDEX,
+    GameShopStock::INDEX,
+    CancelReincarnation::INDEX,
+    RequestReincarnation::INDEX,
+    UserBackStep::INDEX,
+    ObjectBackStep::INDEX,
+    UserDashAttack::INDEX,
+    ObjectDashAttack::INDEX,
+    UserAttackMove::INDEX,
+    CombineItem::INDEX,
+    ItemUpgraded::INDEX,
+    SetConcentration::INDEX,
+    SetElemental::INDEX,
+    ObjectDeco::INDEX,
+    ObjectSneaking::INDEX,
+    ObjectLevelEffects::INDEX,
+    SetBindingShot::INDEX,
+    SendOutputMessage::INDEX,
+    NPCAwakening::INDEX,
+    NPCDisassemble::INDEX,
+    NPCDowngrade::INDEX,
+    NPCReset::INDEX,
+    AwakeningNeedMaterials::INDEX,
+    AwakeningLockedItem::INDEX,
+    Awakening::INDEX,
+    ReceiveMail::INDEX,
+    MailLockedItem::INDEX,
+    MailSent::INDEX,
+    MailSendRequest::INDEX,
+    ParcelCollected::INDEX,
+    MailCost::INDEX,
+    ResizeInventory::INDEX,
+    ResizeStorage::INDEX,
+    NewIntelligentCreature::INDEX,
+    UpdateIntelligentCreatureList::INDEX,
+    IntelligentCreatureEnableRename::INDEX,
+    IntelligentCreaturePickup::INDEX,
+    NPCPearlGoods::INDEX,
+    FriendUpdate::INDEX,
+    GuildBuffList::INDEX,
+    LoverUpdate::INDEX,
+    MentorUpdate::INDEX,
+    NPCRequestInput::INDEX,
+    Rankings::INDEX,
+    Opendoor::INDEX,
+    GetRentedItems::INDEX,
+    ItemRentalRequest::INDEX,
+    ItemRentalFee::INDEX,
+    ItemRentalPeriod::INDEX,
+    DepositRentalItem::INDEX,
+    RetrieveRentalItem::INDEX,
+    UpdateRentalItem::INDEX,
+    CancelItemRental::INDEX,
+    ItemRentalLock::INDEX,
+    ItemRentalPartnerLock::INDEX,
+    CanConfirmItemRental::INDEX,
+    ConfirmItemRental::INDEX,
+    NewRecipeInfo::INDEX,
+    CraftItem::INDEX,
+    OpenBrowser::INDEX,
+    PlaySound::INDEX,
+    SetTimer::INDEX,
+    ExpireTimer::INDEX,
+    UpdateNotice::INDEX,
+    Roll::INDEX,
+    SetCompass::INDEX,
+    NewMonsterInfo::INDEX,
+    NewNPCInfo::INDEX,
+    ConquestInfo::INDEX,
+    ConquestObject::INDEX,
+    ConquestResult::INDEX,
+    GuildAllies::INDEX,
+];
+
+/// Decode a server packet payload by wire index (same dispatch as the enum).
+pub fn decode_server_packet(
+    index: i16,
+    payload: &[u8],
+) -> Result<ServerPacket, crate::ProtocolError> {
+    ServerPacket::decode(index, payload)
+}
+
 #[cfg(test)]
 mod roundtrip {
     /// 每个包的默认值走一遍 `encode_frame` → `decode`，必须与原文一致。
@@ -10701,4 +10996,1073 @@ mod roundtrip {
             assert_eq!(decoded, packet, "包 {index} 往返不一致");
         }
     }
+}
+
+/// Field-boundary sample emitted by the protocol generator.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundarySample {
+    pub index: i16,
+    pub field: &'static str,
+    pub bytes: Vec<u8>,
+}
+
+/// Boundary sample kind for reporting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoundaryKind {
+    StringTooLong,
+    CollectionCountHuge,
+    EnumUnknown,
+    FloatNotFinite,
+}
+
+/// Samples that exercise field boundaries.
+#[must_use]
+pub fn boundary_samples() -> Vec<(BoundarySample, BoundaryKind)> {
+    vec![
+        (
+            BoundarySample {
+                index: ChangePasswordBanned::INDEX,
+                field: "Reason",
+                bytes: vec![129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: LoginBanned::INDEX,
+                field: "Reason",
+                bytes: vec![129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: StartGameBanned::INDEX,
+                field: "Reason",
+                bytes: vec![129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: MapInformation::INDEX,
+                field: "FileName",
+                bytes: vec![0, 0, 0, 0, 129, 128, 64, 0, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: MapInformation::INDEX,
+                field: "Title",
+                bytes: vec![0, 0, 0, 0, 0, 129, 128, 64, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: MapInformation::INDEX,
+                field: "Lights",
+                bytes: vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: UserInformation::INDEX,
+                field: "Name",
+                bytes: vec![0, 0, 0, 0, 0, 0, 0, 0, 129, 128, 64, 0, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: UserInformation::INDEX,
+                field: "GuildName",
+                bytes: vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 129, 128, 64, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: UserInformation::INDEX,
+                field: "GuildRank",
+                bytes: vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: ObjectPlayer::INDEX,
+                field: "Name",
+                bytes: vec![0, 0, 0, 0, 129, 128, 64, 0, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: ObjectPlayer::INDEX,
+                field: "GuildName",
+                bytes: vec![0, 0, 0, 0, 0, 129, 128, 64, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: ObjectPlayer::INDEX,
+                field: "GuildRankName",
+                bytes: vec![0, 0, 0, 0, 0, 0, 129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: Chat::INDEX,
+                field: "Message",
+                bytes: vec![129, 128, 64, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: Chat::INDEX,
+                field: "Type",
+                bytes: vec![0, 255],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: ObjectChat::INDEX,
+                field: "Text",
+                bytes: vec![0, 0, 0, 0, 129, 128, 64, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: ObjectChat::INDEX,
+                field: "Type",
+                bytes: vec![0, 0, 0, 0, 0, 255],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: MoveItem::INDEX,
+                field: "Grid",
+                bytes: vec![255, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: EquipItem::INDEX,
+                field: "Grid",
+                bytes: vec![255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: MergeItem::INDEX,
+                field: "GridFrom",
+                bytes: vec![255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: MergeItem::INDEX,
+                field: "GridTo",
+                bytes: vec![0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: RemoveItem::INDEX,
+                field: "Grid",
+                bytes: vec![255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: RemoveSlotItem::INDEX,
+                field: "Grid",
+                bytes: vec![255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: RemoveSlotItem::INDEX,
+                field: "GridTo",
+                bytes: vec![0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: SplitItem1::INDEX,
+                field: "Grid",
+                bytes: vec![255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: UseItem::INDEX,
+                field: "Grid",
+                bytes: vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 255],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: PlayerInspect::INDEX,
+                field: "Name",
+                bytes: vec![129, 128, 64, 0, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: PlayerInspect::INDEX,
+                field: "GuildName",
+                bytes: vec![0, 129, 128, 64, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: PlayerInspect::INDEX,
+                field: "GuildRank",
+                bytes: vec![0, 0, 129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: MarriageRequest::INDEX,
+                field: "Name",
+                bytes: vec![129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: DivorceRequest::INDEX,
+                field: "Name",
+                bytes: vec![129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: MentorRequest::INDEX,
+                field: "Name",
+                bytes: vec![129, 128, 64, 0, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: TradeRequest::INDEX,
+                field: "Name",
+                bytes: vec![129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: TradeAccept::INDEX,
+                field: "Name",
+                bytes: vec![129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: TimeOfDay::INDEX,
+                field: "Lights",
+                bytes: vec![255],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: ChangeAMode::INDEX,
+                field: "Mode",
+                bytes: vec![255],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: ChangePMode::INDEX,
+                field: "Mode",
+                bytes: vec![255],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: ObjectItem::INDEX,
+                field: "Name",
+                bytes: vec![0, 0, 0, 0, 129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: ObjectMonster::INDEX,
+                field: "Name",
+                bytes: vec![0, 0, 0, 0, 129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: DamageIndicator::INDEX,
+                field: "Type",
+                bytes: vec![0, 0, 0, 0, 255, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: ObjectGuildNameChanged::INDEX,
+                field: "GuildName",
+                bytes: vec![0, 0, 0, 0, 129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: ObjectNPC::INDEX,
+                field: "Name",
+                bytes: vec![0, 0, 0, 0, 129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: Poisoned::INDEX,
+                field: "Poison",
+                bytes: vec![255],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: ObjectPoisoned::INDEX,
+                field: "Poison",
+                bytes: vec![0, 0, 0, 0, 255],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: MapChanged::INDEX,
+                field: "FileName",
+                bytes: vec![0, 0, 0, 0, 129, 128, 64, 0, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: MapChanged::INDEX,
+                field: "Title",
+                bytes: vec![0, 0, 0, 0, 0, 129, 128, 64, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: MapChanged::INDEX,
+                field: "Lights",
+                bytes: vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: NPCRepair::INDEX,
+                field: "Rate",
+                bytes: vec![0, 0, 192, 127],
+            },
+            BoundaryKind::FloatNotFinite,
+        ),
+        (
+            BoundarySample {
+                index: NPCSRepair::INDEX,
+                field: "Rate",
+                bytes: vec![0, 0, 192, 127],
+            },
+            BoundaryKind::FloatNotFinite,
+        ),
+        (
+            BoundarySample {
+                index: NPCRefine::INDEX,
+                field: "Rate",
+                bytes: vec![0, 0, 192, 127, 0],
+            },
+            BoundaryKind::FloatNotFinite,
+        ),
+        (
+            BoundarySample {
+                index: NPCReplaceWedRing::INDEX,
+                field: "Rate",
+                bytes: vec![0, 0, 192, 127],
+            },
+            BoundaryKind::FloatNotFinite,
+        ),
+        (
+            BoundarySample {
+                index: MagicLeveled::INDEX,
+                field: "Spell",
+                bytes: vec![0, 0, 0, 0, 255, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: Magic::INDEX,
+                field: "Spell",
+                bytes: vec![255, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: MagicDelay::INDEX,
+                field: "Spell",
+                bytes: vec![0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: MagicCast::INDEX,
+                field: "Spell",
+                bytes: vec![255],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: ObjectEffect::INDEX,
+                field: "Effect",
+                bytes: vec![0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: ObjectProjectile::INDEX,
+                field: "Spell",
+                bytes: vec![255, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: ObjectName::INDEX,
+                field: "Name",
+                bytes: vec![0, 0, 0, 0, 129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: DeleteMember::INDEX,
+                field: "Name",
+                bytes: vec![129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: GroupInvite::INDEX,
+                field: "Name",
+                bytes: vec![129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: AddMember::INDEX,
+                field: "Name",
+                bytes: vec![129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: GroupMembersMap::INDEX,
+                field: "PlayerName",
+                bytes: vec![129, 128, 64, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: GroupMembersMap::INDEX,
+                field: "PlayerMap",
+                bytes: vec![0, 129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: SendMemberLocation::INDEX,
+                field: "MemberName",
+                bytes: vec![129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: SpellToggle::INDEX,
+                field: "Spell",
+                bytes: vec![0, 0, 0, 0, 255, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: RemoveBuff::INDEX,
+                field: "Type",
+                bytes: vec![255, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: PauseBuff::INDEX,
+                field: "Type",
+                bytes: vec![255, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: MarketSuccess::INDEX,
+                field: "Message",
+                bytes: vec![129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: UserName::INDEX,
+                field: "Name",
+                bytes: vec![0, 0, 0, 0, 129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: GuildMemberChange::INDEX,
+                field: "Name",
+                bytes: vec![129, 128, 64, 0, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: GuildStatus::INDEX,
+                field: "GuildName",
+                bytes: vec![
+                    129, 128, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                ],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: GuildStatus::INDEX,
+                field: "GuildRankName",
+                bytes: vec![
+                    0, 129, 128, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                ],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: GuildStatus::INDEX,
+                field: "MyOptions",
+                bytes: vec![
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 0,
+                ],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: GuildInvite::INDEX,
+                field: "Name",
+                bytes: vec![129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: GuildStorageGoldChange::INDEX,
+                field: "Name",
+                bytes: vec![0, 0, 0, 0, 0, 129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: HeroInformation::INDEX,
+                field: "Name",
+                bytes: vec![
+                    0, 0, 0, 0, 129, 128, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                ],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: HeroInformation::INDEX,
+                field: "Class",
+                bytes: vec![
+                    0, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0,
+                ],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: HeroInformation::INDEX,
+                field: "Gender",
+                bytes: vec![
+                    0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0,
+                ],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: UpdateHeroSpawnState::INDEX,
+                field: "State",
+                bytes: vec![255],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: SetAutoPotValue::INDEX,
+                field: "Stat",
+                bytes: vec![255, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: SetAutoPotItem::INDEX,
+                field: "Grid",
+                bytes: vec![255, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: SetHeroBehaviour::INDEX,
+                field: "Behaviour",
+                bytes: vec![255],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: EquipSlotItem::INDEX,
+                field: "Grid",
+                bytes: vec![255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: EquipSlotItem::INDEX,
+                field: "GridTo",
+                bytes: vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: ShareQuest::INDEX,
+                field: "SharerName",
+                bytes: vec![0, 0, 0, 0, 129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: CombineItem::INDEX,
+                field: "Grid",
+                bytes: vec![255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: ObjectLevelEffects::INDEX,
+                field: "LevelEffects",
+                bytes: vec![0, 0, 0, 0, 255],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: SendOutputMessage::INDEX,
+                field: "Message",
+                bytes: vec![129, 128, 64, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: SendOutputMessage::INDEX,
+                field: "Type",
+                bytes: vec![0, 255],
+            },
+            BoundaryKind::EnumUnknown,
+        ),
+        (
+            BoundarySample {
+                index: LoverUpdate::INDEX,
+                field: "Name",
+                bytes: vec![129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: MentorUpdate::INDEX,
+                field: "Name",
+                bytes: vec![129, 128, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: NPCRequestInput::INDEX,
+                field: "PageName",
+                bytes: vec![0, 0, 0, 0, 129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: ItemRentalRequest::INDEX,
+                field: "Name",
+                bytes: vec![129, 128, 64, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: OpenBrowser::INDEX,
+                field: "Url",
+                bytes: vec![129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: SetTimer::INDEX,
+                field: "Key",
+                bytes: vec![129, 128, 64, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: ExpireTimer::INDEX,
+                field: "Key",
+                bytes: vec![129, 128, 64],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+        (
+            BoundarySample {
+                index: Roll::INDEX,
+                field: "Page",
+                bytes: vec![0, 0, 0, 0, 129, 128, 64, 0, 0, 0, 0, 0],
+            },
+            BoundaryKind::StringTooLong,
+        ),
+    ]
+}
+
+/// Four category counts for the receipt.
+#[must_use]
+pub fn boundary_kind_counts() -> (usize, usize, usize, usize) {
+    let samples = boundary_samples();
+    (
+        samples
+            .iter()
+            .filter(|(_, k)| *k == BoundaryKind::StringTooLong)
+            .count(),
+        samples
+            .iter()
+            .filter(|(_, k)| *k == BoundaryKind::CollectionCountHuge)
+            .count(),
+        samples
+            .iter()
+            .filter(|(_, k)| *k == BoundaryKind::EnumUnknown)
+            .count(),
+        samples
+            .iter()
+            .filter(|(_, k)| *k == BoundaryKind::FloatNotFinite)
+            .count(),
+    )
+}
+
+/// Packets with no string/list/blob/enum/float field at all (pure fixed-width integers).
+#[must_use]
+pub fn packets_without_boundary_fields() -> Vec<i16> {
+    vec![
+        KeepAlive::INDEX,
+        Connected::INDEX,
+        ClientVersion::INDEX,
+        Disconnect::INDEX,
+        NewAccount::INDEX,
+        ChangePassword::INDEX,
+        StorageUnlockResult::INDEX,
+        StoragePasswordResult::INDEX,
+        Login::INDEX,
+        LoginSuccess::INDEX,
+        NewCharacter::INDEX,
+        NewCharacterSuccess::INDEX,
+        DeleteCharacter::INDEX,
+        DeleteCharacterSuccess::INDEX,
+        StartGame::INDEX,
+        StartGameDelay::INDEX,
+        NewMapInfo::INDEX,
+        WorldMapSetupInfo::INDEX,
+        SearchMapResult::INDEX,
+        UserSlotsRefresh::INDEX,
+        UserLocation::INDEX,
+        ObjectHero::INDEX,
+        ObjectRemove::INDEX,
+        ObjectTurn::INDEX,
+        ObjectWalk::INDEX,
+        ObjectRun::INDEX,
+        NewItemInfo::INDEX,
+        NewHeroInfo::INDEX,
+        NewChatItem::INDEX,
+        TakeBackItem::INDEX,
+        StoreItem::INDEX,
+        DepositRefineItem::INDEX,
+        RetrieveRefineItem::INDEX,
+        RefineCancel::INDEX,
+        RefineItem::INDEX,
+        DepositTradeItem::INDEX,
+        RetrieveTradeItem::INDEX,
+        SplitItem::INDEX,
+        DropItem::INDEX,
+        TakeBackHeroItem::INDEX,
+        TransferHeroItem::INDEX,
+        PlayerUpdate::INDEX,
+        TradeGold::INDEX,
+        TradeItem::INDEX,
+        TradeConfirm::INDEX,
+        TradeCancel::INDEX,
+        LogOutSuccess::INDEX,
+        LogOutFailed::INDEX,
+        ReturnToLogin::INDEX,
+        ObjectGold::INDEX,
+        GainedItem::INDEX,
+        GainedGold::INDEX,
+        LoseGold::INDEX,
+        GainedCredit::INDEX,
+        LoseCredit::INDEX,
+        ObjectAttack::INDEX,
+        Struck::INDEX,
+        ObjectStruck::INDEX,
+        DuraChanged::INDEX,
+        HealthChanged::INDEX,
+        HeroHealthChanged::INDEX,
+        DeleteItem::INDEX,
+        Death::INDEX,
+        ObjectDied::INDEX,
+        ColourChanged::INDEX,
+        ObjectColourChanged::INDEX,
+        GainExperience::INDEX,
+        GainHeroExperience::INDEX,
+        LevelChanged::INDEX,
+        HeroLevelChanged::INDEX,
+        ObjectLeveled::INDEX,
+        ObjectHarvest::INDEX,
+        ObjectHarvested::INDEX,
+        NPCResponse::INDEX,
+        ObjectHide::INDEX,
+        ObjectShow::INDEX,
+        ObjectTeleportOut::INDEX,
+        ObjectTeleportIn::INDEX,
+        TeleportIn::INDEX,
+        NPCGoods::INDEX,
+        NPCSell::INDEX,
+        NPCCheckRefine::INDEX,
+        NPCCollectRefine::INDEX,
+        NPCStorage::INDEX,
+        SellItem::INDEX,
+        RepairItem::INDEX,
+        ItemRepaired::INDEX,
+        ItemSlotSizeChanged::INDEX,
+        ItemSealChanged::INDEX,
+        NewMagic::INDEX,
+        RemoveMagic::INDEX,
+        ObjectMagic::INDEX,
+        RangeAttack::INDEX,
+        Pushed::INDEX,
+        ObjectPushed::INDEX,
+        UserStorage::INDEX,
+        SwitchGroup::INDEX,
+        DeleteGroup::INDEX,
+        Revived::INDEX,
+        ObjectRevived::INDEX,
+        ObjectHealth::INDEX,
+        ObjectMana::INDEX,
+        MapEffect::INDEX,
+        AllowObserve::INDEX,
+        ObjectRangeAttack::INDEX,
+        AddBuff::INDEX,
+        ObjectHidden::INDEX,
+        RefreshItem::INDEX,
+        ObjectSpell::INDEX,
+        UserDash::INDEX,
+        ObjectDash::INDEX,
+        UserDashFail::INDEX,
+        ObjectDashFail::INDEX,
+        RemoveDelayedExplosion::INDEX,
+        NPCConsign::INDEX,
+        NPCMarket::INDEX,
+        NPCMarketPage::INDEX,
+        GuildTerritoryPage::INDEX,
+        ConsignItem::INDEX,
+        MarketFail::INDEX,
+        ObjectSitDown::INDEX,
+        InTrapRock::INDEX,
+        BaseStatsInfo::INDEX,
+        HeroBaseStatsInfo::INDEX,
+        ChatItemStats::INDEX,
+        GuildNoticeChange::INDEX,
+        GuildExpGain::INDEX,
+        GuildNameRequest::INDEX,
+        GuildStorageItemChange::INDEX,
+        GuildStorageList::INDEX,
+        GuildRequestWar::INDEX,
+        HeroCreateRequest::INDEX,
+        NewHero::INDEX,
+        UnlockHeroAutoPot::INDEX,
+        ManageHeroes::INDEX,
+        ChangeHero::INDEX,
+        DefaultNPC::INDEX,
+        NPCUpdate::INDEX,
+        NPCImageUpdate::INDEX,
+        MountUpdate::INDEX,
+        TransformUpdate::INDEX,
+        FishingUpdate::INDEX,
+        CompleteQuest::INDEX,
+        NewQuestInfo::INDEX,
+        GainedQuestItem::INDEX,
+        DeleteQuestItem::INDEX,
+        GameShopInfo::INDEX,
+        GameShopStock::INDEX,
+        CancelReincarnation::INDEX,
+        RequestReincarnation::INDEX,
+        UserBackStep::INDEX,
+        ObjectBackStep::INDEX,
+        UserDashAttack::INDEX,
+        ObjectDashAttack::INDEX,
+        UserAttackMove::INDEX,
+        ItemUpgraded::INDEX,
+        SetConcentration::INDEX,
+        SetElemental::INDEX,
+        ObjectDeco::INDEX,
+        ObjectSneaking::INDEX,
+        SetBindingShot::INDEX,
+        NPCAwakening::INDEX,
+        NPCDisassemble::INDEX,
+        NPCDowngrade::INDEX,
+        NPCReset::INDEX,
+        AwakeningNeedMaterials::INDEX,
+        AwakeningLockedItem::INDEX,
+        Awakening::INDEX,
+        ReceiveMail::INDEX,
+        MailLockedItem::INDEX,
+        MailSent::INDEX,
+        MailSendRequest::INDEX,
+        ParcelCollected::INDEX,
+        MailCost::INDEX,
+        ResizeInventory::INDEX,
+        ResizeStorage::INDEX,
+        NewIntelligentCreature::INDEX,
+        UpdateIntelligentCreatureList::INDEX,
+        IntelligentCreatureEnableRename::INDEX,
+        IntelligentCreaturePickup::INDEX,
+        NPCPearlGoods::INDEX,
+        FriendUpdate::INDEX,
+        GuildBuffList::INDEX,
+        Rankings::INDEX,
+        Opendoor::INDEX,
+        GetRentedItems::INDEX,
+        ItemRentalFee::INDEX,
+        ItemRentalPeriod::INDEX,
+        DepositRentalItem::INDEX,
+        RetrieveRentalItem::INDEX,
+        UpdateRentalItem::INDEX,
+        CancelItemRental::INDEX,
+        ItemRentalLock::INDEX,
+        ItemRentalPartnerLock::INDEX,
+        CanConfirmItemRental::INDEX,
+        ConfirmItemRental::INDEX,
+        NewRecipeInfo::INDEX,
+        CraftItem::INDEX,
+        PlaySound::INDEX,
+        UpdateNotice::INDEX,
+        SetCompass::INDEX,
+        NewMonsterInfo::INDEX,
+        NewNPCInfo::INDEX,
+        ConquestInfo::INDEX,
+        ConquestObject::INDEX,
+        ConquestResult::INDEX,
+        GuildAllies::INDEX,
+    ]
+}
+
+/// Packets with boundary fields but a preceding non-encodable field; listed, not silently skipped.
+#[must_use]
+pub fn packets_with_uncovered_boundary_fields() -> Vec<i16> {
+    vec![ChangeQuest::INDEX]
+}
+
+/// Explicit exemptions: packet + concrete reason; still uncovered, never claimed as tested.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BoundaryExemption {
+    pub index: i16,
+    pub reason: &'static str,
+}
+
+#[must_use]
+pub fn boundary_exempt_packets() -> Vec<BoundaryExemption> {
+    vec![BoundaryExemption {
+        index: ChangeQuest::INDEX,
+        reason: "nested ClientQuestProgress cannot be Default-encoded; hand-written constructor needed; its task_list string/count boundaries remain uncovered",
+    }]
 }

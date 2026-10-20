@@ -339,7 +339,11 @@ pub async fn serve_forever_with_world<S: AccountStore>(
 
     // 可观测性：配了 `MIR2_METRICS_LISTEN` 才起 `/metrics`（默认关闭）。
     if let Some(listen) = config.metrics_listen {
-        match crate::metrics::bind_metrics(listen, Arc::clone(&world)).await {
+        let pool_probe: crate::metrics::PoolProbe = {
+            let store = Arc::clone(&store);
+            Arc::new(move || store.pool_stats().map(|stats| (stats.size, stats.idle)))
+        };
+        match crate::metrics::bind_metrics(listen, Arc::clone(&world), pool_probe).await {
             Ok(address) => tracing::info!(%address, "metrics 端点已启动（GET /metrics）"),
             Err(error) => tracing::warn!(%listen, %error, "metrics 端点启动失败，继续无指标运行"),
         }

@@ -553,7 +553,21 @@ pub struct GameShopUpdate {
 /// 返回类型写成 `impl Future + Send`（而不是裸 `async fn`）是为了让泛型调用方
 /// 能证明 future 是 `Send`，否则 `tokio::spawn` 里的连接任务无法编译。
 #[allow(clippy::manual_async_fn)] // 见上：必须显式声明 `+ Send`
+/// 连接池统计（`/metrics` 的 `mir2_db_pool_*` 用；内存实现返回 `None`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PoolStats {
+    /// 池里当前管理的连接数（含借用中的）。
+    pub size: u32,
+    /// 空闲连接数。
+    pub idle: u32,
+}
+
 pub trait AccountStore: Send + Sync + 'static {
+    /// 连接池统计；非数据库实现返回 `None`（`/metrics` 就不发这两条 gauge）。
+    fn pool_stats(&self) -> Option<PoolStats> {
+        None
+    }
+
     /// 建账号。
     fn create_account<'a>(
         &'a self,

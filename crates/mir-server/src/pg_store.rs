@@ -473,6 +473,13 @@ fn to_store_auction(auction: &AuctionRecord) -> mir_store::MarketAuction {
 // 因此这里不能用 `async fn` 语法糖。
 #[allow(clippy::manual_async_fn)]
 impl AccountStore for PgAccountStore {
+    fn pool_stats(&self) -> Option<crate::store::PoolStats> {
+        Some(crate::store::PoolStats {
+            size: self.pool.size(),
+            idle: u32::try_from(self.pool.num_idle()).unwrap_or(u32::MAX),
+        })
+    }
+
     fn create_account<'a>(
         &'a self,
         username: &'a str,

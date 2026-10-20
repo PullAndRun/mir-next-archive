@@ -85,6 +85,17 @@ pub struct FrameBuffer {
     buffer: Vec<u8>,
 }
 
+/// 校验帧长度字段（含 4 字节头）；供 `next_frame` 与边界测试复用。
+pub fn validate_frame_length(length: usize) -> Result<(), ProtocolError> {
+    if !(HEADER_LEN..=MAX_PACKET_LEN).contains(&length) {
+        return Err(ProtocolError::InvalidFrameLength {
+            length,
+            limit: MAX_PACKET_LEN,
+        });
+    }
+    Ok(())
+}
+
 impl FrameBuffer {
     /// 新建空缓冲。
     #[must_use]
@@ -115,12 +126,7 @@ impl FrameBuffer {
             return Ok(None);
         }
         let length = usize::from(u16::from_le_bytes([self.buffer[0], self.buffer[1]]));
-        if !(HEADER_LEN..=MAX_PACKET_LEN).contains(&length) {
-            return Err(ProtocolError::InvalidFrameLength {
-                length,
-                limit: MAX_PACKET_LEN,
-            });
-        }
+        validate_frame_length(length)?;
         if self.buffer.len() < length {
             return Ok(None);
         }

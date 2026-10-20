@@ -348,6 +348,7 @@ impl Metrics {
     /// | `mir2_players_online` | 当前在线玩家数 |
     /// | `mir2_players_on_map{map="0"}` | 每地图在线人数 |
     /// | `mir2_connections_active` | 当前连接数 |
+    /// | `mir2_db_pool_connections` / `mir2_db_pool_idle` | 数据库连接池：当前管理/空闲连接数（soak 判据用，内存实现不发） |
     /// | `mir2_connections_total` | 累计连接数 |
     /// | `mir2_connections_rejected` | 被限流拒绝的连接数 |
     /// | `mir2_packets_dropped_total` | 包速率超限丢弃的包数 |
@@ -365,7 +366,7 @@ impl Metrics {
     /// | `mir2_autosave_failures_total` | 同 `mir2_db_save_failed_total` 的语义别名（按「autosave 失败」取名） |
     /// | `mir2_db_flush_total` / `mir2_db_flush_micros_{avg,p95,max}` | 市场落盘次数/耗时 |
     #[must_use]
-    pub fn render(&self, per_map: &[(String, usize)]) -> String {
+    pub fn render(&self, per_map: &[(String, usize)], pool: Option<(u32, u32)>) -> String {
         let mut out = String::with_capacity(2048);
         push_gauge(
             &mut out,
@@ -379,6 +380,20 @@ impl Metrics {
                 out,
                 "mir2_players_on_map{{map=\"{}\"}} {players}",
                 escape_label(map)
+            );
+        }
+        if let Some((size, idle)) = pool {
+            push_gauge(
+                &mut out,
+                "mir2_db_pool_connections",
+                "DB pool connections currently managed",
+                u64::from(size),
+            );
+            push_gauge(
+                &mut out,
+                "mir2_db_pool_idle",
+                "DB pool idle connections",
+                u64::from(idle),
             );
         }
         push_gauge(
@@ -557,14 +572,17 @@ fn escape_label(value: &str) -> String {
 ///
 /// # Errors
 /// 绑定失败（端口被占用/无权限）时返回错误，调用方决定是放弃指标还是拒绝启动。
+pub type PoolProbe = Arc<dyn Fn() -> Option<(u32, u32)> + Send + Sync>;
+
 pub async fn bind_metrics(
     listen: SocketAddr,
     world: Arc<Mutex<World>>,
+    pool: PoolProbe,
 ) -> std::io::Result<SocketAddr> {
     let listener = TcpListener::bind(listen).await?;
     let address = listener.local_addr()?;
     tokio::spawn(async move {
-        if let Err(error) = serve_http(listener, world).await {
+        if let Err(error) = serve_http(listener, world, pool).await {
             tracing::warn!(%error, "metrics 服务退出");
         }
     });
@@ -572,7 +590,11 @@ pub async fn bind_metrics(
 }
 
 /// 极简 HTTP：只认 `GET /metrics`（及 `/metrics?…`），其它回 404。
-async fn serve_http(listener: TcpListener, world: Arc<Mutex<World>>) -> std::io::Result<()> {
+async fn serve_http(
+    listener: TcpListener,
+    world: Arc<Mutex<World>>,
+    pool: PoolProbe,
+) -> std::io::Result<()> {
     loop {
         let (mut stream, peer) = match listener.accept().await {
             Ok(accepted) => accepted,
@@ -582,6 +604,7 @@ async fn serve_http(listener: TcpListener, world: Arc<Mutex<World>>) -> std::io:
             }
         };
         let world = Arc::clone(&world);
+        let pool = Arc::clone(&pool);
         tokio::spawn(async move {
             let mut buffer = [0u8; 8192];
             // 只读一次：请求行 + 头，够判断路径了；读不到就直接关。
@@ -600,7 +623,7 @@ async fn serve_http(listener: TcpListener, world: Arc<Mutex<World>>) -> std::io:
                     let world = world.lock().await;
                     world.player_counts_by_map()
                 };
-                ("200 OK", metrics.render(&per_map))
+                ("200 OK", metrics.render(&per_map, pool()))
             } else if path == "/healthz" {
                 ("200 OK", "ok\n".to_owned())
             } else {
@@ -730,7 +753,7 @@ mod tests {
         assert_eq!(metrics.write_failures(), 0);
         metrics.write_failed();
         assert_eq!(metrics.write_failures(), 1);
-        let body = metrics.render(&[]);
+        let body = metrics.render(&[], None);
         assert!(body.contains("mir2_packets_dropped_total 1"), "{body}");
         assert!(body.contains("mir2_write_failed_total 1"), "{body}");
         assert!(
@@ -753,7 +776,7 @@ mod tests {
         metrics.record_db_flush(Duration::from_micros(340));
         metrics.packet_dropped();
         metrics.write_failed();
-        let body = metrics.render(&[("0".to_owned(), 1)]);
+        let body = metrics.render(&[("0".to_owned(), 1)], None);
         for needle in [
             "mir2_players_online 1",
             "mir2_players_on_map{map=\"0\"} 1",

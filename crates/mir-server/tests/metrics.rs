@@ -118,9 +118,13 @@ async fn metrics_endpoint_reports_players_connections_and_tick_fields() {
     global.set_mail_queue(2);
 
     let world = Arc::new(Mutex::new(World::new(7)));
-    let address = bind_metrics("127.0.0.1:0".parse().expect("addr"), Arc::clone(&world))
-        .await
-        .expect("绑定 metrics 端口");
+    let address = bind_metrics(
+        "127.0.0.1:0".parse().expect("addr"),
+        Arc::clone(&world),
+        Arc::new(|| None),
+    )
+    .await
+    .expect("绑定 metrics 端口");
 
     let (status, body) = http_get(address, "/metrics").await;
     assert!(status.contains("200"), "状态行：{status}");
@@ -166,9 +170,13 @@ async fn metrics_endpoint_lists_players_per_map() {
             }),
         );
     }
-    let address = bind_metrics("127.0.0.1:0".parse().expect("addr"), Arc::clone(&world))
-        .await
-        .expect("绑定 metrics 端口");
+    let address = bind_metrics(
+        "127.0.0.1:0".parse().expect("addr"),
+        Arc::clone(&world),
+        Arc::new(|| None),
+    )
+    .await
+    .expect("绑定 metrics 端口");
 
     // 1) 空世界：只有 `mir2_players_online`，没有任何 `mir2_players_on_map{...}` 行。
     let (status, body) = http_get(address, "/metrics").await;
@@ -207,9 +215,13 @@ async fn metrics_endpoint_lists_players_per_map() {
 #[tokio::test]
 async fn metrics_endpoint_returns_404_for_unknown_paths_and_healthz() {
     let world = Arc::new(Mutex::new(World::new(7)));
-    let address = bind_metrics("127.0.0.1:0".parse().expect("addr"), world)
-        .await
-        .expect("绑定 metrics 端口");
+    let address = bind_metrics(
+        "127.0.0.1:0".parse().expect("addr"),
+        world,
+        Arc::new(|| None),
+    )
+    .await
+    .expect("绑定 metrics 端口");
     let (status, _body) = http_get(address, "/nope").await;
     assert!(status.contains("404"), "未知路径应回 404：{status}");
     let (status, body) = http_get(address, "/healthz").await;
@@ -228,4 +240,28 @@ fn ring_window_and_percentiles_are_bounded() {
     assert_eq!(ring.quantile(0.5), Some(7));
     assert_eq!(ring.max(), Some(9));
     assert_eq!(Metrics::new().ticks_total(), 0);
+}
+
+/// `/metrics` 必须真的把连接池统计发出来（soak 的「DB 连接数不增长」判据只认这两条）。
+#[tokio::test]
+async fn metrics_exposes_db_pool_gauges_when_probe_present() {
+    let world = Arc::new(Mutex::new(World::new(7)));
+    let address = bind_metrics(
+        "127.0.0.1:0".parse().expect("addr"),
+        Arc::clone(&world),
+        Arc::new(|| Some((7, 3))),
+    )
+    .await
+    .expect("绑定 metrics 端口");
+
+    let (status, body) = http_get(address, "/metrics").await;
+    assert!(status.contains("200"), "状态行：{status}");
+    assert!(
+        body.contains("mir2_db_pool_connections 7"),
+        "缺少连接池总量：\n{body}"
+    );
+    assert!(
+        body.contains("mir2_db_pool_idle 3"),
+        "缺少空闲连接数：\n{body}"
+    );
 }

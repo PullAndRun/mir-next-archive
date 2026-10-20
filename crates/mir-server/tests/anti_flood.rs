@@ -283,3 +283,93 @@ async fn zero_thresholds_disable_the_limits() {
 
     drop(sockets);
 }
+
+#[tokio::test]
+async fn garbage_and_oversized_frames_keep_server_alive() {
+    let address = start(ServerConfig {
+        max_packets_per_second: 200,
+        ..base_config()
+    })
+    .await;
+    let (mut stream, _frames) = connect(address).await;
+    // 8 字节垃圾：声明 65535 但只给 4 字节 body → 服务端必须等更多数据，不能 panic/断开。
+    stream.write_all(&[0xFF; 8]).await.expect("写垃圾帧");
+    // 再发一个长度 65535 的完整（但内容全随机）超大帧：不能 panic。
+    let mut oversized = vec![0u8; usize::from(u16::MAX)];
+    oversized[0..2].copy_from_slice(&u16::MAX.to_le_bytes());
+    oversized[2..4].copy_from_slice(&42i16.to_le_bytes());
+    stream.write_all(&oversized).await.expect("写超大帧");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    // 服务端仍存活：新连接能收到 Connected（不要求登录成功）。
+    let (_fresh, _fresh_frames) = connect(address).await;
+    drop(stream);
+}
+
+#[tokio::test]
+async fn packet_rate_limit_at_200_per_second_drops_excess_and_keepalive_responds() {
+    let address = start(ServerConfig {
+        max_packets_per_second: 200,
+        ..base_config()
+    })
+    .await;
+    let (mut stream, mut frames) = connect(address).await;
+    stream
+        .write_all(
+            &ClientPacket::ClientVersion(c::ClientVersion {
+                version_hash: Vec::new(),
+            })
+            .encode_frame(),
+        )
+        .await
+        .expect("版本");
+    for _ in 0..240 {
+        stream
+            .write_all(&ClientPacket::KeepAlive(c::KeepAlive { time: 0 }).encode_frame())
+            .await
+            .expect("KeepAlive");
+    }
+    let mut replies = 0usize;
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(800);
+    let mut chunk = [0u8; 8192];
+    while tokio::time::Instant::now() < deadline {
+        while let Some((index, payload)) = frames.next_frame().expect("帧格式") {
+            let _ = ServerPacket::decode(index, &payload).expect("解析");
+            replies += 1;
+        }
+        match tokio::time::timeout(Duration::from_millis(100), stream.read(&mut chunk)).await {
+            Ok(Ok(0)) => panic!("200/s 限流不应踢线"),
+            Ok(Ok(read)) => frames.push(&chunk[..read]),
+            Ok(Err(error)) => panic!("连接被关闭：{error}"),
+            Err(_) => {}
+        }
+    }
+    println!("rate-200 replies={replies}");
+    assert!(
+        replies <= 220,
+        "超过 200/s 的 KeepAlive 应被丢弃，实际回包 {replies}"
+    );
+    // 窗口重置后 KeepAlive 仍响应，证明连接存活。
+    tokio::time::sleep(Duration::from_millis(1_100)).await;
+    stream
+        .write_all(&ClientPacket::KeepAlive(c::KeepAlive { time: 1 }).encode_frame())
+        .await
+        .expect("窗口后 KeepAlive");
+    let mut got = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    while tokio::time::Instant::now() < deadline && !got {
+        if let Some((index, payload)) = frames.next_frame().expect("帧格式") {
+            got = matches!(
+                ServerPacket::decode(index, &payload).expect("解析"),
+                ServerPacket::KeepAlive(_)
+            );
+            continue;
+        }
+        match tokio::time::timeout(Duration::from_millis(200), stream.read(&mut chunk)).await {
+            Ok(Ok(0)) => panic!("连接被关闭"),
+            Ok(Ok(read)) => frames.push(&chunk[..read]),
+            Ok(Err(error)) => panic!("连接被关闭：{error}"),
+            Err(_) => {}
+        }
+    }
+    assert!(got, "限流窗口重置后 KeepAlive 必须仍响应");
+}

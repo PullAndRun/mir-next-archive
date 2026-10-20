@@ -64,10 +64,26 @@ if (-not $env:MIR2_TEST_DATABASE_URL) {
 Write-Host "    测试库（workspace 测试与 PG 门禁共用）：$($env:MIR2_TEST_DATABASE_URL -replace ':[^:@]+@', ':***@')" -ForegroundColor DarkGray
 
 # 预检：残留的 mir-server / mir-client 会锁住 target\debug\*.exe，构建直接失败。
+# **soak / 压测锁**：跑长时压测的人会写 `target/soak.lock`（内含 PID 与说明），
+# 此时 `-KillStale` 必须**拒绝杀进程**——否则会把别人正在跑的 30 分钟 soak 一刀砍掉
+# （第 20 轮真发生过：soak 服务端在 15:42 被外部 `-KillStale` 杀掉）。
+$soakLock = Join-Path $root "target/soak.lock"
+if (Test-Path $soakLock) {
+    $lockInfo = (Get-Content $soakLock -Raw -ErrorAction SilentlyContinue).Trim()
+    Write-Host "==> 检测到压测锁 $soakLock" -ForegroundColor Yellow
+    Write-Host "    $lockInfo" -ForegroundColor Yellow
+    if ($KillStale) {
+        Write-Host "    拒绝执行 -KillStale：压测进行中，杀掉进程会破坏对方的 30 分钟 soak。" -ForegroundColor Red
+        Write-Host "    等压测结束（对方会删除锁文件）后再跑；或自己确认锁已过期后手动删 $soakLock。" -ForegroundColor Red
+        exit 2
+    }
+    Write-Host "    为安全起见，本次不做任何进程清理（构建可能因 exe 被占用而失败）。" -ForegroundColor Yellow
+}
+
 $stale = @(Get-Process -Name mir-server, mir-client -ErrorAction SilentlyContinue)
 if ($stale.Count -gt 0) {
     $list = ($stale | ForEach-Object { "$($_.Id)@$($_.StartTime.ToString('HH:mm:ss'))" }) -join ", "
-    if ($KillStale) {
+    if ($KillStale -and -not (Test-Path $soakLock)) {
         $stale | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
         Write-Host "==> 已结束残留进程：$list" -ForegroundColor Yellow
         Start-Sleep -Seconds 1

@@ -1,0 +1,89 @@
+{
+  "verdict": "FAIL",
+  "checks": [
+    {
+      "name": "时长 ≥1800s",
+      "ok": true,
+      "detail": "duration_seconds=1808.7"
+    },
+    {
+      "name": "采样点 ≥180",
+      "ok": true,
+      "detail": "samples=181"
+    },
+    {
+      "name": "连接数 == 100",
+      "ok": true,
+      "detail": "clients=100"
+    },
+    {
+      "name": "绝对：每个采样点 p50 ≤30.0ms",
+      "ok": true,
+      "detail": "max_p50=0.63ms 超限点=0"
+    },
+    {
+      "name": "绝对：每个采样点 p99 ≤80.0ms",
+      "ok": true,
+      "detail": "max_p99=1.28ms 超限点=0 首个超限=[]"
+    },
+    {
+      "name": "预热后仍有采样点",
+      "ok": true,
+      "detail": "warm_samples=163 (warmup=180s)"
+    },
+    {
+      "name": "RSS 增长 ≤10%",
+      "ok": false,
+      "detail": "缺少 RSS 数据"
+    },
+    {
+      "name": "句柄波动 ≤5",
+      "ok": false,
+      "detail": "缺少句柄数据"
+    },
+    {
+      "name": "DB 连接数不增长",
+      "ok": true,
+      "detail": "first=4 max=4 last=2"
+    },
+    {
+      "name": "后 1/4 窗口 p99 ≤ 前 1/4 ×1.2",
+      "ok": true,
+      "detail": "head=0.99ms tail=1.05ms ratio=1.064"
+    },
+    {
+      "name": "无连续 6 个采样点单调上升",
+      "ok": true,
+      "detail": "最长连续上升段=5"
+    }
+  ],
+  "stats": {
+    "duration_seconds": 1808.7,
+    "samples": 181,
+    "warm_samples": 163,
+    "p50_ms_max": 0.63,
+    "p99_ms_max": 1.28,
+    "p99_ms_first_quarter_mean": 0.99,
+    "p99_ms_last_quarter_mean": 1.05,
+    "rss_first_mb": null,
+    "rss_max_mb": null,
+    "handle_swing": null,
+    "db_pool_first": 4.0,
+    "db_pool_max": 4.0,
+    "write_failed_final": 0.0,
+    "dropped_final": 0.0
+  },
+  "meta": {
+    "started_at": "2026-10-20T15:48:02",
+    "duration_seconds": 1808.7,
+    "clients": 100,
+    "warmup_seconds": 180.0,
+    "sample_interval_seconds": 10.0,
+    "rate_per_client": 1.0,
+    "mix": "2,2,1",
+    "server": "127.0.0.1:7000",
+    "metrics_url": "http://127.0.0.1:9090/metrics",
+    "pid": null,
+    "clients_entered": 100
+  }
+}

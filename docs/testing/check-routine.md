@@ -69,6 +69,21 @@ tools/dev/evidence/check-routine/<yyyyMMdd-HHmmss>/
 四条都成立时打印 `[SELFTEST] PASS`（仍以 1 退出，因为被注入那次本来就是红的）；任一条不成立打印
 `[SELFTEST] FAIL` 并在 summary 里列出不成立的断言。
 
+## `-Soak`：长时稳定性（1800s 完整版）
+
+```powershell
+# 先起服务端（开 /metrics，并关掉单 IP 连接上限：soak 需要 100 条同源连接）
+$env:MIR2_LISTEN = "127.0.0.1:7000"; $env:MIR2_METRICS_LISTEN = "127.0.0.1:9090"
+$env:MIR2_MAX_CONN_PER_IP = "0"; $env:MIR2_MAX_CONN_PER_SEC = "0"
+pwsh -NoProfile -File tools/dev/serve.ps1 -Port 7000 -Exe target/release/mir-server.exe
+
+pwsh -NoProfile -File tools/dev/check-routine.ps1 -Soak
+```
+
+- **独占路径**：只跑 soak 一步（1800s / 100 连接 / 10s 采样），**不并入 `-Quick` / `-Full`**；
+- 判据、负向自测与数据复算方式见 [`soak.md`](soak.md)；
+- 退出码沿用：`0` 全过、`1` 判据 FAIL、`2` 环境错误（抓不到 `/metrics` 等）。
+
 ## 与 `ci.ps1` 的关系
 
 - **不并入** `ci.ps1` 的 10 项门禁：这三步里「无素材沙箱」要另建 target 目录跑一遍全套二进制（分钟级），

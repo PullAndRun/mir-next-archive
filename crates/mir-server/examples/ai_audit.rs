@@ -12,7 +12,7 @@
 use std::collections::BTreeMap;
 
 use mir_server::gamedata::GameData;
-use mir_server::monster::{AiSupport, MonsterKind};
+use mir_server::monster::{AI_BEHAVIOURS, AiSupport, MonsterKind};
 
 fn main() {
     let missing_only = std::env::args().any(|arg| arg == "--missing");
@@ -38,10 +38,27 @@ fn main() {
     println!("--  ---------  ------  ----------------------------------------");
     let mut covered = 0usize;
     let mut total = 0usize;
+    let (mut full_ais, mut partial_ais, mut missing_ais) = (0usize, 0usize, 0usize);
+    let (mut full_templates, mut partial_templates, mut missing_templates) =
+        (0usize, 0usize, 0usize);
     for (ai, kinds) in &groups {
         let status = kinds
             .first()
             .map_or(AiSupport::Stub, MonsterKind::ai_support);
+        match status {
+            AiSupport::Full => {
+                full_ais += 1;
+                full_templates += kinds.len();
+            }
+            AiSupport::Partial => {
+                partial_ais += 1;
+                partial_templates += kinds.len();
+            }
+            AiSupport::Stub => {
+                missing_ais += 1;
+                missing_templates += kinds.len();
+            }
+        }
         if status != AiSupport::Stub {
             covered += kinds.len();
         }
@@ -60,14 +77,32 @@ fn main() {
         );
     }
     println!();
+    println!("AI 数：implemented={full_ais} partial={partial_ais} missing={missing_ais}");
     println!(
-        "已实现 AI 覆盖：{covered}/{total} 个怪物模板（{:.1}%）",
-        if total == 0 {
+        "模板数：implemented={full_templates} partial={partial_templates} missing={missing_templates} total={total}"
+    );
+    #[allow(clippy::cast_precision_loss)]
+    let all_percent = if total == 0 {
+        0.0
+    } else {
+        covered as f64 * 100.0 / total as f64
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let full_ai_percent = {
+        let ai_total = full_ais + missing_ais;
+        if ai_total == 0 {
             0.0
         } else {
-            #[allow(clippy::cast_precision_loss)]
-            let percent = covered as f64 * 100.0 / total as f64;
-            percent
+            full_ais as f64 * 100.0 / ai_total as f64
         }
+    };
+    println!(
+        "覆盖率：全模板 {all_percent:.2}%（{covered}/{total}）；AI 号 Full {full_ai_percent:.2}%（{full_ais}/{}）",
+        full_ais + missing_ais
     );
+    let no_test = AI_BEHAVIOURS
+        .iter()
+        .filter(|entry| entry.test_name.trim().is_empty())
+        .count();
+    println!("Full 但无用例：{no_test}");
 }

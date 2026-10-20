@@ -798,6 +798,60 @@ fn horned_archer_and_warrior_have_audited_ranges() {
         Some(7),
         "HoodedSummonerScrolls 使用 view_range 远程"
     );
+    for ai in [121, 127, 173] {
+        assert_eq!(
+            special_monster(ai, 100).ranged_attack_range(),
+            Some(2),
+            "AI {ai} 用范围 2 攻击"
+        );
+    }
+}
+
+#[test]
+fn armadillo_family_flees_at_low_health() {
+    let mut harness = Harness::new(52);
+    let player = harness.add_player(1, Point::new(20, 20));
+    for ai in [124, 125] {
+        let id = harness.spawn(special_monster(ai, 100), Point::new(21, 20));
+        {
+            let monster = harness.world.monster_mut(id).unwrap();
+            monster.hp = 20;
+            monster.target = Some(player);
+        }
+        harness.wake(id);
+        harness.world.tick();
+        assert!(
+            harness.world.monster(id).unwrap().position.x > 21,
+            "AI {ai} 低血应逃跑"
+        );
+    }
+}
+
+#[test]
+fn extra_missing_ai_ranges_and_stationary() {
+    let mut harness = Harness::new(53);
+    let _player = harness.add_player(1, Point::new(20, 20));
+    for ai in [79, 170] {
+        let id = harness.spawn(special_monster(ai, 100), Point::new(22, 20));
+        let before = harness.world.monster(id).unwrap().position;
+        harness.wake(id);
+        harness.world.tick();
+        assert_eq!(
+            harness.world.monster(id).unwrap().position,
+            before,
+            "AI {ai} 应固定不动"
+        );
+    }
+    assert_eq!(special_monster(72, 100).ranged_attack_range(), Some(6));
+    assert_eq!(special_monster(4, 100).ranged_attack_range(), Some(2));
+    assert_eq!(special_monster(116, 100).ranged_attack_range(), Some(2));
+    assert_eq!(special_monster(117, 100).ranged_attack_range(), Some(2));
+    assert_eq!(special_monster(192, 100).ranged_attack_range(), Some(4));
+    assert_eq!(special_monster(70, 100).ranged_attack_range(), Some(5));
+    assert!(special_monster(163, 100).monster_magic().is_some());
+    assert!(special_monster(169, 100).monster_magic().is_some());
+    assert!(special_monster(118, 100).monster_magic().is_some());
+    assert!(special_monster(126, 100).monster_magic().is_some());
 }
 
 #[test]

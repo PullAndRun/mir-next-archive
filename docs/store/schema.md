@@ -744,4 +744,67 @@ Crystal `CharacterInfo` 的社交字段（`Married`/`MarriedDate`/`Mentor`/`Ment
 **当前迁移最新为 `0016_conquest_objects.sql`；婚姻/师徒没有新增迁移**（也没有 0017）。
 以后再翻迁移列表时不要以为漏了——这些列从 0001 起就在。
 
+## 12. 迁移演练 `0013 → 0016`（`tools/dev/migrate_drill.ps1`，第 17 轮 t-1f7a4a01）
 
+存档迁移不能只靠「跑一次 `cargo test` 看起来是绿的」，所以本轮加了一条**独立、可复核**的演练线：
+
+| 件 | 说明 |
+|---|---|
+| `tools/dev/migrate_drill.ps1` | 编排 + 环境闸门 + 证据落盘（`target/drill/migrate-drill-<时间戳>.md`） |
+| `crates/mir-store/tests/migrations.rs` | 真正的演练：建库、跑迁移、逐表校验、失败注入、清理 |
+
+### 12.1 三条硬闸门（不满足就 `exit 2`，绝不「换个库继续跑」）
+
+1. **只认 `MIR2_DRILL_DATABASE_URL`**：脚本**不会**回退到 `MIR2_TEST_DATABASE_URL` / `DATABASE_URL`；
+   没设直接 `exit 2`。
+2. **本地 host**：连接串 host 必须是环回（`localhost` / `127.0.0.1` / `::1`），或**显式**列在
+   `MIR2_DRILL_ALLOWED_HOSTS` 里（团队开发库在 `nas` 上，属于受控内网，必须显式放行）。
+   **白名单为空（或只有逗号/空格）且 host 非环回 → 一律 `exit 2`**，绝不允许「连不上本地就放宽成任意主机」；
+   这条由 `-HazardSelfTest` 断言：空白名单拒绝、空白白名单拒绝、显式放行 `nas` 通过、环回免白名单。
+3. **库名前缀**：解析出的库名必须以 `mir2_drill` 开头；连接后再断言
+   `current_database()` 也以 `mir2_drill` 开头（只看 URL 字符串是不够的）。
+
+**两个自检**（都在 CI 之外单独跑，用来防「换个环境就放宽」）：
+`-RefusalSelfTest` 只给 `MIR2_TEST_DATABASE_URL` → 必须 `exit 2`；
+`-HazardSelfTest` 白名单为空 + 非环回 host → 必须 `exit 2`，而显式放行同一 host 时必须通过、环回免白名单。
+
+### 12.2 演练库生命周期
+
+- 每遍都另建**唯一**库 `mir2_drill_<pid>_<ts>`，`CREATE DATABASE ... TEMPLATE template0`
+  （不继承模板库里的连接/会话，并发安全）；
+- 演练结束 `DROP DATABASE ... (FORCE)`，并断言 `pg_database` 里没有 `mir2_drill_%` 残留（`leftovers=0`）；
+- 基库 `mir2_drill` 只作为「管理连接」的落脚点，用 `drill_bootstrap_base_database` 建一次即可。
+
+### 12.3 校验内容
+
+| 项 | 断言 |
+|---|---|
+| 版本集合 | `_sqlx_migrations` 的 version 与 `MIGRATOR` 完全一致：`1..13, 15, 16` |
+| **0014 空洞** | 迁移目录里**没有** `0014_*` 文件；`_sqlx_migrations` 里**没有** version 14（空洞必须保留） |
+| **0013 头注释偏差** | 文件名版本 = 13，但头注释写的是 `0014_character_daily_reset.sql`（改名遗留）。演练**按文件名核对版本**、把偏差打印为证据，**不改文件**（改文件会变 checksum，破坏已部署库的一致性） |
+| checksum | 逐条把 `_sqlx_migrations.checksum` 与 `MIGRATOR` 的 checksum 比对，必须相等 |
+| 逐表产物 | `characters.pet_mode`（0001）、`characters.quest_inventory`（0012）、`characters.last_daily_reset_at`（0013）、`characters.friends` + `guilds.allies`（0015）、`conquest_objects` 表（0016，含 `conquest_index/kind/hp/destroyed/open`） |
+| 二次幂等 | 同一库再跑一次 `migrate()`，`_sqlx_migrations` 行与 checksum 完全不变 |
+| **失败注入** | 事务内 `ALTER TABLE ... ADD COLUMN` + `CREATE TABLE` 后注入 `SELECT 1 / 0` → `ROLLBACK`；断言列与表都没留下、`_sqlx_migrations` 无残留。恢复步骤：先 `SELECT version, success, checksum FROM _sqlx_migrations` 核对，再按失败版本修复并重跑 `migrate` |
+
+### 12.4 `mir2` 开发库的只读快照
+
+演练前后各做一次快照：**每张 public 表的行数**（`count(*)`，按表名排序）+ `pg_database_size(current_database())`。
+两次快照都在 `SET TRANSACTION READ ONLY` 事务里执行，**不写任何东西**；前后必须完全相等。
+
+> **证据有效期声明**：`mir2` 开发库的快照证据**会被并发写入破坏**——只有在 freeze / quiesce
+> 窗口内、且以证据文件里记录的**前后时间戳**为准时才有效。证据文件里写死了这句话。
+
+### 12.5 跑法
+
+```powershell
+$env:MIR2_DRILL_DATABASE_URL = "postgres://postgres:<pw>@nas:3001/mir2_drill"
+$env:MIR2_DRILL_ALLOWED_HOSTS = "nas"          # 非环回 host 必填
+pwsh -NoProfile -File tools/dev/migrate_drill.ps1        # 默认连跑 2 遍（二次幂等）
+pwsh -NoProfile -File tools/dev/migrate_drill.ps1 -RefusalSelfTest   # 只给 MIR2_TEST_DATABASE_URL 必须 exit 2
+pwsh -NoProfile -File tools/dev/migrate_drill.ps1 -HazardSelfTest    # 空白名单 + 非环回 host 必须 exit 2
+pwsh -NoProfile -File tools/dev/migrate_drill.ps1 -ValidateOnly      # 只做环境校验，不连库
+```
+
+退出码：`0` = 全部通过；`2` = 配置被拒绝（缺 `MIR2_DRILL_DATABASE_URL` / host 不本地 / 库名前缀不对 /
+`current_database()` 前缀不对）；`1` = 演练本身失败。

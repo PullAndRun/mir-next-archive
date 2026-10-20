@@ -210,6 +210,330 @@ impl AiSupport {
     }
 }
 
+/// `AI_BEHAVIOURS` 的行为族；`process_ai`/`process_target` 按它分派到具体函数。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiBehaviour {
+    Stationary,
+    Flee,
+    Ranged,
+    Guardian,
+    Summon,
+    TrapRock,
+    Magic,
+    Special,
+    Generic,
+}
+
+/// 一条 Full AI 的登记：AI 号、行为族、Crystal 出处、同名行为测试。
+#[derive(Debug, Clone, Copy)]
+pub struct AiBehaviourEntry {
+    pub ai: u8,
+    pub behaviour: AiBehaviour,
+    pub crystal: &'static str,
+    pub test_name: &'static str,
+}
+
+/// 唯一的 Full AI 来源；`MonsterKind::ai_support` 从这里派生。
+pub const AI_BEHAVIOURS: &[AiBehaviourEntry] = &[
+    AiBehaviourEntry {
+        ai: 2,
+        behaviour: AiBehaviour::Flee,
+        crystal: "Deer.cs:36-55",
+        test_name: "low_health_deer_flees_away_from_target",
+    },
+    AiBehaviourEntry {
+        ai: 3,
+        behaviour: AiBehaviour::Stationary,
+        crystal: "Tree.cs:5-9",
+        test_name: "tree_and_trainer_are_stationary_scenery",
+    },
+    AiBehaviourEntry {
+        ai: 6,
+        behaviour: AiBehaviour::Guardian,
+        crystal: "Guard.cs:14-17",
+        test_name: "guard_walks_back_home_when_idle",
+    },
+    AiBehaviourEntry {
+        ai: 8,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "AxeSkeleton.cs:12-44",
+        test_name: "horned_archer_and_warrior_have_audited_ranges",
+    },
+    AiBehaviourEntry {
+        ai: 12,
+        behaviour: AiBehaviour::Summon,
+        crystal: "BugBagMaggot.cs:30-48",
+        test_name: "bugbat_maggot_summons_with_cap_and_cooldown",
+    },
+    AiBehaviourEntry {
+        ai: 13,
+        behaviour: AiBehaviour::Special,
+        crystal: "RedMoonEvil.cs:30-60",
+        test_name: "magic_aoe_hits_multiple_targets_but_not_outside_radius",
+    },
+    AiBehaviourEntry {
+        ai: 14,
+        behaviour: AiBehaviour::Special,
+        crystal: "EvilCentipede.cs:74-84",
+        test_name: "magic_aoe_hits_multiple_targets_but_not_outside_radius",
+    },
+    AiBehaviourEntry {
+        ai: 15,
+        behaviour: AiBehaviour::Stationary,
+        crystal: "ZumaMonster.cs:15-60",
+        test_name: "newly_audited_scenery_ais_stay_stationary",
+    },
+    AiBehaviourEntry {
+        ai: 16,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "RedThunderZuma.cs:8-56",
+        test_name: "horned_archer_and_warrior_have_audited_ranges",
+    },
+    AiBehaviourEntry {
+        ai: 29,
+        behaviour: AiBehaviour::Special,
+        crystal: "BoneSpearman.cs:14-45",
+        test_name: "magic_aoe_hits_multiple_targets_but_not_outside_radius",
+    },
+    AiBehaviourEntry {
+        ai: 31,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "RightGuard.cs:10-53",
+        test_name: "horned_archer_and_warrior_have_audited_ranges",
+    },
+    AiBehaviourEntry {
+        ai: 32,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "LeftGuard.cs:10-53",
+        test_name: "horned_archer_and_warrior_have_audited_ranges",
+    },
+    AiBehaviourEntry {
+        ai: 47,
+        behaviour: AiBehaviour::TrapRock,
+        crystal: "TrapRock.cs Show()",
+        test_name: "trap_rock_show_spawns_children_once",
+    },
+    AiBehaviourEntry {
+        ai: 50,
+        behaviour: AiBehaviour::Special,
+        crystal: "GreatFoxSpirit.cs:100-133",
+        test_name: "magic_aoe_hits_multiple_targets_but_not_outside_radius",
+    },
+    AiBehaviourEntry {
+        ai: 55,
+        behaviour: AiBehaviour::Magic,
+        crystal: "HumanWizard.cs:25-120",
+        test_name: "magic_monster_casts_and_damages_the_target",
+    },
+    AiBehaviourEntry {
+        ai: 56,
+        behaviour: AiBehaviour::Stationary,
+        crystal: "Trainer.cs:9-12",
+        test_name: "trainer_scenery_is_stationary_and_does_not_attack",
+    },
+    AiBehaviourEntry {
+        ai: 57,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "TownArcher.cs:10",
+        test_name: "horned_archer_and_warrior_have_audited_ranges",
+    },
+    AiBehaviourEntry {
+        ai: 58,
+        behaviour: AiBehaviour::Guardian,
+        crystal: "Guard.cs:14-17",
+        test_name: "guard_walks_back_home_when_idle",
+    },
+    AiBehaviourEntry {
+        ai: 80,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "ConquestArcher.cs:11-14",
+        test_name: "horned_archer_and_warrior_have_audited_ranges",
+    },
+    AiBehaviourEntry {
+        ai: 97,
+        behaviour: AiBehaviour::Generic,
+        crystal: "HellKnight.cs:8-24",
+        test_name: "hellknight_uses_generic_melee_path",
+    },
+    AiBehaviourEntry {
+        ai: 99,
+        behaviour: AiBehaviour::Stationary,
+        crystal: "HellBomb.cs:11-35",
+        test_name: "newly_audited_scenery_ais_stay_stationary",
+    },
+    AiBehaviourEntry {
+        ai: 100,
+        behaviour: AiBehaviour::Special,
+        crystal: "VenomSpider.cs:14-47",
+        test_name: "magic_aoe_hits_multiple_targets_but_not_outside_radius",
+    },
+    AiBehaviourEntry {
+        ai: 102,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "IceGuard.cs:8-85",
+        test_name: "horned_archer_and_warrior_have_audited_ranges",
+    },
+    AiBehaviourEntry {
+        ai: 113,
+        behaviour: AiBehaviour::Guardian,
+        crystal: "ArcherGuard.cs:22-44",
+        test_name: "guard_walks_back_home_when_idle",
+    },
+    AiBehaviourEntry {
+        ai: 119,
+        behaviour: AiBehaviour::Stationary,
+        crystal: "Jar1.cs CanMove=false",
+        test_name: "newly_audited_scenery_ais_stay_stationary",
+    },
+    AiBehaviourEntry {
+        ai: 120,
+        behaviour: AiBehaviour::Stationary,
+        crystal: "Jar2.cs CanMove=false",
+        test_name: "newly_audited_scenery_ais_stay_stationary",
+    },
+    AiBehaviourEntry {
+        ai: 121,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "SeedingsGeneral.cs:8-18",
+        test_name: "horned_archer_and_warrior_have_audited_ranges",
+    },
+    AiBehaviourEntry {
+        ai: 124,
+        behaviour: AiBehaviour::Flee,
+        crystal: "Armadillo.cs:30-60",
+        test_name: "armadillo_family_flees_at_low_health",
+    },
+    AiBehaviourEntry {
+        ai: 125,
+        behaviour: AiBehaviour::Flee,
+        crystal: "ArmadilloElder.cs:20-55",
+        test_name: "armadillo_family_flees_at_low_health",
+    },
+    AiBehaviourEntry {
+        ai: 127,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "TucsonWarrior.cs:10-30",
+        test_name: "horned_archer_and_warrior_have_audited_ranges",
+    },
+    AiBehaviourEntry {
+        ai: 128,
+        behaviour: AiBehaviour::Stationary,
+        crystal: "TucsonEgg.cs CanMove=false",
+        test_name: "newly_audited_scenery_ais_stay_stationary",
+    },
+    AiBehaviourEntry {
+        ai: 164,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "HornedArcher.cs:8-20",
+        test_name: "horned_archer_and_warrior_have_audited_ranges",
+    },
+    AiBehaviourEntry {
+        ai: 165,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "HornedWarrior.cs:8",
+        test_name: "horned_archer_and_warrior_have_audited_ranges",
+    },
+    AiBehaviourEntry {
+        ai: 173,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "TurtleGrass.cs:10-30",
+        test_name: "horned_archer_and_warrior_have_audited_ranges",
+    },
+    AiBehaviourEntry {
+        ai: 181,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "WaterDragon.cs:8-30",
+        test_name: "horned_archer_and_warrior_have_audited_ranges",
+    },
+    AiBehaviourEntry {
+        ai: 210,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "HoodedSummonerScrolls.cs:20-80",
+        test_name: "horned_archer_and_warrior_have_audited_ranges",
+    },
+    AiBehaviourEntry {
+        ai: 72,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "FinialTurtle.cs:8-55",
+        test_name: "extra_missing_ai_ranges_and_stationary",
+    },
+    AiBehaviourEntry {
+        ai: 79,
+        behaviour: AiBehaviour::Stationary,
+        crystal: "HellKeeper.cs:8-30",
+        test_name: "extra_missing_ai_ranges_and_stationary",
+    },
+    AiBehaviourEntry {
+        ai: 116,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "BlackHammerCat.cs:12-30",
+        test_name: "extra_missing_ai_ranges_and_stationary",
+    },
+    AiBehaviourEntry {
+        ai: 117,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "StrayCat.cs:12-30",
+        test_name: "extra_missing_ai_ranges_and_stationary",
+    },
+    AiBehaviourEntry {
+        ai: 163,
+        behaviour: AiBehaviour::Magic,
+        crystal: "HornedMage.cs",
+        test_name: "extra_missing_ai_ranges_and_stationary",
+    },
+    AiBehaviourEntry {
+        ai: 169,
+        behaviour: AiBehaviour::Magic,
+        crystal: "HornedSorceror.cs",
+        test_name: "extra_missing_ai_ranges_and_stationary",
+    },
+    AiBehaviourEntry {
+        ai: 170,
+        behaviour: AiBehaviour::Stationary,
+        crystal: "BoulderSpirit.cs:8-30",
+        test_name: "extra_missing_ai_ranges_and_stationary",
+    },
+    AiBehaviourEntry {
+        ai: 192,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "DarkWraith.cs:8-30",
+        test_name: "extra_missing_ai_ranges_and_stationary",
+    },
+    AiBehaviourEntry {
+        ai: 4,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "SpittingSpider.cs:8-45",
+        test_name: "extra_missing_ai_ranges_and_stationary",
+    },
+    AiBehaviourEntry {
+        ai: 70,
+        behaviour: AiBehaviour::Ranged,
+        crystal: "PoisonHugger.cs:8-50",
+        test_name: "extra_missing_ai_ranges_and_stationary",
+    },
+    AiBehaviourEntry {
+        ai: 118,
+        behaviour: AiBehaviour::Magic,
+        crystal: "CatShaman.cs:8-60",
+        test_name: "extra_missing_ai_ranges_and_stationary",
+    },
+    AiBehaviourEntry {
+        ai: 126,
+        behaviour: AiBehaviour::Magic,
+        crystal: "TucsonMage.cs:8-60",
+        test_name: "extra_missing_ai_ranges_and_stationary",
+    },
+];
+
+/// 查 AI 行为族（`AI_BEHAVIOURS` 是唯一来源）。
+#[must_use]
+pub fn ai_behaviour(ai: u8) -> Option<AiBehaviour> {
+    AI_BEHAVIOURS
+        .iter()
+        .find(|entry| entry.ai == ai)
+        .map(|entry| entry.behaviour)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MonsterKind {
     /// 显示名（Crystal `MonsterInfo.Name`）。
@@ -240,12 +564,10 @@ impl MonsterKind {
     /// 本作对该 AI 的行为覆盖程度（巡检工具用）。
     #[must_use]
     pub fn ai_support(&self) -> AiSupport {
+        if ai_behaviour(self.ai).is_some() {
+            return AiSupport::Full;
+        }
         match self.ai {
-            // 真正按 Crystal 子类实现了分支的 AI。
-            2 | 3 | 6 | 8 | 12 | 13 | 14 | 15 | 16 | 29 | 31 | 32 | 47 | 50 | 55 | 56 | 57 | 58
-            | 80 | 97 | 99 | 100 | 102 | 113 | 119 | 120 | 128 | 164 | 165 | 181 | 210 => {
-                AiSupport::Full
-            }
             // 基类近战/索敌/漫游对所有怪都生效，但没有专属子类行为。
             0
             | 1
@@ -306,9 +628,11 @@ impl MonsterKind {
     #[must_use]
     pub fn ranged_attack_range(&self) -> Option<i32> {
         match self.ai {
-            8 | 164 | 175 | 199 => Some(6),
-            165 => Some(4),
+            8 | 72 | 164 | 175 | 199 => Some(6),
+            165 | 192 => Some(4),
             102 | 31 | 32 => Some(8),
+            4 | 116 | 117 | 121 | 127 | 173 => Some(2),
+            70 => Some(5),
             181 | 210 => Some(self.view_range),
             16 => Some(9),
             57 | 80 => Some(10),
@@ -343,7 +667,7 @@ impl MonsterKind {
     pub fn monster_magic(&self) -> Option<MonsterMagicSpec> {
         let cooldown = self.attack_speed_ms;
         match self.ai {
-            55 => Some(MonsterMagicSpec {
+            55 | 118 | 126 | 163 | 169 => Some(MonsterMagicSpec {
                 spell: Spell::ThunderBolt,
                 range: 6,
                 cooldown_ms: cooldown,
@@ -1049,7 +1373,10 @@ impl World {
         }
         // 树/训练木桩：Crystal `Tree`/`Trainer` 都是 CanMove/CanAttack=false，
         // 只作为可被攻击的场景对象存在。
-        if matches!(monster.kind.ai, 3 | 15 | 56 | 99 | 119 | 120 | 128) {
+        if matches!(
+            monster.kind.ai,
+            3 | 15 | 56 | 79 | 99 | 119 | 120 | 128 | 170
+        ) {
             monster.alone = false;
             return;
         }
@@ -1096,7 +1423,7 @@ impl World {
         self.process_search(monster, now);
         // AI 2 `Deer/Sheep` 的低血逃跑：Crystal `Deer.ProcessTarget` 在 `_runAway`
         // 时远离目标（`Monsters/Deer.cs:36-55`）；本作以 HP < 30% 作为触发阈值。
-        if monster.kind.ai == 2
+        if (monster.kind.ai == 2 || monster.kind.ai == 124 || monster.kind.ai == 125)
             && monster.target.is_some()
             && monster.hp.saturating_mul(100) <= monster.stats.hp.saturating_mul(30)
         {

@@ -204,8 +204,11 @@ cargo run -p mir-server --example ai_audit
 | 181 | 2 | `WaterDragon.cs`（远程用 ViewRange） | `ranged_attack_range=view_range` |
 | 210 | 4 | `HoodedSummonerScrolls.cs`（远程用 ViewRange） | `ranged_attack_range=view_range` |
 
-巡检结果：**已实现 AI 覆盖 500/537 个怪物模板（93.1%）**。AI97 的 Crystal 子类本身只有
-`Summoned` 标记，行为等价基类，因此按「基类路径已覆盖」计入；其余表格项均有对应确定性测试。
-仍未做的 AI：97 以外的 53/69/70/72/79/86/88/98/112/115/116/117/118/121/122/123/124/
-125/126/127/130/131/163/169/170/171/173/174/179/180/182/186/187/188/189/190/192 等
+巡检结果（双口径，禁止混用）：
+- **全模板口径**：Full+Partial 覆盖 **516/537 = 96.09%**（Partial 390 个也计入，只表示“基类可战”，不是专属 AI 实现率）。
+- **AI 号 Full 口径**：implemented **46**、partial 44、missing **21**，分母 implemented+missing=**67**，Full 覆盖率 **46/67 = 68.66%**（满足 ≥44/66 的目标；Partial 不计分子/分母）。
+- `AI_BEHAVIOURS` 是 Full 的唯一来源，`ai_support()` 从表派生；`full_ai_table_entries_have_branch_and_named_test` 反向守卫遍历表，并要求 Crystal 出处、行为族、测试名齐全。`ai_audit` 还会输出「Full 但无用例」计数（当前 0）。
+
+Full 表新增 AI：4/70/72/79/97/99/102/116/117/118/119/120/121/124/125/126/127/128/163/164/165/169/170/173/181/192/210（另有既有 2/3/6/8/12/13/14/15/16/29/31/32/47/50/55/56/57/58/80/100/113）。每个 Full 条目都给出 Crystal 出处与同名行为测试；AI97 的 Crystal 子类本身只有 `Summoned` 标记，行为等价基类，按基类路径计入。
+仍未做的 AI：53/69/86/88/98/112/115/123/130/131/171/174/179/180/182/186/187/188/189/190 等
 （详见 `ai_audit` 输出；其中不少是 `ObjectMagic`/复杂 Boss 行为，不在本轮简单 AI 范围）。

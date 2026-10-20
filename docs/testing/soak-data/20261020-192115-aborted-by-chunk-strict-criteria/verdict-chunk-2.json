@@ -1,0 +1,68 @@
+{
+  "window": "chunk-2 [1800s,3600s)",
+  "verdict": "FAIL",
+  "checks": [
+    {
+      "name": "绝对：每点 p50 ≤30.0ms",
+      "ok": true,
+      "detail": "max_p50=0.57ms 超限点=0"
+    },
+    {
+      "name": "绝对：每点 p99 ≤80.0ms",
+      "ok": true,
+      "detail": "max_p99=1.03ms 超限点=0 首个=[]"
+    },
+    {
+      "name": "RSS 增长 ≤10%",
+      "ok": true,
+      "detail": "基线(预热后首点)=40.3MB 峰值=40.6MB 增长=+0.66%"
+    },
+    {
+      "name": "句柄波动 ≤5",
+      "ok": false,
+      "detail": "min=373 max=380 swing=7"
+    },
+    {
+      "name": "DB 连接数不增长",
+      "ok": false,
+      "detail": "首=2 峰=3 末=3"
+    },
+    {
+      "name": "后 1/4 窗口 p99 ≤ 前 1/4 ×1.2",
+      "ok": true,
+      "detail": "head=0.85ms tail=0.89ms ratio=1.046"
+    },
+    {
+      "name": "无连续 6 点单调上升",
+      "ok": false,
+      "detail": "最长连续上升段=7"
+    }
+  ],
+  "stats": {
+    "samples": 179,
+    "warm_samples": 179,
+    "requested_duration_seconds": 14400.0,
+    "elapsed_seconds": 3600.0,
+    "p50_ms_max": 0.574,
+    "p99_ms_max": 1.035,
+    "rss_first_mb": 40.3,
+    "rss_max_mb": 40.57,
+    "handle_swing": 7.0,
+    "db_pool_first": 2.0,
+    "db_pool_max": 3.0,
+    "rss_slope_mb_per_hour": 0.495,
+    "handle_slope_per_hour": -1.928,
+    "write_failed_final": 0.0,
+    "dropped_final": 0.0
+  },
+  "index": 2,
+  "range_seconds": [
+    1800.0,
+    3600.0
+  ],
+  "cumulative_slope": {
+    "rss_slope_mb_per_hour": 1.26,
+    "handle_slope_per_hour": -2.273,
+    "samples": 359
+  }
+}

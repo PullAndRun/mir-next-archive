@@ -1,31 +1,41 @@
-"""长时 soak（稳定性）压测：100 连接 × ≥1800s，10s 采样，判据「相对 + 绝对」缺一不可。
+"""长时 soak（稳定性）压测：≥1800s 开发跑 / **4 小时长跑（14400s）** 发版前跑。
 
-设计要点
---------
-1. **复用** `tools/stress/stress.py` 的虚拟玩家（`Worker`）、进程探针（`ProcessProbe`）、
-   `/metrics` 抓取与百分位计算，避免两处协议口径漂移。
-2. 采样来源全部是**真实观测**：服务端 `/metrics`（tick p50/p99、连接数、**DB 连接池**、
-   `write_failed`/`dropped`）+ 操作系统（RSS、句柄数）。
-3. `evaluate()` 是纯函数：既能评真实采样，也能评 `--self-check` 的合成坏样本，
-   所以「判据会不会红」这件事本身可以被验证。
-4. 判据（v3 规格，缺一不可）：
-   - **绝对**：每个采样点 `p50 ≤ 30ms` 且 `p99 ≤ 80ms`，任一超限即 FAIL；
-   - **相对**（预热后）：RSS 增长 ≤10%、句柄波动 ≤5、DB 连接数不增长、
-     后 1/4 窗口 p99 ≤ 前 1/4 ×1.2、无连续 6 个采样点单调上升。
-5. 脚本自断言：时长 ≥1800s、采样点 ≥180、连接数 == 100，任一不满足即 exit 非 0。
+规格（第 21 轮 v2）
+------------------
+1. **时长自证**：`requested_duration_seconds` 来自 `--duration`（**不再硬编码 1800**），
+   `meta.elapsed_seconds >= requested` 由脚本断言，verdict 里写 `duration_ok`；
+   采样点断言由 `requested / sample_interval` 派生（4h @10s → ≥1440 点）。
+2. **反作弊**：`--duration < 14400` 时**拒绝产出长跑 verdict**（`exit 2`），除非显式 `--allow-short`；
+   此时产物一律带 `-short` 后缀、`meta.short_run = true`，不可能冒充长跑结论。
+3. **chunk fail-fast**：每 `--chunk-seconds`（默认 1800s）落一份 `verdict-chunk-<n>.json`
+   （区间、该区间判据、**累计斜率**）；**任一 chunk FAIL → 立即 `exit 1`** 并打印失败项，
+   同时写 `verdict.json` 且 `"verdict": "FAIL_EARLY"`，**已产出的 chunk 文件全部保留**；
+   全部通过才汇总 `verdict.json`（含 `chunks` 数组）。
+4. **判据**（相对 + 绝对 + 趋势斜率，缺一不可）：
+   - 绝对：**每个采样点** `p50 ≤ 30ms`、`p99 ≤ 80ms`；
+   - 相对（预热 180s 后）：RSS 增长 ≤10%、句柄波动 ≤5、DB 连接数不增长、
+     后 1/4 窗口 p99 ≤ 前 1/4 ×1.2、无连续 6 点单调上升；
+   - 趋势：RSS 线性回归斜率 **≤2 MB/h**、句柄斜率 **≤2 个/h**。
+
+采样来源全部是**真实观测**：`/metrics`（tick p50/p99、连接数、DB 连接池、`write_failed`/`dropped`）
++ 操作系统（RSS / 句柄数）。`evaluate_window()` 是纯函数，既评真实采样也评 `--self-check` 的合成样本。
 
 用法
 ----
 ```
-# 真实 soak（空载机器；服务端需开 /metrics）
-py tools/stress/soak.py --server 127.0.0.1:7000 --metrics-url http://127.0.0.1:9090/metrics \
-    --clients 100 --duration 1800 --out-dir docs/testing/soak-data/<ts>
+# 4h 长跑（发版前；空载机器；先写 target/soak.lock）
+py tools/stress/soak.py --duration 14400 --clients 100 --sample-interval 10 \
+    --server 127.0.0.1:7000 --metrics-url http://127.0.0.1:9090/metrics \
+    --out-dir docs/testing/soak-data/<ts>
 
-# 负向自测：合成坏样本必须被判 FAIL（进程以 1 退出属预期）
+# 开发冒烟（必须显式承认短跑：产物带 -short）
+py tools/stress/soak.py --duration 120 --allow-short ...
+
+# 负向自测（1 个健康 + 5 个坏样本）
 py tools/stress/soak.py --self-check
 ```
 
-退出码：0 = verdict PASS；1 = verdict FAIL（含 `--self-check` 的预期失败）；2 = 参数/环境错误。
+退出码：0 = PASS；1 = FAIL / FAIL_EARLY（含 `--self-check` 的预期失败）；2 = 参数/环境错误。
 """
 
 from __future__ import annotations
@@ -42,27 +52,60 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-#: 判据（写死在这里，改动必须同步 `docs/testing/soak.md`）。
+#: 判据（改动必须同步 `docs/testing/soak.md`）。
 CRITERIA = {
-    "min_duration_seconds": 1800,
-    "min_samples": 180,
-    "clients": 100,
+    # 反作弊门限：低于它就只许产出 `-short` 产物。
+    "long_run_min_seconds": 14400,
+    # 中间 verdict 的区间长度。
+    "chunk_seconds": 1800,
+    # 相对判据的预热窗口。
     "warmup_seconds": 180,
     "max_rss_growth_ratio": 0.10,
     "max_handle_swing": 5,
     "max_p99_quarter_ratio": 1.2,
     "max_monotonic_run": 6,
+    # 绝对阈值（每一点都要过）。
     "abs_p50_ms": 30.0,
     "abs_p99_ms": 80.0,
+    # 趋势斜率（长跑必需）。
+    "max_rss_slope_mb_per_hour": 2.0,
+    "max_handle_slope_per_hour": 2.0,
+    # 总斜率**跳过**前 30 分钟：那一段是地图/NPC/怪物首载 + 分配器爬坡，不是泄漏。
+    "slope_skip_seconds": 1800,
 }
 
-#: 进程句柄数（Windows）；拿不到返回 None。
-def resolve_server_pid(port: int, explicit: int | None) -> int | None:
-    """定位服务端 PID：显式参数 > `serve.ps1` 写的 pid 文件 > `netstat -ano` 反查监听者。
+#: 规格连接数。
+REQUIRED_CLIENTS = 100
 
-    直接 `Start-Process` 起的服务端没有 pid 文件，这时必须靠 netstat，
-    否则 RSS/句柄会全程采不到，soak 会以「缺少 RSS 数据」判 FAIL。
-    """
+
+def load_stress():
+    """把 `stress.py` 当模块加载，复用 Worker / ProcessProbe / scrape_metrics / read_pid。"""
+    path = os.path.join(ROOT, "tools", "stress", "stress.py")
+    spec = importlib.util.spec_from_file_location("mir_stress", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+stress = load_stress()
+
+
+class QuietWorker(stress.Worker):
+    """把连接异常收进 `error` 字段，不打印 100 份 traceback（soak 日志要能看）。"""
+
+    def run(self) -> None:
+        try:
+            super().run()
+        except Exception as error:  # noqa: BLE001 - 客户端异常不该打断采样
+            self.error = f"{type(error).__name__}: {error}"
+            try:
+                self._close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def resolve_server_pid(port: int, explicit: int | None) -> int | None:
+    """定位服务端 PID：显式参数 > `serve.ps1` 的 pid 文件 > `netstat -ano` 反查监听者。"""
     if explicit:
         return explicit
     from_file = stress.read_pid(port)
@@ -88,6 +131,7 @@ def resolve_server_pid(port: int, explicit: int | None) -> int | None:
 
 
 def handle_count(pid: int | None) -> int | None:
+    """进程句柄数（Windows）；拿不到返回 None。"""
     if not pid or os.name != "nt":
         return None
     try:
@@ -106,36 +150,10 @@ def handle_count(pid: int | None) -> int | None:
         return None
 
 
-def load_stress():
-    """把 `stress.py` 当模块加载，复用 Worker / ProcessProbe / scrape_metrics / percentile。"""
-    path = os.path.join(ROOT, "tools", "stress", "stress.py")
-    spec = importlib.util.spec_from_file_location("mir_stress", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-stress = load_stress()
-
-
-class QuietWorker(stress.Worker):
-    """把连接异常收进 `error` 字段，不打印 100 份 traceback（soak 日志要能看）。"""
-
-    def run(self) -> None:
-        try:
-            super().run()
-        except Exception as error:  # noqa: BLE001 - 客户端异常不该打断采样
-            self.error = f"{type(error).__name__}: {error}"
-            try:
-                self._close()
-            except Exception:  # noqa: BLE001
-                pass
-
-
 # ---------------------------------------------------------------------------
-# 判据（纯函数）
+# 纯函数：序列工具
 # ---------------------------------------------------------------------------
-def _series(samples: list[dict], key: str) -> list[float]:
+def series(samples: list[dict], key: str) -> list[float]:
     out = []
     for sample in samples:
         value = sample.get(key)
@@ -144,15 +162,10 @@ def _series(samples: list[dict], key: str) -> list[float]:
     return out
 
 
-def _quarter_mean(values: list[float]) -> float | None:
+def longest_monotonic_run(values: list[float]) -> int:
+    """最长「严格递增」连续段长度。"""
     if not values:
-        return None
-    quarter = max(1, len(values) // 4)
-    return statistics.fmean(values[-quarter:])
-
-
-def _longest_monotonic_run(values: list[float]) -> int:
-    """最长「严格递增」连续段长度（相邻后一个 > 前一个）。"""
+        return 0
     best = 0
     run = 0
     for previous, current in zip(values, values[1:]):
@@ -161,134 +174,301 @@ def _longest_monotonic_run(values: list[float]) -> int:
             best = max(best, run)
         else:
             run = 0
-    return best + 1 if values else 0
+    return best + 1
 
 
-def evaluate(samples: list[dict], meta: dict) -> dict:
-    """对采样序列下判决。返回 {verdict, checks[], stats{}}。"""
+def slope_per_hour(samples: list[dict], key: str) -> float | None:
+    """线性回归斜率（每小时）：`Σ((x-x̄)(y-ȳ)) / Σ((x-x̄)²)`，`x` 单位是小时。"""
+    pairs = [(float(s["t"]) / 3600.0, float(s[key])) for s in samples if isinstance(s.get(key), (int, float))]
+    if len(pairs) < 2:
+        return None
+    xs = [x for x, _ in pairs]
+    ys = [y for _, y in pairs]
+    mean_x = statistics.fmean(xs)
+    mean_y = statistics.fmean(ys)
+    denominator = sum((x - mean_x) ** 2 for x in xs)
+    if denominator == 0:
+        return None
+    numerator = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    return numerator / denominator
+
+
+# ---------------------------------------------------------------------------
+# 判据：单个窗口（整跑 / chunk 共用）
+# ---------------------------------------------------------------------------
+def _check(checks: list[dict], name: str, ok: bool, detail: str) -> None:
+    checks.append({"name": name, "ok": bool(ok), "detail": detail})
+
+
+def evaluate_window(
+    samples: list[dict],
+    meta: dict,
+    *,
+    label: str,
+    check_duration: bool = True,
+    cumulative_slope: bool = False,
+    include_slope: bool = True,
+    chunk_gate: bool = False,
+) -> dict:
+    """对一个采样窗口下判决。`check_duration=False` 时跳过时长/样本数自证（chunk 用）。"""
     checks: list[dict] = []
+    requested = float(meta.get("requested_duration_seconds") or 0.0)
+    elapsed = float(meta.get("elapsed_seconds") or meta.get("duration_seconds") or 0.0)
+    interval = float(meta.get("sample_interval_seconds") or 10.0)
+    required_samples = int(requested / interval) if requested else 0
 
-    def check(name: str, ok: bool, detail: str) -> None:
-        checks.append({"name": name, "ok": bool(ok), "detail": detail})
-
-    duration = float(meta.get("duration_seconds") or 0.0)
-    clients = int(meta.get("clients") or 0)
-    check(
-        f"时长 ≥{CRITERIA['min_duration_seconds']}s",
-        duration >= CRITERIA["min_duration_seconds"],
-        f"duration_seconds={duration:.1f}",
-    )
-    check(
-        f"采样点 ≥{CRITERIA['min_samples']}",
-        len(samples) >= CRITERIA["min_samples"],
-        f"samples={len(samples)}",
-    )
-    check(
-        f"连接数 == {CRITERIA['clients']}",
-        clients == CRITERIA["clients"],
-        f"clients={clients}",
-    )
+    if check_duration:
+        _check(
+            checks,
+            f"时长自证：requested ≥ {int(CRITERIA['long_run_min_seconds'])}s",
+            requested >= CRITERIA["long_run_min_seconds"],
+            f"requested={requested:.0f}s",
+        )
+        _check(
+            checks,
+            "时长自证：elapsed ≥ requested",
+            elapsed >= requested and requested > 0,
+            f"elapsed={elapsed:.1f}s requested={requested:.0f}s 差额={elapsed - requested:+.1f}s",
+        )
+        _check(
+            checks,
+            f"采样点 ≥ requested/interval = {required_samples}",
+            len(samples) >= required_samples,
+            f"samples={len(samples)} required={required_samples}",
+        )
+        # 连接：请求 100 + **全部成功进入世界** + 没有被服务端拒绝 + 稳态在线 ≥95。
+        # 第 21 轮实测有 1 个客户端在握手后自行退出（服务端 accepted=100、entered=99、rejected=0），
+        # 所以判据不能只看「请求 100」，必须看 entered 与 active_min。
+        requested_clients = int(meta.get("clients") or 0)
+        entered = int(meta.get("clients_entered") or 0)
+        _check(
+            checks,
+            f"clients_requested == {REQUIRED_CLIENTS}",
+            requested_clients == REQUIRED_CLIENTS,
+            f"clients_requested={requested_clients}",
+        )
+        _check(
+            checks,
+            f"clients_entered == {REQUIRED_CLIENTS}（100 个都进入世界）",
+            entered == REQUIRED_CLIENTS,
+            f"clients_entered={entered}",
+        )
 
     if not samples:
-        check("采样非空", False, "没有任何采样点")
-        return {"verdict": "FAIL", "checks": checks, "stats": {}}
+        _check(checks, "采样非空", False, "窗口内没有采样点")
+        return {"window": label, "verdict": "FAIL", "checks": checks, "stats": {}}
 
-    # ---- 绝对阈值：每个采样点都要过（不看预热窗口）----
-    p50 = _series(samples, "tick_p50_ms")
-    p99 = _series(samples, "tick_p99_ms")
-    over_p50 = [(s.get("t", 0.0), s.get("tick_p50_ms")) for s in samples
+    # ---- 绝对阈值：窗口内每一点 ----
+    p50 = series(samples, "tick_p50_ms")
+    p99 = series(samples, "tick_p99_ms")
+    over_p50 = [(s.get("t"), s.get("tick_p50_ms")) for s in samples
                 if isinstance(s.get("tick_p50_ms"), (int, float)) and s["tick_p50_ms"] > CRITERIA["abs_p50_ms"]]
-    over_p99 = [(s.get("t", 0.0), s.get("tick_p99_ms")) for s in samples
+    over_p99 = [(s.get("t"), s.get("tick_p99_ms")) for s in samples
                 if isinstance(s.get("tick_p99_ms"), (int, float)) and s["tick_p99_ms"] > CRITERIA["abs_p99_ms"]]
-    check(
-        f"绝对：每个采样点 p50 ≤{CRITERIA['abs_p50_ms']}ms",
+    _check(
+        checks,
+        f"绝对：每点 p50 ≤{CRITERIA['abs_p50_ms']}ms",
         bool(p50) and not over_p50,
         f"max_p50={max(p50):.2f}ms 超限点={len(over_p50)}" if p50 else "缺少 p50 数据",
     )
-    check(
-        f"绝对：每个采样点 p99 ≤{CRITERIA['abs_p99_ms']}ms",
+    _check(
+        checks,
+        f"绝对：每点 p99 ≤{CRITERIA['abs_p99_ms']}ms",
         bool(p99) and not over_p99,
-        f"max_p99={max(p99):.2f}ms 超限点={len(over_p99)} 首个超限={over_p99[:3]}" if p99 else "缺少 p99 数据",
+        f"max_p99={max(p99):.2f}ms 超限点={len(over_p99)} 首个={over_p99[:2]}" if p99 else "缺少 p99 数据",
     )
 
-    # ---- 相对判据：只看预热之后的窗口 ----
+    active = series(samples, "connections_active")
+    active_min = min(active) if active else None
+    if active:
+        _check(
+            checks,
+            "稳态连接数 active_min ≥ 95（≥95% 持续在线）",
+            active_min is not None and active_min >= 95,
+            f"active_min={active_min:.0f} active_max={max(active):.0f}",
+        )
+        rejected_values = series(samples, "connections_rejected")
+        if rejected_values:
+            _check(
+                checks,
+                "服务端未拒绝连接（connections_rejected == 0）",
+                max(rejected_values) == 0,
+                f"rejected_max={max(rejected_values):.0f}",
+            )
+        else:
+            _check(
+                checks,
+                "服务端未拒绝连接（connections_rejected == 0）",
+                True,
+                "旧版采样没有该字段，跳过（新版会采）",
+            )
+    else:
+        _check(checks, "稳态连接数 active_min ≥ 95", False, "缺少 connections_active 数据")
+
+    # ---- 相对判据：只看预热窗口之后 ----
     warmup = float(meta.get("warmup_seconds") or CRITERIA["warmup_seconds"])
     warm = [s for s in samples if float(s.get("t", 0.0)) >= warmup]
-    check("预热后仍有采样点", bool(warm), f"warm_samples={len(warm)} (warmup={warmup:.0f}s)")
-    if not warm:
-        return {"verdict": "FAIL", "checks": checks, "stats": {}}
-
-    rss = _series(warm, "rss_bytes")
-    if rss and rss[0] > 0:
-        growth = (max(rss) - rss[0]) / rss[0]
-        check(
-            f"RSS 增长 ≤{CRITERIA['max_rss_growth_ratio'] * 100:.0f}%",
-            growth <= CRITERIA["max_rss_growth_ratio"],
-            f"first={rss[0] / 1e6:.1f}MB max={max(rss) / 1e6:.1f}MB growth={growth * 100:.2f}%",
-        )
+    if chunk_gate:
+        # chunk 门禁的**最小充分集**：绝对延迟（上面已判）+ 区间 RSS 增长。
+        # 句柄波动 / DB 池 / 连续上升 / 趋势斜率只在**整跑**判：
+        # 30 分钟窗口里这三项天然抖动（实测 chunk-2：句柄 373→380=7、池 2→3、
+        # p99 有 7 点连续上升），拿整跑判据逐窗判会**误杀**，第 21 轮真跑已经踩到。
+        if len(warm) >= 3:
+            rss = series(warm, "rss_bytes")
+            if rss and rss[0] > 0:
+                growth = (max(rss) - rss[0]) / rss[0]
+                _check(
+                    checks,
+                    f"RSS 增长 ≤{CRITERIA['max_rss_growth_ratio'] * 100:.0f}%（区间）",
+                    growth <= CRITERIA["max_rss_growth_ratio"],
+                    f"区间基线={rss[0] / 1e6:.1f}MB 峰值={max(rss) / 1e6:.1f}MB 增长={growth * 100:+.2f}%",
+                )
+        return _window_stats(label, checks, samples, warm, p50, p99, requested, elapsed, None, meta)
+    if len(warm) < 3:
+        _check(checks, "预热后样本足够做相对判据", False, f"warm_samples={len(warm)}（预热 {warmup:.0f}s 后不足 3 点）")
     else:
-        check("RSS 增长 ≤10%", False, "缺少 RSS 数据")
+        rss = series(warm, "rss_bytes")
+        if rss and rss[0] > 0:
+            growth = (max(rss) - rss[0]) / rss[0]
+            _check(
+                checks,
+                f"RSS 增长 ≤{CRITERIA['max_rss_growth_ratio'] * 100:.0f}%",
+                growth <= CRITERIA["max_rss_growth_ratio"],
+                f"基线(预热后首点)={rss[0] / 1e6:.1f}MB 峰值={max(rss) / 1e6:.1f}MB 增长={growth * 100:+.2f}%",
+            )
+        else:
+            _check(checks, "RSS 增长 ≤10%", False, "缺少 RSS 数据")
 
-    handles = [float(v) for v in _series(warm, "handles")]
-    if handles:
-        swing = max(handles) - min(handles)
-        check(
-            f"句柄波动 ≤{CRITERIA['max_handle_swing']}",
-            swing <= CRITERIA["max_handle_swing"],
-            f"min={min(handles):.0f} max={max(handles):.0f} swing={swing:.0f}",
+        handles = series(warm, "handles")
+        if handles:
+            swing = max(handles) - min(handles)
+            _check(
+                checks,
+                f"句柄波动 ≤{CRITERIA['max_handle_swing']}",
+                swing <= CRITERIA["max_handle_swing"],
+                f"min={min(handles):.0f} max={max(handles):.0f} swing={swing:.0f}",
+            )
+        else:
+            _check(checks, "句柄波动 ≤5", False, "缺少句柄数据")
+
+        pool = series(warm, "db_pool_connections")
+        if pool:
+            _check(
+                checks,
+                "DB 连接数不增长",
+                max(pool) <= pool[0],
+                f"首={pool[0]:.0f} 峰={max(pool):.0f} 末={pool[-1]:.0f}",
+            )
+        else:
+            _check(checks, "DB 连接数不增长", False, "缺少 DB 连接池数据（需 mir2_db_pool_connections）")
+
+        warm_p99 = series(warm, "tick_p99_ms")
+        quarter = max(1, len(warm_p99) // 4)
+        if len(warm_p99) >= 2 * quarter:
+            head = statistics.fmean(warm_p99[:quarter])
+            tail = statistics.fmean(warm_p99[-quarter:])
+            ratio = tail / head if head > 0 else float("inf")
+            _check(
+                checks,
+                f"后 1/4 窗口 p99 ≤ 前 1/4 ×{CRITERIA['max_p99_quarter_ratio']}",
+                ratio <= CRITERIA["max_p99_quarter_ratio"],
+                f"head={head:.2f}ms tail={tail:.2f}ms ratio={ratio:.3f}",
+            )
+        else:
+            _check(checks, "后 1/4 窗口 p99 ≤ 前 1/4 ×1.2", False, f"预热后 p99 点不足（{len(warm_p99)}）")
+
+        run = longest_monotonic_run(warm_p99)
+        _check(
+            checks,
+            f"无连续 {CRITERIA['max_monotonic_run']} 点单调上升",
+            run < CRITERIA["max_monotonic_run"],
+            f"最长连续上升段={run}",
         )
-    else:
-        check("句柄波动 ≤5", False, "缺少句柄数据")
 
-    pool = _series(warm, "db_pool_connections")
-    if pool:
-        check(
-            "DB 连接数不增长",
-            max(pool) <= pool[0],
-            f"first={pool[0]:.0f} max={max(pool):.0f} last={pool[-1]:.0f}",
-        )
-    else:
-        check("DB 连接数不增长", False, "缺少 DB 连接池数据（/metrics 需含 mir2_db_pool_connections）")
+        stats: dict = {}
+        # ---- 趋势斜率：**整跑判据**（chunk 只记录累计斜率，不参与 pass/fail） ----
+        # 30 分钟的窗口里 RSS 还处在启动后的分配爬坡，用它判「≤2MB/h」会把正常预热判成泄漏。
+        if include_slope:
+            if cumulative_slope:
+                window_samples = samples
+            else:
+                skip = float(meta.get("slope_skip_seconds") or CRITERIA["slope_skip_seconds"])
+                window_samples = [s for s in samples if float(s.get("t", 0.0)) >= skip]
+                if len(window_samples) < 2:
+                    window_samples = warm
+            stats["slope_window_seconds"] = [
+                round(float(window_samples[0]["t"])) if window_samples else None,
+                round(float(window_samples[-1]["t"])) if window_samples else None,
+            ]
+            rss_slope = slope_per_hour(window_samples, "rss_bytes")
+            if rss_slope is None:
+                _check(checks, "趋势：RSS 斜率 ≤2MB/h", False, "样本不足，算不出斜率")
+            else:
+                rss_slope_mb = rss_slope / 1e6
+                _check(
+                    checks,
+                    f"趋势：RSS 斜率 ≤{CRITERIA['max_rss_slope_mb_per_hour']}MB/h",
+                    rss_slope_mb <= CRITERIA["max_rss_slope_mb_per_hour"],
+                    f"rss_slope={rss_slope_mb:+.3f}MB/h（样本 {len(window_samples)}）",
+                )
+            handle_slope = slope_per_hour(window_samples, "handles")
+            if handle_slope is None:
+                _check(checks, "趋势：句柄斜率 ≤2/h", False, "样本不足，算不出斜率")
+            else:
+                _check(
+                    checks,
+                    f"趋势：句柄斜率 ≤{CRITERIA['max_handle_slope_per_hour']}/h",
+                    handle_slope <= CRITERIA["max_handle_slope_per_hour"],
+                    f"handle_slope={handle_slope:+.3f}/h",
+                )
 
-    warm_p99 = _series(warm, "tick_p99_ms")
-    quarter = max(1, len(warm_p99) // 4)
-    if len(warm_p99) >= 2 * quarter:
-        head = statistics.fmean(warm_p99[:quarter])
-        tail = statistics.fmean(warm_p99[-quarter:])
-        ratio = tail / head if head > 0 else float("inf")
-        check(
-            f"后 1/4 窗口 p99 ≤ 前 1/4 ×{CRITERIA['max_p99_quarter_ratio']}",
-            ratio <= CRITERIA["max_p99_quarter_ratio"],
-            f"head={head:.2f}ms tail={tail:.2f}ms ratio={ratio:.3f}",
-        )
-    else:
-        check("后 1/4 窗口 p99 ≤ 前 1/4 ×1.2", False, f"预热后 p99 采样点不足（{len(warm_p99)}）")
+    return _window_stats(label, checks, samples, warm, p50, p99, requested, elapsed, stats, meta)
 
-    run = _longest_monotonic_run(warm_p99)
-    check(
-        f"无连续 {CRITERIA['max_monotonic_run']} 个采样点单调上升",
-        run < CRITERIA["max_monotonic_run"],
-        f"最长连续上升段={run}",
-    )
 
-    stats = {
-        "duration_seconds": duration,
+def _window_stats(
+    label: str,
+    checks: list[dict],
+    samples: list[dict],
+    warm: list[dict],
+    p50: list[float],
+    p99: list[float],
+    requested: float,
+    elapsed: float,
+    stats: dict | None = None,
+    meta: dict | None = None,
+) -> dict:
+    """把 stats / verdict 收尾（整跑与 chunk 共用）。"""
+    stats = dict(stats or {})
+    warm_rss = series(warm, "rss_bytes")
+    warm_handles = series(warm, "handles")
+    warm_pool = series(warm, "db_pool_connections")
+    stats.update({
         "samples": len(samples),
         "warm_samples": len(warm),
-        "p50_ms_max": round(max(p50), 2) if p50 else None,
-        "p99_ms_max": round(max(p99), 2) if p99 else None,
-        "p99_ms_first_quarter_mean": round(statistics.fmean(warm_p99[:quarter]), 2) if warm_p99 else None,
-        "p99_ms_last_quarter_mean": round(statistics.fmean(warm_p99[-quarter:]), 2) if warm_p99 else None,
-        "rss_first_mb": round(rss[0] / 1e6, 1) if rss else None,
-        "rss_max_mb": round(max(rss) / 1e6, 1) if rss else None,
-        "handle_swing": (max(handles) - min(handles)) if handles else None,
-        "db_pool_first": pool[0] if pool else None,
-        "db_pool_max": max(pool) if pool else None,
-        "write_failed_final": (samples[-1].get("write_failed_total") if samples else None),
-        "dropped_final": (samples[-1].get("packets_dropped_total") if samples else None),
-    }
+        "requested_duration_seconds": requested,
+        "elapsed_seconds": elapsed,
+        "p50_ms_max": round(max(p50), 3) if p50 else None,
+        "p99_ms_max": round(max(p99), 3) if p99 else None,
+        "rss_first_mb": round(warm_rss[0] / 1e6, 2) if warm_rss else None,
+        "rss_max_mb": round(max(warm_rss) / 1e6, 2) if warm_rss else None,
+        "handle_swing": (max(warm_handles) - min(warm_handles)) if warm_handles else None,
+        "db_pool_first": warm_pool[0] if warm_pool else None,
+        "db_pool_max": max(warm_pool) if warm_pool else None,
+        "rss_slope_mb_per_hour": round(slope_per_hour(samples, "rss_bytes") / 1e6, 3)
+        if slope_per_hour(samples, "rss_bytes") is not None
+        else None,
+        "handle_slope_per_hour": round(slope_per_hour(samples, "handles"), 3)
+        if slope_per_hour(samples, "handles") is not None
+        else None,
+        "write_failed_final": samples[-1].get("write_failed_total"),
+        "dropped_final": samples[-1].get("packets_dropped_total"),
+        "clients_requested": int((meta or {}).get("clients") or 0),
+        "clients_entered": int((meta or {}).get("clients_entered") or 0),
+        "active_min": (min(series(samples, "connections_active")) if series(samples, "connections_active") else None),
+        "active_max": (max(series(samples, "connections_active")) if series(samples, "connections_active") else None),
+    })
     verdict = "PASS" if all(item["ok"] for item in checks) else "FAIL"
-    return {"verdict": verdict, "checks": checks, "stats": stats}
+    return {"window": label, "verdict": verdict, "checks": checks, "stats": stats}
 
 
 def print_verdict(report: dict, title: str) -> None:
@@ -305,7 +485,110 @@ def print_verdict(report: dict, title: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 真实采样
+# chunk 汇总（fail-fast）
+# ---------------------------------------------------------------------------
+def chunk_windows(requested: float, chunk_seconds: float) -> list[tuple[int, float, float]]:
+    """按 `chunk_seconds` 切窗口，返回 [(序号, 起, 止)]；最后一段可能不满。"""
+    count = max(1, int(-(-requested // chunk_seconds)))
+    return [(index + 1, index * chunk_seconds, min(requested, (index + 1) * chunk_seconds))
+            for index in range(count)]
+
+
+def evaluate_chunks(
+    samples: list[dict],
+    meta: dict,
+    *,
+    elapsed: float | None = None,
+    require_complete: bool = False,
+) -> tuple[list[dict], int | None]:
+    """逐个 chunk 判定；返回 (chunk 报告列表, 首个 FAIL 的 chunk 序号或 None)。
+
+    `elapsed` 给定时**只评已经跑到的窗口**（否则未跑到的空窗口会被判「采样非空 FAIL」——
+    第 21 轮真跑第一次就踩了这个坑：第 1 个 chunk 时把 chunk-8 当成了失败项）。
+    chunk 判据不含趋势斜率（斜率是 4h 级判据），只把**累计斜率**记录进报告。
+    """
+    requested = float(meta.get("requested_duration_seconds") or 0.0)
+    chunk_seconds = float(meta.get("chunk_seconds") or CRITERIA["chunk_seconds"])
+    windows = chunk_windows(requested, chunk_seconds)
+    reports: list[dict] = []
+    first_failure: int | None = None
+    covered = elapsed if elapsed is not None else requested
+    for index, start, end in windows:
+        if start >= covered:
+            break  # 还没跑到的窗口直接跳过
+        if require_complete and end > covered:
+            break  # 当前这一段还没跑满：实时触发时不评它（否则会拿 1 个采样点判「预热后样本不足」）
+        window = [s for s in samples if start <= float(s.get("t", 0.0)) < end]
+        if index == windows[-1][0] or end > covered:
+            # 最后一段 / 尚未跑满的当前段：把 >= start 的全部纳入
+            window = [s for s in samples if float(s.get("t", 0.0)) >= start]
+        if not window:
+            continue  # 该区间还没有任何采样点（刚跨过边界时会出现）
+        cumulative = [s for s in samples if float(s.get("t", 0.0)) < end]
+        report = evaluate_window(
+            window,
+            {**meta, "elapsed_seconds": min(end, covered)},
+            label=f"chunk-{index} [{start:.0f}s,{end:.0f}s)",
+            check_duration=False,
+            cumulative_slope=True,
+            include_slope=False,
+            chunk_gate=True,
+        )
+        report["index"] = index
+        report["range_seconds"] = [start, end]
+        report["cumulative_slope"] = {
+            "rss_slope_mb_per_hour": round(slope_per_hour(cumulative, "rss_bytes") / 1e6, 3)
+            if slope_per_hour(cumulative, "rss_bytes") is not None
+            else None,
+            "handle_slope_per_hour": round(slope_per_hour(cumulative, "handles"), 3)
+            if slope_per_hour(cumulative, "handles") is not None
+            else None,
+            "samples": len(cumulative),
+        }
+        reports.append(report)
+        if report["verdict"] != "PASS" and first_failure is None:
+            first_failure = index
+    return reports, first_failure
+
+
+def chunk_verdict(window_samples: list[dict], meta: dict, *, label: str) -> dict:
+    """**纯函数**：只吃「某个窗口的样本切片」，返回判决；不看时钟、不写文件、不推进状态。
+
+    实时路径只负责「喂满一个窗口的样本」再调它 —— 这样「窗口是否已完成」由**样本数**决定，
+    不会再把「还没跑到 / 还没跑满」的窗口当成失败（第 21 轮前两次事故的根因）。
+    """
+    return evaluate_window(
+        window_samples,
+        meta,
+        label=label,
+        check_duration=False,
+        cumulative_slope=True,
+        include_slope=False,
+    )
+
+
+def crosscheck_chunks(realtime: dict[int, dict], recomputed: dict[int, dict]) -> dict:
+    """**线上数据的事后校验**：对比「实时路径写出的 chunk」与「结束时用整份样本重算的 chunk」。
+
+    只比 `verdict`（判据细节可能因为「实时看到的是截断窗口」而不同，但结论必须一致）。
+    不一致就说明实时路径算错了 —— 这正是前两次事故里没人能当场发现的东西。
+    """
+    mismatches = []
+    for index in sorted(set(realtime) | set(recomputed)):
+        live = realtime.get(index, {}).get("verdict")
+        again = recomputed.get(index, {}).get("verdict")
+        if live != again:
+            mismatches.append({"chunk": index, "realtime": live, "recomputed": again})
+    return {
+        "ok": not mismatches,
+        "chunks_realtime": len(realtime),
+        "chunks_recomputed": len(recomputed),
+        "mismatches": mismatches,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 采样
 # ---------------------------------------------------------------------------
 def sample_once(probe, pid: int | None, metrics_url: str, started: float) -> dict:
     metrics = stress.scrape_metrics(metrics_url)
@@ -321,6 +604,8 @@ def sample_once(probe, pid: int | None, metrics_url: str, started: float) -> dic
         "tick_p99_ms": (metrics["mir2_tick_micros_p99"] / 1000.0) if "mir2_tick_micros_p99" in metrics else None,
         "tick_samples": metrics.get("mir2_tick_samples"),
         "connections_active": metrics.get("mir2_connections_active"),
+        "connections_rejected": metrics.get("mir2_connections_rejected"),
+        "connections_total": metrics.get("mir2_connections_total"),
         "players_online": metrics.get("mir2_players_online"),
         "packets_dropped_total": metrics.get("mir2_packets_dropped_total"),
         "write_failed_total": metrics.get("mir2_write_failed_total"),
@@ -328,19 +613,47 @@ def sample_once(probe, pid: int | None, metrics_url: str, started: float) -> dic
     }
 
 
+def write_json(path: str, payload: dict) -> None:
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+
+
 def run_live(args) -> int:
     pid = resolve_server_pid(args.port, args.pid)
     if not pid:
-        print(f"[FAIL] 定位不到监听 {args.port} 的服务端进程，RSS/句柄会全空 —— 用 --pid 指定", file=sys.stderr)
+        print(f"[FAIL] 定位不到监听 {args.port} 的服务端进程 —— 用 --pid 指定", file=sys.stderr)
         return 2
     probe = stress.ProcessProbe(pid)
     started = time.time()
+    short = args.duration < CRITERIA["long_run_min_seconds"]
+    suffix = "-short" if short else ""
+    out_dir = args.out_dir or os.path.join("docs", "testing", "soak-data", time.strftime("%Y%m%d-%H%M%S"))
+    out_dir = out_dir if os.path.isabs(out_dir) else os.path.join(ROOT, out_dir)
+    os.makedirs(out_dir, exist_ok=True)
+
+    meta = {
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(started)),
+        "requested_duration_seconds": args.duration,
+        "clients": args.clients,
+        "clients_requested": args.clients,
+        "warmup_seconds": args.warmup,
+        "sample_interval_seconds": args.sample_interval,
+        "chunk_seconds": args.chunk_seconds,
+        "rate_per_client": args.rate,
+        "mix": args.mix,
+        "server": f"{args.host}:{args.port}",
+        "metrics_url": args.metrics_url,
+        "pid": pid,
+        "short_run": short,
+        "criteria": CRITERIA,
+    }
+
     workers = []
     for index in range(args.clients):
         worker = QuietWorker(
             index,
             (args.host, args.port),
-            args.duration + 30,
+            args.duration + 120,
             args.rate,
             tuple(int(part) for part in args.mix.split(",")),
             spread=True,
@@ -349,40 +662,81 @@ def run_live(args) -> int:
         workers.append(worker)
         time.sleep(args.connect_spacing)
     print(f"已拉起 {len(workers)} 个连接（间隔 {args.connect_spacing}s），开始采样（每 {args.sample_interval}s）")
+    print(f"requested={args.duration:.0f}s chunk={args.chunk_seconds:.0f}s 产物后缀='{suffix}'")
 
     samples: list[dict] = []
+    realtime_chunks: dict[int, dict] = {}
     previous_rss = None
     previous_at = None
+    next_chunk_at = float(args.chunk_seconds)
     try:
         while True:
             sample = sample_once(probe, pid, args.metrics_url, started)
             rss = sample.get("rss_bytes")
             if previous_rss and previous_at and rss:
-                elapsed = max(0.001, time.time() - previous_at)
-                sample["alloc_bytes_per_sec"] = round((rss - previous_rss) / elapsed, 1)
+                delta_seconds = max(0.001, time.time() - previous_at)
+                sample["alloc_bytes_per_sec"] = round((rss - previous_rss) / delta_seconds, 1)
             else:
                 sample["alloc_bytes_per_sec"] = None
             previous_rss, previous_at = rss, time.time()
             samples.append(sample)
-            # 服务端没了（被 kill / 崩溃）就没有续航意义：立刻中止并标红，别白跑满 30 分钟。
+
+            # 服务端没了 → 立刻中止，别白等 4 小时。
             if sample.get("rss_bytes") is None and sample.get("tick_p99_ms") is None and sample.get("t", 0) > 30:
-                print(f"  [ABORT] t=+{sample['t']:.0f}s 服务端进程/指标都读不到（PID {pid}）——中止本次 soak")
-                meta_abort = {
-                    "duration_seconds": round(time.time() - started, 1),
-                    "clients": args.clients,
-                    "warmup_seconds": args.warmup,
-                    "aborted": "server_unreachable",
-                    "pid": pid,
-                }
-                report = evaluate(samples, meta_abort)
+                print(f"  [ABORT] t=+{sample['t']:.0f}s 服务端进程/指标都读不到（PID {pid}）")
+                meta["elapsed_seconds"] = round(time.time() - started, 1)
+                meta["aborted"] = "server_unreachable"
+                report = evaluate_window(samples, meta, label="aborted")
+                report["verdict"] = "FAIL_EARLY"
+                report["meta"] = meta
+                write_json(os.path.join(out_dir, f"verdict{suffix}.json"), report)
                 print_verdict(report, "soak 中止（服务端不可达）")
                 return 1
+
             print(
-                f"  t=+{sample['t']:7.1f}s p50={sample['tick_p50_ms']}ms p99={sample['tick_p99_ms']}ms "
+                f"  t=+{sample['t']:8.1f}s p50={sample['tick_p50_ms']}ms p99={sample['tick_p99_ms']}ms "
                 f"rss={None if rss is None else round(rss / 1e6, 1)}MB handles={sample['handles']} "
                 f"db_pool={sample['db_pool_connections']} dropped={sample['packets_dropped_total']} "
                 f"write_failed={sample['write_failed_total']}"
             )
+
+            # ---- chunk fail-fast ----
+            elapsed = time.time() - started
+            if elapsed >= next_chunk_at and len(samples) > 1:
+                window_reports, first_failure = evaluate_chunks(
+                    samples, meta, elapsed=elapsed, require_complete=True
+                )
+                if not window_reports:
+                    next_chunk_at += float(args.chunk_seconds)
+                    continue
+                latest = window_reports[-1]
+                # 把**这一轮新完成的所有 chunk** 都落盘（不只是最后一个），并记下实时结论
+                for report_item in window_reports:
+                    write_json(
+                        os.path.join(out_dir, f"verdict-chunk-{report_item['index']}{suffix}.json"),
+                        report_item,
+                    )
+                    realtime_chunks[report_item["index"]] = report_item
+                chunk_path = os.path.join(out_dir, f"verdict-chunk-{latest['index']}{suffix}.json")
+                print(
+                    f"  [chunk-{latest['index']}] verdict={latest['verdict']} "
+                    f"rss_slope={latest['cumulative_slope']['rss_slope_mb_per_hour']}MB/h "
+                    f"handle_slope={latest['cumulative_slope']['handle_slope_per_hour']}/h → {chunk_path}"
+                )
+                if first_failure is not None:
+                    failed = window_reports[first_failure - 1]
+                    print(f"  [FAIL_EARLY] chunk-{first_failure} 判据未通过，立即停止：")
+                    print_verdict(failed, f"chunk-{first_failure} 失败明细")
+                    meta["elapsed_seconds"] = round(elapsed, 1)
+                    meta["failed_chunk"] = first_failure
+                    report = evaluate_window(samples, meta, label="fail_early")
+                    report["verdict"] = "FAIL_EARLY"
+                    report["chunks"] = window_reports
+                    report["meta"] = meta
+                    write_json(os.path.join(out_dir, f"verdict{suffix}.json"), report)
+                    return 1
+                next_chunk_at += float(args.chunk_seconds)
+
             if time.time() - started >= args.duration:
                 break
             time.sleep(args.sample_interval)
@@ -392,111 +746,210 @@ def run_live(args) -> int:
         for worker in workers:
             worker.join(timeout=5)
 
-    meta = {
-        "started_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(started)),
-        "duration_seconds": round(time.time() - started, 1),
-        "clients": args.clients,
-        "warmup_seconds": args.warmup,
-        "sample_interval_seconds": args.sample_interval,
-        "rate_per_client": args.rate,
-        "mix": args.mix,
-        "server": f"{args.host}:{args.port}",
-        "metrics_url": args.metrics_url,
-        "pid": pid,
-    }
-    connected = sum(1 for worker in workers if worker.entered)
-    meta["clients_entered"] = connected
-    print(f"\n连接建立并进入世界：{connected}/{len(workers)}")
+    meta["elapsed_seconds"] = round(time.time() - started, 1)
+    meta["duration_seconds"] = meta["elapsed_seconds"]
+    meta["clients_entered"] = sum(1 for worker in workers if worker.entered)
     dropped_workers = [worker for worker in workers if worker.error]
+    meta["client_errors"] = len(dropped_workers)
     if dropped_workers:
-        meta["client_errors"] = len(dropped_workers)
         print(f"客户端异常 {len(dropped_workers)} 个，示例：{dropped_workers[0].error}")
 
-    out_dir = args.out_dir or os.path.join("docs", "testing", "soak-data", time.strftime("%Y%m%d-%H%M%S"))
-    out_dir = out_dir if os.path.isabs(out_dir) else os.path.join(ROOT, out_dir)
-    os.makedirs(out_dir, exist_ok=True)
-    with open(os.path.join(out_dir, "samples.json"), "w", encoding="utf-8") as handle:
-        json.dump({"meta": meta, "samples": samples}, handle, ensure_ascii=False, indent=2)
+    # 收尾：补齐剩余 chunk（含最后一段不满的），再做整跑判决。
+    final_chunks, first_failure = evaluate_chunks(samples, meta, elapsed=meta["elapsed_seconds"])
+    for report in final_chunks:
+        write_json(os.path.join(out_dir, f"verdict-chunk-{report['index']}{suffix}.json"), report)
+
+    recomputed_map = {item["index"]: item for item in final_chunks}
+    crosscheck = crosscheck_chunks(realtime_chunks, recomputed_map)
+    write_json(os.path.join(out_dir, f"chunk-crosscheck{suffix}.json"), crosscheck)
+    if not crosscheck["ok"]:
+        print(f"  [WARN] 实时 chunk 与重算结果不一致：{crosscheck['mismatches']}（见 chunk-crosscheck.json）")
+
+    report = evaluate_window(samples, meta, label="full")
+    report["meta"] = meta
+    report["chunks"] = final_chunks
+    report["chunk_crosscheck"] = crosscheck
+    report["duration_ok"] = all(
+        item["ok"] for item in report["checks"] if item["name"].startswith("时长自证")
+    )
+    if first_failure is not None:
+        report["verdict"] = "FAIL_EARLY"
+        meta["failed_chunk"] = first_failure
+
+    write_json(os.path.join(out_dir, f"samples{suffix}.json"), {"meta": meta, "samples": samples})
     keys = [
         "t", "timestamp", "rss_bytes", "handles", "alloc_bytes_per_sec", "db_pool_connections",
         "db_pool_idle", "tick_p50_ms", "tick_p99_ms", "tick_samples", "connections_active",
         "players_online", "packets_dropped_total", "write_failed_total", "batch_write_failed_total",
     ]
-    with open(os.path.join(out_dir, "samples.csv"), "w", encoding="utf-8", newline="") as handle:
+    with open(os.path.join(out_dir, f"samples{suffix}.csv"), "w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=keys, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(samples)
+    write_json(os.path.join(out_dir, f"verdict{suffix}.json"), report)
 
-    report = evaluate(samples, meta)
-    report["meta"] = meta
-    with open(os.path.join(out_dir, "verdict.json"), "w", encoding="utf-8") as handle:
-        json.dump(report, handle, ensure_ascii=False, indent=2)
-    print_verdict(report, f"soak 判决（{meta['duration_seconds']}s / {len(samples)} 采样）")
-    print(f"\n原始数据：{os.path.relpath(out_dir, ROOT)}/samples.json, samples.csv, verdict.json")
+    print_verdict(
+        report,
+        f"soak 判决（requested {meta['requested_duration_seconds']:.0f}s / "
+        f"elapsed {meta['elapsed_seconds']:.0f}s / {len(samples)} 采样 / {len(final_chunks)} chunk）",
+    )
+    print(
+        f"\n时长自证：requested={meta['requested_duration_seconds']:.0f}s "
+        f"elapsed={meta['elapsed_seconds']:.1f}s duration_ok={report['duration_ok']}"
+    )
+    print(f"中间 verdict：{len(final_chunks)} 份 chunk；失败 chunk={meta.get('failed_chunk')}")
+    print(
+        f"原始数据：{os.path.relpath(out_dir, ROOT)}/samples{suffix}.json, "
+        f"samples{suffix}.csv, verdict{suffix}.json"
+    )
     return 0 if report["verdict"] == "PASS" else 1
 
 
 # ---------------------------------------------------------------------------
-# 负向自测：合成坏样本必须 FAIL
+# 负向自测：6 个案例（1 健康 + 5 坏样本）
 # ---------------------------------------------------------------------------
-def _baseline_series(count: int = 200) -> list[dict]:
-    """一组合格样本（p50≈4ms、p99≈20ms、RSS/句柄/DB 连接平稳）。"""
-    samples = []
-    for index in range(count):
-        samples.append({
-            "t": float(index * 10 + 10),
-            "rss_bytes": 120e6 + index * 1000.0,      # 200 点只涨 200KB
-            "handles": 300 + (index % 3),             # 波动 2
+def baseline_series(count: int = 1450, duration: float = 14400.0) -> list[dict]:
+    """一组合格样本：p50≈3.5ms、p99 锯齿（避免误触「连续上升」）、RSS 斜率 ~0.7MB/h。"""
+    step = duration / count
+    return [
+        {
+            "t": round((index + 1) * step, 1),
+            "rss_bytes": 120e6 + index * 2000.0,
+            "handles": 300 + (index % 3),
             "db_pool_connections": 5,
-            # 用「锯齿」而不是缓慢爬升：`index % 4` 每 4 个点就回落一次，
-            # 保证健康样本不会因为自然的连续上升段被判红（判据是「连续 6 点单调上升」）。
             "tick_p50_ms": 3.5 + (index % 3) * 0.1,
             "tick_p99_ms": 18.0 + (index % 4) * 0.5,
             "write_failed_total": 0,
             "packets_dropped_total": 0,
-        })
-    return samples
+            "connections_active": 100,
+            "connections_rejected": 0,
+            "connections_total": 100,
+        }
+        for index in range(count)
+    ]
 
 
-def _meta(count: int = 200) -> dict:
+def base_meta(duration: float = 14400.0) -> dict:
     return {
-        "duration_seconds": 1800.0,
-        "clients": 100,
+        "requested_duration_seconds": duration,
+        "elapsed_seconds": duration,
+        "clients": REQUIRED_CLIENTS,
+        "clients_requested": REQUIRED_CLIENTS,
+        "clients_entered": REQUIRED_CLIENTS,
         "warmup_seconds": 180,
-        "samples": count,
+        "sample_interval_seconds": 10,
+        "chunk_seconds": 1800,
     }
 
 
 def self_check() -> int:
-    cases = []
+    cases: list[tuple[str, list[dict], dict, str]] = []
 
-    # 案例 0（对照）：健康的合成样本必须 PASS —— 否则判据是「恒红」，自证无意义。
-    cases.append(("对照：健康样本", _baseline_series(), _meta(), "PASS"))
+    # 0) 对照：健康 4h 样本必须 PASS（否则判据恒红，自证无意义）
+    cases.append(("对照：健康 4h 样本", baseline_series(), base_meta(), "PASS"))
 
-    # 案例 1：RSS 翻倍（预热后从 120MB 涨到 240MB）
-    rss_double = _baseline_series()
-    for index, sample in enumerate(rss_double):
+    # 1) RSS 翻倍
+    rss_double = baseline_series()
+    for sample in rss_double:
         if sample["t"] >= 180:
-            sample["rss_bytes"] = 120e6 * (1 + (sample["t"] - 180) / 1620)
-    cases.append(("坏样本 1：RSS 翻倍", rss_double, _meta(), "FAIL"))
+            sample["rss_bytes"] = 120e6 * (1 + (sample["t"] - 180) / (14400 - 180))
+    cases.append(("坏样本 1：RSS 翻倍", rss_double, base_meta(), "FAIL"))
 
-    # 案例 2：p99 单调上升（每个点都比前一个高）
-    monotonic = _baseline_series()
+    # 2) p99 单调上升
+    monotonic = baseline_series()
     for index, sample in enumerate(monotonic):
-        sample["tick_p99_ms"] = 20.0 + index * 0.2
-    cases.append(("坏样本 2：p99 单调上升", monotonic, _meta(), "FAIL"))
+        sample["tick_p99_ms"] = 20.0 + index * 0.02
+    cases.append(("坏样本 2：p99 单调上升", monotonic, base_meta(), "FAIL"))
 
-    # 案例 3：单点 p99 = 90ms（验证**绝对阈值**真的生效，相对判据看不出来）
-    spike = _baseline_series()
-    spike[100]["tick_p99_ms"] = 90.0
-    cases.append(("坏样本 3：单点 p99=90ms", spike, _meta(), "FAIL"))
+    # 3) 单点 p99 = 90ms（验证绝对阈值真的生效）
+    spike = baseline_series()
+    spike[700]["tick_p99_ms"] = 90.0
+    cases.append(("坏样本 3：单点 p99=90ms", spike, base_meta(), "FAIL"))
 
-    failures = []
+    # 4) 时长造假：requested=14400 但 elapsed=1800
+    fraud = baseline_series(count=180, duration=1800.0)
+    cases.append(
+        ("坏样本 4：时长造假（requested=14400 / elapsed=1800）", fraud, {**base_meta(), "elapsed_seconds": 1800.0}, "FAIL")
+    )
+
+    failures: list[str] = []
     for title, samples, meta, expected in cases:
-        report = evaluate(samples, meta)
+        report = evaluate_window(samples, meta, label=title)
         print_verdict(report, f"self-check · {title}（期望 {expected}）")
         if report["verdict"] != expected:
             failures.append(f"{title}：期望 {expected}，实际 {report['verdict']}")
+
+    # 5) 8 个 chunk 里第 3 个 FAIL → 必须 FAIL_EARLY
+    chunked = baseline_series()
+    for sample in chunked:
+        if 3600 <= sample["t"] < 5400 and abs(sample["t"] - 4500) < 6:
+            sample["tick_p99_ms"] = 90.0
+    window_reports, first_failure = evaluate_chunks(chunked, base_meta(), elapsed=14400.0)
+    early = evaluate_window(chunked, {**base_meta(), "elapsed_seconds": 5400.0}, label="fail_early")
+    early["verdict"] = "FAIL_EARLY" if first_failure is not None else "PASS"
+    early["chunks"] = window_reports
+    print_verdict(early, "self-check · 坏样本 5：8 chunk 中第 3 个 FAIL（期望 FAIL_EARLY）")
+    print(
+        f"  首个失败 chunk = {first_failure}（期望 3）；"
+        f"chunk 判决 = {[report['verdict'] for report in window_reports]}"
+    )
+    if first_failure != 3 or early["verdict"] != "FAIL_EARLY":
+        failures.append(
+            f"chunk fail-fast：期望第 3 个 chunk → FAIL_EARLY，实际首个失败={first_failure} verdict={early['verdict']}"
+        )
+
+    # 6) 增量安全：只跑了 1 个 chunk 的数据时，**不许**因为「后面的 chunk 还没跑」而误判失败
+    partial = [s for s in baseline_series() if s["t"] < 1800]
+    partial_meta = {**base_meta(), "elapsed_seconds": 1807.0}
+    partial_reports, partial_failure = evaluate_chunks(
+        partial, partial_meta, elapsed=1807.0, require_complete=True
+    )
+    print(f"  [增量] 只跑 1 个 chunk（{len(partial)} 点）：chunk 判决="
+          f"{[r['verdict'] for r in partial_reports]} 首个失败={partial_failure}（期望 None）")
+    if partial_failure is not None:
+        failures.append(f"增量误判：只跑 1 个 chunk 时不该失败，实际首个失败 chunk={partial_failure}")
+
+    # 7) 逐边界模拟实时路径：每个 chunk 边界只评「已跑满」的窗口，全程不许出现误判
+    sim = baseline_series()
+    sim_meta = base_meta()
+    boundary_ok = True
+    for boundary in range(1800, 14401, 1800):
+        elapsed_at = float(boundary + 5)
+        subset = [s for s in sim if s["t"] < elapsed_at]
+        reports, failure = evaluate_chunks(subset, sim_meta, elapsed=elapsed_at, require_complete=True)
+        expected_count = boundary // 1800
+        if failure is not None or len(reports) != expected_count:
+            boundary_ok = False
+            print(f"  [边界模拟] t={elapsed_at:.0f}s：chunk 数={len(reports)}（期望 {expected_count}）"
+                  f" 首个失败={failure}")
+    print(f"  [边界模拟] 8 个边界逐个检查：{'全部通过' if boundary_ok else '出现误判'}（期望全部通过）")
+    if not boundary_ok:
+        failures.append("边界模拟：在某个 chunk 边界上实时判定出现误判/漏评")
+
+    # 8) 事后校验：篡改一份「实时结论」必须被 crosscheck 抓到
+    live_map = {item["index"]: item for item in window_reports}
+    tampered = {index: dict(item) for index, item in live_map.items()}
+    tampered[3] = {**tampered[3], "verdict": "PASS"}  # 假装实时说它 PASS
+    cross = crosscheck_chunks(tampered, live_map)
+    print(f"  [事后校验] 篡改 chunk-3 的实时结论 → crosscheck.ok={cross['ok']} "
+          f"不一致项={cross['mismatches']}（期望 ok=False）")
+    if cross["ok"]:
+        failures.append("事后校验：篡改实时结论后 crosscheck 仍报 ok=True（校验失效）")
+
+    # 9) chunk 门禁抗噪：把第 3 次真跑 chunk-2 的「噪声三连」造出来，
+    #    要求 chunk 门禁 PASS（它只管绝对延迟 + 区间 RSS），而**整跑**判据仍能抓真泄漏。
+    noisy = baseline_series(count=180, duration=1800.0)
+    for index, sample in enumerate(noisy):
+        sample["handles"] = 373 + (index % 8)            # 波动 7
+        sample["db_pool_connections"] = 2 if index < 90 else 3   # 池 2→3
+        if 10 <= index < 17:                              # p99 连续上升 7 点
+            sample["tick_p99_ms"] = 0.80 + (index - 10) * 0.02
+    noisy_report = evaluate_window(noisy, base_meta(1800.0), label="chunk-noise", check_duration=False,
+                                   include_slope=False, chunk_gate=True)
+    print(f"  [抗噪] 噪声三连（句柄 7 波动 / 池 2→3 / p99 连续上升 7 点）→ chunk 门禁 "
+          f"{noisy_report['verdict']}（期望 PASS）")
+    if noisy_report["verdict"] != "PASS":
+        failures.append("chunk 门禁被 30 分钟噪声误杀（应只在绝对延迟或区间 RSS 上判）")
 
     print("\n=== self-check 结论 ===")
     if failures:
@@ -504,43 +957,82 @@ def self_check() -> int:
             print(f"  [BROKEN] {failure}")
         print("  判据自证失败：合成坏样本没有被判 FAIL（判据可能恒绿）")
         return 1
-    print(f"  [OK] {len(cases)} 个案例判决全部符合预期（1 个健康 PASS + 3 个坏样本 FAIL）")
-    print("  说明：本命令以 1 退出**属预期**——坏样本本该判 FAIL，这里把「会红」当证据。")
+    print(
+        f"  [OK] {len(cases) + 1} 个案例全部符合预期"
+        "（1 个健康 PASS + 4 个坏样本 FAIL + 1 个 chunk fail-fast FAIL_EARLY）"
+    )
+    print("  说明：本命令以 1 退出**属预期** —— 坏样本本该判 FAIL，这里把「会红」当证据。")
     return 1
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="长时 soak：100 连接 × ≥1800s，10s 采样，相对+绝对判据")
-    parser.add_argument("--server", default="127.0.0.1:7000", help="服务端 host:port")
-    parser.add_argument("--metrics-url", default="http://127.0.0.1:9090/metrics", help="/metrics 地址")
-    parser.add_argument("--clients", type=int, default=CRITERIA["clients"])
-    parser.add_argument("--duration", type=float, default=CRITERIA["min_duration_seconds"])
+    parser = argparse.ArgumentParser(description="长时 soak：相对 + 绝对 + 趋势斜率，chunk fail-fast")
+    parser.add_argument("--server", default="127.0.0.1:7000")
+    parser.add_argument("--metrics-url", default="http://127.0.0.1:9090/metrics")
+    parser.add_argument("--clients", type=int, default=REQUIRED_CLIENTS)
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=CRITERIA["long_run_min_seconds"],
+        help="请求时长（秒）。< 14400 会被拒绝，除非同时给 --allow-short",
+    )
     parser.add_argument("--sample-interval", type=float, default=10.0)
+    parser.add_argument("--chunk-seconds", type=float, default=float(CRITERIA["chunk_seconds"]))
     parser.add_argument("--warmup", type=float, default=float(CRITERIA["warmup_seconds"]))
-    parser.add_argument("--rate", type=float, default=1.0, help="每个客户端每秒发包数")
-    parser.add_argument("--mix", default="2,2,1", help="走动/攻击/聊天 比例")
-    parser.add_argument("--connect-spacing", type=float, default=0.05, help="相邻连接间隔秒数")
-    parser.add_argument("--pid", type=int, default=None, help="服务端 PID（不给则查 pid 文件/netstat）")
-    parser.add_argument("--out-dir", default="", help="原始数据目录（默认 docs/testing/soak-data/<ts>）")
-    parser.add_argument("--self-check", action="store_true", help="用合成坏样本自证判据会 FAIL")
+    parser.add_argument("--rate", type=float, default=1.0)
+    parser.add_argument("--mix", default="2,2,1")
+    parser.add_argument("--connect-spacing", type=float, default=0.05)
+    parser.add_argument("--pid", type=int, default=None)
+    parser.add_argument("--out-dir", default="")
+    parser.add_argument(
+        "--allow-short",
+        action="store_true",
+        help="显式承认这是短跑（产物带 -short 后缀），用于开发冒烟",
+    )
+    parser.add_argument("--self-check", action="store_true")
+    parser.add_argument("--analyze", default="", help="从既有 samples.json 复算判决（不压测）")
     args = parser.parse_args()
 
     if args.self_check:
         return self_check()
 
+    if args.analyze:
+        path = args.analyze if os.path.isabs(args.analyze) else os.path.join(ROOT, args.analyze)
+        payload = json.load(open(path, encoding="utf-8"))
+        samples_in = payload.get("samples") or []
+        meta_in = payload.get("meta") or {}
+        report = evaluate_window(samples_in, meta_in, label="recomputed")
+        chunks, first_failure = evaluate_chunks(samples_in, meta_in,
+                                                elapsed=float(meta_in.get("elapsed_seconds") or 0.0))
+        report["chunks"] = chunks
+        report["meta"] = meta_in
+        report["duration_ok"] = all(item["ok"] for item in report["checks"] if item["name"].startswith("时长自证"))
+        if first_failure is not None:
+            report["verdict"] = "FAIL_EARLY"
+        print_verdict(report, f"复算（samples={len(samples_in)}，slope 窗口={report['stats'].get('slope_window_seconds')}）")
+        out = os.path.join(os.path.dirname(path), "verdict-recomputed.json")
+        write_json(out, report)
+        print(f"复算结果：{out}")
+        return 0 if report["verdict"] == "PASS" else 1
+
     host, _, port = args.server.partition(":")
     args.host = host
     args.port = int(port or 7000)
-    if args.clients != CRITERIA["clients"]:
-        print(f"[FAIL] 规格要求 {CRITERIA['clients']} 连接，收到 {args.clients}：脚本自断言不通过", file=sys.stderr)
+    if args.clients != REQUIRED_CLIENTS:
+        print(f"[FAIL] 规格要求 {REQUIRED_CLIENTS} 连接，收到 {args.clients}", file=sys.stderr)
         return 1
-    if args.duration < CRITERIA["min_duration_seconds"]:
+    # 反作弊：短跑不许产出长跑 verdict。
+    if args.duration < CRITERIA["long_run_min_seconds"] and not args.allow_short:
         print(
-            f"[WARN] 时长 {args.duration}s < 规格 {CRITERIA['min_duration_seconds']}s，本次判决必定 FAIL（不许缩时长）",
+            f"[REFUSED] --duration {args.duration:.0f}s < 长跑门槛 {CRITERIA['long_run_min_seconds']}s："
+            "拒绝产出长跑 verdict（短跑请显式加 --allow-short，产物会带 -short 后缀）",
             file=sys.stderr,
         )
+        return 2
+    if args.duration < CRITERIA["long_run_min_seconds"]:
+        print(f"[WARN] 短跑模式：{args.duration:.0f}s（产物 -short），不可作为长跑证据", file=sys.stderr)
     if not stress.scrape_metrics(args.metrics_url):
-        print(f"[FAIL] 抓不到 /metrics（{args.metrics_url}）：先给服务端设 MIR2_METRICS_LISTEN", file=sys.stderr)
+        print(f"[FAIL] 抓不到 /metrics（{args.metrics_url}）", file=sys.stderr)
         return 2
     return run_live(args)
 

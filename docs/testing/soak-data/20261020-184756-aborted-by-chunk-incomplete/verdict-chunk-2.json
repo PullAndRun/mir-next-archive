@@ -1,0 +1,48 @@
+{
+  "window": "chunk-2 [1800s,3600s)",
+  "verdict": "FAIL",
+  "checks": [
+    {
+      "name": "绝对：每点 p50 ≤30.0ms",
+      "ok": true,
+      "detail": "max_p50=0.62ms 超限点=0"
+    },
+    {
+      "name": "绝对：每点 p99 ≤80.0ms",
+      "ok": true,
+      "detail": "max_p99=1.16ms 超限点=0 首个=[]"
+    },
+    {
+      "name": "预热后样本足够做相对判据",
+      "ok": false,
+      "detail": "warm_samples=1（预热 180s 后不足 3 点）"
+    }
+  ],
+  "stats": {
+    "samples": 1,
+    "warm_samples": 1,
+    "requested_duration_seconds": 14400.0,
+    "elapsed_seconds": 1807.7692692279816,
+    "p50_ms_max": 0.619,
+    "p99_ms_max": 1.159,
+    "rss_first_mb": 43.28,
+    "rss_max_mb": 43.28,
+    "handle_swing": 0.0,
+    "db_pool_first": 3.0,
+    "db_pool_max": 3.0,
+    "rss_slope_mb_per_hour": null,
+    "handle_slope_per_hour": null,
+    "write_failed_final": 74.0,
+    "dropped_final": 0.0
+  },
+  "index": 2,
+  "range_seconds": [
+    1800.0,
+    3600.0
+  ],
+  "cumulative_slope": {
+    "rss_slope_mb_per_hour": 0.901,
+    "handle_slope_per_hour": -1.446,
+    "samples": 181
+  }
+}

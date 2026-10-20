@@ -1,0 +1,62 @@
+{
+  "window": "chunk-4 [5400s,7200s)",
+  "verdict": "FAIL",
+  "checks": [
+    {
+      "name": "绝对：每点 p50 ≤30.0ms",
+      "ok": true,
+      "detail": "max_p50=0.58ms 超限点=0"
+    },
+    {
+      "name": "绝对：每点 p99 ≤80.0ms",
+      "ok": true,
+      "detail": "max_p99=0.96ms 超限点=0 首个=[]"
+    },
+    {
+      "name": "稳态连接数 active_min ≥ 95（≥95% 持续在线）",
+      "ok": true,
+      "detail": "active_min=100 active_max=100"
+    },
+    {
+      "name": "服务端未拒绝连接（connections_rejected == 0）",
+      "ok": true,
+      "detail": "rejected_max=0"
+    },
+    {
+      "name": "RSS 增长 ≤10%（区间）",
+      "ok": false,
+      "detail": "区间基线=41.4MB 峰值=46.6MB 增长=+12.56%"
+    }
+  ],
+  "stats": {
+    "samples": 180,
+    "warm_samples": 180,
+    "requested_duration_seconds": 14400.0,
+    "elapsed_seconds": 7200.0,
+    "p50_ms_max": 0.581,
+    "p99_ms_max": 0.958,
+    "rss_first_mb": 41.38,
+    "rss_max_mb": 46.58,
+    "handle_swing": 7.0,
+    "db_pool_first": 3.0,
+    "db_pool_max": 3.0,
+    "rss_slope_mb_per_hour": 14.91,
+    "handle_slope_per_hour": -4.898,
+    "write_failed_final": 0.0,
+    "dropped_final": 0.0,
+    "clients_requested": 100,
+    "clients_entered": 0,
+    "active_min": 100.0,
+    "active_max": 100.0
+  },
+  "index": 4,
+  "range_seconds": [
+    5400.0,
+    7200.0
+  ],
+  "cumulative_slope": {
+    "rss_slope_mb_per_hour": 3.22,
+    "handle_slope_per_hour": -1.087,
+    "samples": 719
+  }
+}

@@ -252,6 +252,8 @@ python tools/protocol-gen/generate.py
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |
 | [`docs/i18n.md`](docs/i18n.md) | 多语言：默认中文、游戏内切换与 i18n 收口清单（逐条 TextKey 表） |
 | [`docs/architecture.md`](docs/architecture.md) | 架构总览：crate 分层、数据流、时间与随机、测试策略 |
+| [`docs/deploy.md`](docs/deploy.md) | 部署：环境变量、首次建库/迁移、端口防火墙、备份与升级回滚 |
+| [`docs/ops/runbook.md`](docs/ops/runbook.md) | 运维手册：启停/升级回滚/备份、13 条事故排查、`/metrics` 字段与每日/每周值班清单 |
 
 ## 开发约定
 

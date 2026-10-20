@@ -1,0 +1,22 @@
+{
+  "window": "chunk-8 [12600s,14400s)",
+  "verdict": "FAIL",
+  "checks": [
+    {
+      "name": "采样非空",
+      "ok": false,
+      "detail": "窗口内没有采样点"
+    }
+  ],
+  "stats": {},
+  "index": 8,
+  "range_seconds": [
+    12600.0,
+    14400.0
+  ],
+  "cumulative_slope": {
+    "rss_slope_mb_per_hour": 4.031,
+    "handle_slope_per_hour": -2.719,
+    "samples": 181
+  }
+}

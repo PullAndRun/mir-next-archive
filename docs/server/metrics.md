@@ -43,6 +43,8 @@ cargo run -p mir-server
 | `mir2_auction_scans_total` | counter | 拍卖到期扫描次数 |
 | `mir2_auctions_sold_total` | counter | 到期自动成交次数 |
 | `mir2_mail_queue` | gauge | 待写邮件队列长度 |
+| `mir2_db_pool_connections` | gauge | 连接池当前连接数（长期打满要查泄漏/长事务） |
+| `mir2_db_pool_idle` | gauge | 连接池空闲连接数 |
 | `mir2_db_save_total` | counter | 角色落盘次数 |
 | `mir2_db_save_failed_total` | counter | 角色落盘失败次数（含 autosave 与下线存盘） |
 | `mir2_autosave_total` | counter | 周期自动存档**实际写库**次数（快照没变被跳过的不计） |
@@ -51,6 +53,10 @@ cargo run -p mir-server
 | `mir2_db_save_micros_{avg,p50,p95,p99,max}` | gauge | 角色落盘耗时（微秒） |
 | `mir2_db_flush_total` | counter | 市场/商城落盘次数 |
 | `mir2_db_flush_micros_{avg,p50,p95,p99,max}` | gauge | 市场/商城落盘耗时（微秒） |
+
+> 值班判读、真实抓取值与每日/每周清单见
+> [`docs/ops/runbook.md`](../ops/runbook.md) §6–§7；注意 tick 分位单位是**微秒**
+> （`mir2_tick_micros_*`），不是毫秒。
 
 ## 4. Prometheus 抓取示例
 

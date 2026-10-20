@@ -267,6 +267,12 @@ impl Metrics {
         self.autosave_total.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// 角色落盘成功累计次数。
+    #[must_use]
+    pub fn db_saves(&self) -> u64 {
+        self.db_saves_total.load(Ordering::Relaxed)
+    }
+
     /// 角色落盘失败累计次数。
     #[must_use]
     pub fn db_save_failed(&self) -> u64 {

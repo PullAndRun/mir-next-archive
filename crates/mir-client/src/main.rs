@@ -68,6 +68,12 @@ struct Options {
     music_volume: Option<f32>,
     /// `--sound-dir`：额外的音效目录（优先于默认目录）。
     sound_dirs: Vec<PathBuf>,
+    /// `--asset-dir`：资源根（`game-assets/` 的替代路径）。
+    asset_dir: Option<PathBuf>,
+    /// 用户是否显式给了 `--map-dir`（给了就不再被 `--asset-dir` 覆盖）。
+    map_dir_explicit: bool,
+    /// 用户是否显式给了 `--data-dir`。
+    data_dir_explicit: bool,
 }
 
 impl Default for Options {
@@ -90,6 +96,9 @@ impl Default for Options {
             no_music: false,
             music_volume: None,
             sound_dirs: Vec::new(),
+            asset_dir: None,
+            map_dir_explicit: false,
+            data_dir_explicit: false,
         }
     }
 }
@@ -152,12 +161,20 @@ fn main() -> Result<()> {
                     anyhow::bail!("--map-dir 需要一个目录");
                 };
                 options.map_dir = PathBuf::from(value);
+                options.map_dir_explicit = true;
+            }
+            "--asset-dir" => {
+                let Some(value) = args.next() else {
+                    anyhow::bail!("--asset-dir 需要一个目录（例如 game-assets 或 D:/mir-assets）");
+                };
+                options.asset_dir = Some(PathBuf::from(value));
             }
             "--data-dir" => {
                 let Some(value) = args.next() else {
                     anyhow::bail!("--data-dir 需要一个目录");
                 };
                 options.data_dir = PathBuf::from(value);
+                options.data_dir_explicit = true;
             }
             "--connect" => {
                 let Some(value) = args.next() else {
@@ -311,6 +328,28 @@ fn main() -> Result<()> {
         client_settings.save(&settings_path)?;
         println!("已保存服务器地址：{}", client_settings.server());
     }
+
+    // 资源根解析（`--asset-dir` > `MIR2_ASSET_DIR` > client.toml 的 asset_root >
+    // 默认 `game-assets` > 回落 `resource`）；`--map-dir`/`--data-dir` 显式给了就优先。
+    let assets = mir_client::assets::AssetRoot::resolve(
+        options.asset_dir.as_deref(),
+        std::env::var(mir_client::assets::ASSET_ROOT_ENV).ok().as_deref(),
+        client_settings.asset_root.as_deref(),
+    );
+    assets.log_resolution();
+    if !options.map_dir_explicit {
+        options.map_dir = assets.map_dir();
+    }
+    if !options.data_dir_explicit {
+        options.data_dir = assets.data_dir();
+    }
+    println!(
+        "资源根：{}（来源 {}）· 地图 {} · 素材 {}",
+        assets.root().display(),
+        assets.source().as_str(),
+        options.map_dir.display(),
+        options.data_dir.display()
+    );
 
     // 素材目录自动探测：`--data-dir` 指向的目录不存在时依次尝试 `resource/data`、
     // `resource/ld/data`（不同发行包的客户端目录结构不同）。
@@ -653,6 +692,7 @@ fn print_help() {
     println!("  --no-music              本次运行不播背景音乐（不写设置文件）");
     println!("  --music-volume <0..1>   本次运行背景音乐音量（默认 0.5，独立于音效）");
     println!("  --sound-dir <目录>      额外音效/音乐目录（可多次；优先于 resource/wav）");
+    println!("  --asset-dir <目录>      资源根（默认 game-assets/；也可用 MIR2_ASSET_DIR）");
     println!();
     println!("其它：");
     println!("  --lang <代码>           本次启动使用该语言（并保存）");

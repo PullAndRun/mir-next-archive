@@ -5,6 +5,99 @@
 //! `allow_start_game` 与 `check_version`。
 
 use std::net::SocketAddr;
+use std::path::Path;
+
+/// 默认资源根（`tools/assets/build_game_assets.py` 的默认输出）。
+pub const DEFAULT_ASSET_ROOT: &str = "game-assets";
+/// 没有抽取过 `game-assets/` 时的回落目录（旧行为，保证测试/CI 不装素材也能跑）。
+pub const FALLBACK_ASSET_ROOT: &str = "resource";
+/// 环境变量：指定资源根（优先级高于配置、低于命令行显式赋值）。
+pub const ASSET_ROOT_ENV: &str = "MIR2_ASSET_DIR";
+/// 环境变量：显式指定地图目录（给了就不再从 `asset_root` 派生）。
+pub const MAP_ROOT_ENV: &str = "MIR2_MAP_ROOT";
+
+/// 资源根是从哪一档解析出来的。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssetRootSource {
+    /// 配置里显式写了 `asset_root`
+    Config,
+    /// 环境变量 `MIR2_ASSET_DIR`
+    Env,
+    /// 默认 `game-assets`
+    Default,
+    /// 默认值不存在，回落到 `resource`
+    Fallback,
+}
+
+impl AssetRootSource {
+    /// 是否属于「用户显式指定」——缺失时该打 warn 而不是 info。
+    #[must_use]
+    pub fn is_explicit(self) -> bool {
+        matches!(self, Self::Config | Self::Env)
+    }
+
+    /// 日志用的短名。
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Config => "config",
+            Self::Env => "env",
+            Self::Default => "default",
+            Self::Fallback => "fallback",
+        }
+    }
+}
+
+/// 解析资源根：显式配置 > 环境变量 > 默认 `game-assets` > 回落 `resource`。
+///
+/// 返回的路径**保证是存在的目录**（或回落的 `resource`）；
+/// 第二个返回值告诉调用方"这一档是不是显式指定的"，用于决定日志级别。
+#[must_use]
+pub fn resolve_asset_root(configured: Option<&str>) -> (String, AssetRootSource) {
+    if let Some(raw) = configured {
+        return adopt_asset_root(raw, AssetRootSource::Config);
+    }
+    if let Ok(raw) = std::env::var(ASSET_ROOT_ENV) {
+        if !raw.trim().is_empty() {
+            return adopt_asset_root(raw.trim(), AssetRootSource::Env);
+        }
+    }
+    if Path::new(DEFAULT_ASSET_ROOT).is_dir() {
+        return (DEFAULT_ASSET_ROOT.to_owned(), AssetRootSource::Default);
+    }
+    tracing::info!(
+        fallback = FALLBACK_ASSET_ROOT,
+        "未找到 game-assets/ → 回落到 resource/（行为与旧版一致；可用 MIR2_ASSET_DIR 指定）"
+    );
+    (FALLBACK_ASSET_ROOT.to_owned(), AssetRootSource::Fallback)
+}
+
+/// 采用显式路径；不存在则回落 `resource`，但**保留来源档位**让调用方打 warn。
+fn adopt_asset_root(raw: &str, source: AssetRootSource) -> (String, AssetRootSource) {
+    if Path::new(raw).is_dir() {
+        return (raw.to_owned(), source);
+    }
+    tracing::warn!(
+        source = source.as_str(),
+        %raw,
+        fallback = FALLBACK_ASSET_ROOT,
+        "指定的资源目录不存在 → 回落到 resource/（请检查 MIR2_ASSET_DIR / asset_root 配置）"
+    );
+    (FALLBACK_ASSET_ROOT.to_owned(), source)
+}
+
+/// 从资源根派生默认地图目录：`<asset_root>/map`。
+#[must_use]
+pub fn derived_map_root(asset_root: &str) -> String {
+    format!("{asset_root}/map")
+}
+
+/// 从资源根派生默认数据库路径：`<asset_root>/server/Server.MirDB`（存在才返回）。
+#[must_use]
+pub fn derived_db_path(asset_root: &str) -> Option<String> {
+    let candidate = format!("{asset_root}/server/Server.MirDB");
+    Path::new(&candidate).is_file().then_some(candidate)
+}
 
 /// 服务端运行配置。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,7 +126,17 @@ pub struct ServerConfig {
     pub start_map: String,
     /// 新角色的出生坐标。
     pub start_point: (i32, i32),
+    /// 资源根（`game-assets/` 或自定义路径）。
+    ///
+    /// 解析顺序：配置显式值 > `MIR2_ASSET_DIR` > 默认 `game-assets` > 回落 `resource`；
+    /// 见 [`resolve_asset_root`]。
+    pub asset_root: String,
+    /// 资源根是从哪一档来的（测试与日志用）。
+    pub asset_root_source: AssetRootSource,
     /// 地图文件目录（`.map` 文件所在处）。
+    ///
+    /// 默认由 [`Self::asset_root`] 派生为 `<asset_root>/map`；
+    /// 显式赋值（或 `MIR2_MAP_ROOT`）优先。
     pub map_root: String,
     /// 语言包目录（`*.json`）；目录不存在时使用编译期内置语言包。
     pub language_dir: String,
@@ -99,7 +202,18 @@ pub struct ServerConfig {
 
 impl Default for ServerConfig {
     fn default() -> Self {
+        let (asset_root, asset_root_source) = resolve_asset_root(None);
+        let map_root = std::env::var(MAP_ROOT_ENV)
+            .ok()
+            .filter(|raw| !raw.trim().is_empty())
+            .unwrap_or_else(|| derived_map_root(&asset_root));
+        let db_path = std::env::var("MIR2_DB_PATH")
+            .ok()
+            .filter(|raw| !raw.trim().is_empty())
+            .or_else(|| derived_db_path(&asset_root));
         Self {
+            asset_root,
+            asset_root_source,
             listen: "0.0.0.0:7000".parse().expect("固定地址字面量总能解析"),
             // Crystal 默认 `CheckVersion = true` 且要求 `Configs/Setup.ini` 里配好
             // 客户端 exe；在只跑服务端的场景下那会让所有连接被拒，因此默认关闭。
@@ -116,10 +230,10 @@ impl Default for ServerConfig {
             allowed_resolution: 1024,
             start_map: "0".to_owned(),
             start_point: (330, 270),
-            map_root: "resource/map".to_owned(),
+            map_root,
             language_dir: "config/lang".to_owned(),
             demo_monsters: false,
-            db_path: std::env::var("MIR2_DB_PATH").ok(),
+            db_path,
             load_game_data: !matches!(
                 std::env::var("MIR2_LOAD_GAME_DATA").ok().as_deref(),
                 Some("0" | "false" | "no")
@@ -171,6 +285,23 @@ impl ServerConfig {
         }
         if let Ok(value) = std::env::var("MIR2_DEMO_MONSTERS") {
             config.demo_monsters = matches!(value.as_str(), "1" | "true" | "yes");
+        }
+        // 资源根：`MIR2_ASSET_DIR` 优先于默认；派生目录只在用户没显式指定时更新。
+        if let Ok(raw) = std::env::var(ASSET_ROOT_ENV) {
+            if !raw.trim().is_empty() {
+                let explicit_map = std::env::var(MAP_ROOT_ENV).ok();
+                let explicit_db = std::env::var("MIR2_DB_PATH").ok();
+                let (root, source) = adopt_asset_root(raw.trim(), AssetRootSource::Env);
+                let old_derived = derived_map_root(&config.asset_root);
+                config.asset_root = root;
+                config.asset_root_source = source;
+                if explicit_map.is_none() && config.map_root == old_derived {
+                    config.map_root = derived_map_root(&config.asset_root);
+                }
+                if explicit_db.is_none() {
+                    config.db_path = derived_db_path(&config.asset_root);
+                }
+            }
         }
         if let Ok(value) = std::env::var(crate::gm::GM_ACCOUNTS_ENV) {
             config.gm_accounts = crate::gm::parse_gm_accounts(&value);
@@ -233,5 +364,67 @@ mod tests {
         );
         assert!(!config.check_version, "默认不校验客户端版本");
         assert_eq!(config.max_character_count, 4);
+    }
+
+    fn temp_asset_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "mir2-server-asset-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("时钟")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        dir
+    }
+
+    #[test]
+    fn explicit_asset_root_wins_and_is_adopted() {
+        let dir = temp_asset_dir("explicit");
+        let raw = dir.to_str().expect("utf8").to_owned();
+        let (root, source) = resolve_asset_root(Some(&raw));
+        assert_eq!(root, raw);
+        assert_eq!(source, AssetRootSource::Config);
+        assert!(source.is_explicit());
+    }
+
+    #[test]
+    fn missing_explicit_asset_root_falls_back_to_resource() {
+        let missing = std::env::temp_dir().join("mir2-server-asset-does-not-exist-xyz");
+        let (root, source) = resolve_asset_root(missing.to_str());
+        assert_eq!(root, FALLBACK_ASSET_ROOT);
+        assert_eq!(source, AssetRootSource::Config, "保留来源档位，调用方才能打 warn");
+        assert!(source.is_explicit());
+    }
+
+    #[test]
+    fn map_root_derives_from_asset_root() {
+        let dir = temp_asset_dir("derive");
+        let raw = dir.to_str().expect("utf8").to_owned();
+        assert_eq!(derived_map_root(&raw), format!("{raw}/map"));
+        assert_eq!(derived_db_path(&raw), None, "空目录里没有 server/Server.MirDB");
+
+        // 造一个 server/Server.MirDB，派生路径应当出现
+        std::fs::create_dir_all(dir.join("server")).expect("建 server 目录");
+        std::fs::write(dir.join("server").join("Server.MirDB"), b"mir2").expect("写库文件");
+        assert_eq!(
+            derived_db_path(&raw),
+            Some(format!("{raw}/server/Server.MirDB"))
+        );
+    }
+
+    #[test]
+    fn explicit_map_root_is_not_overwritten_by_derivation() {
+        let mut config = ServerConfig::default();
+        config.map_root = "D:/custom-maps".to_owned();
+        // 模拟 `from_env` 里换资源根：显式 map_root 与派生值不同 → 不覆盖
+        let dir = temp_asset_dir("keep-map");
+        let old_derived = derived_map_root(&config.asset_root);
+        config.asset_root = dir.to_str().expect("utf8").to_owned();
+        if config.map_root == old_derived {
+            config.map_root = derived_map_root(&config.asset_root);
+        }
+        assert_eq!(config.map_root, "D:/custom-maps", "显式 map_root 必须优先");
     }
 }

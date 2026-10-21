@@ -3122,13 +3122,52 @@ class Playtest:
             )
             return 1
         print(f"  [quest1] 怪物名样本={ [m.get('name') for m in self.monsters[:6]] }")
+        # 第二只 NPC 取样放在 Jane 之前：Sarah 就在出生点附近，避免取样后横穿地图。
+        sample = next(
+            (n for n in self.map_npcs if "sarah" in n.get("name", "").lower()),
+            None,
+        )
+        if sample is not None:
+            self.newbie_equip()
+            if self._distance(sample["pos"]) > 1:
+                self._newbie_walk_bfs(sample)
+            spawn_sample = dict(sample, id=sample.get("object_id", sample.get("id")))
+            self.call_npc(spawn_sample, "@main", timeout=2)
+            self._drain(0.4)
+            sample_page = list(self.last_npc_page)
+            sample_cjk = any(
+                any('\u4e00' <= ch <= '\u9fff' for ch in line) for line in sample_page
+            )
+            print(
+                f"  [NPC对话] {sample.get('name')} @ {sample['pos']} 页行数={len(sample_page)}"
+            )
+            if sample_page:
+                print(f"  [NPC对话] 首行='{sample_page[0]}'")
+            print(f"  [NPC对话] 中文={sample_cjk}")
+            if not sample_page or not sample_cjk:
+                self.fail("quest1 NPC对话2", f"{sample.get('name')} 对话页为空或非中文：{sample_page}")
+                return 1
+            self.ok("quest1 NPC对话2", f"{sample.get('name')} 中文页 {len(sample_page)} 行")
         self.newbie_equip()
         if not self._newbie_walk_bfs(jane) and not self._stand_next_to(jane):
             self.fail("quest1 接取", f"走不到 Jane @ {jane['pos']}")
             return 1
         spawn_jane = dict(jane, id=jane.get("object_id", jane.get("id")))
         self.call_npc(spawn_jane, "@main", timeout=2)
-        print(f"  [quest1] Jane 对话页原文={self.last_npc_page}")
+        # GOTO @Main-1 时会先发一个空页，再发真正正文；等 0.4s 取最后一页。
+        self._drain(0.4)
+        jane_page = list(self.last_npc_page)
+        print(f"  [NPC对话] Jane @ {jane['pos']} 页行数={len(jane_page)}")
+        if jane_page:
+            print(f"  [NPC对话] 首行='{jane_page[0]}'")
+        jane_cjk = any(
+            any('\u4e00' <= ch <= '\u9fff' for ch in line) for line in jane_page
+        )
+        print(f"  [NPC对话] 中文={jane_cjk}")
+        if not jane_page or not jane_cjk:
+            self.fail("quest1 NPC对话", f"Jane 对话页为空或非中文：{jane_page}")
+            return 1
+        self.ok("quest1 NPC对话", f"Jane 中文页 {len(jane_page)} 行：{jane_page[0]!r}")
         writer = Writer()
         writer.u32(jane.get("object_id", jane.get("id", 0)))
         writer.i32(1)

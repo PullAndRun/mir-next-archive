@@ -2146,6 +2146,11 @@ pub struct LanguagePack {
     /// `PrajnaIsland/8Piac|Merchant_Grace`）。
     #[serde(default)]
     pub npc_names: BTreeMap<String, String>,
+    /// 物品显示名：`ItemInfo.Index` 的字符串形式 → 本地化名字。
+    ///
+    /// 键用 index 而不是英文名（物品可能重名/改名）；缺项时回退 DB 原名。
+    #[serde(default)]
+    pub item_names: BTreeMap<String, String>,
 }
 
 impl LanguagePack {
@@ -2312,6 +2317,19 @@ impl LanguageLibrary {
             }
         }
         english_name.to_owned()
+    }
+
+    /// 取物品显示名：按 `ItemInfo.Index` 查语言包，缺项回退 DB 原名。
+    ///
+    /// 键是十进制 index 的字符串；这样客户端/服务端都不依赖物品英文名。
+    #[must_use]
+    pub fn item_name(&self, language: Language, index: i32, database_name: &str) -> String {
+        let key = index.to_string();
+        self.pack(language)
+            .or_else(|| self.pack(Language::ZhCn))
+            .and_then(|pack| pack.item_names.get(&key))
+            .cloned()
+            .unwrap_or_else(|| database_name.to_owned())
     }
 }
 

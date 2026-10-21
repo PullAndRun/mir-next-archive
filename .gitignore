@@ -22,3 +22,6 @@ dist/
 tools/playtest/data/mapgrid-*.bin
 /*.log
 *.err.log
+
+# 运行时素材视图（由 tools/assets/build_game_assets.py 生成，22.5GB，不入库）
+game-assets/

@@ -136,6 +136,17 @@ python tools/asset-index/find_asset.py --ext .wzl --top data --limit 20
 
 细节见 [`docs/assets/index.md`](docs/assets/index.md)。
 
+运行时**只引用抽出来的独立资源目录** `game-assets/`（22.5 GB，不入库）：
+
+```bash
+py tools/assets/build_game_assets.py          # 抽取/增量更新（幂等）
+py tools/assets/build_game_assets.py --verify # 校验
+```
+
+资源根可手动指定：服务端 `asset_root` / `MIR2_ASSET_DIR`，客户端 `--asset-dir` / `config/client.toml`；
+`game-assets/` 不存在时自动回落 `resource/`（WARN）。详见
+[`docs/assets/game-assets.md`](docs/assets/game-assets.md)。
+
 ## 多语言
 
 - **默认全中文**：内置文本与 `config/lang/zh-cn.json` 都是简体中文，缺语言包时也回落中文。

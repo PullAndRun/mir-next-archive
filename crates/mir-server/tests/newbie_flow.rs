@@ -200,6 +200,7 @@ async fn enter_new_character(
     let mut info = None;
     let mut hint = None;
     let mut bookshop_id = 0;
+    let mut item_info_indexes = BTreeSet::new();
     let mut seen_packets = 0usize;
     loop {
         let Some(packet) = client.next(WAIT).await else {
@@ -222,6 +223,10 @@ async fn enter_new_character(
             }
             ServerPacket::ObjectNPC(npc) => {
                 eprintln!("newbie npc: {} at {:?}", npc.name, npc.location);
+            }
+            ServerPacket::NewItemInfo(item) => {
+                assert!(!item.info.name.is_empty(), "物品模板名不能为空");
+                item_info_indexes.insert(item.info.index);
             }
             ServerPacket::NewMapInfo(map) => {
                 eprintln!(
@@ -246,6 +251,19 @@ async fn enter_new_character(
         panic!("进世界后没有收到系统提示");
     };
     assert!(hint.contains("新手"), "第一条系统提示应含新手引导：{hint}");
+    // 登录时必须把背包/装备里每个 unique item_index 的模板都下发（否则客户端只显示编号）。
+    let expected: BTreeSet<i32> = info
+        .inventory
+        .iter()
+        .flatten()
+        .flatten()
+        .chain(info.equipment.iter().flatten().flatten())
+        .map(|item| item.item_index)
+        .collect();
+    assert!(
+        expected.is_subset(&item_info_indexes),
+        "背包/装备模板缺失：expected={expected:?} got={item_info_indexes:?}"
+    );
     (client, info, bookshop_id)
 }
 
@@ -650,4 +668,59 @@ fn non_gm_bookshop_purchase_and_reading_path() {
         .expect("读书");
     assert!(report.learned.is_some(), "读书应学会技能");
     assert!(report.remaining.is_none(), "单本书应被消耗");
+}
+
+/// `C.RequestItemInfo`：按需补一条 `S.NewItemInfo`；同一模板第二次请求按 Crystal
+/// `CheckItemInfo` 去重，不应重复下发。
+#[tokio::test]
+async fn request_item_info_sends_template_once() {
+    let Some(config) = real_config() else {
+        return;
+    };
+    let db_path = config.db_path.clone().expect("newbie config 带 db_path");
+    let db = MirDb::load(&db_path).expect("加载真实 MirDB");
+    let store = Arc::new(MemoryStore::new());
+    let address = boot(config, store.clone()).await;
+    let (mut client, info, _) = enter_new_character(address, "iteminfo").await;
+
+    let used: BTreeSet<i32> = info
+        .inventory
+        .iter()
+        .flatten()
+        .flatten()
+        .chain(info.equipment.iter().flatten().flatten())
+        .map(|item| item.item_index)
+        .collect();
+    let index = db
+        .items
+        .iter()
+        .map(|item| item.index)
+        .find(|index| !used.contains(index))
+        .expect("应有一个未在背包里的模板");
+
+    client
+        .send(ClientPacket::RequestItemInfo(c::RequestItemInfo {
+            item_index: index,
+        }))
+        .await;
+    let packet = client
+        .wait_for(
+            "S.NewItemInfo",
+            |packet| matches!(packet, ServerPacket::NewItemInfo(info) if info.info.index == index),
+        )
+        .await;
+    let ServerPacket::NewItemInfo(packet) = packet else {
+        unreachable!()
+    };
+    assert_eq!(packet.info.index, index);
+    assert!(!packet.info.name.is_empty(), "模板名不能为空");
+
+    // 重复请求：已发过 → 不再有 NewItemInfo。
+    client
+        .send(ClientPacket::RequestItemInfo(c::RequestItemInfo {
+            item_index: index,
+        }))
+        .await;
+    let extra = client.next(Duration::from_millis(300)).await;
+    assert!(extra.is_none(), "重复请求不应重复下发：{extra:?}");
 }

@@ -11,6 +11,7 @@
 //! 窗口与输入在二进制 crate 的 `app` 模块；本库不依赖 winit，所以无头测试可以直接
 //! 画一帧 UI 到 PNG。
 
+pub mod assets;
 pub mod audio;
 pub mod client_config;
 pub mod geom;

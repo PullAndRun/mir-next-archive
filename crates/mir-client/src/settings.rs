@@ -55,6 +55,12 @@ pub struct ClientSettings {
     /// 渲染缩放（1..=3，默认 1）。
     #[serde(default = "default_scale")]
     pub scale: u32,
+    /// 资源根目录（`game-assets/` 或自定义路径）。
+    ///
+    /// `None` = 没配置 → 按 `--asset-dir` > `MIR2_ASSET_DIR` > 默认 `game-assets` >
+    /// 回落 `resource/` 的顺序解析（见 [`crate::assets::AssetRoot`]）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset_root: Option<String>,
     /// 角色装备摘要缓存（角色名 → 「木剑 / 布衣」），选角页显示用。
     #[serde(default)]
     pub equipment: BTreeMap<String, String>,
@@ -111,6 +117,7 @@ impl Default for ClientSettings {
             server: default_server(),
             resolution: default_resolution(),
             scale: default_scale(),
+            asset_root: None,
             equipment: BTreeMap::new(),
         }
     }

@@ -94,6 +94,13 @@
 //!   物品模板的 `Shape`（Crystal 服务器算好再塞进 `S.ObjectPlayer`，见
 //!   `Client/MirObjects/UserObject.cs:205-250`）。所以快照在**每个包之后**重算一次
 //!   [`PlayerLooks`]，让「装备先到、`S.NewItemInfo` 后到」也能收敛。
+//! * **缺物品模板时只降级、不补请求**：`S.UserInformation` / `S.NPCGoods` / `S.GainedItem`
+//!   只带 `item_index`，名字/图标/价格来自 `S.NewItemInfo`。缺模板时按「编号数字 /
+//!   `未知物品 #n` / 价格 0 / 请求 0 号图标帧」降级显示，**不**发 `C.RequestItemInfo`
+//!   （协议 index 39 已生成，服务端 `session.rs` 的 `_ =>` 目前忽略它）。
+//!   TODO(展示链路): 若服务端不做登录全量推送，在 `app.rs` 的 `apply_snapshot` 里对 UI
+//!   可见的未知 `item_index` 去重各发一次（Crystal `GameScene.RequestItemInfo`，
+//!   `Client/MirScenes/GameScene.cs:168-175`）；时序行为见 `tests/item_templates.rs`。
 
 use std::collections::BTreeMap;
 use std::io::{ErrorKind, Read, Write};

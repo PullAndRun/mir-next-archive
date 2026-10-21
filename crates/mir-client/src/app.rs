@@ -159,12 +159,17 @@ impl LiveState {
 /// 不 panic、不返回非零退出码。离线模式只有 F1 点阵叠层，`language` 暂不影响画面。
 pub fn run(scene: MapScene, center: Point, _language: Language) {
     // 离线模式不会切图，地图目录只是占位（`ClientApp` 要求有这个字段）。
+    let assets = crate::assets::AssetRoot::resolve(
+        None,
+        std::env::var(crate::assets::ASSET_ROOT_ENV).ok().as_deref(),
+        None,
+    );
     run_app(
         scene,
         center,
         Mode::Offline,
-        PathBuf::from("resource/map"),
-        PathBuf::from("resource/data"),
+        assets.map_dir(),
+        assets.data_dir(),
         ClientSettings::default(),
         ClientSettings::default_path(),
     );

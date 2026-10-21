@@ -61,7 +61,8 @@ use mir_protocol::data::{ItemInfo, UserItem};
 use mir_protocol::packets::server::{
     DeleteItem as DeleteItemPacket, DropItem as DropItemPacket, DuraChanged,
     EquipItem as EquipItemPacket, GainedGold, GainedItem, LoseGold, MoveItem as MoveItemPacket,
-    ObjectGold, ObjectItem, PlayerUpdate, RemoveItem as RemoveItemPacket, UseItem as UseItemPacket,
+    NewItemInfo, ObjectGold, ObjectItem, PlayerUpdate, RemoveItem as RemoveItemPacket,
+    UseItem as UseItemPacket,
 };
 use mir_protocol::{PacketReader, PacketWriter, ProtocolError, ServerPacket};
 
@@ -1121,6 +1122,62 @@ impl World {
         self.game_data.as_ref()?.item_by_name(name)
     }
 
+    /// 某个玩家看到的物品模板：名字按会话语言本地化（`item_names`，缺项回退 DB 原名）。
+    ///
+    /// 其余字段（图标/价格/类型/属性）与 DB 模板一致；只改 `name`。
+    #[must_use]
+    pub fn localized_item_info(&self, player_id: u32, index: i32) -> Option<ItemInfo> {
+        let info = self.item_info(index)?.clone();
+        let name = self.languages.as_ref().map_or_else(
+            || info.name.clone(),
+            |languages| {
+                languages.item_name(self.player_language(player_id), info.index, &info.name)
+            },
+        );
+        Some(ItemInfo { name, ..info })
+    }
+
+    /// 生成该玩家尚缺的 `S.NewItemInfo` 包（按连接去重，Crystal `CheckItemInfo`，`:2274-2290`）。
+    ///
+    /// 登录时一次性收集背包/装备模板用；调用后这些 index 记为已发送。
+    #[must_use]
+    pub fn item_info_packets_for_indices(
+        &mut self,
+        player_id: u32,
+        indices: impl IntoIterator<Item = i32>,
+    ) -> Vec<ServerPacket> {
+        let mut packets = Vec::new();
+        for index in indices {
+            if index <= 0 {
+                continue;
+            }
+            let first = self
+                .sent_item_infos
+                .entry(player_id)
+                .or_default()
+                .insert(index);
+            if !first {
+                continue;
+            }
+            let Some(info) = self.localized_item_info(player_id, index) else {
+                continue;
+            };
+            packets.push(ServerPacket::NewItemInfo(NewItemInfo { info }));
+        }
+        packets
+    }
+
+    /// 给玩家补发一条 `S.NewItemInfo`（已发过则跳过；Crystal `CheckItemInfo`）。
+    ///
+    /// 返回是否真的发了包。触发点：拾取/获得物品、打开 NPC 商店、`C.RequestItemInfo`。
+    pub fn send_item_info(&mut self, player_id: u32, index: i32) -> bool {
+        let packets = self.item_info_packets_for_indices(player_id, [index]);
+        let Some(packet) = packets.into_iter().next() else {
+            return false;
+        };
+        self.send_to_player(player_id, &packet.encode_frame())
+    }
+
     /// 按 UUID 在背包里找 `(下标, 物品)`。
     #[must_use]
     pub fn find_inventory_item(&self, object_id: u32, unique_id: u64) -> Option<(usize, UserItem)> {
@@ -1733,6 +1790,8 @@ impl World {
             })
             .encode_frame(),
         );
+        // Crystal `CheckItemInfo`：客户端拿到 `UserItem` 后要能查模板（图标/名字/价格）。
+        self.send_item_info(object_id, item.item_index);
         if self.add_item_to_inventory(object_id, item.clone()) {
             return true;
         }
@@ -1851,6 +1910,8 @@ impl World {
                 object_id,
                 &ServerPacket::GainedItem(GainedItem { item: item.clone() }).encode_frame(),
             );
+            // 拾取也是 `GainItem`：补模板，客户端才能显示名字/图标/价格。
+            self.send_item_info(object_id, item.item_index);
             if !self.add_item_to_inventory(object_id, item.clone()) {
                 // 理论上 `can_gain_item` 已经保证了；真走到这里说明数据在两次检查之间变了。
                 return Err(ItemError::InventoryFull);

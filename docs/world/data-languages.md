@@ -237,3 +237,98 @@ cjlaaa 里仍为英文的名称（供后续本地化清单）：
 - 119 个 generated 是「头衔+音译」，不是独立中文数据源；音译表见 `target/npc-names-final.json`（临时，未入库）。
 - 13 个 partial 的源值仍带英文角色词，已按 A+.2 清理；55 个 partial 清理全部有原值记录（`npcs.ini` 行号）。
 - 本层只解决**显示名**；`NpcInfo.Name`（DB 原名）与 Jev 契约不变；英文模式始终显示 DB 原名。
+
+## A++. 物品/怪物/技能/任务名残留英文：`Language/zh-CN/*.ini` 覆盖率审计
+
+> 审计时间：2026-10-22 第 27 轮；只读。探针：`target/audit_ini_coverage.py`、`target/cjlaaa-non-cjk.tsv`（均未入库）。
+> 判定「非中文」= 名字里**一个 CJK 字符都没有**（与 §2 同口径）。
+
+### A++.1 覆盖率总表（cjlaaa v105）
+| 类别 | cjlaaa 非中文 | ini 命中（值含中文） | 剩余 | 覆盖率 | 键格式 | 备注 |
+|---|---:|---:|---:|---:|---|---|
+| 物品 | 193 | **79** | 114 | **40.9%** | `EnglishName=中文名`（`items.ini` 1551 条） | 命中如 `RedJadeBelt=红玉腰带`；缺的是新版弓/Cheongbo 等 |
+| 怪物 | 124 | **68** | 56 | **54.8%** | `EnglishName=中文名`（`monsters.ini` 554 条） | 命中如 `GreaterWeaver=伟大的韦弗`；`BabyPig`/`Chick`/`Clone`/`Evil Mir` 缺 |
+| 技能 | 29 | **16** | 13 | **55.2%** | 同 `items.ini`（技能名和物品名混在一张表；`general.ini`/`system.ini` 无额外命中） | 命中如 `DoubleShot=双重射击`；`Blink`/`Portal`/`MeteorShower` 缺 |
+| 任务 | 3 | **2** | 1 | **66.7%** | `quests.ini` 是**句子级翻译记忆**（1568 条），少量键恰好是任务名 | `AncientOmaCavern` 两条命中（152/153）；`Emperors Problem`（154）缺 |
+| **合计** | **349** | **165** | **184** | **47.3%** | — | **低于 70% 门槛** |
+
+补充：
+- 物品/怪物/技能命中判断忽略大小写、空格、下划线；带 `(H)`/`(ARCH)` 等后缀的键按原文精确命中（`RedJadeBelt(H)=红玉腰带(H)` 算命中），没有再做模糊匹配（模糊匹配会把不同物品错配）。
+- 任务名只有 3 条非中文，`quests.ini` 的主体是任务**描述/对话句子**（键是英文句子，值是中文句子），不是任务名表；2 条命中属于「任务名恰好作为键出现」，不能按它推断任务名覆盖率。
+- 技能名确实在 `items.ini`（`FireBall=火球术`、`FireWall=防火墙` 等），不是单独的 `skills.ini`。
+
+### A++.2 质量与风险（命中的值不保证可直用）
+- 怪物：`ManectricClub=曼尼克俱乐部`（应为“磁力棍/锤”）、`GreaterWeaver=伟大的韦弗`（应为“大织网者”）等机器翻译痕迹。
+- 技能：`Focus=重点`（应为“专注”）、`Meditation=冥想` 可用，但 `Focus` 这类会误导玩家。
+- 物品：部分值保留 `(H)`/`(ARCH)` 等英文后缀（如 `红玉腰带(H)`），显示可接受但需统一规范化。
+- 结论：**即使命中的 165 条也不能直接全量入库**，需要像 NPC 名一样过一遍「显示规范化 + 误译白名单」。
+
+### A++.3 渲染点审计（决定 B 能不能只改服务端）
+| 数据/包 | 名字字段 | 名字来源 | 服务端能否直接本地化 |
+|---|---|---|---|
+| `S.ObjectMonster` | `name` | DB `MonsterInfo.Name` | ✅ 可以（服务端编码前替换） |
+| `S.ObjectItem`（地面物品） | `name` | DB `ItemInfo.Name` | ✅ 可以（仅地面物品） |
+| `S.UserInformation` 技能列表 / `S.NewMagic` | `ClientMagic.name` | DB `MagicInfo.Name` | ✅ 可以 |
+| `S.NewQuestInfo` | `ClientQuestInfo.name` / `description` 等 | DB `QuestInfo` | ✅ 可以（任务名/描述均可） |
+| `S.GainedItem` | **无 name**，只有 `UserItem`（`item_index`） | 客户端自己按 `item_index` 查本地模板 | ❌ 服务端包内没有名字字段 |
+| `S.NPCGoods` / 背包/装备 `UserItem` | **无 name**，只有 `item_index` | 客户端 `WorldSnapshot.item_infos`（自己加载模板） | ❌ 同上 |
+| `S.NewItemInfo` | 本作**未实现**按需下发物品模板（`storage.rs`/`guild_storage.rs` 注释） | 客户端启动时自行加载 | ❌ 不能靠它补名字 |
+
+**关键结论**：物品名的大头（背包/商店/获得物品）走的是 `UserItem.item_index`，客户端自己查模板；服务端 `item_names` 只能覆盖**地面物品**（`S.ObjectItem`）。因此「物品名中文化」不能沿用 NPC 的纯服务端方案，必须：
+- 要么在**客户端**按 `item_index` 查语言包（客户端已有 `item_infos` 快照，改动集中在 client）；
+- 要么改协议加名字字段（**不推荐**，破坏 Crystal 线格式）。
+怪物/技能/任务名则是服务端字段，可沿用 NPC 的查表方案。
+
+### A++.4 结论与建议
+- 总覆盖率 **47.3% < 70%**，按队长门槛 **B 不触发**；不建议现在全量生成四张表。
+- 如果要做「部分收益」，优先级：
+  1. **怪物名**（54.8%，服务端 `S.ObjectMonster.name` 直接可做，但需先清洗误译）；
+  2. **技能名**（55.2%，服务端 `ClientMagic.name`，同样需清洗 `Focus=重点` 这类）；
+  3. **任务名**（66.7%，只有 3 条，可人工补 1 条 `Emperors Problem`）；
+  4. **物品名**（40.9%，且背包/商店在客户端，需 client 侧按 index 查表，工作量最大）。
+- 若后续做 client 侧物品名，键用 **`ItemInfo.Index`**（1349 个，唯一）而不是英文名；英文名兜底，避免重名/改名。怪物/技能/任务同理用 index/spell id/quest index。
+- `npcdialogue.ini`（507 条句子级对照）是**对话备用**：cjlaaa 的 `Envir/NPCs/*.txt` 正文已 98%+ 中文，当前不需要；将来若切英文库做反向本地化可复用。
+- `maps.ini`（3.5KB）未纳入本次四类统计；cjlaaa 地图标题已 98.2% 中文，仅 7 条可补，价值低。
+
+## A+++. `S.NewItemInfo` 下发闭环（已落地）
+
+### A+++.1 为什么必须补
+`UserItem` / `S.GainedItem` / `S.NPCGoods` 只带 `item_index`，客户端必须靠 `S.NewItemInfo`
+拿到模板（名字/图标/价格/类型/属性）。此前服务端**从未发送** `S.NewItemInfo`，客户端只能
+退回编号与 0 号图标 → 背包/装备/商店/修理/拍卖全部不可用。
+
+### A+++.2 实现（对齐 Crystal `MirConnection.CheckItemInfo`，`:2274-2290`）
+- `World::sent_item_infos: HashMap<u32, BTreeSet<i32>>`：按玩家对象（= 连接）记录已发模板，
+  `World::leave` 清理；重复 `send_item_info` 直接跳过。
+- `World::localized_item_info(player_id, index)`：克隆 DB 模板，只把 `name` 换成
+  `LanguageLibrary::item_name(language, index, db_name)`；其余字段原样。
+- `World::item_info_packets_for_indices(player_id, indices)`：登录时批量收集，返回
+  `S.NewItemInfo` 包（已去重）。
+- `World::send_item_info(player_id, index)`：单个补发，触发点：
+  1. **登录进世界**：`StartGame=4` 之后、`MapInformation` 之前，遍历背包 + 装备的
+     unique `item_index`（Crystal 登录序列 `StartGame → NewItemInfo → MapInformation`）；
+  2. **获得/拾取物品**：`gain_item` 与 `pickup` 发完 `S.GainedItem` 后补模板；
+  3. **打开 NPC 商店**：`open_npc_panel` 发 `S.NPCGoods` 前遍历货架 `item_index`；
+  4. **按需请求**：`C.RequestItemInfo`（index 39）→ `send_item_info`（已发过则去重）。
+- **不改** `UserItem`/`NPCGoods`/`GainedItem` 包结构。
+
+### A+++.3 `item_names` 语言包
+- `config/lang/zh-cn.json` / `en.json` 各新增 **`item_names`：1349 键**（键 = 十进制 `ItemInfo.Index`）。
+- zh 值：**1235 个中文**（1156 个 cjlaaa DB 自带中文名 + 79 个 `items.ini` 命中），
+  114 个 DB 名仍为英文（`items.ini` 无对应条目，按约定回退 DB 原名）。
+- en 值：优先取 **Jev v111 同 index 的英文名**（1346/1349 个 index 对齐），其余回退 cjlaaa 名。
+- 回退链：`item_names[index]` → DB 原名（未知 index 不 panic）。
+- 未做：`S.ObjectItem`（地面物品）与 `S.ObjectMonster` 仍用 DB 名；本次只闭环客户端
+  查模板的硬伤，怪物/技能/任务名的服务端本地化仍按 §A++ 的结论待裁决。
+
+### A+++.4 验证
+- `crates/mir-server/tests/item_info.rs`（3 条）：
+  - 登录模板包覆盖背包/装备每个 unique index，`name` 非空、`image`/`price` 与模板一致；
+  - 重复 index 只发一次；未知 index 不发、不 panic；
+  - 中文 `item 1 = 祈祷之剑`、英文 `SpiritBlade`（不同会话独立去重）。
+- `crates/mir-server/tests/newbie_flow.rs`：
+  - `enter_new_character` 断言登录收到的 `S.NewItemInfo` 覆盖背包/装备全部 index；
+  - 新增 `request_item_info_sends_template_once`：`C.RequestItemInfo` → 恰好一条
+    `S.NewItemInfo`，重复请求不再下发。
+- 真服 E2E（默认 cjlaaa）：新角色进图时收到 **5 条 `S.NewItemInfo`**，与背包
+  `[221,317,318,658,722]` 的 5 个 unique index 一一对应；`S.NewMapInfo` 仍 45 NPC/70 movements。

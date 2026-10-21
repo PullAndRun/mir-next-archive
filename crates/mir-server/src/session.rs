@@ -376,6 +376,14 @@ impl<S: AccountStore> Session<S> {
                 self.on_add_memo(packet.character_index, &packet.memo).await;
             }
             ClientPacket::PickUp(_) => self.on_pickup().await,
+            // `C.RequestItemInfo`（Crystal `MirConnection.cs:1389-1393` → `PlayerObject.RequestItemInfo`，
+            // `PlayerObject.cs:7538-7546`）：按需补一条 `S.NewItemInfo`；已发过则 `CheckItemInfo` 去重。
+            ClientPacket::RequestItemInfo(packet) => {
+                if let Some(object_id) = self.object_id {
+                    let mut world = self.world.lock().await;
+                    world.send_item_info(object_id, packet.item_index);
+                }
+            }
             ClientPacket::DropItem(packet) => {
                 self.on_drop_item(packet.unique_id, packet.count).await;
             }
@@ -1140,6 +1148,16 @@ impl<S: AccountStore> Session<S> {
         let quest_packets = world.quest_login_packets(object_id);
         // Crystal 登录序列里 `GetFriends()` 紧跟任务信息（`PlayerObject.cs:1191`）。
         world.send_friends(object_id);
+        // 物品模板：Crystal `StartGame` 后先发 `S.NewItemInfo`（`PlayerObject.cs` 的
+        // `CheckItemInfo` 循环），否则客户端只有 `UserItem.item_index`，背包/装备显示编号。
+        let item_info_packets = world.item_info_packets_for_indices(
+            object_id,
+            inventory
+                .iter()
+                .flatten()
+                .chain(equipment.iter().flatten())
+                .map(|item| item.item_index),
+        );
         drop(world);
 
         self.object_id = Some(object_id);
@@ -1150,6 +1168,9 @@ impl<S: AccountStore> Session<S> {
             result: 4,
             resolution: self.config.allowed_resolution,
         }));
+        for packet in item_info_packets {
+            self.send(packet);
+        }
         self.send(ServerPacket::MapInformation(MapInformation {
             map_index: map_index.unwrap_or(0),
             file_name: character.map.clone(),

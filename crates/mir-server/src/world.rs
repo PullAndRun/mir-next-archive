@@ -830,6 +830,11 @@ pub struct World {
     /// `None` 时 [`World::text`]/[`World::format`] 回落到 `mir_core::i18n` 的内置模板，
     /// 与 [`LanguageLibrary::text`]/[`LanguageLibrary::format`] 同口径。
     pub(crate) languages: Option<Arc<LanguageLibrary>>,
+    /// 每个玩家已经下发过 `S.NewItemInfo` 的物品模板（Crystal `MirConnection.SentItemInfo`）。
+    ///
+    /// 去重是**按连接**的；本作一个玩家对象对应一个会话，所以用 `object_id` 做键，
+    /// 下线时在 [`World::leave`] 里清掉，避免对象 ID 复用时漏发模板。
+    pub(crate) sent_item_infos: HashMap<u32, BTreeSet<i32>>,
     /// 刷怪组运行状态（Crystal 每张 `Map` 的 `Respawns` 列表，`Server/MirEnvir/Map.cs:473-488`）。
     respawn_groups: Vec<RespawnGroupState>,
     /// 地面物品（Crystal `Envir.Objects` 里 `ObjectType.Item` 的那部分，见 `crate::items`）。
@@ -1080,6 +1085,7 @@ impl World {
             player_languages: HashMap::new(),
             quest_inventories: HashMap::new(),
             languages: None,
+            sent_item_infos: HashMap::new(),
             respawn_groups: Vec::new(),
             ground_items: Vec::new(),
             durability_dirty: HashMap::new(),
@@ -1172,6 +1178,7 @@ impl World {
             player_languages: HashMap::new(),
             quest_inventories: HashMap::new(),
             languages: None,
+            sent_item_infos: HashMap::new(),
             respawn_groups: Vec::new(),
             ground_items: Vec::new(),
             durability_dirty: HashMap::new(),
@@ -1883,6 +1890,7 @@ impl World {
         self.market_searches.remove(&object_id);
         // 语言映射随对象销毁：对象 ID 会被复用，不清掉会让新玩家继承旧语言。
         self.player_languages.remove(&object_id);
+        self.sent_item_infos.remove(&object_id);
         self.pet_modes.remove(&object_id);
         self.friends.remove(&object_id);
         self.players.remove(&object_id)

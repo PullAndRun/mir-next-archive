@@ -2144,6 +2144,10 @@ impl World {
             BUY_KEY | BUY_SELL_KEY => {
                 // `:927-953`：先发商品表，`[@BUYSELL]` 再发一次「卖」面板。
                 let goods = self.npc_goods(npc);
+                // 货架只有 `UserItem`（item_index），先补模板，客户端才能画名字/图标/价格。
+                for item in &goods {
+                    self.send_item_info(player_id, item.item_index);
+                }
                 self.send_to_player(
                     player_id,
                     &ServerPacket::NPCGoods(NPCGoods {

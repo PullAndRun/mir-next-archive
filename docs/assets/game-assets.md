@@ -50,23 +50,43 @@ py tools/assets/build_game_assets.py --prune
 
 ## 3) 运行时怎么指定资源根
 
-优先级（高 → 低）：
+**优先级（高 → 低）**——服务端与客户端一致，实现分别在
+`crates/mir-server/src/config.rs`（`resolve_asset_root`）与
+`crates/mir-client/src/assets.rs`（`AssetRoot::resolve`）：
 
-| 端 | 覆盖顺序 |
-|---|---|
-| 服务端 | CLI/配置文件 `asset_root` > 环境变量 `MIR2_ASSET_DIR` > 默认 `game-assets` > **回落 `resource`（WARN）** |
-| 客户端 | `--asset-dir <path>` > 环境变量 `MIR2_ASSET_DIR` > `config/client.toml` 的 `asset_root` > 默认 `game-assets` > **回落 `resource`（WARN）** |
+| 档位 | 服务端 | 客户端 |
+|---|---|---|
+| 1（最高） | 配置结构体 `ServerConfig.asset_root` | `--asset-dir <path>` |
+| 2 | 环境变量 `MIR2_ASSET_DIR` | 环境变量 `MIR2_ASSET_DIR` |
+| 3 | — | `config/client.toml` 的 `asset_root` |
+| 4 | 默认 `game-assets` | 默认 `game-assets` |
+| 5（回落） | `resource`（**默认值缺失打 info，显式配置缺失打 warn**） | 同左 |
+
+派生目录（都在资源根下）：
+
+| 用途 | 路径 | 说明 |
+|---|---|---|
+| 地图 | `<root>/map` | 服务端 `ServerConfig.map_root`；显式配置或 `MIR2_MAP_ROOT` 优先 |
+| 图库/UI | `<root>/data` | 客户端 `--data-dir` 显式给则优先 |
+| 音效 | `<root>/wav` | 客户端由 `data_dir` 的父目录推出（`SoundLibrary::around_data_dir`），`--sound-dir` 优先级更高 |
+| 字体 | `<root>/fonts` | `AssetRoot::fonts_dir()` |
+| 图库索引 | `<root>/ld` | `AssetRoot::ld_dir()` |
+| 数据库 | `<root>/server/Server.MirDB` | 服务端 `db_path`；`MIR2_DB_PATH` 优先 |
 
 ```powershell
 # 服务端：用抽出来的独立资源
 $env:MIR2_ASSET_DIR = "D:\mir-assets"; pwsh -NoProfile -File tools/dev/serve.ps1
 
-# 客户端：也可以只给这一条命令指定
+# 客户端：只给这一条命令指定
 cargo run -p mir-client -- --asset-dir D:\mir-assets
+
+# 冒烟（3 档资源根 + 客户端解析单测）
+pwsh -NoProfile -File tools/dev/asset-smoke.ps1
 ```
 
-`game-assets/` **不存在**时行为与旧版完全一致（回落到 `resource/` 并打一条 WARN），
-所以测试/CI 不装素材也能全绿。
+> `game-assets/` **不存在**时行为与旧版完全一致（回落 `resource/`），
+> 所以测试/CI 不装素材也能全绿；显式指定的目录不存在会 **warn** 并回落，不掩盖配置错误。
+
 
 ## 4) 体积（2026-10-22 实测）
 

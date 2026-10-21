@@ -360,9 +360,9 @@ mod tests {
         let config = ServerConfig::default();
         assert!(
             config.allow_start_game,
-            "默认必须放行进游戏，否则本地开发进不去"
+            "default must allow entering the game for local development"
         );
-        assert!(!config.check_version, "默认不校验客户端版本");
+        assert!(!config.check_version, "version check defaults to off");
         assert_eq!(config.max_character_count, 4);
     }
 
@@ -372,10 +372,10 @@ mod tests {
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .expect("时钟")
+                .expect("clock")
                 .as_nanos()
         ));
-        std::fs::create_dir_all(&dir).expect("建临时目录");
+        std::fs::create_dir_all(&dir).expect("create temp dir");
         dir
     }
 
@@ -394,7 +394,11 @@ mod tests {
         let missing = std::env::temp_dir().join("mir2-server-asset-does-not-exist-xyz");
         let (root, source) = resolve_asset_root(missing.to_str());
         assert_eq!(root, FALLBACK_ASSET_ROOT);
-        assert_eq!(source, AssetRootSource::Config, "保留来源档位，调用方才能打 warn");
+        assert_eq!(
+            source,
+            AssetRootSource::Config,
+            "keep the resolution tier so callers can warn"
+        );
         assert!(source.is_explicit());
     }
 
@@ -403,28 +407,49 @@ mod tests {
         let dir = temp_asset_dir("derive");
         let raw = dir.to_str().expect("utf8").to_owned();
         assert_eq!(derived_map_root(&raw), format!("{raw}/map"));
-        assert_eq!(derived_db_path(&raw), None, "空目录里没有 server/Server.MirDB");
+        assert_eq!(
+            derived_db_path(&raw),
+            None,
+            "empty dir has no server/Server.MirDB"
+        );
 
         // 造一个 server/Server.MirDB，派生路径应当出现
-        std::fs::create_dir_all(dir.join("server")).expect("建 server 目录");
-        std::fs::write(dir.join("server").join("Server.MirDB"), b"mir2").expect("写库文件");
+        std::fs::create_dir_all(dir.join("server")).expect("create server dir");
+        std::fs::write(dir.join("server").join("Server.MirDB"), b"mir2").expect("write db file");
         assert_eq!(
             derived_db_path(&raw),
             Some(format!("{raw}/server/Server.MirDB"))
         );
     }
 
-    #[test]
-    fn explicit_map_root_is_not_overwritten_by_derivation() {
-        let mut config = ServerConfig::default();
-        config.map_root = "D:/custom-maps".to_owned();
-        // 模拟 `from_env` 里换资源根：显式 map_root 与派生值不同 → 不覆盖
-        let dir = temp_asset_dir("keep-map");
+    /// 复刻 `from_env` 的派生逻辑（正式实现里内联在 `from_env`，这里只验证规则）：
+    /// 显式 `map_root` 与旧派生值不同 → 换资源根时**不覆盖**。
+    fn adopt_asset_root(config: &mut ServerConfig, root: &str) {
         let old_derived = derived_map_root(&config.asset_root);
-        config.asset_root = dir.to_str().expect("utf8").to_owned();
+        config.asset_root = root.to_owned();
         if config.map_root == old_derived {
             config.map_root = derived_map_root(&config.asset_root);
         }
-        assert_eq!(config.map_root, "D:/custom-maps", "显式 map_root 必须优先");
+        config.db_path = derived_db_path(&config.asset_root);
+    }
+
+    #[test]
+    fn explicit_map_root_is_not_overwritten_by_derivation() {
+        let dir = temp_asset_dir("keep-map");
+        let raw = dir.to_str().expect("utf8").to_owned();
+        let mut config = ServerConfig {
+            map_root: "D:/custom-maps".to_owned(),
+            ..ServerConfig::default()
+        };
+        adopt_asset_root(&mut config, &raw);
+        assert_eq!(
+            config.map_root, "D:/custom-maps",
+            "explicit map_root must win"
+        );
+        assert_eq!(config.asset_root, raw);
+
+        let mut derived = ServerConfig::default();
+        adopt_asset_root(&mut derived, &raw);
+        assert_eq!(derived.map_root, format!("{raw}/map"));
     }
 }

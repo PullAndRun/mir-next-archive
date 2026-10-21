@@ -333,7 +333,9 @@ fn main() -> Result<()> {
     // 默认 `game-assets` > 回落 `resource`）；`--map-dir`/`--data-dir` 显式给了就优先。
     let assets = mir_client::assets::AssetRoot::resolve(
         options.asset_dir.as_deref(),
-        std::env::var(mir_client::assets::ASSET_ROOT_ENV).ok().as_deref(),
+        std::env::var(mir_client::assets::ASSET_ROOT_ENV)
+            .ok()
+            .as_deref(),
         client_settings.asset_root.as_deref(),
     );
     assets.log_resolution();

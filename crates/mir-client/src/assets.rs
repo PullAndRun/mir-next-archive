@@ -230,7 +230,11 @@ mod tests {
     fn env_wins_over_config() {
         let env = temp_dir("env2");
         let config = temp_dir("config2");
-        let resolved = AssetRoot::resolve(None, Some(env.to_str().expect("utf8")), Some(config.to_str().expect("utf8")));
+        let resolved = AssetRoot::resolve(
+            None,
+            Some(env.to_str().expect("utf8")),
+            Some(config.to_str().expect("utf8")),
+        );
         assert_eq!(resolved.root(), env.as_path());
         assert_eq!(resolved.source(), AssetRootSource::Env);
     }
@@ -248,7 +252,11 @@ mod tests {
         let missing = std::env::temp_dir().join("mir2-asset-root-does-not-exist-xyz");
         let resolved = AssetRoot::resolve(Some(&missing), None, None);
         assert_eq!(resolved.root(), Path::new(FALLBACK_ASSET_ROOT));
-        assert_eq!(resolved.source(), AssetRootSource::Cli, "要保留来源档位，调用方才能打 warn");
+        assert_eq!(
+            resolved.source(),
+            AssetRootSource::Cli,
+            "要保留来源档位，调用方才能打 warn"
+        );
         assert!(resolved.source().is_explicit());
     }
 

@@ -5,5 +5,6 @@
 //! `LoadMapCellsv*()` / `LoadMapCellsV100()`。
 
 pub mod map;
+pub mod mnm;
 
 pub use map::{Door, Map, MapCell, MapError, MapVersion};

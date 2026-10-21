@@ -427,11 +427,23 @@ fn blank_scene(data_dir: &Path) -> MapScene {
     // `open_dir` 失败（素材目录不存在/全缺）时退回空图库，登录窗口仍能开；
     // 只 warn 一次，避免每帧刷屏。
     let gfx_dir = mir_client::assets::gfx_dir_for_data_dir(data_dir);
-    let libraries = mir_render::TileLibraries::open_dir_with_gfx(data_dir, Some(gfx_dir.as_path()))
-        .unwrap_or_else(|error| {
-            eprintln!("警告：登录背景加载素材图库失败（{error}），使用空图库");
-            mir_render::TileLibraries::empty(data_dir)
-        });
+    let assets = mir_client::assets::ResolvedAssets::discover_for_data_dir(data_dir);
+    let asset_root = data_dir.parent();
+    let allow_legacy = assets
+        .effective()
+        .is_none_or(mir_client::assets::AssetMode::allow_legacy);
+    let libraries = mir_render::TileLibraries::open_with_sources(
+        data_dir,
+        Some(gfx_dir.as_path()),
+        asset_root,
+        assets.map.as_ref(),
+        assets.packs.as_ref(),
+        allow_legacy,
+    )
+    .unwrap_or_else(|error| {
+        eprintln!("警告：登录背景加载素材图库失败（{error}），使用空图库");
+        mir_render::TileLibraries::empty(data_dir)
+    });
     println!(
         "素材：{} · 图库 {} 个（+WIL {} 个）",
         data_dir.display(),
@@ -442,7 +454,14 @@ fn blank_scene(data_dir: &Path) -> MapScene {
         map,
         libraries,
         mir_render::Viewport::DEFAULT,
-        mir_render::EntityLibraries::open_dir_with_gfx(data_dir, Some(gfx_dir.as_path())),
+        mir_render::EntityLibraries::open_with_sources(
+            data_dir,
+            Some(gfx_dir.as_path()),
+            asset_root,
+            assets.map.as_ref(),
+            assets.packs.as_ref(),
+            allow_legacy,
+        ),
     )
 }
 
@@ -453,7 +472,21 @@ fn load_world_scene(map_name: &str, map_dir: &Path, data_dir: &Path) -> MapScene
     } else {
         map_dir.join(format!("{map_name}.map"))
     };
-    match MapScene::load(&path, data_dir) {
+    let gfx_dir = mir_client::assets::gfx_dir_for_data_dir(data_dir);
+    let assets = mir_client::assets::ResolvedAssets::discover_for_data_dir(data_dir);
+    let asset_root = data_dir.parent();
+    let allow_legacy = assets
+        .effective()
+        .is_none_or(mir_client::assets::AssetMode::allow_legacy);
+    match MapScene::load_with_sources(
+        &path,
+        data_dir,
+        Some(gfx_dir.as_path()),
+        asset_root,
+        assets.map.as_ref(),
+        assets.packs.as_ref(),
+        allow_legacy,
+    ) {
         Ok(scene) => {
             println!(
                 "素材：{} · 地图库 {} 个（+WIL {} 个）· 地图 {}（{}×{}）",

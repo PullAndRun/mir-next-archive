@@ -12,6 +12,7 @@ authors.workspace = true
 anyhow.workspace = true
 mir-core.workspace = true
 mir-protocol.workspace = true
+mir-asset.workspace = true
 mir-render.workspace = true
 mir-world.workspace = true
 serde.workspace = true

@@ -499,6 +499,35 @@ fn attach_game_data(world: &mut World, config: &ServerConfig) {
 }
 
 fn load_game_data(config: &ServerConfig) -> Option<crate::gamedata::GameData> {
+    // 运行时优先读自有格式：`<asset_root>/data/game.mnd`。
+    let mnd = std::path::Path::new(&config.asset_root)
+        .join("data")
+        .join("game.mnd");
+    if mnd.is_file() {
+        match crate::gamedata::GameData::load_mnd(&mnd) {
+            Ok(data) => {
+                tracing::info!(path = %mnd.display(), "使用 .mnd 数据包");
+                return Some(data);
+            }
+            Err(error) => {
+                tracing::error!(path = %mnd.display(), %error, ".mnd 读取失败，尝试旧格式回退");
+            }
+        }
+    }
+    // 旧格式（Server.MirDB + Envir/*.txt）只允许开发期回退；release 必须提供 .mnd。
+    let legacy_allowed = cfg!(debug_assertions)
+        || std::env::var("MIR2_ALLOW_LEGACY_DATA").is_ok_and(|value| value == "1");
+    if !legacy_allowed {
+        tracing::warn!(
+            path = %mnd.display(),
+            "缺少 .mnd 数据包，且当前不是开发期（未设置 MIR2_ALLOW_LEGACY_DATA=1），跳过数据库加载"
+        );
+        return None;
+    }
+    tracing::warn!(
+        path = %mnd.display(),
+        "缺少 .mnd 数据包 → 开发期回退旧 Server.MirDB/Envir（正式运行必须用 .mnd）"
+    );
     if let Some(path) = &config.db_path {
         match crate::gamedata::GameData::load(path) {
             Ok(data) => return Some(data),
@@ -678,4 +707,84 @@ async fn serve<S: AccountStore>(
     let _ = writer_task.await;
     tracing::info!(session = id, %peer, "连接关闭");
     Ok(())
+}
+
+#[cfg(test)]
+mod mnd_load_tests {
+    use super::*;
+    use mir_db::mnd::{MndFile, MndSection, TAG_DB};
+    use std::path::PathBuf;
+
+    fn dataset_db() -> Option<PathBuf> {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../resource/community/suprcode-crystal-database/cjlaaa/Server.MirDB");
+        path.is_file().then_some(path)
+    }
+
+    fn temp_root(tag: &str) -> PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("mir-next-server-mnd-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        root
+    }
+
+    #[test]
+    fn load_game_data_prefers_mnd_package() {
+        let Some(db_path) = dataset_db() else {
+            eprintln!("skip: cjlaaa Server.MirDB not available under resource/");
+            return;
+        };
+        let root = temp_root("prefer");
+        std::fs::create_dir_all(root.join("data")).expect("mkdir");
+        let mut file = MndFile::new();
+        file.push(MndSection::new(
+            TAG_DB,
+            "db",
+            std::fs::read(&db_path).expect("read db"),
+        ));
+        file.write_to(root.join("data").join("game.mnd"))
+            .expect("write mnd");
+
+        let config = ServerConfig {
+            asset_root: root.display().to_string(),
+            asset_root_source: crate::config::AssetRootSource::Config,
+            db_path: None,
+            load_game_data: true,
+            ..ServerConfig::default()
+        };
+        let data = load_game_data(&config).expect("应加载 .mnd");
+        assert_eq!(
+            data.path().extension().and_then(|ext| ext.to_str()),
+            Some("mnd")
+        );
+        assert_eq!(data.item_count(), 1349, "cjlaaa 物品数");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn legacy_database_still_loads_in_debug_when_mnd_missing() {
+        if !cfg!(debug_assertions) {
+            eprintln!("skip: release 构建不允许旧格式回退");
+            return;
+        }
+        let Some(db_path) = dataset_db() else {
+            eprintln!("skip: cjlaaa Server.MirDB not available under resource/");
+            return;
+        };
+        let root = temp_root("legacy");
+        std::fs::create_dir_all(&root).expect("mkdir");
+        let config = ServerConfig {
+            asset_root: root.display().to_string(),
+            asset_root_source: crate::config::AssetRootSource::Config,
+            db_path: Some(db_path.display().to_string()),
+            load_game_data: true,
+            ..ServerConfig::default()
+        };
+        let data = load_game_data(&config).expect("开发期应回退旧库");
+        assert_eq!(
+            data.path().file_name().and_then(|name| name.to_str()),
+            Some("Server.MirDB")
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

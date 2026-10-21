@@ -196,6 +196,10 @@ pub enum MapError {
     #[error("不支持的地图版本 {0}（Map.cs:73-110 的 FindType 返回值）")]
     UnsupportedVersion(u16),
 
+    /// `.mnm` 自有格式错误。
+    #[error("MNM 地图格式错误：{0}")]
+    Mnm(String),
+
     /// Crystal 自定义格式（`FindType` 返回 100）只支持 payload 版本 1.0。
     ///
     /// `LoadMapCellsV100` 在 `Bytes[0] != 1 || Bytes[1] != 0` 时直接 `return`（`Map.cs:399`），
@@ -409,6 +413,22 @@ impl Map {
     /// 对应 `Map.Load()` 里 `File.ReadAllBytes` + `FindType` + `LoadMapCells*` 这一段
     /// （`Map.cs:439-469`）；安全区、刷新点等数据库相关后处理不在本函数内。
     pub fn load(path: &Path) -> Result<Self, MapError> {
+        // 运行时优先自有 `.mnm`：调用方通常给 `.map` 路径，若同目录有同名 `.mnm`
+        // 就直接读它；缺 `.mnm` 才回退老 `.map`（迁移期兼容）。
+        let is_mnm = path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("mnm"));
+        if !is_mnm {
+            let mnm_path = path.with_extension("mnm");
+            if mnm_path.is_file() {
+                return crate::mnm::open(&mnm_path);
+            }
+        }
+        Self::load_legacy(path)
+    }
+
+    /// 显式读取老 `.map`（导入工具用；不查找同名 `.mnm`）。
+    pub fn load_legacy(path: &Path) -> Result<Self, MapError> {
         // io::Error 不携带路径，这里把路径塞进 message，同时保留 kind（NotFound 等）。
         let data = fs::read(path).map_err(|source| {
             MapError::Io(std::io::Error::new(
@@ -422,6 +442,11 @@ impl Map {
             |stem| stem.to_string_lossy().into_owned(),
         );
         parse(&data, &file_name)
+    }
+
+    /// 显式读取自有 `.mnm`。
+    pub fn open_mnm(path: &Path) -> Result<Self, MapError> {
+        crate::mnm::open(path)
     }
 
     /// 直接解析内存中的地图数据（不读文件）。

@@ -59,7 +59,7 @@ fn print_help() {
         "  assets unpack --lib <库> --out <目录> [--indices 0-9,12|文件|all] [--dry-run] [--verify]"
     );
     println!(
-        "  assets unpack --plan <used-assets.json> --out-root <目录>  批量拆包（吃引用分析结果）"
+        "  assets unpack --plan <used-assets.json> --out-root <目录> [--map-only]  批量拆包/只补 library-map.json"
     );
     println!(
         "  assets pack --input <game-assets> --out <packs> [--chunk-mb 16] [--verify|--list]  发布期自有分包(.mnp)"
@@ -310,12 +310,15 @@ fn assets_unpack(args: &mut impl Iterator<Item = String>) -> Result<()> {
     let mut format = String::from("png");
     let mut dry_run = false;
     let mut verify = false;
+    let mut map_only = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--lib" => lib = Some(PathBuf::from(next_arg(args, "--lib")?)),
             "--out" => out = Some(PathBuf::from(next_arg(args, "--out")?)),
             "--indices" => indices = Some(next_arg(args, "--indices")?),
             "--plan" => plan = Some(PathBuf::from(next_arg(args, "--plan")?)),
+            // 只写 `library-map.json`（不重新拆包），给已经拆好的素材根补映射表。
+            "--map-only" => map_only = true,
             "--out-root" => out_root = Some(PathBuf::from(next_arg(args, "--out-root")?)),
             "--reason" => reason = Some(next_arg(args, "--reason")?),
             "--format" => format = next_arg(args, "--format")?,
@@ -330,7 +333,7 @@ fn assets_unpack(args: &mut impl Iterator<Item = String>) -> Result<()> {
 
     if let Some(plan_path) = plan {
         let out_root = out_root.with_context(|| "--plan 需要配合 --out-root".to_owned())?;
-        return unpackage_plan(&plan_path, &out_root, dry_run, verify);
+        return unpackage_plan(&plan_path, &out_root, dry_run, verify, map_only);
     }
 
     let lib_path = lib.with_context(|| "--lib 必须给出图像库路径".to_owned())?;
@@ -351,7 +354,13 @@ fn assets_unpack(args: &mut impl Iterator<Item = String>) -> Result<()> {
 }
 
 /// 批量：`--plan used-assets.json --out-root <dir>`，每库一个 `<out-root>/<stem>/`。
-fn unpackage_plan(plan_path: &Path, out_root: &Path, dry_run: bool, verify: bool) -> Result<()> {
+fn unpackage_plan(
+    plan_path: &Path,
+    out_root: &Path,
+    dry_run: bool,
+    verify: bool,
+    map_only: bool,
+) -> Result<()> {
     let text = std::fs::read_to_string(plan_path)
         .with_context(|| format!("读取计划文件 {} 失败", plan_path.display()))?;
     let plan: serde_json::Value = serde_json::from_str(&text)
@@ -370,6 +379,9 @@ fn unpackage_plan(plan_path: &Path, out_root: &Path, dry_run: bool, verify: bool
     let mut total_libraries = 0usize;
     let mut total_outputs = 0usize;
     let mut written_dirs: Vec<PathBuf> = Vec::new();
+    // stem（`hum.wzl` → `hum`）→ 该库拆出的目录（相对 out_root，POSIX 风格，不带尾斜杠）
+    let mut library_dirs: std::collections::BTreeMap<String, (String, Vec<String>)> =
+        std::collections::BTreeMap::new();
     for entry in libraries {
         let lib = entry
             .get("lib")
@@ -439,16 +451,74 @@ fn unpackage_plan(plan_path: &Path, out_root: &Path, dry_run: bool, verify: bool
                 );
             }
             written_dirs.push(out_dir.clone());
-            total_images += unpack_one(&lib_path, &out_dir, output_spec, reason, dry_run, verify)?;
+            if !map_only {
+                total_images +=
+                    unpack_one(&lib_path, &out_dir, output_spec, reason, dry_run, verify)?;
+            }
             total_outputs += 1;
+            if (!dry_run && !verify) || map_only {
+                if let Ok(relative) = out_dir.strip_prefix(out_root) {
+                    let relative = relative.to_string_lossy().replace('\\', "/");
+                    if !relative.is_empty() {
+                        library_dirs
+                            .entry(stem.clone())
+                            .or_insert_with(|| (lib.to_owned(), Vec::new()))
+                            .1
+                            .push(relative);
+                    }
+                }
+            }
         }
         total_libraries += 1;
+    }
+    if map_only || (!dry_run && !verify && !library_dirs.is_empty()) {
+        write_library_map(out_root, &library_dirs)?;
     }
     println!(
         "plan={} libraries={total_libraries} outputs={total_outputs} images={total_images} out_root={}",
         plan_path.display(),
         out_root.display()
     );
+    Ok(())
+}
+
+/// 写 `<out_root>/library-map.json`：stem → 拆包目录 + 包前缀。
+///
+/// 与已有表**合并**（同一素材根可能来自多次 `--plan` 运行）；同 stem 的目录去重保序。
+fn write_library_map(
+    out_root: &Path,
+    libraries: &std::collections::BTreeMap<String, (String, Vec<String>)>,
+) -> Result<()> {
+    let path = out_root.join("library-map.json");
+    let mut map: mir_asset::LibraryMap = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| mir_asset::LibraryMap::parse(&text, &path).ok())
+        .unwrap_or_default();
+    for (stem, (lib, dirs)) in libraries {
+        let entry = map
+            .libraries
+            .entry(stem.clone())
+            .or_insert_with(|| mir_asset::LibraryEntry {
+                lib: Some(lib.clone()),
+                dirs: Vec::new(),
+                prefix: None,
+            });
+        entry.lib = Some(lib.clone());
+        for dir in dirs {
+            if !entry.dirs.contains(dir) {
+                entry.dirs.push(dir.clone());
+            }
+        }
+        entry.dirs.sort();
+        if entry.prefix.is_none() {
+            entry.prefix = entry.dirs.first().map(|dir| format!("{dir}/"));
+        }
+    }
+    map.version = 1;
+    map.generated_at = Some(time_stamp());
+    std::fs::write(&path, serde_json::to_string_pretty(&map)? + "\n")
+        .with_context(|| format!("写 {} 失败", path.display()))?;
+    println!("library_map={} libraries={}", path.display(), map.len());
     Ok(())
 }
 
@@ -841,7 +911,7 @@ fn parse_range_list(raw: &str) -> Result<Vec<usize>> {
 // ---------------------------------------------------------------------------
 
 const ASSETS_PACK_USAGE: &str = "usage: mir-tools assets pack --input <game-assets> --out <packs> \
-[--chunk-mb 16] [--no-compress] [--verify] [--list]";
+[--chunk-mb 16] [--no-compress] [--allow-legacy] [--verify] [--list]";
 
 /// 待打包的一条素材。
 #[derive(Debug)]
@@ -865,6 +935,7 @@ fn assets_pack(args: &mut impl Iterator<Item = String>) -> Result<()> {
     let mut compress = true;
     let mut verify = false;
     let mut list = false;
+    let mut allow_legacy = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--input" => input = PathBuf::from(next_arg(args, "--input")?),
@@ -877,6 +948,9 @@ fn assets_pack(args: &mut impl Iterator<Item = String>) -> Result<()> {
                 anyhow::ensure!(chunk_mb >= 1, "--chunk-mb 至少 1");
             }
             "--no-compress" => compress = false,
+            // 新规则：发布包只放自有格式；老格式（.wzl/.map/.wav…）默认拒绝，
+            // 只有显式 `--allow-legacy` 才允许（仅供迁移期对比，不要用于发布）。
+            "--allow-legacy" => allow_legacy = true,
             "--verify" => verify = true,
             "--list" => list = true,
             other => anyhow::bail!("assets pack 不认识参数 {other}\n{ASSETS_PACK_USAGE}"),
@@ -889,10 +963,16 @@ fn assets_pack(args: &mut impl Iterator<Item = String>) -> Result<()> {
         return list_packs(&out);
     }
 
-    let items = discover_pack_items(&input)?;
+    let (items, skipped_legacy) = discover_pack_items(&input, allow_legacy)?;
+    if skipped_legacy > 0 {
+        eprintln!(
+            "已跳过 {skipped_legacy} 个老格式文件（.wzl/.wix/.wil/.map/.wav/.MirDB 等）；\
+             按规则发布包只放自有格式，迁移期对比可加 --allow-legacy"
+        );
+    }
     if items.is_empty() {
         anyhow::bail!(
-            "{} 下没有可打包的素材（先跑 assets unpack？）",
+            "{} 下没有可打包的自有格式素材（先跑 assets unpack？）",
             input.display()
         );
     }
@@ -924,8 +1004,10 @@ fn assets_pack(args: &mut impl Iterator<Item = String>) -> Result<()> {
             while cursor < items.len() {
                 let item = &items[cursor];
                 let upper = raw_upper_bound(item);
-                // 包头 32B + 目录项 ≈ 64B/条 + 尾部 32B，留 1KB 余量
-                if taken > 0 && writer.current_len() + upper + 1024 > limit {
+                // 包头 32B + 尾 sha256 32B + 条目表（名字 + 30B 定长）≈ 96B/条，
+                // 再留 4KB 余量；只留 1KB 时 5,673 条会溢出 ~1.1KB。
+                let overhead = 8192 + (taken as u64 + 1) * 128;
+                if taken > 0 && writer.current_len() + upper + overhead > limit {
                     break;
                 }
                 if let Some(info) = item.info {
@@ -956,6 +1038,19 @@ fn assets_pack(args: &mut impl Iterator<Item = String>) -> Result<()> {
         chunk_mb: u32::try_from(chunk_mb).unwrap_or(u32::MAX),
         packs: summaries,
     };
+    // 发布期也要这张表：散装根上的 library-map.json 复制进 packs/
+    let source_map = input.join("library-map.json");
+    if source_map.is_file() {
+        let target_map = out.join("library-map.json");
+        std::fs::copy(&source_map, &target_map).with_context(|| {
+            format!(
+                "复制 {} 到 {} 失败",
+                source_map.display(),
+                target_map.display()
+            )
+        })?;
+        println!("library_map={}", target_map.display());
+    }
     let manifest_path = out.join("manifest.packs.json");
     std::fs::write(
         &manifest_path,
@@ -1002,8 +1097,12 @@ fn time_stamp() -> String {
     }
 }
 
-fn discover_pack_items(input: &Path) -> Result<Vec<PackItem>> {
+/// 老格式扩展名：**不进发布包**（用户规则：运行只读自有格式）。
+const LEGACY_EXTENSIONS: &[&str] = &["wzl", "wix", "wil", "map", "wav", "lib", "mirdb", "txt"];
+
+fn discover_pack_items(input: &Path, allow_legacy: bool) -> Result<(Vec<PackItem>, usize)> {
     let mut items = Vec::new();
+    let mut skipped_legacy = 0usize;
     let mut index_cache: std::collections::BTreeMap<PathBuf, serde_json::Value> =
         std::collections::BTreeMap::new();
     walk_files(input, &mut |path| {
@@ -1034,6 +1133,11 @@ fn discover_pack_items(input: &Path) -> Result<Vec<PackItem>> {
             category != "maps" && category != "audio" && category != "data" && extension == "png";
         if !is_image && extension == "json" {
             return Ok(()); // index.json 本身不进包
+        }
+        // 发布包只放自有格式：老格式默认跳过（`--allow-legacy` 仅供迁移期对比）。
+        if !allow_legacy && LEGACY_EXTENSIONS.contains(&extension.as_str()) {
+            skipped_legacy += 1;
+            return Ok(());
         }
         let info = if is_image {
             let parent = path.parent().unwrap_or(input).to_path_buf();
@@ -1111,7 +1215,7 @@ fn discover_pack_items(input: &Path) -> Result<Vec<PackItem>> {
         Ok(())
     })?;
     items.sort_by(|left, right| left.logical.cmp(&right.logical));
-    Ok(items)
+    Ok((items, skipped_legacy))
 }
 
 fn walk_files(dir: &Path, visit: &mut impl FnMut(&Path) -> Result<()>) -> Result<()> {
@@ -1178,7 +1282,7 @@ fn verify_packs(out: &Path, input: &Path) -> Result<()> {
         );
     }
     // 输入目录里的每个文件都必须在某个包里
-    let items = discover_pack_items(input)?;
+    let (items, _skipped) = discover_pack_items(input, false)?;
     for item in &items {
         if !set.contains(&item.logical) {
             problems.push(format!("包集合缺条目 {}", item.logical));

@@ -1,10 +1,6 @@
 # 运行时老资源格式引用基线（棘轮：只许减少）。
 # 格式：<相对路径>|<行号>:<内容>
 
-crates/mir-client/src/app.rs|3126:reload_after_map_change(&mut scene, &snapshot, Path::new("resource/不存在的目录"), 7)
-crates/mir-client/src/app.rs|3133:.map_reload_request("resource/map")
-crates/mir-client/src/app.rs|3137:assert_eq!(request.path, PathBuf::from("resource/map/D2083.map"));
-crates/mir-client/src/app.rs|3147:let source = root.join("resource/map/0100.map");
 crates/mir-client/src/assets.rs|166:"素材形态：legacy（散装与 packs 都没找到，回退原 .wzl；**运行时只读自有格式，此模式仅供开发**）· 根 {}",
 crates/mir-client/src/audio.rs|120:PathBuf::from("resource/wav"),
 crates/mir-client/src/audio.rs|121:PathBuf::from("resource/community/mirfiles-crystal-client/Client/Sound"),
@@ -13,21 +9,11 @@ crates/mir-client/src/audio.rs|156:Self::around_data_dir(root.as_ref().join("res
 crates/mir-client/src/main.rs|85:map_dir: PathBuf::from("resource/map"),
 crates/mir-client/src/main.rs|86:data_dir: PathBuf::from("resource/data"),
 crates/mir-client/src/main.rs|376:"警告：素材形态 legacy —— 允许回退原始 .wzl/.map；按项目规则运行时只应读自有格式，此模式仅供开发兼容"
-crates/mir-client/src/main.rs|745:for candidate in ["resource/data", "resource/ld/data"] {
-crates/mir-client/src/main.rs|789:"  --asset-mode <形态>     素材形态 auto|dev|release|legacy（默认 auto；legacy 仅供开发，允许回退 .wzl）"
-crates/mir-client/src/main.rs|828:resolve_map_path("0", Path::new("resource/map")),
-crates/mir-client/src/main.rs|829:PathBuf::from("resource/map/0.map")
-crates/mir-client/src/main.rs|840:let real = root.join("resource/data");
-crates/mir-client/src/net.rs|6850:"200 段武器在 weapon*.wzl 里的块号是 Shape % 100"
-crates/mir-render/src/entities.rs|1694:std::fs::write(dir.join(&format!("{stem}.wzl")), wzl).expect("写 .wzl");
-crates/mir-render/src/entities.rs|1695:std::fs::write(dir.join(&format!("{stem}.wzx")), wzx).expect("写 .wzx");
-crates/mir-render/src/entities.rs|1973:player.weapon_shape = 103; // 100 段 → weapon2.wzl
-crates/mir-render/src/entities.rs|2457:.expect("magic2.wzl 第 0 帧应能解码");
+crates/mir-client/src/main.rs|755:for candidate in ["resource/data", "resource/ld/data"] {
+crates/mir-client/src/main.rs|799:"  --asset-mode <形态>     素材形态 auto|dev|release|legacy（默认 auto；legacy 仅供开发，允许回退 .wzl）"
 crates/mir-render/src/error.rs|31:"素材目录 {} 里没有找到地图图像库（需要 tiles.wzl / smtiles.wzl / objects*.wzl 与配套 .wzx）",
 crates/mir-render/src/minimap.rs|342:let Some(path) = find_case_insensitive(directory, "mmap.wzl") else {
 crates/mir-render/src/minimap.rs|345:Some(format!("{} 下没有 mmap.wzl", directory.display())),
-crates/mir-render/src/scene.rs|1051:std::fs::write(directory.join(format!("{stem}.wzl")), wzl).expect("写 .wzl");
-crates/mir-render/src/scene.rs|1052:std::fs::write(directory.join(format!("{stem}.wzx")), wzx).expect("写 .wzx");
 crates/mir-render/src/text.rs|44:pub const FONT_DIRECTORY: &str = "resource/fonts";
 crates/mir-render/src/tiles.rs|35:(0, "tiles.wzl"),
 crates/mir-render/src/tiles.rs|36:(1, "smtiles.wzl"),
@@ -60,21 +46,8 @@ crates/mir-render/src/tiles.rs|62:(27, "objects26.wzl"),
 crates/mir-render/src/tiles.rs|63:(28, "objects27.wzl"),
 crates/mir-render/src/tiles.rs|64:(90, "objects_32bit.wzl"),
 crates/mir-render/src/tiles.rs|65:(190, "anitiles1.wzl"),
-crates/mir-render/src/tiles.rs|329:assert_eq!(LIBRARY_FILES[0], (0, "tiles.wzl"));
-crates/mir-render/src/tiles.rs|330:assert_eq!(LIBRARY_FILES[1], (1, "smtiles.wzl"));
-crates/mir-render/src/tiles.rs|331:assert_eq!(LIBRARY_FILES[2], (2, "objects.wzl"));
-crates/mir-render/src/tiles.rs|333:assert_eq!(LIBRARY_FILES[3], (3, "objects2.wzl"));
-crates/mir-render/src/tiles.rs|334:assert_eq!(LIBRARY_FILES[28], (28, "objects27.wzl"));
-crates/mir-render/src/tiles.rs|335:assert!(LIBRARY_FILES.contains(&(190, "anitiles1.wzl")));
-crates/mir-render/src/tiles.rs|388:"resource/data 里的 .wil/.wix 也应当打开：{}",
-crates/mir-render/src/tiles.rs|392:let info = libraries.info(0, 0).expect("tiles.wzl 第 0 张的头");
-crates/mir-render/src/tiles.rs|394:let image = libraries.image(0, 0).expect("tiles.wzl 第 0 张");
 crates/mir-server/src/config.rs|112:let primary = format!("{asset_root}/data/server/Server.MirDB");
 crates/mir-server/src/config.rs|116:let legacy = format!("{asset_root}/server/Server.MirDB");
-crates/mir-server/src/config.rs|437:dir.join("data").join("server").join("Server.MirDB"),
-crates/mir-server/src/config.rs|443:Some(format!("{raw}/data/server/Server.MirDB"))
-crates/mir-server/src/config.rs|450:std::fs::write(legacy_dir.join("server").join("Server.MirDB"), b"mir2")
-crates/mir-server/src/config.rs|454:Some(format!("{legacy_raw}/server/Server.MirDB")),
 crates/mir-server/src/exp.rs|62:"resource/community/suprcode-crystal-database/cjlaaa/Configs/ExpList.ini",
 crates/mir-server/src/exp.rs|63:"resource/community/suprcode-crystal-database/Jev/Configs/ExpList.ini",
 crates/mir-server/src/exp.rs|64:"resource/community/clgforever910-mir2database/Daneo1989/Configs/ExpList.ini",
@@ -86,17 +59,9 @@ crates/mir-server/src/gamedata.rs|310:|_| PathBuf::from("resource/community/<rep
 crates/mir-server/src/gamedata.rs|311:|cwd| cwd.join("resource/community/<repo>/Server.MirDB"),
 crates/mir-server/src/gamedata.rs|316:"no Server.MirDB found under {} (searched: {}); \
 crates/mir-server/src/gamedata.rs|317:use tools/asset-index/find_asset.py --name Server.MirDB",
-crates/mir-server/src/gamedata.rs|854:root.join("resource/community/suprcode-crystal-database")
-crates/mir-server/src/gamedata.rs|856:.join("Server.MirDB"),
-crates/mir-server/src/gamedata.rs|869:eprintln!("skip: no Server.MirDB sample under resource/");
-crates/mir-server/src/gamedata.rs|934:eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
-crates/mir-server/src/gamedata.rs|948:eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
-crates/mir-server/src/gamedata.rs|971:eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
-crates/mir-server/src/gamedata.rs|999:eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
-crates/mir-server/src/gamedata.rs|1017:eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
-crates/mir-server/src/gamedata.rs|1083:eprintln!("skip: no Jev Server.MirDB sample under resource/");
 crates/mir-server/src/guild.rs|476:"resource/community/suprcode-crystal-database/cjlaaa/Configs/GuildSettings.ini",
 crates/mir-server/src/guild.rs|477:"resource/community/suprcode-crystal-database/Jev/Configs/GuildSettings.ini",
 crates/mir-server/src/guild.rs|478:"resource/community/cjlaaa-mir2-server-release/Configs/GuildSettings.ini",
 crates/mir-server/src/server.rs|478:"已加载 Server.MirDB"
-crates/mir-server/src/server.rs|514:tracing::info!(%error, "没有可用的 Server.MirDB，跳过数据库刷怪");
+crates/mir-server/src/server.rs|529:"缺少 .mnd 数据包 → 开发期回退旧 Server.MirDB/Envir（正式运行必须用 .mnd）"
+crates/mir-server/src/server.rs|543:tracing::info!(%error, "没有可用的 Server.MirDB，跳过数据库刷怪");

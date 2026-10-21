@@ -11,7 +11,9 @@ authors.workspace = true
 [dependencies]
 mir-core.workspace = true
 thiserror.workspace = true
+flate2.workspace = true
 tracing.workspace = true
 
 [lints]
 workspace = true
+

@@ -114,6 +114,23 @@ pub struct GameData {
     path: PathBuf,
 }
 
+/// `.mnd` 加载错误。
+#[derive(Debug, thiserror::Error)]
+pub enum MndLoadError {
+    /// `.mnd` 容器读取/解析失败。
+    #[error("读取 .mnd：{0}")]
+    Mnd(#[from] mir_db::mnd::MndError),
+    /// 内嵌 DB 载荷解析失败。
+    #[error("解析 .mnd 里的 DB：{0}")]
+    Db(#[from] MirDbError),
+    /// 容器缺少 `db` 段。
+    #[error(".mnd 缺少 db 段")]
+    MissingDb,
+    /// 解包 Envir 到临时目录失败。
+    #[error("解包 .mnd 的 Envir：{0}")]
+    Io(#[from] std::io::Error),
+}
+
 impl GameData {
     /// 从文件加载。
     pub fn load(path: impl AsRef<Path>) -> Result<Self, MirDbError> {
@@ -122,6 +139,65 @@ impl GameData {
         // Crystal `Settings.DropPath = ./Envir/Drops`（`Settings.cs:28`）；这里从数据库所在目录推。
         let envir_dir = path.parent().map(|parent| parent.join("Envir"));
         let drop_dir = envir_dir.as_ref().map(|envir| envir.join("Drops"));
+        Ok(Self::from_parts(db, drop_dir, envir_dir, path))
+    }
+
+    /// 从 `.mnd`（Mir Next Data）加载：运行时自有格式，不读 `Server.MirDB`/`Envir/*.txt`。
+    ///
+    /// `.mnd` 的 `db` 段是导入工具写出的 DB 载荷；`Envir/*` 段是脚本文本。骨架阶段把脚本
+    /// 解到系统临时目录（按 `.mnd` 路径做稳定 hash），复用现有脚本解析器；后续 M2 改成
+    /// 内存虚拟文件系统即可，调用方接口不变。
+    ///
+    /// # Errors
+    /// `.mnd` 读取/解析、DB 载荷解析或临时目录写入失败。
+    pub fn load_mnd(path: impl AsRef<Path>) -> Result<Self, MndLoadError> {
+        let path = path.as_ref().to_path_buf();
+        let mnd = mir_db::mnd::MndFile::read_from(&path)?;
+        let db_section = mnd.get("db").ok_or(MndLoadError::MissingDb)?;
+        let db = MirDb::from_bytes(&db_section.data)?;
+
+        let mut envir_dir = None;
+        let mut script_count = 0usize;
+        if mnd
+            .sections
+            .iter()
+            .any(|section| section.tag == mir_db::mnd::TAG_ENVIR)
+        {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            std::hash::Hash::hash(&path, &mut hasher);
+            let root = std::env::temp_dir().join(format!(
+                "mir-next-mnd-{:016x}",
+                std::hash::Hasher::finish(&hasher)
+            ));
+            for section in &mnd.sections {
+                if section.tag != mir_db::mnd::TAG_ENVIR {
+                    continue;
+                }
+                let relative = section.name.strip_prefix("Envir/").unwrap_or(&section.name);
+                let mut target = root.clone();
+                for component in relative.split('/') {
+                    // 防目录穿越：只接受普通文件名。
+                    if component.is_empty() || component == "." || component == ".." {
+                        continue;
+                    }
+                    target.push(component);
+                }
+                if let Some(parent) = target.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&target, &section.data)?;
+                script_count += 1;
+            }
+            envir_dir = Some(root);
+        }
+        let drop_dir = envir_dir.as_ref().map(|envir| envir.join("Drops"));
+        tracing::info!(
+            path = %path.display(),
+            schema_version = mnd.schema_version,
+            sections = mnd.sections.len(),
+            scripts = script_count,
+            "已加载 .mnd 数据包"
+        );
         Ok(Self::from_parts(db, drop_dir, envir_dir, path))
     }
 

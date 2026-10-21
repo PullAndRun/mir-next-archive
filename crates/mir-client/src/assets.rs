@@ -14,6 +14,162 @@
 
 use std::path::{Path, PathBuf};
 
+/// 素材形态：开发期散装 / 发布期小包 / 自动。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssetMode {
+    /// 有散装就用散装，否则用 `packs/`，再否则回退原 `.wzl`。
+    Auto,
+    /// 只用散装目录（`library-map.json` + `gfx/**`）。
+    Dev,
+    /// 只用发布期小包（`packs/manifest.packs.json`）。
+    Release,
+    /// 老格式兼容（**仅开发用**）：散装 → packs → 原始 `.wzl`，启动打 WARN。
+    Legacy,
+}
+
+impl AssetMode {
+    /// 解析字符串（`auto`/`dev`/`release`，大小写不敏感）。
+    #[must_use]
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "dev" => Some(Self::Dev),
+            "release" => Some(Self::Release),
+            "legacy" => Some(Self::Legacy),
+            _ => None,
+        }
+    }
+
+    /// 是否允许运行时回退原始 `.wzl`（只有 `legacy` 允许；用户要求：运行只读自有格式）。
+    #[must_use]
+    pub fn allow_legacy(self) -> bool {
+        matches!(self, Self::Legacy)
+    }
+
+    /// 命令行/配置里的规范写法。
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Dev => "dev",
+            Self::Release => "release",
+            Self::Legacy => "legacy",
+        }
+    }
+}
+
+/// 实际解析出来的素材来源。
+#[derive(Debug, Default, Clone)]
+pub struct ResolvedAssets {
+    /// 实际生效的形态（`Auto` 会解析成 `Dev`/`Release`）。
+    pub mode: Option<AssetMode>,
+    /// 库映射表（`library-map.json`）。
+    pub map: Option<mir_asset::LibraryMap>,
+    /// 发布期小包。
+    pub packs: Option<mir_asset::PackSet>,
+}
+
+impl ResolvedAssets {
+    /// 按 `mode` 在 `root` 下找散装与 `packs/`。
+    #[must_use]
+    pub fn load(root: &Path, mode: AssetMode) -> Self {
+        let dev_map_path = root.join("library-map.json");
+        let packs_dir = root.join("packs");
+        let release_map_path = packs_dir.join("library-map.json");
+
+        let dev = || -> Option<(mir_asset::LibraryMap, AssetMode)> {
+            let map = mir_asset::LibraryMap::load(&dev_map_path).ok()?;
+            if map.is_empty() {
+                return None;
+            }
+            let usable = map.libraries.values().any(|entry| {
+                entry
+                    .dirs
+                    .iter()
+                    .any(|dir| root.join(dir).join("index.json").is_file())
+            });
+            usable.then_some((map, AssetMode::Dev))
+        };
+        let release = || -> Option<(mir_asset::LibraryMap, mir_asset::PackSet, AssetMode)> {
+            let map = mir_asset::LibraryMap::load(&release_map_path).ok()?;
+            let packs = mir_asset::PackSet::open(&packs_dir).ok()?;
+            (!packs.is_empty()).then_some((map, packs, AssetMode::Release))
+        };
+
+        match mode {
+            AssetMode::Dev => dev().map_or_else(Self::default, |(map, mode)| Self {
+                mode: Some(mode),
+                map: Some(map),
+                packs: None,
+            }),
+            AssetMode::Release => release().map_or_else(Self::default, |(map, packs, mode)| Self {
+                mode: Some(mode),
+                map: Some(map),
+                packs: Some(packs),
+            }),
+            AssetMode::Legacy | AssetMode::Auto => {
+                if let Some((map, mode)) = dev() {
+                    return Self {
+                        mode: Some(mode),
+                        map: Some(map),
+                        packs: None,
+                    };
+                }
+                release().map_or_else(
+                    || Self {
+                        mode: (mode == AssetMode::Legacy).then_some(AssetMode::Legacy),
+                        ..Self::default()
+                    },
+                    |(map, packs, mode)| Self {
+                        mode: Some(mode),
+                        map: Some(map),
+                        packs: Some(packs),
+                    },
+                )
+            }
+        }
+    }
+
+    /// 从素材目录反推素材根并自动发现（登录窗口等拿不到 CLI 参数的地方用）。
+    ///
+    /// 形态优先取环境变量 `MIR2_ASSET_MODE`，否则 `auto`。
+    #[must_use]
+    pub fn discover_for_data_dir(data_dir: &Path) -> Self {
+        let root = data_dir.parent().unwrap_or_else(|| Path::new("."));
+        let mode = std::env::var(ASSET_MODE_ENV)
+            .ok()
+            .as_deref()
+            .and_then(AssetMode::parse)
+            .unwrap_or(AssetMode::Auto);
+        Self::load(root, mode)
+    }
+
+    /// 实际形态（没找到任何来源时 `None`，即回退原 `.wzl`）。
+    #[must_use]
+    pub fn effective(&self) -> Option<AssetMode> {
+        self.mode
+    }
+
+    /// 打印一行解析结果（启动日志用）。
+    pub fn log(&self, root: &Path) {
+        match (self.mode, &self.map) {
+            (Some(mode), Some(map)) => println!(
+                "素材形态：{} · 根 {} · 库映射 {} 条 · 小包 {} 个",
+                mode.as_str(),
+                root.display(),
+                map.len(),
+                self.packs
+                    .as_ref()
+                    .map_or(0, mir_asset::PackSet::pack_count)
+            ),
+            _ => println!(
+                "素材形态：legacy（散装与 packs 都没找到，回退原 .wzl；**运行时只读自有格式，此模式仅供开发**）· 根 {}",
+                root.display()
+            ),
+        }
+    }
+}
+
 /// 从素材目录推拆包目录：`<asset_root>/data` → `<asset_root>/gfx`。
 ///
 /// 拆包产物按库名分目录（`gfx/items/index.json`），所以知道 `data` 的父目录即可。
@@ -30,6 +186,8 @@ pub const DEFAULT_ASSET_ROOT: &str = "game-assets";
 pub const FALLBACK_ASSET_ROOT: &str = "resource";
 /// 环境变量：指定资源根。
 pub const ASSET_ROOT_ENV: &str = "MIR2_ASSET_DIR";
+/// 素材形态环境变量（`auto`/`dev`/`release`）。
+pub const ASSET_MODE_ENV: &str = "MIR2_ASSET_MODE";
 
 /// 资源根是**从哪一档**解析出来的（测试与日志都要它）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,7 +303,17 @@ impl AssetRoot {
     /// 地图目录：`<root>/map`。
     #[must_use]
     pub fn map_dir(&self) -> PathBuf {
-        self.root.join("map")
+        // 新布局是 `maps/`（复数）；旧布局 `map/` 仅在 `maps/` 不存在时兼容使用，
+        // 启动日志会标注来源（默认不再把旧目录当主路径）。
+        let primary = self.root.join("maps");
+        if primary.is_dir() {
+            return primary;
+        }
+        let legacy = self.root.join("map");
+        if legacy.is_dir() {
+            return legacy;
+        }
+        primary
     }
 
     /// 客户端图库目录：`<root>/data`。
@@ -273,7 +441,7 @@ mod tests {
     #[test]
     fn derived_dirs_are_under_the_root() {
         let root = AssetRoot::from_parts("D:/mir-assets", AssetRootSource::Cli);
-        assert_eq!(root.map_dir(), PathBuf::from("D:/mir-assets/map"));
+        assert_eq!(root.map_dir(), PathBuf::from("D:/mir-assets/maps"));
         assert_eq!(root.data_dir(), PathBuf::from("D:/mir-assets/data"));
         assert_eq!(root.wav_dir(), PathBuf::from("D:/mir-assets/wav"));
         assert_eq!(root.fonts_dir(), PathBuf::from("D:/mir-assets/fonts"));

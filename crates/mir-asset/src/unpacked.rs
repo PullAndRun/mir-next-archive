@@ -223,6 +223,83 @@ impl UnpackedLibrary {
     }
 }
 
+/// 多个拆包目录合起来当**一个库**用。
+///
+/// 新命名把一库拆到多个目录（`hum.wzl` → `gfx/sprites/player/body-003/`、`body-004/`…；
+/// `mon14.wzl` → 10 个 `mon-013x/`），所以渲染层按"库"取图时要能跨目录找。
+/// 索引语义仍是**原库 0 基索引**，与 [`UnpackedLibrary`] 一致。
+#[derive(Debug)]
+pub struct UnpackedDirSet {
+    dirs: Vec<UnpackedLibrary>,
+}
+
+impl UnpackedDirSet {
+    /// 打开一组拆包目录；空列表视为错误（调用方应回退）。
+    pub fn open(dirs: &[PathBuf]) -> Result<Self, AssetError> {
+        if dirs.is_empty() {
+            return Err(AssetError::UnpackedIndex {
+                path: PathBuf::new(),
+                message: "拆包目录列表为空".to_owned(),
+            });
+        }
+        let mut opened = Vec::with_capacity(dirs.len());
+        for dir in dirs {
+            opened.push(UnpackedLibrary::open(dir)?);
+        }
+        Ok(Self { dirs: opened })
+    }
+
+    /// 目录数。
+    #[must_use]
+    pub fn dir_count(&self) -> usize {
+        self.dirs.len()
+    }
+
+    /// 条目总数（各目录之和）。
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.dirs.iter().map(UnpackedLibrary::len).sum()
+    }
+
+    /// 是否一条都没有。
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// 是否包含某个原库索引。
+    #[must_use]
+    pub fn contains(&self, index: usize) -> bool {
+        self.dirs.iter().any(|dir| dir.contains(index))
+    }
+
+    /// 某个原库索引的头信息。
+    pub fn info(&self, index: usize) -> Result<ImageInfo, AssetError> {
+        for dir in &self.dirs {
+            if dir.contains(index) {
+                return dir.info(index);
+            }
+        }
+        Err(AssetError::MissingIndex {
+            path: PathBuf::from("unpacked-dirs"),
+            index,
+        })
+    }
+
+    /// 某个原库索引的像素。
+    pub fn image(&self, index: usize) -> Result<Image, AssetError> {
+        for dir in &self.dirs {
+            if dir.contains(index) {
+                return dir.image(index);
+            }
+        }
+        Err(AssetError::MissingIndex {
+            path: PathBuf::from("unpacked-dirs"),
+            index,
+        })
+    }
+}
+
 /// 一个图像库的来源：原始容器（`.wzl/.wil/.Lib`）或拆包目录。
 ///
 /// 渲染层用它在两者之间**无感切换**：优先 `<gfx>/<stem>/index.json`（拆包目录），
@@ -233,6 +310,8 @@ pub enum LibrarySource {
     Packed(crate::ImageLibrary),
     /// 拆包目录（`index.json` + PNG）。
     Unpacked(UnpackedLibrary),
+    /// 多个拆包目录（一库拆到多目录时的合并视图）。
+    UnpackedDirs(UnpackedDirSet),
     /// 发布期小包（`.mnp`，已按某个前缀筛成一个库）。
     Pack(crate::PackSet),
 }
@@ -262,6 +341,17 @@ impl LibrarySource {
         Ok(Self::Packed(crate::ImageLibrary::open(path)?))
     }
 
+    /// 从一组拆包目录建库（一库多目录）。
+    pub fn from_dirs(dirs: &[PathBuf]) -> Result<Self, AssetError> {
+        Ok(Self::UnpackedDirs(UnpackedDirSet::open(dirs)?))
+    }
+
+    /// 是否来自"一库多目录"形态。
+    #[must_use]
+    pub fn is_unpacked_dirs(&self) -> bool {
+        matches!(self, Self::UnpackedDirs(_))
+    }
+
     /// 从一整套小包里筛出某个库（`prefix` 形如 `gfx/tiles/tiles0/`）。
     #[must_use]
     pub fn from_packs(set: &crate::PackSet, prefix: &str) -> Self {
@@ -286,6 +376,7 @@ impl LibrarySource {
         match self {
             Self::Packed(library) => library.len(),
             Self::Unpacked(library) => library.len(),
+            Self::UnpackedDirs(dirs) => dirs.len(),
             Self::Pack(set) => set.len(),
         }
     }
@@ -301,6 +392,7 @@ impl LibrarySource {
         match self {
             Self::Packed(library) => library.info(index),
             Self::Unpacked(library) => library.info(index),
+            Self::UnpackedDirs(dirs) => dirs.info(index),
             Self::Pack(set) => set
                 .library_info(index)
                 .ok_or_else(|| AssetError::MissingIndex {
@@ -315,6 +407,7 @@ impl LibrarySource {
         match self {
             Self::Packed(library) => library.image(index),
             Self::Unpacked(library) => library.image(index),
+            Self::UnpackedDirs(dirs) => dirs.image(index),
             Self::Pack(set) => set.library_image(index),
         }
     }

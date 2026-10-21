@@ -47,6 +47,34 @@ def is_comment_or_doc(line: str) -> bool:
     return stripped.startswith("//") or stripped.startswith("///") or stripped.startswith("//!")
 
 
+def test_only_lines(lines: list[str]) -> set[int]:
+    """返回 `#[cfg(test)]` 块覆盖的行号（0 基）。
+
+    测试可以为了验证"导入器/回退路径"读老格式；规则只约束**运行时**代码。
+    块边界用花括号配平近似判断（够用：Rust 的 test 模块几乎都是 `#[cfg(test)] mod tests { ... }`）。
+    """
+    skip: set[int] = set()
+    index = 0
+    while index < len(lines):
+        if "#[cfg(test)]" not in lines[index]:
+            index += 1
+            continue
+        depth = 0
+        started = False
+        cursor = index
+        while cursor < len(lines):
+            depth += lines[cursor].count("{") - lines[cursor].count("}")
+            if "{" in lines[cursor]:
+                started = True
+            if started and depth <= 0:
+                break
+            cursor += 1
+        for line in range(index, min(cursor + 1, len(lines))):
+            skip.add(line)
+        index = cursor + 1
+    return skip
+
+
 def hits() -> list[tuple[str, str]]:
     found: list[tuple[str, str]] = []
     for crate in RUNTIME_CRATES:
@@ -55,8 +83,10 @@ def hits() -> list[tuple[str, str]]:
             continue
         for path in sorted(src.rglob("*.rs")):
             rel = path.relative_to(ROOT).as_posix()
-            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                if is_comment_or_doc(line):
+            lines = path.read_text(encoding="utf-8").splitlines()
+            skip = test_only_lines(lines)
+            for number, line in enumerate(lines, 1):
+                if (number - 1) in skip or is_comment_or_doc(line):
                     continue
                 if any(pattern.search(line) for pattern in PATTERNS):
                     found.append((rel, f"{number}:{line.strip()}"))

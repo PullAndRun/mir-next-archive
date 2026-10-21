@@ -61,6 +61,9 @@ pub struct ClientSettings {
     /// 回落 `resource/` 的顺序解析（见 [`crate::assets::AssetRoot`]）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset_root: Option<String>,
+    /// 素材形态（`auto`/`dev`/`release`；`None` = `auto`）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset_mode: Option<String>,
     /// 角色装备摘要缓存（角色名 → 「木剑 / 布衣」），选角页显示用。
     #[serde(default)]
     pub equipment: BTreeMap<String, String>,
@@ -118,6 +121,7 @@ impl Default for ClientSettings {
             resolution: default_resolution(),
             scale: default_scale(),
             asset_root: None,
+            asset_mode: None,
             equipment: BTreeMap::new(),
         }
     }

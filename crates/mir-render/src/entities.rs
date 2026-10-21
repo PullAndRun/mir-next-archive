@@ -856,6 +856,14 @@ pub struct EntityLibraries {
     files: BTreeMap<String, PathBuf>,
     /// 拆包目录根（`<asset_root>/gfx`）；`None` 表示只用原始 `.wzl`。
     gfx_dir: Option<PathBuf>,
+    /// 素材根（`library-map.json` 的 `dirs` 相对它解析）。
+    asset_root: Option<PathBuf>,
+    /// 库映射表（`stem → dirs/prefix`）。
+    map: Option<mir_asset::LibraryMap>,
+    /// 发布期小包集合。
+    packs: Option<mir_asset::PackSet>,
+    /// 是否允许回退原始 `.wzl`（只有 `asset_mode = legacy` 为真）。
+    allow_legacy: bool,
     /// 已尝试打开的图库；`None` 表示文件不存在或打开失败。
     opened: BTreeMap<String, Option<LibrarySource>>,
 }
@@ -888,6 +896,10 @@ impl EntityLibraries {
             directory,
             files,
             gfx_dir: None,
+            asset_root: None,
+            map: None,
+            packs: None,
+            allow_legacy: true,
             opened: BTreeMap::new(),
         }
     }
@@ -900,6 +912,28 @@ impl EntityLibraries {
         libraries
     }
 
+    /// 完整加载：**散装（library-map 多目录）→ 小包（`.mnp`）→ 原始 `.wzl`**。
+    ///
+    /// 与 [`Self::open_dir_with_gfx`] 的区别：release 形态下没有 `.wzl` 文件，
+    /// 必须靠 `map` + `packs` 才能找到图库。
+    #[must_use]
+    pub fn open_with_sources(
+        directory: impl AsRef<Path>,
+        gfx_dir: Option<&Path>,
+        asset_root: Option<&Path>,
+        map: Option<&mir_asset::LibraryMap>,
+        packs: Option<&mir_asset::PackSet>,
+        allow_legacy: bool,
+    ) -> Self {
+        let mut libraries = Self::open_dir(directory);
+        libraries.gfx_dir = gfx_dir.map(Path::to_path_buf);
+        libraries.asset_root = asset_root.map(Path::to_path_buf);
+        libraries.map = map.cloned();
+        libraries.packs = packs.cloned();
+        libraries.allow_legacy = allow_legacy;
+        libraries
+    }
+
     /// 空图库集合（测试与无素材环境）。
     #[must_use]
     pub fn empty(directory: impl Into<PathBuf>) -> Self {
@@ -907,6 +941,10 @@ impl EntityLibraries {
             directory: directory.into(),
             files: BTreeMap::new(),
             gfx_dir: None,
+            asset_root: None,
+            map: None,
+            packs: None,
+            allow_legacy: true,
             opened: BTreeMap::new(),
         }
     }
@@ -926,7 +964,29 @@ impl EntityLibraries {
     /// 是否找到了某个图库文件（不要求已打开）。
     #[must_use]
     pub fn has(&self, library: SpriteLibrary) -> bool {
-        self.path_for_stem(&library.stem()).is_some()
+        let stem = library.stem();
+        self.map_dirs(&stem).is_some() || self.path_for_stem(&stem).is_some()
+    }
+
+    /// `library-map.json` 里该 stem 的**存在**的拆包目录。
+    fn map_dirs(&self, stem: &str) -> Option<Vec<PathBuf>> {
+        let map = self.map.as_ref()?;
+        let root = self.asset_root.as_ref()?;
+        let dirs = map.dirs(stem)?;
+        let paths: Vec<PathBuf> = dirs
+            .iter()
+            .map(|dir| root.join(dir))
+            .filter(|path| path.join("index.json").is_file())
+            .collect();
+        if paths.is_empty() { None } else { Some(paths) }
+    }
+
+    /// `library-map.json` 里该 stem 的包前缀（且包集合里确实有内容）。
+    fn map_prefix(&self, stem: &str) -> Option<mir_asset::PackSet> {
+        let map = self.map.as_ref()?;
+        let packs = self.packs.as_ref()?;
+        let set = packs.filter_prefix(map.prefix(stem)?);
+        if set.is_empty() { None } else { Some(set) }
     }
 
     /// 文件名 → 实际路径，含本项目素材的兼容回退。
@@ -955,16 +1015,30 @@ impl EntityLibraries {
     /// 取一个图库；文件不存在或打开失败返回 `None`。
     fn library(&mut self, stem: &str) -> Option<&LibrarySource> {
         if !self.opened.contains_key(stem) {
-            let opened =
-                self.path_for_stem(stem).cloned().and_then(
-                    |path| match LibrarySource::open_with_gfx(&path, self.gfx_dir.as_deref()) {
-                        Ok(library) => Some(library),
-                        Err(error) => {
-                            eprintln!("警告：实体图库 {} 打开失败：{error}", path.display());
-                            None
+            let opened = self
+                .map_dirs(stem)
+                .and_then(|paths| match LibrarySource::from_dirs(&paths) {
+                    Ok(library) => Some(library),
+                    Err(error) => {
+                        eprintln!("警告：实体拆包图库 {stem} 打开失败：{error}");
+                        None
+                    }
+                })
+                .or_else(|| self.map_prefix(stem).map(LibrarySource::Pack))
+                .or_else(|| {
+                    if !self.allow_legacy {
+                        return None;
+                    }
+                    self.path_for_stem(stem).cloned().and_then(|path| {
+                        match LibrarySource::open_with_gfx(&path, self.gfx_dir.as_deref()) {
+                            Ok(library) => Some(library),
+                            Err(error) => {
+                                eprintln!("警告：实体图库 {} 打开失败：{error}", path.display());
+                                None
+                            }
                         }
-                    },
-                );
+                    })
+                });
             self.opened.insert(stem.to_owned(), opened);
         }
         self.opened.get(stem).and_then(Option::as_ref)

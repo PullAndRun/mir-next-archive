@@ -39,6 +39,7 @@ pub mod drops;
 pub mod item;
 pub mod magic;
 pub mod map;
+pub mod mnd;
 pub mod monster;
 pub mod npc;
 pub mod npc_script;

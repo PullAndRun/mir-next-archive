@@ -106,6 +106,48 @@ impl MapScene {
         })
     }
 
+    /// 读取地图 + 素材：**散装（library-map）→ 小包（`.mnp`）→ 原始 `.wzl`**。
+    ///
+    /// # Errors
+    /// 与 [`Self::load`] 相同。
+    pub fn load_with_sources(
+        map_path: impl AsRef<Path>,
+        data_dir: impl AsRef<Path>,
+        gfx_dir: Option<&Path>,
+        asset_root: Option<&Path>,
+        library_map: Option<&mir_asset::LibraryMap>,
+        packs: Option<&mir_asset::PackSet>,
+        allow_legacy: bool,
+    ) -> Result<Self, RenderError> {
+        let map = Map::load(map_path.as_ref())?;
+        let libraries = TileLibraries::open_with_sources(
+            data_dir.as_ref(),
+            gfx_dir,
+            asset_root,
+            library_map,
+            packs,
+            allow_legacy,
+        )?;
+        let entities = EntityRenderer::new(EntityLibraries::open_with_sources(
+            data_dir.as_ref(),
+            gfx_dir,
+            asset_root,
+            library_map,
+            packs,
+            allow_legacy,
+        ));
+        Ok(Self {
+            map,
+            viewport: Viewport::DEFAULT,
+            libraries,
+            entities,
+            cache: DecodeCache::default(),
+            animation_frame: DEFAULT_ANIMATION_FRAME,
+            tile_cache_hits: 0,
+            tile_cache_misses: 0,
+        })
+    }
+
     /// 用已经加载好的地图与图库构造场景（测试、工具链用）。
     #[must_use]
     pub fn from_parts(map: Map, libraries: TileLibraries, viewport: Viewport) -> Self {
@@ -1140,6 +1182,19 @@ mod tests {
             drawn >= 4 * 48 * 32,
             "V1 地图应画出至少 4 个 48x32 tile，实际非背景像素 {drawn}"
         );
+
+        // `.mnm` 往返后必须与源 .map 的 `Map` 渲染同像素。
+        let encoded = mir_world::mnm::encode(&scene.map).expect("encode mnm");
+        let decoded = mir_world::mnm::decode(&encoded).expect("decode mnm");
+        let libraries2 = TileLibraries::open_dir(&directory).expect("重新打开合成图库");
+        let mut mnm_scene = MapScene::from_parts(decoded, libraries2, Viewport::new(200, 200));
+        let mut mnm_frame = Frame::new(200, 200);
+        mnm_scene.render(&mut mnm_frame, Point::new(1, 1));
+        assert_eq!(
+            frame.pixels, mnm_frame.pixels,
+            ".mnm 渲染应与源 .map 的 Map 渲染逐像素一致"
+        );
+
         std::fs::remove_dir_all(&directory).ok();
     }
 }

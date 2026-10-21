@@ -86,17 +86,35 @@ fn adopt_asset_root(raw: &str, source: AssetRootSource) -> (String, AssetRootSou
     (FALLBACK_ASSET_ROOT.to_owned(), source)
 }
 
-/// 从资源根派生默认地图目录：`<asset_root>/map`。
+/// 从资源根派生默认地图目录：新布局 `maps/`（复数），旧布局 `map/` 仅作兼容。
+///
+/// 优先 `maps/`；它不存在而 `map/` 存在时用旧目录（启动日志会标出来源）；
+/// 两个都没有时返回 `maps/`（让后续报错信息指向新布局）。
 #[must_use]
 pub fn derived_map_root(asset_root: &str) -> String {
-    format!("{asset_root}/map")
+    let primary = format!("{asset_root}/maps");
+    if Path::new(&primary).is_dir() {
+        return primary;
+    }
+    let legacy = format!("{asset_root}/map");
+    if Path::new(&legacy).is_dir() {
+        return legacy;
+    }
+    primary
 }
 
-/// 从资源根派生默认数据库路径：`<asset_root>/server/Server.MirDB`（存在才返回）。
+/// 从资源根派生默认数据库路径（存在才返回）。
+///
+/// 新布局：`<asset_root>/data/server/Server.MirDB`；旧布局 `<asset_root>/server/Server.MirDB`
+/// 仅作兼容兜底。兵部二号之后会换成自有 `.mnd`，这里先接 `data/server/`。
 #[must_use]
 pub fn derived_db_path(asset_root: &str) -> Option<String> {
-    let candidate = format!("{asset_root}/server/Server.MirDB");
-    Path::new(&candidate).is_file().then_some(candidate)
+    let primary = format!("{asset_root}/data/server/Server.MirDB");
+    if Path::new(&primary).is_file() {
+        return Some(primary);
+    }
+    let legacy = format!("{asset_root}/server/Server.MirDB");
+    Path::new(&legacy).is_file().then_some(legacy)
 }
 
 /// 服务端运行配置。
@@ -406,19 +424,35 @@ mod tests {
     fn map_root_derives_from_asset_root() {
         let dir = temp_asset_dir("derive");
         let raw = dir.to_str().expect("utf8").to_owned();
-        assert_eq!(derived_map_root(&raw), format!("{raw}/map"));
+        assert_eq!(derived_map_root(&raw), format!("{raw}/maps"));
         assert_eq!(
             derived_db_path(&raw),
             None,
-            "empty dir has no server/Server.MirDB"
+            "empty dir has no data/server DB"
         );
 
-        // 造一个 server/Server.MirDB，派生路径应当出现
-        std::fs::create_dir_all(dir.join("server")).expect("create server dir");
-        std::fs::write(dir.join("server").join("Server.MirDB"), b"mir2").expect("write db file");
+        // 新布局：`data/server/Server.MirDB` 优先
+        std::fs::create_dir_all(dir.join("data").join("server")).expect("create data/server");
+        std::fs::write(
+            dir.join("data").join("server").join("Server.MirDB"),
+            b"mir2",
+        )
+        .expect("write db file");
         assert_eq!(
             derived_db_path(&raw),
-            Some(format!("{raw}/server/Server.MirDB"))
+            Some(format!("{raw}/data/server/Server.MirDB"))
+        );
+
+        // 旧布局 `server/Server.MirDB` 仍作兼容兜底（新布局缺失时）
+        let legacy_dir = temp_asset_dir("derive-legacy");
+        let legacy_raw = legacy_dir.to_str().expect("utf8").to_owned();
+        std::fs::create_dir_all(legacy_dir.join("server")).expect("create server dir");
+        std::fs::write(legacy_dir.join("server").join("Server.MirDB"), b"mir2")
+            .expect("write db file");
+        assert_eq!(
+            derived_db_path(&legacy_raw),
+            Some(format!("{legacy_raw}/server/Server.MirDB")),
+            "旧布局必须仍能用（兼容）"
         );
     }
 
@@ -450,6 +484,6 @@ mod tests {
 
         let mut derived = ServerConfig::default();
         adopt_asset_root(&mut derived, &raw);
-        assert_eq!(derived.map_root, format!("{raw}/map"));
+        assert_eq!(derived.map_root, format!("{raw}/maps"));
     }
 }

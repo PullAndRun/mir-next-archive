@@ -70,6 +70,8 @@ struct Options {
     sound_dirs: Vec<PathBuf>,
     /// `--asset-dir`：资源根（`game-assets/` 的替代路径）。
     asset_dir: Option<PathBuf>,
+    /// `--asset-mode`：素材形态（`auto`/`dev`/`release`）。
+    asset_mode: Option<String>,
     /// 用户是否显式给了 `--map-dir`（给了就不再被 `--asset-dir` 覆盖）。
     map_dir_explicit: bool,
     /// 用户是否显式给了 `--data-dir`。
@@ -97,6 +99,7 @@ impl Default for Options {
             music_volume: None,
             sound_dirs: Vec::new(),
             asset_dir: None,
+            asset_mode: None,
             map_dir_explicit: false,
             data_dir_explicit: false,
         }
@@ -168,6 +171,15 @@ fn main() -> Result<()> {
                     anyhow::bail!("--asset-dir 需要一个目录（例如 game-assets 或 D:/mir-assets）");
                 };
                 options.asset_dir = Some(PathBuf::from(value));
+            }
+            "--asset-mode" => {
+                let Some(value) = args.next() else {
+                    anyhow::bail!("--asset-mode 需要 auto|dev|release");
+                };
+                if mir_client::assets::AssetMode::parse(&value).is_none() {
+                    anyhow::bail!("--asset-mode 只支持 auto|dev|release|legacy（收到 {value}）");
+                }
+                options.asset_mode = Some(value);
             }
             "--data-dir" => {
                 let Some(value) = args.next() else {
@@ -339,6 +351,31 @@ fn main() -> Result<()> {
         client_settings.asset_root.as_deref(),
     );
     assets.log_resolution();
+    // 素材形态：`--asset-mode` > `MIR2_ASSET_MODE` > `client.toml` 的 `asset_mode` > `auto`
+    let asset_mode = options
+        .asset_mode
+        .as_deref()
+        .and_then(mir_client::assets::AssetMode::parse)
+        .or_else(|| {
+            std::env::var(mir_client::assets::ASSET_MODE_ENV)
+                .ok()
+                .as_deref()
+                .and_then(mir_client::assets::AssetMode::parse)
+        })
+        .or_else(|| {
+            client_settings
+                .asset_mode
+                .as_deref()
+                .and_then(mir_client::assets::AssetMode::parse)
+        })
+        .unwrap_or(mir_client::assets::AssetMode::Auto);
+    let resolved_assets = mir_client::assets::ResolvedAssets::load(assets.root(), asset_mode);
+    resolved_assets.log(assets.root());
+    if asset_mode.allow_legacy() {
+        eprintln!(
+            "警告：素材形态 legacy —— 允许回退原始 .wzl/.map；按项目规则运行时只应读自有格式，此模式仅供开发兼容"
+        );
+    }
     if !options.map_dir_explicit {
         options.map_dir = assets.map_dir();
     }
@@ -378,15 +415,30 @@ fn main() -> Result<()> {
             language,
             &client_settings,
             &settings_path,
+            &LiveAssets {
+                root: assets.root(),
+                resolved: &resolved_assets,
+                allow_legacy: asset_mode.allow_legacy(),
+            },
         );
     }
 
     let map_path = resolve_map_path(&options.map, &options.map_dir);
-    let scene = MapScene::load(&map_path, &options.data_dir).with_context(|| {
+    let gfx_dir = mir_client::assets::gfx_dir_for_data_dir(&options.data_dir);
+    let scene = MapScene::load_with_sources(
+        &map_path,
+        &options.data_dir,
+        Some(gfx_dir.as_path()),
+        Some(assets.root()),
+        resolved_assets.map.as_ref(),
+        resolved_assets.packs.as_ref(),
+        asset_mode.allow_legacy(),
+    )
+    .with_context(|| {
         format!(
-            "加载地图 {}（素材目录 {}）失败：请确认 resource/ 存在，或使用 --map-dir / --data-dir",
+            "加载地图 {}（素材根 {}）失败：请确认 game-assets/maps 存在，或使用 --map-dir / --data-dir",
             map_path.display(),
-            options.data_dir.display()
+            assets.root().display()
         )
     })?;
     println!(
@@ -427,6 +479,16 @@ fn run_login_window(options: &Options, client_settings: &ClientSettings, setting
     });
 }
 
+/// 联机模式用的素材上下文（避免参数表过长）。
+struct LiveAssets<'a> {
+    /// 素材根。
+    root: &'a Path,
+    /// 解析出来的散装/小包来源。
+    resolved: &'a mir_client::assets::ResolvedAssets,
+    /// 是否允许老的 `.wzl` 回退（仅 `asset_mode = legacy`）。
+    allow_legacy: bool,
+}
+
 /// 联机模式：连接 → 登录/建角 → 进世界 → 按服务器地图加载本地地形 → 开窗口。
 fn run_connected(
     options: &Options,
@@ -434,6 +496,7 @@ fn run_connected(
     language: Language,
     client_settings: &ClientSettings,
     settings_path: &Path,
+    assets: &LiveAssets<'_>,
 ) -> Result<()> {
     if options.account.is_empty() || options.password.is_empty() || options.character.is_empty() {
         anyhow::bail!(
@@ -473,7 +536,15 @@ fn run_connected(
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| options.map.clone());
     let map_path = resolve_map_path(&map_name, &options.map_dir);
-    let scene = load_scene_with_fallback(&map_path, &options.data_dir);
+    let gfx_dir = mir_client::assets::gfx_dir_for_data_dir(&options.data_dir);
+    let scene = load_scene_with_fallback(
+        &map_path,
+        &options.data_dir,
+        Some(gfx_dir.as_path()),
+        Some(assets.root),
+        assets.resolved,
+        assets.allow_legacy,
+    );
     let center = me.map_or(options.center, |player| player.position);
     println!(
         "已进入世界：{} · 对象 {} 个 · 地图 {}（{}×{}）",
@@ -556,8 +627,23 @@ fn build_sound_player(options: &Options, settings: &ClientSettings) -> SoundPlay
 }
 
 /// 联机模式的地图加载：失败时退化成空白地图，但仍然尝试加载实体图库。
-fn load_scene_with_fallback(map_path: &Path, data_dir: &Path) -> MapScene {
-    match MapScene::load(map_path, data_dir) {
+fn load_scene_with_fallback(
+    map_path: &Path,
+    data_dir: &Path,
+    gfx_dir: Option<&Path>,
+    asset_root: Option<&Path>,
+    assets: &mir_client::assets::ResolvedAssets,
+    allow_legacy: bool,
+) -> MapScene {
+    match MapScene::load_with_sources(
+        map_path,
+        data_dir,
+        gfx_dir,
+        asset_root,
+        assets.map.as_ref(),
+        assets.packs.as_ref(),
+        allow_legacy,
+    ) {
         Ok(scene) => {
             println!(
                 "素材：{} · 地图库 {} 个（+WIL {} 个）· 地图 {}（{}×{}）",
@@ -575,10 +661,23 @@ fn load_scene_with_fallback(map_path: &Path, data_dir: &Path) -> MapScene {
                 "警告：加载地图 {} 失败：{error}；使用空白地图继续（实体仍会尝试绘制）",
                 map_path.display()
             );
-            let gfx_dir = mir_client::assets::gfx_dir_for_data_dir(data_dir);
-            let libraries = TileLibraries::open_dir_with_gfx(data_dir, Some(gfx_dir.as_path()))
-                .unwrap_or_else(|_| TileLibraries::empty(data_dir));
-            let entities = EntityLibraries::open_dir_with_gfx(data_dir, Some(gfx_dir.as_path()));
+            let libraries = TileLibraries::open_with_sources(
+                data_dir,
+                gfx_dir,
+                asset_root,
+                assets.map.as_ref(),
+                assets.packs.as_ref(),
+                allow_legacy,
+            )
+            .unwrap_or_else(|_| TileLibraries::empty(data_dir));
+            let entities = EntityLibraries::open_with_sources(
+                data_dir,
+                gfx_dir,
+                asset_root,
+                assets.map.as_ref(),
+                assets.packs.as_ref(),
+                allow_legacy,
+            );
             MapScene::from_parts_with_entities(blank_map(), libraries, Viewport::DEFAULT, entities)
         }
     }
@@ -696,6 +795,9 @@ fn print_help() {
     println!("  --music-volume <0..1>   本次运行背景音乐音量（默认 0.5，独立于音效）");
     println!("  --sound-dir <目录>      额外音效/音乐目录（可多次；优先于 resource/wav）");
     println!("  --asset-dir <目录>      资源根（默认 game-assets/；也可用 MIR2_ASSET_DIR）");
+    println!(
+        "  --asset-mode <形态>     素材形态 auto|dev|release|legacy（默认 auto；legacy 仅供开发，允许回退 .wzl）"
+    );
     println!();
     println!("其它：");
     println!("  --lang <代码>           本次启动使用该语言（并保存）");

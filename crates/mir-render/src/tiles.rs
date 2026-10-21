@@ -104,16 +104,46 @@ impl TileLibraries {
         directory: impl AsRef<Path>,
         gfx_dir: Option<&Path>,
     ) -> Result<Self, RenderError> {
+        Self::open_with_sources(directory, gfx_dir, None, None, None, true)
+    }
+
+    /// 完整加载：**散装目录（`library-map.json`）→ 小包（`.mnp`）→ 原始 `.wzl`**。
+    ///
+    /// * `gfx_dir`：老的平铺拆包根（`<root>/gfx`，按 `<stem>/index.json` 找），可为 `None`；
+    /// * `asset_root`：素材根（`library-map.json` 里的 `dirs` 相对它解析）；
+    /// * `map`：`library-map.json`（`stem → dirs/prefix`）；
+    /// * `packs`：发布期小包集合。
+    ///
+    /// # Errors
+    /// 目录不存在且没有任何散装/包来源 → [`RenderError::DataDirectory`]；
+    /// 一个图库都找不到 → [`RenderError::NoLibraries`]。
+    pub fn open_with_sources(
+        directory: impl AsRef<Path>,
+        gfx_dir: Option<&Path>,
+        asset_root: Option<&Path>,
+        map: Option<&mir_asset::LibraryMap>,
+        packs: Option<&mir_asset::PackSet>,
+        allow_legacy: bool,
+    ) -> Result<Self, RenderError> {
         let directory = directory.as_ref().to_path_buf();
-        if !directory.is_dir() {
+        let has_alternatives = map.is_some_and(|map| !map.is_empty()) || packs.is_some();
+        if !directory.is_dir() && !has_alternatives {
             return Err(RenderError::DataDirectory { path: directory });
         }
         let mut libraries = BTreeMap::new();
         for (index, file_name) in LIBRARY_FILES {
-            let Some(path) = find_case_insensitive(&directory, file_name) else {
+            let Some(library) = open_library(
+                file_name,
+                &directory,
+                gfx_dir,
+                asset_root,
+                map,
+                packs,
+                allow_legacy,
+            )?
+            else {
                 continue;
             };
-            let library = LibrarySource::open_with_gfx(&path, gfx_dir)?;
             libraries.insert(*index, library);
         }
         if libraries.is_empty() {
@@ -223,6 +253,55 @@ impl TileLibraries {
 }
 
 /// 在目录里找名字不区分大小写的文件。
+/// 按 **散装目录 → 小包 → `.wzl`** 的顺序打开一个库。
+///
+/// 返回 `Ok(None)` 表示三种来源都没有这个库（调用方跳过即可）。
+fn open_library(
+    file_name: &str,
+    directory: &Path,
+    gfx_dir: Option<&Path>,
+    asset_root: Option<&Path>,
+    map: Option<&mir_asset::LibraryMap>,
+    packs: Option<&mir_asset::PackSet>,
+    allow_legacy: bool,
+) -> Result<Option<LibrarySource>, RenderError> {
+    let stem = Path::new(file_name)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+
+    // 1) 散装（library-map 里的多目录）
+    if let (Some(map), Some(root)) = (map, asset_root) {
+        if let Some(dirs) = map.dirs(&stem) {
+            let paths: Vec<PathBuf> = dirs
+                .iter()
+                .map(|dir| root.join(dir))
+                .filter(|path| path.join("index.json").is_file())
+                .collect();
+            if !paths.is_empty() {
+                return Ok(Some(LibrarySource::from_dirs(&paths)?));
+            }
+        }
+        // 2) 发布期小包
+        if let (Some(prefix), Some(packs)) = (map.prefix(&stem), packs) {
+            let set = packs.filter_prefix(prefix);
+            if !set.is_empty() {
+                return Ok(Some(LibrarySource::Pack(set)));
+            }
+        }
+    }
+
+    // 3) 原始容器（含老式平铺拆包目录 `<gfx>/<stem>/`）——**默认禁止**，
+    //    只有显式 `asset_mode = legacy` 才允许（用户要求：运行时只读自有格式）。
+    if !allow_legacy {
+        return Ok(None);
+    }
+    let Some(path) = find_case_insensitive(directory, file_name) else {
+        return Ok(None);
+    };
+    Ok(Some(LibrarySource::open_with_gfx(&path, gfx_dir)?))
+}
+
 fn find_case_insensitive(directory: &Path, file_name: &str) -> Option<PathBuf> {
     let direct = directory.join(file_name);
     if direct.is_file() {

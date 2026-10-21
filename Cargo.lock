@@ -1388,6 +1388,7 @@ name = "mir-client"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "mir-asset",
  "mir-core",
  "mir-protocol",
  "mir-render",
@@ -1417,6 +1418,7 @@ dependencies = [
 name = "mir-db"
 version = "0.2.0"
 dependencies = [
+ "flate2",
  "mir-core",
  "mir-protocol",
  "thiserror 2.0.21",
@@ -1442,6 +1444,7 @@ dependencies = [
  "mir-core",
  "mir-world",
  "png",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 
@@ -1500,6 +1503,7 @@ dependencies = [
 name = "mir-world"
 version = "0.2.0"
 dependencies = [
+ "flate2",
  "mir-core",
  "thiserror 2.0.21",
  "tracing",

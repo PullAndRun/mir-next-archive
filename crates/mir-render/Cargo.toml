@@ -20,6 +20,8 @@ thiserror.workspace = true
 [dev-dependencies]
 # 集成测试把渲染结果编码成 PNG 后再解码回来做非空校验。
 png.workspace = true
+# 集成测试造 library-map.json / manifest.packs.json。
+serde_json.workspace = true
 # 合成测试自己拼 .wzl/.wzx，需要 zlib 压缩。
 flate2.workspace = true
 

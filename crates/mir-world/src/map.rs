@@ -300,8 +300,9 @@ pub struct MapCell {
     /// v100 的 `o+25`；v4/v6 不读光照，恒为 0。服务器只拿它算钓鱼属性。
     pub light: u8,
 
-    /// 后层图像号（v0 `o+0..o+1`，客户端叫 `BackImage`，`MapCode.cs:242`）。
-    pub back_image: u16,
+    /// 后层图像号（v0 `o+0..o+1`；v1 是 `i32 @o+0 ^ 0xAA38AA38`，客户端叫 `BackImage`，
+    /// `MapCode.cs:242`、Wemade 2010 15 字节格）。
+    pub back_image: u32,
 
     /// 中层图像号（v0 `o+2..o+3`，`MapCode.cs:244`）。
     pub middle_image: u16,
@@ -318,14 +319,15 @@ pub struct MapCell {
     /// 客户端语义的门偏移（v0/v2/v3/v4 的 `o+7`，`MapCode.cs:249`）；服务器不读。
     pub door_offset: u8,
 
-    /// 客户端语义的前层动画计时（v0/v2/v3/v4 的 `o+9`，`MapCode.cs:251`）；服务器不读。
+    /// 客户端语义的前层动画帧（v1 `o+10 & 0x7F`；其它版本暂不保存）。
+    pub front_animation_frame: u8,
+
+    /// 客户端语义的前层动画计时（v0/v2/v3/v4 的 `o+9`，`MapCode.cs:251`；v1 的 `o+11`）。
     pub front_animation_tick: u8,
 
-    /// 客户端语义的前层瓦片库原始字节（v0/v2/v3/v4 的 `o+10`）。
-    ///
-    /// 客户端会再加偏移才当成瓦片库序号（v0 是 `+2`，`MapCode.cs:252`；v2/v3 是 `+120`，
-    /// `MapCode.cs:347`、`MapCode.cs:389`），这里保留原始字节。
-    pub front_index: u8,
+    /// 客户端语义的前层瓦片库：v0/v2/v3/v4 保存原始字节（渲染时再加偏移）；
+    /// v1 保存已加 2 并做 102→90 / >=255→-1 映射后的 **tileset 序号**。
+    pub front_index: i16,
 }
 
 impl MapCell {
@@ -364,6 +366,7 @@ impl Default for MapCell {
             front_image: 0,
             client_door_index: 0,
             door_offset: 0,
+            front_animation_frame: 0,
             front_animation_tick: 0,
             front_index: 0,
         }
@@ -862,8 +865,28 @@ fn decode_cell(data: &[u8], offset: usize, plan: &Plan) -> Option<MapCell> {
         }
     }
 
-    if let Some(xor) = plan.image_xor {
-        cell.back_image = u16_at(bytes, 0)? ^ xor;
+    if plan.version == MapVersion::V1 {
+        // Wemade 2010 15 字节格：BackImage 是 i32 ^ 0xAA38AA38，Middle/Front 是
+        // i16 ^ xor（xor 来自 v1 头 21..25，客户端的同一套规则）。
+        let WallRule::Wemade2010 { xor } = plan.walls else {
+            return None;
+        };
+        cell.back_image = u32_at(bytes, 0)? ^ 0xAA38_AA38;
+        cell.middle_image = u16_at(bytes, 4)? ^ xor;
+        cell.front_image = u16_at(bytes, 6)? ^ xor;
+        cell.front_animation_frame = *bytes.get(10)? & 0x7F;
+        // `FrontIndex = Bytes[offset++] + 2`，然后 `102 -> 90`、`>= 255 -> -1`
+        // （客户端 Wemade 2010 规则）。
+        let raw = i16::from(*bytes.get(12)?) + 2;
+        cell.front_index = if raw == 102 {
+            90
+        } else if raw >= 255 {
+            -1
+        } else {
+            raw
+        };
+    } else if let Some(xor) = plan.image_xor {
+        cell.back_image = u32::from(u16_at(bytes, 0)? ^ xor);
         cell.middle_image = u16_at(bytes, 2)? ^ xor;
         cell.front_image = u16_at(bytes, 4)? ^ xor;
     }
@@ -872,7 +895,10 @@ fn decode_cell(data: &[u8], offset: usize, plan: &Plan) -> Option<MapCell> {
         cell.client_door_index = *bytes.get(aux.door_index)? & DOOR_INDEX_MASK;
         cell.door_offset = *bytes.get(aux.door_offset)?;
         cell.front_animation_tick = *bytes.get(aux.front_animation_tick)?;
-        cell.front_index = *bytes.get(aux.front_index)?;
+        // v1 的 front_index 已在上面按 +2 规则算好，不能再用原始字节覆盖。
+        if plan.version != MapVersion::V1 {
+            cell.front_index = i16::from(*bytes.get(aux.front_index)?);
+        }
     }
 
     Some(cell)
@@ -1325,6 +1351,41 @@ mod tests {
         assert_eq!(cell_at(&map, 0, 1).attribute, CellAttribute::LowWall);
         assert_eq!(cell_at(&map, 1, 0).attribute, CellAttribute::Walk);
         assert_eq!(cell_at(&map, 1, 1).attribute, CellAttribute::Walk);
+    }
+
+    #[test]
+    fn real_cjlaaa_v1_map_decodes_client_tile_fields() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../resource/community/suprcode-crystal-database/cjlaaa/Maps/0100.map");
+        if !path.exists() {
+            return;
+        }
+        let map = Map::load(&path).expect("加载 cjlaaa 0100.map");
+        assert_eq!(map.version, MapVersion::V1);
+        assert_eq!((map.width, map.height), (15, 18));
+
+        // (0,0) 原始 `38 aa 38 8a 38 aa 38 2a ...`：
+        // BackImage = i32@0 ^ 0xAA38AA38 = 0x20000000（bit29 → HighWall）；
+        // 但 `(u16@6 ^ xor) & 0x8000 != 0` 随后覆盖成 LowWall（`Map.cs:177-178`）；
+        // FrontImage = i16@6 ^ xor = 0x8000；FrontIndex = byte@12 + 2 = 2。
+        let cell = cell_at(&map, 0, 0);
+        assert_eq!(cell.attribute, CellAttribute::LowWall);
+        assert_eq!(cell.back_image, 0x2000_0000);
+        assert_eq!(cell.middle_image, 0);
+        assert_eq!(cell.front_image, 0x8000);
+        assert_eq!(cell.front_index, 2);
+        assert_eq!(cell.front_animation_frame, 0);
+        assert_eq!(cell.light, 0);
+
+        // (7,6) 原始 `38 aa 38 aa 38 aa 04 a4 ...`：
+        // BackImage = 0，FrontImage = i16@6 ^ xor = 0x0E3C。
+        let cell = cell_at(&map, 7, 6);
+        assert_eq!(cell.back_image, 0);
+        assert_eq!(cell.middle_image, 0);
+        assert_eq!(cell.front_image, 0x0E3C);
+        assert_eq!(cell.front_index, 2);
+        assert_eq!(cell.front_animation_frame, 0);
+        assert_eq!(cell.light, 0);
     }
 
     #[test]

@@ -395,7 +395,7 @@ impl MapScene {
         };
         // `(BackImage & 0x1FFFFFFF) - 1`（:10707）；bit15 在客户端被提升为
         // 0x20000000（MapCode.cs:254-255），掩码后等价于 `raw & 0x7FFF`。
-        let image = u32::from(cell.back_image & 0x7FFF);
+        let image = cell.back_image & 0x7FFF;
         if image == 0 {
             return;
         }
@@ -423,7 +423,9 @@ impl MapScene {
         let Some(index) = image_index(cell.front_image & 0x7FFF) else {
             return;
         };
-        let library = self.front_library(cell);
+        let Some(library) = self.front_library(cell) else {
+            return;
+        };
         // Crystal 跳过 200 号库（Mir3 的 Tilesc），`:10731`。
         if library == 200 {
             return;
@@ -483,7 +485,9 @@ impl MapScene {
         let Some(base_index) = image_index(cell.front_image & 0x7FFF) else {
             return;
         };
-        let library = self.front_library(cell);
+        let Some(library) = self.front_library(cell) else {
+            return;
+        };
         // 客户端把 `o+8` 读成 FrontAnimationFrame（MapCode.cs:250），
         // mir-world 把同一个字节按服务器语义存成 `door_raw`（Map.cs:142）。
         let mut animation = u16::from(cell.door_raw);
@@ -550,26 +554,39 @@ impl MapScene {
         }
     }
 
-    /// 后层图库编号：v0/v4 固定为 0（Tiles，`MapCode.cs:240`、`MapCode.cs:430`）。
-    ///
-    /// 其它版本的后层编号来自格内字节（v2/v3 是 `o+12 + 100`），`mir-world` 尚未暴露，
-    /// 因此这里返回 `None`，宁可不画也不画错库。
+    /// 后层图库编号：v0/v1/v4 固定为 0（Tiles，`MapCode.cs:240`、`MapCode.cs:430`）。
     fn back_library(&self) -> Option<u16> {
-        matches!(self.map.version, MapVersion::V0 | MapVersion::V4).then_some(0)
+        matches!(
+            self.map.version,
+            MapVersion::V0 | MapVersion::V1 | MapVersion::V4
+        )
+        .then_some(0)
     }
 
-    /// 中层图库编号：v0/v4 固定为 1（SmTiles，`MapCode.cs:241`、`MapCode.cs:431`）。
+    /// 中层图库编号：v0/v1/v4 固定为 1（SmTiles，`MapCode.cs:241`、`MapCode.cs:431`）。
     fn middle_library(&self) -> Option<u16> {
-        matches!(self.map.version, MapVersion::V0 | MapVersion::V4).then_some(1)
+        matches!(
+            self.map.version,
+            MapVersion::V0 | MapVersion::V1 | MapVersion::V4
+        )
+        .then_some(1)
     }
 
-    /// 前层图库编号 = 格内 `o+10` 字节 + 版本偏移（`MapCode.cs:252`、`:347`、`:389`、`:442`）。
-    fn front_library(&self, cell: &MapCell) -> u16 {
+    /// 前层图库编号：v0/v2/v3/v4 是原始字节 + 版本偏移；v1 的 `front_index`
+    /// 已经在 `mir-world` 里按 `+2 / 102→90 / >=255→-1` 算成最终 tileset 序号。
+    fn front_library(&self, cell: &MapCell) -> Option<u16> {
+        if self.map.version == MapVersion::V1 {
+            return u16::try_from(cell.front_index)
+                .ok()
+                .filter(|library| *library > 0);
+        }
         let base = match self.map.version {
             MapVersion::V2 | MapVersion::V3 => 120,
             _ => 2,
         };
-        u16::from(cell.front_index) + base
+        u16::try_from(cell.front_index)
+            .ok()
+            .map(|raw| raw.saturating_add(base))
     }
 
     /// 取图像头信息（带缓存）。
@@ -925,11 +942,22 @@ mod tests {
             front_index: 5,
             ..MapCell::default()
         };
-        assert_eq!(scene.front_library(&cell), 7); // 5 + 2
+        assert_eq!(scene.front_library(&cell), Some(7)); // 5 + 2
         scene.map.version = MapVersion::V2;
         assert_eq!(scene.back_library(), None);
         assert_eq!(scene.middle_library(), None);
-        assert_eq!(scene.front_library(&cell), 125); // 5 + 120
+        assert_eq!(scene.front_library(&cell), Some(125)); // 5 + 120
+        scene.map.version = MapVersion::V1;
+        assert_eq!(scene.back_library(), Some(0));
+        assert_eq!(scene.middle_library(), Some(1));
+        assert_eq!(scene.front_library(&cell), Some(5)); // v1 已含 +2，不再加 base
+        assert_eq!(
+            scene.front_library(&MapCell {
+                front_index: -1,
+                ..MapCell::default()
+            }),
+            None
+        );
     }
 
     /// 合成 `.wzl`/`.wzx`：每张图都是纯色 RGB565。
@@ -1062,6 +1090,56 @@ mod tests {
         assert_eq!(frame.pixel(160, 40), Some(yellow));
         assert_eq!(scene.image_cache_len(), 6);
 
+        std::fs::remove_dir_all(&directory).ok();
+    }
+
+    #[test]
+    fn synthetic_v1_map_draws_tiles_through_v1_libraries() {
+        let directory =
+            std::env::temp_dir().join(format!("mir-render-v1-scene-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("创建临时目录");
+        write_wzl(
+            &directory,
+            "tiles",
+            &[wzl_record(96, 64, 0xF800), wzl_record(96, 64, 0x07E0)],
+        );
+        write_wzl(&directory, "smtiles", &[wzl_record(48, 32, 0x001F)]);
+        write_wzl(
+            &directory,
+            "objects",
+            &[wzl_record(48, 32, 0xFFE0), wzl_record(48, 32, 0x07FF)],
+        );
+
+        let mut map = empty_map(4, 4);
+        map.version = MapVersion::V1;
+        map.file_name = "0".to_owned();
+        // V1 的 back/middle/front 都按 15 字节格解析；这里直接填 MapCell 验证
+        // renderer 的库选择（真实 cjlaaa 0100.map 的解析在 mir-world 单测覆盖）。
+        set_cell(&mut map, 0, 0, |cell| cell.back_image = 1);
+        set_cell(&mut map, 2, 2, |cell| cell.back_image = 2);
+        set_cell(&mut map, 1, 1, |cell| cell.middle_image = 1);
+        set_cell(&mut map, 2, 1, |cell| {
+            cell.front_image = 1;
+            cell.front_index = 2;
+        });
+        set_cell(&mut map, 1, 2, |cell| {
+            cell.front_image = 2;
+            cell.front_index = 2;
+        });
+
+        let libraries = TileLibraries::open_dir(&directory).expect("打开合成图库");
+        let mut scene = MapScene::from_parts(map, libraries, Viewport::new(200, 200));
+        let mut frame = Frame::new(200, 200);
+        scene.render(&mut frame, Point::new(1, 1));
+
+        let drawn = (0..200)
+            .flat_map(|y| (0..200).map(move |x| (x, y)))
+            .filter(|&(x, y)| frame.pixel(x, y) != Some(BACKGROUND))
+            .count();
+        assert!(
+            drawn >= 4 * 48 * 32,
+            "V1 地图应画出至少 4 个 48x32 tile，实际非背景像素 {drawn}"
+        );
         std::fs::remove_dir_all(&directory).ok();
     }
 }

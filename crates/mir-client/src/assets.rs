@@ -14,6 +14,16 @@
 
 use std::path::{Path, PathBuf};
 
+/// 从素材目录推拆包目录：`<asset_root>/data` → `<asset_root>/gfx`。
+///
+/// 拆包产物按库名分目录（`gfx/items/index.json`），所以知道 `data` 的父目录即可。
+#[must_use]
+pub fn gfx_dir_for_data_dir(data_dir: &Path) -> PathBuf {
+    data_dir
+        .parent()
+        .map_or_else(|| PathBuf::from("gfx"), |root| root.join("gfx"))
+}
+
 /// 默认资源根（抽取器 [`tools/assets/build_game_assets.py`] 的默认输出）。
 pub const DEFAULT_ASSET_ROOT: &str = "game-assets";
 /// 没有抽取过时的回落目录（旧行为，保证 CI/测试不装素材也能跑）。

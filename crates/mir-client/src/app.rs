@@ -426,10 +426,12 @@ fn blank_scene(data_dir: &Path) -> MapScene {
     };
     // `open_dir` 失败（素材目录不存在/全缺）时退回空图库，登录窗口仍能开；
     // 只 warn 一次，避免每帧刷屏。
-    let libraries = mir_render::TileLibraries::open_dir(data_dir).unwrap_or_else(|error| {
-        eprintln!("警告：登录背景加载素材图库失败（{error}），使用空图库");
-        mir_render::TileLibraries::empty(data_dir)
-    });
+    let gfx_dir = mir_client::assets::gfx_dir_for_data_dir(data_dir);
+    let libraries = mir_render::TileLibraries::open_dir_with_gfx(data_dir, Some(gfx_dir.as_path()))
+        .unwrap_or_else(|error| {
+            eprintln!("警告：登录背景加载素材图库失败（{error}），使用空图库");
+            mir_render::TileLibraries::empty(data_dir)
+        });
     println!(
         "素材：{} · 图库 {} 个（+WIL {} 个）",
         data_dir.display(),
@@ -440,7 +442,7 @@ fn blank_scene(data_dir: &Path) -> MapScene {
         map,
         libraries,
         mir_render::Viewport::DEFAULT,
-        mir_render::EntityLibraries::open_dir(data_dir),
+        mir_render::EntityLibraries::open_dir_with_gfx(data_dir, Some(gfx_dir.as_path())),
     )
 }
 

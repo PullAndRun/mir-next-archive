@@ -108,7 +108,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use mir_asset::{Image, ImageInfo, ImageLibrary};
+use mir_asset::{Image, ImageInfo, LibrarySource};
 use mir_core::Point;
 use mir_core::enums::MirDirection;
 
@@ -854,8 +854,10 @@ pub struct EntityLibraries {
     directory: PathBuf,
     /// 小写文件名（不含扩展名）→ 路径。
     files: BTreeMap<String, PathBuf>,
+    /// 拆包目录根（`<asset_root>/gfx`）；`None` 表示只用原始 `.wzl`。
+    gfx_dir: Option<PathBuf>,
     /// 已尝试打开的图库；`None` 表示文件不存在或打开失败。
-    opened: BTreeMap<String, Option<ImageLibrary>>,
+    opened: BTreeMap<String, Option<LibrarySource>>,
 }
 
 impl EntityLibraries {
@@ -885,8 +887,17 @@ impl EntityLibraries {
         Self {
             directory,
             files,
+            gfx_dir: None,
             opened: BTreeMap::new(),
         }
+    }
+
+    /// 同 [`Self::open_dir`]，但优先用 `<gfx_dir>/<stem>/index.json` 的拆包目录。
+    #[must_use]
+    pub fn open_dir_with_gfx(directory: impl AsRef<Path>, gfx_dir: Option<&Path>) -> Self {
+        let mut libraries = Self::open_dir(directory);
+        libraries.gfx_dir = gfx_dir.map(Path::to_path_buf);
+        libraries
     }
 
     /// 空图库集合（测试与无素材环境）。
@@ -895,6 +906,7 @@ impl EntityLibraries {
         Self {
             directory: directory.into(),
             files: BTreeMap::new(),
+            gfx_dir: None,
             opened: BTreeMap::new(),
         }
     }
@@ -941,18 +953,18 @@ impl EntityLibraries {
     }
 
     /// 取一个图库；文件不存在或打开失败返回 `None`。
-    fn library(&mut self, stem: &str) -> Option<&ImageLibrary> {
+    fn library(&mut self, stem: &str) -> Option<&LibrarySource> {
         if !self.opened.contains_key(stem) {
             let opened =
-                self.path_for_stem(stem).cloned().and_then(|path| {
-                    match ImageLibrary::open(&path) {
+                self.path_for_stem(stem).cloned().and_then(
+                    |path| match LibrarySource::open_with_gfx(&path, self.gfx_dir.as_deref()) {
                         Ok(library) => Some(library),
                         Err(error) => {
                             eprintln!("警告：实体图库 {} 打开失败：{error}", path.display());
                             None
                         }
-                    }
-                });
+                    },
+                );
             self.opened.insert(stem.to_owned(), opened);
         }
         self.opened.get(stem).and_then(Option::as_ref)

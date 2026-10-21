@@ -91,14 +91,18 @@ mod error;
 mod image;
 mod lib_container;
 mod library;
+mod pack;
 mod palette;
 mod source;
+mod unpacked;
 mod wil;
 mod wzl;
 
 pub use error::AssetError;
 pub use image::{Image, ImageInfo, format};
 pub use library::{ImageLibrary, LibraryKind};
+pub use pack::{PackFile, PackManifest, PackSet, PackSummary, PackWriter};
+pub use unpacked::{LibrarySource, UnpackedLibrary};
 
 /// 索引项数量的上限，防止畸形文件让打开阶段一次性分配巨量内存。
 pub(crate) const MAX_IMAGES: u64 = 4_000_000;

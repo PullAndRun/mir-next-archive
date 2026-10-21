@@ -12,6 +12,24 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum AssetError {
+    /// 拆包目录的 `index.json` 不是合法 JSON / 缺字段。
+    #[error("{path} 不是合法的拆包索引：{message}")]
+    UnpackedIndex {
+        /// 出错的 `index.json`。
+        path: PathBuf,
+        /// 解析器给出的原因。
+        message: String,
+    },
+
+    /// 拆包目录里没有这个索引（裁剪时没被引用）——调用方应回退到原始 `.wzl`。
+    #[error("{path} 里没有原库索引 {index}（裁剪时未收录）")]
+    MissingIndex {
+        /// 拆包目录的 `index.json`。
+        path: PathBuf,
+        /// 原库内的 0 基索引。
+        index: usize,
+    },
+
     /// 打开、定位或读取文件失败。
     #[error("读取素材文件 {path} 失败：{source}")]
     Io {

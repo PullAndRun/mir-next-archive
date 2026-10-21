@@ -575,9 +575,10 @@ fn load_scene_with_fallback(map_path: &Path, data_dir: &Path) -> MapScene {
                 "警告：加载地图 {} 失败：{error}；使用空白地图继续（实体仍会尝试绘制）",
                 map_path.display()
             );
-            let libraries = TileLibraries::open_dir(data_dir)
+            let gfx_dir = mir_client::assets::gfx_dir_for_data_dir(data_dir);
+            let libraries = TileLibraries::open_dir_with_gfx(data_dir, Some(gfx_dir.as_path()))
                 .unwrap_or_else(|_| TileLibraries::empty(data_dir));
-            let entities = EntityLibraries::open_dir(data_dir);
+            let entities = EntityLibraries::open_dir_with_gfx(data_dir, Some(gfx_dir.as_path()));
             MapScene::from_parts_with_entities(blank_map(), libraries, Viewport::DEFAULT, entities)
         }
     }

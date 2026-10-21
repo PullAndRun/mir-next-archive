@@ -1377,6 +1377,9 @@ version = "0.2.0"
 dependencies = [
  "flate2",
  "png",
+ "serde",
+ "serde_json",
+ "sha2",
  "thiserror 2.0.21",
 ]
 
@@ -1487,6 +1490,8 @@ dependencies = [
  "mir-protocol",
  "mir-world",
  "png",
+ "serde_json",
+ "sha2",
  "tracing",
  "tracing-subscriber",
 ]

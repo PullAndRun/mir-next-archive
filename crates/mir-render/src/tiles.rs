@@ -24,7 +24,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use mir_asset::{Image, ImageInfo, ImageLibrary};
+use mir_asset::{Image, ImageInfo, LibrarySource};
 
 use crate::RenderError;
 
@@ -71,14 +71,14 @@ pub struct TileLibraries {
     /// 素材目录（诊断用）。
     directory: PathBuf,
     /// 按 `MapLibs` 编号排序的图库。
-    libraries: BTreeMap<u16, ImageLibrary>,
+    libraries: BTreeMap<u16, LibrarySource>,
     /// 目录里额外找到的 `.wil`/`.wix` 图库（WEMADE 旧版 16 位库）。
     ///
     /// 平铺语料没有 Crystal 的 Mir3 目录编号（`Tiles110.wil`/`Objects81.wil` 的
     /// 数字是素材分组，不是 `MapLibs` 下标），且当前 `resource/map` 的 v0/v1 地图
     /// 只引用 `tiles`/`smtiles`/`objects*` 这些 `.wzl` 库，所以这里只**打开索引**
     /// 并计数（启动日志/诊断用），不参与 `library(index)` 的选择。
-    wil_libraries: Vec<(String, ImageLibrary)>,
+    wil_libraries: Vec<(String, LibrarySource)>,
 }
 
 impl TileLibraries {
@@ -92,6 +92,18 @@ impl TileLibraries {
     /// * 一个图库都没找到 → [`RenderError::NoLibraries`]；
     /// * 某个文件存在但打不开 → [`RenderError::Asset`]。
     pub fn open_dir(directory: impl AsRef<Path>) -> Result<Self, RenderError> {
+        Self::open_dir_with_gfx(directory, None)
+    }
+
+    /// 同 [`Self::open_dir`]，但优先用 `<gfx_dir>/<stem>/index.json` 的拆包目录，
+    /// 缺失时回退原始 `.wzl`（素材粒度最细的加载路径）。
+    ///
+    /// # Errors
+    /// 与 [`Self::open_dir`] 相同。
+    pub fn open_dir_with_gfx(
+        directory: impl AsRef<Path>,
+        gfx_dir: Option<&Path>,
+    ) -> Result<Self, RenderError> {
         let directory = directory.as_ref().to_path_buf();
         if !directory.is_dir() {
             return Err(RenderError::DataDirectory { path: directory });
@@ -101,7 +113,7 @@ impl TileLibraries {
             let Some(path) = find_case_insensitive(&directory, file_name) else {
                 continue;
             };
-            let library = ImageLibrary::open(&path)?;
+            let library = LibrarySource::open_with_gfx(&path, gfx_dir)?;
             libraries.insert(*index, library);
         }
         if libraries.is_empty() {
@@ -118,7 +130,7 @@ impl TileLibraries {
                 if !is_wil {
                     continue;
                 }
-                match ImageLibrary::open(&path) {
+                match LibrarySource::open_with_gfx(&path, gfx_dir) {
                     Ok(library) => {
                         let name = path
                             .file_name()
@@ -184,7 +196,7 @@ impl TileLibraries {
 
     /// 按 `MapLibs` 编号取图库。
     #[must_use]
-    pub fn library(&self, index: u16) -> Option<&ImageLibrary> {
+    pub fn library(&self, index: u16) -> Option<&LibrarySource> {
         self.libraries.get(&index)
     }
 

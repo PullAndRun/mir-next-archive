@@ -13,6 +13,8 @@ use mir_core::Language;
 
 /// 对话面板最大宽度。
 pub const DIALOG_MAX_WIDTH: u32 = 470;
+/// 关闭对话的页键（`C.CallNPC` 的 `@exit`；服务端页面里的 `<关闭/@exit>`）。
+pub const EXIT_KEY: &str = "@exit";
 /// 正文行高。
 pub const LINE_HEIGHT: u32 = 18;
 /// 标题区高度。
@@ -66,12 +68,12 @@ impl ParsedPage {
         if !page
             .buttons
             .iter()
-            .any(|button| button.key.eq_ignore_ascii_case("@exit"))
+            .any(|button| button.key.eq_ignore_ascii_case(EXIT_KEY))
         {
             page.buttons.push(DialogButton {
                 // 文案在绘制时按语言取；这里用中文默认值，UI 会在绘制前替换。
                 label: String::new(),
-                key: "@exit".to_owned(),
+                key: EXIT_KEY.to_owned(),
             });
         }
         page

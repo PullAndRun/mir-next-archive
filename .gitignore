@@ -16,3 +16,9 @@ github/
 tools/dev/evidence/
 # 本地运行时生成（launcher -FirstRun 写入），每个部署各不相同
 config/client.toml
+
+# 发布包与测试缓存：本地生成，不入库（体积约定见 docs/process/repo-hygiene.md）
+dist/
+tools/playtest/data/mapgrid-*.bin
+/*.log
+*.err.log

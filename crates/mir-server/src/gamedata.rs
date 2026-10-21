@@ -503,21 +503,34 @@ impl GameData {
     }
 
     /// 按文件名（不含目录与 `.txt`）取掉落表。
+    ///
+    /// # 路径分隔符
+    ///
+    /// `Server.MirDB` 是 Crystal 的 Windows 工具链生成的，`MonsterInfo.DropPath` 里的
+    /// 子目录用反斜杠（Jev 样本：`Provinces\Hen`、`AncientCaves\OmaCavern\…`）。
+    /// 直接 `Path::join` 在 Unix 上会把 `\` 当普通字符，于是 446/449 只怪的掉落表**全部
+    /// 找不到**（金币与物品都不掉）。这里先统一归一成 `/` 再 join，两种平台都能加载；
+    /// 本来就用 `/` 的路径不受影响。
+    ///
+    /// `#INSERT` 的路径由 [`mir_db::drops::DropTable::load`] 在 `mir-db` 内部 join；
+    /// 本地 12,378 个样本掉落文件里 0 个使用 `#INSERT`，如以后用到需在同一处做归一。
     #[must_use]
     pub fn drop_table(&self, file: &str) -> Option<Arc<DropTable>> {
         let Some(dir) = &self.drop_dir else {
             return None;
         };
+        // 先归一：缓存键、文件路径都用同一套分隔符（Windows 上两种写法才会命中同一项）。
+        let file = normalize_drop_path(file);
         if let Some(cached) = self
             .drop_cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(file)
+            .get(&file)
         {
             return cached.clone();
         }
-        let name = if Path::new(file).extension().is_some() {
-            file.to_owned()
+        let name = if Path::new(&file).extension().is_some() {
+            file.clone()
         } else {
             format!("{file}.txt")
         };
@@ -534,7 +547,7 @@ impl GameData {
         self.drop_cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(file.to_owned(), loaded.clone());
+            .insert(file, loaded.clone());
         loaded
     }
 
@@ -685,6 +698,18 @@ pub fn normalize_item_name(name: &str) -> String {
         .filter(|ch| !ch.is_whitespace())
         .flat_map(char::to_lowercase)
         .collect()
+}
+
+/// 把 `MonsterInfo.DropPath` 归一成当前平台可 join 的相对路径。
+///
+/// Crystal 的 `Server.MirDB` 由 Windows 工具生成，`DropPath` 用反斜杠
+/// （Jev：`Provinces\Hen`、`AncientCaves\OmaCavern\Ancient_Skeleton`）。
+/// `Path::join` 在 Unix 上不把 `\` 当分隔符，会把整串当成一个文件名，导致掉落表
+/// 找不到（表现为「所有怪都不掉东西」，金币当然也没有）。
+/// 统一换成 `/`（Unix/Windows 都接受正斜杠），本身已是 `/` 的路径保持不变。
+#[must_use]
+pub fn normalize_drop_path(path: &str) -> String {
+    path.replace('\\', "/")
 }
 
 /// 把候选路径展开成真实路径：先按仓库根，再按当前工作目录。
@@ -864,5 +889,69 @@ mod tests {
             return;
         };
         assert!(rules > 0, "{monster} 的掉落表应有规则");
+    }
+
+    #[test]
+    fn drop_paths_are_normalized_for_unix_and_keep_forward_slashes() {
+        // Windows 风格（数据库里真实存在的写法）→ 正斜杠。
+        assert_eq!(normalize_drop_path("Provinces\\Hen"), "Provinces/Hen");
+        assert_eq!(
+            normalize_drop_path("AncientCaves\\OmaCavern\\Ancient_Skeleton"),
+            "AncientCaves/OmaCavern/Ancient_Skeleton"
+        );
+        // 混合分隔符也统一。
+        assert_eq!(
+            normalize_drop_path("AncientCaves\\OmaCavern/Ancient_Skeleton"),
+            "AncientCaves/OmaCavern/Ancient_Skeleton"
+        );
+        // 本来就正常的 `/` 路径（以及不带目录的名字）保持不变。
+        assert_eq!(normalize_drop_path("Drops/EvilMir"), "Drops/EvilMir");
+        assert_eq!(normalize_drop_path("Hen"), "Hen");
+    }
+
+    #[test]
+    fn windows_style_drop_path_loads_the_real_table() {
+        let Some(data) = sample() else {
+            eprintln!("skip: no Server.MirDB sample under resource/");
+            return;
+        };
+        // Jev 样本里 Hen 的 DropPath 是 `Provinces\Hen`（Windows 反斜杠）。
+        // 这条用例在 Linux 上就是回归守卫：修复前 `dir.join("Provinces\\Hen.txt")`
+        // 找不到文件 → None → 鸡不掉 Chicken，金币/物品整表丢失。
+        let info = data
+            .monster_info_by_name("Hen")
+            .expect("Jev 样本里应有 Hen 模板");
+        assert!(
+            info.drop_path.contains('\\'),
+            "sample must contain a backslash drop path, got {:?}",
+            info.drop_path
+        );
+        let table = data
+            .drop_table(&info.drop_path)
+            .expect("Windows 风格 DropPath 在 Unix/Windows 都应能加载");
+        assert!(
+            table.drops.iter().any(|drop| matches!(
+                &drop.kind,
+                mir_db::drops::DropKind::Item(name) if name == "Chicken"
+            )),
+            "Hen drop table must contain 1/1 Chicken, got {:?}",
+            table.drops
+        );
+
+        // 同一张表的 `/` 写法也照常工作（修复不能只认反斜杠）——
+        // 而且两种写法应命中同一个缓存项（缓存键在归一之后）。
+        let forward = info.drop_path.replace('\\', "/");
+        let forward_table = data
+            .drop_table(&forward)
+            .expect("正斜杠 DropPath 也应能加载");
+        assert!(
+            Arc::ptr_eq(&table, &forward_table),
+            "`Provinces\\Hen` and `Provinces/Hen` must hit the same cache entry"
+        );
+        assert_eq!(
+            Some(forward_table.drops.len()),
+            Some(table.drops.len()),
+            "both spellings must resolve to the same table"
+        );
     }
 }

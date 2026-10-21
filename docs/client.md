@@ -160,6 +160,8 @@ buff 倒计时都基于它，所以无头测试可以任意拨表。
 | Tab | `C.PickUp`（Crystal 的 `KeybindOptions.Pickup = Keys.Tab`，`KeyBindSettings.cs:334`；`P` 让给组队窗口） |
 | T | 打开聊天输入；回车 `C.Chat`，Esc 取消；`!!` 前缀 = 组队频道（§5.14）；`@` 开头原样发送（不解析/不本地化，GM/脚本回复按服务端原文显示） |
 | Y | 发起交易 `C.TradeRequest`（Crystal 是 `T`，`KeyBindSettings.cs:340`；本作 `T` 已用于聊天，见 §5.13） |
+| S | 卖出**背包选中格**（`C.SellItem`）；要求商店面板已打开且选中了背包物品，否则不动作（§5.25）。本地地图查看模式的 `S` 仍是截图 |
+| R | 修理**背包选中格**（`C.RepairItem`）；同样要求商店面板打开 + 选中（§5.25） |
 | I | 开关背包 |
 | E | 开关装备纸娃娃面板 |
 | M | 开关小地图（`ui::minimap`，见 §5.5） |
@@ -980,6 +982,48 @@ Add/Remove/Memo/Email/Whisper，`KeybindOptions.Friends` 可配键位）；本�
 UI：`draw_ui` 在顶部画提示横幅「连接已断开，正在重连（N/3）」/「无法连接」；
 `Label::Reconnecting` 双语（复用已有 `ConnectFailed`），非 TextKey。测试 5 例：
 首次成功、指数退避 + 3 次失败、提示序号、重复断线不重置（另含 minimap 传送点标记用例）。
+
+### 5.25 常用地图名与商店快捷操作（第 27 轮）
+
+#### A. 常用地图名（客户端表）
+
+- **数据源**：`config/lang/{zh-cn,en}.json` 的 **`maps` 段**（25 张常用图；键 = 地图文件名，
+  不含 `.map`）。中文名逐字取自 `cjlaaa`/`Jev` 的 MirDB `MapInfo.Title`；`map0` 的英文名用
+  `config/lang/en.json` 的 `Bichon Province`（不是 `BichonProvince`）。
+- **实现**：`ui/map_names.rs` 用 `LanguageLibrary::embedded()` + `OnceLock` 缓存（避免每帧解析
+  JSON）；新增地图只改语言包，不改代码。
+- **回退链**（`localized(file_name, data_title, language)`）：
+  `语言包 maps → 服务端标题（`S.NewMapInfo.title`/`S.MapChanged.title`）→ 文件名 → Label::UnknownMap`
+  （中文「未知地图」/ 英文 `Unknown map`）。
+- **只有标题、没有文件名**时用 `localized_title(data_title, language)` 反查语言包：
+  比较时忽略大小写与空格/下划线/连字符（`BichonProvince` ↔ `Bichon Province`）；
+  未收录时原样返回（空串仍是空串）。
+- **接入点（5 处）**：
+  1. HUD 地图名：`ui/hud.rs:226`；
+  2. 小地图标题：`ui/mod.rs:4231`；
+  3. 大地图标题：`ui/mod.rs:4254`；
+  4. 小地图传送点悬停：`ui/minimap.rs:188`（`movement.title` 走 `localized_title`）；
+  5. 组队面板队友地图：`ui/group.rs:433`（`S.GroupMembersMap` 只有标题，走 `localized_title`）。
+- **测试**：`map_titles_come_from_the_language_packs`、`both_language_packs_cover_the_same_maps`、
+  `unknown_maps_fall_back_to_the_server_title_then_the_file_name`、
+  `titles_without_a_file_name_are_reverse_looked_up`。
+
+#### B. 商店快捷操作 `S` / `R`
+
+| 键 | 动作 | 前置 | 结果 |
+|---|---|---|---|
+| `S` | 卖背包选中格 | **商店面板已打开** + 背包有选中物品 | `UiAction::SellItem{unique_id, count:1}` → `NetCommand::SellItem` → **`C.SellItem`** |
+| `R` | 修背包选中格 | **商店面板已打开** + 背包有选中物品 | `UiAction::RepairItem{unique_id}` → `NetCommand::RepairItem` → **`C.RepairItem`** |
+
+- 判断逻辑在 `UiState::sell_selected_item` / `repair_selected_item`（`ui/mod.rs:1564/1579`）：
+  未打开商店或未选中背包物品时返回 `None`（**不发包、不提示**）；卖出数量固定 1，与
+  Crystal 右键出售一次一件一致。
+- 窗口层在 `app.rs:2669-2673` 统一处理：`live_shop_open() && live_sell_selected()` /
+  `... && live_repair_selected()` 任一不满足就不动作。
+- **注意**：本地/离线地图查看模式的 `S` 仍是截图（`app.rs:2508-2513`），不是卖；`S`/`R`
+  的商店语义只在联机（Live）模式生效。
+- 测试：`crates/mir-client/tests/npc_flow.rs` 覆盖「未开商店/未选中 → None」「选中 → C.SellItem/
+  C.RepairItem」与双语；`ui/equipment.rs` 另有修理动作映射单测。
 
 
 

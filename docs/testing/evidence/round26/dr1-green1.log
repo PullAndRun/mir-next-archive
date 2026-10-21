@@ -1,0 +1,120 @@
+[t=+00:00] [OK]   连接服务端 —— 127.0.0.1:7083
+[t=+00:00] [OK]   版本校验
+[t=+00:00] [OK]   注册账号 —— pt120804
+[t=+00:00] [OK]   登录
+[t=+00:00] [OK]   创建角色 —— PT120804
+[t=+00:00] [OK]   进入游戏
+  [地图] 进图详情 map#1 700x700，NPC 40 个，传送点 6 个
+[t=+00:00] [OK]   进入世界 —— object_id=1979 pos=(330, 270)
+[t=+00:00] [OK]   DR-1 清洁角色 —— object_id=1979 map=0 hp=15
+  [聊天] 欢迎来到传奇-Next。
+新手提示：背包里已有出生装；到书店买技能书，双击阅读即可学会第一个技能。
+[t=+00:07] [OK]   DR-1 穿上出生装 —— 3 件
+  [地图] 已加载 mapgrid-0.bin 700x700
+  [DR-1] 附近怪物：
+    Oma id=352 pos=(418, 107) d=11
+    Oma id=344 pos=(407, 105) d=12
+    Oma id=353 pos=(423, 108) d=12
+    EbonyTree id=1613 pos=(432, 97) d=13
+    CherryTree id=1719 pos=(411, 95) d=8
+  [DR-1] 拉怪攻击 Oma id=352 d=1
+  [DR-1] 伤害数字 target=352 dmg=0（75）
+  [诊断] 第 1 次无移动确认：cell=(409, 106) reason=monster 目标=(407, 104) 当前位置=(410, 106) 地图=0；避开该格并重规划
+  [诊断] 最近包索引: [75, 77, 28, 75, 23, 23, 26, 28, 23, 28, 23, 28, 23, 28, 28, 23, 23, 28, 28, 23]
+  [诊断] UserInformation.hp=15 当前 hp=11
+  [诊断] HealthChanged 序列: [(1792573531.5415587, 15), (1792573541.6836095, 16), (1792573666.0487025, 11)]
+  [DR-1] 拉怪攻击 Oma id=344 d=1
+  [DR-1] 伤害数字 target=344 dmg=0（75）
+  [诊断] 第 1 次无移动确认：cell=(424, 107) reason=monster 目标=(425, 106) 当前位置=(424, 108) 地图=0；避开该格并重规划
+  [诊断] 最近包索引: [23, 23, 28, 28, 23, 23, 28, 28, 28, 23, 23, 28, 77, 75, 23, 28, 28, 23, 28, 23]
+  [诊断] UserInformation.hp=15 当前 hp=10
+  [诊断] HealthChanged 序列: [(1792573531.5415587, 15), (1792573541.6836095, 16), (1792573666.0487025, 11), (1792573672.7474203, 9), (1792573682.9191787, 10)]
+  [DR-1] 拉怪攻击 Oma id=353 d=1
+  [DR-1] 追怪：self=(425, 107) prey_server=(424, 107) id=353 d=1 moving=False stale_ms=1771 hp=10
+  [DR-1] 近身攻击 id=353 d=1 moving=False
+  [DR-1] 伤害数字 target=353 dmg=0（75）
+  [DR-1] 走位挨打 (426, 107) hp=10
+  [DR-1] 追怪：self=(426, 107) prey_server=(424, 107) id=353 d=2 moving=False stale_ms=3024 hp=10
+  [DR-1] 走位挨打 (426, 108) hp=10
+  [DR-1] 追怪：self=(426, 108) prey_server=(424, 107) id=353 d=2 moving=False stale_ms=4249 hp=10
+  [DR-1] 走位挨打 (426, 108) hp=10
+  [DR-1] 追怪：self=(426, 108) prey_server=(424, 107) id=353 d=2 moving=False stale_ms=5465 hp=10
+  [DR-1] 走位挨打 (426, 108) hp=10
+  [DR-1] 追怪：self=(426, 108) prey_server=(424, 107) id=353 d=2 moving=False stale_ms=6684 hp=10
+  [DR-1] 走位挨打 (426, 108) hp=10
+  [DR-1] 追怪：self=(426, 108) prey_server=(424, 107) id=353 d=2 moving=False stale_ms=7909 hp=10
+  [DR-1] 走位挨打 (426, 108) hp=10
+  [DR-1] 追怪：self=(426, 108) prey_server=(424, 107) id=353 d=2 moving=False stale_ms=8989 hp=10
+  [DR-1] 近身攻击 id=353 d=1 moving=False
+  [DR-1] 命中 target=353（S.ObjectStruck 74）
+  [DR-1] 伤害数字 target=353 dmg=-1（75）
+  [DR-1] 走位挨打 (426, 108) hp=10
+  [DR-1] 追怪：self=(426, 108) prey_server=(424, 107) id=353 d=2 moving=False stale_ms=10903 hp=10
+  [DR-1] 走位挨打 (426, 108) hp=3
+  [DR-1] 追怪：self=(426, 108) prey_server=(424, 107) id=353 d=2 moving=False stale_ms=12125 hp=3
+  [DR-1] 近身攻击 id=353 d=1 moving=False
+  [DR-1] 伤害数字 target=353 dmg=0（75）
+  [DR-1] 走位挨打 (426, 108) hp=3
+  [DR-1] 追怪：self=(426, 108) prey_server=(425, 108) id=353 d=1 moving=True stale_ms=0 hp=3
+  [DR-1] 走位挨打 (427, 108) hp=3
+  [DR-1] 伤害数字 target=353 dmg=1（75）
+  [DR-1] 追怪：self=(426, 108) prey_server=(425, 107) id=344 d=1 moving=True stale_ms=724 hp=3
+  [DR-1] 近身攻击 id=344 d=1 moving=True
+  [DR-1] 伤害数字 target=344 dmg=0（75）
+  [DR-1] 走位挨打 (427, 108) hp=3
+  [DR-1] 追怪：self=(427, 108) prey_server=(425, 107) id=344 d=2 moving=False stale_ms=1836 hp=3
+  [DR-1] 走位挨打 (427, 108) hp=3
+  [DR-1] 追怪：self=(427, 108) prey_server=(425, 107) id=344 d=2 moving=False stale_ms=3090 hp=3
+  [DR-1] 近身攻击 id=344 d=1 moving=False
+  [DR-1] 伤害数字 target=344 dmg=0（75）
+  [DR-1] 走位挨打 (427, 108) hp=1
+  [DR-1] 追怪：self=(427, 108) prey_server=(425, 107) id=344 d=2 moving=False stale_ms=4867 hp=1
+  [DR-1] 走位挨打 (427, 108) hp=1
+  [DR-1] 追怪：self=(427, 108) prey_server=(425, 107) id=344 d=2 moving=False stale_ms=6083 hp=1
+  [诊断] 第 1 次无移动确认：cell=(426, 108) reason=monster 目标=(425, 107) 当前位置=(427, 108) 地图=0；避开该格并重规划
+  [诊断] 最近包索引: [28, 23, 23, 28, 23, 72, 75, 23, 72, 73, 75, 77, 75, 23, 28, 23, 23, 28, 28, 23]
+  [诊断] UserInformation.hp=15 当前 hp=1
+  [诊断] HealthChanged 序列: [(1792573531.5415587, 15), (1792573541.6836095, 16), (1792573666.0487025, 11), (1792573672.7474203, 9), (1792573682.9191787, 10), (1792573695.1865094, 3), (1792573702.4329653, 1)]
+  [DR-1] 近身攻击 id=344 d=1 moving=True
+  [DR-1] 命中 target=344（S.ObjectStruck 74）
+  [DR-1] 伤害数字 target=344 dmg=-3（75）
+  [DR-1] 走位挨打 (427, 107) hp=1
+  [DR-1] 追怪：self=(427, 107) prey_server=(426, 108) id=353 d=1 moving=False stale_ms=1836 hp=1
+  [DR-1] 走位挨打 (428, 107) hp=1
+  [DR-1] 追怪：self=(427, 108) prey_server=(426, 107) id=344 d=1 moving=False stale_ms=956 hp=1
+  [DR-1] 近身攻击 id=344 d=1 moving=False
+  [DR-1] 收到 S.Death @ (427, 108) t=1792573708.047 hp=1
+  [DR-1] 伤害数字 target=344 dmg=0（75）
+[t=+03:16] [OK]   DR-1 自然死亡 —— hp=0 t=1792573708.047 pos=(427, 108)
+[t=+03:16] [OK]   DR-1 12s 无自动复活 —— t=1792573728.137，仍未 S.Revived
+  [DR-1] 等待136 frame index=77 t=1792573728.148
+  [DR-1] 等待136 frame index=137 t=1792573728.148
+  [DR-1] 等待136 frame index=136 t=1792573728.148
+  [DR-1] 收到 S.Revived @ (427, 108) t=1792573728.148 hp=16
+[t=+03:16] [OK]   DR-1 C.TownRevive —— 发 t=1792573728.137 → 收 t=1792573728.148（0.011s）
+[t=+03:18] [OK]   DR-1 复活点/HP —— pos(缓存)=(427, 108) hp=16
+[t=+03:23] [OK]   DR-1 复活后可移动 —— (427, 108) -> (331, 270)
+[t=+03:24] [OK]   DR-1 复活后可攻击 —— C.Attack 已发送，连接保持
+  [DR-1] 包序（最近 20 条，时间/索引）：
+    t=1792573708.154 index=75
+    t=1792573708.323 index=23
+    t=1792573712.749 index=23
+    t=1792573717.807 index=23
+    t=1792573722.831 index=23
+    t=1792573728.148 index=77
+    t=1792573728.148 index=137
+    t=1792573728.148 index=136
+    t=1792573730.234 index=23
+    t=1792573730.234 index=26
+    t=1792573730.234 index=26
+    t=1792573730.234 index=26
+    t=1792573730.234 index=26
+    t=1792573730.234 index=26
+    t=1792573730.234 index=71
+    t=1792573730.234 index=71
+    t=1792573730.234 index=71
+    t=1792573730.234 index=71
+    t=1792573730.234 index=71
+    t=1792573730.234 index=71
+
+结果：全部通过（0 跳过）

@@ -48,7 +48,9 @@
 | 技能（魔法） | 🟡 | 技能数据/用书学习/施法校验/延迟结算/修炼值升级（`level_magic`）/存档；**升级书**（已会未满 3 级读同书升 1 级，本作扩展）与**新手免费第一本书**（1 级无技能，Librarian_Steven）；已实现 15 个伤害/治疗/位移/召唤/中毒技能（火球系列/HellFire/FireBang/治疗/火墙/雷电/瞬息移动/隐身/召唤骷髅/召唤神兽/施毒）与 9 个增益技能（护盾/加速/魔法盾…）；**宠物命令** `C.ChangePMode`（5 种 `PetMode`，客户端 `V` 键三态循环；`pet_modes` 为 World 侧表、不随角色存档）；其余登记未实现（`docs/world/magic.md` §9） |
 | 物品与背包 | ✅ | 掉落、地面物品与过期、拾取/丢弃、46 格背包、14 装备槽、装备加成、药水/卷轴/丢金币、**新角色出生装**（`StartItem` 职业过滤）、**书店/技能书**（Book `Shape`=Spell、双击学习 + 新手提示）、`UserItem[]` 存档；仓库见「玩家仓库与邮件」 |
 | Buff | ✅ | 带到期时间的属性修饰层、`AddBuff`/`RemoveBuff` 广播、魔法盾按伤害扣时、到期重算属性并补发血量 |
-| NPC 对话与商店 | ✅ | `Envir/NPCs` 脚本解析（`#INSERT`/`#INCLUDE`/条件/动作/按钮）、NPC 刷出与 `ObjectNPC`、`NewMapInfo` 下发、对话跳转、买/卖/修（Crystal 定价公式与价格倍率）、**耐久损耗与修理**（攻击 1..=4/受击每槽 -1、归零失效 + `item_broken`、满耐久/金币不足明确提示）；NPC 营业时段可见性未做 |
+| NPC 页面/对话 | ✅ | `Envir/NPCs` 脚本解析（`#INSERT`/`#INCLUDE`/条件/动作/按钮）、NPC 刷出与 `ObjectNPC`、`NewMapInfo` 下发、GOTO/按钮白名单、`@main`/`@exit`/空 key 归一（无对话时 `NoDialog`）；**页面流程已验证**（EQ-1 真实 TCP：`@main` → `@REPAIR` 能打开、页面文本含 `<Repair/@Repair>`）；NPC 营业时段可见性未做 |
+| NPC 商店（买/卖） | 🟡 | `@BuySell`/`@Buy`/`@Sell` 页 → `S.NPCGoods`(102)/`S.NPCSell`(103) → `C.BuyItem`/`C.SellItem`；金币定价与 `Price()*Rate`、卖价 `Price()/2` 已实现；**客户端逻辑层已验**（`tests/npc_flow.rs` 8 条：页面渲染/按钮/买/卖/修/退出/双语）；**服务端买/卖端到端待验** |
+| NPC 修理 | 🟡 | `@Repair`/`@SRepair` 页 → `S.NPCRepair`(104)/`S.NPCSRepair`(105) → `C.RepairItem`；三条前置（修理页/物品在背包/NPC 16 格内）与公式 `MaxDura-(MaxDura-CurrentDura)/30` 已实现；**服务端页面+三前置+价格已验证**，**端到端待 EQ-1 C**（缺启动金币 → 依赖卖店链路）；**耐久损耗与归零失效**（攻击 1..=4/受击每槽 -1、`item_broken`、满耐久/金币不足提示）已接 |
 | 任务 | ✅ | `Envir/Quests` 脚本解析（13 个段）、接取前置（等级/职业/前置任务链/上限）、击杀·收集·标记目标、交付领奖（金币/经验/元宝/固定/任选）、限时超时、放弃、NPC `CHECKQUEST` 与 `[Quests]` 关联、`characters.quests` 存档往返；**任务物品栏**（40 格、`S.GainedQuestItem`/`S.DeleteQuestItem`、掉落截胡、`characters.quest_inventory` 迁移 0012）、**YouFound 提示**（205 → `quest_item_found` → `S.ChangeQuest`）、**`Q` 标记掉落**（先截胡、无人需要才不落地）、**每日任务重置**（迁移 0013 `last_daily_reset_at`，按角色 24h 惰性；Crystal 是服务器 0 点 `ProcessNewDay`）；见 `docs/world/quests.md` |
 | 组队 | ✅ | 邀请/接受/拒绝/退队/踢人、队长顺延、组内 `!!` 聊天、16 格内按人数与等级分配经验、组队任务击杀共享、切图通知；PK 与地图准入规则未做 |
 | 多地图与传送 | ✅ | 按地图文件惰性加载与缓存、`MovementInfo` 传送点（含 `need_hole`/`need_move`）、`S.MapChanged` 包序、NPC `MOVE`/`MAPMOVE`/`ENTERMAP`；客户端地形仍是启动时加载（见 `docs/client.md` §8） |
@@ -227,7 +229,9 @@ python tools/protocol-gen/generate.py
 | [`docs/world/items.md`](docs/world/items.md) | 物品系统：掉落、地面物品、背包/装备槽、持久化与协议包 |
 | [`docs/world/magic.md`](docs/world/magic.md) | 技能系统：数据与存档、用书学习、施法流程、伤害/治疗公式、协议包与支持矩阵 |
 | [`docs/world/npc.md`](docs/world/npc.md) | NPC 脚本格式、条件/动作支持矩阵、商店与修理公式 |
+| [`docs/world/npc-dialog.md`](docs/world/npc-dialog.md) | NPC 对话/商店/修理：协议、交互流程、前置校验与验收清单 |
 | [`docs/world/quests.md`](docs/world/quests.md) | 任务系统：脚本段、接取/交付流程、奖励与存档 |
+| [`docs/world/economy.md`](docs/world/economy.md) | 经济与成长：金币掉落、卖店启动金币、经验曲线与 EQ-1 证据 |
 | [`docs/world/buffs.md`](docs/world/buffs.md) | Buff 容器：到期、属性叠加、药水与增益技能 |
 | [`docs/world/maps.md`](docs/world/maps.md) | 多地图与传送：加载缓存、传送点、切图包序 |
 | [`docs/world/aoi.md`](docs/world/aoi.md) | AOI 网格、视野半径 16、进出视野差分与门状态机 |

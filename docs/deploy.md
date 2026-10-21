@@ -124,6 +124,8 @@ pwsh -NoProfile -File tools/dev/package.ps1                 # 构建 + 生成 di
 pwsh -NoProfile -File tools/dev/package.ps1 -Verify         # 校验文件数 + 逐文件 SHA-256 + 客户端 --help 冒烟
 ```
 `package.ps1` **不加入 `ci.ps1` 的 10 项门禁**（release 构建是分钟级），只在发版前手动执行。
+
+> **体积约定**：dist/ 是本地构建产物，**不入库**（.gitignore 已忽略）；需要发布包时按上面命令现场生成。详见 [process/repo-hygiene.md](process/repo-hygiene.md)。
 删除任一产物文件或改动任一字节，`-Verify` 都会以非 0 退出并打印 `MISSING:` / `TAMPERED:` 文件名。
 
 ### 本机实测（2026-10-20，Windows x64，release）

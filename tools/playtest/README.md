@@ -199,3 +199,16 @@ pwsh -NoProfile -File tools/dev/newbie-gate.ps1
 * 导航行使用 DB 的 `MapInfo.title`（实测 `BichonProvince`），不是客户端中文名
   “比奇省”；“导航行用玩家可读地图名”已记入下一轮候选，本轮不改。
 
+## EQ-1 耐久 gate 结论（第 27 轮）
+
+* **B PASS**：穿出生装打怪后，真实 TCP 周期收到 `S.DuraChanged(76)`（Crystal
+  `DuraDelay=10000ms`；实测 `3983/4000`）。
+* **C PARTIAL**：NPC 修理页流程（`@main` → `@REPAIR`）、卸武器回背包、价格提示
+  （`修理这件物品需要 2 金币，你只有 0`）均已验证；**修好需要 2 金币启动资金**，
+  金币掉落经济链路待专项审计（`DropInfo.Gold`/`drop_monster_loot`）。
+* **已知坑**：出生点附近有训练假人（`target_hp=999999`、`AC=999`）；gate 选目标
+  必须排除，否则会把“打不死”误判成“没有掉落/没有伤害”（90s 0 击杀 0 掉落）。
+  真怪 target=774 的 90s 打怪也未观察到 `S.ObjectGold(65)`/`S.GainedGold(67)`，
+  这条经济链路留给专项审计，不再用 gate 硬凑。
+
+

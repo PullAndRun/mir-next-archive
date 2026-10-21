@@ -214,19 +214,16 @@ pub fn time_weather_text(snapshot: &WorldSnapshot, language: Language) -> String
     parts.join(" · ")
 }
 
-/// 地图标题：优先 `MapInformation.title`，其次文件名，最后「未知地图」。
+/// 地图标题：客户端常用地图名表 → `MapInformation.title` → 文件名 → 「未知地图」。
+///
+/// 表见 [`crate::ui::map_names`]：服务端标题可能来自另一种语言的 `Server.MirDB`
+/// （中文库 `比奇省` / 英文库 `BichonProvince`），常用图按界面语言覆盖。
 #[must_use]
 pub fn map_name(snapshot: &WorldSnapshot, language: Language) -> String {
     let Some(map) = &snapshot.map else {
         return Label::UnknownMap.text(language).to_owned();
     };
-    if !map.title.is_empty() {
-        return map.title.clone();
-    }
-    if !map.file_name.is_empty() {
-        return map.file_name.clone();
-    }
-    Label::UnknownMap.text(language).to_owned()
+    crate::ui::map_names::localized(&map.file_name, &map.title, language)
 }
 
 /// 生命/魔法比例（0.0..=1.0）。
@@ -561,21 +558,30 @@ mod tests {
     }
 
     #[test]
-    fn map_name_falls_back_from_title_to_file_to_unknown() {
+    fn map_name_prefers_the_client_table_then_falls_back_to_title_file_and_unknown() {
         let mut snapshot = WorldSnapshot::default();
         assert_eq!(map_name(&snapshot, Language::ZhCn), "未知地图");
+        // 常用图（map 0）走客户端表：服务端英文库的 `BichonProvince` 也显示中文名。
         snapshot.map = Some(crate::net::MapSnapshot {
             file_name: "0".to_owned(),
-            title: String::new(),
-            ..crate::net::MapSnapshot::default()
-        });
-        assert_eq!(map_name(&snapshot, Language::ZhCn), "0");
-        snapshot.map = Some(crate::net::MapSnapshot {
-            file_name: "0".to_owned(),
-            title: "比奇省".to_owned(),
+            title: "BichonProvince".to_owned(),
             ..crate::net::MapSnapshot::default()
         });
         assert_eq!(map_name(&snapshot, Language::ZhCn), "比奇省");
+        assert_eq!(map_name(&snapshot, Language::En), "Bichon Province");
+        // 未收录的图：服务端标题原样显示，标题为空才退回文件名。
+        snapshot.map = Some(crate::net::MapSnapshot {
+            file_name: "9999".to_owned(),
+            title: String::new(),
+            ..crate::net::MapSnapshot::default()
+        });
+        assert_eq!(map_name(&snapshot, Language::ZhCn), "9999");
+        snapshot.map = Some(crate::net::MapSnapshot {
+            file_name: "9999".to_owned(),
+            title: "SomeDungeon".to_owned(),
+            ..crate::net::MapSnapshot::default()
+        });
+        assert_eq!(map_name(&snapshot, Language::ZhCn), "SomeDungeon");
     }
 
     #[test]

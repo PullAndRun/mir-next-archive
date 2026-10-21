@@ -426,15 +426,17 @@ pub fn draw(
                 SIZE_SMALL + 4,
             ),
         );
+        // 队友的地图名只带服务端标题（`S.GroupMembersMap`），按常用图表反查本地化。
+        let member_map = if member.map.is_empty() {
+            "--".to_owned()
+        } else {
+            crate::ui::map_names::localized_title(&member.map, language)
+        };
         text.draw_clipped(
             frame,
             row.x + columns[3],
             row.y + 6,
-            if member.map.is_empty() {
-                "--"
-            } else {
-                member.map.as_str()
-            },
+            &member_map,
             SIZE_SMALL,
             if member.online {
                 BODY_COLOR

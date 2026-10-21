@@ -244,7 +244,31 @@
     "wrong_password": "Incorrect account or password."
   },
   "maps": {
-    "0": "Bichon Province"
+    "0": "Bichon Province",
+    "1": "WoomyonWoods(S)",
+    "2": "SerpentValley",
+    "3": "MongchonProvince",
+    "4": "CastleGi-Ryoong",
+    "5": "PrajnaIsland",
+    "6": "PastBichon",
+    "11": "WoomyonWoods(N)",
+    "12": "Treepath",
+    "0101": "Tavern",
+    "0102": "MeatStore",
+    "0103": "WeaponStore",
+    "0104": "Library",
+    "0105": "AccessoryStore",
+    "0106": "DrapersStore",
+    "0107": "BeautySaloon",
+    "0108": "ReagentStore",
+    "0109": "MedicineRoom",
+    "0116": "S_ValleyTavern",
+    "0122": "Palace",
+    "0125": "Inn",
+    "0136": "BorderRestaurant",
+    "0140": "Warehouse",
+    "0150": "InnerWall",
+    "0157": "LobbyofZumaTemple"
   }
 }
 

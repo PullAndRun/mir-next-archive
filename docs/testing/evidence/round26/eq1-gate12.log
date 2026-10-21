@@ -1,0 +1,31 @@
+[t=+00:00] [OK]   连接服务端 —— 127.0.0.1:7099
+[t=+00:00] [OK]   版本校验
+[t=+00:00] [OK]   注册账号 —— pt633301
+[t=+00:00] [OK]   登录
+[t=+00:00] [OK]   创建角色 —— PT633301
+[t=+00:00] [OK]   进入游戏
+  [地图] 进图详情 map#1 700x700，NPC 40 个，传送点 6 个
+[t=+00:00] [OK]   进入世界 —— object_id=1980 pos=(330, 270)
+  [聊天] 欢迎来到传奇-Next。
+新手提示：背包里已有出生装；到书店买技能书，双击阅读即可学会第一个技能。
+[t=+00:08] [OK]   EQ-1 装备 —— 穿上出生装 3 件
+  [地图] 已加载 mapgrid-0.bin 700x700
+  [DR-1] 伤害数字 target=1916 dmg=0（75）
+  [DR-1] 伤害数字 target=1916 dmg=0（75）
+  [耐久] unique_id=1879676080792535041 current=3995（S.DuraChanged 76）
+  [DR-1] 伤害数字 target=1916 dmg=0（75）
+  [DR-1] 伤害数字 target=1916 dmg=0（75）
+  [耐久] unique_id=1879676080792535041 current=3992（S.DuraChanged 76）
+[t=+00:24] [OK]   EQ-1 耐久下降 —— uid=1879676080792535041 current=3992 max=4000（事件 2 次）
+  [耐久] unique_id=1879676080792535045 current=7999（S.DuraChanged 76）
+  [耐久] unique_id=1879676080792535042 current=4999（S.DuraChanged 76）
+  [耐久] unique_id=1879676080792535045 current=7998（S.DuraChanged 76）
+  [耐久] unique_id=1879676080792535042 current=4998（S.DuraChanged 76）
+  [耐久] unique_id=1879676080792535042 current=4997（S.DuraChanged 76）
+  [耐久] unique_id=1879676080792535045 current=7997（S.DuraChanged 76）
+  [耐久] unique_id=1879676080792535045 current=7996（S.DuraChanged 76）
+  [耐久] unique_id=1879676080792535042 current=4996（S.DuraChanged 76）
+[t=+04:40] [FAIL] EQ-1 修理 —— 发 C.RepairItem uid=1879676080792535041 后未收到 S.ItemRepaired
+
+结果：存在失败项（OK 9 / SKIP 0 / FAIL 1）
+  - [FAIL] EQ-1 修理 —— 发 C.RepairItem uid=1879676080792535041 后未收到 S.ItemRepaired

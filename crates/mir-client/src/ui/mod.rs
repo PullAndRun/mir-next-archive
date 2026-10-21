@@ -46,6 +46,7 @@ pub mod input;
 pub mod inventory;
 pub mod labels;
 pub mod mail;
+pub mod map_names;
 pub mod market;
 pub mod minimap;
 pub mod newbie;
@@ -115,6 +116,13 @@ pub enum UiAction {
     BuyItem {
         /// 商店物品唯一编号。
         unique_id: u64,
+    },
+    /// 卖出选中的背包物品（`C.SellItem`；商店面板打开时按 `S`）。
+    SellItem {
+        /// 背包物品唯一编号。
+        unique_id: u64,
+        /// 数量。
+        count: u16,
     },
     /// 施法（`C.Magic`）。
     CastMagic {
@@ -440,8 +448,10 @@ pub enum UiAction {
 impl UiAction {
     /// 纯数据动作 → 网络命令。
     ///
-    /// `app.rs` 与无头测试共用这一份映射；NPC 对话、施法、绑定等需要额外本地状态
-    /// （关闭面板、记录新键位、按当前朝向决定走/转）的动作返回 `None`，由 `app.rs` 处理。
+    /// `app.rs` 与无头测试共用这一份映射；施法、绑定、走/转等需要额外本地状态
+    /// （播施法音、记录新键位、按当前朝向决定走还是转）的动作返回 `None`，由 `app.rs` 处理。
+    /// 点 NPC 按钮的命令本身是纯数据，所以也在这里映射；`@exit` 的「本地关窗」副作用
+    /// 另由 `app.rs` 调 [`UiState::close_npc_for_key`] 完成。
     #[must_use]
     pub fn net_command(&self) -> Option<crate::net::NetCommand> {
         use crate::net::NetCommand;
@@ -471,6 +481,14 @@ impl UiAction {
             Self::BuyItem { unique_id } => Some(NetCommand::BuyItem {
                 unique_id: *unique_id,
                 count: 1,
+            }),
+            Self::SellItem { unique_id, count } => Some(NetCommand::SellItem {
+                unique_id: *unique_id,
+                count: *count,
+            }),
+            Self::CallNpc { object_id, key } => Some(NetCommand::CallNpc {
+                object_id: *object_id,
+                key: key.clone(),
             }),
             Self::AttackTarget { direction } => Some(NetCommand::Attack(*direction)),
             Self::AbandonQuest { quest_index } => Some(NetCommand::AbandonQuest {
@@ -1522,6 +1540,50 @@ impl UiState {
         self.selected_goods = None;
         self.shop_scroll = 0;
         self.npc_object_id = None;
+    }
+
+    /// 处理 NPC 页键的本地副作用：`@exit` 立刻关窗，返回是否已关窗。
+    ///
+    /// 窗口层派发 `UiAction::CallNpc` 时调用；服务端随后也会回一页空 `S.NPCResponse`
+    /// 确认关窗（`Client/MirScenes/GameScene.cs:3891-3907`），这里先本地关掉，
+    /// 玩家点「关闭」不必等服务端往返。无头测试与窗口层共用这一份判断。
+    pub fn close_npc_for_key(&mut self, key: &str) -> bool {
+        if key.eq_ignore_ascii_case(dialog::EXIT_KEY) {
+            self.close_npc();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 商店里「卖出选中物品」的动作（`S`；窗口层与无头测试共用）。
+    ///
+    /// 商店面板没开或没选中背包物品时返回 `None`。数量固定 1，与 Crystal
+    /// `MirItemCell` 的出售路径一致（右键菜单/`S` 一次一件）。
+    #[must_use]
+    pub fn sell_selected_item(&self, snapshot: &WorldSnapshot) -> Option<UiAction> {
+        if !self.shop_open {
+            return None;
+        }
+        let item = self.selected_inventory_item(snapshot)?;
+        Some(UiAction::SellItem {
+            unique_id: item.unique_id,
+            count: 1,
+        })
+    }
+
+    /// 商店里「修理选中物品」的动作（`R`；窗口层与无头测试共用）。
+    ///
+    /// 与 [`Self::sell_selected_item`] 同样的前置条件。
+    #[must_use]
+    pub fn repair_selected_item(&self, snapshot: &WorldSnapshot) -> Option<UiAction> {
+        if !self.shop_open {
+            return None;
+        }
+        let item = self.selected_inventory_item(snapshot)?;
+        Some(UiAction::RepairItem {
+            unique_id: item.unique_id,
+        })
     }
 
     /// 关掉所有可切换面板。
@@ -4165,7 +4227,9 @@ pub fn draw(
             view.markers
                 .retain(|marker| marker.kind != mir_render::MarkerKind::Movement);
         }
-        let title = snapshot.map.as_ref().map_or("", |map| map.title.as_str());
+        let title = snapshot.map.as_ref().map_or_else(String::new, |map| {
+            map_names::localized(&map.file_name, &map.title, state.language)
+        });
         minimap::draw(
             frame,
             screen,
@@ -4173,7 +4237,7 @@ pub fn draw(
             &minimap::MinimapDraw {
                 snapshot,
                 view: &view,
-                title,
+                title: &title,
                 mouse: state.mouse,
                 show_movements: state.settings.show_minimap_gates,
             },
@@ -4186,13 +4250,15 @@ pub fn draw(
     // `BigMapDialog` 也是独立控件，`GameScene.cs:337`）。
     if state.show_bigmap {
         let view = minimap::big_view_for(snapshot, (scene.map.width, scene.map.height));
-        let title = snapshot.map.as_ref().map_or("", |map| map.title.as_str());
+        let title = snapshot.map.as_ref().map_or_else(String::new, |map| {
+            map_names::localized(&map.file_name, &map.title, state.language)
+        });
         let UiState {
             minimap_scene,
             language,
             ..
         } = state;
-        bigmap::draw(frame, screen, minimap_scene, &view, title, text, *language);
+        bigmap::draw(frame, screen, minimap_scene, &view, &title, text, *language);
     }
 
     if let Some(page) = &state.dialog {

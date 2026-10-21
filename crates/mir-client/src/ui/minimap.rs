@@ -173,6 +173,9 @@ fn marker_kind(snapshot: &WorldSnapshot, entity: &WorldEntity) -> Option<MarkerK
 }
 
 /// 传送点悬停文案：`传送点：<目标> (x,y)`（双语 Label）。
+///
+/// `ClientMovementInfo` 只带目的地**标题**（没有 mapfile），所以走
+/// [`crate::ui::map_names::localized_title`] 反查常用图。
 #[must_use]
 pub fn movement_tooltip(
     movement: &mir_protocol::data::ClientMovementInfo,
@@ -180,7 +183,11 @@ pub fn movement_tooltip(
 ) -> String {
     Label::MinimapGateTip
         .text(language)
-        .replacen("{}", &movement.title, 1)
+        .replacen(
+            "{}",
+            &crate::ui::map_names::localized_title(&movement.title, language),
+            1,
+        )
         .replacen("{}", &movement.location.x.to_string(), 1)
         .replacen("{}", &movement.location.y.to_string(), 1)
 }

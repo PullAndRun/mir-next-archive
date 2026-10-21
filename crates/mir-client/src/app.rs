@@ -1077,6 +1077,7 @@ impl ClientApp {
         match action {
             // 纯数据动作直接走 `UiAction::net_command`（与无头测试共用同一映射）。
             action @ (UiAction::BuyItem { .. }
+            | UiAction::SellItem { .. }
             | UiAction::DropItem { .. }
             | UiAction::MoveItem { .. }
             | UiAction::WalkStep { .. }
@@ -1165,9 +1166,8 @@ impl ClientApp {
                 live.send(NetCommand::UseItem { unique_id });
             }
             UiAction::CallNpc { object_id, key } => {
-                if key.eq_ignore_ascii_case("@exit") {
-                    live.ui.close_npc();
-                }
+                // `@exit` 由 UI 层立刻关窗（服务端随后回空页确认）。
+                live.ui.close_npc_for_key(&key);
                 live.send(NetCommand::CallNpc { object_id, key });
             }
             UiAction::CastMagic {
@@ -1814,27 +1814,31 @@ impl ClientApp {
     }
 
     /// 卖一件选中的背包物品（商店面板打开时 `S`）。
+    ///
+    /// 动作由 [`UiState::sell_selected_item`] 产生（`app.rs` 与无头测试共用一份判断），
+    /// 再走 [`Self::dispatch_ui_action`] 发 `C.SellItem`。
     fn live_sell_selected(&mut self) -> bool {
-        let Some((unique_id, _)) = self.selected_inventory() else {
+        let action = match &self.mode {
+            Mode::Live(live) => live.ui.sell_selected_item(&live.snapshot),
+            Mode::Offline | Mode::Login(_) => None,
+        };
+        let Some(action) = action else {
             return false;
         };
-        if let Mode::Live(live) = &mut self.mode {
-            live.send(NetCommand::SellItem {
-                unique_id,
-                count: 1,
-            });
-        }
+        self.dispatch_ui_action(action);
         true
     }
 
     /// 修理选中的背包物品（商店面板打开时 `R`）。
     fn live_repair_selected(&mut self) -> bool {
-        let Some((unique_id, _)) = self.selected_inventory() else {
+        let action = match &self.mode {
+            Mode::Live(live) => live.ui.repair_selected_item(&live.snapshot),
+            Mode::Offline | Mode::Login(_) => None,
+        };
+        let Some(action) = action else {
             return false;
         };
-        if let Mode::Live(live) = &mut self.mode {
-            live.send(NetCommand::RepairItem { unique_id });
-        }
+        self.dispatch_ui_action(action);
         true
     }
 

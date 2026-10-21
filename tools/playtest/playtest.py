@@ -92,6 +92,7 @@ S_OBJECT_WALK = 28
 S_CHAT = 30
 S_OBJECT_MONSTER = 71
 S_OBJECT_ITEM = 64
+S_OBJECT_GOLD = 65
 S_OBJECT_DIED = 81
 S_GAIN_EXPERIENCE = 85
 S_NEW_MAGIC = 117
@@ -350,6 +351,7 @@ class Playtest:
         self.inventory_items: list[dict] = []
         self.equipment_items: list[dict] = []
         self.ground_items: list[dict] = []
+        self.ground_gold: list[dict] = []
         # 被服务端拒绝的“活物/临时占位”格：cell -> 解除时间（monotonic）。
         # 静态 NPC/建筑走 blocked 永久集；怪物/玩家短 TTL，避免把会走的对象永久拉黑。
         self._dynamic_blocked: dict[tuple[int, int], float] = {}
@@ -606,6 +608,14 @@ class Playtest:
             elif index == S_GAIN_EXPERIENCE:
                 amount = Reader(payload).u32()
                 self.self_exp = (self.self_exp or 0) + amount
+            elif index == S_OBJECT_GOLD:  # 65：地面金币
+                r = Reader(payload)
+                object_id = r.u32()
+                gold = r.u32()
+                location = r.point()
+                self.ground_gold = [g for g in self.ground_gold if g["id"] != object_id]
+                self.ground_gold.append({"id": object_id, "gold": gold, "pos": location})
+                print(f"  [地面金币] id={object_id} amount={gold} pos={location}")
             elif index == S_OBJECT_ITEM:  # 64：地面物品
                 r = Reader(payload)
                 object_id = r.u32()
@@ -856,7 +866,8 @@ class Playtest:
                 r = Reader(payload)
                 gold = r.u32()
                 self.gold_delta += gold
-                print(f"  [金币] +{gold}（累计 {self.gold_delta:+d}）")
+                self.self_gold = (self.self_gold or 0) + gold
+                print(f"  [金币] +{gold}（累计 {self.gold_delta:+d}，余额 {self.self_gold}）")
             elif index == S_USER_LOCATION:
                 r = Reader(payload)
                 self.self_pos = r.point()
@@ -2261,6 +2272,19 @@ class Playtest:
                     | set(NEWBIE_DOORS),
                 )
             if not path:
+                # 最后降级：怪物格只是软障碍（会移动），不能因为一只怪占住走廊就判定无路；
+                # 静态 NPC/门仍保留，服务端拒绝时由 step 重试/换锚点处理。
+                print(
+                    f"  [新手链] BFS 仍无路，忽略软障碍（怪物格）重算："
+                    f"{self.self_pos} -> {npc.get('name')} @ {npc.get('pos')}"
+                )
+                path = self._bfs_path(
+                    tuple(npc["pos"]),
+                    blocked={tuple(npc["pos"])}
+                    | self._static_npc_cells()
+                    | set(NEWBIE_DOORS),
+                )
+            if not path:
                 print(f"  [新手链] BFS 无路径：当前 {self.self_pos} -> {npc.get('name')} @ {npc.get('pos')}")
                 return False
             cell = path[0]
@@ -2888,7 +2912,15 @@ class Playtest:
             if self.self_dead or (self.self_hp or 1) <= 0:
                 self.fail("EQ-1 耐久下降", f"攻击中死亡，hits={hits}")
                 return 1
-            preys = [m for m in self.monsters if not m.get("dead")]
+            preys = [
+                m
+                for m in self.monsters
+                if not m.get("dead")
+                and any(
+                    key in m.get("name", "").lower()
+                    for key in ("deer", "hen", "scarecrow", "oma", "rakingcat", "yeti", "wolf")
+                )
+            ]
             if not preys:
                 self.walk_towards((self.self_pos[0], self.self_pos[1] + 80), max_steps=80)
                 self._drain(0.5)
@@ -2928,6 +2960,32 @@ class Playtest:
                 f"B 未观察（服务端仅在耐久归零发 76，已知缺口）；使用已装备 uid={damaged_uid} 做 C",
             )
 
+        # 打怪攒修理费：捡 S.ObjectGold(65)，直到至少 2 金币（自然掉落，不用 GM）。
+        gold_deadline = time.time() + 90
+        while (self.self_gold or 0) < 2 and time.time() < gold_deadline:
+            if self.ground_gold:
+                gold = min(self.ground_gold, key=lambda g: self._distance(g["pos"]))
+                self.walk_towards(gold["pos"], blocked={tuple(gold["pos"])}, max_steps=20)
+                self.step_onto(gold["pos"])
+                self.send(C_PICKUP, b"")
+                self._drain(0.8)
+                continue
+            preys = [
+                m
+                for m in self.monsters
+                if not m.get("dead")
+                and any(
+                    key in m.get("name", "").lower()
+                    for key in ("deer", "hen", "scarecrow", "oma", "rakingcat", "yeti", "wolf")
+                )
+            ]
+            if not preys:
+                self.walk_towards((self.self_pos[0], self.self_pos[1] + 80), max_steps=80)
+                self._drain(0.8)
+                continue
+            self._attack_until_dead(min(preys, key=lambda m: self._distance(m["pos"])), timeout=20)
+        self.ok("EQ-1 打怪攒钱", f"金币={self.self_gold or 0}")
+
         smith = next(
             (n for n in self.map_npcs if n.get("name", "").lower() == "blacksmith_smith"),
             None,
@@ -2938,25 +2996,22 @@ class Playtest:
         if not self._newbie_walk_bfs(smith) and not self._stand_next_to(smith):
             self.fail("EQ-1 修理", f"走不到 Smith @ {smith['pos']}")
             return 1
-        # Crystal 的 RepairItem 只修背包物品：优先找一件背包里有耐久的物品做修理目标。
-        inventory_target = next(
+        if self.equipped_slots and damaged_uid in self.equipped_uids:
+            # 先把武器脱到背包空格 40（Crystal RemoveItem：from 装备槽、to 背包格）。
+            writer = Writer()
+            writer.u8(2)  # MirGridType.Equipment
+            writer.i32(self.equipped_slots[0])
+            writer.i32(40)
+            self.send(C_MOVE_ITEM, writer.raw())
+            self._drain(0.6)
+        before_current = next(
             (
-                item["unique_id"]
+                int(item.get("current_dura", 0))
                 for item in self.inventory_items
-                if int(item.get("max_dura", 0)) > 0
-                and item["unique_id"] not in self.equipped_uids
+                if item["unique_id"] == damaged_uid
             ),
-            None,
+            0,
         )
-        if inventory_target is None:
-            self.fail("EQ-1 修理", "背包里没有可修理的非装备物品（需要先卸下武器）")
-            return 1
-        damaged_uid = inventory_target
-        damaged_max = max_by_uid.get(damaged_uid, 0)
-        before_item = next(
-            (i for i in self.inventory_items if i["unique_id"] == damaged_uid), {}
-        )
-        before_current = int(before_item.get("current_dura", 0))
         spawn = dict(smith, id=smith.get("object_id", smith.get("id")))
         # 先 @main 打开主对话，再点 [@REPAIR]；直接点页会被拒（not in dialogue）。
         self.call_npc(spawn, "@main", timeout=2)

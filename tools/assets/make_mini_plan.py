@@ -66,6 +66,14 @@ def main(argv: list[str] | None = None) -> int:
         if not indices:
             continue
         loaded, missing = measure(entry, indices)
+        output = {
+            "dest": entry["dest"],
+            "indices": indices,
+            "requested": len(indices),
+            "loaded_frames": loaded,
+            "missing_count": missing,
+            "reason": f"地图 {args.map} 的瓦片",
+        }
         outputs.append(
             {
                 "lib": entry["lib"],
@@ -74,8 +82,9 @@ def main(argv: list[str] | None = None) -> int:
                 "entries": entry["entries"],
                 "nonempty": entry["nonempty"],
                 "dest": entry["dest"],
+                "outputs": [output],
                 "indices": indices,
-                "reason": f"地图 {args.map} 的瓦片",
+                "reason": output["reason"],
                 "used_frames": len(indices),
                 "loaded_frames": loaded,
                 "missing_count": missing,

@@ -460,13 +460,20 @@ class RefBook:
         dest: str,
         entity: str,
         evidence: str | None = None,
+        aliases: list[int] | None = None,
     ) -> None:
-        """按实体分组：同一 lib 的帧将来落到 `dest/`。"""
+        """按实体分组：同一 lib 的帧将来落到 `dest/`。
+
+        `aliases` 是共用同一套美术、但不用单独落盘的实体号（目前只有翅膀：
+        `Effect=2` 与 `Effect=100` 都映射到块 1）。
+        """
         record = self._record(lib)
         group = record["groups"].setdefault(
-            dest, {"indices": set(), "reason": reason, "entity": entity}
+            dest, {"indices": set(), "reason": reason, "entity": entity, "aliases": []}
         )
         group["indices"].update(indices)
+        if aliases:
+            group["aliases"] = sorted(set(group["aliases"]) | set(aliases))
         self.add_many(lib, indices, reason, evidence)
 
 
@@ -884,16 +891,25 @@ def collect_db_refs(db: dict, book: RefBook, include_reserved: bool, notes: list
             lib, frames, f"发型号 {hair}（块 {block}）",
             entity_dest(lib, entity), entity, f"hair={hair}",
         )
-    # 翅膀：盔甲 Effect → wing_effect，客户端 wing_layer = effect；只有 >0 才画。
+    # 翅膀：盔甲 Effect → wing_effect，客户端 wing_layer = effect，外观块 = (effect - 1) % 2。
+    # 语料只有 2 个翅膀块，所以按「块」落盘（effects 1 / 2 是规范号），其余 Effect 记别名：
+    # 本数据集里 Effect=100（破凰天魔衣）与 Effect=2（天龙不死衣）共用块 1，不重复拆一份 PNG。
     wings = sorted(effect for effect in armour_effects if effect > 0)
     stats["wing_blocks"] = wings
+    wings_by_block: dict[int, list[int]] = {}
     for wing in wings:
-        block = (wing - 1) % WING_BLOCKS
+        wings_by_block.setdefault((wing - 1) % WING_BLOCKS, []).append(wing)
+    for block, effects in sorted(wings_by_block.items()):
         frames = [block * WING_FRAMES_PER_APPEARANCE + frame for frame in WING_FRAMES]
-        entity = f"wings-{wing:02d}"
+        canonical = block + 1
+        entity = f"wings-{canonical:02d}"
         book.add_group(
-            "wingeffect_x.wzl", frames, f"盔甲 Effect={wing} 的翅膀（块 {block}）",
-            entity_dest("wingeffect_x.wzl", entity), entity,
+            "wingeffect_x.wzl",
+            frames,
+            f"翅膀块 {block}（Effect={', '.join(str(effect) for effect in effects)}）",
+            entity_dest("wingeffect_x.wzl", entity),
+            entity,
+            aliases=[effect for effect in effects if effect != canonical],
         )
     # ---- 小地图 / 大地图：mmap.wzl ----
     mmap = set()
@@ -1220,6 +1236,8 @@ def build_used_assets(book: RefBook, maps_used: list[str], audio: dict, stats_li
                         "dest": group_dest,
                         "entity": group.get("entity"),
                         "indices": group_indices,
+                        "requested": len(group_indices),
+                        "aliases": sorted(group.get("aliases") or []),
                         "reason": group.get("reason", top_reasons),
                     }
                 )
@@ -1235,6 +1253,7 @@ def build_used_assets(book: RefBook, maps_used: list[str], audio: dict, stats_li
                 {
                     "dest": default_dest(lib),
                     "indices": indices,
+                    "requested": len(indices),
                     "reason": top_reasons,
                 }
             ]

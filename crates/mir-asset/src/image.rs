@@ -86,6 +86,27 @@ impl ImageInfo {
     }
 }
 
+/// 把纯黑像素置为透明（**只对 8 位调色板格式生效**）。
+///
+/// 规则与渲染层 `mir-render::scene::remove_black` 完全一致：只处理
+/// [`format::EMPTY`] / [`format::PALETTE8`]，且仅当 `R=G=B=0` 时把 alpha 置 0；
+/// RGB565 / RGB24 / DXT1 / 真 RGBA 的 alpha **一个字节都不动**。
+///
+/// 为什么在拆包时烘焙：Crystal 的 `.Lib` 在写库时就做过这一步
+/// （`LibraryEditor/Graphics/MLibraryV2.cs:419-426` 的 `removeBlack`），
+/// 本项目渲染层也对调色板图做同样处理。拆包产物提前烘焙后，运行时的
+/// `remove_black` 变成幂等操作，`UnpackedLibrary` 与 `.wzl` 两条路径画出来一样。
+pub fn black_to_transparent(format_code: u8, pixels: &mut [u8]) {
+    if !matches!(format_code, format::EMPTY | format::PALETTE8) {
+        return;
+    }
+    for pixel in pixels.chunks_exact_mut(4) {
+        if pixel[0] == 0 && pixel[1] == 0 && pixel[2] == 0 {
+            pixel[3] = 0;
+        }
+    }
+}
+
 /// 解码后的一张图：RGBA8、行优先、`width × height × 4` 字节。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Image {
@@ -150,6 +171,25 @@ pub(crate) const fn rgba_from_argb(argb: u32) -> [u8; 4] {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn black_to_transparent_only_touches_palette_formats() {
+        let mut palette = vec![0, 0, 0, 255, 1, 2, 3, 255, 0, 0, 0, 128];
+        super::black_to_transparent(super::format::PALETTE8, &mut palette);
+        assert_eq!(
+            palette,
+            vec![0, 0, 0, 0, 1, 2, 3, 255, 0, 0, 0, 0],
+            "调色板图里的纯黑必须变透明，非黑像素不动（含原有 alpha）"
+        );
+
+        let mut rgb565 = vec![0, 0, 0, 255, 1, 2, 3, 255];
+        super::black_to_transparent(super::format::RGB565, &mut rgb565);
+        assert_eq!(
+            rgb565,
+            vec![0, 0, 0, 255, 1, 2, 3, 255],
+            "rgb565 的 alpha 不许被改"
+        );
+    }
+
     use super::*;
 
     #[test]

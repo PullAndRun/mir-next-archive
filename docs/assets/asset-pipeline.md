@@ -50,7 +50,7 @@ game-assets/                                  # 开发期：散装，一图一�
 | 玩家身体 | `body-<shape:03d>` | `ItemType::Armour` 的 `Shape`（0=裸体） | 与 `player_library()` 的块号换算一一对应 |
 | 武器 | `weapon-<shape:03d>` | `ItemType::Weapon` 的 `Shape`（含 100/200 段位） | 段位已编码在数里（`shape/100+1` 选库） |
 | 头发 | `hair-<hair:02d>` | 服务端 `character.id % 9`（0..8） | 没有 DB 模板，只能按角色发型号 |
-| 翅膀 | `wings-<effect:02d>` | 盔甲 `Effect`（>0） | 客户端 `wing_layer(effect)` 直接当外观号 |
+| 翅膀 | `wings-<block+1:02d>` | 外观块 = `(Effect-1) % 2`（语料只有 2 块） | 客户端 `wing_layer(effect)` 本来就会取模；`Effect=100` 与 `Effect=2` 共用块 1，作为 `wings-02` 的 `aliases`，不重复拆 PNG |
 | 物品图标 | `icon-<image:04d>` | `ItemInfo.Image`（items.wzl 0 基下标；文件名即该 index） | 图标是扁平 2D 资源，没有“实体名”概念；按模板 `Image` 号去重 |
 | 瓦片 | `<tileset>` | 见 1.2 映射 | 一个 tileset 就是一个目录，不需要实体层 |
 | 特效 | `effect/<lib>` | 固定三库：`effect`/`magic`/`magic2` | 代码按 `FxKind` 取固定帧段 |
@@ -171,7 +171,7 @@ v0/v4 为 `o+0/o+2/o+4`（v4 再异或 xor）；v2/v3 的前层库从 +120 起�
 | `hair` | 2 | `hair.wzl`、`hair2.wzl`（发型号 0..8；`hair3/4` 未用） |
 | `items` | 1 | `items.wzl`，830 个图标（658 可解，172 空槽） |
 | `ui` | 1 | `mmap.wzl`，199 帧（143 可解） |
-| `effects` | 4 | `effect`/`magic`/`magic2`/`wingeffect_x` |
+| `effects` | 4 | `effect`/`magic`/`magic2`/`wingeffect_x`（翅膀只落 2 个美术块） |
 
 ### 3.3 最小范围（本单先跑通的 map0 + items + 一只怪物）
 
@@ -241,7 +241,7 @@ map0 明细：`tiles.wzl` 986 引用 / 665 可解、`smtiles.wzl` 170/167、`obj
 - `lib`：相对 `resource/data` 的真实文件名（保留大小写，如 `Mon11.wzl`）；
 - `indices`：**库内 0 基**（= `mir_asset::ImageLibrary::image(i)`）；全部显式整数数组，
   没有整库 `"all"`（这套数据没有整库引用的库）；
-- `outputs`：**新增**。同一 `lib` 按实体拆到多个目录时使用；每项 `{dest, entity?, indices, reason}`。
+- `outputs`：**新增**。同一 `lib` 按实体拆到多个目录时使用；每项 `{dest, entity?, indices, requested, loaded_frames, missing_count, aliases?, reason}`。
   只有单个输出的库（瓦片/UI/特效）也写一条，`dest` 与顶层 `dest` 相同，向后兼容旧版“一个 lib 一个 dest”；
 - `dest`：拆包器输出目录（相对 `game-assets/`），每帧文件名 `NNNN.png`（库内 0 基四位）；
 - `missing_indices` / `out_of_range`：指向空槽/越界的已用索引（拆包器跳过，不报错）；
@@ -282,9 +282,13 @@ map0 明细：`tiles.wzl` 986 引用 / 665 可解、`smtiles.wzl` 170/167、`obj
     tools/assets/export_asset_sample.py   # 依赖 Pillow（py 没有时用上面的 bundled Python）
 #   → target/game-assets-mini/（每目录 PNG + index.json + manifest.json）
 
+# # 3) 计划自检（命名/唯一性/帧数/索引一致性；拆包前门禁）
+py tools/assets/check_plan.py target/used-assets.json
+py tools/assets/check_plan.py target/used-assets-mini.json
+
 # 3) 拆包器 dry-run（户部）
 mir-tools assets unpack --plan target/used-assets-mini.json --out-root game-assets --dry-run
-# 4) 全量拆包后按 index.json 的 pixels_sha256 对账（户部 --verify）
+# 4) 全量拆包后按 index.json 的 rgb_sha256 对账（户部 --verify）
 mir-tools assets unpack --plan target/used-assets.json --out-root game-assets --verify
 ```
 
@@ -321,6 +325,8 @@ mir-tools assets unpack --plan target/used-assets.json --out-root game-assets --
 8. **`.mnp` 已有实现（户部，§8）**：本轮未做发布包体积/加载验收；客户端 Pack 态待接。
 9. **`resource/ld`**：4 个文件，但代码里只有路径访问器、没有读取路径，未纳入。
 10. **PNG 体积是估计值**：`×1.5` 是经验中值；实际以 `mir-tools assets unpack --dry-run` 与落地文件为准。
+11. **翅膀只有 2 个美术块**：`wingeffect_x.wzl` 共 1200 帧 = 2×600；`Effect=1/2/100` 映射到 2 块，
+    `Effect=100`（破凰天魔衣）与 `Effect=2`（天龙不死衣）共用块 1，计划里以 `aliases:[100]` 标注、只落一份 PNG。
 
 ---
 
@@ -333,6 +339,7 @@ mir-tools assets unpack --plan target/used-assets.json --out-root game-assets --
 | 落盘路径 | `outputs[].dest` 优先；缺失时回退 `dest`，再回退 `gfx/<category>/<stem>` |
 | 空帧/越界 | 跳过并写 `index.json` 的 `missing` / `skipped_empty`，**exit 0** |
 | 对账 | `lib + count`，逐 index 比 **`rgb_sha256`**（解码定稿）；`rgba_sha256`/`pixels_sha256` 只校验透明约定 |
+| 计划门禁 | `tools/assets/check_plan.py`：dest 唯一且不含原库名、output 帧数自洽、无重复帧集合、索引升序去重；失败退出码 1 |
 | 帧文件名 | 四位库内 index（`0000.png`/`0054.png`），单帧类别也保留 `<entity>/<index>.png` 这一级 |
 
 分工：**hubu2** 负责引用分析、命名规则、统计与独立解码校验；**hubu** 负责 Rust 拆包器与

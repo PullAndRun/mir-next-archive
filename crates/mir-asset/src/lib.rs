@@ -99,7 +99,7 @@ mod wil;
 mod wzl;
 
 pub use error::AssetError;
-pub use image::{Image, ImageInfo, format};
+pub use image::{Image, ImageInfo, black_to_transparent, format};
 pub use library::{ImageLibrary, LibraryKind};
 pub use pack::{PackFile, PackManifest, PackSet, PackSummary, PackWriter};
 pub use unpacked::{LibrarySource, UnpackedLibrary};

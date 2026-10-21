@@ -233,6 +233,8 @@ pub enum LibrarySource {
     Packed(crate::ImageLibrary),
     /// 拆包目录（`index.json` + PNG）。
     Unpacked(UnpackedLibrary),
+    /// 发布期小包（`.mnp`，已按某个前缀筛成一个库）。
+    Pack(crate::PackSet),
 }
 
 impl LibrarySource {
@@ -260,10 +262,22 @@ impl LibrarySource {
         Ok(Self::Packed(crate::ImageLibrary::open(path)?))
     }
 
+    /// 从一整套小包里筛出某个库（`prefix` 形如 `gfx/tiles/tiles0/`）。
+    #[must_use]
+    pub fn from_packs(set: &crate::PackSet, prefix: &str) -> Self {
+        Self::Pack(set.filter_prefix(prefix))
+    }
+
     /// 是否来自拆包目录。
     #[must_use]
     pub fn is_unpacked(&self) -> bool {
         matches!(self, Self::Unpacked(_))
+    }
+
+    /// 是否来自发布期小包。
+    #[must_use]
+    pub fn is_pack(&self) -> bool {
+        matches!(self, Self::Pack(_))
     }
 
     /// 图像数量（拆包目录返回**已拆出**的图数）。
@@ -272,6 +286,7 @@ impl LibrarySource {
         match self {
             Self::Packed(library) => library.len(),
             Self::Unpacked(library) => library.len(),
+            Self::Pack(set) => set.len(),
         }
     }
 
@@ -286,6 +301,12 @@ impl LibrarySource {
         match self {
             Self::Packed(library) => library.info(index),
             Self::Unpacked(library) => library.info(index),
+            Self::Pack(set) => set
+                .library_info(index)
+                .ok_or_else(|| AssetError::MissingIndex {
+                    path: PathBuf::from("manifest.packs.json"),
+                    index,
+                }),
         }
     }
 
@@ -294,6 +315,7 @@ impl LibrarySource {
         match self {
             Self::Packed(library) => library.image(index),
             Self::Unpacked(library) => library.image(index),
+            Self::Pack(set) => set.library_image(index),
         }
     }
 }
@@ -484,6 +506,55 @@ mod tests {
         changed.shadow_x = 0;
         assert_eq!(restored.shadow_x, 9);
         assert_eq!(changed.shadow_x, 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn library_source_can_read_from_mnp_packs() {
+        let dir = temp_dir("pack-source");
+        let packs_dir = dir.join("packs");
+        let mut writer = crate::PackWriter::create(packs_dir.join("tiles-tiles0-1.mnp"), true)
+            .expect("create pack");
+        for index in 0..2u16 {
+            let info = ImageInfo {
+                width: 2,
+                height: 2,
+                offset_x: 0,
+                offset_y: 0,
+                format: crate::image::format::RGB565,
+                shadow_x: 0,
+                shadow_y: 0,
+                reserved: [0; 3],
+                has_mask: false,
+                data_offset: 0,
+                data_len: 0,
+            };
+            let pixels = vec![u8::try_from(index).unwrap_or(0); 16];
+            writer
+                .add_image(&format!("gfx/tiles/tiles0/{index:04}.png"), &info, &pixels)
+                .expect("add");
+        }
+        let summary = writer.finish("tiles").expect("finish");
+        std::fs::write(
+            packs_dir.join("manifest.packs.json"),
+            serde_json::to_string_pretty(&crate::PackManifest {
+                version: 1,
+                generated_at: "epoch+0s".to_owned(),
+                chunk_mb: 16,
+                packs: vec![summary],
+            })
+            .expect("json"),
+        )
+        .expect("manifest");
+
+        let set = crate::PackSet::open(&packs_dir).expect("open set");
+        let library = LibrarySource::from_packs(&set, "gfx/tiles/tiles0/");
+        assert!(library.is_pack(), "from_packs 必须产出 Pack 变体");
+        assert_eq!(library.len(), 2);
+        let info = library.info(0).expect("info");
+        assert_eq!((info.width, info.height), (2, 2));
+        let image = library.image(1).expect("image");
+        assert_eq!(image.pixels, vec![1u8; 16]);
         std::fs::remove_dir_all(&dir).ok();
     }
 

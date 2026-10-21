@@ -504,15 +504,21 @@ fn unpack_one(
     let indices = usable;
     if dry_run {
         let mut pixels = 0u64;
+        let mut loaded = 0usize;
         for index in &indices {
             let info = library.info(*index)?;
+            if info.is_empty() {
+                continue;
+            }
+            loaded += 1;
             pixels += u64::from(info.width) * u64::from(info.height) * 4;
         }
         println!(
-            "dry-run lib={} total={total} selected={} rgba_bytes={pixels} out={}",
+            "dry-run lib={} dest={} requested={} loaded={loaded} missing={} rgba_bytes={pixels}",
             lib_path.display(),
+            out_dir.display(),
             indices.len(),
-            out_dir.display()
+            indices.len() - loaded
         );
         return Ok(indices.len());
     }
@@ -525,7 +531,9 @@ fn unpack_one(
     let mut written = 0usize;
     let mut skipped_empty = 0usize;
     for index in &indices {
-        let image = library.image(*index)?;
+        let mut image = library.image(*index)?;
+        // 拆包时就把 palette8 的纯黑烘成透明（与渲染层 remove_black 同规则，幂等）。
+        mir_asset::black_to_transparent(image.info.format, &mut image.pixels);
         let info = image.info;
         let empty = info.is_empty();
         if empty {
@@ -565,6 +573,8 @@ fn unpack_one(
             "data_len": info.data_len,
             "empty": empty,
             "bytes": image.pixels.len(),
+            "rgb_sha256": sha256_rgb(&image.pixels),
+            "rgba_sha256": sha256_hex(&image.pixels),
             "pixels_sha256": sha256_hex(&image.pixels),
         }));
     }
@@ -582,6 +592,13 @@ fn unpack_one(
         "missing": missing,
         "reason": reason,
         "format": "png",
+        "alpha": "black-to-transparent",
+        "alpha_applied_formats": [0, 3],
+        "hash_notes": {
+            "rgb_sha256": "每像素去掉 alpha 的 RGB 字节哈希（跨实现对账用）",
+            "rgba_sha256": "最终 RGBA（含 palette8 去黑）",
+            "pixels_sha256": "rgba_sha256 的别名（兼容旧消费方）",
+        },
         "images": images,
     });
     let index_path = out_dir.join("index.json");
@@ -619,14 +636,30 @@ fn verify_unpacked(lib_path: &Path, out_dir: &Path) -> Result<usize> {
             .and_then(serde_json::Value::as_u64)
             .context("缺少 index")?;
         let index_no = usize::try_from(index_no).unwrap_or(usize::MAX);
-        let expected = entry
-            .get("pixels_sha256")
+        let mut image = library.image(index_no)?;
+        // 与拆包时同样的烘焙，才能和 PNG/index.json 对上
+        mir_asset::black_to_transparent(image.info.format, &mut image.pixels);
+        // 优先比 rgb（解码定稿判据）；rgba 比不过说明透明策略变了，同样算不一致。
+        if let Some(expected_rgb) = entry.get("rgb_sha256").and_then(serde_json::Value::as_str) {
+            let actual_rgb = sha256_rgb(&image.pixels);
+            if actual_rgb != expected_rgb {
+                println!(
+                    "MISMATCH rgb index={index_no} expected={expected_rgb} actual={actual_rgb}"
+                );
+                bad += 1;
+                continue;
+            }
+        }
+        let expected_rgba = entry
+            .get("rgba_sha256")
+            .or_else(|| entry.get("pixels_sha256"))
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default();
-        let image = library.image(index_no)?;
-        let actual = sha256_hex(&image.pixels);
-        if actual != expected {
-            println!("MISMATCH pixels index={index_no} expected={expected} actual={actual}");
+        let actual_rgba = sha256_hex(&image.pixels);
+        if actual_rgba != expected_rgba {
+            println!(
+                "MISMATCH rgba index={index_no} expected={expected_rgba} actual={actual_rgba}"
+            );
             bad += 1;
             continue;
         }
@@ -683,6 +716,15 @@ fn read_png_rgba(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
         .with_context(|| format!("解码 PNG {} 失败", path.display()))?;
     buffer.truncate(info.buffer_size());
     Ok((info.width, info.height, buffer))
+}
+
+/// 每个像素丢掉 alpha 后的 RGB 字节哈希（跨实现对账用）。
+fn sha256_rgb(pixels: &[u8]) -> String {
+    let mut rgb = Vec::with_capacity(pixels.len() / 4 * 3);
+    for pixel in pixels.chunks_exact(4) {
+        rgb.extend_from_slice(&pixel[..3]);
+    }
+    sha256_hex(&rgb)
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

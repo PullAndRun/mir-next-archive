@@ -704,14 +704,29 @@ async fn duo_disconnect_removes_avatar_and_relogin_keeps_state() {
 /// 显式串行后 7 条用例约 1~1.5 分钟，换来确定性（本地连跑 3 轮全绿）。
 static COMBAT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// 刷 3 只低级怪（数据库里的 `hen/deer/...`），返回 GM 回执；刷不出返回 `None`。
-async fn spawn_weak_monsters(a: &mut TestClient) {
+/// 刷低级怪的诊断结果：为什么刷、刷没刷出来，失败时直接打出来。
+#[derive(Debug, Default)]
+struct SpawnReport {
+    attempts: usize,
+    spawned: usize,
+    replies: Vec<String>,
+}
+
+/// 刷 3 只低级怪（数据库里的 `hen/deer/...`），返回诊断报告。
+///
+/// 注意：这里**不读客户端包**，避免把 `S.GainExperience` 从调用方手里吃掉。
+async fn spawn_weak_monsters(a: &mut TestClient) -> SpawnReport {
+    let mut report = SpawnReport::default();
     for needle in ["hen", "deer", "chicken", "scarecrow", "oma"] {
+        report.attempts += 1;
         let reply = gm_command(a, &format!("@mob {needle} 3")).await;
+        report.replies.push(format!("{needle}: {reply}"));
         if reply.starts_with("Spawned") {
-            return;
+            report.spawned += 3;
+            return report;
         }
     }
+    report
 }
 
 /// 八方向轮扫攻击，直到 A 收到 `S.GainExperience`（顺带收集 B 期间是否也收到）。
@@ -739,6 +754,16 @@ async fn kill_until_experience(
     let mut b_exp = None;
     let mut next_spawn = tokio::time::Instant::now();
     let mut next_heal = tokio::time::Instant::now();
+    // 失败诊断：攻击次数、刷怪结果、看到的怪物/死亡/经验包数量。
+    let mut attacks = 0_usize;
+    let mut spawn_calls = 0_usize;
+    let mut spawned_monsters = 0_usize;
+    let mut spawn_attempts = 0_usize;
+    let mut monster_frames = 0_usize;
+    let mut death_frames = 0_usize;
+    let mut a_exp_frames = 0_usize;
+    let mut b_other_frames = 0_usize;
+    let mut last_spawn_failure: Option<SpawnReport> = None;
     // `want_b`：要求组员也拿到经验（份额可能被整数截断成 0，所以要多杀几只直到出现）。
     let done =
         |a_exp: &Option<u32>, b_exp: &Option<u32>| a_exp.is_some() && (!want_b || b_exp.is_some());
@@ -746,8 +771,17 @@ async fn kill_until_experience(
         let mut died = false;
         while let Some(packet) = a.next(Duration::from_millis(15)).await {
             match packet {
-                ServerPacket::GainExperience(gain) => a_exp = Some(gain.amount),
-                ServerPacket::Death(_) => died = true,
+                ServerPacket::GainExperience(gain) => {
+                    a_exp_frames += 1;
+                    a_exp = Some(gain.amount);
+                }
+                ServerPacket::Death(_) => {
+                    death_frames += 1;
+                    died = true;
+                }
+                ServerPacket::ObjectMonster(_) => {
+                    monster_frames += 1;
+                }
                 _ => {}
             }
         }
@@ -764,21 +798,40 @@ async fn kill_until_experience(
         while let Some(packet) = b.next(Duration::from_millis(15)).await {
             if let ServerPacket::GainExperience(gain) = packet {
                 b_exp = Some(gain.amount);
+            } else {
+                b_other_frames += 1;
             }
         }
         if tokio::time::Instant::now() >= next_spawn {
-            spawn_weak_monsters(a).await;
-            next_spawn = tokio::time::Instant::now() + Duration::from_millis(1_000);
+            let report = spawn_weak_monsters(a).await;
+            spawn_calls += 1;
+            spawn_attempts += report.attempts;
+            spawned_monsters += report.spawned;
+            if report.spawned == 0 {
+                last_spawn_failure = Some(report);
+            }
+            // 一次多刷 3 只已经足够；从 1s 拉到 5s，避免刷出几百只怪把 tick 压垮。
+            next_spawn = tokio::time::Instant::now() + Duration::from_secs(5);
         }
         a.send(ClientPacket::Attack(c::Attack {
             direction: sweep[index % sweep.len()],
             spell: mir_core::enums::Spell::None,
         }))
         .await;
+        attacks += 1;
         index += 1;
-        tokio::time::sleep(Duration::from_millis(280)).await;
+        tokio::time::sleep(Duration::from_millis(350)).await;
     }
-    (a_exp.expect("A 应收到 S.GainExperience"), b_exp)
+    let Some(a_exp) = a_exp else {
+        panic!(
+            "A 在 {deadline:?} 内没有收到 S.GainExperience；诊断：attacks={attacks} \
+             spawn_calls={spawn_calls} spawn_attempts={spawn_attempts} \
+             spawned={spawned_monsters} monster_frames={monster_frames} \
+             death_frames={death_frames} a_exp_frames={a_exp_frames} \
+             b_other_frames={b_other_frames} last_spawn_failure={last_spawn_failure:?}"
+        );
+    };
+    (a_exp, b_exp)
 }
 
 /// 组队经验分配：A 杀怪 → **双方都收到** `S.GainExperience`（按等级比例 + 人数加成）；
@@ -869,7 +922,7 @@ async fn duo_group_experience_is_shared_in_range_only() {
     // 刷 3 只低级怪（第 2 只落在右边一格，正好在攻击范围内）。
     spawn_weak_monsters(&mut a).await;
     let (a_exp, b_exp) =
-        kill_until_experience(&mut a, &mut b, Duration::from_secs(150), true).await;
+        kill_until_experience(&mut a, &mut b, Duration::from_secs(120), true).await;
     let b_exp = b_exp.expect("同队同图的 B 也应收到 S.GainExperience（组队分配）");
     assert!(
         a_exp > 0 && b_exp > 0,
@@ -978,7 +1031,7 @@ async fn duo_group_experience_skips_member_out_of_range() {
 
     spawn_weak_monsters(&mut a).await;
     let (a_exp, b_exp) =
-        kill_until_experience(&mut a, &mut b, Duration::from_secs(150), false).await;
+        kill_until_experience(&mut a, &mut b, Duration::from_secs(90), false).await;
     let _ = a_exp;
     let b_got_exp = b_exp.is_some();
     assert!(a_exp > 0, "击杀者 A 应收到 S.GainExperience");

@@ -199,6 +199,8 @@
     "pk_protected_by_law": "You are protected by the law.",
     "quest_item_found": "You found {item}",
     "quest_killed_monster": "You killed {monster}",
+    "quest_navigation_go_to": "Go to {map} ({file})",
+    "quest_navigation_none": "This quest has no navigation target",
     "quest_share_needs_party": "You can only share a quest while in a group with a member nearby.",
   "quest_too_many": "You are already on too many quests.",
   "quest_accept_failed": "Failed to accept the quest.",
@@ -245,5 +247,6 @@
     "0": "Bichon Province"
   }
 }
+
 
 

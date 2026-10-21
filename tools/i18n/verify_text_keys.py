@@ -13,7 +13,7 @@
 * §7.2 的「原文」把旧占位（`{}` / `{0}` / `{CONST}`）按「参数占位」列改成 `{snake_case}` 后，
   必须与 zh 模板**逐字相同**；英文模板的占位符集合必须与 `args()` 相同；
 * 第 1 轮的 11 个无参键不在 §7.2 内，单列核对；另有 4 个 `guild_not_allowed_*`
-  扩展键（行会权限的具体提示，替换会泄漏给玩家的内部标识符）以及后续扩展键（当前共 28 个），
+  扩展键（行会权限的具体提示，替换会泄漏给玩家的内部标识符）以及后续扩展键（当前共 30 个），
   走白名单单列核对，不进 §7.2；除这些键之外的键都必须是 §7.2 的键（无孤儿键、无漏登记）。
 
 用法::
@@ -66,6 +66,9 @@ EXTENSION_KEYS = (
     "guild_not_allowed_change_rank",
     "guild_not_allowed_change_notice",
     "quest_item_found",
+    # 第 26 轮：TP-1 任务导航行。
+    "quest_navigation_go_to",
+    "quest_navigation_none",
     # 第 24 轮：C.AcceptQuest 失败反馈（Crystal AcceptQuest 的 ReceiveChat）。
     "quest_accept_failed",
     "quest_too_many",
@@ -79,7 +82,8 @@ EXTENSION_KEYS = (
     "ally_accepted",
     "ally_removed",
     "ally_failed",
-    "newbie_guide",    "spouse_dead",
+    "newbie_guide",
+    "spouse_dead",
     "spouse_not_married",
     "spouse_offline",
     "spouse_recall_needs_ring",
@@ -93,7 +97,12 @@ EXTENSION_KEYS = (
 )
 
 #: 允许带参数的扩展键（Crystal `ServerTextKeys.YouFound` 是 `You found {0}`）。
-EXTENSION_KEYS_WITH_ARGS = ("quest_item_found", "spouse_teleported", "reboot_countdown")
+EXTENSION_KEYS_WITH_ARGS = (
+    "quest_item_found",
+    "quest_navigation_go_to",
+    "spouse_teleported",
+    "reboot_countdown",
+)
 
 #: §7.2 预期的行数（第 2 轮扫描口径，冻结；文档改口径时同步改这里）。
 EXPECTED_ROWS = 207
@@ -651,5 +660,6 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
+
 
 

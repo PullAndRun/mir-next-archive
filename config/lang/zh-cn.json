@@ -199,6 +199,8 @@
     "pk_protected_by_law": "你受到了法律的保护。",
     "quest_item_found": "你找到了 {item}",
     "quest_killed_monster": "你杀死了 {monster}",
+    "quest_navigation_go_to": "前往 {map}({file})",
+    "quest_navigation_none": "该任务无导航目标",
     "quest_share_needs_party": "组队并且附近有队友时才能分享任务。",
   "quest_too_many": "你同时接取的任务太多了。",
   "quest_accept_failed": "接取任务失败。",
@@ -245,5 +247,6 @@
     "0": "比奇省"
   }
 }
+
 
 

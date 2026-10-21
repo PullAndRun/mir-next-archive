@@ -40,6 +40,7 @@
 use std::collections::BTreeSet;
 
 use mir_core::enums::{OutputMessageType, QuestState, QuestType, RequiredClass};
+use mir_core::i18n::{TextKey, format_text, text};
 use mir_db::QuestInfo;
 use mir_db::quest_script::QuestScript;
 use mir_protocol::data::{ClientQuestInfo, ClientQuestProgress, QuestItemReward};
@@ -1651,6 +1652,57 @@ impl World {
         }))
     }
 
+    /// 从 `[@TaskDescription]` 的 `{名称/颜色}` 标记里提取**可反查地图标题**的目标。
+    ///
+    /// 任务导航行：优先用 `[@TaskDescription]` 里能反查 `MapInfo.title` 的显式标记；
+    /// 没有显式地图标记时，按**交付 NPC（无则发布 NPC）所在地图**推导。
+    /// 两者都没有才输出“无导航目标”。
+    fn task_navigation_lines(
+        &self,
+        definition: &QuestDefinition,
+        language: mir_core::Language,
+    ) -> Vec<String> {
+        let maps = self
+            .game_data
+            .as_ref()
+            .map_or(&[][..], |data| data.db.maps.as_slice());
+        let mut lines = navigation_lines_from_task_description(
+            &definition.script.task_description,
+            maps,
+            language,
+        );
+        if lines.is_empty()
+            && let Some(line) = self.quest_npc_navigation_line(definition.info.index, language)
+        {
+            lines.push(line);
+        }
+        if lines.is_empty() {
+            lines.push(text(language, TextKey::QuestNavigationNone).to_owned());
+        }
+        lines
+    }
+
+    /// 由交付 NPC（缺失则发布 NPC）的 `map` 反查 `MapInfo`，生成导航行。
+    fn quest_npc_navigation_line(
+        &self,
+        quest_index: i32,
+        language: mir_core::Language,
+    ) -> Option<String> {
+        let npc = self
+            .quest_finisher_npc(quest_index)
+            .or_else(|| self.quest_publisher_npc(quest_index))?;
+        let data = self.game_data.as_ref()?;
+        let info = data.map_info(&npc.map)?;
+        if info.title.trim().is_empty() {
+            return None;
+        }
+        Some(format_text(
+            language,
+            TextKey::QuestNavigationGoTo,
+            &[("map", info.title.trim()), ("file", &info.file_name)],
+        ))
+    }
+
     /// 组装客户端进度（Crystal `QuestProgressInfo.CreateClientQuestProgress`，
     /// `QuestProgressInfo.cs:576-586`，进度文本见 `UpdateTasks`，`:428-532`）。
     #[must_use]
@@ -1663,13 +1715,65 @@ impl World {
     ) -> ClientQuestProgress {
         ClientQuestProgress {
             id: progress.quest_index,
-            task_list: task_list(definition, progress, language),
+            task_list: {
+                let mut lines = task_list(definition, progress, language);
+                lines.extend(self.task_navigation_lines(definition, language));
+                lines
+            },
             taken: progress.state != QuestProgressState::NotStarted,
             // Crystal 的 `Completed` 是「目标达成」（`EndDateTime` 被写），不是「已交付」。
             completed: progress.objectives_met,
             new: progress.taken_at > now - QUEST_NEW_WINDOW_MS,
         }
     }
+}
+
+/// 从 `[@TaskDescription]` 的 `{名称/颜色}` 标记提取导航行；纯函数便于单测。
+///
+/// 只有 `X` 与 `MapInfo.title`（大小写不敏感、去首尾空白）完全相等时才转成
+/// `前往 <title>(<file_name>)`；NPC/物品名反查不到地图，直接忽略。
+#[must_use]
+pub fn navigation_lines_from_task_description(
+    task_description: &[String],
+    maps: &[mir_db::MapInfo],
+    language: mir_core::Language,
+) -> Vec<String> {
+    let raws: Vec<&str> = task_description
+        .iter()
+        .map(String::as_str)
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    if raws.is_empty() {
+        return Vec::new();
+    }
+    let mut lines = Vec::new();
+    for raw in raws {
+        let mut rest = raw;
+        while let Some(open) = rest.find('{') {
+            let tail = &rest[open + 1..];
+            let Some(close) = tail.find('}') else {
+                break;
+            };
+            let token = &tail[..close];
+            let name = token.split('/').next().unwrap_or(token).trim();
+            if !name.is_empty()
+                && let Some(map) = maps.iter().find(|info| {
+                    !info.title.trim().is_empty() && info.title.trim().eq_ignore_ascii_case(name)
+                })
+            {
+                let line = format_text(
+                    language,
+                    TextKey::QuestNavigationGoTo,
+                    &[("map", map.title.trim()), ("file", &map.file_name)],
+                );
+                if !lines.contains(&line) {
+                    lines.push(line);
+                }
+            }
+            rest = &tail[close + 1..];
+        }
+    }
+    lines
 }
 
 /// 任务进度文本（Crystal `QuestProgressInfo.UpdateTasks`，`QuestProgressInfo.cs:428-532`）。
@@ -2002,6 +2106,93 @@ mod tests {
         assert!(!is_objectives_complete(&script, &progress));
         progress.item_collected[0].1 = 3;
         assert!(is_objectives_complete(&script, &progress));
+    }
+
+    #[test]
+    fn navigation_only_converts_real_map_titles() {
+        let maps = vec![mir_db::MapInfo {
+            file_name: "D401".to_owned(),
+            title: "DeathValley".to_owned(),
+            ..mir_db::MapInfo::default()
+        }];
+        let lines = navigation_lines_from_task_description(
+            &["Go to {DeathValley/Yellow} and kill {Scyther/Crimson}, find {MasterMage} and carry {CannibalLeaves/LightSteelBlue}".to_owned()],
+            &maps,
+            mir_core::Language::En,
+        );
+        assert_eq!(lines, vec!["Go to DeathValley (D401)".to_owned()]);
+    }
+
+    #[test]
+    fn real_jev_quest_5_navigation_uses_handin_npc_map() {
+        let Ok(data) = crate::gamedata::GameData::discover() else {
+            return;
+        };
+        let mut world = World::new(1);
+        world.set_game_data(std::sync::Arc::new(data));
+        world.spawn_npcs("0");
+        let Some(definition) = world.quest_definition(5) else {
+            return;
+        };
+        let Some(npc) = world.quest_finisher_npc(5) else {
+            return;
+        };
+        let Some(info) = world
+            .game_data
+            .as_ref()
+            .and_then(|data| data.map_info(&npc.map))
+        else {
+            return;
+        };
+        let progress = QuestProgress::new(5, 0, 0, &definition.script);
+        let client = world.client_progress(&definition, &progress, 0, mir_core::Language::ZhCn);
+        let expected = mir_core::i18n::format_text(
+            mir_core::Language::ZhCn,
+            mir_core::i18n::TextKey::QuestNavigationGoTo,
+            &[("map", info.title.trim()), ("file", &info.file_name)],
+        );
+        assert!(
+            client.task_list.contains(&expected),
+            "quest 5 should derive navigation from its handin NPC map: {expected:?} / {:?}",
+            client.task_list
+        );
+    }
+
+    #[test]
+    fn empty_task_description_has_no_task_navigation_line() {
+        assert!(
+            navigation_lines_from_task_description(&[], &[], mir_core::Language::ZhCn).is_empty()
+        );
+        // 非空、但没有可反查地图标记：不能误报，也不能塞 NPC/物品名。
+        assert!(
+            navigation_lines_from_task_description(
+                &["Carry {CannibalLeaves/LightSteelBlue} to {YoungJane/LimeGreen}".to_owned()],
+                &[],
+                mir_core::Language::En,
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn no_npc_or_map_gets_explicit_no_navigation_line() {
+        let world = World::new(1);
+        let definition = QuestDefinition {
+            info: QuestInfo::default(),
+            script: std::sync::Arc::new(QuestScript::default()),
+        };
+        let progress = QuestProgress::new(0, 0, 0, &definition.script);
+        let client = world.client_progress(&definition, &progress, 0, mir_core::Language::ZhCn);
+        assert_eq!(
+            client.task_list,
+            vec![
+                mir_core::i18n::text(
+                    mir_core::Language::ZhCn,
+                    mir_core::i18n::TextKey::QuestNavigationNone,
+                )
+                .to_owned()
+            ]
+        );
     }
 
     #[test]

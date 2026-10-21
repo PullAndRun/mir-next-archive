@@ -156,7 +156,7 @@ fn database() -> MirDb {
         maps: vec![MapInfo {
             index: 1,
             file_name: MAP.to_owned(),
-            title: "比奇省".to_owned(),
+            title: "Bichon".to_owned(),
             ..MapInfo::default()
         }],
         npcs: vec![
@@ -573,11 +573,18 @@ fn accept_quest_records_progress_and_sends_change_quest() {
     assert!(!report.completed);
     assert_eq!(
         report.task_list,
-        vec![format_text(
-            Language::ZhCn,
-            TextKey::QuestTaskKill,
-            &[("monster", "Hen"), ("count", "0"), ("total", "3")],
-        )]
+        vec![
+            format_text(
+                Language::ZhCn,
+                TextKey::QuestTaskKill,
+                &[("monster", "Hen"), ("count", "0"), ("total", "3")],
+            ),
+            format_text(
+                Language::ZhCn,
+                TextKey::QuestNavigationGoTo,
+                &[("map", "Bichon"), ("file", "0")],
+            ),
+        ]
     );
 
     let progress = harness.world.quest_progress(player, 1).expect("进度存在");
@@ -765,6 +772,11 @@ fn kill_progress_completes_the_quest() {
             ),
             // 脚本自带数据（`Server.MirDB` 的 `GotoMessage`），不是代码文案。
             definition.info.goto_message.clone(),
+            format_text(
+                Language::ZhCn,
+                TextKey::QuestNavigationGoTo,
+                &[("map", "Bichon"), ("file", "0")],
+            ),
         ]
     );
     assert!(
@@ -1013,11 +1025,18 @@ fn timed_quest_expires_and_is_abandoned() {
         .expect("接取限时任务");
     assert_eq!(
         report.task_list,
-        vec![format_text(
-            Language::ZhCn,
-            TextKey::QuestTaskKill,
-            &[("monster", "Hen"), ("count", "0"), ("total", "1")],
-        )]
+        vec![
+            format_text(
+                Language::ZhCn,
+                TextKey::QuestTaskKill,
+                &[("monster", "Hen"), ("count", "0"), ("total", "1")],
+            ),
+            format_text(
+                Language::ZhCn,
+                TextKey::QuestNavigationGoTo,
+                &[("map", "Bichon"), ("file", "0")],
+            ),
+        ]
     );
     let expires_at = harness.world.quest_progress(player, 4).unwrap().expires_at;
     assert_eq!(
@@ -2270,7 +2289,7 @@ fn daily_database() -> MirDb {
         maps: vec![MapInfo {
             index: 1,
             file_name: MAP.to_owned(),
-            title: "比奇省".to_owned(),
+            title: "Bichon".to_owned(),
             ..MapInfo::default()
         }],
         npcs: vec![NpcInfo {

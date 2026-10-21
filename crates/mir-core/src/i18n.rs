@@ -536,6 +536,11 @@ pub enum TextKey {
     /// `CheckNeedQuestItem` → `S.SendOutputMessage{Type=Quest}`，`PlayerObject.cs:11549-11550`）；
     /// 模板：`你找到了 {item}`；参数：`{item}`。
     QuestItemFound,
+    /// 场景：任务导航（TP-1，`S.ChangeQuest.task_list`）；模板：`前往 {map}({file})`；
+    /// 参数：`{map}`（地图标题）、`{file}`（地图文件名）。
+    QuestNavigationGoTo,
+    /// 场景：任务没有可导航目标；模板：`该任务无导航目标`；参数：无。
+    QuestNavigationNone,
     /// 场景：`/ally` 用法提示（`session.rs` 联盟命令，本作扩展）；模板：`用法：/ally request|accept|remove <行会名或ID>`；参数：无。
     AllyUsage,
     /// 场景：`/ally` 找不到目标行会；模板：`找不到该行会。`；参数：无。
@@ -808,6 +813,8 @@ impl TextKey {
         Self::QuestTaskItem,
         Self::QuestTaskFlag,
         Self::QuestItemFound,
+        Self::QuestNavigationGoTo,
+        Self::QuestNavigationNone,
         Self::AllyUsage,
         Self::AllyGuildNotFound,
         Self::AllyRequested,
@@ -1053,6 +1060,8 @@ impl TextKey {
             Self::QuestTaskItem => "quest_task_item",
             Self::QuestTaskFlag => "quest_task_flag",
             Self::QuestItemFound => "quest_item_found",
+            Self::QuestNavigationGoTo => "quest_navigation_go_to",
+            Self::QuestNavigationNone => "quest_navigation_none",
             Self::AllyUsage => "ally_usage",
             Self::AllyGuildNotFound => "ally_guild_not_found",
             Self::AllyRequested => "ally_requested",
@@ -1303,6 +1312,8 @@ impl TextKey {
             Self::QuestTaskItem => &["item", "count", "total"],
             Self::QuestTaskFlag => &["number", "done_suffix"],
             Self::QuestItemFound => &["item"],
+            Self::QuestNavigationGoTo => &["map", "file"],
+            Self::QuestNavigationNone => &[],
             Self::AllyUsage => &[],
             Self::AllyGuildNotFound => &[],
             Self::AllyRequested => &[],
@@ -1702,6 +1713,8 @@ const fn text_zh(key: TextKey) -> &'static str {
         TextKey::QuestTaskItem => "收集 {item} {count}/{total}",
         TextKey::QuestTaskFlag => "激活标记 {number}{done_suffix}",
         TextKey::QuestItemFound => "你找到了 {item}",
+        TextKey::QuestNavigationGoTo => "前往 {map}({file})",
+        TextKey::QuestNavigationNone => "该任务无导航目标",
         TextKey::AllyUsage => "用法：/ally request|accept|remove <行会名或ID>",
         TextKey::AllyGuildNotFound => "找不到该行会。",
         TextKey::AllyRequested => "结盟申请已发送，等待对方会长同意。",
@@ -2046,6 +2059,8 @@ const fn text_en(key: TextKey) -> &'static str {
         TextKey::QuestTaskItem => "Collect {item} {count}/{total}",
         TextKey::QuestTaskFlag => "Activate flag {number}{done_suffix}",
         TextKey::QuestItemFound => "You found {item}",
+        TextKey::QuestNavigationGoTo => "Go to {map} ({file})",
+        TextKey::QuestNavigationNone => "This quest has no navigation target",
         TextKey::AllyUsage => "Usage: /ally request|accept|remove <guild name or id>",
         TextKey::AllyGuildNotFound => "Guild not found.",
         TextKey::AllyRequested => {
@@ -2440,8 +2455,9 @@ mod tests {
         // 第 24 轮又追加 2 个「任务接取失败」键（`quest_too_many` /
         // `quest_accept_failed`，对齐 Crystal `AcceptQuest` 的 `ReceiveChat`），故 234 → 236。
         // 第 25 轮再追加 3 个玩家可见失败反馈键（`pickup_failed` / `buy_failed` /
-        // `quest_finish_failed`），236 → 239。
-        assert_eq!(TextKey::ALL.len(), 239, "新增/删除键时同步更新数量");
+        // `quest_finish_failed`），236 → 239；第 26 轮 TP-1 追加
+        // `quest_navigation_go_to` / `quest_navigation_none`，239 → 241。
+        assert_eq!(TextKey::ALL.len(), 241, "新增/删除键时同步更新数量");
     }
 
     #[test]

@@ -368,7 +368,7 @@ class Playtest:
             (355, 319),
             (343, 310),
             (354, 320),
-            (322, 247),
+            (323, 247),
         }
         self.unexpected_map: tuple[str, tuple[int, int], str] | None = None
         self.gate_map = self._load_gates()
@@ -387,6 +387,7 @@ class Playtest:
         # `S.NewMapInfo` 里的传送点（跨图用）。
         self.movements: list[dict] = []
         self.map_npcs: list[dict] = []
+        self.newmapinfo_npc_count = 0
         self.map_index: int | None = None
         self.map_size: tuple[int, int] | None = None
         # 幂等（同一服务端可重复跑）：进世界后先回起始图，起点由 CLI 覆盖。
@@ -497,6 +498,18 @@ class Playtest:
                 return index, payload
 
     # ---------------- 收包旁路（记录实体） ----------------
+    def _merge_npc_sources(self) -> None:
+        """合并 NewMapInfo.npcs 与可见 S.ObjectNPC；不依赖 ShowOnBigMap 标志。"""
+        merged: dict[int, dict] = {}
+        for npc in self.map_npcs:
+            key = npc.get("object_id", npc.get("id", 0))
+            merged[int(key)] = npc
+        for npc in self.npcs:
+            key = npc.get("id", 0)
+            if int(key) not in merged:
+                merged[int(key)] = npc
+        self.map_npcs = list(merged.values())
+
     def _observe(self, index: int, payload: bytes) -> None:
         self.recent_packets.append(index)
         self.packet_log.append((time.time(), index))
@@ -586,6 +599,7 @@ class Playtest:
                 self.npcs.append(
                     {"id": object_id, "name": name, "pos": location, "quest_ids": quest_ids}
                 )
+                self._merge_npc_sources()
             elif index == S_OBJECT_MONSTER:
                 r = Reader(payload)
                 object_id = r.u32()
@@ -799,8 +813,10 @@ class Playtest:
                         }
                     )
                 self.map_npcs = map_npcs
+                self.newmapinfo_npc_count = npc_count
                 self.movements = movements
                 self.map_size = (width, height)
+                self._merge_npc_sources()
                 print(
                     f"  [地图] 进图详情 map#{map_index} {width}x{height}，"
                     f"NPC {npc_count} 个，传送点 {count} 个"
@@ -1921,7 +1937,7 @@ class Playtest:
                 return True
             backs = {
                 "0103": [(16, 25), (17, 24), (4, 13), (5, 13)],
-                "0104": [(4, 10)],
+                "0104": [(4, 11)],
                 "0107": [(10, 13)],
             }.get(self.map_file)
             if not backs:
@@ -2073,9 +2089,9 @@ class Playtest:
         return pages
 
     def newbie_go_bookshop(self) -> bool:
-        """从 map 0 走自然传送点 (322,247) → 0104(4,10)，再站到书商旁边。"""
+        """从 map 0 走自然传送点 (323,247) → 0104(4,10)，再站到书商旁边。"""
         old_map = self.map_file
-        target = (322, 247)
+        target = (323, 247)
         others = {tuple(m["pos"]) for m in self.movements} - {target}
         reached = False
         for dx, dy in ((0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, 1), (1, -1), (-1, -1)):
@@ -3074,20 +3090,44 @@ class Playtest:
     def quest1_flow(self) -> int:
         """quest 1 完整生命周期：Jane 接取 → 任务物品栏 5 叶 → CraftsLady 交付 → 经验+10。"""
         jane = next(
-            (n for n in self.map_npcs if "jane" in n.get("name", "").lower()),
+            (
+                n
+                for n in self.map_npcs
+                if "jane" in n.get("name", "").lower()
+                or "简" in n.get("name", "")
+                or 1 in (n.get("quest_ids") or [])
+            ),
             None,
         )
         crafts = next(
-            (n for n in self.map_npcs if "craftslady" in n.get("name", "").lower()),
+            (
+                n
+                for n in self.map_npcs
+                if "craftslady" in n.get("name", "").lower()
+                or "craft" in n.get("name", "").lower()
+                or "工匠" in n.get("name", "")
+                or "朱迪" in n.get("name", "")
+            ),
             None,
         )
+        print(
+            f"  [NPC] newmapinfo={self.newmapinfo_npc_count} visible={len(self.npcs)} "
+            f"merged={len(self.map_npcs)}"
+        )
         if jane is None or crafts is None:
-            self.fail("quest1 找NPC", f"Jane={jane} CraftsLady={crafts}")
+            self.fail(
+                "quest1 找NPC",
+                f"Jane={jane} CraftsLady={crafts}；map_npcs={[n.get('name') for n in self.map_npcs]}",
+            )
             return 1
+        print(f"  [quest1] 怪物名样本={ [m.get('name') for m in self.monsters[:6]] }")
         self.newbie_equip()
         if not self._newbie_walk_bfs(jane) and not self._stand_next_to(jane):
             self.fail("quest1 接取", f"走不到 Jane @ {jane['pos']}")
             return 1
+        spawn_jane = dict(jane, id=jane.get("object_id", jane.get("id")))
+        self.call_npc(spawn_jane, "@main", timeout=2)
+        print(f"  [quest1] Jane 对话页原文={self.last_npc_page}")
         writer = Writer()
         writer.u32(jane.get("object_id", jane.get("id", 0)))
         writer.i32(1)
@@ -3114,6 +3154,9 @@ class Playtest:
             return 1
         self.ok("quest1 接取", f"Jane @ {jane['pos']}")
         print(f"  [quest1] task_list={task_lines}")
+        if "前往 比奇省(0)" not in task_lines:
+            self.fail("quest1 导航行", f"缺少「前往 比奇省(0)」：{task_lines}")
+            return 1
         for line in task_lines:
             if "前往 " in line:
                 self.ok("quest1 导航行", line)
@@ -4007,7 +4050,7 @@ class Playtest:
 def self_check() -> int:
     """脚本自检：`@mapinfo` 的传送点行解析 + 结果文案（不连服务端）。"""
     samples = [
-        ("    (326,288) -> 0108(#4) (8,12) dist=18", (326, 288), "0108", 4, (8, 12), 18, ""),
+        ("    (326,288) -> 0108(#4) (10,12) dist=18", (326, 288), "0108", 4, (10, 12), 18, ""),
         ("    (400,225) -> 0120(#20) (11,15) dist=74 [bigmap]", (400, 225), "0120", 20, (11, 15), 74, "bigmap"),
         ("    (335,299) -> 0103(#10) (5,12) dist=29 [hole]", (335, 299), "0103", 10, (5, 12), 29, "hole"),
         ("    (317,301) -> 0106(#12) (20,12) dist=31 [bigmap] [move]", (317, 301), "0106", 12, (20, 12), 31, "bigmap+move"),

@@ -5,6 +5,10 @@ Rust 侧：`crates/mir-server/src/npc.rs`（页面执行/买卖修）、`crates/
 （脚本解析）、`crates/mir-server/src/session.rs`（`C.CallNPC`/`C.BuyItem`/`C.SellItem`/
 `C.RepairItem`）。
 
+> **默认数据集 = `cjlaaa`（简体中文库，v105）**，`Jev` 仅作英文兜底与数据契约测试。
+> 本文的协议/流程不依赖具体库；涉及脚本/商品/NPC 坐标的例子若取自 Jev 会单独标注。
+> 两库差异见 [`data-languages.md`](data-languages.md)，经济数值见 [`economy.md`](economy.md)。
+
 > 与任务书的一处**协议核对**：`S.NPCResponse` 实际**只有 `page: Vec<String>`（原文行）**，
 > Crystal **没有**「版本」字段，也**不携带最近 NPC**（`ServerPackets.cs:2893-2910`；
 > Rust `server.rs:3085`）。「最近 NPC」由单独的 `S.NPCUpdate{NPCID}`（187，

@@ -113,10 +113,14 @@ mir-next/
 服务端启动时会按顺序找：
 
 1. `MIR2_DB_PATH` 指定的文件；
-2. `crates/mir-server/src/gamedata.rs` 里的候选路径（索引里挑的 3 个真实样本，含 v105/v88/v83）。
+2. `crates/mir-server/src/gamedata.rs` 里的候选路径（索引里挑的 3 个真实样本，含 v105/v111/v83）。
 
 找到就用真实刷怪点铺满世界（比奇省 358 个刷怪点 / 2252 只怪），找不到就只刷演示怪，
 服务器照常可跑。`MIR2_LOAD_GAME_DATA=0` 可以强制关掉数据库刷怪（测试用）。
+
+**默认数据集 = `cjlaaa`（简体中文库，v105）**；`Jev`（v111）作为**英文兜底与数据契约测试**，
+`Daneo1989`（v83）只用于旧格式覆盖。数据文本的语言差异见
+[`docs/world/data-languages.md`](docs/world/data-languages.md)。
 
 素材（地图、客户端资源包、音效、社区仓库归档）统一放在 `resource/`，并由 PostgreSQL
 数据库 `mir2_dev` 建立索引：
@@ -138,7 +142,7 @@ python tools/asset-index/find_asset.py --ext .wzl --top data --limit 20
 - **游戏内切换**：聊天框输入 `/language en` 切换英文、`/language zh-cn` 切回中文，
   服务端回一条该语言的系统提示，并把选择写回 `accounts.language`（迁移 `0002`）。
 - **服务端玩家可见文本全部走 `TextKey`**：聊天/系统提示/邮件/市场回执/攻城公告/`/ally` 回执等
-  **234 个键**都有中英模板；按**收件人自己的语言**渲染（全服公告逐收件人编码），
+  **241 个键**都有中英模板；按**收件人自己的语言**渲染（全服公告逐收件人编码），
   `/language en` 后系统提示立刻跟随。第 6 轮把 261 条 `#[error]` Display 日志文本
   英文化，第 7/8 轮扫描器 `--no-test --strict` 保持在 **15 处**（剩余为职业名/演示模板名/启动日志）。
 - **内容也跟随语言**：地图标题（`MapInformation.Title`）等文本从语言包的
@@ -232,6 +236,7 @@ python tools/protocol-gen/generate.py
 | [`docs/world/npc-dialog.md`](docs/world/npc-dialog.md) | NPC 对话/商店/修理：协议、交互流程、前置校验与验收清单 |
 | [`docs/world/quests.md`](docs/world/quests.md) | 任务系统：脚本段、接取/交付流程、奖励与存档 |
 | [`docs/world/economy.md`](docs/world/economy.md) | 经济与成长：金币掉落、卖店启动金币、经验曲线与 EQ-1 证据 |
+| [`docs/world/data-languages.md`](docs/world/data-languages.md) | 数据语言审计：默认 cjlaaa、Jev 英文兜底、四库文本覆盖与切换风险 |
 | [`docs/world/buffs.md`](docs/world/buffs.md) | Buff 容器：到期、属性叠加、药水与增益技能 |
 | [`docs/world/maps.md`](docs/world/maps.md) | 多地图与传送：加载缓存、传送点、切图包序 |
 | [`docs/world/aoi.md`](docs/world/aoi.md) | AOI 网格、视野半径 16、进出视野差分与门状态机 |

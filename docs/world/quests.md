@@ -334,11 +334,19 @@ CHECKQUEST <任务序号> ACTIVE|COMPLETE
 
 ### 7.4 真实任务候选表（8 条，第 23 轮核对）
 
+> **数据来源库 = `Jev`**（`resource/community/suprcode-crystal-database/Jev/Server.MirDB`
+> + `Jev/Envir/Quests`）。默认数据集已在第 27 轮切到 **`cjlaaa`（简体中文库，v105）**；
+> cjlaaa 的 NPC 坐标有 1 格级差异（例：Smith 在 Jev `(296,613)`、cjlaaa `(297,612)`），
+> 且 cjlaaa 的任务脚本**没有** `// Pickup`/`// Hand In` 注释，无法从脚本直接重算坐标，
+> 因此下表**只保留 Jev 坐标、不编造 cjlaaa 列**。切换默认库后本表需按 cjlaaa 重核。
+> cjlaaa 同一 id 的任务文本/奖励也不同（例：`cjlaaa/Envir/Quests/7.txt` 是中文，
+> `GoldReward` 300 / `ExpReward` 240，而 Jev 是 60/48），本表只能当 **Jev 数据契约参考**。
+
 起点为比奇出生点 `(330,270)`，用 `target/mapgrid-0.bin` 做 BFS（≤2500 步）算 pickup/handin
 可达性（pd/hd = 步数；`None` = 不可达）。表只保留 7 列；「物品/携带」两列在候选筛选时
 已确认 8 条均为空（quest 7/9/10/13/15/16/19/21）。
 
-| id | 名称 | pickup NPC | handin NPC | 击杀要求 | 奖励金币 | 奖励经验 |
+| id | 名称 | pickup NPC（Jev 坐标） | handin NPC（Jev 坐标） | 击杀要求 | 奖励金币 | 奖励经验 |
 |---:|---|---|---|---|---:|---:|
 | 7 | Meet the Warrior Instructor | Assistant_Jane (284,606) | Master_Wa (110,317) | — | **60** | **48** |
 | 9 | To Bichon | Wa_Master (110,317) | MirGuide_Peter (328,258) | — | 60 | 48 |

@@ -1,10 +1,16 @@
 # 经济与成长（金币 / 掉落 / 经验曲线）
 
 本页记录第 26 轮 EQ-1（装备生效 → 耐久 → 修理）暴露的两块服务端口径：
-**金币从哪来**、**升级要多少经验**。数据以 `resource/community/suprcode-crystal-database/Jev`
-（`Server.MirDB` v88 + `Envir/`）为真值；`GameData::discover()` 的第一候选就是它。
+**金币从哪来**、**升级要多少经验**。
+
+> 本文的金币掉落与经验曲线是**以 Jev 数据契约**验证的事实；默认数据集已切 `cjlaaa`（中文），
+> cjlaaa 的掉落表为扁平中文文件名（`鸡.txt`），数值需以该库为准，切换后尚未逐条复核。
+> `GameData::discover()` 第一候选是 `cjlaaa/Server.MirDB`（v105），`Jev` 是第 2 候选
+> （英文兜底 + 数据契约测试）。
+
 NPC 商店的买卖/修理协议与验收清单见 [`npc-dialog.md`](npc-dialog.md)；本页只回答
-「金币/经验从哪来、数值多少」。
+「金币/经验从哪来、数值多少」；默认数据集与语言差异见
+[`data-languages.md`](data-languages.md)。
 
 ## 1. 金币掉落（`DropInfo.Gold`）
 

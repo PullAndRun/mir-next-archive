@@ -370,7 +370,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:9090/metrics
 |---|---|
 | 数据库备份 | 每日 dump 存在、大小非 0；保留 ≥7 天；每周至少做一次恢复演练（`migrate_drill.ps1`，未实测） |
 | 发布包 | `package.ps1 -Verify` exit 0；`manifest.sha256.json` 与当前发布 commit 一致 |
-| 门禁 | `ci.ps1` 全绿（含 `verify_text_keys`、硬编码棘轮 67/15、check_links） |
+| 门禁 | `ci.ps1` 全绿（含 `verify_text_keys`、硬编码棘轮 69/15、check_links） |
 | 指标趋势 | 7 天 `p99`/RSS/连接池无单调上升；RSS 周增幅 ≤10% |
 | 日志轮转 | 旧日志已归档/清理；磁盘余量仍 >20% |
 | 事故复盘 | 本周每条 `db_save_failed`/`panic`/soak 锁中断都有记录与修复项 |

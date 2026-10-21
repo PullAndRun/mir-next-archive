@@ -166,5 +166,20 @@ cjlaaa 里仍为英文的名称（供后续本地化清单）：
 - `docs/world/quests.md:337-354`：quest-nav 的 pickup/handin 坐标表来自 Jev，需按 cjlaaa NPC 位置重算。
 - `docs/world/quest-nav.md` 只有格式说明，无坐标。
 
-### 11.5 下一步
+### 11.5 blocker 修复：cjlaaa 缺 bigmap flags → `S.NewMapInfo` 按图回退
+
+- **数据事实**：cjlaaa v105 全库 `NpcInfo.ShowOnBigMap=false`（309/309）、
+  `MovementInfo.ShowOnBigMap=false`（1859/1859）、`BigMapIcon=0`；Jev v111 则有
+  65/375 个 bigmap NPC、450/1999 条 bigmap movement。
+- **影响**：Crystal `CheckMapInfo`（`PlayerObject.cs:1030/1047`）只下发 bigmap 标记项，
+  所以 cjlaaa 下 `S.NewMapInfo` 的 NPC/movements 都是 0 → 客户端大地图、远端 NPC 列表、
+  任务导航目标不可见（视野内 `S.ObjectNPC` 仍正常，世界里有 45 个 NPC）。
+- **修复**（`npc.rs::map_entry_info`）：**整张图一条 bigmap 标记都没有时**，回退为该图
+  全部 NPC / 全部 movements；只要图里有任意标记（Jev），行为与 Crystal 完全一致
+  （Jev map0 仍是 40 NPC / 6 movements）。这是「数据缺 flags 的兼容回退」，不改 `mir-db` 解析。
+- **单测**：`crates/mir-server/tests/npc_map_info.rs`
+  - `new_map_info_falls_back_to_all_when_bigmap_flags_missing`（全 false → 2 NPC / 2 movements）；
+  - `new_map_info_keeps_crystal_filter_when_flags_present`（Jev 真实数据 → 46 刷出 / 40 NPC / 6 movements）。
+
+### 11.6 下一步
 按队长计划做 **NPC 名映射**（309 个显示名，295 个英文）：数据源优先 `NpcInfo.Name` + 客户端字符串表/`Envir/NameLists`，产出 `config/lang/*.json` 的 `npc_names` 段，服务端 `S.ObjectNPC` 按会话语言渲染。

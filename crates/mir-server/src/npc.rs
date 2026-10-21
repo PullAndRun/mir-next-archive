@@ -817,6 +817,14 @@ impl World {
     /// * `NPCs` 只收 `ShowOnBigMap` 的 NPC，按 `BigMapIcon` 升序（`:1047-1052`），
     ///   `ObjectID` 填运行期 ID，其余字段来自 `NpcInfo.ClientInformation`。
     ///
+    /// # 数据缺 bigmap flags 的兼容回退
+    ///
+    /// cjlaaa v105（当前默认中文库）全库 `NpcInfo.ShowOnBigMap = false`、
+    /// `MovementInfo.ShowOnBigMap = false`（数据事实，见 `docs/world/data-languages.md`）。
+    /// 严格照 Crystal 过滤会让 `S.NewMapInfo` 的 NPC/movements 全为 0，远端 NPC、大地图
+    /// 传送图标、任务导航目标全部不可见。因此：**整张图一条 bigmap 标记都没有时**，回退为
+    /// 该图全部 NPC / 全部 movements；只要图里有任意标记（Jev v111），行为与 Crystal 完全一致。
+    ///
     /// 简化：`RequiredGroup` / `WorldMapSetupInfo` 与 `Connection.SentMapInfo` 去重未实现
     /// （本作只在进世界时发一次，切图不发 `NewMapInfo`）。
     #[must_use]
@@ -826,9 +834,12 @@ impl World {
         let (width, height) = self
             .map_of(map_file)
             .map_or((0, 0), |map| (map.width, map.height));
+        // 整图都没有 bigmap 标记（cjlaaa v105）→ 回退全量；有标记（Jev）→ 按 Crystal 过滤。
+        let fallback_movements =
+            !map_info.movements.is_empty() && !map_info.movements.iter().any(|m| m.show_on_big_map);
         let mut movements = Vec::new();
         for movement in &map_info.movements {
-            if !movement.show_on_big_map {
+            if !movement.show_on_big_map && !fallback_movements {
                 continue;
             }
             let Some(destination) = data.map_info_by_index(movement.map_index) else {
@@ -841,11 +852,20 @@ impl World {
                 icon: movement.icon,
             });
         }
-        let mut npcs: Vec<&Npc> = self
+        let npcs_on_map: Vec<&Npc> = self
             .npcs
             .iter()
-            .filter(|npc| npc.map == map_info.file_name && npc.show_on_big_map)
+            .filter(|npc| npc.map == map_info.file_name)
             .collect();
+        let mut npcs: Vec<&Npc> = npcs_on_map
+            .iter()
+            .copied()
+            .filter(|npc| npc.show_on_big_map)
+            .collect();
+        // 同 movements：整图 NPC 都没有 bigmap 标记（cjlaaa v105）→ 回退全量。
+        if npcs.is_empty() {
+            npcs = npcs_on_map;
+        }
         npcs.sort_by_key(|npc| npc.big_map_icon);
         let npcs = npcs.into_iter().map(Npc::client_info).collect();
         Some(ClientMapInfo {

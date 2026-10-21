@@ -101,6 +101,9 @@ pub const MAX_INVENTORY_SIZE: usize = 86;
 /// Crystal 的对应物是 `Settings.DropDuration`（默认 120 秒），`ItemObject` 构造函数里
 /// `ExpireTime = Envir.Time + Settings.DropDuration * 1000`（`ItemObject.cs:56-58`、`:85`、
 /// `:112`、`:121`）。本作此前用 3 分钟的调试值，t105 起对齐 120 秒；单测可用
+/// Crystal `HumanObject.DuraDelay`（`HumanObject.cs:186`）：装备耐久脏标记每 10s flush 一次。
+pub const DURABILITY_FLUSH_MS: i64 = 10_000;
+
 /// [`World::set_item_expire_ms`] 快进/缩短，不依赖真实 sleep。
 pub const ITEM_EXPIRE_MS: i64 = 120 * 1_000;
 /// 玩家死亡掉落物的存活时间：Crystal `Settings.PlayerDiedItemTimeOut = 120` 分钟
@@ -706,6 +709,51 @@ pub struct DurabilityLoss {
 }
 
 impl World {
+    /// 周期 flush 装备耐久脏槽（Crystal `HumanObject.cs:344-354`）。
+    ///
+    /// `DuraDelay = 10_000ms`；同一槽在一个周期内多次扣耐久只发一条最新值。
+    /// 归零不在这里等周期，`apply_durability_loss` 已立即发。
+    pub(crate) fn tick_durability(&mut self, now: i64) {
+        if self.durability_flush_time == 0 {
+            self.durability_flush_time = now + DURABILITY_FLUSH_MS;
+            return;
+        }
+        if now < self.durability_flush_time {
+            return;
+        }
+        self.durability_flush_time = now + DURABILITY_FLUSH_MS;
+        if self.durability_dirty.is_empty() {
+            return;
+        }
+        let dirty = std::mem::take(&mut self.durability_dirty);
+        let mut frames = Vec::new();
+        for ((player_id, slot), unique_id) in dirty {
+            let Some(item) = self
+                .players
+                .get(&player_id)
+                .and_then(|player| player.equipment.get(slot))
+                .and_then(Option::as_ref)
+            else {
+                continue;
+            };
+            // 槽位在周期内被替换/卸下：不要拿旧 UUID 的新物品发错包。
+            if item.unique_id != unique_id {
+                continue;
+            }
+            frames.push((
+                player_id,
+                ServerPacket::DuraChanged(DuraChanged {
+                    unique_id,
+                    current_dura: item.current_dura,
+                })
+                .encode_frame(),
+            ));
+        }
+        for (player_id, frame) in frames {
+            self.send_to_player(player_id, &frame);
+        }
+    }
+
     /// 攻击命中后的**武器**磨损：Crystal `HumanObject.DamageWeapon()`（`HumanObject.cs:7112/7844-7847`）。
     ///
     /// ```csharp
@@ -799,9 +847,11 @@ impl World {
         {
             slot_item.current_dura = current_dura;
         }
-        // 耐久归零（或本来就 0）时才需要通知客户端 —— Crystal 用 `DuraChanged` 懒发，
-        // 这里简化成「扣到 0 才发」，避免每次攻击都刷一条包。
+        // Crystal `DamageItem` 只置 `DuraChanged = true`（`HumanObject.cs:7849-7857`），
+        // 中间耐久由 `HumanObject.cs:344-354` 的 `DuraTime` 周期统一 flush；
+        // 归零例外，立即通知（本作原有行为，gate 依赖）。
         if broke {
+            self.durability_dirty.remove(&(player_id, slot));
             self.send_to_player(
                 player_id,
                 &ServerPacket::DuraChanged(DuraChanged {
@@ -820,6 +870,9 @@ impl World {
                 slot,
                 "装备耐久归零，已失效"
             );
+        } else if current_dura < item.current_dura {
+            self.durability_dirty
+                .insert((player_id, slot), item.unique_id);
         }
         Some(DurabilityLoss {
             slot,

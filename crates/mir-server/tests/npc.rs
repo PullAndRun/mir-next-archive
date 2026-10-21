@@ -2023,3 +2023,119 @@ fn monster_hit_wears_armour_in_the_same_settlement() {
         "怪物命中应在同一次伤害结算里磨损护甲，实际耐久 {dura}"
     );
 }
+
+#[test]
+fn durability_drop_is_sent_once_per_dura_delay() {
+    let (mut harness, _envir) = Harness::new("dura-flush");
+    let player = harness.add_player(1, Point::new(101, 101));
+    let item = equip_weapon(&mut harness, player);
+    if let Some(slot) = harness.world.player_mut(player).unwrap().equipment[0].as_mut() {
+        slot.current_dura = 100;
+        slot.max_dura = 100;
+    }
+    // 对齐到一次边界：即使 Harness 初始化期间已经 tick 过，也在下一次
+    // 完整 DuraDelay 后把相位设成「当前 + 10s」，不再假设周期从哪次 tick 开始。
+    harness.world.tick();
+    harness.world.advance_clock(items::DURABILITY_FLUSH_MS);
+    harness.world.tick();
+    harness.packets(player);
+
+    let loss = harness.world.damage_weapon(player).expect("武器应磨损");
+    assert!(loss.current_dura < 100);
+    // 扣耐久后立即 tick 不应发 76（周期还没到）。
+    harness.world.tick();
+    assert!(
+        !harness
+            .packets(player)
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::DuraChanged(_))),
+        "未到 DuraDelay 不应发 76"
+    );
+
+    // 以 1s 步长推进，最多 15s；不追 1ms 边界，避免并行时钟相位导致假红。
+    let mut changed = Vec::new();
+    for _ in 0..15 {
+        harness.world.advance_clock(1_000);
+        harness.world.tick();
+        changed.extend(
+            harness
+                .packets(player)
+                .into_iter()
+                .filter_map(|packet| match packet {
+                    ServerPacket::DuraChanged(changed) => Some(changed),
+                    _ => None,
+                }),
+        );
+        if !changed.is_empty() {
+            break;
+        }
+    }
+    assert_eq!(
+        changed.len(),
+        1,
+        "一个周期应恰好发一条 76（1s 步进，最多 15s）"
+    );
+    assert_eq!(changed[0].unique_id, item.unique_id);
+    assert_eq!(changed[0].current_dura, loss.current_dura);
+
+    // 无变化时下一个周期不再发。
+    harness.world.advance_clock(items::DURABILITY_FLUSH_MS);
+    harness.world.tick();
+    assert!(
+        !harness
+            .packets(player)
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::DuraChanged(_))),
+        "无脏槽不应发 76"
+    );
+}
+
+#[test]
+fn multiple_durability_losses_in_one_period_are_coalesced() {
+    let (mut harness, _envir) = Harness::new("dura-coalesce");
+    let player = harness.add_player(1, Point::new(101, 101));
+    let item = equip_weapon(&mut harness, player);
+    if let Some(slot) = harness.world.player_mut(player).unwrap().equipment[0].as_mut() {
+        slot.current_dura = 1_000;
+        slot.max_dura = 1_000;
+    }
+    // 同样对齐相位，不依赖 Harness 之前是否 tick 过。
+    harness.world.tick();
+    harness.world.advance_clock(items::DURABILITY_FLUSH_MS);
+    harness.world.tick();
+    harness.packets(player);
+
+    let mut latest = None;
+    for _ in 0..3 {
+        latest = Some(harness.world.damage_weapon(player).expect("武器应磨损"));
+    }
+    harness.world.tick();
+    assert!(
+        !harness
+            .packets(player)
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::DuraChanged(_))),
+        "未到 DuraDelay 不应发 76"
+    );
+
+    let mut changed = Vec::new();
+    for _ in 0..15 {
+        harness.world.advance_clock(1_000);
+        harness.world.tick();
+        changed.extend(
+            harness
+                .packets(player)
+                .into_iter()
+                .filter_map(|packet| match packet {
+                    ServerPacket::DuraChanged(changed) => Some(changed),
+                    _ => None,
+                }),
+        );
+        if !changed.is_empty() {
+            break;
+        }
+    }
+    assert_eq!(changed.len(), 1, "同一件装备一周期合并成一条 76");
+    assert_eq!(changed[0].unique_id, item.unique_id);
+    assert_eq!(changed[0].current_dura, latest.unwrap().current_dura);
+}

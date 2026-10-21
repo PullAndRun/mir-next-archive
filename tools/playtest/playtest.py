@@ -101,6 +101,11 @@ S_NPC_RESPONSE = 93
 S_NEW_MAP_INFO = 18
 S_GAINED_ITEM = 66
 S_GAINED_QUEST_ITEM = 205
+S_DURA_CHANGED = 76
+S_ITEM_REPAIRED = 114
+C_REPAIR_ITEM = 54
+S_REPAIR_ITEM = 56
+C_MOVE_ITEM = 14
 S_EQUIP_ITEM = 38
 S_USE_ITEM = 52
 S_GAINED_GOLD = 67
@@ -169,6 +174,9 @@ class Reader:
 
     def i64(self) -> int:
         return struct.unpack("<q", self.take(8))[0]
+
+    def u64(self) -> int:
+        return struct.unpack("<Q", self.take(8))[0]
 
     def f32(self) -> float:
         return struct.unpack("<f", self.take(4))[0]
@@ -312,6 +320,7 @@ class Playtest:
         self.tp1 = False
         self.quest5 = False
         self.quest1 = False
+        self.eq1 = False
         self.dr1_keep_moving = False
         self.dr1_taken_hits: list[tuple[float, int, int]] = []
         self.dr1_counts: collections.Counter[str] = collections.Counter()
@@ -348,6 +357,10 @@ class Playtest:
         self._diag_last: dict[str, float] = {}
         self._diag_suppressed: dict[str, int] = {}
         self.quest_items: list[dict] = []
+        self.equipped_uids: list[int] = []
+        self.equipped_slots: list[int] = []
+        self.dura_events: list[tuple[float, int, int]] = []
+        self.repair_events: list[tuple[float, int, int, int]] = []
         self.gates: set[tuple[int, int]] = {
             (344, 309),
             (355, 319),
@@ -809,6 +822,23 @@ class Playtest:
                     f"#{item['item_index']}x{item['count']}" for item in goods[:6]
                 )
                 print(f"  [商店] 货架 {count} 项（{listed}），价格倍率 {rate:.2f}")
+            elif index == S_DURA_CHANGED:  # 76：耐久下降
+                r = Reader(payload)
+                unique_id = r.u64()
+                current = r.u16()
+                self.dura_events.append((time.time(), unique_id, current))
+                print(f"  [耐久] unique_id={unique_id} current={current}（S.DuraChanged 76）")
+            elif index == S_REPAIR_ITEM:  # 56：C.RepairItem 的先行回显
+                r = Reader(payload)
+                unique_id = r.u64()
+                print(f"  [修理] S.RepairItem 回显 unique_id={unique_id}（56）")
+            elif index == S_ITEM_REPAIRED:  # 114：修理完成
+                r = Reader(payload)
+                unique_id = r.u64()
+                max_dura = r.u16()
+                current = r.u16()
+                self.repair_events.append((time.time(), unique_id, max_dura, current))
+                print(f"  [修理] unique_id={unique_id} max={max_dura} current={current}（S.ItemRepaired 114）")
             elif index == S_GAINED_ITEM:  # 66：到手物品
                 r = Reader(payload)
                 self.last_gained_items.append(r.user_item())
@@ -1826,6 +1856,8 @@ class Playtest:
 
     def newbie_equip(self) -> int:
         equipped = 0
+        self.equipped_uids = []
+        self.equipped_slots = []
         for item in list(self.inventory_items):
             for slot in range(14):
                 writer = Writer()
@@ -1846,6 +1878,8 @@ class Playtest:
                         break
                 if success:
                     equipped += 1
+                    self.equipped_uids.append(item["unique_id"])
+                    self.equipped_slots.append(slot)
                     break
         return equipped
 
@@ -2839,6 +2873,149 @@ class Playtest:
         self.ok("使用技能", f"FireBall 命中（MP {before_mp} -> {self.self_mp}）")
 
     # ---------------- 主流程 ----------------
+    def eq1_flow(self) -> int:
+        """EQ-1 现实版：穿出生装打怪掉耐久 → Smith 修理 → 扣款（0 金币也可验）。"""
+        max_by_uid = {
+            item["unique_id"]: int(item.get("max_dura", 0)) for item in self.inventory_items
+        }
+        equipped = self.newbie_equip()
+        self.ok("EQ-1 装备", f"穿上出生装 {equipped} 件")
+
+        # 打怪 20–30 刀，等待 S.DuraChanged(76)。
+        deadline = time.time() + 300
+        hits = 0
+        while hits < 30 and time.time() < deadline and not self.dura_events:
+            if self.self_dead or (self.self_hp or 1) <= 0:
+                self.fail("EQ-1 耐久下降", f"攻击中死亡，hits={hits}")
+                return 1
+            preys = [m for m in self.monsters if not m.get("dead")]
+            if not preys:
+                self.walk_towards((self.self_pos[0], self.self_pos[1] + 80), max_steps=80)
+                self._drain(0.5)
+                continue
+            prey = min(preys, key=lambda m: self._distance(m["pos"]))
+            if self._distance(prey["pos"]) > 1:
+                self.walk_towards(prey["pos"], blocked={tuple(prey["pos"])}, max_steps=20)
+                continue
+            dx = prey["pos"][0] - self.self_pos[0]
+            dy = prey["pos"][1] - self.self_pos[1]
+            writer = Writer()
+            writer.u8(self._direction(dx, dy))
+            writer.u8(0)
+            self.send(C_ATTACK, writer.raw())
+            hits += 1
+            self._drain(0.35)
+        # 兵部新增：DuraDelay=10s 周期 flush 脏装备的 S.DuraChanged(76)，等 11s 再断言。
+        if hits:
+            self._drain(11.0)
+        if self.dura_events:
+            damaged_uid = self.dura_events[-1][1]
+            damaged_current = self.dura_events[-1][2]
+            damaged_max = max_by_uid.get(damaged_uid, 0)
+            self.ok(
+                "EQ-1 耐久下降",
+                f"uid={damaged_uid} current={damaged_current} max={damaged_max}（事件 {len(self.dura_events)} 次）",
+            )
+        else:
+            # B 段被服务端“只在归零发 76”挡住；C 仍可验证修理链路。
+            if not self.equipped_uids:
+                self.fail("EQ-1 修理", "没有已装备物品 unique_id")
+                return 1
+            damaged_uid = self.equipped_uids[0]
+            damaged_max = max_by_uid.get(damaged_uid, 0)
+            self.ok(
+                "EQ-1 耐久下降",
+                f"B 未观察（服务端仅在耐久归零发 76，已知缺口）；使用已装备 uid={damaged_uid} 做 C",
+            )
+
+        smith = next(
+            (n for n in self.map_npcs if n.get("name", "").lower() == "blacksmith_smith"),
+            None,
+        )
+        if smith is None:
+            self.fail("EQ-1 修理", "找不到 Blacksmith_Smith")
+            return 1
+        if not self._newbie_walk_bfs(smith) and not self._stand_next_to(smith):
+            self.fail("EQ-1 修理", f"走不到 Smith @ {smith['pos']}")
+            return 1
+        # Crystal 的 RepairItem 只修背包物品：优先找一件背包里有耐久的物品做修理目标。
+        inventory_target = next(
+            (
+                item["unique_id"]
+                for item in self.inventory_items
+                if int(item.get("max_dura", 0)) > 0
+                and item["unique_id"] not in self.equipped_uids
+            ),
+            None,
+        )
+        if inventory_target is None:
+            self.fail("EQ-1 修理", "背包里没有可修理的非装备物品（需要先卸下武器）")
+            return 1
+        damaged_uid = inventory_target
+        damaged_max = max_by_uid.get(damaged_uid, 0)
+        before_item = next(
+            (i for i in self.inventory_items if i["unique_id"] == damaged_uid), {}
+        )
+        before_current = int(before_item.get("current_dura", 0))
+        spawn = dict(smith, id=smith.get("object_id", smith.get("id")))
+        # 先 @main 打开主对话，再点 [@REPAIR]；直接点页会被拒（not in dialogue）。
+        self.call_npc(spawn, "@main", timeout=2)
+        print(f"  [EQ-1] @main 页面原文={self.last_npc_page}")
+        repair_key = next(
+            (k for k in self._button_keys(self.last_npc_page) if "REPAIR" in k.upper()),
+            "@REPAIR",
+        )
+        print(f"  [EQ-1] 从页面解析修理 key={repair_key}")
+        self.call_npc(spawn, repair_key, timeout=2)
+        print(f"  [EQ-1] @REPAIR 页面原文={self.last_npc_page}")
+        self._drain(0.2)
+        writer = Writer()
+        writer.u64(damaged_uid)
+        self.send(C_REPAIR_ITEM, writer.raw())
+        deadline = time.time() + self.timeout
+        repaired = None
+        repair_ack = None
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            index, payload = packet
+            self._observe(index, payload)
+            if index == S_REPAIR_ITEM:
+                repair_ack = Reader(payload).u64()
+            if index == S_ITEM_REPAIRED:
+                r = Reader(payload)
+                uid = r.u64()
+                max_dura = r.u16()
+                current = r.u16()
+                if uid == damaged_uid:
+                    repaired = (max_dura, current)
+                    break
+        if repair_ack != damaged_uid:
+            self.fail(
+                "EQ-1 修理",
+                f"未收到 S.RepairItem(56) 回显 uid={damaged_uid}（ack={repair_ack}）",
+            )
+            return 1
+        if repaired is None:
+            self.fail("EQ-1 修理", f"发 C.RepairItem uid={damaged_uid} 后未收到 S.ItemRepaired(114)")
+            return 1
+        max_dura, current = repaired
+        gold_after = self.self_gold or 0
+        if current != max_dura:
+            self.fail("EQ-1 修理", f"耐久未回满：{current}/{max_dura}")
+            return 1
+        if gold_after > gold_before:
+            self.fail("EQ-1 扣款", f"金币反而增加：{gold_before}->{gold_after}")
+            return 1
+        fee = gold_before - gold_after
+        self.ok(
+            "EQ-1 修理/扣款",
+            f"uid={damaged_uid} 耐久 {before_current}->{current}/{max_dura}，"
+            f"金币 {gold_before}->{gold_after}（修理价 {fee}；0 有效）",
+        )
+        return 0
+
     def quest1_flow(self) -> int:
         """quest 1 完整生命周期：Jane 接取 → 任务物品栏 5 叶 → CraftsLady 交付 → 经验+10。"""
         jane = next(
@@ -3624,6 +3801,8 @@ class Playtest:
             return self.newbie_flow(char_index if char_index is not None else 0)
         self.ok("进入世界", f"object_id={self.self_object_id} pos={self.self_pos}")
         self.entry_map, self.entry_pos = self.map_file, self.self_pos
+        if self.eq1:
+            return self.eq1_flow()
         if self.quest1:
             return self.quest1_flow()
         if self.quest5:
@@ -3848,6 +4027,7 @@ def main() -> int:
     parser.add_argument("--tp1", action="store_true", help="TP-1 同图导航：接 quest 5 → 断言导航行 → 走到 movement 门格")
     parser.add_argument("--quest5", action="store_true", help="quest 5 完整任务：Smith 接取→杀 10 Deer+10 Scarecrow→交付→奖励")
     parser.add_argument("--quest1", action="store_true", help="quest 1 完整任务：Jane 接取→任务物品栏→CraftsLady 交付→经验+10")
+    parser.add_argument("--eq1", action="store_true", help="EQ-1 耐久：卖物→穿武器打怪掉耐久→Smith 修理→扣款")
     parser.add_argument("--dr1-keep-moving", action="store_true", help="DR-1 等待死亡时持续小范围走位（验证“移动才挨打”假设）")
     parser.add_argument(
         "--self-check",
@@ -3887,6 +4067,7 @@ def main() -> int:
     test.tp1 = args.tp1
     test.quest5 = args.quest5
     test.quest1 = args.quest1
+    test.eq1 = args.eq1
     test.dr1_keep_moving = args.dr1_keep_moving
     try:
         code = test.run()

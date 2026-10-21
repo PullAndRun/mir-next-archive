@@ -834,6 +834,11 @@ pub struct World {
     respawn_groups: Vec<RespawnGroupState>,
     /// 地面物品（Crystal `Envir.Objects` 里 `ObjectType.Item` 的那部分，见 `crate::items`）。
     pub(crate) ground_items: Vec<GroundItem>,
+    /// 装备耐久脏槽：`(玩家对象 ID, 装备槽) -> 物品 UUID`；每 `DURABILITY_FLUSH_MS`
+    /// 合并发 `S.DuraChanged`（Crystal `HumanObject.cs:344-354` 的 `DuraTime` 周期）。
+    pub(crate) durability_dirty: HashMap<(u32, usize), u64>,
+    /// 下一次耐久 flush 的世界时刻（0 = 尚未排期）。
+    pub(crate) durability_flush_time: i64,
     /// 游戏数据（物品模板 + 掉落表）；`None` 时物品系统降级成「只能搬运已有物品」。
     pub(crate) game_data: Option<Arc<GameData>>,
     /// 地面物品的存活时间（毫秒），见 [`crate::items::ITEM_EXPIRE_MS`]。
@@ -1077,6 +1082,8 @@ impl World {
             languages: None,
             respawn_groups: Vec::new(),
             ground_items: Vec::new(),
+            durability_dirty: HashMap::new(),
+            durability_flush_time: 0,
             game_data: None,
             item_expire_ms: crate::items::ITEM_EXPIRE_MS,
             enforce_bag_weight: true,
@@ -1167,6 +1174,8 @@ impl World {
             languages: None,
             respawn_groups: Vec::new(),
             ground_items: Vec::new(),
+            durability_dirty: HashMap::new(),
+            durability_flush_time: 0,
             game_data: None,
             item_expire_ms: crate::items::ITEM_EXPIRE_MS,
             enforce_bag_weight: true,
@@ -2376,6 +2385,7 @@ impl World {
         // `CheckMovement` 里同步执行，见 `docs/world/maps.md`）。
         self.resolve_pending_map_moves();
         self.tick_players(now);
+        self.tick_durability(now);
         // 任务超时（Crystal 用 `DelayedAction` 排程，本作每 tick 比较；见 `crate::quests`）。
         self.tick_quests(self.wall_now());
         self.resolve_pending_hits(now);

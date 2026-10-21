@@ -15,6 +15,9 @@
 * 服务端缺资源（例如起始地图没有 NPC/鸡鹿）时该项打印 [SKIP] 并说明原因；
 * **幂等**：同一服务端可以连续跑多次——GM 模式下进世界后先 `@map` 回起始图并校验落点
   （跨图传送那一步会把角色留在目标图），非 GM 模式每次注册新账号新角色。
+* `--tp1`（同图导航 gate）的已知限制：脚本用 BFS 走到 `S.NewMapInfo.movements` 门格，
+  不驱动客户端大地图 UI 点击；当前数据没有 1–15 级跨图任务；quest 5 的 NPC 不发布该任务，
+  因此用 quest 1（Jane）。详见 `README.md`「已知限制（第 26/27 轮 TP-1 gate）」。
 
 协议：帧 = u16 总长（含 4 字节头）+ i16 包号 + 负载；字符串为 7-bit 变长长度 + UTF-8；
 标了 Compressed 的包（NPCGoods 等）负载是 gzip。
@@ -305,6 +308,7 @@ class Playtest:
         self.newbie = newbie
         self.dr1 = False
         self.ps1 = False
+        self.tp1 = False
         self.dr1_keep_moving = False
         self.dr1_taken_hits: list[tuple[float, int, int]] = []
         self.dr1_counts: collections.Counter[str] = collections.Counter()
@@ -2813,6 +2817,74 @@ class Playtest:
         self.ok("使用技能", f"FireBall 命中（MP {before_mp} -> {self.self_mp}）")
 
     # ---------------- 主流程 ----------------
+    def tp1_flow(self) -> int:
+        """TP-1 同图导航：接 quest 5 → 逐字断言导航行 → 走到 movement 门格。"""
+        smith = next(
+            (n for n in self.map_npcs if "jane" in n.get("name", "").lower()),
+            None,
+        )
+        if smith is None:
+            self.fail("TP-1 接取", f"map0 没有 Assistant_Jane：{ [n['name'] for n in self.map_npcs[:12]] }")
+            return 1
+        if not self._newbie_walk_bfs(smith) and not self._stand_next_to(smith):
+            self.fail("TP-1 接取", f"走不到 Jane @ {smith['pos']}")
+            return 1
+        writer = Writer()
+        writer.u32(smith.get("object_id", smith.get("id", 0)))
+        writer.i32(1)
+        self.send(C_ACCEPT_QUEST, writer.raw())
+        deadline = time.time() + self.timeout
+        task_lines = None
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            index, payload = packet
+            self._observe(index, payload)
+            if index == S_CHANGE_QUEST:
+                r = Reader(payload)
+                quest_id = r.i32()
+                count = r.i32()
+                lines = [r.string() for _ in range(max(0, min(count, 64)))]
+                if quest_id == 1:
+                    task_lines = lines
+                    break
+        if task_lines is None:
+            self.fail("TP-1 接取", "发 C.AcceptQuest{1} 后未收到 S.ChangeQuest{1}")
+            return 1
+        self.ok("TP-1 接取", f"Jane @ {smith['pos']} -> quest 1")
+        print(f"  [TP-1] task_list={task_lines}")
+        expected = "前往 BichonProvince(0)"
+        if expected not in task_lines:
+            self.fail("TP-1 导航行", f"task_list 未逐字包含 {expected!r}：{task_lines}")
+            return 1
+        self.ok("TP-1 导航行", expected)
+
+        # 找一个 S.NewMapInfo.movements 门格；不读配置、不硬编码。
+        if not self.movements:
+            self.fail("TP-1 大地图点击", "S.NewMapInfo.movements 为空")
+            return 1
+        gate = self.movements[0]
+        target = tuple(gate["pos"])
+        print(f"  [TP-1] 门格 title={gate['title']} pos={target}")
+        fake = {"name": "gate", "pos": target}
+        if not self._newbie_walk_bfs(fake) and not self._stand_next_to(fake):
+            self.fail("TP-1 寻路", f"走不到门格 {target}（当前位置 {self.self_pos}）")
+            return 1
+        old_map = self.map_file
+        arrived = self.step_onto(target)
+        deadline = time.time() + 2.0
+        while time.time() < deadline and self.map_file == old_map:
+            packet = self.next_packet(time.time() + 0.2)
+            if packet is None:
+                continue
+            self._observe(*packet)
+        if self.map_file == old_map:
+            self.fail("TP-1 到达", f"踩到门格 {target} 后未换图（仍 {old_map}，位置 {self.self_pos}）")
+            return 1
+        self.ok("TP-1 到达", f"{old_map} -> {self.map_file} @ {self.self_pos}（gate={gate['title']}）")
+        return 0
+
     def ps1_flow(self, char_index: int) -> int:
         """PS-1：进程级重登后逐字段比对金币/装备/技能/已完成任务。"""
         self.ok("PS-1 清洁角色", f"object_id={self.self_object_id} hp={self.self_hp}")
@@ -3255,6 +3327,8 @@ class Playtest:
             return self.newbie_flow(char_index if char_index is not None else 0)
         self.ok("进入世界", f"object_id={self.self_object_id} pos={self.self_pos}")
         self.entry_map, self.entry_pos = self.map_file, self.self_pos
+        if self.tp1:
+            return self.tp1_flow()
         if self.ps1:
             return self.ps1_flow(char_index if char_index is not None else 0)
         if self.dr1:
@@ -3470,6 +3544,7 @@ def main() -> int:
     parser.add_argument("--newbie", action="store_true", help="非 GM「新手 10 分钟」完整链路（出生装/打 3 只/买书读书/捡物/重登）")
     parser.add_argument("--dr1", action="store_true", help="DR-1 死亡→12s 无自动复活→C.TownRevive→复活/可移动/可攻击")
     parser.add_argument("--ps1", action="store_true", help="PS-1 进程级重登持久化（金币/装备 unique_id+耐久/技能/任务）")
+    parser.add_argument("--tp1", action="store_true", help="TP-1 同图导航：接 quest 5 → 断言导航行 → 走到 movement 门格")
     parser.add_argument("--dr1-keep-moving", action="store_true", help="DR-1 等待死亡时持续小范围走位（验证“移动才挨打”假设）")
     parser.add_argument(
         "--self-check",
@@ -3506,6 +3581,7 @@ def main() -> int:
     )
     test.dr1 = args.dr1
     test.ps1 = args.ps1
+    test.tp1 = args.tp1
     test.dr1_keep_moving = args.dr1_keep_moving
     try:
         code = test.run()

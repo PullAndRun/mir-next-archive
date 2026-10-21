@@ -182,3 +182,16 @@ pwsh -NoProfile -File tools/dev/newbie-gate.ps1
   未建模），脚本只能按已知最便宜药水模板 `#658` 选、再用 `S.LoseGold` 反查成交价。
 * GM `@map` 走 `World::place_player`，只改坐标、不发 `S.MapChanged`/视野对象；
   脚本因此用「下线再进」重建视野（见上文幂等说明）。
+
+## 已知限制（第 26/27 轮 TP-1 gate）
+
+* **TP-1 gate 用脚本 BFS 走到 `S.NewMapInfo.movements` 的 movement 门格，不覆盖客户端
+  大地图 UI 点击链路**；该链路由客户端单测
+  `click_destination_maps_point_and_starts_path_to_door_cell` 覆盖。
+* **当前数据没有 1–15 级可接的跨图任务**（`Jev` 库 min≤15 的任务 handin 地图全为 `0`），
+  跨图导航未端到端验证；本轮 TP-1 验收的是**同图导航行 + movement 门格 + 走传送**。
+* **quest 5 实际接不了**：服务端日志 `NPC 19 does not offer quest 5`（该 NPC 不发布此任务，
+  属数据/发布绑定问题，不是 gate 问题）；`--tp1` 因此改用 **quest 1 / Assistant_Jane**。
+* 导航行使用 DB 的 `MapInfo.title`（实测 `BichonProvince`），不是客户端中文名
+  “比奇省”；“导航行用玩家可读地图名”已记入下一轮候选，本轮不改。
+

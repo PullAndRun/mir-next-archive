@@ -125,6 +125,9 @@ Invoke-Gate "TextKey 完整性" "$python tools/i18n/verify_text_keys.py"
 Invoke-Gate "硬编码棘轮（player-visible，阈值 70）" "$python tools/i18n/scan_hardcoded.py --player-visible --strict --fail-above 70"
 Invoke-Gate "硬编码棘轮（no-test，阈值 15）" "$python tools/i18n/scan_hardcoded.py --no-test --player-visible --strict --fail-above 15"
 
+# 4b) 资源规则：运行时不得引用老资源格式（棘轮，基线见 tools/dev/legacy-runtime-allowlist.txt）
+Invoke-Gate "运行时不引用老资源格式" "$python tools/dev/check_legacy_refs.py"
+
 # 5) PostgreSQL 集成测试（连接串已在脚本开头统一设好，这里只跑门禁）
 if (-not $SkipTests -and -not $SkipPostgres) {
     Invoke-Gate "PostgreSQL 集成测试（mir-store 串行）" "cargo test -p mir-store -- --test-threads=1"

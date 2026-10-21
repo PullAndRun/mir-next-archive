@@ -4,6 +4,9 @@
 > [`analyze_usage.py`](../../tools/assets/analyze_usage.py)（引用分析）、
 > [`export_asset_sample.py`](../../tools/assets/export_asset_sample.py)（独立解码样例）、
 > [`make_mini_plan.py`](../../tools/assets/make_mini_plan.py)（map0+items+1 怪物的冒烟计划）、
+> [`split_extract.py`](../../tools/assets/split_extract.py)（分片并行拆包编排）、
+> [`verify_layout.py`](../../tools/assets/verify_layout.py)（新布局校验）、
+> [`build_manifest.py`](../../tools/assets/build_manifest.py)（manifest.assets.json）、
 > 户部的 `mir-tools assets unpack --plan`（Rust 拆包器）、
 > [`game-assets.md`](game-assets.md)（上一轮的整目录复制方案，本文取代其 `data/` 部分）。
 
@@ -33,7 +36,7 @@ game-assets/                                  # 开发期：散装，一图一�
       item/icon-<image>/<index>.png           # 物品图标（单帧，文件名=库内 index=image）
       effect/<effect|magic|magic2>/<frame>.png
     ui/minimap/<index>.png                    # mmap.wzl（小地图/大地图共用）
-  maps/<mapid>.map                            # 0.map / 0101.map
+  maps/<mapid>.mnm                            # 0.mnm / 0101.mnm（.map 只在导入/构建期使用）
   audio/sfx/<name>.wav                        # 音效
   audio/music/<name>.wav                      # 背景音乐（30001/30002…）
   data/server/Server.MirDB
@@ -98,7 +101,7 @@ Crystal 的 `MapLibs` 编号 → 我们的 tileset 名（小写）：
 
 | 类别 | 引用来源 | 判定规则 | 证据/代码 |
 |---|---|---|---|
-| 地图 | `Server.MirDB` 的 `MapInfo` | 389 张 `MapInfo.FileName` 对应的 `cjlaaa/Maps/*.map` 全部保留；其余 1428 张不进包 | `mir-db/src/map.rs`、`mir-world/src/map.rs` |
+| 地图 | `Server.MirDB` 的 `MapInfo` | 389 条 `MapInfo.FileName`（385 个唯一文件）从 `cjlaaa/Maps/*.map` 导入并转成自有 `.mnm`；其余 1428 张不进包 | `mir-db/src/map.rs`、`mir-tools/bin/map_import.rs` |
 | 瓦片 | 地图格的 Back/Middle/Front 图像号 | v0/v1/v2/v3/v4 按 Crystal 客户端布局解析；后层→`tiles.wzl`、中层→`smtiles.wzl`、前层→`objects{front_index+2}`；门动画帧 1..anim 一并收 | Crystal `Client/MirObjects/MapCode.cs` `LoadMapType0..4`；`mir-render/src/scene.rs` |
 | 怪物 | `MonsterInfo.Image` | `lib=image/10+1`、槽 `image%10`；只收 `animation.rs` 动作帧表真正会播的 200/430 帧 | `mir-render/src/entities.rs:1401`、`animation.rs` |
 | NPC | `NpcInfo.Image` | `lib=image/100+1`（1..4）、槽 `image%100`；保守保留整块 60 帧（站立帧表跨图像） | `entities.rs:1395` |
@@ -152,7 +155,7 @@ v0/v4 为 `o+0/o+2/o+4`（v4 再异或 xor）；v2/v3 的前层库从 +120 起�
 | 项 | 使用 | 总量 | 不进包 |
 |---|---:|---:|---:|
 | `.wzl` 图库 | **66 个 / 177,918 计划帧（150,108 可解）/ 914.5 MP**，PNG 估计 **1.37 GB** | 349 个 / 7,509,950 项 / 21.69 GB | 约 **21.32 GB**（98.3%） |
-| 地图 | **389 张 / 313.8 MB** | 1817 张 / 1250.3 MB | 1428 张 / 936.5 MB |
+| 地图 | **385 个唯一文件**：`.map` 313.8 MB → `.mnm` **13.1 MB**（压缩比 4.2%，≈23.9×） | 1817 张 / 1250.3 MB | 1428 张 / 936.5 MB |
 | 音频 | **104 个 / 38.6 MB** | — | 20 个引用文件在三处音效目录缺失 |
 | 字体 | 1 个 / 8.3 MB | — | — |
 | 服务端 | `Server.MirDB` + `Envir/` 1140 文件 / 1.45 MB | — | — |
@@ -282,13 +285,24 @@ map0 明细：`tiles.wzl` 986 引用 / 665 可解、`smtiles.wzl` 170/167、`obj
     tools/assets/export_asset_sample.py   # 依赖 Pillow（py 没有时用上面的 bundled Python）
 #   → target/game-assets-mini/（每目录 PNG + index.json + manifest.json）
 
-# # 3) 计划自检（命名/唯一性/帧数/索引一致性；拆包前门禁）
+# 3) 计划自检（命名/唯一性/帧数/索引一致性；拆包前门禁）
 py tools/assets/check_plan.py target/used-assets.json
 py tools/assets/check_plan.py target/used-assets-mini.json
 
-# 3) 拆包器 dry-run（户部）
+# 4) 全量拆包（分片并行；默认 6 片，自动找 mir-tools；--dry-run 只分片）
+py tools/assets/split_extract.py --plan target/used-assets.json --out-root game-assets --parts 6
+py tools/assets/split_extract.py --dry-run
+py tools/assets/split_extract.py --verify          # 拆完再跑全量 --verify
+
+# 5) 新布局校验（index/PNG 数 = 计划 loaded、抽样 rgb/rgba、分类体积、旧布局统计）
+py tools/assets/verify_layout.py --plan target/used-assets.json --game-assets game-assets
+
+# 6) 生成资源库清单（给客户端/文档一条命令列出）
+py tools/assets/build_manifest.py --plan target/used-assets.json --verify-json target/layout-verify.json
+#   → game-assets/manifest.assets.json、game-assets/index/summary.json
+
+# 7) 单库/单目录拆包与对账（户部工具）
 mir-tools assets unpack --plan target/used-assets-mini.json --out-root game-assets --dry-run
-# 4) 全量拆包后按 index.json 的 rgb_sha256 对账（户部 --verify）
 mir-tools assets unpack --plan target/used-assets.json --out-root game-assets --verify
 ```
 
@@ -340,6 +354,9 @@ mir-tools assets unpack --plan target/used-assets.json --out-root game-assets --
 | 空帧/越界 | 跳过并写 `index.json` 的 `missing` / `skipped_empty`，**exit 0** |
 | 对账 | `lib + count`，逐 index 比 **`rgb_sha256`**（解码定稿）；`rgba_sha256`/`pixels_sha256` 只校验透明约定 |
 | 计划门禁 | `tools/assets/check_plan.py`：dest 唯一且不含原库名、output 帧数自洽、无重复帧集合、索引升序去重；失败退出码 1 |
+| 拆包编排 | `tools/assets/split_extract.py`：按帧数均衡分片并行（32 核全量 ~10min，单进程 ~100min），可 `--verify` |
+| 布局校验 | `tools/assets/verify_layout.py`：逐 output 对计划（PNG/index/loaded/missing）+ 抽样 rgb/rgba + 旧布局统计 |
+| 资源清单 | `tools/assets/build_manifest.py`：`manifest.assets.json`（逐库 outputs、maps_detail 385×sha256、pack_hints） |
 | 帧文件名 | 四位库内 index（`0000.png`/`0054.png`），单帧类别也保留 `<entity>/<index>.png` 这一级 |
 
 分工：**hubu2** 负责引用分析、命名规则、统计与独立解码校验；**hubu** 负责 Rust 拆包器与

@@ -55,3 +55,22 @@
 改成"背包/装备的 `unique_id` + 耐久逐项比对"后立刻通过——`unique_id` 是服务器分配的，比金币更难伪造。
 
 **规则**：gate 卡在"取证手段"时，换一个**更硬、更好取**的判据，不要为了让旧判据成立去改产品。
+
+## 7. `@item <name>` 可能给到高等级模板
+
+**案例**：`duo_smoke` 经验用例先用 `@item sword` 给 A 武器，结果匹配到 `SpiritBlade`（req_level=20）；A 只有 10 级，`C.EquipItem` 返回 `MoveItem{success:false}`。测试没等装备回执，直接进入战斗 → 72 次攻击 0 击杀，误判为“怪不反击”。
+
+**规则**：
+- 测试给装备必须用**低等级模板名**（如 `wooden`/`dagger`），并等待 `S.EquipItem{success:true}`；
+- 装备失败时立即失败并打印原因，不要进入战斗循环；
+- 战斗用例失败时先看“第一刀是否真的造成伤害”，再怀疑 AI/命中。
+
+## 8. 实时战斗不适合做门禁断言
+
+**案例**：`duo_smoke` 两个组队经验用例依赖 `@mob` 刷怪 + 实时攻击；怪会移动、命中随机，CI 上 72 刀 0 击杀，连续红。  
+**处理**：
+- 逻辑覆盖下沉到 `tests/group.rs::group_exp_shares_is_deterministic_in_range_out_of_range_dead_and_off_map`（直接断言 `World::group_exp_shares`）；
+- 两个 TCP 战斗用例标 `#[ignore = "flaky: ..."]`，保留代码，只让其它 5 个无战斗用例进门禁；
+- TCP 层只验证包序/契约，不用实时战斗结果当断言。
+
+**规则**：门禁断言优先“世界层纯函数/确定性包序”；命中随机与怪物移动不应成为必过条件。

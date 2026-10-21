@@ -3,7 +3,7 @@
 ## 契约
 `S.ChangeQuest.task_list` 末尾追加一行（按玩家语言）：
 
-- 有导航目标：`前往 <MapInfo.title>(<MapInfo.file_name>)`（en: `Go to <title> (<file>)`）
+- 有导航目标：`前往 <玩家可读地图名>(<mapfile>)`（en: `Go to <title> (<file>)`）；地图名默认取语言包 `maps`，未收录才回退 `MapInfo.title`
 - 没有导航目标：`该任务无导航目标`（en: `This quest has no navigation target`）
 
 ## 导航目标推导顺序
@@ -13,6 +13,9 @@
 2. **目标 NPC 地图（主来源）**：`World::quest_finisher_npc(quest_index)`（无交付 NPC 时退回
    `quest_publisher_npc`）→ `Npc.map` → `GameData::map_info` 的 title/file。
 3. 两者都没有 → `QuestNavigationNone`。
+
+地图标题优先用语言包 `LanguageLibrary::map_title(language, map_file)` 的玩家可读名
+（例如 map `0` → 中文「比奇省」/ English "Bichon Province"），未收录时回退 `MapInfo.title`。
 
 服务端实际加载的是 `resource/community/suprcode-crystal-database/Jev/Server.MirDB` +
 `Jev/Envir/Quests`；导航推导基于这份真实数据，不修改 `Server.MirDB`。
@@ -37,3 +40,5 @@
 - 集成：`tests/quests.rs` 的 `accept_quest...`/`kill_progress...`/`timed_quest...` 断言
   `S.ChangeQuest.task_list` 含 `前往 <地图标题>(<mapfile>)`。
 - 客户端解析：`crates/mir-client/src/ui/quest_nav.rs`（已按 `前往 地图名(mapfile)` 实现）。
+
+

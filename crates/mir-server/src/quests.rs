@@ -1670,6 +1670,7 @@ impl World {
             &definition.script.task_description,
             maps,
             language,
+            |file, fallback| self.localized_map_title(file, fallback, language),
         );
         if lines.is_empty()
             && let Some(line) = self.quest_npc_navigation_line(definition.info.index, language)
@@ -1680,6 +1681,25 @@ impl World {
             lines.push(text(language, TextKey::QuestNavigationNone).to_owned());
         }
         lines
+    }
+
+    /// 地图可读名：优先语言包 `maps` 覆盖（`LanguageLibrary::map_title`），
+    /// 未收录时退回数据库 `MapInfo.title`，最后才用文件名。
+    fn localized_map_title(
+        &self,
+        map_file: &str,
+        data_title: &str,
+        language: mir_core::Language,
+    ) -> String {
+        let Some(library) = self.languages.as_ref() else {
+            return data_title.to_owned();
+        };
+        let localized = library.map_title(language, map_file);
+        if localized == map_file {
+            data_title.to_owned()
+        } else {
+            localized
+        }
     }
 
     /// 由交付 NPC（缺失则发布 NPC）的 `map` 反查 `MapInfo`，生成导航行。
@@ -1696,10 +1716,11 @@ impl World {
         if info.title.trim().is_empty() {
             return None;
         }
+        let title = self.localized_map_title(&info.file_name, info.title.trim(), language);
         Some(format_text(
             language,
             TextKey::QuestNavigationGoTo,
-            &[("map", info.title.trim()), ("file", &info.file_name)],
+            &[("map", &title), ("file", &info.file_name)],
         ))
     }
 
@@ -1733,11 +1754,15 @@ impl World {
 /// 只有 `X` 与 `MapInfo.title`（大小写不敏感、去首尾空白）完全相等时才转成
 /// `前往 <title>(<file_name>)`；NPC/物品名反查不到地图，直接忽略。
 #[must_use]
-pub fn navigation_lines_from_task_description(
+pub fn navigation_lines_from_task_description<F>(
     task_description: &[String],
     maps: &[mir_db::MapInfo],
     language: mir_core::Language,
-) -> Vec<String> {
+    mut title_for: F,
+) -> Vec<String>
+where
+    F: FnMut(&str, &str) -> String,
+{
     let raws: Vec<&str> = task_description
         .iter()
         .map(String::as_str)
@@ -1761,10 +1786,11 @@ pub fn navigation_lines_from_task_description(
                     !info.title.trim().is_empty() && info.title.trim().eq_ignore_ascii_case(name)
                 })
             {
+                let title = title_for(&map.file_name, map.title.trim());
                 let line = format_text(
                     language,
                     TextKey::QuestNavigationGoTo,
-                    &[("map", map.title.trim()), ("file", &map.file_name)],
+                    &[("map", &title), ("file", &map.file_name)],
                 );
                 if !lines.contains(&line) {
                     lines.push(line);
@@ -2119,6 +2145,7 @@ mod tests {
             &["Go to {DeathValley/Yellow} and kill {Scyther/Crimson}, find {MasterMage} and carry {CannibalLeaves/LightSteelBlue}".to_owned()],
             &maps,
             mir_core::Language::En,
+            |_, title| title.to_owned(),
         );
         assert_eq!(lines, vec!["Go to DeathValley (D401)".to_owned()]);
     }
@@ -2130,6 +2157,9 @@ mod tests {
         };
         let mut world = World::new(1);
         world.set_game_data(std::sync::Arc::new(data));
+        world.set_languages(std::sync::Arc::new(
+            mir_core::i18n::LanguageLibrary::embedded(),
+        ));
         world.spawn_npcs("0");
         let Some(definition) = world.quest_definition(5) else {
             return;
@@ -2146,10 +2176,12 @@ mod tests {
         };
         let progress = QuestProgress::new(5, 0, 0, &definition.script);
         let client = world.client_progress(&definition, &progress, 0, mir_core::Language::ZhCn);
+        let title =
+            world.localized_map_title(&info.file_name, info.title.trim(), mir_core::Language::ZhCn);
         let expected = mir_core::i18n::format_text(
             mir_core::Language::ZhCn,
             mir_core::i18n::TextKey::QuestNavigationGoTo,
-            &[("map", info.title.trim()), ("file", &info.file_name)],
+            &[("map", &title), ("file", &info.file_name)],
         );
         assert!(
             client.task_list.contains(&expected),
@@ -2161,7 +2193,13 @@ mod tests {
     #[test]
     fn empty_task_description_has_no_task_navigation_line() {
         assert!(
-            navigation_lines_from_task_description(&[], &[], mir_core::Language::ZhCn).is_empty()
+            navigation_lines_from_task_description(
+                &[],
+                &[],
+                mir_core::Language::ZhCn,
+                |_, title| title.to_owned()
+            )
+            .is_empty()
         );
         // 非空、但没有可反查地图标记：不能误报，也不能塞 NPC/物品名。
         assert!(
@@ -2169,6 +2207,7 @@ mod tests {
                 &["Carry {CannibalLeaves/LightSteelBlue} to {YoungJane/LimeGreen}".to_owned()],
                 &[],
                 mir_core::Language::En,
+                |_, title| title.to_owned(),
             )
             .is_empty()
         );

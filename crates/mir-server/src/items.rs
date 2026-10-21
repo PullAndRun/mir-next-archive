@@ -2582,7 +2582,34 @@ impl World {
         self.move_equipment(object_id, from as i32, to)
     }
 
+    /// 装备/卸装的统一入口：记录结果（成功/失败原因）后转发到内部实现。
     pub fn move_equipment(&mut self, object_id: u32, from: i32, to: i32) -> Result<(), ItemError> {
+        let unique_id = usize::try_from(from).ok().and_then(|slot| {
+            self.players
+                .get(&object_id)
+                .and_then(|player| player.inventory.get(slot))
+                .and_then(Option::as_ref)
+                .map(|item| item.unique_id)
+        });
+        let result = self.move_equipment_inner(object_id, from, to);
+        tracing::debug!(
+            player = object_id,
+            from,
+            to,
+            unique_id = ?unique_id,
+            ok = result.is_ok(),
+            error = ?result.as_ref().err(),
+            "装备结果"
+        );
+        result
+    }
+
+    fn move_equipment_inner(
+        &mut self,
+        object_id: u32,
+        from: i32,
+        to: i32,
+    ) -> Result<(), ItemError> {
         let fail = |world: &World, error: ItemError| {
             world.send_to_player(
                 object_id,

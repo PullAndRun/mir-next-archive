@@ -190,8 +190,12 @@ pwsh -NoProfile -File tools/dev/newbie-gate.ps1
   `click_destination_maps_point_and_starts_path_to_door_cell` 覆盖。
 * **当前数据没有 1–15 级可接的跨图任务**（`Jev` 库 min≤15 的任务 handin 地图全为 `0`），
   跨图导航未端到端验证；本轮 TP-1 验收的是**同图导航行 + movement 门格 + 走传送**。
-* **quest 5 实际接不了**：服务端日志 `NPC 19 does not offer quest 5`（该 NPC 不发布此任务，
-  属数据/发布绑定问题，不是 gate 问题）；`--tp1` 因此改用 **quest 1 / Assistant_Jane**。
+* **quest 5（Smith，min_level=1）实测 1 级不可完成**：1 级 16HP vs 怪物 2–4 伤害，
+  约 40 秒内死亡；装备/伤害链路已证实正常（`dc 2–4, damage 2/3/4`），但 20 只击杀在
+  1 级不现实。**数值可行性缺口，非脚本缺陷**；本轮完整任务 gate 改用 **quest 1**。
+* **quest 1 完整生命周期已 PASS**：Jane 接取 → `[@CARRYITEMS]` 5 个 CannibalLeaves 进
+  任务物品栏（`S.GainedQuestItem` 205）→ 导航行 `前往 BichonProvince(0)` →
+  CraftsLady 交付 → completed_quests 含 1、经验 0→10。脚本 `--quest1` 可复跑。
 * 导航行使用 DB 的 `MapInfo.title`（实测 `BichonProvince`），不是客户端中文名
   “比奇省”；“导航行用玩家可读地图名”已记入下一轮候选，本轮不改。
 

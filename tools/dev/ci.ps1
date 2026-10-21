@@ -1,4 +1,4 @@
-﻿# 本地全量门禁 —— 本项目**不使用远端 CI**，这是唯一的自动化门禁入口。
+# 本地全量门禁 —— 本项目**不使用远端 CI**，这是唯一的自动化门禁入口。
 #
 # 全部检查在本地跑（无远端 CI）。改代码时常跑 `-SkipTests`，收口前跑全量。
 #
@@ -102,7 +102,10 @@ Invoke-Gate "cargo clippy --workspace --all-targets -D warnings" "cargo clippy -
 if (-not $SkipTests) {
     # duo_smoke 必须串行：两个客户端抢同一个战斗槽，并行会 flake
     Invoke-Gate "cargo test -p mir-server --test duo_smoke（串行）" "cargo test -p mir-server --test duo_smoke -- --test-threads=1"
-    Invoke-Gate "cargo test --workspace" "cargo test --workspace"
+    # workspace 再跑一遍 duo_smoke 是**并行**的：与其它 crate 的测试抢 CPU 时，
+    # `duo_group_experience_*` 的实时战斗/经验回调会超时（实测 227s 仍 FAILED）。
+    # 该套用例已由上一项**串行**跑过（覆盖率不变），这里只跳过重复的并行执行。
+    Invoke-Gate "cargo test --workspace" "cargo test --workspace -- --skip duo_"
 }
 
 # 2) 协议生成器自检（需要 github/Crystal）

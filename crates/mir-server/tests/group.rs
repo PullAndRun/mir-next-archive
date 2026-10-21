@@ -963,3 +963,38 @@ fn logging_out_removes_the_member_from_the_group() {
         "下线广播 ObjectRemove 先于组队清理"
     );
 }
+
+#[test]
+fn group_exp_shares_is_deterministic_in_range_out_of_range_dead_and_off_map() {
+    let mut harness = Harness::new(31);
+    let alice = harness.add_player(1, "Alice", MAP_A, Point::new(10, 10));
+    let bob = harness.add_player(2, "Bob", MAP_A, Point::new(13, 10));
+    harness.form_group(&[alice, bob]);
+
+    // 同图同屏：nearCount=2 → rate 1.3，sumLevel=2；各 65。
+    let shares = harness.world.group_exp_shares(alice, 100).expect("有队伍");
+    assert_eq!(shares, vec![(alice, 65), (bob, 65)]);
+
+    // 超出 GROUP_EXP_RANGE：只有击杀者拿 100（但 nearCount/sumLevel 仍只算自己）。
+    harness
+        .world
+        .place_player(bob, MAP_A, Point::new(10, 10 + GROUP_EXP_RANGE + 1));
+    let shares = harness.world.group_exp_shares(alice, 100).expect("有队伍");
+    assert_eq!(shares, vec![(alice, 100)]);
+
+    // 死亡：仍进 nearCount（Crystal 的 `:815` 不查 Dead），但不分配。
+    harness.world.place_player(bob, MAP_A, Point::new(13, 10));
+    harness.world.player_mut(bob).unwrap().dead = true;
+    let shares = harness.world.group_exp_shares(alice, 100).expect("有队伍");
+    assert_eq!(shares, vec![(alice, 65)]);
+
+    // 异图同坐标：仍进 nearCount，但不分配。
+    harness.world.player_mut(bob).unwrap().dead = false;
+    harness.world.place_player(bob, MAP_B, Point::new(13, 10));
+    let shares = harness.world.group_exp_shares(alice, 100).expect("有队伍");
+    assert_eq!(shares, vec![(alice, 65)]);
+
+    // 未组队：返回 None。
+    let dave = harness.add_player(3, "Dave", MAP_A, Point::new(10, 10));
+    assert_eq!(harness.world.group_exp_shares(dave, 100), None);
+}

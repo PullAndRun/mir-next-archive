@@ -1450,10 +1450,34 @@ impl<S: AccountStore> Session<S> {
                 match world.attack(object_id, direction) {
                     Ok(report) => {
                         if let Some(report) = report {
+                            let attacker = world.player(object_id).map(|player| {
+                                (
+                                    player.stats.min_dc,
+                                    player.stats.max_dc,
+                                    player.stats.accuracy,
+                                    player.stats.agility,
+                                )
+                            });
+                            let target = world.monster(report.target).map(|monster| {
+                                (
+                                    monster.hp,
+                                    monster.stats.min_ac,
+                                    monster.stats.max_ac,
+                                    monster.stats.agility,
+                                )
+                            });
                             tracing::debug!(
                                 session = self.id,
                                 target = report.target,
                                 damage = report.damage,
+                                dc_min = attacker.map(|a| a.0),
+                                dc_max = attacker.map(|a| a.1),
+                                accuracy = attacker.map(|a| a.2),
+                                attacker_agility = attacker.map(|a| a.3),
+                                target_hp = target.map(|t| t.0),
+                                target_ac_min = target.map(|t| t.1),
+                                target_ac_max = target.map(|t| t.2),
+                                target_agility = target.map(|t| t.3),
                                 "发起攻击"
                             );
                             // Crystal `HumanObject.cs:7112/7844-7847`：命中一次 `DamageWeapon()`（1..=4 点）。

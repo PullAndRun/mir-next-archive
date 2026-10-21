@@ -100,6 +100,7 @@ S_OBJECT_NPC = 92
 S_NPC_RESPONSE = 93
 S_NEW_MAP_INFO = 18
 S_GAINED_ITEM = 66
+S_GAINED_QUEST_ITEM = 205
 S_EQUIP_ITEM = 38
 S_USE_ITEM = 52
 S_GAINED_GOLD = 67
@@ -309,6 +310,8 @@ class Playtest:
         self.dr1 = False
         self.ps1 = False
         self.tp1 = False
+        self.quest5 = False
+        self.quest1 = False
         self.dr1_keep_moving = False
         self.dr1_taken_hits: list[tuple[float, int, int]] = []
         self.dr1_counts: collections.Counter[str] = collections.Counter()
@@ -341,6 +344,10 @@ class Playtest:
         # 被服务端拒绝的“活物/临时占位”格：cell -> 解除时间（monotonic）。
         # 静态 NPC/建筑走 blocked 永久集；怪物/玩家短 TTL，避免把会走的对象永久拉黑。
         self._dynamic_blocked: dict[tuple[int, int], float] = {}
+        # 诊断限频：同一 reason 5s 内最多一条，避免死循环把日志撑到 100MB。
+        self._diag_last: dict[str, float] = {}
+        self._diag_suppressed: dict[str, int] = {}
+        self.quest_items: list[dict] = []
         self.gates: set[tuple[int, int]] = {
             (344, 309),
             (355, 319),
@@ -681,7 +688,8 @@ class Playtest:
                 object_id = r.u32()
                 if object_id != self.self_object_id:
                     print(f"  [DR-1] 伤害数字 target={object_id} dmg={damage}（75）")
-                    self.dr1_hit_target = object_id
+                    if damage > 0:
+                        self.dr1_hit_target = object_id
             elif index == S_DEATH:
                 self.self_dead = True
                 self.death_at = time.time()
@@ -804,6 +812,11 @@ class Playtest:
             elif index == S_GAINED_ITEM:  # 66：到手物品
                 r = Reader(payload)
                 self.last_gained_items.append(r.user_item())
+            elif index == S_GAINED_QUEST_ITEM:  # 205：任务物品栏（Crystal GainQuestItem）
+                r = Reader(payload)
+                item = r.user_item()
+                self.quest_items.append(item)
+                print(f"  [任务物品] #{item['item_index']}x{item.get('count')} unique_id={item['unique_id']}")
             elif index == S_LOSE_GOLD:  # 68：金币减少
                 r = Reader(payload)
                 gold = r.u32()
@@ -838,6 +851,15 @@ class Playtest:
         return self.expect(wanted, step, timeout)
 
     def diagnostics(self, reason: str) -> None:
+        now = time.time()
+        last = self._diag_last.get(reason)
+        if last is not None and now - last < 5.0:
+            self._diag_suppressed[reason] = self._diag_suppressed.get(reason, 0) + 1
+            return
+        suppressed = self._diag_suppressed.pop(reason, 0)
+        self._diag_last[reason] = now
+        if suppressed:
+            print(f"  [诊断] （上一条相同诊断已省略 {suppressed} 次）")
         print(f"  [诊断] {reason}")
         print(f"  [诊断] 最近包索引: {list(self.recent_packets)}")
         print(f"  [诊断] UserInformation.hp={self.last_userinfo_hp} 当前 hp={self.self_hp}")
@@ -2817,6 +2839,281 @@ class Playtest:
         self.ok("使用技能", f"FireBall 命中（MP {before_mp} -> {self.self_mp}）")
 
     # ---------------- 主流程 ----------------
+    def quest1_flow(self) -> int:
+        """quest 1 完整生命周期：Jane 接取 → 任务物品栏 5 叶 → CraftsLady 交付 → 经验+10。"""
+        jane = next(
+            (n for n in self.map_npcs if "jane" in n.get("name", "").lower()),
+            None,
+        )
+        crafts = next(
+            (n for n in self.map_npcs if "craftslady" in n.get("name", "").lower()),
+            None,
+        )
+        if jane is None or crafts is None:
+            self.fail("quest1 找NPC", f"Jane={jane} CraftsLady={crafts}")
+            return 1
+        self.newbie_equip()
+        if not self._newbie_walk_bfs(jane) and not self._stand_next_to(jane):
+            self.fail("quest1 接取", f"走不到 Jane @ {jane['pos']}")
+            return 1
+        writer = Writer()
+        writer.u32(jane.get("object_id", jane.get("id", 0)))
+        writer.i32(1)
+        self.send(C_ACCEPT_QUEST, writer.raw())
+        deadline = time.time() + self.timeout
+        task_lines = None
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            index, payload = packet
+            self._observe(index, payload)
+            if index == S_CHANGE_QUEST:
+                r = Reader(payload)
+                quest_id = r.i32()
+                count = r.i32()
+                lines = [r.string() for _ in range(max(0, min(count, 64)))]
+                if quest_id == 1:
+                    task_lines = lines
+                    self._drain(0.5)
+                    break
+        if task_lines is None:
+            self.fail("quest1 接取", "发 C.AcceptQuest{1} 后未收到 S.ChangeQuest{1}")
+            return 1
+        self.ok("quest1 接取", f"Jane @ {jane['pos']}")
+        print(f"  [quest1] task_list={task_lines}")
+        for line in task_lines:
+            if "前往 " in line:
+                self.ok("quest1 导航行", line)
+        print(f"  [quest1] 任务物品栏={[(i['item_index'], i.get('count')) for i in self.quest_items]}")
+        leaf_count = sum(int(i.get("count", 0)) for i in self.quest_items)
+        if leaf_count < 5:
+            self.fail("quest1 任务物品栏", f"期望 5 个 CannibalLeaves，实际 {leaf_count}：{self.quest_items}")
+            return 1
+        if not self._newbie_walk_bfs(crafts) and not self._stand_next_to(crafts):
+            self.fail("quest1 交付", f"走不到 CraftsLady @ {crafts['pos']}")
+            return 1
+        exp_before = self.self_exp or 0
+        gold_before = self.self_gold or 0
+        writer = Writer()
+        writer.i32(1)
+        writer.i32(-1)
+        self.send(C_FINISH_QUEST, writer.raw())
+        deadline = time.time() + self.timeout
+        completed = False
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            index, payload = packet
+            self._observe(index, payload)
+            if index == S_COMPLETE_QUEST:
+                r = Reader(payload)
+                count = r.i32()
+                ids = {r.i32() for _ in range(max(0, min(count, 256)))}
+                if 1 in ids:
+                    completed = True
+                    break
+        if not completed:
+            self.fail("quest1 交付", f"发 C.FinishQuest{{1}} 后未收到含 1 的 S.CompleteQuest")
+            return 1
+        # 服务端先发 S.GainExperience(85)，再发 S.CompleteQuest(202)；等 0.5s 收完再断言。
+        self._drain(0.5)
+        exp_after = self.self_exp or 0
+        gold_after = self.self_gold or 0
+        if exp_after - exp_before != 10:
+            self.fail("quest1 奖励", f"经验 {exp_before}->{exp_after}（期望 +10）")
+            return 1
+        self.ok(
+            "quest1 交付/奖励",
+            f"completed_quests 含 1；经验 {exp_before}->{exp_after}（+10），金币 {gold_before}->{gold_after}",
+        )
+        return 0
+
+    def quest5_flow(self) -> int:
+        """quest 5 完整任务：Smith 接取 → 自然杀 10 Deer + 10 Scarecrow → 交付奖励。"""
+        smith = next(
+            (n for n in self.map_npcs if n.get("name", "").lower() == "blacksmith_smith"),
+            None,
+        )
+        if smith is None:
+            self.fail("quest5 找NPC", f"按名字找不到 Blacksmith_Smith：{ [n['name'] for n in self.map_npcs[:20]] }")
+            return 1
+        if not self._newbie_walk_bfs(smith) and not self._stand_next_to(smith):
+            self.fail("quest5 找NPC", f"走不到 Smith @ {smith['pos']}")
+            return 1
+        writer = Writer()
+        writer.u32(smith.get("object_id", smith.get("id", 0)))
+        writer.i32(5)
+        self.send(C_ACCEPT_QUEST, writer.raw())
+        deadline = time.time() + self.timeout
+        task_lines = None
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            index, payload = packet
+            self._observe(index, payload)
+            if index == S_CHANGE_QUEST:
+                r = Reader(payload)
+                quest_id = r.i32()
+                count = r.i32()
+                lines = [r.string() for _ in range(max(0, min(count, 64)))]
+                if quest_id == 5:
+                    task_lines = lines
+                    break
+        if task_lines is None:
+            self.fail("quest5 接取", "发 C.AcceptQuest{5} 后未收到 S.ChangeQuest{5}")
+            return 1
+        self.ok("quest5 接取", f"Smith @ {smith['pos']}")
+        print(f"  [quest5] task_list={task_lines}")
+        for line in task_lines:
+            if "前往 " in line:
+                self.ok("quest5 导航行", line)
+
+        kills = {"deer": 0, "scarecrow": 0}
+        # 穿上出生装减伤；背包里的初级红药作为保命手段（不使用任何 GM）。
+        equipped = self.newbie_equip()
+        self.ok("quest5 装备", f"穿上出生装 {equipped} 件")
+        deadline = time.time() + 1200
+        anchor_index = 0
+        deaths = 0
+        while sum(kills.values()) < 20 and time.time() < deadline:
+            if self.self_dead or (self.self_hp or 1) <= 0:
+                deaths += 1
+                if deaths > 3:
+                    self.fail("quest5 击杀", f"死亡 {deaths} 次，完成度 {kills}")
+                    return 1
+                self.ok("quest5 被击杀", f"等待 60s 兜底复活（第 {deaths} 次）")
+                revive_end = time.time() + 70
+                while time.time() < revive_end and ((self.self_hp or 0) <= 0 or self.self_dead):
+                    packet = self.next_packet(time.time() + 0.25)
+                    if packet:
+                        self._observe(*packet)
+                self._dynamic_blocked.clear()
+                continue
+            missing = [key for key, need in (("deer", 10), ("scarecrow", 10)) if kills[key] < need]
+            preys = [
+                m
+                for m in self.monsters
+                if not m.get("dead")
+                and any(key in m.get("name", "").lower() for key in missing)
+            ]
+            if not preys:
+                offsets = ((0, 80), (-80, 0), (80, 0), (0, -80), (-80, 80), (80, -80))
+                ox, oy = offsets[anchor_index % len(offsets)]
+                anchor_index += 1
+                if anchor_index % len(offsets) == 0:
+                    self._dynamic_blocked.clear()
+                self.walk_towards(
+                    (self.self_pos[0] + ox, self.self_pos[1] + oy), max_steps=100
+                )
+                self._drain(0.8)
+                continue
+            prey = min(preys, key=lambda m: self._distance(m["pos"]))
+            if (self.self_hp or 0) <= 12:
+                potion = next(
+                    (i for i in self.inventory_items if i.get("item_index") == 658),
+                    None,
+                )
+                if potion is not None:
+                    writer = Writer()
+                    writer.u64(potion["unique_id"])
+                    writer.u8(1)
+                    self.send(C_USE_ITEM, writer.raw())
+                    self._drain(0.4)
+            name = prey.get("name", "").lower()
+            key = "deer" if "deer" in name else "scarecrow"
+            print(
+                f"  [quest5] 目标 {key} {kills[key] + 1}/10 "
+                f"{prey.get('name')}@{prey['pos']} 距离={self._distance(prey['pos'])}"
+            )
+            if self._quest5_attack(prey, timeout=45):
+                kills[key] += 1
+                self.ok("quest5 击杀", f"{key} {kills[key]}/10")
+        if kills["deer"] < 10 or kills["scarecrow"] < 10:
+            self.fail(
+                "quest5 击杀",
+                f"超时：deer={kills['deer']}/10 scarecrow={kills['scarecrow']}/10",
+            )
+            return 1
+
+        if not self._newbie_walk_bfs(smith) and not self._stand_next_to(smith):
+            self.fail("quest5 交付", f"走不回 Smith @ {smith['pos']}")
+            return 1
+        gold_before = self.self_gold or 0
+        exp_before = self.self_exp or 0
+        self.gold_delta = 0
+        writer = Writer()
+        writer.i32(5)
+        writer.i32(-1)
+        self.send(C_FINISH_QUEST, writer.raw())
+        deadline = time.time() + self.timeout
+        completed = False
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            index, payload = packet
+            self._observe(index, payload)
+            if index == S_COMPLETE_QUEST:
+                r = Reader(payload)
+                count = r.i32()
+                ids = {r.i32() for _ in range(max(0, min(count, 256)))}
+                if 5 in ids:
+                    completed = True
+                    break
+        if not completed:
+            self.fail("quest5 交付", f"发 C.FinishQuest{{5}} 后未收到含 5 的 S.CompleteQuest；gold={self.self_gold}")
+            return 1
+        gold_after = self.self_gold or 0
+        exp_after = self.self_exp or 0
+        if exp_after - exp_before != 120:
+            self.fail("quest5 奖励", f"经验 {exp_before}->{exp_after}（期望 +120）")
+            return 1
+        if gold_after - gold_before != 30:
+            self.fail("quest5 奖励", f"金币 {gold_before}->{gold_after}（期望 +30）")
+            return 1
+        self.ok(
+            "quest5 交付/奖励",
+            f"completed_quests 含 5；经验 {exp_before}->{exp_after}（+120），金币 {gold_before}->{gold_after}（+30）",
+        )
+        return 0
+
+    def _quest5_attack(self, prey: dict, timeout: float = 45.0) -> bool:
+        """只打服务端相邻且活着的怪；连续 3 次无正伤害就换目标。"""
+        deadline = time.time() + timeout
+        misses = 0
+        while time.time() < deadline:
+            latest = next((m for m in self.monsters if m["id"] == prey["id"]), prey)
+            if latest.get("dead"):
+                return True
+            if self.self_dead or (self.self_hp or 1) <= 0:
+                return False
+            if self._distance(latest["pos"]) > 1:
+                self.walk_towards(latest["pos"], blocked={tuple(latest["pos"])}, max_steps=20)
+                continue
+            dx = latest["pos"][0] - self.self_pos[0]
+            dy = latest["pos"][1] - self.self_pos[1]
+            self.dr1_hit_target = None
+            writer = Writer()
+            writer.u8(self._direction(dx, dy))
+            writer.u8(0)
+            self.send(C_ATTACK, writer.raw())
+            wait = time.time() + 1.2
+            while time.time() < wait:
+                packet = self.next_packet(time.time() + 0.1)
+                if packet:
+                    self._observe(*packet)
+            if self.dr1_hit_target == latest["id"]:
+                misses = 0
+            else:
+                misses += 1
+                print(f"  [quest5] 未命中/0伤害 {latest.get('name')} id={latest['id']} ({misses}/3)")
+                if misses >= 3:
+                    return False
+        return False
+
     def tp1_flow(self) -> int:
         """TP-1 同图导航：接 quest 5 → 逐字断言导航行 → 走到 movement 门格。"""
         smith = next(
@@ -2854,7 +3151,7 @@ class Playtest:
             return 1
         self.ok("TP-1 接取", f"Jane @ {smith['pos']} -> quest 1")
         print(f"  [TP-1] task_list={task_lines}")
-        expected = "前往 BichonProvince(0)"
+        expected = "前往 比奇省(0)"
         if expected not in task_lines:
             self.fail("TP-1 导航行", f"task_list 未逐字包含 {expected!r}：{task_lines}")
             return 1
@@ -3327,6 +3624,10 @@ class Playtest:
             return self.newbie_flow(char_index if char_index is not None else 0)
         self.ok("进入世界", f"object_id={self.self_object_id} pos={self.self_pos}")
         self.entry_map, self.entry_pos = self.map_file, self.self_pos
+        if self.quest1:
+            return self.quest1_flow()
+        if self.quest5:
+            return self.quest5_flow()
         if self.tp1:
             return self.tp1_flow()
         if self.ps1:
@@ -3545,6 +3846,8 @@ def main() -> int:
     parser.add_argument("--dr1", action="store_true", help="DR-1 死亡→12s 无自动复活→C.TownRevive→复活/可移动/可攻击")
     parser.add_argument("--ps1", action="store_true", help="PS-1 进程级重登持久化（金币/装备 unique_id+耐久/技能/任务）")
     parser.add_argument("--tp1", action="store_true", help="TP-1 同图导航：接 quest 5 → 断言导航行 → 走到 movement 门格")
+    parser.add_argument("--quest5", action="store_true", help="quest 5 完整任务：Smith 接取→杀 10 Deer+10 Scarecrow→交付→奖励")
+    parser.add_argument("--quest1", action="store_true", help="quest 1 完整任务：Jane 接取→任务物品栏→CraftsLady 交付→经验+10")
     parser.add_argument("--dr1-keep-moving", action="store_true", help="DR-1 等待死亡时持续小范围走位（验证“移动才挨打”假设）")
     parser.add_argument(
         "--self-check",
@@ -3582,6 +3885,8 @@ def main() -> int:
     test.dr1 = args.dr1
     test.ps1 = args.ps1
     test.tp1 = args.tp1
+    test.quest5 = args.quest5
+    test.quest1 = args.quest1
     test.dr1_keep_moving = args.dr1_keep_moving
     try:
         code = test.run()
@@ -3603,4 +3908,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
 

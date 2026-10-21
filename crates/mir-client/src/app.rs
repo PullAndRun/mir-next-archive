@@ -1082,6 +1082,7 @@ impl ClientApp {
             | UiAction::WalkStep { .. }
             | UiAction::PickUp
             | UiAction::TownRevive
+            | UiAction::RepairItem { .. }
             | UiAction::AbandonQuest { .. }
             | UiAction::ReadMail { .. }
             | UiAction::CollectParcel { .. }

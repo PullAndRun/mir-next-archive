@@ -35,3 +35,16 @@
 - 已编译：`cargo test -p mir-server` 全绿（含 world_lifecycle 30、pk 27、gm 18、use_items 13、login_flow 7）。
 - world 层已验证：12s 内不发 `S.Revived`、`town_revive_player` 到回城点、HP/MP 满、旁观者收 `ObjectRevived`、60s 兜底的 WARN/指标。
 - **未完成**：真实 TCP 的死亡 fixture。GM `@kill` 在 login_flow 测试里未产生 `Death`（后续包只有欢迎/集合包），为避免留红已移除该临时用例；`C.TownRevive` 分派目前只有 world 层覆盖。下一轮用 `serve_forever_with_world` + 公开 `player_mut` 注入死亡后补。
+
+## DR-1 BLOCKED 证据（gate20）
+服务端当前日志：
+```text
+DEBUG mir_server::session: C.TownRevive 入口 session=1 object_id=Some(1981)
+DEBUG mir_server::session: 收到 C.TownRevive session=1 object_id=1981 dead=Some(true)
+```
+→ 分派与 `dead=true` 都成立，`town_revive_player` 返回成功；问题缩小到**出站帧**。
+已加：
+- `World::send_to_player` 打 `object_id/session_id/len/index/ok`；
+- `revive_player` 打 `sent_object/sent_revived/revived_len`；
+- `server` writer 打 `session/bytes`。
+下一轮用当前二进制跑 gate20，若 `send_to_player ok=true` 但客户端无 136，查 writer/socket；若 `ok=false`，查旧 sender。

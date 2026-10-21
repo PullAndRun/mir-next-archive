@@ -61,6 +61,8 @@ pub struct EquipmentLayout {
     pub summary: Rect,
     /// 底部提示区域。
     pub hint: Rect,
+    /// 每个槽位右侧的「修理」按钮。
+    pub repair: [Rect; EQUIPMENT_SLOTS],
 }
 
 impl EquipmentLayout {
@@ -68,6 +70,12 @@ impl EquipmentLayout {
     #[must_use]
     pub fn slot_at(&self, point: Point) -> Option<usize> {
         self.slots.iter().position(|rect| rect.contains(point))
+    }
+
+    /// 命中测试：鼠标在哪个「修理」按钮上。
+    #[must_use]
+    pub fn repair_at(&self, point: Point) -> Option<usize> {
+        self.repair.iter().position(|rect| rect.contains(point))
     }
 }
 
@@ -100,6 +108,7 @@ pub fn equipment_layout(frame: Rect) -> EquipmentLayout {
     let panel = Rect::new(8, 60, width, height);
     let mut slots = [Rect::default(); EQUIPMENT_SLOTS];
     let mut labels = [Rect::default(); EQUIPMENT_SLOTS];
+    let mut repair = [Rect::default(); EQUIPMENT_SLOTS];
     for index in 0..EQUIPMENT_SLOTS {
         let column = (index % COLUMNS) as u32;
         let row = (index / COLUMNS) as u32;
@@ -118,6 +127,7 @@ pub fn equipment_layout(frame: Rect) -> EquipmentLayout {
             LABEL_WIDTH,
             SLOT_SIZE,
         );
+        repair[index] = Rect::new(labels[index].right() - 26, y + 2, 24, SLOT_SIZE - 4);
     }
     let summary_height = (SUMMARY_LINES + 1) * SUMMARY_LINE_HEIGHT + 2;
     let summary = Rect::new(
@@ -138,6 +148,7 @@ pub fn equipment_layout(frame: Rect) -> EquipmentLayout {
         labels,
         summary,
         hint,
+        repair,
     }
 }
 
@@ -170,6 +181,10 @@ impl EquipmentTotals {
         let Some(info) = snapshot.item_info(item.item_index) else {
             return;
         };
+        // 持久度 0 的装备不计属性（Crystal `UserObject.cs:234` 的同口径）。
+        if item.current_dura == 0 && info.durability > 0 {
+            return;
+        }
         self.dc.0 += info.stat(Stat::MinDC);
         self.dc.1 += info.stat(Stat::MaxDC);
         self.ac.0 += info.stat(Stat::MinAC);
@@ -373,6 +388,22 @@ pub fn draw(
                     BODY_COLOR,
                     layout.labels[index],
                 );
+                let repair = layout.repair[index];
+                frame.fill_rect(
+                    repair.x,
+                    repair.y,
+                    repair.width,
+                    repair.height,
+                    [44, 52, 66, 255],
+                );
+                frame.fill_rect(repair.x, repair.y, repair.width, 1, [140, 156, 180, 255]);
+                text.draw_center(
+                    frame,
+                    repair,
+                    Label::Repair.text(language),
+                    SIZE_SMALL,
+                    GOLD_COLOR,
+                );
             }
             None => {
                 text.draw_clipped(
@@ -452,6 +483,7 @@ mod tests {
                 index: 10,
                 name: "炼狱".to_owned(),
                 item_type: ItemType::Weapon,
+                durability: 5_000,
                 stats: [(Stat::MinDC, 5), (Stat::MaxDC, 12), (Stat::Accuracy, 2)]
                     .into_iter()
                     .collect(),
@@ -464,6 +496,7 @@ mod tests {
                 index: 11,
                 name: "重盔甲".to_owned(),
                 item_type: ItemType::Armour,
+                durability: 5_000,
                 stats: [(Stat::MinAC, 3), (Stat::MaxAC, 7), (Stat::Agility, 1)]
                     .into_iter()
                     .collect(),
@@ -486,6 +519,84 @@ mod tests {
             max_dura: 4_000,
         });
         snapshot
+    }
+
+    #[test]
+    fn dura_changed_updates_equipment_and_zero_excludes_stats() {
+        use mir_protocol::ServerPacket;
+        use mir_protocol::packets::server;
+
+        let mut snapshot = snapshot_with_equipment();
+        snapshot.apply_packet(&ServerPacket::DuraChanged(server::DuraChanged {
+            unique_id: 1,
+            current_dura: 0,
+        }));
+        let weapon = snapshot
+            .equipment_item(EquipmentSlot::Weapon as usize)
+            .expect("武器仍在槽里");
+        assert_eq!(weapon.current_dura, 0);
+        assert_eq!(weapon.max_dura, 5_000, "DuraChanged 不改上限");
+        let sum = totals(&snapshot);
+        assert_eq!(sum.dc, (0, 0), "0 耐久武器不再提供攻击");
+        assert_eq!(sum.accuracy, 0);
+        assert_eq!(sum.ac, (3, 7), "其他装备仍计属性");
+
+        snapshot.apply_packet(&ServerPacket::ItemRepaired(server::ItemRepaired {
+            unique_id: 1,
+            current_dura: 5_000,
+            max_dura: 5_000,
+        }));
+        let weapon = snapshot
+            .equipment_item(EquipmentSlot::Weapon as usize)
+            .expect("武器仍在槽里");
+        assert_eq!((weapon.current_dura, weapon.max_dura), (5_000, 5_000));
+        assert_eq!(totals(&snapshot).dc, (5, 12), "修理后属性恢复");
+    }
+
+    #[test]
+    fn dura_changed_also_updates_inventory_items() {
+        use mir_protocol::ServerPacket;
+        use mir_protocol::packets::server;
+
+        let mut snapshot = snapshot_with_equipment();
+        snapshot.inventory = vec![None; 8];
+        snapshot.inventory[2] = Some(InventoryItem {
+            unique_id: 9,
+            item_index: 10,
+            count: 1,
+            current_dura: 5_000,
+            max_dura: 5_000,
+        });
+        snapshot.apply_packet(&ServerPacket::DuraChanged(server::DuraChanged {
+            unique_id: 9,
+            current_dura: 1_234,
+        }));
+        let item = snapshot.inventory[2].as_ref().expect("背包物品");
+        assert_eq!((item.current_dura, item.max_dura), (1_234, 5_000));
+    }
+
+    #[test]
+    fn repair_button_emits_repair_item_command() {
+        use crate::ui::UiAction;
+        use crate::ui::{UiState, UiText};
+
+        let snapshot = snapshot_with_equipment();
+        let text = UiText::load(None);
+        let frame = Rect::screen(800, 600);
+        let layout = equipment_layout(frame);
+        let mut state = UiState::new(Language::ZhCn);
+        state.show_equipment = true;
+        state.mouse = layout.repair[EquipmentSlot::Weapon as usize].center();
+        let action = state.on_click(&snapshot, &text, frame, None);
+        assert_eq!(
+            action,
+            Some(UiAction::RepairItem { unique_id: 1 }),
+            "点武器槽修理按钮"
+        );
+        assert_eq!(
+            action.expect("动作").net_command(),
+            Some(crate::net::NetCommand::RepairItem { unique_id: 1 })
+        );
     }
 
     #[test]

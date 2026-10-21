@@ -255,6 +255,35 @@ fn monster_walks_one_step_toward_target_and_broadcasts_walk() {
 }
 
 #[test]
+fn player_attack_retargets_adjacent_oma_and_it_retaliates() {
+    let mut harness = Harness::new(14);
+    let player = harness.add_player(1, Point::new(20, 20));
+    // AI 0 的普通近战怪（Oma 同族）：高 HP，保证一次攻击不会秒杀，便于观察 retarget。
+    let monster = harness.spawn(test_monster(100, 5, 5), Point::new(21, 20));
+    harness.ready_player(player);
+    harness
+        .world
+        .attack(player, MirDirection::Right)
+        .expect("玩家攻击应发到相邻怪");
+    harness.world.tick();
+    assert_eq!(
+        harness.world.monster(monster).unwrap().target,
+        Some(player),
+        "被玩家攻击的 AI0 怪必须锁定攻击者"
+    );
+
+    let hp_before = harness.world.player(player).unwrap().hp;
+    harness.wake(monster);
+    harness.world.tick();
+    harness.world.advance_clock(400);
+    harness.world.tick();
+    assert!(
+        harness.world.player(player).unwrap().hp < hp_before,
+        "锁定后怪物必须真的反击（Oma/AI0 基础近战）"
+    );
+}
+
+#[test]
 fn monster_attacks_after_delay_and_damages_player() {
     let mut harness = Harness::new(14);
     let player = harness.add_player(1, Point::new(20, 20));

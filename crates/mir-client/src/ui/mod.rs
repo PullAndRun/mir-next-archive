@@ -50,6 +50,7 @@ pub mod market;
 pub mod minimap;
 pub mod newbie;
 pub mod notice;
+pub mod quest_nav;
 pub mod quests;
 pub mod reconnect;
 pub mod select;
@@ -98,6 +99,11 @@ pub enum UiAction {
     TownRevive,
     /// 点死亡弹窗「否」或弹窗外：只关窗/吃掉点击，不发包。
     DismissDeath,
+    /// 修理装备（`C.RepairItem`）。
+    RepairItem {
+        /// 物品唯一编号。
+        unique_id: u64,
+    },
     /// 点 NPC 按钮（`C.CallNPC`）；`key = "@exit"` 表示关窗。
     CallNpc {
         /// NPC 对象 ID。
@@ -441,6 +447,9 @@ impl UiAction {
         use crate::net::NetCommand;
         match self {
             Self::TownRevive => Some(NetCommand::TownRevive),
+            Self::RepairItem { unique_id } => Some(NetCommand::RepairItem {
+                unique_id: *unique_id,
+            }),
             Self::UseItem { unique_id } => Some(NetCommand::UseItem {
                 unique_id: *unique_id,
             }),
@@ -2333,6 +2342,41 @@ impl UiState {
     }
 
     /// 点击邀请弹窗（交易/组队）。弹窗是模态的：点弹窗外也算「拒绝」。
+    /// 从当前自身位置 A* 到 `goal`，设置路径并返回第一步；无路径返回 `None`。
+    fn walk_path_to(
+        &mut self,
+        snapshot: &WorldSnapshot,
+        goal: Point,
+        walkable: Option<&dyn Fn(i32, i32) -> bool>,
+    ) -> Option<UiAction> {
+        let walkable = walkable?;
+        let me = snapshot.self_player.as_ref()?;
+        let path = mir_render::pathfind::find_path_with_steps(
+            me.position,
+            goal,
+            walkable,
+            mir_render::pathfind::DEFAULT_MAX_NODES,
+            mir_render::pathfind::MAX_PATH_STEPS,
+        )?;
+        let (&first, rest) = path.split_first()?;
+        self.walk_path = if rest.is_empty() {
+            None
+        } else {
+            Some(WalkPath {
+                goal,
+                steps: rest.to_vec(),
+                next_step_at: self.time_millis.saturating_add(PATH_STEP_MS),
+                from: me.position,
+                expected: me.position.moved(first, 1),
+                running: false,
+            })
+        };
+        Some(UiAction::WalkStep {
+            direction: first,
+            run: false,
+        })
+    }
+
     /// 死亡弹窗点击：`Some` 表示这次点击已被模态弹窗消费。
     fn click_death(&mut self, snapshot: &WorldSnapshot, frame: Rect) -> Option<UiAction> {
         let player = snapshot.self_player.as_ref()?;
@@ -3003,9 +3047,21 @@ impl UiState {
         if self.minimap_clicked(frame) {
             return None;
         }
-        // 大地图同理；Crystal 点大地图会寻路（`BigMapDialog.cs:612-628`），
-        // 本作还没把大地图坐标映射到世界格，只吃掉点击（简化）。
+        // 大地图：点击传送点 → 记录目的地，并在同图时 A* 走到该格（到达门格由服务端传送）。
         if self.bigmap_clicked(frame) {
+            let view = crate::ui::minimap::big_view_for(snapshot, (600, 400));
+            if let Some(projection) = self.minimap_scene.big_map_projection(&view) {
+                let panel = bigmap::panel_rect(frame);
+                let view_area = bigmap::view_rect(panel);
+                let movements = snapshot.map.as_ref().map_or(&[][..], |map| &map.movements);
+                if bigmap::click_destination(self, view_area, &projection, movements)
+                    && let Some(destination) = self.bigmap_destination.clone()
+                {
+                    if let Some(action) = self.walk_path_to(snapshot, destination.cell, walkable) {
+                        return Some(action);
+                    }
+                }
+            }
             return None;
         }
         // 任务 / 邮件 / 行会 / 仓库（按「后画的先响应」顺序）：
@@ -3077,6 +3133,14 @@ impl UiState {
         if self.show_equipment {
             let layout = equipment::equipment_layout(frame);
             if layout.panel.contains(self.mouse) {
+                if let Some(slot) = layout.repair_at(self.mouse) {
+                    if let Some(item) = snapshot.equipment_item(slot) {
+                        return Some(UiAction::RepairItem {
+                            unique_id: item.unique_id,
+                        });
+                    }
+                    return None;
+                }
                 if let Some(slot) = layout.slot_at(self.mouse) {
                     self.start_drag(snapshot, DragSource::Equipment(slot));
                 }

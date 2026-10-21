@@ -3320,8 +3320,16 @@ impl World {
         }
         // Crystal `Broadcast(GetInfo())` 之外，复活者本人也要收到 `S.ObjectRevived`
         // （`HumanObject.Revive` 的广播包含自己；本作之前只给本人发 `S.Revived`）。
-        self.send_to_player(player_id, &revived);
-        self.send_to_player(player_id, &ServerPacket::Revived(Revived {}).encode_frame());
+        let sent_object = self.send_to_player(player_id, &revived);
+        let revived_frame = ServerPacket::Revived(Revived {}).encode_frame();
+        let sent_revived = self.send_to_player(player_id, &revived_frame);
+        tracing::debug!(
+            object_id = player_id,
+            sent_object,
+            sent_revived,
+            revived_len = revived_frame.len(),
+            "revive_player 发送完成"
+        );
         // `GroupMemberMapNameChanged(); GetPlayerLocation();`（`PlayerObject.cs:1389-1390`，
         // 原地复活同见 `:1448-1449`）：复活后把「我在哪张图/哪个坐标」重新同步给队友。
         self.group_member_map_name_changed(player_id);
@@ -4248,11 +4256,27 @@ impl World {
         self.broadcast(map, position, Some(object_id), &packet, object_id);
     }
 
-    /// 给某个对象（只有玩家有连接）发一帧。
-    pub(crate) fn send_to_player(&self, object_id: u32, frame: &[u8]) {
-        if let Some(player) = self.players.get(&object_id) {
-            let _ = player.sender.send(frame.to_vec());
-        }
+    /// 给某个对象（只有玩家有连接）发一帧；返回是否成功进入该会话的出站队列。
+    pub(crate) fn send_to_player(&self, object_id: u32, frame: &[u8]) -> bool {
+        let Some(player) = self.players.get(&object_id) else {
+            tracing::debug!(object_id, len = frame.len(), "send_to_player: 玩家不在世界");
+            return false;
+        };
+        let session_id = player.session_id;
+        let result = player.sender.send(frame.to_vec());
+        let index = i16::from_le_bytes([
+            frame.get(2).copied().unwrap_or(0),
+            frame.get(3).copied().unwrap_or(0),
+        ]);
+        tracing::debug!(
+            object_id,
+            session_id,
+            len = frame.len(),
+            index,
+            ok = result.is_ok(),
+            "send_to_player"
+        );
+        result.is_ok()
     }
 
     /// 登记一组刷怪点并**立即铺满** `count` 只，返回刷出来的对象 ID（生成顺序）。

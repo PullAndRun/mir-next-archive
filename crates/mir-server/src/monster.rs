@@ -1419,6 +1419,13 @@ impl World {
                 })
             };
             if !still_valid {
+                tracing::debug!(
+                    monster = monster.object_id,
+                    target = target_id,
+                    player_present = self.players.contains_key(&target_id),
+                    monster_present = self.monster(target_id).is_some(),
+                    "process_monster: 清空失效 target"
+                );
                 monster.target = None;
             }
         }
@@ -1649,13 +1656,36 @@ impl World {
     ///
     /// 目标既可以是玩家（野生怪的常规目标），也可以是玩家的召唤物
     /// （`FindTarget` 的 `case ObjectType.Monster`，`MonsterObject.cs:1940-1963`）。
+    /// 诊断用：DEBUG 日志（默认不输出）；用于排查“相邻却不攻击”。
     fn process_target(&mut self, monster: &mut Monster, now: i64) {
         let Some(target_id) = monster.target else {
+            tracing::debug!(
+                monster = monster.object_id,
+                map = %monster.map,
+                pos = ?monster.position,
+                "process_target: target=None"
+            );
             return;
         };
         if !monster.can_attack(now) {
+            tracing::debug!(
+                monster = monster.object_id,
+                target = target_id,
+                now,
+                attack_time = monster.attack_time,
+                action_time = monster.action_time,
+                dead = monster.dead,
+                "process_target: can_attack=false"
+            );
             return;
         }
+        tracing::debug!(
+            monster = monster.object_id,
+            target = target_id,
+            map = %monster.map,
+            pos = ?monster.position,
+            "process_target: target set"
+        );
         let (target_position, same_map) = if let Some(target) = self.players.get(&target_id) {
             (target.position, target.map == monster.map)
         } else if let Some(target) = self.monster(target_id) {
@@ -1713,6 +1743,19 @@ impl World {
 
         let attack_range = ranged_range.unwrap_or(1);
         let adjacent = monster.position.in_range(target_position, 1);
+        tracing::debug!(
+            monster = monster.object_id,
+            target = target_id,
+            now,
+            in_range = monster.position.in_range(target_position, attack_range),
+            adjacent,
+            same_map,
+            attack_time = monster.attack_time,
+            action_time = monster.action_time,
+            monster_pos = ?monster.position,
+            target_pos = ?target_position,
+            "近战分支"
+        );
         if same_map
             && target_position != monster.position
             && monster.position.in_range(target_position, attack_range)
@@ -2556,10 +2599,26 @@ impl World {
     /// 怪物不会跑、不查门、不触发传送；走成功后广播 `ObjectWalk` 并刷新周围玩家的视野。
     fn monster_walk(&mut self, monster: &mut Monster, direction: MirDirection, now: i64) -> bool {
         if !monster.can_move(now) {
+            tracing::debug!(
+                monster = monster.object_id,
+                direction = ?direction,
+                now,
+                attack_time = monster.attack_time,
+                action_time = monster.action_time,
+                move_time = monster.move_time,
+                "move 尝试失败 can_move"
+            );
             return false;
         }
         let location = monster.position.adjacent(direction);
         if !self.walkable_on(&monster.map, location) || !self.monster_cell_free(monster, location) {
+            tracing::debug!(
+                monster = monster.object_id,
+                direction = ?direction,
+                now,
+                location = ?location,
+                "move 尝试失败 blocked"
+            );
             return false;
         }
         let old_position = monster.position;
@@ -2574,6 +2633,16 @@ impl World {
         if monster.move_time > monster.attack_time {
             monster.attack_time = monster.move_time;
         }
+        tracing::debug!(
+            monster = monster.object_id,
+            direction = ?direction,
+            now,
+            from = ?old_position,
+            to = ?location,
+            attack_time = monster.attack_time,
+            move_time = monster.move_time,
+            "move 尝试成功"
+        );
 
         let packet = ServerPacket::ObjectWalk(ObjectWalk {
             object_id: monster.object_id,

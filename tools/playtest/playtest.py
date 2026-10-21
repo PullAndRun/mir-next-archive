@@ -55,6 +55,12 @@ C_SELL_ITEM = 52
 C_ACCEPT_QUEST = 104
 C_FINISH_QUEST = 105
 C_OPENDOOR = 136
+C_TOWNREVIVE = 68
+S_DEATH = 80
+S_REVIVED = 136
+S_OBJECT_STRUCK = 74
+S_DAMAGE_INDICATOR = 75
+S_OBJECT_ATTACK = 72
 
 #: 比奇药店最便宜的初级红药（`Server.MirDB` 里 `(HP)DrugSmall` 的模板号）。
 POTION_ITEM_INDEX = 658
@@ -297,14 +303,25 @@ class Playtest:
         self.timeout = timeout
         self.gm = gm
         self.newbie = newbie
+        self.dr1 = False
+        self.ps1 = False
+        self.dr1_keep_moving = False
+        self.dr1_taken_hits: list[tuple[float, int, int]] = []
+        self.dr1_counts: collections.Counter[str] = collections.Counter()
         self.sock: socket.socket | None = None
         self.last_send = time.time()
         self.buffer = bytearray()
         self.self_object_id: int | None = None
         self.self_pos: tuple[int, int] | None = None
+        self.self_dead = False
+        self.death_at: float | None = None
+        self.revived_at: float | None = None
         self.npcs: list[dict] = []
         self.monsters: list[dict] = []
         self.recent_packets: collections.deque[int] = collections.deque(maxlen=20)
+        # DR-1 gate：完整包序 + 时间戳（证明“先发后收”）。
+        self.packet_log: list[tuple[float, int]] = []
+        self.dr1_hit_target: int | None = None
         self.health_history: list[tuple[float, int]] = []
         self.last_userinfo_hp: int | None = None
         self.self_hp: int | None = None
@@ -456,6 +473,7 @@ class Playtest:
     # ---------------- 收包旁路（记录实体） ----------------
     def _observe(self, index: int, payload: bytes) -> None:
         self.recent_packets.append(index)
+        self.packet_log.append((time.time(), index))
         try:
             if index == S_MAP_INFORMATION:
                 r = Reader(payload)
@@ -549,7 +567,16 @@ class Playtest:
                 r.i32()  # name colour
                 location = r.point()
                 if not any(m["id"] == object_id for m in self.monsters):
-                    self.monsters.append({"id": object_id, "name": name, "pos": location, "dead": False})
+                    self.monsters.append(
+                        {
+                            "id": object_id,
+                            "name": name,
+                            "pos": location,
+                            "last_pos": location,
+                            "updated_at": time.time(),
+                            "dead": False,
+                        }
+                    )
                     if __import__("os").environ.get("PT_DEBUG"):
                         print(f"  [怪] {name} #{object_id} @ {location}")
             elif index == S_GAIN_EXPERIENCE:
@@ -617,6 +644,48 @@ class Playtest:
                 self.self_hp = hp
                 self.self_mp = mp
                 self.health_history.append((time.time(), hp))
+            elif index == S_OBJECT_ATTACK:
+                r = Reader(payload)
+                object_id = r.u32()
+                r.point()
+                r.u8()  # direction
+                r.u8()  # spell
+                r.u8()  # level
+                r.u8()  # type
+                if object_id == self.self_object_id:
+                    self.dr1_counts["self_attack"] += 1
+                else:
+                    self.dr1_counts["monster_attack"] += 1
+                    if object_id == 344:
+                        self.dr1_counts["oma344_attack"] += 1
+            elif index == S_OBJECT_STRUCK:
+                r = Reader(payload)
+                object_id = r.u32()
+                attacker_id = r.u32()
+                r.point()
+                r.u8()  # direction
+                if attacker_id == self.self_object_id:
+                    print(f"  [DR-1] 命中 target={object_id}（S.ObjectStruck 74）")
+                    self.dr1_hit_target = object_id
+                if object_id == self.self_object_id:
+                    print(f"  [DR-1] 我被命中 attacker={attacker_id}（S.ObjectStruck 74）")
+                    self.dr1_taken_hits.append((time.time(), attacker_id, 0))
+            elif index == S_DAMAGE_INDICATOR:
+                r = Reader(payload)
+                damage = r.i32()
+                _type = r.u8()
+                object_id = r.u32()
+                if object_id != self.self_object_id:
+                    print(f"  [DR-1] 伤害数字 target={object_id} dmg={damage}（75）")
+                    self.dr1_hit_target = object_id
+            elif index == S_DEATH:
+                self.self_dead = True
+                self.death_at = time.time()
+                print(f"  [DR-1] 收到 S.Death @ {self.self_pos} t={self.death_at:.3f} hp={self.self_hp}")
+            elif index == S_REVIVED:
+                self.self_dead = False
+                self.revived_at = time.time()
+                print(f"  [DR-1] 收到 S.Revived @ {self.self_pos} t={self.revived_at:.3f} hp={self.self_hp}")
             elif index == 98:  # S.MapChanged
                 # 字段顺序照 `Shared/ServerPackets.cs:2979-3025`：map_index, file_name,
                 # title, mini_map(u16), big_map(u16), **lights(u8)**, location, direction,
@@ -754,7 +823,9 @@ class Playtest:
                 # 自己移动时服务端只发 S.UserLocation，ObjectWalk 是广播给别人看的。
                 for monster in self.monsters:
                     if monster["id"] == object_id:
+                        monster["last_pos"] = monster.get("pos")
                         monster["pos"] = location
+                        monster["updated_at"] = time.time()
         except (ProtocolError, struct.error):
             pass
 
@@ -2742,6 +2813,322 @@ class Playtest:
         self.ok("使用技能", f"FireBall 命中（MP {before_mp} -> {self.self_mp}）")
 
     # ---------------- 主流程 ----------------
+    def ps1_flow(self, char_index: int) -> int:
+        """PS-1：进程级重登后逐字段比对金币/装备/技能/已完成任务。"""
+        self.ok("PS-1 清洁角色", f"object_id={self.self_object_id} hp={self.self_hp}")
+        equipped = self.newbie_equip()
+        self.ok("PS-1 穿上出生装", f"{equipped} 件")
+
+        # 可辨识状态：卖一件出生装换金币（不靠 GM/改库）。
+        if self.newbie_sell_item():
+            self.ok("PS-1 卖出物品", f"gold={self.self_gold}")
+        else:
+            print("  [PS-1] 卖物失败，继续用出生装/0 金币做持久化比对")
+        # 技能（可选）：能买到书就学一个，作为额外持久化字段。
+        if self.newbie_book_and_cast():
+            self.ok("PS-1 学会技能", f"spells={sorted(self.learned_spells)}")
+
+        def snapshot_state() -> tuple:
+            equipment = sorted(
+                (item["unique_id"], item["item_index"], item["current_dura"], item["max_dura"])
+                for item in self.equipment_items
+            )
+            inventory = sorted(
+                (item["unique_id"], item["item_index"], item["current_dura"], item["max_dura"])
+                for item in self.inventory_items
+            )
+            return (
+                self.self_gold,
+                equipment,
+                inventory,
+                set(self.completed_quests),
+                set(self.learned_spells),
+            )
+
+        before = snapshot_state()
+        print(
+            f"  [PS-1] 重登前 gold={before[0]} equipment={before[1]} "
+            f"completed={sorted(before[3])} spells={sorted(before[4])}"
+        )
+        if before[0] is None:
+            self.fail("PS-1 获得状态", "没收到金币字段")
+            return 1
+
+        # 正常退出（不是强杀）。
+        self.send(C_LOGOUT, b"")
+        try:
+            self.expect(S_LOGOUT_SUCCESS, "PS-1 退出", 5)
+        except ProtocolError:
+            self.fail("PS-1 退出", "C.LogOut 未收到 S.LogOutSuccess")
+            return 1
+        self.ok("PS-1 退出", "S.LogOutSuccess")
+        self.close()
+
+        # 新 TCP 连接重新登录同一角色。
+        self.connect()
+        self.expect(S_CONNECTED, "PS-1 重连")
+        writer = Writer()
+        writer.bytes_prefixed(bytes(16))
+        self.send(C_CLIENT_VERSION, writer.raw())
+        self.expect(S_CLIENT_VERSION, "PS-1 重连版本")
+        writer = Writer()
+        writer.string(self.account)
+        writer.string(self.password)
+        self.send(C_LOGIN, writer.raw())
+        _, payload = self.expect(S_LOGIN_SUCCESS, "PS-1 重登")
+        if Reader(payload).i32() <= 0:
+            self.fail("PS-1 重登", "重登后角色列表为空")
+            return 1
+        self.self_object_id = None
+        self.self_pos = None
+        self.inventory_items = []
+        self.equipment_items = []
+        self.learned_spells.clear()
+        self.completed_quests = set()
+        writer = Writer()
+        writer.i32(char_index)
+        self.send(C_START_GAME, writer.raw())
+        self.expect(S_START_GAME, "PS-1 重登进游戏")
+        deadline = time.time() + self.timeout
+        while time.time() < deadline and self.self_object_id is None:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            self._observe(packet[0], packet[1])
+        # 等 S.CompleteQuest/背包装备下发完。
+        self._drain(0.5)
+        if self.self_object_id is None:
+            self.fail("PS-1 重登", "重登后未收到 S.UserInformation")
+            return 1
+        after = snapshot_state()
+        print(
+            f"  [PS-1] 重登后 gold={after[0]} equipment={after[1]} "
+            f"completed={sorted(after[3])} spells={sorted(after[4])}"
+        )
+        self.ok("PS-1 重登", f"object_id={self.self_object_id} pos={self.self_pos}")
+
+        if before != after:
+            self.fail(
+                "PS-1 逐字段比对",
+                f"before={before} after={after}",
+            )
+            return 1
+        self.ok(
+            "PS-1 逐字段比对",
+            f"gold={before[0]} equipment={len(before[1])} completed={sorted(before[3])} spells={sorted(before[4])}",
+        )
+
+        # 恢复后可玩：移动一次、攻击一次。
+        start = self.self_pos
+        moved = False
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            target = (start[0] + dx, start[1] + dy)
+            if self._walkable_at(target) and self.step_onto(target):
+                moved = True
+                break
+        if not moved:
+            self.fail("PS-1 恢复后可移动", f"从 {start} 未能移动")
+            return 1
+        writer = Writer()
+        writer.u8(0)
+        writer.u8(0)
+        self.send(C_ATTACK, writer.raw())
+        self._drain(0.5)
+        self.ok("PS-1 恢复后可玩", f"移动 {start}->{self.self_pos}，已发 C.Attack")
+        return 0
+
+    def dr1_flow(self) -> int:
+        """DR-1 gate：自然死亡 → 12s 无自动复活 → C.TownRevive → 复活/移动/攻击。"""
+        if self.gm:
+            self.fail("DR-1 清洁角色", "该 gate 不允许 --gm（捷径自检）")
+            return 1
+        if not self.monsters:
+            self.fail("DR-1 自然死亡", "当前地图没有 S.ObjectMonster，无法自然战斗")
+            return 1
+        self.ok("DR-1 清洁角色", f"object_id={self.self_object_id} map={self.map_file} hp={self.self_hp}")
+        # 清洁角色出生装还在背包里；先穿上，否则 1 级空手攻击伤害 0，怪不会反击。
+        equipped = self.newbie_equip()
+        self.ok("DR-1 穿上出生装", f"{equipped} 件")
+        # 城里/安全区没有会反击的怪：按“相对当前位置”的八方向逐圈探索野外，不做坐标传送。
+        aggressive_keys = ("oma",)
+
+        def aggressive_here() -> list[dict]:
+            return [
+                m
+                for m in self.monsters
+                if any(key in m.get("name", "").lower() for key in aggressive_keys)
+            ]
+
+        hunt = aggressive_here()
+        if not hunt:
+            # 相对当前位置向 Oma 刷怪带（比奇城东北野外）推进；不是绝对坐标传送。
+            target = (self.self_pos[0] + 90, self.self_pos[1] - 175)
+            if self.walk_towards(target, max_steps=220):
+                self._drain(0.8)
+            hunt = aggressive_here()
+        if not hunt:
+            self.fail("DR-1 自然死亡", "八方向探索后仍未发现会反击的怪（Oma/RakingCat 等）")
+            return 1
+        print("  [DR-1] 附近怪物：")
+        for monster in self.monsters[:12]:
+            print(f"    {monster.get('name')} id={monster.get('id')} pos={monster.get('pos')} d={self._distance(monster['pos'])}")
+
+        # 1) 一次拉 5–6 只 Oma：对每只各打一下触发 retarget，然后站着挨打。
+        aggressive = [m for m in self.monsters if "oma" in m.get("name", "").lower()]
+        targets = sorted(aggressive or self.monsters, key=lambda m: self._distance(m["pos"]))[:6]
+        for target in targets:
+            latest = next((m for m in self.monsters if m["id"] == target["id"]), target)
+            if latest.get("dead"):
+                continue
+            if self._distance(latest["pos"]) > 1:
+                self.walk_towards(latest["pos"], blocked={tuple(latest["pos"])}, max_steps=40)
+                self._drain(0.2)
+                latest = next((m for m in self.monsters if m["id"] == target["id"]), latest)
+            if self._distance(latest["pos"]) <= 1:
+                dx = latest["pos"][0] - self.self_pos[0]
+                dy = latest["pos"][1] - self.self_pos[1]
+                print(f"  [DR-1] 拉怪攻击 {latest.get('name')} id={latest.get('id')} d=1")
+                writer = Writer()
+                writer.u8(self._direction(dx, dy))
+                writer.u8(0)
+                self.send(C_ATTACK, writer.raw())
+                self._drain(0.45)
+        initial_hp = self.self_hp or 0
+        min_hp = initial_hp
+        deadline = time.time() + 180
+        last_attack = 0.0
+        last_move = 0.0
+        last_report = 0.0
+        saw_damage = False
+        while time.time() < deadline and not self.self_dead:
+            now = time.time()
+            alive = [
+                m
+                for m in self.monsters
+                if "oma" in m.get("name", "").lower() and not m.get("dead")
+            ]
+            if not alive:
+                self.fail("DR-1 自然死亡", "附近已没有活 Oma")
+                return 1
+            prey = min(alive, key=lambda m: self._distance(m["pos"]))
+            d = self._distance(prey["pos"])
+            age = now - prey.get("updated_at", 0.0)
+            moving = age < 0.8 and prey.get("last_pos") != prey.get("pos")
+            if now - last_report >= 1.0:
+                print(
+                    f"  [DR-1] 追怪：self={self.self_pos} prey_server={tuple(prey['pos'])} "
+                    f"id={prey.get('id')} d={d} moving={moving} stale_ms={int(age * 1000)} hp={self.self_hp}"
+                )
+                last_report = now
+            if d > 1:
+                self.walk_towards(prey["pos"], blocked={tuple(prey["pos"])}, max_steps=30)
+            elif now - last_attack >= 2.0:
+                dx = prey["pos"][0] - self.self_pos[0]
+                dy = prey["pos"][1] - self.self_pos[1]
+                print(f"  [DR-1] 近身攻击 id={prey.get('id')} d=1 moving={moving}")
+                writer = Writer()
+                writer.u8(self._direction(dx, dy))
+                writer.u8(0)
+                self.send(C_ATTACK, writer.raw())
+                last_attack = now
+            if self.dr1_keep_moving and now - last_move >= 1.2:
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    target = (self.self_pos[0] + dx, self.self_pos[1] + dy)
+                    if self._walkable_at(target) and self.step_onto(target):
+                        print(f"  [DR-1] 走位挨打 {self.self_pos} hp={self.self_hp}")
+                        break
+                last_move = now
+            if self.self_hp is not None:
+                min_hp = min(min_hp, self.self_hp)
+                if self.self_hp < initial_hp:
+                    saw_damage = True
+            pkt = self.next_packet(min(0.2, max(0.01, deadline - time.time())))
+            if pkt:
+                self._observe(*pkt)
+        if not self.self_dead:
+            print(f"  [DR-1] 包计数：{dict(self.dr1_counts)}")
+            self.fail(
+                "DR-1 自然死亡",
+                f"180s 内未死亡（初始 hp={initial_hp} 最低 hp={min_hp} 受伤={saw_damage}，"
+                f"怪攻击包={self.dr1_counts.get('monster_attack', 0)}，"
+                f"Oma344攻击包={self.dr1_counts.get('oma344_attack', 0)}，"
+                f"最近包={list(self.recent_packets)}）",
+            )
+            return 1
+        death_at = self.death_at or time.time()
+        self.ok("DR-1 自然死亡", f"hp=0 t={death_at:.3f} pos={self.self_pos}")
+
+        # 2) 12s 等待：持续读包，不得出现 S.Revived（证明不是 10s 自动复活）。
+        wait_end = death_at + 12.0
+        early = None
+        while time.time() < wait_end:
+            pkt = self.next_packet(min(0.25, max(0.01, wait_end - time.time())))
+            if pkt:
+                index, payload = pkt
+                self._observe(index, payload)
+                if index == S_REVIVED and early is None:
+                    early = time.time()
+        if early is not None:
+            self.fail("DR-1 12s 无自动复活", f"死亡后 {early - death_at:.3f}s 收到 S.Revived（期望 >12s 或只由客户端触发）")
+            return 1
+        self.ok("DR-1 12s 无自动复活", f"t={time.time():.3f}，仍未 S.Revived")
+
+        # 3) 发 C.TownRevive，1s 内必须收到 S.Revived；记录先发后收。
+        send_at = time.time()
+        self.send(C_TOWNREVIVE, b"")
+        revive_at = None
+        deadline = send_at + 3.0
+        while time.time() < deadline:
+            pkt = self.next_packet(min(0.1, max(0.01, deadline - time.time())))
+            if pkt:
+                index, payload = pkt
+                self._observe(index, payload)
+                if index == S_REVIVED:
+                    revive_at = time.time()
+                    break
+        if revive_at is None:
+            self.fail("DR-1 C.TownRevive", f"发送后 1s 未收到 S.Revived（最近包={list(self.recent_packets)}）")
+            return 1
+        self.ok("DR-1 C.TownRevive", f"发 t={send_at:.3f} → 收 t={revive_at:.3f}（{revive_at - send_at:.3f}s）")
+
+        # 4) 复活点/HP/可移动/可攻击。
+        if self.self_hp is None or self.self_hp <= 0:
+            self.fail("DR-1 复活 HP", f"复活后 HP={self.self_hp}")
+            return 1
+        expected = self.entry_pos
+        if self.map_file != self.entry_map or (expected is not None and self.self_pos != expected):
+            self.fail("DR-1 复活点", f"map={self.map_file} pos={self.self_pos}，期望 {self.entry_map} {expected}")
+            return 1
+        self.ok("DR-1 复活点/HP", f"pos={self.self_pos} hp={self.self_hp}")
+
+        start_pos = self.self_pos
+        moved = False
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1)):
+            target = (start_pos[0] + dx, start_pos[1] + dy)
+            if self._walkable_at(target) and self.step_onto(target):
+                moved = True
+                break
+        if not moved or self.self_pos == start_pos:
+            self.fail("DR-1 复活后可移动", f"从 {start_pos} 未能移动（当前 {self.self_pos}）")
+            return 1
+        self.ok("DR-1 复活后可移动", f"{start_pos} -> {self.self_pos}")
+
+        writer = Writer()
+        writer.u8(0)
+        writer.u8(0)
+        self.send(C_ATTACK, writer.raw())
+        deadline = time.time() + 0.5
+        while time.time() < deadline:
+            pkt = self.next_packet(max(0.01, deadline - time.time()))
+            if pkt:
+                self._observe(*pkt)
+        self.ok("DR-1 复活后可攻击", "C.Attack 已发送，连接保持")
+
+        print("  [DR-1] 包序（最近 20 条，时间/索引）：")
+        for stamp, index in self.packet_log[-20:]:
+            print(f"    t={stamp:.3f} index={index}")
+        return 0
+
     def run(self) -> int:
         suffix = random.randint(100000, 999999)
         if self.gm:
@@ -2844,6 +3231,10 @@ class Playtest:
             return self.newbie_flow(char_index if char_index is not None else 0)
         self.ok("进入世界", f"object_id={self.self_object_id} pos={self.self_pos}")
         self.entry_map, self.entry_pos = self.map_file, self.self_pos
+        if self.ps1:
+            return self.ps1_flow(char_index if char_index is not None else 0)
+        if self.dr1:
+            return self.dr1_flow()
         # 幂等：上一轮的跨图传送会把角色留在别的图（NPC=0），每次运行先回起点。
         if not self.return_to_start(char_index if char_index is not None else 0):
             return 1
@@ -3053,6 +3444,9 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=8.0, help="每步等待超时（秒）")
     parser.add_argument("--gm", default=None, help="GM 账号（服务端 MIR2_GM_ACCOUNTS 需包含它）；提供时走 @level/@mob/@learn 闭环")
     parser.add_argument("--newbie", action="store_true", help="非 GM「新手 10 分钟」完整链路（出生装/打 3 只/买书读书/捡物/重登）")
+    parser.add_argument("--dr1", action="store_true", help="DR-1 死亡→12s 无自动复活→C.TownRevive→复活/可移动/可攻击")
+    parser.add_argument("--ps1", action="store_true", help="PS-1 进程级重登持久化（金币/装备 unique_id+耐久/技能/任务）")
+    parser.add_argument("--dr1-keep-moving", action="store_true", help="DR-1 等待死亡时持续小范围走位（验证“移动才挨打”假设）")
     parser.add_argument(
         "--self-check",
         action="store_true",
@@ -3086,6 +3480,9 @@ def main() -> int:
         tuple(part.strip() for part in args.start_map.split(",") if part.strip()),
         start_point,
     )
+    test.dr1 = args.dr1
+    test.ps1 = args.ps1
+    test.dr1_keep_moving = args.dr1_keep_moving
     try:
         code = test.run()
     except (OSError, ProtocolError) as error:

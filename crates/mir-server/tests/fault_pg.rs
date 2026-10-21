@@ -539,3 +539,53 @@ async fn proxy_outage_fails_save_then_recovers_after_resume() {
     std::fs::remove_file(&control).ok();
     assert!(recovered > base_saves);
 }
+
+#[tokio::test]
+async fn durability_survives_a_real_postgres_round_trip() {
+    let Ok(url) = std::env::var("MIR2_TEST_DATABASE_URL") else {
+        panic!("MIR2_TEST_DATABASE_URL 未设置；本用例 fail-loud，不允许 skip");
+    };
+    let _guard = METRICS_LOCK.lock().await;
+    let url = tagged_database_url(&url);
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("时钟")
+        .as_nanos();
+    let account_name = format!("dura-pg-{suffix}");
+    let store = Arc::new(PgAccountStore::connect(&url).await.expect("连接测试库"));
+    let account = store
+        .create_account(&account_name, "secret", "")
+        .await
+        .expect("建号");
+    let mut character = store
+        .create_character(
+            account.id,
+            &format!("耐久角色{suffix}"),
+            mir_core::enums::MirClass::Warrior,
+            mir_core::enums::MirGender::Male,
+            "0",
+            (10, 10),
+        )
+        .await
+        .expect("建角");
+    let items = vec![Some(mir_protocol::data::UserItem {
+        unique_id: 77,
+        item_index: 1,
+        current_dura: 1_234,
+        max_dura: 5_000,
+        ..mir_protocol::data::UserItem::default()
+    })];
+    character.inventory = mir_server::items::encode_slots(&items);
+    store.save_character(character.clone()).await.expect("落盘");
+
+    let reloaded = PgAccountStore::connect(&url).await.expect("重连");
+    let row = reloaded
+        .find_character(account.id, character.id)
+        .await
+        .expect("查角色")
+        .expect("角色存在");
+    let decoded = mir_server::items::decode_inventory(&row.inventory).expect("解码背包");
+    let item = decoded[0].as_ref().expect("物品存在");
+    assert_eq!(item.current_dura, 1_234, "DB 往返后 current_dura 必须一致");
+    assert_eq!(item.max_dura, 5_000, "DB 往返后 max_dura 必须一致");
+}

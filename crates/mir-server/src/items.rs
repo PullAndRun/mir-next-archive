@@ -706,7 +706,7 @@ pub struct DurabilityLoss {
 }
 
 impl World {
-    /// 攻击命中后的**武器**磨损：Crystal `HumanObject.DamageWeapon()`（`HumanObject.cs:3353`）。
+    /// 攻击命中后的**武器**磨损：Crystal `HumanObject.DamageWeapon()`（`HumanObject.cs:7112/7844-7847`）。
     ///
     /// ```csharp
     /// if (!SpecialMode.HasFlag(SpecialItemMode.NoDuraLoss))
@@ -725,7 +725,7 @@ impl World {
         self.apply_durability_loss(player_id, EQUIPMENT_SLOT_WEAPON, &item, amount as u16)
     }
 
-    /// 受击后的**护甲/其它装备**磨损：Crystal `HumanObject.DamageDura()`（`HumanObject.cs:3358-3365`）。
+    /// 受击后的**护甲/其它装备**磨损：Crystal `HumanObject.DamageDura()`（`HumanObject.cs:7837-7842`）。
     ///
     /// ```csharp
     /// if (!SpecialMode.HasFlag(SpecialItemMode.NoDuraLoss))
@@ -774,6 +774,17 @@ impl World {
         let info = self.item_info(item.item_index)?.clone();
         if info.durability == 0 || info.item_type == ItemType::Amulet {
             // 模板没有耐久的物品（药水、箭袋…）不磨损。
+            return None;
+        }
+        // Crystal `HumanObject.DamageItem`（`HumanObject.cs:7849-7857`）：
+        // 左戒指若是本婚姻的结婚戒指，不磨损。
+        let married = self
+            .players
+            .get(&player_id)
+            .and_then(|player| self.spouse_of(player.character_id))
+            .and_then(|spouse| i32::try_from(spouse).ok())
+            .unwrap_or(0);
+        if slot == 7 && item.wedding_ring != 0 && item.wedding_ring == married {
             return None;
         }
         let strong = u16::try_from(info.stats.get(Stat::Strong).max(0)).unwrap_or(0);

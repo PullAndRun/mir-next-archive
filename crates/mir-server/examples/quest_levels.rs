@@ -19,13 +19,42 @@ fn main() {
             quest.quest_type
         );
     }
-    for name in ["Hen", "Deer"] {
+    println!("-- low level monsters --");
+    for monster in &db.monsters {
+        if monster.level <= 10 && (monster.ai == 0 || monster.ai == 1) {
+            println!(
+                "low {} level={} ai={} exp={} hp={:?} accuracy={:?} agility={:?}",
+                monster.name,
+                monster.level,
+                monster.ai,
+                monster.experience,
+                monster.stats.get(mir_core::enums::Stat::HP),
+                monster.stats.get(mir_core::enums::Stat::Accuracy),
+                monster.stats.get(mir_core::enums::Stat::Agility)
+            );
+        }
+    }
+    for name in [
+        "Hen",
+        "Deer",
+        "Oma",
+        "Oma0",
+        "OmaFighter",
+        "RakingCat",
+        "Scarecrow",
+        "Wolf",
+        "TigerSnake",
+    ] {
         if let Some(monster) = db.monsters.iter().find(|monster| monster.name == name) {
             println!(
-                "monster {} exp={} hp={:?}",
+                "monster {} level={} ai={} exp={} hp={:?} accuracy={:?} agility={:?}",
                 name,
+                monster.level,
+                monster.ai,
                 monster.experience,
-                monster.stats.get(mir_core::enums::Stat::HP)
+                monster.stats.get(mir_core::enums::Stat::HP),
+                monster.stats.get(mir_core::enums::Stat::Accuracy),
+                monster.stats.get(mir_core::enums::Stat::Agility)
             );
         }
     }

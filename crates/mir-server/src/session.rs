@@ -1315,14 +1315,35 @@ impl<S: AccountStore> Session<S> {
     /// 正常死亡流程不再由服务端 10s 自动复活；玩家点客户端弹窗后发空包，服务端
     /// 把他移到回城/出生点（`ServerConfig.start_map/start_point`）并满血满蓝。
     async fn on_town_revive(&mut self) {
+        tracing::debug!(
+            session = self.id,
+            object_id = ?self.object_id,
+            "C.TownRevive 入口"
+        );
         let Some(object_id) = self.object_id else {
             return;
         };
         let map = self.config.start_map.clone();
         let point = Point::new(self.config.start_point.0, self.config.start_point.1);
         let mut world = self.world.lock().await;
+        let dead = world.player(object_id).map(|player| player.dead);
+        tracing::debug!(
+            session = self.id,
+            object_id,
+            dead = ?dead,
+            %map,
+            ?point,
+            "收到 C.TownRevive"
+        );
         if !world.town_revive_player(object_id, &map, point) {
-            tracing::debug!(session = self.id, %map, ?point, "TownRevive 未生效（玩家未死亡或回城点不可用）");
+            tracing::debug!(
+                session = self.id,
+                object_id,
+                dead = ?dead,
+                %map,
+                ?point,
+                "TownRevive 未生效（玩家未死亡或回城点不可用）"
+            );
         }
     }
 
@@ -1435,7 +1456,7 @@ impl<S: AccountStore> Session<S> {
                                 damage = report.damage,
                                 "发起攻击"
                             );
-                            // Crystal `HumanObject.cs:3353`：命中一次 `DamageWeapon()`（1..=4 点）。
+                            // Crystal `HumanObject.cs:7112/7844-7847`：命中一次 `DamageWeapon()`（1..=4 点）。
                             world.damage_weapon(object_id);
                         }
                         return;

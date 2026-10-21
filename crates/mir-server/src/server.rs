@@ -570,6 +570,7 @@ async fn serve<S: AccountStore>(
                 crate::metrics::metrics().write_failed();
                 break;
             }
+            tracing::debug!(session = id, bytes = batch.len(), "writer 写入 socket");
         }
         let _ = writer.shutdown().await;
     });

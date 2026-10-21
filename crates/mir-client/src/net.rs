@@ -4674,13 +4674,16 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
         ServerPacket::RefreshItem(refreshed) => {
             refresh_inventory_item(snapshot, &refreshed.item);
         }
+        ServerPacket::DuraChanged(changed) => {
+            update_item_durability(snapshot, changed.unique_id, changed.current_dura, None);
+        }
         ServerPacket::ItemRepaired(repaired) => {
-            if let Some(slot) = snapshot.inventory_slot_of(repaired.unique_id) {
-                if let Some(item) = snapshot.inventory.get_mut(slot).and_then(Option::as_mut) {
-                    item.current_dura = repaired.current_dura;
-                    item.max_dura = repaired.max_dura;
-                }
-            }
+            update_item_durability(
+                snapshot,
+                repaired.unique_id,
+                repaired.current_dura,
+                Some(repaired.max_dura),
+            );
         }
         ServerPacket::NewMagic(magic) => {
             let view = MagicView::from_client_magic(&magic.magic);
@@ -6107,6 +6110,33 @@ fn delete_inventory_item(snapshot: &mut WorldSnapshot, unique_id: u64, count: u1
         }
     } else {
         item.count -= count;
+    }
+}
+
+/// `S.DuraChanged` / `S.ItemRepaired` 共用的耐久更新：背包与装备槽都要命中。
+///
+/// `max_dura` 只有修理包带；`S.DuraChanged(76)` 只更新当前耐久，保留原上限。
+fn update_item_durability(
+    snapshot: &mut WorldSnapshot,
+    unique_id: u64,
+    current_dura: u16,
+    max_dura: Option<u16>,
+) {
+    let update = |item: &mut InventoryItem| {
+        item.current_dura = current_dura;
+        if let Some(max_dura) = max_dura {
+            item.max_dura = max_dura;
+        }
+    };
+    if let Some(slot) = snapshot.inventory_slot_of(unique_id) {
+        if let Some(item) = snapshot.inventory.get_mut(slot).and_then(Option::as_mut) {
+            update(item);
+        }
+    }
+    if let Some(slot) = snapshot.equipment_slot_of(unique_id) {
+        if let Some(item) = snapshot.equipment.get_mut(slot).and_then(Option::as_mut) {
+            update(item);
+        }
     }
 }
 

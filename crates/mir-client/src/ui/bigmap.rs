@@ -200,7 +200,7 @@ pub struct MapDestination {
 
 /// 大地图点击命中传送点：返回精确目的地（地图名 + 坐标）。
 ///
-/// 只认 `S.NewMapInfo.movements`（与 `gates.json` 同源）；`view_area` 是
+/// 只认 `S.NewMapInfo.movements`（玩家可见数据）；`view_area` 是
 /// [`view_rect`]，`projection` 是 [`MinimapScene::big_map_projection`] 的结果。
 /// 点击空白处返回 `None`（不把任意格当目的地）。
 #[must_use]
@@ -322,6 +322,62 @@ mod tests {
             }),
             ..WorldSnapshot::default()
         }
+    }
+
+    #[test]
+    fn click_destination_maps_point_and_starts_path_to_door_cell() {
+        use crate::ui::{UiState, UiText};
+        use mir_protocol::data::ClientMovementInfo;
+
+        let mut snapshot = snapshot();
+        let door = Point::new(305, 206);
+        snapshot
+            .map
+            .as_mut()
+            .expect("map")
+            .movements
+            .push(ClientMovementInfo {
+                destination: 1,
+                title: "奥玛洞穴".to_owned(),
+                location: door,
+                icon: 0,
+            });
+        let view = crate::ui::minimap::big_view_for(&snapshot, (600, 400));
+        let screen = Rect::screen(800, 600);
+        let view_area = view_rect(panel_rect(screen));
+        let mut scene = synthetic_scene();
+        let projection = scene.big_map_projection(&view).expect("投影");
+        let point = Point::new(
+            view_area.x + projection.cell_to_view(door).0,
+            view_area.y + projection.cell_to_view(door).1,
+        );
+
+        let mut state = UiState::new(Language::ZhCn);
+        state.show_bigmap = true;
+        state.minimap_scene = synthetic_scene();
+        state.mouse = point;
+        let movements = &snapshot.map.as_ref().expect("map").movements;
+        assert!(
+            click_destination(&mut state, view_area, &projection, movements),
+            "点到传送点应命中"
+        );
+        assert_eq!(
+            state.bigmap_destination.as_ref().map(|dest| dest.cell),
+            Some(door)
+        );
+
+        // 同一套 UI 点击：A* 路径终点必须是门格（首步由 WalkStep 发出）。
+        let text = UiText::load(None);
+        let action = state.on_click_with_path(&snapshot, &text, screen, None, Some(&|_x, _y| true));
+        assert!(matches!(action, Some(crate::ui::UiAction::WalkStep { .. })));
+        assert_eq!(state.walk_path.as_ref().map(|path| path.goal), Some(door));
+        let path = state.walk_path.as_ref().expect("路径");
+        let last = path
+            .steps
+            .iter()
+            .fold(path.expected, |point, direction| point.moved(*direction, 1));
+        assert_eq!(last, door, "路径终点必须是门格");
+        assert_eq!(path.from, Point::new(300, 200), "起点是自身位置");
     }
 
     #[test]

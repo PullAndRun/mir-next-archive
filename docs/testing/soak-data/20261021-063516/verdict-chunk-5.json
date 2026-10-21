@@ -1,0 +1,54 @@
+{
+  "window": "chunk-5 [7200s,9000s)",
+  "verdict": "PASS",
+  "checks": [
+    {
+      "name": "绝对：每点 p50 ≤30.0ms",
+      "ok": true,
+      "detail": "max_p50=0.54ms 超限点=0"
+    },
+    {
+      "name": "绝对：每点 p99 ≤80.0ms",
+      "ok": true,
+      "detail": "max_p99=0.92ms 超限点=0 首个=[]"
+    },
+    {
+      "name": "RSS 增长 ≤max(10%, 8MB)（区间）",
+      "ok": true,
+      "detail": "区间基线=42.0MB 峰值=42.2MB 增长=+0.60% 允许=max(4.20MB, 8MB)=8.00MB 实际=+0.25MB"
+    }
+  ],
+  "stats": {
+    "samples": 180,
+    "warm_samples": 180,
+    "requested_duration_seconds": 14400.0,
+    "elapsed_seconds": 9000.0,
+    "p50_ms_max": 0.543,
+    "p99_ms_max": 0.918,
+    "rss_first_mb": 41.96,
+    "rss_max_mb": 42.21,
+    "handle_swing": 6.0,
+    "db_pool_first": 2.0,
+    "db_pool_max": 2.0,
+    "rss_slope_mb_per_hour": 0.319,
+    "handle_slope_per_hour": 0.496,
+    "write_failed_final": 0.0,
+    "dropped_final": 0.0,
+    "clients_requested": 100,
+    "clients_entered": null,
+    "active_min": null,
+    "active_max": null
+  },
+  "warnings": [],
+  "observe_warnings": [],
+  "index": 5,
+  "range_seconds": [
+    7200.0,
+    9000.0
+  ],
+  "cumulative_slope": {
+    "rss_slope_mb_per_hour": 0.744,
+    "handle_slope_per_hour": -1.263,
+    "samples": 899
+  }
+}

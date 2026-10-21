@@ -1491,7 +1491,12 @@ impl<S: AccountStore> Session<S> {
                     "拾取成功"
                 );
             }
-            Err(error) => tracing::debug!(session = self.id, %error, "拾取被拒绝"),
+            Err(error) => {
+                tracing::warn!(session = self.id, %error, "拾取被拒绝");
+                let message = world.text(object_id, mir_core::i18n::TextKey::PickupFailed);
+                drop(world);
+                self.send_system_chat(&message);
+            }
         }
     }
 
@@ -1598,7 +1603,12 @@ impl<S: AccountStore> Session<S> {
                 cost = report.cost,
                 "买到物品"
             ),
-            Err(error) => tracing::debug!(session = self.id, %error, "买东西被拒绝"),
+            Err(error) => {
+                tracing::warn!(session = self.id, %error, "买东西被拒绝");
+                let message = world.text(object_id, mir_core::i18n::TextKey::BuyFailed);
+                drop(world);
+                self.send_system_chat(&message);
+            }
         }
     }
 
@@ -2065,7 +2075,12 @@ impl<S: AccountStore> Session<S> {
                 items = report.items.len(),
                 "交付任务"
             ),
-            Err(error) => tracing::debug!(session = self.id, %error, "交付任务被拒绝"),
+            Err(error) => {
+                tracing::warn!(session = self.id, %error, "交付任务被拒绝");
+                let message = world.text(object_id, mir_core::i18n::TextKey::QuestFinishFailed);
+                drop(world);
+                self.send_system_chat(&message);
+            }
         }
     }
 
@@ -3686,5 +3701,57 @@ mod tests {
             })
             .collect();
         assert_eq!(ids, vec![1, 2, 3], "回灌顺序与原批次一致");
+    }
+
+    fn feedback_test_session() -> (
+        Session<crate::store::MemoryStore>,
+        tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+    ) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let world = Arc::new(Mutex::new(World::new(77)));
+        let session = Session::<crate::store::MemoryStore>::new(
+            1,
+            "test".to_owned(),
+            Arc::new(ServerConfig::default()),
+            Arc::new(crate::store::MemoryStore::new()),
+            world,
+            tx,
+            Arc::new(mir_core::i18n::LanguageLibrary::embedded()),
+        );
+        (session, rx)
+    }
+
+    async fn next_chat(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) -> ServerPacket {
+        let frame = rx.recv().await.expect("应发出系统聊天");
+        assert!(frame.len() >= 4, "帧头至少 4 字节");
+        let index = i16::from_le_bytes([frame[2], frame[3]]);
+        ServerPacket::decode(index, &frame[4..]).expect("聊天包可解码")
+    }
+
+    #[tokio::test]
+    async fn pickup_buy_and_finish_failures_send_player_chat() {
+        let (mut session, mut rx) = feedback_test_session();
+        session.object_id = Some(999);
+        session.on_pickup().await;
+        match next_chat(&mut rx).await {
+            ServerPacket::Chat(chat) => assert!(chat.message.contains("无法拾取"), "{chat:?}"),
+            other => panic!("拾取失败应发 S.Chat，收到 {other:?}"),
+        }
+
+        let (mut session, mut rx) = feedback_test_session();
+        session.object_id = Some(999);
+        session.on_buy_item(1, 1, PanelType::Buy).await;
+        match next_chat(&mut rx).await {
+            ServerPacket::Chat(chat) => assert!(chat.message.contains("购买失败"), "{chat:?}"),
+            other => panic!("购买失败应发 S.Chat，收到 {other:?}"),
+        }
+
+        let (mut session, mut rx) = feedback_test_session();
+        session.object_id = Some(999);
+        session.on_finish_quest(7, -1).await;
+        match next_chat(&mut rx).await {
+            ServerPacket::Chat(chat) => assert!(chat.message.contains("交付任务失败"), "{chat:?}"),
+            other => panic!("交付失败应发 S.Chat，收到 {other:?}"),
+        }
     }
 }

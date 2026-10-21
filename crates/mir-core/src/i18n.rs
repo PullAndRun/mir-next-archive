@@ -512,6 +512,12 @@ pub enum TextKey {
     QuestTooMany,
     /// 场景：`on_accept_quest` 其它失败；模板：`接取任务失败。`；参数：无。
     QuestAcceptFailed,
+    /// 场景：`on_finish_quest` 失败；模板：`交付任务失败。`；参数：无。
+    QuestFinishFailed,
+    /// 场景：`on_pickup` 失败；模板：`无法拾取。`；参数：无。
+    PickupFailed,
+    /// 场景：`on_buy_item` 失败（含背包满）；模板：`购买失败。`；参数：无。
+    BuyFailed,
     /// 场景：`S.SendOutputMessage{Quest}`（`quests.rs:477`）；模板：`你杀死了 {monster}`；参数：`{monster}`。
     QuestKilledMonster,
     /// 场景：`任务进度文本后缀`（`quests.rs:478`）；模板：`（已完成）`；参数：无。
@@ -793,6 +799,9 @@ impl TextKey {
         Self::QuestShareNeedsParty,
         Self::QuestTooMany,
         Self::QuestAcceptFailed,
+        Self::QuestFinishFailed,
+        Self::PickupFailed,
+        Self::BuyFailed,
         Self::QuestKilledMonster,
         Self::QuestTaskDoneSuffix,
         Self::QuestTaskKill,
@@ -1035,6 +1044,9 @@ impl TextKey {
             Self::QuestShareNeedsParty => "quest_share_needs_party",
             Self::QuestTooMany => "quest_too_many",
             Self::QuestAcceptFailed => "quest_accept_failed",
+            Self::QuestFinishFailed => "quest_finish_failed",
+            Self::PickupFailed => "pickup_failed",
+            Self::BuyFailed => "buy_failed",
             Self::QuestKilledMonster => "quest_killed_monster",
             Self::QuestTaskDoneSuffix => "quest_task_done_suffix",
             Self::QuestTaskKill => "quest_task_kill",
@@ -1282,6 +1294,9 @@ impl TextKey {
             Self::QuestShareNeedsParty => &[],
             Self::QuestTooMany => &[],
             Self::QuestAcceptFailed => &[],
+            Self::QuestFinishFailed => &[],
+            Self::PickupFailed => &[],
+            Self::BuyFailed => &[],
             Self::QuestKilledMonster => &["monster"],
             Self::QuestTaskDoneSuffix => &[],
             Self::QuestTaskKill => &["monster", "count", "total"],
@@ -1678,6 +1693,9 @@ const fn text_zh(key: TextKey) -> &'static str {
         TextKey::QuestShareNeedsParty => "组队并且附近有队友时才能分享任务。",
         TextKey::QuestTooMany => "你同时接取的任务太多了。",
         TextKey::QuestAcceptFailed => "接取任务失败。",
+        TextKey::QuestFinishFailed => "交付任务失败。",
+        TextKey::PickupFailed => "无法拾取。",
+        TextKey::BuyFailed => "购买失败。",
         TextKey::QuestKilledMonster => "你杀死了 {monster}",
         TextKey::QuestTaskDoneSuffix => "（已完成）",
         TextKey::QuestTaskKill => "击杀 {monster} {count}/{total}",
@@ -2019,6 +2037,9 @@ const fn text_en(key: TextKey) -> &'static str {
         }
         TextKey::QuestTooMany => "You are already on too many quests.",
         TextKey::QuestAcceptFailed => "Failed to accept the quest.",
+        TextKey::QuestFinishFailed => "Failed to finish the quest.",
+        TextKey::PickupFailed => "You cannot pick that up.",
+        TextKey::BuyFailed => "Purchase failed.",
         TextKey::QuestKilledMonster => "You killed {monster}",
         TextKey::QuestTaskDoneSuffix => " (done)",
         TextKey::QuestTaskKill => "Kill {monster} {count}/{total}",
@@ -2417,9 +2438,10 @@ mod tests {
         // 语言包校验与参数核对的唯一入口，漏登记等于漏测试。
         //
         // 第 24 轮又追加 2 个「任务接取失败」键（`quest_too_many` /
-        // `quest_accept_failed`，对齐 Crystal `AcceptQuest` 的 `ReceiveChat`），
-        // 故 234 → 236。
-        assert_eq!(TextKey::ALL.len(), 236, "新增/删除键时同步更新数量");
+        // `quest_accept_failed`，对齐 Crystal `AcceptQuest` 的 `ReceiveChat`），故 234 → 236。
+        // 第 25 轮再追加 3 个玩家可见失败反馈键（`pickup_failed` / `buy_failed` /
+        // `quest_finish_failed`），236 → 239。
+        assert_eq!(TextKey::ALL.len(), 239, "新增/删除键时同步更新数量");
     }
 
     #[test]

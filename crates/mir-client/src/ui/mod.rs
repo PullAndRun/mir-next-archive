@@ -62,6 +62,7 @@ pub mod text;
 pub mod tooltip;
 pub mod trade;
 pub mod typography;
+pub mod wall_bump;
 pub mod worldtext;
 
 use std::collections::HashMap;
@@ -999,6 +1000,8 @@ pub struct UiState {
     pub settings: settings::SettingsState,
     /// 新手引导链（`config/newbie/chain.toml`，窗口层加载；缺失时内置默认）。
     pub newbie_chain: crate::newbie::NewbieChain,
+    /// 撞墙/移动被拒的本地提示状态（不发包）。
+    pub wall_bump: wall_bump::WallBumpFeedback,
     /// 是否显示新手引导追踪面板。
     pub show_newbie_guide: bool,
     /// 小地图渲染器（`resource/data/mmap.wzl`；缺素材时是空场景，画纯色占位）。
@@ -1128,6 +1131,7 @@ impl UiState {
             show_settings: false,
             settings: settings::SettingsState::default(),
             newbie_chain: crate::newbie::NewbieChain::default(),
+            wall_bump: wall_bump::WallBumpFeedback::default(),
             show_newbie_guide: true,
             minimap_scene: mir_render::MinimapScene::empty(),
             mouse: Point::new(0, 0),
@@ -3760,6 +3764,21 @@ pub fn draw(
             &state.newbie_chain,
             text,
             state.language,
+        );
+    }
+    // 撞墙提示：顶部居中，只读本地状态，不发包。
+    if state
+        .wall_bump
+        .visible(u64::try_from(state.time_millis.max(0)).unwrap_or(0))
+    {
+        let rect = wall_bump::WallBumpFeedback::rect(screen);
+        frame.fill_rect_alpha(rect.x, rect.y, rect.width, rect.height, [12, 18, 28, 220]);
+        text.draw_center(
+            frame,
+            rect,
+            wall_bump::WallBumpFeedback::message(state.language),
+            12,
+            [255, 230, 120, 255],
         );
     }
     hud::draw_chat(frame, snapshot, text, chat_input, state.language);

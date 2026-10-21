@@ -13,7 +13,7 @@
 * §7.2 的「原文」把旧占位（`{}` / `{0}` / `{CONST}`）按「参数占位」列改成 `{snake_case}` 后，
   必须与 zh 模板**逐字相同**；英文模板的占位符集合必须与 `args()` 相同；
 * 第 1 轮的 11 个无参键不在 §7.2 内，单列核对；另有 4 个 `guild_not_allowed_*`
-  扩展键（行会权限的具体提示，替换会泄漏给玩家的内部标识符）以及后续扩展键（当前共 25 个），
+  扩展键（行会权限的具体提示，替换会泄漏给玩家的内部标识符）以及后续扩展键（当前共 28 个），
   走白名单单列核对，不进 §7.2；除这些键之外的键都必须是 §7.2 的键（无孤儿键、无漏登记）。
 
 用法::
@@ -69,6 +69,10 @@ EXTENSION_KEYS = (
     # 第 24 轮：C.AcceptQuest 失败反馈（Crystal AcceptQuest 的 ReceiveChat）。
     "quest_accept_failed",
     "quest_too_many",
+    # 第 25 轮：新手链路径上的拾取/购买/交付失败反馈。
+    "quest_finish_failed",
+    "pickup_failed",
+    "buy_failed",
     "ally_usage",
     "ally_guild_not_found",
     "ally_requested",

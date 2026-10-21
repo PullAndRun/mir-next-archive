@@ -63,6 +63,13 @@ Test-Path target/soak.lock            # 期望 False
   满了丢最旧，内存恒定 ≈16KB；`pg_store` 单测 `db_save_records_are_bounded_and_drop_oldest`
   断言超限后首条 seq 前进、末条保留最新。
 - 主判据：所有写入序号墙钟早于 `kill_time − 2s` 的写**都必须在 DB 中**；
+- **第 25 轮唯一标识恢复核对**：5 次写分别 `@gold 1/2/4/8/16`，每次轮询 DB 的
+  `characters.gold` 记录观察时刻 `t_confirm[i]`；强杀重启后按实际 gold 的二进制位解码
+  `P`（保留集合），丢失集合必须 ⊆ 未确认集合；三条同时断言：
+  1) 已确认（≤kill）的写全部保留；
+  2) `lost ⊆ unconfirmed`；
+  3) `kill − max(t_confirm) ≤ 2000ms`（autosave 1s + 1s 余量）。
+  红绿自证只作测试有效性，不写进 RPO 结论。
 - `loss ≤ 1` 仅在 K 次写间隔 ≥1s 时保留，否则删除该计数断言；
 - **T_save 读法**：服务端 stdout/stderr 的 `db_save ok character=<id> seq=<n> t=<unix_ms>`；
   取 `seq` 最大的一条的 `t`，不是文件尾行；轮询/日志采集粒度需在回执写明。

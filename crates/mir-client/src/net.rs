@@ -2464,6 +2464,8 @@ pub struct WorldSnapshot {
     ///
     /// 从 1 开始：`0` 表示「还没消费过任何事件」，见 [`Self::sound_events_since`]。
     pub next_sound_id: u64,
+    /// 移动被拒/回拉计数（`S.UserLocation` 同坐标回包时 +1；本地提示用）。
+    pub wall_bump_id: u64,
     /// 物品模板（`S.NewItemInfo`，按模板编号索引）。
     pub item_infos: BTreeMap<i32, ItemInfoView>,
     /// 已学技能（`S.UserInformation.Magics` + `S.NewMagic`/`S.MagicLeveled`）。
@@ -2579,6 +2581,7 @@ impl Default for WorldSnapshot {
             next_spell_id: 0,
             sound_events: Vec::new(),
             next_sound_id: 1,
+            wall_bump_id: 0,
             item_infos: BTreeMap::new(),
             magics: Vec::new(),
             npc_dialog: None,
@@ -4222,6 +4225,10 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
         }
         ServerPacket::UserLocation(location) => {
             if let Some(me) = &mut snapshot.self_player {
+                // 同坐标回包 = 服务端拒绝了这次移动（撞墙/门未开/占位）；本地提示用。
+                if me.position == location.location {
+                    snapshot.wall_bump_id = snapshot.wall_bump_id.saturating_add(1);
+                }
                 me.position = location.location;
                 me.direction = location.direction;
             }

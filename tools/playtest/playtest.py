@@ -315,6 +315,9 @@ class Playtest:
         self.inventory_items: list[dict] = []
         self.equipment_items: list[dict] = []
         self.ground_items: list[dict] = []
+        # 被服务端拒绝的“活物/临时占位”格：cell -> 解除时间（monotonic）。
+        # 静态 NPC/建筑走 blocked 永久集；怪物/玩家短 TTL，避免把会走的对象永久拉黑。
+        self._dynamic_blocked: dict[tuple[int, int], float] = {}
         self.gates: set[tuple[int, int]] = {
             (344, 309),
             (355, 319),
@@ -350,6 +353,11 @@ class Playtest:
         self.run_started_at = time.time()
         self.gm_commands: list[str] = []
         self.kill_count = 0
+        # 只统计 Hen 的击杀，防止把 Deer 混进 quest 7 的 3 只计数。
+        self.hen_kill_count = 0
+        # S.CompleteQuest(202) 是登录时服务端下发的“已完成任务”全集；清洁初态必须不含 7。
+        self.completed_quests: set[int] = set()
+        self.completed_quests_seen = False
 
     # ---------------- 结果输出 ----------------
     def _stamp(self) -> str:
@@ -576,6 +584,13 @@ class Playtest:
                         monster["dead"] = True
                         if any(key in monster["name"].lower() for key in self.PREY_KEYWORDS):
                             self.kill_count += 1
+                        if "hen" in monster["name"].lower():
+                            self.hen_kill_count += 1
+            elif index == S_COMPLETE_QUEST:
+                r = Reader(payload)
+                count = r.i32()
+                self.completed_quests = {r.i32() for _ in range(max(0, min(count, 256)))}
+                self.completed_quests_seen = True
             elif index == S_CHAT:
                 r = Reader(payload)
                 message = r.string()
@@ -864,15 +879,22 @@ class Playtest:
         writer.i32(0)  # linked_items 为空
         self.send(C_CHAT, writer.raw())
 
-    def goto(self, target: tuple[int, int], max_steps: int = 160) -> bool:
+    def goto(
+        self,
+        target: tuple[int, int],
+        max_steps: int = 160,
+        blocked: set[tuple[int, int]] | None = None,
+    ) -> bool:
         """走到目标旁一格：近处用 BFS（`walk_towards`，绕开建筑），远处先贪心再 BFS 兜底。"""
         if self._distance(target) <= 1:
             return True
+        if blocked is None:
+            blocked = self._walker_blocked()
         if self._distance(target) <= 40:
-            return self.walk_towards(target, max_steps=max_steps)
+            return self.walk_towards(target, max_steps=max_steps, blocked=blocked)
         if self.walk_to(target, max_steps=max_steps // 2):
             return True
-        return self.walk_towards(target, max_steps=max_steps)
+        return self.walk_towards(target, max_steps=max_steps, blocked=blocked)
 
     def _stand_next_to(self, npc: dict) -> bool:
         """站到 NPC 相邻格：有 `--gm` 用 `@map` 定位（脚本步行器在比奇建筑群里不稳），否则走路。"""
@@ -890,7 +912,7 @@ class Playtest:
                     return True
             self.diagnostics(f"GM @map 也没能站到 {npc['name']} 旁边")
             return False
-        return self.goto(npc["pos"], max_steps=160)
+        return self.walk_towards(npc["pos"], max_steps=160, blocked=self._walker_blocked())
 
     # ---------------- 幂等：回到起始图 ----------------
     def return_to_start(self, char_index: int) -> bool:
@@ -1503,6 +1525,40 @@ class Playtest:
         gates.discard(target)
         return gates
 
+    def _static_npc_cells(self) -> set[tuple[int, int]]:
+        """S.ObjectNPC/可见 NPC 的静态格：walker 的永久障碍。"""
+        return {tuple(n["pos"]) for n in self.map_npcs if n.get("pos")} | {
+            tuple(n["pos"]) for n in self.npcs if n.get("pos")
+        }
+
+    def _dynamic_blocked_cells(self) -> set[tuple[int, int]]:
+        """怪物等会移动的临时障碍，TTL 到期自动解除。"""
+        now = time.monotonic()
+        expired = [cell for cell, until in self._dynamic_blocked.items() if until <= now]
+        for cell in expired:
+            del self._dynamic_blocked[cell]
+        return set(self._dynamic_blocked)
+
+    def _walker_blocked(self) -> set[tuple[int, int]]:
+        return self._static_npc_cells() | self._dynamic_blocked_cells()
+
+    def _obstacle_kind(self, cell: tuple[int, int]) -> str:
+        if cell in self._static_npc_cells():
+            return "static_npc"
+        if any(tuple(m["pos"]) == cell and not m.get("dead") for m in self.monsters):
+            return "monster"
+        if cell in NEWBIE_DOORS:
+            return "door"
+        return "unknown"
+
+    def _mark_dynamic_blocked(self, cell: tuple[int, int], kind: str) -> None:
+        # 怪物会走：5s TTL；玩家/未知占位也会走开，但轨迹更慢，给 30s TTL。
+        # 这样“成功一步就清 local_blocked”不会让同一格立刻被重新选中。
+        if kind == "monster":
+            self._dynamic_blocked[cell] = time.monotonic() + 5.0
+        elif kind == "unknown":
+            self._dynamic_blocked[cell] = time.monotonic() + 30.0
+
     def walk_towards(
         self,
         target: tuple[int, int],
@@ -1514,17 +1570,20 @@ class Playtest:
         确认失败（没有 S.UserLocation / 落在别的格）不重试同一步掩盖问题：把该格加入
         本次局部障碍后重新 BFS；连续 3 步无确认直接带诊断返回 False。
         """
-        blocked = set(blocked or set()) | self._map_gates(target)
+        blocked = set(blocked or set()) | self._map_gates(target) | self._walker_blocked()
         if self.self_pos is None:
             return False
+        base_blocked = set(blocked)
         local_blocked = set(blocked)
+        door_sent: set[tuple[int, int]] = set()
         rejected = 0
         for _ in range(max_steps):
             if max(abs(self.self_pos[0] - target[0]), abs(self.self_pos[1] - target[1])) <= 1:
                 return True
+            local_blocked |= self._dynamic_blocked_cells()
             path = self._bfs_path(target, local_blocked)
-            if path is None and local_blocked != blocked:
-                local_blocked = set(blocked)
+            if path is None and local_blocked != base_blocked:
+                local_blocked = set(base_blocked)
                 path = self._bfs_path(target, local_blocked)
             if path is None:
                 self.diagnostics(f"BFS 无路 {self.self_pos}->{target}（blocked={len(local_blocked)}）")
@@ -1551,20 +1610,33 @@ class Playtest:
                     break
             if confirmed:
                 rejected = 0
-                local_blocked = set(blocked)
+                local_blocked = set(base_blocked)
                 # Crystal `PlayerObject.MovementDelay`（600ms）：等动作冷却再发下一步。
                 self.move_ready_at = time.time() + 0.68
                 continue
             if self.self_pos is not None and self.self_pos != before:
                 # 服务端确认了另一格（位移修正）：以服务端为准重算，不重复发同一步。
                 self.diagnostics(f"移动确认偏离：期望 {nxt}，服务端 {self.self_pos}（从 {before} 出发）")
-                local_blocked = set(blocked)
+                local_blocked = set(base_blocked)
                 self.move_ready_at = time.time() + 0.68
                 continue
             rejected += 1
+            kind = self._obstacle_kind(nxt)
             self.diagnostics(
-                f"第 {rejected} 次无移动确认：cell={nxt} 目标={target} 当前位置={before} 地图={self.map_file}"
+                f"第 {rejected} 次无移动确认：cell={nxt} reason={kind} 目标={target} "
+                f"当前位置={before} 地图={self.map_file}；避开该格并重规划"
             )
+            if kind == "door" and nxt not in door_sent:
+                door_sent.add(nxt)
+                door = NEWBIE_DOORS[nxt]
+                self.diagnostics(f"门未开，发 C.Opendoor{{index={door}}} 后重试 {nxt}")
+                writer = Writer()
+                writer.u8(door)
+                self.send(C_OPENDOOR, writer.raw())
+                self._drain(0.2)
+                time.sleep(0.35)
+                continue
+            self._mark_dynamic_blocked(nxt, kind)
             local_blocked.add(nxt)
             if rejected >= 8:
                 self.diagnostics("连续 8 步服务端未确认，停止并交由 service/data owner 修")
@@ -1718,15 +1790,15 @@ class Playtest:
         return self.map_file == "0"
 
     def newbie_hunt(self, count: int) -> bool:
-        """自然打猎：走到 Hen/Deer 群，打到 S.ObjectDied；用服务端确认的击杀计数 + 经验断言。"""
+        """自然打猎：只打 Hen，逐只计数 1→2→3；用服务端确认的 ObjectDied + 经验断言。"""
         exp_before = self.self_exp or 0
-        kills_before = self.kill_count
+        kills_before = self.hen_kill_count
         deadline = time.time() + 900
         anchors = [(342, 312), (280, 260)]
         anchor_index = 0
         empty_waits = 0
-        while self.kill_count - kills_before < count and time.time() < deadline:
-            preys = self._live_prey()
+        while self.hen_kill_count - kills_before < count and time.time() < deadline:
+            preys = [m for m in self._live_prey() if "hen" in m["name"].lower()]
             if not preys:
                 anchor = anchors[anchor_index % len(anchors)]
                 if not self.walk_towards(anchor, max_steps=160):
@@ -1735,26 +1807,26 @@ class Playtest:
                     continue
                 self._drain(1.5)
                 empty_waits += 1
-                print(f"  [打猎 t=+{int(time.time()-self.run_started_at)//60:02d}:{int(time.time()-self.run_started_at)%60:02d}] 锚点 {anchor} 无猎物（monsters={len(self.monsters)}，等待 {empty_waits}）")
+                print(f"  [打猎 t=+{int(time.time()-self.run_started_at)//60:02d}:{int(time.time()-self.run_started_at)%60:02d}] 锚点 {anchor} 无 Hen（monsters={len(self.monsters)}，等待 {empty_waits}）")
                 if empty_waits >= 3:
                     empty_waits = 0
                     anchor_index += 1
                 time.sleep(1.0)
                 continue
             prey = min(preys, key=lambda m: self._distance(m["pos"]))
-            print(f"  [打猎 t=+{int(time.time()-self.run_started_at)//60:02d}:{int(time.time()-self.run_started_at)%60:02d}] kills={self.kill_count - kills_before}/{count} pos={self.self_pos} 目标={prey['name']}@{prey['pos']} 距离={self._distance(prey['pos'])}")
+            print(f"  [打猎 t=+{int(time.time()-self.run_started_at)//60:02d}:{int(time.time()-self.run_started_at)%60:02d}] Hen {self.hen_kill_count - kills_before + 1}/{count} pos={self.self_pos} 目标={prey['name']}@{prey['pos']} 距离={self._distance(prey['pos'])}")
             if not self._attack_until_dead(prey, timeout=45):
                 self.diagnostics(f"打 {prey['name']}#{prey['id']}@{prey['pos']} 45s 未击杀，换目标")
             self._drain(0.4)
-        kills = self.kill_count - kills_before
+        kills = self.hen_kill_count - kills_before
         exp_after = self.self_exp or 0
         if kills < count:
-            self.fail("打死一只鸡/鹿", f"只击杀 {kills}/{count}（经验 {exp_before}->{exp_after}）")
+            self.fail("计数", f"阶段=计数：只击杀 Hen {kills}/{count}（经验 {exp_before}->{exp_after}；Deer 不计入）")
             return False
         if exp_after <= exp_before:
-            self.fail("打死一只鸡/鹿", f"击杀 {kills} 只但经验未增长（{exp_before}->{exp_after}）")
+            self.fail("计数", f"阶段=计数：Hen 击杀 {kills} 只但经验未增长（{exp_before}->{exp_after}）")
             return False
-        self.ok("打死一只鸡/鹿", f"{kills} 只，经验 {exp_before}->{exp_after}（ObjectDied+GainExperience）")
+        self.ok("计数", f"Hen 逐只 1→{kills}，经验 {exp_before}->{exp_after}（ObjectDied+GainExperience；Deer 不计入）")
         return True
 
     def newbie_pickup(self) -> bool:
@@ -1962,13 +2034,25 @@ class Playtest:
                 return True
             blocked = {tuple(npc["pos"])}
             blocked |= dynamic_blocked
-            blocked |= {tuple(item["pos"]) for item in self.npcs}
-            blocked |= {tuple(item["pos"]) for item in self.map_npcs}
-            blocked |= {tuple(item["pos"]) for item in self.monsters if not item.get("dead")}
+            blocked |= self._walker_blocked()
             # 优先不走门（42 个门格当软障碍）；实在绕不开才允许穿门并在卡住时开门。
             path = self._bfs_path(tuple(npc["pos"]), blocked=blocked | set(NEWBIE_DOORS))
             if not path:
                 path = self._bfs_path(tuple(npc["pos"]), blocked=blocked)
+            if not path:
+                # 动态障碍可能把玩家围在中间；清空本轮的临时障碍再试一次，
+                # 否则 5s/30s TTL 还没到期就会被误判为“无路”。
+                if dynamic_blocked or self._dynamic_blocked:
+                    print(
+                        f"  [新手链] BFS 无路径（动态障碍围死）：当前 {self.self_pos} -> "
+                        f"{npc.get('name')} @ {npc.get('pos')}；清空临时障碍后重试"
+                    )
+                    dynamic_blocked.clear()
+                    self._dynamic_blocked.clear()
+                    path = self._bfs_path(
+                        tuple(npc["pos"]),
+                        blocked={tuple(npc["pos"])} | self._static_npc_cells() | set(NEWBIE_DOORS),
+                    )
             if not path:
                 print(f"  [新手链] BFS 无路径：当前 {self.self_pos} -> {npc.get('name')} @ {npc.get('pos')}")
                 return False
@@ -1978,7 +2062,7 @@ class Playtest:
                 continue
             moved = False
             stale = False
-            for attempt in range(1, 4):
+            for attempt in range(1, 2):
                 if abs(cell[0] - self.self_pos[0]) > 1 or abs(cell[1] - self.self_pos[1]) > 1:
                     stale = True
                     break
@@ -1990,8 +2074,8 @@ class Playtest:
                     break
                 self.move_ready_at = time.time() + 0.68
                 print(
-                    f"  [新手链] 移动被拒 第 {attempt}/3 次：当前 {self.self_pos} -> 目标 {cell}，"
-                    f"地图 {self.map_file}"
+                    f"  [新手链] 移动被拒 第 {attempt}/1 次：当前 {self.self_pos} -> 目标 {cell}，"
+                    f"原因={self._obstacle_kind(cell)}，地图 {self.map_file}；立即重规划"
                 )
             if stale:
                 continue
@@ -2007,9 +2091,11 @@ class Playtest:
                         moved = True
                 if not moved:
                     # 动态障碍：记下并重新规划整条路径，而不是一直硬走同一格。
+                    kind = self._obstacle_kind(cell)
+                    self._mark_dynamic_blocked(cell, kind)
                     dynamic_blocked.add(cell)
                     print(
-                        f"  [新手链] 该格拒绝，加入动态障碍并重算路径：{cell}；"
+                        f"  [新手链] 该格拒绝 reason={kind}，加入动态障碍并重算路径：{cell}；"
                         f"目标 NPC {npc.get('name')} @ {npc.get('pos')}"
                     )
                     continue
@@ -2023,10 +2109,28 @@ class Playtest:
             None,
         )
         if npc is None:
-            self.fail("接任务", f"map0 没有 Assistant_Jane：{ [n['name'] for n in self.map_npcs[:12]] }")
+            self.fail("接取", f"map0 没有 Assistant_Jane：{ [n['name'] for n in self.map_npcs[:12]] }")
             return False
-        if not self._stand_next_to(npc) and not self._newbie_walk_bfs(npc):
-            self.fail("接任务", f"走不到 Assistant_Jane @ {npc['pos']}")
+        # 登录时 S.CompleteQuest(202) 可能和新手聊天前后脚到达；先等到它再断言清洁初态。
+        deadline = time.time() + 1.5
+        while not self.completed_quests_seen and time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            self._observe(packet[0], packet[1])
+        self.ok(
+            "清洁初态",
+            f"角色 {self.account}/{self.character}；金币 {self.self_gold}，经验 {self.self_exp}，"
+            f"completed_quests={sorted(self.completed_quests)}（不含 7={7 not in self.completed_quests}）",
+        )
+        if not self.completed_quests_seen:
+            self.fail("清洁初态", "阶段=接取：未收到 S.CompleteQuest(202)，无法证明 completed_quests 不含 7")
+            return False
+        if 7 in self.completed_quests:
+            self.fail("清洁初态", f"阶段=接取：新角色 completed_quests 已含 7：{sorted(self.completed_quests)}")
+            return False
+        if not self._newbie_walk_bfs(npc) and not self._stand_next_to(npc):
+            self.fail("接取", f"走不到 Assistant_Jane @ {npc['pos']}，阶段=接取")
             return False
         visible = next((n for n in self.npcs if n["id"] == npc.get("object_id")), None)
         if visible is not None:
@@ -2042,6 +2146,7 @@ class Playtest:
         writer = Writer()
         writer.u32(npc.get("object_id", npc.get("id", 0)))
         writer.i32(7)
+        chats_before = len(self.chats)
         self.send(C_ACCEPT_QUEST, writer.raw())
         deadline = time.time() + self.timeout
         accepted = False
@@ -2057,9 +2162,14 @@ class Playtest:
                     accepted = True
                     break
         if not accepted:
-            self.fail("接任务", "发 C.AcceptQuest{7} 后未收到 S.ChangeQuest{7}")
+            self.fail(
+                "接取",
+                f"阶段=接取：发 C.AcceptQuest{{7}} 后未收到 S.ChangeQuest{{7}}；"
+                f"Jane quest_ids={visible.get('quest_ids') if visible else None}；"
+                f"失败聊天={self.chats[chats_before:]}",
+            )
             return False
-        self.ok("接任务", f"Assistant_Jane @ {npc['pos']} -> quest 7 accepted")
+        self.ok("接取", f"Assistant_Jane @ {npc['pos']} -> S.ChangeQuest{{7}}")
         return True
 
     def newbie_quest_finish(self) -> bool:
@@ -2069,10 +2179,10 @@ class Playtest:
             None,
         )
         if npc is None:
-            self.fail("交任务", f"map0 没有 Master_Wa：{ [n['name'] for n in self.map_npcs[:12]] }")
+            self.fail("交付", f"阶段=交付：map0 没有 Master_Wa：{ [n['name'] for n in self.map_npcs[:12]] }")
             return False
         if not self._stand_next_to(npc) and not self._newbie_walk_bfs(npc):
-            self.fail("交任务", f"走不到 Master_Wa @ {npc['pos']}")
+            self.fail("交付", f"阶段=交付：走不到 Master_Wa @ {npc['pos']}")
             return False
         gold_before = self.self_gold
         exp_before = self.self_exp or 0
@@ -2094,20 +2204,24 @@ class Playtest:
                 count = reader.i32()
                 ids = [reader.i32() for _ in range(max(0, min(count, 64)))]
                 completed = 7 in ids
-        if not completed:
-            self.fail("交任务", "发 C.FinishQuest{7} 后未收到 S.CompleteQuest{7}")
+        if not completed or 7 not in self.completed_quests:
+            self.fail(
+                "交付",
+                f"阶段=交付：发 C.FinishQuest{{7}} 后未收到含 7 的 S.CompleteQuest{{7}}；"
+                f"本地 completed_quests={sorted(self.completed_quests)}",
+            )
             return False
         exp_after = self.self_exp or 0
         gold_after = (gold_before or 0) + self.gold_delta
         if self.gold_delta != 60:
-            self.fail("交任务奖励", f"S.GainedGold 累计 {self.gold_delta:+d}，期望 +60")
+            self.fail("交付", f"阶段=交付奖励：S.GainedGold 累计 {self.gold_delta:+d}，期望 +60")
             return False
         if exp_after - exp_before != 48:
-            self.fail("交任务奖励", f"经验 {exp_before}->{exp_after}，期望 +48")
+            self.fail("交付", f"阶段=交付奖励：经验 {exp_before}->{exp_after}，期望 +48")
             return False
         self.ok(
-            "交任务奖励",
-            f"quest 7 completed；金币 {gold_before}->{gold_after}（+{self.gold_delta}），"
+            "交付",
+            f"completed_quests 含 7；金币 {gold_before}->{gold_after}（+{self.gold_delta}），"
             f"经验 {exp_before}->{exp_after}（+{exp_after - exp_before}）",
         )
         self.self_gold = gold_after
@@ -2159,8 +2273,16 @@ class Playtest:
                     continue
                 if got["item_index"] != pick["item_index"] or got["count"] != 1:
                     self.fail(
-                        "买装备",
-                        f"S.GainedItem #{got['item_index']}x{got['count']} 与货架 #{pick['item_index']} 不一致",
+                        "购买",
+                        f"阶段=购买：S.GainedItem #{got['item_index']}x{got['count']} 与货架 #{pick['item_index']} 不一致",
+                    )
+                    return False
+                if got.get("unique_id", 0) <= 0 or not any(
+                    item.get("unique_id") == got["unique_id"] for item in self.inventory_items
+                ):
+                    self.fail(
+                        "购买",
+                        f"阶段=购买：装备 unique_id={got.get('unique_id')} 未进入背包（inventory={len(self.inventory_items)}）",
                     )
                     return False
                 bag_after = len(self.inventory_items)
@@ -2169,9 +2291,9 @@ class Playtest:
                     self.fail("买装备", f"背包槽 {bag_before}->{bag_after}，期望 +1")
                     return False
                 self.ok(
-                    "买装备",
+                    "购买",
                     f"{npc['name']} 货架 #{pick['item_index']}，扣金币 {spent}（余额 {gold_before}->{gold_after}），"
-                    f"背包 {bag_before}->{bag_after}",
+                    f"背包 {bag_before}->{bag_after}，unique_id={got.get('unique_id')}",
                 )
                 self.self_gold = gold_after
                 return True
@@ -2507,6 +2629,7 @@ class Playtest:
             character = f"PT{suffix}"
 
         self.account = account
+        self.character = character
         self.password = password
         self.connect()
         self.expect(S_CONNECTED, "连接")

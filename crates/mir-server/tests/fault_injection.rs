@@ -210,6 +210,18 @@ fn latest_db_save_log(dir: &std::path::Path) -> Option<(u64, i64)> {
     best
 }
 
+async fn db_gold(url: &str, character_name: &str) -> Option<u64> {
+    let pool = sqlx::PgPool::connect(url).await.ok()?;
+    let value: Option<i64> = sqlx::query_scalar("SELECT gold FROM characters WHERE name = $1")
+        .bind(character_name)
+        .fetch_optional(&pool)
+        .await
+        .ok()
+        .flatten();
+    pool.close().await;
+    value.and_then(|gold| u64::try_from(gold).ok())
+}
+
 struct RpoClient {
     stream: TcpStream,
     frames: FrameBuffer,
@@ -385,20 +397,39 @@ async fn rpo_bounded_by_autosave_after_hard_kill() {
     wait_port(port, Duration::from_secs(15)).await;
     let mut client = RpoClient::connect(port).await;
     let _ = client.login_new(&user).await;
-    let start_gold = 0u64;
+    let character_name = format!("rpo{user}");
+    // 1/2/4/8/16 是测试装置而非玩家 gate：幂次和（二进制位）唯一，强杀后
+    // 从最终 gold 反解“哪些写持久化”，丢失集合不会与某次写混淆。
+    let markers: [u64; 5] = [1, 2, 4, 8, 16];
     let base_seq = latest_db_save_log(&dir).map_or(0, |(seq, _)| seq);
     println!("base save seq={base_seq}");
 
-    let mut writes: Vec<u128> = Vec::new();
-    for _ in 0..5 {
+    // 每次写一个唯一幂次标记：DB 最终 gold 的二进制位可直接解码“哪些写持久化了”。
+    let mut writes: Vec<(u128, u64)> = Vec::new();
+    // writes.0 是每次 @gold 的实际执行时刻（t_confirm 的 wall-clock 对照），writes.1 是幂次标记。
+    for marker in markers {
         client
             .send(ClientPacket::Chat(c::Chat {
-                message: "@gold 1".to_owned(),
+                message: format!("@gold {marker}"),
                 linked_items: Vec::new(),
             }))
             .await;
-        writes.push(now_millis());
+        writes.push((now_millis(), marker));
         tokio::time::sleep(Duration::from_millis(1_100)).await;
+    }
+    // 轮询 DB，记录每个唯一标记被实际观察到的时刻；未确认的写允许在强杀后丢失。
+    let mut confirmations: Vec<Option<u128>> = vec![None; markers.len()];
+    let confirm_deadline = Instant::now() + Duration::from_secs(12);
+    while Instant::now() < confirm_deadline && confirmations.iter().any(Option::is_none) {
+        if let Some(gold) = db_gold(&tagged, &character_name).await {
+            let now = now_millis();
+            for (index, marker) in markers.iter().enumerate() {
+                if gold & marker != 0 && confirmations[index].is_none() {
+                    confirmations[index] = Some(now);
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
     // T_save：读服务端日志里 max(seq) 的 t（不依赖 /metrics，也不取文件尾行）。
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -443,8 +474,7 @@ async fn rpo_bounded_by_autosave_after_hard_kill() {
     let mut restarted = spawn_rpo_server(&exe, &dir, port, metrics_port, &tagged, &user);
     wait_port(port, Duration::from_secs(15)).await;
     let mut after = RpoClient::connect(port).await;
-    let persisted = after.login_existing(&user).await;
-    let _ = persisted;
+    let persisted_gold = after.login_existing(&user).await;
     // 停止/清理必须在断言前完成（失败也不留进程）。
     restarted.child.take().map(|mut child| {
         let _ = Command::new("powershell")
@@ -457,24 +487,60 @@ async fn rpo_bounded_by_autosave_after_hard_kill() {
         let _ = child.wait();
     });
     drop(restarted);
-    let killed_after = writes.iter().filter(|&&t| t + 2000 <= kill_wall).count();
+    let persisted_bits: Vec<bool> = markers
+        .iter()
+        .map(|marker| persisted_gold & marker != 0)
+        .collect();
+    let persisted = persisted_bits.iter().filter(|bit| **bit).count();
+    let lost: Vec<u64> = markers
+        .iter()
+        .zip(&persisted_bits)
+        .filter(|(_, kept)| !**kept)
+        .map(|(marker, _)| *marker)
+        .collect();
+    let confirmed_before_kill: Vec<usize> = confirmations
+        .iter()
+        .enumerate()
+        .filter_map(|(index, at)| (*at).filter(|t| *t + 2_000 <= kill_wall).map(|_| index))
+        .collect();
+    let max_confirm = confirmations.iter().flatten().max().copied();
+    let window_ms = max_confirm.map_or(0, |at| kill_wall.saturating_sub(at));
     let kill_minus_save = kill_wall.saturating_sub(t_save_ms);
     println!(
-        "RPO K=5 persisted={} start_gold={start_gold} T_save={t_save} kill={kill_wall} \
-         killed_after_2s={killed_after} kill_minus_save_ms={kill_minus_save}",
-        persisted - start_gold
+        "RPO K=5 P={persisted} gold={persisted_gold} lost={lost:?} writes={writes:?} \
+         T_save={t_save} kill={kill_wall} kill_minus_save_ms={kill_minus_save} \
+         confirmations={confirmations:?} window_ms={window_ms}"
     );
     assert!(kill_wall > t_save_ms, "kill 应在 T_save 后发生");
+    for (index, confirmed_at) in confirmations.iter().enumerate() {
+        if confirmed_at.as_ref().is_some_and(|at| *at <= kill_wall) {
+            assert!(
+                persisted_bits[index],
+                "已确认的写必须保留：marker={} confirmations={confirmations:?}",
+                markers[index]
+            );
+        }
+    }
+    for index in confirmed_before_kill {
+        assert!(
+            persisted_bits[index],
+            "kill-2s 前已确认的写必须保留：marker={} confirmations={confirmations:?}",
+            markers[index]
+        );
+    }
+    for marker in &lost {
+        let index = markers
+            .iter()
+            .position(|candidate| candidate == marker)
+            .expect("marker");
+        assert!(
+            confirmations[index].is_none(),
+            "丢失的写不能是已确认的：marker={marker} confirmations={confirmations:?}"
+        );
+    }
     assert!(
-        (persisted - start_gold) as usize >= killed_after,
-        "kill-2s 前的写必须全部在 DB"
+        window_ms <= 2_000,
+        "kill 距最近已确认写必须 ≤2s，实际 {window_ms}ms（confirmations={confirmations:?}）"
     );
-    assert!(
-        5usize.saturating_sub((persisted - start_gold) as usize) <= 1,
-        "loss 必须 ≤1"
-    );
-    assert!(
-        kill_minus_save <= 2_000,
-        "kill 距最近成功存盘必须 ≤2s，实际 {kill_minus_save}ms"
-    );
+    assert!(kill_minus_save <= 2_000, "kill 距 T_save 必须 ≤2s");
 }

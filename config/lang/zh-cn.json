@@ -202,6 +202,9 @@
     "quest_share_needs_party": "组队并且附近有队友时才能分享任务。",
   "quest_too_many": "你同时接取的任务太多了。",
   "quest_accept_failed": "接取任务失败。",
+  "quest_finish_failed": "交付任务失败。",
+  "pickup_failed": "无法拾取。",
+  "buy_failed": "购买失败。",
     "quest_task_done_suffix": "（已完成）",
     "quest_task_flag": "激活标记 {number}{done_suffix}",
     "quest_task_item": "收集 {item} {count}/{total}",
@@ -242,3 +245,5 @@
     "0": "比奇省"
   }
 }
+
+

@@ -1,0 +1,8 @@
+{
+  "commit": "863c7a8",
+  "build_at": "2026-10-21T06:33:44+08:00",
+  "binary_size": 8752128,
+  "tree_dirty": [],
+  "gate": "10/10 PASS, exit 0, log target/gate-frozen-062432.log（队长跑）",
+  "run_note": "第 3 次（冻结树 863c7a8，工作树 clean，门禁 10/10）。四条已登记：① stdout tee 缺失：起跑命令用的是 `py … | Tee-Object`，外层 pwsh 随会话重启消失，python 存活成孤儿进程、写端无读者，故 target/soak4h-20261021-063516.log 未生成；已确认改用 Start-Process -RedirectStandardOutput 的方案（下轮生效），且实测本进程挺过 07:05 的 chunk-1 打印、未被 pipe 写失败打死。② 本轮 samples.json 仅在结束时（约 10:43）或 FAIL_EARLY 时写出（进程启动时代码尚无边界快照）；chunk 边界 samples 快照与自检 17 已加，下轮生效。③ metrics-observer.jsonl 是独立观测器（target/soak_observer.py，每 10s 抓 /metrics+RSS/句柄）产出的**独立证据链**，非 soak 进程产物；用于补足缺失的 stdout 序列。④ db_save gauge 在 07:0x 已打满 1024 并停住（环形有界性的现场证据），其余 4 个 kind 长期为 0（符合各自语义）。"
+}

@@ -202,6 +202,9 @@
     "quest_share_needs_party": "You can only share a quest while in a group with a member nearby.",
   "quest_too_many": "You are already on too many quests.",
   "quest_accept_failed": "Failed to accept the quest.",
+  "quest_finish_failed": "Failed to finish the quest.",
+  "pickup_failed": "You cannot pick that up.",
+  "buy_failed": "Purchase failed.",
     "quest_task_done_suffix": " (done)",
     "quest_task_flag": "Activate flag {number}{done_suffix}",
     "quest_task_item": "Collect {item} {count}/{total}",
@@ -242,3 +245,5 @@
     "0": "Bichon Province"
   }
 }
+
+

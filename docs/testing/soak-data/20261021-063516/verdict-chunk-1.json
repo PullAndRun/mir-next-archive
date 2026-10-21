@@ -1,0 +1,62 @@
+{
+  "window": "chunk-1 [0s,1800s)",
+  "verdict": "PASS",
+  "checks": [
+    {
+      "name": "绝对：每点 p50 ≤30.0ms",
+      "ok": true,
+      "detail": "max_p50=0.61ms 超限点=0"
+    },
+    {
+      "name": "绝对：每点 p99 ≤80.0ms",
+      "ok": true,
+      "detail": "max_p99=1.03ms 超限点=0 首个=[]"
+    },
+    {
+      "name": "RSS 增长（区间·仅观察）≤10%",
+      "ok": true,
+      "detail": "区间基线=39.4MB 峰值=41.1MB 增长=+4.43%（chunk-1 预热块：仅观察，不参与 FAIL）",
+      "observe_only": true
+    }
+  ],
+  "stats": {
+    "samples": 180,
+    "warm_samples": 162,
+    "requested_duration_seconds": 14400.0,
+    "elapsed_seconds": 1800.0,
+    "p50_ms_max": 0.609,
+    "p99_ms_max": 1.035,
+    "rss_first_mb": 39.4,
+    "rss_max_mb": 41.14,
+    "handle_swing": 3.0,
+    "db_pool_first": 5.0,
+    "db_pool_max": 5.0,
+    "rss_slope_mb_per_hour": 3.658,
+    "handle_slope_per_hour": -2.981,
+    "write_failed_final": 0.0,
+    "dropped_final": 0.0,
+    "clients_requested": 100,
+    "clients_entered": null,
+    "active_min": null,
+    "active_max": null
+  },
+  "warnings": [],
+  "observe_warnings": [
+    {
+      "kind": "rss_interval_observe_only",
+      "chunk": 1,
+      "growth_ratio": 0.0443,
+      "note": "chunk-1 预热块：RSS 区间增长仅观察；chunk≥2 与整跑仍是硬判据"
+    }
+  ],
+  "index": 1,
+  "range_seconds": [
+    0.0,
+    1800.0
+  ],
+  "cumulative_slope": {
+    "rss_slope_mb_per_hour": 3.658,
+    "handle_slope_per_hour": -2.981,
+    "samples": 180
+  }
+}

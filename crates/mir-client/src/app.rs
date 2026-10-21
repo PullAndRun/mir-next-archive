@@ -78,6 +78,8 @@ struct LiveState {
     sound: SoundPlayer,
     /// 已消费到哪一条音效事件（快照整体克隆，用递增 ID 去重）。
     last_sound_id: u64,
+    /// 已消费到哪一条撞墙/回拉事件（本地提示去重；不发包）。
+    last_wall_bump_id: u64,
     /// 聊天输入框；`Some` 表示正在输入。
     chat_input: Option<String>,
     /// 是否按住 Shift（移动键 + Shift = 跑）。
@@ -229,6 +231,7 @@ pub fn run_live(
         snapshot,
         sound,
         last_sound_id: 0,
+        last_wall_bump_id: 0,
         chat_input: None,
         shift: false,
         last_chat: None,
@@ -1752,6 +1755,7 @@ impl ClientApp {
             snapshot,
             sound,
             last_sound_id: 0,
+            last_wall_bump_id: 0,
             chat_input: None,
             shift: false,
             last_chat: None,
@@ -2391,6 +2395,12 @@ impl ClientApp {
             // 等玩家切页签时由 `ui::market` 发 `@MARKET` 换页。
             if live.snapshot.market.open_version != old_market_open {
                 market_actions = live.ui.market_open_requests();
+            }
+            // 撞墙/移动被拒：服务端回同坐标 UserLocation，本地提示（零发包）。
+            let bump = live.snapshot.wall_bump_id;
+            if bump != live.last_wall_bump_id {
+                live.last_wall_bump_id = bump;
+                live.ui.wall_bump.inject(now);
             }
             // 别人身上的动作（走/跑/攻击/受击/死亡/升级…）与服务器通知的音效都在这里播。
             live.play_pending_sounds(now);

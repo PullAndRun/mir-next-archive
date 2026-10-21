@@ -149,6 +149,7 @@ verdict 的 `stats` 里同时给这三个值和 `active_max`；`samples.json` �
 | 2 | 2026-10-20 18:47:56 → 19:19 | 同上 | 同上 | **作废**（+1810s，FAIL_EARLY） | 当前**未跑满**的窗口被评（只有 1 点）；且只落盘最后一个 chunk | `soak-data/20261020-184756-aborted-by-chunk-incomplete/` |
 | 3 | 2026-10-20 19:21:15 → 20:00 | 同上 | 同上 | **作废**（+3600s，chunk-2 FAIL） | 整跑级判据逐窗口判（粒度错配）：句柄 373↔380、池 2→3、p99 连续 7 点 | `soak-data/20261020-192115-aborted-by-chunk-strict-criteria/` |
 | 4 | 2026-10-20 20:29:04 → 22:29 | 同上 | 同上 | **PARTIAL**（+7200s，chunk-4 FAIL） | **修复后验证**：真实单步台阶 RSS +5.2MB@6154s（其后零增长），判据未区分台阶/斜坡 | `soak-data/20261020-202904/`（**缺 `samples.json`，见「已知缺口」**） |
+| 3b | 2026-10-21 06:35:16 → **10:05:15（崩溃，3h30m）** | `863c7a8`（冻结树，工作树 clean，门禁 10/10） | release + nas:3001 + 100 连接 | **PARTIAL**（6/8 chunk PASS） | **orphan stdout 断管**：起跑用 `py … | Tee-Object`，外层 pwsh 随会话重启消失，python 成孤儿进程；跑到 10:05:15 时连接归零、进程消失（最可能是下一次 `print` 抛 `OSError`）；崩溃无收尾路径 → **`samples.json` 缺失**，chunk-7/8 未跑 | `soak-data/20261021-063516/`（6 份 chunk + `metrics-observer.jsonl` 1032 行旁证；`run_note` 里记了 tee 缺失与观测器） |
 | 5 | 2026-10-20 16:21:48 → 16:51 | `5e97160` 后 | 同上（1800s 短跑） | **PASS**（历史基线） | 第 20 轮 1800s 短跑，用于校准判据 | `soak-data/20261020-162148/` |
 | 6 | 2026-10-20 15:48:02 → 16:18 | `5e97160` 后 | 同上 | **作废**（RSS/句柄全 `None`） | 服务端直起无 pid 文件，探针拿不到进程 | `soak-data/20261020-154802/` |
 
@@ -189,7 +190,7 @@ verdict 的 `stats` 里同时给这三个值和 `active_max`；`samples.json` �
 [早退字段] 校验器对旧 bug 数据：['clients_entered=0 却 active_min=100：早退时两字段必须一起标未采集']（期望非空）
 ```
 
-### `--self-check` 的 16 个用例（每个判据都有自己的反例）
+### `--self-check` 的 19 个用例（每个判据都有自己的反例）
 
 | # | 用例 | 构造的坏数据 | 期望 | 实际命中判据 |
 |---|---|---|---|---|
@@ -210,6 +211,9 @@ verdict 的 `stats` 里同时给这三个值和 `active_max`；`samples.json` �
 | 14 | chunk-2 硬判 | 第 2 段 RSS 30 分钟 +10MB | **FAIL** | 证明软化**只在 chunk-1**，不是全局放水 |
 | 15 | 锯齿抗噪 | chunk 内 44→36→49 摆动、中位数平稳、末点≈首点 | **PASS** | 噪声地板（8MB）让判据高于测量噪声 |
 | 16 | 真泄漏仍红 | 30 分钟单调 +20MB | **FAIL** | 加了地板仍能抓真泄漏 |
+| 17 | chunk 边界快照 | 跑到 chunk-2 边界 | `samples.json` 存在、点数一致、`partial=true` | 边界也落盘（崩溃可复算到上一块） |
+| 18 | **stdout 断管** | 让 `sys.stdout.write` 抛 `OSError(22)` 三次 | **不中断**、只记一条、采样继续 | `safe_print()`（第 3 次真跑就是死在这） |
+| 19 | **中途崩溃** | 模拟「跑 120s 被硬杀」 | 定时快照存在、点数一致、`partial=true` | 每 60s 落盘（`SNAPSHOT_SECONDS`） |
 
 跑法：`py tools/stress/soak.py --self-check`（退出码 **1 属预期**：坏样本本该判 FAIL，这里把「会红」当证据）。
 
@@ -305,6 +309,29 @@ chunk 区间 RSS：FAIL 当且仅当  growth_bytes > max(10% × 基线, 8MB)
 
 > 原则：**判据阈值必须高于测量噪声**。否则"工具会红"就退化成"工具会随机红"，比不测更糟。
 
+### 长跑进程「不能靠管道活」：第 3 次崩溃的教训（第 23 轮）
+
+第 3 次 4h soak（冻结树 `863c7a8`）跑到 **10:05:15（t≈10408s）连接归零、进程消失**，6/8 chunk PASS、`samples.json` 缺失。
+
+**根因**：起跑命令是
+```powershell
+py tools/stress/soak.py … | Tee-Object -FilePath target/soak4h-<ts>.log
+```
+外层 pwsh 随会话重启消失后，`py.exe`/`python.exe` 成为孤儿，**stdout 管道读端不存在**。
+进程靠 pipe 缓冲又活了 3.5 小时，最终在某次 `print` 上抛 `OSError` 静默退出（stderr 也进了同一根死管道，没留下 traceback）。
+
+**三条修复（下轮生效）**：
+1. **起跑方式**：一律 `Start-Process -RedirectStandardOutput/Error`（文件重定向），**禁止 `| Tee-Object`**
+   —— 与第 12 轮 `serve.ps1` 那个坑同源；
+2. **`soak.py` 加固**：所有输出走 `safe_print()`，捕获 `OSError`/`BrokenPipeError` 后**只记一条**并继续采样
+   —— 日志断了不该让测量跟着死；
+3. **`samples.json` 定时落盘**：除 chunk 边界外，每 60s 覆盖写一次（`partial:true`），
+   把"崩溃即丢全部采样"降到最多丢 60s。
+
+> 这次也验证了两件正面的事：①`verdict-chunk-N.json` 每 30 分钟落盘，崩溃时**6 份判决全在**；
+> ② 独立观测器 `metrics-observer.jsonl`（每 10s 抓 `/metrics`+RSS/句柄）在进程死后**仍在记录**，
+> 为 gauge/RSS 序列提供了旁证。**"产物不依赖进程存活"是长跑工具的基本要求。**
+
 ### 环境噪声记录（长跑期间他人活动）
 
 长跑要求「空载机器」，但共享开发机上总有人干活。**诚实记录噪声比假装干净更有用**：
@@ -312,6 +339,8 @@ chunk 区间 RSS：FAIL 当且仅当  growth_bytes > max(10% × 基线, 8MB)
 | 时间窗（本地 +08:00） | 活动 | 是否跑 cargo | 预期影响 |
 |---|---|---|---|
 | 18:12:04 – 18:14:35 | 礼部起了一个 debug 服务端（端口 **7031**，无数据库，加载 1922 怪）实测启动/停止/日志命令；18:14:35 用 `serve.ps1 -Stop` **精确停**（未按进程名杀） | 否 | 极小：不同端口、独立进程；仅对 9090 做过一次只读 `/metrics` 抓取 |
+| 07:42 – 07:53（第 3 次 run 期间） | 工部在静默窗口内编译：`cargo test -p mir-client` ×5、`cargo check` ×2、`clippy` ×3、`fmt` ×3 | 是 | 影响评估：chunk-2/3 的 p99 max 1.062/1.027ms（上限 80ms）、RSS 区间 +1.04%/+0.22%，**未造成判决变化**；但违反静默约定，已要求 10:43 前不再编译 |
+| 07:11:46 – 10:43（第 3 次 run 全程） | 户部起了一个**独立观测器** `target/soak_observer.py`（每 10s 抓一次 `/metrics` + 进程 RSS/句柄，写 `metrics-observer.jsonl`） | 是（每 10s 一次 HTTP GET） | 可忽略（<0.1% CPU）：与 soak 自身的采样同频，但多一份独立证据链，用于 tee 日志缺失时复原 gauge/RSS 序列 |
 | 23:37:41 – 23:39 | 户部为了判断『他人是否修完』跑了一次 `cargo clippy --workspace --all-targets`（**已退出**，非常驻） | **是**（一次 workspace clippy） | 无（此时没有 soak 在跑）。**教训**：非队长安排不自跑 workspace 级编译；有静默窗口公告时一律不编译；判断状态用 `Get-Process`/`git status --porcelain`（零成本），不要用分钟级编译去轮询 |
 
 > 噪声窗口与 soak 起跑（18:13:03）重叠约 1.5 分钟；该区间内的采样点仍全部合规（见 chunk-1）。

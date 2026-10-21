@@ -81,6 +81,9 @@ CRITERIA = {
 #: 规格连接数。
 REQUIRED_CLIENTS = 100
 
+# 定时快照间隔（秒）：崩溃时最坏丢这么多采样
+SNAPSHOT_SECONDS = 60.0
+
 
 def load_stress():
     """把 `stress.py` 当模块加载，复用 Worker / ProcessProbe / scrape_metrics / read_pid。"""
@@ -747,6 +750,29 @@ def sample_once(probe, pid: int | None, metrics_url: str, started: float) -> dic
     }
 
 
+def safe_print(*args, **kwargs) -> None:
+    """输出到 stdout，但**绝不因断管/管道关闭而杀死测量进程**。
+
+    第 23 轮第 3 次真跑的教训：起跑用 `| Tee-Object`，外层 pwsh 消失后 stdout 无读者，
+    进程在 3.5 小时后于某次 `print` 上抛 `OSError` 静默退出，导致 4h 数据只拿到 3.5h。
+    这里把 `OSError`/`BrokenPipeError` 吞成一条 stderr 提示（只记一次），采样继续。
+    """
+    global _STDOUT_BROKEN
+    if _STDOUT_BROKEN:
+        return
+    try:
+        print(*args, **kwargs)
+    except (BrokenPipeError, OSError) as exc:  # 管道关闭 / 句柄无效
+        _STDOUT_BROKEN = True
+        try:
+            print(f"[warn] stdout 已断（{exc}），后续输出静默；采样继续", file=sys.stderr)
+        except Exception:
+            pass
+
+
+_STDOUT_BROKEN = False
+
+
 def write_samples(out_dir: str, samples: list[dict], meta: dict, suffix: str = "") -> tuple[str, str]:
     """把原始采样落盘（`samples<suffix>.json` + `.csv`）。**正常结束与早退都要调用**。
 
@@ -778,10 +804,11 @@ def write_json(path: str, payload: dict) -> None:
 def run_live(args) -> int:
     pid = resolve_server_pid(args.port, args.pid)
     if not pid:
-        print(f"[FAIL] 定位不到监听 {args.port} 的服务端进程 —— 用 --pid 指定", file=sys.stderr)
+        safe_print(f"[FAIL] 定位不到监听 {args.port} 的服务端进程 —— 用 --pid 指定", file=sys.stderr)
         return 2
     probe = stress.ProcessProbe(pid)
     started = time.time()
+    last_snapshot_at = started
     short = args.duration < CRITERIA["long_run_min_seconds"]
     suffix = "-short" if short else ""
     out_dir = args.out_dir or os.path.join("docs", "testing", "soak-data", time.strftime("%Y%m%d-%H%M%S"))
@@ -818,8 +845,8 @@ def run_live(args) -> int:
         worker.start()
         workers.append(worker)
         time.sleep(args.connect_spacing)
-    print(f"已拉起 {len(workers)} 个连接（间隔 {args.connect_spacing}s），开始采样（每 {args.sample_interval}s）")
-    print(f"requested={args.duration:.0f}s chunk={args.chunk_seconds:.0f}s 产物后缀='{suffix}'")
+    safe_print(f"已拉起 {len(workers)} 个连接（间隔 {args.connect_spacing}s），开始采样（每 {args.sample_interval}s）")
+    safe_print(f"requested={args.duration:.0f}s chunk={args.chunk_seconds:.0f}s 产物后缀='{suffix}'")
 
     samples: list[dict] = []
     realtime_chunks: dict[int, dict] = {}
@@ -840,7 +867,7 @@ def run_live(args) -> int:
 
             # 服务端没了 → 立刻中止，别白等 4 小时。
             if sample.get("rss_bytes") is None and sample.get("tick_p99_ms") is None and sample.get("t", 0) > 30:
-                print(f"  [ABORT] t=+{sample['t']:.0f}s 服务端进程/指标都读不到（PID {pid}）")
+                safe_print(f"  [ABORT] t=+{sample['t']:.0f}s 服务端进程/指标都读不到（PID {pid}）")
                 meta["elapsed_seconds"] = round(time.time() - started, 1)
                 meta["aborted"] = "server_unreachable"
                 meta["clients_entered"] = sum(1 for worker in workers if worker.entered)
@@ -852,7 +879,7 @@ def run_live(args) -> int:
                 print_verdict(report, "soak 中止（服务端不可达）")
                 return 1
 
-            print(
+            safe_print(
                 f"  t=+{sample['t']:8.1f}s p50={sample['tick_p50_ms']}ms p99={sample['tick_p99_ms']}ms "
                 f"rss={None if rss is None else round(rss / 1e6, 1)}MB handles={sample['handles']} "
                 f"db_pool={sample['db_pool_connections']} dropped={sample['packets_dropped_total']} "
@@ -876,15 +903,24 @@ def run_live(args) -> int:
                         report_item,
                     )
                     realtime_chunks[report_item["index"]] = report_item
+                # 每个 chunk 边界都刷新一次原始采样（崩溃/断电时至少能复算到上一块）。
+                # 用**副本**写，避免污染进程内的 meta（verdict 仍用进程结束时的那份）。
+                partial_meta = {
+                    **meta,
+                    "elapsed_seconds": round(elapsed, 1),
+                    "partial": True,
+                    "partial_through_chunk": latest["index"],
+                }
+                write_samples(out_dir, samples, partial_meta, suffix)
                 chunk_path = os.path.join(out_dir, f"verdict-chunk-{latest['index']}{suffix}.json")
-                print(
+                safe_print(
                     f"  [chunk-{latest['index']}] verdict={latest['verdict']} "
                     f"rss_slope={latest['cumulative_slope']['rss_slope_mb_per_hour']}MB/h "
                     f"handle_slope={latest['cumulative_slope']['handle_slope_per_hour']}/h → {chunk_path}"
                 )
                 if first_failure is not None:
                     failed = window_reports[first_failure - 1]
-                    print(f"  [FAIL_EARLY] chunk-{first_failure} 判据未通过，立即停止：")
+                    safe_print(f"  [FAIL_EARLY] chunk-{first_failure} 判据未通过，立即停止：")
                     print_verdict(failed, f"chunk-{first_failure} 失败明细")
                     meta["elapsed_seconds"] = round(elapsed, 1)
                     meta["failed_chunk"] = first_failure
@@ -903,6 +939,22 @@ def run_live(args) -> int:
             if time.time() - started >= args.duration:
                 break
             time.sleep(args.sample_interval)
+            # ---- 定时快照（每 60s）----
+            # 第 23 轮第 3 次崩溃的教训：进程被 stdout 断管打死时没有收尾路径，
+            # samples.json 完全丢失。这里每 60s 覆盖写一次，最坏只丢 60s 采样。
+            if time.time() - last_snapshot_at >= SNAPSHOT_SECONDS:
+                snapshot_meta = {
+                    **meta,
+                    "elapsed_seconds": round(time.time() - started, 1),
+                    "partial": True,
+                    "snapshot_seconds": SNAPSHOT_SECONDS,
+                }
+                try:
+                    write_samples(out_dir, samples, snapshot_meta, suffix)
+                except OSError as exc:
+                    safe_print(f"  [warn] 定时快照失败：{exc}", file=sys.stderr)
+                last_snapshot_at = time.time()
+
     finally:
         for worker in workers:
             worker.stop()
@@ -915,7 +967,7 @@ def run_live(args) -> int:
     dropped_workers = [worker for worker in workers if worker.error]
     meta["client_errors"] = len(dropped_workers)
     if dropped_workers:
-        print(f"客户端异常 {len(dropped_workers)} 个，示例：{dropped_workers[0].error}")
+        safe_print(f"客户端异常 {len(dropped_workers)} 个，示例：{dropped_workers[0].error}")
 
     # 收尾：补齐剩余 chunk（含最后一段不满的），再做整跑判决。
     final_chunks, first_failure = evaluate_chunks(samples, meta, elapsed=meta["elapsed_seconds"])
@@ -926,7 +978,7 @@ def run_live(args) -> int:
     crosscheck = crosscheck_chunks(realtime_chunks, recomputed_map)
     write_json(os.path.join(out_dir, f"chunk-crosscheck{suffix}.json"), crosscheck)
     if not crosscheck["ok"]:
-        print(f"  [WARN] 实时 chunk 与重算结果不一致：{crosscheck['mismatches']}（见 chunk-crosscheck.json）")
+        safe_print(f"  [WARN] 实时 chunk 与重算结果不一致：{crosscheck['mismatches']}（见 chunk-crosscheck.json）")
 
     report = evaluate_window(samples, meta, label="full")
     report["meta"] = meta
@@ -947,12 +999,12 @@ def run_live(args) -> int:
         f"soak 判决（requested {meta['requested_duration_seconds']:.0f}s / "
         f"elapsed {meta['elapsed_seconds']:.0f}s / {len(samples)} 采样 / {len(final_chunks)} chunk）",
     )
-    print(
+    safe_print(
         f"\n时长自证：requested={meta['requested_duration_seconds']:.0f}s "
         f"elapsed={meta['elapsed_seconds']:.1f}s duration_ok={report['duration_ok']}"
     )
-    print(f"中间 verdict：{len(final_chunks)} 份 chunk；失败 chunk={meta.get('failed_chunk')}")
-    print(
+    safe_print(f"中间 verdict：{len(final_chunks)} 份 chunk；失败 chunk={meta.get('failed_chunk')}")
+    safe_print(
         f"原始数据：{os.path.relpath(out_dir, ROOT)}/samples{suffix}.json, "
         f"samples{suffix}.csv, verdict{suffix}.json"
     )
@@ -1249,6 +1301,65 @@ def self_check() -> int:
     print(f"  [真泄漏仍红] verdict={leak_report['verdict']}（期望 FAIL）")
     if leak_report["verdict"] != "FAIL":
         failures.append(f"加了噪声地板后抓不到真泄漏：verdict={leak_report['verdict']}")
+
+    # 17) chunk 边界落盘：模拟「跑到 chunk-2 边界」，断言 samples.json 存在且带 partial 标记
+    import tempfile
+    with tempfile.TemporaryDirectory() as temp_dir:
+        boundary_dir = os.path.join(temp_dir, "boundary")
+        os.makedirs(boundary_dir, exist_ok=True)
+        boundary_samples = baseline_series(count=360, duration=3600.0)
+        partial_meta = {**base_meta(), "elapsed_seconds": 3607.0, "partial": True, "partial_through_chunk": 2}
+        json_path, csv_path = write_samples(boundary_dir, boundary_samples, partial_meta, "")
+        saved = json.load(open(json_path, encoding="utf-8"))
+        count = len(saved.get("samples") or [])
+        print(f"  [边界落盘] samples.json 存在={os.path.exists(json_path)} 点数={count}"
+              f"（期望 360）partial={saved['meta'].get('partial')}")
+        if not os.path.exists(json_path) or count != 360 or not saved["meta"].get("partial"):
+            failures.append(
+                f"chunk 边界未落 samples：exists={os.path.exists(json_path)} count={count} "
+                f"partial={saved['meta'].get('partial')}"
+            )
+
+    # 18) stdout 断管：safe_print 必须吞掉 OSError 并让测量继续
+    import tempfile as _tempfile
+    broken = {"hit": 0}
+    original_stdout = sys.stdout
+
+    class _Broken:
+        def write(self, *_args, **_kwargs):
+            broken["hit"] += 1
+            raise OSError(22, "Invalid argument")
+
+        def flush(self):
+            raise OSError(22, "Invalid argument")
+
+    try:
+        sys.stdout = _Broken()
+        soak_module = sys.modules["__main__"]
+        soak_module._STDOUT_BROKEN = False
+        for index in range(3):
+            safe_print(f"第 {index} 行输出（应被吞）")
+        continued = True   # 走到这里 = 没被异常打断
+    finally:
+        sys.stdout = original_stdout
+        soak_module._STDOUT_BROKEN = False
+    print(f"  [断管加固] 3 次 safe_print 被吞={broken['hit'] > 0} 流程未中断={continued}（期望 True/True）")
+    if not broken["hit"] or not continued:
+        failures.append(f"safe_print 未吞掉断管异常：hit={broken['hit']} continued={continued}")
+
+    # 19) 中途崩溃仍有 samples：模拟「跑 120s 后被硬杀」→ 定时快照文件必须可读且带 partial
+    with _tempfile.TemporaryDirectory() as crash_dir:
+        crash_samples = baseline_series(count=12, duration=120.0)
+        crash_meta = {**base_meta(), "elapsed_seconds": 120.0, "partial": True,
+                      "snapshot_seconds": SNAPSHOT_SECONDS}
+        crash_json, crash_csv = write_samples(crash_dir, crash_samples, crash_meta, "")
+        loaded = json.load(open(crash_json, encoding="utf-8"))
+        ok = (os.path.exists(crash_json) and len(loaded["samples"]) == 12
+              and loaded["meta"].get("partial") is True)
+        print(f"  [崩溃兜底] 定时快照存在={os.path.exists(crash_json)} 点数={len(loaded['samples'])} "
+              f"partial={loaded['meta'].get('partial')}（期望 12/True）")
+        if not ok:
+            failures.append("中途崩溃时定时快照不可用")
 
     print("\n=== self-check 结论 ===")
     if failures:

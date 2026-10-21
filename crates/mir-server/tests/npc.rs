@@ -33,6 +33,8 @@ use mir_server::npc::{
 use mir_server::world::{Player, World};
 use tokio::sync::mpsc;
 
+mod common;
+
 const MAP: &str = "0";
 
 // ---------------------------------------------------------------------------
@@ -1258,8 +1260,10 @@ fn prices_follow_crystal_formulas() {
 /// `resource/` 里的 Jev 数据集（缺失时跳过）：比奇省的真实 NPC 与脚本。
 #[test]
 fn real_database_npcs_and_scripts() {
-    let Ok(data) = GameData::discover() else {
-        eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
+    // 这条用例验证 **Jev（英文）NPC 数据契约**（比奇省 70+ 条 ShowOnBigMap 传送点等）；
+    // 默认数据集已切 cjlaaa（中文，见 docs/world/data-languages.md），显式钉住 Jev。
+    let Some(data) = common::jev_data() else {
+        eprintln!("skip: Jev Server.MirDB not available under resource/");
         return;
     };
     let Some(envir) = data.envir_dir().map(Path::to_path_buf) else {
@@ -1272,7 +1276,7 @@ fn real_database_npcs_and_scripts() {
     }
     let mut world = World::new(999);
     world.seed_rng(2024);
-    world.set_game_data(Arc::new(data));
+    world.set_game_data(data);
     let spawned = world.spawn_npcs(MAP);
     assert!(!spawned.is_empty(), "比奇省应该有 NPC");
     eprintln!("比奇省 NPC 数量：{}", spawned.len());
@@ -1305,8 +1309,10 @@ fn real_database_npcs_and_scripts() {
 /// 真实数据上的对话/商店冒烟：找一个带 `[Trade]` 的 NPC，确认商品表非空。
 #[test]
 fn real_database_shop_has_goods() {
-    let Ok(data) = GameData::discover() else {
-        eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
+    // 这条用例验证 **Jev（英文）NPC 数据契约**（比奇省 70+ 条 ShowOnBigMap 传送点等）；
+    // 默认数据集已切 cjlaaa（中文，见 docs/world/data-languages.md），显式钉住 Jev。
+    let Some(data) = common::jev_data() else {
+        eprintln!("skip: Jev Server.MirDB not available under resource/");
         return;
     };
     if data.envir_dir().is_none() {
@@ -1314,7 +1320,7 @@ fn real_database_shop_has_goods() {
         return;
     }
     let mut world = World::new(999);
-    world.set_game_data(Arc::new(data));
+    world.set_game_data(data);
     world.spawn_npcs(MAP);
     let mut checked = 0;
     for npc in world.npcs() {

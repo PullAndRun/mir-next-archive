@@ -29,10 +29,26 @@
 ```powershell
 pwsh -NoProfile -File tools/dev/clean.ps1 -DryRun   # 先看会删什么
 pwsh -NoProfile -File tools/dev/clean.ps1           # 清临时产物（不触发重建）
-pwsh -NoProfile -File tools/dev/clean.ps1 -Deep     # 只在磁盘紧张时做（会全量重建 5–10 分钟）
+pwsh -NoProfile -File tools/dev/clean.ps1 -Deep     # 只在磁盘告急时（默认 <120GB 会拒绝，需 -Force）
 ```
 
 `clean.ps1` 的安全闸：检测到 `cargo`/`rustc`/`mir-server` 在运行时**直接退出（exit 2）**，不会误删正在用的东西。
+
+## 3.1 清理频率（不要频繁清）
+
+| 动作 | 频率 | 说明 |
+|---|---|---|
+| 默认 `clean.ps1`（日志/临时 exe/`*-verify`/pycache） | 每轮收尾 | **不触发重编译**，写盘几乎为零 |
+| `-Deep`（`cargo clean` 整个 target） | **仅磁盘告急（<120GB）或产物损坏时** | 全量重建会额外写 5–10 GB；磁盘充足时脚本会拒绝（需 `-Force`） |
+| 删除/复制 `target` 做出独立验证目录 | **禁止** | 这是上次 247 GB 的主因；用共享 `CARGO_TARGET_DIR` 或直接在主干跑 |
+
+## 3.2 对 SSD 寿命的影响（结论：正确用几乎无影响）
+
+- **删除文件**只改元数据 + TRIM，几乎不产生写入；真正磨损来自**重新编译的写入**。
+- 一次全量重建约写 **5–10 GB**；本机 C: 是 2TB NVMe（Solidigm），典型 TBW 数百 TB，
+  即使每天全量重建（≈300 GB/月）也远低于寿命阈值——但**没必要**，因为干净清理不重建。
+- 真正的浪费是**复制 target 做独立验证**（一次 15–61 GB 写入），已在制度里禁止。
+- 建议：把 `clean.ps1` 的默认动作挂在每轮收尾；`-Deep` 只在 `C:` 可用 < 120 GB 时执行一次。
 
 ## 4. 历史教训（为什么要立这条）
 

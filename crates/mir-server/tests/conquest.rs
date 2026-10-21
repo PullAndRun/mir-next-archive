@@ -22,7 +22,6 @@ use mir_core::i18n::{Language, TextKey, format_text, text};
 use mir_db::{ConquestFlagInfo, NpcInfo};
 use mir_protocol::ServerPacket;
 use mir_protocol::data::Stats;
-use mir_server::gamedata::GameData;
 use mir_server::{
     ActiveBuff, BuffKind, ConquestError, ConquestSettings, MemoryStore, Npc, World, minute_of_day,
     weekday_index,
@@ -32,8 +31,10 @@ use common::*;
 
 #[test]
 fn real_database_exposes_a_complete_conquest_record() {
-    let Ok(data) = GameData::discover() else {
-        eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
+    // 这条用例验证 **Jev（英文）攻城数据契约**（唯一攻城区 "Sabuk Wall" 的 12 塔/1 门/3 墙）；
+    // 默认数据集已切 cjlaaa（中文，见 docs/world/data-languages.md），显式钉住 Jev。
+    let Some(data) = common::jev_data() else {
+        eprintln!("skip: Jev Server.MirDB not available under resource/");
         return;
     };
     let count = data.conquest_count();

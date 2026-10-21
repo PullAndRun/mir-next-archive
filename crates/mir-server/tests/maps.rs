@@ -1272,8 +1272,25 @@ fn player_can_walk_from_the_plaza_into_a_natural_teleport_point() {
     let player = harness.add_player(1, "0", BICHON_START);
     harness.packets(player);
 
-    // 4 邻域 BFS 找一条真路（比奇是城镇，直线走会撞进建筑凹角）。
+    // NPC 与**当前**存活怪物都是占格对象：不同数据集（cjlaaa/Jev）的 NPC/刷怪布局不同，
+    // 必须从 BFS 里排除，否则会规划出「穿过 NPC/站桩怪」的路径、真走时被连续拒绝
+    // （cjlaaa 的布局就会触发）。怪物会移动，真走时仍用 tick 重试兜底。
     let map = harness.world.map_of("0").expect("比奇地形").clone();
+    let mut occupied: std::collections::HashSet<(i32, i32)> = harness
+        .world
+        .npcs()
+        .iter()
+        .filter(|npc| npc.map == "0")
+        .map(|npc| (npc.position.x, npc.position.y))
+        .collect();
+    occupied.extend(
+        harness
+            .world
+            .monsters()
+            .iter()
+            .filter(|monster| monster.map == "0" && !monster.dead)
+            .map(|monster| (monster.position.x, monster.position.y)),
+    );
     let mut queue = std::collections::VecDeque::from([BICHON_START]);
     let mut came_from: HashMap<(i32, i32), Point> = HashMap::new();
     let mut seen = std::collections::HashSet::from([(BICHON_START.x, BICHON_START.y)]);
@@ -1285,7 +1302,10 @@ fn player_can_walk_from_the_plaza_into_a_natural_teleport_point() {
         }
         for (dx, dy) in [(1, 0), (0, 1), (-1, 0), (0, -1)] {
             let next = Point::new(cell.x + dx, cell.y + dy);
-            if !map.walkable(next.x, next.y) || !seen.insert((next.x, next.y)) {
+            if !map.walkable(next.x, next.y)
+                || occupied.contains(&(next.x, next.y))
+                || !seen.insert((next.x, next.y))
+            {
                 continue;
             }
             came_from.insert((next.x, next.y), cell);
@@ -1294,8 +1314,9 @@ fn player_can_walk_from_the_plaza_into_a_natural_teleport_point() {
     }
     assert!(
         found,
-        "比奇地形上从 {BICHON_START:?} 走不到传送点 {:?}（BFS 无路）",
-        movement.source
+        "比奇地形上从 {BICHON_START:?} 走不到传送点 {:?}（BFS 无路；占格对象 {} 个）",
+        movement.source,
+        occupied.len()
     );
 
     // 回溯出路径（不含起点）。

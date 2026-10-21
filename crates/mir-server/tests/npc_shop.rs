@@ -1,6 +1,10 @@
 //! NPC 商店买卖的端到端用例（无 TCP）：卖 Chicken 的真实价格、买货的包序与 Rate、`[Types]` 过滤。
 //!
-//! 全部确定性：世界随机数固定种子；脚本与数据库在临时目录构造；唯一读真实 `resource/`
+//! **本文件显式钉住 `Jev`（英文）数据集**：断言使用 `Chicken`/`Merchant_Sarah`/`Butcher1`
+//! 等 Jev 名字与英文脚本；默认数据集已切 `cjlaaa`（中文，见 `docs/world/data-languages.md`），
+//! 中文对应物是 `鸡肉`/`Merchant_Sarah`（cjlaaa 同名 NPC，脚本 `Butcher-0`）。
+//!
+//! 全部确定性：世界随机数固定种子；脚本与数据库在临时目录构造；读真实 `resource/`
 //! 的用例在 CI（没有素材）上打印跳过原因并返回。
 //!
 //! 对照 Crystal：
@@ -35,12 +39,11 @@ const REAL_MAP_SIZE: i32 = 700;
 // ---------------------------------------------------------------------------
 
 fn real_data() -> Option<Arc<GameData>> {
-    match GameData::discover() {
-        Ok(data) => Some(Arc::new(data)),
-        Err(error) => {
-            eprintln!("跳过真实数据用例：Jev 样本库不可用（{error}）");
-            None
-        }
+    if let Some(data) = common::jev_data() {
+        Some(data)
+    } else {
+        eprintln!("skip: Jev Server.MirDB not available under resource/");
+        None
     }
 }
 

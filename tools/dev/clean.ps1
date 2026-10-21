@@ -11,6 +11,11 @@
 
 .PARAMETER Deep
     运行 `cargo clean` 并删除整个 `target/`（之后需要重新构建）。
+    **不常规执行**：仅在磁盘余量告急（默认 < 120 GB）或怀疑产物损坏时用；
+    磁盘充足时加 `-Deep` 会被拒绝，需要 `-Force` 显式覆盖（避免无谓重编译写盘）。
+
+.PARAMETER Force
+    允许在磁盘充足时仍执行 `-Deep`。
 
 .PARAMETER KeepDays
     保留多少天内的 `target/*.log` 与 `tools/dev/evidence/`（默认 3）。
@@ -26,6 +31,8 @@
 [CmdletBinding()]
 param(
     [switch]$Deep,
+    [switch]$Force,
+    [int]$MinFreeGb = 120,
     [int]$KeepDays = 3,
     [switch]$DryRun
 )
@@ -99,16 +106,22 @@ Get-ChildItem $root -Recurse -Directory -Filter '__pycache__' -ErrorAction Silen
     Where-Object { $_.FullName -notmatch '\\resource\\|\\github\\' } |
     ForEach-Object { $total += Remove-Target $_.FullName 'python 缓存' }
 
-# 5) 深清：整个 target
+# 5) 深清：整个 target（**不常规**；磁盘充足时拒绝，避免无谓重编译写盘）
 if ($Deep -and (Test-Path $target)) {
-    Write-Host "==> -Deep：将删除整个 target（之后需要 cargo build 重建）" -ForegroundColor Yellow
-    if ($DryRun) {
-        Write-Host "[dry-run] 将删除 target/（$((Get-DirSizeMb $target)) MB）"
+    $freeGb = [math]::Round((Get-PSDrive C).Free / 1GB, 1)
+    if ($freeGb -ge $MinFreeGb -and -not $Force) {
+        Write-Host ("[skip] 磁盘尚有 {0} GB（阈值 {1} GB），不做 -Deep：全量重编译会额外写入数 GB。" -f $freeGb, $MinFreeGb) -ForegroundColor Yellow
+        Write-Host "       确实要清就加 -Force（例如怀疑产物损坏）。" -ForegroundColor Yellow
     } else {
-        $mb = Get-DirSizeMb $target
-        Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
-        $total += $mb
-        Write-Host "[clean] 已删除 target/（$mb MB）"
+        Write-Host "==> -Deep：将删除整个 target（之后需要 cargo build 重建）" -ForegroundColor Yellow
+        if ($DryRun) {
+            Write-Host "[dry-run] 将删除 target/（$((Get-DirSizeMb $target)) MB）"
+        } else {
+            $mb = Get-DirSizeMb $target
+            Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
+            $total += $mb
+            Write-Host "[clean] 已删除 target/（$mb MB）"
+        }
     }
 }
 

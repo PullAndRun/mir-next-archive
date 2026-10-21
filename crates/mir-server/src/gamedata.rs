@@ -45,16 +45,23 @@ use crate::world::SpawnGroup;
 /// 索引里能找到的 `Server.MirDB` 候选路径（按优先级）。
 ///
 /// 用 `python tools/asset-index/find_asset.py --name Server.MirDB` 可以列出全部。
-/// 排序依据是**配套目录的完整度**而不是版本号：`cjlaaa` 是 v105 的参考样本，但那份归档
-/// 只带了 `Server.MirDB`，没有 `Envir/`（掉落表、NPC 脚本、任务、配置全都缺），
-/// 只能用于「只读数据库本身」的验证；真正的服务器数据用带全套 `Envir/` 的样本。
+/// **默认数据集是 `cjlaaa`（简体中文库）**，这是「游戏默认全中文」的数据基础：
+/// 物品 85.7% / 怪物 77.2% / 地图 98.2% / 任务 98.1% / 技能 72.9% 为中文，
+/// NPC 对话脚本全中文（309 个 NPC 脚本 / 157 个任务脚本 / 544 只怪掉落文件 0 缺失）。
+///
+/// 排序依据是「语言 + 配套目录完整度」，不是版本号：
+/// 1. `cjlaaa`：v105，中文 + 完整 `Envir/`（Drops 583 / NPCs 326 / Quests 157 / Maps 1817）；
+/// 2. `Jev`：v111，英文，作旧内容/英文数据兜底（1641 掉落 / 660 NPC 脚本 / 161 任务）；
+/// 3. `Daneo1989`：v83，英文，旧版二进制格式覆盖。
+///
+/// 审计与切换风险见 `docs/world/data-languages.md`。
 pub const DB_CANDIDATES: &[&str] = &[
-    // v88：Envir（1641 掉落 / 660 NPC 脚本 / 53 商店 / 161 任务）+ Configs + Maps，最完整。
-    "resource/community/suprcode-crystal-database/Jev/Server.MirDB",
-    // v83：Envir（517 / 313 / 2 / 157）+ Configs，旧版格式覆盖。
-    "resource/community/clgforever910-mir2database/Daneo1989/Server.MirDB",
-    // v105：只有数据库文件，缺 Envir；放在最后当兜底。
+    // v105：简体中文库 + 完整 Envir（默认数据集；`docs/world/data-languages.md`）。
     "resource/community/suprcode-crystal-database/cjlaaa/Server.MirDB",
+    // v111：英文库，作兜底（旧版/英文内容测试与「数据契约」对照用）。
+    "resource/community/suprcode-crystal-database/Jev/Server.MirDB",
+    // v83：旧版格式覆盖（英文）。
+    "resource/community/clgforever910-mir2database/Daneo1989/Server.MirDB",
 ];
 
 /// 已加载的游戏数据。
@@ -759,8 +766,90 @@ pub fn respawn_centers(data: &GameData, map: &str) -> Vec<Point> {
 mod tests {
     use super::*;
 
+    /// 默认数据集（`DB_CANDIDATES[0]` = cjlaaa，简体中文）。
     fn sample() -> Option<GameData> {
         GameData::discover().ok()
+    }
+
+    /// 显式加载某个 variant 的 `GameData`（DB + 同目录 Envir）。
+    fn variant_sample(variant: &str) -> Option<GameData> {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+        GameData::load(
+            root.join("resource/community/suprcode-crystal-database")
+                .join(variant)
+                .join("Server.MirDB"),
+        )
+        .ok()
+    }
+
+    fn has_cjk(text: &str) -> bool {
+        text.chars()
+            .any(|ch| ('\u{4E00}'..='\u{9FFF}').contains(&ch))
+    }
+
+    #[test]
+    fn default_dataset_is_the_chinese_cjlaaa() {
+        let Some(data) = sample() else {
+            eprintln!("skip: no Server.MirDB sample under resource/");
+            return;
+        };
+        assert!(
+            data.path().to_string_lossy().contains("cjlaaa"),
+            "default dataset must be cjlaaa (docs/world/data-languages.md), got {:?}",
+            data.path()
+        );
+        // 地图标题（`比奇省`）与物品名（85.7% 中文）是「默认全中文」的两条数据证据。
+        let title = data
+            .map_info("0")
+            .map(|info| info.title.clone())
+            .unwrap_or_default();
+        assert!(
+            has_cjk(&title),
+            "default map0 title should be Chinese, got {title:?}"
+        );
+        let total = data.db.items.len();
+        let cjk = data
+            .db
+            .items
+            .iter()
+            .filter(|item| has_cjk(&item.name))
+            .count();
+        assert!(
+            cjk * 2 > total,
+            "default dataset item names should be mostly Chinese: {cjk}/{total}"
+        );
+        let monster_total = data.db.monsters.len();
+        let monster_cjk = data
+            .db
+            .monsters
+            .iter()
+            .filter(|monster| has_cjk(&monster.name))
+            .count();
+        assert!(
+            monster_cjk * 2 > monster_total,
+            "default dataset monster names should be mostly Chinese: {monster_cjk}/{monster_total}"
+        );
+        // NPC 对话也来自默认数据集（`Assistant_Jane` = 中文 `0Helper-0` 脚本）。
+        let jane = data
+            .db
+            .npcs
+            .iter()
+            .find(|npc| npc.name == "Assistant_Jane")
+            .expect("default sample must contain Assistant_Jane");
+        let script = data
+            .npc_script(&jane.file_name)
+            .expect("Assistant_Jane script must load from the default Envir");
+        let mut dialog = Vec::new();
+        for page in script.sections() {
+            for segment in &page.segments {
+                dialog.extend(segment.say.iter().cloned());
+                dialog.extend(segment.else_say.iter().cloned());
+            }
+        }
+        assert!(
+            dialog.iter().any(|line| has_cjk(line)),
+            "Assistant_Jane dialog should be Chinese, got {dialog:?}"
+        );
     }
 
     #[test]
@@ -773,7 +862,7 @@ mod tests {
         assert!(!data.db.maps.is_empty());
         assert!(
             data.map_info("0").is_some(),
-            "sample must contain BichonProvince (map filename 0)"
+            "default sample must contain map filename 0"
         );
     }
 
@@ -910,25 +999,25 @@ mod tests {
     }
 
     #[test]
-    fn windows_style_drop_path_loads_the_real_table() {
-        let Some(data) = sample() else {
-            eprintln!("skip: no Server.MirDB sample under resource/");
+    fn windows_style_drop_path_loads_the_jev_table() {
+        // 默认数据集已切 cjlaaa（无 DropPath）；这条是 Jev 数据契约的回归守卫：
+        // Jev 的 DropPath 是 `Provinces\Hen`（Windows 反斜杠），修复前在 Unix 上
+        // `dir.join("Provinces\\Hen.txt")` 找不到文件 → None → 鸡不掉 Chicken。
+        let Some(data) = variant_sample("Jev") else {
+            eprintln!("skip: no Jev Server.MirDB sample under resource/");
             return;
         };
-        // Jev 样本里 Hen 的 DropPath 是 `Provinces\Hen`（Windows 反斜杠）。
-        // 这条用例在 Linux 上就是回归守卫：修复前 `dir.join("Provinces\\Hen.txt")`
-        // 找不到文件 → None → 鸡不掉 Chicken，金币/物品整表丢失。
         let info = data
             .monster_info_by_name("Hen")
-            .expect("Jev 样本里应有 Hen 模板");
+            .expect("Jev sample must contain the Hen template");
         assert!(
             info.drop_path.contains('\\'),
-            "sample must contain a backslash drop path, got {:?}",
+            "Jev sample must contain a backslash drop path, got {:?}",
             info.drop_path
         );
         let table = data
             .drop_table(&info.drop_path)
-            .expect("Windows 风格 DropPath 在 Unix/Windows 都应能加载");
+            .expect("backslash DropPath must load on Unix and Windows");
         assert!(
             table.drops.iter().any(|drop| matches!(
                 &drop.kind,
@@ -943,7 +1032,7 @@ mod tests {
         let forward = info.drop_path.replace('\\', "/");
         let forward_table = data
             .drop_table(&forward)
-            .expect("正斜杠 DropPath 也应能加载");
+            .expect("forward-slash DropPath must load too");
         assert!(
             Arc::ptr_eq(&table, &forward_table),
             "`Provinces\\Hen` and `Provinces/Hen` must hit the same cache entry"

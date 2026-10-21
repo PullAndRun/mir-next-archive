@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use std::collections::{BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use mir_core::Point;
@@ -12,6 +13,47 @@ use mir_server::gamedata::GameData;
 use mir_server::{GuildSettings, MemoryStore, NpcState, Player, World, combat};
 use mir_world::{Map, MapCell, MapVersion};
 use tokio::sync::mpsc;
+
+// ---------------------------------------------------------------------------
+// 数据集（`docs/world/data-languages.md`）
+// ---------------------------------------------------------------------------
+
+/// `resource/community/suprcode-crystal-database`（各 variant 的父目录）。
+#[must_use]
+pub fn dataset_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("resource/community/suprcode-crystal-database")
+}
+
+/// 某个 variant 的 `Server.MirDB`；缺失（CI 没有 `resource/`）时返回 `None`。
+#[must_use]
+pub fn dataset_db_path(variant: &str) -> Option<PathBuf> {
+    let path = dataset_root().join(variant).join("Server.MirDB");
+    path.is_file().then_some(path)
+}
+
+/// 加载某个 variant 的完整 `GameData`（DB + 同目录 `Envir/`）。
+#[must_use]
+pub fn load_dataset(variant: &str) -> Option<Arc<GameData>> {
+    GameData::load(dataset_db_path(variant)?).ok().map(Arc::new)
+}
+
+/// 默认数据集（`cjlaaa`，简体中文）：生产 `GameData::discover()` 的首选项。
+#[must_use]
+pub fn default_data() -> Option<Arc<GameData>> {
+    load_dataset("cjlaaa")
+}
+
+/// Jev（英文）数据集：**只给「Jev 数据契约」用例显式钉住**。
+///
+/// 默认数据集已切 cjlaaa（中文），依赖英文名/英文任务脚本/英文 NPC 的用例如果
+/// 还想验证 Jev 的数据契约，必须走这个入口；否则会随默认数据集漂移。
+#[must_use]
+pub fn jev_data() -> Option<Arc<GameData>> {
+    load_dataset("Jev")
+}
 
 /// 攻城区主键（配表 `ConquestInfo.Index`）。
 pub const CONQUEST: i32 = 1;

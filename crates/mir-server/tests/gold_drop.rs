@@ -1,5 +1,12 @@
 //! 金币掉落链路取证（第 26 轮 EQ-1 配套）：真实 Jev 数据 + 确定性单测。
 //!
+//! # 数据集
+//!
+//! **本文件显式钉住 `Jev`（英文）数据集**：断言使用 `Hen`/`Chicken`/`Scarecrow0`
+//! 等 Jev 名字与 `Provinces\...` 反斜杠掉落路径，验证的是 **Jev 数据契约**。
+//! 默认数据集（`cjlaaa` 中文，见 `docs/world/data-languages.md`）的中文对应物是
+//! `鸡`/`鸡肉`/`稻草人`，行为用例见 `docs/world/economy.md`。
+//!
 //! # 背景
 //!
 //! EQ-1 的 C 段卡在「修理要 2 金币，角色 0 金币」，工部打怪 90s 没见到金币。
@@ -39,14 +46,13 @@ use common::Harness;
 
 const MAP: &str = common::MAP;
 
-/// 真实 Jev 数据；缺失（CI）时返回 `None`，调用方打印原因并跳过。
+/// 真实 Jev 数据（显式钉住，不随默认数据集漂移）；缺失（CI）时返回 `None`，调用方跳过。
 fn real_data() -> Option<Arc<GameData>> {
-    match GameData::discover() {
-        Ok(data) => Some(Arc::new(data)),
-        Err(error) => {
-            eprintln!("跳过真实数据用例：Jev 样本库不可用（{error}）");
-            None
-        }
+    if let Some(data) = common::jev_data() {
+        Some(data)
+    } else {
+        eprintln!("skip: Jev Server.MirDB not available under resource/");
+        None
     }
 }
 

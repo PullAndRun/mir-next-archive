@@ -30,6 +30,8 @@ use mir_server::quests::{MAX_DAILY_COMPLETIONS, QuestError, QuestProgressState, 
 use mir_server::world::{Player, World};
 use tokio::sync::mpsc;
 
+mod common;
+
 const MAP: &str = "0";
 
 // ---------------------------------------------------------------------------
@@ -504,8 +506,10 @@ fn page_text(packets: &[ServerPacket]) -> Vec<String> {
 
 #[test]
 fn real_quest_script_parses_into_tasks_and_rewards() {
-    let Ok(data) = GameData::discover() else {
-        eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
+    // 这些 `real_*` 用例验证的是 **Jev（英文）任务数据契约**（ForestYeti/Smith/Luke/任务 5/154）；
+    // 默认数据集已切 cjlaaa（中文，见 docs/world/data-languages.md），所以显式钉住 Jev。
+    let Some(data) = common::jev_data() else {
+        eprintln!("skip: Jev Server.MirDB not available under resource/");
         return;
     };
     let Some(envir) = data.envir_dir() else {
@@ -1739,8 +1743,10 @@ fn quest_progress_round_trips_through_the_byte_block() {
 
 #[test]
 fn real_database_quests_and_npc_links() {
-    let Ok(data) = GameData::discover() else {
-        eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
+    // 这些 `real_*` 用例验证的是 **Jev（英文）任务数据契约**（ForestYeti/Smith/Luke/任务 5/154）；
+    // 默认数据集已切 cjlaaa（中文，见 docs/world/data-languages.md），所以显式钉住 Jev。
+    let Some(data) = common::jev_data() else {
+        eprintln!("skip: Jev Server.MirDB not available under resource/");
         return;
     };
     let Some(envir) = data.envir_dir() else {
@@ -1873,13 +1879,15 @@ fn real_database_quests_and_npc_links() {
 
 #[test]
 fn real_quest_can_be_completed_end_to_end() {
-    let Ok(data) = GameData::discover() else {
-        eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
+    // 这些 `real_*` 用例验证的是 **Jev（英文）任务数据契约**（ForestYeti/Smith/Luke/任务 5/154）；
+    // 默认数据集已切 cjlaaa（中文，见 docs/world/data-languages.md），所以显式钉住 Jev。
+    let Some(data) = common::jev_data() else {
+        eprintln!("skip: Jev Server.MirDB not available under resource/");
         return;
     };
     let mut world = World::new(999);
     world.seed_rng(7);
-    world.set_game_data(Arc::new(data));
+    world.set_game_data(data);
     let spawned = world.spawn_npcs(MAP);
     assert!(!spawned.is_empty(), "比奇省应该刷出 NPC");
 
@@ -1985,13 +1993,15 @@ fn real_quest_can_be_completed_end_to_end() {
 
 #[test]
 fn real_luke_script_gates_the_dialog_on_quest_completion() {
-    let Ok(data) = GameData::discover() else {
-        eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
+    // 这些 `real_*` 用例验证的是 **Jev（英文）任务数据契约**（ForestYeti/Smith/Luke/任务 5/154）；
+    // 默认数据集已切 cjlaaa（中文，见 docs/world/data-languages.md），所以显式钉住 Jev。
+    let Some(data) = common::jev_data() else {
+        eprintln!("skip: Jev Server.MirDB not available under resource/");
         return;
     };
     let mut world = World::new(999);
     world.seed_rng(11);
-    world.set_game_data(Arc::new(data));
+    world.set_game_data(data);
     world.spawn_npcs(MAP);
     let luke = world
         .npcs()

@@ -155,6 +155,8 @@ pub struct Metrics {
     auction_scans: AtomicU64,
     /// 累计拍卖成交数。
     auctions_sold: AtomicU64,
+    /// 60s 兜底复活触发次数（正常路径应为 0；>0 表示客户端没有发 `C.TownRevive`）。
+    revive_fallback_total: AtomicU64,
     /// 邮件队列长度（待写库的邮件数，每个 tick 更新）。
     mail_queue: AtomicU64,
     /// 累计 `save_character` 次数。
@@ -237,6 +239,17 @@ impl Metrics {
     pub fn record_auction_scan(&self, sold: u64) {
         self.auction_scans.fetch_add(1, Ordering::Relaxed);
         self.auctions_sold.fetch_add(sold, Ordering::Relaxed);
+    }
+
+    /// 记一次 60s 兜底复活（正常路径不应触发）。
+    pub fn record_revive_fallback(&self) {
+        self.revive_fallback_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 60s 兜底复活触发次数。
+    #[must_use]
+    pub fn revive_fallbacks(&self) -> u64 {
+        self.revive_fallback_total.load(Ordering::Relaxed)
     }
 
     /// 更新邮件队列长度。
@@ -481,6 +494,12 @@ impl Metrics {
             "mir2_auctions_sold_total",
             "auctions sold on expiry",
             self.auctions_sold.load(Ordering::Relaxed),
+        );
+        push_counter(
+            &mut out,
+            "mir2_revive_fallback_total",
+            "60s fallback revives (client C.TownRevive missing)",
+            self.revive_fallback_total.load(Ordering::Relaxed),
         );
         push_gauge(
             &mut out,

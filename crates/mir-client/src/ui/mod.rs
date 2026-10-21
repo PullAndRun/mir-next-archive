@@ -33,6 +33,7 @@
 pub mod bigmap;
 pub mod buffs;
 pub mod conquest;
+pub mod death;
 pub mod dialog;
 pub mod door;
 pub mod equipment;
@@ -93,6 +94,10 @@ pub struct PanelContext<'a> {
 /// 一次点击/按键产生的界面动作。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UiAction {
+    /// 点死亡弹窗「是」：发 `C.TownRevive`（index 68，空 payload）。
+    TownRevive,
+    /// 点死亡弹窗「否」或弹窗外：只关窗/吃掉点击，不发包。
+    DismissDeath,
     /// 点 NPC 按钮（`C.CallNPC`）；`key = "@exit"` 表示关窗。
     CallNpc {
         /// NPC 对象 ID。
@@ -435,6 +440,7 @@ impl UiAction {
     pub fn net_command(&self) -> Option<crate::net::NetCommand> {
         use crate::net::NetCommand;
         match self {
+            Self::TownRevive => Some(NetCommand::TownRevive),
             Self::UseItem { unique_id } => Some(NetCommand::UseItem {
                 unique_id: *unique_id,
             }),
@@ -1014,6 +1020,8 @@ pub struct UiState {
     pub approach: Option<Approach>,
     /// 点地走路的 A* 剩余路径（见 [`WalkPath`]）。
     pub walk_path: Option<WalkPath>,
+    /// 死亡弹窗状态（`S.Death` 动画播完后显示；不发包）。
+    pub death_prompt: death::DeathPrompt,
     /// 背包选中的格子。
     pub selected_slot: Option<usize>,
     /// 商店选中的货架下标。
@@ -1138,6 +1146,7 @@ impl UiState {
             target_object_id: None,
             approach: None,
             walk_path: None,
+            death_prompt: death::DeathPrompt::default(),
             selected_slot: None,
             selected_goods: None,
             selected_magic: None,
@@ -2324,6 +2333,27 @@ impl UiState {
     }
 
     /// 点击邀请弹窗（交易/组队）。弹窗是模态的：点弹窗外也算「拒绝」。
+    /// 死亡弹窗点击：`Some` 表示这次点击已被模态弹窗消费。
+    fn click_death(&mut self, snapshot: &WorldSnapshot, frame: Rect) -> Option<UiAction> {
+        let player = snapshot.self_player.as_ref()?;
+        let now = u64::try_from(self.time_millis.max(0)).unwrap_or(0);
+        self.death_prompt.sync(player);
+        if !self.death_prompt.visible(player, now) {
+            return None;
+        }
+        let layout = death::death_layout(frame);
+        if layout.accept.contains(self.mouse) {
+            self.death_prompt.confirm(player);
+            Some(UiAction::TownRevive)
+        } else {
+            if layout.reject.contains(self.mouse) {
+                self.death_prompt.dismiss(player);
+            }
+            // 弹窗是模态的：点「否」或弹窗外都吃掉这次点击。
+            Some(UiAction::DismissDeath)
+        }
+    }
+
     fn click_invite(&mut self, frame: Rect) -> Option<UiAction> {
         let layout = notice::notice_layout(frame);
         if let Some(name) = self.trade_invite.clone() {
@@ -2913,6 +2943,10 @@ impl UiState {
         walkable: Option<&dyn Fn(i32, i32) -> bool>,
     ) -> Option<UiAction> {
         self.sync(snapshot);
+        // 死亡弹窗是模态的：动画播完后优先吃掉所有点击。
+        if let Some(action) = self.click_death(snapshot, frame) {
+            return Some(action);
+        }
         // 新点击一律取消旧路径/靠近；下面点到空地时会重新设置。
         self.walk_path = None;
         self.approach = None;
@@ -3780,6 +3814,14 @@ pub fn draw(
             12,
             [255, 230, 120, 255],
         );
+    }
+    // 死亡弹窗：动画播完才出现，模态置顶。
+    let death_now = u64::try_from(state.time_millis.max(0)).unwrap_or(0);
+    if let Some(player) = &snapshot.self_player {
+        if state.death_prompt.visible(player, death_now) {
+            let layout = death::death_layout(screen);
+            death::draw(frame, text, &layout, state.language, state.mouse);
+        }
     }
     hud::draw_chat(frame, snapshot, text, chat_input, state.language);
     // 队友血条（HUD）：队伍存在时贴在聊天面板上方（需求：HUD 上显示队友血条）。

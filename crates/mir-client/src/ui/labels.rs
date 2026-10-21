@@ -280,6 +280,12 @@ pub enum Label {
     NewbieGuide,
     /// 撞墙/移动被拒的本地提示。
     WallBump,
+    /// 死亡后是否回城复活。
+    RevivePrompt,
+    /// 是。
+    Yes,
+    /// 否。
+    No,
     /// 无归属。
     ConquestUnclaimed,
     /// 系统：攻城开始。
@@ -1027,6 +1033,9 @@ impl Label {
         Self::MinimapNpcTip,
         Self::NewbieGuide,
         Self::WallBump,
+        Self::RevivePrompt,
+        Self::Yes,
+        Self::No,
         Self::ConquestUnclaimed,
         Self::SystemConquestStarted,
         Self::SystemConquestEnded,
@@ -1689,6 +1698,12 @@ impl Label {
             (Self::NewbieGuide, Language::En) => "Newbie guide",
             (Self::WallBump, Language::ZhCn) => "前方受阻",
             (Self::WallBump, Language::En) => "Blocked",
+            (Self::RevivePrompt, Language::ZhCn) => "是否回城复活？",
+            (Self::RevivePrompt, Language::En) => "Return to town and revive?",
+            (Self::Yes, Language::ZhCn) => "是",
+            (Self::Yes, Language::En) => "Yes",
+            (Self::No, Language::ZhCn) => "否",
+            (Self::No, Language::En) => "No",
             (Self::ConquestUnclaimed, Language::ZhCn) => "无归属",
             (Self::ConquestUnclaimed, Language::En) => "Unclaimed",
             (Self::SystemConquestStarted, Language::ZhCn) => "攻城开始：{}",
@@ -2248,7 +2263,7 @@ mod tests {
     #[test]
     fn every_label_has_both_languages() {
         // `Label::ALL` 是手工维护的清单：数量对不上说明加了变体没同步。
-        assert_eq!(Label::ALL.len(), 336, "新增 Label 后请同步 Label::ALL");
+        assert_eq!(Label::ALL.len(), 339, "新增 Label 后请同步 Label::ALL");
         for label in Label::ALL {
             let zh = label.text(Language::ZhCn);
             let en = label.text(Language::En);

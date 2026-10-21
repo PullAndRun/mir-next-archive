@@ -294,6 +294,8 @@ pub enum NetCommand {
     PickUp,
     /// 开门（`C.Opendoor`，index 136，payload 1 字节门号）。
     OpenDoor(u8),
+    /// 回城复活（`C.TownRevive`，index 68，空 payload）。
+    TownRevive,
     /// 切换宠物模式（`C.ChangePMode`，index 45）：跟随 / 攻击 / 休息。
     ChangePetMode(PetMode),
     /// 加好友 / 拉黑（`C.AddFriend`，index 127）。
@@ -3627,6 +3629,7 @@ fn handle_command(
         }),
         NetCommand::PickUp => ClientPacket::PickUp(c::PickUp {}),
         NetCommand::OpenDoor(door_index) => ClientPacket::Opendoor(c::Opendoor { door_index }),
+        NetCommand::TownRevive => ClientPacket::TownRevive(c::TownRevive {}),
         // 宠物模式（`C.ChangePMode`，index 45；Crystal `GameScene.ChangePetMode`，
         // `Client/MirScenes/GameScene.cs` 的 `ChangePMode` 发送处）。
         NetCommand::ChangePetMode(mode) => ClientPacket::ChangePMode(c::ChangePMode { mode }),

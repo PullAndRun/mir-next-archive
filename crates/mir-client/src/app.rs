@@ -1081,6 +1081,7 @@ impl ClientApp {
             | UiAction::MoveItem { .. }
             | UiAction::WalkStep { .. }
             | UiAction::PickUp
+            | UiAction::TownRevive
             | UiAction::AbandonQuest { .. }
             | UiAction::ReadMail { .. }
             | UiAction::CollectParcel { .. }
@@ -1219,7 +1220,7 @@ impl ClientApp {
                 live.send(NetCommand::Attack(direction));
             }
             // 设置动作在上面已经提前返回（不需要 `live` 之外的窗口句柄等字段）。
-            UiAction::Settings(_) => {}
+            UiAction::Settings(_) | UiAction::DismissDeath => {}
         }
         self.request_redraw();
     }

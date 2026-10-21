@@ -131,14 +131,16 @@ pub const PLAYER_REGEN_RATE: f64 = 0.03;
 pub const PLAYER_POT_DELAY_MS: i64 = 200;
 /// 药水每批放出多少的基数：`int PerTickRegen = 5 + (Level / 10);`（`HumanObject.cs:577`）。
 pub const POT_REGEN_BASE: i32 = 5;
-/// 死亡后自动复活的等待时间（毫秒）。
+/// 死亡后的安全兜底复活时间（毫秒）。
 ///
-/// Crystal **没有**服务端复活计时器：死亡后由客户端在死亡动画结束（`DeadTime`）时弹窗，
-/// 玩家点「是」才发 `C.TownRevive`（`Client/MirScenes/GameScene.cs:1269-1281`
-/// → `Server/MirNetwork/MirConnection.cs:1643-1648`）。mir-next 在服务端计时自动
-/// **原地**复活（等价 `HumanObject.Revive`，`HumanObject.cs:1690-1721`），
-/// 时长取客户端「死亡动画 + 弹窗」的量级 10 秒。
-pub const PLAYER_REVIVE_DELAY_MS: i64 = 10_000;
+/// Crystal **没有**服务端复活计时器：死亡后由客户端弹窗，玩家点「是」才发
+/// `C.TownRevive`（`Client/MirScenes/GameScene.cs:1269-1281`
+/// → `Server/MirNetwork/MirConnection.cs:1643-1648`）。第 26 轮起正常路径是
+/// 玩家主动 `C.TownRevive`；这里的 60s 只是防止会话永久卡死的兜底，触发时
+/// 会写 WARN 并增加 `mir2_revive_fallback_total`，**不再是 10s 自动复活**。
+pub const PLAYER_REVIVE_DELAY_MS: i64 = 60_000;
+/// 兜底复活的显式别名，便于新代码表达意图。
+pub const PLAYER_REVIVE_FALLBACK_MS: i64 = PLAYER_REVIVE_DELAY_MS;
 /// PK 值：击杀一个「非红名、非棕名」玩家给凶手加的点数
 /// （Crystal `PlayerObject.cs:611`：`hitter.PKPoints = Math.Min(int.MaxValue, LastHitter.PKPoints + 100)`）。
 pub const PK_POINTS_PER_KILL: i32 = 100;
@@ -2435,11 +2437,18 @@ impl World {
             // `HumanObject.cs:462-468`）。
             self.tick_player_hiding(object_id, now);
             self.tick_player_poison(object_id, now);
-            // Crystal 没有服务端复活计时器；到点自动复活是本作的扩展（见 `PLAYER_REVIVE_DELAY_MS`）。
+            // 60s 安全兜底：正常路径是客户端 `C.TownRevive`；只有客户端长时间没有动作
+            // 才触发，必须留 WARN/指标，不能静默复活。
             let due = self.players.get(&object_id).is_some_and(|player| {
                 player.dead && player.revive_time > 0 && now >= player.revive_time
             });
             if due {
+                tracing::warn!(
+                    object_id,
+                    "玩家死亡超过 {}ms 未收到 C.TownRevive，触发安全兜底原地复活",
+                    PLAYER_REVIVE_FALLBACK_MS
+                );
+                crate::metrics::metrics().record_revive_fallback();
                 self.revive_player(object_id);
             }
             // 新邮件提示：Crystal 在 `PlayerObject.Process` 里检查 `NewMail`
@@ -3318,6 +3327,26 @@ impl World {
         self.group_member_map_name_changed(player_id);
         self.group_player_location(player_id);
         true
+    }
+
+    /// `C.TownRevive`：把死亡玩家移动到回城/出生点，再走 [`World::revive_player`]。
+    ///
+    /// Crystal `PlayerObject.TownRevive`（`PlayerObject.cs:1392-1455`）会切回
+    /// 所属城镇/出生点并满血满蓝；本作的回城点来自 `ServerConfig.start_map/start_point`。
+    /// 先改地图/坐标（`place_player` 同步 AOI），再复活，保证 `S.ObjectRevived`
+    /// 广播的是新位置；返回是否真的复活。
+    pub fn town_revive_player(&mut self, player_id: u32, map: &str, position: Point) -> bool {
+        if !self
+            .players
+            .get(&player_id)
+            .is_some_and(|player| player.dead)
+        {
+            return false;
+        }
+        if !self.place_player(player_id, map, position) {
+            return false;
+        }
+        self.revive_player(player_id)
     }
 
     /// `HumanObject.SetHP`（`HumanObject.cs:858-869`）：赋值 → 夹到上限 → 归零则死 → 同步血量。

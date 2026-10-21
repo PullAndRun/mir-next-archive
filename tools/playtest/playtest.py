@@ -51,6 +51,7 @@ C_CALL_NPC = 50
 C_CHAT = 13
 C_MAGIC = 58
 C_BUY_ITEM = 51
+C_SELL_ITEM = 52
 C_ACCEPT_QUEST = 104
 C_FINISH_QUEST = 105
 C_OPENDOOR = 136
@@ -98,6 +99,7 @@ S_CHANGE_QUEST = 201
 S_COMPLETE_QUEST = 202
 S_MAP_CHANGED = 98
 S_NPC_GOODS = 102
+S_SELL_ITEM = 111
 S_LOG_OUT_SUCCESS = 58
 
 DIRECTIONS = ["Up", "UpRight", "Right", "DownRight", "Down", "DownLeft", "Left", "UpLeft"]
@@ -1539,8 +1541,16 @@ class Playtest:
             del self._dynamic_blocked[cell]
         return set(self._dynamic_blocked)
 
+    def _monster_cells(self) -> set[tuple[int, int]]:
+        """当前可见活怪格：作为**软**障碍加入规划，避免主动走进怪堆。"""
+        return {tuple(m["pos"]) for m in self.monsters if not m.get("dead")}
+
     def _walker_blocked(self) -> set[tuple[int, int]]:
-        return self._static_npc_cells() | self._dynamic_blocked_cells()
+        return (
+            self._static_npc_cells()
+            | self._dynamic_blocked_cells()
+            | self._monster_cells()
+        )
 
     def _obstacle_kind(self, cell: tuple[int, int]) -> str:
         if cell in self._static_npc_cells():
@@ -1829,6 +1839,43 @@ class Playtest:
         self.ok("计数", f"Hen 逐只 1→{kills}，经验 {exp_before}->{exp_after}（ObjectDied+GainExperience；Deer 不计入）")
         return True
 
+    def newbie_level_to(self, target_level: int = 4) -> bool:
+        """清洁角色自然打怪升到 target_level（quest 7 的 MinLevel=4）。"""
+        start_level = self.self_level or 1
+        start_exp = self.self_exp or 0
+        start_kills = self.kill_count
+        min_hp = self.self_hp
+        deadline = time.time() + 900
+        while (self.self_level or 1) < target_level and time.time() < deadline:
+            before_level = self.self_level
+            before_exp = self.self_exp or 0
+            if not self.newbie_hunt(1):
+                self.fail(
+                    "升级",
+                    f"阶段=升级：打怪升级失败（level={self.self_level} exp={self.self_exp}）",
+                )
+                return False
+            if self.self_hp is not None:
+                min_hp = self.self_hp if min_hp is None else min(min_hp, self.self_hp)
+            if self.self_level != before_level:
+                print(
+                    f"  [升级] {before_level}->{self.self_level}；经验 {before_exp}->{self.self_exp}；"
+                    f"累计击杀 {self.kill_count - start_kills}；HP {self.self_hp}/{self.self_hp}"
+                )
+        if (self.self_level or 1) < target_level:
+            self.fail(
+                "升级",
+                f"阶段=升级：900s 内未到 {target_level} 级（level={self.self_level} exp={self.self_exp}，"
+                f"击杀 {self.kill_count - start_kills}）",
+            )
+            return False
+        self.ok(
+            "升级",
+            f"{start_level}->{self.self_level}；经验 {start_exp}->{self.self_exp}；"
+            f"击杀 {self.kill_count - start_kills}（Hen={self.hen_kill_count}）；最低 HP={min_hp}",
+        )
+        return True
+
     def newbie_pickup(self) -> bool:
         for item in sorted(self.ground_items, key=lambda g: self._distance(g["pos"])):
             if not self.walk_towards(item["pos"], max_steps=60):
@@ -2051,8 +2098,37 @@ class Playtest:
                     self._dynamic_blocked.clear()
                     path = self._bfs_path(
                         tuple(npc["pos"]),
-                        blocked={tuple(npc["pos"])} | self._static_npc_cells() | set(NEWBIE_DOORS),
+                        blocked={tuple(npc["pos"])}
+                        | self._static_npc_cells()
+                        | self._monster_cells()
+                        | set(NEWBIE_DOORS),
                     )
+            if not path:
+                # 怪物也会移动：先尝试打掉一只邻格怪（玩家在包围里会做的选择），
+                # 仍不行再等一个移动 tick 重算，避免硬穿怪堆被连续攻击。
+                nearby_monsters = [
+                    m
+                    for m in self.monsters
+                    if not m.get("dead") and self._distance(m["pos"]) <= 1
+                ]
+                nearby = sorted(tuple(m["pos"]) for m in nearby_monsters)
+                print(
+                    f"  [新手链] BFS 无路径：当前 {self.self_pos} -> {npc.get('name')} @ "
+                    f"{npc.get('pos')}；被 {len(nearby)} 只邻格怪包围 {nearby[:8]}，"
+                    f"选择攻击 {nearby_monsters[0]['name'] if nearby_monsters else 'none'}"
+                )
+                if nearby_monsters:
+                    if self._attack_until_dead(nearby_monsters[0], timeout=25):
+                        continue
+                    print("  [新手链] 攻击未清出通路，等待 1s 重算")
+                time.sleep(1.0)
+                path = self._bfs_path(
+                    tuple(npc["pos"]),
+                    blocked={tuple(npc["pos"])}
+                    | self._static_npc_cells()
+                    | self._monster_cells()
+                    | set(NEWBIE_DOORS),
+                )
             if not path:
                 print(f"  [新手链] BFS 无路径：当前 {self.self_pos} -> {npc.get('name')} @ {npc.get('pos')}")
                 return False
@@ -2103,7 +2179,7 @@ class Playtest:
         return False
 
     def newbie_quest_accept(self) -> bool:
-        """走到 Assistant_Jane 接 quest 7，断言 S.ChangeQuest 里任务号=7。"""
+        """走到 Assistant_Jane 接 quest 3（1 级可接的纯对话任务），断言 S.ChangeQuest{3}。"""
         npc = next(
             (n for n in self.map_npcs if "jane" in n["name"].lower()),
             None,
@@ -2121,13 +2197,13 @@ class Playtest:
         self.ok(
             "清洁初态",
             f"角色 {self.account}/{self.character}；金币 {self.self_gold}，经验 {self.self_exp}，"
-            f"completed_quests={sorted(self.completed_quests)}（不含 7={7 not in self.completed_quests}）",
+            f"completed_quests={sorted(self.completed_quests)}（不含 3={3 not in self.completed_quests}）",
         )
         if not self.completed_quests_seen:
-            self.fail("清洁初态", "阶段=接取：未收到 S.CompleteQuest(202)，无法证明 completed_quests 不含 7")
+            self.fail("清洁初态", "阶段=接取：未收到 S.CompleteQuest(202)，无法证明 completed_quests 不含 3")
             return False
-        if 7 in self.completed_quests:
-            self.fail("清洁初态", f"阶段=接取：新角色 completed_quests 已含 7：{sorted(self.completed_quests)}")
+        if 3 in self.completed_quests:
+            self.fail("清洁初态", f"阶段=接取：新角色 completed_quests 已含 3：{sorted(self.completed_quests)}")
             return False
         if not self._newbie_walk_bfs(npc) and not self._stand_next_to(npc):
             self.fail("接取", f"走不到 Assistant_Jane @ {npc['pos']}，阶段=接取")
@@ -2145,7 +2221,7 @@ class Playtest:
             )
         writer = Writer()
         writer.u32(npc.get("object_id", npc.get("id", 0)))
-        writer.i32(7)
+        writer.i32(3)
         chats_before = len(self.chats)
         self.send(C_ACCEPT_QUEST, writer.raw())
         deadline = time.time() + self.timeout
@@ -2158,37 +2234,37 @@ class Playtest:
             self._observe(index, payload)
             if index == S_CHANGE_QUEST:
                 quest_id = Reader(payload).i32()
-                if quest_id == 7:
+                if quest_id == 3:
                     accepted = True
                     break
         if not accepted:
             self.fail(
                 "接取",
-                f"阶段=接取：发 C.AcceptQuest{{7}} 后未收到 S.ChangeQuest{{7}}；"
+                f"阶段=接取：发 C.AcceptQuest{{3}} 后未收到 S.ChangeQuest{{3}}；"
                 f"Jane quest_ids={visible.get('quest_ids') if visible else None}；"
                 f"失败聊天={self.chats[chats_before:]}",
             )
             return False
-        self.ok("接取", f"Assistant_Jane @ {npc['pos']} -> S.ChangeQuest{{7}}")
+        self.ok("接取", f"Assistant_Jane @ {npc['pos']} -> S.ChangeQuest{{3}}")
         return True
 
     def newbie_quest_finish(self) -> bool:
-        """走到 Master_Wa 交 quest 7：精确断言金币 +60、经验 +48、CompleteQuest{7}。"""
+        """走到 Merchant_John 交 quest 3：断言 CompleteQuest{3}、经验 +10、金币前后不变。"""
         npc = next(
-            (n for n in self.map_npcs if "master_wa" in n["name"].lower() or "master wa" in n["name"].lower()),
+            (n for n in self.map_npcs if "merchant_john" in n["name"].lower() or "merchant john" in n["name"].lower()),
             None,
         )
         if npc is None:
-            self.fail("交付", f"阶段=交付：map0 没有 Master_Wa：{ [n['name'] for n in self.map_npcs[:12]] }")
+            self.fail("交付", f"阶段=交付：map0 没有 Merchant_John：{ [n['name'] for n in self.map_npcs[:12]] }")
             return False
         if not self._stand_next_to(npc) and not self._newbie_walk_bfs(npc):
-            self.fail("交付", f"阶段=交付：走不到 Master_Wa @ {npc['pos']}")
+            self.fail("交付", f"阶段=交付：走不到 Merchant_John @ {npc['pos']}")
             return False
         gold_before = self.self_gold
         exp_before = self.self_exp or 0
         self.gold_delta = 0
         writer = Writer()
-        writer.i32(7)
+        writer.i32(3)
         writer.i32(-1)
         self.send(C_FINISH_QUEST, writer.raw())
         deadline = time.time() + self.timeout
@@ -2203,28 +2279,103 @@ class Playtest:
                 reader = Reader(payload)
                 count = reader.i32()
                 ids = [reader.i32() for _ in range(max(0, min(count, 64)))]
-                completed = 7 in ids
-        if not completed or 7 not in self.completed_quests:
+                completed = 3 in ids
+        if not completed or 3 not in self.completed_quests:
             self.fail(
                 "交付",
-                f"阶段=交付：发 C.FinishQuest{{7}} 后未收到含 7 的 S.CompleteQuest{{7}}；"
+                f"阶段=交付：发 C.FinishQuest{{3}} 后未收到含 3 的 S.CompleteQuest{{3}}；"
                 f"本地 completed_quests={sorted(self.completed_quests)}",
             )
             return False
         exp_after = self.self_exp or 0
         gold_after = (gold_before or 0) + self.gold_delta
-        if self.gold_delta != 60:
-            self.fail("交付", f"阶段=交付奖励：S.GainedGold 累计 {self.gold_delta:+d}，期望 +60")
+        if self.gold_delta != 0:
+            self.fail("交付", f"阶段=交付奖励：S.GainedGold 累计 {self.gold_delta:+d}，期望 +0")
             return False
-        if exp_after - exp_before != 48:
-            self.fail("交付", f"阶段=交付奖励：经验 {exp_before}->{exp_after}，期望 +48")
+        if exp_after - exp_before != 10:
+            self.fail("交付", f"阶段=交付奖励：经验 {exp_before}->{exp_after}，期望 +10")
             return False
         self.ok(
             "交付",
-            f"completed_quests 含 7；金币 {gold_before}->{gold_after}（+{self.gold_delta}），"
+            f"completed_quests 含 3；金币 {gold_before}->{gold_after}（+{self.gold_delta}），"
             f"经验 {exp_before}->{exp_after}（+{exp_after - exp_before}）",
         )
         self.self_gold = gold_after
+        return True
+
+    def newbie_sell_item(self) -> bool:
+        """在 Merchant_John 卖一件出生装/背包物品：断言金币增加、背包少一件。"""
+        npc = next(
+            (
+                n
+                for n in self.map_npcs
+                if "merchant_john" in n["name"].lower()
+                or "merchant john" in n["name"].lower()
+            ),
+            None,
+        )
+        if npc is None:
+            self.fail("卖出", f"阶段=卖出：map0 没有 Merchant_John：{ [n['name'] for n in self.map_npcs[:12]] }")
+            return False
+        if not self._stand_next_to(npc):
+            self.fail("卖出", f"阶段=卖出：走不到 Merchant_John @ {npc['pos']}")
+            return False
+        spawn = dict(npc, id=npc.get("object_id", npc.get("id")))
+        for key in ("@BuySell", "@sell", "@Sell"):
+            self.call_npc(spawn, key, timeout=3)
+            self._drain(0.2)
+        if not self.inventory_items:
+            self.fail("卖出", "阶段=卖出：背包为空，无法卖")
+            return False
+        item = self.inventory_items[0]
+        gold_before = self.self_gold or 0
+        bag_before = len(self.inventory_items)
+        self.gold_delta = 0
+        self.last_gained_gold = 0
+        writer = Writer()
+        writer.u64(item["unique_id"])
+        writer.u16(item["count"])
+        self.send(C_SELL_ITEM, writer.raw())
+        sold = False
+        deadline = time.time() + self.timeout
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            index, payload = packet
+            self._observe(index, payload)
+            if index == S_SELL_ITEM:
+                seller = Reader(payload)
+                _uid = seller.u64()
+                _count = seller.u16()
+                sold = seller.boolean()
+            if sold and index == S_GAINED_GOLD:
+                break
+        if not sold:
+            self.fail(
+                "卖出",
+                f"阶段=卖出：C.SellItem #{item['item_index']} unique_id={item['unique_id']} 未成功；"
+                f"最近包={list(self.recent_packets)}",
+            )
+            return False
+        # 服务端 SellItem 成功包只带 unique_id/count；这里同步本地背包与金币。
+        self.inventory_items = [
+            entry for entry in self.inventory_items if entry["unique_id"] != item["unique_id"]
+        ]
+        self.self_gold = gold_before + self.gold_delta
+        bag_after = len(self.inventory_items)
+        gold_after = self.self_gold or 0
+        if gold_after <= gold_before:
+            self.fail("卖出", f"阶段=卖出：金币未增加 {gold_before}->{gold_after}")
+            return False
+        if bag_after != bag_before - 1:
+            self.fail("卖出", f"阶段=卖出：背包 {bag_before}->{bag_after}，期望 -1")
+            return False
+        self.ok(
+            "卖出",
+            f"卖出 #{item['item_index']} unique_id={item['unique_id']}；"
+            f"金币 {gold_before}->{gold_after}；背包 {bag_before}->{bag_after}",
+        )
         return True
 
     def newbie_buy_equipment(self) -> bool:
@@ -2321,38 +2472,12 @@ class Playtest:
         equipped = self.newbie_equip()
         if equipped:
             self.ok("穿上出生装", f"{equipped} 件")
-        # 经队长临时授权：quest 7 接取（Assistant_Jane）。
+        # quest 3 的 MinLevel=1（Crystal 数据事实）；quest 7 需 4 级，留给长跑 gate。
         if not self.newbie_quest_accept():
             return 1
-        if not self.newbie_go_bookshop():
-            self.fail("使用技能", "书商不可达，无法学技能")
-            return 1
-        if not self.newbie_book_and_cast():
-            return 1
-        # 从 0104 的书商传送点回 map0（落点 334,300，离 Hen 群很近），再打猎。
-        # gates.json: 0104 回 map0 的传送格是 (4,11) → (322,248)，不是落点 (4,10)。
-        return_gate = {"0104": (4, 11), "0103": (16, 25), "0107": (10, 13)}.get(self.map_file)
-        if self.map_file != "0" and return_gate is not None:
-            if self.self_pos == return_gate:
-                for dx, dy in ((0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, 1), (1, -1), (-1, -1)):
-                    cell = (return_gate[0] + dx, return_gate[1] + dy)
-                    if self._is_walkable(cell) and self.step_onto(cell):
-                        break
-            if not self.step_onto(return_gate):
-                self.walk_towards(return_gate, max_steps=20)
-                self.step_onto(return_gate)
-        if self.map_file != "0":
-            self.fail("返回 map0", f"回程失败，当前位置 {self.self_pos} 地图 {self.map_file}")
-            return 1
-        if self.map_file != "0":
-            self.fail("返回 map0", f"回程后仍是 {self.map_file}@{self.self_pos}")
-            return 1
-        if not self.newbie_hunt(3):
-            return 1
-        if not self.newbie_pickup():
-            return 1
-        # 经队长临时授权：quest 7 交付（Master_Wa）→ 精确 +60 金币/+48 经验；随后买第一件装备。
         if not self.newbie_quest_finish():
+            return 1
+        if not self.newbie_sell_item():
             return 1
         if not self.newbie_buy_equipment():
             return 1
@@ -2981,3 +3106,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

@@ -521,26 +521,34 @@ fn player_dies_then_revives_in_place_and_can_walk_again() {
         death_time + PLAYER_REVIVE_DELAY_MS,
         "复活时刻 = 死亡时刻 + PLAYER_REVIVE_DELAY_MS"
     );
-    let position = player.position;
-
     // 死亡期间不能走（`MoveError::Dead`）。
     harness.ready_player(victim);
     assert!(harness.world.walk(victim, MirDirection::Up).is_err());
 
-    // 差 1ms：还不复活。
-    harness.world.advance_clock(PLAYER_REVIVE_DELAY_MS - 1);
+    // 12s 内绝不能自动复活（10s 旧行为已删除；60s 才是兜底）。
+    harness.world.advance_clock(12_000);
     harness.world.tick();
-    assert!(harness.world.player(victim).unwrap().dead, "未到点不复活");
-
-    // 到点：原地满血满蓝复活。
-    harness.world.advance_clock(1);
-    harness.world.tick();
-    let player = harness.world.player(victim).unwrap();
-    assert!(!player.dead, "到点自动复活");
-    assert_eq!(
-        player.position, position,
-        "原地复活（`HumanObject.cs:1703-1704`）"
+    assert!(
+        harness.world.player(victim).unwrap().dead,
+        "12s 内不应自动复活，必须等 C.TownRevive 或 60s 兜底"
     );
+    let before_town = harness.packets(victim);
+    assert!(
+        !before_town
+            .iter()
+            .any(|packet| matches!(packet, ServerPacket::Revived(_))),
+        "12s 内不得给本人发 S.Revived：{before_town:?}"
+    );
+
+    // 主动 TownRevive：移动到回城点并满血满蓝复活。
+    let town = Point::new(30, 30);
+    assert!(
+        harness.world.town_revive_player(victim, MAP, town),
+        "TownRevive 应生效"
+    );
+    let player = harness.world.player(victim).unwrap();
+    assert!(!player.dead, "TownRevive 后应复活");
+    assert_eq!(player.position, town, "TownRevive 应回到回城点");
     assert_eq!(player.hp, player.stats.hp, "HP 补满");
     assert_eq!(player.mp, player.stats.mp, "MP 补满");
 
@@ -587,7 +595,36 @@ fn player_dies_then_revives_in_place_and_can_walk_again() {
         .world
         .walk(victim, MirDirection::Left)
         .expect("复活后可以走");
-    assert_eq!(moved, Point::new(position.x - 1, position.y));
+    assert_eq!(moved, Point::new(town.x - 1, town.y));
+}
+
+#[test]
+fn fallback_revives_only_after_60s_and_counts_metric() {
+    let mut harness = Harness::new(42);
+    let victim = harness.add_player(1, Point::new(20, 20));
+    harness.spawn(test_monster(10, 99, 99, 0), Point::new(21, 20));
+    harness.world.tick();
+    harness.world.advance_clock(300);
+    harness.world.tick();
+    assert!(harness.world.player(victim).unwrap().dead);
+
+    let before = mir_server::metrics::metrics().revive_fallbacks();
+    harness.world.advance_clock(PLAYER_REVIVE_DELAY_MS - 1);
+    harness.world.tick();
+    assert!(
+        harness.world.player(victim).unwrap().dead,
+        "59.999s 不应触发兜底"
+    );
+    harness.world.advance_clock(1);
+    harness.world.tick();
+    assert!(
+        !harness.world.player(victim).unwrap().dead,
+        "60s 兜底应复活"
+    );
+    assert!(
+        mir_server::metrics::metrics().revive_fallbacks() > before,
+        "兜底复活必须增加指标"
+    );
 }
 
 // ---------------------------------------------------------------------------

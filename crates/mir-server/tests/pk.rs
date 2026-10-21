@@ -864,9 +864,8 @@ fn revive_keeps_pk_points() {
     harness.world.tick();
     assert!(harness.world.player(target).unwrap().dead);
 
-    // 本作扩展：死亡 10 秒后自动原地复活（`PLAYER_REVIVE_DELAY_MS`）。
-    harness.world.advance_clock(10_000);
-    harness.world.tick();
+    // 正常路径由玩家/TownRevive 主动复活；10s 自动复活已删除，这里直接走世界层复活入口。
+    assert!(harness.world.revive_player(target), "主动复活应生效");
     assert!(!harness.world.player(target).unwrap().dead);
     // `PKPoints` 是 `CharacterInfo` 的存档字段（`CharacterInfo.cs:66`），死亡/复活不清零。
     assert_eq!(harness.world.player(target).unwrap().pk_points, 150);

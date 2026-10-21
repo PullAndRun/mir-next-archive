@@ -336,6 +336,7 @@ impl<S: AccountStore> Session<S> {
             ClientPacket::DeleteCharacter(packet) => self.on_delete_character(&packet).await?,
             ClientPacket::StartGame(packet) => self.on_start_game(&packet).await?,
             ClientPacket::LogOut(_) => self.on_log_out().await?,
+            ClientPacket::TownRevive(_) => self.on_town_revive().await,
             ClientPacket::Turn(packet) => self.on_turn(packet.direction).await,
             ClientPacket::Walk(packet) => self.on_move(packet.direction, false).await,
             ClientPacket::Run(packet) => self.on_move(packet.direction, true).await,
@@ -1306,6 +1307,22 @@ impl<S: AccountStore> Session<S> {
             }
             tracing::debug!(session = self.id, %error, "转身失败");
             return;
+        }
+    }
+
+    /// `C.TownRevive`（Crystal `PlayerObject.TownRevive`，`PlayerObject.cs:1392-1455`）。
+    ///
+    /// 正常死亡流程不再由服务端 10s 自动复活；玩家点客户端弹窗后发空包，服务端
+    /// 把他移到回城/出生点（`ServerConfig.start_map/start_point`）并满血满蓝。
+    async fn on_town_revive(&mut self) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let map = self.config.start_map.clone();
+        let point = Point::new(self.config.start_point.0, self.config.start_point.1);
+        let mut world = self.world.lock().await;
+        if !world.town_revive_player(object_id, &map, point) {
+            tracing::debug!(session = self.id, %map, ?point, "TownRevive 未生效（玩家未死亡或回城点不可用）");
         }
     }
 

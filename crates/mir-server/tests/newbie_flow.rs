@@ -215,7 +215,9 @@ async fn enter_new_character(
                 assert_eq!(chat.type_, mir_core::enums::ChatType::System);
                 hint = Some(chat.message.clone());
             }
-            ServerPacket::ObjectNPC(npc) if npc.name.contains("Librarian") => {
+            ServerPacket::ObjectNPC(npc)
+                if npc.name.contains("Librarian") || npc.name.contains("图书管理员") =>
+            {
                 bookshop_id = npc.object_id;
             }
             ServerPacket::ObjectNPC(npc) => {
@@ -299,7 +301,9 @@ async fn relogin_existing(
                 assert_eq!(chat.type_, mir_core::enums::ChatType::System);
                 hint = Some(chat.message.clone());
             }
-            ServerPacket::ObjectNPC(npc) if npc.name.contains("Librarian") => {
+            ServerPacket::ObjectNPC(npc)
+                if npc.name.contains("Librarian") || npc.name.contains("图书管理员") =>
+            {
                 bookshop_id = npc.object_id;
             }
             _ => {}

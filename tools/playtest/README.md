@@ -211,4 +211,16 @@ pwsh -NoProfile -File tools/dev/newbie-gate.ps1
   真怪 target=774 的 90s 打怪也未观察到 `S.ObjectGold(65)`/`S.GainedGold(67)`，
   这条经济链路留给专项审计，不再用 gate 硬凑。
 
+### cjlaaa 默认数据集（第 28 轮）
+
+* 服务端默认加载 `cjlaaa/Server.MirDB`（中文库）；`Jev` 只作英文兜底。
+* **任务奖励数值与 Jev 不同**：quest 1 经验 cjlaaa=`50`、Jev=`10`。`--quest1` 默认
+  `--expected-exp 50`；跑 Jev 数据契约时显式 `--expected-exp 10`。
+* cjlaaa 的 `MapInfo.movements` 已重新导出到 `gates.json`（90 条）；map0→0104 入口
+  `(323,247)`，0104 回程 `(4,11)`。
+* cjlaaa v105 全库 `ShowOnBigMap=false`；F1 已让 `S.NewMapInfo` 回退为该图全部
+  NPC/movements（实测 `newmapinfo=45 visible=9 merged=45`），playtest 也合并
+  `S.ObjectNPC` 双源，不再只信 `NewMapInfo.npcs`。
+
+
 

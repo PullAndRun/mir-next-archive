@@ -340,10 +340,16 @@ impl Npc {
     /// `PlayerObject.cs:1050`）。
     #[must_use]
     pub fn client_info(&self) -> ClientNPCInfo {
+        self.client_info_with_name(&self.name)
+    }
+
+    /// 同 [`Npc::client_info`]，但用调用方给的本地化名字（`S.NewMapInfo` 按会话语言渲染）。
+    #[must_use]
+    pub fn client_info_with_name(&self, name: &str) -> ClientNPCInfo {
         ClientNPCInfo {
             index: self.index,
             file_name: self.file_name.clone(),
-            name: self.name.clone(),
+            name: name.to_owned(),
             map_index: self.map_index,
             location: self.position,
             image: self.image,
@@ -359,9 +365,15 @@ impl Npc {
     /// 外观包（Crystal `NPCObject.GetInfo`，`NPCObject.cs:381-395`）。
     #[must_use]
     pub fn object_packet(&self) -> ObjectNPC {
+        self.object_packet_with_name(&self.name)
+    }
+
+    /// 同 [`Npc::object_packet`]，但用调用方给的本地化名字（`S.ObjectNPC` 按会话语言渲染）。
+    #[must_use]
+    pub fn object_packet_with_name(&self, name: &str) -> ObjectNPC {
         ObjectNPC {
             object_id: self.object_id,
-            name: self.name.clone(),
+            name: name.to_owned(),
             name_colour: mir_core::Color(NPC_NAME_COLOUR),
             image: self.image,
             // `NpcInfo.Colour` 没有存进 `Server.MirDB`（`NPCInfo.cs:20` 的字段不落盘），
@@ -377,7 +389,13 @@ impl Npc {
     /// 服务端在 `<$NPCNAME>` 里也做了一次（`NPCSegment.cs:1459`）。
     #[must_use]
     pub fn display_name(&self) -> String {
-        self.name.replace('_', " ")
+        Self::display_name_of(&self.name)
+    }
+
+    /// 任意名字的「带空格」形式（本地化名字里没有 `_` 时原样返回）。
+    #[must_use]
+    pub fn display_name_of(name: &str) -> String {
+        name.replace('_', " ")
     }
 }
 
@@ -829,6 +847,19 @@ impl World {
     /// （本作只在进世界时发一次，切图不发 `NewMapInfo`）。
     #[must_use]
     pub fn map_entry_info(&self, map_file: &str, title: &str) -> Option<ClientMapInfo> {
+        self.map_entry_info_with_language(map_file, title, None)
+    }
+
+    /// 同 [`World::map_entry_info`]，但 NPC 名字按 `language` 查语言包（`S.NewMapInfo` 用）。
+    ///
+    /// `None` = 保持 DB 英文原名（测试/无会话语言时）。
+    #[must_use]
+    pub fn map_entry_info_with_language(
+        &self,
+        map_file: &str,
+        title: &str,
+        language: Option<mir_core::Language>,
+    ) -> Option<ClientMapInfo> {
         let data = self.game_data.as_ref()?;
         let map_info: &MapInfo = data.map_info(map_file)?;
         let (width, height) = self
@@ -867,7 +898,10 @@ impl World {
             npcs = npcs_on_map;
         }
         npcs.sort_by_key(|npc| npc.big_map_icon);
-        let npcs = npcs.into_iter().map(Npc::client_info).collect();
+        let npcs = npcs
+            .into_iter()
+            .map(|npc| npc.client_info_with_name(&self.npc_name_for_language(language, npc)))
+            .collect();
         Some(ClientMapInfo {
             title: title.to_owned(),
             width,
@@ -900,12 +934,37 @@ impl World {
             };
             if npc.map == player.map && npc_visible_to(player, npc) {
                 frames.push((
-                    ServerPacket::ObjectNPC(npc.object_packet()).encode_frame(),
+                    ServerPacket::ObjectNPC(self.npc_object_packet(player.object_id, npc))
+                        .encode_frame(),
                     npc.object_id,
                 ));
             }
         }
         frames
+    }
+
+    /// NPC 名字按指定语言查语言包；`None` 或没有语言包时回退 DB 原名。
+    fn npc_name_for_language(&self, language: Option<mir_core::Language>, npc: &Npc) -> String {
+        let Some(language) = language else {
+            return npc.name.clone();
+        };
+        self.languages.as_ref().map_or_else(
+            || npc.name.clone(),
+            |languages| languages.npc_name(language, &npc.file_name, &npc.name),
+        )
+    }
+
+    /// 按玩家当前会话语言取 NPC 名字（`S.ObjectNPC` / `<$NPCNAME>` 用）。
+    fn npc_name_for(&self, player_id: u32, npc: &Npc) -> String {
+        self.npc_name_for_language(Some(self.player_language(player_id)), npc)
+    }
+
+    /// 给某个玩家看的 `S.ObjectNPC`（名字按会话语言本地化）。
+    ///
+    /// 公开给集成测试断言本地化名字；生产路径由 [`World::visible_npc_frames`] 调用。
+    #[must_use]
+    pub fn npc_object_packet(&self, player_id: u32, npc: &Npc) -> ObjectNPC {
+        npc.object_packet_with_name(&self.npc_name_for(player_id, npc))
     }
 }
 
@@ -2023,7 +2082,7 @@ impl World {
     fn placeholder_value(&self, player: &Player, npc: &Npc, key: &str) -> Option<String> {
         let key = key.to_uppercase();
         let value = match key.as_str() {
-            "NPCNAME" => npc.display_name(),
+            "NPCNAME" => Npc::display_name_of(&self.npc_name_for(player.object_id, npc)),
             "USERNAME" => player.name.clone(),
             "LEVEL" => player.level.to_string(),
             "CLASS" => class_name(player.class).to_owned(),

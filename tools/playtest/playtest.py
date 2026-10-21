@@ -321,6 +321,7 @@ class Playtest:
         self.tp1 = False
         self.quest5 = False
         self.quest1 = False
+        self.expected_quest1_exp = 50
         self.eq1 = False
         self.dr1_keep_moving = False
         self.dr1_taken_hits: list[tuple[float, int, int]] = []
@@ -3196,12 +3197,12 @@ class Playtest:
         self._drain(0.5)
         exp_after = self.self_exp or 0
         gold_after = self.self_gold or 0
-        if exp_after - exp_before != 10:
-            self.fail("quest1 奖励", f"经验 {exp_before}->{exp_after}（期望 +10）")
+        if exp_after - exp_before != self.expected_quest1_exp:
+            self.fail("quest1 奖励", f"经验 {exp_before}->{exp_after}（cjlaaa 数据期望 +50）")
             return 1
         self.ok(
             "quest1 交付/奖励",
-            f"completed_quests 含 1；经验 {exp_before}->{exp_after}（+10），金币 {gold_before}->{gold_after}",
+            f"completed_quests 含 1；经验 {exp_before}->{exp_after}（+50，cjlaaa），金币 {gold_before}->{gold_after}",
         )
         return 0
 
@@ -4124,7 +4125,8 @@ def main() -> int:
     parser.add_argument("--ps1", action="store_true", help="PS-1 进程级重登持久化（金币/装备 unique_id+耐久/技能/任务）")
     parser.add_argument("--tp1", action="store_true", help="TP-1 同图导航：接 quest 5 → 断言导航行 → 走到 movement 门格")
     parser.add_argument("--quest5", action="store_true", help="quest 5 完整任务：Smith 接取→杀 10 Deer+10 Scarecrow→交付→奖励")
-    parser.add_argument("--quest1", action="store_true", help="quest 1 完整任务：Jane 接取→任务物品栏→CraftsLady 交付→经验+10")
+    parser.add_argument("--quest1", action="store_true", help="quest 1 完整任务：Jane 接取→任务物品栏→CraftsLady 交付→经验+50(cjlaaa)；--expected-exp 可改")
+    parser.add_argument("--expected-exp", type=int, default=50, help="quest1 期望经验（cjlaaa=50，Jev=10）")
     parser.add_argument("--eq1", action="store_true", help="EQ-1 耐久：卖物→穿武器打怪掉耐久→Smith 修理→扣款")
     parser.add_argument("--dr1-keep-moving", action="store_true", help="DR-1 等待死亡时持续小范围走位（验证“移动才挨打”假设）")
     parser.add_argument(
@@ -4165,6 +4167,7 @@ def main() -> int:
     test.tp1 = args.tp1
     test.quest5 = args.quest5
     test.quest1 = args.quest1
+    test.expected_quest1_exp = args.expected_exp
     test.eq1 = args.eq1
     test.dr1_keep_moving = args.dr1_keep_moving
     try:

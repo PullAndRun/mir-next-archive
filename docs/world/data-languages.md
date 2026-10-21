@@ -183,3 +183,57 @@ cjlaaa 里仍为英文的名称（供后续本地化清单）：
 
 ### 11.6 下一步
 按队长计划做 **NPC 名映射**（309 个显示名，295 个英文）：数据源优先 `NpcInfo.Name` + 客户端字符串表/`Envir/NameLists`，产出 `config/lang/*.json` 的 `npc_names` 段，服务端 `S.ObjectNPC` 按会话语言渲染。
+
+## A+. NPC 显示名中文化（已落地）
+
+### A+.1 数据来源与覆盖
+| 来源 | 条数/覆盖 | 说明 |
+|---|---|---|
+| `resource/community/lomcn-artificialmir-client-data/ArtificialMir2/Language/zh-CN/npcs.ini` | **295 条英中对照**；cjlaaa 命中 187 个 key（174 纯中文、13 带英文残留） | 主来源；键名与 Crystal NPC 名高度重合 |
+| cjlaaa `NpcInfo.Name` 自带中文 | **14 个** | `废品回收商人`、`月饼采购员`、`南蛮药商` 等 |
+| `chansigit-mccrystal/Packs/mir-176/Server.MirDB` | 坐标精确命中 **11 个**（ini 未覆盖的 `Alchemist_Samuel` 等） | 仅用同 `(map_index,x,y)` 精确命中；≤3 格近似因误配已弃用 |
+| 生成规则 | **119 个** | 头衔 + 音译（音译表 150+ 条）；未知音译不允许残留拉丁字母 |
+
+统计：**有据 190/309**（135 纯有据 + 55 `evidenced-partial(cleaned)`），**generated 119**；误译白名单修复 3 条；无覆盖而保留英文的 NPC = 0（`GM` 前缀除外）。
+
+### A+.2 显示规范化规则
+- 统一格式：`角色/头衔·名字`，分隔符用 **`·`**（U+00B7），不用 ASCII 下划线；中文模式全角标点。
+- 单名/实体名不加 `·`：`公告板`、`神秘石`、`神兽（裘德）`（`_Shinsu(Jude)` 用全角括号；`en.json` 保留 `_Shinsu(Jude)`）。
+- 头衔规范化（源值 → 显示值）：`InnKeeper→旅店老板`、`HighAssassin→刺客首领`、`CraftsLady→工艺夫人`、`Lady→夫人`、`Lottery→彩票员`、`_Shinsu→神兽`；`GM` 是唯一允许的拉丁残留。
+- 明显误译白名单（原值保留在文档备查）：
+  | NPC | 源值（`npcs.ini`） | 显示值 |
+  |---|---|---|
+  | `Merchant_Bill` | `商人账单` | `商人·比尔` |
+  | `BichonWall_Board` | `比熊墙板` | `公告板` |
+  | `Merchant_Bull` | `商人_牛` | `商人·布尔` |
+- 同名/同脚本处理：`TravellingMerchant` 的 11 个同名 NPC 统一 `商人·达米安`；`PrajnaIsland/8Piac` 同脚本两个不同名 NPC 用复合键 `脚本名|英文名`（Grace/Emily）。
+
+### A+.3 抽样（与 20 行抽审样本一致）
+| cjlaaa Name | map/坐标 | 来源 | 原值 | 最终中文 |
+|---|---|---|---|---|
+| `Assistant_Jane` | 0 (284,606) | `npcs.ini:71` | `助理_简` | **助理·简** |
+| `Merchant_Sarah` | 0 (313,271) | `npcs.ini:20` | `商人_莎拉` | **商人·莎拉** |
+| `CraftsLady_Jude` | 0 (294,619) | `npcs.ini:200(partial)` | `工艺品Lady_Jude` | **工艺夫人·朱迪** |
+| `Master_Wa` | 0 (110,317) | `npcs.ini:211(partial)` | `大师_Wa` | **大师·瓦** |
+| `HighAssassin_Cloud` | 0 (101,411) | `npcs.ini:115(partial)` | `HighAssassin_云` | **刺客首领·云** |
+| `_Shinsu(Jude)` | 0 (428,474) | `npcs.ini:11(partial)` | `_Shinsu(裘德)` | **神兽（裘德）** |
+| `InnKeeper_Anthony` | 0140 (8,9) | `npcs.ini:238(partial)` | `InnKeeper_安东尼` | **旅店老板·安东尼** |
+| `Lottery_Eddie` | 0 (298,317) | `npcs.ini:237` | `彩票_艾迪` | **彩票员·艾迪** |
+| `Teleport_Harrison` | 0 (289,296) | generated:title(传送员)+translit | `传送员Harrison` | **传送员·哈里森** |
+| `Merchant_Bill` | 0151 (7,14) | `npcs.ini:35`（误译） | `商人账单` | **商人·比尔** |
+
+### A+.4 语言包与渲染
+- `config/lang/zh-cn.json` / `en.json` 各新增 **`npc_names` 段，291 个键**（键集合完全一致）：
+  - 键 = `NpcInfo.FileName`（与 `Envir/NPCs/*.txt` 对齐，不含 `.txt`）；`PrajnaIsland/8Piac` 用 `脚本名|英文名` 复合键；
+  - `zh-cn` 值 = 规范化中文名（拉丁残留仅 `GM`）；`en` 值 = DB 英文原名。
+- 服务端渲染点（按会话语言）：
+  - `S.ObjectNPC` 的 `name`（`World::npc_object_packet` / `visible_npc_frames`）；
+  - `S.NewMapInfo` 的 NPC 条目（`World::map_entry_info_with_language`）；
+  - 脚本占位符 `<$NPCNAME>`（`Npc::display_name_of`）。
+- 回退链：`脚本名|英文名` → `脚本名` → `英文名` → **DB 原名**（未知 NPC 不 panic）。
+- 单测：`crates/mir-server/tests/npc_names.rs`（中文 `助理·简`、英文 `Assistant_Jane`、未知回退原名），覆盖 `S.ObjectNPC` 包与 `S.NewMapInfo` 两条路径。
+
+### A+.5 未覆盖说明
+- 119 个 generated 是「头衔+音译」，不是独立中文数据源；音译表见 `target/npc-names-final.json`（临时，未入库）。
+- 13 个 partial 的源值仍带英文角色词，已按 A+.2 清理；55 个 partial 清理全部有原值记录（`npcs.ini` 行号）。
+- 本层只解决**显示名**；`NpcInfo.Name`（DB 原名）与 Jev 契约不变；英文模式始终显示 DB 原名。

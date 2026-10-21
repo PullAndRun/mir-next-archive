@@ -2138,6 +2138,14 @@ pub struct LanguagePack {
     /// 内容文本：地图文件名的键（如 `"0"`）→ 地图标题。
     #[serde(default)]
     pub maps: BTreeMap<String, String>,
+    /// NPC 显示名：NPC 脚本文件名（或 `脚本名|英文名` 复合键）→ 本地化名字。
+    ///
+    /// 由 `tools` 从 `resource/.../npcs.ini` + cjlaaa 数据生成，见
+    /// `docs/world/data-languages.md` §A+。键按脚本名对齐 `Envir/NPCs/*.txt`；
+    /// 同一脚本承载多个不同名字的 NPC 时用 `脚本名|英文名` 复合键（例如
+    /// `PrajnaIsland/8Piac|Merchant_Grace`）。
+    #[serde(default)]
+    pub npc_names: BTreeMap<String, String>,
 }
 
 impl LanguagePack {
@@ -2281,6 +2289,29 @@ impl LanguageLibrary {
             return value.clone();
         }
         map_file.to_owned()
+    }
+
+    /// 取 NPC 显示名：按「复合键 → 脚本名 → 英文名」查语言包，全部未命中时回退英文原名。
+    ///
+    /// `script_name` 是 `NpcInfo.FileName`（相对 `Envir/NPCs/`，不含 `.txt`）；
+    /// `english_name` 是 `NpcInfo.Name`（DB 原名）。回退顺序保证：
+    /// 语言包没配某个 NPC 时不会 panic，也不会显示空白。
+    #[must_use]
+    pub fn npc_name(&self, language: Language, script_name: &str, english_name: &str) -> String {
+        let pack = self.pack(language).or_else(|| self.pack(Language::ZhCn));
+        if let Some(pack) = pack {
+            let composite = format!("{script_name}|{english_name}");
+            if let Some(value) = pack.npc_names.get(&composite) {
+                return value.clone();
+            }
+            if let Some(value) = pack.npc_names.get(script_name) {
+                return value.clone();
+            }
+            if let Some(value) = pack.npc_names.get(english_name) {
+                return value.clone();
+            }
+        }
+        english_name.to_owned()
     }
 }
 

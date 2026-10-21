@@ -1121,7 +1121,11 @@ impl<S: AccountStore> Session<S> {
         let entry_title = self
             .languages
             .map_title(self.language.language(), &character.map);
-        let entry_info = world.map_entry_info(&character.map, &entry_title);
+        let entry_info = world.map_entry_info_with_language(
+            &character.map,
+            &entry_title,
+            Some(self.language.language()),
+        );
         // 已学技能（Crystal `UserInformation.Magics`，`ServerPackets.cs:640-680` 里逐条
         // `magic.CreateClientMagic()`）。同样必须在释放世界锁之前取。
         let client_magics = world.client_magics(object_id);

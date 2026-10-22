@@ -886,7 +886,8 @@ class Playtest:
                 r = Reader(payload)
                 gold = r.u32()
                 self.gold_delta -= gold
-                print(f"  [金币] -{gold}（累计 {self.gold_delta:+d}）")
+                self.self_gold = max(0, (self.self_gold or 0) - gold)
+                print(f"  [金币] -{gold}（累计 {self.gold_delta:+d}，余额 {self.self_gold}）")
             elif index == S_GAINED_GOLD:  # 67：金币增加
                 r = Reader(payload)
                 gold = r.u32()
@@ -2969,13 +2970,19 @@ class Playtest:
                 )
                 return (crowd, self._distance(monster["pos"]))
 
-            prey = min(preys, key=score)
+            near = [m for m in preys if self._distance(m["pos"]) <= 8]
+            if not near:
+                self.walk_towards(min(preys, key=lambda m: self._distance(m["pos"]))["pos"], max_steps=80)
+                self._drain(0.8)
+                continue
+            prey = min(near, key=score)
             print(
                 f"  [sell1] attempt={attempt} kills={kills}/20 目标={prey.get('name')} id={prey.get('id')}@{prey['pos']} "
                 f"d={self._distance(prey['pos'])} score={score(prey)}"
             )
-            if not self._attack_until_dead(prey, timeout=60):
-                self.diagnostics(f"卖肉第 {attempt} 次：Hen 未击杀")
+            if not self._attack_until_dead(prey, timeout=20):
+                self.diagnostics(f"卖肉第 {attempt} 次：Hen 20s 未击杀，退 2 格换目标")
+                self.walk_towards((self.self_pos[0] - 2, self.self_pos[1] + 2), max_steps=10)
                 continue
             kills += 1
             chicken_ground = [
@@ -3065,9 +3072,90 @@ class Playtest:
             self.fail("sell1 金币", f"卖出未加金币：{gold_before}->{gold_after}")
             return 1
         self.ok("sell1 卖出", f"Chicken 卖出，金币 {gold_before}->{gold_after}（+{gold_after - gold_before}）")
+        return self.repair_equipped()
 
-        # 金币已到手，接 EQ-1 修理流程（B 会重新打耐久、C 用这笔金币修理）。
-        return self.eq1_flow()
+    def repair_equipped(self) -> int:
+        """卖肉后用现有金币修理一件耐久未满的已装备物品（武器优先）。"""
+        rows = []
+        for equipped in self.equipped_items:
+            current = int(equipped.get("current_dura", 0))
+            maximum = int(equipped.get("max_dura", 0))
+            if maximum > 0 and current < maximum:
+                rows.append((equipped.get("slot", -1), equipped["unique_id"], current, maximum))
+        rows.sort(key=lambda row: (0 if row[0] == 0 else 1, row[2] - row[3]))
+        if not rows:
+            self.skip("EQ-1 耐久下降", "卖肉后无耐久未满装备，跳过修理")
+            return 0
+        slot, uid, before, maximum = rows[0]
+        smith = next(
+            (
+                n
+                for n in self.map_npcs
+                if n.get("name", "").lower() == "blacksmith_smith"
+                or "史密斯" in n.get("name", "")
+                or "铁匠" in n.get("name", "")
+            ),
+            None,
+        )
+        if smith is None:
+            self.fail("EQ-1 修理", "找不到 Smith")
+            return 1
+        if not self._newbie_walk_bfs(smith) and not self._stand_next_to(smith):
+            self.fail("EQ-1 修理", f"走不到 Smith @ {smith['pos']}")
+            return 1
+        # 装备在槽里，先脱到背包空格 40。
+        writer = Writer()
+        writer.u8(2)
+        writer.i32(slot)
+        writer.i32(40)
+        self.send(C_MOVE_ITEM, writer.raw())
+        self._drain(0.6)
+        spawn = dict(smith, id=smith.get("object_id", smith.get("id")))
+        self.call_npc(spawn, "@main", timeout=2)
+        self._drain(0.4)
+        print(f"  [EQ-1] @main 页面={self.last_npc_page}")
+        repair_key = next(
+            (k for k in self._button_keys(self.last_npc_page) if "REPAIR" in k.upper()),
+            "@Repair",
+        )
+        self.call_npc(spawn, repair_key, timeout=2)
+        self._drain(0.4)
+        print(f"  [EQ-1] @Repair 页面={self.last_npc_page}")
+        gold_before = self.self_gold or 0
+        writer = Writer()
+        writer.u64(uid)
+        self.send(C_REPAIR_ITEM, writer.raw())
+        deadline = time.time() + self.timeout
+        repaired = None
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            index, payload = packet
+            self._observe(index, payload)
+            if index == S_ITEM_REPAIRED:
+                r = Reader(payload)
+                if r.u64() == uid:
+                    m = r.u16()
+                    c = r.u16()
+                    repaired = (m, c)
+                    break
+        if repaired is None:
+            self.fail("EQ-1 修理", f"repair uid={uid} 未收到 S.ItemRepaired；gold={self.self_gold}")
+            return 1
+        maximum, current = repaired
+        gold_after = self.self_gold or 0
+        if current != maximum:
+            self.fail("EQ-1 修理", f"耐久未回满 {current}/{maximum}")
+            return 1
+        if gold_after > gold_before:
+            self.fail("EQ-1 扣款", f"金币反增 {gold_before}->{gold_after}")
+            return 1
+        self.ok(
+            "EQ-1 修理/扣款",
+            f"uid={uid} 耐久 {before}->{current}/{maximum}，金币 {gold_before}->{gold_after}（扣 {gold_before - gold_after}）",
+        )
+        return 0
 
     def eq1_flow(self) -> int:
         """EQ-1 现实版：穿出生装打怪掉耐久 → Smith 修理 → 扣款（0 金币也可验）。"""

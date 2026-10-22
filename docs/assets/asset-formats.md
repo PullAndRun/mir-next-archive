@@ -35,7 +35,21 @@
 - 加载：`mir-asset::PackSet` 只读条目表，`image()` 才解压；`LibrarySource::Pack(..)` 与
   `ImageLibrary` 同形（`len/info/image`）。
 
-### 2.1 `library-map.json`（散装 ↔ 库名）
+### 2.1 条目 `kind` 表（含 palette8 索引化）
+
+| kind | 内容 | 说明 |
+|---|---|---|
+| `0` | `zlib(RGBA)` | 通用图像（rgb565 / rgb24 / DXT1 / 反查失败的 palette8） |
+| `1` | 原样字节 | `.mnm` 地图、`.mnd` 数据、字体、`audio/manifest.json` |
+| `2` | `zlib(8bit 索引)` | **palette8 帧**：行优先、自上而下、无行内 padding；`raw_len = width×height` |
+| `3` | 原样 768B RGB | 调色板：逻辑名 `<帧所在目录>/palette.bin`，`palette[i]=(r,g,b)` |
+
+- 展开：`index==0 → alpha=0`（等价 `remove_black`），其余 `alpha=255`；缺 `palette.bin` 时回退内置 WeMade 表；
+- 适用：`format ∈ {0,3}` 的帧；`empty:true` 的帧不打包；
+- 对账：`kind=2` 用 `index.json.rgb_sha256` 比（只比 RGB，alpha 由规则决定）；
+- 收益（实测）：tiles -23.4%、sprites -20.3%、ui -29.4%，总包 521.8 MB → **410.26 MB**。
+
+### 2.2 `library-map.json`（散装 ↔ 库名）
 
 `{"version":1,"libraries":{"hum":{"lib":"hum.wzl","dirs":["gfx/sprites/player/body-000", …],
 "prefix":"gfx/sprites/player/body-000/"}}}`

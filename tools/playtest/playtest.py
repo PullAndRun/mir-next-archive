@@ -2483,6 +2483,7 @@ class Playtest:
                 for n in self.map_npcs
                 if "merchant_john" in n["name"].lower()
                 or "merchant john" in n["name"].lower()
+                or "约翰" in n["name"]
             ),
             None,
         )
@@ -3004,7 +3005,13 @@ class Playtest:
         self.ok("EQ-1 打怪攒钱", f"金币={self.self_gold or 0}")
 
         smith = next(
-            (n for n in self.map_npcs if n.get("name", "").lower() == "blacksmith_smith"),
+            (
+                n
+                for n in self.map_npcs
+                if n.get("name", "").lower() == "blacksmith_smith"
+                or "史密斯" in n.get("name", "")
+                or "铁匠" in n.get("name", "")
+            ),
             None,
         )
         if smith is None:
@@ -3248,7 +3255,13 @@ class Playtest:
     def quest5_flow(self) -> int:
         """quest 5 完整任务：Smith 接取 → 自然杀 10 Deer + 10 Scarecrow → 交付奖励。"""
         smith = next(
-            (n for n in self.map_npcs if n.get("name", "").lower() == "blacksmith_smith"),
+            (
+                n
+                for n in self.map_npcs
+                if n.get("name", "").lower() == "blacksmith_smith"
+                or "史密斯" in n.get("name", "")
+                or "铁匠" in n.get("name", "")
+            ),
             None,
         )
         if smith is None:
@@ -3432,7 +3445,14 @@ class Playtest:
     def tp1_flow(self) -> int:
         """TP-1 同图导航：接 quest 5 → 逐字断言导航行 → 走到 movement 门格。"""
         smith = next(
-            (n for n in self.map_npcs if "jane" in n.get("name", "").lower()),
+            (
+                n
+                for n in self.map_npcs
+                if "jane" in n.get("name", "").lower()
+                or "助理" in n.get("name", "")
+                or "简" in n.get("name", "")
+                or 1 in (n.get("quest_ids") or [])
+            ),
             None,
         )
         if smith is None:

@@ -1039,6 +1039,9 @@ fn assets_pack(args: &mut impl Iterator<Item = String>) -> Result<()> {
 
     std::fs::create_dir_all(&out)?;
     let mut summaries = Vec::new();
+    // 调色板按目录**整轮去重**：目录跨分片时只在第一片写 `palette.bin`，
+    // 其它片靠 `PackSet` 的全局 `dir → palette` 表展开（见 `pack.rs`）。
+    let mut palette_dirs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for ((category, group), items) in groups {
         let stem = if group.is_empty() {
             category.clone()
@@ -1063,7 +1066,7 @@ fn assets_pack(args: &mut impl Iterator<Item = String>) -> Result<()> {
                 }
                 if let Some(info) = item.info {
                     let pixels = read_png_rgba(&item.path)?.2;
-                    writer.add_image(&item.logical, &info, &pixels)?;
+                    add_packed_image(&mut writer, &item.logical, info, &pixels, &mut palette_dirs)?;
                 } else {
                     let bytes = std::fs::read(&item.path)
                         .with_context(|| format!("读 {} 失败", item.path.display()))?;
@@ -1148,8 +1151,73 @@ fn time_stamp() -> String {
     }
 }
 
+/// 独立扫描"自有格式文件"：与打包白名单**无关**，避免新增目录类型被静默漏掉。
+///
+/// `--verify` 的"输入目录全覆盖"用这个，而不是复用 [`discover_pack_items`]。
+fn discover_own_files(input: &Path) -> Result<Vec<String>> {
+    let mut names = Vec::new();
+    walk_files(input, &mut |path| {
+        let Ok(relative) = path.strip_prefix(input) else {
+            return Ok(());
+        };
+        let logical = relative.to_string_lossy().replace('\\', "/");
+        if logical.split('/').next() == Some("packs") {
+            return Ok(());
+        }
+        let extension = path
+            .extension()
+            .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
+            .unwrap_or_default();
+        // 拆包器的逐目录 `index.json` 不进包；根目录的构建期清单
+        // （`library-map.json`/`manifest.assets.json`/`manifest.json`）也不进包——
+        // 它们由 `packs/` 或构建流程提供，不是运行时素材。
+        if extension == "json" {
+            let is_index = path.file_name().is_some_and(|name| name == "index.json");
+            let is_root_manifest = !logical.contains('/');
+            if is_index || is_root_manifest {
+                return Ok(());
+            }
+        }
+        if LEGACY_EXTENSIONS.contains(&extension.as_str()) {
+            return Ok(());
+        }
+        names.push(logical);
+        Ok(())
+    })?;
+    names.sort();
+    Ok(names)
+}
+
 /// 老格式扩展名：**不进发布包**（用户规则：运行只读自有格式）。
 const LEGACY_EXTENSIONS: &[&str] = &["wzl", "wix", "wil", "map", "wav", "lib", "mirdb", "txt"];
+
+/// 打一张图：palette8 帧走 `kind=2`（8bit 索引）+ 每库一条 `palette.bin`（`kind=3`）；
+/// 其它格式或反查失败时回退 `kind=0`（zlib RGBA）。
+fn add_packed_image(
+    writer: &mut mir_asset::PackWriter,
+    logical: &str,
+    info: mir_asset::ImageInfo,
+    pixels: &[u8],
+    palette_dirs: &mut std::collections::BTreeSet<String>,
+) -> Result<()> {
+    let palette8_candidate = matches!(info.format, 0 | 3);
+    if palette8_candidate {
+        if let Some(indices) = mir_asset::palette8_indices(pixels) {
+            if let Some((dir, _)) = logical.rsplit_once('/') {
+                if palette_dirs.insert(dir.to_owned()) {
+                    writer.add_palette(
+                        &format!("{dir}/palette.bin"),
+                        &mir_asset::wemade_palette_rgb(),
+                    )?;
+                }
+            }
+            writer.add_palette8(logical, &info, &indices)?;
+            return Ok(());
+        }
+    }
+    writer.add_image(logical, &info, pixels)?;
+    Ok(())
+}
 
 fn discover_pack_items(input: &Path, allow_legacy: bool) -> Result<(Vec<PackItem>, usize)> {
     let mut items = Vec::new();
@@ -1171,6 +1239,7 @@ fn discover_pack_items(input: &Path, allow_legacy: bool) -> Result<(Vec<PackItem
             Some(&"audio") => "audio".to_owned(),
             Some(&"data") => "data".to_owned(),
             Some(&"index") => "index".to_owned(),
+            Some(&"fonts") => "fonts".to_owned(),
             _ => return Ok(()),
         };
         let group = match category.as_str() {
@@ -1338,11 +1407,11 @@ fn verify_packs(out: &Path, input: &Path) -> Result<()> {
             &summary.sha256[..16]
         );
     }
-    // 输入目录里的每个文件都必须在某个包里
-    let (items, _skipped) = discover_pack_items(input, false)?;
-    for item in &items {
-        if !set.contains(&item.logical) {
-            problems.push(format!("包集合缺条目 {}", item.logical));
+    // 输入目录里每个"自有格式"文件都必须在某个包里（**独立扫描**，不看打包白名单）
+    let names = discover_own_files(input)?;
+    for name in &names {
+        if !set.contains(name) {
+            problems.push(format!("包集合缺条目 {name}"));
         }
     }
     if !problems.is_empty() {
@@ -1352,10 +1421,10 @@ fn verify_packs(out: &Path, input: &Path) -> Result<()> {
         anyhow::bail!("verify 失败：{} 处不一致", problems.len());
     }
     println!(
-        "verify ok packs={} entries={}（输入目录 {} 个文件全部覆盖）",
+        "verify ok packs={} entries={}（自有格式 {} 个文件全部覆盖）",
         set.pack_count(),
         set.len(),
-        items.len()
+        names.len()
     );
     Ok(())
 }
@@ -1410,6 +1479,8 @@ fn pack_from_plan(
             .with_context(|| format!("packs[{number}] 缺少 files 数组"))?;
         let pack_path = out.join(format!("{name}.mnp"));
         let mut writer = mir_asset::PackWriter::create(&pack_path, compress)?;
+        let mut palette_dirs: std::collections::BTreeSet<String> =
+            std::collections::BTreeSet::new();
         let mut count = 0usize;
         for file in files {
             let logical = match file {
@@ -1436,7 +1507,7 @@ fn pack_from_plan(
                 let info = image_info_from_index(&path, input, &mut index_cache)
                     .unwrap_or_else(empty_image_info);
                 let pixels = read_png_rgba(&path)?.2;
-                writer.add_image(&logical, &info, &pixels)?;
+                add_packed_image(&mut writer, &logical, info, &pixels, &mut palette_dirs)?;
             } else {
                 let bytes =
                     std::fs::read(&path).with_context(|| format!("读 {} 失败", path.display()))?;
@@ -1915,6 +1986,7 @@ fn pack_merge_manifest(
     let name = name.strip_suffix(".mnp").unwrap_or(&name).to_owned();
     let pack_path = out.join(format!("{name}.mnp"));
     let mut writer = mir_asset::PackWriter::create(&pack_path, compress)?;
+    let mut palette_dirs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let mut cache: std::collections::BTreeMap<PathBuf, serde_json::Value> =
         std::collections::BTreeMap::new();
     for logical in only {
@@ -1927,7 +1999,7 @@ fn pack_merge_manifest(
             let info =
                 image_info_from_index(&path, input, &mut cache).unwrap_or_else(empty_image_info);
             let pixels = read_png_rgba(&path)?.2;
-            writer.add_image(logical, &info, &pixels)?;
+            add_packed_image(&mut writer, logical, info, &pixels, &mut palette_dirs)?;
         } else {
             let bytes =
                 std::fs::read(&path).with_context(|| format!("读 {} 失败", path.display()))?;

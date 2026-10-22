@@ -17,8 +17,10 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use mir_db::MirDb;
-use mir_db::mnd::{MAGIC, MndFile, MndSection, SCHEMA_VERSION, TAG_DB_BIN, TAG_ENVIR};
-use mir_db::schema::{decode_db, encode_db};
+use mir_db::mnd::{
+    MAGIC, MndFile, MndSection, SCHEMA_VERSION, TAG_CONFIG, TAG_DB_BIN, TAG_ENVIR, TAG_ENVIR_BUNDLE,
+};
+use mir_db::schema::{decode_db, decode_envir, encode_db, encode_envir};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
@@ -64,6 +66,7 @@ fn main() -> Result<()> {
     file.push(MndSection::new(TAG_DB_BIN, "db.bin", native_db));
     let mut script_count = 0usize;
     let mut script_bytes = 0usize;
+    let mut scripts: Vec<(String, Vec<u8>)> = Vec::new();
     if envir_dir.is_dir() {
         let mut files = Vec::new();
         collect_files(&envir_dir, &mut files)?;
@@ -77,14 +80,39 @@ fn main() -> Result<()> {
             let bytes = std::fs::read(&path).with_context(|| format!("读取 {}", path.display()))?;
             script_count += 1;
             script_bytes += bytes.len();
-            file.push(MndSection::new(
-                TAG_ENVIR,
-                format!("Envir/{relative}"),
-                bytes,
-            ));
+            scripts.push((relative, bytes));
+        }
+        if !scripts.is_empty() {
+            let bundle = encode_envir(&scripts).context("编码 Envir bundle")?;
+            file.push(MndSection::new(TAG_ENVIR_BUNDLE, "envir.bin", bundle));
         }
     } else {
         eprintln!("警告：{} 不存在，只打包 DB 段", envir_dir.display());
+    }
+
+    // Configs/*.ini：经验表、行会配置等运营参数；运行时优先从 .mnd 读。
+    let configs_dir = source.join("Configs");
+    let mut config_count = 0usize;
+    let mut config_bytes = 0usize;
+    if configs_dir.is_dir() {
+        let mut files = Vec::new();
+        collect_files(&configs_dir, &mut files)?;
+        files.sort();
+        for path in files {
+            let relative = path
+                .strip_prefix(&configs_dir)
+                .expect("walk 只返回 Configs 下的文件")
+                .to_string_lossy()
+                .replace('\\', "/");
+            let bytes = std::fs::read(&path).with_context(|| format!("读取 {}", path.display()))?;
+            config_count += 1;
+            config_bytes += bytes.len();
+            file.push(MndSection::new(
+                TAG_CONFIG,
+                format!("Configs/{relative}"),
+                bytes,
+            ));
+        }
     }
 
     std::fs::create_dir_all(&out).with_context(|| format!("创建输出目录 {}", out.display()))?;
@@ -116,11 +144,14 @@ fn main() -> Result<()> {
         "counts": counts,
         "db_encoding": "bincode",
         "db_bytes": native_db_bytes,
+        "envir_bundle": true,
         "sections": {
             "total": file.sections.len(),
             "db": 1,
             "envir_files": script_count,
             "envir_bytes": script_bytes,
+            "configs": config_count,
+            "config_bytes": config_bytes,
         },
         "size_bytes": mnd_bytes.len(),
         "sha256": sha256,
@@ -153,10 +184,9 @@ fn main() -> Result<()> {
     }
 
     println!(
-        "已写出 {}（{} KiB，DB {} 段 + Envir {} 段，sha256={}），耗时 {:?}",
+        "已写出 {}（{} KiB，DB 1 段 + Envir bundle {} 份，sha256={}），耗时 {:?}",
         mnd_path.display(),
         mnd_bytes.len() / 1024,
-        file.sections.len() - script_count,
         script_count,
         hex(&Sha256::digest(&mnd_bytes)),
         started.elapsed()
@@ -231,15 +261,32 @@ fn verify_roundtrip(path: &Path, expected: &MirDb, expected_scripts: usize) -> R
     if !same {
         bail!("校验失败：{encoding} DB 与老库关键字段不一致");
     }
-    let scripts = back
+    let scripts = if let Some(section) = back
         .sections
         .iter()
-        .filter(|section| section.tag == TAG_ENVIR)
-        .count();
+        .find(|section| section.tag == TAG_ENVIR_BUNDLE)
+    {
+        decode_envir(&section.data)
+            .context("解码 Envir bundle")?
+            .len()
+    } else {
+        back.sections
+            .iter()
+            .filter(|section| section.tag == TAG_ENVIR)
+            .count()
+    };
     if scripts != expected_scripts {
         bail!("校验失败：Envir 段旧={expected_scripts} 新={scripts}");
     }
-    println!("校验通过：{encoding} DB 关键字段逐项一致，Envir {scripts} 段");
+    let configs = back
+        .sections
+        .iter()
+        .filter(|section| section.tag == TAG_CONFIG)
+        .count();
+    if configs == 0 {
+        bail!("校验失败：.mnd 没有 Configs 段");
+    }
+    println!("校验通过：{encoding} DB 关键字段逐项一致，Envir {scripts} 份，Configs {configs} 份");
     Ok(())
 }
 

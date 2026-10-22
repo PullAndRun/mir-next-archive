@@ -438,46 +438,94 @@ fn build_world(config: &ServerConfig) -> World {
     let mut world = World::new(999);
     // 多地图：地图目录与缓存上限。Crystal `Settings.MapPath`，`Server/Settings.cs`。
     world.set_map_root(&config.map_root);
-    // 等级经验表：`config/ExpList.ini` → 素材索引里的 `Configs/ExpList.ini` → 近似曲线。
-    // `World` 的默认表是兜底曲线（保证测试确定性），生产路径必须显式换成真表。
-    world.set_exp_table(crate::exp::ExpTable::discover());
-    // 行会配置：`config/GuildSettings.ini` → 素材里的 `Configs/GuildSettings.ini` → 代码默认值。
-    // 与经验表同理：测试用默认值保证确定性，生产路径显式 discover。
-    world.set_guild_settings(crate::guild::GuildSettings::discover());
-    attach_game_data(&mut world, config);
+    // 先加载数据包：经验表/行会配置优先从 `.mnd` 的 Configs 段读，缺失才回退旧 discover。
+    let data = if config.load_game_data {
+        load_game_data(config)
+    } else {
+        None
+    };
+    world.set_exp_table(exp_table_from_data(data.as_ref()));
+    world.set_guild_settings(guild_settings_from_data(data.as_ref()));
+    attach_game_data(&mut world, data, config);
     if config.demo_monsters {
         spawn_demo_monsters(&mut world, config);
     }
     world
 }
 
-/// 把 `Server.MirDB` 挂到世界上，并初始化出生地图（Crystal 建图时一次做完的事：
+/// 经验表：优先 `.mnd` 的 `Configs/ExpList.ini`，缺失才回退旧候选路径（开发期 WARN）。
+fn exp_table_from_data(data: Option<&crate::gamedata::GameData>) -> crate::exp::ExpTable {
+    if let Some(data) = data
+        && let Some(text) = data.read_config("Configs/ExpList.ini")
+    {
+        if let Some(table) = crate::exp::ExpTable::from_ini(text) {
+            tracing::info!(
+                source = ".mnd Configs/ExpList.ini",
+                levels = table.len(),
+                "已加载等级经验表"
+            );
+            return table;
+        }
+        tracing::warn!("`.mnd` 里的 Configs/ExpList.ini 解析失败，回退旧候选路径");
+    }
+    crate::exp::ExpTable::discover()
+}
+
+/// 行会配置：优先 `.mnd` 的 `Configs/GuildSettings.ini`，缺失才回退旧候选路径。
+fn guild_settings_from_data(
+    data: Option<&crate::gamedata::GameData>,
+) -> crate::guild::GuildSettings {
+    if let Some(data) = data
+        && let Some(text) = data.read_config("Configs/GuildSettings.ini")
+    {
+        let settings = crate::guild::GuildSettings::parse_ini(text);
+        tracing::info!(
+            source = ".mnd Configs/GuildSettings.ini",
+            required_level = settings.required_level,
+            buff_count = settings.buff_list.len(),
+            "已加载行会配置"
+        );
+        return settings;
+    }
+    crate::guild::GuildSettings::discover()
+}
+
+/// 把数据包挂到世界上，并初始化出生地图（Crystal 建图时一次做完的事：
 /// `Map.Load` 读地形 + `MapRespawn` 注册 + `NPCObject` 刷出，`Server/MirEnvir/Map.cs:432-514`）。
-///
-/// 优先级：`config.db_path`（或 `MIR2_DB_PATH`）→ 索引里的候选路径。找不到数据库时
-/// 只保留 [`spawn_demo_monsters`] 的演示怪，服务器照常可跑。
 ///
 /// `GameData` 还要给物品模板查找与怪物掉落用（对应 Crystal 的 `Envir.ItemInfoList` /
 /// `MonsterInfo.Drops`，`Envir.cs:5405-5419`）。
-fn attach_game_data(world: &mut World, config: &ServerConfig) {
-    if config.load_game_data {
-        if let Some(data) = load_game_data(config) {
-            let path = data.path().display().to_string();
-            let monsters = data.monster_count();
-            let items = data.item_count();
-            let drop_dir = data
-                .drop_dir()
-                .map(|dir| dir.display().to_string())
-                .unwrap_or_default();
-            world.set_game_data(Arc::new(data));
-            tracing::info!(
-                path = %path,
-                monsters,
-                items,
-                drop_dir = %drop_dir,
-                "已加载 Server.MirDB"
-            );
-        }
+fn attach_game_data(
+    world: &mut World,
+    data: Option<crate::gamedata::GameData>,
+    config: &ServerConfig,
+) {
+    if let Some(data) = data {
+        let path = data.path().display().to_string();
+        let monsters = data.monster_count();
+        let items = data.item_count();
+        let drop_dir = data
+            .drop_dir()
+            .map(|dir| dir.display().to_string())
+            .unwrap_or_default();
+        let source = if data
+            .path()
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("mnd"))
+        {
+            ".mnd"
+        } else {
+            "legacy"
+        };
+        world.set_game_data(Arc::new(data));
+        tracing::info!(
+            path = %path,
+            source,
+            monsters,
+            items,
+            drop_dir = %drop_dir,
+            "已加载数据包"
+        );
     }
     // 出生地图：地形 + NPC + 刷怪点（`World::initialize_map`）。
     let report = world.initialize_map(&config.start_map);
@@ -499,7 +547,47 @@ fn attach_game_data(world: &mut World, config: &ServerConfig) {
 }
 
 fn load_game_data(config: &ServerConfig) -> Option<crate::gamedata::GameData> {
-    // 运行时优先读自有格式：`<asset_root>/data/game.mnd`。
+    // 旧格式（Server.MirDB + Envir/*.txt）只允许开发期回退；release 必须提供 .mnd。
+    let legacy_allowed = cfg!(debug_assertions)
+        || std::env::var("MIR2_ALLOW_LEGACY_DATA").is_ok_and(|value| value == "1");
+
+    // 显式 db_path/MIR2_DB_PATH 优先级最高；`.mnd` 直接走原生加载。
+    if let Some(path) = &config.db_path {
+        if std::path::Path::new(path)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("mnd"))
+        {
+            match crate::gamedata::GameData::load_mnd(path) {
+                Ok(data) => {
+                    tracing::info!(path, "使用 .mnd 数据包（db_path）");
+                    return Some(data);
+                }
+                Err(error) => {
+                    tracing::error!(path, %error, "db_path 指向的 .mnd 读取失败");
+                    return None;
+                }
+            }
+        }
+        if legacy_allowed {
+            match crate::gamedata::GameData::load(path) {
+                Ok(data) => {
+                    tracing::warn!(path, "开发期使用显式旧格式数据库");
+                    return Some(data);
+                }
+                Err(error) => {
+                    tracing::warn!(path, %error, "MIR2_DB_PATH 指定的数据库读取失败");
+                    return None;
+                }
+            }
+        }
+        tracing::warn!(
+            path,
+            "显式数据库是旧格式，且当前不是开发期（未设置 MIR2_ALLOW_LEGACY_DATA=1），跳过"
+        );
+        return None;
+    }
+
+    // 没有显式 db_path 时，默认读 `<asset_root>/data/game.mnd`。
     let mnd = std::path::Path::new(&config.asset_root)
         .join("data")
         .join("game.mnd");
@@ -514,26 +602,6 @@ fn load_game_data(config: &ServerConfig) -> Option<crate::gamedata::GameData> {
             }
         }
     }
-    // 显式 `MIR2_DB_PATH` 也可以直接指向 `.mnd`（例如 CI/测试用别处的数据包）。
-    if let Some(path) = &config.db_path
-        && std::path::Path::new(path)
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("mnd"))
-    {
-        match crate::gamedata::GameData::load_mnd(path) {
-            Ok(data) => {
-                tracing::info!(path, "使用 .mnd 数据包（db_path）");
-                return Some(data);
-            }
-            Err(error) => {
-                tracing::error!(path, %error, "db_path 指向的 .mnd 读取失败");
-                return None;
-            }
-        }
-    }
-    // 旧格式（Server.MirDB + Envir/*.txt）只允许开发期回退；release 必须提供 .mnd。
-    let legacy_allowed = cfg!(debug_assertions)
-        || std::env::var("MIR2_ALLOW_LEGACY_DATA").is_ok_and(|value| value == "1");
     if !legacy_allowed {
         tracing::warn!(
             path = %mnd.display(),
@@ -545,15 +613,6 @@ fn load_game_data(config: &ServerConfig) -> Option<crate::gamedata::GameData> {
         path = %mnd.display(),
         "缺少 .mnd 数据包 → 开发期回退旧 Server.MirDB/Envir（正式运行必须用 .mnd）"
     );
-    if let Some(path) = &config.db_path {
-        match crate::gamedata::GameData::load(path) {
-            Ok(data) => return Some(data),
-            Err(error) => {
-                tracing::warn!(path, %error, "MIR2_DB_PATH 指定的数据库读取失败");
-                return None;
-            }
-        }
-    }
     match crate::gamedata::GameData::discover() {
         Ok(data) => Some(data),
         Err(error) => {

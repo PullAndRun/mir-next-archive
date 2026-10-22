@@ -64,13 +64,14 @@ LIMITS = {
 def load_palette() -> list[tuple[int, int, int, int]]:
     """从 `crates/mir-asset/src/palette.rs` 解析 WeMade 256 色调色板。"""
     text = (REPO_ROOT / "crates" / "mir-asset" / "src" / "palette.rs").read_text(encoding="utf-8")
-    values = re.findall(r"0x([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})_([0-9A-Fa-f]{4})", text)
+    block = text.split("WEMADE_PALETTE: [u32; 256] = [", 1)[1].split("];", 1)[0]
+    values = [high + low for high, low in re.findall(r"0x([0-9A-Fa-f]{4})_([0-9A-Fa-f]{4})", block)]
     if len(values) != 256:
         raise SystemExit(f"[错误] palette.rs 解析出 {len(values)} 项，应为 256")
     palette = []
-    for alpha, high, low in values:
-        value = int(high + low, 16)
-        palette.append((value >> 16 & 0xFF, value >> 8 & 0xFF, value & 0xFF, int(alpha, 16)))
+    for argb in values:
+        value = int(argb, 16)
+        palette.append((value >> 16 & 0xFF, value >> 8 & 0xFF, value & 0xFF, (value >> 24) & 0xFF))
     return palette
 
 

@@ -272,3 +272,92 @@ pub(crate) const WEMADE_PALETTE: [u32; 256] = [
     0xFF00_FFFF,
     0xFFFF_FFFF,
 ];
+
+/// 调色板的 RGB 字节数（256 × 3，不含 alpha）。
+pub const PALETTE_RGB_LEN: usize = 768;
+
+/// `WeMade` 调色板导出成 768 字节（`R,G,B` 顺序），用于 `.mnp` 的 `kind=3` 调色板条目。
+#[must_use]
+pub fn wemade_palette_rgb() -> [u8; PALETTE_RGB_LEN] {
+    let mut out = [0u8; PALETTE_RGB_LEN];
+    for (index, value) in WEMADE_PALETTE.iter().enumerate() {
+        out[index * 3] = u8::try_from((value >> 16) & 0xFF).unwrap_or(0);
+        out[index * 3 + 1] = u8::try_from((value >> 8) & 0xFF).unwrap_or(0);
+        out[index * 3 + 2] = u8::try_from(value & 0xFF).unwrap_or(0);
+    }
+    out
+}
+
+/// RGBA 像素反查成 8 位调色板索引；任何像素不在表里返回 `None`（调用方回退 zlib RGBA）。
+///
+/// 纯黑（`0,0,0`，含去黑后的 alpha=0）一律映射到 0 号色——与
+/// `black_to_transparent` 的约定一致，展开时 0 号色再置 alpha=0。
+#[must_use]
+pub fn palette8_indices(pixels: &[u8]) -> Option<Vec<u8>> {
+    use std::collections::HashMap;
+    use std::sync::OnceLock;
+    static REVERSE: OnceLock<HashMap<u32, u8>> = OnceLock::new();
+    let reverse = REVERSE.get_or_init(|| {
+        let mut map = HashMap::with_capacity(256);
+        for (index, value) in WEMADE_PALETTE.iter().enumerate() {
+            let rgb = value & 0x00FF_FFFF;
+            map.entry(rgb).or_insert(u8::try_from(index).unwrap_or(0));
+        }
+        map
+    });
+    if pixels.len() % 4 != 0 {
+        return None;
+    }
+    let mut indices = Vec::with_capacity(pixels.len() / 4);
+    for pixel in pixels.chunks_exact(4) {
+        let key = (u32::from(pixel[0]) << 16) | (u32::from(pixel[1]) << 8) | u32::from(pixel[2]);
+        if key == 0 {
+            indices.push(0);
+            continue;
+        }
+        indices.push(*reverse.get(&key)?);
+    }
+    Some(indices)
+}
+
+/// 索引展开成 RGBA；0 号色 alpha=0（等价 `remove_black`），其余 alpha=255。
+#[must_use]
+pub fn palette8_to_rgba(indices: &[u8], palette: &[u8; PALETTE_RGB_LEN]) -> Vec<u8> {
+    let mut pixels = Vec::with_capacity(indices.len() * 4);
+    for &index in indices {
+        let offset = usize::from(index) * 3;
+        let alpha = if index == 0 { 0 } else { 255 };
+        pixels.extend_from_slice(&[
+            palette[offset],
+            palette[offset + 1],
+            palette[offset + 2],
+            alpha,
+        ]);
+    }
+    pixels
+}
+
+#[cfg(test)]
+mod palette8_tests {
+    use super::*;
+
+    #[test]
+    fn wemade_palette_round_trips_through_indices() {
+        let palette = wemade_palette_rgb();
+        let indices: Vec<u8> = (0..=255u8).collect();
+        let rgba = palette8_to_rgba(&indices, &palette);
+        let back = palette8_indices(&rgba).expect("必须能反查");
+        assert_eq!(back, indices, "256 色索引 → RGBA → 索引 必须完全一致");
+        assert_eq!(rgba[3], 0, "0 号色展开后 alpha=0");
+        assert_eq!(rgba[7], 255, "1 号色 alpha=255");
+    }
+
+    #[test]
+    fn unmapped_colour_falls_back_to_none() {
+        let pixels = vec![1, 2, 3, 255];
+        assert!(
+            palette8_indices(&pixels).is_none(),
+            "调色板外颜色必须返回 None"
+        );
+    }
+}

@@ -48,6 +48,10 @@ pub const TAG_ENVIR: u16 = 0x0002;
 pub const TAG_MANIFEST: u16 = 0x0003;
 /// M2 DB 段 tag（[`crate::schema`] 的 bincode 编码）。
 pub const TAG_DB_BIN: u16 = 0x0004;
+/// M2 Envir bundle 段 tag（[`crate::schema::encode_envir`]，一个段装全部脚本）。
+pub const TAG_ENVIR_BUNDLE: u16 = 0x0005;
+/// Configs 段 tag（`Configs/ExpList.ini` 等运营配置）。
+pub const TAG_CONFIG: u16 = 0x0006;
 
 /// 段编码。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,9 +159,12 @@ impl MndFile {
         }
         let index_len =
             u32::try_from(index.len()).map_err(|_| MndError::IndexTooLong(index.len()))?;
+        if !SUPPORTED_FORMAT_VERSIONS.contains(&self.format_version) {
+            return Err(MndError::UnsupportedVersion(self.format_version));
+        }
         let mut out = Vec::with_capacity(20 + index.len() + payload.len());
         out.extend_from_slice(MAGIC);
-        out.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
+        out.extend_from_slice(&self.format_version.to_le_bytes());
         out.extend_from_slice(&self.schema_version.to_le_bytes());
         out.extend_from_slice(&0_u16.to_le_bytes()); // flags
         out.extend_from_slice(&0_u16.to_le_bytes()); // reserved

@@ -31,7 +31,7 @@ use std::sync::{Arc, Mutex};
 use mir_core::Point;
 use mir_core::enums::Monster as MonsterImage;
 use mir_core::enums::{Spell, Stat};
-use mir_db::mnd::{TAG_DB_BIN, TAG_ENVIR};
+use mir_db::mnd::{TAG_CONFIG, TAG_DB_BIN, TAG_ENVIR, TAG_ENVIR_BUNDLE};
 use mir_db::npc_script::NpcScript;
 use mir_db::quest_script::QuestScript;
 use mir_db::{
@@ -67,19 +67,24 @@ pub const DB_CANDIDATES: &[&str] = &[
 
 /// `.mnd` 里的内存脚本文件系统（M2）：不再解包到临时目录。
 ///
-/// 键是相对 `Envir/` 的 POSIX 路径（`NPCs/...`、`Quests/...`、`Drops/...`），值保留原文本。
+/// 键是相对 `Envir/` 的 POSIX 路径（`NPCs/...`、`Quests/...`、`Drops/...`）；正文放在
+/// 一整块 `blob` 里，索引只存 `(offset, len)`，加载时不为 1,139 份脚本各分配一个 `String`。
 #[derive(Debug, Default)]
 struct ScriptFs {
-    files: HashMap<String, String>,
+    blob: Vec<u8>,
+    index: HashMap<String, (usize, usize)>,
 }
 
 impl ScriptFs {
-    fn insert(&mut self, relative: String, text: String) {
-        self.files.insert(relative, text);
+    fn insert(&mut self, relative: String, data: &[u8]) {
+        let start = self.blob.len();
+        self.blob.extend_from_slice(data);
+        self.index.insert(relative, (start, data.len()));
     }
 
     fn get(&self, relative: &str) -> Option<&str> {
-        self.files.get(relative).map(String::as_str)
+        let (start, len) = *self.index.get(relative)?;
+        std::str::from_utf8(&self.blob[start..start + len]).ok()
     }
 
     /// 公开给 [`GameData::read_script`]：接受 `Envir/...` 或相对 `Envir/` 的路径。
@@ -88,7 +93,7 @@ impl ScriptFs {
         if let Some(rest) = key.strip_prefix("Envir/") {
             key = rest.to_owned();
         }
-        self.get(&key).map(|text| Arc::from(text.to_owned()))
+        self.get(&key).map(Arc::from)
     }
 
     /// NPC 脚本的 `#INSERT` 展开（Crystal `NPCScript.ParseInsert`：追加到行尾、再删指令行）。
@@ -180,6 +185,8 @@ pub struct GameData {
     envir_dir: Option<PathBuf>,
     /// `.mnd` 的内存脚本 FS（M2）；为 `Some` 时不再访问 `envir_dir`。
     script_fs: Option<Arc<ScriptFs>>,
+    /// `.mnd` 的 `Configs/*.ini`（ExpList/GuildSettings 等运营配置）。
+    configs: HashMap<String, String>,
     /// 掉落表缓存：文件名 → 解析结果（`None` 表示文件不存在或解析失败）。
     ///
     /// 用 `Mutex` 是因为 [`GameData`] 会被多个世界/会话共享（`Arc`），而 `DropTable::load`
@@ -257,21 +264,48 @@ impl GameData {
                 continue;
             }
             let relative = section.name.strip_prefix("Envir/").unwrap_or(&section.name);
-            fs.insert(
-                relative.to_owned(),
-                String::from_utf8_lossy(&section.data).into_owned(),
-            );
+            fs.insert(relative.to_owned(), &section.data);
             script_count += 1;
         }
-        let script_fs = (!fs.files.is_empty()).then(|| Arc::new(fs));
+        if let Some(section) = mnd
+            .sections
+            .iter()
+            .find(|section| section.tag == TAG_ENVIR_BUNDLE)
+        {
+            let (blob, index) = mir_db::schema::decode_envir_index(section.data.clone())?;
+            script_count += index.len();
+            fs = ScriptFs {
+                blob,
+                index: index
+                    .into_iter()
+                    .map(|(name, start, len)| (name, (start, len)))
+                    .collect(),
+            };
+        }
+        let script_fs = (!fs.index.is_empty()).then(|| Arc::new(fs));
+        let mut configs = HashMap::new();
+        for section in &mnd.sections {
+            if section.tag != TAG_CONFIG {
+                continue;
+            }
+            let name = section
+                .name
+                .strip_prefix("Configs/")
+                .map_or_else(|| section.name.clone(), |rest| format!("Configs/{rest}"));
+            configs.insert(name, String::from_utf8_lossy(&section.data).into_owned());
+        }
         tracing::info!(
             path = %path.display(),
+            format_version = mnd.format_version,
             schema_version = mnd.schema_version,
             sections = mnd.sections.len(),
             scripts = script_count,
+            configs = configs.len(),
             "已加载 .mnd 数据包（内存脚本 FS）"
         );
-        Ok(Self::from_parts(db, None, None, script_fs, path))
+        let mut data = Self::from_parts(db, None, None, script_fs, path);
+        data.configs = configs;
+        Ok(data)
     }
 
     /// 用内存里的数据库构造（测试、工具用）：不读文件，掉落表从 `drop_dir` 惰性加载。
@@ -353,6 +387,7 @@ impl GameData {
             drop_dir,
             envir_dir,
             script_fs,
+            configs: HashMap::new(),
             drop_cache: Mutex::new(HashMap::new()),
             npc_script_cache: Mutex::new(HashMap::new()),
             quest_script_cache: Mutex::new(HashMap::new()),
@@ -428,6 +463,20 @@ impl GameData {
     #[must_use]
     pub fn read_script(&self, path: &str) -> Option<Arc<str>> {
         self.script_fs.as_ref()?.read(path)
+    }
+
+    /// 从 `.mnd` 的 `Configs/*.ini` 段读运营配置（`Configs/ExpList.ini` 等）。
+    ///
+    /// 路径接受 `Configs/...` 或相对 `Configs/` 的文件名。
+    #[must_use]
+    pub fn read_config(&self, path: &str) -> Option<&str> {
+        let normalized = normalize_script_path(path);
+        let key = if normalized.starts_with("Configs/") {
+            normalized
+        } else {
+            format!("Configs/{normalized}")
+        };
+        self.configs.get(&key).map(String::as_str)
     }
 
     /// NPC 脚本目录（`Envir/NPCs`，Crystal `Settings.NPCPath`，`Server/Settings.cs:24`）。

@@ -301,7 +301,7 @@ py tools/assets/verify_layout.py --plan target/used-assets.json --game-assets ga
 py tools/assets/build_manifest.py --plan target/used-assets.json --verify-json target/layout-verify.json
 #   → game-assets/manifest.assets.json、game-assets/index/summary.json
 
-# 7) 发布包对账（kind=1 比 sha256；kind=0 解压比 index.json.pixels_sha256；含覆盖率/包完整性）
+# 7) 发布包对账（kind=0 比 pixels_sha256；kind=1 比文件 sha256；kind=2 用 palette.bin 展开比 rgb_sha256；kind=3 校验 768B）
 py tools/assets/reconcile_packs.py
 py tools/assets/reconcile_packs.py --categories maps,data,index   # 只查原样条目（秒级）
 py tools/assets/reconcile_packs.py --quick                        # 只查覆盖率，不重算图像哈希
@@ -362,7 +362,7 @@ mir-tools assets unpack --plan target/used-assets.json --out-root game-assets --
 | 拆包编排 | `tools/assets/split_extract.py`：按帧数均衡分片并行（32 核全量 ~10min，单进程 ~100min），可 `--verify` |
 | 布局校验 | `tools/assets/verify_layout.py`：逐 output 对计划（PNG/index/loaded/missing）+ 抽样 rgb/rgba + 旧布局统计 |
 | 资源清单 | `tools/assets/build_manifest.py`：`manifest.assets.json`（逐库 outputs、maps_detail 385×sha256、pack_hints、packs 分类） |
-| 包对账 | `tools/assets/reconcile_packs.py`：`.mnp` 条目按逻辑名/sha256 对散装（kind=0 解压比 `pixels_sha256`）+ 覆盖率 + 包完整性；失败退出码 1 |
+| 包对账 | `tools/assets/reconcile_packs.py`：`.mnp` 条目按逻辑名对散装（kind=0 `pixels_sha256`、kind=1 文件 sha256、kind=2 `palette.bin` 展开比 `rgb_sha256`、kind=3 校验 768B）+ 覆盖率 + 包完整性；失败退出码 1 |
 | 帧文件名 | 四位库内 index（`0000.png`/`0054.png`），单帧类别也保留 `<entity>/<index>.png` 这一级 |
 
 分工：**hubu2** 负责引用分析、命名规则、统计与独立解码校验；**hubu** 负责 Rust 拆包器与

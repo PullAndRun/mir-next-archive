@@ -290,11 +290,19 @@ impl World {
         }
         let root = self.map_root.clone()?;
         let path = root.join(format!("{map_file}.map"));
+        // `Map::load` 会优先读同目录同名 `.mnm`；日志按**实际源**打印，避免审计误判成回退。
+        let mnm_path = path.with_extension("mnm");
+        let (source_path, source) = if mnm_path.is_file() {
+            (mnm_path, "mnm")
+        } else {
+            (path.clone(), "map")
+        };
         match mir_world::Map::load(&path) {
             Ok(map) => {
                 tracing::info!(
                     map = %map_file,
-                    path = %path.display(),
+                    path = %source_path.display(),
+                    source,
                     width = map.width,
                     height = map.height,
                     "已加载地图"

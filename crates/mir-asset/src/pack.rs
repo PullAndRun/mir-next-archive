@@ -47,8 +47,12 @@ const HEADER_LEN: u64 = 32;
 const TRAILER_LEN: u64 = 32;
 /// 条目 kind：RGBA 像素 + zlib。
 pub const KIND_RGBA_ZLIB: u8 = 0;
-/// 条目 kind：原样字节（`.map`、`.wav`、`.MirDB`）。
+/// 条目 kind：原样字节（`.mnm`、`.mnd`、字体等）。
 pub const KIND_RAW: u8 = 1;
+/// 条目 kind：8 位调色板索引 + zlib（palette8 帧，体积约为 RGBA 的 1/4）。
+pub const KIND_PALETTE8: u8 = 2;
+/// 条目 kind：调色板（768 字节 RGB，每库一条 `palette.bin`）。
+pub const KIND_PALETTE: u8 = 3;
 
 /// `manifest.packs.json`：发布产物清单（工具与加载端共用）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -222,7 +226,7 @@ impl PackFile {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         read_exact_into(&mut file, &self.path, meta.data_offset, &mut raw)?;
-        if meta.kind == KIND_RGBA_ZLIB {
+        if matches!(meta.kind, KIND_RGBA_ZLIB | KIND_PALETTE8) {
             let decoded = zlib_decompress(&raw, &self.path)?;
             if decoded.len() != meta.raw_len as usize {
                 return Err(AssetError::Corrupt {
@@ -248,6 +252,15 @@ impl PackFile {
             offset: 0,
             message: format!("包里没有条目 {name}"),
         })?;
+        if meta.kind == KIND_PALETTE8 {
+            let indices = self.data(name)?;
+            let palette = self.palette_for(name);
+            let pixels = crate::palette::palette8_to_rgba(&indices, &palette);
+            return Ok(Image {
+                info: meta.info,
+                pixels,
+            });
+        }
         if meta.kind != KIND_RGBA_ZLIB {
             return Err(AssetError::Corrupt {
                 path: self.path.clone(),
@@ -260,6 +273,33 @@ impl PackFile {
             info: meta.info,
             pixels,
         })
+    }
+}
+
+impl PackFile {
+    /// 找帧所属目录的 `palette.bin`；没有就用内置 `WeMade` 表。
+    fn palette_for(&self, frame_name: &str) -> [u8; crate::palette::PALETTE_RGB_LEN] {
+        if let Some((dir, _)) = frame_name.rsplit_once('/') {
+            let palette_name = format!("{dir}/palette.bin");
+            if let Some(meta) = self.entries.get(&palette_name) {
+                if meta.kind == KIND_PALETTE
+                    && meta.data_len as usize == crate::palette::PALETTE_RGB_LEN
+                {
+                    let mut bytes = vec![0u8; crate::palette::PALETTE_RGB_LEN];
+                    let mut file = self
+                        .file
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if read_exact_into(&mut file, &self.path, meta.data_offset, &mut bytes).is_ok()
+                    {
+                        let mut palette = [0u8; crate::palette::PALETTE_RGB_LEN];
+                        palette.copy_from_slice(&bytes);
+                        return palette;
+                    }
+                }
+            }
+        }
+        crate::palette::wemade_palette_rgb()
     }
 }
 
@@ -419,6 +459,43 @@ impl PackWriter {
         };
         self.push_entry(name, KIND_RGBA_ZLIB, info, &data, pixels.len())?;
         Ok(())
+    }
+
+    /// 加一张 palette8 帧（`indices` 为 8 位调色板索引，行优先）。
+    pub fn add_palette8(
+        &mut self,
+        name: &str,
+        info: &ImageInfo,
+        indices: &[u8],
+    ) -> Result<(), AssetError> {
+        let data = if self.compress {
+            zlib_compress(indices, &self.path)?
+        } else {
+            indices.to_vec()
+        };
+        self.push_entry(name, KIND_PALETTE8, info, &data, indices.len())
+    }
+
+    /// 加一条调色板（768 字节 RGB，逻辑名约定 `<目录>/palette.bin`）。
+    pub fn add_palette(
+        &mut self,
+        name: &str,
+        palette: &[u8; crate::palette::PALETTE_RGB_LEN],
+    ) -> Result<(), AssetError> {
+        let empty = ImageInfo {
+            width: 0,
+            height: 0,
+            offset_x: 0,
+            offset_y: 0,
+            format: 0,
+            shadow_x: 0,
+            shadow_y: 0,
+            reserved: [0; 3],
+            has_mask: false,
+            data_offset: 0,
+            data_len: 0,
+        };
+        self.push_entry(name, KIND_PALETTE, &empty, palette, palette.len())
     }
 
     /// 加一条原样字节（`.map`/`.wav`/`.MirDB`）。
@@ -602,6 +679,8 @@ pub struct PackSet {
     packs: Vec<Arc<PackFile>>,
     /// 逻辑名 → (包下标, 条目元数据)。
     lookup: BTreeMap<String, (usize, EntryMeta)>,
+    /// 目录 → 调色板（来自所有包的 `kind=3` 条目；目录跨片时也能展开）。
+    palettes: BTreeMap<String, [u8; crate::palette::PALETTE_RGB_LEN]>,
 }
 
 impl PackSet {
@@ -621,12 +700,26 @@ impl PackSet {
             })?;
         let mut packs = Vec::new();
         let mut lookup = BTreeMap::new();
+        let mut palettes = BTreeMap::new();
         for summary in &manifest.packs {
             let path = dir.join(&summary.file);
             let pack = Arc::new(PackFile::open(&path)?);
             let index = packs.len();
             for name in pack.names() {
                 if let Some(meta) = pack.meta(name) {
+                    if meta.kind == KIND_PALETTE
+                        && meta.data_len as usize == crate::palette::PALETTE_RGB_LEN
+                    {
+                        if let Some((parent, _)) = name.rsplit_once('/') {
+                            if let Ok(bytes) = pack.data(name) {
+                                if bytes.len() == crate::palette::PALETTE_RGB_LEN {
+                                    let mut palette = [0u8; crate::palette::PALETTE_RGB_LEN];
+                                    palette.copy_from_slice(&bytes);
+                                    palettes.insert(parent.to_owned(), palette);
+                                }
+                            }
+                        }
+                    }
                     lookup.insert(name.to_owned(), (index, meta.clone()));
                 }
             }
@@ -636,6 +729,7 @@ impl PackSet {
             manifest,
             packs,
             lookup,
+            palettes,
         })
     }
 
@@ -682,11 +776,26 @@ impl PackSet {
 
     /// 取一张图。
     pub fn image(&self, name: &str) -> Result<Image, AssetError> {
-        let (index, _) = self.lookup.get(name).ok_or_else(|| AssetError::Corrupt {
+        let (index, meta) = self.lookup.get(name).ok_or_else(|| AssetError::Corrupt {
             path: PathBuf::from("manifest.packs.json"),
             offset: 0,
             message: format!("包集合里没有 {name}"),
         })?;
+        if meta.kind == KIND_PALETTE8 {
+            // 目录的 `palette.bin` 可能在**另一个包**（跨片目录只在第一片写），
+            // 所以用 PackSet 的全局表；没有就回退内置 WeMade 表。
+            let indices = self.packs[*index].data(name)?;
+            let dir = name.rsplit_once('/').map_or("", |(parent, _)| parent);
+            let palette = self
+                .palettes
+                .get(dir)
+                .copied()
+                .unwrap_or_else(crate::palette::wemade_palette_rgb);
+            return Ok(Image {
+                info: meta.info,
+                pixels: crate::palette::palette8_to_rgba(&indices, &palette),
+            });
+        }
         self.packs[*index].image(name)
     }
 
@@ -713,6 +822,7 @@ impl PackSet {
             manifest: self.manifest.clone(),
             packs: self.packs.clone(),
             lookup,
+            palettes: self.palettes.clone(),
         }
     }
 
@@ -899,6 +1009,126 @@ mod tests {
             assert_eq!(image.info, expected_info, "元数据必须逐字段一致");
             assert_eq!(image.pixels, *pixels, "像素必须逐字节一致");
         }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn palette8_entries_round_trip_through_palette_bin() {
+        let dir = temp_dir("palette8");
+        let packs_dir = dir.join("packs");
+        let path = packs_dir.join("tiles-objects3-1.mnp");
+        let mut writer = PackWriter::create(&path, true).expect("create");
+        let palette = crate::palette::wemade_palette_rgb();
+        writer
+            .add_palette("gfx/tiles/objects3/palette.bin", &palette)
+            .expect("add palette");
+        let indices: Vec<u8> = (0..40u8).collect();
+        let info = sample_info(8, 5, -1, 2);
+        writer
+            .add_palette8("gfx/tiles/objects3/0000.png", &info, &indices)
+            .expect("add palette8");
+        writer.finish("tiles").expect("finish");
+
+        let pack = PackFile::open(&path).expect("open");
+        let image = pack.image("gfx/tiles/objects3/0000.png").expect("image");
+        let expected = crate::palette::palette8_to_rgba(&indices, &palette);
+        assert_eq!(image.pixels, expected, "kind=2 展开后必须与调色板一致");
+        assert_eq!(image.info.width, 8);
+        assert_eq!(image.info.offset_x, -1);
+        // 篡改索引数据 → 包尾 sha256 必红
+        let mut bytes = std::fs::read(&path).expect("read");
+        let middle = bytes.len() / 2;
+        bytes[middle] ^= 0xFF;
+        std::fs::write(&path, &bytes).expect("write");
+        assert!(PackFile::open(&path).is_err(), "篡改必须被发现");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 真实 palette8 帧：`ImageLibrary::image` 像素 → 索引 → 包 → 展开，RGB 必须逐字节一致。
+    #[test]
+    fn palette8_matches_real_library_pixels() {
+        let library_path = Path::new("../../resource/data/objects3.wzl");
+        if !library_path.is_file() {
+            eprintln!("skip: no resource/data/objects3.wzl");
+            return;
+        }
+        let library = crate::ImageLibrary::open(library_path).expect("open library");
+        let dir = temp_dir("palette8-real");
+        let pack_path = dir.join("packs").join("objects3-1.mnp");
+        let mut writer = PackWriter::create(&pack_path, true).expect("create");
+        let palette = crate::palette::wemade_palette_rgb();
+        writer
+            .add_palette("gfx/tiles/objects3/palette.bin", &palette)
+            .expect("palette");
+        let mut expected = Vec::new();
+        let mut added = 0usize;
+        for index in 0..library.len().min(8) {
+            let mut image = library.image(index).expect("decode");
+            if image.info.is_empty() {
+                continue;
+            }
+            crate::black_to_transparent(image.info.format, &mut image.pixels);
+            let Some(indices) = crate::palette::palette8_indices(&image.pixels) else {
+                continue;
+            };
+            writer
+                .add_palette8(
+                    &format!("gfx/tiles/objects3/{index:04}.png"),
+                    &image.info,
+                    &indices,
+                )
+                .expect("add");
+            expected.push((format!("gfx/tiles/objects3/{index:04}.png"), image.pixels));
+            added += 1;
+        }
+        assert!(added > 0, "objects3 至少要有一张可编码的 palette8 帧");
+        writer.finish("tiles").expect("finish");
+        let pack = PackFile::open(&pack_path).expect("open");
+        for (name, pixels) in &expected {
+            let image = pack.image(name).expect("image");
+            assert_eq!(&image.pixels, pixels, "{name} 展开后必须与库像素一致");
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// palette 在 A 包、kind=2 帧在 B 包（目录跨片）时，PackSet 用全局表仍能展开。
+    #[test]
+    fn pack_set_finds_palette_across_packs() {
+        let dir = temp_dir("palette-cross-pack");
+        let packs_dir = dir.join("packs");
+        let palette = crate::palette::wemade_palette_rgb();
+        let mut first =
+            PackWriter::create(packs_dir.join("tiles-objects3-1.mnp"), true).expect("create");
+        first
+            .add_palette("gfx/tiles/objects3/palette.bin", &palette)
+            .expect("palette");
+        let summary_a = first.finish("tiles").expect("finish a");
+
+        let mut second =
+            PackWriter::create(packs_dir.join("tiles-objects3-2.mnp"), true).expect("create");
+        let indices: Vec<u8> = (0..36u8).collect();
+        let info = sample_info(6, 6, 0, 0);
+        second
+            .add_palette8("gfx/tiles/objects3/0000.png", &info, &indices)
+            .expect("frame");
+        let summary_b = second.finish("tiles").expect("finish b");
+
+        std::fs::write(
+            packs_dir.join("manifest.packs.json"),
+            serde_json::to_string_pretty(&PackManifest {
+                version: 1,
+                generated_at: "epoch+0s".to_owned(),
+                chunk_mb: 16,
+                packs: vec![summary_a, summary_b],
+            })
+            .expect("json"),
+        )
+        .expect("manifest");
+
+        let set = PackSet::open(&packs_dir).expect("open set");
+        let image = set.image("gfx/tiles/objects3/0000.png").expect("image");
+        let expected = crate::palette::palette8_to_rgba(&indices, &palette);
+        assert_eq!(image.pixels, expected, "跨包的 palette 必须能被找到");
         std::fs::remove_dir_all(&dir).ok();
     }
 

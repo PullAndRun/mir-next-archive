@@ -8,8 +8,10 @@
 
 | 条目 kind | 含义 | 对账方式 |
 |---|---|---|
-| `1` | 原样字节（`.mnm`/`.mnd`/`.wav`/`index.json`） | 解包字节 sha256 == 散装文件 sha256 |
-| `0` | zlib(RGBA) 图像 | 解压后 sha256 == 同目录 `index.json` 里该帧的 `pixels_sha256`；并校验 `raw_len == width*height*4` |
+| `1` | 原样字节（`.mnm`/`.mnd`/`.mna`/`index.json`） | 解包字节 sha256 == 散装文件 sha256 |
+| `0` | zlib(RGBA) 图像 | 解压后 sha256 == 同目录 `index.json` 的 `pixels_sha256`；`raw_len == w*h*4` |
+| `2` | zlib(8bit 索引) 图像 | 用同目录 `palette.bin`（kind=3）展开 RGB，sha256 == `index.json.rgb_sha256`（忽略 alpha）；`raw_len == w*h` |
+| `3` | 每目录 768B 调色板（RGB，包内独有） | 条目存在且长度 768；不要求散装落盘 |
 
 同时校验：
 - `packs/manifest.packs.json` 里每个包的 `sha256` = 包文件 sha256、`entries` = 实际条目数；
@@ -28,6 +30,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import struct
 import sys
 import zlib
@@ -91,21 +94,58 @@ def parse_pack(path: Path) -> dict:
 
 def payload_bytes(pack: dict, entry: dict) -> bytes:
     payload = pack["data"][entry["data_offset"]:entry["data_offset"] + entry["data_len"]]
-    if entry["kind"] == 0:
+    if entry["kind"] in (0, 2):
         return zlib.decompress(payload)
     return payload
 
 
-def load_index_hashes(directory: Path, cache: dict[Path, dict[int, str]]) -> dict[int, str]:
+def load_wemade_palette() -> bytes:
+    """从 `crates/mir-asset/src/palette.rs` 解析 WeMade 256 色，返回 768B RGB（回退用）。"""
+    palette_path = REPO_ROOT / "crates" / "mir-asset" / "src" / "palette.rs"
+    text = palette_path.read_text(encoding="utf-8")
+    # 只解析 `WEMADE_PALETTE: [u32; 256] = [...]` 这一段（文件里还有 0x00FF_FFFF 之类常量）
+    block = text.split("WEMADE_PALETTE: [u32; 256] = [", 1)[1].split("];", 1)[0]
+    values = [high + low for high, low in re.findall(r"0x([0-9A-Fa-f]{4})_([0-9A-Fa-f]{4})", block)]
+    if len(values) != 256:
+        raise ValueError(f"palette.rs 解析出 {len(values)} 项，应为 256")
+    palette = bytearray()
+    for argb in values:
+        value = int(argb, 16)
+        palette.extend(((value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF))
+    return bytes(palette)
+
+
+def expand_palette8(indices: bytes, palette: bytes) -> bytes:
+    """8bit 索引展开成 RGB（`index==0` 的 alpha 约定与对账无关，这里只产出 RGB）。
+
+    用 3 张 256B 查找表 + `bytes.translate` + 步进切片，避免逐像素 Python 循环
+    （15 万帧 × 百万像素级，逐像素会慢两个数量级）。
+    """
+    if len(palette) != 768:
+        raise ValueError(f"调色板应为 768B，实际 {len(palette)}B")
+    red = bytes(palette[index * 3] for index in range(256))
+    green = bytes(palette[index * 3 + 1] for index in range(256))
+    blue = bytes(palette[index * 3 + 2] for index in range(256))
+    rgb = bytearray(len(indices) * 3)
+    rgb[0::3] = indices.translate(red)
+    rgb[1::3] = indices.translate(green)
+    rgb[2::3] = indices.translate(blue)
+    return bytes(rgb)
+
+
+def load_index_hashes(directory: Path, cache: dict[Path, dict[int, dict]]) -> dict[int, dict]:
     if directory in cache:
         return cache[directory]
     index_path = directory / "index.json"
-    mapping: dict[int, str] = {}
+    mapping: dict[int, dict] = {}
     if index_path.is_file():
         payload = json.loads(index_path.read_text(encoding="utf-8"))
         for image in payload.get("images") or payload.get("entries") or []:
             if not image.get("empty", False):
-                mapping[int(image["index"])] = image.get("pixels_sha256") or image.get("rgba_sha256")
+                mapping[int(image["index"])] = {
+                    "rgba": image.get("pixels_sha256") or image.get("rgba_sha256"),
+                    "rgb": image.get("rgb_sha256"),
+                }
     cache[directory] = mapping
     return mapping
 
@@ -175,8 +215,23 @@ def reconcile(
                 issues.append({"kind": "duplicate-entry", "name": entry["name"]})
             entries[entry["name"]] = (pack, entry)
 
-    index_cache: dict[Path, dict[int, str]] = {}
+    # kind=3：每目录一条 palette.bin（768B RGB），只在包里存，用于展开 kind=2 的 8bit 索引
+    palettes: dict[str, bytes] = {}
+    for name, (pack, entry) in entries.items():
+        if entry["kind"] != 3:
+            continue
+        palette = payload_bytes(pack, entry)
+        if len(palette) != 768:
+            issues.append({"kind": "palette-size", "name": name, "bytes": len(palette)})
+            continue
+        palettes[str(Path(name).parent).replace("\\", "/")] = palette
+    fallback_palette = (
+        load_wemade_palette() if any(entry["kind"] == 2 for _, entry in entries.values()) else None
+    )
+
+    index_cache: dict[Path, dict[int, dict]] = {}
     stats: Counter[str] = Counter()
+    stats["palette_entries"] = len(palettes)
     per_category = defaultdict(lambda: Counter())
     for path in expected_files(game, categories, include_index_json):
         logical = path.relative_to(game).as_posix()
@@ -202,7 +257,7 @@ def reconcile(
                 issues.append(
                     {"kind": "sha-mismatch", "name": logical, "expected": expected[:16], "actual": actual[:16]}
                 )
-        else:
+        elif entry["kind"] == 0:
             if quick:
                 stats["skipped_image_hash"] += 1
                 continue
@@ -224,21 +279,82 @@ def reconcile(
                         "expected": entry["width"] * entry["height"] * 4,
                     }
                 )
-            if actual == expected:
+            if actual == expected["rgba"]:
                 stats["matched_image"] += 1
                 per_category[category]["matched"] += 1
             else:
                 stats["mismatched"] += 1
                 per_category[category]["mismatched"] += 1
                 issues.append(
-                    {"kind": "image-sha-mismatch", "name": logical, "expected": expected[:16], "actual": actual[:16]}
+                    {
+                        "kind": "image-sha-mismatch",
+                        "name": logical,
+                        "expected": (expected["rgba"] or "")[:16],
+                        "actual": actual[:16],
+                    }
                 )
+        elif entry["kind"] == 2:
+            # palette8：zlib(索引) + 同目录 palette.bin（kind=3）展开，只比 RGB（alpha 由去黑约定决定）
+            if quick:
+                stats["skipped_image_hash"] += 1
+                continue
+            expected = load_index_hashes(path.parent, index_cache).get(int(path.stem))
+            if expected is None or expected.get("rgb") is None:
+                stats["index-missing"] += 1
+                per_category[category]["index_missing"] += 1
+                issues.append({"kind": "index-entry-missing", "name": logical})
+                continue
+            indices = payload_bytes(pack, entry)
+            pixels = entry["width"] * entry["height"]
+            if entry["raw_len"] != pixels or len(indices) != pixels:
+                stats["raw-len-mismatch"] += 1
+                issues.append(
+                    {
+                        "kind": "raw-len-mismatch",
+                        "name": logical,
+                        "raw_len": entry["raw_len"],
+                        "expected": pixels,
+                    }
+                )
+            palette = palettes.get(str(Path(logical).parent).replace("\\", "/"))
+            if palette is None:
+                palette = fallback_palette
+                stats["palette-fallback"] += 1
+                per_category[category]["palette_fallback"] += 1
+            rgb = expand_palette8(indices, palette)
+            actual = sha256_bytes(rgb)
+            if actual == expected["rgb"]:
+                stats["matched_palette8"] += 1
+                per_category[category]["matched"] += 1
+            else:
+                stats["mismatched"] += 1
+                per_category[category]["mismatched"] += 1
+                issues.append(
+                    {
+                        "kind": "palette8-rgb-mismatch",
+                        "name": logical,
+                        "expected": expected["rgb"][:16],
+                        "actual": actual[:16],
+                    }
+                )
+        elif entry["kind"] == 3:
+            # palette.bin：包内独有（散装不落盘），前面已按 768B 校验
+            stats["palette_entries"] += 1
+        else:
+            stats["unknown-entry-kind"] += 1
+            issues.append({"kind": "unknown-entry-kind", "name": logical, "entry_kind": entry["kind"]})
 
     expected_names = {
         path.relative_to(game).as_posix()
         for path in expected_files(game, categories, include_index_json)
     }
-    extra = [name for name in entries if name.split("/", 1)[0] in categories and name not in expected_names]
+    extra = [
+        name
+        for name in entries
+        if name.split("/", 1)[0] in categories
+        and name not in expected_names
+        and not name.endswith("/palette.bin")
+    ]
     for name in extra:
         stats["extra_in_packs"] += 1
         issues.append({"kind": "extra-in-pack", "name": name})
@@ -249,6 +365,7 @@ def reconcile(
         "pack_bytes": sum(len(pack["data"]) for pack in packs.values()),
         "manifest": str(manifest_path) if manifest else None,
         "categories": categories,
+        "entry_kinds": dict(sorted(Counter(entry["kind"] for _, entry in entries.values()).items())),
         "stats": dict(stats),
         "per_category": {name: dict(counter) for name, counter in sorted(per_category.items())},
         "issues": issues[:200],
@@ -264,7 +381,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="对账 .mnp 包与散装资源（sha256/覆盖率/包完整性）")
     parser.add_argument("--packs", default=str(DEFAULT_PACKS))
     parser.add_argument("--game-assets", default=str(DEFAULT_GAME))
-    parser.add_argument("--categories", default="gfx,maps,data,index,audio")
+    parser.add_argument("--categories", default="gfx,maps,data,index,audio,fonts")
     parser.add_argument("--quick", action="store_true", help="跳过图像条目哈希（只查覆盖率与包完整性）")
     parser.add_argument(
         "--include-index-json",

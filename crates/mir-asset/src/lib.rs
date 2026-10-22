@@ -108,6 +108,7 @@ pub use image::{Image, ImageInfo, black_to_transparent, format};
 pub use library::{ImageLibrary, LibraryKind};
 pub use library_map::{LibraryEntry, LibraryMap};
 pub use pack::{PackFile, PackManifest, PackSet, PackSummary, PackWriter};
+pub use palette::{PALETTE_RGB_LEN, palette8_indices, palette8_to_rgba, wemade_palette_rgb};
 pub use unpacked::{LibrarySource, UnpackedDirSet, UnpackedLibrary};
 
 /// 索引项数量的上限，防止畸形文件让打开阶段一次性分配巨量内存。

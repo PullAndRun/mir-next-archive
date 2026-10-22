@@ -43,7 +43,7 @@
 //! | 前层 `FrontImage` | `o+10 + 2` | 2 = `Objects.wzl`，3 = `Objects2.wzl` …（`MapCode.cs:252`） |
 //!
 //! Crystal 的 `MapLibs` 数组有 400 项（`MLibrary.cs:44`），本 crate 只映射 Mir2 的
-//! `0..=28` 与 `190`（详细名称表见 [`LIBRARY_FILES`]），因为
+//! `0..=28` 与 `190`（详细名称表见 `LIBRARY_STEMS`），因为
 //! `resource/data` 是平铺的 `.wzl`，没有 Crystal 的 `Map/WemadeMir2/…` 目录结构。
 //!
 //! # 透明色
@@ -111,7 +111,7 @@
 //! 完整支持 **v0 / v4**（后层与中层库号固定为 0/1、前层为 `o+10 + 2`，见
 //! `MapCode.cs:240-252`、`MapCode.cs:430-442`）。v2/v3 的前层库号是 `o+10 + 120`，
 //! 但后层/中层库号来自格内另外的字节，`mir-world` 目前没有暴露，因此这些版本只会
-//! 画出前层（而且 120 号以上的 Shanda 库不在 [`LIBRARY_FILES`] 里，实际也画不出来）。
+//! 画出前层（而且 120 号以上的 Shanda 库不在 `LIBRARY_STEMS` 里，实际也画不出来）。
 //! v1/v5/v6/v7/v100 的图层映射各不相同，M6 不做保证。
 //!
 //! # 从 Crystal 原样搬过来的“坑”
@@ -208,7 +208,7 @@ pub use sound::{
     music_for_index, music_for_map, sound_for_event, sound_for_sex, spell_sound,
 };
 pub use text::{TextClip, TextError, TextRenderer, font_candidates, pixel};
-pub use tiles::{LIBRARY_FILES, TileLibraries};
+pub use tiles::{LIBRARY_STEMS, TileLibraries};
 
 /// 帧缓冲的默认背景色：不透明黑（`MapControl.BackColour = Color.Black`，
 /// `GameScene.cs:10406`）。

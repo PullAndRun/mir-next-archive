@@ -41,7 +41,7 @@ pub const FONT_EXTENSIONS: [&str; 3] = ["ttf", "otf", "ttc"];
 /// 单帧字形缓存上限；超过后整体清空（正常界面同时出现的字形远小于这个数）。
 pub const MAX_CACHED_GLYPHS: usize = 4096;
 /// 字体库目录（相对工作目录）。
-pub const FONT_DIRECTORY: &str = "resource/fonts";
+pub const FONT_DIRECTORY: &str = "game-assets/fonts";
 
 /// 文字光栅化的错误。
 #[derive(Debug, thiserror::Error)]

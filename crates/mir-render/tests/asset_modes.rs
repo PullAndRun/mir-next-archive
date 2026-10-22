@@ -246,6 +246,7 @@ fn non_legacy_mode_refuses_original_wzl() {
 
 /// `legacy` 档（仅开发）：允许回退原始 `.wzl`。
 #[test]
+#[cfg(feature = "legacy")]
 fn legacy_mode_allows_original_wzl_with_warning_path() {
     let data_dir = Path::new("../../resource/data");
     if !data_dir.is_dir() {

@@ -20,13 +20,31 @@ fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// 用自有格式（`game-assets/`）加载地图：library-map + 拆包目录。
+fn load_scene(map_path: &Path, data_dir: &Path) -> MapScene {
+    let root = data_dir.parent().expect("asset root");
+    let map = mir_asset::LibraryMap::load(root.join("library-map.json")).ok();
+    let gfx = root.join("gfx");
+    MapScene::load_with_sources(
+        map_path,
+        data_dir,
+        Some(gfx.as_path()),
+        Some(root),
+        map.as_ref(),
+        None,
+        false,
+    )
+    .expect("加载真实地图")
+}
+
 fn assets() -> Option<(PathBuf, PathBuf)> {
     let root = repo_root();
-    let map = root.join("resource/map/0.map");
-    let data = root.join("resource/data");
+    // 运行期只读自有格式：地图 `.mnm` + 拆包 gfx（`game-assets/`）。
+    let map = root.join("game-assets/maps/0.mnm");
+    let data = root.join("game-assets/data");
     if !map.is_file() || !data.is_dir() {
         eprintln!(
-            "跳过：缺 {} 或 {}（resource/ 被 .gitignore 忽略）",
+            "跳过：缺 {} 或 {}（game-assets/ 被 .gitignore 忽略）",
             map.display(),
             data.display()
         );
@@ -73,7 +91,7 @@ fn attack_swing_and_spell_flash_render_with_real_assets() {
         return;
     };
     let now = 1_700_000_000_000u64;
-    let mut scene = MapScene::load(&map_path, &data_dir).expect("加载真实地图");
+    let mut scene = load_scene(&map_path, &data_dir);
     let snapshot = snapshot_at(now);
     let text = common::load_text();
     let mut state = UiState::new(Language::ZhCn);
@@ -148,7 +166,7 @@ fn attack_swing_effect_renders_on_the_player() {
         return;
     };
     let now = 1_700_000_000_000u64;
-    let mut scene = MapScene::load(&map_path, &data_dir).expect("加载真实地图");
+    let mut scene = load_scene(&map_path, &data_dir);
     let snapshot = {
         let mut snapshot = WorldSnapshot::default();
         snapshot.apply_packet(&ServerPacket::UserInformation(UserInformation {

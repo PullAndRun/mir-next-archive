@@ -8,6 +8,12 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# 默认**不编译**老格式解码器（.Lib/.wzl/.wix/.wil/.wav）：运行时只读自有格式。
+# 只有导入/构建工具（`mir-tools`）和迁移期测试开 `legacy`。
+default = []
+legacy = []
+
 [dependencies]
 flate2.workspace = true
 png.workspace = true
@@ -20,3 +26,16 @@ thiserror.workspace = true
 
 [lints]
 workspace = true
+
+# 老格式扫描/导出工具只在导入期用（`legacy` feature）。
+[[example]]
+name = "asset_scan"
+required-features = ["legacy"]
+
+[[test]]
+name = "png_export"
+required-features = ["legacy"]
+
+[[test]]
+name = "real_files"
+required-features = ["legacy"]

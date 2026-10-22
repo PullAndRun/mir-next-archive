@@ -3,7 +3,7 @@
 //! Crystal 的图库按目录组织（`MLibrary.cs:124-187`），例如
 //! `Map/WemadeMir2/Tiles.Lib`、`Map/WemadeMir2/Objects3.Lib`。本项目的
 //! `resource/data` 是平铺的 `.wzl`/`.wzx`，所以这里用一张固定表
-//! [`LIBRARY_FILES`] 把编号映射成文件名：
+//! [`LIBRARY_STEMS`] 把编号映射成图库 stem（扩展名只在 `legacy` 里拼）：
 //!
 //! | `MapLibs` 编号 | Crystal 名称 | 本项目文件 |
 //! |---|---|---|
@@ -31,38 +31,41 @@ use crate::RenderError;
 /// Crystal `MapLibs` 编号 → `resource/data` 文件名。
 ///
 /// 来源：`MLibrary.cs:124-131`（Wemade Mir2 部分）与 `MLibrary.cs:149`（`AniTiles1`）。
-pub const LIBRARY_FILES: &[(u16, &str)] = &[
-    (0, "tiles.wzl"),
-    (1, "smtiles.wzl"),
-    (2, "objects.wzl"),
-    (3, "objects2.wzl"),
-    (4, "objects3.wzl"),
-    (5, "objects4.wzl"),
-    (6, "objects5.wzl"),
-    (7, "objects6.wzl"),
-    (8, "objects7.wzl"),
-    (9, "objects8.wzl"),
-    (10, "objects9.wzl"),
-    (11, "objects10.wzl"),
-    (12, "objects11.wzl"),
-    (13, "objects12.wzl"),
-    (14, "objects13.wzl"),
-    (15, "objects14.wzl"),
-    (16, "objects15.wzl"),
-    (17, "objects16.wzl"),
-    (18, "objects17.wzl"),
-    (19, "objects18.wzl"),
-    (20, "objects19.wzl"),
-    (21, "objects20.wzl"),
-    (22, "objects21.wzl"),
-    (23, "objects22.wzl"),
-    (24, "objects23.wzl"),
-    (25, "objects24.wzl"),
-    (26, "objects25.wzl"),
-    (27, "objects26.wzl"),
-    (28, "objects27.wzl"),
-    (90, "objects_32bit.wzl"),
-    (190, "anitiles1.wzl"),
+/// Crystal `MapLibs` 编号 → 图库 stem（不含扩展名，老格式扩展名只在 `legacy` 里拼）。
+///
+/// 来源：`MLibrary.cs:124-131`（Wemade Mir2 部分）与 `MLibrary.cs:149`（`AniTiles1`）。
+pub const LIBRARY_STEMS: &[(u16, &str)] = &[
+    (0, "tiles"),
+    (1, "smtiles"),
+    (2, "objects"),
+    (3, "objects2"),
+    (4, "objects3"),
+    (5, "objects4"),
+    (6, "objects5"),
+    (7, "objects6"),
+    (8, "objects7"),
+    (9, "objects8"),
+    (10, "objects9"),
+    (11, "objects10"),
+    (12, "objects11"),
+    (13, "objects12"),
+    (14, "objects13"),
+    (15, "objects14"),
+    (16, "objects15"),
+    (17, "objects16"),
+    (18, "objects17"),
+    (19, "objects18"),
+    (20, "objects19"),
+    (21, "objects20"),
+    (22, "objects21"),
+    (23, "objects22"),
+    (24, "objects23"),
+    (25, "objects24"),
+    (26, "objects25"),
+    (27, "objects26"),
+    (28, "objects27"),
+    (90, "objects_32bit"),
+    (190, "anitiles1"),
 ];
 
 /// 已打开的地图图库。
@@ -131,9 +134,9 @@ impl TileLibraries {
             return Err(RenderError::DataDirectory { path: directory });
         }
         let mut libraries = BTreeMap::new();
-        for (index, file_name) in LIBRARY_FILES {
+        for (index, stem) in LIBRARY_STEMS {
             let Some(library) = open_library(
-                file_name,
+                stem,
                 &directory,
                 gfx_dir,
                 asset_root,
@@ -150,7 +153,12 @@ impl TileLibraries {
             return Err(RenderError::NoLibraries { directory });
         }
         // `.wil`/`.wix`：打开索引（不参与 `library(index)`，见字段文档）。
+        // 老格式容器只在 `legacy` feature 下存在。
+        #[cfg(feature = "legacy")]
         let mut wil_libraries = Vec::new();
+        #[cfg(not(feature = "legacy"))]
+        let wil_libraries: Vec<(String, LibrarySource)> = Vec::new();
+        #[cfg(feature = "legacy")]
         if let Ok(entries) = std::fs::read_dir(&directory) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -177,6 +185,7 @@ impl TileLibraries {
                 }
             }
         }
+        #[cfg(feature = "legacy")]
         wil_libraries.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(Self {
             directory,
@@ -257,7 +266,7 @@ impl TileLibraries {
 ///
 /// 返回 `Ok(None)` 表示三种来源都没有这个库（调用方跳过即可）。
 fn open_library(
-    file_name: &str,
+    stem: &str,
     directory: &Path,
     gfx_dir: Option<&Path>,
     asset_root: Option<&Path>,
@@ -265,10 +274,7 @@ fn open_library(
     packs: Option<&mir_asset::PackSet>,
     allow_legacy: bool,
 ) -> Result<Option<LibrarySource>, RenderError> {
-    let stem = Path::new(file_name)
-        .file_stem()
-        .map(|stem| stem.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default();
+    let stem = stem.to_ascii_lowercase();
 
     // 1) 散装（library-map 里的多目录）
     if let (Some(map), Some(root)) = (map, asset_root) {
@@ -292,16 +298,26 @@ fn open_library(
     }
 
     // 3) 原始容器（含老式平铺拆包目录 `<gfx>/<stem>/`）——**默认禁止**，
-    //    只有显式 `asset_mode = legacy` 才允许（用户要求：运行时只读自有格式）。
-    if !allow_legacy {
-        return Ok(None);
+    //    只有显式 `asset_mode = legacy` 且本次构建带 `legacy` feature 才允许。
+    #[cfg(feature = "legacy")]
+    {
+        if !allow_legacy {
+            return Ok(None);
+        }
+        let file_name = format!("{stem}.wzl");
+        let Some(path) = find_case_insensitive(directory, &file_name) else {
+            return Ok(None);
+        };
+        return Ok(Some(LibrarySource::open_with_gfx(&path, gfx_dir)?));
     }
-    let Some(path) = find_case_insensitive(directory, file_name) else {
-        return Ok(None);
-    };
-    Ok(Some(LibrarySource::open_with_gfx(&path, gfx_dir)?))
+    #[cfg(not(feature = "legacy"))]
+    {
+        let _ = (directory, gfx_dir, allow_legacy);
+        Ok(None)
+    }
 }
 
+#[cfg(feature = "legacy")]
 fn find_case_insensitive(directory: &Path, file_name: &str) -> Option<PathBuf> {
     let direct = directory.join(file_name);
     if direct.is_file() {
@@ -321,20 +337,21 @@ fn find_case_insensitive(directory: &Path, file_name: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(dead_code)]
     use super::*;
 
     #[test]
     fn library_table_matches_crystal_wemade_layout() {
-        assert_eq!(LIBRARY_FILES.len(), 31);
-        assert_eq!(LIBRARY_FILES[0], (0, "tiles.wzl"));
-        assert_eq!(LIBRARY_FILES[1], (1, "smtiles.wzl"));
-        assert_eq!(LIBRARY_FILES[2], (2, "objects.wzl"));
+        assert_eq!(LIBRARY_STEMS.len(), 31);
+        assert_eq!(LIBRARY_STEMS[0], (0, "tiles"));
+        assert_eq!(LIBRARY_STEMS[1], (1, "smtiles"));
+        assert_eq!(LIBRARY_STEMS[2], (2, "objects"));
         // MapLibs[3] = Objects2（MLibrary.cs:127-130 的循环从 i = 2 开始）。
-        assert_eq!(LIBRARY_FILES[3], (3, "objects2.wzl"));
-        assert_eq!(LIBRARY_FILES[28], (28, "objects27.wzl"));
-        assert!(LIBRARY_FILES.contains(&(190, "anitiles1.wzl")));
+        assert_eq!(LIBRARY_STEMS[3], (3, "objects2"));
+        assert_eq!(LIBRARY_STEMS[28], (28, "objects27"));
+        assert!(LIBRARY_STEMS.contains(&(190, "anitiles1")));
         // 编号严格递增，方便二分/调试。
-        assert!(LIBRARY_FILES.windows(2).all(|pair| pair[0].0 < pair[1].0));
+        assert!(LIBRARY_STEMS.windows(2).all(|pair| pair[0].0 < pair[1].0));
     }
 
     #[test]
@@ -375,6 +392,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy")]
     fn real_data_dir_opens_wzl_and_wil_libraries() {
         let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../resource/data");
         if !directory.is_dir() {

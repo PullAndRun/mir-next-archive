@@ -875,7 +875,10 @@ impl EntityLibraries {
     #[must_use]
     pub fn open_dir(directory: impl AsRef<Path>) -> Self {
         let directory = directory.as_ref().to_path_buf();
+        #[allow(unused_mut)]
         let mut files = BTreeMap::new();
+        // 老格式目录扫描只在 `legacy` feature 下编译（运行时只读自有格式）。
+        #[cfg(feature = "legacy")]
         if let Ok(entries) = std::fs::read_dir(&directory) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -1026,18 +1029,29 @@ impl EntityLibraries {
                 })
                 .or_else(|| self.map_prefix(stem).map(LibrarySource::Pack))
                 .or_else(|| {
-                    if !self.allow_legacy {
-                        return None;
+                    #[cfg(not(feature = "legacy"))]
+                    {
+                        let _ = stem;
+                        None
                     }
-                    self.path_for_stem(stem).cloned().and_then(|path| {
-                        match LibrarySource::open_with_gfx(&path, self.gfx_dir.as_deref()) {
-                            Ok(library) => Some(library),
-                            Err(error) => {
-                                eprintln!("警告：实体图库 {} 打开失败：{error}", path.display());
-                                None
-                            }
+                    #[cfg(feature = "legacy")]
+                    {
+                        if !self.allow_legacy {
+                            return None;
                         }
-                    })
+                        self.path_for_stem(stem).cloned().and_then(|path| {
+                            match LibrarySource::open_with_gfx(&path, self.gfx_dir.as_deref()) {
+                                Ok(library) => Some(library),
+                                Err(error) => {
+                                    eprintln!(
+                                        "警告：实体图库 {} 打开失败：{error}",
+                                        path.display()
+                                    );
+                                    None
+                                }
+                            }
+                        })
+                    }
                 });
             self.opened.insert(stem.to_owned(), opened);
         }
@@ -1592,6 +1606,7 @@ fn draw_dead_marker(frame: &mut Frame, origin_x: i32, origin_y: i32) {
 
 #[cfg(test)]
 mod tests {
+    #![allow(dead_code)]
     use std::io::Write as _;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -1878,6 +1893,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy")]
     fn equipment_layers_change_the_rendered_frame() {
         let dir = synthetic_assets();
         let mut renderer = EntityRenderer::new(EntityLibraries::open_dir(&dir.0));
@@ -1912,6 +1928,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy")]
     fn walking_animation_changes_the_rendered_frame() {
         let dir = synthetic_assets();
         let mut renderer = EntityRenderer::new(EntityLibraries::open_dir(&dir.0));
@@ -1964,6 +1981,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy")]
     fn shifted_weapon_block_is_compensated() {
         // 合成素材里 `weapon2.wzl` 块 3 的站立段整体后移 8 帧，且每个方向颜色不同：
         // 不补偿的话会取到**隔壁方向**的帧（颜色不对）或空帧（整层消失）。
@@ -2005,6 +2023,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy")]
     fn weapon_is_drawn_behind_the_body_when_facing_up_or_left() {
         let dir = synthetic_assets();
         let mut renderer = EntityRenderer::new(EntityLibraries::open_dir(&dir.0));
@@ -2267,6 +2286,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy")]
     fn mount_and_wings_change_the_rendered_frame() {
         let dir = synthetic_assets();
         let mut renderer = EntityRenderer::new(EntityLibraries::open_dir(&dir.0));
@@ -2436,6 +2456,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy")]
     fn effect_libraries_are_lazy_and_missing_effects_are_silent() {
         let dir = TempDir::new("fx-lazy");
         write_library(
@@ -2463,6 +2484,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy")]
     fn attacking_player_draws_the_swing_effect_sprite() {
         let dir = TempDir::new("fx-swing");
         write_library(

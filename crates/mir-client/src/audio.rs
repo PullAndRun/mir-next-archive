@@ -119,10 +119,10 @@ impl SoundLibrary {
     pub fn default_roots() -> Self {
         Self {
             allow_legacy_wav: false,
+            // 运行期只读自有音频目录（`game-assets/audio`）；老 `.wav` 目录不再内置。
             roots: vec![
-                PathBuf::from("resource/wav"),
-                PathBuf::from("resource/community/mirfiles-crystal-client/Client/Sound"),
-                PathBuf::from("resource/community/gqf2008-crystal/Sound"),
+                PathBuf::from("game-assets/audio"),
+                PathBuf::from("game-assets/audio/sfx"),
             ],
         }
     }
@@ -166,7 +166,7 @@ impl SoundLibrary {
     /// 按仓库根目录拼默认素材目录（测试用）：即 `<root>/resource/data` 的兄弟目录。
     #[must_use]
     pub fn from_repo_root(root: impl AsRef<Path>) -> Self {
-        Self::around_data_dir(root.as_ref().join("resource").join("data"))
+        Self::around_data_dir(root.as_ref().join("game-assets").join("data"))
     }
 
     /// 在默认目录前插入一个高优先级目录（已在列表里就提到最前面）。

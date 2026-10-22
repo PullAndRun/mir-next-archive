@@ -35,7 +35,19 @@
 - 加载：`mir-asset::PackSet` 只读条目表，`image()` 才解压；`LibrarySource::Pack(..)` 与
   `ImageLibrary` 同形（`len/info/image`）。
 
-### 2.1 条目 `kind` 表（含 palette8 索引化）
+#### 2.0 启动校验策略（`open` vs `open_unverified`）
+
+`.mnp` 包尾有整包 `sha256`（32 B）。读取端有两种打开方式：
+
+| API | 校验 | 用途 |
+|---|---|---|
+| `PackFile::open` / `PackSet::open` | 逐包校验整包 sha256 | 导入/构建、`mir-tools assets pack --verify/--check`、发布前检查 |
+| `PackFile::open_unverified` / `PackSet::open_unverified` | **只解析包头 + 条目表**，不哈希整包 | 客户端启动（信任分发包） |
+
+实测（45 包 / 409.67 MB）：客户端 release 启动 `open` 从 **8.3 s → 0.34 s（约 24×）**；
+完整性由发布流程与 `--verify` 兜底，运行期不再为 410 MB 逐字节算哈希。
+
+## 2.1 条目 `kind` 表（含 palette8 索引化）
 
 | kind | 内容 | 说明 |
 |---|---|---|

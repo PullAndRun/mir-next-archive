@@ -128,12 +128,14 @@ impl Image {
 
 /// 每行字节数：Crystal 的 `WidthBytes`（`WeMadeLibrary.cs:231-234`）：
 /// `(((width * bits) + 31) >> 5) * 4`，即按 4 字节对齐。
+#[cfg(feature = "legacy")]
 pub(crate) fn row_bytes(bits_per_pixel: u32, width: u16) -> u64 {
     let bits = u64::from(width) * u64::from(bits_per_pixel);
     ((bits + 31) >> 5) * 4
 }
 
 /// 每种 `.wzl` 格式的每像素位数。
+#[cfg(feature = "legacy")]
 pub(crate) const fn pixel_bits(format: u8) -> u32 {
     match format {
         format::RGB565 => 16,
@@ -147,6 +149,7 @@ pub(crate) const fn pixel_bits(format: u8) -> u32 {
 /// 与 Crystal 的 `convert16bitTo32bit` 完全一致（`WeMadeLibrary.cs:223-229`）：
 /// `5/6/5` 位分别**左移** 3/2/3 位，不做低位复制，所以 `0xF800` 会得到 248 而不是 255；
 /// alpha 恒为 255（`.wzl` 的 16 位图没有透明通道）。
+#[cfg(feature = "legacy")]
 pub(crate) fn expand_rgb565(value: u16) -> [u8; 4] {
     let red = ((value >> 11) & 0x1F) << 3;
     let green = ((value >> 5) & 0x3F) << 2;
@@ -155,11 +158,13 @@ pub(crate) fn expand_rgb565(value: u16) -> [u8; 4] {
 }
 
 /// 调色板索引转 RGBA：查 `WeMade` 256 色表，alpha 取表里的值（恒为 255）。
+#[cfg(feature = "legacy")]
 pub(crate) fn palette_rgba(index: u8) -> [u8; 4] {
     rgba_from_argb(crate::palette::WEMADE_PALETTE[usize::from(index)])
 }
 
 /// `0xAARRGGBB` 转 RGBA 字节序。
+#[cfg(feature = "legacy")]
 pub(crate) const fn rgba_from_argb(argb: u32) -> [u8; 4] {
     [
         ((argb >> 16) & 0xFF) as u8,
@@ -193,6 +198,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(feature = "legacy")]
     fn row_bytes_matches_crystal_width_bytes() {
         // WidthBytes(8, 82) = (((82*8)+31)>>5)*4 = 84
         assert_eq!(row_bytes(8, 82), 84);
@@ -205,6 +211,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy")]
     fn rgb565_expansion_matches_crystal() {
         assert_eq!(expand_rgb565(0x0000), [0, 0, 0, 255]);
         assert_eq!(expand_rgb565(0xF800), [248, 0, 0, 255]);
@@ -214,6 +221,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy")]
     fn palette_zero_is_opaque_black() {
         // WeMadeLibrary.cs:77 的第一项是 -16777216 = 0xFF000000
         assert_eq!(palette_rgba(0), [0, 0, 0, 255]);

@@ -56,14 +56,7 @@ use crate::world::SpawnGroup;
 /// 3. `Daneo1989`：v83，英文，旧版二进制格式覆盖。
 ///
 /// 审计与切换风险见 `docs/world/data-languages.md`。
-pub const DB_CANDIDATES: &[&str] = &[
-    // v105：简体中文库 + 完整 Envir（默认数据集；`docs/world/data-languages.md`）。
-    "resource/community/suprcode-crystal-database/cjlaaa/Server.MirDB",
-    // v111：英文库，作兜底（旧版/英文内容测试与「数据契约」对照用）。
-    "resource/community/suprcode-crystal-database/Jev/Server.MirDB",
-    // v83：旧版格式覆盖（英文）。
-    "resource/community/clgforever910-mir2database/Daneo1989/Server.MirDB",
-];
+pub const DB_CANDIDATES: &[&str] = &[];
 
 /// `.mnd` 里的内存脚本文件系统（M2）：不再解包到临时目录。
 ///
@@ -417,14 +410,13 @@ impl GameData {
             // 报**绝对路径** + 已搜索的候选：CI（没有 `resource/`）下测试里打出来的
             // `跳过：{error}` 才能直接看出缺什么、该放哪儿。
             path: std::env::current_dir().map_or_else(
-                |_| PathBuf::from("resource/community/<repo>/Server.MirDB"),
-                |cwd| cwd.join("resource/community/<repo>/Server.MirDB"),
+                |_| PathBuf::from("game-assets/data/game.mnd"),
+                |cwd| cwd.join("game-assets/data/game.mnd"),
             ),
             source: std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 format!(
-                    "no Server.MirDB found under {} (searched: {}); \
-                     use tools/asset-index/find_asset.py --name Server.MirDB",
+                    "no .mnd data pack found under {} (searched: {})",
                     std::env::current_dir().map_or_else(
                         |_| "<unknown cwd>".to_owned(),
                         |cwd| cwd.display().to_string(),

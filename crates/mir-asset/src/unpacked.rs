@@ -360,7 +360,8 @@ impl UnpackedDirSet {
 /// 没有就退回原始 `.wzl`。这样不装素材/没拆包的机器仍能跑测试与演示。
 #[derive(Debug)]
 pub enum LibrarySource {
-    /// 原始容器文件。
+    /// 原始容器文件（`.Lib/.wzl/.wil`；只有 `legacy` feature 下存在）。
+    #[cfg(feature = "legacy")]
     Packed(crate::ImageLibrary),
     /// 拆包目录（`index.json` + PNG）。
     Unpacked(UnpackedLibrary),
@@ -404,7 +405,13 @@ impl LibrarySource {
                 }
             }
         }
-        Ok(Self::Packed(crate::ImageLibrary::open(path)?))
+        #[cfg(feature = "legacy")]
+        let fallback = Ok(Self::Packed(crate::ImageLibrary::open(path)?));
+        #[cfg(not(feature = "legacy"))]
+        let fallback = Err(AssetError::LegacyDisabled {
+            path: path.to_path_buf(),
+        });
+        fallback
     }
 
     /// 从一组拆包目录建库（一库多目录）。
@@ -440,6 +447,7 @@ impl LibrarySource {
     #[must_use]
     pub fn len(&self) -> usize {
         match self {
+            #[cfg(feature = "legacy")]
             Self::Packed(library) => library.len(),
             Self::Unpacked(library) => library.len(),
             Self::UnpackedDirs(dirs) => dirs.len(),
@@ -456,6 +464,7 @@ impl LibrarySource {
     /// 单张图的头信息。
     pub fn info(&self, index: usize) -> Result<ImageInfo, AssetError> {
         match self {
+            #[cfg(feature = "legacy")]
             Self::Packed(library) => library.info(index),
             Self::Unpacked(library) => library.info(index),
             Self::UnpackedDirs(dirs) => dirs.info(index),
@@ -471,6 +480,7 @@ impl LibrarySource {
     /// 解码单张图。
     pub fn image(&self, index: usize) -> Result<Image, AssetError> {
         match self {
+            #[cfg(feature = "legacy")]
             Self::Packed(library) => library.image(index),
             Self::Unpacked(library) => library.image(index),
             Self::UnpackedDirs(dirs) => dirs.image(index),
@@ -528,9 +538,11 @@ pub(crate) fn read_png_rgba(path: &Path) -> Result<Vec<u8>, AssetError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "legacy")]
     use crate::ImageLibrary;
 
     /// 仓库里的样例库（CI 没有素材时跳过）。
+    #[cfg(feature = "legacy")]
     fn sample_library() -> Option<PathBuf> {
         let path = Path::new("../../resource/data/items.wzl");
         path.is_file().then(|| path.to_path_buf())
@@ -594,6 +606,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy")]
     fn unpacked_pixels_match_source_library() {
         let Some(library_path) = sample_library() else {
             eprintln!("skip: 没有 resource/data/items.wzl");
@@ -723,6 +736,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy")]
     fn library_source_prefers_unpacked_and_falls_back() {
         let Some(library_path) = sample_library() else {
             eprintln!("skip: no resource/data/items.wzl");

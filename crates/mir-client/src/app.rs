@@ -3058,23 +3058,27 @@ mod tests {
         assert_eq!(chat_submit_command("   "), None);
     }
 
+    /// 新规则：运行期只读自有格式（`game-assets/`），不再读 `resource/data`。
     #[test]
-    fn blank_scene_loads_real_tile_libraries_when_assets_exist() {
-        let data_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../resource/data");
-        if !data_dir.is_dir() {
-            eprintln!("跳过：缺 {}", data_dir.display());
+    fn blank_scene_loads_dev_tree_libraries_when_game_assets_exist() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../game-assets");
+        let data_dir = root.join("data");
+        if !root.join("library-map.json").is_file() {
+            eprintln!("跳过：缺 {}", root.join("library-map.json").display());
             return;
         }
         let scene = blank_scene(&data_dir);
         assert!(
             scene.libraries().len() >= 3,
-            "登录背景也应当加载真实瓦片图库：{}",
+            "登录背景应当从 game-assets 加载自有图库：{}",
             scene.libraries().len()
         );
-        assert!(scene.libraries().wil_len() >= 4, "WIL 图库也应当打开");
-        // 缺目录时退回空图库（不 panic）。
-        let empty = blank_scene(&data_dir.join("definitely-missing"));
+        // 完全没有素材根时退回空图库（不 panic）。
+        let empty_root = std::env::temp_dir().join("mir2-client-no-assets");
+        std::fs::create_dir_all(&empty_root).expect("mkdir");
+        let empty = blank_scene(&empty_root.join("data"));
         assert!(empty.libraries().is_empty());
+        std::fs::remove_dir_all(&empty_root).ok();
     }
 
     #[test]

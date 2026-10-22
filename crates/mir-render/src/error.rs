@@ -28,7 +28,7 @@ pub enum RenderError {
 
     /// 素材目录里一个地图图库都没找到。
     #[error(
-        "素材目录 {} 里没有找到地图图像库（需要 tiles.wzl / smtiles.wzl / objects*.wzl 与配套 .wzx）",
+        "素材目录 {} 里没有找到地图图像库（需要 library-map.json + gfx/** 或 packs/）",
         .directory.display()
     )]
     NoLibraries {

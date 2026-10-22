@@ -23,17 +23,34 @@ fn repo_root() -> PathBuf {
 
 fn assets() -> Option<(PathBuf, PathBuf)> {
     let root = repo_root();
-    let map = root.join("resource/map/0.map");
-    let data = root.join("resource/data");
-    if !map.is_file() || !data.is_dir() {
+    // 运行期只读自有格式：`game-assets/`（`.mnm` 地图 + 拆包 gfx）。
+    let map = root.join("game-assets/maps/0.mnm");
+    let data = root.join("game-assets/data");
+    if !map.is_file() || !root.join("game-assets/library-map.json").is_file() {
         eprintln!(
-            "跳过：缺 {} 或 {}（resource/ 被 .gitignore 忽略）",
-            map.display(),
-            data.display()
+            "跳过：缺 {} 或 game-assets/library-map.json（game-assets/ 被 .gitignore 忽略）",
+            map.display()
         );
         return None;
     }
     Some((map, data))
+}
+
+/// 用自有格式（`game-assets/`）加载地图：library-map + 拆包目录。
+fn load_scene(map_path: &Path, data_dir: &Path) -> MapScene {
+    let root = data_dir.parent().expect("asset root");
+    let map = mir_asset::LibraryMap::load(root.join("library-map.json")).ok();
+    let gfx = root.join("gfx");
+    MapScene::load_with_sources(
+        map_path,
+        data_dir,
+        Some(gfx.as_path()),
+        Some(root),
+        map.as_ref(),
+        None,
+        false,
+    )
+    .expect("加载真实地图")
 }
 
 /// 一个玩家 + 一只怪 + 一个 NPC 的快照。
@@ -101,7 +118,7 @@ fn renders_real_map_with_player_monster_and_npc() {
     let Some((map_path, data_dir)) = assets() else {
         return;
     };
-    let mut scene = MapScene::load(&map_path, &data_dir).expect("加载真实地图");
+    let mut scene = load_scene(&map_path, &data_dir);
     assert!(scene.libraries().len() >= 3, "至少 tiles/smtiles/objects");
     let center = Point::new(330, 270);
 
@@ -162,7 +179,7 @@ fn player_animation_frames_advance_on_real_sprites() {
     let Some((map_path, data_dir)) = assets() else {
         return;
     };
-    let mut scene = MapScene::load(&map_path, &data_dir).expect("加载真实地图");
+    let mut scene = load_scene(&map_path, &data_dir);
     let center = Point::new(330, 270);
     let mut snapshot = snapshot();
     snapshot.apply_local_action(

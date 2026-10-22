@@ -114,12 +114,9 @@ pub fn derived_db_path(asset_root: &str) -> Option<String> {
     if Path::new(&mnd).is_file() {
         return Some(mnd);
     }
-    let primary = format!("{asset_root}/data/server/Server.MirDB");
-    if Path::new(&primary).is_file() {
-        return Some(primary);
-    }
-    let legacy = format!("{asset_root}/server/Server.MirDB");
-    Path::new(&legacy).is_file().then_some(legacy)
+    // 运行期只读自有数据包 `.mnd`；老 MirDB 由导入工具处理，不再在运行时查找。
+    let candidate = format!("{asset_root}/data/game.mnd");
+    Path::new(&candidate).is_file().then_some(candidate)
 }
 
 /// 服务端运行配置。
@@ -433,22 +430,26 @@ mod tests {
         assert_eq!(
             derived_db_path(&raw),
             None,
-            "empty dir has no data/server DB"
+            "empty dir has no .mnd data pack"
         );
 
-        // 新布局：`data/server/Server.MirDB` 优先
+        // 运行期只认自有数据包 `<asset_root>/data/game.mnd`
+        std::fs::create_dir_all(dir.join("data")).expect("create data");
+        std::fs::write(dir.join("data").join("game.mnd"), b"mnd").expect("write mnd");
+        assert_eq!(derived_db_path(&raw), Some(format!("{raw}/data/game.mnd")));
+
+        // 老 MirDB（无论新旧布局）不再被运行时查找
         std::fs::create_dir_all(dir.join("data").join("server")).expect("create data/server");
         std::fs::write(
             dir.join("data").join("server").join("Server.MirDB"),
             b"mir2",
         )
-        .expect("write db file");
+        .expect("write old db");
         assert_eq!(
             derived_db_path(&raw),
-            Some(format!("{raw}/data/server/Server.MirDB"))
+            Some(format!("{raw}/data/game.mnd")),
+            ".mnd must win over legacy MirDB"
         );
-
-        // 旧布局 `server/Server.MirDB` 仍作兼容兜底（新布局缺失时）
         let legacy_dir = temp_asset_dir("derive-legacy");
         let legacy_raw = legacy_dir.to_str().expect("utf8").to_owned();
         std::fs::create_dir_all(legacy_dir.join("server")).expect("create server dir");
@@ -456,8 +457,8 @@ mod tests {
             .expect("write db file");
         assert_eq!(
             derived_db_path(&legacy_raw),
-            Some(format!("{legacy_raw}/server/Server.MirDB")),
-            "legacy layout must still work (compat)"
+            None,
+            "legacy MirDB layout must not be used at runtime"
         );
     }
 
@@ -508,24 +509,19 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// 运行期只读自有数据包：老的 `MirDB`（`data/server/` 与 `server/`）都不再被查找。
     #[test]
-    fn derived_db_path_falls_back_to_legacy_layouts() {
+    fn derived_db_path_ignores_legacy_mirdb_layouts() {
         let dir = temp_asset_dir("legacy-priority");
         std::fs::create_dir_all(dir.join("data/server")).expect("mkdir");
         std::fs::write(dir.join("data/server/Server.MirDB"), b"old").expect("write db");
         let raw = dir.to_str().expect("utf8");
-        assert_eq!(
-            derived_db_path(raw),
-            Some(format!("{raw}/data/server/Server.MirDB"))
-        );
+        assert_eq!(derived_db_path(raw), None, "legacy MirDB must not be used");
 
         std::fs::remove_file(dir.join("data/server/Server.MirDB")).expect("remove");
         std::fs::create_dir_all(dir.join("server")).expect("mkdir");
         std::fs::write(dir.join("server/Server.MirDB"), b"older").expect("write db");
-        assert_eq!(
-            derived_db_path(raw),
-            Some(format!("{raw}/server/Server.MirDB"))
-        );
+        assert_eq!(derived_db_path(raw), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -215,6 +215,11 @@ cargo run -p mir-tools --bin data_import -- \
 > M2 debug 仍比「旧 DB 惰性加载」慢，主要是 bincode 在 debug 下解码 315 KB 原生 DB 的开销；
 > release 已回到 9.5 ms（旧 DB 1.76 ms，同一数量级）。Envir 已不再解临时目录；
 > 纯 `MIR2_ASSET_DIR=game-assets` 起服已不读 `resource/` 的 Configs。
+>
+> E2E 两种启动（不设 env / `MIR2_ASSET_DIR=game-assets`）日志均只有：
+> `已加载 .mnd 数据包 ... configs=30`、`已加载等级经验表 source=".mnd Configs/ExpList.ini"`、
+> `已加载行会配置 source=".mnd Configs/GuildSettings.ini"`、`已加载数据包 ... source=".mnd"`、
+> `已加载地图 path=...0.mnm source="mnm"`；`resource/` 老格式读取行 **0 条**（无回退 WARN）。
 
 ## 9. 未覆盖 / 后续
 

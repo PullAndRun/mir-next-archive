@@ -47,16 +47,21 @@ def is_comment_or_doc(line: str) -> bool:
     return stripped.startswith("//") or stripped.startswith("///") or stripped.startswith("//!")
 
 
-def test_only_lines(lines: list[str]) -> set[int]:
-    """返回 `#[cfg(test)]` 块覆盖的行号（0 基）。
+SKIP_ATTRS = ("#[cfg(test)]", '#[cfg(feature = "legacy")]', '#[cfg(all(test,')
 
-    测试可以为了验证"导入器/回退路径"读老格式；规则只约束**运行时**代码。
-    块边界用花括号配平近似判断（够用：Rust 的 test 模块几乎都是 `#[cfg(test)] mod tests { ... }`）。
+
+def cfg_block_lines(lines: list[str]) -> set[int]:
+    """返回被"非运行时"属性块覆盖的行号（0 基）。
+
+    * `#[cfg(test)]`：测试可以验证导入器/回退路径，规则只约束**运行时**代码；
+    * `#[cfg(feature = "legacy")]`：老格式解码器只在导入/构建期编译，运行时默认不编译。
+
+    块边界用花括号配平近似判断（够用：这些属性几乎都挂在 `mod`/`fn`/`if` 上）。
     """
     skip: set[int] = set()
     index = 0
     while index < len(lines):
-        if "#[cfg(test)]" not in lines[index]:
+        if not any(attr in lines[index] for attr in SKIP_ATTRS):
             index += 1
             continue
         depth = 0
@@ -84,7 +89,7 @@ def hits() -> list[tuple[str, str]]:
         for path in sorted(src.rglob("*.rs")):
             rel = path.relative_to(ROOT).as_posix()
             lines = path.read_text(encoding="utf-8").splitlines()
-            skip = test_only_lines(lines)
+            skip = cfg_block_lines(lines)
             for number, line in enumerate(lines, 1):
                 if (number - 1) in skip or is_comment_or_doc(line):
                     continue

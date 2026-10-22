@@ -111,9 +111,21 @@ pub struct PackFile {
 }
 
 impl PackFile {
-    /// 打开并只读条目表（不解压任何数据）。
+    /// 打开并只读条目表（**校验包尾 sha256**；分发/导入/`--verify` 用）。
     pub fn open(path: impl AsRef<Path>) -> Result<Self, AssetError> {
-        let path = path.as_ref().to_path_buf();
+        Self::open_impl(path.as_ref(), true)
+    }
+
+    /// 打开但**跳过整包 sha256 校验**（客户端启动用：信任分发包）。
+    ///
+    /// 只解析包头/条目表；包尾 sha256 留到 `--verify`/`mir-tools` 离线校验。
+    /// 单包 ~10MB 时省掉一次全文件哈希，release 启动从秒级降到毫秒级。
+    pub fn open_unverified(path: impl AsRef<Path>) -> Result<Self, AssetError> {
+        Self::open_impl(path.as_ref(), false)
+    }
+
+    fn open_impl(path: &Path, verify_sha: bool) -> Result<Self, AssetError> {
+        let path = path.to_path_buf();
         let mut file = File::open(&path).map_err(|source| AssetError::Io {
             path: path.clone(),
             source,
@@ -147,7 +159,7 @@ impl PackFile {
             header[12], header[13], header[14], header[15], header[16], header[17], header[18],
             header[19],
         ]);
-        if flags & 1 != 0 {
+        if flags & 1 != 0 && verify_sha {
             if total < TRAILER_LEN {
                 return Err(AssetError::Corrupt {
                     path: path.clone(),
@@ -681,12 +693,25 @@ pub struct PackSet {
     lookup: BTreeMap<String, (usize, EntryMeta)>,
     /// 目录 → 调色板（来自所有包的 `kind=3` 条目；目录跨片时也能展开）。
     palettes: BTreeMap<String, [u8; crate::palette::PALETTE_RGB_LEN]>,
+    /// `filter_prefix` 记住的前缀（用于把"原库 0 基索引"还原成帧文件名）。
+    prefix: Option<String>,
 }
 
 impl PackSet {
-    /// 打开 `packs/manifest.packs.json` 及其引用的所有 `.mnp`。
+    /// 打开 `packs/manifest.packs.json` 及其引用的所有 `.mnp`（**逐包校验 sha256**）。
     pub fn open(dir: impl AsRef<Path>) -> Result<Self, AssetError> {
-        let dir = dir.as_ref();
+        Self::open_impl(dir.as_ref(), true)
+    }
+
+    /// 同 [`Self::open`]，但**跳过整包 sha256**（客户端启动默认用这个）。
+    ///
+    /// 分发完整性由发布流程/`mir-tools assets pack --check` 保证；客户端启动
+    /// 不该为 410MB 的包逐字节算哈希。
+    pub fn open_unverified(dir: impl AsRef<Path>) -> Result<Self, AssetError> {
+        Self::open_impl(dir.as_ref(), false)
+    }
+
+    fn open_impl(dir: &Path, verify_sha: bool) -> Result<Self, AssetError> {
         let manifest_path = dir.join("manifest.packs.json");
         let text = std::fs::read_to_string(&manifest_path).map_err(|source| AssetError::Io {
             path: manifest_path.clone(),
@@ -703,7 +728,11 @@ impl PackSet {
         let mut palettes = BTreeMap::new();
         for summary in &manifest.packs {
             let path = dir.join(&summary.file);
-            let pack = Arc::new(PackFile::open(&path)?);
+            let pack = Arc::new(if verify_sha {
+                PackFile::open(&path)?
+            } else {
+                PackFile::open_unverified(&path)?
+            });
             let index = packs.len();
             for name in pack.names() {
                 if let Some(meta) = pack.meta(name) {
@@ -730,6 +759,7 @@ impl PackSet {
             packs,
             lookup,
             palettes,
+            prefix: None,
         })
     }
 
@@ -823,12 +853,24 @@ impl PackSet {
             packs: self.packs.clone(),
             lookup,
             palettes: self.palettes.clone(),
+            prefix: Some(prefix.to_owned()),
         }
     }
 
-    /// 前缀下按名排序的第 `index` 个逻辑名。
+    /// 原库 0 基索引对应的逻辑名。
+    ///
+    /// 拆包目录的文件名就是原库索引（`0001.png`）。`filter_prefix` 之后**严格**按
+    /// `{prefix}{index:04}.png` 查：缺帧就必须是缺帧（渲染层据此回退），不能拿另一帧顶替。
+    /// 未筛前缀时退回"按名排序的第 index 个"（老调用方/非标准命名）。
     #[must_use]
     pub fn name_at(&self, index: usize) -> Option<&str> {
+        if let Some(prefix) = &self.prefix {
+            let candidate = format!("{prefix}{index:04}.png");
+            return self
+                .lookup
+                .get_key_value(&candidate)
+                .map(|(name, _)| name.as_str());
+        }
         self.lookup.keys().nth(index).map(String::as_str)
     }
 
@@ -1046,6 +1088,7 @@ mod tests {
 
     /// 真实 palette8 帧：`ImageLibrary::image` 像素 → 索引 → 包 → 展开，RGB 必须逐字节一致。
     #[test]
+    #[cfg(feature = "legacy")]
     fn palette8_matches_real_library_pixels() {
         let library_path = Path::new("../../resource/data/objects3.wzl");
         if !library_path.is_file() {
@@ -1133,6 +1176,28 @@ mod tests {
     }
 
     #[test]
+    fn unverified_open_skips_sha_but_verified_open_rejects() {
+        let dir = temp_dir("unverified");
+        let path = dir.join("ui.mnp");
+        let mut writer = PackWriter::create(&path, false).expect("create");
+        let info = sample_info(2, 2, 0, 0);
+        writer
+            .add_image("gfx/ui/panel/0000.png", &info, &[7u8; 16])
+            .expect("add");
+        writer.finish("ui").expect("finish");
+        // 改数据区（不是包尾）→ 整包 sha 必不符
+        let mut bytes = std::fs::read(&path).expect("read");
+        bytes[HEADER_LEN as usize] ^= 0xFF;
+        std::fs::write(&path, &bytes).expect("write");
+
+        assert!(PackFile::open(&path).is_err(), "校验模式必须抓到篡改");
+        let fast = PackFile::open_unverified(&path).expect("unverified 只读条目表");
+        assert_eq!(fast.len(), 1, "条目表仍然可读");
+        assert!(fast.meta("gfx/ui/panel/0000.png").is_some());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn tampered_pack_is_detected_by_sha256() {
         let dir = temp_dir("tamper");
         let pack_path = dir.join("ui.mnp");
@@ -1158,6 +1223,7 @@ mod tests {
 
     /// 端到端：真实库取 3 张 → 写散装（PNG + index.json）→ 打包 → 读包 → 与**原库**逐字节比较。
     #[test]
+    #[cfg(feature = "legacy")]
     fn packed_images_match_source_library_pixels() {
         let library_path = Path::new("../../resource/data/items.wzl");
         if !library_path.is_file() {
@@ -1247,7 +1313,7 @@ mod tests {
         assert_eq!(set.len(), 2);
         assert!(set.contains("gfx/tiles/lib0/0000.png"));
 
-        let tiles = set.filter_prefix("gfx/tiles/");
+        let tiles = set.filter_prefix("gfx/tiles/lib0/");
         assert_eq!(tiles.len(), 1);
         assert_eq!(tiles.name_at(0), Some("gfx/tiles/lib0/0000.png"));
         let info = tiles.library_info(0).expect("info");

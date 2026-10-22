@@ -611,12 +611,12 @@ fn load_game_data(config: &ServerConfig) -> Option<crate::gamedata::GameData> {
     }
     tracing::warn!(
         path = %mnd.display(),
-        "缺少 .mnd 数据包 → 开发期回退旧 Server.MirDB/Envir（正式运行必须用 .mnd）"
+        "缺少 .mnd 数据包 → 开发期回退老数据库格式（正式运行必须用 .mnd）"
     );
     match crate::gamedata::GameData::discover() {
         Ok(data) => Some(data),
         Err(error) => {
-            tracing::info!(%error, "没有可用的 Server.MirDB，跳过数据库刷怪");
+            tracing::info!(%error, "没有可用的 .mnd 数据包，跳过数据库刷怪");
             None
         }
     }

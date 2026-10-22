@@ -10,7 +10,7 @@ authors.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-mir-asset.workspace = true
+mir-asset = { workspace = true, features = ["legacy"] }
 mir-core.workspace = true
 mir-db.workspace = true
 mir-protocol.workspace = true

@@ -68,7 +68,9 @@
 
 use std::path::{Path, PathBuf};
 
-use mir_asset::{Image, ImageLibrary};
+use mir_asset::Image;
+#[cfg(feature = "legacy")]
+use mir_asset::ImageLibrary;
 use mir_core::Point;
 
 use crate::frame::Frame;
@@ -286,7 +288,8 @@ impl BigMapProjection {
 
 /// 小地图图库来源。
 enum Source {
-    /// 真实图库（`mmap.wzl` + `mmap.wzx`）。
+    /// 真实图库（老格式，仅 `legacy` feature）。
+    #[cfg(feature = "legacy")]
     Library(ImageLibrary),
     /// 内存里的合成图库（无头测试用；`mir-asset` 只读不写，没法现造 `.wzl`）。
     Images(std::collections::BTreeMap<u16, Image>),
@@ -339,25 +342,38 @@ impl MinimapScene {
     #[must_use]
     pub fn open_dir(directory: impl AsRef<Path>) -> (Self, Option<String>) {
         let directory = directory.as_ref();
-        let Some(path) = find_case_insensitive(directory, "mmap.wzl") else {
-            return (
+        #[cfg(feature = "legacy")]
+        {
+            let Some(path) = find_case_insensitive(directory, "mmap.wzl") else {
+                return (
+                    Self::empty(),
+                    Some(format!("{} 下没有 mmap.wzl", directory.display())),
+                );
+            };
+            return match ImageLibrary::open(&path) {
+                Ok(library) => (
+                    Self {
+                        source: Some(Source::Library(library)),
+                        path: Some(path),
+                        cache: std::collections::HashMap::new(),
+                    },
+                    None,
+                ),
+                Err(error) => (
+                    Self::empty(),
+                    Some(format!("打开 {} 失败：{error}", path.display())),
+                ),
+            };
+        }
+        #[cfg(not(feature = "legacy"))]
+        {
+            (
                 Self::empty(),
-                Some(format!("{} 下没有 mmap.wzl", directory.display())),
-            );
-        };
-        match ImageLibrary::open(&path) {
-            Ok(library) => (
-                Self {
-                    source: Some(Source::Library(library)),
-                    path: Some(path),
-                    cache: std::collections::HashMap::new(),
-                },
-                None,
-            ),
-            Err(error) => (
-                Self::empty(),
-                Some(format!("打开 {} 失败：{error}", path.display())),
-            ),
+                Some(format!(
+                    "{}：小地图图库是老格式，本次构建未启用 legacy（运行时只读自有格式）",
+                    directory.display()
+                )),
+            )
         }
     }
 
@@ -389,6 +405,7 @@ impl MinimapScene {
     pub fn image(&mut self, index: u16) -> Option<&Image> {
         if !self.cache.contains_key(&index) {
             let loaded = match self.source.as_ref()? {
+                #[cfg(feature = "legacy")]
                 Source::Library(library) => library
                     .image(usize::from(index))
                     .ok()
@@ -720,6 +737,7 @@ fn blit_crop(
 }
 
 /// 在目录里找名字不区分大小写的文件（与 `tiles.rs` 同一策略）。
+#[cfg(feature = "legacy")]
 fn find_case_insensitive(directory: &Path, file_name: &str) -> Option<PathBuf> {
     let direct = directory.join(file_name);
     if direct.is_file() {

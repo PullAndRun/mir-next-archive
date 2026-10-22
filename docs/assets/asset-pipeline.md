@@ -32,7 +32,7 @@ game-assets/                                  # 开发期：散装，一图一�
       player/weapon-<shape>/<frame>.png       # 武器层（weapon*）
       player/hair-<hair>/<frame>.png          # 头发层（hair*）
       player/wings-<effect>/<frame>.png       # 翅膀层（wingeffect_x）
-      player/mount-<block>/<frame>.png        # 坐骑（预留，默认不拆）
+      player/mount-<block>/<frame>.png        # 坐骑（渲染层必需 horse_x，3 块）
       item/icon-<image>/<index>.png           # 物品图标（单帧，文件名=库内 index=image）
       effect/<effect|magic|magic2>/<frame>.png
     ui/minimap/<index>.png                    # mmap.wzl（小地图/大地图共用）
@@ -140,7 +140,7 @@ v0/v4 为 `o+0/o+2/o+4`（v4 再异或 xor）；v2/v3 的前层库从 +120 起�
 | `mon*` | 430 | **200** | 站立 32 + 走 48 + 攻击 48 + 受击 16 + 死亡 48 + 尸体 8 |
 | `npc*` | 60 | **60** | 保守整块（站立帧表跨到下一图像） |
 | `wingeffect_x` | 600 | **288** | 站立/走/跑/攻击各 64 + 受击 24 + 死亡 32 + 尸体 8 |
-| `horse_x` | 640 | 232 | 预留（服务端未实现骑乘，默认不收） |
+| `horse_x` | 640 | 232 | **渲染层必需**（`PlayerLayer::Mount`），3 块 → `mount-1..3`，已默认收录 |
 
 按整块拆会多 2.15 倍（怪物）到 2.5 倍（人类）的帧；帧级裁剪后总帧数 177,918（不是约 40 万）。
 
@@ -454,3 +454,9 @@ data/server/Server.MirDB + data/server/Envir/…
 - 桶内按「未压缩上界」估算大小（RGBA 4 字节/像素），所以实际包会比 `chunk_mb` 小一些——**宁小勿超**；
 - `.mnp` 暂不压缩非图像条目（`.map`/`.wav`/`.MirDB` 原样存，`kind=1`）；
 - 分包按 `category + 分组` 切，不按内容相似度（后续可按热度/改动频率重切）。
+
+## 启动校验：`open_unverified`
+
+客户端启动用 `PackSet::open_unverified()`（只读包头/条目表），**不**逐包哈希 410 MB；
+`mir-tools assets pack --verify/--check` 与发布流程负责整包 sha256 校验。
+实测启动 `open`：8.3 s → 0.34 s。

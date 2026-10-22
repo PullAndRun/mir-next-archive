@@ -924,12 +924,21 @@ def collect_db_refs(db: dict, book: RefBook, include_reserved: bool, notes: list
     book.add_many("effect.wzl", EFFECT_FRAMES, "挥砍光效（FxKind::Swing）")
     book.add_many("magic.wzl", MAGIC_FRAMES, "技能命中闪光（FxKind::Magic）")
     book.add_many("magic2.wzl", MAGIC2_FRAMES, "挥砍 + 雷电束（FxKind::Swing/Bolt）")
-    # ---- 预留（默认不拆）：坐骑、物品图标兜底 ----
-    if include_reserved:
-        for block in range(HORSE_X_BLOCKS):
-            frames = [block * MOUNT_FRAMES_PER_APPEARANCE + frame for frame in MOUNT_FRAMES]
-            book.add_many("horse_x.wzl", frames, f"坐骑外观块 {block}（服务端未实现骑乘，预留）")
-        notes.append("已按 --include-reserved 收坐骑图库 horse_x.wzl（服务端当前不会发送 riding_mount）")
+    # ---- 坐骑：渲染层恒定必需（`PlayerLayer::Mount`，stem `horse_x`），与 DB 是否发骑乘无关 ----
+    # 渲染层按「块号 × 640 + 动作表偏移」取帧（`entities.rs::mount_frames`），所以按块落盘，
+    # 每块目录里是块内绝对索引；块号 `mount-1..mount-3` 与 `library-map.json` 的 dirs 顺序一致。
+    for block in range(HORSE_X_BLOCKS):
+        frames = [block * MOUNT_FRAMES_PER_APPEARANCE + frame for frame in MOUNT_FRAMES]
+        entity = f"mount-{block + 1}"
+        book.add_group(
+            "horse_x.wzl",
+            frames,
+            f"坐骑外观块 {block}（渲染层必需：PlayerLayer::Mount）",
+            entity_dest("horse_x.wzl", entity),
+            entity,
+        )
+    stats["mount_blocks"] = HORSE_X_BLOCKS
+    notes.append("坐骑 horse_x.wzl 已按渲染层必需库收录（3 个外观块，块号 mount-1..3）")
     return stats
 
 

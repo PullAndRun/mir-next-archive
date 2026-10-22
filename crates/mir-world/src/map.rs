@@ -418,11 +418,12 @@ impl Map {
         let is_mnm = path
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("mnm"));
-        if !is_mnm {
-            let mnm_path = path.with_extension("mnm");
-            if mnm_path.is_file() {
-                return crate::mnm::open(&mnm_path);
-            }
+        if is_mnm {
+            return Self::open_mnm(path);
+        }
+        let mnm_path = path.with_extension("mnm");
+        if mnm_path.is_file() {
+            return crate::mnm::open(&mnm_path);
         }
         Self::load_legacy(path)
     }

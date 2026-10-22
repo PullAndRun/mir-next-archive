@@ -56,14 +56,7 @@ pub const FALLBACK_EXP_FACTOR: i64 = 100;
 /// 前两条是本作自己的配置（`config/ExpList.ini`，注意 Crystal 的文件名是中缀大写的
 /// `ExpList.ini`；Windows 上大小写不敏感，这里仍然把两种写法都列上，兼容大小写敏感的文件系统）；
 /// 其余直接复用 `gamedata::DB_CANDIDATES` 里那几个社区数据库自带的 `Configs/ExpList.ini`。
-pub const EXP_CANDIDATES: &[&str] = &[
-    "config/ExpList.ini",
-    "config/Explist.ini",
-    "resource/community/suprcode-crystal-database/cjlaaa/Configs/ExpList.ini",
-    "resource/community/suprcode-crystal-database/Jev/Configs/ExpList.ini",
-    "resource/community/clgforever910-mir2database/Daneo1989/Configs/ExpList.ini",
-    "resource/community/suprcode-crystal-database/cjlaaa/Configs/Explist.ini",
-];
+pub const EXP_CANDIDATES: &[&str] = &["config/ExpList.ini", "config/Explist.ini"];
 
 /// 表的来源（日志与测试用）。
 #[derive(Debug, Clone, PartialEq, Eq)]

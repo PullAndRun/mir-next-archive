@@ -477,6 +477,18 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
     #[test]
+    fn map_load_accepts_mnm_path_directly() {
+        let map = sample();
+        let dir = std::env::temp_dir().join(format!("mir-mnm-direct-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp");
+        let path = dir.join("direct.mnm");
+        std::fs::write(&path, encode(&map).expect("encode")).expect("write");
+        let loaded = Map::load(&path).expect("direct .mnm");
+        assert_eq!(loaded.width, map.width);
+        assert_eq!(loaded.cells, map.cells);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+    #[test]
     fn mnm_roundtrip_is_lossless() {
         let map = sample();
         let bytes = encode(&map).expect("encode");

@@ -92,7 +92,9 @@ impl ResolvedAssets {
         };
         let release = || -> Option<(mir_asset::LibraryMap, mir_asset::PackSet, AssetMode)> {
             let map = mir_asset::LibraryMap::load(&release_map_path).ok()?;
-            let packs = mir_asset::PackSet::open(&packs_dir).ok()?;
+            // 客户端启动不逐包校验 410MB sha256（信任分发）；全量校验在
+            // `mir-tools assets pack --verify/--check` 与发布流程里做。
+            let packs = mir_asset::PackSet::open_unverified(&packs_dir).ok()?;
             (!packs.is_empty()).then_some((map, packs, AssetMode::Release))
         };
 
@@ -163,7 +165,7 @@ impl ResolvedAssets {
                     .map_or(0, mir_asset::PackSet::pack_count)
             ),
             _ => println!(
-                "素材形态：legacy（散装与 packs 都没找到，回退原 .wzl；**运行时只读自有格式，此模式仅供开发**）· 根 {}",
+                "素材形态：legacy（散装与 packs 都没找到，回退老格式；**运行时只读自有格式，此模式仅供开发**）· 根 {}",
                 root.display()
             ),
         }

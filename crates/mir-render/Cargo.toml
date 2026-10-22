@@ -8,6 +8,11 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# 默认不编译老格式（`.wzl/.wil/.Lib`）解码：运行时只读自有格式。
+default = []
+legacy = ["mir-asset/legacy"]
+
 [dependencies]
 # TrueType 文字光栅化（HUD、对话框、背包等所有中文界面文字）。
 ab_glyph.workspace = true
@@ -27,3 +32,22 @@ flate2.workspace = true
 
 [lints]
 workspace = true
+
+# 这两个用例直接读 `resource/data/*.wzl` 对老格式解码做回归：只在导入期（`legacy`）跑。
+[[test]]
+name = "animation_assets"
+required-features = ["legacy"]
+
+[[test]]
+name = "player_layers"
+required-features = ["legacy"]
+
+# 小地图用例读 `mmap.wzl`（老格式），只在 `legacy` 下跑。
+[[test]]
+name = "minimap"
+required-features = ["legacy"]
+
+# 地图渲染快照用例读 `resource/data` 的 `.wzl`，只在 `legacy` 下跑。
+[[test]]
+name = "render_map"
+required-features = ["legacy"]

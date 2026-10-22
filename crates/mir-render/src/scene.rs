@@ -89,7 +89,16 @@ impl MapScene {
         map_path: impl AsRef<Path>,
         data_dir: impl AsRef<Path>,
     ) -> Result<Self, RenderError> {
-        let map = Map::load(map_path.as_ref())?;
+        // `.mnm` 是自有格式：显式走 mnm 解析器（`Map::load` 只在给 `.map` 路径时才自动找同名 `.mnm`）。
+        let map_path = map_path.as_ref();
+        let is_mnm = map_path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("mnm"));
+        let map = if is_mnm {
+            Map::open_mnm(map_path)?
+        } else {
+            Map::load(map_path)?
+        };
         let libraries = TileLibraries::open_dir(data_dir.as_ref())?;
         // 实体图库是可选增强：素材目录里没有 `hum.wzl` / `mon*.wzl` 时仍然能画地图，
         // 实体退化为彩色占位方块（见 `entities` 模块）。
@@ -119,7 +128,16 @@ impl MapScene {
         packs: Option<&mir_asset::PackSet>,
         allow_legacy: bool,
     ) -> Result<Self, RenderError> {
-        let map = Map::load(map_path.as_ref())?;
+        // `.mnm` 是自有格式：显式走 mnm 解析器。
+        let map_path = map_path.as_ref();
+        let is_mnm = map_path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("mnm"));
+        let map = if is_mnm {
+            Map::open_mnm(map_path)?
+        } else {
+            Map::load(map_path)?
+        };
         let libraries = TileLibraries::open_with_sources(
             data_dir.as_ref(),
             gfx_dir,
@@ -789,6 +807,7 @@ fn opaque_spans(image: &Image) -> Option<Vec<(u32, u32, u32)>> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(dead_code)]
     use super::*;
     use mir_world::MapCell;
 
@@ -1053,6 +1072,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy")]
     fn synthetic_scene_draws_layers_in_crystal_order() {
         let directory =
             std::env::temp_dir().join(format!("mir-render-synthetic-scene-{}", std::process::id()));
@@ -1136,6 +1156,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy")]
     fn synthetic_v1_map_draws_tiles_through_v1_libraries() {
         let directory =
             std::env::temp_dir().join(format!("mir-render-v1-scene-{}", std::process::id()));

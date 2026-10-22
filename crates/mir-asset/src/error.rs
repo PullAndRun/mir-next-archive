@@ -12,6 +12,13 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum AssetError {
+    /// 老格式解码器未启用（`legacy` feature 关闭时）。
+    #[error("{path} 是老容器格式，但本次构建未启用 `legacy` feature（运行时只读自有格式）")]
+    LegacyDisabled {
+        /// 文件路径。
+        path: std::path::PathBuf,
+    },
+
     /// 拆包目录的 `index.json` 不是合法 JSON / 缺字段。
     #[error("{path} 不是合法的拆包索引：{message}")]
     UnpackedIndex {

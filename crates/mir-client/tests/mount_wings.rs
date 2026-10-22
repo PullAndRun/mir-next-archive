@@ -64,30 +64,47 @@ fn changed_pixels(left: &Frame, right: &Frame) -> usize {
 #[test]
 fn mounted_player_renders_mount_and_wings_to_a_png() {
     let root = repo_root();
-    let data_dir = root.join("resource/data");
-    let has_assets =
-        data_dir.join("horse_x.wzl").is_file() && data_dir.join("wingeffect_x.wzl").is_file();
+    // 运行期只读自有格式：`game-assets/`（拆包 gfx + `.mnm` 地图）。
+    let assets_root = root.join("game-assets");
+    let data_dir = assets_root.join("data");
+    let gfx_dir = assets_root.join("gfx");
+    let has_assets = assets_root.join("library-map.json").is_file()
+        && gfx_dir.join("sprites/player/mount-1").is_dir();
     if !has_assets {
-        // CI 上没有 `resource/`（被 gitignore），坐骑/翅膀图库缺失时颜色与差异断言没有意义，
-        // 按工程既有约定跳过（本地有素材时仍全量校验）。
         eprintln!(
-            "跳过：{} 下没有 horse_x.wzl / wingeffect_x.wzl（resource/ 被 gitignore）",
-            data_dir.display()
+            "跳过：{} 下没有 library-map.json / gfx/sprites/player/mount-1（game-assets/ 被 gitignore）",
+            assets_root.display()
         );
         return;
     }
+    let library_map = mir_asset::LibraryMap::load(assets_root.join("library-map.json")).ok();
 
-    // 有真实地图就用 `0.map` 当背景，没有则用合成空地图；两者都只依赖本地素材。
-    let (mut scene, center) = match MapScene::load(root.join("resource/map/0.map"), &data_dir) {
+    // 有 `.mnm` 就用它当背景，没有则用合成空地图；两者都只依赖本地素材。
+    let (mut scene, center) = match MapScene::load_with_sources(
+        assets_root.join("maps/0.mnm"),
+        &data_dir,
+        Some(gfx_dir.as_path()),
+        Some(assets_root.as_path()),
+        library_map.as_ref(),
+        None,
+        false,
+    ) {
         Ok(scene) => (scene, Point::new(330, 270)),
         Err(error) => {
-            eprintln!("没有可用的 0.map，改用合成地图：{error}");
+            eprintln!("没有可用的 0.mnm，改用合成地图：{error}");
             (
                 MapScene::from_parts_with_entities(
                     map(),
                     TileLibraries::empty("."),
                     Viewport::new(800, 600),
-                    EntityLibraries::open_dir(&data_dir),
+                    EntityLibraries::open_with_sources(
+                        &data_dir,
+                        Some(gfx_dir.as_path()),
+                        Some(assets_root.as_path()),
+                        library_map.as_ref(),
+                        None,
+                        false,
+                    ),
                 ),
                 CENTER,
             )
@@ -120,13 +137,11 @@ fn mounted_player_renders_mount_and_wings_to_a_png() {
         0,
     );
 
-    if has_assets {
-        let changed = changed_pixels(&plain_frame, &mounted_frame);
-        assert!(
-            changed > 200,
-            "有坐骑/翅膀的帧必须明显不同，实际 {changed} 像素"
-        );
-    }
+    let changed = changed_pixels(&plain_frame, &mounted_frame);
+    assert!(
+        changed > 200,
+        "有坐骑/翅膀的帧必须明显不同，实际 {changed} 像素"
+    );
     assert!(
         mounted_frame.distinct_color_count() > 4,
         "帧里应有地形/人物/坐骑/翅膀的颜色，实际 {}",
@@ -141,11 +156,10 @@ fn mounted_player_renders_mount_and_wings_to_a_png() {
     let size = std::fs::metadata(&output).expect("PNG 应存在").len();
     assert!(size > 1_024, "PNG 不应为空文件，实际 {size} 字节");
     println!(
-        "client-mount.png：{} · {}×{} · 素材={} · 颜色 {} 种",
+        "client-mount.png：{} · {}×{} · 素材=真实 · 颜色 {} 种",
         output.display(),
         mounted_frame.width,
         mounted_frame.height,
-        if has_assets { "真实" } else { "占位" },
         mounted_frame.distinct_color_count()
     );
 }

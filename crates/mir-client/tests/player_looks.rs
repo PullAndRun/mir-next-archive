@@ -138,9 +138,20 @@ fn injected_world() -> WorldSnapshot {
 
 /// 渲染一帧（地形 + 实体 + 装备面板），返回帧与场景。
 fn render(snapshot: &WorldSnapshot, root: &Path) -> Frame {
-    let map_dir = root.join("resource/map");
-    let data_dir = root.join("resource/data");
-    let mut scene = match MapScene::load(map_dir.join("0.map"), &data_dir) {
+    // 运行期只读自有格式：`game-assets/`（`.mnm` + 拆包 gfx + library-map）。
+    let assets_root = root.join("game-assets");
+    let data_dir = assets_root.join("data");
+    let gfx_dir = assets_root.join("gfx");
+    let library_map = mir_asset::LibraryMap::load(assets_root.join("library-map.json")).ok();
+    let mut scene = match MapScene::load_with_sources(
+        assets_root.join("maps/0.mnm"),
+        &data_dir,
+        Some(gfx_dir.as_path()),
+        Some(assets_root.as_path()),
+        library_map.as_ref(),
+        None,
+        false,
+    ) {
         Ok(scene) => scene,
         Err(error) => {
             eprintln!("没有可用的地图素材，改用合成地图：{error}");
@@ -226,8 +237,8 @@ fn equipment_layers_reach_the_snapshot_and_the_frame() {
 
     // CI 上没有 `resource/`（被 gitignore）：占位方块的颜色/像素差异断言没有意义，
     // 快照层的断言已经跑过，这里按工程既有约定跳过渲染部分。
-    if !root.join("resource/data").is_dir() {
-        println!("跳过像素断言：缺少真实素材（resource/ 被 gitignore）");
+    if !root.join("game-assets/library-map.json").is_file() {
+        println!("跳过像素断言：缺少真实素材（game-assets/ 被 gitignore）");
         return;
     }
 

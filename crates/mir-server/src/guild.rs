@@ -470,13 +470,8 @@ fn parse_guild_buff_info(section: Option<&HashMap<String, String>>) -> GuildBuff
 }
 
 /// `GuildSettings.ini` 的候选路径（按优先级）。
-pub const GUILD_SETTINGS_CANDIDATES: &[&str] = &[
-    "config/GuildSettings.ini",
-    "config/Guildsettings.ini",
-    "resource/community/suprcode-crystal-database/cjlaaa/Configs/GuildSettings.ini",
-    "resource/community/suprcode-crystal-database/Jev/Configs/GuildSettings.ini",
-    "resource/community/cjlaaa-mir2-server-release/Configs/GuildSettings.ini",
-];
+pub const GUILD_SETTINGS_CANDIDATES: &[&str] =
+    &["config/GuildSettings.ini", "config/Guildsettings.ini"];
 
 /// 解析 `Level-<n>` / `Level<n>` 里的等级号。
 fn ini_level_index(key: &str) -> Option<usize> {

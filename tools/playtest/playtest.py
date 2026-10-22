@@ -362,6 +362,7 @@ class Playtest:
         self.quest_items: list[dict] = []
         self.equipped_uids: list[int] = []
         self.equipped_slots: list[int] = []
+        self.equipped_items: list[dict] = []
         self.dura_events: list[tuple[float, int, int]] = []
         self.repair_events: list[tuple[float, int, int, int]] = []
         self.gates: set[tuple[int, int]] = {
@@ -854,6 +855,12 @@ class Playtest:
                 unique_id = r.u64()
                 current = r.u16()
                 self.dura_events.append((time.time(), unique_id, current))
+                for equipped in self.equipped_items:
+                    if equipped["unique_id"] == unique_id:
+                        equipped["current_dura"] = current
+                for inv in self.inventory_items:
+                    if inv["unique_id"] == unique_id:
+                        inv["current_dura"] = current
                 print(f"  [耐久] unique_id={unique_id} current={current}（S.DuraChanged 76）")
             elif index == S_REPAIR_ITEM:  # 56：C.RepairItem 的先行回显
                 r = Reader(payload)
@@ -1886,6 +1893,7 @@ class Playtest:
         equipped = 0
         self.equipped_uids = []
         self.equipped_slots = []
+        self.equipped_items = []
         for item in list(self.inventory_items):
             for slot in range(14):
                 writer = Writer()
@@ -1908,6 +1916,14 @@ class Playtest:
                     equipped += 1
                     self.equipped_uids.append(item["unique_id"])
                     self.equipped_slots.append(slot)
+                    self.equipped_items.append(
+                        dict(
+                            item,
+                            slot=slot,
+                            dura_before=int(item.get("current_dura", 0)),
+                            current_dura=int(item.get("current_dura", 0)),
+                        )
+                    )
                     break
         return equipped
 
@@ -2936,7 +2952,7 @@ class Playtest:
                 if not m.get("dead")
                 and any(
                     key in m.get("name", "").lower()
-                    for key in ("deer", "hen", "scarecrow", "oma", "rakingcat", "yeti", "wolf")
+                    for key in ("deer", "hen", "scarecrow", "oma", "rakingcat", "yeti", "wolf", "鹿", "鸡", "稻草人", "奥玛", "猫", "雪人", "狼", "卫士", "护卫")
                 )
             ]
             if not preys:
@@ -2958,25 +2974,29 @@ class Playtest:
         # 兵部新增：DuraDelay=10s 周期 flush 脏装备的 S.DuraChanged(76)，等 11s 再断言。
         if hits:
             self._drain(11.0)
-        if self.dura_events:
-            damaged_uid = self.dura_events[-1][1]
-            damaged_current = self.dura_events[-1][2]
-            damaged_max = max_by_uid.get(damaged_uid, 0)
-            self.ok(
-                "EQ-1 耐久下降",
-                f"uid={damaged_uid} current={damaged_current} max={damaged_max}（事件 {len(self.dura_events)} 次）",
-            )
-        else:
-            # B 段被服务端“只在归零发 76”挡住；C 仍可验证修理链路。
-            if not self.equipped_uids:
-                self.fail("EQ-1 修理", "没有已装备物品 unique_id")
-                return 1
-            damaged_uid = self.equipped_uids[0]
-            damaged_max = max_by_uid.get(damaged_uid, 0)
-            self.ok(
-                "EQ-1 耐久下降",
-                f"B 未观察（服务端仅在耐久归零发 76，已知缺口）；使用已装备 uid={damaged_uid} 做 C",
-            )
+        # B：扫描全部已装备物品，找 delta>=1 的目标（武器优先）。
+        rows = []
+        for equipped in self.equipped_items:
+            before = int(equipped.get("dura_before", 0))
+            after = int(equipped.get("current_dura", before))
+            rows.append((equipped.get("slot", -1), equipped["unique_id"], equipped.get("item_index", -1), before, after, after - before))
+        print("  [EQ-1] 装备耐久表：slot | unique_id | item_index | before -> after | delta")
+        for slot, uid, index, before, after, delta in rows:
+            print(f"    {slot} | {uid} | {index} | {before} -> {after} | {delta}")
+        damaged = [
+            row for row in rows if row[3] - row[4] >= 1
+        ]
+        # 武器槽 0 优先，其次按掉耐久从多到少。
+        damaged.sort(key=lambda row: (0 if row[0] == 0 else 1, -(row[3] - row[4])))
+        if not damaged:
+            self.skip("EQ-1 耐久下降", "本轮无装备掉耐久（等待时间/受击次数不足）")
+            return 0
+        slot, damaged_uid, damaged_index, before_dura, damaged_current, damage_delta = damaged[0]
+        damaged_max = max_by_uid.get(damaged_uid, before_dura)
+        self.ok(
+            "EQ-1 耐久下降",
+            f"slot={slot} uid={damaged_uid} index={damaged_index} {before_dura}->{damaged_current}（掉 {-damage_delta}）",
+        )
 
         # 打怪攒修理费：捡 S.ObjectGold(65)，直到至少 2 金币（自然掉落，不用 GM）。
         gold_deadline = time.time() + 90
@@ -2994,7 +3014,7 @@ class Playtest:
                 if not m.get("dead")
                 and any(
                     key in m.get("name", "").lower()
-                    for key in ("deer", "hen", "scarecrow", "oma", "rakingcat", "yeti", "wolf")
+                    for key in ("deer", "hen", "scarecrow", "oma", "rakingcat", "yeti", "wolf", "鹿", "鸡", "稻草人", "奥玛", "猫", "雪人", "狼", "卫士", "护卫")
                 )
             ]
             if not preys:

@@ -82,8 +82,8 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             map: "0".to_owned(),
-            map_dir: PathBuf::from("resource/map"),
-            data_dir: PathBuf::from("resource/data"),
+            map_dir: PathBuf::from("game-assets/maps"),
+            data_dir: PathBuf::from("game-assets/data"),
             center: Point::new(330, 270),
             connect: None,
             server: None,
@@ -373,7 +373,7 @@ fn main() -> Result<()> {
     resolved_assets.log(assets.root());
     if asset_mode.allow_legacy() {
         eprintln!(
-            "警告：素材形态 legacy —— 允许回退原始 .wzl/.map；按项目规则运行时只应读自有格式，此模式仅供开发兼容"
+            "警告：素材形态 legacy —— 允许回退老格式；按项目规则运行时只应读自有格式，此模式仅供开发兼容"
         );
     }
     if !options.map_dir_explicit {
@@ -762,13 +762,11 @@ fn detect_data_dir(configured: &Path) -> PathBuf {
     if configured.is_dir() {
         return configured.to_path_buf();
     }
-    for candidate in ["resource/data", "resource/ld/data"] {
-        let path = PathBuf::from(candidate);
-        if path.is_dir() {
-            return path;
-        }
-    }
-    configured.to_path_buf()
+    ["game-assets/data"]
+        .iter()
+        .map(PathBuf::from)
+        .find(|path| path.is_dir())
+        .unwrap_or_else(|| configured.to_path_buf())
 }
 
 fn print_help() {
@@ -806,7 +804,7 @@ fn print_help() {
     println!("  --sound-dir <目录>      额外音效/音乐目录（可多次；优先于 resource/wav）");
     println!("  --asset-dir <目录>      资源根（默认 game-assets/；也可用 MIR2_ASSET_DIR）");
     println!(
-        "  --asset-mode <形态>     素材形态 auto|dev|release|legacy（默认 auto；legacy 仅供开发，允许回退 .wzl）"
+        "  --asset-mode <形态>     素材形态 auto|dev|release|legacy（默认 auto；legacy 仅供开发，允许回退老格式）"
     );
     println!();
     println!("其它：");

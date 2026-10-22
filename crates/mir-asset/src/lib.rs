@@ -9,7 +9,7 @@
 //! | 旧版 `.Lib` | 扩展名，或头里的 `i32` 版本 1/2/3 | gzip 压缩的 RGBA32 或 DXT1 | 自上而下 | `Client/MirGraphics/MLibrary.cs`、`LibraryEditor/Graphics/MLibraryV1.cs` |
 //! | `.wzl` + `.wzx` | 扩展名 + 同名 `.wzx` | zlib 压缩的 8/16/24 位 | **自下而上** | `LibraryEditor/Graphics/WeMadeLibrary.cs` |
 //!
-//! 注意：Crystal 的**客户端**源码里只有 `.Lib`（见 [`ImageLibrary`] 与 `lib_container`
+//! 注意：Crystal 的**客户端**源码里只有 `.Lib`（见 `ImageLibrary` 与 `lib_container`
 //! 模块文档）；`.wzl`/`.wzx` 的读写代码在 `LibraryEditor` 工具里（`WeMadeLibrary.cs` 的
 //! `_nType == 1` 分支），本 crate 的格式细节都标了对应的 `WeMadeLibrary.cs:行号`。
 //!
@@ -59,15 +59,16 @@
 //! * `resource/data` 的 349 对 `.wzl`/`.wzx` 里，有 40 个 `.wzx` 头里偏移 44 声明的数量
 //!   与偏移表项数不一致（例如 `hair_horse.wzx` 声明 640、表里 960 项；`chrsel.wzx`
 //!   声明 618、表里 770 项）。Crystal 根本不看这个字段（`WeMadeLibrary.cs:140-147`），
-//!   所以 [`ImageLibrary::len`] 也按表项数算，[`ImageLibrary::declared_count`] 只用于诊断。
-//! * 偏移表里的 `0` 表示「没有这张图」，语料里约 81 万项是这样；[`ImageLibrary::info`]
+//!   所以 `ImageLibrary::len` 也按表项数算，`ImageLibrary::declared_count` 只用于诊断。
+//! * 偏移表里的 `0` 表示「没有这张图」，语料里约 81 万项是这样；`ImageLibrary::info`
 //!   对它们返回宽高为 0 的空头。
 //! * 旧 `.Lib` 的透明像素来自写库工具的 removeBlack（`LibraryEditor/Graphics/MLibraryV2.cs:419-426`），
 //!   不是调色板规则；`.wzl` 的 8 位调色板 alpha 全是 255，没有透明色。
 //!
 //! # 示例
 //!
-//! ```no_run
+//! ```ignore
+//! // 需要 `legacy` feature（导入/构建期）：`cargo run --example asset_scan --features legacy`
 //! use mir_asset::ImageLibrary;
 //!
 //! let library = ImageLibrary::open("resource/data/anitiles1.wzl")?;
@@ -88,23 +89,30 @@
 
 mod atlas;
 mod audio_mna;
+#[cfg(feature = "legacy")]
 mod dxt1;
 mod error;
 mod image;
+#[cfg(feature = "legacy")]
 mod lib_container;
+#[cfg(feature = "legacy")]
 mod library;
 mod library_map;
 mod pack;
 mod palette;
+#[cfg(feature = "legacy")]
 mod source;
 mod unpacked;
+#[cfg(feature = "legacy")]
 mod wil;
+#[cfg(feature = "legacy")]
 mod wzl;
 
 pub use atlas::{AtlasFrame, AtlasLibrary, AtlasMeta};
 pub use audio_mna::{AudioClip, AudioCodec, AudioMeta};
 pub use error::AssetError;
 pub use image::{Image, ImageInfo, black_to_transparent, format};
+#[cfg(feature = "legacy")]
 pub use library::{ImageLibrary, LibraryKind};
 pub use library_map::{LibraryEntry, LibraryMap};
 pub use pack::{PackFile, PackManifest, PackSet, PackSummary, PackWriter};
@@ -112,7 +120,9 @@ pub use palette::{PALETTE_RGB_LEN, palette8_indices, palette8_to_rgba, wemade_pa
 pub use unpacked::{LibrarySource, UnpackedDirSet, UnpackedLibrary};
 
 /// 索引项数量的上限，防止畸形文件让打开阶段一次性分配巨量内存。
+#[cfg(feature = "legacy")]
 pub(crate) const MAX_IMAGES: u64 = 4_000_000;
 
 /// 单张图解压后的字节上限，防止解压炸弹。
+#[cfg(feature = "legacy")]
 pub(crate) const MAX_IMAGE_BYTES: u64 = 256 * 1024 * 1024;

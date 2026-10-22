@@ -262,7 +262,13 @@ map0 明细：`tiles.wzl` 986 引用 / 665 可解、`smtiles.wzl` 170/167、`obj
   `removeBlack`），这样运行时 `UnpackedLibrary` 不需要再判断格式/做 color-key；
 - 因此跨实现比较以 **`rgb_sha256`** 为准（RGB 一致 = 解码定稿）；`rgba_sha256`/`pixels_sha256` 校验我们的透明约定本身，
   alpha 策略差异不算解码错误（户部 t120 实测：252 条差异全部是 palette[0] 的 alpha，RGB 0 差异）；
-- `format` 原样保留：以后若要改成“原样 alpha + 渲染端 color-key”，可按 `format` 还原，不需要重拆。
+- `format` 原样保留：以后若要改成“原样 alpha + 渲染端 color-key”，可按 `format` 还原，不需要重拆；
+- **RGB565 道具图标（`items.wzl`，`format=5`）例外**：`items` 的图标背景是纯黑，默认不在 alpha 列表里，
+  所以 `index.json` 会带 `alpha_applied_formats: [0,3,5]`（由计划里 `black_transparent_formats` 字段驱动）。
+  拆包器对 format 5 用**边框连通**规则（`black_to_transparent_rgb_border`）：从四边洪泛，只把与边框 4-连通的
+  纯黑像素置 `alpha=0`，图标内部的纯黑（黑剑/黑描线）保持不透明，避免整图去黑把内容挖空。
+  实测：830 个图标目录里 657 个发生变化、新增透明像素 243,254 个；252 个图标含内部纯黑（如 `icon-0850`
+  保留 47 个内部黑像素）。
 本仓库的独立实现（`export_asset_sample.py`）产出的 `index.json` 已包含同样字段，可用于交叉校验；
 `aliases`（DB 名/中文名）后续由户部或本脚本补入。
 

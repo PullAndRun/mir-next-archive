@@ -1309,6 +1309,11 @@ def build_used_assets(book: RefBook, maps_used: list[str], audio: dict, stats_li
         }
         if evidence:
             entry["evidence"] = evidence
+        # 道具图标是 RGB565（format 5），黑底需要和 palette8 一样在拆包时去透明；
+        # `mir-tools assets unpack` 读这个字段决定对哪些 format 做 black→transparent。
+        if lib.lower() == "items.wzl":
+            entry["black_transparent_formats"] = [0, 3, 5]
+            entry["alpha_note"] = "items 的 RGB565 帧按 palette8 同规则去黑底"
         libraries.append(entry)
     library_bytes = sum(entry["estimated_png_bytes"] for entry in libraries)
     missing_libraries = stats_libs.get("missing_libraries") or []

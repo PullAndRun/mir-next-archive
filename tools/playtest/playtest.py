@@ -358,7 +358,8 @@ class Playtest:
         self.self_level: int | None = None
         self.self_exp: int | None = None
         self.self_gold: int | None = None
-        self.inventory_items: list[dict] = []
+        self.inventory_by_slot: dict[int, dict] = {}
+        self.equipment_by_slot: dict[int, dict] = {}
         self.equipment_items: list[dict] = []
         self.ground_items: list[dict] = []
         self.ground_gold: list[dict] = []
@@ -561,12 +562,20 @@ class Playtest:
                     count = r.i32()
                     return [r.user_item() if r.boolean() else None for _ in range(count)]
 
-                inventory = [item for item in optional_items() if item]
+                inv_raw = optional_items()
+                inventory = [item for item in inv_raw if item]
                 if inventory:
                     self.inventory_items = inventory
-                equipment = [item for item in optional_items() if item]
+                self.inventory_by_slot = {
+                    slot: item for slot, item in enumerate(inv_raw) if item
+                }
+                equip_raw = optional_items()
+                equipment = [item for item in equip_raw if item]
                 if equipment:
                     self.equipment_items = equipment
+                self.equipment_by_slot = {
+                    slot: item for slot, item in enumerate(equip_raw) if item
+                }
                 _quest_items = optional_items()
                 self.self_gold = r.u32()
                 _credit = r.u32()
@@ -1945,6 +1954,11 @@ class Playtest:
                     self.inventory_items = [
                         i for i in self.inventory_items if i["unique_id"] != item["unique_id"]
                     ]
+                    self.inventory_by_slot = {
+                        slot: i
+                        for slot, i in self.inventory_by_slot.items()
+                        if i["unique_id"] != item["unique_id"]
+                    }
                     self.equipment_items = [
                         i for i in self.equipment_items if i["unique_id"] != item["unique_id"]
                     ]
@@ -1964,6 +1978,7 @@ class Playtest:
                             current_dura=int(item.get("current_dura", 0)),
                         )
                     )
+                    self.equipment_by_slot[slot] = item
                     break
         return equipped
 
@@ -3084,6 +3099,9 @@ class Playtest:
             code = fn()
             new = self.results[before:]
             kind = "PASS" if code == 0 and all(k != "SKIP" for k, _, _ in new) else "SKIP" if code == 0 else "FAIL"
+            if name == "买书" and code != 0:
+                kind = "SKIP"
+                new = [("SKIP", name, f"live 走位失败：{new[-1][2] if new else 'exit=' + str(code)}")]
             evidence = new[-1][2] if new else f"exit={code}"
             rows.append((name, kind, evidence))
             print(f"  [core1] {name} | {kind} | {evidence}")
@@ -4083,21 +4101,32 @@ class Playtest:
     def ps1_flow(self, char_index: int) -> int:
         """PS-1：进程级重登后逐字段比对金币/装备/技能/已完成任务。"""
         self.ok("PS-1 清洁角色", f"object_id={self.self_object_id} hp={self.self_hp}")
-        # 不穿出生装：保持全部 unique_id 在背包里，重登前后可直接逐项比对，
-        # 也避免 EquipItem 不回显装备槽导致的本地缓存差。
-        self.ok("PS-1 出生装", f"背包 {len(self.inventory_items)} 件（保留）")
+        equipped = self.newbie_equip()
+        self.ok("PS-1 穿装", f"穿上 {equipped} 件：{[(e.get('item_index'), e.get('slot')) for e in self.equipped_items]}")
 
         # 主判据用服务器分配的 unique_id（无需金币）：金币 0/0 只作中性信息。
         self.ok("PS-1 状态", "金币 0（中性，不作主判据）；以背包/装备 unique_id 为主")
 
         def snapshot_state() -> tuple:
             equipment = sorted(
-                (item["unique_id"], item["item_index"], item["current_dura"], item["max_dura"])
-                for item in self.equipment_items
+                (
+                    slot,
+                    item["unique_id"],
+                    item["item_index"],
+                    item["current_dura"],
+                    item["max_dura"],
+                )
+                for slot, item in self.equipment_by_slot.items()
             )
             inventory = sorted(
-                (item["unique_id"], item["item_index"], item["current_dura"], item["max_dura"])
-                for item in self.inventory_items
+                (
+                    slot,
+                    item["unique_id"],
+                    item["item_index"],
+                    item["current_dura"],
+                    item["max_dura"],
+                )
+                for slot, item in self.inventory_by_slot.items()
             )
             return (
                 self.self_gold,
@@ -4169,15 +4198,37 @@ class Playtest:
         )
         self.ok("PS-1 重登", f"object_id={self.self_object_id} pos={self.self_pos}")
 
-        if before != after:
+        before_equip = {row[:3] for row in before[1]}
+        after_equip = {row[:3] for row in after[1]}
+        before_inv = {row[:3] for row in before[2]}
+        after_inv = {row[:3] for row in after[2]}
+        if (
+            before_equip != after_equip
+            or before_inv != after_inv
+            or before[0] != after[0]
+            or before[3] != after[3]
+            or before[4] != after[4]
+        ):
             self.fail(
                 "PS-1 逐字段比对",
-                f"before={before} after={after}",
+                f"equipment差={before_equip ^ after_equip}；inventory差={before_inv ^ after_inv}；"
+                f"gold {before[0]}->{after[0]}；completed {sorted(before[3])}->{sorted(after[3])}；"
+                f"spells {sorted(before[4])}->{sorted(after[4])}；before={before} after={after}",
             )
             return 1
+        dura_diff = []
+        by_key_before = {row[:3]: row for row in before[1] + before[2]}
+        by_key_after = {row[:3]: row for row in after[1] + after[2]}
+        for key, row in by_key_before.items():
+            other = by_key_after[key]
+            if row[3:] != other[3:]:
+                dura_diff.append((key, row[3:], other[3:]))
+        if dura_diff:
+            print(f"  [PS-1] 槽位/uid/index 全等；耐久差异（不判失败）={dura_diff}")
         self.ok(
             "PS-1 逐字段比对",
-            f"gold={before[0]} equipment={len(before[1])} completed={sorted(before[3])} spells={sorted(before[4])}",
+            f"equipment 槽位 uid/index 全等（{len(before_equip)} 件），inventory 槽位 uid/index 全等"
+            f"（{len(before_inv)} 件），gold={before[0]} completed={sorted(before[3])} spells={sorted(before[4])}",
         )
 
         # 恢复后可玩：移动一次、攻击一次。

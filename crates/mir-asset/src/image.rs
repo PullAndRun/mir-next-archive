@@ -96,6 +96,73 @@ impl ImageInfo {
 /// （`LibraryEditor/Graphics/MLibraryV2.cs:419-426` 的 `removeBlack`），
 /// 本项目渲染层也对调色板图做同样处理。拆包产物提前烘焙后，运行时的
 /// `remove_black` 变成幂等操作，`UnpackedLibrary` 与 `.wzl` 两条路径画出来一样。
+/// 非调色板格式（如 items 的 RGB565）的黑底去透明：`alpha==255` 且 `R=G=B=0` → `alpha=0`。
+///
+/// 只在拆包器**显式**把该格式加入 alpha 列表时调用（`items.wzl` 的图标背景是纯黑），
+/// 与 [`black_to_transparent`] 的 palette8 规则分开，避免改变默认解码语义。
+pub fn black_to_transparent_rgb(pixels: &mut [u8]) {
+    for pixel in pixels.chunks_exact_mut(4) {
+        if pixel[3] == 255 && pixel[0] == 0 && pixel[1] == 0 && pixel[2] == 0 {
+            pixel[3] = 0;
+        }
+    }
+}
+
+/// 仅「边框连通」的纯黑去透明：从四边洪泛，只把与边框 4-连通的纯黑像素置 alpha=0。
+///
+/// 用于 items 这类 RGB565 图标：黑底在边框上，而图标内部的纯黑（黑剑、黑边描线）
+/// 保持不透明；比整图去黑更安全。`pixels` 是 RGBA8（长度 = width*height*4）。
+pub fn black_to_transparent_rgb_border(pixels: &mut [u8], width: usize, height: usize) {
+    let total = width * height;
+    if total == 0 || pixels.len() < total * 4 {
+        return;
+    }
+    let is_black = |index: usize| -> bool {
+        let base = index * 4;
+        pixels[base + 3] == 255
+            && pixels[base] == 0
+            && pixels[base + 1] == 0
+            && pixels[base + 2] == 0
+    };
+    let mut visited = vec![false; total];
+    let mut stack: Vec<usize> = Vec::new();
+    let push_if_black = |index: usize, visited: &mut [bool], stack: &mut Vec<usize>| {
+        if !visited[index] && is_black(index) {
+            visited[index] = true;
+            stack.push(index);
+        }
+    };
+    for x in 0..width {
+        push_if_black(x, &mut visited, &mut stack);
+        push_if_black((height - 1) * width + x, &mut visited, &mut stack);
+    }
+    for y in 0..height {
+        push_if_black(y * width, &mut visited, &mut stack);
+        push_if_black(y * width + width - 1, &mut visited, &mut stack);
+    }
+    while let Some(index) = stack.pop() {
+        let x = index % width;
+        let y = index / width;
+        if x > 0 {
+            push_if_black(index - 1, &mut visited, &mut stack);
+        }
+        if x + 1 < width {
+            push_if_black(index + 1, &mut visited, &mut stack);
+        }
+        if y > 0 {
+            push_if_black(index - width, &mut visited, &mut stack);
+        }
+        if y + 1 < height {
+            push_if_black(index + width, &mut visited, &mut stack);
+        }
+    }
+    for (index, visited) in visited.iter().enumerate() {
+        if *visited {
+            pixels[index * 4 + 3] = 0;
+        }
+    }
+}
+
 pub fn black_to_transparent(format_code: u8, pixels: &mut [u8]) {
     if !matches!(format_code, format::EMPTY | format::PALETTE8) {
         return;
@@ -218,6 +285,30 @@ mod tests {
         assert_eq!(expand_rgb565(0x07E0), [0, 252, 0, 255]);
         assert_eq!(expand_rgb565(0x001F), [0, 0, 248, 255]);
         assert_eq!(expand_rgb565(0xFFFF), [248, 252, 248, 255]);
+    }
+
+    #[test]
+    fn border_connected_black_removal_keeps_interior_black() {
+        // 5×5 全黑底 + 中间 3×3 白块 + 白块中心一个孤立黑像素
+        let mut pixels = vec![0u8; 5 * 5 * 4];
+        for pixel in pixels.chunks_exact_mut(4) {
+            pixel[3] = 255;
+        }
+        for y in 1..4 {
+            for x in 1..4 {
+                let base = (y * 5 + x) * 4;
+                pixels[base] = 255;
+                pixels[base + 1] = 255;
+                pixels[base + 2] = 255;
+            }
+        }
+        let center = (2 * 5 + 2) * 4;
+        pixels[center] = 0;
+        pixels[center + 1] = 0;
+        pixels[center + 2] = 0;
+        super::black_to_transparent_rgb_border(&mut pixels, 5, 5);
+        assert_eq!(pixels[3], 0, "边框黑底必须透明");
+        assert_eq!(pixels[center + 3], 255, "内部孤立黑像素必须保留");
     }
 
     #[test]

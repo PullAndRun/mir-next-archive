@@ -1,5 +1,9 @@
 # 独立游戏资源目录 `game-assets/`
 
+> 说明：本页记录的是**首版整目录复制方案**（22.5 GB、按原库名存放）。当前发布布局已改为自有格式
+> `gfx|maps|audio|data|fonts` + `.mnp/.mnm/.mnd/.mna`，判定规则与命令见
+> [`asset-pipeline.md`](asset-pipeline.md)；本页第 4 节的体积表已过时，保留作历史对照。
+
 游戏**运行时只引用这一份素材**（不再直接读 `resource/`），且资源根可以手动指定。
 
 - 生成工具：[`tools/assets/build_game_assets.py`](../../tools/assets/build_game_assets.py)
@@ -108,6 +112,20 @@ pwsh -NoProfile -File tools/dev/asset-smoke.ps1
   再加 `--prune-referenced`（工具里已留 TODO 说明）。
 - `Crystal` 原版地图集（`resource/map`，1116 文件）当前**整体不进** `game-assets/`
   （默认用 `cjlaaa/Maps`）；需要混用时用 `--map-source resource` 单独抽一份。
+
+## 5.1) 道具图标黑底去透明（`items.wzl`，2026-10-22 修复）
+
+`items.wzl` 的图标帧是 **RGB565**（`format=5`），原拆包只对 palette8（0/3）做 black→transparent，
+导致图标四角是 `(0,0,0,255)` 的黑底。修复后：
+
+- 计划里 `items.wzl` 带 `black_transparent_formats: [0,3,5]`，拆包器对该库 format 5 生效；
+- 规则是**边框连通**（`mir_asset::black_to_transparent_rgb_border`）：从四边洪泛，只把与边框连通的纯黑
+  置 `alpha=0`，图标内部纯黑（黑剑/描线）保留；
+- 实测（`game-assets/gfx/sprites/item` 830 个目录）：657 个变化、新增透明像素 243,254 个；
+  抽样 `icon-0000/0001/0100/3790` 四角 `alpha=0`、`opaque_black=0`，`icon-0850` 保留 47 个内部黑像素；
+- 重打包后仅 `sprites-item-1.mnp` 变化（572,375 → 576,320 B），45 包总量
+  433,976,575 → **433,980,520 B**，`--verify` 45/45、`reconcile_packs.py` issues=0；
+- 复现：`mir-tools assets unpack --plan target/used-assets-items.json --out-root game-assets`。
 
 ## 6) 为什么不入库
 

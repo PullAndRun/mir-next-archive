@@ -292,6 +292,28 @@ enum IndexSpec {
     List(Vec<usize>),
 }
 
+/// 解析 `--black-transparent-formats 0,3,5`。
+fn parse_alpha_formats(raw: &str) -> Result<Vec<u8>> {
+    let mut formats = Vec::new();
+    for part in raw
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+    {
+        let value: u16 = part
+            .parse()
+            .with_context(|| format!("format 不是数字：{part}"))?;
+        let value = u8::try_from(value).with_context(|| format!("format 超出 u8：{part}"))?;
+        if !formats.contains(&value) {
+            formats.push(value);
+        }
+    }
+    if formats.is_empty() {
+        anyhow::bail!("--black-transparent-formats 不能为空");
+    }
+    Ok(formats)
+}
+
 fn assets_command(args: &mut impl Iterator<Item = String>) -> Result<()> {
     match args.next().as_deref() {
         Some("unpack") => assets_unpack(args),
@@ -320,6 +342,10 @@ fn assets_unpack(args: &mut impl Iterator<Item = String>) -> Result<()> {
     let mut dry_run = false;
     let mut verify = false;
     let mut map_only = false;
+    // 哪些 format 在拆包时做 black→transparent；默认只处理 palette8（0/3）。
+    // 道具库 `items.wzl` 是 RGB565（5），需要显式加 `--black-transparent-formats 0,3,5`，
+    // 或在计划里给该库写 `black_transparent_formats: [0,3,5]`（`analyze_usage.py` 已内置）。
+    let mut alpha_formats: Vec<u8> = vec![0, 3];
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--lib" => lib = Some(PathBuf::from(next_arg(args, "--lib")?)),
@@ -333,6 +359,10 @@ fn assets_unpack(args: &mut impl Iterator<Item = String>) -> Result<()> {
             "--format" => format = next_arg(args, "--format")?,
             "--dry-run" => dry_run = true,
             "--verify" => verify = true,
+            "--black-transparent-formats" => {
+                alpha_formats =
+                    parse_alpha_formats(&next_arg(args, "--black-transparent-formats")?)?;
+            }
             other => anyhow::bail!("assets unpack 不认识参数 {other}\n{ASSETS_UNPACK_USAGE}"),
         }
     }
@@ -342,7 +372,14 @@ fn assets_unpack(args: &mut impl Iterator<Item = String>) -> Result<()> {
 
     if let Some(plan_path) = plan {
         let out_root = out_root.with_context(|| "--plan 需要配合 --out-root".to_owned())?;
-        return unpackage_plan(&plan_path, &out_root, dry_run, verify, map_only);
+        return unpackage_plan(
+            &plan_path,
+            &out_root,
+            dry_run,
+            verify,
+            map_only,
+            &alpha_formats,
+        );
     }
 
     let lib_path = lib.with_context(|| "--lib 必须给出图像库路径".to_owned())?;
@@ -358,6 +395,7 @@ fn assets_unpack(args: &mut impl Iterator<Item = String>) -> Result<()> {
         reason.as_deref(),
         dry_run,
         verify,
+        &alpha_formats,
     )?;
     Ok(())
 }
@@ -369,6 +407,7 @@ fn unpackage_plan(
     dry_run: bool,
     verify: bool,
     map_only: bool,
+    default_alpha_formats: &[u8],
 ) -> Result<()> {
     let text = std::fs::read_to_string(plan_path)
         .with_context(|| format!("读取计划文件 {} 失败", plan_path.display()))?;
@@ -402,6 +441,24 @@ fn unpackage_plan(
             continue;
         }
         let reason = entry.get("reason").and_then(serde_json::Value::as_str);
+        // 计划可按库覆盖 black→transparent 的 format 集合（例如 items.wzl 的 RGB565 需要 5）。
+        let alpha_formats: Vec<u8> = match entry.get("black_transparent_formats") {
+            Some(value) => {
+                let raw = value.as_array().with_context(|| {
+                    format!("black_transparent_formats 必须是数组（lib={lib}）")
+                })?;
+                raw.iter()
+                    .map(|item| {
+                        item.as_u64()
+                            .and_then(|value| u8::try_from(value).ok())
+                            .with_context(|| {
+                                format!("black_transparent_formats 里有非法值（lib={lib}）")
+                            })
+                    })
+                    .collect::<Result<Vec<u8>>>()?
+            }
+            None => default_alpha_formats.to_vec(),
+        };
         let lib_path = resolve_plan_lib(Path::new(&source_root), lib);
         let stem = Path::new(lib).file_stem().map_or_else(
             || "library".to_owned(),
@@ -461,8 +518,15 @@ fn unpackage_plan(
             }
             written_dirs.push(out_dir.clone());
             if !map_only {
-                total_images +=
-                    unpack_one(&lib_path, &out_dir, output_spec, reason, dry_run, verify)?;
+                total_images += unpack_one(
+                    &lib_path,
+                    &out_dir,
+                    output_spec,
+                    reason,
+                    dry_run,
+                    verify,
+                    &alpha_formats,
+                )?;
             }
             total_outputs += 1;
             if (!dry_run && !verify) || map_only {
@@ -557,9 +621,10 @@ fn unpack_one(
     reason: Option<&str>,
     dry_run: bool,
     verify: bool,
+    alpha_formats: &[u8],
 ) -> Result<usize> {
     if verify {
-        return verify_unpacked(lib_path, out_dir);
+        return verify_unpacked(lib_path, out_dir, alpha_formats);
     }
     let library = mir_asset::ImageLibrary::open(lib_path)
         .with_context(|| format!("打开图像库 {} 失败", lib_path.display()))?;
@@ -611,8 +676,20 @@ fn unpack_one(
     let mut skipped_empty = 0usize;
     for index in &indices {
         let mut image = library.image(*index)?;
-        // 拆包时就把 palette8 的纯黑烘成透明（与渲染层 remove_black 同规则，幂等）。
-        mir_asset::black_to_transparent(image.info.format, &mut image.pixels);
+        // 拆包时就把指定 format 的纯黑烘成透明（与渲染层 remove_black 同规则，幂等）。
+        // 默认只有 palette8（0/3）；items.wzl 的 RGB565（5）由计划/CLI 显式加入。
+        if alpha_formats.contains(&image.info.format) {
+            if image.info.format == 5 {
+                // RGB565：只去与边框连通的纯黑（items.wzl 图标黑底；内部黑内容保留）
+                mir_asset::black_to_transparent_rgb_border(
+                    &mut image.pixels,
+                    usize::from(image.info.width),
+                    usize::from(image.info.height),
+                );
+            } else {
+                mir_asset::black_to_transparent(image.info.format, &mut image.pixels);
+            }
+        }
         let info = image.info;
         let empty = info.is_empty();
         if empty {
@@ -672,7 +749,7 @@ fn unpack_one(
         "reason": reason,
         "format": "png",
         "alpha": "black-to-transparent",
-        "alpha_applied_formats": [0, 3],
+        "alpha_applied_formats": alpha_formats,
         "hash_notes": {
             "rgb_sha256": "每像素去掉 alpha 的 RGB 字节哈希（跨实现对账用）",
             "rgba_sha256": "最终 RGBA（含 palette8 去黑）",
@@ -696,7 +773,7 @@ fn unpack_one(
 }
 
 /// 校验已有拆包产物与库一致：逐图比 `pixels_sha256` 与 PNG 像素。
-fn verify_unpacked(lib_path: &Path, out_dir: &Path) -> Result<usize> {
+fn verify_unpacked(lib_path: &Path, out_dir: &Path, alpha_formats: &[u8]) -> Result<usize> {
     let index_path = out_dir.join("index.json");
     let text = std::fs::read_to_string(&index_path)
         .with_context(|| format!("读取 {} 失败（还没拆过包？）", index_path.display()))?;
@@ -717,7 +794,18 @@ fn verify_unpacked(lib_path: &Path, out_dir: &Path) -> Result<usize> {
         let index_no = usize::try_from(index_no).unwrap_or(usize::MAX);
         let mut image = library.image(index_no)?;
         // 与拆包时同样的烘焙，才能和 PNG/index.json 对上
-        mir_asset::black_to_transparent(image.info.format, &mut image.pixels);
+        if alpha_formats.contains(&image.info.format) {
+            if image.info.format == 5 {
+                // RGB565：只去与边框连通的纯黑（items.wzl 图标黑底；内部黑内容保留）
+                mir_asset::black_to_transparent_rgb_border(
+                    &mut image.pixels,
+                    usize::from(image.info.width),
+                    usize::from(image.info.height),
+                );
+            } else {
+                mir_asset::black_to_transparent(image.info.format, &mut image.pixels);
+            }
+        }
         // 优先比 rgb（解码定稿判据）；rgba 比不过说明透明策略变了，同样算不一致。
         if let Some(expected_rgb) = entry.get("rgb_sha256").and_then(serde_json::Value::as_str) {
             let actual_rgb = sha256_rgb(&image.pixels);

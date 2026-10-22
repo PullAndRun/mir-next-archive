@@ -54,15 +54,6 @@
 | 卖肉链（经济闭环） | ✅ | 杀鸡（cjlaaa 26.7% 掉肉）→ 鸡肉 `item_index=850` → Sarah `@Sell` 卖 **+40 金币** → 修理 **-2 金币**；证据 [`docs/testing/evidence/round26/eq1-sell-gate14.md`](docs/testing/evidence/round26/eq1-sell-gate14.md) |
 | 角色升级 | ✅ | **确定性单测 PASS**：1 级 `99+5` → 2 级余 **4**、HP **24/24**、MP **18/18**、`S.LevelChanged{2,4,200}`；**live gate 因训练假人干扰记 SKIP**（后续 gate 改进：排除假人/只对真怪） |
 
-### 核心闭环验收（第 28 轮）
-
-| 闭环 | 状态 | 证据 |
-|---|---|---|
-| quest1（新手任务） | ✅ PASS | Jane @(284,606) 接取 → 交付，`completed_quests` 含 1、经验 +50（cjlaaa） |
-| TP-1（任务导航/传送） | ✅ PASS | 任务追踪行 + 地图传送/导航，见 [`docs/world/quest-nav.md`](docs/world/quest-nav.md) |
-| PS-1（退出重进持久化） | ✅ PASS | 背包/装备 `unique_id` 与耐久逐项一致，见 [`docs/testing/evidence/round26/ps1-gate6.log`](docs/testing/evidence/round26/ps1-gate6.log) |
-| EQ-1（装备→耐久→修理） | ✅ PASS | B 段 3978→4000、C 段金币 40→38（扣 2），见 [`docs/testing/evidence/round26/eq1-sell-gate14.md`](docs/testing/evidence/round26/eq1-sell-gate14.md) |
-| 资源 | ✅ 纯自有 | 发布用 `.mnd/.mnm/.mna/.mnp`，不依赖 `resource/` 原始素材 |
 | 任务 | ✅ | `Envir/Quests` 脚本解析（13 个段）、接取前置（等级/职业/前置任务链/上限）、击杀·收集·标记目标、交付领奖（金币/经验/元宝/固定/任选）、限时超时、放弃、NPC `CHECKQUEST` 与 `[Quests]` 关联、`characters.quests` 存档往返；**任务物品栏**（40 格、`S.GainedQuestItem`/`S.DeleteQuestItem`、掉落截胡、`characters.quest_inventory` 迁移 0012）、**YouFound 提示**（205 → `quest_item_found` → `S.ChangeQuest`）、**`Q` 标记掉落**（先截胡、无人需要才不落地）、**每日任务重置**（迁移 0013 `last_daily_reset_at`，按角色 24h 惰性；Crystal 是服务器 0 点 `ProcessNewDay`）；见 `docs/world/quests.md` |
 | 组队 | ✅ | 邀请/接受/拒绝/退队/踢人、队长顺延、组内 `!!` 聊天、16 格内按人数与等级分配经验、组队任务击杀共享、切图通知；PK 与地图准入规则未做 |
 | 多地图与传送 | ✅ | 按地图文件惰性加载与缓存、`MovementInfo` 传送点（含 `need_hole`/`need_move`）、`S.MapChanged` 包序、NPC `MOVE`/`MAPMOVE`/`ENTERMAP`；客户端地形仍是启动时加载（见 `docs/client.md` §8） |
@@ -80,6 +71,23 @@
 | Rust 客户端（渲染与 UI） | 🟡 | **真实素材渲染**：`.Lib`/`.wzl+.wzx`/`.wil+.wix`（第 6 轮新增）、数据目录 `resource/data`（`--data-dir`）、视口内瓦片解码 + 4096 张缓存（release 800×600 行走 ≈0.50 ms/帧、1080p ≈1.45 ms/帧；100 玩家 720p ≈1.42 ms）、缺资源占位回退；等距地图 + 联机 + 实体精灵 + 装备分层外观 + 逐帧动画（站立/走/跑/攻击/受击/死亡；**攻击 6×50ms=300ms** 对齐服务端伤害延迟）+ **攻击挥砍光效**（`magic2.wzl`）+ **技能命中闪光**（`magic.wzl` 10 帧/雷电 `magic2.wzl` 20–29）+ 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能/buff/小地图/大地图/任务/任务物品栏（滚轮翻页）/邮件/仓库/行会/组队/交易/市场/商城页签/设置面板/服务器与角色选择/**好友面板（F）**/**行会联盟页签**/**组队面板（P）与行会成员页刷新**）+ 技能表现（火墙/雷电/瞬息移动/隐身/召唤）+ 宠物命令（`V` 键三态）+ `@` 命令原样发送 + 伤害数字 + 头顶血条 + 目标锁定 + 拖拽穿脱 + 点地走路 + **音效映射/100ms 节流/BGM 按地图切换**（rodio，可无声降级）+ **攻城 UI**（300–302：器械/血条/摧毁、HUD 倒计时与结算横幅）+ **聊天折行/避头尾/字符级 IME 光标** + **小地图传送点标记/悬停提示** + **断线重连（1s/2s/4s ×3 + 顶部横幅）** + **设置面板 O（主/音乐/音效滑杆、窗口模式、6 键重绑、`client.toml`）**；HUD 天气随切图显示（`S.MapChanged.weather`），时间/昼夜因服务端未下发 `S.TimeOfDay` 暂不显示；坐骑/翅膀精确素材、移动插值、寻路待做（见 [`docs/client.md`](docs/client.md) §8） |
 | 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计、MirDB 报告、图库查看/导出；素材库编辑器未做 |
 | 素材索引（`mir2_dev`） | ✅ | `tools/asset-index/` 把 `resource/` 的 233 万文件登记进 PostgreSQL，按名字/扩展名/仓库查询 |
+
+### 核心闭环验收（第 28/40 轮）
+
+| 闭环 | 状态 | 证据 |
+|---|---|---|
+| quest1（新手任务） | ✅ PASS | Jane @(284,606) 接取 → 交付，`completed_quests` 含 1、经验 +50（cjlaaa） |
+| TP-1（任务导航/传送） | ✅ PASS | 任务追踪行 + 地图传送/导航，见 [`docs/world/quest-nav.md`](docs/world/quest-nav.md) |
+| PS-1（退出重进持久化） | ✅ PASS（含 strict） | **审计后追加**：重登前后 equipment 2 件、inventory 3 件的槽位 `uid/index` 全等，`gold=0/completed=[]/spells=[]`；见 [`ps1-strict.log`](docs/testing/evidence/round26/ps1-strict.log) |
+| DR-1（死亡→复活） | ✅ PASS（cjlaaa live） | **审计后追加**：自然死亡 `hp=0` → 12s 无自动复活 → `C.TownRevive(68)` 0.011s 收 `S.Revived(136)` → 可移动/攻击；**已知差异**：复活落点用配置出生点，Crystal `BindMap`/`PKTown` 分支未实现；见 [`dr1-cjlaaa.log`](docs/testing/evidence/round26/dr1-cjlaaa.log) |
+| EQ-1（装备→耐久→修理） | ✅ PASS | B 段 3978→4000、C 段金币 40→38（扣 2），见 [`eq1-sell-gate14.md`](docs/testing/evidence/round26/eq1-sell-gate14.md) |
+| 道具图标 | ✅ 透明化修复 | `gfx/sprites/item` 的 RGB565 帧补 border black→transparent；`icon-0000` 四角 alpha=0、透明像素 365/736；抽取规则见 [`docs/assets/game-assets.md`](docs/assets/game-assets.md) |
+| 资源 | ✅ 纯自有 | 发布用 `.mnd/.mnm/.mna/.mnp`，不依赖 `resource/` 原始素材 |
+
+> **御史台第 40 轮独立审计 verdict=partial**（3 findings）：核心闭环**整体仍为部分成立**——
+> 升级 live SKIP、EQ 未覆盖 0 耐久、TP 目标选择待改；上表 PS-1/DR-1 的 strict/cjlaaa 新证据为
+> **审计后追加**，不改审计结论。审计全文见
+> [`docs/testing/core-loop-audit-round40.md`](docs/testing/core-loop-audit-round40.md)。
 
 ### 协议自动生成
 
@@ -285,6 +293,7 @@ pwsh -NoProfile -File tools/dev/release-smoke.ps1
 | [`docs/world/persistence.md`](docs/world/persistence.md) | 存档与崩溃一致性：写盘时机、周期 autosave、RPO、失败退避与指标 |
 | [`docs/testing/duo-smoke.md`](docs/testing/duo-smoke.md) | 双人联机冒烟：场景矩阵、运行方式与第 8 轮补齐链路 |
 | [`docs/testing/playtest.md`](docs/testing/playtest.md) | 协议级 playtest：Python 直连真服务端、`[OK]/[FAIL]/[SKIP]` 与当前限制 |
+| [`docs/testing/core-loop-audit-round40.md`](docs/testing/core-loop-audit-round40.md) | 第 40 轮核心闭环独立审计（verdict=partial，3 findings；结论以原文为准） |
 | [`docs/testing/stress.md`](docs/testing/stress.md) | 压测：100/300 连接基线（dev profile）、tick/CPU/RSS/DB 口径与瓶颈 |
 | [`docs/testing/ci-assets.md`](docs/testing/ci-assets.md) | CI 素材依赖审计：哪些测试读 `resource/`、缺素材如何 skip，以及无素材复现脚本 |
 | [`docs/client.md`](docs/client.md) | 客户端：协议流程、按键/鼠标、面板与字体 |

@@ -1,4 +1,4 @@
-﻿# 协议级 playtest（`tools/playtest/playtest.py`，第 8/9 轮）
+# 协议级 playtest（`tools/playtest/playtest.py`，第 8/9 轮）
 
 用途：不启动图形客户端，用 Python 直接连真实服务端，按 Crystal 协议把「登录 → 建角 →
 进世界 → 走一步 → 看包」跑一遍，用于冒烟与排障。详细说明与覆盖表见
@@ -119,3 +119,17 @@ pwsh -NoProfile -File tools/dev/serve.ps1 -Stop -Port 7006
 
 playtest 是「真服务端 + 真 socket + Python 客户端」的冒烟，不替代 Rust 集成测试；
 它补的是「换个语言实现的客户端也能按协议玩」这一层。
+
+## 7. 第 40 轮审计与「审计后追加」证据
+
+- 御史台第 40 轮独立审计：**verdict=partial**（3 findings），全文见
+  [`core-loop-audit-round40.md`](core-loop-audit-round40.md)。结论以审计原文为准，本页不重述/不改写。
+- 审计截止 18:11；之后新增的两份 live 证据标注为**审计后追加**，不改变审计结论：
+  - **PS-1 strict**：重登前后 equipment 2 件、inventory 3 件槽位 `uid/index` 全等，
+    `gold=0/completed=[]/spells=[]` → PASS；见
+    [`evidence/round26/ps1-strict.log`](evidence/round26/ps1-strict.log)。
+  - **DR-1 cjlaaa**：自然死亡 `hp=0` → 12s 无自动复活 → `C.TownRevive(68)` 0.011s 收
+    `S.Revived(136)` → 可移动/攻击；**已知差异**：复活落点用配置出生点，Crystal
+    `BindMap`/`PKTown` 分支未实现；见
+    [`evidence/round26/dr1-cjlaaa.log`](evidence/round26/dr1-cjlaaa.log)。
+- 审计后核心闭环**整体仍写部分成立**：升级 live SKIP、EQ 未覆盖 0 耐久、TP 目标选择待改。

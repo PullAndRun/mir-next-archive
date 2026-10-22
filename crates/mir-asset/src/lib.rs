@@ -111,7 +111,10 @@ mod wzl;
 pub use atlas::{AtlasFrame, AtlasLibrary, AtlasMeta};
 pub use audio_mna::{AudioClip, AudioCodec, AudioMeta};
 pub use error::AssetError;
-pub use image::{Image, ImageInfo, black_to_transparent, format};
+pub use image::{
+    Image, ImageInfo, black_to_transparent, black_to_transparent_rgb,
+    black_to_transparent_rgb_border, format,
+};
 #[cfg(feature = "legacy")]
 pub use library::{ImageLibrary, LibraryKind};
 pub use library_map::{LibraryEntry, LibraryMap};

@@ -718,6 +718,48 @@ mod tests {
     }
 
     #[test]
+    fn chicken_hit_rate_with_accuracy_seven_and_agility_ten_is_about_73_percent() {
+        let attacker = CombatStats {
+            accuracy: 7,
+            min_dc: 2,
+            max_dc: 4,
+            ..CombatStats::default()
+        };
+        let defender = CombatStats {
+            agility: 10,
+            ..CombatStats::default()
+        };
+
+        // 20 刀只断言「明显不是全 0/全中」的区间，避免把某个种子钉死。
+        let mut rng = MirRng::from_seed(2026);
+        let mut hits = 0;
+        for _ in 0..20 {
+            let result =
+                resolve_player_attack(&attacker, &defender, 3, DefenceType::ACAgility, &mut rng);
+            if result.miss {
+                assert_eq!(result.damage, 0, "Miss 的 DamageIndicator 值必须是 0");
+            } else {
+                hits += 1;
+                assert_eq!(result.damage, 3, "AC=0 时命中应扣 3 点");
+            }
+        }
+        assert!((10..=19).contains(&hits), "20 刀命中数 {hits} 超出合理区间");
+
+        // 期望命中率 = 8/11 ≈ 72.7%（Next(0..=10) > 7 的只有 8/9/10）。
+        let mut rng = MirRng::from_seed(2027);
+        let mut hits = 0;
+        for _ in 0..10_000 {
+            let result =
+                resolve_player_attack(&attacker, &defender, 3, DefenceType::ACAgility, &mut rng);
+            if !result.miss {
+                hits += 1;
+            }
+        }
+        let rate = f64::from(hits) / 10_000.0;
+        assert!((0.70..=0.76).contains(&rate), "命中率 {rate:.3} 偏离 8/11");
+    }
+
+    #[test]
     fn armour_at_or_above_damage_counts_as_miss() {
         let mut rng = MirRng::from_seed(17);
         let attacker = CombatStats {

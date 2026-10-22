@@ -466,3 +466,38 @@ data/server/Server.MirDB + data/server/Envir/…
 `PackWriter` 按逻辑名排序后写盘：同一输入两次打包 → `.mnp` 逐字节相同。
 `SOURCE_DATE_EPOCH=<秒>` 可固定 `manifest.packs.json` 的 `generated_at`，使清单也可复现：
 `SOURCE_DATE_EPOCH=1792645029 mir-tools assets pack --input game-assets --out game-assets/packs`。
+
+## 发布前检查（release smoke）
+
+一条命令检查发布包：清单/包完整性、library-map、只读 `packs/` 的加载与渲染：
+
+```powershell
+pwsh -NoProfile -File tools/dev/release-smoke.ps1 -PackDir game-assets/packs
+```
+
+检查内容与期望输出：
+
+```text
+release-smoke: packs=45 bytes=433976575 entries=151581 generator=mir-tools 0.2.0 deterministic=True generated_at=epoch+...
+release-smoke: manifest.packs.json sha256=0be09eed...
+release-smoke: mir-tools assets pack --check（逐包 sha256）…
+check ok packs=45 entries=151581（清单 … 与磁盘/条目一致）
+release-smoke: library-map libraries=67（期望 67）
+release-smoke: release_smoke：只读 packs 加载/渲染，并与散装 dev 逐像素对比 …
+  smoke: open=314ms render=180ms pixels=480000 diff_vs_dev=0 tiles_decoded=115/148 monster_decoded=6/14
+release-smoke: OK（packs=45 bytes=433976575 entries=151581 manifest=0be09eed...）
+```
+
+失败含义（脚本 exit 1，首行给出原因）：
+
+| 现象 | 含义 |
+|---|---|
+| `缺清单 / manifest.packs.json` | 没打包或 `--out` 指错 |
+| `manifest.deterministic 必须为 true` | 用了旧版 mir-tools 打包，重打 |
+| `mir-tools --check 失败` | 包内容被改动/清单与磁盘不一致（分发损坏） |
+| `library-map 库数 N != 期望 67` | 发布包漏了 `library-map.json` 或素材不齐 |
+| `加载场景失败` / `渲染全黑` | `packs/` 里缺地图、tiles 或格式不匹配 |
+| `release 与 dev 渲染差异 N 像素` | release 素材与散装不一致（数据/编码回归） |
+
+依赖：本机有 Rust 工具链（脚本内部用 `cargo run` 跑 `mir-tools` 与 `mir-render` example），
+`game-assets/` 里同时有 `packs/`（被测）与散装 `gfx/`+`data/`+`maps/`（dev 对照）。

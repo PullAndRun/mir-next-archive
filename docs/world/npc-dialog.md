@@ -162,11 +162,11 @@ Rust 侧：`crates/mir-server/src/npc.rs`（页面执行/买卖修）、`crates/
 
 | 项 | 状态 | 说明 / 归属 |
 |---|---|---|
-| 金币掉落经济链路审计 | **待审计** | 掉落→拾取→金币/修理消费的闭环未审计；数值与「卖店启动金币」证据见 [`economy.md`](economy.md)，assign 给**兵部二号** |
+| 金币掉落经济链路审计 | **部分已验** | 卖肉链（杀鸡→鸡肉 850→Sarah `@Sell`→+40）与修理扣 2 已验，见 [`economy.md`](economy.md)；更广掉落审计仍归**兵部二号** |
 | `Merchant_John` 4 格内 BFS 无路 | **待走位专项** | 脚本坐标 `(292,604)` 与服务器刷出位置/占位可能不一致；4 格内 BFS 无路，真人可行走但脚本走不到，需走位专项 |
 | 特修 `[@SREPAIR]` | **未接入客户端** | 页面/`S.NPCSRepair` 在，`C.SRepairItem` 无入口；Crystal 费用 ×3 |
-| 商店买/卖端到端 | **待验收** | 页面、`S.NPCGoods`、`C.BuyItem`/`C.SellItem`、扣款/进包均已实现，真实 TCP 全链路待验 |
-| 修理端到端 | **待验收** | EQ-1 只验证页面+前置；扣款、上限衰减、`S.ItemRepaired` 待验 |
+| 商店买/卖端到端 | **卖已验 / 买待验** | 卖：鸡肉 850 → Sarah `@Sell` → +40 金币；买：页面、`S.NPCGoods`、`C.BuyItem`、扣款/进包已实现，真实 TCP 待验 |
+| 修理端到端 | **✅ EQ-1 PASS** | B 段耐久 3978→4000/4000，C 段金币 40→38（扣 2），`S.ItemRepaired` 已收；证据 [`eq1-sell-gate14.md`](../testing/evidence/round26/eq1-sell-gate14.md) |
 
 ## 6. 验收清单（建议）
 

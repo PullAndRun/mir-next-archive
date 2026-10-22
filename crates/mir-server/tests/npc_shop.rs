@@ -375,3 +375,186 @@ fn selling_a_type_outside_the_shop_types_is_refused_with_a_system_chat() {
         "被拒时不能发 S.GainedGold"
     );
 }
+const LIBRARIAN_MAP: &str = "0104";
+const LIBRARIAN_BOOK_INDEX: i32 = 973;
+const LIBRARIAN_BOOK_UID: u64 = 201;
+const LIBRARIAN_BOOK_COST: u32 = 500;
+
+fn open_real_librarian(
+    seed: u64,
+    level: u16,
+    gold: i64,
+) -> Option<(Harness, u32, mir_server::npc::Npc, Arc<GameData>)> {
+    let data = common::default_data()?;
+    let mut harness = Harness::new(seed);
+    harness.world.set_game_data(Arc::clone(&data));
+    harness
+        .world
+        .insert_map(LIBRARIAN_MAP, blank_map(LIBRARIAN_MAP, REAL_MAP_SIZE));
+    let player = harness.add_player(1, "读者", level, gold);
+    harness
+        .world
+        .change_map(
+            player,
+            LIBRARIAN_MAP,
+            Point::new(5, 7),
+            mir_core::enums::MirDirection::Down,
+        )
+        .expect("切到书店地图");
+    harness.world.spawn_npcs(LIBRARIAN_MAP);
+    let npc = harness
+        .world
+        .npcs()
+        .iter()
+        .find(|npc| npc.name == "Librarian_Steven")
+        .cloned()
+        .expect("cjlaaa 应有 Librarian_Steven");
+    harness
+        .world
+        .call_npc(player, npc.object_id, "@main")
+        .expect("书店主页");
+    harness
+        .world
+        .call_npc(player, npc.object_id, "@BuySell")
+        .expect("书店买卖页");
+    harness.clear(player);
+    Some((harness, player, npc, data))
+}
+
+fn book_goods(harness: &Harness, npc: &mir_server::npc::Npc) -> mir_protocol::data::UserItem {
+    harness
+        .world
+        .npc_goods(npc)
+        .into_iter()
+        .find(|goods| goods.item_index == LIBRARIAN_BOOK_INDEX)
+        .expect("货架应含 item_index=973 的书")
+}
+
+#[test]
+fn real_librarian_buys_book_for_500_gold_in_lose_gold_then_gained_item_order() {
+    let Some((mut harness, player, npc, _data)) = open_real_librarian(0x11, 2, 1_000) else {
+        return;
+    };
+    let goods = book_goods(&harness, &npc);
+    assert_eq!(goods.unique_id, LIBRARIAN_BOOK_UID, "书 uid 应为 201");
+    assert_eq!(harness.world.player(player).unwrap().gold, 1_000);
+
+    harness.clear(player);
+    let report = harness
+        .world
+        .buy_item(player, goods.unique_id, 1, PanelType::Buy)
+        .expect("2 级玩家应买得起");
+    assert_eq!(report.cost, LIBRARIAN_BOOK_COST, "书价应为 500");
+    assert_eq!(harness.world.player(player).unwrap().gold, 500);
+    assert!(
+        harness
+            .world
+            .player(player)
+            .unwrap()
+            .inventory
+            .iter()
+            .any(|item| {
+                item.as_ref()
+                    .is_some_and(|item| item.item_index == LIBRARIAN_BOOK_INDEX)
+            }),
+        "背包应出现 973 的书"
+    );
+    let packets = harness.packets(player);
+    let lose_at = packets.iter().position(
+        |packet| matches!(packet, ServerPacket::LoseGold(lost) if lost.gold == LIBRARIAN_BOOK_COST),
+    );
+    let gain_at = packets.iter().position(|packet| {
+        matches!(packet, ServerPacket::GainedItem(gained) if gained.item.item_index == LIBRARIAN_BOOK_INDEX)
+    });
+    assert!(lose_at.is_some(), "应发 S.LoseGold：{packets:?}");
+    assert!(gain_at.is_some(), "应发 S.GainedItem：{packets:?}");
+    assert!(
+        lose_at.unwrap() < gain_at.unwrap(),
+        "包序必须 LoseGold 在 GainedItem 前：{packets:?}"
+    );
+}
+
+#[test]
+fn real_librarian_rejects_purchase_when_gold_is_insufficient() {
+    let Some((mut harness, player, npc, _data)) = open_real_librarian(0x12, 2, 100) else {
+        return;
+    };
+    let goods = book_goods(&harness, &npc);
+    harness.clear(player);
+    let error = harness
+        .world
+        .buy_item(player, goods.unique_id, 1, PanelType::Buy)
+        .expect_err("100 金币应买不起 500 的书");
+    assert!(
+        matches!(
+            error,
+            NpcError::NotEnoughGold {
+                cost: 500,
+                gold: 100
+            }
+        ),
+        "应报金币不足：{error:?}"
+    );
+    assert_eq!(harness.world.player(player).unwrap().gold, 100);
+    assert!(
+        !harness
+            .world
+            .player(player)
+            .unwrap()
+            .inventory
+            .iter()
+            .any(|item| {
+                item.as_ref()
+                    .is_some_and(|item| item.item_index == LIBRARIAN_BOOK_INDEX)
+            }),
+        "失败不能进背包"
+    );
+}
+
+#[test]
+fn real_librarian_rejects_purchase_when_inventory_is_full() {
+    let Some((mut harness, player, npc, _data)) = open_real_librarian(0x13, 2, 1_000) else {
+        return;
+    };
+    let goods = book_goods(&harness, &npc);
+    let info = harness
+        .world
+        .item_info(LIBRARIAN_BOOK_INDEX)
+        .cloned()
+        .expect("书本模板");
+    let filler = harness.world.create_fresh_item(&info);
+    if let Some(player_ref) = harness.world.player_mut(player) {
+        for slot in &mut player_ref.inventory {
+            *slot = Some(filler.clone());
+        }
+    }
+    harness.clear(player);
+    let error = harness
+        .world
+        .buy_item(player, goods.unique_id, 1, PanelType::Buy)
+        .expect_err("背包满应拒绝");
+    assert!(
+        matches!(error, NpcError::InventoryFull),
+        "应报背包满：{error:?}"
+    );
+    assert_eq!(
+        harness.world.player(player).unwrap().gold,
+        1_000,
+        "失败不能扣钱"
+    );
+}
+
+#[test]
+fn real_librarian_first_book_is_free_for_level_one_without_magics() {
+    let Some((mut harness, player, npc, _data)) = open_real_librarian(0x14, 1, 0) else {
+        return;
+    };
+    let goods = book_goods(&harness, &npc);
+    harness.clear(player);
+    let report = harness
+        .world
+        .buy_item(player, goods.unique_id, 1, PanelType::Buy)
+        .expect("1 级无技能第一本书应免费");
+    assert_eq!(report.cost, 0, "新手第一本书 cost 必须为 0");
+    assert_eq!(harness.world.player(player).unwrap().gold, 0);
+}

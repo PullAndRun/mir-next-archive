@@ -80,20 +80,24 @@ EQ-1 的 C 段是「修理要 2 金币、角色 0 金币」。在真实数据下
 **新号 5 分钟内赚到 ≥2 金币的最短路径（BichonProvince = map `0`）**：
 
 1. 出生点 `(330,270)`（`config.rs:35/118` `start_point`）。
-2. 最近的 Hen 刷怪点中心 `(340,310)`（spread 25，5 只），实际可更近；击杀 1 只 Hen
-   必掉 `Chicken`（1/1）。
+2. 最近的 Hen 刷怪点中心 `(340,310)`（spread 25，5 只）；按 **cjlaaa 26.7%** 掉肉，
+   期望约 4 只掉 1 块鸡肉（Jev 契约才是 1 只必掉）。
 3. 回城找买肉 NPC `Merchant_Sarah` `(313,271)`——脚本 `BichonProvince/BichonWall/Butcher1`，
-   `[Types]=15`(`Meat`)、有 `[@BuySell]` 页；直线距离出生点约 17 格。
-4. 开商店页卖掉 1 块 `Chicken` → **32~40 金币**（是 2 金币修理费的 16 倍以上）。
+   `[Types]=15`(`Meat`)；**cjlaaa 主页面只有 `<卖/@Sell>`（没有 `@BuySell`）**，
+   gate 必须先 `@main` 解析按钮再进 `[@Sell]`。
+4. 开商店页卖掉 1 块 `Chicken` → **实测 +40 金币**（cjlaaa item 850 `Price=80`，卖价 `Price/2`）；
+   2 金币修理费只占 5%。证据：
+   [`docs/testing/evidence/round26/eq1-sell-gate14.md`](../testing/evidence/round26/eq1-sell-gate14.md)。
 
 全程按 Crystal `MoveDelay = 600ms`（`HumanObject.cs:186`/`:2494`）估算，
 步行 40 格约 24 秒，加打鸡/捡物/对话远小于 5 分钟（实际走位与寻路由 playtest 另验）。
 其他买肉点：`Merchant_John` `(292,603)`（also `[Types]=15`）、
 `MaterialDealer_Jeffery` `(303,255)`（`[Types]=16`，收 `Feather`）。
 
-**结论：1~9 级不存在「打怪直接掉金币」的路径；EQ-1 C 的启动金币依赖「商店售卖」这条
-端到端链路**（打怪 → 捡肉 → 找买肉 NPC → 开 `[@BuySell]` 页 → 卖 → `S.GainedGold` → 修理）。
-这条链路属下一轮 NPC 商店端到端验收范围，本轮只做数据与公式取证。
+**结论：1~9 级不存在「打怪直接掉金币」的路径；EQ-1 C 的启动金币依赖「商店售卖」**：
+打怪 → 捡肉 → 找买肉 NPC → 解析 `@Sell` 页 → 卖得 +40 → `S.GainedGold` → 修理 -2。
+这条链路已在第 28 轮真实 TCP 验证（杀鸡 2 只掉 1 块 850、卖 40、修理 2，见上方证据链接），
+不再是「下一轮待验」。
 
 ## 3. 经验曲线（`ExpList.ini`）
 

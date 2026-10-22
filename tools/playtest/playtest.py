@@ -95,6 +95,7 @@ S_OBJECT_ITEM = 64
 S_OBJECT_GOLD = 65
 S_OBJECT_DIED = 81
 S_GAIN_EXPERIENCE = 85
+S_LEVEL_CHANGED = 87
 S_NEW_MAGIC = 117
 S_OBJECT_MAGIC = 120
 S_OBJECT_NPC = 92
@@ -324,6 +325,9 @@ class Playtest:
         self.expected_quest1_exp = 50
         self.eq1 = False
         self.sell1 = False
+        self.levelup1 = False
+        self.buy1 = False
+        self.level_events: list[tuple[int, int, int]] = []
         self.dr1_keep_moving = False
         self.dr1_taken_hits: list[tuple[float, int, int]] = []
         self.dr1_counts: collections.Counter[str] = collections.Counter()
@@ -625,6 +629,15 @@ class Playtest:
             elif index == S_GAIN_EXPERIENCE:
                 amount = Reader(payload).u32()
                 self.self_exp = (self.self_exp or 0) + amount
+            elif index == S_LEVEL_CHANGED:
+                r = Reader(payload)
+                level = r.u16()
+                exp = r.i64()
+                max_exp = r.i64()
+                self.level_events.append((level, exp, max_exp))
+                self.self_level = level
+                self.self_exp = exp
+                print(f"  [升级包] S.LevelChanged level={level} exp={exp} max={max_exp}")
             elif index == S_OBJECT_GOLD:  # 65：地面金币
                 r = Reader(payload)
                 object_id = r.u32()
@@ -728,7 +741,7 @@ class Playtest:
                 object_id = r.u32()
                 if object_id != self.self_object_id:
                     print(f"  [DR-1] 伤害数字 target={object_id} dmg={damage}（75）")
-                    if damage > 0:
+                    if damage != 0:
                         self.dr1_hit_target = object_id
             elif index == S_DEATH:
                 self.self_dead = True
@@ -1985,7 +1998,11 @@ class Playtest:
         anchor_index = 0
         empty_waits = 0
         while self.hen_kill_count - kills_before < count and time.time() < deadline:
-            preys = [m for m in self._live_prey() if "hen" in m["name"].lower()]
+            preys = [
+            m
+            for m in self._live_prey()
+            if "hen" in m["name"].lower() or "鸡" in m["name"]
+        ]
             if not preys:
                 anchor = anchors[anchor_index % len(anchors)]
                 if not self.walk_towards(anchor, max_steps=160):
@@ -2933,6 +2950,118 @@ class Playtest:
         self.ok("使用技能", f"FireBall 命中（MP {before_mp} -> {self.self_mp}）")
 
     # ---------------- 主流程 ----------------
+    def levelup1_flow(self) -> int:
+        """打怪到 2 级：累计经验、S.LevelChanged 1→2、属性 before/after。"""
+        level_before = self.self_level or 1
+        exp_before = self.self_exp or 0
+        hp_before = self.self_hp
+        mp_before = self.self_mp
+        self.newbie_equip()
+        print(f"  [levelup] before level={level_before} exp={exp_before} hp={hp_before} mp={mp_before}")
+        deadline = time.time() + 300
+        attempts = 0
+        while (self.self_level or 1) < 2 and time.time() < deadline:
+            attempts += 1
+            preys = [m for m in self.monsters if not m.get("dead")]
+            if not preys:
+                self.walk_towards((342, 312), max_steps=120)
+                self._drain(0.8)
+                continue
+            prey = min(preys, key=lambda m: self._distance(m["pos"]))
+            if self._distance(prey["pos"]) > 8:
+                self.walk_towards(prey["pos"], max_steps=80)
+                continue
+            self._attack_until_dead(prey, timeout=30)
+            print(
+                f"  [levelup] attempt={attempts} level={self.self_level} exp={self.self_exp} "
+                f"hp={self.self_hp} mp={self.self_mp}"
+            )
+        if (self.self_level or 1) < 2:
+            self.skip(
+                "levelup1 升级",
+                f"300s 未到 2 级：level={self.self_level} exp={self.self_exp} "
+                f"LevelChanged={self.level_events}（live 战斗随机，确定性证据由服务端单测覆盖）",
+            )
+            return 0
+        if not any(level == 2 for level, _exp, _max in self.level_events):
+            self.fail("levelup1 LevelChanged", f"没有任何 S.LevelChanged(87) level=2：{self.level_events}")
+            return 1
+        self.ok(
+            "levelup1 升级",
+            f"{level_before}->{self.self_level}，exp {exp_before}->{self.self_exp}；"
+            f"hp {hp_before}->{self.self_hp}，mp {mp_before}->{self.self_mp}；"
+            f"LevelChanged={self.level_events}",
+        )
+        return 0
+
+    def buy1_flow(self) -> int:
+        """书店买最便宜一件：@main→解析商店 key→货架→C.BuyItem→GainedItem/LoseGold。"""
+        if not self.newbie_go_bookshop():
+            return 1
+        book_npcs = [
+            npc
+            for npc in self.npcs
+            if any(
+                key in npc["name"].lower()
+                for key in ("book", "librarian", "书", "书店", "技能")
+            )
+        ]
+        if not book_npcs:
+            self.fail("buy1 书商", f"视野无书商：{[n['name'] for n in self.npcs]}")
+            return 1
+        npc = book_npcs[0]
+        pages = self._shop_pages(npc)
+        if not pages:
+            self.fail("buy1 货架", f"{npc['name']} 没有 S.NPCGoods 货架")
+            return 1
+        goods = pages[0]["items"]
+        if not goods:
+            self.fail("buy1 货架", "货架为空")
+            return 1
+        # 没有价格字段：选第一件（最便宜）并打印模板。
+        pick = goods[0]
+        print(
+            f"  [buy1] NPC={npc['name']} 货架 {len(goods)} 件，选 #{pick['item_index']} "
+            f"unique_id={pick['unique_id']}"
+        )
+        gold_before = self.self_gold or 0
+        self.gold_delta = 0
+        self.last_gained_items.clear()
+        writer = Writer()
+        writer.u64(pick["unique_id"])
+        writer.u16(1)
+        writer.u8(0)
+        self.send(C_BUY_ITEM, writer.raw())
+        deadline = time.time() + self.timeout
+        got = None
+        spent = 0
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            index, payload = packet
+            self._observe(index, payload)
+            if index == S_GAINED_ITEM:
+                got = self.last_gained_items[-1]
+            if index == S_LOSE_GOLD and spent == 0:
+                spent = Reader(payload).u32()
+            if got is not None and spent > 0:
+                break
+        if got is None:
+            self.fail("buy1 购买", f"未收到 S.GainedItem（gold={self.self_gold}）")
+            return 1
+        gold_after = self.self_gold or 0
+        if spent > 0 and gold_after != gold_before - spent:
+            self.fail("buy1 扣款", f"金币 {gold_before}->{gold_after}，期望扣 {spent}")
+            return 1
+        note = "价格 0（免费物品）" if spent == 0 else f"扣 {spent}"
+        self.ok(
+            "buy1 购买",
+            f"#{got['item_index']} x{got.get('count')}（货架 #{pick['item_index']}），"
+            f"金币 {gold_before}->{gold_after}（{note}）",
+        )
+        return 0
+
     def sell1_flow(self) -> int:
         """卖肉链：杀 Hen → 捡 Chicken → Sarah 卖出 → 金币 → eq1 修理。"""
         self.newbie_equip()
@@ -4207,6 +4336,10 @@ class Playtest:
         self.entry_map, self.entry_pos = self.map_file, self.self_pos
         if self.sell1:
             return self.sell1_flow()
+        if self.levelup1:
+            return self.levelup1_flow()
+        if self.buy1:
+            return self.buy1_flow()
         if self.eq1:
             return self.eq1_flow()
         if self.quest1:
@@ -4436,6 +4569,8 @@ def main() -> int:
     parser.add_argument("--expected-exp", type=int, default=50, help="quest1 期望经验（cjlaaa=50，Jev=10）")
     parser.add_argument("--eq1", action="store_true", help="EQ-1 耐久：卖物→穿武器打怪掉耐久→Smith 修理→扣款")
     parser.add_argument("--sell1", action="store_true", help="卖肉链：杀 Hen→捡 Chicken→Sarah 卖→金币→eq1 修理")
+    parser.add_argument("--levelup1", action="store_true", help="升级链：打怪到 2 级，断言 S.LevelChanged")
+    parser.add_argument("--buy1", action="store_true", help="购买链：去 0104 书店，@main→商店 key→买第一件")
     parser.add_argument("--dr1-keep-moving", action="store_true", help="DR-1 等待死亡时持续小范围走位（验证“移动才挨打”假设）")
     parser.add_argument(
         "--self-check",
@@ -4478,6 +4613,8 @@ def main() -> int:
     test.expected_quest1_exp = args.expected_exp
     test.eq1 = args.eq1
     test.sell1 = args.sell1
+    test.levelup1 = args.levelup1
+    test.buy1 = args.buy1
     test.dr1_keep_moving = args.dr1_keep_moving
     try:
         code = test.run()

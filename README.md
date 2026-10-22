@@ -49,8 +49,19 @@
 | 物品与背包 | ✅ | 掉落、地面物品与过期、拾取/丢弃、46 格背包、14 装备槽、装备加成、药水/卷轴/丢金币、**新角色出生装**（`StartItem` 职业过滤）、**书店/技能书**（Book `Shape`=Spell、双击学习 + 新手提示）、`UserItem[]` 存档；仓库见「玩家仓库与邮件」 |
 | Buff | ✅ | 带到期时间的属性修饰层、`AddBuff`/`RemoveBuff` 广播、魔法盾按伤害扣时、到期重算属性并补发血量 |
 | NPC 页面/对话 | ✅ | `Envir/NPCs` 脚本解析（`#INSERT`/`#INCLUDE`/条件/动作/按钮）、NPC 刷出与 `ObjectNPC`、`NewMapInfo` 下发、GOTO/按钮白名单、`@main`/`@exit`/空 key 归一（无对话时 `NoDialog`）；**页面流程已验证**（EQ-1 真实 TCP：`@main` → `@REPAIR` 能打开、页面文本含 `<Repair/@Repair>`）；NPC 营业时段可见性未做 |
-| NPC 商店（买/卖） | 🟡 | `@BuySell`/`@Buy`/`@Sell` 页 → `S.NPCGoods`(102)/`S.NPCSell`(103) → `C.BuyItem`/`C.SellItem`；金币定价与 `Price()*Rate`、卖价 `Price()/2` 已实现；**客户端逻辑层已验**（`tests/npc_flow.rs` 8 条：页面渲染/按钮/买/卖/修/退出/双语）；**服务端买/卖端到端待验** |
-| NPC 修理 | 🟡 | `@Repair`/`@SRepair` 页 → `S.NPCRepair`(104)/`S.NPCSRepair`(105) → `C.RepairItem`；三条前置（修理页/物品在背包/NPC 16 格内）与公式 `MaxDura-(MaxDura-CurrentDura)/30` 已实现；**服务端页面+三前置+价格已验证**，**端到端待 EQ-1 C**（缺启动金币 → 依赖卖店链路）；**耐久损耗与归零失效**（攻击 1..=4/受击每槽 -1、`item_broken`、满耐久/金币不足提示）已接 |
+| NPC 商店（买/卖） | 🟡 | `@BuySell`/`@Buy`/`@Sell` 页 → `S.NPCGoods`(102)/`S.NPCSell`(103) → `C.BuyItem`/`C.SellItem`；金币定价与 `Price()*Rate`、卖价 `Price()/2`；**客户端逻辑层已验**（`tests/npc_flow.rs` 8 条）；**服务端卖已验**（鸡肉 850 → Sarah `@Sell` → +40），**买端到端待验** |
+| NPC 修理 | ✅ | `@Repair`/`@SRepair` 页 → `S.NPCRepair`(104)/`S.NPCSRepair`(105) → `C.RepairItem`；三条前置（修理页/物品在背包/NPC 16 格内）与公式 `MaxDura-(MaxDura-CurrentDura)/30`；**EQ-1 已 PASS**：B 段耐久 3978→4000/4000，C 段金币 40→38（扣 2）；**耐久损耗与归零失效**（攻击 1..=4/受击每槽 -1、`item_broken`、满耐久/金币不足提示）已接 |
+| 卖肉链（经济闭环） | ✅ | 杀鸡（cjlaaa 26.7% 掉肉）→ 鸡肉 `item_index=850` → Sarah `@Sell` 卖 **+40 金币** → 修理 **-2 金币**；证据 [`docs/testing/evidence/round26/eq1-sell-gate14.md`](docs/testing/evidence/round26/eq1-sell-gate14.md) |
+
+### 核心闭环验收（第 28 轮）
+
+| 闭环 | 状态 | 证据 |
+|---|---|---|
+| quest1（新手任务） | ✅ PASS | Jane @(284,606) 接取 → 交付，`completed_quests` 含 1、经验 +50（cjlaaa） |
+| TP-1（任务导航/传送） | ✅ PASS | 任务追踪行 + 地图传送/导航，见 [`docs/world/quest-nav.md`](docs/world/quest-nav.md) |
+| PS-1（退出重进持久化） | ✅ PASS | 背包/装备 `unique_id` 与耐久逐项一致，见 [`docs/testing/evidence/round26/ps1-gate6.log`](docs/testing/evidence/round26/ps1-gate6.log) |
+| EQ-1（装备→耐久→修理） | ✅ PASS | B 段 3978→4000、C 段金币 40→38（扣 2），见 [`docs/testing/evidence/round26/eq1-sell-gate14.md`](docs/testing/evidence/round26/eq1-sell-gate14.md) |
+| 资源 | ✅ 纯自有 | 发布用 `.mnd/.mnm/.mna/.mnp`，不依赖 `resource/` 原始素材 |
 | 任务 | ✅ | `Envir/Quests` 脚本解析（13 个段）、接取前置（等级/职业/前置任务链/上限）、击杀·收集·标记目标、交付领奖（金币/经验/元宝/固定/任选）、限时超时、放弃、NPC `CHECKQUEST` 与 `[Quests]` 关联、`characters.quests` 存档往返；**任务物品栏**（40 格、`S.GainedQuestItem`/`S.DeleteQuestItem`、掉落截胡、`characters.quest_inventory` 迁移 0012）、**YouFound 提示**（205 → `quest_item_found` → `S.ChangeQuest`）、**`Q` 标记掉落**（先截胡、无人需要才不落地）、**每日任务重置**（迁移 0013 `last_daily_reset_at`，按角色 24h 惰性；Crystal 是服务器 0 点 `ProcessNewDay`）；见 `docs/world/quests.md` |
 | 组队 | ✅ | 邀请/接受/拒绝/退队/踢人、队长顺延、组内 `!!` 聊天、16 格内按人数与等级分配经验、组队任务击杀共享、切图通知；PK 与地图准入规则未做 |
 | 多地图与传送 | ✅ | 按地图文件惰性加载与缓存、`MovementInfo` 传送点（含 `need_hole`/`need_move`）、`S.MapChanged` 包序、NPC `MOVE`/`MAPMOVE`/`ENTERMAP`；客户端地形仍是启动时加载（见 `docs/client.md` §8） |

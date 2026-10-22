@@ -6092,4 +6092,106 @@ mod tests {
             "尸体到期后必须从世界移除"
         );
     }
+
+    fn level_one_world() -> World {
+        let mut world = World::new(999);
+        world.seed_rng(1);
+        world.set_exp_table(ExpTable::from_entries(vec![100, 200, 300, 400, 600]));
+        world
+    }
+
+    fn level_one_player(world: &mut World) -> mpsc::UnboundedReceiver<Vec<u8>> {
+        let (player, receiver) = player(1, "升级测试", Point::new(10, 10), "0");
+        world.enter(player);
+        let stats = combat::player_base_stats(1, MirClass::Warrior);
+        let player = world.player_mut(1).expect("玩家");
+        player.level = 1;
+        player.experience = 99;
+        player.max_experience = 100;
+        player.stats = stats;
+        player.hp = stats.hp;
+        player.mp = stats.mp;
+        receiver
+    }
+
+    #[test]
+    fn level_up_from_99_plus_five_matches_crystal() {
+        let mut world = level_one_world();
+        let mut rx = level_one_player(&mut world);
+        drain(&mut rx);
+
+        world.gain_experience(1, 5);
+
+        let player = world.player(1).expect("玩家在");
+        assert_eq!(
+            (player.level, player.experience, player.max_experience),
+            (2, 4, 200),
+            "1 级 99 + 5 必须跨到 2 级，余 4，下一级 200"
+        );
+        assert_eq!(
+            (player.hp, player.stats.hp, player.mp, player.stats.mp),
+            (24, 24, 18, 18),
+            "升级后 HP/MP 上限与当前值都要刷新到 2 级曲线"
+        );
+
+        let packets = drain(&mut rx);
+        assert!(
+            packets.iter().any(
+                |packet| matches!(packet, ServerPacket::GainExperience(gain) if gain.amount == 5)
+            ),
+            "必须先给本人发 S.GainExperience{{5}}：{packets:?}"
+        );
+        assert!(
+            !packets
+                .iter()
+                .any(|packet| matches!(packet, ServerPacket::UserInformation(_))),
+            "升级不重发 S.UserInformation：{packets:?}"
+        );
+        assert!(
+            packets.iter().any(|packet| matches!(
+                packet,
+                ServerPacket::LevelChanged(level)
+                    if (level.level, level.experience, level.max_experience) == (2, 4, 200)
+            )),
+            "必须发 S.LevelChanged{{2,4,200}}：{packets:?}"
+        );
+        let last_health = packets
+            .iter()
+            .filter_map(|packet| match packet {
+                ServerPacket::HealthChanged(health) => Some((health.hp, health.mp)),
+                _ => None,
+            })
+            .next_back();
+        assert_eq!(
+            last_health,
+            Some((24, 18)),
+            "最后一条 HealthChanged 必须是满血/满蓝"
+        );
+    }
+
+    #[test]
+    fn multiple_levels_take_the_new_threshold_after_each_level() {
+        let mut world = level_one_world();
+        let mut rx = level_one_player(&mut world);
+        drain(&mut rx);
+
+        // 99 + 250 = 349：先扣 100 到 2 级（余 249），再扣 200 到 3 级（余 49）。
+        world.gain_experience(1, 250);
+
+        let player = world.player(1).expect("玩家在");
+        assert_eq!(
+            (player.level, player.experience, player.max_experience),
+            (3, 49, 300),
+            "连升两级后必须取 3 级的新阈值，不能复用旧 MaxExperience"
+        );
+        let packets = drain(&mut rx);
+        assert!(
+            packets.iter().any(|packet| matches!(
+                packet,
+                ServerPacket::LevelChanged(level)
+                    if (level.level, level.experience, level.max_experience) == (3, 49, 300)
+            )),
+            "跨两级只应发一条最终 LevelChanged{{3,49,300}}：{packets:?}"
+        );
+    }
 }

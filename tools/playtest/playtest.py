@@ -585,6 +585,15 @@ class Playtest:
                 self.equipment_by_slot = {
                     slot: item for slot, item in enumerate(equip_raw) if item
                 }
+                self.equipped_items = [
+                    dict(
+                        item,
+                        slot=slot,
+                        dura_before=int(item.get("current_dura", 0)),
+                        current_dura=int(item.get("current_dura", 0)),
+                    )
+                    for slot, item in self.equipment_by_slot.items()
+                ]
                 _quest_items = optional_items()
                 self.self_gold = r.u32()
                 _credit = r.u32()
@@ -2322,46 +2331,47 @@ class Playtest:
         return False
 
     def walk_back_breadcrumb(self, target: tuple[int, int], tol: int = 2) -> bool:
-        """按去程 breadcrumb 反向走回安全点；失败重发/垂直侧移。"""
+        """按去程 breadcrumb 反向走回安全点；成功一步才消费一个点。"""
         failures = 0
-        while self.breadcrumb and self._distance(target) > tol:
-            nxt = self.breadcrumb.pop()
-            if self._distance(nxt) >= self._distance(self.self_pos):
-                continue
+        while self._distance(target) > tol:
+            # 去掉“当前格”重复点（最后一步的坐标可能重复）。
+            while self.breadcrumb and self.breadcrumb[-1] == self.self_pos:
+                self.breadcrumb.pop()
+            if not self.breadcrumb:
+                self.fail(
+                    "journey1 反向走位",
+                    f"breadcrumb 用尽 self={self.self_pos} target={target}",
+                )
+                return False
+            nxt = self.breadcrumb[-1]
+            moved = False
             for attempt in range(1, 4):
-                if self.step_onto(nxt, timeout=2.0):
-                    print(f"  [journey1] 反向走 {nxt} @ {self.self_pos} d={self._distance(target)}")
-                    failures = 0
+                if time.time() < self.move_ready_at:
+                    time.sleep(max(0.0, self.move_ready_at - time.time()) + 0.05)
+                before = self.self_pos
+                self.step_onto(nxt, timeout=1.5)
+                if self.self_pos == nxt:
+                    moved = True
                     break
-                if attempt == 1:
-                    time.sleep(0.3)
-                    continue
-                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                    side = (self.self_pos[0] + dx, self.self_pos[1] + dy)
-                    if self._is_walkable(side) and self.step_onto(side, timeout=1.0):
-                        print(f"  [journey1] 反向卡住侧移 {side}")
-                        break
-                else:
-                    time.sleep(0.3)
-                    continue
-                break
-            else:
-                failures += 1
-                if failures >= 5:
-                    self.fail(
-                        "journey1 反向走位",
-                        f"连续 5 步失败 self={self.self_pos} target={target} "
-                        f"breadcrumb末尾={self.breadcrumb[-10:]}",
-                    )
-                    return False
-        if self._distance(target) <= tol:
-            self.ok("journey1 反向回安全点", f"{self.self_pos}（剩余 breadcrumb {len(self.breadcrumb)}）")
-            return True
-        self.fail(
-            "journey1 反向走位",
-            f"breadcrumb 用尽 self={self.self_pos} target={target}",
-        )
-        return False
+                if self.self_pos != before:
+                    # 走偏了：让下一轮按新的当前位置重新取目标。
+                    moved = True
+                    break
+                print(f"  [journey1] 反向一步未动 {nxt} self={self.self_pos} 第 {attempt}/3 次")
+                time.sleep(1.0)
+            if not moved:
+                self.fail(
+                    "journey1 反向走位",
+                    f"连续 3 次未动 self={self.self_pos} next={nxt} target={target} "
+                    f"breadcrumb末尾={self.breadcrumb[-10:]}",
+                )
+                return False
+            if self.self_pos == nxt:
+                self.breadcrumb.pop()
+            print(f"  [journey1] 反向走 {self.self_pos} d={self._distance(target)} 剩余={len(self.breadcrumb)}")
+            failures = 0
+        self.ok("journey1 反向回安全点", f"{self.self_pos}（剩余 breadcrumb {len(self.breadcrumb)}）")
+        return True
 
     def gate_segmented_nav(self, waypoints: list[tuple[int, int]], tol: int = 2) -> bool:
         """分段航点；卡住侧移重算。返回是否全部到达。"""
@@ -3223,23 +3233,38 @@ class Playtest:
             return self.sell1_flow()
 
         self.quest_no_deliver = True
-        def back_stage() -> int:
-            for attempt in range(1, 3):
-                if self.walk_back_breadcrumb((330, 270)):
-                    return 0
-                print(f"  [journey1] 反向重试 {attempt}/2，等 1s；breadcrumb={len(self.breadcrumb)}")
-                time.sleep(1.0)
-            self.fail(
-                "journey1 反向走位",
-                f"breadcrumb 用尽 self={self.self_pos} 末尾={self.breadcrumb[-10:]}",
+        def die_stage() -> int:
+            before_uids = {e["unique_id"] for e in self.equipment_items}
+            print(
+                f"  [journey1] 死亡前任务目标行保留；active={sorted(self.active_quest_ids)} "
+                f"pos={self.self_pos} 装备uid={sorted(before_uids)}"
             )
-            return 1
+            code = self.dr1_flow()
+            if code != 0:
+                return code
+            self.newbie_equip()
+            after_uids = {e["unique_id"] for e in self.equipment_items}
+            print(
+                f"  [journey1] 复活后 equipment={len(self.equipment_items)} "
+                f"inventory={len(self.inventory_items)} pos={self.self_pos} uids={sorted(after_uids)}"
+            )
+            if len(self.equipment_items) != 2 or after_uids != before_uids:
+                self.fail(
+                    "journey1 死亡掉落",
+                    f"期望 2 件原装备 {sorted(before_uids)}，实际 {sorted(after_uids)} "
+                    f"inventory={len(self.inventory_items)}",
+                )
+                return 1
+            if not self.inventory_items:
+                self.fail("journey1 死亡掉落", "复活后 inventory 为空")
+                return 1
+            return 0
 
         print("  [journey1] 阶段 | 结果 | 关键证据")
         for name, fn in (
             ("穿装", equip),
             ("quest1(接取)", self.quest1_flow),
-            ("反向回安全点", back_stage),
+            ("死亡脱困+复活", die_stage),
             ("分段导航", lambda: 0 if self.gate_segmented_nav([(342, 312)]) else 1),
             ("卖肉+修理", sell_stage),
             ("买书/学技能/施法", self.magic1_flow),
@@ -3596,8 +3621,51 @@ class Playtest:
             self.fail("sell1 金币", f"卖出未加金币：{gold_before}->{gold_after}")
             return 1
         self.ok("sell1 卖出", f"Chicken 卖出，金币 {gold_before}->{gold_after}（+{gold_after - gold_before}）")
-        # 有金币后走完整 EQ-1：先打怪掉耐久，再付费修理（journey 要求非空金币）。
-        return self.eq1_flow()
+        # 有金币后只对“当前已穿装备”掉耐久并修理，不再重走 eq1_flow。
+        if self.wear_equipped() != 0:
+            return 1
+        return self.repair_equipped()
+
+    def wear_equipped(self, timeout: float = 60.0) -> int:
+        """攻击附近怪，直到任一所穿装备 current_dura < max_dura-10。"""
+        def damaged() -> bool:
+            return any(
+                int(e.get("current_dura", 0)) < int(e.get("max_dura", 0)) - 10
+                for e in self.equipped_items
+            )
+
+        if damaged():
+            print(f"  [journey1] 装备已有耐久损耗：{[(e['item_index'], e['current_dura'], e['max_dura']) for e in self.equipped_items]}")
+            return 0
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            preys = [m for m in self.monsters if not m.get("dead") and not self._is_dummy(m)]
+            if not preys:
+                self.walk_towards((342, 312), max_steps=80)
+                self._drain(0.5)
+                continue
+            prey = min(preys, key=lambda m: self._distance(m["pos"]))
+            if self._distance(prey["pos"]) > 1:
+                self.walk_towards(prey["pos"], max_steps=20)
+                continue
+            dx = prey["pos"][0] - self.self_pos[0]
+            dy = prey["pos"][1] - self.self_pos[1]
+            writer = Writer()
+            writer.u8(self._direction(dx, dy))
+            writer.u8(0)
+            self.send(C_ATTACK, writer.raw())
+            self._drain(0.9)
+            if damaged():
+                print(
+                    f"  [journey1] 掉耐久成功："
+                    f"{[(e['item_index'], e['current_dura'], e['max_dura']) for e in self.equipped_items]}"
+                )
+                return 0
+        self.fail(
+            "journey1 耐久损耗",
+            f"60s 攻击后仍无装备掉耐久：{[(e['item_index'], e['current_dura'], e['max_dura']) for e in self.equipped_items]}",
+        )
+        return 1
 
     def repair_equipped(self) -> int:
         """卖肉后用现有金币修理一件耐久未满的已装备物品（武器优先）。"""

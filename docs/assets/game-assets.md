@@ -52,6 +52,9 @@ py tools/assets/build_game_assets.py --prune
 **篡改可发现**：`--verify` 除了比文件数/总字节，还会抽查 `manifest.subtrees[*].sample_sha256`
 （每子树前 8 个 ≤64MB 的文件）——改动一个字节就会被判 `sha256 不匹配`。
 
+**道具图标透明**：`items.wzl` 的 RGB565 黑底已在拆包时去透明（657 个目录 / 243,254 像素，
+详见 §5.1）；管道参数 `--black-transparent-formats 0,3,5`。
+
 ## 3) 运行时怎么指定资源根
 
 **优先级（高 → 低）**——服务端与客户端一致，实现分别在

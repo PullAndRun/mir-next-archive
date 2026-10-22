@@ -248,12 +248,13 @@
 ## 8. 未做
 
 - 大地图（`S.NewMapInfo`）不随切图刷新；小地图/大地图界面本身未实现。
-- 随机传送（`TeleportRandom`）、回城（`C.TownRevive` 走的地图绑定）、`TeleportRing`、
-  `S.Teleport` 等其它切图入口未实现。
+- 随机传送（`TeleportRandom`）、`TeleportRing`、`S.Teleport` 等其它切图入口未实现；
+  **回城 `C.TownRevive` 已实现**（优先角色绑定点，见 `docs/world/combat.md` §10.2）。
 - 地图实例（`GetMapByNameAndInstance`）：同一文件名多实例没有实现，`MOVE` 的
   instance 参数会被忽略。
-- 安全区/绑定坐标（`SafeZoneInfo`、`BindLocation`）：切图后不更新绑定，
-  死亡复活仍是原地复活（见 `docs/world/combat.md`）。
+- 安全区/绑定坐标（`SafeZoneInfo`、`BindLocation`）：`characters.bind_map_index/bind_x/bind_y`
+  已双向映射，回城优先绑定点、无效/未设置回退 `ServerConfig.start_map/start_point`；
+  **红名 `PKTown` 未实现**（数据里没有 PKTown 配置）；切图本身不会自动更新绑定（Crystal 同）。
 - 门的开关（`CheckDoorOpen`）与挖洞技能：`need_hole` 只认 `World::set_hole`。
 - `RequiredGroup` 等其它地图进入条件（攻城对传送点的限制已实现，见 `docs/world/conquest.md`）。
 - 跨图延迟魔法/伤害的「跟随对象」语义（见 §7.7）。

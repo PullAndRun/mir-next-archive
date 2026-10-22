@@ -72,21 +72,27 @@
 | 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计、MirDB 报告、图库查看/导出；素材库编辑器未做 |
 | 素材索引（`mir2_dev`） | ✅ | `tools/asset-index/` 把 `resource/` 的 233 万文件登记进 PostgreSQL，按名字/扩展名/仓库查询 |
 
-### 核心闭环验收（第 28/40 轮）
+### 核心闭环验收（第 28/40/41 轮）
+
+> **第 41 轮最终裁决（御史台 t129）：有条件成立**——基础可玩能力有条件成立、已完成分项验证；
+> **不是零 SKIP 全链路 PASS**。原文条件摘录：**保留 live 升级、0 耐久整链、任务追踪 UI、
+> 非空任务/技能与耐久重登等未覆盖标签**；无条件宣布原始闭环完成还需补齐「同一角色连续旅程 /
+> 失败恢复与维护整链 / 来源与保留标签」三项。全文见
+> [`docs/testing/core-loop-final-verdict.md`](docs/testing/core-loop-final-verdict.md)。
 
 | 闭环 | 状态 | 证据 |
 |---|---|---|
 | quest1（新手任务） | ✅ PASS | Jane @(284,606) 接取 → 交付，`completed_quests` 含 1、经验 +50（cjlaaa） |
-| TP-1（任务导航/传送） | ✅ PASS | 任务追踪行 + 地图传送/导航，见 [`docs/world/quest-nav.md`](docs/world/quest-nav.md) |
-| PS-1（退出重进持久化） | ✅ PASS（含 strict） | **审计后追加**：重登前后 equipment 2 件、inventory 3 件的槽位 `uid/index` 全等，`gold=0/completed=[]/spells=[]`；见 [`ps1-strict.log`](docs/testing/evidence/round26/ps1-strict.log) |
-| DR-1（死亡→复活） | ✅ PASS（cjlaaa live） | **审计后追加**：自然死亡 `hp=0` → 12s 无自动复活 → `C.TownRevive(68)` 0.011s 收 `S.Revived(136)` → 可移动/攻击；**已知差异**：复活落点用配置出生点，Crystal `BindMap`/`PKTown` 分支未实现；见 [`dr1-cjlaaa.log`](docs/testing/evidence/round26/dr1-cjlaaa.log) |
-| EQ-1（装备→耐久→修理） | ✅ PASS | B 段 3978→4000、C 段金币 40→38（扣 2），见 [`eq1-sell-gate14.md`](docs/testing/evidence/round26/eq1-sell-gate14.md) |
+| TP-1（任务导航/传送） | ✅ PASS | **新口径**：任务目标追踪（助理·简 map0 `(284,606)`）+ 按目标地图选门格（`0104`，`(4,9)`，Steven 距离 1），**不再用 `movements[0]`**；见 [`tp1-final.md`](docs/testing/evidence/round26/tp1-final.md) |
+| PS-1（退出重进持久化） | ✅ PASS（含 strict） | **审计后追加**：重登前后 equipment 2 件、inventory 3 件的槽位 `uid/index` 全等，`gold=0/completed=[]/spells=[]`；见 [`ps1-strict.log`](docs/testing/evidence/round26/ps1-strict.log)。core1i 组合 exit 0，PS 阶段因死亡记 **SKIP（不是 FAIL）**，独立 PS-1 strict 仍 PASS |
+| DR-1（死亡→复活） | ✅ PASS（cjlaaa live + 绑定点） | **审计后追加**：自然死亡 `hp=0` → 12s 无自动复活 → `C.TownRevive(68)` 0.011s 收 `S.Revived(136)` → 可移动/攻击；**回城优先角色绑定点**（`bind_map_index/bind_point`，无效/未设置回退 `start_map/start_point`）；**红名 `PKTown` 未实现**（数据无配置）；见 [`dr1-cjlaaa.log`](docs/testing/evidence/round26/dr1-cjlaaa.log) |
+| EQ-1（装备→耐久→修理） | ✅ PASS（含 0 耐久单测） | B 段 3978→4000、C 段金币 40→38（扣 2）；**0 耐久属性失效**由 `zero_durability_equipment_contributes_no_stats` 确定性覆盖；见 [`eq1-sell-gate14.md`](docs/testing/evidence/round26/eq1-sell-gate14.md) |
 | 道具图标 | ✅ 透明化修复 | `gfx/sprites/item` 的 RGB565 帧补 border black→transparent；`icon-0000` 四角 alpha=0、透明像素 365/736；抽取规则见 [`docs/assets/game-assets.md`](docs/assets/game-assets.md) |
 | 资源 | ✅ 纯自有 | 发布用 `.mnd/.mnm/.mna/.mnp`，不依赖 `resource/` 原始素材 |
 
-> **御史台第 40 轮独立审计 verdict=partial**（3 findings）：核心闭环**整体仍为部分成立**——
-> 升级 live SKIP、EQ 未覆盖 0 耐久、TP 目标选择待改；上表 PS-1/DR-1 的 strict/cjlaaa 新证据为
-> **审计后追加**，不改审计结论。审计全文见
+> **第 40 轮独立审计 verdict=partial**（历史结论，原文未改）：当时 PS-1 判据降级、
+> 原组合失败、DR/TP/EQ 分层覆盖不足；第 41 轮已补 PS-1 strict、DR-1 cjlaaa、TP-1 新口径与
+> EQ-1 0 耐久单测，最终裁决见上表上方引用。审计全文见
 > [`docs/testing/core-loop-audit-round40.md`](docs/testing/core-loop-audit-round40.md)。
 
 ### 协议自动生成
@@ -294,6 +300,7 @@ pwsh -NoProfile -File tools/dev/release-smoke.ps1
 | [`docs/testing/duo-smoke.md`](docs/testing/duo-smoke.md) | 双人联机冒烟：场景矩阵、运行方式与第 8 轮补齐链路 |
 | [`docs/testing/playtest.md`](docs/testing/playtest.md) | 协议级 playtest：Python 直连真服务端、`[OK]/[FAIL]/[SKIP]` 与当前限制 |
 | [`docs/testing/core-loop-audit-round40.md`](docs/testing/core-loop-audit-round40.md) | 第 40 轮核心闭环独立审计（verdict=partial，3 findings；结论以原文为准） |
+| [`docs/testing/core-loop-final-verdict.md`](docs/testing/core-loop-final-verdict.md) | 第 41 轮最终裁决：**有条件成立**（条件原文与未覆盖标签） |
 | [`docs/testing/stress.md`](docs/testing/stress.md) | 压测：100/300 连接基线（dev profile）、tick/CPU/RSS/DB 口径与瓶颈 |
 | [`docs/testing/ci-assets.md`](docs/testing/ci-assets.md) | CI 素材依赖审计：哪些测试读 `resource/`、缺素材如何 skip，以及无素材复现脚本 |
 | [`docs/client.md`](docs/client.md) | 客户端：协议流程、按键/鼠标、面板与字体 |

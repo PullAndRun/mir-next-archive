@@ -463,6 +463,8 @@ Broadcast(new S.ObjectRevived { ObjectID, Effect = effect });  // → 周围玩�
   `MapChanged` + `Revived` + `ObjectRevived`。本作已接入 `characters.bind_map_index/bind_x/bind_y`：
   绑定地图加载不到或落点不可走时回退 `ServerConfig.start_map/start_point`；
   **红名 `PKTown` 分支未实现**（数据里没有 PKTown 配置），红名目前也走绑定/出生点。
+  测试：`town_revive_prefers_valid_player_bind_point`、
+  `town_revive_falls_back_to_start_when_bind_is_invalid`（`1940b32`）。
 - 本作在 `ObjectRevived` 之后**多补一条 `ObjectPlayer`**：Crystal 的 `Map.AddObject`
   （`Map.cs:2361-2373`）只把对象塞回格子、不再广播 `GetInfo()`，而我们的客户端把 `ObjectRemove`
   当彻底删除，不补外观包的话复活后的角色在旁人客户端里会永久消失。

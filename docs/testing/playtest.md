@@ -102,11 +102,20 @@ pwsh -NoProfile -File tools/dev/serve.ps1 -Stop -Port 7006
 三级降级：自然传送点 → 传送 NPC（`Teleport_*` 的 `@tele → @move*`）→ GM `@map`（打印降级原因）。
 服务端数据与测试见 [`docs/world/maps.md`](../world/maps.md) §3.5。
 
-## 5. 当前状态（t76/t88/t96）
+## 5. 当前状态（t76/t88/t96；第 41 轮更新）
 
 - 新角色满血（`World::enter` 兜底，`docs/world/combat.md` §10.4）与 TownArcher 红名过滤
   （`docs/world/monster-ai.md` §1）均已修复；
 - `--gm playtest` 在真实 DB 上 14 项全 OK、0 SKIP；连续 3 次 exit 0、输出一致；
+- **TP-1 新口径（第 41 轮）**：任务目标追踪（助理·简 map0 `(284,606)`）+ 按目标地图选门格
+  （`0104`，`(4,9)`，Steven 距离 1），**不再用 `movements[0]`**；`target/tp1-final.log`
+  exit 0，见 [`evidence/round26/tp1-final.md`](evidence/round26/tp1-final.md)。
+- **core1 组合（第 41 轮）**：`target/core1i.log` **exit 0（含 5 SKIP）**；
+  **PS 阶段因本轮死亡记 SKIP（不是 FAIL）**，PS-1 由独立 `ps1-strict` PASS 证据保留。
+- **EQ-1 0 耐久**：`zero_durability_equipment_contributes_no_stats` 确定性覆盖属性失效；
+  live 仍以 EQ-1/sell1 的磨损+修理证据为准。
+- **DR-1 回城**：`C.TownRevive` 优先角色绑定点（`bind_map_index/bind_point`），无效回退
+  `start_map/start_point`；红名 `PKTown` 未实现（数据无配置）。
 - **三件套全绿（2026-10-19 实测）**：`cargo test -p mir-server` **39 目标全绿**
   （含 `tests/maps` 20/20、`tests/duo_smoke` 7/7）；`cargo clippy -p mir-server --all-targets
   -- -D warnings` 0；`rustfmt --check` 0；
@@ -120,16 +129,24 @@ pwsh -NoProfile -File tools/dev/serve.ps1 -Stop -Port 7006
 playtest 是「真服务端 + 真 socket + Python 客户端」的冒烟，不替代 Rust 集成测试；
 它补的是「换个语言实现的客户端也能按协议玩」这一层。
 
-## 7. 第 40 轮审计与「审计后追加」证据
+## 7. 第 40 轮审计、第 41 轮最终裁决与「审计后追加」证据
 
 - 御史台第 40 轮独立审计：**verdict=partial**（3 findings），全文见
-  [`core-loop-audit-round40.md`](core-loop-audit-round40.md)。结论以审计原文为准，本页不重述/不改写。
-- 审计截止 18:11；之后新增的两份 live 证据标注为**审计后追加**，不改变审计结论：
+  [`core-loop-audit-round40.md`](core-loop-audit-round40.md)。该文保持原时间窗结论，不追改。
+- 第 41 轮最终裁决：**有条件成立**，全文见
+  [`core-loop-final-verdict.md`](core-loop-final-verdict.md)。原文条件摘录：
+  > 条件是对结论范围的限制，不是将 SKIP 换算为 PASS：保留 **live 升级、0 耐久整链、
+  > 任务追踪 UI、非空任务/技能与耐久重登**等未覆盖标签。
+  若“核心闭环完成”必须取原先自主新手整链的含义，则**尚不成立**，仍需补齐
+  「同一角色连续玩家旅程 / 失败恢复与维护整链 / 来源与保留标签」三项。
+- 审计后新增证据标注为**审计后追加**，不改变第 40 轮审计原文结论：
   - **PS-1 strict**：重登前后 equipment 2 件、inventory 3 件槽位 `uid/index` 全等，
     `gold=0/completed=[]/spells=[]` → PASS；见
     [`evidence/round26/ps1-strict.log`](evidence/round26/ps1-strict.log)。
   - **DR-1 cjlaaa**：自然死亡 `hp=0` → 12s 无自动复活 → `C.TownRevive(68)` 0.011s 收
-    `S.Revived(136)` → 可移动/攻击；**已知差异**：复活落点用配置出生点，Crystal
-    `BindMap`/`PKTown` 分支未实现；见
-    [`evidence/round26/dr1-cjlaaa.log`](evidence/round26/dr1-cjlaaa.log)。
-- 审计后核心闭环**整体仍写部分成立**：升级 live SKIP、EQ 未覆盖 0 耐久、TP 目标选择待改。
+    `S.Revived(136)` → 可移动/攻击；**回城优先角色绑定点**（无效回退 `start`），
+    **红名 `PKTown` 未实现**；见 [`evidence/round26/dr1-cjlaaa.log`](evidence/round26/dr1-cjlaaa.log)。
+  - **TP-1 新口径**：任务目标（助理·简 map0 284,606）→ 0104 门格 (4,9)，不再用
+    `movements[0]`；见 [`evidence/round26/tp1-final.md`](evidence/round26/tp1-final.md)。
+- **core1i**：组合 gate 文本结果 exit 0（含 5 SKIP）；PS 阶段因死亡记 **SKIP（不是 FAIL）**，
+  独立 PS-1 strict 仍 PASS。

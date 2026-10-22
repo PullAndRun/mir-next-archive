@@ -214,6 +214,47 @@ fn walk_to(harness: &mut Harness, player: u32, target: Point) {
     walk_to_on(harness, player, MAP, target);
 }
 
+fn adjacent_walkable(harness: &Harness, target: Point) -> Point {
+    for direction in [
+        MirDirection::Up,
+        MirDirection::UpRight,
+        MirDirection::Right,
+        MirDirection::DownRight,
+        MirDirection::Down,
+        MirDirection::DownLeft,
+        MirDirection::Left,
+        MirDirection::UpLeft,
+    ] {
+        let (dx, dy) = match direction {
+            MirDirection::Up => (0, -1),
+            MirDirection::UpRight => (1, -1),
+            MirDirection::Right => (1, 0),
+            MirDirection::DownRight => (1, 1),
+            MirDirection::Down => (0, 1),
+            MirDirection::DownLeft => (-1, 1),
+            MirDirection::Left => (-1, 0),
+            MirDirection::UpLeft => (-1, -1),
+        };
+        let point = Point::new(target.x + dx, target.y + dy);
+        if !walkable(harness, MAP, point) {
+            continue;
+        }
+        let occupied =
+            harness
+                .world
+                .npcs()
+                .iter()
+                .any(|npc| npc.map == MAP && npc.position == point)
+                || harness.world.monsters().iter().any(|monster| {
+                    monster.map == MAP && !monster.dead && monster.position == point
+                });
+        if !occupied {
+            return point;
+        }
+    }
+    panic!("{target:?} 四周没有可站的空格");
+}
+
 fn kill_monster_natural(harness: &mut Harness, player: u32, monster: u32) -> u32 {
     let mut attacks = 0;
     loop {
@@ -225,11 +266,10 @@ fn kill_monster_natural(harness: &mut Harness, player: u32, monster: u32) -> u32
             return attacks;
         }
         let target = harness.world.monster(monster).expect("怪物还在").position;
-        let from = find_walkable_near(harness, MAP, target);
-        assert!(
-            harness.world.place_player(player, MAP, from),
-            "应能站到鸡旁边"
-        );
+        let from = adjacent_walkable(harness, target);
+        if harness.world.player(player).expect("角色").position != from {
+            walk_to(harness, player, from);
+        }
         let player_position = harness.world.player(player).expect("角色").position;
         let direction = direction_between(player_position, target);
         if let Some(p) = harness.world.player_mut(player) {
@@ -400,11 +440,7 @@ async fn journey_natural() {
     assert!(target_line.contains("(294,619)"));
 
     // 3) 走真实门：map0 (322,247) → 门格 (323,247) → 0104。
-    assert!(
-        harness
-            .world
-            .place_player(player, MAP, Point::new(322, 247))
-    );
+    walk_to(&mut harness, player, Point::new(322, 247));
     harness.world.advance_clock(600);
     harness.world.tick();
     harness

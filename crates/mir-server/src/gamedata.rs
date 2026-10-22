@@ -31,6 +31,7 @@ use std::sync::{Arc, Mutex};
 use mir_core::Point;
 use mir_core::enums::Monster as MonsterImage;
 use mir_core::enums::{Spell, Stat};
+use mir_db::mnd::{TAG_DB_BIN, TAG_ENVIR};
 use mir_db::npc_script::NpcScript;
 use mir_db::quest_script::QuestScript;
 use mir_db::{
@@ -64,6 +65,90 @@ pub const DB_CANDIDATES: &[&str] = &[
     "resource/community/clgforever910-mir2database/Daneo1989/Server.MirDB",
 ];
 
+/// `.mnd` 里的内存脚本文件系统（M2）：不再解包到临时目录。
+///
+/// 键是相对 `Envir/` 的 POSIX 路径（`NPCs/...`、`Quests/...`、`Drops/...`），值保留原文本。
+#[derive(Debug, Default)]
+struct ScriptFs {
+    files: HashMap<String, String>,
+}
+
+impl ScriptFs {
+    fn insert(&mut self, relative: String, text: String) {
+        self.files.insert(relative, text);
+    }
+
+    fn get(&self, relative: &str) -> Option<&str> {
+        self.files.get(relative).map(String::as_str)
+    }
+
+    /// 公开给 [`GameData::read_script`]：接受 `Envir/...` 或相对 `Envir/` 的路径。
+    fn read(&self, path: &str) -> Option<Arc<str>> {
+        let mut key = normalize_script_path(path);
+        if let Some(rest) = key.strip_prefix("Envir/") {
+            key = rest.to_owned();
+        }
+        self.get(&key).map(|text| Arc::from(text.to_owned()))
+    }
+
+    /// NPC 脚本的 `#INSERT` 展开（Crystal `NPCScript.ParseInsert`：追加到行尾、再删指令行）。
+    ///
+    /// `#INCLUDE` 只在 1 份 cjlaaa 脚本里没出现；这里保留原行交给解析器（不影响页面解析）。
+    fn npc_lines(&self, text: &str) -> Vec<String> {
+        let mut lines = lines_of(text);
+        let mut index = 0;
+        let mut expansions = 0;
+        while index < lines.len() && expansions < 100 {
+            let trimmed = lines[index].trim().to_owned();
+            if !trimmed.to_uppercase().starts_with("#INSERT") {
+                index += 1;
+                continue;
+            }
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            if let Some(target) = parts.get(1) {
+                let inner = target
+                    .strip_prefix('[')
+                    .and_then(|rest| rest.strip_suffix(']'))
+                    .unwrap_or(target)
+                    .replace('\\', "/");
+                let key = inner.strip_prefix("Envir/").unwrap_or(&inner).to_owned();
+                if let Some(inserted) = self.get(&key) {
+                    lines.append(&mut lines_of(inserted));
+                    expansions += 1;
+                }
+            }
+            lines.remove(index);
+        }
+        lines
+    }
+}
+
+fn normalize_script_path(path: &str) -> String {
+    let mut text = path.replace('\\', "/");
+    while let Some(rest) = text.strip_prefix("./") {
+        text = rest.to_owned();
+    }
+    text.trim_start_matches('/').to_owned()
+}
+
+fn script_key(dir: &str, file: &str, extension: &str) -> String {
+    let mut name = normalize_script_path(file);
+    if let Some(rest) = name.strip_prefix("Envir/") {
+        name = rest.to_owned();
+    }
+    if !name.ends_with(extension) {
+        name.push_str(extension);
+    }
+    format!("{dir}/{name}")
+}
+
+fn lines_of(text: &str) -> Vec<String> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    text.split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line).to_owned())
+        .collect()
+}
+
 /// 已加载的游戏数据。
 #[derive(Debug)]
 pub struct GameData {
@@ -93,6 +178,8 @@ pub struct GameData {
     drop_dir: Option<PathBuf>,
     /// `Envir/` 根目录（NPC 脚本与 `#INSERT` 的相对路径都从这里算）。
     envir_dir: Option<PathBuf>,
+    /// `.mnd` 的内存脚本 FS（M2）；为 `Some` 时不再访问 `envir_dir`。
+    script_fs: Option<Arc<ScriptFs>>,
     /// 掉落表缓存：文件名 → 解析结果（`None` 表示文件不存在或解析失败）。
     ///
     /// 用 `Mutex` 是因为 [`GameData`] 会被多个世界/会话共享（`Arc`），而 `DropTable::load`
@@ -123,12 +210,12 @@ pub enum MndLoadError {
     /// 内嵌 DB 载荷解析失败。
     #[error("解析 .mnd 里的 DB：{0}")]
     Db(#[from] MirDbError),
+    /// 原生 DB 段解码失败。
+    #[error("解码 .mnd 的 DB 段：{0}")]
+    Schema(#[from] mir_db::schema::DbCodecError),
     /// 容器缺少 `db` 段。
     #[error(".mnd 缺少 db 段")]
     MissingDb,
-    /// 解包 Envir 到临时目录失败。
-    #[error("解包 .mnd 的 Envir：{0}")]
-    Io(#[from] std::io::Error),
 }
 
 impl GameData {
@@ -139,66 +226,52 @@ impl GameData {
         // Crystal `Settings.DropPath = ./Envir/Drops`（`Settings.cs:28`）；这里从数据库所在目录推。
         let envir_dir = path.parent().map(|parent| parent.join("Envir"));
         let drop_dir = envir_dir.as_ref().map(|envir| envir.join("Drops"));
-        Ok(Self::from_parts(db, drop_dir, envir_dir, path))
+        Ok(Self::from_parts(db, drop_dir, envir_dir, None, path))
     }
 
     /// 从 `.mnd`（Mir Next Data）加载：运行时自有格式，不读 `Server.MirDB`/`Envir/*.txt`。
     ///
-    /// `.mnd` 的 `db` 段是导入工具写出的 DB 载荷；`Envir/*` 段是脚本文本。骨架阶段把脚本
-    /// 解到系统临时目录（按 `.mnd` 路径做稳定 hash），复用现有脚本解析器；后续 M2 改成
-    /// 内存虚拟文件系统即可，调用方接口不变。
+    /// M2：`db.bin` 段是 [`mir_db::schema`] 的原生 bincode；`Envir/*` 段直接进内存
+    /// [`ScriptFs`]，不再解到临时目录。M1 的 `db` 原始字节段仍只读兼容。
     ///
     /// # Errors
-    /// `.mnd` 读取/解析、DB 载荷解析或临时目录写入失败。
+    /// `.mnd` 读取/解析、DB 载荷解码失败。
     pub fn load_mnd(path: impl AsRef<Path>) -> Result<Self, MndLoadError> {
         let path = path.as_ref().to_path_buf();
         let mnd = mir_db::mnd::MndFile::read_from(&path)?;
-        let db_section = mnd.get("db").ok_or(MndLoadError::MissingDb)?;
-        let db = MirDb::from_bytes(&db_section.data)?;
-
-        let mut envir_dir = None;
-        let mut script_count = 0usize;
-        if mnd
+        let db = if let Some(section) = mnd
             .sections
             .iter()
-            .any(|section| section.tag == mir_db::mnd::TAG_ENVIR)
+            .find(|section| section.tag == TAG_DB_BIN)
         {
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            std::hash::Hash::hash(&path, &mut hasher);
-            let root = std::env::temp_dir().join(format!(
-                "mir-next-mnd-{:016x}",
-                std::hash::Hasher::finish(&hasher)
-            ));
-            for section in &mnd.sections {
-                if section.tag != mir_db::mnd::TAG_ENVIR {
-                    continue;
-                }
-                let relative = section.name.strip_prefix("Envir/").unwrap_or(&section.name);
-                let mut target = root.clone();
-                for component in relative.split('/') {
-                    // 防目录穿越：只接受普通文件名。
-                    if component.is_empty() || component == "." || component == ".." {
-                        continue;
-                    }
-                    target.push(component);
-                }
-                if let Some(parent) = target.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                std::fs::write(&target, &section.data)?;
-                script_count += 1;
+            mir_db::schema::decode_db(&section.data)?
+        } else {
+            let section = mnd.get("db").ok_or(MndLoadError::MissingDb)?;
+            MirDb::from_bytes(&section.data)?
+        };
+
+        let mut fs = ScriptFs::default();
+        let mut script_count = 0usize;
+        for section in &mnd.sections {
+            if section.tag != TAG_ENVIR {
+                continue;
             }
-            envir_dir = Some(root);
+            let relative = section.name.strip_prefix("Envir/").unwrap_or(&section.name);
+            fs.insert(
+                relative.to_owned(),
+                String::from_utf8_lossy(&section.data).into_owned(),
+            );
+            script_count += 1;
         }
-        let drop_dir = envir_dir.as_ref().map(|envir| envir.join("Drops"));
+        let script_fs = (!fs.files.is_empty()).then(|| Arc::new(fs));
         tracing::info!(
             path = %path.display(),
             schema_version = mnd.schema_version,
             sections = mnd.sections.len(),
             scripts = script_count,
-            "已加载 .mnd 数据包"
+            "已加载 .mnd 数据包（内存脚本 FS）"
         );
-        Ok(Self::from_parts(db, drop_dir, envir_dir, path))
+        Ok(Self::from_parts(db, None, None, script_fs, path))
     }
 
     /// 用内存里的数据库构造（测试、工具用）：不读文件，掉落表从 `drop_dir` 惰性加载。
@@ -208,13 +281,14 @@ impl GameData {
         let envir_dir = drop_dir
             .as_ref()
             .and_then(|dir| dir.parent().map(Path::to_path_buf));
-        Self::from_parts(db, drop_dir, envir_dir, path)
+        Self::from_parts(db, drop_dir, envir_dir, None, path)
     }
 
     fn from_parts(
         db: MirDb,
         drop_dir: Option<PathBuf>,
         envir_dir: Option<PathBuf>,
+        script_fs: Option<Arc<ScriptFs>>,
         path: PathBuf,
     ) -> Self {
         let monsters = db
@@ -278,6 +352,7 @@ impl GameData {
             game_shop,
             drop_dir,
             envir_dir,
+            script_fs,
             drop_cache: Mutex::new(HashMap::new()),
             npc_script_cache: Mutex::new(HashMap::new()),
             quest_script_cache: Mutex::new(HashMap::new()),
@@ -347,6 +422,14 @@ impl GameData {
         self.envir_dir.as_deref()
     }
 
+    /// 从 `.mnd` 的内存脚本 FS 读一份脚本（路径接受 `Envir/...` 或相对 `Envir/`）。
+    ///
+    /// 旧文件模式（`GameData::load`/`from_db`）返回 `None`，脚本仍走文件系统。
+    #[must_use]
+    pub fn read_script(&self, path: &str) -> Option<Arc<str>> {
+        self.script_fs.as_ref()?.read(path)
+    }
+
     /// NPC 脚本目录（`Envir/NPCs`，Crystal `Settings.NPCPath`，`Server/Settings.cs:24`）。
     #[must_use]
     pub fn npc_dir(&self) -> Option<PathBuf> {
@@ -384,7 +467,6 @@ impl GameData {
     /// `MessageQueue` 丢一条提示（`:145`），任务本身照样存在（只是没有任何目标与奖励）。
     #[must_use]
     pub fn quest_script(&self, file_name: &str) -> Option<Arc<QuestScript>> {
-        let envir = self.envir_dir()?;
         let key = file_name.to_owned();
         if let Some(cached) = self
             .quest_script_cache
@@ -394,16 +476,28 @@ impl GameData {
         {
             return cached.clone();
         }
-        let loaded = match QuestScript::load(&key, envir) {
-            Ok(script) => {
+        let loaded = if let Some(fs) = &self.script_fs {
+            let relative = script_key("Quests", &key, ".txt");
+            fs.get(&relative).map(|text| {
+                let script = QuestScript::parse(&key, &lines_of(text));
                 for warning in script.warnings() {
                     tracing::debug!(script = %key, %warning, "任务脚本告警");
                 }
-                Some(Arc::new(script))
-            }
-            Err(error) => {
-                tracing::debug!(script = %key, %error, "任务脚本读取失败，按「没有脚本」处理");
-                None
+                Arc::new(script)
+            })
+        } else {
+            let envir = self.envir_dir()?;
+            match QuestScript::load(&key, envir) {
+                Ok(script) => {
+                    for warning in script.warnings() {
+                        tracing::debug!(script = %key, %warning, "任务脚本告警");
+                    }
+                    Some(Arc::new(script))
+                }
+                Err(error) => {
+                    tracing::debug!(script = %key, %error, "任务脚本读取失败，按「没有脚本」处理");
+                    None
+                }
             }
         };
         self.quest_script_cache
@@ -422,7 +516,6 @@ impl GameData {
     /// `(LoadedObjectID, FileName)` 缓存，本作只按文件名（同一份脚本被多个 NPC 复用）。
     #[must_use]
     pub fn npc_script(&self, file_name: &str) -> Option<Arc<NpcScript>> {
-        let envir = self.envir_dir()?;
         let key = file_name.to_owned();
         if let Some(cached) = self
             .npc_script_cache
@@ -432,18 +525,30 @@ impl GameData {
         {
             return cached.clone();
         }
-        let loaded = match NpcScript::load(&key, envir) {
-            Ok(script) => {
+        let loaded = if let Some(fs) = &self.script_fs {
+            let relative = script_key("NPCs", &key, ".txt");
+            fs.get(&relative).map(|text| {
+                let script = NpcScript::parse(&key, fs.npc_lines(text));
                 for warning in script.warnings() {
-                    // Crystal 对脚本问题只往 `MessageQueue` 里丢一条提示（`NPCScript.cs:165`），
-                    // 这里降级到 debug，避免几百份脚本刷屏。
                     tracing::debug!(script = %key, %warning, "NPC 脚本告警");
                 }
-                Some(Arc::new(script))
-            }
-            Err(error) => {
-                tracing::debug!(script = %key, %error, "NPC 脚本读取失败，按「没有脚本」处理");
-                None
+                Arc::new(script)
+            })
+        } else {
+            let envir = self.envir_dir()?;
+            match NpcScript::load(&key, envir) {
+                Ok(script) => {
+                    for warning in script.warnings() {
+                        // Crystal 对脚本问题只往 `MessageQueue` 里丢一条提示（`NPCScript.cs:165`），
+                        // 这里降级到 debug，避免几百份脚本刷屏。
+                        tracing::debug!(script = %key, %warning, "NPC 脚本告警");
+                    }
+                    Some(Arc::new(script))
+                }
+                Err(error) => {
+                    tracing::debug!(script = %key, %error, "NPC 脚本读取失败，按「没有脚本」处理");
+                    None
+                }
             }
         };
         self.npc_script_cache
@@ -599,9 +704,6 @@ impl GameData {
     /// 本地 12,378 个样本掉落文件里 0 个使用 `#INSERT`，如以后用到需在同一处做归一。
     #[must_use]
     pub fn drop_table(&self, file: &str) -> Option<Arc<DropTable>> {
-        let Some(dir) = &self.drop_dir else {
-            return None;
-        };
         // 先归一：缓存键、文件路径都用同一套分隔符（Windows 上两种写法才会命中同一项）。
         let file = normalize_drop_path(file);
         if let Some(cached) = self
@@ -617,14 +719,21 @@ impl GameData {
         } else {
             format!("{file}.txt")
         };
-        let path = dir.join(&name);
-        let loaded = match DropTable::load(&path, dir) {
-            Ok(table) => Some(Arc::new(table)),
-            Err(error) => {
-                // Crystal 对缺失的掉落文件是静默的（`MonsterInfo.Load` 直接 return，
-                // `MonsterInfo.cs:374-396`），这里降一级到 debug，避免刷屏。
-                tracing::debug!(path = %path.display(), %error, "掉落表读取失败，按「不掉东西」处理");
-                None
+        let loaded = if let Some(fs) = &self.script_fs {
+            let relative = format!("Drops/{name}");
+            fs.get(&relative)
+                .map(|text| Arc::new(DropTable::parse(text)))
+        } else {
+            let dir = self.drop_dir.as_ref()?;
+            let path = dir.join(&name);
+            match DropTable::load(&path, dir) {
+                Ok(table) => Some(Arc::new(table)),
+                Err(error) => {
+                    // Crystal 对缺失的掉落文件是静默的（`MonsterInfo.Load` 直接 return，
+                    // `MonsterInfo.cs:374-396`），这里降一级到 debug，避免刷屏。
+                    tracing::debug!(path = %path.display(), %error, "掉落表读取失败，按「不掉东西」处理");
+                    None
+                }
             }
         };
         self.drop_cache

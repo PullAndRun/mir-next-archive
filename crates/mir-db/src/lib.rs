@@ -48,6 +48,7 @@ pub mod quest_script;
 pub mod reader;
 pub mod report;
 pub mod respawn;
+pub mod schema;
 
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -182,7 +183,7 @@ pub enum MirDbError {
 /// 文件头（固定 40 字节 = 10 × `int32`，见 `docs/store/mirdb-format.md` §1）。
 ///
 /// 字段名与 `Envir.cs:2457-2466`（写出）/ `:2847-2865`（读入）一一对应。
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MirDbHeader {
     /// 写出时的 `Envir.Version`（`Envir.cs:2457`）。语义见 [`MIN_VERSION`] / [`MAX_VERSION`]。
     pub version: i32,
@@ -222,7 +223,7 @@ pub struct SectionSpan {
 }
 
 /// 一份完整的 `Server.MirDB`。
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MirDb {
     /// 文件头。
     pub header: MirDbHeader,
@@ -250,7 +251,8 @@ pub struct MirDb {
     /// GT 城尾段（`GTMap`）。Crystal **写但不读**（`Envir.cs:2503-2505`），
     /// 这里在文件尾还有 >= 4 字节时尝试解析，能完整吃下才收下（见 [`Self::parse_with_leftover`]）。
     pub gt_maps: Option<Vec<GtMap>>,
-    /// 各段的字节范围，按文件顺序。
+    /// 各段的字节范围，按文件顺序。原生 `.mnd` 不落这段（重算即可）。
+    #[serde(skip)]
     pub sections: Vec<SectionSpan>,
 }
 

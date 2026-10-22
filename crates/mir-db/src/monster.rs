@@ -26,7 +26,7 @@ use crate::reader::{DbReader, DbWriter};
 pub const MIN_MONSTER_LEN: usize = 27;
 
 /// Crystal `MonsterInfo`（`Server/MirDatabase/MonsterInfo.cs:6`；读 `:53-148`，写 `:196-226`）。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MonsterInfo {
     /// 主键（`MonsterInfo.cs:55`）。
     pub index: i32,

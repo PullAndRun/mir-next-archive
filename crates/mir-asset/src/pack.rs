@@ -549,6 +549,8 @@ impl PackWriter {
             source,
         })?;
         let bytes = self.offset.saturating_add(TRAILER_LEN);
+        // 清单里的 sha256 用**整包**（含包尾摘要），分发/对账时直接 `sha256sum` 就能比。
+        let file_digest = sha256_range(&self.path, bytes)?;
         let prefix = common_prefix(self.entries.iter().map(|(name, _)| name.as_str()));
         Ok(PackSummary {
             file: self
@@ -558,7 +560,7 @@ impl PackWriter {
                 .unwrap_or_default(),
             category: category.to_owned(),
             bytes,
-            sha256: to_hex(&digest),
+            sha256: to_hex(&file_digest),
             entries: u32::try_from(self.entries.len()).unwrap_or(u32::MAX),
             prefix,
         })

@@ -71,7 +71,7 @@ use crate::{PacketReader, PacketWriter, ProtocolError};
 /// Crystal `ItemInfo`（`Shared/Data/ItemData.cs:3`；读入 ctor `:69`，`Save` `:208`）。
 ///
 /// 字段顺序完全按 `Save` 的写出顺序排列，布局细节见模块文档。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ItemInfo {
     /// 物品模板编号。
     pub index: i32,

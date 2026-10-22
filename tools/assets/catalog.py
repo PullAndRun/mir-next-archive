@@ -26,6 +26,7 @@ import os
 import re
 import sys
 from collections import Counter, defaultdict
+from datetime import datetime
 from pathlib import Path
 
 SCHEMA_SQL = """
@@ -56,6 +57,22 @@ CREATE TABLE IF NOT EXISTS assets.file (
 
 CREATE INDEX IF NOT EXISTS assets_file_category_idx ON assets.file (category, kind);
 CREATE INDEX IF NOT EXISTS assets_file_sha_idx ON assets.file (sha256);
+
+-- 多个资源根（如测试用 target/asset-catalog-test）时，prune 必须按 root 隔离。
+ALTER TABLE assets.file ADD COLUMN IF NOT EXISTS root_rel text NOT NULL DEFAULT 'game-assets';
+CREATE INDEX IF NOT EXISTS assets_file_root_idx ON assets.file (root_rel, category);
+
+CREATE TABLE IF NOT EXISTS assets.file_history (
+  id BIGSERIAL PRIMARY KEY,
+  path text NOT NULL,
+  action text NOT NULL,          -- created / changed / removed
+  bytes bigint,
+  sha256 text,
+  run_id bigint REFERENCES assets.catalog_run(id),
+  at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS assets_file_history_run_idx ON assets.file_history (run_id, action);
 """
 
 ABS_PATTERNS = re.compile(r"^(?:[A-Za-z]:[\\/]|[\\/])")
@@ -92,6 +109,11 @@ def resolve_dsn(explicit: str | None) -> str:
     if not dsn:
         raise SystemExit("缺少连接串：--dsn / MIR2_ASSET_DB / .env DATABASE_URL 三选一")
     return dsn
+
+
+def now_stamp() -> str:
+    """本地时区 ISO 时间戳（写进 plan/manifest 的可读字段）。"""
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 def safe_relative(path: str) -> str:
@@ -236,8 +258,12 @@ def ensure_schema(connection) -> None:
     connection.commit()
 
 
-def upsert_batch(cursor, rows: list[dict], run_id: int) -> None:
-    columns = ("path", "category", "kind", "bytes", "sha256", "output_dir", "origin", "run_id")
+def upsert_batch(cursor, rows: list[dict], run_id: int, root_rel: str) -> list[tuple]:
+    """写入一批文件，返回**真正发生插入/更新**的行（用于 `file_history`）。
+
+    未变化的行被 `ON CONFLICT ... WHERE` 跳过，`RETURNING` 也不会返回它们；
+    `(xmax = 0)` 区分插入（created）与更新（changed）。
+    """
     paths = [row["path"] for row in rows]
     categories = [row["category"] for row in rows]
     kinds = [row["kind"] for row in rows]
@@ -246,11 +272,12 @@ def upsert_batch(cursor, rows: list[dict], run_id: int) -> None:
     dirs = [row["output_dir"] for row in rows]
     origins = [row["origin"] for row in rows]
     run_ids = [run_id] * len(rows)
+    roots = [root_rel] * len(rows)
     sql = """
-        INSERT INTO assets.file (path, category, kind, bytes, sha256, output_dir, origin, run_id)
+        INSERT INTO assets.file (path, category, kind, bytes, sha256, output_dir, origin, run_id, root_rel)
         SELECT * FROM unnest(
             %s::text[], %s::text[], %s::text[], %s::bigint[], %s::text[],
-            %s::text[], %s::text[], %s::bigint[]
+            %s::text[], %s::text[], %s::bigint[], %s::text[]
         )
         ON CONFLICT (path) DO UPDATE SET
             category = EXCLUDED.category,
@@ -260,17 +287,43 @@ def upsert_batch(cursor, rows: list[dict], run_id: int) -> None:
             output_dir = EXCLUDED.output_dir,
             origin = EXCLUDED.origin,
             run_id = EXCLUDED.run_id,
+            root_rel = EXCLUDED.root_rel,
             updated_at = now()
         WHERE assets.file.bytes <> EXCLUDED.bytes
            OR assets.file.category <> EXCLUDED.category
            OR assets.file.kind <> EXCLUDED.kind
            OR assets.file.output_dir IS DISTINCT FROM EXCLUDED.output_dir
            OR assets.file.origin <> EXCLUDED.origin
+           OR assets.file.root_rel <> EXCLUDED.root_rel
            OR (EXCLUDED.sha256 IS NOT NULL AND assets.file.sha256 IS DISTINCT FROM EXCLUDED.sha256)
+        RETURNING path, bytes, sha256, (xmax = 0) AS inserted
     """
     cursor.execute(
         sql,
-        (paths, categories, kinds, sizes, hashes, dirs, origins, run_ids),
+        (paths, categories, kinds, sizes, hashes, dirs, origins, run_ids, roots),
+    )
+    return [
+        (path, "created" if inserted else "changed", size, sha)
+        for path, size, sha, inserted in cursor.fetchall()
+    ]
+
+
+def insert_history(cursor, entries: list[tuple], run_id: int) -> None:
+    """把 (path, action, bytes, sha256) 批量写进 `assets.file_history`。"""
+    if not entries:
+        return
+    cursor.execute(
+        """
+        INSERT INTO assets.file_history (path, action, bytes, sha256, run_id)
+        SELECT * FROM unnest(%s::text[], %s::text[], %s::bigint[], %s::text[], %s::bigint[])
+        """,
+        (
+            [entry[0] for entry in entries],
+            [entry[1] for entry in entries],
+            [entry[2] for entry in entries],
+            [entry[3] for entry in entries],
+            [run_id] * len(entries),
+        ),
     )
 
 
@@ -300,19 +353,49 @@ def cmd_sync(args: argparse.Namespace) -> int:
         total = len(rows)
         done = 0
         batch = max(200, args.batch)
+        history_written = 0
         with connection.cursor() as cursor:
             for start in range(0, total, batch):
-                upsert_batch(cursor, rows[start : start + batch], run_id)
+                changed = upsert_batch(cursor, rows[start : start + batch], run_id, root_rel)
+                insert_history(cursor, changed, run_id)
+                history_written += len(changed)
                 done += len(rows[start : start + batch])
                 if done % 20000 < batch:
                     print(f"  已写入 {done}/{total}")
             if args.prune:
                 paths = [row["path"] for row in rows]
                 cursor.execute(
-                    "DELETE FROM assets.file WHERE NOT (path = ANY(%s::text[]))",
-                    (paths,),
+                    """
+                    DELETE FROM assets.file
+                    WHERE root_rel = %s AND NOT (path = ANY(%s::text[]))
+                    RETURNING path, bytes, sha256
+                    """,
+                    (root_rel, paths),
                 )
-                print(f"  已清理库里多余的 {cursor.rowcount} 行")
+                removed = [
+                    (path, "removed", size, sha)
+                    for path, size, sha in cursor.fetchall()
+                ]
+                insert_history(cursor, removed, run_id)
+                history_written += len(removed)
+                print(f"  已清理 {root_rel} 下多余的 {len(removed)} 行（history 记 removed）")
+            # 给「历史表刚启用时库里已有的行」补一条 created 基线：沿用文件原 run_id，
+            # 这样 `changed --since` 不会把未变化的存量文件误报成变更。
+            cursor.execute(
+                """
+                INSERT INTO assets.file_history (path, action, bytes, sha256, run_id)
+                SELECT f.path, 'created', f.bytes, f.sha256, f.run_id
+                FROM assets.file f
+                WHERE f.root_rel = %s AND NOT EXISTS (
+                    SELECT 1 FROM assets.file_history h WHERE h.path = f.path
+                )
+                """,
+                (root_rel,),
+            )
+            baseline = cursor.rowcount
+            if baseline:
+                history_written += baseline
+                print(f"  history 基线补记 {baseline} 行（created，沿用文件原 run_id）")
             total_bytes = sum(row["bytes"] for row in rows)
             cursor.execute(
                 "UPDATE assets.catalog_run SET finished_at = now(), files = %s, bytes = %s WHERE id = %s",
@@ -324,7 +407,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         raise
     finally:
         connection.close()
-    print(f"同步完成：run_id={run_id}，{total} 行")
+    print(f"同步完成：run_id={run_id}，{total} 行，history {history_written} 条")
     return 0
 
 
@@ -333,18 +416,25 @@ def cmd_stats(args: argparse.Namespace) -> int:
     try:
         ensure_schema(connection)
         with connection.cursor() as cursor:
-            cursor.execute("SELECT count(*), COALESCE(sum(bytes), 0) FROM assets.file")
+            cursor.execute(
+                "SELECT count(*), COALESCE(sum(bytes), 0) FROM assets.file WHERE root_rel = %s",
+                (args.root,),
+            )
             files, total_bytes = cursor.fetchone()
-            print(f"assets.file：{files} 行，{total_bytes} 字节（{total_bytes / 1024 / 1024:.1f} MiB）")
+            print(
+                f"assets.file[root={args.root}]：{files} 行，{total_bytes} 字节"
+                f"（{total_bytes / 1024 / 1024:.1f} MiB）"
+            )
             cursor.execute(
                 """
                 SELECT category, kind, count(*), COALESCE(sum(bytes), 0)
                 FROM assets.file
+                WHERE root_rel = %s
                 GROUP BY category, kind
                 ORDER BY sum(bytes) DESC
                 LIMIT %s
                 """,
-                (args.top,),
+                (args.root, args.top),
             )
             print(f"\n{'category':<14}{'kind':<10}{'files':>10}{'MiB':>10}")
             for category, kind, count, size in cursor.fetchall():
@@ -352,8 +442,9 @@ def cmd_stats(args: argparse.Namespace) -> int:
             cursor.execute(
                 """
                 SELECT category, count(*), COALESCE(sum(bytes), 0)
-                FROM assets.file GROUP BY category ORDER BY sum(bytes) DESC
-                """
+                FROM assets.file WHERE root_rel = %s GROUP BY category ORDER BY sum(bytes) DESC
+                """,
+                (args.root,),
             )
             print(f"\n{'category':<14}{'files':>10}{'MiB':>10}")
             for category, count, size in cursor.fetchall():
@@ -370,16 +461,24 @@ def cmd_changed(args: argparse.Namespace) -> int:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT category, kind, count(*), COALESCE(sum(bytes), 0)
-                FROM assets.file WHERE run_id > %s
-                GROUP BY category, kind ORDER BY count(*) DESC
+                SELECT COALESCE(f.category, '(removed)'), h.action, count(*),
+                       COALESCE(sum(h.bytes), 0)
+                FROM assets.file_history h
+                LEFT JOIN assets.file f ON f.path = h.path
+                WHERE h.run_id > %s
+                GROUP BY 1, 2
+                ORDER BY count(*) DESC
                 """,
                 (args.since,),
             )
             rows = cursor.fetchall()
-            print(f"run_id > {args.since} 的文件：")
-            for category, kind, count, size in rows:
-                print(f"  {category:<14}{kind:<10}{count:>8}{size / 1024 / 1024:>9.1f} MiB")
+            print(f"run_id > {args.since} 的变更（created/changed/removed）：")
+            if not rows:
+                print("  （无）")
+            for category, action, count, size in rows:
+                print(
+                    f"  {category:<14}{action:<9}{count:>8}{size / 1024 / 1024:>9.1f} MiB"
+                )
             cursor.execute(
                 "SELECT id, started_at, finished_at, files, bytes, root_rel FROM assets.catalog_run ORDER BY id DESC LIMIT 10"
             )
@@ -400,11 +499,11 @@ def cmd_dupes(args: argparse.Namespace) -> int:
                 """
                 SELECT sha256, count(*), sum(bytes), min(path)
                 FROM assets.file
-                WHERE sha256 IS NOT NULL
+                WHERE sha256 IS NOT NULL AND root_rel = %s
                 GROUP BY sha256 HAVING count(*) > 1
                 ORDER BY sum(bytes) DESC LIMIT %s
                 """,
-                (args.limit,),
+                (args.root, args.limit),
             )
             rows = cursor.fetchall()
             wasted = sum(size - size // count for _, count, size, _ in rows)
@@ -423,45 +522,165 @@ def cmd_pack_plan(args: argparse.Namespace) -> int:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT category, path, bytes FROM assets.file
+                SELECT category, path, bytes, sha256 FROM assets.file
+                WHERE root_rel = %s
                 ORDER BY category, path
-                """
+                """,
+                (args.root,),
             )
             rows = cursor.fetchall()
     finally:
         connection.close()
 
     chunk_bytes = args.chunk_mb * 1024 * 1024
-    chunks: list[dict] = []
+    packs: list[dict] = []
     counters: dict[str, int] = defaultdict(int)
 
     def flush(chunk: dict) -> None:
         counters[chunk["category"]] += 1
         chunk["name"] = f"{chunk['category'].replace('.', '-')}-{counters[chunk['category']]}"
-        chunk.pop("paths", None)
-        chunks.append(chunk)
+        chunk["bytes"] = sum(entry["bytes"] for entry in chunk["files"])
+        packs.append(chunk)
 
     current: dict | None = None
-    for category, path, size in rows:
+    for category, path, size, sha in rows:
         if current is None:
-            current = {"category": category, "files": 0, "bytes": 0, "paths": []}
+            current = {"category": category, "files": []}
         elif current["category"] != category or (
-            current["bytes"] + size > chunk_bytes and current["files"] > 0
+            sum(entry["bytes"] for entry in current["files"]) + size > chunk_bytes
+            and current["files"]
         ):
             flush(current)
-            current = {"category": category, "files": 0, "bytes": 0, "paths": []}
-        current["files"] += 1
-        current["bytes"] += size
-        current["paths"].append(path)
+            current = {"category": category, "files": []}
+        current["files"].append({"path": path, "bytes": size, "sha256": sha})
     if current is not None and current["files"]:
         flush(current)
-    plan = {"chunk_mb": args.chunk_mb, "chunks": chunks}
+    plan = {
+        "chunk_mb": args.chunk_mb,
+        "generated_at": now_stamp(),
+        "packs": packs,
+    }
     text = json.dumps(plan, ensure_ascii=False, indent=2)
     if args.out:
         Path(args.out).write_text(text + "\n", encoding="utf-8")
-        print(f"已写出 {args.out}：{len(chunks)} 个分片")
+        print(f"已写出 {args.out}：{len(packs)} 个分片，{sum(p['bytes'] for p in packs)} 字节")
     else:
-        print(text)
+        print(f"计划 {len(packs)} 个分片，{sum(p['bytes'] for p in packs)} 字节（用 --out 写完整 JSON）")
+
+    if args.check:
+        return check_plan(plan, Path(args.check))
+    return 0
+
+
+def check_plan(plan: dict, manifest_path: Path) -> int:
+    """对账：计划（`pack-plan` 输出）vs 实际 `manifest.packs.json`。
+
+    兼容两种 manifest：
+    * `mir-asset::PackManifest`：`packs:[{file,category,bytes,sha256,entries,prefix}]`；
+    * 带逐条目的扩展：`packs:[{name/files:[{path,bytes,sha256}],...}]`。
+
+    可比项：包名、条目数、逐条目 path/bytes/sha256；`bytes` 在 manifest 只有整包大小时
+    只报「源字节 vs 包字节」，不判失败。
+    """
+    try:
+        actual = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as error:
+        print(f"读取 manifest 失败：{error}")
+        return 1
+    actual_packs = actual.get("packs")
+    if not isinstance(actual_packs, list):
+        print(f"{manifest_path} 里没有 packs 列表，无法对账")
+        return 1
+
+    plan_by_name = {pack["name"]: pack for pack in plan.get("packs", [])}
+    plan_by_category: dict[str, list[dict]] = defaultdict(list)
+    for pack in plan.get("packs", []):
+        plan_by_category[pack["category"]].append(pack)
+
+    problems: list[str] = []
+    # 先核对实际 .mnp 文件本身（整包 bytes + sha256），再对计划条目。
+    manifest_dir = manifest_path.parent
+    for entry in actual_packs:
+        file_name = entry.get("file") or entry.get("name")
+        if not file_name:
+            problems.append("manifest 里有缺少 file/name 的包条目")
+            continue
+        if Path(file_name).is_absolute() or ".." in Path(file_name).parts:
+            problems.append(f"manifest 包名不是相对路径：{file_name!r}")
+            continue
+        mnp = manifest_dir / file_name
+        if not mnp.is_file():
+            problems.append(f"实际包文件不存在：{mnp}")
+            continue
+        actual_bytes = mnp.stat().st_size
+        if entry.get("bytes") is not None and int(entry["bytes"]) != actual_bytes:
+            problems.append(
+                f"{file_name}: 整包字节 manifest={entry['bytes']} 实际={actual_bytes}"
+            )
+        if entry.get("sha256"):
+            actual_sha = sha256_file(mnp)
+            if str(entry["sha256"]).lower() != actual_sha:
+                problems.append(f"{file_name}: 整包 sha256 不一致")
+
+    matched: set[str] = set()
+    for entry in actual_packs:
+        name = entry.get("file") or entry.get("name") or ""
+        expected = plan_by_name.get(name) or plan_by_name.get(name.removesuffix(".mnp"))
+        if expected is None:
+            category = entry.get("category")
+            bucket = plan_by_category.get(category)
+            if bucket:
+                expected = bucket.pop(0)
+        if expected is None:
+            problems.append(f"实际包 {name!r} 在计划里找不到")
+            continue
+        matched.add(expected["name"])
+        actual_entries = entry.get("entries")
+        if actual_entries is None and isinstance(entry.get("files"), list):
+            actual_entries = len(entry["files"])
+        if actual_entries is not None and int(actual_entries) != len(expected["files"]):
+            problems.append(
+                f"{expected['name']}: 条目数 计划={len(expected['files'])} 实际={actual_entries}"
+            )
+        actual_files = entry.get("files")
+        if isinstance(actual_files, list):
+            expected_by_path = {item["path"]: item for item in expected["files"]}
+            actual_by_path = {item["path"]: item for item in actual_files}
+            for path in sorted(set(expected_by_path) - set(actual_by_path)):
+                problems.append(f"{expected['name']}: 实际缺少 {path}")
+            for path in sorted(set(actual_by_path) - set(expected_by_path)):
+                problems.append(f"{expected['name']}: 实际多出 {path}")
+            for path in sorted(set(expected_by_path) & set(actual_by_path)):
+                left = expected_by_path[path]
+                right = actual_by_path[path]
+                if left["bytes"] != right.get("bytes"):
+                    problems.append(
+                        f"{expected['name']}:{path}: 字节 计划={left['bytes']} 实际={right.get('bytes')}"
+                    )
+                if (
+                    left.get("sha256")
+                    and right.get("sha256")
+                    and left["sha256"] != right["sha256"]
+                ):
+                    problems.append(f"{expected['name']}:{path}: sha256 不一致")
+        elif entry.get("bytes") is not None:
+            print(
+                f"  {expected['name']}: 源字节={expected['bytes']}，包字节={entry['bytes']}"
+                "（manifest 无逐条目信息，只报数不判失败）"
+            )
+
+    for pack in plan.get("packs", []):
+        if pack["name"] not in matched:
+            problems.append(f"计划里的 {pack['name']} 在 manifest 里没有对应包")
+
+    if problems:
+        print(f"对账失败：{len(problems)} 项")
+        for problem in problems[:50]:
+            print(f"  - {problem}")
+        if len(problems) > 50:
+            print(f"  ... 其余 {len(problems) - 50} 项省略")
+        return 1
+    print(f"对账通过：{len(actual_packs)} 个实际包与计划一致")
     return 0
 
 
@@ -517,22 +736,30 @@ def main(argv: list[str] | None = None) -> int:
 
     stats = sub.add_parser("stats", help="按 category/kind 汇总")
     stats.add_argument("--top", type=int, default=30)
+    stats.add_argument("--root", default="game-assets", help="只看某个资源根（默认 game-assets）")
     add_dsn(stats)
     stats.set_defaults(func=cmd_stats)
 
-    changed = sub.add_parser("changed", help="两次同步之间新增/更新的文件")
+    changed = sub.add_parser("changed", help="两次同步之间新增/更新/删除的文件")
     changed.add_argument("--since", type=int, required=True, help="基准 run_id")
     add_dsn(changed)
     changed.set_defaults(func=cmd_changed)
 
     dupes = sub.add_parser("dupes", help="按 sha256 找重复")
     dupes.add_argument("--limit", type=int, default=30)
+    dupes.add_argument("--root", default="game-assets", help="只看某个资源根（默认 game-assets）")
     add_dsn(dupes)
     dupes.set_defaults(func=cmd_dupes)
 
     pack = sub.add_parser("pack-plan", help="按 category 出分包清单")
     pack.add_argument("--chunk-mb", type=int, default=16)
-    pack.add_argument("--out", default=None, help="写出 JSON（默认 stdout）")
+    pack.add_argument("--root", default="game-assets", help="只看某个资源根（默认 game-assets）")
+    pack.add_argument("--out", default=None, help="写出 JSON（默认只打印摘要）")
+    pack.add_argument(
+        "--check",
+        default=None,
+        help="对账模式：读取实际 manifest.packs.json，比较包名/条目数/逐条目字节与 sha256",
+    )
     add_dsn(pack)
     pack.set_defaults(func=cmd_pack_plan)
 

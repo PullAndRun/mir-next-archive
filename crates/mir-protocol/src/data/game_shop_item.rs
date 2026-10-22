@@ -49,7 +49,7 @@ use crate::{PacketReader, PacketWriter, ProtocolError};
 ///
 /// 线格式见模块文档。字段顺序按 `Save(writer, true)` 的写出顺序排列；
 /// 物品库路径（`decode_db` / `encode_db`）跳过 `info` 一项，其余相同。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GameShopItem {
     /// 物品模板编号。
     pub item_index: i32,

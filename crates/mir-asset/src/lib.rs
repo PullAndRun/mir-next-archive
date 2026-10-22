@@ -86,6 +86,8 @@
 //! # Ok::<(), mir_asset::AssetError>(())
 //! ```
 
+mod atlas;
+mod audio_mna;
 mod dxt1;
 mod error;
 mod image;
@@ -99,6 +101,8 @@ mod unpacked;
 mod wil;
 mod wzl;
 
+pub use atlas::{AtlasFrame, AtlasLibrary, AtlasMeta};
+pub use audio_mna::{AudioClip, AudioCodec, AudioMeta};
 pub use error::AssetError;
 pub use image::{Image, ImageInfo, black_to_transparent, format};
 pub use library::{ImageLibrary, LibraryKind};

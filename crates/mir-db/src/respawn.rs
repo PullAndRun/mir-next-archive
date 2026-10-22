@@ -20,7 +20,7 @@ pub const RESPAWN_TICK_OPTION_LEN: usize = 12;
 pub const MIN_GT_MAP_LEN: usize = 24;
 
 /// Crystal `RespawnTickOption`（`Server/MirEnvir/RespawnTimer.cs:26`；读 `:33-37`，写 `:39-43`）。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RespawnTickOption {
     /// 玩家数阈值（`i32`，`RespawnTimer.cs:28`）。
     pub user_count: i32,
@@ -57,7 +57,7 @@ impl RespawnTickOption {
 /// Crystal `RespawnTimer`（`Server/MirEnvir/RespawnTimer.cs:51`；读 `:72-85`，写 `:86-93`）。
 ///
 /// `LastTick` / `LastUsercount` / `CurrentDelay` 都是运行期派生值（`:60-62`），不落盘。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RespawnTimer {
     /// 无人时的刷新间隔（分钟，`u8`，`RespawnTimer.cs:58`）。
     pub base_spawn_rate: u8,
@@ -106,7 +106,7 @@ impl RespawnTimer {
 ///
 /// 这是 `SaveDB` 写在文件最末尾、`LoadDB` 从不读取的一段（见模块文档）。
 /// `Maps` 字段不落盘（`GTMap.cs:14`）。
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GtMap {
     /// 主键（`GTMap.cs:29`）。
     pub index: i32,

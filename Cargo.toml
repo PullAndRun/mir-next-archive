@@ -32,6 +32,7 @@ mir-world = { path = "crates/mir-world" }
 
 ab_glyph = "0.2"
 anyhow = "1"
+bincode = "1"
 chrono = { version = "0.4", features = ["serde"] }
 flate2 = "1"
 png = "0.18"

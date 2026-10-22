@@ -12,13 +12,13 @@
 //! * `<out>/manifest.json`：schema、来源、计数、sha256、段统计；
 //! * `<out>/game.json`（`--json`）：调试索引（不含正文）。
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use mir_db::MirDb;
-use mir_db::mnd::{MAGIC, MndFile, MndSection, SCHEMA_VERSION, TAG_DB, TAG_ENVIR};
+use mir_db::mnd::{MAGIC, MndFile, MndSection, SCHEMA_VERSION, TAG_DB_BIN, TAG_ENVIR};
+use mir_db::schema::{decode_db, encode_db};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
@@ -57,8 +57,11 @@ fn main() -> Result<()> {
     let db_bytes =
         std::fs::read(&db_path).with_context(|| format!("读取 {}", db_path.display()))?;
     let db = MirDb::from_bytes(&db_bytes).with_context(|| format!("解析 {}", db_path.display()))?;
+    // M2：DB 段是 mir-db 结构的原生 bincode，不再装老 MirDB 字节。
+    let native_db = encode_db(&db).context("编码原生 DB 段")?;
+    let native_db_bytes = native_db.len();
     let mut file = MndFile::new();
-    file.push(MndSection::new(TAG_DB, "db", db_bytes.clone()));
+    file.push(MndSection::new(TAG_DB_BIN, "db.bin", native_db));
     let mut script_count = 0usize;
     let mut script_bytes = 0usize;
     if envir_dir.is_dir() {
@@ -111,6 +114,8 @@ fn main() -> Result<()> {
         },
         "created_unix": SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()),
         "counts": counts,
+        "db_encoding": "bincode",
+        "db_bytes": native_db_bytes,
         "sections": {
             "total": file.sections.len(),
             "db": 1,
@@ -195,19 +200,36 @@ fn write_json_file(path: &Path, value: &serde_json::Value) -> Result<()> {
 
 fn verify_roundtrip(path: &Path, expected: &MirDb, expected_scripts: usize) -> Result<()> {
     let back = MndFile::read_from(path).context("回读 .mnd")?;
-    let db_section = back.get("db").context("缺少 db 段")?;
-    let db = MirDb::from_bytes(&db_section.data).context("解析 .mnd 里的 DB 段")?;
-    let mut checks = BTreeMap::new();
-    checks.insert("maps", (expected.maps.len(), db.maps.len()));
-    checks.insert("items", (expected.items.len(), db.items.len()));
-    checks.insert("monsters", (expected.monsters.len(), db.monsters.len()));
-    checks.insert("npcs", (expected.npcs.len(), db.npcs.len()));
-    checks.insert("quests", (expected.quests.len(), db.quests.len()));
-    checks.insert("magics", (expected.magics.len(), db.magics.len()));
-    for (name, (left, right)) in checks {
-        if left != right {
-            bail!("校验失败：{name} 旧={left} 新={right}");
-        }
+    let (db, encoding) = if let Some(section) = back
+        .sections
+        .iter()
+        .find(|section| section.tag == TAG_DB_BIN)
+    {
+        (
+            decode_db(&section.data).context("解码原生 DB 段")?,
+            "bincode",
+        )
+    } else {
+        let section = back.get("db").context("缺少 db/db.bin 段")?;
+        (
+            MirDb::from_bytes(&section.data).context("解析 M1 DB 段")?,
+            "legacy",
+        )
+    };
+    let same = expected.header == db.header
+        && expected.maps == db.maps
+        && expected.items == db.items
+        && expected.monsters == db.monsters
+        && expected.npcs == db.npcs
+        && expected.quests == db.quests
+        && expected.dragon == db.dragon
+        && expected.magics == db.magics
+        && expected.gameshop == db.gameshop
+        && expected.conquests == db.conquests
+        && expected.respawn == db.respawn
+        && expected.gt_maps == db.gt_maps;
+    if !same {
+        bail!("校验失败：{encoding} DB 与老库关键字段不一致");
     }
     let scripts = back
         .sections
@@ -217,7 +239,7 @@ fn verify_roundtrip(path: &Path, expected: &MirDb, expected_scripts: usize) -> R
     if scripts != expected_scripts {
         bail!("校验失败：Envir 段旧={expected_scripts} 新={scripts}");
     }
-    println!("校验通过：DB 各段计数一致，Envir {scripts} 段");
+    println!("校验通过：{encoding} DB 关键字段逐项一致，Envir {scripts} 段");
     Ok(())
 }
 

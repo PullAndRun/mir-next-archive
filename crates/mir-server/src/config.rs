@@ -103,12 +103,17 @@ pub fn derived_map_root(asset_root: &str) -> String {
     primary
 }
 
-/// 从资源根派生默认数据库路径（存在才返回）。
+/// 从资源根派生默认数据包/数据库路径（存在才返回）。
 ///
-/// 新布局：`<asset_root>/data/server/Server.MirDB`；旧布局 `<asset_root>/server/Server.MirDB`
-/// 仅作兼容兜底。兵部二号之后会换成自有 `.mnd`，这里先接 `data/server/`。
+/// 优先级：`<asset_root>/data/game.mnd`（运行时自有格式）→
+/// `<asset_root>/data/server/Server.MirDB`（过渡期布局）→ `<asset_root>/server/Server.MirDB`
+/// （旧布局兼容）。
 #[must_use]
 pub fn derived_db_path(asset_root: &str) -> Option<String> {
+    let mnd = format!("{asset_root}/data/game.mnd");
+    if Path::new(&mnd).is_file() {
+        return Some(mnd);
+    }
     let primary = format!("{asset_root}/data/server/Server.MirDB");
     if Path::new(&primary).is_file() {
         return Some(primary);
@@ -452,7 +457,7 @@ mod tests {
         assert_eq!(
             derived_db_path(&legacy_raw),
             Some(format!("{legacy_raw}/server/Server.MirDB")),
-            "旧布局必须仍能用（兼容）"
+            "legacy layout must still work (compat)"
         );
     }
 
@@ -485,5 +490,50 @@ mod tests {
         let mut derived = ServerConfig::default();
         adopt_asset_root(&mut derived, &raw);
         assert_eq!(derived.map_root, format!("{raw}/maps"));
+    }
+
+    #[test]
+    fn derived_db_path_prefers_mnd_package() {
+        let dir = temp_asset_dir("mnd-priority");
+        std::fs::create_dir_all(dir.join("data")).expect("mkdir");
+        std::fs::write(dir.join("data/game.mnd"), b"mnd").expect("write mnd");
+        std::fs::create_dir_all(dir.join("data/server")).expect("mkdir");
+        std::fs::write(dir.join("data/server/Server.MirDB"), b"old").expect("write db");
+        let raw = dir.to_str().expect("utf8");
+        assert_eq!(
+            derived_db_path(raw),
+            Some(format!("{raw}/data/game.mnd")),
+            "the .mnd package must take priority"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn derived_db_path_falls_back_to_legacy_layouts() {
+        let dir = temp_asset_dir("legacy-priority");
+        std::fs::create_dir_all(dir.join("data/server")).expect("mkdir");
+        std::fs::write(dir.join("data/server/Server.MirDB"), b"old").expect("write db");
+        let raw = dir.to_str().expect("utf8");
+        assert_eq!(
+            derived_db_path(raw),
+            Some(format!("{raw}/data/server/Server.MirDB"))
+        );
+
+        std::fs::remove_file(dir.join("data/server/Server.MirDB")).expect("remove");
+        std::fs::create_dir_all(dir.join("server")).expect("mkdir");
+        std::fs::write(dir.join("server/Server.MirDB"), b"older").expect("write db");
+        assert_eq!(
+            derived_db_path(raw),
+            Some(format!("{raw}/server/Server.MirDB"))
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn derived_db_path_is_none_when_nothing_exists() {
+        let dir = temp_asset_dir("no-db");
+        let raw = dir.to_str().expect("utf8");
+        assert_eq!(derived_db_path(raw), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

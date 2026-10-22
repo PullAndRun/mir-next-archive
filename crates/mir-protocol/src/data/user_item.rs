@@ -29,7 +29,7 @@ use crate::{PacketReader, PacketWriter, ProtocolError};
 /// 因此“值为 0”与“键不存在”是同一件事。这里用 `BTreeMap` 复现：
 /// 键按 `Stat` 的判别值升序迭代，与 `SortedDictionary` 的迭代顺序一致，
 /// 保证写出的顺序逐字节相同。
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Stats {
     /// 内部存储。不变量：**不存在值为 0 的键**（与 C# 索引器一致）。
     values: std::collections::BTreeMap<Stat, i32>,

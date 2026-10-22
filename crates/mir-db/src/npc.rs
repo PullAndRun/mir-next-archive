@@ -19,7 +19,7 @@ use crate::reader::{DbReader, DbWriter};
 pub const MIN_NPC_LEN: usize = 29;
 
 /// Crystal `NPCInfo`（`Server/MirDatabase/NPCInfo.cs:6`；读 `:44-103`，写 `:104-141`）。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NpcInfo {
     /// 主键（`NPCInfo.cs:46`）。
     pub index: i32,

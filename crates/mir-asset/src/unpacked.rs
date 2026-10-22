@@ -228,9 +228,57 @@ impl UnpackedLibrary {
 /// 新命名把一库拆到多个目录（`hum.wzl` → `gfx/sprites/player/body-003/`、`body-004/`…；
 /// `mon14.wzl` → 10 个 `mon-013x/`），所以渲染层按"库"取图时要能跨目录找。
 /// 索引语义仍是**原库 0 基索引**，与 [`UnpackedLibrary`] 一致。
+/// 单目录的两种形态：图集（优先）或逐帧 PNG。
+#[derive(Debug)]
+enum DirSource {
+    Atlas(crate::AtlasLibrary),
+    Unpacked(UnpackedLibrary),
+}
+
+impl DirSource {
+    fn open(dir: &Path) -> Result<Self, AssetError> {
+        if crate::AtlasLibrary::has_atlas(dir) {
+            return Ok(Self::Atlas(crate::AtlasLibrary::open(dir)?));
+        }
+        Ok(Self::Unpacked(UnpackedLibrary::open(dir)?))
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::Atlas(atlas) => atlas.len(),
+            Self::Unpacked(library) => library.len(),
+        }
+    }
+
+    fn contains(&self, index: usize) -> bool {
+        match self {
+            Self::Atlas(atlas) => atlas.contains(index),
+            Self::Unpacked(library) => library.contains(index),
+        }
+    }
+
+    fn info(&self, index: usize) -> Result<ImageInfo, AssetError> {
+        match self {
+            Self::Atlas(atlas) => atlas.info(index),
+            Self::Unpacked(library) => library.info(index),
+        }
+    }
+
+    fn image(&self, index: usize) -> Result<Image, AssetError> {
+        match self {
+            Self::Atlas(atlas) => atlas.image(index),
+            Self::Unpacked(library) => library.image(index),
+        }
+    }
+
+    fn is_atlas(&self) -> bool {
+        matches!(self, Self::Atlas(_))
+    }
+}
+
 #[derive(Debug)]
 pub struct UnpackedDirSet {
-    dirs: Vec<UnpackedLibrary>,
+    dirs: Vec<DirSource>,
 }
 
 impl UnpackedDirSet {
@@ -244,7 +292,7 @@ impl UnpackedDirSet {
         }
         let mut opened = Vec::with_capacity(dirs.len());
         for dir in dirs {
-            opened.push(UnpackedLibrary::open(dir)?);
+            opened.push(DirSource::open(dir)?);
         }
         Ok(Self { dirs: opened })
     }
@@ -255,10 +303,16 @@ impl UnpackedDirSet {
         self.dirs.len()
     }
 
+    /// 其中有几个目录已经是图集形态。
+    #[must_use]
+    pub fn atlas_dir_count(&self) -> usize {
+        self.dirs.iter().filter(|dir| dir.is_atlas()).count()
+    }
+
     /// 条目总数（各目录之和）。
     #[must_use]
     pub fn len(&self) -> usize {
-        self.dirs.iter().map(UnpackedLibrary::len).sum()
+        self.dirs.iter().map(DirSource::len).sum()
     }
 
     /// 是否一条都没有。
@@ -324,7 +378,19 @@ impl LibrarySource {
         if let Some(gfx_dir) = gfx_dir {
             if let Some(stem) = path.file_stem() {
                 let unpacked_dir = gfx_dir.join(stem);
-                if unpacked_dir.join("index.json").is_file() {
+                // 目录里有 `atlas.json` 时走图集（单目录也用 DirSet 包一层，行为一致）。
+                if crate::AtlasLibrary::has_atlas(&unpacked_dir) {
+                    match UnpackedDirSet::open(std::slice::from_ref(&unpacked_dir)) {
+                        Ok(set) => return Ok(Self::UnpackedDirs(set)),
+                        Err(error) => {
+                            eprintln!(
+                                "警告：图集目录 {} 打不开（{error}），回退逐帧/原始库 {}",
+                                unpacked_dir.display(),
+                                path.display()
+                            );
+                        }
+                    }
+                } else if unpacked_dir.join("index.json").is_file() {
                     match UnpackedLibrary::open(&unpacked_dir) {
                         Ok(library) => return Ok(Self::Unpacked(library)),
                         Err(error) => {
@@ -414,7 +480,12 @@ impl LibrarySource {
 }
 
 /// 读 PNG 成 RGBA8（拆包器写的就是 RGBA8，这里严格一点，别的形态直接报错）。
-fn read_png_rgba(path: &Path) -> Result<Vec<u8>, AssetError> {
+/// 供 `atlas` 模块复用的 PNG 解码入口。
+pub(crate) fn read_png_rgba_pub(path: &Path) -> Result<Vec<u8>, AssetError> {
+    read_png_rgba(path)
+}
+
+pub(crate) fn read_png_rgba(path: &Path) -> Result<Vec<u8>, AssetError> {
     let file = std::fs::File::open(path).map_err(|source| AssetError::Io {
         path: path.to_path_buf(),
         source,

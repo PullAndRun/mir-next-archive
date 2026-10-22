@@ -28,7 +28,7 @@ pub const MIN_MOVEMENT_LEN: usize = 22;
 pub const MIN_MINE_ZONE_LEN: usize = 11;
 
 /// Crystal `SafeZoneInfo`（`Server/MirDatabase/SafeZoneInfo.cs:4`；读 `:14-19`，写 `:21-27`）。
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SafeZoneInfo {
     /// 安全区中心（`Location.X` / `Location.Y`，`:16`）。
     pub location: Point,
@@ -62,7 +62,7 @@ impl SafeZoneInfo {
 }
 
 /// Crystal `RespawnInfo`（`Server/MirDatabase/RespawnInfo.cs:6`；读 `:27-52`，写 `:82-100`）。
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RespawnInfo {
     /// 怪物模板编号（`MonsterIndex`，`:30`）。
     pub monster_index: i32,
@@ -151,7 +151,7 @@ impl RespawnInfo {
 }
 
 /// Crystal `MovementInfo`（`Server/MirDatabase/MovementInfo.cs:6`；读 `:18-33`，写 `:34-46`）。
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MovementInfo {
     /// 目的地地图编号（`MovementInfo.cs:20`）。
     pub map_index: i32,
@@ -224,7 +224,7 @@ impl MovementInfo {
 }
 
 /// Crystal `MineZone`（`Server/MirDatabase/MineInfo.cs:72`；读 `:82-87`，写 `:89-95`）。
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MineZone {
     /// 矿区中心（`MineInfo.cs:84`）。
     pub location: Point,
@@ -261,7 +261,7 @@ impl MineZone {
 ///
 /// 字段顺序完全按 `Save` 的写出顺序。带版本门的字段（`no_town_teleport` 起）在旧文件里
 /// 不存在，读成 C# 字段初始值（`false` / `0`）。
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MapInfo {
     /// 主键（`MapInfo.cs:49`）。
     pub index: i32,

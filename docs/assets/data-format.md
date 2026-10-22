@@ -154,6 +154,9 @@ cargo run -p mir-tools --bin data_import -- \
 3. 不存在且 release → WARN 并跳过数据加载（不允许旧格式进正式运行）。
 
 `asset_root` 解析见 `config.rs`（`MIR2_ASSET_DIR` > 配置 > `game-assets` > `resource` 回落）。
+`derived_db_path()` 的优先级：`<asset_root>/data/game.mnd` → `<asset_root>/data/server/Server.MirDB`
+→ `<asset_root>/server/Server.MirDB`（后两者仅过渡/兼容）；显式 `db_path`/`MIR2_DB_PATH` 指向
+`.mnd` 时也直接走 `load_mnd`。
 
 ## 8. 验证与测试
 

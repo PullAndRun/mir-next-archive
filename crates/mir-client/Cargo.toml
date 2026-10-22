@@ -21,8 +21,8 @@ serde_json.workspace = true
 softbuffer = "0.4"
 # 音效后端：纯 Rust、跨平台（Windows 走 WASAPI）。只有 mir-client 依赖音频库，
 # `mir-render` 里的音效模块是纯数据（文件名映射）。
-# 只开 `playback` + `wav`：语料是 786 个 WAV，不需要 mp3/flac/vorbis 解码器。
-rodio = { version = "0.22", default-features = false, features = ["playback", "wav"] }
+# 只开 `playback` + `wav` + `vorbis`：发布期音频是 `.mna` 里的 Vorbis 流。
+rodio = { version = "0.22", default-features = false, features = ["playback", "wav", "vorbis"] }
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

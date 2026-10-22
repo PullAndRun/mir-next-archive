@@ -18,7 +18,7 @@ use crate::reader::{DbReader, DbWriter};
 pub const MIN_MAGIC_LEN: usize = 30;
 
 /// Crystal `MagicInfo`（`Server/MirDatabase/MagicInfo.cs:6`；读 `:34-61`，写 `:63-85`）。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MagicInfo {
     /// 技能名（`MagicInfo.cs:36`）。
     pub name: String,

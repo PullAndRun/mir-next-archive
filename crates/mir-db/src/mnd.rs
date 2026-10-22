@@ -14,8 +14,14 @@
 //! ```
 //!
 //! * `codec=0` 原样，`codec=1` zlib（当前导入器统一用 1）；
-//! * `tag` 见 [`TAG_DB`] / [`TAG_ENVIR`]，未知 tag 读取时保留、由上层忽略；
-//! * 段名：DB 固定 `db`，Envir 文件固定 `Envir/<相对路径>`（正斜杠）。
+//! * `tag` 见 [`TAG_DB`] / [`TAG_DB_BIN`] / [`TAG_ENVIR`]，未知 tag 读取时保留、由上层忽略；
+//! * 段名：DB 固定 `db`（M1 原始字节）或 `db.bin`（M2 bincode），Envir 文件固定
+//!   `Envir/<相对路径>`（正斜杠）。
+//!
+//! 版本：
+//! * `format_version=1`：M1 容器，DB 段是 `Server.MirDB` 原始字节；
+//! * `format_version=2`：M2 容器，DB 段是 [`crate::schema::encode_db`] 的 bincode 字节；
+//! * 读取端同时接受 1/2（M1 只读兼容），写出端固定 2。
 
 use std::io::Read;
 use std::path::Path;
@@ -26,16 +32,22 @@ use flate2::write::ZlibEncoder;
 
 /// 容器魔数。
 pub const MAGIC: &[u8; 4] = b"MND1";
-/// 容器格式版本（布局变化时 +1）。
-pub const FORMAT_VERSION: u16 = 1;
+/// 容器格式版本（当前写出 2）。
+pub const FORMAT_VERSION: u16 = 2;
+/// 兼容读取的旧容器版本（M1）。
+pub const LEGACY_FORMAT_VERSION: u16 = 1;
+/// 读取端接受的容器版本。
+pub const SUPPORTED_FORMAT_VERSIONS: &[u16] = &[LEGACY_FORMAT_VERSION, FORMAT_VERSION];
 /// 数据 schema 版本（DB/脚本语义变化时 +1，与容器布局解耦）。
-pub const SCHEMA_VERSION: u16 = 1;
-/// DB 段 tag。
+pub const SCHEMA_VERSION: u16 = 2;
+/// M1 DB 段 tag（`Server.MirDB` 原始字节，只读兼容）。
 pub const TAG_DB: u16 = 0x0001;
 /// Envir 文本段 tag。
 pub const TAG_ENVIR: u16 = 0x0002;
 /// 保留给 manifest / 调试段。
 pub const TAG_MANIFEST: u16 = 0x0003;
+/// M2 DB 段 tag（[`crate::schema`] 的 bincode 编码）。
+pub const TAG_DB_BIN: u16 = 0x0004;
 
 /// 段编码。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,7 +178,7 @@ impl MndFile {
             return Err(MndError::BadMagic);
         }
         let format_version = cursor.u16()?;
-        if format_version != FORMAT_VERSION {
+        if !SUPPORTED_FORMAT_VERSIONS.contains(&format_version) {
             return Err(MndError::UnsupportedVersion(format_version));
         }
         let schema_version = cursor.u16()?;

@@ -109,6 +109,8 @@ impl SoundThrottle {
 pub struct SoundLibrary {
     /// 按优先级排序的搜索目录。
     roots: Vec<PathBuf>,
+    /// 是否允许回退 `.wav`（只有 `asset_mode = legacy` 为真；用户规则：运行只读自有格式）。
+    allow_legacy_wav: bool,
 }
 
 impl SoundLibrary {
@@ -116,6 +118,7 @@ impl SoundLibrary {
     #[must_use]
     pub fn default_roots() -> Self {
         Self {
+            allow_legacy_wav: false,
             roots: vec![
                 PathBuf::from("resource/wav"),
                 PathBuf::from("resource/community/mirfiles-crystal-client/Client/Sound"),
@@ -127,7 +130,17 @@ impl SoundLibrary {
     /// 用给定目录建库（`--sound-dir`）。
     #[must_use]
     pub fn with_roots(roots: Vec<PathBuf>) -> Self {
-        Self { roots }
+        Self {
+            roots,
+            allow_legacy_wav: false,
+        }
+    }
+
+    /// 是否允许回退 `.wav`（仅 `asset_mode = legacy`；默认 `false`，只认 `.mna`）。
+    #[must_use]
+    pub fn with_legacy_wav(mut self, allow: bool) -> Self {
+        self.allow_legacy_wav = allow;
+        self
     }
 
     /// 按素材目录推音效目录：`<data_dir>/../wav` 与
@@ -181,6 +194,20 @@ impl SoundLibrary {
     /// 按顺序找文件；都没有时返回 `None`。
     #[must_use]
     pub fn resolve(&self, file: &str) -> Option<PathBuf> {
+        // 1) `.mna`（自有格式，永远优先）
+        let mna = Path::new(file).with_extension("mna");
+        if let Some(path) = self
+            .roots
+            .iter()
+            .map(|root| root.join(&mna))
+            .find(|path| path.is_file())
+        {
+            return Some(path);
+        }
+        // 2) 原 `.wav`/`.mp3`：只有 legacy 模式允许（用户规则：运行只读自有格式）
+        if !self.allow_legacy_wav {
+            return None;
+        }
         self.roots
             .iter()
             .map(|root| root.join(file))
@@ -194,7 +221,10 @@ impl SoundLibrary {
             std::fs::read_dir(root).is_ok_and(|entries| {
                 entries.flatten().any(|entry| {
                     entry.path().extension().is_some_and(|ext| {
-                        ext.eq_ignore_ascii_case("wav") || ext.eq_ignore_ascii_case("mp3")
+                        ext.eq_ignore_ascii_case("mna")
+                            || (self.allow_legacy_wav
+                                && (ext.eq_ignore_ascii_case("wav")
+                                    || ext.eq_ignore_ascii_case("mp3")))
                     })
                 })
             })
@@ -204,6 +234,22 @@ impl SoundLibrary {
     pub fn contains(&self, file: &str) -> bool {
         self.resolve(file).is_some()
     }
+}
+
+/// 打开音频文件成解码器：`.mna` 取内嵌压缩流，其它交给 rodio 按扩展名猜。
+fn decoder_for(path: &Path) -> Result<Box<dyn Source<Item = f32> + Send>, String> {
+    let is_mna = path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("mna"));
+    if is_mna {
+        let clip = mir_asset::AudioClip::open(path).map_err(|error| error.to_string())?;
+        let decoder =
+            Decoder::new(std::io::Cursor::new(clip.data)).map_err(|error| error.to_string())?;
+        return Ok(Box::new(decoder));
+    }
+    let handle = File::open(path).map_err(|error| error.to_string())?;
+    let decoder = Decoder::try_from(handle).map_err(|error| error.to_string())?;
+    Ok(Box::new(decoder))
 }
 
 /// 已打开的音频输出。
@@ -492,10 +538,7 @@ impl SoundPlayer {
         }
         self.stop_music();
         let path = resolved.as_path();
-        let source = match File::open(path)
-            .map_err(|error| error.to_string())
-            .and_then(|handle| Decoder::try_from(handle).map_err(|error| error.to_string()))
-        {
+        let source = match decoder_for(path) {
             Ok(decoder) => decoder
                 .repeat_infinite()
                 .amplify(self.music_volume * self.master_volume),
@@ -560,10 +603,7 @@ impl SoundPlayer {
             }
             return false;
         };
-        let source = match File::open(&path)
-            .map_err(|error| error.to_string())
-            .and_then(|handle| Decoder::try_from(handle).map_err(|error| error.to_string()))
-        {
+        let source = match decoder_for(&path) {
             Ok(decoder) => decoder.amplify(gain),
             Err(error) => {
                 if self.warned.insert(file.to_owned()) {
@@ -614,6 +654,68 @@ pub fn is_wav_file(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// `.wav` 找不到时回退同名 `.mna`（发布期音频格式）。
+    #[test]
+    fn library_resolves_mna_when_wav_is_absent() {
+        let dir = std::env::temp_dir().join(format!(
+            "mir2-audio-mna-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        std::fs::write(dir.join("100.mna"), b"fake").expect("write");
+        let library = SoundLibrary::with_roots(vec![dir.clone()]);
+        let resolved = library
+            .resolve("100.wav")
+            .expect("should fall back to .mna");
+        assert_eq!(resolved, dir.join("100.mna"));
+        assert!(library.has_any_audio_file(), "有 .mna 也算有素材");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 只有 `.wav` 时：默认（非 legacy）不认，`with_legacy_wav(true)` 才回退。
+    #[test]
+    fn wav_is_only_used_in_legacy_mode() {
+        let dir = std::env::temp_dir().join(format!(
+            "mir2-audio-wav-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        std::fs::write(dir.join("100.wav"), b"fake").expect("write");
+        let strict = SoundLibrary::with_roots(vec![dir.clone()]);
+        assert!(
+            strict.resolve("100.wav").is_none(),
+            "默认（auto/dev/release）不许读 .wav"
+        );
+        let legacy = SoundLibrary::with_roots(vec![dir.clone()]).with_legacy_wav(true);
+        assert_eq!(
+            legacy.resolve("100.wav"),
+            Some(dir.join("100.wav")),
+            "legacy 模式才允许 .wav"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 真实 `.mna` 能被解码器打开（仓库里有 audio 素材时才跑）。
+    #[test]
+    fn real_mna_decodes() {
+        let path = std::path::Path::new("../../game-assets/audio/sfx/levelup.mna");
+        if !path.is_file() {
+            eprintln!("skip: no game-assets/audio/sfx/levelup.mna");
+            return;
+        }
+        let decoder = super::decoder_for(path).expect("decode .mna");
+        let frames = decoder.take(2048).count();
+        assert!(frames > 0, "解码器必须能吐出样本");
+    }
+
     use super::*;
 
     #[test]
@@ -674,10 +776,11 @@ mod tests {
     fn library_prefers_the_first_existing_root() {
         let directory = std::env::temp_dir().join(format!("mir-sound-lib-{}", std::process::id()));
         std::fs::create_dir_all(&directory).expect("建临时目录");
-        std::fs::write(directory.join("1.wav"), b"RIFF____WAVE").expect("写假 wav");
+        // 自有格式是 `.mna`；`.wav` 只有 legacy 模式才认。
+        std::fs::write(directory.join("1.mna"), b"MNA1fake").expect("写假 mna");
 
         let mut library = SoundLibrary::with_roots(vec![directory.clone()]);
-        assert_eq!(library.resolve("1.wav"), Some(directory.join("1.wav")));
+        assert_eq!(library.resolve("1.wav"), Some(directory.join("1.mna")));
         assert!(library.contains("1.wav"));
         assert!(library.resolve("nope.wav").is_none());
 
@@ -685,7 +788,7 @@ mod tests {
         library.push_front(directory.join("missing"));
         assert_eq!(
             library.resolve("1.wav"),
-            Some(directory.join("1.wav")),
+            Some(directory.join("1.mna")),
             "排在后面的目录也要能被找到"
         );
         assert_eq!(library.roots().len(), 2);
@@ -778,7 +881,8 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("建临时目录");
         let wav = dir.join("fx.wav");
         write_silent_wav(&wav);
-        let library = SoundLibrary::with_roots(vec![dir.clone()]);
+        // 这个测试验证节流/计数，不验证格式规则：显式开 legacy 允许 `.wav`。
+        let library = SoundLibrary::with_roots(vec![dir.clone()]).with_legacy_wav(true);
         let counter = std::rc::Rc::new(std::cell::Cell::new(0usize));
         let mut player = SoundPlayer::without_device(library, true, 0.5);
         player.set_test_sink(counter.clone());
@@ -846,7 +950,8 @@ mod tests {
         ] {
             write_silent_wav(&dir.join(file));
         }
-        let library = SoundLibrary::with_roots(vec![dir.clone()]);
+        // 这个测试验证节流/计数，不验证格式规则：显式开 legacy 允许 `.wav`。
+        let library = SoundLibrary::with_roots(vec![dir.clone()]).with_legacy_wav(true);
         let counter = std::rc::Rc::new(std::cell::Cell::new(0usize));
         let mut player = SoundPlayer::without_device(library, true, 1.0);
         player.set_master_volume(1.0);

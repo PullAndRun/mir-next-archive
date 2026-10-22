@@ -14,7 +14,7 @@ use crate::reader::{DbReader, DbWriter};
 pub const MIN_QUEST_LEN: usize = 25;
 
 /// Crystal `QuestInfo`（`Server/MirDatabase/QuestInfo.cs:7`；读 `:85-110`，写 `:112-128`）。
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct QuestInfo {
     /// 主键（`QuestInfo.cs:87`）。
     pub index: i32,

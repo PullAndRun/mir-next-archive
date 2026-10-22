@@ -466,7 +466,12 @@ fn run_login_window(options: &Options, client_settings: &ClientSettings, setting
         client_settings.server(),
         client_settings.language().native_name()
     );
-    let sound = build_sound_player(options, client_settings);
+    let legacy_wav = std::env::var(mir_client::assets::ASSET_MODE_ENV)
+        .ok()
+        .as_deref()
+        .and_then(mir_client::assets::AssetMode::parse)
+        .is_some_and(mir_client::assets::AssetMode::allow_legacy);
+    let sound = build_sound_player(options, client_settings, legacy_wav);
     app::run_login(app::LoginOptions {
         map_dir: options.map_dir.clone(),
         data_dir: options.data_dir.clone(),
@@ -558,7 +563,7 @@ fn run_connected(
         "方向键/WASD 走（Shift 跑，反向先转身）· Space 攻击 · P 捡取 · T 聊天 · I 背包 · M 小地图 · Q 任务 · N 邮件 · G 行会 · F3 技能 · 1..9 施法 · O 设置"
     );
     println!("鼠标点 NPC / 面板按钮 · Esc 关面板 · F1 叠层 · F2 截图 · F10 退出");
-    let sound = build_sound_player(options, client_settings);
+    let sound = build_sound_player(options, client_settings, assets.allow_legacy);
     if sound.is_active() {
         println!(
             "音效：开启（音量 {:.2}，素材目录 {}）",
@@ -604,7 +609,11 @@ fn run_connected(
 ///
 /// 没有音频设备时 [`SoundPlayer::new`] 会打印一次警告并退化成空操作
 /// （CI 上没有声卡也能照常跑窗口）。
-fn build_sound_player(options: &Options, settings: &ClientSettings) -> SoundPlayer {
+fn build_sound_player(
+    options: &Options,
+    settings: &ClientSettings,
+    allow_legacy_wav: bool,
+) -> SoundPlayer {
     // 音量以统一配置 `config/client.toml` 为准（缺失/损坏时 ClientConfig 已回落默认）；
     // 命令行 `--volume`/`--music-volume` 只覆盖本次运行。
     let (config, _issue) =
@@ -615,7 +624,8 @@ fn build_sound_player(options: &Options, settings: &ClientSettings) -> SoundPlay
     let music_volume = options.music_volume.unwrap_or(config.music_volume);
     // 素材目录：`--sound-dir` 最优先，其次是按 `--data-dir` 推出来的
     // `resource/wav` 与 Crystal 完整音效/音乐集，最后是相对当前目录的默认值兜底。
-    let mut library = SoundLibrary::around_data_dir(&options.data_dir);
+    let mut library =
+        SoundLibrary::around_data_dir(&options.data_dir).with_legacy_wav(allow_legacy_wav);
     library.push_back(&SoundLibrary::default_roots());
     for directory in options.sound_dirs.iter().rev() {
         library.push_front(directory.clone());

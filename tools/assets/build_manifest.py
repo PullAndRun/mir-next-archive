@@ -132,6 +132,7 @@ def build(plan_path: Path, game: Path, verify_path: Path | None) -> dict:
     server_files, server_bytes = directory_usage(server_root)
     data_files, data_bytes = directory_usage(game / "data", skip=server_root)
     font_files, font_bytes = directory_usage(game / "fonts")
+    index_files, index_bytes = directory_usage(game / "index")
 
     categories_manifest = {
         "gfx/tiles": {"files": categories["tiles"], "bytes": category_bytes["tiles"]},
@@ -142,6 +143,34 @@ def build(plan_path: Path, game: Path, verify_path: Path | None) -> dict:
         "data/server": {"files": server_files, "bytes": server_bytes},
         "data/other": {"files": data_files, "bytes": data_bytes},
         "fonts": {"files": font_files, "bytes": font_bytes},
+        "index": {"files": index_files, "bytes": index_bytes},
+    }
+    # 发布期小包（户部 `assets pack` 产物）——只在 manifest.packs.json 存在时纳入
+    packs_summary = None
+    packs_manifest_path = game / "packs" / "manifest.packs.json"
+    if packs_manifest_path.is_file():
+        packs_payload = json.loads(packs_manifest_path.read_text(encoding="utf-8"))
+        pack_files = sorted((game / "packs").glob("*.mnp"))
+        by_category: dict[str, dict] = {}
+        for item in packs_payload.get("packs", []):
+            category = item.get("category", "?")
+            bucket = by_category.setdefault(category, {"packs": 0, "bytes": 0, "entries": 0})
+            bucket["packs"] += 1
+            bucket["bytes"] += int(item.get("bytes", 0))
+            bucket["entries"] += int(item.get("entries", 0))
+        packs_summary = {
+            "manifest": "packs/manifest.packs.json",
+            "packs": len(pack_files),
+            "bytes": sum(path.stat().st_size for path in pack_files),
+            "by_category": dict(sorted(by_category.items())),
+            "library_map": "packs/library-map.json"
+            if (game / "packs" / "library-map.json").is_file()
+            else None,
+        }
+        categories_manifest["packs"] = {"files": len(pack_files), "bytes": packs_summary["bytes"]}
+    # 省略 0 文件分类（空目录/已删除的老布局）
+    categories_manifest = {
+        name: info for name, info in categories_manifest.items() if int(info.get("files", 0)) > 0
     }
     totals = {
         "files": sum(item["files"] for item in categories_manifest.values()),
@@ -163,7 +192,7 @@ def build(plan_path: Path, game: Path, verify_path: Path | None) -> dict:
         "source_plan": str(plan_path.relative_to(plan_path.parents[1])) if plan_path.is_absolute() else str(plan_path),
         "plan_sha256": plan_sha,
         "dataset": plan.get("dataset"),
-        "layout": "game-assets/gfx|maps|audio|data/server|fonts（新布局）",
+        "layout": "game-assets/gfx|maps|audio|data|fonts（自有格式；.mnm/.mnd）",
         "categories": categories_manifest,
         "totals": totals,
         "libraries": libraries,
@@ -171,6 +200,7 @@ def build(plan_path: Path, game: Path, verify_path: Path | None) -> dict:
         "audio": audio_files,
         "fonts": [path.name for path in (game / "fonts").iterdir() if path.is_file()],
         "verify": verify,
+        "packs": packs_summary,
         "maps_detail": maps_detail,
         "pack_hints": {
             "chunk_mb": 16,
@@ -219,21 +249,34 @@ def main(argv: list[str] | None = None) -> int:
 
     manifest = build(plan_path, game, verify_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    summary = {
-        "generated_at": manifest["generated_at"],
-        "plan_sha256": manifest["plan_sha256"],
-        "categories": manifest["categories"],
-        "totals": manifest["totals"],
-        "libraries": len(manifest["libraries"]),
-        "verify": manifest["verify"],
-        "list_command": (
-            'pwsh -NoProfile -Command "(Get-Content game-assets/manifest.assets.json -Raw | '
-            'ConvertFrom-Json).categories"'
-        ),
-    }
     summary_out.parent.mkdir(parents=True, exist_ok=True)
-    summary_out.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # `index/summary.json` 自己也在 `index` 分类里：写完后把它的真实字节数回填，
+    # 再重写一次直到稳定（长度位数不变，最多 2~3 轮收敛），避免 manifest 里的字节数自相矛盾。
+    # 若 summary 写到别处（例如冻结后只更新 manifest），则 `index` 分类以磁盘上的为准，不做回填。
+    summary_is_packed = summary_out.resolve() == (game / "index" / "summary.json").resolve()
+    for _ in range(4):
+        out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        summary = {
+            "generated_at": manifest["generated_at"],
+            "plan_sha256": manifest["plan_sha256"],
+            "categories": manifest["categories"],
+            "totals": manifest["totals"],
+            "libraries": len(manifest["libraries"]),
+            "verify": manifest["verify"],
+            "list_command": (
+                'pwsh -NoProfile -Command "(Get-Content game-assets/manifest.assets.json -Raw | '
+                'ConvertFrom-Json).categories"'
+            ),
+        }
+        summary_out.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        if not summary_is_packed:
+            break
+        actual = summary_out.stat().st_size
+        index_info = manifest["categories"].get("index")
+        if index_info is None or int(index_info["bytes"]) == actual:
+            break
+        index_info["bytes"] = actual
+        manifest["totals"]["bytes"] = sum(item["bytes"] for item in manifest["categories"].values())
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     print(f"\n写出 {out} / {summary_out}")
     return 0

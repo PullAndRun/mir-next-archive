@@ -32,6 +32,8 @@ fn main() -> Result<()> {
         Some("image-info") => image_info(&mut args),
         Some("image-dump") => image_dump(&mut args),
         Some("assets") => assets_command(&mut args),
+        Some("audio") => audio_command(&mut args),
+        Some("atlas") => assets_atlas(&mut args),
         None | Some("help" | "--help" | "-h") => {
             print_help();
             Ok(())
@@ -63,6 +65,12 @@ fn print_help() {
     );
     println!(
         "  assets pack --input <game-assets> --out <packs> [--chunk-mb 16] [--verify|--list]  发布期自有分包(.mnp)"
+    );
+    println!(
+        "  audio import --input <audio 目录> --out <audio 目录> [--codec vorbis|flac] [--ffmpeg <path>]   wav → .mna"
+    );
+    println!(
+        "  atlas --input <game-assets/gfx> [--max-width 2048] [--remove-source]   每实体图集 atlas.png + atlas.json"
     );
     println!("                              （默认 index=0、build/out.png）");
 }
@@ -288,6 +296,7 @@ fn assets_command(args: &mut impl Iterator<Item = String>) -> Result<()> {
     match args.next().as_deref() {
         Some("unpack") => assets_unpack(args),
         Some("pack") => assets_pack(args),
+        Some("audio") => audio_command(args),
         None => anyhow::bail!("assets 需要子命令：unpack\n{ASSETS_UNPACK_USAGE}"),
         Some(other) => {
             anyhow::bail!("assets 不认识子命令 {other}（只有 unpack）\n{ASSETS_UNPACK_USAGE}")
@@ -936,6 +945,12 @@ fn assets_pack(args: &mut impl Iterator<Item = String>) -> Result<()> {
     let mut verify = false;
     let mut list = false;
     let mut allow_legacy = false;
+    let mut plan_path: Option<PathBuf> = None;
+    let mut check_path: Option<PathBuf> = None;
+    let mut merge_manifest: Option<PathBuf> = None;
+    let mut only: Vec<String> = Vec::new();
+    let mut pack_name: Option<String> = None;
+    let mut pack_category: Option<String> = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--input" => input = PathBuf::from(next_arg(args, "--input")?),
@@ -953,8 +968,44 @@ fn assets_pack(args: &mut impl Iterator<Item = String>) -> Result<()> {
             "--allow-legacy" => allow_legacy = true,
             "--verify" => verify = true,
             "--list" => list = true,
+            // 吃打包计划（兵部二号的 `catalog.py pack-plan`）：按计划的包名/文件清单打。
+            "--plan" => plan_path = Some(PathBuf::from(next_arg(args, "--plan")?)),
+            // 计划/清单对账：读 `manifest.packs.json`，逐包核条目数/字节/sha256。
+            "--check" => check_path = Some(PathBuf::from(next_arg(args, "--check")?)),
+            // 只重打指定文件并把该包摘要**合并**进现有清单（index 包用，不重打整轮）。
+            "--merge-manifest" => {
+                merge_manifest = Some(PathBuf::from(next_arg(args, "--merge-manifest")?));
+            }
+            "--only" => {
+                let raw = next_arg(args, "--only")?;
+                only.extend(
+                    raw.split(',')
+                        .map(str::trim)
+                        .filter(|item| !item.is_empty())
+                        .map(str::to_owned),
+                );
+            }
+            "--name" => pack_name = Some(next_arg(args, "--name")?),
+            "--category" => pack_category = Some(next_arg(args, "--category")?),
             other => anyhow::bail!("assets pack 不认识参数 {other}\n{ASSETS_PACK_USAGE}"),
         }
+    }
+    if let Some(manifest) = &merge_manifest {
+        return pack_merge_manifest(
+            manifest,
+            &input,
+            &out,
+            &only,
+            pack_name.as_deref(),
+            pack_category.as_deref(),
+            compress,
+        );
+    }
+    if let Some(check) = &check_path {
+        return check_manifest(check, &input);
+    }
+    if let Some(plan) = &plan_path {
+        return pack_from_plan(plan, &input, &out, compress, allow_legacy);
     }
     if verify {
         return verify_packs(&out, &input);
@@ -1119,6 +1170,7 @@ fn discover_pack_items(input: &Path, allow_legacy: bool) -> Result<(Vec<PackItem
             Some(&"maps") => "maps".to_owned(),
             Some(&"audio") => "audio".to_owned(),
             Some(&"data") => "data".to_owned(),
+            Some(&"index") => "index".to_owned(),
             _ => return Ok(()),
         };
         let group = match category.as_str() {
@@ -1131,8 +1183,13 @@ fn discover_pack_items(input: &Path, allow_legacy: bool) -> Result<(Vec<PackItem
             .unwrap_or_default();
         let is_image =
             category != "maps" && category != "audio" && category != "data" && extension == "png";
-        if !is_image && extension == "json" {
-            return Ok(()); // index.json 本身不进包
+        // 只跳过拆包器自己的 `index.json`；`data/` 里的 `game.json`/`manifest.json`
+        // 是我们自有格式的一部分，要进包。
+        if !is_image
+            && extension == "json"
+            && path.file_name().is_some_and(|name| name == "index.json")
+        {
+            return Ok(());
         }
         // 发布包只放自有格式：老格式默认跳过（`--allow-legacy` 仅供迁移期对比）。
         if !allow_legacy && LEGACY_EXTENSIONS.contains(&extension.as_str()) {
@@ -1301,4 +1358,878 @@ fn verify_packs(out: &Path, input: &Path) -> Result<()> {
         items.len()
     );
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// `assets pack --plan` / `--check`：按计划打包、与清单对账
+// ---------------------------------------------------------------------------
+
+/// 按计划打包。计划格式（容忍多种写法）：
+///
+/// ```json
+/// {"packs": [
+///   {"name": "tiles-tiles0-1", "category": "tiles",
+///    "files": ["gfx/tiles/tiles0/0000.png", {"path": "gfx/tiles/tiles0/0001.png"}]}
+/// ]}
+/// ```
+fn pack_from_plan(
+    plan_path: &Path,
+    input: &Path,
+    out: &Path,
+    compress: bool,
+    allow_legacy: bool,
+) -> Result<()> {
+    let text = std::fs::read_to_string(plan_path)
+        .with_context(|| format!("读取计划 {} 失败", plan_path.display()))?;
+    let plan: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("{} 不是合法 JSON", plan_path.display()))?;
+    let packs = plan
+        .get("packs")
+        .and_then(serde_json::Value::as_array)
+        .with_context(|| format!("{} 缺少 packs 数组", plan_path.display()))?;
+    std::fs::create_dir_all(out)?;
+    let mut summaries = Vec::new();
+    let mut index_cache: std::collections::BTreeMap<PathBuf, serde_json::Value> =
+        std::collections::BTreeMap::new();
+    let mut total_files = 0usize;
+    for (number, entry) in packs.iter().enumerate() {
+        let category = entry
+            .get("category")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("misc");
+        let name = entry
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .map_or_else(|| format!("{category}-{}", number + 1), str::to_owned);
+        let name = name
+            .strip_suffix(".mnp")
+            .map_or_else(|| name.clone(), str::to_owned);
+        let files = entry
+            .get("files")
+            .and_then(serde_json::Value::as_array)
+            .with_context(|| format!("packs[{number}] 缺少 files 数组"))?;
+        let pack_path = out.join(format!("{name}.mnp"));
+        let mut writer = mir_asset::PackWriter::create(&pack_path, compress)?;
+        let mut count = 0usize;
+        for file in files {
+            let logical = match file {
+                serde_json::Value::String(text) => text.clone(),
+                other => other
+                    .get("path")
+                    .or_else(|| other.get("logical"))
+                    .or_else(|| other.get("file"))
+                    .and_then(serde_json::Value::as_str)
+                    .with_context(|| format!("packs[{number}].files 项缺少 path"))?
+                    .to_owned(),
+            };
+            let path = input.join(&logical);
+            anyhow::ensure!(path.is_file(), "计划里的文件不存在：{}", path.display());
+            let extension = path
+                .extension()
+                .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default();
+            if !allow_legacy && LEGACY_EXTENSIONS.contains(&extension.as_str()) {
+                println!("skip legacy {logical}");
+                continue;
+            }
+            if extension == "png" {
+                let info = image_info_from_index(&path, input, &mut index_cache)
+                    .unwrap_or_else(empty_image_info);
+                let pixels = read_png_rgba(&path)?.2;
+                writer.add_image(&logical, &info, &pixels)?;
+            } else {
+                let bytes =
+                    std::fs::read(&path).with_context(|| format!("读 {} 失败", path.display()))?;
+                writer.add_raw(&logical, &bytes)?;
+            }
+            count += 1;
+            total_files += 1;
+        }
+        anyhow::ensure!(count > 0, "计划里的包 {name} 没有任何文件");
+        let summary = writer.finish(category)?;
+        let over = summary.bytes > 16 * 1024 * 1024;
+        println!(
+            "pack={} category={category} entries={} bytes={}{}",
+            summary.file,
+            summary.entries,
+            summary.bytes,
+            if over { "  WARN 超过 16MB" } else { "" }
+        );
+        summaries.push(summary);
+    }
+    let manifest = mir_asset::PackManifest {
+        version: 1,
+        generated_at: time_stamp(),
+        chunk_mb: 16,
+        packs: summaries,
+    };
+    let manifest_path = out.join("manifest.packs.json");
+    std::fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest)? + "\n",
+    )
+    .with_context(|| format!("写 {} 失败", manifest_path.display()))?;
+    let total: u64 = manifest.packs.iter().map(|pack| pack.bytes).sum();
+    println!(
+        "manifest={} packs={} files={total_files} bytes={total}",
+        manifest_path.display(),
+        manifest.packs.len()
+    );
+    Ok(())
+}
+
+/// 从目录的 `index.json` 里查某张 PNG 的元数据。
+fn image_info_from_index(
+    path: &Path,
+    input: &Path,
+    cache: &mut std::collections::BTreeMap<PathBuf, serde_json::Value>,
+) -> Option<mir_asset::ImageInfo> {
+    let parent = path.parent()?.to_path_buf();
+    if !cache.contains_key(&parent) {
+        let index_path = parent.join("index.json");
+        let value = std::fs::read_to_string(&index_path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .unwrap_or(serde_json::Value::Null);
+        cache.insert(parent.clone(), value);
+    }
+    let _ = input;
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())?;
+    let images = cache[&parent]
+        .get("images")
+        .and_then(serde_json::Value::as_array)?;
+    for entry in images {
+        if entry.get("png").and_then(serde_json::Value::as_str) == Some(file_name.as_str()) {
+            return Some(mir_asset::ImageInfo {
+                width: entry.get("width").and_then(serde_json::Value::as_u64)? as u16,
+                height: entry.get("height").and_then(serde_json::Value::as_u64)? as u16,
+                offset_x: entry
+                    .get("offset_x")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or(0) as i16,
+                offset_y: entry
+                    .get("offset_y")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or(0) as i16,
+                format: entry
+                    .get("format_code")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0) as u8,
+                shadow_x: entry
+                    .get("shadow_x")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or(0) as i16,
+                shadow_y: entry
+                    .get("shadow_y")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or(0) as i16,
+                reserved: [0; 3],
+                has_mask: entry
+                    .get("has_mask")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false),
+                data_offset: 0,
+                data_len: 0,
+            });
+        }
+    }
+    None
+}
+
+/// 与 `manifest.packs.json` 对账：逐包核条目数/字节数/整包 sha256，并确认条目可读。
+fn check_manifest(manifest_path: &Path, input: &Path) -> Result<()> {
+    let text = std::fs::read_to_string(manifest_path)
+        .with_context(|| format!("读取 {} 失败", manifest_path.display()))?;
+    let manifest: mir_asset::PackManifest = serde_json::from_str(&text)
+        .with_context(|| format!("{} 不是合法的 manifest.packs.json", manifest_path.display()))?;
+    let dir = manifest_path.parent().unwrap_or(Path::new("."));
+    let mut problems = Vec::new();
+    for summary in &manifest.packs {
+        let path = dir.join(&summary.file);
+        if !path.is_file() {
+            problems.push(format!("缺包 {}", summary.file));
+            continue;
+        }
+        let bytes = std::fs::metadata(&path).map_or(0, |meta| meta.len());
+        if bytes != summary.bytes {
+            problems.push(format!(
+                "{} 字节数 {bytes} ≠ 清单 {}",
+                summary.file, summary.bytes
+            ));
+        }
+        let actual_sha = sha256_file(&path)?;
+        if actual_sha != summary.sha256 {
+            problems.push(format!(
+                "{} sha256 不符（清单 {}…，实际 {}…）",
+                summary.file,
+                &summary.sha256[..16.min(summary.sha256.len())],
+                &actual_sha[..16]
+            ));
+        }
+        let pack = mir_asset::PackFile::open(&path)?;
+        if pack.len() as u32 != summary.entries {
+            problems.push(format!(
+                "{} 条目数 {} ≠ 清单 {}",
+                summary.file,
+                pack.len(),
+                summary.entries
+            ));
+        }
+    }
+    // 注意：`--check` 只核对「清单 vs 磁盘上的包」，不做"输入目录全覆盖"
+    // —— 计划可能是部分打包（例如只打 maps/data）。全覆盖检查在 `--verify` 里。
+    let _ = input;
+    let set = mir_asset::PackSet::open(dir)?;
+    if problems.is_empty() {
+        println!(
+            "check ok packs={} entries={}（清单 {} 与磁盘/条目一致）",
+            manifest.packs.len(),
+            set.len(),
+            manifest_path.display()
+        );
+        return Ok(());
+    }
+    for problem in &problems {
+        eprintln!("MISMATCH {problem}");
+    }
+    anyhow::bail!("对账失败：{} 处不一致", problems.len());
+}
+
+// ---------------------------------------------------------------------------
+// `audio import`：`wav` → `.mna`（Vorbis/FLAC，ffmpeg 构建期编码）
+// ---------------------------------------------------------------------------
+
+fn audio_command(args: &mut impl Iterator<Item = String>) -> Result<()> {
+    match args.next().as_deref() {
+        Some("import") => audio_import(args),
+        Some("verify") => audio_verify(args),
+        other => anyhow::bail!("assets/audio 不认识子命令 {other:?}\n{ASSETS_AUDIO_USAGE}"),
+    }
+}
+
+const ASSETS_AUDIO_USAGE: &str = "usage: mir-tools audio import --input <dir> --out <dir> \
+[--codec vorbis|flac] [--quality 4] [--ffmpeg <path>] [--keep-source]";
+
+/// 读 WAV 的 `fmt `/`data` 块，得到声道、采样率、帧数。
+fn wav_meta(path: &Path) -> Result<(u8, u32, u64)> {
+    let bytes = std::fs::read(path).with_context(|| format!("读 {} 失败", path.display()))?;
+    anyhow::ensure!(
+        bytes.len() > 44 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WAVE",
+        "{} 不是 WAV",
+        path.display()
+    );
+    let mut pos = 12usize;
+    let mut channels = 0u16;
+    let mut sample_rate = 0u32;
+    let mut block_align = 0u16;
+    let mut data_len = 0u32;
+    while pos + 8 <= bytes.len() {
+        let id = &bytes[pos..pos + 4];
+        let size = u32::from_le_bytes([
+            bytes[pos + 4],
+            bytes[pos + 5],
+            bytes[pos + 6],
+            bytes[pos + 7],
+        ]) as usize;
+        let body = pos + 8;
+        if id == b"fmt " && body + 16 <= bytes.len() {
+            channels = u16::from_le_bytes([bytes[body + 2], bytes[body + 3]]);
+            sample_rate = u32::from_le_bytes([
+                bytes[body + 4],
+                bytes[body + 5],
+                bytes[body + 6],
+                bytes[body + 7],
+            ]);
+            block_align = u16::from_le_bytes([bytes[body + 12], bytes[body + 13]]);
+        } else if id == b"data" {
+            data_len = u32::try_from(size).unwrap_or(u32::MAX);
+            break;
+        }
+        pos = body + size + (size & 1);
+    }
+    anyhow::ensure!(
+        channels > 0 && sample_rate > 0 && block_align > 0,
+        "{} 的 WAV 头不完整",
+        path.display()
+    );
+    Ok((
+        u8::try_from(channels).unwrap_or(u8::MAX),
+        sample_rate,
+        u64::from(data_len) / u64::from(block_align),
+    ))
+}
+
+#[allow(clippy::cast_precision_loss)] // 只是打印 MB 数字，精度损失无关
+fn audio_import(args: &mut impl Iterator<Item = String>) -> Result<()> {
+    let mut input = PathBuf::from("game-assets/audio");
+    let mut out = PathBuf::from("game-assets/audio");
+    let mut codec = mir_asset::AudioCodec::Vorbis;
+    let mut quality = 4u8;
+    let mut ffmpeg = PathBuf::from("ffmpeg");
+    let mut keep_source = false;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--input" => input = PathBuf::from(next_arg(args, "--input")?),
+            "--out" => out = PathBuf::from(next_arg(args, "--out")?),
+            "--codec" => {
+                let raw = next_arg(args, "--codec")?;
+                codec = mir_asset::AudioCodec::parse(&raw)
+                    .with_context(|| format!("--codec 只支持 vorbis|flac（收到 {raw}）"))?;
+            }
+            "--quality" => {
+                let raw = next_arg(args, "--quality")?;
+                quality = raw
+                    .parse()
+                    .with_context(|| format!("--quality 不是数字：{raw}"))?;
+            }
+            "--ffmpeg" => ffmpeg = PathBuf::from(next_arg(args, "--ffmpeg")?),
+            "--keep-source" => keep_source = true,
+            other => anyhow::bail!("audio import 不认识参数 {other}\n{ASSETS_AUDIO_USAGE}"),
+        }
+    }
+    let mut sources = Vec::new();
+    walk_files(&input, &mut |path| {
+        let is_wav = path
+            .extension()
+            .is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case("wav"));
+        if is_wav {
+            sources.push(path.to_path_buf());
+        }
+        Ok(())
+    })?;
+    sources.sort();
+    anyhow::ensure!(
+        !sources.is_empty(),
+        "{} 下没有 .wav（先跑 assets unpack）",
+        input.display()
+    );
+    let ffmpeg_path = resolve_ffmpeg(&ffmpeg)?;
+    println!(
+        "ffmpeg={} codec={} quality={quality} files={}",
+        ffmpeg_path.display(),
+        codec.as_str(),
+        sources.len()
+    );
+
+    let mut source_bytes = 0u64;
+    let mut target_bytes = 0u64;
+    let mut entries = Vec::new();
+    for source in &sources {
+        let (channels, sample_rate, frames) = wav_meta(source)?;
+        source_bytes += std::fs::metadata(source).map_or(0, |meta| meta.len());
+        let relative = source
+            .strip_prefix(&input)
+            .unwrap_or(source)
+            .with_extension("mna");
+        let target = out.join(&relative);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let temp = target.with_extension(if codec == mir_asset::AudioCodec::Vorbis {
+            "ogg"
+        } else {
+            "flac"
+        });
+        let status = std::process::Command::new(&ffmpeg_path)
+            .arg("-loglevel")
+            .arg("error")
+            .arg("-y")
+            .arg("-i")
+            .arg(source)
+            .arg("-c:a")
+            .arg(if codec == mir_asset::AudioCodec::Vorbis {
+                "libvorbis"
+            } else {
+                "flac"
+            })
+            .args(if codec == mir_asset::AudioCodec::Vorbis {
+                vec!["-q:a".to_owned(), quality.to_string()]
+            } else {
+                Vec::new()
+            })
+            .arg(&temp)
+            .status()
+            .with_context(|| format!("调用 ffmpeg 失败（{}）", ffmpeg_path.display()))?;
+        anyhow::ensure!(
+            status.success(),
+            "ffmpeg 转码 {} 失败：{status}",
+            source.display()
+        );
+        let data = std::fs::read(&temp).with_context(|| format!("读 {} 失败", temp.display()))?;
+        mir_asset::AudioClip::write(
+            &target,
+            mir_asset::AudioMeta {
+                codec,
+                channels,
+                sample_rate,
+                frames,
+            },
+            &data,
+        )?;
+        let bytes = std::fs::metadata(&target).map_or(0, |meta| meta.len());
+        target_bytes += bytes;
+        entries.push(serde_json::json!({
+            "source": source.display().to_string(),
+            "target": relative.to_string_lossy().replace('\\', "/"),
+            "bytes": bytes,
+            "seconds": std::fs::metadata(source).map_or(0.0, |_| 0.0),
+            "channels": channels,
+            "sample_rate": sample_rate,
+            "frames": frames,
+        }));
+        std::fs::remove_file(&temp).ok();
+        if !keep_source {
+            std::fs::remove_file(source).ok();
+        }
+    }
+    let manifest = serde_json::json!({
+        "version": 1,
+        "generated_at": time_stamp(),
+        "codec": codec.as_str(),
+        "quality": quality,
+        "files": entries.len(),
+        "source_bytes": source_bytes,
+        "target_bytes": target_bytes,
+        "entries": entries,
+    });
+    let manifest_path = out.join("manifest.json");
+    std::fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest)? + "\n",
+    )
+    .with_context(|| format!("写 {} 失败", manifest_path.display()))?;
+    println!(
+        "audio={} files={} source={:.2}MB target={:.2}MB ratio={:.1}%",
+        manifest_path.display(),
+        sources.len(),
+        source_bytes as f64 / 1024.0 / 1024.0,
+        target_bytes as f64 / 1024.0 / 1024.0,
+        target_bytes as f64 * 100.0 / source_bytes.max(1) as f64
+    );
+    Ok(())
+}
+
+/// 找 ffmpeg：先看显式路径，再走 PATH；找不到给安装提示。
+fn resolve_ffmpeg(explicit: &Path) -> Result<PathBuf> {
+    if explicit.is_file() {
+        return Ok(explicit.to_path_buf());
+    }
+    let candidates = ["ffmpeg", "ffmpeg.exe"];
+    for name in candidates {
+        if let Ok(output) = std::process::Command::new(name).arg("-version").output() {
+            if output.status.success() {
+                return Ok(PathBuf::from(name));
+            }
+        }
+    }
+    anyhow::bail!(
+        "找不到 ffmpeg（构建期需要它编码 Vorbis/FLAC）。\n\
+         安装：winget install Gyan.FFmpeg，或用 --ffmpeg <路径> 指定。\n\
+         运行期不需要 ffmpeg（只解 .mna 里的压缩流）。"
+    )
+}
+
+/// `audio verify`：逐个打开 `.mna`（校验 sha256/头部），并让 ffmpeg 解一遍确认可播。
+#[allow(clippy::cast_precision_loss)] // 只是打印 MB 数字
+fn audio_verify(args: &mut impl Iterator<Item = String>) -> Result<()> {
+    let mut input = PathBuf::from("game-assets/audio");
+    let mut ffmpeg = PathBuf::from("ffmpeg");
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--input" => input = PathBuf::from(next_arg(args, "--input")?),
+            "--ffmpeg" => ffmpeg = PathBuf::from(next_arg(args, "--ffmpeg")?),
+            other => anyhow::bail!("audio verify 不认识参数 {other}"),
+        }
+    }
+    let ffmpeg_path = resolve_ffmpeg(&ffmpeg).ok();
+    let mut files = Vec::new();
+    walk_files(&input, &mut |path| {
+        if path
+            .extension()
+            .is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case("mna"))
+        {
+            files.push(path.to_path_buf());
+        }
+        Ok(())
+    })?;
+    files.sort();
+    anyhow::ensure!(!files.is_empty(), "{} 下没有 .mna", input.display());
+    let mut total = 0u64;
+    let mut seconds = 0.0f64;
+    for path in &files {
+        let clip = mir_asset::AudioClip::open(path)
+            .with_context(|| format!("{} 打不开", path.display()))?;
+        total += std::fs::metadata(path).map_or(0, |meta| meta.len());
+        seconds += clip.seconds();
+        if let Some(ffmpeg) = &ffmpeg_path {
+            let temp =
+                std::env::temp_dir().join(format!("mir2-audio-verify-{}.ogg", std::process::id()));
+            std::fs::write(&temp, &clip.data)?;
+            let status = std::process::Command::new(ffmpeg)
+                .arg("-loglevel")
+                .arg("error")
+                .arg("-i")
+                .arg(&temp)
+                .arg("-f")
+                .arg("null")
+                .arg("-")
+                .status()
+                .with_context(|| "调用 ffmpeg 解码失败")?;
+            std::fs::remove_file(&temp).ok();
+            anyhow::ensure!(status.success(), "{} 解码失败（ffmpeg）", path.display());
+        }
+    }
+    println!(
+        "audio verify ok files={} bytes={:.2}MB seconds={:.1}",
+        files.len(),
+        total as f64 / 1024.0 / 1024.0,
+        seconds
+    );
+    Ok(())
+}
+
+/// 只重打 `--only` 列出的文件，并把该包摘要合并进现有 `manifest.packs.json`。
+///
+/// 用途：`index-1.mnp` 依赖上游"冻结"的 `index/summary.json`，每次冻结只重打这一包，
+/// 其它 50 个包的条目一个字节都不动。
+fn pack_merge_manifest(
+    manifest_path: &Path,
+    input: &Path,
+    out: &Path,
+    only: &[String],
+    name: Option<&str>,
+    category: Option<&str>,
+    compress: bool,
+) -> Result<()> {
+    anyhow::ensure!(
+        !only.is_empty(),
+        "--merge-manifest 必须配合 --only <逻辑名,...>"
+    );
+    let category = category.map_or_else(
+        || only[0].split('/').next().unwrap_or("misc").to_owned(),
+        str::to_owned,
+    );
+    let name = name.map_or_else(|| format!("{category}-1"), str::to_owned);
+    let name = name.strip_suffix(".mnp").unwrap_or(&name).to_owned();
+    let pack_path = out.join(format!("{name}.mnp"));
+    let mut writer = mir_asset::PackWriter::create(&pack_path, compress)?;
+    let mut cache: std::collections::BTreeMap<PathBuf, serde_json::Value> =
+        std::collections::BTreeMap::new();
+    for logical in only {
+        let path = input.join(logical);
+        anyhow::ensure!(path.is_file(), "文件不存在：{}", path.display());
+        if path
+            .extension()
+            .is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case("png"))
+        {
+            let info =
+                image_info_from_index(&path, input, &mut cache).unwrap_or_else(empty_image_info);
+            let pixels = read_png_rgba(&path)?.2;
+            writer.add_image(logical, &info, &pixels)?;
+        } else {
+            let bytes =
+                std::fs::read(&path).with_context(|| format!("读 {} 失败", path.display()))?;
+            writer.add_raw(logical, &bytes)?;
+        }
+    }
+    let summary = writer.finish(&category)?;
+    println!(
+        "pack={} category={} entries={} bytes={} sha256={}",
+        summary.file,
+        summary.category,
+        summary.entries,
+        summary.bytes,
+        &summary.sha256[..16]
+    );
+
+    let text = std::fs::read_to_string(manifest_path)
+        .with_context(|| format!("读 {} 失败", manifest_path.display()))?;
+    let mut manifest: mir_asset::PackManifest = serde_json::from_str(&text)
+        .with_context(|| format!("{} 不是合法清单", manifest_path.display()))?;
+    manifest.packs.retain(|pack| pack.file != summary.file);
+    manifest.packs.push(summary.clone());
+    manifest
+        .packs
+        .sort_by(|left, right| left.file.cmp(&right.file));
+    std::fs::write(
+        manifest_path,
+        serde_json::to_string_pretty(&manifest)? + "\n",
+    )
+    .with_context(|| format!("写 {} 失败", manifest_path.display()))?;
+    let total: u64 = manifest.packs.iter().map(|pack| pack.bytes).sum();
+    println!(
+        "manifest={} packs={} bytes={total}（合并 {} 一条）",
+        manifest_path.display(),
+        manifest.packs.len(),
+        summary.file
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// `assets atlas`：散装 PNG → 每目录一张图集（shelf packing）
+// ---------------------------------------------------------------------------
+
+/// 一帧的打包信息。
+struct AtlasFramePlan {
+    index: usize,
+    png: String,
+    width: u16,
+    height: u16,
+    offset_x: i16,
+    offset_y: i16,
+    shadow_x: i16,
+    shadow_y: i16,
+    has_mask: bool,
+    x: u32,
+    y: u32,
+    pixels: Vec<u8>,
+}
+
+#[allow(clippy::cast_precision_loss)] // 只是打印 MB 数字，精度损失无关
+fn assets_atlas(args: &mut impl Iterator<Item = String>) -> Result<()> {
+    let mut input = PathBuf::from("game-assets/gfx");
+    let mut max_width = 2048u32;
+    let mut remove_source = false;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--input" => input = PathBuf::from(next_arg(args, "--input")?),
+            "--max-width" => {
+                let raw = next_arg(args, "--max-width")?;
+                max_width = raw
+                    .parse()
+                    .with_context(|| format!("--max-width 不是数字：{raw}"))?;
+                anyhow::ensure!(max_width >= 64, "--max-width 至少 64");
+            }
+            "--remove-source" => remove_source = true,
+            other => anyhow::bail!("assets atlas 不认识参数 {other}"),
+        }
+    }
+    anyhow::ensure!(input.is_dir(), "{} 不是目录", input.display());
+
+    let mut dirs = Vec::new();
+    walk_files(&input, &mut |path| {
+        if path.file_name().is_some_and(|name| name == "index.json") {
+            if let Some(parent) = path.parent() {
+                dirs.push(parent.to_path_buf());
+            }
+        }
+        Ok(())
+    })?;
+    dirs.sort();
+    dirs.dedup();
+    anyhow::ensure!(
+        !dirs.is_empty(),
+        "{} 下没有找到 index.json（先跑 assets unpack）",
+        input.display()
+    );
+
+    let mut total_frames = 0usize;
+    let mut total_png_bytes = 0u64;
+    let mut total_atlas_bytes = 0u64;
+    let mut built = 0usize;
+    for dir in &dirs {
+        let Some((mut frames, png_bytes)) = load_atlas_frames(dir)? else {
+            continue;
+        };
+        if frames.is_empty() {
+            continue;
+        }
+        let (atlas_width, atlas_height) = pack_frames(&mut frames, max_width);
+        let mut canvas = vec![0u8; atlas_width as usize * atlas_height as usize * 4];
+        for frame in &frames {
+            for row in 0..usize::from(frame.height) {
+                let src = row * usize::from(frame.width) * 4;
+                let dst = ((frame.y as usize + row) * atlas_width as usize + frame.x as usize) * 4;
+                canvas[dst..dst + usize::from(frame.width) * 4]
+                    .copy_from_slice(&frame.pixels[src..src + usize::from(frame.width) * 4]);
+            }
+        }
+        let texture_path = dir.join("atlas.png");
+        let image = mir_asset::Image {
+            info: mir_asset::ImageInfo {
+                width: u16::try_from(atlas_width).unwrap_or(u16::MAX),
+                height: u16::try_from(atlas_height).unwrap_or(u16::MAX),
+                offset_x: 0,
+                offset_y: 0,
+                format: mir_asset::format::RGBA32_GZIP,
+                shadow_x: 0,
+                shadow_y: 0,
+                reserved: [0; 3],
+                has_mask: false,
+                data_offset: 0,
+                data_len: 0,
+            },
+            pixels: canvas,
+        };
+        write_png(&texture_path, &image)?;
+        let atlas_json = serde_json::json!({
+            "version": 1,
+            "lib": index_json_lib(dir),
+            "entity": dir.file_name().map(|name| name.to_string_lossy().into_owned()),
+            "texture": "atlas.png",
+            "width": atlas_width,
+            "height": atlas_height,
+            "frames": frames.iter().map(|frame| serde_json::json!({
+                "index": frame.index,
+                "x": frame.x,
+                "y": frame.y,
+                "w": frame.width,
+                "h": frame.height,
+                "offset_x": frame.offset_x,
+                "offset_y": frame.offset_y,
+                "shadow_x": frame.shadow_x,
+                "shadow_y": frame.shadow_y,
+                "has_mask": frame.has_mask,
+            })).collect::<Vec<_>>(),
+        });
+        std::fs::write(
+            dir.join("atlas.json"),
+            serde_json::to_string_pretty(&atlas_json)? + "\n",
+        )?;
+        let atlas_bytes = std::fs::metadata(&texture_path).map_or(0, |meta| meta.len());
+        total_frames += frames.len();
+        total_png_bytes += png_bytes;
+        total_atlas_bytes += atlas_bytes;
+        built += 1;
+        if remove_source {
+            for frame in &frames {
+                std::fs::remove_file(dir.join(&frame.png)).ok();
+            }
+        }
+    }
+    println!(
+        "atlas dirs={built} frames={total_frames} png={:.2}MB atlas={:.2}MB ratio={:.1}% max_width={max_width}",
+        total_png_bytes as f64 / 1024.0 / 1024.0,
+        total_atlas_bytes as f64 / 1024.0 / 1024.0,
+        total_atlas_bytes as f64 * 100.0 / total_png_bytes.max(1) as f64
+    );
+    Ok(())
+}
+
+fn index_json_lib(dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(dir.join("index.json")).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    value
+        .get("lib")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+}
+
+fn load_atlas_frames(dir: &Path) -> Result<Option<(Vec<AtlasFramePlan>, u64)>> {
+    let index_path = dir.join("index.json");
+    let text = std::fs::read_to_string(&index_path)
+        .with_context(|| format!("读 {} 失败", index_path.display()))?;
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("{} 不是合法 JSON", index_path.display()))?;
+    let Some(images) = value.get("images").and_then(serde_json::Value::as_array) else {
+        return Ok(None);
+    };
+    let mut frames = Vec::new();
+    let mut png_bytes = 0u64;
+    for entry in images {
+        if entry
+            .get("empty")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let Some(png) = entry.get("png").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let Some(width) = entry.get("width").and_then(serde_json::Value::as_u64) else {
+            continue;
+        };
+        let Some(height) = entry.get("height").and_then(serde_json::Value::as_u64) else {
+            continue;
+        };
+        let path = dir.join(png);
+        if !path.is_file() {
+            continue;
+        }
+        png_bytes += std::fs::metadata(&path).map_or(0, |meta| meta.len());
+        let (_, _, pixels) = read_png_rgba(&path)?;
+        let expected = usize::try_from(width * height * 4).unwrap_or(usize::MAX);
+        anyhow::ensure!(
+            pixels.len() == expected,
+            "{} 像素 {} 字节，与 {}×{}×4 不符",
+            path.display(),
+            pixels.len(),
+            width,
+            height
+        );
+        frames.push(AtlasFramePlan {
+            index: entry
+                .get("index")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0) as usize,
+            png: png.to_owned(),
+            width: u16::try_from(width).unwrap_or(u16::MAX),
+            height: u16::try_from(height).unwrap_or(u16::MAX),
+            offset_x: entry
+                .get("offset_x")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0) as i16,
+            offset_y: entry
+                .get("offset_y")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0) as i16,
+            shadow_x: entry
+                .get("shadow_x")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0) as i16,
+            shadow_y: entry
+                .get("shadow_y")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0) as i16,
+            has_mask: entry
+                .get("has_mask")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            x: 0,
+            y: 0,
+            pixels,
+        });
+    }
+    Ok(Some((frames, png_bytes)))
+}
+
+/// shelf packing：按高度降序放行，行宽不超过 `max_width`；把 `x/y` 写回帧并返回 (宽, 高)。
+///
+/// 同一行的帧高度相近（降序后更紧凑）；帧数很少的目录退化成一行。
+fn pack_frames(frames: &mut [AtlasFramePlan], max_width: u32) -> (u32, u32) {
+    let widest = frames
+        .iter()
+        .map(|frame| u32::from(frame.width))
+        .max()
+        .unwrap_or(1);
+    let width = max_width.max(widest);
+    let mut order: Vec<usize> = (0..frames.len()).collect();
+    // 稳定排序：同高度按索引，保证多次运行结果一致（可复现）。
+    order.sort_by_key(|index| {
+        (
+            std::cmp::Reverse(frames[*index].height),
+            frames[*index].index,
+        )
+    });
+    let mut x = 0u32;
+    let mut y = 0u32;
+    let mut row_height = 0u32;
+    for index in order {
+        let frame_width = u32::from(frames[index].width);
+        let frame_height = u32::from(frames[index].height);
+        if x + frame_width > width && x > 0 {
+            y += row_height;
+            x = 0;
+            row_height = 0;
+        }
+        frames[index].x = x;
+        frames[index].y = y;
+        x += frame_width;
+        row_height = row_height.max(frame_height);
+    }
+    (width, y + row_height)
 }

@@ -514,6 +514,23 @@ fn load_game_data(config: &ServerConfig) -> Option<crate::gamedata::GameData> {
             }
         }
     }
+    // 显式 `MIR2_DB_PATH` 也可以直接指向 `.mnd`（例如 CI/测试用别处的数据包）。
+    if let Some(path) = &config.db_path
+        && std::path::Path::new(path)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("mnd"))
+    {
+        match crate::gamedata::GameData::load_mnd(path) {
+            Ok(data) => {
+                tracing::info!(path, "使用 .mnd 数据包（db_path）");
+                return Some(data);
+            }
+            Err(error) => {
+                tracing::error!(path, %error, "db_path 指向的 .mnd 读取失败");
+                return None;
+            }
+        }
+    }
     // 旧格式（Server.MirDB + Envir/*.txt）只允许开发期回退；release 必须提供 .mnd。
     let legacy_allowed = cfg!(debug_assertions)
         || std::env::var("MIR2_ALLOW_LEGACY_DATA").is_ok_and(|value| value == "1");
@@ -764,7 +781,7 @@ mod mnd_load_tests {
     #[test]
     fn legacy_database_still_loads_in_debug_when_mnd_missing() {
         if !cfg!(debug_assertions) {
-            eprintln!("skip: release 构建不允许旧格式回退");
+            eprintln!("skip: release builds do not allow legacy fallback");
             return;
         }
         let Some(db_path) = dataset_db() else {

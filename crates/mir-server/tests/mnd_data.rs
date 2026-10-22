@@ -1,14 +1,13 @@
 //! `.mnd` 数据包：老格式 → `.mnd` → `GameData` 读回，关键字段逐项一致。
 //!
-//! 骨架阶段 Envir 脚本以文本段入包，加载时解到临时目录；本测试同时验证 NPC 脚本与
-//! 掉落表能从 `.mnd` 正常解析。
+//! M2：DB 段用原生 bincode，Envir 段进内存 FS，不再落临时目录。
 
 mod common;
 
 use std::path::PathBuf;
 
 use mir_db::MirDb;
-use mir_db::mnd::{MndFile, MndSection, SCHEMA_VERSION, TAG_DB, TAG_ENVIR};
+use mir_db::mnd::{LEGACY_FORMAT_VERSION, MndFile, MndSection, SCHEMA_VERSION, TAG_DB, TAG_ENVIR};
 use mir_server::gamedata::GameData;
 
 fn temp_mnd_path(tag: &str) -> PathBuf {
@@ -29,7 +28,10 @@ fn mnd_roundtrip_matches_legacy_database() {
     let legacy = MirDb::from_bytes(&db_bytes).expect("parse legacy db");
 
     let mut file = MndFile::new();
-    assert_eq!(file.schema_version, SCHEMA_VERSION);
+    // 显式构造一份 M1 包，验证只读兼容。
+    file.format_version = LEGACY_FORMAT_VERSION;
+    file.schema_version = 1;
+    assert_eq!(SCHEMA_VERSION, 2);
     file.push(MndSection::new(TAG_DB, "db", db_bytes.clone()));
 
     // 抽两份脚本进包：一份 NPC 脚本、一份掉落表（都从老 Envir 读）。

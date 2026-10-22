@@ -9,9 +9,11 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+bincode.workspace = true
 flate2.workspace = true
 mir-core.workspace = true
 mir-protocol.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 
 [lints]

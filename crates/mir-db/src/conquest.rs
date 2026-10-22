@@ -34,7 +34,7 @@ pub const MIN_STRUCTURE_LEN: usize = 21;
 pub const MIN_FLAG_LEN: usize = 14;
 
 /// Crystal `ConquestArcherInfo`（`ConquestInfo.cs:355`；读 `:365-372`，写 `:374-382`）。
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConquestArcherInfo {
     /// 主键（`:367`）。
     pub index: i32,
@@ -77,7 +77,7 @@ impl ConquestArcherInfo {
 /// 三个类在磁盘上的字段完全一致（读 `:236-251` / `:279-294` / `:322-337`），
 /// 只有 `RepairCost` 的 C# 类型不同（`int`，但 `<= 84` 时按 `u32` 读入再强转，
 /// 字节数相同）。这里合并成一个类型，由 `ConquestInfo` 的三个 `Vec` 复用。
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConquestStructure {
     /// 主键。
     pub index: i32,
@@ -115,7 +115,7 @@ impl ConquestStructure {
 }
 
 /// Crystal `ConquestFlagInfo`（`ConquestInfo.cs:390`；读 `:399-405`，写 `:407-414`）。
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConquestFlagInfo {
     /// 主键。
     pub index: i32,
@@ -149,7 +149,7 @@ impl ConquestFlagInfo {
 }
 
 /// Crystal `ConquestInfo`（`Server/MirDatabase/ConquestInfo.cs:6`；读 `:53-141`，写 `:143-218`）。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConquestInfo {
     /// 主键（`ConquestInfo.cs:55`）。
     pub index: i32,

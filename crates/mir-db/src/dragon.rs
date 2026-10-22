@@ -22,7 +22,7 @@ pub const DRAGON_EXP_LEVELS: usize = MAX_DRAGON_LEVEL - 1;
 pub const MIN_DRAGON_LEN: usize = 1 + 3 + 6 * 4 + DRAGON_EXP_LEVELS * 8;
 
 /// Crystal `DragonInfo`（`Server/MirDatabase/DragonInfo.cs:6`；读 `:49-69`，写 `:70-86`）。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DragonInfo {
     /// 是否启用龙系统（`DragonInfo.cs:51`）。
     pub enabled: bool,

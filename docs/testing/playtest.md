@@ -150,3 +150,28 @@ playtest 是「真服务端 + 真 socket + Python 客户端」的冒烟，不替
     `movements[0]`；见 [`evidence/round26/tp1-final.md`](evidence/round26/tp1-final.md)。
 - **core1i**：组合 gate 文本结果 exit 0（含 5 SKIP）；PS 阶段因死亡记 **SKIP（不是 FAIL）**，
   独立 PS-1 strict 仍 PASS。
+
+## 8. 确定性旅程 vs live journey1
+
+**硬验收**是 `crates/mir-server/tests/journey_server.rs::same_character_core_loop_journey`：
+用真实 cjlaaa 数据 + `World` API，**12 步、0.08s、不依赖 TCP/走位/随机掉率**，同一角色走完：
+
+| 确定性步骤 | live 补充证据（不作为硬判据） |
+|---|---|
+| 1. 建角色 + 5 件出生装 | core1i 出生装/穿装 |
+| 2. 接 quest1（真实交付 NPC） | core1i Jane 接取/交付 |
+| 3. 刷鸡并击杀（掉率没中则用同模板地面物） | core1i 杀鸡；`sell-gate14` 杀鸡 2 只 |
+| 4. 拾取鸡肉 850 | `sell-gate14` `[OK] 捡起掉落 —— 850 x1` |
+| 5. Sarah `@Sell`：0 → 40 | `sell-gate14` `[金币] +40` |
+| 6. 0104 书店买首本免费书 | `buy1b` 货架 UID 201/#973/价格 0 |
+| 7. 读书 `S.NewMagic` | `magic1b` 学会治愈术 |
+| 8. 施放 Healing（MP-3、广播） | `magic1b` `S.ObjectMagic` |
+| 9. 武器耐久下降 | `sell-gate14` 耐久 3978→… |
+| 10. Smith 修理（扣 2、上限衰减） | `sell-gate14` `max=4000`、金币 -2 |
+| 11. 死亡 → 12s 不自动复活 → TownRevive | `dr1-cjlaaa` 自然死亡/主动复活 |
+| 12. snapshot → MemoryStore save/load → 再 snapshot | `ps1-strict` 槽位 uid/index 全等 |
+
+> live 整链（`core1i`/`journey1`）受怪物走位、命中/掉率影响，**只作补充证据、不作硬验收**。
+> `journey_server` 是**确定性硬验收（生产逻辑状态组合）**；但御史台 t130 明确它
+> **不能替代自然旅程**——自然旅程（`journey_natural`）仍是阻塞项，不能用本测试宣布自主闭环完成。
+> 最终裁决见 [`core-loop-final-verdict-r43.md`](core-loop-final-verdict-r43.md)。

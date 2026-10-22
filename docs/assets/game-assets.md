@@ -148,7 +148,9 @@ pwsh -NoProfile -File tools/dev/asset-smoke.ps1
 - 补 PNG 走同一拆包器（`--black-transparent-formats 0,3,5`），四角透明与黑底规则一致；
 - **最后 4 个空目录（3486、3487、3493、3576）已删除**：它们只在 `stateitem.wzl` 有同索引帧
   （150×144 ~ 174×172 的穿戴态大图，语义不符），而对应物品（#403 GM 专用、#533/#589/#590 无引用）
-  已在兵部二号的 `.mnd` 清洗 pass 中剔除，不再保留目录；`game-assets/gfx/sprites/item` 现有 **826** 个目录；
+  已在兵部二号的 `.mnd` 清洗 pass 中剔除，不再保留目录；其中 **HardenedRing（#403）** 由
+  `icon-0433` 派生自绘图标 `icon-3576/3576.png`（`clean-report.warn.icon_filled=true`），
+  `game-assets/gfx/sprites/item` 现有 **827** 个目录；
 - 抽样：`icon-0075/0076/0077/0132/0277/2884/2885/2886/3792` 四角 `alpha=0` 且非空像素充足；
   `icon-3789` 四角是内容本身（黄色），非黑底。
 

@@ -14,19 +14,25 @@ pwsh -NoProfile -File tools/dev/ci.ps1 -NoAssets      # 额外跑「无 resource
 
 退出码 `0` = 全绿。
 
-## 覆盖的检查（共 10 项）
+## 覆盖的检查（共 12 项）
 
 | # | 检查 | 说明 |
 |---|---|---|
 | 1 | `cargo fmt --all --check` | 格式 |
 | 2 | `cargo clippy --workspace --all-targets -- -D warnings` | 静态检查（0 warning） |
 | 3 | `cargo test -p mir-server --test duo_smoke -- --test-threads=1` | **串行**跑双人联机冒烟（两个客户端抢同一战斗槽，并行会 flake） |
-| 4 | `cargo test --workspace` | 全量测试 |
+| 4 | `cargo test --workspace` | 全量测试（`--skip duo_ --skip fault_pg`） |
 | 5 | `py tools/protocol-gen/generate.py --crystal github/Crystal --check` | 协议生成结果与仓库一致（`github/Crystal` 不存在时跳过并提示） |
 | 6 | `py tools/docs/check_links.py` | 文档链接与包编号 |
 | 7 | `py tools/i18n/verify_text_keys.py` | TextKey 中英完整 |
-| 8 | 硬编码棘轮两条 | `--player-visible --fail-above 70`、`--no-test --fail-above 15` |
-| 9 | `cargo test -p mir-store -- --test-threads=1` | PostgreSQL 集成测试（需要本地 PG） |
+| 8 | 硬编码棘轮（player-visible） | `--strict --fail-above 70` |
+| 9 | 硬编码棘轮（no-test） | `--player-visible --strict --fail-above 15` |
+| 10 | `py tools/dev/check_legacy_refs.py` | 运行时不引用老资源格式（棘轮） |
+| 11 | `py tools/assets/verify_item_icons.py` | 物品图标完整性（无图标模板必须补图/删引用或白名单） |
+| 12 | `cargo test -p mir-store -- --test-threads=1` | PostgreSQL 集成测试（需要本地 PG） |
+
+> `fault_pg`（PG 故障注入）已改 **`#[ignore]` 手工套件**，不进默认 12 项门禁；手工命令见
+> [`gate-lessons.md`](gate-lessons.md) §13。
 
 `-NoAssets` 额外调用 `tools/dev/test-no-assets.ps1`：把测试二进制放进**没有 `resource/`** 的沙箱执行，
 确保「缺素材 → 显式 skip，而不是红」，见 [`ci-assets.md`](ci-assets.md)。

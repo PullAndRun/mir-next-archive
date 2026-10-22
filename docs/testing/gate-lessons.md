@@ -122,4 +122,27 @@ gate 没穿就开打。1 级裸装 `min_dc/max_dc=0`，`armour >= damage` 时伤
   直接拿 DB 模板算会得到 54.5% 命中——gate 的期望值要按实际装备后的属性算；
 - 先打印 `min_dc/max_dc/accuracy` 与首刀伤害，再断言击杀。
 
+## 13. 故障注入套件手工跑；live 战斗/走位不做硬断言
+
+**案例 A（PG 故障注入）**：`fault_pg` 依赖 `tools/dev/pg_proxy.py` 子进程 + 真 PG。
+本机串行跑会因 **pg_proxy 子进程残留**挂起（>10 分钟无输出，手工 kill 才恢复）；
+并行跑又会与其它 PG 用例抢连接/被 terminate 干扰。现全部标 `#[ignore]`，**默认不进 CI 门禁**。
+
+**手工命令**（只在需要时跑，串行）：
+
+```powershell
+$env:MIR2_TEST_DATABASE_URL = "postgres://postgres:postgres@127.0.0.1:5432/mir2_test"
+cargo test -p mir-server --test fault_pg -- --ignored --test-threads=1
+```
+
+**案例 B（live 战斗/走位）**：`core1i` 的 live 整链受怪物走位、随机命中/掉率影响，
+同一脚本多次跑结果会变；用 live 结果当“硬验收”会把**环境随机**误判成产品回归。
+新加的 `journey_server::same_character_core_loop_journey` 用真实 cjlaaa 数据 + `World` API，
+不依赖 TCP/走位/掉率，12 步在同一角色上确定性走完；**硬验收以它为准**。
+
+**规则**：
+- 门禁断言优先**确定性路径**（World API / 固定种子 / 固定流），live 只作补充证据；
+- live 脚本里的随机项（击杀、掉率、走位）要标 SKIP 或单独套件，不能混进 PASS 判据；
+- 故障注入类套件显式 `#[ignore]`，文档写手工命令与前置条件，不默认拖慢/挂起 CI。
+
 

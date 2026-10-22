@@ -36,7 +36,7 @@
 | 模块 | 状态 | 说明 |
 | --- | --- | --- |
 | 仓库初始化、许可证、README | ✅ | |
-| Cargo workspace 与 CI | ✅ | `cargo fmt` / `clippy` / `test` + 协议生成一致性检查；**不使用远端 CI**：全部开发、测试、门禁都在本地跑，`pwsh -NoProfile -File tools/dev/ci.ps1` 一条命令覆盖 10 项检查，见 [`docs/testing/local-ci.md`](docs/testing/local-ci.md)；另有慢检查巡检 **`tools/dev/check-routine.ps1`**（**发版前 `-Full`**：迁移演练+无素材沙箱+关键 PG 用例；**日常 `-Quick`**），见 [`docs/testing/check-routine.md`](docs/testing/check-routine.md)；长时稳定性 soak（100 连接 × 1800s、相对+绝对判据、`--self-check` 用合成坏样本自证）见 [`docs/testing/soak.md`](docs/testing/soak.md) |
+| Cargo workspace 与 CI | ✅ | `cargo fmt` / `clippy` / `test` + 协议生成一致性检查；**不使用远端 CI**：全部开发、测试、门禁都在本地跑，`pwsh -NoProfile -File tools/dev/ci.ps1` 一条命令覆盖 **12 项检查**，见 [`docs/testing/local-ci.md`](docs/testing/local-ci.md)；`fault_pg`（PG 故障注入）已改 **`#[ignore]` 手工套件**（不进默认门禁）：`MIR2_TEST_DATABASE_URL=... cargo test -p mir-server --test fault_pg -- --ignored --test-threads=1`；另有慢检查巡检 **`tools/dev/check-routine.ps1`**（**发版前 `-Full`**：迁移演练+无素材沙箱+关键 PG 用例；**日常 `-Quick`**），见 [`docs/testing/check-routine.md`](docs/testing/check-routine.md)；长时稳定性 soak（100 连接 × 1800s、相对+绝对判据、`--self-check` 用合成坏样本自证）见 [`docs/testing/soak.md`](docs/testing/soak.md) |
 | 协议层（`mir-protocol`） | ✅ | **432/432 个包全覆盖**：408 个由 C# 源码自动生成 + 24 个手写；每个包都有 encode→decode 往返测试 |
 | 登录网关与会话（`mir-server`） | ✅ | 版本校验、注册、登录、建角/删角、进世界、聊天、语言切换 |
 | 地图与行走（`mir-world` / `mir-server`） | 🟡 | `.map` 9 种版本读取 + 可走性校验；动作计时按 Crystal（走/跑 600ms、转身 350ms、跑需先走一步）、`UserLocation`/`ObjectWalk`/`ObjectRun` 广播、世界 tick 100ms；视野已对齐 16 格（`DataRange`）并接入 8×8 桶 AOI 网格、进出视野差分与门状态机（5 秒自动关）；本轮端到端测试见 `tests/aoi.rs`，待刑部全量验收 |
@@ -46,7 +46,7 @@
 | PK 与攻击模式 | ✅ | Peace/Group/Guild/RedBrown/All 判定、安全区与 NoFight 禁打、PvP 300ms 结算与暴击、PK 值（击杀 +100、红名 200/黄名 100、12 秒衰减、棕名 60 秒）、名字颜色广播、死亡掉落（红名背包全掉）、守卫只打红名并可回位 |
 | 攻城（沙巴克） | 🟡 | 申请校验、时间表开战/停战、四种城主判定、夺城广播与城主税收、战区名字色与 PK 保护、攻城传送点城主专属、箭塔只射敌对行会、迁移 0008 持久化；第 8 轮补**器械简化实体**（Gate/Wall/Archer 5000/3000/2000 HP、可摧毁、`S.ConquestInfo/Object/Result` 300–302 扩展包、**迁移 0016 持久化**、`OPENGATE`/`CLOSEGATE`、箭塔 `S.ObjectRangeAttack`）；旗子/控制点 NPC、修理未做 |
 | 技能（魔法） | 🟡 | 技能数据/用书学习/施法校验/延迟结算/修炼值升级（`level_magic`）/存档；**升级书**（已会未满 3 级读同书升 1 级，本作扩展）与**新手免费第一本书**（1 级无技能，Librarian_Steven）；已实现 15 个伤害/治疗/位移/召唤/中毒技能（火球系列/HellFire/FireBang/治疗/火墙/雷电/瞬息移动/隐身/召唤骷髅/召唤神兽/施毒）与 9 个增益技能（护盾/加速/魔法盾…）；**宠物命令** `C.ChangePMode`（5 种 `PetMode`，客户端 `V` 键三态循环；`pet_modes` 为 World 侧表、不随角色存档）；其余登记未实现（`docs/world/magic.md` §9） |
-| 物品与背包 | ✅ | 掉落、地面物品与过期、拾取/丢弃、46 格背包、14 装备槽、装备加成、药水/卷轴/丢金币、**新角色出生装**（`StartItem` 职业过滤）、**书店/技能书**（Book `Shape`=Spell、双击学习 + 新手提示）、`UserItem[]` 存档；仓库见「玩家仓库与邮件」 |
+| 物品与背包 | ✅ | 掉落、地面物品与过期、拾取/丢弃、46 格背包、14 装备槽、装备加成、药水/卷轴/丢金币、**新角色出生装**（`StartItem` 职业过滤）、**书店/技能书**（Book `Shape`=Spell、双击学习 + 新手提示）、`UserItem[]` 存档；**物品模板 1346**（剔除 3 个无图标未引用物品；`HardenedRing` 自绘图标）、**图标 827**（从其它 Items 库补齐 168）；仓库见「玩家仓库与邮件」 |
 | Buff | ✅ | 带到期时间的属性修饰层、`AddBuff`/`RemoveBuff` 广播、魔法盾按伤害扣时、到期重算属性并补发血量 |
 | NPC 页面/对话 | ✅ | `Envir/NPCs` 脚本解析（`#INSERT`/`#INCLUDE`/条件/动作/按钮）、NPC 刷出与 `ObjectNPC`、`NewMapInfo` 下发、GOTO/按钮白名单、`@main`/`@exit`/空 key 归一（无对话时 `NoDialog`）；**页面流程已验证**（EQ-1 真实 TCP：`@main` → `@REPAIR` 能打开、页面文本含 `<Repair/@Repair>`）；NPC 营业时段可见性未做 |
 | NPC 商店（买/卖） | ✅ | `@BuySell`/`@Buy`/`@Sell` 页 → `S.NPCGoods`(102)/`S.NPCSell`(103) → `C.BuyItem`/`C.SellItem`；金币定价 `Price()*Rate`、卖价 `Price()/2`；**卖已验**（EQ-1，鸡肉 850→+40）、**买已验**（`buy1` PASS，1 级首本书免费，货架 `unique_id=201`；**坑：`C.BuyItem.item_index` 填货架 `unique_id`，不是 DB item index**）；证据 [`eq1-sell-gate14.md`](docs/testing/evidence/round26/eq1-sell-gate14.md)、[`eq1-buy1.md`](docs/testing/evidence/round26/eq1-buy1.md) |
@@ -72,17 +72,22 @@
 | 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计、MirDB 报告、图库查看/导出；素材库编辑器未做 |
 | 素材索引（`mir2_dev`） | ✅ | `tools/asset-index/` 把 `resource/` 的 233 万文件登记进 PostgreSQL，按名字/扩展名/仓库查询 |
 
-### 核心闭环验收（第 28/40/41 轮）
+### 核心闭环验收（第 28/40/41/43 轮）
 
-> **第 41 轮最终裁决（御史台 t129）：有条件成立**——基础可玩能力有条件成立、已完成分项验证；
-> **不是零 SKIP 全链路 PASS**。原文条件摘录：**保留 live 升级、0 耐久整链、任务追踪 UI、
-> 非空任务/技能与耐久重登等未覆盖标签**；无条件宣布原始闭环完成还需补齐「同一角色连续旅程 /
-> 失败恢复与维护整链 / 来源与保留标签」三项。全文见
-> [`docs/testing/core-loop-final-verdict.md`](docs/testing/core-loop-final-verdict.md)。
+> **第 43 轮 t130 最终裁决：有条件成立**——基础玩法分项与同一角色的**服务端状态组合**可认可；
+> **“新玩家自主连续完成核心闭环”尚未成立**。原文：**“必须补的阻塞项是自然旅程，不能把本次
+> 状态注入测试等同于它”**；自然旅程需同一角色正常战斗/实际掉落/真实地图 gate/原位 NPC 完成
+> 接取→交付→经济/装备技能连续因果链，死亡由正常受击产生，且正常退出/生产恢复保留非空进度。
+> 全文见 [`docs/testing/core-loop-final-verdict-r43.md`](docs/testing/core-loop-final-verdict-r43.md)。
+>
+> **第 41 轮裁决（历史）：有条件成立**——基础可玩能力已分项验证，不是零 SKIP 全链路 PASS；
+> 条件（原文摘录）：**保留 live 升级、0 耐久整链、任务追踪 UI、非空任务/技能与耐久重登等
+> 未覆盖标签**。全文见 [`docs/testing/core-loop-final-verdict.md`](docs/testing/core-loop-final-verdict.md)。
 
 | 闭环 | 状态 | 证据 |
 |---|---|---|
 | quest1（新手任务） | ✅ PASS | Jane @(284,606) 接取 → 交付，`completed_quests` 含 1、经验 +50（cjlaaa） |
+| 同一角色连续旅程（确定性） | ✅ PASS（状态组合；自然旅程未成立） | `same_character_core_loop_journey`（`journey_server`）：**12 步、真实 cjlaaa、0.08s、不依赖 TCP/走位/掉率**；御史台 t130 明确它是**状态组合测试**，不能替代自然旅程；见 [`journey_server.rs`](crates/mir-server/tests/journey_server.rs) |
 | TP-1（任务导航/传送） | ✅ PASS | **新口径**：任务目标追踪（助理·简 map0 `(284,606)`）+ 按目标地图选门格（`0104`，`(4,9)`，Steven 距离 1），**不再用 `movements[0]`**；见 [`tp1-final.md`](docs/testing/evidence/round26/tp1-final.md) |
 | PS-1（退出重进持久化） | ✅ PASS（含 strict） | **审计后追加**：重登前后 equipment 2 件、inventory 3 件的槽位 `uid/index` 全等，`gold=0/completed=[]/spells=[]`；见 [`ps1-strict.log`](docs/testing/evidence/round26/ps1-strict.log)。core1i 组合 exit 0，PS 阶段因死亡记 **SKIP（不是 FAIL）**，独立 PS-1 strict 仍 PASS |
 | DR-1（死亡→复活） | ✅ PASS（cjlaaa live + 绑定点） | **审计后追加**：自然死亡 `hp=0` → 12s 无自动复活 → `C.TownRevive(68)` 0.011s 收 `S.Revived(136)` → 可移动/攻击；**回城优先角色绑定点**（`bind_map_index/bind_point`，无效/未设置回退 `start_map/start_point`）；**红名 `PKTown` 未实现**（数据无配置）；见 [`dr1-cjlaaa.log`](docs/testing/evidence/round26/dr1-cjlaaa.log) |
@@ -301,6 +306,7 @@ pwsh -NoProfile -File tools/dev/release-smoke.ps1
 | [`docs/testing/playtest.md`](docs/testing/playtest.md) | 协议级 playtest：Python 直连真服务端、`[OK]/[FAIL]/[SKIP]` 与当前限制 |
 | [`docs/testing/core-loop-audit-round40.md`](docs/testing/core-loop-audit-round40.md) | 第 40 轮核心闭环独立审计（verdict=partial，3 findings；结论以原文为准） |
 | [`docs/testing/core-loop-final-verdict.md`](docs/testing/core-loop-final-verdict.md) | 第 41 轮最终裁决：**有条件成立**（条件原文与未覆盖标签） |
+| [`docs/testing/core-loop-final-verdict-r43.md`](docs/testing/core-loop-final-verdict-r43.md) | 第 43 轮 t130 复核：**有条件成立**；确定性状态组合可认可，自然旅程仍是阻塞项 |
 | [`docs/testing/stress.md`](docs/testing/stress.md) | 压测：100/300 连接基线（dev profile）、tick/CPU/RSS/DB 口径与瓶颈 |
 | [`docs/testing/ci-assets.md`](docs/testing/ci-assets.md) | CI 素材依赖审计：哪些测试读 `resource/`、缺素材如何 skip，以及无素材复现脚本 |
 | [`docs/client.md`](docs/client.md) | 客户端：协议流程、按键/鼠标、面板与字体 |

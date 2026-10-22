@@ -49,9 +49,10 @@
 | 物品与背包 | ✅ | 掉落、地面物品与过期、拾取/丢弃、46 格背包、14 装备槽、装备加成、药水/卷轴/丢金币、**新角色出生装**（`StartItem` 职业过滤）、**书店/技能书**（Book `Shape`=Spell、双击学习 + 新手提示）、`UserItem[]` 存档；仓库见「玩家仓库与邮件」 |
 | Buff | ✅ | 带到期时间的属性修饰层、`AddBuff`/`RemoveBuff` 广播、魔法盾按伤害扣时、到期重算属性并补发血量 |
 | NPC 页面/对话 | ✅ | `Envir/NPCs` 脚本解析（`#INSERT`/`#INCLUDE`/条件/动作/按钮）、NPC 刷出与 `ObjectNPC`、`NewMapInfo` 下发、GOTO/按钮白名单、`@main`/`@exit`/空 key 归一（无对话时 `NoDialog`）；**页面流程已验证**（EQ-1 真实 TCP：`@main` → `@REPAIR` 能打开、页面文本含 `<Repair/@Repair>`）；NPC 营业时段可见性未做 |
-| NPC 商店（买/卖） | 🟡 | `@BuySell`/`@Buy`/`@Sell` 页 → `S.NPCGoods`(102)/`S.NPCSell`(103) → `C.BuyItem`/`C.SellItem`；金币定价与 `Price()*Rate`、卖价 `Price()/2`；**客户端逻辑层已验**（`tests/npc_flow.rs` 8 条）；**服务端卖已验**（鸡肉 850 → Sarah `@Sell` → +40），**买端到端待验** |
+| NPC 商店（买/卖） | ✅ | `@BuySell`/`@Buy`/`@Sell` 页 → `S.NPCGoods`(102)/`S.NPCSell`(103) → `C.BuyItem`/`C.SellItem`；金币定价 `Price()*Rate`、卖价 `Price()/2`；**卖已验**（EQ-1，鸡肉 850→+40）、**买已验**（`buy1` PASS，1 级首本书免费，货架 `unique_id=201`；**坑：`C.BuyItem.item_index` 填货架 `unique_id`，不是 DB item index**）；证据 [`eq1-sell-gate14.md`](docs/testing/evidence/round26/eq1-sell-gate14.md)、[`eq1-buy1.md`](docs/testing/evidence/round26/eq1-buy1.md) |
 | NPC 修理 | ✅ | `@Repair`/`@SRepair` 页 → `S.NPCRepair`(104)/`S.NPCSRepair`(105) → `C.RepairItem`；三条前置（修理页/物品在背包/NPC 16 格内）与公式 `MaxDura-(MaxDura-CurrentDura)/30`；**EQ-1 已 PASS**：B 段耐久 3978→4000/4000，C 段金币 40→38（扣 2）；**耐久损耗与归零失效**（攻击 1..=4/受击每槽 -1、`item_broken`、满耐久/金币不足提示）已接 |
 | 卖肉链（经济闭环） | ✅ | 杀鸡（cjlaaa 26.7% 掉肉）→ 鸡肉 `item_index=850` → Sarah `@Sell` 卖 **+40 金币** → 修理 **-2 金币**；证据 [`docs/testing/evidence/round26/eq1-sell-gate14.md`](docs/testing/evidence/round26/eq1-sell-gate14.md) |
+| 角色升级 | ✅ | **确定性单测 PASS**：1 级 `99+5` → 2 级余 **4**、HP **24/24**、MP **18/18**、`S.LevelChanged{2,4,200}`；**live gate 因训练假人干扰记 SKIP**（后续 gate 改进：排除假人/只对真怪） |
 
 ### 核心闭环验收（第 28 轮）
 
@@ -223,6 +224,13 @@ cargo run -p mir-tools -- mirdb-report --path resource/community/suprcode-crysta
 
 # 从 Crystal 源码重新生成协议代码（默认读 github/Crystal，可用 --crystal 覆盖）
 python tools/protocol-gen/generate.py
+```
+
+### 发布前检查
+
+```powershell
+pwsh -NoProfile -File tools/dev/release-smoke.ps1
+# 只读 game-assets/packs 加载/渲染；45 包 / 480,000 像素 / 与 dev 散装渲染差异 = 0
 ```
 
 服务端默认监听 `0.0.0.0:7000`（`MIR2_LISTEN` 可改），会尝试加载

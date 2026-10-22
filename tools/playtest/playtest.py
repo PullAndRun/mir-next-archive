@@ -327,6 +327,8 @@ class Playtest:
         self.sell1 = False
         self.levelup1 = False
         self.buy1 = False
+        self.core1 = False
+        self.char_index = 0
         self.level_events: list[tuple[int, int, int]] = []
         self.damage_types: list[tuple[int, int]] = []
         self.dr1_keep_moving = False
@@ -891,7 +893,13 @@ class Playtest:
                 print(f"  [修理] unique_id={unique_id} max={max_dura} current={current}（S.ItemRepaired 114）")
             elif index == S_GAINED_ITEM:  # 66：到手物品
                 r = Reader(payload)
-                self.last_gained_items.append(r.user_item())
+                item = r.user_item()
+                self.last_gained_items.append(item)
+                self.inventory_items.append(item)
+                print(
+                    f"  [buy1] S.GainedItem item_index={item['item_index']} "
+                    f"uid={item['unique_id']} count={item.get('count')}"
+                )
             elif index == S_GAINED_QUEST_ITEM:  # 205：任务物品栏（Crystal GainQuestItem）
                 r = Reader(payload)
                 item = r.user_item()
@@ -2952,6 +2960,49 @@ class Playtest:
         self.ok("使用技能", f"FireBall 命中（MP {before_mp} -> {self.self_mp}）")
 
     # ---------------- 主流程 ----------------
+    def core1_flow(self) -> int:
+        """核心闭环（live 战斗依赖项 SKIP）：穿装 → quest1 → 卖肉(SKIP) → 买书 → 修理(SKIP) → PS-1 → 升级(SKIP)。"""
+        rows = []
+
+        def run(name: str, fn) -> int:
+            before = len(self.results)
+            code = fn()
+            new = self.results[before:]
+            kind = "PASS" if code == 0 and all(k != "SKIP" for k, _, _ in new) else "SKIP" if code == 0 else "FAIL"
+            evidence = new[-1][2] if new else f"exit={code}"
+            rows.append((name, kind, evidence))
+            print(f"  [core1] {name} | {kind} | {evidence}")
+            return code
+
+        def equip_stage() -> int:
+            count = self.newbie_equip()
+            if count <= 0:
+                self.fail("core1 穿装", "没有装备成功")
+                return 1
+            self.ok("core1 穿装", f"穿上 {count} 件：{[(e.get('item_index'), e.get('slot')) for e in self.equipped_items]}")
+            return 0
+
+        def skip_stage(name: str, reason: str):
+            self.skip(name, reason)
+            rows.append((name, "SKIP", reason))
+            print(f"  [core1] {name} | SKIP | {reason}")
+            return 0
+
+        print("  [core1] 阶段 | 结果 | 关键证据")
+        run("穿装", equip_stage)
+        run("quest1", self.quest1_flow)
+        skip_stage("卖肉", "live 战斗随机/假人占格；已由 --sell1 单独验证：Chicken 850→Sarah @Sell→+40")
+        run("买书", self.buy1_flow)
+        skip_stage("修理", "无稳定耐久损耗；已由 --eq1/--sell1 单独验证：3978→4000、gold 40→38")
+        run("PS-1", lambda: self.ps1_flow(self.char_index))
+        skip_stage("升级", "live 战斗随机；确定性证据由兵部二号 LevelChanged 单测覆盖")
+        failed = [name for name, kind, _ in rows if kind == "FAIL"]
+        if failed:
+            self.fail("core1 组合", f"失败阶段={failed}")
+            return 1
+        self.ok("core1 组合", f"{len(rows)} 阶段全部 PASS/SKIP")
+        return 0
+
     def levelup1_flow(self) -> int:
         """打怪到 2 级：累计经验、S.LevelChanged 1→2、属性 before/after。"""
         level_before = self.self_level or 1
@@ -2967,7 +3018,7 @@ class Playtest:
         attempts = 0
         while (self.self_level or 1) < 2 and time.time() < deadline:
             attempts += 1
-            preys = [m for m in self.monsters if not m.get("dead")]
+            preys = [m for m in self.monsters if not m.get("dead") and not self._is_dummy(m)]
             weak = [
                 m
                 for m in preys
@@ -3063,6 +3114,14 @@ class Playtest:
         if got is None:
             self.fail("buy1 购买", f"未收到 S.GainedItem（gold={self.self_gold}）")
             return 1
+        in_bag = any(
+            item["item_index"] == got["item_index"]
+            and item["unique_id"] == got["unique_id"]
+            for item in self.inventory_items
+        )
+        if not in_bag:
+            self.fail("buy1 背包", f"GainedItem #{got['item_index']} 未出现在背包")
+            return 1
         gold_after = self.self_gold or 0
         if spent > 0 and gold_after != gold_before - spent:
             self.fail("buy1 扣款", f"金币 {gold_before}->{gold_after}，期望扣 {spent}")
@@ -3088,6 +3147,7 @@ class Playtest:
                 m
                 for m in self.monsters
                 if not m.get("dead")
+                and not self._is_dummy(m)
                 and ("hen" in m.get("name", "").lower() or "鸡" in m.get("name", ""))
             ]
             if not preys:
@@ -4347,6 +4407,9 @@ class Playtest:
             return self.newbie_flow(char_index if char_index is not None else 0)
         self.ok("进入世界", f"object_id={self.self_object_id} pos={self.self_pos}")
         self.entry_map, self.entry_pos = self.map_file, self.self_pos
+        if self.core1:
+            self.char_index = char_index if char_index is not None else 0
+            return self.core1_flow()
         if self.sell1:
             return self.sell1_flow()
         if self.levelup1:
@@ -4495,6 +4558,10 @@ class Playtest:
         self.ok("下线")
         return 0 if all(kind != "FAIL" for kind, _, _ in self.results) else 1
 
+    def _is_dummy(self, monster: dict) -> bool:
+        name = monster.get("name", "").lower()
+        return any(key in name for key in ("假人", "训练", "dummy", "木桩"))
+
     def _distance(self, pos: tuple[int, int]) -> int:
         if self.self_pos is None:
             return 10**9
@@ -4584,6 +4651,7 @@ def main() -> int:
     parser.add_argument("--sell1", action="store_true", help="卖肉链：杀 Hen→捡 Chicken→Sarah 卖→金币→eq1 修理")
     parser.add_argument("--levelup1", action="store_true", help="升级链：打怪到 2 级，断言 S.LevelChanged")
     parser.add_argument("--buy1", action="store_true", help="购买链：去 0104 书店，@main→商店 key→买第一件")
+    parser.add_argument("--core1", action="store_true", help="组合核心闭环：quest1→sell1→levelup1(允许SKIP)→ps1")
     parser.add_argument("--dr1-keep-moving", action="store_true", help="DR-1 等待死亡时持续小范围走位（验证“移动才挨打”假设）")
     parser.add_argument(
         "--self-check",
@@ -4628,6 +4696,7 @@ def main() -> int:
     test.sell1 = args.sell1
     test.levelup1 = args.levelup1
     test.buy1 = args.buy1
+    test.core1 = args.core1
     test.dr1_keep_moving = args.dr1_keep_moving
     try:
         code = test.run()

@@ -105,7 +105,10 @@ if (-not $SkipTests) {
     # workspace 再跑一遍 duo_smoke 是**并行**的：与其它 crate 的测试抢 CPU 时，
     # `duo_group_experience_*` 的实时战斗/经验回调会超时（实测 227s 仍 FAILED）。
     # 该套用例已由上一项**串行**跑过（覆盖率不变），这里只跳过重复的并行执行。
-    Invoke-Gate "cargo test --workspace" "cargo test --workspace -- --skip duo_"
+    # `fault_pg` 是「真 PG 故障注入」套件：并行跑会与其它 PG 用例抢连接/被 terminate 干扰
+    # （实测 workspace 并行时 `transient_terminate_is_transparent_*` 偶发红；单独跑 0.44s 通过）。
+    # 这里跳过并行版本，改由第 5 步的**串行** PG 门禁跑（覆盖率不变）。
+    Invoke-Gate "cargo test --workspace" "cargo test --workspace -- --skip duo_ --skip fault_pg"
 }
 
 # 2) 协议生成器自检（需要 github/Crystal）
@@ -131,6 +134,8 @@ Invoke-Gate "运行时不引用老资源格式" "$python tools/dev/check_legacy_
 # 5) PostgreSQL 集成测试（连接串已在脚本开头统一设好，这里只跑门禁）
 if (-not $SkipTests -and -not $SkipPostgres) {
     Invoke-Gate "PostgreSQL 集成测试（mir-store 串行）" "cargo test -p mir-store -- --test-threads=1"
+    # `fault_pg` 的并行版本已在第 1 步跳过；这里串行跑一遍保证覆盖。
+    Invoke-Gate "PostgreSQL 故障注入（mir-server 串行）" "cargo test -p mir-server --test fault_pg -- --test-threads=1"
 }
 
 # 6) 可选：无 resource/ 沙箱（模拟 CI 没有素材）

@@ -165,7 +165,8 @@ Rust 侧：`crates/mir-server/src/npc.rs`（页面执行/买卖修）、`crates/
 | 金币掉落经济链路审计 | **部分已验** | 卖肉链（杀鸡→鸡肉 850→Sarah `@Sell`→+40）与修理扣 2 已验，见 [`economy.md`](economy.md)；更广掉落审计仍归**兵部二号** |
 | `Merchant_John` 4 格内 BFS 无路 | **待走位专项** | 脚本坐标 `(292,604)` 与服务器刷出位置/占位可能不一致；4 格内 BFS 无路，真人可行走但脚本走不到，需走位专项 |
 | 特修 `[@SREPAIR]` | **未接入客户端** | 页面/`S.NPCSRepair` 在，`C.SRepairItem` 无入口；Crystal 费用 ×3 |
-| 商店买/卖端到端 | **卖已验 / 买待验** | 卖：鸡肉 850 → Sarah `@Sell` → +40 金币；买：页面、`S.NPCGoods`、`C.BuyItem`、扣款/进包已实现，真实 TCP 待验 |
+| 商店买/卖端到端 | **✅ 买/卖均验** | 卖：鸡肉 850 → Sarah `@Sell` → +40；买：`buy1` PASS（1 级首本书免费，货架 `unique_id=201`；**`C.BuyItem.item_index` 填货架 uid，不是 DB item index**）；证据 [`eq1-sell-gate14.md`](../testing/evidence/round26/eq1-sell-gate14.md)、[`eq1-buy1.md`](../testing/evidence/round26/eq1-buy1.md) |
+| 回购/二手货面板、珍珠商店 | **已知简化（保持）** | `Envir/Goods/*.msd` 二手货、`BuyBack`/`PearlBuy` 未实现；`[Types]` 收购限制已做 |
 | 修理端到端 | **✅ EQ-1 PASS** | B 段耐久 3978→4000/4000，C 段金币 40→38（扣 2），`S.ItemRepaired` 已收；证据 [`eq1-sell-gate14.md`](../testing/evidence/round26/eq1-sell-gate14.md) |
 
 ## 6. 验收清单（建议）

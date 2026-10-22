@@ -110,4 +110,16 @@ gate 若硬编码 `@BuySell`，服务端会回 `NotShopPage`/`NotACurrentButton`
 - 只点当前页真实存在的按钮，不按“常见页名”硬编码；
 - 找不到预期按钮时打印完整页面原文 + 当前页 key，便于判断是数据差异还是包丢失。
 
+## 12. 新手出生装只在背包，先 `C.EquipItem` 再战斗
+
+**案例**：新手出生装（Crystal `HumanObject.cs:234-246` 同语义）只放在**背包**里，
+gate 没穿就开打。1 级裸装 `min_dc/max_dc=0`，`armour >= damage` 时伤害为 0，
+战斗日志全是 `Miss(0)`，被误判成“命中/伤害坏了”。
+
+**规则**：
+- 战斗前必须发 `C.EquipItem`，等 `S.EquipItem{success:true}`，并断言装备槽/属性已变；
+- 1 级基础 `accuracy=5`（不是 7）；出生武器 **+2 accuracy 是本作扩展**，
+  直接拿 DB 模板算会得到 54.5% 命中——gate 的期望值要按实际装备后的属性算；
+- 先打印 `min_dc/max_dc/accuracy` 与首刀伤害，再断言击杀。
+
 

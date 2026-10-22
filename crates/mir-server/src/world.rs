@@ -5943,11 +5943,11 @@ mod tests {
         let db_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../resource/community/suprcode-crystal-database/cjlaaa/Server.MirDB");
         if !db_path.is_file() {
-            eprintln!("skip: 没有 cjlaaa Server.MirDB");
+            eprintln!("skip: no cjlaaa Server.MirDB");
             return;
         }
         let Ok(data) = GameData::load(&db_path) else {
-            eprintln!("skip: cjlaaa 数据加载失败");
+            eprintln!("skip: failed to load cjlaaa data");
             return;
         };
         let Some(kind) = data.monster(13).cloned() else {
@@ -6145,7 +6145,7 @@ mod tests {
             !packets
                 .iter()
                 .any(|packet| matches!(packet, ServerPacket::UserInformation(_))),
-            "升级不重发 S.UserInformation：{packets:?}"
+            "level-up must not resend S.UserInformation: {packets:?}"
         );
         assert!(
             packets.iter().any(|packet| matches!(
@@ -6153,7 +6153,7 @@ mod tests {
                 ServerPacket::LevelChanged(level)
                     if (level.level, level.experience, level.max_experience) == (2, 4, 200)
             )),
-            "必须发 S.LevelChanged{{2,4,200}}：{packets:?}"
+            "must emit S.LevelChanged{{2,4,200}}: {packets:?}"
         );
         let last_health = packets
             .iter()
@@ -6165,7 +6165,7 @@ mod tests {
         assert_eq!(
             last_health,
             Some((24, 18)),
-            "最后一条 HealthChanged 必须是满血/满蓝"
+            "the last HealthChanged must be full HP/MP"
         );
     }
 
@@ -6182,7 +6182,7 @@ mod tests {
         assert_eq!(
             (player.level, player.experience, player.max_experience),
             (3, 49, 300),
-            "连升两级后必须取 3 级的新阈值，不能复用旧 MaxExperience"
+            "after two levels the new threshold must be used, not the old MaxExperience"
         );
         let packets = drain(&mut rx);
         assert!(
@@ -6191,7 +6191,134 @@ mod tests {
                 ServerPacket::LevelChanged(level)
                     if (level.level, level.experience, level.max_experience) == (3, 49, 300)
             )),
-            "跨两级只应发一条最终 LevelChanged{{3,49,300}}：{packets:?}"
+            "crossing two levels must emit a single final LevelChanged{{3,49,300}}: {packets:?}"
+        );
+    }
+
+    #[test]
+    fn starter_weapon_equip_grants_dc_and_accuracy() {
+        let db_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../resource/community/suprcode-crystal-database/cjlaaa/Server.MirDB");
+        if !db_path.is_file() {
+            eprintln!("skip: no cjlaaa Server.MirDB");
+            return;
+        }
+        let Ok(data) = GameData::load(&db_path) else {
+            eprintln!("skip: failed to load cjlaaa data");
+            return;
+        };
+        let mut world = World::new(999);
+        world.seed_rng(7);
+        world.set_game_data(Arc::new(data));
+        let (player, mut rx) = player(1, "equip test", Point::new(10, 10), "0");
+        world.enter(player);
+        let stats = combat::player_base_stats(1, MirClass::Warrior);
+        {
+            let player = world.player_mut(1).expect("玩家");
+            player.level = 1;
+            player.stats = stats;
+            player.hp = stats.hp;
+            player.mp = stats.mp;
+        }
+        drain(&mut rx);
+
+        let weapon = world
+            .starter_items_for(MirClass::Warrior)
+            .into_iter()
+            .find(|item| {
+                world
+                    .item_info(item.item_index)
+                    .is_some_and(|info| info.item_type == mir_core::enums::ItemType::Weapon)
+            })
+            .expect("cjlaaa 战士出生装里必须有武器");
+        assert_eq!(
+            world.player(1).unwrap().stats.accuracy,
+            5,
+            "unarmed base accuracy=5"
+        );
+        assert_eq!(world.player(1).unwrap().stats.min_dc, 0, "裸装 DC=0");
+        let unique_id = weapon.unique_id;
+        let item_index = weapon.item_index;
+        assert!(
+            world.add_item_to_inventory(1, weapon),
+            "starter weapon must be in the bag first, never auto-equipped"
+        );
+        assert!(
+            world.player(1).unwrap().equipment[0].is_none(),
+            "starter items go to the bag only (Crystal HumanObject.cs:234-246)"
+        );
+
+        world
+            .equip_item(1, unique_id, mir_core::enums::MirGridType::Inventory, 0)
+            .expect("C:EquipItem 应成功");
+
+        let player = world.player(1).expect("玩家");
+        assert_eq!(
+            player.equipment[0].as_ref().map(|item| item.item_index),
+            Some(item_index),
+            "weapon must be in equipment slot 0"
+        );
+        assert!(player.stats.min_dc > 0, "穿武器后 min_dc 必须 >0");
+        assert!(player.stats.max_dc > 0, "穿武器后 max_dc 必须 >0");
+        assert_eq!(player.stats.accuracy, 7, "base 5 + 出生武器 +2 Accuracy");
+
+        let packets = drain(&mut rx);
+        assert!(
+            packets.iter().any(|packet| matches!(
+                packet,
+                ServerPacket::EquipItem(equip) if equip.success && equip.unique_id == unique_id
+            )),
+            "C.EquipItem must answer S.EquipItem{{success=true}}: {packets:?}"
+        );
+        assert!(
+            !packets
+                .iter()
+                .any(|packet| matches!(packet, ServerPacket::UserInformation(_))),
+            "equip must not resend S.UserInformation (S.EquipItem + stat sync): {packets:?}"
+        );
+
+        // 用穿装后的真实 stats 对 AC=0/agility=10 的鸡打 10,000 刀。
+        let chicken = CombatStats {
+            agility: 10,
+            ..CombatStats::default()
+        };
+        let mut rng = MirRng::from_seed(2028);
+        let mut hits = 0_u32;
+        let mut min_hit = i32::MAX;
+        let mut max_hit = i32::MIN;
+        let attacker = world.player(1).unwrap().stats;
+        for _ in 0..10_000 {
+            // 模拟真实攻击链：先抽 2..=4 的攻击力，再过 GetArmour/命中判定。
+            let damage = rng.next_range(attacker.min_dc, attacker.max_dc);
+            let result = combat::resolve_player_attack(
+                &attacker,
+                &chicken,
+                damage,
+                DefenceType::ACAgility,
+                &mut rng,
+            );
+            if !result.miss {
+                hits += 1;
+                min_hit = min_hit.min(result.damage);
+                max_hit = max_hit.max(result.damage);
+            }
+        }
+        let rate = f64::from(hits) / 10_000.0;
+        eprintln!(
+            "starter weapon: item_index={item_index} accuracy={} dc={}..={} hits={hits} rate={rate:.4} damage={min_hit}..={max_hit}",
+            attacker.accuracy, attacker.min_dc, attacker.max_dc
+        );
+        assert!(
+            (0.70..=0.76).contains(&rate),
+            "hit rate after equip {rate:.3} deviates from 8/11"
+        );
+        assert!(
+            (2..=4).contains(&min_hit),
+            "min hit damage {min_hit} outside 2..=4"
+        );
+        assert!(
+            (2..=4).contains(&max_hit),
+            "max hit damage {max_hit} outside 2..=4"
         );
     }
 }

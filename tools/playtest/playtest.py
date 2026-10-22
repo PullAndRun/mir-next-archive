@@ -328,6 +328,7 @@ class Playtest:
         self.levelup1 = False
         self.buy1 = False
         self.level_events: list[tuple[int, int, int]] = []
+        self.damage_types: list[tuple[int, int]] = []
         self.dr1_keep_moving = False
         self.dr1_taken_hits: list[tuple[float, int, int]] = []
         self.dr1_counts: collections.Counter[str] = collections.Counter()
@@ -740,7 +741,8 @@ class Playtest:
                 _type = r.u8()
                 object_id = r.u32()
                 if object_id != self.self_object_id:
-                    print(f"  [DR-1] 伤害数字 target={object_id} dmg={damage}（75）")
+                    print(f"  [DR-1] 伤害数字 target={object_id} dmg={damage} type={_type}（75）")
+                    self.damage_types.append((_type, damage))
                     if damage != 0:
                         self.dr1_hit_target = object_id
             elif index == S_DEATH:
@@ -2957,12 +2959,23 @@ class Playtest:
         hp_before = self.self_hp
         mp_before = self.self_mp
         self.newbie_equip()
+        print(
+            f"  [levelup] 装备={[(e.get('item_index'), e.get('slot')) for e in self.equipped_items]}"
+        )
         print(f"  [levelup] before level={level_before} exp={exp_before} hp={hp_before} mp={mp_before}")
         deadline = time.time() + 300
         attempts = 0
         while (self.self_level or 1) < 2 and time.time() < deadline:
             attempts += 1
             preys = [m for m in self.monsters if not m.get("dead")]
+            weak = [
+                m
+                for m in preys
+                if any(k in m.get("name", "") for k in ("鸡", "鹿", "稻草人"))
+                or any(k in m.get("name", "").lower() for k in ("hen", "deer", "scarecrow"))
+            ]
+            if weak:
+                preys = weak
             if not preys:
                 self.walk_towards((342, 312), max_steps=120)
                 self._drain(0.8)

@@ -216,6 +216,9 @@ fn from_store_character(character: mir_store::Character) -> Character {
         y: character.current_y,
         direction: MirDirection::from_value(u8::try_from(character.direction).unwrap_or(4))
             .unwrap_or_default(),
+        bind_map_index: character.bind_map_index,
+        bind_x: character.bind_x,
+        bind_y: character.bind_y,
         hp: character.hp,
         mp: character.mp,
         experience: character.experience,
@@ -254,6 +257,9 @@ fn apply_to_store_character(character: &Character, target: &mut mir_store::Chara
     target.current_x = character.x;
     target.current_y = character.y;
     target.direction = i16::from(character.direction as u8);
+    target.bind_map_index = character.bind_map_index;
+    target.bind_x = character.bind_x;
+    target.bind_y = character.bind_y;
     target.hp = character.hp;
     target.mp = character.mp;
     target.experience = character.experience;

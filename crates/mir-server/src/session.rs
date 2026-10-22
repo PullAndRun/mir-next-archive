@@ -1007,6 +1007,22 @@ impl<S: AccountStore> Session<S> {
         world.observe_item_uids(inventory.iter().chain(equipment.iter()).flatten());
         let object_id = world.allocate_object_id();
         let position = Point::new(character.x, character.y);
+        // 绑定回城点：旧档/新角色可能没有 `bind_map_index`（0）或坐标为 (0,0)；
+        // 按需求回落到 `ServerConfig.start_map/start_point`，并把有效主键写回世界侧，
+        // 这样下次落盘时 `characters.bind_*` 就是出生点，而不是 0。
+        let start_point = Point::new(self.config.start_point.0, self.config.start_point.1);
+        let (bind_map_index, bind_point) =
+            if character.bind_map_index == 0 || (character.bind_x == 0 && character.bind_y == 0) {
+                (
+                    world.map_index(&self.config.start_map).unwrap_or(0),
+                    start_point,
+                )
+            } else {
+                (
+                    character.bind_map_index,
+                    Point::new(character.bind_x, character.bind_y),
+                )
+            };
         // 行会：按角色 ID 反查成员表（`Character.guild_index` 只是反向指针，
         // 行会的成员表才是事实来源）。`World::enter` 会再校正一次。
         let guild_ref = world.guild_ref_of_character(character.id);
@@ -1018,6 +1034,8 @@ impl<S: AccountStore> Session<S> {
             map: character.map.clone(),
             position,
             direction: character.direction,
+            bind_map_index,
+            bind_point,
             level: character.level,
             // 经验与升级需求：`max_experience` 由 `World::enter` 按经验表补上
             // （Crystal `PlayerObject.RefreshMaxExperience`，`PlayerObject.cs:9627-9630`）。

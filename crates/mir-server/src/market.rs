@@ -2790,6 +2790,11 @@ pub fn character_snapshot(base: &Character, player: &Player, pet_mode: PetMode) 
     character.y = player.position.y;
     character.direction = player.direction;
     character.map.clone_from(&player.map);
+    // 绑定回城点（Crystal `CharacterInfo.BindMapIndex/BindLocation`）：世界侧是活值，
+    // 市场/商城/下线任何一次落盘都必须带上，否则回城点会被登录时的 base 覆盖。
+    character.bind_map_index = player.bind_map_index;
+    character.bind_x = player.bind_point.x;
+    character.bind_y = player.bind_point.y;
     character.guild_index = player.guild.map_or(-1, |reference| reference.guild_id);
     // 宠物命令模式（Crystal `CharacterInfo.PMode`，单字节；运行时在 World 侧表）。
     character.pet_mode = i16::from(pet_mode.value());

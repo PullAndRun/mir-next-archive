@@ -124,6 +124,8 @@ impl Harness {
             trade_invitation: None,
             next_trade_time: 0,
             allow_trade: true,
+            bind_map_index: 0,
+            bind_point: mir_core::Point::default(),
             sender,
         });
         // 关掉自然回血，免得 10 秒一次的 +3% 混进药水/治疗断言。

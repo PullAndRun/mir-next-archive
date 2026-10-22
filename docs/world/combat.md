@@ -458,8 +458,11 @@ Enqueue(new S.Revived());                                  // → 本人
 Broadcast(new S.ObjectRevived { ObjectID, Effect = effect });  // → 周围玩家
 ```
 
-- `TownRevive`（`PlayerObject.cs:1392-1450`）走另一条路：传送到绑定回城点，`SetHP`/`SetMP` 补满，
-  再发 `MapChanged` + `Revived` + `ObjectRevived`。本作**没有**回城复活，只有原地复活。
+- `TownRevive`（`PlayerObject.cs:1392-1455`）走另一条路：传送到角色的绑定回城点
+  （`CharacterInfo.BindMapIndex`/`BindLocation`），`SetHP`/`SetMP` 补满，再发
+  `MapChanged` + `Revived` + `ObjectRevived`。本作已接入 `characters.bind_map_index/bind_x/bind_y`：
+  绑定地图加载不到或落点不可走时回退 `ServerConfig.start_map/start_point`；
+  **红名 `PKTown` 分支未实现**（数据里没有 PKTown 配置），红名目前也走绑定/出生点。
 - 本作在 `ObjectRevived` 之后**多补一条 `ObjectPlayer`**：Crystal 的 `Map.AddObject`
   （`Map.cs:2361-2373`）只把对象塞回格子、不再广播 `GetInfo()`，而我们的客户端把 `ObjectRemove`
   当彻底删除，不补外观包的话复活后的角色在旁人客户端里会永久消失。
@@ -469,7 +472,7 @@ Broadcast(new S.ObjectRevived { ObjectID, Effect = effect });  // → 周围玩�
 Crystal 服务端**没有**复活计时器：客户端在死亡动画结束（`DeadTime`）后弹窗，玩家确认才发
 `C.TownRevive`（`Client/MirScenes/GameScene.cs:1269-1281` → `Server/MirNetwork/MirConnection.cs:1643-1648`）。
 本作在 `World::tick_players` 里到点自动调 `World::revive_player`，等待时间
-`PLAYER_REVIVE_DELAY_MS = 10000`（取客户端「死亡动画 + 弹窗」的量级）。
+`PLAYER_REVIVE_DELAY_MS = 60000`（正常路径是 `C.TownRevive`，60s 只是防止会话永久卡死的兜底）。
 
 死亡期间走/跑/转身/攻击全部返回 `MoveError::Dead` / `CombatError::Dead`。
 

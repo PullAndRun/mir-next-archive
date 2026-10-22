@@ -201,6 +201,12 @@ pub struct Player {
     pub map: String,
     /// 坐标。
     pub position: Point,
+    /// 绑定回城点地图主键（Crystal `CharacterInfo.BindMapIndex`，`CharacterInfo.cs:63`）。
+    ///
+    /// `0`/查不到地图表示未设置；`C.TownRevive` 会回退到服务器出生点。
+    pub bind_map_index: i32,
+    /// 绑定回城点坐标（Crystal `CharacterInfo.BindLocation`，`CharacterInfo.cs:64`）。
+    pub bind_point: Point,
     /// 朝向。
     pub direction: MirDirection,
     /// 等级。
@@ -1296,6 +1302,18 @@ impl World {
     #[must_use]
     pub fn map(&self) -> Option<&Arc<mir_world::Map>> {
         self.fallback_map.as_ref()
+    }
+
+    /// 按地图文件名查数据库里的 `MapInfo.Index`（Crystal `MapInfo.Index`）。
+    ///
+    /// 用于把世界侧 `bind_map` 文件名写回角色行的 `bind_map_index`；没有 `GameData`
+    /// 或文件不在库里时返回 `None`。
+    #[must_use]
+    pub fn map_index(&self, map_file: &str) -> Option<i32> {
+        self.game_data
+            .as_ref()
+            .and_then(|data| data.map_info(map_file))
+            .map(|info| info.index)
     }
 
     /// 服务器时钟（毫秒，单调递增）。
@@ -3393,12 +3411,17 @@ impl World {
         true
     }
 
-    /// `C.TownRevive`：把死亡玩家移动到回城/出生点，再走 [`World::revive_player`]。
+    /// `C.TownRevive`：把死亡玩家移动到回城/绑定点，再走 [`World::revive_player`]。
     ///
     /// Crystal `PlayerObject.TownRevive`（`PlayerObject.cs:1392-1455`）会切回
-    /// 所属城镇/出生点并满血满蓝；本作的回城点来自 `ServerConfig.start_map/start_point`。
+    /// 角色的绑定回城点（`CharacterInfo.BindMapIndex/BindLocation`），红名走 `PKTown`；
+    /// 本作优先使用 [`Player::bind_map_index`]/[`Player::bind_point`]，未设置、地图加载不到
+    /// 或落点不可走时回退到调用方给的 `ServerConfig.start_map/start_point`。
     /// 先改地图/坐标（`place_player` 同步 AOI），再复活，保证 `S.ObjectRevived`
     /// 广播的是新位置；返回是否真的复活。
+    ///
+    /// **未实现**：红名 `PKTown` 分支（数据里没有 `PKTown` 配置），红名也走绑定点/出生点；
+    /// 见 `docs/world/combat.md` 的复活差异清单。
     pub fn town_revive_player(&mut self, player_id: u32, map: &str, position: Point) -> bool {
         if !self
             .players
@@ -3407,10 +3430,33 @@ impl World {
         {
             return false;
         }
-        if !self.place_player(player_id, map, position) {
+        let (map, position) = self
+            .bind_map_and_point(player_id)
+            .unwrap_or_else(|| (map.to_owned(), position));
+        // 绑定无效时回退到调用方给的出生点；出生点本身沿用既有行为，不再二次校验
+        // （测试/配置可以显式给一个越界坐标来验证「回退生效」）。
+        if !self.place_player(player_id, &map, position) {
             return false;
         }
         self.revive_player(player_id)
+    }
+
+    /// 取玩家有效的绑定回城点：地图主键能查到、地图已加载、落点可走。
+    fn bind_map_and_point(&self, player_id: u32) -> Option<(String, Point)> {
+        let player = self.players.get(&player_id)?;
+        if player.bind_map_index == 0 || player.bind_point == Point::default() {
+            return None;
+        }
+        let info = self
+            .game_data
+            .as_ref()?
+            .map_info_by_index(player.bind_map_index)?;
+        let map = info.file_name.clone();
+        if self.map_of(&map).is_some() && self.walkable_on(&map, player.bind_point) {
+            Some((map, player.bind_point))
+        } else {
+            None
+        }
     }
 
     /// `HumanObject.SetHP`（`HumanObject.cs:858-869`）：赋值 → 夹到上限 → 归零则死 → 同步血量。
@@ -5666,6 +5712,8 @@ mod tests {
                 trade_invitation: None,
                 next_trade_time: 0,
                 allow_trade: true,
+                bind_map_index: 0,
+                bind_point: mir_core::Point::default(),
                 sender,
             },
             receiver,
@@ -6126,13 +6174,107 @@ mod tests {
         .into()
     }
 
+    fn bind_world() -> World {
+        let db = mir_db::MirDb {
+            maps: vec![
+                mir_db::MapInfo {
+                    index: 1,
+                    file_name: "0".to_owned(),
+                    title: "测试主城".to_owned(),
+                    ..mir_db::MapInfo::default()
+                },
+                mir_db::MapInfo {
+                    index: 2,
+                    file_name: "bind".to_owned(),
+                    title: "绑定回城点".to_owned(),
+                    ..mir_db::MapInfo::default()
+                },
+            ],
+            ..mir_db::MirDb::default()
+        };
+        let mut world = World::new(999);
+        world.set_game_data(Arc::new(GameData::from_db(db, None)));
+        world.insert_map("0", test_map("0"));
+        world.insert_map("bind", test_map("bind"));
+        world
+    }
+
+    #[test]
+    fn town_revive_prefers_valid_player_bind_point() {
+        let mut world = bind_world();
+        let (player, mut rx) = player(1, "绑定回城", Point::new(10, 10), "0");
+        world.enter(player);
+        {
+            let player = world.player_mut(1).expect("玩家");
+            player.bind_map_index = 2;
+            player.bind_point = Point::new(7, 8);
+        }
+        world.set_player_hp(1, 0);
+        drain(&mut rx);
+
+        assert!(world.town_revive_player(1, "0", Point::new(20, 20)));
+        let player = world.player(1).expect("复活后仍在");
+        assert_eq!(
+            (player.map.as_str(), player.position),
+            ("bind", Point::new(7, 8)),
+            "C.TownRevive 必须优先落玩家绑定回城点"
+        );
+        assert_eq!(player.hp, player.stats.hp);
+        assert_eq!(player.mp, player.stats.mp);
+    }
+
+    #[test]
+    fn town_revive_falls_back_to_start_when_bind_is_invalid() {
+        let mut world = bind_world();
+        let (player, mut rx) = player(1, "绑定无效", Point::new(10, 10), "0");
+        world.enter(player);
+        {
+            let player = world.player_mut(1).expect("玩家");
+            player.bind_map_index = 2;
+            // 30×30 的测试地图上越界 → 不可走。
+            player.bind_point = Point::new(100, 100);
+        }
+        world.set_player_hp(1, 0);
+        drain(&mut rx);
+
+        assert!(world.town_revive_player(1, "0", Point::new(20, 20)));
+        let player = world.player(1).expect("复活后仍在");
+        assert_eq!(
+            (player.map.as_str(), player.position),
+            ("0", Point::new(20, 20)),
+            "绑定落点不可走时必须回退出生点"
+        );
+    }
+
+    #[test]
+    fn character_snapshot_preserves_bind_fields() {
+        let base = crate::store::Character::new(
+            7,
+            1,
+            "BindSnapshot",
+            MirClass::Warrior,
+            MirGender::Male,
+            "0",
+            (10, 10),
+        );
+        let (mut player, _rx) = player(1, "BindSnapshot", Point::new(10, 10), "0");
+        player.bind_map_index = 6;
+        player.bind_point = Point::new(5, 8);
+        let snapshot = crate::market::character_snapshot(&base, &player, PetMode::Both);
+        assert_eq!(
+            (snapshot.bind_map_index, snapshot.bind_x, snapshot.bind_y),
+            (6, 5, 8),
+            "character_snapshot must write world bind_* into the character row"
+        );
+    }
+
     #[test]
     fn death_sets_revive_timer_and_broadcasts_object_died() {
         let mut world = World::new(999);
         world.insert_map("0", test_map("0"));
-        let (victim, mut victim_rx) = player(1, "死者", Point::new(10, 10), "0");
+        let (victim, mut victim_rx) = player(1, "Victim", Point::new(10, 10), "0");
         world.enter(victim);
-        let (observer, mut observer_rx) = player(2, "旁观", Point::new(12, 10), "0");
+        let (observer, mut observer_rx) = player(2, "Observer", Point::new(12, 10), "0");
         world.enter(observer);
         drain(&mut victim_rx);
         drain(&mut observer_rx);
@@ -6143,7 +6285,7 @@ mod tests {
         assert!(victim.dead);
         assert!(
             victim.revive_time >= PLAYER_REVIVE_DELAY_MS,
-            "死亡后必须设置 60s 复活计时"
+            "death must set the 60s revive timer"
         );
         assert_eq!(
             victim.revive_time,
@@ -6342,6 +6484,7 @@ mod tests {
         let (player, mut rx) = player(1, "equip test", Point::new(10, 10), "0");
         world.enter(player);
         let stats = combat::player_base_stats(1, MirClass::Warrior);
+        let base_stats = stats;
         {
             let player = world.player_mut(1).expect("玩家");
             player.level = 1;
@@ -6390,6 +6533,33 @@ mod tests {
         assert!(player.stats.min_dc > 0, "穿武器后 min_dc 必须 >0");
         assert!(player.stats.max_dc > 0, "穿武器后 max_dc 必须 >0");
         assert_eq!(player.stats.accuracy, 7, "base 5 + 出生武器 +2 Accuracy");
+        let armed_stats = player.stats;
+
+        // 同一条 `refresh_stats` 路径：耐久 0 → 回到裸装；耐久 1 → 属性恢复。
+        if let Some(item) = world
+            .player_mut(1)
+            .and_then(|player| player.equipment[0].as_mut())
+        {
+            item.current_dura = 0;
+        }
+        world.refresh_stats(1);
+        assert_eq!(
+            world.player(1).unwrap().stats,
+            base_stats,
+            "a zero-durability weapon must provide no stats"
+        );
+        if let Some(item) = world
+            .player_mut(1)
+            .and_then(|player| player.equipment[0].as_mut())
+        {
+            item.current_dura = 1;
+        }
+        world.refresh_stats(1);
+        assert_eq!(
+            world.player(1).unwrap().stats,
+            armed_stats,
+            "weapon stats must return at durability 1"
+        );
 
         let packets = drain(&mut rx);
         assert!(

@@ -126,6 +126,12 @@ pub struct Character {
     pub y: i32,
     /// 朝向。
     pub direction: MirDirection,
+    /// 绑定回城点地图主键（Crystal `CharacterInfo.BindMapIndex`）。
+    pub bind_map_index: i32,
+    /// 绑定回城点 X（Crystal `CharacterInfo.BindLocation.X`）。
+    pub bind_x: i32,
+    /// 绑定回城点 Y（Crystal `CharacterInfo.BindLocation.Y`）。
+    pub bind_y: i32,
     /// 当前生命。
     pub hp: i32,
     /// 当前魔法。
@@ -230,6 +236,11 @@ impl Character {
             x: point.0,
             y: point.1,
             direction: MirDirection::Down,
+            // 新角色的绑定回城点暂时未知地图主键（`create_character` 不持有 GameData）；
+            // 先记出生坐标，登录时若索引无效会按 `ServerConfig.start_map` 补成有效主键。
+            bind_map_index: 0,
+            bind_x: point.0,
+            bind_y: point.1,
             hp: 0,
             mp: 0,
             experience: 0,
@@ -1498,6 +1509,40 @@ mod tests {
         store.create_account("Tester", "secret", "").await.unwrap();
         assert!(store.find_account("tester").await.unwrap().is_some());
         assert!(store.create_account("tESTer", "secret", "").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn bind_fields_survive_character_round_trip() {
+        let store = MemoryStore::new();
+        let account = store
+            .create_account("bindroundtrip", "secret", "")
+            .await
+            .unwrap();
+        let mut character = store
+            .create_character(
+                account.id,
+                "bind save",
+                MirClass::Warrior,
+                MirGender::Male,
+                "0",
+                (330, 270),
+            )
+            .await
+            .unwrap();
+        character.bind_map_index = 6;
+        character.bind_x = 5;
+        character.bind_y = 8;
+        store.save_character(character.clone()).await.unwrap();
+        let loaded = store
+            .find_character(account.id, character.id)
+            .await
+            .unwrap()
+            .expect("角色存在");
+        assert_eq!(
+            (loaded.bind_map_index, loaded.bind_x, loaded.bind_y),
+            (6, 5, 8),
+            "MemoryStore roundtrip must preserve bind_*"
+        );
     }
 
     /// 商城事务失败时**一行都不能写**（角色行/计数都没变），会话据此回滚内存状态。

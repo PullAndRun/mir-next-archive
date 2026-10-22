@@ -433,6 +433,8 @@ impl Harness {
             trade_invitation: None,
             next_trade_time: 0,
             allow_trade: true,
+            bind_map_index: 0,
+            bind_point: mir_core::Point::default(),
             sender,
         });
         self.receivers.insert(object_id, receiver);
@@ -1967,6 +1969,8 @@ fn real_quest_can_be_completed_end_to_end() {
         trade_invitation: None,
         next_trade_time: 0,
         allow_trade: true,
+        bind_map_index: 0,
+        bind_point: mir_core::Point::default(),
         sender,
     });
 
@@ -2078,6 +2082,8 @@ fn real_luke_script_gates_the_dialog_on_quest_completion() {
         trade_invitation: None,
         next_trade_time: 0,
         allow_trade: true,
+        bind_map_index: 0,
+        bind_point: mir_core::Point::default(),
         sender,
     });
 
@@ -2216,6 +2222,8 @@ fn login_packets_carry_the_quest_catalogue() {
         trade_invitation: None,
         next_trade_time: 0,
         allow_trade: true,
+        bind_map_index: 0,
+        bind_point: mir_core::Point::default(),
         sender,
     });
     assert!(empty.quest_login_packets(9).is_empty());

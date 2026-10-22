@@ -3437,6 +3437,51 @@ mod tests {
     }
 
     #[test]
+    fn zero_durability_equipment_contributes_no_stats() {
+        let base_start = CombatStats {
+            min_dc: 10,
+            max_dc: 20,
+            min_ac: 3,
+            max_ac: 4,
+            ..CombatStats::default()
+        };
+        let weapon = ItemInfo {
+            durability: 100,
+            stats: [(Stat::MinDC, 2), (Stat::MaxDC, 5)].into_iter().collect(),
+            ..ItemInfo::default()
+        };
+        let armour = ItemInfo {
+            durability: 100,
+            stats: [(Stat::MinAC, 1), (Stat::MaxAC, 2)].into_iter().collect(),
+            ..ItemInfo::default()
+        };
+        let broken = UserItem {
+            current_dura: 0,
+            ..UserItem::default()
+        };
+        let intact = UserItem {
+            current_dura: 1,
+            ..UserItem::default()
+        };
+
+        let mut stats = base_start;
+        apply_equipment_stats(&mut stats, &weapon, &broken);
+        apply_equipment_stats(&mut stats, &armour, &broken);
+        assert_eq!(stats, base_start, "耐久 0 的武器/衣服都不能加 DC/AC");
+
+        apply_equipment_stats(&mut stats, &weapon, &intact);
+        apply_equipment_stats(&mut stats, &armour, &intact);
+        let armed = CombatStats {
+            min_dc: 12,
+            max_dc: 25,
+            min_ac: 4,
+            max_ac: 6,
+            ..base_start
+        };
+        assert_eq!(stats, armed, "耐久 1 时属性必须恢复");
+    }
+
+    #[test]
     fn friendly_name_strips_trailing_digits_and_brackets() {
         // `ItemData.cs:52-62` 的两条正则。
         assert_eq!(friendly_name("金创药(小量)"), "金创药(小量)");

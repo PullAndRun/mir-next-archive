@@ -1524,8 +1524,8 @@ impl<S: AccountStore> Session<S> {
                                 note = "damage 是出手时抽的原始值；命中/护甲/死亡在下一个 tick 的 pending hit 结算",
                                 "发起攻击"
                             );
-                            // Crystal `HumanObject.cs:7112/7844-7847`：命中一次 `DamageWeapon()`（1..=4 点）。
-                            world.damage_weapon(object_id);
+                            // 武器磨损在 `World::damage_monster` 的命中结算里做，
+                            // 不能在这里按出手次数磨（Crystal `MonsterObject.cs:2584-2585`）。
                         }
                         return;
                     }

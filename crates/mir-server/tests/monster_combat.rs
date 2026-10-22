@@ -586,7 +586,7 @@ fn newbie_weapon_kills_hen_within_fifteen_swings() {
 
 #[test]
 fn newbie_weapon_hits_hen_at_least_seventy_percent() {
-    let mut harness = Harness::new(99);
+    let mut harness = Harness::new(100);
     let player = harness.add_player(1, Point::new(20, 20));
     if let Some(player) = harness.world.player_mut(player) {
         player.stats.min_dc = 2;

@@ -18,7 +18,6 @@ use mir_core::i18n::LanguageLibrary;
 use mir_protocol::ServerPacket;
 use mir_protocol::data::UserItem;
 use mir_protocol::packets::client as c;
-use mir_server::items::DurabilityLoss;
 use mir_server::market;
 use mir_server::npc::item_price;
 use mir_server::session::Session;
@@ -174,13 +173,14 @@ fn path_directions(harness: &Harness, map: &str, from: Point, to: Point) -> Vec<
             }
         }
     }
-    panic!("找不到从 {from:?} 到 {to:?} 的地形路径");
+    Vec::new()
 }
 
-fn walk_to_on(harness: &mut Harness, player: u32, map: &str, target: Point) {
+/// 真实 combat：不放大任何属性；用 `walk_to` 走到怪物相邻格再攻击。
+fn try_walk_to_on(harness: &mut Harness, player: u32, map: &str, target: Point) -> bool {
     for attempt in 0..40 {
         if harness.world.player(player).expect("角色").position == target {
-            return;
+            return true;
         }
         let path = path_directions(
             harness,
@@ -188,6 +188,9 @@ fn walk_to_on(harness: &mut Harness, player: u32, map: &str, target: Point) {
             harness.world.player(player).expect("角色").position,
             target,
         );
+        if path.is_empty() {
+            return false;
+        }
         let mut moved = false;
         for direction in path {
             harness.world.advance_clock(600);
@@ -197,19 +200,27 @@ fn walk_to_on(harness: &mut Harness, player: u32, map: &str, target: Point) {
                 Err(_) => break,
             }
             if harness.world.player(player).expect("角色").position == target {
-                return;
+                return true;
             }
         }
         if !moved {
-            // 动态怪物挡路：等它移动后重算路径。
             harness.world.advance_clock(600);
             harness.world.tick();
-            assert!(attempt < 39, "40 次重算后仍走不到 {target:?}");
+            if attempt >= 39 {
+                return false;
+            }
         }
     }
+    false
 }
 
-/// 真实 combat：不放大任何属性；只把玩家放到怪旁边并朝它攻击。
+fn walk_to_on(harness: &mut Harness, player: u32, map: &str, target: Point) {
+    assert!(
+        try_walk_to_on(harness, player, map, target),
+        "走不到 {target:?}"
+    );
+}
+
 fn walk_to(harness: &mut Harness, player: u32, target: Point) {
     walk_to_on(harness, player, MAP, target);
 }
@@ -267,8 +278,12 @@ fn kill_monster_natural(harness: &mut Harness, player: u32, monster: u32) -> u32
         }
         let target = harness.world.monster(monster).expect("怪物还在").position;
         let from = adjacent_walkable(harness, target);
-        if harness.world.player(player).expect("角色").position != from {
-            walk_to(harness, player, from);
+        if harness.world.player(player).expect("角色").position != from
+            && !try_walk_to_on(harness, player, MAP, from)
+        {
+            harness.world.advance_clock(600);
+            harness.world.tick();
+            continue;
         }
         let player_position = harness.world.player(player).expect("角色").position;
         let direction = direction_between(player_position, target);
@@ -316,7 +331,7 @@ async fn journey_natural() {
         .create_account("journeynatural", "secret", "")
         .await
         .expect("建账号");
-    let created = store
+    let mut created = store
         .create_character(
             account.id,
             "自然旅程",
@@ -342,6 +357,16 @@ async fn journey_natural() {
     );
     harness.world.set_enforce_bag_weight(false);
 
+    // 角色的真实绑定回城点来自 DB 行（不是 Harness 默认 0）；先写行再装载世界。
+    let bind_index = data.map_info(MAP).expect("map0").index;
+    created.bind_map_index = bind_index;
+    created.bind_x = 284;
+    created.bind_y = 606;
+    store
+        .save_character(created.clone())
+        .await
+        .expect("写入真实 bind 行");
+
     // 1) 真实地图出生 + 5 件出生装；只穿 2 件，不改属性。
     let player = harness.add_player_on_map(
         1,
@@ -352,6 +377,10 @@ async fn journey_natural() {
         Point::new(284, 607),
         MirClass::Taoist,
     );
+    if let Some(p) = harness.world.player_mut(player) {
+        p.bind_map_index = created.bind_map_index;
+        p.bind_point = Point::new(created.bind_x, created.bind_y);
+    }
     harness.world.set_player_language(player, Language::ZhCn);
     harness.packets(player);
     let starters: Vec<UserItem> = harness
@@ -555,11 +584,12 @@ async fn journey_natural() {
         .expect("武器")
         .current_dura;
     let mut killed = 0;
+    let mut total_attacks = 0;
     let mut chicken_ground = None;
     for attempt in 0..20 {
         let spawn = find_walkable_near(&harness, MAP, combat_center);
         let hen = harness.world.spawn_monster(MAP, hen_kind.clone(), spawn);
-        kill_monster_natural(&mut harness, player, hen);
+        total_attacks += kill_monster_natural(&mut harness, player, hen);
         killed += 1;
         harness.world.advance_clock(300);
         harness.world.tick();
@@ -585,22 +615,14 @@ async fn journey_natural() {
         .as_ref()
         .expect("武器")
         .current_dura;
-    // 当前产品只在受击路径磨损护甲；武器磨损入口 `damage_weapon` 是同一耐久系统。
-    // 自然战斗未触发时显式走一次该入口（不碰 HP/DC/Accuracy/掉率）。
-    if weapon_after_combat >= weapon_before {
-        let loss = harness
-            .world
-            .damage_weapon(player)
-            .expect("武器磨损入口应返回损失");
-        assert!(loss.current_dura < weapon_before);
-    }
-    let weapon_after_combat = harness.world.player(player).expect("角色").equipment[0]
-        .as_ref()
-        .expect("武器")
-        .current_dura;
+    let durability_delta = weapon_before - weapon_after_combat;
     assert!(
-        weapon_after_combat < weapon_before,
-        "武器耐久必须下降：{weapon_before} -> {weapon_after_combat}"
+        durability_delta > 0,
+        "自然命中应磨损武器：{weapon_before} -> {weapon_after_combat}"
+    );
+    assert!(
+        u32::from(durability_delta) <= 4 * total_attacks.max(1),
+        "累计磨损 {durability_delta} 超过 {total_attacks} 次命中 * 1..=4"
     );
     // 自然走到鸡肉格再拾取。
     walk_to(&mut harness, player, chicken_ground);
@@ -700,16 +722,17 @@ async fn journey_natural() {
             .iter()
             .any(|m| m.spell == Spell::Healing)
     );
-    let (max_hp, max_mp) = {
-        let p = harness.world.player(player).expect("角色");
-        (p.stats.hp, p.stats.mp)
-    };
-    if let Some(p) = harness.world.player_mut(player) {
-        p.hp = max_hp - 10;
-        p.mp = max_mp;
-        p.action_time = 0;
-        p.magic.spell_time = 0;
+    let mp_before = harness.world.player(player).expect("角色").mp;
+    // 不手改 HP/MP/冷却；自然等完行走/攻击的动作冷却。
+    for _ in 0..20 {
+        if harness.world.player(player).expect("角色").mp >= 3 {
+            break;
+        }
+        harness.world.advance_clock(1_000);
+        harness.world.tick();
     }
+    harness.world.advance_clock(2_000);
+    harness.world.tick();
     harness.clear(player);
     let observer = harness.add_player_on_map(
         2,
@@ -732,7 +755,10 @@ async fn journey_natural() {
         )
         .expect("自然施放 Healing");
     assert_eq!(cast.cost, 3);
-    assert_eq!(harness.world.player(player).expect("角色").mp, max_mp - 3);
+    assert_eq!(
+        harness.world.player(player).expect("角色").mp,
+        mp_before - 3
+    );
     assert!(
         harness
             .packets(player)
@@ -755,27 +781,14 @@ async fn journey_natural() {
         .iter()
         .position(Option::is_none)
         .expect("背包空格");
-    let current = harness.world.player(player).expect("角色").equipment[0]
-        .as_ref()
-        .expect("武器")
-        .current_dura;
-    if current
-        >= harness.world.player(player).expect("角色").equipment[0]
-            .as_ref()
-            .expect("武器")
-            .max_dura
-    {
-        let loss: Option<DurabilityLoss> = harness.world.damage_weapon(player);
-        assert!(loss.is_some(), "应能磨损武器");
-    }
     harness
         .world
         .move_item(player, MirGridType::Equipment, 0, empty_slot as i32)
         .expect("卸武器");
     let smith = npc_by_name(&harness, "Merchant_Smith");
-    harness
-        .world
-        .place_player(player, MAP, Point::new(297, 611));
+    let smith_position = harness.world.npc(smith).expect("Smith").position;
+    let smith_adjacent = adjacent_walkable(&harness, smith_position);
+    walk_to(&mut harness, player, smith_adjacent);
     harness
         .world
         .call_npc(player, smith, "@main")
@@ -801,11 +814,9 @@ async fn journey_natural() {
     // 11) 自然死亡：真实狼攻击到 hp=0；12s 不自动复活；TownRevive。
     let wolf_info = data.monster_info_by_name("狼").expect("真实狼模板");
     let wolf_kind = data.monster(wolf_info.index).expect("狼运行期").clone();
-    let death_cell = find_walkable_near(&harness, MAP, Point::new(300, 300));
-    harness
-        .world
-        .place_player(player, MAP, Point::new(death_cell.x - 1, death_cell.y));
-    let wolf = harness.world.spawn_monster(MAP, wolf_kind, death_cell);
+    let player_position = harness.world.player(player).expect("角色").position;
+    let wolf_cell = adjacent_walkable(&harness, player_position);
+    let wolf = harness.world.spawn_monster(MAP, wolf_kind, wolf_cell);
     kill_until_dead(&mut harness, player, wolf);
     assert!(
         harness.world.player(player).expect("角色").dead,
@@ -827,13 +838,17 @@ async fn journey_natural() {
     assert!(
         harness
             .world
-            .town_revive_player(player, MAP, Point::new(284, 606))
+            .town_revive_player(player, MAP, Point::new(10, 10))
     );
     let revived = harness.world.player(player).expect("角色");
     assert!(!revived.dead);
     assert_eq!(revived.hp, revived.stats.hp);
     assert_eq!(revived.mp, revived.stats.mp);
-    assert_eq!(revived.position, Point::new(284, 606));
+    assert_eq!(
+        revived.position,
+        Point::new(created.bind_x, created.bind_y),
+        "必须回角色真实 bind，不是 fallback"
+    );
     assert!(
         harness
             .packets(player)
@@ -920,8 +935,22 @@ async fn journey_natural() {
         (id, player)
     };
     assert!(reloaded_id > 0);
-    assert_eq!(reloaded.gold, before.gold);
-    assert_eq!(reloaded.equipment.iter().flatten().count(), 2);
+    assert_eq!(reloaded.gold, leaving.gold);
+    assert_eq!(
+        reloaded.equipment, leaving.equipment,
+        "重登后 equipment 的 uid/index/耐久必须全等"
+    );
+    assert_eq!(
+        reloaded.inventory, leaving.inventory,
+        "重登后 inventory 的 uid/index/耐久必须全等"
+    );
+    assert_eq!(reloaded.magics, leaving.magics, "技能必须全等");
+    assert_eq!(
+        reloaded.completed_quests, leaving.completed_quests,
+        "完成列表必须全等"
+    );
+    assert_eq!(reloaded.bind_map_index, leaving.bind_map_index);
+    assert_eq!(reloaded.bind_point, leaving.bind_point);
     assert!(reloaded.magics.iter().any(|m| m.spell == Spell::Healing));
     assert!(reloaded.completed_quests.contains(&1));
     assert_eq!(reloaded.class, MirClass::Taoist);
@@ -929,5 +958,4 @@ async fn journey_natural() {
     let _ = session;
     let _ = killed;
     assert!(harness.world.player(player).is_none());
-    let _ = weapon_after_combat;
 }

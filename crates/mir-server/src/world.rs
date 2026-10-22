@@ -2849,6 +2849,13 @@ impl World {
             self.emit_damage_indicator(&map, position, hit.target_id, 0, DamageType::Miss);
             return 0;
         }
+        // Crystal `MonsterObject.cs:2584-2585`：命中（含护甲挡住之前的 hit 判定）后
+        // 才 `attacker.DamageWeapon()`；只有玩家攻怪走这条，怪物互殴不磨武器。
+        // 本作的 `resolve_player_attack` 把「护甲 >= 伤害」也归为 miss，
+        // 因此这里天然满足「miss/被护甲挡不磨」。
+        if self.players.contains_key(&hit.attacker_id) {
+            self.damage_weapon(hit.attacker_id);
+        }
         // Crystal `MonsterObject.Attacked` 在命中后立即 `DamageDura()`（`:3358` 的
         // `HumanObject.Attacked` 同理）：受击磨损与伤害在同一次结算里完成。
         self.damage_armour(hit.target_id);
@@ -6466,6 +6473,106 @@ mod tests {
         );
     }
 
+    #[test]
+    fn weapon_wears_on_hit_and_not_on_miss_in_world_attack_path() {
+        let db_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../resource/community/suprcode-crystal-database/cjlaaa/Server.MirDB");
+        if !db_path.is_file() {
+            return;
+        }
+        let Ok(data) = GameData::load(&db_path) else {
+            return;
+        };
+
+        let mut world = World::new(999);
+        world.seed_rng(11);
+        world.set_game_data(Arc::new(data));
+        let (player1, mut rx) = player(1, "磨损测试", Point::new(10, 10), "0");
+        world.enter(player1);
+        let weapon = world
+            .starter_items_for(MirClass::Warrior)
+            .into_iter()
+            .find(|item| {
+                world
+                    .item_info(item.item_index)
+                    .is_some_and(|info| info.item_type == mir_core::enums::ItemType::Weapon)
+            })
+            .expect("cjlaaa 战士出生装里必须有武器");
+        let unique_id = weapon.unique_id;
+        assert!(world.add_item_to_inventory(1, weapon));
+        world
+            .equip_item(1, unique_id, mir_core::enums::MirGridType::Inventory, 0)
+            .expect("装备武器");
+        let monster = world.spawn_monster("0", MonsterKind::scarecrow(), Point::new(11, 10));
+        if let Some(monster) = world.monster_mut(monster) {
+            monster.hp = 1_000;
+            monster.stats.hp = 1_000;
+            monster.stats.min_ac = 0;
+            monster.stats.max_ac = 0;
+            monster.stats.agility = 0;
+            monster.stats.accuracy = 0;
+        }
+        if let Some(item) = world.player_mut(1).unwrap().equipment[0].as_mut() {
+            item.current_dura = 100;
+            item.max_dura = 100;
+        }
+        drain(&mut rx);
+        world.attack(1, MirDirection::Right).expect("攻击应入队");
+        world.advance_clock(700);
+        world.tick();
+        let after_hit = world.player(1).unwrap().equipment[0]
+            .as_ref()
+            .unwrap()
+            .current_dura;
+        assert!(
+            (96..=99).contains(&after_hit),
+            "命中一次武器耐久应下降 1..=4，实际 {after_hit}"
+        );
+
+        let mut miss_world = World::new(999);
+        miss_world.seed_rng(12);
+        miss_world.set_game_data(Arc::new(GameData::load(&db_path).expect("重新加载 cjlaaa")));
+        let (player2, mut rx) = player(1, "格挡测试", Point::new(10, 10), "0");
+        miss_world.enter(player2);
+        let weapon = miss_world
+            .starter_items_for(MirClass::Warrior)
+            .into_iter()
+            .find(|item| {
+                miss_world
+                    .item_info(item.item_index)
+                    .is_some_and(|info| info.item_type == mir_core::enums::ItemType::Weapon)
+            })
+            .expect("cjlaaa 战士出生装里必须有武器");
+        let unique_id = weapon.unique_id;
+        assert!(miss_world.add_item_to_inventory(1, weapon));
+        miss_world
+            .equip_item(1, unique_id, mir_core::enums::MirGridType::Inventory, 0)
+            .expect("装备武器");
+        let monster = miss_world.spawn_monster("0", MonsterKind::scarecrow(), Point::new(11, 10));
+        if let Some(monster) = miss_world.monster_mut(monster) {
+            monster.hp = 1_000;
+            monster.stats.hp = 1_000;
+            monster.stats.min_ac = 1_000;
+            monster.stats.max_ac = 1_000;
+            monster.stats.agility = 0;
+            monster.stats.accuracy = 0;
+        }
+        if let Some(item) = miss_world.player_mut(1).unwrap().equipment[0].as_mut() {
+            item.current_dura = 100;
+            item.max_dura = 100;
+        }
+        drain(&mut rx);
+        miss_world
+            .attack(1, MirDirection::Right)
+            .expect("攻击应入队");
+        miss_world.advance_clock(700);
+        miss_world.tick();
+        let after_miss = miss_world.player(1).unwrap().equipment[0]
+            .as_ref()
+            .unwrap()
+            .current_dura;
+        assert_eq!(after_miss, 100, "护甲挡住不磨武器");
+    }
     #[test]
     fn starter_weapon_equip_grants_dc_and_accuracy() {
         let db_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

@@ -4,6 +4,7 @@
 
 mod common;
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use mir_db::MirDb;
@@ -21,6 +22,39 @@ fn temp_mnd_path(tag: &str) -> PathBuf {
         "mir-next-mnd-test-{tag}-{}.mnd",
         std::process::id()
     ))
+}
+
+/// 数据清洗（第 42 轮）会按 `clean-report.json.pruned` 删除无图标且无引用的物品；
+/// 这里用同一份报告构造期望 DB，既验证清洗后的 `.mnd` 完整，又不把「老库原样」当作期望。
+fn expected_clean_db(legacy: &MirDb) -> MirDb {
+    let report =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../game-assets/data/clean-report.json");
+    let Ok(text) = std::fs::read_to_string(&report) else {
+        return legacy.clone();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return legacy.clone();
+    };
+    let pruned: BTreeSet<usize> = value
+        .get("pruned")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.get("index").and_then(serde_json::Value::as_u64))
+        .filter_map(|index| usize::try_from(index).ok())
+        .collect();
+    if pruned.is_empty() {
+        return legacy.clone();
+    }
+    let mut expected = legacy.clone();
+    expected.items = legacy
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !pruned.contains(&(index + 1)))
+        .map(|(_, item)| item.clone())
+        .collect();
+    expected
 }
 
 fn assert_db_content_eq(left: &MirDb, right: &MirDb) {
@@ -314,7 +348,7 @@ fn reports_legacy_vs_mnd_load_time() {
     let mnd_started = std::time::Instant::now();
     let mnd = GameData::load_mnd(&mnd_path).expect("mnd load");
     let mnd_ms = mnd_started.elapsed();
-    assert_db_content_eq(&mnd.db, &legacy.db);
+    assert_db_content_eq(&mnd.db, &expected_clean_db(&legacy.db));
     let size = std::fs::metadata(&mnd_path).expect("metadata").len();
     println!(
         "legacy Server.MirDB: {legacy_ms:?}；game.mnd: {mnd_ms:?}（{size} B，M1 只读兼容/内存 FS）"

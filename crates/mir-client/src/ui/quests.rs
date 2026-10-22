@@ -181,6 +181,17 @@ pub fn quest_layout(frame: Rect, quest_count: usize, scroll: usize) -> QuestLayo
     }
 }
 
+/// 取任务追踪里的目标行（服务端第 42 轮起在 `task_list` 首行写入
+/// `前往 <地图>(<file>) <NPC> (<x>,<y>)`；找不到时返回 `None`）。
+#[must_use]
+pub fn target_line(quest: &QuestView) -> Option<&str> {
+    quest
+        .task_list
+        .iter()
+        .find(|line| line.trim_start().starts_with("前往"))
+        .map(String::as_str)
+}
+
 /// 一行的状态文案（测试与绘制共用）。
 #[must_use]
 pub fn status_text(quest: &QuestView, language: Language) -> String {
@@ -618,5 +629,22 @@ mod tests {
         };
         assert_eq!(time_left_text(&unlimited, 1_000, Language::ZhCn), "");
         assert_eq!(quest_name(&active, Language::ZhCn), "任务7");
+    }
+
+    #[test]
+    fn task_panel_target_line_is_exposed_for_tracking() {
+        let mut tracking = quest(1, false);
+        tracking
+            .task_list
+            .insert(0, "前往 比奇省(0) 工艺夫人 (294,619)".to_owned());
+        assert_eq!(
+            target_line(&tracking),
+            Some("前往 比奇省(0) 工艺夫人 (294,619)")
+        );
+        // 面板绘制循环读取 task_list 的前两行；服务端把目标行放首行，保证可见。
+        assert_eq!(
+            tracking.task_list.iter().take(2).next().map(String::as_str),
+            target_line(&tracking)
+        );
     }
 }

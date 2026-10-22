@@ -25,3 +25,5 @@ tools/playtest/data/mapgrid-*.bin
 
 # 运行时素材视图（由 tools/assets/build_game_assets.py 生成，22.5GB，不入库）
 game-assets/
+# v2 资源编排（自有语义 ID）迁移期的等价性校验产物；切换完成后删除，不入库
+game-assets-v2/

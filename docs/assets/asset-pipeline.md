@@ -467,6 +467,19 @@ data/server/Server.MirDB + data/server/Envir/…
 `mir-tools assets pack --verify/--check` 与发布流程负责整包 sha256 校验。
 实测启动 `open`：8.3 s → 0.34 s。
 
+## 打包排除表（`PACK_EXCLUDE`）
+
+`mir-tools` 有一张**打包排除表**，用于 dev 审计/调试文件：
+
+```rust
+const PACK_EXCLUDE: &[&str] = &["data/clean-report.json"];
+```
+
+- `data_import` 的 `clean-report.json` 留在 `game-assets/data/` 便于追溯（含 `icon_filled` 记录），
+  但**不进 `data-1.mnp`**（发布包只装玩家运行需要的资产）；
+- `--verify` 的 expected 用**同一张表**（`discover_own_files`），所以不会出现"盘上有、包里没有"的误报；
+- 新增 dev 文件时把它加进这张表即可，不需要改 verify 逻辑。
+
 ## 确定性打包
 
 `PackWriter` 按逻辑名排序后写盘：同一输入两次打包 → `.mnp` 逐字节相同。

@@ -1264,6 +1264,9 @@ fn discover_own_files(input: &Path) -> Result<Vec<String>> {
         if logical.split('/').next() == Some("packs") {
             return Ok(());
         }
+        if is_pack_excluded(&logical) {
+            return Ok(());
+        }
         let extension = path
             .extension()
             .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
@@ -1290,6 +1293,19 @@ fn discover_own_files(input: &Path) -> Result<Vec<String>> {
 
 /// 老格式扩展名：**不进发布包**（用户规则：运行只读自有格式）。
 const LEGACY_EXTENSIONS: &[&str] = &["wzl", "wix", "wil", "map", "wav", "lib", "mirdb", "txt"];
+
+/// 打包排除表：dev 审计/调试文件不进发布包。
+///
+/// `game-assets/data/clean-report.json` 是 `data_import` 的清洗审计产物：
+/// 留在 dev 视图便于追溯，但发布包只装玩家运行需要的资产。`--verify` 的
+/// expected（[`discover_own_files`]）用同一张表，避免"盘上有、包里没有"误报。
+const PACK_EXCLUDE: &[&str] = &["data/clean-report.json"];
+
+fn is_pack_excluded(logical: &str) -> bool {
+    PACK_EXCLUDE
+        .iter()
+        .any(|excluded| logical == *excluded || logical.starts_with(&format!("{excluded}/")))
+}
 
 /// 打一张图：palette8 帧走 `kind=2`（8bit 索引）+ 每库一条 `palette.bin`（`kind=3`）；
 /// 其它格式或反查失败时回退 `kind=0`（zlib RGBA）。
@@ -1331,6 +1347,9 @@ fn discover_pack_items(input: &Path, allow_legacy: bool) -> Result<(Vec<PackItem
         let logical = relative.to_string_lossy().replace('\\', "/");
         let parts: Vec<&str> = logical.split('/').collect();
         if parts.first() == Some(&"packs") {
+            return Ok(());
+        }
+        if is_pack_excluded(&logical) {
             return Ok(());
         }
         let category = match parts.first() {

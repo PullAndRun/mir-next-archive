@@ -38,9 +38,9 @@ pub fn parse_line(line: &str) -> Option<QuestTarget> {
         .or_else(|| line.strip_prefix("前往："))
         .or_else(|| line.strip_prefix("前往:"))?
         .trim();
-    let (map_name, map_file) = if let Some(open) = rest.rfind('（') {
-        let close = rest.rfind('）')?;
-        if close <= open + '（'.len_utf8() || close + '）'.len_utf8() != rest.len() {
+    let (map_name, map_file) = if let Some(open) = rest.find('（') {
+        let close = rest[open..].find('）')? + open;
+        if close <= open + '（'.len_utf8() {
             return None;
         }
         (
@@ -48,9 +48,9 @@ pub fn parse_line(line: &str) -> Option<QuestTarget> {
             rest[open + '（'.len_utf8()..close].trim(),
         )
     } else {
-        let open = rest.rfind('(')?;
-        let close = rest.rfind(')')?;
-        if close <= open + 1 || close + 1 != rest.len() {
+        let open = rest.find('(')?;
+        let close = rest[open..].find(')')? + open;
+        if close <= open + 1 {
             return None;
         }
         (rest[..open].trim(), rest[open + 1..close].trim())
@@ -58,6 +58,9 @@ pub fn parse_line(line: &str) -> Option<QuestTarget> {
     if map_name.is_empty() || map_file.is_empty() || map_file.chars().any(char::is_whitespace) {
         return None;
     }
+    // 第 42 轮：服务端在导航行后追加「NPC 名 + (x,y)」目标信息
+    // （如 `前往 比奇省(0) 工艺夫人 (294,619)`）；解析地图部分后允许尾部说明，
+    // 但 map_file 已按括号截断，不会被污染。
     Some(QuestTarget {
         map_name: map_name.to_owned(),
         map_file: map_file.to_owned(),
@@ -117,6 +120,17 @@ mod tests {
         assert_eq!(
             parse_task_list(&lines).map(|target| (target.map_name, target.map_file)),
             Some(("奥玛洞穴".to_owned(), "OmaCavern".to_owned()))
+        );
+    }
+
+    #[test]
+    fn parses_server_target_suffix_with_npc_and_coordinates() {
+        assert_eq!(
+            parse_line("前往 比奇省(0) 工艺夫人 (294,619)"),
+            Some(QuestTarget {
+                map_name: "比奇省".to_owned(),
+                map_file: "0".to_owned(),
+            })
         );
     }
 }

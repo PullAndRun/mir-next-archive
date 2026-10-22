@@ -12,6 +12,7 @@
 //! * `<out>/manifest.json`：schema、来源、计数、sha256、段统计；
 //! * `<out>/game.json`（`--json`）：调试索引（不含正文）。
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -58,12 +59,8 @@ fn main() -> Result<()> {
     let (db_path, envir_dir) = resolve_source(&source)?;
     let db_bytes =
         std::fs::read(&db_path).with_context(|| format!("读取 {}", db_path.display()))?;
-    let db = MirDb::from_bytes(&db_bytes).with_context(|| format!("解析 {}", db_path.display()))?;
-    // M2：DB 段是 mir-db 结构的原生 bincode，不再装老 MirDB 字节。
-    let native_db = encode_db(&db).context("编码原生 DB 段")?;
-    let native_db_bytes = native_db.len();
-    let mut file = MndFile::new();
-    file.push(MndSection::new(TAG_DB_BIN, "db.bin", native_db));
+    let mut db =
+        MirDb::from_bytes(&db_bytes).with_context(|| format!("解析 {}", db_path.display()))?;
     let mut script_count = 0usize;
     let mut script_bytes = 0usize;
     let mut scripts: Vec<(String, Vec<u8>)> = Vec::new();
@@ -82,12 +79,23 @@ fn main() -> Result<()> {
             script_bytes += bytes.len();
             scripts.push((relative, bytes));
         }
-        if !scripts.is_empty() {
-            let bundle = encode_envir(&scripts).context("编码 Envir bundle")?;
-            file.push(MndSection::new(TAG_ENVIR_BUNDLE, "envir.bin", bundle));
-        }
     } else {
         eprintln!("警告：{} 不存在，只打包 DB 段", envir_dir.display());
+    }
+
+    // 数据清洗：无图标且没有任何引用的物品从 .mnd 剔除；无图标但被引用的保留并 WARN。
+    let icon_root = PathBuf::from("game-assets/gfx/sprites/item");
+    let clean_report = clean_items(&mut db, &scripts, &icon_root, &db_path);
+    let mut report_json = clean_report.to_json(&icon_root);
+
+    // M2：DB 段是 mir-db 结构的原生 bincode，不再装老 MirDB 字节。
+    let native_db = encode_db(&db).context("编码原生 DB 段")?;
+    let native_db_bytes = native_db.len();
+    let mut file = MndFile::new();
+    file.push(MndSection::new(TAG_DB_BIN, "db.bin", native_db));
+    if !scripts.is_empty() {
+        let bundle = encode_envir(&scripts).context("编码 Envir bundle")?;
+        file.push(MndSection::new(TAG_ENVIR_BUNDLE, "envir.bin", bundle));
     }
 
     // Configs/*.ini：经验表、行会配置等运营参数；运行时优先从 .mnd 读。
@@ -121,6 +129,14 @@ fn main() -> Result<()> {
         .with_context(|| format!("写出 {}", mnd_path.display()))?;
     let mnd_bytes = std::fs::read(&mnd_path).context("回读 game.mnd")?;
     let sha256 = hex(&Sha256::digest(&mnd_bytes));
+    report_json["mnd_sha256"] = json!(sha256);
+    write_json_file(
+        &PathBuf::from("target/data-clean-report.json"),
+        &report_json,
+    )
+    .context("写出 target/data-clean-report.json")?;
+    write_json_file(&out.join("clean-report.json"), &report_json)
+        .with_context(|| format!("写出 {}/clean-report.json", out.display()))?;
     let counts = json!({
         "maps": db.maps.len(),
         "items": db.items.len(),
@@ -192,6 +208,247 @@ fn main() -> Result<()> {
         started.elapsed()
     );
     Ok(())
+}
+
+#[derive(Debug, Default)]
+struct CleanReport {
+    before: usize,
+    after: usize,
+    kept: Vec<serde_json::Value>,
+    pruned: Vec<serde_json::Value>,
+    warn: Vec<serde_json::Value>,
+}
+
+impl CleanReport {
+    fn to_json(&self, icon_root: &Path) -> serde_json::Value {
+        json!({
+            "schema": 1,
+            "icon_root": icon_root.display().to_string(),
+            "counts": {
+                "items_before": self.before,
+                "items_after": self.after,
+                "kept": self.kept.len(),
+                "pruned": self.pruned.len(),
+                "warn": self.warn.len(),
+            },
+            "kept": self.kept,
+            "pruned": self.pruned,
+            "warn": self.warn,
+        })
+    }
+}
+
+/// 无图标且无引用的物品从 DB 中删除；无图标但被引用的保留并记录 WARN。
+///
+/// 引用集合覆盖：`StartItem`、`GameShop`、`Drops/**`（含 `#INSERT` 后的实际文件）、
+/// NPC 脚本（`[Trade]` 等）、`Goods/*.msd`、`Quests/**`、`GM-*.txt`。
+/// 这里按「文件全文包含物品名」做保守匹配：宁可多保留，不误删。
+fn clean_items(
+    db: &mut MirDb,
+    scripts: &[(String, Vec<u8>)],
+    icon_root: &Path,
+    db_path: &Path,
+) -> CleanReport {
+    let before = db.items.len();
+    let mut candidates = Vec::new();
+    for (slot, item) in db.items.iter().enumerate() {
+        if icon_available(icon_root, item.image) {
+            continue;
+        }
+        candidates.push((
+            slot,
+            item.name.clone(),
+            normalize_item_name(&item.name),
+            item.image,
+            format!("{:?}", item.item_type),
+        ));
+    }
+
+    let mut references: BTreeMap<usize, BTreeSet<String>> = BTreeMap::new();
+    for (slot, item) in db.items.iter().enumerate() {
+        if !candidates.iter().any(|(candidate, ..)| *candidate == slot) {
+            continue;
+        }
+        if item.start_item {
+            references
+                .entry(slot)
+                .or_default()
+                .insert("StartItem=true".to_owned());
+        }
+    }
+    for shop in &db.gameshop {
+        let slot = usize::try_from(shop.item_index).ok();
+        if let Some(slot) = slot {
+            if candidates.iter().any(|(candidate, ..)| *candidate == slot) {
+                references
+                    .entry(slot)
+                    .or_default()
+                    .insert(format!("GameShop#{}", shop.g_index));
+            }
+        }
+    }
+
+    // 文件全文匹配：Drops / NPC / Quests / Goods / GM 列表。
+    // `.msd` 等可能是二进制，按 lossy UTF-8 扫描，宁可多保留。
+    let normalized_texts: Vec<(&str, String)> = scripts
+        .iter()
+        .map(|(path, bytes)| {
+            (
+                path.as_str(),
+                normalize_item_name(&String::from_utf8_lossy(bytes)),
+            )
+        })
+        .collect();
+    for (path, text) in &normalized_texts {
+        let Some(kind) = reference_kind(path) else {
+            continue;
+        };
+        for (slot, _, normalized_name, _, _) in &candidates {
+            if normalized_name.is_empty() || !text.contains(normalized_name.as_str()) {
+                continue;
+            }
+            references
+                .entry(*slot)
+                .or_default()
+                .insert(format!("{kind}:{path}"));
+        }
+    }
+
+    let mut keep = vec![true; db.items.len()];
+    let mut pruned = Vec::new();
+    let mut warn = Vec::new();
+    for (slot, name, _, image, item_type) in &candidates {
+        let sources = references.get(slot).cloned().unwrap_or_default();
+        if sources.is_empty() {
+            keep[*slot] = false;
+            pruned.push(json!({
+                "index": slot + 1,
+                "slot": slot,
+                "name": name,
+                "image": image,
+                "item_type": item_type,
+                "reason": "missing_icon_unreferenced",
+            }));
+        } else {
+            warn.push(json!({
+                "index": slot + 1,
+                "slot": slot,
+                "name": name,
+                "image": image,
+                "item_type": item_type,
+                "reason": "missing_icon_referenced",
+                "references": sources.iter().collect::<Vec<_>>(),
+            }));
+        }
+    }
+    db.items = db
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(slot, _)| keep[*slot])
+        .map(|(_, item)| item.clone())
+        .collect();
+    let kept = db
+        .items
+        .iter()
+        .enumerate()
+        .map(|(slot, item)| {
+            json!({
+                "index": slot + 1,
+                "name": item.name,
+                "image": item.image,
+                "item_type": format!("{:?}", item.item_type),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    for item in &warn {
+        eprintln!(
+            "WARN 无图标但被引用，保留：{}",
+            serde_json::to_string(item).unwrap_or_default()
+        );
+    }
+    for item in &pruned {
+        eprintln!(
+            "PRUNED 无图标且无引用，剔除：{}",
+            serde_json::to_string(item).unwrap_or_default()
+        );
+    }
+    println!(
+        "数据清洗（{}）：items {} -> {}，pruned {}，warn {}",
+        db_path.display(),
+        before,
+        db.items.len(),
+        pruned.len(),
+        warn.len()
+    );
+    CleanReport {
+        before,
+        after: db.items.len(),
+        kept,
+        pruned,
+        warn,
+    }
+}
+
+/// 图标目录存在非空 PNG，且 `index.json` 没有把所有帧标成 `empty`。
+fn icon_available(root: &Path, image: u16) -> bool {
+    let dir = root.join(format!("icon-{image:04}"));
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return false;
+    };
+    let has_png = entries.flatten().any(|entry| {
+        entry
+            .path()
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("png"))
+    });
+    if !has_png {
+        return false;
+    }
+    let Ok(text) = std::fs::read_to_string(dir.join("index.json")) else {
+        return true;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return true;
+    };
+    let Some(images) = value.get("images").and_then(serde_json::Value::as_array) else {
+        return true;
+    };
+    if images.is_empty() {
+        return true;
+    }
+    !images
+        .iter()
+        .all(|image| image.get("empty").and_then(serde_json::Value::as_bool) == Some(true))
+}
+
+fn reference_kind(path: &str) -> Option<&'static str> {
+    let lower = path.to_ascii_lowercase();
+    if path
+        .rsplit('/')
+        .next()
+        .is_some_and(|name| name.to_ascii_uppercase().starts_with("GM-"))
+    {
+        Some("GM")
+    } else if lower.starts_with("drops/") {
+        Some("Drops")
+    } else if lower.starts_with("npcs/") {
+        Some("NPC")
+    } else if lower.starts_with("quests/") {
+        Some("Quest")
+    } else if lower.starts_with("goods/") {
+        Some("Goods")
+    } else {
+        None
+    }
+}
+
+fn normalize_item_name(name: &str) -> String {
+    name.chars()
+        .filter(|ch| !ch.is_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 fn resolve_source(source: &Path) -> Result<(PathBuf, PathBuf)> {
@@ -297,4 +554,54 @@ fn hex(bytes: &[u8]) -> String {
         let _ = write!(text, "{byte:02x}");
     }
     text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_root(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "mir-next-data-import-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("临时目录");
+        root
+    }
+
+    #[test]
+    fn icon_available_requires_png_and_not_all_empty() {
+        let root = temp_root("icon");
+        let icons = root.join("icons");
+        assert!(!icon_available(&icons, 42), "目录不存在应判缺失");
+        let dir = icons.join("icon-0042");
+        std::fs::create_dir_all(&dir).expect("图标目录");
+        std::fs::write(dir.join("index.json"), r#"{"images":[]}"#).expect("index");
+        assert!(!icon_available(&icons, 42), "无 PNG 应判缺失");
+        std::fs::write(dir.join("0042.png"), b"png").expect("png");
+        assert!(icon_available(&icons, 42), "有 PNG 且 index 空应可用");
+        std::fs::write(dir.join("index.json"), r#"{"images":[{"empty":true}]}"#).expect("empty");
+        assert!(!icon_available(&icons, 42), "所有帧 empty=true 应判缺失");
+        std::fs::write(dir.join("index.json"), r#"{"images":[{"empty":false}]}"#)
+            .expect("non-empty");
+        assert!(icon_available(&icons, 42), "非空帧应可用");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reference_kind_covers_required_sources() {
+        assert_eq!(reference_kind("Drops/Province/Hen.txt"), Some("Drops"));
+        assert_eq!(reference_kind("NPCs/GM/GM-Ring.txt"), Some("GM"));
+        assert_eq!(reference_kind("Quests/1.txt"), Some("Quest"));
+        assert_eq!(reference_kind("Goods/Goods.msd"), Some("Goods"));
+        assert_eq!(reference_kind("GM-Ring.txt"), Some("GM"));
+        assert_eq!(reference_kind("Map Info/0.map"), None);
+    }
+
+    #[test]
+    fn name_normalization_ignores_case_and_whitespace() {
+        assert_eq!(normalize_item_name(" Hardened Ring "), "hardenedring");
+        assert_eq!(normalize_item_name("古铜戒指"), "古铜戒指");
+    }
 }

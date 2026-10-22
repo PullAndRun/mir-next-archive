@@ -577,9 +577,15 @@ fn accept_quest_records_progress_and_sends_change_quest() {
     assert_eq!(report.quest_index, 1);
     assert_eq!(report.name, "杀鸡");
     assert!(!report.completed);
+    let target = harness
+        .world
+        .quest_target(1, Language::ZhCn)
+        .expect("目标元数据")
+        .text;
     assert_eq!(
         report.task_list,
         vec![
+            target,
             format_text(
                 Language::ZhCn,
                 TextKey::QuestTaskKill,
@@ -762,6 +768,11 @@ fn kill_progress_completes_the_quest() {
     // 达成后进度文本带「已完成」并追加「去交任务」（Crystal `UpdateKillTasks` +
     // `UpdateGotoTask`，`QuestProgressInfo.cs:438-466`、`:527-532`）。
     let definition = harness.world.quest_definition(1).expect("定义");
+    let target = harness
+        .world
+        .quest_target(1, Language::ZhCn)
+        .expect("目标元数据")
+        .text;
     let client = harness.world.client_progress(
         &definition,
         progress,
@@ -771,6 +782,7 @@ fn kill_progress_completes_the_quest() {
     assert_eq!(
         client.task_list,
         vec![
+            target,
             format_text(
                 Language::ZhCn,
                 TextKey::QuestTaskKill,
@@ -1029,9 +1041,15 @@ fn timed_quest_expires_and_is_abandoned() {
         .world
         .accept_quest(player, giver, 4)
         .expect("接取限时任务");
+    let target = harness
+        .world
+        .quest_target(4, Language::ZhCn)
+        .expect("目标元数据")
+        .text;
     assert_eq!(
         report.task_list,
         vec![
+            target,
             format_text(
                 Language::ZhCn,
                 TextKey::QuestTaskKill,

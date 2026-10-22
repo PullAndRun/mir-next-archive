@@ -3,7 +3,7 @@
 # 全部检查在本地跑（无远端 CI）。改代码时常跑 `-SkipTests`，收口前跑全量。
 #
 # 用法（PowerShell 7）：
-#   pwsh -NoProfile -File tools/dev/ci.ps1              # 全跑（10 项）
+#   pwsh -NoProfile -File tools/dev/ci.ps1              # 全跑（13 项）
 #   pwsh -NoProfile -File tools/dev/ci.ps1 -SkipTests   # 只跑静态检查（快）
 #   pwsh -NoProfile -File tools/dev/ci.ps1 -NoAssets    # 额外跑「无 resource/」沙箱（慢）
 #
@@ -130,6 +130,9 @@ Invoke-Gate "硬编码棘轮（no-test，阈值 15）" "$python tools/i18n/scan_
 
 # 4b) 资源规则：运行时不得引用老资源格式（棘轮，基线见 tools/dev/legacy-runtime-allowlist.txt）
 Invoke-Gate "运行时不引用老资源格式" "$python tools/dev/check_legacy_refs.py"
+
+# 4c) 数据清洗后的物品图标完整性：无图标模板必须补图/删引用或显式白名单
+Invoke-Gate "物品图标完整性" "$python tools/assets/verify_item_icons.py"
 
 # 5) PostgreSQL 集成测试（连接串已在脚本开头统一设好，这里只跑门禁）
 if (-not $SkipTests -and -not $SkipPostgres) {

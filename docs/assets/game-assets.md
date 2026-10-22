@@ -128,7 +128,29 @@ pwsh -NoProfile -File tools/dev/asset-smoke.ps1
   抽样 `icon-0000/0001/0100/3790` 四角 `alpha=0`、`opaque_black=0`，`icon-0850` 保留 47 个内部黑像素；
 - 重打包后仅 `sprites-item-1.mnp` 变化（572,375 → 576,320 B），45 包总量
   433,976,575 → **433,980,520 B**，`--verify` 45/45、`reconcile_packs.py` issues=0；
-- 复现：`mir-tools assets unpack --plan target/used-assets-items.json --out-root game-assets`。
+- 复现：`mir-tools assets unpack --plan target/used-assets-items.json --out-root game-assets`；
+  补齐后重打包：`sprites-item-1.mnp` 658 → **826** 条、576,320 → **771,854 B**，45 包总量
+  433,980,520 → **434,328,059 B**、条目 151,581 → **151,750**（含 data 包的 `clean-report.json`）。
+
+### 5.1.1) 空帧补齐（2026-10-22 第二轮）
+
+`items.wzl`（cjlaaa 数据集的这版）里有 **172/830** 个被 DB 引用的索引是空帧（`empty:true`）。
+从其它版本的 Items 库按**同索引**补齐了 **168** 个：
+
+| 来源库 | 补齐数 | 说明 |
+|---|---:|---|
+| `resource/community/mirfiles-wemade-korean-server/KoreanServer/Client/Data/items.Lib` | 104 | 韩服官方 Items 库 |
+| `resource/community/hbacc-dx-game-engine-data/game/Data/Items.wzl` | 37 | DX 引擎素材 |
+| `resource/community/mirfiles-arcadia-project69/Arcadia&Project69/Data/items2.wzl` | 27 | Arcadia/Project69 |
+
+- 每个补齐目录的 `index.json` 新增 `filled_from`（相对路径）与 `filled_note`，原 `missing` 记录保留；
+  `images[0]` 填实际宽高/偏移/格式并重算 `rgb_sha256`/`rgba_sha256`/`png_sha256`；
+- 补 PNG 走同一拆包器（`--black-transparent-formats 0,3,5`），四角透明与黑底规则一致；
+- **最后 4 个空目录（3486、3487、3493、3576）已删除**：它们只在 `stateitem.wzl` 有同索引帧
+  （150×144 ~ 174×172 的穿戴态大图，语义不符），而对应物品（#403 GM 专用、#533/#589/#590 无引用）
+  已在兵部二号的 `.mnd` 清洗 pass 中剔除，不再保留目录；`game-assets/gfx/sprites/item` 现有 **826** 个目录；
+- 抽样：`icon-0075/0076/0077/0132/0277/2884/2885/2886/3792` 四角 `alpha=0` 且非空像素充足；
+  `icon-3789` 四角是内容本身（黄色），非黑底。
 
 ## 6) 为什么不入库
 

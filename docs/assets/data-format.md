@@ -21,6 +21,7 @@
 game-assets/data/
   game.mnd          发布用数据包（服务端唯一读取目标）
   manifest.json     来源/计数/sha256/段统计（校验与排错）
+  clean-report.json 数据清洗报告（kept/pruned/warn，随发布包追溯）
   game.json         --json 调试索引（段名/sha256/大小，不含正文）
 ```
 
@@ -172,6 +173,49 @@ cargo run -p mir-tools --bin data_import -- \
 - `--verify`：回读 `.mnd`，解码原生 DB 段并**逐字段比较**（header/maps/items/monsters/npcs/
   quests/dragon/magics/gameshop/conquests/respawn/gt_maps），再核对 Envir bundle 份数；
 - 工具只负责**读老格式 → 写自有格式**；服务端不调用它。
+
+### 6.1 数据清洗 pass（第 42 轮）
+
+导入时先对物品做一次清洗：Crystal 数据库里有少量物品没有图标，直接发布会让客户端显示空图标；
+**复刻行为不等于复制数据缺陷**。
+
+判定「无图标」：`game-assets/gfx/sprites/item/icon-{image:04}/` 不存在、没有 `*.png`，
+或 `index.json.images` 非空且所有帧 `empty=true`。
+
+引用集合（保守匹配，宁可多保留）：
+- `StartItem=true`；
+- GameShop（`GameShopItem.ItemIndex`）；
+- `Envir/Drops/**`（含 `#INSERT` 后的实际掉落文件，按全文件文本匹配）；
+- NPC 脚本（`Envir/NPCs/**`，含 `[Trade]` 等）；
+- `Envir/Goods/*.msd`（存在时）；
+- 任务脚本（`[@ItemTasks]`/`[@CarryItems]` 等，`Envir/Quests/**`）；
+- GM 列表（`GM-*.txt`，如 `NPCs/GM/GM-Ring.txt`）。
+
+处理规则：
+- **无图标且无引用** → 从写出的 DB 段中删除，记 `pruned`，日志 `PRUNED ...`；
+- **无图标但有引用** → 保留并在日志/报告记 `WARN`，列出 `index/name/image/item_type/references`；
+- 有图标的物品 → `kept`。
+
+报告双写：
+- `target/data-clean-report.json`（开发期可查）；
+- `game-assets/data/clean-report.json`（随发布包可追溯）。
+
+字段：
+
+| 字段 | 含义 |
+|---|---|
+| `schema` | 报告版本，当前 `1` |
+| `icon_root` | 图标根目录 |
+| `counts.items_before/items_after` | 清洗前/后物品数 |
+| `counts.kept/pruned/warn` | 三类数量 |
+| `mnd_sha256` | 对应 `game.mnd` 的 sha256（门禁与 manifest 对账，防报告过期） |
+| `kept[]` | 保留物品（`index` 1-based、`name`、`image`、`item_type`） |
+| `pruned[]` | 删除物品（含 `reason: missing_icon_unreferenced`、`slot` 0-based） |
+| `warn[]` | 保留的无图标物品（含 `reason: missing_icon_referenced`、`references`） |
+
+门禁：`tools/assets/verify_item_icons.py` 读取 `clean-report.json` 的 `kept` 并检查图标目录；
+任何无图标模板 exit 1。白名单为 `target/item-icon-allowlist.txt`，**初始为空**；只有明确接受
+“保留无图标模板”时才加 `#index name`/`name:名称`，并在本节记录原因。`tools/dev/ci.ps1` 已接入。
 
 ## 7. 服务端加载优先级
 

@@ -954,6 +954,11 @@ impl World {
         )
     }
 
+    /// 按显式语言取 NPC 显示名（任务目标文案用）。
+    pub(crate) fn npc_display_name(&self, language: mir_core::Language, npc: &Npc) -> String {
+        self.npc_name_for_language(Some(language), npc)
+    }
+
     /// 按玩家当前会话语言取 NPC 名字（`S.ObjectNPC` / `<$NPCNAME>` 用）。
     fn npc_name_for(&self, player_id: u32, npc: &Npc) -> String {
         self.npc_name_for_language(Some(self.player_language(player_id)), npc)

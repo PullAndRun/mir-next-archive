@@ -349,6 +349,28 @@ pub struct QuestReport {
 // 任务定义
 // ---------------------------------------------------------------------------
 
+/// 任务追踪目标（服务端推导出的「交付 NPC」位置）。
+///
+/// cjlaaa 任务文件没有显式目标地图/坐标；这里以 `quest_finisher_npc`（缺失时发布 NPC）
+/// 的 `NpcInfo.MapIndex/Location` 作为目标，并生成一行可直接显示的 `task_list` 文本。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuestTarget {
+    /// 任务编号。
+    pub quest_id: i32,
+    /// 目标地图主键（`MapInfo.Index`）。
+    pub map_index: i32,
+    /// 目标坐标 X。
+    pub x: i32,
+    /// 目标坐标 Y。
+    pub y: i32,
+    /// 目标 NPC 主键（`NpcInfo.Index`）。
+    pub npc_index: i32,
+    /// 目标 NPC 显示名。
+    pub npc_name: String,
+    /// 客户端可直接显示/解析的目标行。
+    pub text: String,
+}
+
 /// 一份「可执行」的任务定义 = 数据库头部（[`QuestInfo`]）+ 脚本正文（[`QuestScript`]）。
 #[derive(Debug, Clone)]
 pub struct QuestDefinition {
@@ -500,9 +522,53 @@ impl World {
         if let Some(library) = self.languages.as_ref() {
             info.name = library.quest_name(language, info.index, &info.name);
         }
+        if let Some(target) = self.quest_target(quest_index, language) {
+            info.task_description.push(target.text.clone());
+        }
         info.rewards_fixed_item = self.resolve_rewards(&definition.script.fixed_rewards);
         info.rewards_select_item = self.resolve_rewards(&definition.script.select_rewards);
         Some(info)
+    }
+
+    /// 任务目标元数据（由交付 NPC/发布 NPC 的 `MapInfo` + `NpcInfo` 推导）。
+    ///
+    /// cjlaaa 的 `Envir/Quests/*.txt` **没有** `MAP/LOCATION` 字段；Crystal 的
+    /// `QuestInfo` 也只有 `NpcIndex`/`FinishNpcIndex`，没有地图/坐标列。因此这里用
+    /// 「交付 NPC（无则发布 NPC）」的位置作为可追踪目标，并同时给出地图主键/NPC 主键。
+    #[must_use]
+    pub fn quest_target(
+        &self,
+        quest_index: i32,
+        language: mir_core::Language,
+    ) -> Option<QuestTarget> {
+        let npc = self
+            .quest_finisher_npc(quest_index)
+            .or_else(|| self.quest_publisher_npc(quest_index))?;
+        let data = self.game_data.as_ref()?;
+        let map_info = data.map_info(&npc.map)?;
+        let map_title =
+            self.localized_map_title(&map_info.file_name, map_info.title.trim(), language);
+        let npc_name = self.npc_display_name(language, npc);
+        let text = format!(
+            "{} {} ({},{})",
+            format_text(
+                language,
+                TextKey::QuestNavigationGoTo,
+                &[("map", &map_title), ("file", &map_info.file_name)],
+            ),
+            npc_name,
+            npc.position.x,
+            npc.position.y
+        );
+        Some(QuestTarget {
+            quest_id: quest_index,
+            map_index: npc.map_index,
+            x: npc.position.x,
+            y: npc.position.y,
+            npc_index: npc.index,
+            npc_name,
+            text,
+        })
     }
 
     /// 把奖励行解析成客户端奖励（`QuestItemReward` + 真实模板）。
@@ -1746,6 +1812,10 @@ impl World {
             id: progress.quest_index,
             task_list: {
                 let mut lines = task_list(definition, progress, language);
+                if let Some(target) = self.quest_target(progress.quest_index, language) {
+                    // 目标行放最前：客户端任务面板只展示前两行，必须保证目标可见。
+                    lines.insert(0, target.text);
+                }
                 lines.extend(self.task_navigation_lines(definition, language));
                 lines
             },
@@ -2156,6 +2226,52 @@ mod tests {
             |_, title| title.to_owned(),
         );
         assert_eq!(lines, vec!["Go to DeathValley (D401)".to_owned()]);
+    }
+
+    #[test]
+    fn real_quest_1_target_line_carries_npc_map_and_coordinates() {
+        let Ok(data) = crate::gamedata::GameData::discover() else {
+            return;
+        };
+        let mut world = World::new(1);
+        world.set_game_data(std::sync::Arc::new(data));
+        world.set_languages(std::sync::Arc::new(
+            mir_core::i18n::LanguageLibrary::embedded(),
+        ));
+        world.spawn_npcs("0");
+        let Some(target) = world.quest_target(1, mir_core::Language::ZhCn) else {
+            return;
+        };
+        assert!(target.map_index > 0, "target map index must be resolved");
+        assert!(target.npc_index > 0, "target NPC index must be resolved");
+        assert!(
+            target
+                .text
+                .contains(&format!("({},{})", target.x, target.y)),
+            "target text must contain coordinates: {}",
+            target.text
+        );
+
+        let info = world
+            .client_quest_info(1, mir_core::Language::ZhCn)
+            .expect("quest 1 info");
+        assert!(
+            info.task_description
+                .iter()
+                .any(|line| line == &target.text),
+            "S.NewQuestInfo task_description must carry target line: {:?}",
+            info.task_description
+        );
+
+        let definition = world.quest_definition(1).expect("quest 1 definition");
+        let progress = QuestProgress::new(1, 0, 0, &definition.script);
+        let client = world.client_progress(&definition, &progress, 0, mir_core::Language::ZhCn);
+        assert_eq!(
+            client.task_list.first(),
+            Some(&target.text),
+            "tracking must put target line first, got {:?}",
+            client.task_list
+        );
     }
 
     #[test]

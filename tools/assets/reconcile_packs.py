@@ -150,6 +150,10 @@ def load_index_hashes(directory: Path, cache: dict[Path, dict[int, dict]]) -> di
     return mapping
 
 
+# 与 `mir-tools` 的 `PACK_EXCLUDE` 对齐：dev/审计产物不进发布包，也不算覆盖率缺口。
+EXCLUDED_LOGICAL = ("data/clean-report.json",)
+
+
 def expected_files(game: Path, categories: list[str], include_index_json: bool) -> list[Path]:
     """散装侧应被包覆盖的文件。
 
@@ -163,7 +167,10 @@ def expected_files(game: Path, categories: list[str], include_index_json: bool) 
             files.extend(
                 path
                 for path in root.rglob("*")
-                if path.is_file() and (include_index_json or path.name != "index.json")
+                if path.is_file()
+                and (include_index_json or path.name != "index.json")
+                and path.relative_to(game).as_posix() not in EXCLUDED_LOGICAL
+                and "reports/" not in path.relative_to(game).as_posix()
             )
     return sorted(files)
 

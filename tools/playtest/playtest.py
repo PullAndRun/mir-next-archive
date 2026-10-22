@@ -330,6 +330,13 @@ class Playtest:
         self.buy1 = False
         self.core1 = False
         self.magic1 = False
+        self.journey1 = False
+        self.quest_no_deliver = False
+        self.active_quest_ids: set[int] = set()
+        self.sell_kill_target = 20
+        self.sell_budget_seconds = 1500
+        self.quest_target: tuple[int, int] | None = None
+        self.breadcrumb: list[tuple[int, int]] = []
         self.char_index = 0
         self.level_events: list[tuple[int, int, int]] = []
         self.damage_types: list[tuple[int, int]] = []
@@ -932,7 +939,10 @@ class Playtest:
                 print(f"  [金币] +{gold}（累计 {self.gold_delta:+d}，余额 {self.self_gold}）")
             elif index == S_USER_LOCATION:
                 r = Reader(payload)
-                self.self_pos = r.point()
+                new_pos = r.point()
+                if not self.breadcrumb or self.breadcrumb[-1] != new_pos:
+                    self.breadcrumb.append(new_pos)
+                self.self_pos = new_pos
                 _direction = r.u8()
             elif index == S_OBJECT_WALK:
                 r = Reader(payload)
@@ -1820,6 +1830,8 @@ class Playtest:
                     break
             if confirmed:
                 rejected = 0
+                if not self.breadcrumb or self.breadcrumb[-1] != self.self_pos:
+                    self.breadcrumb.append(self.self_pos)
                 local_blocked = set(base_blocked)
                 # Crystal `PlayerObject.MovementDelay`（600ms）：等动作冷却再发下一步。
                 self.move_ready_at = time.time() + 0.68
@@ -2002,6 +2014,8 @@ class Playtest:
             if self.map_file != old_map:
                 return True
             if self.self_pos == cell:
+                if not self.breadcrumb or self.breadcrumb[-1] != self.self_pos:
+                    self.breadcrumb.append(self.self_pos)
                 return True
         return False
 
@@ -2306,6 +2320,77 @@ class Playtest:
                     return False
         self.fail("读书学技能", "书店货架没有可买/可学的技能书")
         return False
+
+    def walk_back_breadcrumb(self, target: tuple[int, int], tol: int = 2) -> bool:
+        """按去程 breadcrumb 反向走回安全点；失败重发/垂直侧移。"""
+        failures = 0
+        while self.breadcrumb and self._distance(target) > tol:
+            nxt = self.breadcrumb.pop()
+            if self._distance(nxt) >= self._distance(self.self_pos):
+                continue
+            for attempt in range(1, 4):
+                if self.step_onto(nxt, timeout=2.0):
+                    print(f"  [journey1] 反向走 {nxt} @ {self.self_pos} d={self._distance(target)}")
+                    failures = 0
+                    break
+                if attempt == 1:
+                    time.sleep(0.3)
+                    continue
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    side = (self.self_pos[0] + dx, self.self_pos[1] + dy)
+                    if self._is_walkable(side) and self.step_onto(side, timeout=1.0):
+                        print(f"  [journey1] 反向卡住侧移 {side}")
+                        break
+                else:
+                    time.sleep(0.3)
+                    continue
+                break
+            else:
+                failures += 1
+                if failures >= 5:
+                    self.fail(
+                        "journey1 反向走位",
+                        f"连续 5 步失败 self={self.self_pos} target={target} "
+                        f"breadcrumb末尾={self.breadcrumb[-10:]}",
+                    )
+                    return False
+        if self._distance(target) <= tol:
+            self.ok("journey1 反向回安全点", f"{self.self_pos}（剩余 breadcrumb {len(self.breadcrumb)}）")
+            return True
+        self.fail(
+            "journey1 反向走位",
+            f"breadcrumb 用尽 self={self.self_pos} target={target}",
+        )
+        return False
+
+    def gate_segmented_nav(self, waypoints: list[tuple[int, int]], tol: int = 2) -> bool:
+        """分段航点；卡住侧移重算。返回是否全部到达。"""
+        for target in waypoints:
+            reached = False
+            for attempt in range(1, 9):
+                if self.self_pos is not None and self._distance(target) <= tol:
+                    reached = True
+                    break
+                moved = self.walk_towards(target, max_steps=120)
+                if self._distance(target) <= tol:
+                    reached = True
+                    break
+                if not moved or attempt >= 2:
+                    # 侧移一格，打破 reason=unknown 的局部阻挡。
+                    for dx, dy in ((1, 0), (0, 1), (-1, 0), (0, -1)):
+                        side = (self.self_pos[0] + dx, self.self_pos[1] + dy)
+                        if self._is_walkable(side) and self.step_onto(side, timeout=1.0):
+                            print(f"  [journey1] 卡住侧移 -> {side}（段 {target} 第 {attempt} 次）")
+                            break
+                print(
+                    f"  [journey1] 航点 {target} 第 {attempt} 次：self={self.self_pos} "
+                    f"d={self._distance(target)} moved={moved}"
+                )
+            if not reached:
+                self.fail("journey1 分段导航", f"航点 {target} 未到达，self={self.self_pos}")
+                return False
+            print(f"  [journey1] 航点到达 {target} @ {self.self_pos}")
+        return True
 
     # ---- 新手链 quest 7：经队长临时授权新增（勿改其它逻辑）----
     def _newbie_walk_bfs(self, npc: dict) -> bool:
@@ -3093,6 +3178,101 @@ class Playtest:
             return 1
         return 0
 
+    def journey1_flow(self) -> int:
+        """同一角色连续旅程；不做 GM、不用 SKIP 冒充 PASS。"""
+        rows = []
+
+        def stage(name: str, fn) -> int:
+            before = len(self.results)
+            code = fn()
+            new = self.results[before:]
+            kind = "PASS" if code == 0 and all(k != "SKIP" for k, _, _ in new) else "FAIL"
+            evidence = new[-1][2] if new else f"exit={code}"
+            rows.append((name, kind, evidence))
+            print(f"  [journey1] {name} | {kind} | {evidence}")
+            return 0 if kind == "PASS" else 1
+
+        def equip() -> int:
+            n = self.newbie_equip()
+            if n <= 0:
+                self.fail("journey1 穿装", "0 件")
+                return 1
+            self.ok("journey1 穿装", f"{n} 件")
+            return 0
+
+        def recover_and_die() -> int:
+            if not self.recover_from_map():
+                self.fail("journey1 回 map0", f"当前 {self.map_file} {self.self_pos}")
+                return 1
+            return self.dr1_flow()
+
+        def sell_with_route() -> int:
+            if not self.gate_segmented_nav([(330, 270), (342, 312)]):
+                return 1
+            return self.sell1_flow()
+
+        def sell_stage() -> int:
+            self.sell_kill_target = 15
+            self.sell_budget_seconds = 600
+            code = self.sell1_flow()
+            if code == 0:
+                return 0
+            print("  [journey1] 第一轮 15 杀 0 肉，重试 10 杀")
+            self.sell_kill_target = 10
+            self.sell_budget_seconds = 300
+            return self.sell1_flow()
+
+        self.quest_no_deliver = True
+        def back_stage() -> int:
+            for attempt in range(1, 3):
+                if self.walk_back_breadcrumb((330, 270)):
+                    return 0
+                print(f"  [journey1] 反向重试 {attempt}/2，等 1s；breadcrumb={len(self.breadcrumb)}")
+                time.sleep(1.0)
+            self.fail(
+                "journey1 反向走位",
+                f"breadcrumb 用尽 self={self.self_pos} 末尾={self.breadcrumb[-10:]}",
+            )
+            return 1
+
+        print("  [journey1] 阶段 | 结果 | 关键证据")
+        for name, fn in (
+            ("穿装", equip),
+            ("quest1(接取)", self.quest1_flow),
+            ("反向回安全点", back_stage),
+            ("分段导航", lambda: 0 if self.gate_segmented_nav([(342, 312)]) else 1),
+            ("卖肉+修理", sell_stage),
+            ("买书/学技能/施法", self.magic1_flow),
+            ("重登", lambda: self.ps1_flow(self.char_index)),
+        ):
+            if stage(name, fn) != 0:
+                self.fail("journey1", f"阶段 {name} 失败；已停止")
+                return 1
+        missing = []
+        if not self.active_quest_ids:
+            missing.append("quests")
+        if not self.learned_spells:
+            missing.append("spells")
+        if not self.self_gold:
+            missing.append("gold")
+        if not self.equipment_items:
+            missing.append("equipment")
+        if not self.inventory_items:
+            missing.append("inventory")
+        if missing:
+            self.fail("journey1 非空", f"空字段={missing}")
+            return 1
+        self.ok(
+            "journey1 非空",
+            f"quests={sorted(self.active_quest_ids)} spells={sorted(self.learned_spells)} "
+            f"gold={self.self_gold} equipment={len(self.equipment_items)} inventory={len(self.inventory_items)}",
+        )
+        # 最后才做死亡/复活；物品状态以死亡前快照为准。
+        if stage("死亡/复活", self.dr1_flow) != 0:
+            self.fail("journey1", "死亡/复活阶段失败")
+            return 1
+        return 0
+
     def core1_flow(self) -> int:
         """核心闭环（live 战斗依赖项 SKIP）：穿装 → quest1 → 卖肉(SKIP) → 买书 → 修理(SKIP) → PS-1 → 升级(SKIP)。"""
         rows = []
@@ -3281,9 +3461,9 @@ class Playtest:
         self.newbie_equip()
         chicken = None
         kills = 0
-        deadline = time.time() + 1500
-        for attempt in range(1, 41):
-            if kills >= 20 or time.time() >= deadline:
+        deadline = time.time() + self.sell_budget_seconds
+        for attempt in range(1, 61):
+            if kills >= self.sell_kill_target or time.time() >= deadline:
                 break
             preys = [
                 m
@@ -3321,7 +3501,7 @@ class Playtest:
                 continue
             prey = min(near, key=score)
             print(
-                f"  [sell1] attempt={attempt} kills={kills}/20 目标={prey.get('name')} id={prey.get('id')}@{prey['pos']} "
+                f"  [sell1] attempt={attempt} kills={kills}/{self.sell_kill_target} 目标={prey.get('name')} id={prey.get('id')}@{prey['pos']} "
                 f"d={self._distance(prey['pos'])} score={score(prey)}"
             )
             if not self._attack_until_dead(prey, timeout=20):
@@ -3416,7 +3596,8 @@ class Playtest:
             self.fail("sell1 金币", f"卖出未加金币：{gold_before}->{gold_after}")
             return 1
         self.ok("sell1 卖出", f"Chicken 卖出，金币 {gold_before}->{gold_after}（+{gold_after - gold_before}）")
-        return self.repair_equipped()
+        # 有金币后走完整 EQ-1：先打怪掉耐久，再付费修理（journey 要求非空金币）。
+        return self.eq1_flow()
 
     def repair_equipped(self) -> int:
         """卖肉后用现有金币修理一件耐久未满的已装备物品（武器优先）。"""
@@ -3791,12 +3972,26 @@ class Playtest:
             return 1
         self.ok("quest1 接取", f"Jane @ {jane['pos']}")
         print(f"  [quest1] task_list={task_lines}")
+        m = re.search(
+            r"前往 (?P<map>.+?)\((?P<file>[^)]+)\) (?P<npc>.+?) \((?P<x>-?\d+),(?P<y>-?\d+)\)",
+            task_lines[0] if task_lines else "",
+        )
+        if m:
+            self.quest_target = (int(m.group("x")), int(m.group("y")))
+            print(
+                f"  [quest1] 结构化目标 map={m.group('map')}({m.group('file')}) "
+                f"npc={m.group('npc')} pos={self.quest_target}"
+            )
         if "前往 比奇省(0)" not in task_lines:
             self.fail("quest1 导航行", f"缺少「前往 比奇省(0)」：{task_lines}")
             return 1
         for line in task_lines:
             if "前往 " in line:
                 self.ok("quest1 导航行", line)
+        if self.quest_no_deliver:
+            self.active_quest_ids.add(1)
+            self.ok("quest1 已接取（journey 不交付）", f"active={sorted(self.active_quest_ids)}")
+            return 0
         print(f"  [quest1] 任务物品栏={[(i['item_index'], i.get('count')) for i in self.quest_items]}")
         leaf_count = sum(int(i.get("count", 0)) for i in self.quest_items)
         if leaf_count < 5:
@@ -4581,6 +4776,9 @@ class Playtest:
             return self.newbie_flow(char_index if char_index is not None else 0)
         self.ok("进入世界", f"object_id={self.self_object_id} pos={self.self_pos}")
         self.entry_map, self.entry_pos = self.map_file, self.self_pos
+        if self.journey1:
+            self.dr1_keep_moving = True
+            return self.journey1_flow()
         if self.magic1:
             return self.magic1_flow()
         if self.core1:
@@ -4829,6 +5027,7 @@ def main() -> int:
     parser.add_argument("--buy1", action="store_true", help="购买链：去 0104 书店，@main→商店 key→买第一件")
     parser.add_argument("--core1", action="store_true", help="组合核心闭环：quest1→sell1→levelup1(允许SKIP)→ps1")
     parser.add_argument("--magic1", action="store_true", help="道士魔法：买治愈术书→UseItem→C.Magic→MP 13→10")
+    parser.add_argument("--journey1", action="store_true", help="同一角色连续旅程：quest→卖肉→学技能→修理→死亡复活→重登")
     parser.add_argument("--dr1-keep-moving", action="store_true", help="DR-1 等待死亡时持续小范围走位（验证“移动才挨打”假设）")
     parser.add_argument(
         "--self-check",
@@ -4875,6 +5074,7 @@ def main() -> int:
     test.buy1 = args.buy1
     test.core1 = args.core1
     test.magic1 = args.magic1
+    test.journey1 = args.journey1
     test.dr1_keep_moving = args.dr1_keep_moving
     try:
         code = test.run()

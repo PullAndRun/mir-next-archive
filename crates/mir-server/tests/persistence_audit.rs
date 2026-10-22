@@ -938,3 +938,74 @@ async fn versioned_saves_still_meet_the_autosave_rpo() {
         .expect("row");
     assert_eq!(row.gold, 777, "加锁/版本化后 RPO 仍 ≤ autosave_secs + 1 秒");
 }
+
+#[tokio::test]
+async fn immediate_logout_relogin_preserves_inventory_and_equipment() {
+    let (address, store) = start_server().await;
+    let account = store
+        .create_account("relogineq", "secret", "")
+        .await
+        .expect("建账号");
+    let mut character = store
+        .create_character(
+            account.id,
+            "重登装备",
+            MirClass::Warrior,
+            MirGender::Male,
+            "0",
+            (330, 270),
+        )
+        .await
+        .expect("建角色");
+    character.level = 10;
+    let inventory_item = mir_protocol::data::UserItem {
+        unique_id: 7_001,
+        item_index: 1,
+        ..Default::default()
+    };
+    let equipment_item = mir_protocol::data::UserItem {
+        unique_id: 7_002,
+        item_index: 2,
+        ..Default::default()
+    };
+    character.inventory = mir_server::items::encode_slots(&[Some(inventory_item.clone())]);
+    character.equipment = mir_server::items::encode_slots(&[Some(equipment_item.clone())]);
+    store.save_character(character.clone()).await.expect("预置");
+
+    let (mut client, index, info) = enter_world_as(address, "relogineq", "重登装备").await;
+    assert_eq!(index, i32::try_from(character.id).unwrap());
+    assert!(
+        info.inventory
+            .as_ref()
+            .is_some_and(|items| items.iter().flatten().any(|item| item.unique_id == 7_001)),
+        "首次登录应读到预置背包：{info:?}"
+    );
+    assert!(
+        info.equipment
+            .as_ref()
+            .is_some_and(|items| items.iter().flatten().any(|item| item.unique_id == 7_002)),
+        "首次登录应读到预置装备：{info:?}"
+    );
+
+    client
+        .send(ClientPacket::LogOut(c::LogOut::default()))
+        .await;
+    client.wait_for_index(s::LogOutSuccess::INDEX).await;
+
+    // 立刻用新连接重登，不额外等待异步任务。
+    let (_again, _index, after) = enter_world_as(address, "relogineq", "重登装备").await;
+    assert!(
+        after
+            .inventory
+            .as_ref()
+            .is_some_and(|items| items.iter().flatten().any(|item| item.unique_id == 7_001)),
+        "立刻重登背包必须一致：{after:?}"
+    );
+    assert!(
+        after
+            .equipment
+            .as_ref()
+            .is_some_and(|items| items.iter().flatten().any(|item| item.unique_id == 7_002)),
+        "立刻重登装备必须一致：{after:?}"
+    );
+}

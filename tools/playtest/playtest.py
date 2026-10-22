@@ -328,6 +328,7 @@ class Playtest:
         self.levelup1 = False
         self.buy1 = False
         self.core1 = False
+        self.magic1 = False
         self.char_index = 0
         self.level_events: list[tuple[int, int, int]] = []
         self.damage_types: list[tuple[int, int]] = []
@@ -1920,7 +1921,7 @@ class Playtest:
         self.equipped_slots = []
         self.equipped_items = []
         for item in list(self.inventory_items):
-            for slot in range(14):
+            for slot in range(3):
                 writer = Writer()
                 writer.u8(1)  # MirGridType.Inventory
                 writer.u64(item["unique_id"])
@@ -1941,6 +1942,20 @@ class Playtest:
                     equipped += 1
                     self.equipped_uids.append(item["unique_id"])
                     self.equipped_slots.append(slot)
+                    self.inventory_items = [
+                        i for i in self.inventory_items if i["unique_id"] != item["unique_id"]
+                    ]
+                    self.equipment_items = [
+                        i for i in self.equipment_items if i["unique_id"] != item["unique_id"]
+                    ]
+                    self.equipment_items.append(
+                        dict(
+                            item,
+                            slot=slot,
+                            dura_before=int(item.get("current_dura", 0)),
+                            current_dura=int(item.get("current_dura", 0)),
+                        )
+                    )
                     self.equipped_items.append(
                         dict(
                             item,
@@ -2960,6 +2975,106 @@ class Playtest:
         self.ok("使用技能", f"FireBall 命中（MP {before_mp} -> {self.self_mp}）")
 
     # ---------------- 主流程 ----------------
+    def magic1_flow(self) -> int:
+        """道士治愈术：0104 买 1016 → UseItem → S.NewMagic{61,治愈术} → C.Magic → MP 13→10。"""
+        if not self.newbie_go_bookshop():
+            return 1
+        book_npcs = [
+            npc
+            for npc in self.npcs
+            if any(k in npc["name"].lower() for k in ("book", "librarian", "书", "书店"))
+        ]
+        if not book_npcs:
+            self.fail("magic1 书商", f"视野无书商：{[n['name'] for n in self.npcs]}")
+            return 1
+        pages = self._shop_pages(book_npcs[0])
+        pick = None
+        for page in pages:
+            for item in page["items"]:
+                if item["item_index"] == 1016:
+                    pick = item
+                    break
+            if pick:
+                break
+        if pick is None:
+            self.fail("magic1 货架", "书商货架没有 item_index=1016（治愈术）")
+            return 1
+        gold_before = self.self_gold or 0
+        writer = Writer()
+        writer.u64(pick["unique_id"])
+        writer.u16(1)
+        writer.u8(0)
+        self.send(C_BUY_ITEM, writer.raw())
+        deadline = time.time() + self.timeout
+        book = None
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            index, payload = packet
+            self._observe(index, payload)
+            if index == S_GAINED_ITEM:
+                book = self.last_gained_items[-1]
+                break
+        if book is None:
+            self.fail("magic1 买书", f"未收到 GainedItem（gold={self.self_gold}）")
+            return 1
+        self.ok("magic1 买书", f"#{book['item_index']} uid={book['unique_id']} 金币 {gold_before}->{self.self_gold}")
+        before_mp = self.self_mp
+        writer = Writer()
+        writer.u64(book["unique_id"])
+        writer.u8(1)
+        self.send(C_USE_ITEM, writer.raw())
+        deadline = time.time() + self.timeout
+        learned = None
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            index, payload = packet
+            self._observe(index, payload)
+            if index == S_NEW_MAGIC:
+                r = Reader(payload)
+                name = r.string()
+                spell = r.u8()
+                learned = (name, spell)
+                break
+        if learned is None:
+            self.fail("magic1 学技能", "UseItem 后未收到 S.NewMagic(117)")
+            return 1
+        self.ok("magic1 学技能", f"S.NewMagic name={learned[0]} spell={learned[1]}；MP {before_mp}->{self.self_mp}")
+
+        # 治愈术 61，方向 0，目标自己（target_id=0）。
+        writer = Writer()
+        writer.u32(self.self_object_id or 0)
+        writer.u8(61)
+        writer.u8(0)
+        writer.u32(0)
+        writer.i32(self.self_pos[0])
+        writer.i32(self.self_pos[1])
+        writer.u8(0)
+        self.send(C_MAGIC, writer.raw())
+        deadline = time.time() + 2.0
+        magic_ok = False
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            index, payload = packet
+            self._observe(index, payload)
+            if index in (S_OBJECT_MAGIC, 120):
+                magic_ok = True
+                break
+        self._drain(0.5)
+        self.ok(
+            "magic1 施法",
+            f"S.ObjectMagic={magic_ok} MP {before_mp}->{self.self_mp}（期望 13→10）",
+        )
+        if self.self_mp is not None and before_mp is not None and self.self_mp >= before_mp:
+            self.fail("magic1 MP", f"施法后 MP 未下降：{before_mp}->{self.self_mp}")
+            return 1
+        return 0
+
     def core1_flow(self) -> int:
         """核心闭环（live 战斗依赖项 SKIP）：穿装 → quest1 → 卖肉(SKIP) → 买书 → 修理(SKIP) → PS-1 → 升级(SKIP)。"""
         rows = []
@@ -4407,6 +4522,8 @@ class Playtest:
             return self.newbie_flow(char_index if char_index is not None else 0)
         self.ok("进入世界", f"object_id={self.self_object_id} pos={self.self_pos}")
         self.entry_map, self.entry_pos = self.map_file, self.self_pos
+        if self.magic1:
+            return self.magic1_flow()
         if self.core1:
             self.char_index = char_index if char_index is not None else 0
             return self.core1_flow()
@@ -4652,6 +4769,7 @@ def main() -> int:
     parser.add_argument("--levelup1", action="store_true", help="升级链：打怪到 2 级，断言 S.LevelChanged")
     parser.add_argument("--buy1", action="store_true", help="购买链：去 0104 书店，@main→商店 key→买第一件")
     parser.add_argument("--core1", action="store_true", help="组合核心闭环：quest1→sell1→levelup1(允许SKIP)→ps1")
+    parser.add_argument("--magic1", action="store_true", help="道士魔法：买治愈术书→UseItem→C.Magic→MP 13→10")
     parser.add_argument("--dr1-keep-moving", action="store_true", help="DR-1 等待死亡时持续小范围走位（验证“移动才挨打”假设）")
     parser.add_argument(
         "--self-check",
@@ -4697,6 +4815,7 @@ def main() -> int:
     test.levelup1 = args.levelup1
     test.buy1 = args.buy1
     test.core1 = args.core1
+    test.magic1 = args.magic1
     test.dr1_keep_moving = args.dr1_keep_moving
     try:
         code = test.run()

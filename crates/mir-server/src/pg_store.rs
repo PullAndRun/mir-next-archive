@@ -94,6 +94,19 @@ pub struct PgAccountStore {
 }
 
 impl PgAccountStore {
+    /// 取某角色的写锁。登录读取也拿同一把锁：旧会话的 logout/autosave 还没提交时，
+    /// 新会话不会读到旧行。
+    async fn character_write_lock(&self, character_id: i64) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.save_locks.lock().await;
+        Arc::clone(
+            locks
+                .entry(character_id)
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
+        )
+    }
+}
+
+impl PgAccountStore {
     /// 连接数据库并跑完迁移。
     ///
     /// # Errors
@@ -659,6 +672,10 @@ impl AccountStore for PgAccountStore {
         character_id: i64,
     ) -> impl std::future::Future<Output = Result<Option<Character>, StoreError>> + Send + '_ {
         async move {
+            // 与 `save_character_versioned` 共用同一把角色锁：先等旧会话把 logout 的
+            // 角色行提交完，再读，避免“立刻重登读到旧档”。
+            let lock = self.character_write_lock(character_id).await;
+            let _guard = lock.lock().await;
             match mir_store::load_character(&self.pool, character_id).await {
                 Ok(row) if row.account_id == account_id => Ok(Some(from_store_character(row))),
                 Ok(_) | Err(mir_store::StoreError::NotFound(_)) => Ok(None),

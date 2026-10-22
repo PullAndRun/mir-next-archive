@@ -6114,6 +6114,135 @@ mod tests {
         receiver
     }
 
+    fn test_map(name: &str) -> Arc<mir_world::Map> {
+        mir_world::Map {
+            width: 30,
+            height: 30,
+            cells: vec![mir_world::MapCell::default(); 900],
+            file_name: name.to_owned(),
+            version: mir_world::MapVersion::V0,
+            doors: Vec::new(),
+        }
+        .into()
+    }
+
+    #[test]
+    fn death_sets_revive_timer_and_broadcasts_object_died() {
+        let mut world = World::new(999);
+        world.insert_map("0", test_map("0"));
+        let (victim, mut victim_rx) = player(1, "死者", Point::new(10, 10), "0");
+        world.enter(victim);
+        let (observer, mut observer_rx) = player(2, "旁观", Point::new(12, 10), "0");
+        world.enter(observer);
+        drain(&mut victim_rx);
+        drain(&mut observer_rx);
+
+        world.set_player_hp(1, 0);
+        let victim = world.player(1).expect("玩家在");
+        assert_eq!(victim.hp, 0);
+        assert!(victim.dead);
+        assert!(
+            victim.revive_time >= PLAYER_REVIVE_DELAY_MS,
+            "死亡后必须设置 60s 复活计时"
+        );
+        assert_eq!(
+            victim.revive_time,
+            victim.death_time + PLAYER_REVIVE_DELAY_MS
+        );
+
+        let own = drain(&mut victim_rx);
+        assert!(
+            own.iter()
+                .any(|packet| matches!(packet, ServerPacket::Death(_))),
+            "dead player should receive S.Death: {own:?}"
+        );
+        let seen = drain(&mut observer_rx);
+        assert!(
+            seen.iter().any(|packet| matches!(
+                packet,
+                ServerPacket::ObjectDied(died) if died.object_id == 1
+            )),
+            "bystanders should receive S.ObjectDied: {seen:?}"
+        );
+    }
+
+    #[test]
+    fn town_revive_moves_to_bind_point_and_restores_hp_mp_without_touching_items() {
+        let mut world = World::new(999);
+        world.insert_map("0", test_map("0"));
+        let (player, mut rx) = player(1, "town reviver", Point::new(10, 10), "0");
+        world.enter(player);
+        let held = mir_protocol::data::UserItem {
+            unique_id: 77,
+            item_index: 1,
+            ..mir_protocol::data::UserItem::default()
+        };
+        if let Some(player) = world.player_mut(1) {
+            player.inventory[0] = Some(held.clone());
+            player.equipment[0] = Some(held);
+        }
+        let equipment_before = world.player(1).unwrap().equipment.clone();
+        let inventory_before = world.player(1).unwrap().inventory.clone();
+        world.set_player_hp(1, 0);
+        drain(&mut rx);
+
+        assert!(world.town_revive_player(1, "0", Point::new(20, 20)));
+        let player = world.player(1).expect("复活后仍在");
+        assert!(!player.dead);
+        assert_eq!(
+            (player.map.as_str(), player.position),
+            ("0", Point::new(20, 20))
+        );
+        assert_eq!(player.hp, player.stats.hp);
+        assert_eq!(player.mp, player.stats.mp);
+        assert_eq!(player.revive_time, 0);
+        assert_eq!(player.equipment, equipment_before);
+        assert_eq!(player.inventory, inventory_before);
+
+        let packets = drain(&mut rx);
+        assert!(
+            packets
+                .iter()
+                .any(|packet| matches!(packet, ServerPacket::Revived(_))),
+            "must emit S.Revived: {packets:?}"
+        );
+        assert!(
+            packets.iter().any(|packet| matches!(
+                packet,
+                ServerPacket::ObjectRevived(revived) if revived.object_id == 1
+            )),
+            "must emit S.ObjectRevived: {packets:?}"
+        );
+    }
+
+    #[test]
+    fn sixty_second_fallback_revives_in_place_after_deadline() {
+        let mut world = World::new(999);
+        world.insert_map("0", test_map("0"));
+        let (player, mut rx) = player(1, "fallback reviver", Point::new(10, 10), "0");
+        world.enter(player);
+        world.set_player_hp(1, 0);
+        drain(&mut rx);
+
+        world.advance_clock(PLAYER_REVIVE_DELAY_MS - 1);
+        world.tick();
+        assert!(world.player(1).unwrap().dead, "deadline 前不能自动复活");
+
+        world.advance_clock(1);
+        world.tick();
+        let player = world.player(1).expect("复活后仍在");
+        assert!(!player.dead, "deadline 后应兜底复活");
+        assert_eq!(player.position, Point::new(10, 10), "兜底复活是原地");
+        assert_eq!(player.hp, player.stats.hp);
+        assert_eq!(player.revive_time, 0);
+        let packets = drain(&mut rx);
+        assert!(
+            packets
+                .iter()
+                .any(|packet| matches!(packet, ServerPacket::Revived(_))),
+            "兜底复活也must emit S.Revived: {packets:?}"
+        );
+    }
     #[test]
     fn level_up_from_99_plus_five_matches_crystal() {
         let mut world = level_one_world();
@@ -6126,12 +6255,12 @@ mod tests {
         assert_eq!(
             (player.level, player.experience, player.max_experience),
             (2, 4, 200),
-            "1 级 99 + 5 必须跨到 2 级，余 4，下一级 200"
+            "level 1 with 99 exp + 5 must reach level 2 with 4 exp and next 200"
         );
         assert_eq!(
             (player.hp, player.stats.hp, player.mp, player.stats.mp),
             (24, 24, 18, 18),
-            "升级后 HP/MP 上限与当前值都要刷新到 2 级曲线"
+            "after level-up HP/MP caps and current values must refresh to the level 2 curve"
         );
 
         let packets = drain(&mut rx);
@@ -6139,7 +6268,7 @@ mod tests {
             packets.iter().any(
                 |packet| matches!(packet, ServerPacket::GainExperience(gain) if gain.amount == 5)
             ),
-            "必须先给本人发 S.GainExperience{{5}}：{packets:?}"
+            "must first send S.GainExperience{{5}} to the player: {packets:?}"
         );
         assert!(
             !packets
@@ -6319,6 +6448,159 @@ mod tests {
         assert!(
             (2..=4).contains(&max_hit),
             "max hit damage {max_hit} outside 2..=4"
+        );
+    }
+
+    fn cjlaaa_world() -> Option<World> {
+        let db_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../resource/community/suprcode-crystal-database/cjlaaa/Server.MirDB");
+        let data = GameData::load(&db_path).ok()?;
+        let mut world = World::new(999);
+        world.seed_rng(11);
+        world.set_game_data(Arc::new(data));
+        Some(world)
+    }
+
+    #[test]
+    fn basic_sword_book_learns_but_fencing_is_not_castable() {
+        let Some(mut world) = cjlaaa_world() else {
+            eprintln!("skip: cjlaaa data missing");
+            return;
+        };
+        let (player, mut rx) = player(1, "learn BasicSwordsmanship", Point::new(10, 10), "0");
+        world.enter(player);
+        let stats = combat::player_base_stats(1, MirClass::Warrior);
+        {
+            let player = world.player_mut(1).expect("玩家");
+            player.level = 1;
+            player.stats = stats;
+            player.hp = stats.hp;
+            player.mp = stats.mp;
+        }
+        let info = world.item_info(973).cloned().expect("基本剑术模板");
+        let book = world.create_fresh_item(&info);
+        let book_id = book.unique_id;
+        assert!(world.add_item_to_inventory(1, book));
+        drain(&mut rx);
+
+        let learned = world.use_book(1, book_id).expect("1 级新手第一本书可学");
+        assert_eq!(learned.magic.spell, Spell::Fencing);
+        assert_eq!(learned.magic.level, 0);
+        assert!(
+            world.find_inventory_item(1, book_id).is_none(),
+            "book must be consumed"
+        );
+
+        let packets = drain(&mut rx);
+        let new_magic = packets
+            .iter()
+            .find_map(|packet| match packet {
+                ServerPacket::NewMagic(magic) => Some(magic),
+                _ => None,
+            })
+            .expect("应发 S.NewMagic");
+        assert_eq!(new_magic.magic.name, "基本剑术");
+        assert_eq!(new_magic.magic.spell, Spell::Fencing);
+        assert_eq!(new_magic.magic.level, 0);
+        assert_eq!(new_magic.magic.base_cost, 0);
+        assert!(
+            packets.iter().any(|packet| matches!(
+                packet,
+                ServerPacket::UseItem(use_item) if use_item.unique_id == book_id && use_item.success
+            )),
+            "must emit a successful S.UseItem: {packets:?}"
+        );
+
+        let mp_before = world.player(1).unwrap().mp;
+        let error = world
+            .cast_magic(1, Spell::Fencing, MirDirection::Down, 0, Point::new(0, 0))
+            .expect_err("BasicSwordsmanship is passive and cannot be cast");
+        assert!(
+            matches!(
+                error,
+                crate::magic::MagicError::UnsupportedSpell(Spell::Fencing)
+            ),
+            "must return UnsupportedSpell, got {error:?}"
+        );
+        assert_eq!(
+            world.player(1).unwrap().mp,
+            mp_before,
+            "unsupported casts must not consume MP"
+        );
+        let packets = drain(&mut rx);
+        assert!(
+            !packets
+                .iter()
+                .any(|packet| matches!(packet, ServerPacket::Magic(_))),
+            "unsupported spells must not emit S.Magic: {packets:?}"
+        );
+    }
+
+    #[test]
+    fn healing_book_learns_and_casts_at_level_one_taoist() {
+        let Some(mut world) = cjlaaa_world() else {
+            eprintln!("skip: cjlaaa data missing");
+            return;
+        };
+        let (player, mut rx) = player(1, "learn Healing", Point::new(10, 10), "0");
+        world.enter(player);
+        let stats = combat::player_base_stats(1, MirClass::Taoist);
+        {
+            let player = world.player_mut(1).expect("玩家");
+            player.level = 1;
+            player.class = MirClass::Taoist;
+            player.stats = stats;
+            player.hp = stats.hp;
+            player.mp = stats.mp;
+        }
+        let info = world.item_info(1016).cloned().expect("治愈术模板");
+        let book = world.create_fresh_item(&info);
+        let book_id = book.unique_id;
+        assert!(world.add_item_to_inventory(1, book));
+        drain(&mut rx);
+
+        world.use_book(1, book_id).expect("1 级道士第一本书可学");
+        let packets = drain(&mut rx);
+        let new_magic = packets
+            .iter()
+            .find_map(|packet| match packet {
+                ServerPacket::NewMagic(magic) => Some(magic),
+                _ => None,
+            })
+            .expect("应发 S.NewMagic");
+        assert_eq!(new_magic.magic.name, "治愈术");
+        assert_eq!(new_magic.magic.spell, Spell::Healing);
+        assert_eq!(new_magic.magic.level, 0);
+        assert_eq!(new_magic.magic.base_cost, 3);
+        assert_eq!(new_magic.magic.level1, 7);
+        assert_eq!(new_magic.magic.key, 0);
+
+        let mp_before = world.player(1).unwrap().mp;
+        let report = world
+            .cast_magic(1, Spell::Healing, MirDirection::Down, 0, Point::new(0, 0))
+            .expect("1 级道士治愈术应能施法");
+        assert_eq!(report.cost, 3, "治愈术 0 级耗蓝 = BaseCost 3");
+        assert_eq!(report.target_id, 1, "无目标治疗默认指向自己");
+        assert_eq!(world.player(1).unwrap().mp, mp_before - 3);
+
+        let packets = drain(&mut rx);
+        assert!(
+            packets.iter().any(|packet| matches!(
+                packet,
+                ServerPacket::Magic(magic)
+                    if magic.spell == Spell::Healing
+                        && magic.cast
+                        && magic.level == 0
+                        && magic.target_id == 1
+            )),
+            "must send S.Magic{{Healing, cast=true, level=0, target=1}} to the caster: {packets:?}"
+        );
+        assert!(
+            packets.iter().any(|packet| matches!(
+                packet,
+                ServerPacket::HealthChanged(health) if health.mp == mp_before - 3
+            )),
+            "MP consumption must be reflected in S.HealthChanged: {packets:?}"
         );
     }
 }

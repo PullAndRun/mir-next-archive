@@ -460,3 +460,9 @@ data/server/Server.MirDB + data/server/Envir/…
 客户端启动用 `PackSet::open_unverified()`（只读包头/条目表），**不**逐包哈希 410 MB；
 `mir-tools assets pack --verify/--check` 与发布流程负责整包 sha256 校验。
 实测启动 `open`：8.3 s → 0.34 s。
+
+## 确定性打包
+
+`PackWriter` 按逻辑名排序后写盘：同一输入两次打包 → `.mnp` 逐字节相同。
+`SOURCE_DATE_EPOCH=<秒>` 可固定 `manifest.packs.json` 的 `generated_at`，使清单也可复现：
+`SOURCE_DATE_EPOCH=1792645029 mir-tools assets pack --input game-assets --out game-assets/packs`。

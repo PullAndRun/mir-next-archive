@@ -2140,7 +2140,10 @@ fn login_packets_carry_the_quest_catalogue() {
     assert!(!change.track_quest, "登录重放不追踪");
 
     // `ClientQuestInfo` 里的字段来自「头部 + 脚本」（`QuestInfo.cs:385-415`）。
-    let info = harness.world.client_quest_info(5).expect("任务 5 定义");
+    let info = harness
+        .world
+        .client_quest_info(5, Language::ZhCn)
+        .expect("任务 5 定义");
     assert_eq!(info.reward_gold, 0);
     assert_eq!(info.rewards_select_item.len(), 2);
     assert_eq!(info.rewards_select_item[0].item.name, "Sword");

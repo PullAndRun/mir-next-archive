@@ -718,6 +718,8 @@ mod tests {
                 version: 1,
                 generated_at: "epoch+0s".to_owned(),
                 chunk_mb: 16,
+                generator: String::new(),
+                deterministic: true,
                 packs: vec![summary],
             })
             .expect("json"),

@@ -1499,10 +1499,11 @@ impl<S: AccountStore> Session<S> {
                                 dc_max = attacker.map(|a| a.1),
                                 accuracy = attacker.map(|a| a.2),
                                 attacker_agility = attacker.map(|a| a.3),
-                                target_hp = target.map(|t| t.0),
+                                target_hp_before_hit = target.map(|t| t.0),
                                 target_ac_min = target.map(|t| t.1),
                                 target_ac_max = target.map(|t| t.2),
                                 target_agility = target.map(|t| t.3),
+                                note = "damage 是出手时抽的原始值；命中/护甲/死亡在下一个 tick 的 pending hit 结算",
                                 "发起攻击"
                             );
                             // Crystal `HumanObject.cs:7112/7844-7847`：命中一次 `DamageWeapon()`（1..=4 点）。

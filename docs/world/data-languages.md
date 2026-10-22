@@ -9,7 +9,7 @@
 1. **配置层已经是中文**（`accounts.language DEFAULT 'zh-cn'`、`client_config.rs`、`LanguageCatalog::default()`、`server.rs:418` 语言包），缺的只是**数据文本**。
 2. `cjlaaa` 是四个候选里**唯一的中文数据集**（物品 85.7% / 怪物 77.2% / 地图 98.2% / 任务 98.1% / 技能 72.9% 为中文），且本作能完整加载（DB v105、Envir/NPC 脚本/任务脚本/掉落表/地图全部可读）。
 3. `Jev` 是英文数据集（怪物/NPC/地图/任务 0% 中文；物品里 166 条 CJK 只是 `(金龍)` 这类装饰性汉字）。`Daneo1989` 也是英文；`NightWolf` 版本 34 超出本作支持范围（60..=117），不可用。
-4. **已采纳 A：默认数据集已切到 `cjlaaa`**（`gamedata.rs::DB_CANDIDATES` 首位，见 §11）。切换后地图/任务/NPC 对话/物品/怪物/技能大部分变中文；**NPC 名字仍是英文**（309 个里只有 14 个中文），这是仍会“中英混杂”的**唯一大项**，下一步做 **NPC 名字本地化层**（309 条映射，可复用 `mir-core::i18n`）。
+4. **已采纳 A：默认数据集已切到 `cjlaaa`**（`gamedata.rs::DB_CANDIDATES` 首位，见 §11）。切换后地图/任务/NPC 对话/物品/怪物/技能大部分变中文；**NPC 名字已由 `npc_names` 语言包覆盖**（291 键：有据 190 + generated 119，显示名拉丁残留仅 `GM`），**物品/怪物/技能/任务名也已由语言包补齐**（generated 185；仅 item 815 `ArmourBook(ACC)` 仍是英文），详见 §A++++。
 5. **B（保留 Jev + 本地化层）不推荐**：要翻 1628 物品 / 555 怪物 / 375 NPC / 463 地图 / 154 任务 + 660 份 NPC 对话脚本，量级远大于换库；C（混合）不可取，两库索引/脚本文件名不对应（见 §6）。
 
 ## 1. 候选库总表（`Server.MirDB` 实测）
@@ -98,8 +98,10 @@ cjlaaa 里仍为英文的名称（供后续本地化清单）：
 
 ### 7.2 切换后预期
 - ✅ 地图标题、任务名/任务正文、NPC 对话、物品名（约 86%）、怪物名（约 77%）、技能名（约 73%）变中文；经典主线内容基本全中文。
-- ⚠️ **NPC 名字仍是英文**（`Assistant_Jane` 等 295 条）——视觉上还会中英混杂，建议下一步做 309 条 NPC 名字映射（可放 `mir-core::i18n` 或独立 `NameLists`）。
-- ⚠️ 193 条物品 / 124 条怪物 / 29 条技能仍是英文（多为后期/韩服内容）。
+- ⚠️ **NPC 名字仍是英文**（`Assistant_Jane` 等 295 条）——这是**第 27 轮切换时的预期**；
+  第 28 轮已由 `npc_names` 291 键解决（有据 190 + generated 119，见 §11）。
+- ⚠️ 193 条物品 / 124 条怪物 / 29 条技能仍是英文——**第 28 轮已由语言包补齐**
+  （item 仅 815 残留、monster/skill/quest 100%，见 §A++++）。
 
 ## 8. 切换风险清单（按影响排序）
 
@@ -194,7 +196,7 @@ cjlaaa 里仍为英文的名称（供后续本地化清单）：
 | `chansigit-mccrystal/Packs/mir-176/Server.MirDB` | 坐标精确命中 **11 个**（ini 未覆盖的 `Alchemist_Samuel` 等） | 仅用同 `(map_index,x,y)` 精确命中；≤3 格近似因误配已弃用 |
 | 生成规则 | **119 个** | 头衔 + 音译（音译表 150+ 条）；未知音译不允许残留拉丁字母 |
 
-统计：**有据 190/309**（135 纯有据 + 55 `evidenced-partial(cleaned)`），**generated 119**；误译白名单修复 3 条；无覆盖而保留英文的 NPC = 0（`GM` 前缀除外）。
+统计：**有据 190/309**（135 纯有据 + 55 `evidenced-partial(cleaned)`），**generated 119**；误译白名单修复 3 条；无覆盖而保留英文的 NPC = 0（`GM` 前缀除外）。第 28 轮又补了**内容名 generated 185**（item 113 / monster 56 / skill 13 / quest 3），NPC 有据数不变，详见 §A++++。
 
 ### A+.2 显示规范化规则
 - 统一格式：`角色/头衔·名字`，分隔符用 **`·`**（U+00B7），不用 ASCII 下划线；中文模式全角标点。
@@ -279,9 +281,11 @@ cjlaaa 里仍为英文的名称（供后续本地化清单）：
 - 要么改协议加名字字段（**不推荐**，破坏 Crystal 线格式）。
 怪物/技能/任务名则是服务端字段，可沿用 NPC 的查表方案。
 
-### A++.4 结论与建议
-- 总覆盖率 **47.3% < 70%**，按队长门槛 **B 不触发**；不建议现在全量生成四张表。
-- 如果要做「部分收益」，优先级：
+### A++.4 结论与建议（第 27 轮有据基线；第 28 轮已落地 generated）
+- **有据基线**：总覆盖率 **47.3% < 70%**，按当时的门槛不触发全量「有据」生成。
+  第 28 轮改为「有据 + generated（185，逐条标注）」补齐，**显示覆盖率**见 §A++++：
+  item 99.9%、monster/skill/quest 100%。
+- 如果只靠有据，优先级曾是：
   1. **怪物名**（54.8%，服务端 `S.ObjectMonster.name` 直接可做，但需先清洗误译）；
   2. **技能名**（55.2%，服务端 `ClientMagic.name`，同样需清洗 `Focus=重点` 这类）；
   3. **任务名**（66.7%，只有 3 条，可人工补 1 条 `Emperors Problem`）；
@@ -332,3 +336,58 @@ cjlaaa 里仍为英文的名称（供后续本地化清单）：
     `S.NewItemInfo`，重复请求不再下发。
 - 真服 E2E（默认 cjlaaa）：新角色进图时收到 **5 条 `S.NewItemInfo`**，与背包
   `[221,317,318,658,722]` 的 5 个 unique index 一一对应；`S.NewMapInfo` 仍 45 NPC/70 movements。
+
+## A++++. 内容名语言包补齐（第 28 轮，generated 收尾）
+
+### A++++.1 新增段与键
+
+`config/lang/{zh-cn,en}.json` 本轮新增/补齐（两包键集合逐项一致）：
+
+| 段 | 键数 | 键 | zh 值来源 | en 值 |
+|---|---:|---|---|---|
+| `item_names` | 1349 | `ItemInfo.Index` | cjlaaa DB 中文 1156 + `items.ini` 79 + **generated 113** | Jev 同 index 英文名（1346/1349 对齐），余回退 cjlaaa |
+| `monster_names` | **56** | `MonsterInfo.Index` | **generated 56**（本轮新增） | DB 英文原名 |
+| `skill_names` | **13** | `MagicInfo.Spell` | **generated 13**（本轮新增） | DB 英文原名 |
+| `quest_names` | **3** | `QuestInfo.Index`（152/153/154） | **generated 3**（AncientOmaCavern 两 index 同名、Emperors Problem） | DB 英文原名 |
+
+`sources` 段记 generated 计数：`item_names.generated=113`、`monster_names=56`、
+`skill_names=13`、`quest_names=3`（总数 **185**）。
+
+### A++++.2 「有据 / generated」统计
+
+- **NPC 名（未变）**：`npc_names` 291 键；有据 **190/309**（135 纯有据 + 55
+  `evidenced-partial(cleaned)`），generated **119**（头衔+音译），拉丁残留仅 `GM`。
+  → **有据 190 仍是 190**：本轮没有新增可核实的 NPC 名来源，新增的是下面内容名的 generated。
+- **内容名（本轮新增）**：generated **185** = item 113 + monster 56 + skill 13 + quest 3。
+  依据（临时审阅表 `target/name-review.tsv`，未入库）：
+  **manual 117 条**（含音译/人工定名）、**规则/词表 68 条**、单独标 `translit` 的 **0 条**。
+- **有据基线**（语言包替换前，来自 §2/§A++）：item 1235（1156 DB + 79 ini）、
+  monster 488（420 DB + 68 ini）、skill 94（78 DB + 16 ini）、quest 156（154 DB + 2 ini）。
+  这些是「有据」上限；generated 不冒充有据，统计上单列。
+
+### A++++.3 覆盖率（语言包生效后）
+
+| 类别 | 语言包前（DB CJK） | 语言包后 | 剩余英文 |
+|---|---:|---:|---|
+| 物品 | 1156/1349 = **85.7%** | **1348/1349 = 99.9%** | `815 ArmourBook(ACC)`（1 条） |
+| 怪物 | 420/544 = **77.2%** | **544/544 = 100%**（420 DB + 68 ini + 56 generated） | 0 |
+| 技能 | 78/107 = **72.9%** | **107/107 = 100%**（78 DB + 16 ini + 13 generated） | 0 |
+| 任务 | 154/157 = **98.1%** | **157/157 = 100%**（154 DB + 3 generated；152/153 的 ini 命中与 generated 同名重叠） | 0 |
+
+> 这是**显示名覆盖率**，不是「DB 原生中文率」；DB 原生数字保留在 §2/§A++ 作审计基线。
+
+### A++++.4 回退链与渲染点
+
+统一规则：**当前语言包 → `zh-cn` 语言包 → DB 原名**；未知 index/key 原样回退，不 panic
+（`LanguageLibrary::{item_name,monster_name,skill_name,quest_name}`）。
+
+| 数据 | 键 | 回退 | 渲染点（当前） |
+|---|---|---|---|
+| 物品 | `item_names[index]` | DB `ItemInfo.Name` | `S.NewItemInfo.name`（`World::localized_item_info`）；`S.ObjectItem` 仍用 DB 名 |
+| 怪物 | `monster_names[index]` | DB `MonsterInfo.Name` | `World::monster_name_for` → `S.ObjectMonster.name` |
+| 技能 | `skill_names[spell]` | DB `MagicInfo.Name` | `World::magic_name_for` → `S.NewMagic`/`ClientMagic.name`（`S.UserInformation` 技能列表） |
+| 任务 | `quest_names[index]` | DB `QuestInfo.Name` | `World::client_quest_info(language)` → `S.NewQuestInfo.name`（`quests.rs:500-502`） |
+
+> `S.GainedItem`/`S.NPCGoods`/背包/装备的 `UserItem` **没有 name 字段**，客户端按
+> `item_index` 查 `S.NewItemInfo` 模板（见 §A+++）；所以物品名不能在服务端包内直接替换，
+> 必须保证登录/获得/开店时模板已下发（已实现）。

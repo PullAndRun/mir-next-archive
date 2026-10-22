@@ -202,11 +202,11 @@
     "quest_navigation_go_to": "Go to {map} ({file})",
     "quest_navigation_none": "This quest has no navigation target",
     "quest_share_needs_party": "You can only share a quest while in a group with a member nearby.",
-  "quest_too_many": "You are already on too many quests.",
-  "quest_accept_failed": "Failed to accept the quest.",
-  "quest_finish_failed": "Failed to finish the quest.",
-  "pickup_failed": "You cannot pick that up.",
-  "buy_failed": "Purchase failed.",
+    "quest_too_many": "You are already on too many quests.",
+    "quest_accept_failed": "Failed to accept the quest.",
+    "quest_finish_failed": "Failed to finish the quest.",
+    "pickup_failed": "You cannot pick that up.",
+    "buy_failed": "Purchase failed.",
     "quest_task_done_suffix": " (done)",
     "quest_task_flag": "Activate flag {number}{done_suffix}",
     "quest_task_item": "Collect {item} {count}/{total}",
@@ -270,7 +270,7 @@
     "0150": "InnerWall",
     "0157": "LobbyofZumaTemple"
   },
-  "npc_names":   {
+  "npc_names": {
     "AncientCaves/AncientNatural-D003": "MysteriousStone",
     "AncientCaves/AncientPrajna-D2074": "MysteriousStone",
     "AncientCaves/AncientStone-D715": "MysteriousStone",
@@ -563,7 +563,7 @@
     "WoomyonWoods/TaoistVillage/Woomyon_Transporter1": "Teleport_Sigmund",
     "WoomyonWoods/TrollMine": "Pillar"
   },
-  "item_names":   {
+  "item_names": {
     "1": "SpiritBlade",
     "2": "SpiritBlade1",
     "3": "SpiritBlade2",
@@ -1865,13 +1865,13 @@
     "1299": "MCTorch[2h]",
     "1300": "SCTorch[2h]",
     "1301": "EXP30%1",
-    "1302": "EXP30%3",
-    "1303": "EXP30%5",
-    "1304": "EXP30%24",
-    "1305": "EXP50%1",
-    "1306": "EXP50%3",
-    "1307": "EXP50%5",
-    "1308": "EXP50%24",
+    "1302": "EXP50%3",
+    "1303": "EXP50%5",
+    "1304": "EXP50%24",
+    "1305": "EXP100%1",
+    "1306": "EXP100%3",
+    "1307": "EXP100%5",
+    "1308": "EXP100%24",
     "1309": "ExtraDrop20%",
     "1310": "DestructionWater3",
     "1311": "DestructionWater7",
@@ -1913,5 +1913,97 @@
     "1347": "天衣无缝(男)[15d]",
     "1348": "CraftingBook",
     "1349": "SealedHero"
+  },
+  "monster_names": {
+    "13": "Clone",
+    "14": "AssassinClone",
+    "18": "CharmedSnake",
+    "19": "BabyPig",
+    "20": "Chick",
+    "21": "Kitten",
+    "22": "BabySkeleton",
+    "23": "Baekdon",
+    "24": "Wimaen",
+    "25": "BlackKitten",
+    "26": "BabyDragon",
+    "27": "OlympicFlame",
+    "28": "BabySnowMan",
+    "338": "LightWarrior",
+    "392": "Evil Mir",
+    "393": "00",
+    "394": "MirStatue",
+    "400": "Demon1",
+    "401": "Demon2",
+    "403": "ManectricKing",
+    "404": "FrozenDoor",
+    "405": "IcePilar",
+    "432": "Hydra",
+    "439": "Slave2",
+    "442": "TurtleGrass",
+    "448": "Chieftain_Warrior",
+    "452": "Chieftain_Archer",
+    "454": "Jar1",
+    "455": "Jar2",
+    "464": "RestlessJar",
+    "466": "TucsonEgg",
+    "470": "VisceralWorm2",
+    "474": "TucsonFighter",
+    "475": "TucsonMage",
+    "476": "TucsonWarrior",
+    "478": "FrozenSolider",
+    "479": "FrozenFighter",
+    "480": "FrozenArcher",
+    "481": "FrozenKnight",
+    "482": "FrozenGolem",
+    "484": "SnowWolf",
+    "490": "IceCrystalSolider",
+    "505": "PKSpirit",
+    "506": "Frog",
+    "515": "HellKnight1",
+    "516": "HellKnight2",
+    "517": "HellKnight3",
+    "518": "HellKnight4",
+    "519": "HellBomb1",
+    "520": "HellBomb2",
+    "521": "HellBomb3",
+    "530": "SnowWolfKingMob",
+    "531": "WarriorScroll",
+    "532": "TaoistScroll",
+    "533": "WizardScroll",
+    "534": "AssassinScroll"
+  },
+  "skill_names": {
+    "54": "Blink",
+    "140": "BindingShot",
+    "132": "SummonVampire",
+    "136": "CrippleShot",
+    "137": "SummonSnakes",
+    "139": "OneWithNature",
+    "141": "MentalState",
+    "150": "Portal",
+    "151": "Blink",
+    "152": "Portal",
+    "153": "BattleCry",
+    "154": "FireBounce",
+    "155": "MeteorShower"
+  },
+  "quest_names": {
+    "152": "AncientOmaCavern",
+    "153": "AncientOmaCavern",
+    "154": "Emperors Problem"
+  },
+  "sources": {
+    "item_names": {
+      "generated": 113
+    },
+    "monster_names": {
+      "generated": 56
+    },
+    "skill_names": {
+      "generated": 13
+    },
+    "quest_names": {
+      "generated": 3
+    }
   }
 }

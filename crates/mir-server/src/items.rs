@@ -3043,9 +3043,16 @@ impl World {
             return;
         };
         let Some(table) = data.monster_drop_table(&name) else {
+            tracing::debug!(monster = %name, "没有掉落表，跳过掉落");
             return;
         };
         let reward = table.roll(&mut self.rng, DROP_RATE);
+        tracing::debug!(
+            monster = %name,
+            gold = reward.gold,
+            items = ?reward.items,
+            "怪物掉落结算"
+        );
 
         // `if (scaledGold > 0) DropGold(scaledGold);`（`:1114-1117`）
         if reward.gold > 0 {

@@ -31,7 +31,7 @@ pub mod format {
 ///
 /// 字段来源见各字段文档；`.wzl` 与 `.Lib` 的记录头字段并不完全一样，
 /// 两个容器里不存在的字段用 0 / `false` 填充。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImageInfo {
     /// 宽（像素）。
     pub width: u16,

@@ -323,6 +323,7 @@ class Playtest:
         self.quest1 = False
         self.expected_quest1_exp = 50
         self.eq1 = False
+        self.sell1 = False
         self.dr1_keep_moving = False
         self.dr1_taken_hits: list[tuple[float, int, int]] = []
         self.dr1_counts: collections.Counter[str] = collections.Counter()
@@ -2931,6 +2932,143 @@ class Playtest:
         self.ok("使用技能", f"FireBall 命中（MP {before_mp} -> {self.self_mp}）")
 
     # ---------------- 主流程 ----------------
+    def sell1_flow(self) -> int:
+        """卖肉链：杀 Hen → 捡 Chicken → Sarah 卖出 → 金币 → eq1 修理。"""
+        self.newbie_equip()
+        chicken = None
+        kills = 0
+        deadline = time.time() + 1500
+        for attempt in range(1, 41):
+            if kills >= 20 or time.time() >= deadline:
+                break
+            preys = [
+                m
+                for m in self.monsters
+                if not m.get("dead")
+                and ("hen" in m.get("name", "").lower() or "鸡" in m.get("name", ""))
+            ]
+            if not preys:
+                anchor = ((342, 312), (280, 260), (330, 530), (200, 400), (420, 95))[
+                    attempt % 5
+                ]
+                self.walk_towards(anchor, max_steps=160)
+                self._drain(1.0)
+                continue
+            # 优先 d<=3 且周围 3 格怪最少的鸡；同分取近的。
+            def score(monster: dict) -> tuple[int, int]:
+                crowd = sum(
+                    1
+                    for other in self.monsters
+                    if other is not monster
+                    and not other.get("dead")
+                    and max(
+                        abs(monster["pos"][0] - other["pos"][0]),
+                        abs(monster["pos"][1] - other["pos"][1]),
+                    )
+                    <= 3
+                )
+                return (crowd, self._distance(monster["pos"]))
+
+            prey = min(preys, key=score)
+            print(
+                f"  [sell1] attempt={attempt} kills={kills}/20 目标={prey.get('name')} id={prey.get('id')}@{prey['pos']} "
+                f"d={self._distance(prey['pos'])} score={score(prey)}"
+            )
+            if not self._attack_until_dead(prey, timeout=60):
+                self.diagnostics(f"卖肉第 {attempt} 次：Hen 未击杀")
+                continue
+            kills += 1
+            chicken_ground = [
+                item for item in self.ground_items if "鸡肉" in item.get("name", "")
+            ]
+            self.last_gained_items.clear()
+            self.newbie_pickup()
+            picked = list(self.last_gained_items)
+            print(
+                f"  [sell1] attempt={attempt} kills={kills} ground={[(g.get('name'), g.get('pos')) for g in self.ground_items[:8]]}"
+            )
+            if not chicken_ground:
+                continue
+            if picked:
+                chicken = picked[-1]
+                self.ok(
+                    "sell1 捡鸡肉",
+                    f"attempt={attempt} 杀鸡={kills} item_index={chicken['item_index']} "
+                    f"count={chicken.get('count')} unique_id={chicken['unique_id']}",
+                )
+                break
+        if chicken is None:
+            self.fail("sell1 捡鸡肉", f"已击杀 {kills} 只 Hen，未掉鸡肉（cjlaaa 单只约 26.7%）")
+            return 1
+
+        sarah = next(
+            (
+                n
+                for n in self.map_npcs
+                if "sarah" in n.get("name", "").lower() or "莎拉" in n.get("name", "")
+            ),
+            None,
+        )
+        if sarah is None:
+            self.fail("sell1 找商人", f"找不到 Merchant_Sarah：{[n.get('name') for n in self.map_npcs]}")
+            return 1
+        if not self._newbie_walk_bfs(sarah) and not self._stand_next_to(sarah):
+            self.fail("sell1 找商人", f"走不到 Sarah @ {sarah['pos']}")
+            return 1
+        spawn = dict(sarah, id=sarah.get("object_id", sarah.get("id")))
+        self.call_npc(spawn, "@main", timeout=2)
+        self._drain(0.4)
+        print(f"  [sell1] Sarah 主对话页={self.last_npc_page}")
+        sell_key = next(
+            (
+                k
+                for k in self._button_keys(self.last_npc_page)
+                if "BUY" in k.upper() or "SELL" in k.upper()
+            ),
+            "@BuySell",
+        )
+        print(f"  [sell1] 解析商店 key={sell_key}")
+        self.call_npc(spawn, sell_key, timeout=2)
+        self._drain(0.4)
+        print(f"  [sell1] 商店页={self.last_npc_page}")
+        gold_before = self.self_gold or 0
+        writer = Writer()
+        writer.u64(chicken["unique_id"])
+        writer.u16(int(chicken.get("count", 1)))
+        self.send(C_SELL_ITEM, writer.raw())
+        deadline = time.time() + self.timeout
+        sold = False
+        gained = 0
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            index, payload = packet
+            self._observe(index, payload)
+            if index == S_SELL_ITEM:
+                r = Reader(payload)
+                uid = r.u64()
+                count = r.u16()
+                ok = r.boolean()
+                print(f"  [sell1] S.SellItem uid={uid} count={count} success={ok}")
+                if ok and uid == chicken["unique_id"]:
+                    sold = True
+            if index == S_GAINED_GOLD:
+                gained += 1
+            if sold and gained:
+                break
+        gold_after = self.self_gold or 0
+        if not sold:
+            self.fail("sell1 卖出", f"Sarah 拒卖 Chicken uid={chicken['unique_id']}；gold={gold_before}->{gold_after}")
+            return 1
+        if gold_after - gold_before <= 0:
+            self.fail("sell1 金币", f"卖出未加金币：{gold_before}->{gold_after}")
+            return 1
+        self.ok("sell1 卖出", f"Chicken 卖出，金币 {gold_before}->{gold_after}（+{gold_after - gold_before}）")
+
+        # 金币已到手，接 EQ-1 修理流程（B 会重新打耐久、C 用这笔金币修理）。
+        return self.eq1_flow()
+
     def eq1_flow(self) -> int:
         """EQ-1 现实版：穿出生装打怪掉耐久 → Smith 修理 → 扣款（0 金币也可验）。"""
         max_by_uid = {
@@ -3979,6 +4117,8 @@ class Playtest:
             return self.newbie_flow(char_index if char_index is not None else 0)
         self.ok("进入世界", f"object_id={self.self_object_id} pos={self.self_pos}")
         self.entry_map, self.entry_pos = self.map_file, self.self_pos
+        if self.sell1:
+            return self.sell1_flow()
         if self.eq1:
             return self.eq1_flow()
         if self.quest1:
@@ -4207,6 +4347,7 @@ def main() -> int:
     parser.add_argument("--quest1", action="store_true", help="quest 1 完整任务：Jane 接取→任务物品栏→CraftsLady 交付→经验+50(cjlaaa)；--expected-exp 可改")
     parser.add_argument("--expected-exp", type=int, default=50, help="quest1 期望经验（cjlaaa=50，Jev=10）")
     parser.add_argument("--eq1", action="store_true", help="EQ-1 耐久：卖物→穿武器打怪掉耐久→Smith 修理→扣款")
+    parser.add_argument("--sell1", action="store_true", help="卖肉链：杀 Hen→捡 Chicken→Sarah 卖→金币→eq1 修理")
     parser.add_argument("--dr1-keep-moving", action="store_true", help="DR-1 等待死亡时持续小范围走位（验证“移动才挨打”假设）")
     parser.add_argument(
         "--self-check",
@@ -4248,6 +4389,7 @@ def main() -> int:
     test.quest1 = args.quest1
     test.expected_quest1_exp = args.expected_exp
     test.eq1 = args.eq1
+    test.sell1 = args.sell1
     test.dr1_keep_moving = args.dr1_keep_moving
     try:
         code = test.run()

@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use mir_asset::{LibraryMap, PackSet};
-use mir_render::TileLibraries;
+use mir_core::Point;
+use mir_core::enums::MirDirection;
+use mir_render::{EntityKind, EntityView, Frame, MapScene, TileLibraries};
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -124,6 +126,84 @@ fn release_packs_load_real_assets_and_compare_with_dev() {
     assert!(release_decoded > 0, "release 模式必须能解出 tile 帧");
     assert!(mon_decoded > 0, "release 模式必须能解出 mon-0130 帧");
     assert!(map.width > 0 && map.height > 0, "map0.mnm 必须有尺寸");
+    std::fs::remove_dir_all(&empty_data).ok();
+    std::fs::remove_dir_all(&empty_root).ok();
+}
+
+/// release（只有 `packs/`）时整条渲染链路可用：`MapScene` 从 `PackSet` 取 tiles + 实体，
+/// 渲染出的帧与散装 dev 渲染**逐像素一致**。
+#[test]
+fn release_packs_render_map_scene_like_dev() {
+    let root = repo_root().join("game-assets");
+    let packs_dir = root.join("packs");
+    if !packs_dir.join("manifest.packs.json").is_file() {
+        eprintln!(
+            "跳过：缺 {}",
+            packs_dir.join("manifest.packs.json").display()
+        );
+        return;
+    }
+    let map_path = root.join("maps/0.mnm");
+    let packs_map = LibraryMap::load(packs_dir.join("library-map.json")).expect("packs map");
+    let packs = PackSet::open_unverified(&packs_dir).expect("open packs");
+    let empty_data = temp_empty_dir("scene-release");
+    let empty_root = temp_empty_dir("scene-release-root");
+    let mut release = MapScene::load_with_sources(
+        &map_path,
+        &empty_data,
+        None,
+        Some(&empty_root),
+        Some(&packs_map),
+        Some(&packs),
+        false,
+    )
+    .expect("release 场景应当只靠 packs 打开");
+
+    let dev_map = LibraryMap::load(root.join("library-map.json")).expect("dev map");
+    let dev_data = root.join("data");
+    let dev_gfx = root.join("gfx");
+    let mut dev = MapScene::load_with_sources(
+        &map_path,
+        &dev_data,
+        Some(dev_gfx.as_path()),
+        Some(&root),
+        Some(&dev_map),
+        None,
+        false,
+    )
+    .expect("dev 场景");
+
+    let mut view = EntityView::new(
+        Point::new(330, 270),
+        MirDirection::Down,
+        EntityKind::Player,
+        0,
+    );
+    view.armour = 0;
+    view.hair = 1;
+    view.weapon = 1;
+    view.weapon_shape = 1;
+    let views = [view];
+    let center = Point::new(330, 270);
+    let mut release_frame = Frame::new(800, 600);
+    release.render_with_entities_at(&mut release_frame, center, &views, 0);
+    let mut dev_frame = Frame::new(800, 600);
+    dev.render_with_entities_at(&mut dev_frame, center, &views, 0);
+
+    let non_black = release_frame
+        .pixels
+        .chunks_exact(4)
+        .filter(|pixel| pixel[0] != 0 || pixel[1] != 0 || pixel[2] != 0)
+        .count();
+    let differing = release_frame
+        .pixels
+        .chunks_exact(4)
+        .zip(dev_frame.pixels.chunks_exact(4))
+        .filter(|(left, right)| left != right)
+        .count();
+    println!("release 渲染：非黑像素 {non_black}，与 dev 差异 {differing} 像素");
+    assert!(non_black > 10_000, "release 帧不能是空的：{non_black}");
+    assert_eq!(differing, 0, "release 与 dev 必须逐像素一致");
     std::fs::remove_dir_all(&empty_data).ok();
     std::fs::remove_dir_all(&empty_root).ok();
 }

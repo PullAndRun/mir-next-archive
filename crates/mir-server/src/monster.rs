@@ -49,7 +49,7 @@ use mir_protocol::packets::server::{
 use crate::aoi::AoiKind;
 use crate::combat::{CombatStats, PendingHit};
 use crate::magic::{PoisonState, UserMagic};
-use crate::world::{RED_NAME_PK_POINTS, VIEW_RANGE, World, monster_info_frame};
+use crate::world::{RED_NAME_PK_POINTS, VIEW_RANGE, World};
 
 /// 隐身玩家对这只怪是否「不可见」：Crystal `ob.Hidden && (!CoolEye || Level < ob.Level)`
 /// （`MonsterObject.cs:1974`）。
@@ -2659,7 +2659,7 @@ impl World {
         );
         // 位置变了，重新算一次这只怪在其它玩家视野里的进出（Crystal `AddObjects/RemoveObjects`）。
         // 传旧坐标：候选玩家 = 旧位置与新位置两个视野矩形的并集，不会漏掉「刚走出视野」的人。
-        let info = monster_info_frame(monster);
+        let info = self.monster_frames(monster);
         self.sync_monster_view(
             monster.object_id,
             &monster.map,
@@ -2958,7 +2958,15 @@ impl World {
             type_: 0,
         })
         .encode_frame();
-        self.broadcast(&map, position, Some(monster_id), &packet, monster_id);
+        let recipients = self.broadcast(&map, position, Some(monster_id), &packet, monster_id);
+        tracing::debug!(
+            monster = monster_id,
+            name = %monster_name,
+            owner = ?expo_owner,
+            experience,
+            recipients,
+            "怪物死亡，已广播 ObjectDied"
+        );
 
         // `if (EXPOwner != null && ... ) EXPOwner.WinExp(Experience, Level);`（`MonsterObject.cs:982-992`）。
         // 简化：`EXPOwner.Race == ObjectType.Player` 恒成立（本作只有玩家能打怪）。

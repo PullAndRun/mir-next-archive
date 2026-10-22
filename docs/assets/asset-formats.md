@@ -35,7 +35,21 @@
 - 加载：`mir-asset::PackSet` 只读条目表，`image()` 才解压；`LibrarySource::Pack(..)` 与
   `ImageLibrary` 同形（`len/info/image`）。
 
-#### 2.0 启动校验策略（`open` vs `open_unverified`）
+#### 2.0.1 确定性打包
+
+`PackWriter` 在内存里攒条目，`finish` 时**按逻辑名排序**写数据区与条目表：
+同一组素材无论扫描顺序如何，产物逐字节相同；`--merge-manifest` 单包重打与整轮重打 sha 一致。
+`manifest.packs.json` 带 `generator` / `deterministic: true` / `chunk_mb`。
+
+发布指纹可复现：设置 `SOURCE_DATE_EPOCH` 后打包，`generated_at` 固定为该时间戳，
+`manifest.packs.json` 也逐字节相同。示例：
+
+```bash
+SOURCE_DATE_EPOCH=1792645029 cargo run -p mir-tools -- assets pack \
+  --input game-assets --out game-assets/packs --chunk-mb 16
+```
+
+### 2.0 启动校验策略（`open` vs `open_unverified`）
 
 `.mnp` 包尾有整包 `sha256`（32 B）。读取端有两种打开方式：
 

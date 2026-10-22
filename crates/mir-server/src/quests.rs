@@ -485,7 +485,11 @@ impl World {
     /// 与 Crystal 的差异：奖励条目的 `ItemInfo` 用**真实模板**补齐（Crystal 直接持引用，
     /// 因此线上天然是完整模板），查不到模板的奖励行会被跳过并记日志。
     #[must_use]
-    pub fn client_quest_info(&self, quest_index: i32) -> Option<ClientQuestInfo> {
+    pub fn client_quest_info(
+        &self,
+        quest_index: i32,
+        language: mir_core::Language,
+    ) -> Option<ClientQuestInfo> {
         let definition = self.quest_definition(quest_index)?;
         let publisher = self.quest_publisher_npc(quest_index);
         let finisher = self.quest_finisher_npc(quest_index);
@@ -493,6 +497,9 @@ impl World {
             publisher.map_or(0, |npc| npc.object_id),
             finisher.map_or(0, |npc| npc.object_id),
         );
+        if let Some(library) = self.languages.as_ref() {
+            info.name = library.quest_name(language, info.index, &info.name);
+        }
         info.rewards_fixed_item = self.resolve_rewards(&definition.script.fixed_rewards);
         info.rewards_select_item = self.resolve_rewards(&definition.script.select_rewards);
         Some(info)
@@ -1547,6 +1554,7 @@ impl World {
             .filter(|progress| progress.is_in_progress())
             .map(|progress| progress.quest_index)
             .collect();
+        let language = self.player_language(player_id);
         for quest_index in self.quest_indexes() {
             let is_daily = self
                 .quest_definition(quest_index)
@@ -1557,7 +1565,7 @@ impl World {
             {
                 continue;
             }
-            if let Some(info) = self.client_quest_info(quest_index) {
+            if let Some(info) = self.client_quest_info(quest_index, language) {
                 packets.push(ServerPacket::NewQuestInfo(NewQuestInfo { info }));
             }
         }

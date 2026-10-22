@@ -63,6 +63,12 @@ pub struct PackManifest {
     pub generated_at: String,
     /// 单包上限（MB）。
     pub chunk_mb: u32,
+    /// 生成器标识（`mir-tools <版本>`）。
+    #[serde(default)]
+    pub generator: String,
+    /// 产物是否为确定性输出（条目按逻辑名排序）。
+    #[serde(default)]
+    pub deterministic: bool,
     /// 每个包的摘要。
     pub packs: Vec<PackSummary>,
 }
@@ -405,56 +411,42 @@ fn parse_entry(
     ))
 }
 
-/// 写一个包（顺序追加，最后 `finish` 写条目表与 sha256）。
+/// 写一个包：条目先缓存在内存里，`finish` 时**按逻辑名排序**再写数据区与条目表。
+///
+/// 排序保证同一输入两次打包产物**逐字节相同**（发布可复现；`--merge-manifest`
+/// 单包重打与整轮重打的 sha 也一致）。
 pub struct PackWriter {
     path: PathBuf,
-    file: File,
-    entries: Vec<(String, EntryMeta)>,
+    entries: Vec<PendingEntry>,
     /// 是否压缩 RGBA（默认 true）。
     compress: bool,
-    /// 已写入的字节数（自己记账，不依赖 `metadata()` 的可见性）。
-    offset: u64,
+    /// 已缓存的编码后字节数（不含包头）。
+    data_bytes: u64,
+}
+
+/// 一条待写入的条目（数据已按最终形式编码）。
+struct PendingEntry {
+    name: String,
+    kind: u8,
+    info: ImageInfo,
+    data: Vec<u8>,
+    raw_len: u32,
 }
 
 impl PackWriter {
-    /// 新建包文件（父目录必须已存在）。
+    /// 新建包（父目录必须已存在；真正的文件在 `finish` 时创建）。
     pub fn create(path: impl AsRef<Path>, compress: bool) -> Result<Self, AssetError> {
-        let path = path.as_ref().to_path_buf();
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent).map_err(|source| AssetError::Io {
-                    path: parent.to_path_buf(),
-                    source,
-                })?;
-            }
-        }
-        let mut file = File::create(&path).map_err(|source| AssetError::Io {
-            path: path.clone(),
-            source,
-        })?;
-        let mut header = Vec::with_capacity(HEADER_LEN as usize);
-        header.extend_from_slice(&MAGIC);
-        header.extend_from_slice(&VERSION.to_le_bytes());
-        header.extend_from_slice(&1u16.to_le_bytes()); // flags: 有 sha256 尾
-        header.extend_from_slice(&0u32.to_le_bytes()); // entry_count 占位
-        header.extend_from_slice(&0u64.to_le_bytes()); // index_offset 占位
-        header.extend_from_slice(&[0u8; 12]);
-        file.write_all(&header).map_err(|source| AssetError::Io {
-            path: path.clone(),
-            source,
-        })?;
         Ok(Self {
-            path,
-            file,
+            path: path.as_ref().to_path_buf(),
             entries: Vec::new(),
             compress,
-            offset: HEADER_LEN,
+            data_bytes: 0,
         })
     }
 
     /// 当前写入的字节数（含包头）。
     pub fn current_len(&self) -> u64 {
-        self.offset
+        HEADER_LEN.saturating_add(self.data_bytes)
     }
 
     /// 加一张 RGBA 图。
@@ -469,7 +461,7 @@ impl PackWriter {
         } else {
             pixels.to_vec()
         };
-        self.push_entry(name, KIND_RGBA_ZLIB, info, &data, pixels.len())?;
+        self.push_entry(name, KIND_RGBA_ZLIB, info, data, pixels.len());
         Ok(())
     }
 
@@ -485,7 +477,8 @@ impl PackWriter {
         } else {
             indices.to_vec()
         };
-        self.push_entry(name, KIND_PALETTE8, info, &data, indices.len())
+        self.push_entry(name, KIND_PALETTE8, info, data, indices.len());
+        Ok(())
     }
 
     /// 加一条调色板（768 字节 RGB，逻辑名约定 `<目录>/palette.bin`）。
@@ -494,38 +487,25 @@ impl PackWriter {
         name: &str,
         palette: &[u8; crate::palette::PALETTE_RGB_LEN],
     ) -> Result<(), AssetError> {
-        let empty = ImageInfo {
-            width: 0,
-            height: 0,
-            offset_x: 0,
-            offset_y: 0,
-            format: 0,
-            shadow_x: 0,
-            shadow_y: 0,
-            reserved: [0; 3],
-            has_mask: false,
-            data_offset: 0,
-            data_len: 0,
-        };
-        self.push_entry(name, KIND_PALETTE, &empty, palette, palette.len())
+        self.push_entry(
+            name,
+            KIND_PALETTE,
+            &ImageInfo::default(),
+            palette.to_vec(),
+            palette.len(),
+        );
+        Ok(())
     }
 
-    /// 加一条原样字节（`.map`/`.wav`/`.MirDB`）。
+    /// 加一条原样字节（`.mnm`/`.mnd`/`.mna`/`index.json`）。
     pub fn add_raw(&mut self, name: &str, bytes: &[u8]) -> Result<(), AssetError> {
-        let empty = ImageInfo {
-            width: 0,
-            height: 0,
-            offset_x: 0,
-            offset_y: 0,
-            format: 0,
-            shadow_x: 0,
-            shadow_y: 0,
-            reserved: [0; 3],
-            has_mask: false,
-            data_offset: 0,
-            data_len: 0,
-        };
-        self.push_entry(name, KIND_RAW, &empty, bytes, bytes.len())?;
+        self.push_entry(
+            name,
+            KIND_RAW,
+            &ImageInfo::default(),
+            bytes.to_vec(),
+            bytes.len(),
+        );
         Ok(())
     }
 
@@ -534,113 +514,131 @@ impl PackWriter {
         name: &str,
         kind: u8,
         info: &ImageInfo,
-        data: &[u8],
+        data: Vec<u8>,
         raw_len: usize,
-    ) -> Result<(), AssetError> {
-        let offset = self.offset;
-        self.file.write_all(data).map_err(|source| AssetError::Io {
+    ) {
+        self.data_bytes = self.data_bytes.saturating_add(data.len() as u64);
+        self.entries.push(PendingEntry {
+            name: name.to_owned(),
+            kind,
+            info: *info,
+            data,
+            raw_len: u32::try_from(raw_len).unwrap_or(u32::MAX),
+        });
+    }
+
+    /// 按逻辑名排序后写数据区、条目表、回填包头、追加 sha256；返回包摘要。
+    pub fn finish(mut self, category: &str) -> Result<PackSummary, AssetError> {
+        // 确定性：同一组条目无论加入顺序如何，产物逐字节相同。
+        self.entries
+            .sort_by(|left, right| left.name.cmp(&right.name));
+        if let Some(parent) = self.path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).map_err(|source| AssetError::Io {
+                    path: parent.to_path_buf(),
+                    source,
+                })?;
+            }
+        }
+        let mut file = File::create(&self.path).map_err(|source| AssetError::Io {
             path: self.path.clone(),
             source,
         })?;
-        self.offset = self.offset.saturating_add(data.len() as u64);
-        self.entries.push((
-            name.to_owned(),
-            EntryMeta {
-                name: name.to_owned(),
-                kind,
-                info: *info,
-                data_offset: offset,
-                data_len: u32::try_from(data.len()).unwrap_or(u32::MAX),
-                raw_len: u32::try_from(raw_len).unwrap_or(u32::MAX),
-            },
-        ));
-        Ok(())
-    }
+        let mut header = Vec::with_capacity(HEADER_LEN as usize);
+        header.extend_from_slice(&MAGIC);
+        header.extend_from_slice(&VERSION.to_le_bytes());
+        header.extend_from_slice(&1u16.to_le_bytes()); // flags: 有 sha256 尾
+        header.extend_from_slice(&0u32.to_le_bytes()); // entry_count 占位
+        header.extend_from_slice(&0u64.to_le_bytes()); // index_offset 占位
+        header.extend_from_slice(&[0u8; 12]);
+        file.write_all(&header).map_err(|source| AssetError::Io {
+            path: self.path.clone(),
+            source,
+        })?;
 
-    /// 写完条目表、回填包头、追加 sha256；返回包摘要。
-    pub fn finish(mut self, category: &str) -> Result<PackSummary, AssetError> {
-        let index_offset = self.offset;
+        let mut offset = HEADER_LEN;
         let mut table = Vec::new();
-        for (name, meta) in &self.entries {
-            let name_bytes = name.as_bytes();
+        for entry in &self.entries {
+            let data_offset = offset;
+            file.write_all(&entry.data)
+                .map_err(|source| AssetError::Io {
+                    path: self.path.clone(),
+                    source,
+                })?;
+            offset = offset.saturating_add(entry.data.len() as u64);
+            let name_bytes = entry.name.as_bytes();
             table.extend_from_slice(
                 &u16::try_from(name_bytes.len())
                     .unwrap_or(u16::MAX)
                     .to_le_bytes(),
             );
             table.extend_from_slice(name_bytes);
-            table.push(meta.kind);
-            table.push(u8::from(meta.info.has_mask));
-            table.push(meta.info.format);
-            table.extend_from_slice(&meta.info.reserved);
-            table.extend_from_slice(&meta.info.width.to_le_bytes());
-            table.extend_from_slice(&meta.info.height.to_le_bytes());
-            table.extend_from_slice(&meta.info.offset_x.to_le_bytes());
-            table.extend_from_slice(&meta.info.offset_y.to_le_bytes());
-            table.extend_from_slice(&meta.info.shadow_x.to_le_bytes());
-            table.extend_from_slice(&meta.info.shadow_y.to_le_bytes());
-            table.extend_from_slice(&meta.data_offset.to_le_bytes());
-            table.extend_from_slice(&meta.data_len.to_le_bytes());
-            table.extend_from_slice(&meta.raw_len.to_le_bytes());
-        }
-        self.file
-            .write_all(&table)
-            .map_err(|source| AssetError::Io {
-                path: self.path.clone(),
-                source,
-            })?;
-        self.offset = self.offset.saturating_add(table.len() as u64);
-        // 回填 header
-        self.file
-            .seek(SeekFrom::Start(8))
-            .map_err(|source| AssetError::Io {
-                path: self.path.clone(),
-                source,
-            })?;
-        self.file
-            .write_all(
-                &u32::try_from(self.entries.len())
+            table.push(entry.kind);
+            table.push(u8::from(entry.info.has_mask));
+            table.push(entry.info.format);
+            table.extend_from_slice(&entry.info.reserved);
+            table.extend_from_slice(&entry.info.width.to_le_bytes());
+            table.extend_from_slice(&entry.info.height.to_le_bytes());
+            table.extend_from_slice(&entry.info.offset_x.to_le_bytes());
+            table.extend_from_slice(&entry.info.offset_y.to_le_bytes());
+            table.extend_from_slice(&entry.info.shadow_x.to_le_bytes());
+            table.extend_from_slice(&entry.info.shadow_y.to_le_bytes());
+            table.extend_from_slice(&data_offset.to_le_bytes());
+            table.extend_from_slice(
+                &u32::try_from(entry.data.len())
                     .unwrap_or(u32::MAX)
                     .to_le_bytes(),
-            )
-            .map_err(|source| AssetError::Io {
-                path: self.path.clone(),
-                source,
-            })?;
-        self.file
-            .write_all(&index_offset.to_le_bytes())
-            .map_err(|source| AssetError::Io {
-                path: self.path.clone(),
-                source,
-            })?;
-        // 回填 header 后游标停在 0x14，必须回到文件末尾再写 sha256，
-        // 否则会把尾摘要写进数据区（第一次实现就踩了这个坑）。
-        self.file
-            .seek(SeekFrom::End(0))
-            .map_err(|source| AssetError::Io {
-                path: self.path.clone(),
-                source,
-            })?;
-        self.file.flush().map_err(|source| AssetError::Io {
+            );
+            table.extend_from_slice(&entry.raw_len.to_le_bytes());
+        }
+        let index_offset = offset;
+        file.write_all(&table).map_err(|source| AssetError::Io {
             path: self.path.clone(),
             source,
         })?;
-        let body_len = self.offset;
-        let digest = sha256_range(&self.path, body_len)?;
-        self.file
-            .write_all(&digest)
+        offset = offset.saturating_add(table.len() as u64);
+        // 回填 header
+        file.seek(SeekFrom::Start(8))
             .map_err(|source| AssetError::Io {
                 path: self.path.clone(),
                 source,
             })?;
-        self.file.flush().map_err(|source| AssetError::Io {
+        file.write_all(
+            &u32::try_from(self.entries.len())
+                .unwrap_or(u32::MAX)
+                .to_le_bytes(),
+        )
+        .map_err(|source| AssetError::Io {
             path: self.path.clone(),
             source,
         })?;
-        let bytes = self.offset.saturating_add(TRAILER_LEN);
+        file.write_all(&index_offset.to_le_bytes())
+            .map_err(|source| AssetError::Io {
+                path: self.path.clone(),
+                source,
+            })?;
+        file.seek(SeekFrom::End(0))
+            .map_err(|source| AssetError::Io {
+                path: self.path.clone(),
+                source,
+            })?;
+        file.flush().map_err(|source| AssetError::Io {
+            path: self.path.clone(),
+            source,
+        })?;
+        let digest = sha256_range(&self.path, offset)?;
+        file.write_all(&digest).map_err(|source| AssetError::Io {
+            path: self.path.clone(),
+            source,
+        })?;
+        file.flush().map_err(|source| AssetError::Io {
+            path: self.path.clone(),
+            source,
+        })?;
+        let bytes = offset.saturating_add(TRAILER_LEN);
         // 清单里的 sha256 用**整包**（含包尾摘要），分发/对账时直接 `sha256sum` 就能比。
         let file_digest = sha256_range(&self.path, bytes)?;
-        let prefix = common_prefix(self.entries.iter().map(|(name, _)| name.as_str()));
+        let prefix = common_prefix(self.entries.iter().map(|entry| entry.name.as_str()));
         Ok(PackSummary {
             file: self
                 .path
@@ -1162,6 +1160,8 @@ mod tests {
                 version: 1,
                 generated_at: "epoch+0s".to_owned(),
                 chunk_mb: 16,
+                generator: String::new(),
+                deterministic: true,
                 packs: vec![summary_a, summary_b],
             })
             .expect("json"),
@@ -1172,6 +1172,38 @@ mod tests {
         let image = set.image("gfx/tiles/objects3/0000.png").expect("image");
         let expected = crate::palette::palette8_to_rgba(&indices, &palette);
         assert_eq!(image.pixels, expected, "跨包的 palette 必须能被找到");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 同一组条目按不同顺序加入，产物必须逐字节相同（确定性打包）。
+    #[test]
+    fn pack_writer_is_deterministic_regardless_of_insertion_order() {
+        let dir = temp_dir("deterministic");
+        let info = sample_info(2, 2, 0, 0);
+        let build = |path: PathBuf, reversed: bool| {
+            let mut writer = PackWriter::create(&path, true).expect("create");
+            let mut names = vec![
+                "gfx/ui/b/0001.png",
+                "gfx/ui/a/0000.png",
+                "gfx/ui/c/0002.png",
+            ];
+            if reversed {
+                names.reverse();
+            }
+            for name in &names {
+                // 像素按**名字**派生（不是按加入顺序），否则两批内容本来就不同。
+                let fill = *name.as_bytes().last().expect("name");
+                writer.add_image(name, &info, &[fill; 16]).expect("add");
+            }
+            writer.finish("ui").expect("finish")
+        };
+        let first = build(dir.join("first.mnp"), false);
+        let second = build(dir.join("second.mnp"), true);
+        assert_eq!(first.sha256, second.sha256, "sha 必须相同");
+        assert_eq!(first.entries, second.entries);
+        let a = std::fs::read(dir.join("first.mnp")).expect("read a");
+        let b = std::fs::read(dir.join("second.mnp")).expect("read b");
+        assert_eq!(a, b, "两份产物必须逐字节相同");
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1252,6 +1284,8 @@ mod tests {
             version: 1,
             generated_at: "epoch+0s".to_owned(),
             chunk_mb: 16,
+            generator: String::new(),
+            deterministic: true,
             packs: vec![summary],
         };
         std::fs::write(
@@ -1300,6 +1334,8 @@ mod tests {
             version: 1,
             generated_at: "2026-10-22T00:00:00+08:00".to_owned(),
             chunk_mb: 16,
+            generator: String::new(),
+            deterministic: true,
             packs: summaries,
         };
         std::fs::write(

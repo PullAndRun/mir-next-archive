@@ -885,10 +885,17 @@ impl World {
         let Some(data) = self.game_data.as_ref() else {
             return Vec::new();
         };
+        let language = self.player_language(object_id);
         player
             .magics
             .iter()
-            .filter_map(|magic| data.magic(magic.spell).map(|info| magic.client_magic(info)))
+            .filter_map(|magic| {
+                data.magic(magic.spell).map(|info| {
+                    let mut client = magic.client_magic(info);
+                    client.name = self.magic_name_for(language, info);
+                    client
+                })
+            })
             .collect()
     }
 
@@ -3084,10 +3091,13 @@ impl World {
         let Some(info) = self.magic_info(magic.spell) else {
             return;
         };
+        let language = self.player_language(object_id);
+        let mut client = magic.client_magic(info);
+        client.name = self.magic_name_for(language, info);
         self.send_to_player(
             object_id,
             &ServerPacket::NewMagic(NewMagic {
-                magic: magic.client_magic(info),
+                magic: client,
                 hero: false,
             })
             .encode_frame(),

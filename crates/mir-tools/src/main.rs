@@ -1090,6 +1090,8 @@ fn assets_pack(args: &mut impl Iterator<Item = String>) -> Result<()> {
         version: 1,
         generated_at: time_stamp(),
         chunk_mb: u32::try_from(chunk_mb).unwrap_or(u32::MAX),
+        generator: generator(),
+        deterministic: true,
         packs: summaries,
     };
     // 发布期也要这张表：散装根上的 library-map.json 复制进 packs/
@@ -1143,7 +1145,17 @@ fn raw_upper_bound(item: &PackItem) -> u64 {
     std::fs::metadata(&item.path).map_or(0, |meta| meta.len())
 }
 
+fn generator() -> String {
+    format!("mir-tools {}", env!("CARGO_PKG_VERSION"))
+}
+
 fn time_stamp() -> String {
+    // 确定性打包：设置 `SOURCE_DATE_EPOCH` 时用它（发布可复现，manifest 也逐字节相同）。
+    if let Ok(value) = std::env::var("SOURCE_DATE_EPOCH") {
+        if let Ok(seconds) = value.trim().parse::<u64>() {
+            return format!("epoch+{seconds}s");
+        }
+    }
     // 不引入 chrono 依赖：用系统时间拼 ISO-8601（够工具记录用）。
     match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
         Ok(duration) => format!("epoch+{}s", duration.as_secs()),
@@ -1532,6 +1544,8 @@ fn pack_from_plan(
         version: 1,
         generated_at: time_stamp(),
         chunk_mb: 16,
+        generator: generator(),
+        deterministic: true,
         packs: summaries,
     };
     let manifest_path = out.join("manifest.packs.json");

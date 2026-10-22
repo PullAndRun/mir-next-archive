@@ -1401,6 +1401,34 @@ impl World {
             .unwrap_or(Language::ZhCn)
     }
 
+    /// 怪物显示名：按 DB `MonsterInfo.Index` 查语言包，未知时回退 DB 原名。
+    #[must_use]
+    pub(crate) fn monster_name_for(&self, language: Language, kind_name: &str) -> String {
+        let index = self
+            .game_data
+            .as_ref()
+            .and_then(|data| data.monster_info_by_name(kind_name))
+            .map(|info| info.index);
+        self.languages.as_ref().map_or_else(
+            || kind_name.to_owned(),
+            |library| {
+                index.map_or_else(
+                    || kind_name.to_owned(),
+                    |index| library.monster_name(language, index, kind_name),
+                )
+            },
+        )
+    }
+
+    /// 技能显示名：按 `MagicInfo.Spell` 查语言包，未知时回退 DB 原名。
+    #[must_use]
+    pub(crate) fn magic_name_for(&self, language: Language, info: &mir_db::MagicInfo) -> String {
+        self.languages.as_ref().map_or_else(
+            || info.name.clone(),
+            |library| library.skill_name(language, info.spell, &info.name),
+        )
+    }
+
     /// 按玩家语言取一条无参文本（语言包覆盖层优先，缺失时回落内置模板）。
     #[must_use]
     pub fn text(&self, object_id: u32, key: TextKey) -> String {
@@ -2877,6 +2905,16 @@ impl World {
             died = monster.hp == 0;
             percent = monster.health_percent();
             owner = monster.expo_owner;
+            tracing::debug!(
+                attacker = hit.attacker_id,
+                target = hit.target_id,
+                raw_damage = hit.damage,
+                actual_damage = result.damage,
+                hp = monster.hp,
+                max_hp = monster.stats.hp,
+                died,
+                "怪物受击结算"
+            );
         }
         // `BroadcastHealthChange`：怪物只把 `ObjectHealth` 发给 `EXPOwner`
         // （`Server/MirObjects/MapObject.cs:841-914`）。
@@ -4663,13 +4701,13 @@ impl World {
         let mut monster =
             Monster::new(object_id, Arc::new(kind), map, position, now, &mut self.rng);
         monster.undead = undead;
-        let packet = monster_info_frame(&monster);
+        let frames = self.monster_frames(&monster);
         self.monsters.push(monster);
         let index = self.monsters.len() - 1;
         self.monster_slots.insert(object_id, index);
         // Crystal `Map.Load` 把怪物挂进地图（`Map.cs:473-488`）后再 `BroadcastInfo()`（`MapObject.cs:353`）。
         self.aoi_insert(map, object_id, AoiKind::Monster, position);
-        self.sync_monster_view(object_id, map, None, position, &packet);
+        self.sync_monster_view(object_id, map, None, position, &frames);
         object_id
     }
 
@@ -4693,7 +4731,6 @@ impl World {
         let now = self.now();
         let object_id = self.spawn_monster(map, kind, position);
         let level = i32::from(pet_level);
-        let mut monster_frame = None;
         if let Some(monster) = self.monster_mut(object_id) {
             monster.master = Some(master_id);
             monster.pet_level = pet_level;
@@ -4715,14 +4752,16 @@ impl World {
             monster.move_time = now + 1_000;
             monster.attack_time = now + 1_000;
             monster.search_time = now;
-            monster_frame = Some(monster_info_frame(monster));
         }
         self.pets.entry(master_id).or_default().push(object_id);
         // 新宠物的命令重置为默认「跟随 + 攻击」（任务要求：重召唤后重置）。
         self.pet_modes.insert(master_id, PetMode::Both);
         // 重新广播一次外观：`spawn_monster` 那一帧还不知道主人（`MasterObjectId = 0`）。
-        if let Some(frame) = monster_frame {
-            self.broadcast(map, position, None, &frame, object_id);
+        let frames = self
+            .monster(object_id)
+            .map(|monster| self.monster_frames(monster));
+        if let Some(frames) = frames {
+            self.broadcast_monster_frames(&frames, map, position, None, object_id);
         }
         object_id
     }
@@ -4848,9 +4887,9 @@ impl World {
         monster.move_time = now + 300;
         monster.attack_time = now + 300;
         monster.search_time = now;
-        let frame = monster_info_frame(monster);
+        let frames = self.monster_frames(monster);
         self.aoi_insert(&master_map, monster.object_id, AoiKind::Monster, landing);
-        self.sync_monster_view(monster.object_id, &master_map, None, landing, &frame);
+        self.sync_monster_view(monster.object_id, &master_map, None, landing, &frames);
     }
 
     /// 地图上的持续法术场（火墙），测试/运维观察用。
@@ -4872,7 +4911,7 @@ impl World {
         map: &str,
         old_position: Option<Point>,
         position: Point,
-        frame: &[u8],
+        frames: &HashMap<Language, Vec<u8>>,
     ) {
         let removal = object_remove_frame(object_id);
         let mut candidates: BTreeSet<u32> = BTreeSet::new();
@@ -4881,13 +4920,19 @@ impl World {
         }
         candidates.extend(self.aoi_ids_in_radius(map, position, VIEW_RANGE, AoiKind::Player));
         for player_id in candidates {
+            let language = self.player_language(player_id);
             let Some(player) = self.players.get_mut(&player_id) else {
                 continue;
             };
             let visible = player.map == map && player.position.in_range(position, VIEW_RANGE);
             if visible && !player.visible_monsters.contains(&object_id) {
                 player.visible_monsters.insert(object_id);
-                let _ = player.sender.send(frame.to_vec());
+                let frame = frames
+                    .get(&language)
+                    .or_else(|| frames.get(&Language::ZhCn));
+                if let Some(frame) = frame {
+                    let _ = player.sender.send(frame.clone());
+                }
             } else if !visible && player.visible_monsters.remove(&object_id) {
                 let _ = player.sender.send(removal.clone());
             }
@@ -4937,9 +4982,15 @@ impl World {
             .difference(&visible)
             .copied()
             .collect();
+        let language = self.player_language(player_id);
         let adds: Vec<Vec<u8>> = visible
             .difference(&player.visible_monsters)
-            .filter_map(|object_id| self.monster(*object_id).map(monster_info_frame))
+            .filter_map(|object_id| {
+                self.monster(*object_id).map(|monster| {
+                    let name = self.monster_name_for(language, &monster.kind.name);
+                    monster_info_frame(monster, &name)
+                })
+            })
             .collect();
 
         let Some(player) = self.players.get_mut(&player_id) else {
@@ -5277,6 +5328,62 @@ impl World {
         sent
     }
 
+    /// 怪物在各语言下的外观帧（`S.ObjectMonster.name` 按会话语言）。
+    pub(crate) fn monster_frames(&self, monster: &Monster) -> HashMap<Language, Vec<u8>> {
+        Language::ALL
+            .iter()
+            .map(|language| {
+                (
+                    *language,
+                    monster_info_frame(
+                        monster,
+                        &self.monster_name_for(*language, &monster.kind.name),
+                    ),
+                )
+            })
+            .collect()
+    }
+
+    /// 按收件人当前语言广播怪物帧；未知语言回退中文帧。
+    pub(crate) fn broadcast_monster_frames(
+        &mut self,
+        frames: &HashMap<Language, Vec<u8>>,
+        map: &str,
+        position: Point,
+        exclude: Option<u32>,
+        actor: u32,
+    ) -> usize {
+        let recipients: Vec<u32> = self.aoi.get(map).map_or_else(Vec::new, |grid| {
+            grid.query_radius_kind(position, VIEW_RANGE, AoiKind::Player)
+                .into_iter()
+                .map(|entry| entry.object_id)
+                .filter(|id| exclude != Some(*id) && *id != actor)
+                .collect()
+        });
+        let mut sent = 0;
+        for object_id in recipients {
+            if !self.players.contains_key(&object_id) {
+                continue;
+            }
+            let language = self.player_language(object_id);
+            let frame = frames
+                .get(&language)
+                .or_else(|| frames.get(&Language::ZhCn));
+            let Some(frame) = frame else {
+                continue;
+            };
+            if self.broadcast_batching || self.broadcast_batch.is_some() {
+                let batch = self.broadcast_batch.get_or_insert_with(HashMap::new);
+                batch.entry(object_id).or_default().extend_from_slice(frame);
+            } else if let Some(other) = self.players.get(&object_id) {
+                if other.sender.send(frame.clone()).is_ok() {
+                    sent += 1;
+                }
+            }
+        }
+        sent
+    }
+
     /// 把本 tick 合批的 AOI 广播按玩家合并成一次 channel 写入。
     pub(crate) fn flush_broadcast_batch(&mut self) {
         let Some(batch) = self.broadcast_batch.take() else {
@@ -5444,10 +5551,10 @@ impl World {
 }
 
 /// 怪物外观包（Crystal `MonsterObject.GetInfo`，对应 `S.ObjectMonster`）。
-pub(crate) fn monster_info_frame(monster: &Monster) -> Vec<u8> {
+pub(crate) fn monster_info_frame(monster: &Monster, name: &str) -> Vec<u8> {
     ServerPacket::ObjectMonster(ObjectMonster {
         object_id: monster.object_id,
-        name: monster.kind.name.clone(),
+        name: name.to_owned(),
         // Crystal `MapObject.NameColour = Color.White`（`MapObject.cs:67`）；
         // 守卫在构造函数里改成 `Color.SkyBlue`（`Monsters/Guard.cs:24-28`）。
         name_colour: if monster.kind.is_guard() {
@@ -5582,9 +5689,9 @@ mod tests {
     #[test]
     fn entering_world_notifies_both_directions() {
         let mut world = World::new(999);
-        let (first, mut first_rx) = player(1, "甲", Point::new(10, 10), "0");
+        let (first, mut first_rx) = player(1, "A", Point::new(10, 10), "0");
         world.enter(first);
-        let (second, mut second_rx) = player(2, "乙", Point::new(11, 10), "0");
+        let (second, mut second_rx) = player(2, "B", Point::new(11, 10), "0");
         world.enter(second);
 
         assert!(first_rx.try_recv().is_ok(), "先入场的人应该看到后来者");
@@ -5594,9 +5701,9 @@ mod tests {
     #[test]
     fn walking_moves_and_sends_user_location_and_object_walk() {
         let mut world = World::new(999);
-        let (walker, mut walker_rx) = player(1, "甲", Point::new(10, 10), "0");
+        let (walker, mut walker_rx) = player(1, "A", Point::new(10, 10), "0");
         world.enter(walker);
-        let (observer, mut observer_rx) = player(2, "乙", Point::new(12, 10), "0");
+        let (observer, mut observer_rx) = player(2, "B", Point::new(12, 10), "0");
         world.enter(observer);
         drain(&mut walker_rx);
         drain(&mut observer_rx);
@@ -5626,9 +5733,9 @@ mod tests {
     #[test]
     fn cannot_walk_onto_occupied_cell() {
         let mut world = World::new(999);
-        let (first, _rx1) = player(1, "甲", Point::new(10, 10), "0");
+        let (first, _rx1) = player(1, "A", Point::new(10, 10), "0");
         world.enter(first);
-        let (second, _rx2) = player(2, "乙", Point::new(11, 10), "0");
+        let (second, _rx2) = player(2, "B", Point::new(11, 10), "0");
         world.enter(second);
         // 服务器时钟是毫秒级：等 2ms，让 `cell_time < now` 成立（刚进世界时 cell_time=0）。
         std::thread::sleep(std::time::Duration::from_millis(2));
@@ -5642,7 +5749,7 @@ mod tests {
     #[test]
     fn cannot_walk_out_of_bounds() {
         let mut world = World::new(5);
-        let (walker, _rx) = player(1, "甲", Point::new(5, 5), "0");
+        let (walker, _rx) = player(1, "A", Point::new(5, 5), "0");
         world.enter(walker);
         assert_eq!(
             world.walk(1, MirDirection::Right),
@@ -5653,7 +5760,7 @@ mod tests {
     #[test]
     fn walk_then_run_is_allowed_but_run_from_standstill_is_not() {
         let mut world = World::new(999);
-        let (walker, mut rx) = player(1, "甲", Point::new(10, 10), "0");
+        let (walker, mut rx) = player(1, "A", Point::new(10, 10), "0");
         world.enter(walker);
         drain(&mut rx);
 
@@ -5676,7 +5783,7 @@ mod tests {
     #[test]
     fn turn_resets_step_counter_so_run_needs_a_fresh_walk() {
         let mut world = World::new(999);
-        let (walker, mut rx) = player(1, "甲", Point::new(10, 10), "0");
+        let (walker, mut rx) = player(1, "A", Point::new(10, 10), "0");
         world.enter(walker);
         drain(&mut rx);
         world.walk(1, MirDirection::Right).expect("走一步");
@@ -5704,7 +5811,7 @@ mod tests {
     #[test]
     fn action_time_enforces_move_delay() {
         let mut world = World::new(999);
-        let (walker, mut rx) = player(1, "甲", Point::new(10, 10), "0");
+        let (walker, mut rx) = player(1, "A", Point::new(10, 10), "0");
         world.enter(walker);
         drain(&mut rx);
 
@@ -5731,7 +5838,7 @@ mod tests {
     #[test]
     fn run_stamina_penalty_costs_hp_after_ten_runs() {
         let mut world = World::new(999);
-        let (walker, _rx) = player(1, "甲", Point::new(10, 10), "0");
+        let (walker, _rx) = player(1, "A", Point::new(10, 10), "0");
         world.enter(walker);
         // 直接置成「刚走过一步」，然后连续向下跑 11 次（每次 2 格，远未到边界）。
         if let Some(player) = world.players.get_mut(&1) {
@@ -5756,7 +5863,7 @@ mod tests {
     #[test]
     fn tick_decays_run_counter_and_clears_steps_when_idle() {
         let mut world = World::new(999);
-        let (mut walker, _rx) = player(1, "甲", Point::new(10, 10), "0");
+        let (mut walker, _rx) = player(1, "A", Point::new(10, 10), "0");
         walker.step_counter = 3;
         walker.run_counter = 2;
         walker.run_time = 0;
@@ -5777,11 +5884,11 @@ mod tests {
     #[test]
     fn chat_reaches_people_in_range_only() {
         let mut world = World::new(999);
-        let (speaker, mut speaker_rx) = player(1, "甲", Point::new(10, 10), "0");
+        let (speaker, mut speaker_rx) = player(1, "A", Point::new(10, 10), "0");
         world.enter(speaker);
-        let (near, mut near_rx) = player(2, "乙", Point::new(12, 10), "0");
+        let (near, mut near_rx) = player(2, "B", Point::new(12, 10), "0");
         world.enter(near);
-        let (far, mut far_rx) = player(3, "丙", Point::new(90, 90), "0");
+        let (far, mut far_rx) = player(3, "C", Point::new(90, 90), "0");
         world.enter(far);
         drain(&mut speaker_rx);
         drain(&mut near_rx);
@@ -5796,9 +5903,9 @@ mod tests {
     #[test]
     fn leaving_notifies_observers() {
         let mut world = World::new(999);
-        let (a, _rx1) = player(1, "甲", Point::new(10, 10), "0");
+        let (a, _rx1) = player(1, "A", Point::new(10, 10), "0");
         world.enter(a);
-        let (b, mut b_rx) = player(2, "乙", Point::new(11, 10), "0");
+        let (b, mut b_rx) = player(2, "B", Point::new(11, 10), "0");
         world.enter(b);
         drain(&mut b_rx);
         assert!(world.leave(1).is_some());
@@ -5810,9 +5917,9 @@ mod tests {
     fn spawning_monster_broadcasts_object_monster_to_players_in_range() {
         let mut world = World::new(999);
         world.seed_rng(1);
-        let (near, mut near_rx) = player(1, "甲", Point::new(20, 20), "0");
+        let (near, mut near_rx) = player(1, "A", Point::new(20, 20), "0");
         world.enter(near);
-        let (far, mut far_rx) = player(2, "乙", Point::new(90, 90), "0");
+        let (far, mut far_rx) = player(2, "B", Point::new(90, 90), "0");
         world.enter(far);
         drain(&mut near_rx);
         drain(&mut far_rx);
@@ -5829,5 +5936,160 @@ mod tests {
             other => panic!("期望 ObjectMonster，收到 {other:?}"),
         }
         assert!(far_rx.try_recv().is_err(), "远处玩家不该收到");
+    }
+
+    #[test]
+    fn object_monster_name_follows_session_language() {
+        let db_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../resource/community/suprcode-crystal-database/cjlaaa/Server.MirDB");
+        if !db_path.is_file() {
+            eprintln!("skip: 没有 cjlaaa Server.MirDB");
+            return;
+        }
+        let Ok(data) = GameData::load(&db_path) else {
+            eprintln!("skip: cjlaaa 数据加载失败");
+            return;
+        };
+        let Some(kind) = data.monster(13).cloned() else {
+            eprintln!("skip: 数据里没有 index 13 的怪物");
+            return;
+        };
+        let mut world = World::new(999);
+        world.seed_rng(1);
+        world.set_game_data(Arc::new(data));
+        world.set_languages(Arc::new(LanguageLibrary::embedded()));
+
+        let (zh, mut zh_rx) = player(1, "A", Point::new(20, 20), "0");
+        world.enter(zh);
+        world.set_player_language(1, Language::ZhCn);
+        let (en, mut en_rx) = player(2, "B", Point::new(21, 20), "0");
+        world.enter(en);
+        world.set_player_language(2, Language::En);
+        drain(&mut zh_rx);
+        drain(&mut en_rx);
+
+        world.spawn_monster("0", kind, Point::new(22, 22));
+        let zh_name = match decode(&zh_rx.try_recv().expect("中文玩家应收到 ObjectMonster"))
+        {
+            ServerPacket::ObjectMonster(monster) => monster.name,
+            other => panic!("期望 ObjectMonster，收到 {other:?}"),
+        };
+        let en_name = match decode(&en_rx.try_recv().expect("英文玩家应收到 ObjectMonster"))
+        {
+            ServerPacket::ObjectMonster(monster) => monster.name,
+            other => panic!("期望 ObjectMonster，收到 {other:?}"),
+        };
+        assert_eq!(zh_name, "分身");
+        assert_eq!(en_name, "Clone");
+
+        let Some(info) = world
+            .game_data
+            .as_ref()
+            .and_then(|data| data.magic(Spell::Blink))
+        else {
+            eprintln!("skip: 数据里没有 Blink");
+            return;
+        };
+        assert_eq!(world.magic_name_for(Language::ZhCn, info), "瞬息移动");
+        assert_eq!(world.magic_name_for(Language::En, info), "Blink");
+    }
+
+    #[test]
+    fn real_attack_path_eventually_kills_a_five_hp_monster() {
+        let mut world = World::new(999);
+        world.seed_rng(7);
+        let (mut attacker, mut rx) = player(1, "A", Point::new(10, 10), "0");
+        attacker.stats = combat::player_base_stats(10, MirClass::Warrior);
+        world.enter(attacker);
+        drain(&mut rx);
+
+        let monster_id = world.spawn_monster("0", MonsterKind::scarecrow(), Point::new(11, 10));
+        if let Some(monster) = world.monster_mut(monster_id) {
+            monster.hp = 5;
+            monster.stats.hp = 5;
+            monster.stats.min_ac = 0;
+            monster.stats.max_ac = 0;
+            monster.stats.agility = 10;
+            monster.stats.accuracy = 0;
+        }
+
+        for _ in 0..20 {
+            if world.monster(monster_id).is_none_or(|monster| monster.dead) {
+                break;
+            }
+            let _ = world.attack(1, MirDirection::Right);
+            world.advance_clock(700);
+            world.tick();
+        }
+        let monster = world.monster(monster_id).expect("尸体还在");
+        assert_eq!(monster.expo_owner, Some(1), "击杀者必须被记为 expo_owner");
+        assert!(monster.dead, "20 次真实攻击后怪物应死亡，hp={}", monster.hp);
+        assert_eq!(monster.hp, 0);
+        let packets = drain(&mut rx);
+        assert!(
+            packets.iter().any(|packet| matches!(packet, ServerPacket::ObjectDied(died) if died.object_id == monster_id)),
+            "真实攻击路径也必须广播 ObjectDied：{packets:?}"
+        );
+    }
+    #[test]
+    fn five_four_damage_hits_kill_a_five_hp_monster() {
+        let mut world = World::new(999);
+        let (attacker, mut rx) = player(1, "A", Point::new(10, 10), "0");
+        world.enter(attacker);
+        drain(&mut rx);
+
+        let monster_id = world.spawn_monster("0", MonsterKind::scarecrow(), Point::new(11, 10));
+        if let Some(monster) = world.monster_mut(monster_id) {
+            monster.hp = 5;
+            monster.stats.hp = 5;
+            monster.stats.min_ac = 0;
+            monster.stats.max_ac = 0;
+            monster.stats.agility = 0;
+            monster.stats.accuracy = 0;
+        }
+        let mut stats = combat::player_base_stats(30, MirClass::Warrior);
+        stats.min_dc = 4;
+        stats.max_dc = 4;
+        stats.accuracy = 100;
+
+        let mut total = 0;
+        for _ in 0..5 {
+            let hit = PendingHit {
+                at: 0,
+                attacker_id: 1,
+                target_id: monster_id,
+                damage: 4,
+                defence: DefenceType::ACAgility,
+            };
+            total += world.damage_monster(hit, &stats);
+        }
+        // 5 HP、每刀 4 点：第 2 刀就应该归零；之后已经 dead，返回 0。
+        assert_eq!(total, 8, "两刀 4 点伤害落地后目标已死");
+        let monster = world.monster(monster_id).expect("尸体还在世界");
+        assert_eq!(monster.hp, 0, "五刀后 hp 必须归零");
+        assert!(monster.dead, "死亡标记必须置位");
+
+        let packets = drain(&mut rx);
+        assert!(
+            packets.iter().any(|packet| matches!(
+                packet,
+                ServerPacket::ObjectDied(died) if died.object_id == monster_id
+            )),
+            "必须广播 S.ObjectDied：{packets:?}"
+        );
+        assert!(
+            packets.iter().any(|packet| matches!(
+                packet,
+                ServerPacket::GainExperience(gain) if gain.amount > 0
+            )),
+            "击杀者必须收到经验：{packets:?}"
+        );
+
+        world.advance_clock(crate::monster::CORPSE_DELAY_MS + 1);
+        world.tick();
+        assert!(
+            world.monster(monster_id).is_none(),
+            "尸体到期后必须从世界移除"
+        );
     }
 }

@@ -2151,6 +2151,15 @@ pub struct LanguagePack {
     /// 键用 index 而不是英文名（物品可能重名/改名）；缺项时回退 DB 原名。
     #[serde(default)]
     pub item_names: BTreeMap<String, String>,
+    /// 怪物显示名：`MonsterInfo.Index` 的字符串形式 → 本地化名字；缺项回退 DB 原名。
+    #[serde(default)]
+    pub monster_names: BTreeMap<String, String>,
+    /// 技能显示名：`MagicInfo.Spell` 的字符串形式 → 本地化名字；缺项回退 DB 原名。
+    #[serde(default)]
+    pub skill_names: BTreeMap<String, String>,
+    /// 任务显示名：`QuestInfo.Index` 的字符串形式 → 本地化名字；缺项回退 DB 原名。
+    #[serde(default)]
+    pub quest_names: BTreeMap<String, String>,
 }
 
 impl LanguagePack {
@@ -2328,6 +2337,39 @@ impl LanguageLibrary {
         self.pack(language)
             .or_else(|| self.pack(Language::ZhCn))
             .and_then(|pack| pack.item_names.get(&key))
+            .cloned()
+            .unwrap_or_else(|| database_name.to_owned())
+    }
+
+    /// 取怪物显示名：按 `MonsterInfo.Index` 查语言包，缺项回退 DB 原名。
+    #[must_use]
+    pub fn monster_name(&self, language: Language, index: i32, database_name: &str) -> String {
+        let key = index.to_string();
+        self.pack(language)
+            .or_else(|| self.pack(Language::ZhCn))
+            .and_then(|pack| pack.monster_names.get(&key))
+            .cloned()
+            .unwrap_or_else(|| database_name.to_owned())
+    }
+
+    /// 取技能显示名：按 `MagicInfo.Spell` 查语言包，缺项回退 DB 原名。
+    #[must_use]
+    pub fn skill_name(&self, language: Language, spell: u8, database_name: &str) -> String {
+        let key = spell.to_string();
+        self.pack(language)
+            .or_else(|| self.pack(Language::ZhCn))
+            .and_then(|pack| pack.skill_names.get(&key))
+            .cloned()
+            .unwrap_or_else(|| database_name.to_owned())
+    }
+
+    /// 取任务显示名：按 `QuestInfo.Index` 查语言包，缺项回退 DB 原名。
+    #[must_use]
+    pub fn quest_name(&self, language: Language, index: i32, database_name: &str) -> String {
+        let key = index.to_string();
+        self.pack(language)
+            .or_else(|| self.pack(Language::ZhCn))
+            .and_then(|pack| pack.quest_names.get(&key))
             .cloned()
             .unwrap_or_else(|| database_name.to_owned())
     }
@@ -2966,5 +3008,31 @@ mod tests {
     fn language_pack_rejects_unknown_code() {
         let source = r#"{"language":"tlh","server":{},"maps":{}}"#;
         assert!(LanguagePack::from_json(source).is_err());
+    }
+
+    #[test]
+    fn generated_name_packs_are_localized_and_fallback() {
+        let library = LanguageLibrary::embedded();
+        assert_eq!(library.monster_name(Language::ZhCn, 13, "Clone"), "分身");
+        assert_eq!(library.monster_name(Language::En, 13, "Clone"), "Clone");
+        assert_eq!(library.skill_name(Language::ZhCn, 54, "Blink"), "瞬息移动");
+        assert_eq!(library.skill_name(Language::En, 54, "Blink"), "Blink");
+        assert_eq!(
+            library.quest_name(Language::ZhCn, 152, "AncientOmaCavern"),
+            "远古奥玛洞穴"
+        );
+        // 未知 index 必须回退 DB 原名，不能 panic。
+        assert_eq!(
+            library.monster_name(Language::ZhCn, 999_999, "UnknownMob"),
+            "UnknownMob"
+        );
+        assert_eq!(
+            library.skill_name(Language::ZhCn, 255, "UnknownSkill"),
+            "UnknownSkill"
+        );
+        assert_eq!(
+            library.quest_name(Language::ZhCn, -1, "UnknownQuest"),
+            "UnknownQuest"
+        );
     }
 }

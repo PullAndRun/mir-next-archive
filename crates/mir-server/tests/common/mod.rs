@@ -258,20 +258,43 @@ impl Harness {
     }
 
     pub fn add_player(&mut self, object_id: u32, name: &str, level: u16, gold: i64) -> u32 {
-        let stats = combat::player_base_stats(level, MirClass::Warrior);
+        self.add_player_on_map(
+            object_id,
+            name,
+            level,
+            gold,
+            MAP,
+            Point::new(10, 10),
+            MirClass::Warrior,
+        )
+    }
+
+    /// `add_player` 的可选地图/坐标/职业版本（真实数据旅程用）。
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_player_on_map(
+        &mut self,
+        object_id: u32,
+        name: &str,
+        level: u16,
+        gold: i64,
+        map: &str,
+        position: Point,
+        class: MirClass,
+    ) -> u32 {
+        let stats = combat::player_base_stats(level, class);
         let (sender, receiver) = mpsc::unbounded_channel();
         self.world.enter(Player {
             object_id,
             session_id: u64::from(object_id),
             character_id: i64::from(object_id),
             name: name.to_owned(),
-            map: MAP.to_owned(),
-            position: Point::new(10, 10),
+            map: map.to_owned(),
+            position,
             direction: MirDirection::Down,
             level,
             experience: 0,
             max_experience: 0,
-            class: MirClass::Warrior,
+            class,
             gender: MirGender::Male,
             hair: 1,
             hp: stats.hp,

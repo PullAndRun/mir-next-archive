@@ -102,9 +102,62 @@ struct LiveState {
     reconnect: ReconnectState,
     /// 建立连接用的参数（重连时复用账号/角色）。
     connect: ConnectOptions,
+    /// 自己最近一步的移动（用于 Crystal 式 `OffSetMove` 插值与相机跟随）。
+    motion: Option<SelfMotion>,
+}
+
+/// 自己的一步移动：从 `from` 格走到 `to` 格，用于像素级插值。
+///
+/// Crystal 的 `PlayerObject.OffSetMove`（`PlayerObject.cs:765-835`）在走/跑动作的
+/// 每一帧把「整格位移 × (帧号+1)/帧数」加到绘制坐标上；本结构记录这次移动的
+/// 起点/终点与动作开始时间，渲染时按同一公式算偏移。
+#[derive(Debug, Clone, Copy)]
+struct SelfMotion {
+    from: Point,
+    to: Point,
+    started_ms: u64,
+    /// 走/跑的动作时长（Crystal 的 6 帧 × 100ms = 600ms，跑是 2 格/600ms）。
+    duration_ms: u64,
+}
+
+/// 一步移动在 `elapsed_ms` 时刻的像素偏移。
+///
+/// 照 Crystal `PlayerObject.cs:786-834`：`OffSetMove = 整格位移 × (FrameIndex+1)/FrameCount`，
+/// 帧长 100ms、6 帧；走 1 格、跑 2 格。返回"从起点向目标推进的像素"。
+fn self_motion_offset(from: Point, to: Point, elapsed_ms: u64) -> (i32, i32) {
+    let frame_index = (elapsed_ms / 100).min(5) as i32;
+    let fraction = f64::from(frame_index + 1) / 6.0;
+    let dx = f64::from(to.x - from.x) * 48.0 * fraction;
+    let dy = f64::from(to.y - from.y) * 32.0 * fraction;
+    (dx.round() as i32, dy.round() as i32)
 }
 
 impl LiveState {
+    /// 记录自己从 `old` 到 `new` 的一步移动（用于 `OffSetMove` 插值）。
+    ///
+    /// 只对「走 1 格 / 跑 2 格」建插值；传送、出生、跳变等直接清空。
+    /// Crystal 的跑是 2 格 / 600ms（`Frames.cs` 的 Running：6 帧 × 100ms，
+    /// `PlayerObject.cs:787-790` 里 `i = 2`），本作服务端也是按这个节奏下发。
+    fn update_self_motion(&mut self, old: Point, new: Point, now_ms: u64) {
+        if old == new {
+            return;
+        }
+        let dx = new.x - old.x;
+        let dy = new.y - old.y;
+        let steps = dx.abs().max(dy.abs());
+        let is_straight = dx == 0 || dy == 0 || dx.abs() == dy.abs();
+        if (1..=2).contains(&steps) && is_straight {
+            self.motion = Some(SelfMotion {
+                from: old,
+                to: new,
+                started_ms: now_ms,
+                duration_ms: 600,
+            });
+        } else {
+            self.motion = None;
+        }
+    }
+
     /// 发命令；网络线程已退出时打印一次可读原因。
     ///
     /// 走/跑/攻击/转身在发包前先更新本地快照的动作，画面不用等服务器回包
@@ -250,6 +303,7 @@ pub fn run_live(
         last_hover_cell: None,
         reconnect: ReconnectState::default(),
         connect,
+        motion: None,
     }));
     run_app(
         scene,
@@ -768,17 +822,47 @@ impl ClientApp {
     fn render_current(&mut self) {
         let started = Instant::now();
         let now = now_millis_u64();
-        let entities = match &mut self.mode {
+        let fallback_center = self.center;
+        let rendered = match &mut self.mode {
             Mode::Offline | Mode::Login(_) => None,
             Mode::Live(live) => {
                 live.snapshot.tick_animations(now);
-                Some(live.snapshot.entity_views(now))
+                let mut entities = live.snapshot.entity_views(now);
+                let mut center = live
+                    .snapshot
+                    .self_player
+                    .as_ref()
+                    .map_or(fallback_center, |player| player.position);
+                let mut offset = (0, 0);
+                if let Some(motion) = live.motion {
+                    let elapsed = now.saturating_sub(motion.started_ms);
+                    if elapsed < motion.duration_ms {
+                        // Crystal `PlayerObject.cs:765-835`：走/跑动作的每一帧把
+                        // 「整格位移 × (FrameIndex+1)/FrameCount」加到绘制坐标；
+                        // 相机中心用 Movement（起点），所以地形也随 OffSetMove 平移。
+                        center = motion.from;
+                        offset = self_motion_offset(motion.from, motion.to, elapsed);
+                        // 自己这一格按 Movement 画，由上面的 offset 推进到目标格。
+                        if let Some(first) = entities.first_mut() {
+                            first.position = motion.from;
+                        }
+                    } else {
+                        live.motion = None;
+                    }
+                }
+                Some((entities, center, offset))
             }
         };
-        match entities {
-            Some(entities) => {
-                self.scene
-                    .render_with_entities_at(&mut self.frame, self.center, &entities, now);
+        match rendered {
+            Some((entities, center, offset)) => {
+                self.center = self.clamp_center(center);
+                self.scene.render_with_entities_at_offset(
+                    &mut self.frame,
+                    self.center,
+                    offset,
+                    &entities,
+                    now,
+                );
             }
             None => {
                 self.scene.render(&mut self.frame, self.center);
@@ -1871,6 +1955,7 @@ impl ClientApp {
             last_hover_cell: None,
             reconnect: ReconnectState::default(),
             connect: ConnectOptions::default(),
+            motion: None,
         }));
         if let Some(window) = &self.window {
             window.set_title(
@@ -2494,7 +2579,21 @@ impl ClientApp {
                 live.last_status = status;
             }
             let old_market_open = live.snapshot.market.open_version;
+            let old_self_pos = live
+                .snapshot
+                .self_player
+                .as_ref()
+                .map(|player| player.position);
             live.snapshot = snapshot;
+            if let (Some(old), Some(new)) = (
+                old_self_pos,
+                live.snapshot
+                    .self_player
+                    .as_ref()
+                    .map(|player| player.position),
+            ) {
+                live.update_self_motion(old, new, now);
+            }
             live.ui.sync(&live.snapshot);
             // 市场窗口刚打开：按当前页签补一次 `C.MarketSearch`（服务端打开时只发
             // 第一页，`GetMarket` 的 Min/MaxShapes 还是 0；Crystal `TMerchantDialog(type)`
@@ -3242,5 +3341,23 @@ mod tests {
         assert_eq!(scene.map.file_name, "D2083", "地形已换成新地图");
         assert!(scene.map.width > 0 && scene.map.height > 0);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn self_motion_offset_matches_crystal_walk_and_run() {
+        let from = Point::new(10, 10);
+        // 走右：6 帧、帧长 100ms，第 0 帧就推进 1/6 格，第 5 帧到 48px。
+        assert_eq!(self_motion_offset(from, Point::new(11, 10), 0), (8, 0));
+        assert_eq!(self_motion_offset(from, Point::new(11, 10), 500), (48, 0));
+        // 跑：2 格 / 600ms，最后一帧 96px。
+        assert_eq!(self_motion_offset(from, Point::new(12, 10), 500), (96, 0));
+        // 下：格高 32px。
+        assert_eq!(self_motion_offset(from, Point::new(10, 11), 500), (0, 32));
+        // 右下对角：(48, 32)。
+        assert_eq!(self_motion_offset(from, Point::new(11, 11), 500), (48, 32));
+        // 左上对角：负方向。
+        assert_eq!(self_motion_offset(from, Point::new(9, 9), 500), (-48, -32));
+        // 超时后仍停在最后一帧（调用方在 600ms 时清 motion）。
+        assert_eq!(self_motion_offset(from, Point::new(11, 10), 900), (48, 0));
     }
 }

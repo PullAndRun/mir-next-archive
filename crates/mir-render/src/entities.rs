@@ -1166,12 +1166,31 @@ impl EntityRenderer {
         entities: &[EntityView],
         now_ms: u64,
     ) {
+        self.render_at_offset(frame, viewport, center, entities, now_ms, (0, 0));
+    }
+
+    /// 与 [`Self::render_at`] 相同，但把整个实体层按 `offset` 像素平移。
+    ///
+    /// Crystal 的相机跟随不是移动中心格，而是把玩家当前移动的
+    /// `OffSetMove` 加到所有绘制坐标上（`GameScene.cs` 各 `DrawLocation.Offset(User.OffSetMove)`），
+    /// 本参数就是那个偏移。地形层用同一偏移时，玩家相对屏幕保持居中。
+    pub fn render_at_offset(
+        &mut self,
+        frame: &mut Frame,
+        viewport: Viewport,
+        center: Point,
+        entities: &[EntityView],
+        now_ms: u64,
+        offset: (i32, i32),
+    ) {
         // 按 Y 升序、同一行按 X 升序；`sort_by_key` 是稳定排序，同格实体保持输入顺序。
         let mut order: Vec<usize> = (0..entities.len()).collect();
         order.sort_by_key(|&index| (entities[index].position.y, entities[index].position.x));
         for index in order {
             let entity = &entities[index];
             let (origin_x, origin_y) = geometry::world_to_screen(viewport, center, entity.position);
+            let origin_x = origin_x + offset.0;
+            let origin_y = origin_y + offset.1;
             let top = self.draw_entity(frame, entity, origin_x, origin_y, now_ms);
             if let Some(percent) = entity.hp_percent {
                 let bar_y = top.unwrap_or(origin_y) - 6;

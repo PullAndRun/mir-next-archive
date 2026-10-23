@@ -310,11 +310,20 @@ impl MapScene {
     /// 会把 [`MapScene::viewport`] 更新为帧尺寸，然后清屏、画铺地层、画对象层。
     /// 同样的 `(地图, 素材, center, 动画计数, 帧尺寸)` 得到逐字节相同的像素。
     pub fn render(&mut self, frame: &mut Frame, center: Point) {
+        self.render_offset(frame, center, (0, 0));
+    }
+
+    /// 与 [`MapScene::render`] 相同，但把整屏（地形 + 对象层）按 `offset` 像素平移。
+    ///
+    /// 对应 Crystal 相机跟随的实现：不是移动「中心格」，而是在所有绘制坐标上叠加
+    /// 玩家当前的 `OffSetMove`（`GameScene.cs` 的 `DrawLocation.Offset(User.OffSetMove)`）。
+    pub fn render_offset(&mut self, frame: &mut Frame, center: Point, offset: (i32, i32)) {
         self.viewport = Viewport::new(frame.width, frame.height);
         frame.clear(BACKGROUND);
+        // 偏移最多 ±2 格，`cell_bounds` 自带 6/25 行余量，不用额外扩边界。
         let (columns, rows) = geometry::cell_bounds(self.viewport, center);
-        self.render_floor(frame, center, &columns, &rows);
-        self.render_objects(frame, center, &columns, &rows);
+        self.render_floor(frame, center, &columns, &rows, offset);
+        self.render_objects(frame, center, &columns, &rows, offset);
     }
 
     /// 画地形 + 实体（玩家、怪物、NPC、地面物品）。
@@ -342,8 +351,20 @@ impl MapScene {
         entities: &[EntityView],
         now_ms: u64,
     ) {
-        self.render(frame, center);
-        self.render_entities_at(frame, center, entities, now_ms);
+        self.render_with_entities_at_offset(frame, center, (0, 0), entities, now_ms);
+    }
+
+    /// 画地形 + 实体，地形与实体层同时按 `offset` 像素平移（相机跟随用）。
+    pub fn render_with_entities_at_offset(
+        &mut self,
+        frame: &mut Frame,
+        center: Point,
+        offset: (i32, i32),
+        entities: &[EntityView],
+        now_ms: u64,
+    ) {
+        self.render_offset(frame, center, offset);
+        self.render_entities_at_offset(frame, center, entities, now_ms, offset);
     }
 
     /// 只画实体层（地形已经画好的情况下使用）。
@@ -363,9 +384,21 @@ impl MapScene {
         entities: &[EntityView],
         now_ms: u64,
     ) {
+        self.render_entities_at_offset(frame, center, entities, now_ms, (0, 0));
+    }
+
+    /// 只画实体层，并叠加相机像素偏移。
+    pub fn render_entities_at_offset(
+        &mut self,
+        frame: &mut Frame,
+        center: Point,
+        entities: &[EntityView],
+        now_ms: u64,
+        offset: (i32, i32),
+    ) {
         let viewport = self.viewport;
         self.entities
-            .render_at(frame, viewport, center, entities, now_ms);
+            .render_at_offset(frame, viewport, center, entities, now_ms, offset);
     }
 
     /// 取一张特效精灵（`effect.wzl` / `magic.wzl`），缺素材时返回 `None`。
@@ -400,6 +433,7 @@ impl MapScene {
         center: Point,
         columns: &std::ops::RangeInclusive<i32>,
         rows: &std::ops::RangeInclusive<i32>,
+        offset: (i32, i32),
     ) {
         for y in rows.clone() {
             for x in columns.clone() {
@@ -408,6 +442,8 @@ impl MapScene {
                 };
                 let cell_point = Point::new(x, y);
                 let (tile_x, tile_y) = geometry::tile_origin(self.viewport, center, cell_point);
+                let tile_x = tile_x + offset.0;
+                let tile_y = tile_y + offset.1;
                 self.draw_back_tile(frame, &cell, x, y, tile_x, tile_y);
                 self.draw_middle_flat(frame, &cell, tile_x, tile_y);
                 self.draw_front_flat(frame, &cell, tile_x, tile_y);
@@ -422,6 +458,7 @@ impl MapScene {
         center: Point,
         columns: &std::ops::RangeInclusive<i32>,
         rows: &std::ops::RangeInclusive<i32>,
+        offset: (i32, i32),
     ) {
         for y in rows.clone() {
             for x in columns.clone() {
@@ -431,6 +468,8 @@ impl MapScene {
                 let cell_point = Point::new(x, y);
                 let (sprite_x, sprite_bottom) =
                     geometry::sprite_anchor(self.viewport, center, cell_point);
+                let sprite_x = sprite_x + offset.0;
+                let sprite_bottom = sprite_bottom + offset.1;
                 self.draw_middle_raised(frame, &cell, sprite_x, sprite_bottom);
                 self.draw_front_raised(frame, &cell, sprite_x, sprite_bottom);
             }

@@ -184,6 +184,16 @@ buff 倒计时都基于它，所以无头测试可以任意拨表。
 
 离线模式：方向键/WASD 平移相机、`S` 截图、`F1` 叠层、`Q` 退出。
 
+### 移动插值（第 45 轮）
+
+照 Crystal `PlayerObject.cs:765-835` 的 `OffSetMove` 实现：客户端记录自己每一步的
+`Movement`（起点）与 `CurrentLocation`（终点），按动作帧计算
+「整格位移 × (FrameIndex+1)/FrameCount」（6 帧、每帧 100ms；走 1 格、跑 2 格），
+并把同一像素偏移同时加到**地形与实体层**（`MapScene::render_offset`）——
+效果与 Crystal 一样：角色在屏幕内平滑滑动，地形随相机连续滚动，而不是逐格瞬移。
+实现位置：`crates/mir-client/src/app.rs` 的 `SelfMotion` / `self_motion_offset`，
+渲染入口 `MapScene::render_with_entities_at_offset`（`crates/mir-render/src/scene.rs`）。
+
 ### 鼠标
 
 | 操作 | 位置 | 行为 |
@@ -1583,8 +1593,6 @@ cargo fmt --all -- --check
 
 * 武器发光（`WeaponEffect`）、中毒染色与等级特效；坐骑/翅膀已支持基础绘制，
   但坐骑/翅膀的逐外观精确素材映射（`Mount/*.Lib`、`CHumEffect/*.Lib`）尚未接入；
-* 移动插值（Crystal `OffSetMove`/`Movement` 的平滑位移，`PlayerObject.cs:765-810`）：
-  实体直接站在服务端给的格子上，动作帧逐帧播放，但没有格间滑动；
 * 攻击变招（Attack2/3/4 按职业/武器/随机选择，`PlayerObject.cs:1055-1075`）、
   弓箭手用 `WalkingBow/RunningBow/AttackRange*`、刺客 `Sneek`；目前统一用 Attack1；
 * 怪物逐图像帧表：`!Mon.dat` / Crystal `.Lib` 的 `BodyLibrary.Frames` 尚未解析，

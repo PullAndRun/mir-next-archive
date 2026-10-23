@@ -1,0 +1,849 @@
+{
+  "cell": {
+    "height": 32,
+    "width": 48
+  },
+  "crystal_reference": "github/Crystal HEAD 0e315fe327192afe52c3d7357ddd1f5b7e26c5b8",
+  "evidence_nature": "权威回包快照冻结后的确定性时间重放（每步 6×100ms），不是窗口实时录屏/实时截图",
+  "formula_proof": "整数偏移公式以 camera 模块单测为独立证明；live_world 的 offset 断言复用同一 helper，仅作生产路径回归",
+  "frames_per_step": 6,
+  "generated_at_unix_ms": 1792772988275,
+  "map": "0",
+  "offset_contract": "world_offset = Crystal OffSetMove（走右为负）；self_offset = -world_offset；自机格原点恒为 Viewport::center_origin() = (384, 256)",
+  "rust_baseline": "90b8188c7143bb4800d35abb65bd548a7f6d5f12",
+  "samples": [
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "captured_at_wall_ms": 1792772977223,
+      "direction": "Down",
+      "elapsed_ms": 0,
+      "frame_index": 0,
+      "from": [
+        330,
+        270
+      ],
+      "i": 1,
+      "png": "build\\evidence\\self-motion\\walk-step1-frame0.png",
+      "rendered_at_ms": 1792772975407,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        6
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 1,
+      "terrain_anchor": [
+        376,
+        250
+      ],
+      "to": [
+        330,
+        271
+      ],
+      "world_offset": [
+        0,
+        -6
+      ]
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "captured_at_wall_ms": 1792772977325,
+      "direction": "Down",
+      "elapsed_ms": 100,
+      "frame_index": 1,
+      "from": [
+        330,
+        270
+      ],
+      "i": 1,
+      "png": "build\\evidence\\self-motion\\walk-step1-frame1.png",
+      "rendered_at_ms": 1792772975507,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        10
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 1,
+      "terrain_anchor": [
+        376,
+        246
+      ],
+      "to": [
+        330,
+        271
+      ],
+      "world_offset": [
+        0,
+        -10
+      ]
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "captured_at_wall_ms": 1792772977432,
+      "direction": "Down",
+      "elapsed_ms": 200,
+      "frame_index": 2,
+      "from": [
+        330,
+        270
+      ],
+      "i": 1,
+      "png": "build\\evidence\\self-motion\\walk-step1-frame2.png",
+      "rendered_at_ms": 1792772975607,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        16
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 1,
+      "terrain_anchor": [
+        376,
+        240
+      ],
+      "to": [
+        330,
+        271
+      ],
+      "world_offset": [
+        0,
+        -16
+      ]
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "captured_at_wall_ms": 1792772977563,
+      "direction": "Down",
+      "elapsed_ms": 300,
+      "frame_index": 3,
+      "from": [
+        330,
+        270
+      ],
+      "i": 1,
+      "png": "build\\evidence\\self-motion\\walk-step1-frame3.png",
+      "rendered_at_ms": 1792772975707,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        22
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 1,
+      "terrain_anchor": [
+        376,
+        234
+      ],
+      "to": [
+        330,
+        271
+      ],
+      "world_offset": [
+        0,
+        -22
+      ]
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "captured_at_wall_ms": 1792772977677,
+      "direction": "Down",
+      "elapsed_ms": 400,
+      "frame_index": 4,
+      "from": [
+        330,
+        270
+      ],
+      "i": 1,
+      "png": "build\\evidence\\self-motion\\walk-step1-frame4.png",
+      "rendered_at_ms": 1792772975807,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        26
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 1,
+      "terrain_anchor": [
+        376,
+        230
+      ],
+      "to": [
+        330,
+        271
+      ],
+      "world_offset": [
+        0,
+        -26
+      ]
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "captured_at_wall_ms": 1792772977778,
+      "direction": "Down",
+      "elapsed_ms": 500,
+      "frame_index": 5,
+      "from": [
+        330,
+        270
+      ],
+      "i": 1,
+      "png": "build\\evidence\\self-motion\\walk-step1-frame5.png",
+      "rendered_at_ms": 1792772975907,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        32
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 1,
+      "terrain_anchor": [
+        376,
+        224
+      ],
+      "to": [
+        330,
+        271
+      ],
+      "world_offset": [
+        0,
+        -32
+      ]
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        271
+      ],
+      "captured_at_wall_ms": 1792772977919,
+      "direction": "Down",
+      "elapsed_ms": 0,
+      "frame_index": 0,
+      "from": [
+        330,
+        271
+      ],
+      "i": 1,
+      "png": "build\\evidence\\self-motion\\walk-step2-frame0.png",
+      "rendered_at_ms": 1792772976065,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        6
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 2,
+      "terrain_anchor": [
+        376,
+        250
+      ],
+      "to": [
+        330,
+        272
+      ],
+      "world_offset": [
+        0,
+        -6
+      ]
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        271
+      ],
+      "captured_at_wall_ms": 1792772978020,
+      "direction": "Down",
+      "elapsed_ms": 100,
+      "frame_index": 1,
+      "from": [
+        330,
+        271
+      ],
+      "i": 1,
+      "png": "build\\evidence\\self-motion\\walk-step2-frame1.png",
+      "rendered_at_ms": 1792772976165,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        10
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 2,
+      "terrain_anchor": [
+        376,
+        246
+      ],
+      "to": [
+        330,
+        272
+      ],
+      "world_offset": [
+        0,
+        -10
+      ]
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        271
+      ],
+      "captured_at_wall_ms": 1792772978167,
+      "direction": "Down",
+      "elapsed_ms": 200,
+      "frame_index": 2,
+      "from": [
+        330,
+        271
+      ],
+      "i": 1,
+      "png": "build\\evidence\\self-motion\\walk-step2-frame2.png",
+      "rendered_at_ms": 1792772976265,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        16
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 2,
+      "terrain_anchor": [
+        376,
+        240
+      ],
+      "to": [
+        330,
+        272
+      ],
+      "world_offset": [
+        0,
+        -16
+      ]
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        271
+      ],
+      "captured_at_wall_ms": 1792772978277,
+      "direction": "Down",
+      "elapsed_ms": 300,
+      "frame_index": 3,
+      "from": [
+        330,
+        271
+      ],
+      "i": 1,
+      "png": "build\\evidence\\self-motion\\walk-step2-frame3.png",
+      "rendered_at_ms": 1792772976365,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        22
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 2,
+      "terrain_anchor": [
+        376,
+        234
+      ],
+      "to": [
+        330,
+        272
+      ],
+      "world_offset": [
+        0,
+        -22
+      ]
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        271
+      ],
+      "captured_at_wall_ms": 1792772978380,
+      "direction": "Down",
+      "elapsed_ms": 400,
+      "frame_index": 4,
+      "from": [
+        330,
+        271
+      ],
+      "i": 1,
+      "png": "build\\evidence\\self-motion\\walk-step2-frame4.png",
+      "rendered_at_ms": 1792772976465,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        26
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 2,
+      "terrain_anchor": [
+        376,
+        230
+      ],
+      "to": [
+        330,
+        272
+      ],
+      "world_offset": [
+        0,
+        -26
+      ]
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        271
+      ],
+      "captured_at_wall_ms": 1792772978481,
+      "direction": "Down",
+      "elapsed_ms": 500,
+      "frame_index": 5,
+      "from": [
+        330,
+        271
+      ],
+      "i": 1,
+      "png": "build\\evidence\\self-motion\\walk-step2-frame5.png",
+      "rendered_at_ms": 1792772976565,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        32
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 2,
+      "terrain_anchor": [
+        376,
+        224
+      ],
+      "to": [
+        330,
+        272
+      ],
+      "world_offset": [
+        0,
+        -32
+      ]
+    },
+    {
+      "action": "run",
+      "camera_center": [
+        330,
+        272
+      ],
+      "captured_at_wall_ms": 1792772978629,
+      "direction": "Down",
+      "elapsed_ms": 0,
+      "frame_index": 0,
+      "from": [
+        330,
+        272
+      ],
+      "i": 2,
+      "png": "build\\evidence\\self-motion\\run-step1-frame0.png",
+      "rendered_at_ms": 1792772976735,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        10
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 1,
+      "terrain_anchor": [
+        376,
+        246
+      ],
+      "to": [
+        330,
+        274
+      ],
+      "world_offset": [
+        0,
+        -10
+      ]
+    },
+    {
+      "action": "run",
+      "camera_center": [
+        330,
+        272
+      ],
+      "captured_at_wall_ms": 1792772978741,
+      "direction": "Down",
+      "elapsed_ms": 100,
+      "frame_index": 1,
+      "from": [
+        330,
+        272
+      ],
+      "i": 2,
+      "png": "build\\evidence\\self-motion\\run-step1-frame1.png",
+      "rendered_at_ms": 1792772976835,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        22
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 1,
+      "terrain_anchor": [
+        376,
+        234
+      ],
+      "to": [
+        330,
+        274
+      ],
+      "world_offset": [
+        0,
+        -22
+      ]
+    },
+    {
+      "action": "run",
+      "camera_center": [
+        330,
+        272
+      ],
+      "captured_at_wall_ms": 1792772978853,
+      "direction": "Down",
+      "elapsed_ms": 200,
+      "frame_index": 2,
+      "from": [
+        330,
+        272
+      ],
+      "i": 2,
+      "png": "build\\evidence\\self-motion\\run-step1-frame2.png",
+      "rendered_at_ms": 1792772976935,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        32
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 1,
+      "terrain_anchor": [
+        376,
+        224
+      ],
+      "to": [
+        330,
+        274
+      ],
+      "world_offset": [
+        0,
+        -32
+      ]
+    },
+    {
+      "action": "run",
+      "camera_center": [
+        330,
+        272
+      ],
+      "captured_at_wall_ms": 1792772978960,
+      "direction": "Down",
+      "elapsed_ms": 300,
+      "frame_index": 3,
+      "from": [
+        330,
+        272
+      ],
+      "i": 2,
+      "png": "build\\evidence\\self-motion\\run-step1-frame3.png",
+      "rendered_at_ms": 1792772977035,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        42
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 1,
+      "terrain_anchor": [
+        376,
+        214
+      ],
+      "to": [
+        330,
+        274
+      ],
+      "world_offset": [
+        0,
+        -42
+      ]
+    },
+    {
+      "action": "run",
+      "camera_center": [
+        330,
+        272
+      ],
+      "captured_at_wall_ms": 1792772979082,
+      "direction": "Down",
+      "elapsed_ms": 400,
+      "frame_index": 4,
+      "from": [
+        330,
+        272
+      ],
+      "i": 2,
+      "png": "build\\evidence\\self-motion\\run-step1-frame4.png",
+      "rendered_at_ms": 1792772977135,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        54
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 1,
+      "terrain_anchor": [
+        376,
+        202
+      ],
+      "to": [
+        330,
+        274
+      ],
+      "world_offset": [
+        0,
+        -54
+      ]
+    },
+    {
+      "action": "run",
+      "camera_center": [
+        330,
+        272
+      ],
+      "captured_at_wall_ms": 1792772979190,
+      "direction": "Down",
+      "elapsed_ms": 500,
+      "frame_index": 5,
+      "from": [
+        330,
+        272
+      ],
+      "i": 2,
+      "png": "build\\evidence\\self-motion\\run-step1-frame5.png",
+      "rendered_at_ms": 1792772977235,
+      "screen_center": [
+        384,
+        256
+      ],
+      "self_offset": [
+        0,
+        64
+      ],
+      "self_screen": [
+        384,
+        256
+      ],
+      "step": 1,
+      "terrain_anchor": [
+        376,
+        192
+      ],
+      "to": [
+        330,
+        274
+      ],
+      "world_offset": [
+        0,
+        -64
+      ]
+    }
+  ],
+  "sampling": "帧 0 = 本地收到该步 UserLocation 的时刻；帧 k = 帧0 + k×100ms；rendered_at_ms 是模拟采样时刻，captured_at_wall_ms 才是实际渲染墙钟",
+  "server": {
+    "address": "127.0.0.1:53244",
+    "demo_monsters": true,
+    "store": "MemoryStore"
+  },
+  "steps": [
+    {
+      "action": "walk",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "received_at_ms": 1792772975407,
+      "to": [
+        330,
+        271
+      ],
+      "user_location_after": 1,
+      "user_location_before": 0
+    },
+    {
+      "action": "walk",
+      "direction": "Down",
+      "from": [
+        330,
+        271
+      ],
+      "received_at_ms": 1792772976065,
+      "to": [
+        330,
+        272
+      ],
+      "user_location_after": 2,
+      "user_location_before": 1
+    },
+    {
+      "action": "run",
+      "direction": "Down",
+      "from": [
+        330,
+        272
+      ],
+      "received_at_ms": 1792772976735,
+      "to": [
+        330,
+        274
+      ],
+      "user_location_after": 3,
+      "user_location_before": 2
+    }
+  ],
+  "terrain_source": "game-assets/maps/0.mnm（library-map.json + gfx）",
+  "test": "live_client_walk_run_capture_continuous_frames",
+  "viewport": [
+    800,
+    600
+  ]
+}

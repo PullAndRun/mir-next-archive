@@ -186,13 +186,65 @@ buff 倒计时都基于它，所以无头测试可以任意拨表。
 
 ### 移动插值（第 45 轮）
 
-照 Crystal `PlayerObject.cs:765-835` 的 `OffSetMove` 实现：客户端记录自己每一步的
-`Movement`（起点）与 `CurrentLocation`（终点），按动作帧计算
-「整格位移 × (FrameIndex+1)/FrameCount」（6 帧、每帧 100ms；走 1 格、跑 2 格），
-并把同一像素偏移同时加到**地形与实体层**（`MapScene::render_offset`）——
-效果与 Crystal 一样：角色在屏幕内平滑滑动，地形随相机连续滚动，而不是逐格瞬移。
-实现位置：`crates/mir-client/src/app.rs` 的 `SelfMotion` / `self_motion_offset`，
-渲染入口 `MapScene::render_with_entities_at_offset`（`crates/mir-render/src/scene.rs`）。
+自机的走/跑不再逐格瞬移：客户端记录自己每一步的 `Movement`（起点）与 `CurrentLocation`
+（终点），按 Crystal `PlayerObject.cs:765-841` 的 `OffSetMove` 做 6 帧 × 100ms 的整数像素插值，
+并把同一偏移加到地形与其他实体上，形成「角色平滑滑动、世界反向滚动」。
+
+**公式（`crates/mir-client/src/camera.rs`）**
+
+```text
+index = min(elapsed_ms / 100, 5)                    // 6 帧，每帧 100ms（Frames.cs:158-159）
+magnitude_x = (int)((48 * i / 6.0) * (index+1))     // i = 1 走 / 2 跑（PlayerObject.cs:786-790）
+magnitude_y = (int)((32 * i / 6.0) * (index+1))     // (int) 向零截断，包住整个乘积（:809-830）
+world_offset = (X % 2 + X, Y % 2 + Y)               // 偶化（:834）
+```
+
+- `world_offset` 等价于 Crystal 的 `OffSetMove`：指向本次移动的**起点**（走右/走下为负），
+  加到地形和**其他**实体上（`GameScene.cs:10680/10684/10814/10820`）。
+- `self_motion_offset` 是它的相反数（自机从起点推向目标），写进自机 `EntityView::pixel_offset`；
+  相机中心固定为起点格，自机因此恒在屏幕中心 `(384, 256)`（800×600 的 `center_origin()`）——
+  等价于 Crystal 对 `User` 不叠加 `User.OffSetMove`（`PlayerObject.cs:847-854`）。
+- 走 1 格、跑 2 格：横向 Walk `8,16,24,32,40,48`、Run `16,32,48,64,80,96`；纵向 Walk
+  `6,10,16,22,26,32`、Run `10,22,32,42,54,64`（已偶化）。逐帧完整数据见
+  [`testing/self-motion/frame-comparison.csv`](testing/self-motion/frame-comparison.csv)。
+
+**实现与生命周期（X1-01 后：motion 与动作同钟）**
+
+- `camera.rs`：`SelfMotion`、`motion_after_authoritative_step`、`prepare_frame`、
+  `self_motion_offset`、`world_offset`、`camera_for`、`apply_camera`；
+- **motion 起点 = 网络层应用 `S.UserLocation` 的时刻**：`net::apply_self_location`
+  在同一个 `now_ms` 里重设自机 `Walking`/`Running` 与 `action_started_ms`，
+  `motion_after_authoritative_step` 用该时刻建 `SelfMotion`（`started_ms`）；
+  因此发包→回包延迟不会让动作先于插值结束（X1-01）。
+- `app.rs::render_current` 每帧调 `prepare_frame`（生产渲染前处理），顺序固定为：
+  `tick_animations` → **自然到期**（`now - motion.started_ms >= 600ms` 先清 motion，
+  生命周期只看 motion 时钟、不看动作）→ **显式打断**（仍在 600ms 内但自机动作已不是走/跑：
+  攻击/受击/死亡/转身等，立即清）→ `apply_camera` 把自机钉在 `motion.from` 并给出世界偏移；
+  渲染入口仍是 `MapScene::render_with_entities_at_offset`（`crates/mir-render/src/scene.rs`；
+  实体层叠加见 `crates/mir-render/src/entities.rs::render_at_offset`）。
+- 只在收到 `UserLocation` 且位移合法（1~2 格直线或 45° 对角）时建插值；同坐标快照
+  （聊天/他人动作/撞墙回拉）保留 motion 且不重启动作计时；连续走/跑由最新一步替换；
+  传送/出生/切图/重连/断线/死亡另行清空。上述生命周期由 `camera.rs` 新增 6 项单测覆盖
+  （`delayed_walk_reply_…`/`delayed_run_reply_…` 的 200/600ms 延迟、
+  `same_position_snapshot_…`、`next_authoritative_step_replaces_previous_motion`、
+  `explicit_interrupts_clear_motion_immediately`、`teleport_jump_invalidates_motion_and_snaps_to_target`）。
+
+**限制（第 45 轮范围）**
+
+- **只做自己**：其他人/怪物仍按服务端落点逐格跳；Crystal 对其他对象也做 `OffSetMove`
+  （`PlayerObject.cs:847-854`、`MonsterObject.cs:435-437`），本作未接（后续清单 P1）。
+- 固定 6 帧 / 100ms / 600ms、`i = 2`；Crystal `Sprint` 的 `i = 3` 与本作无关（无疾风步），
+  坐骑的 `MountWalking` 8 帧 / `MountRunning` 6 帧（`Frames.cs:189-190`）也未按坐骑帧表插值。
+- 地图边缘：相机中心会 clamp 到地图范围（`app.rs::clamp_center`），但正常走/跑的
+  `motion.from` 与快照自身坐标都在地图内，**clamp 是 no-op**，自机仍严格在屏幕中心
+  `(384, 256)`；该函数只在异常/回退的中心越界时生效。
+- 服务端走/跑节奏须保持 600ms（`MOVE_DELAY_MS`）；若改变，插值会在 600ms 处先结束/滞留。
+- **本轮未测 FPS/帧耗时（帧率）**：文中出现的性能数字（如 §6.0）仅第 13 轮历史数据，
+  不适用于本轮移动插值/相机跟随改动。
+- **四类真实窗口边界未实测**（中央移动 / 触边回拉 / 沿边 / 反向离边），
+  ≥600ms/跳变只有代码级断言、无窗口录屏佐证；现有 live 证据是**权威回包冻结后的确定性时间重放**，
+  不是实时录屏。批次、冻结哈希与覆盖边界见
+  [`testing/self-motion/README.md`](testing/self-motion/README.md)。
 
 ### 鼠标
 
@@ -1416,7 +1468,13 @@ Crystal 的 `Frame` 是 `Start / Count / Skip / Interval`（`Client/MirObjects/F
 ## 7. 无窗口端到端测试
 
 `crates/mir-client/tests/live_world.rs`：真实服务端 + 登录 + 走路 + 渲染
-`target/client-live.png`。
+`target/client-live.png`。第二条用例 `live_client_walk_run_capture_continuous_frames`
+连续 **2 次走 + 1 次跑**，按 6×100ms 逐帧走生产渲染入口
+`MapScene::render_with_entities_at_offset`，断言服务端权威坐标/方向、自机屏幕锚点
+`(384, 256)`、相机中心 = 起点 `Movement`、地形逐帧位移 = `world_offset` 差，
+并写 18 张 PNG + `evidence-manifest.json`。第 45 轮的逐帧对照表、证据批次
+（归档 Down / 临时 DownRight / 冻结 Down）、单测动态覆盖边界与四类窗口未实测，
+见 [`testing/self-motion/README.md`](testing/self-motion/README.md)。
 
 `crates/mir-client/tests/ui_test.rs`：真实登录后注入假 NPC/商店/背包/聊天，渲染
 `target/client-ui.png`，并验证对话按钮/货架/背包格的命中测试。
@@ -1591,6 +1649,13 @@ cargo fmt --all -- --check
 
 ## 8. 尚未实现
 
+* **移动插值的边界实测**：自机走/跑插值公式、单测与单方向 live 回归已通过；但
+  **四类真实窗口边界（中央/触边/沿边/反向离边）未实测**，≥600ms/跳变无窗口录屏，
+  他人/怪物仍是逐格推进，坐骑帧表也未按 Crystal `MountWalking/MountRunning` 插值。
+  相机中心 clamp 只对越界的异常/回退中心生效，正常落点仍在屏幕中心。**本轮未测 FPS/帧耗时（帧率）**；
+  文中性能数字（如 §6.0）仅第 13 轮历史数据，不适用于本轮移动插值/相机跟随改动。证据与冻结批次见
+  [`testing/self-motion/README.md`](testing/self-motion/README.md)，后续清单见
+  [`client-experience-backlog.md`](client-experience-backlog.md)。
 * 武器发光（`WeaponEffect`）、中毒染色与等级特效；坐骑/翅膀已支持基础绘制，
   但坐骑/翅膀的逐外观精确素材映射（`Mount/*.Lib`、`CHumEffect/*.Lib`）尚未接入；
 * 攻击变招（Attack2/3/4 按职业/武器/随机选择，`PlayerObject.cs:1055-1075`）、
@@ -1610,8 +1675,10 @@ cargo fmt --all -- --check
   （Crystal 的 `CachedSound` / `SoundManager.cs:195-223`；本作每次播放现解码，
   短 WAV 够快，但没有缓存与 30 秒回收）；音乐目前只按地图编号/标题选曲，
   没有登录/选角/战斗音乐切换（`LoginScene.cs:29`、`SelectScene.cs:25`）；
-* **按键自定义**：设置面板的按键说明表是**只读**的（`KEY_BINDINGS` 18 条），
-  不支持像 Crystal `KeyBindSettings.cs` 那样改键；`F12`/`O` 是固定的面板快捷键；
+* **按键自定义**：设置面板目前只支持 **6 个动作改键**（`client_config::KEY_ACTIONS`：
+  攻击/技能/背包/组队/好友/设置；冲突拒绝、持久化到 `client.toml`），其余键固定；
+  Crystal `KeyBindSettings.cs` 的完整键表与 `RequireAlt/Shift/Ctrl/Tilde` 修饰键语义未接
+  （后续清单 P4）；`F12`/`O` 是固定的面板快捷键；
 * **小地图**：NPC 任务感叹号（`MainDialogs.cs:1963-2010`）、两档尺寸/底部按钮
   （邮件/大地图/亮度）、滚轮缩放的「大地图搜索」；大地图面板本体见 §5.7（已实现）；
 * **光照/时间**：`S.TimeOfDay{lights}`（协议 index 61）客户端已接，但**服务端未下发**，

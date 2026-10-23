@@ -1,0 +1,25 @@
+# 第45轮 G3 证据冻结清单（D = 最终提交批次）
+# D：2026-10-24 00:29:48 最终门禁（target/final-gate-20261024-002851.log, 12/12）当次 live_world 重跑产物；Down 2 Walk + 1 Run，权威链 330,270→330,271→330,272→330,274，18 样本/18 PNG。
+# A：docs/testing/self-motion/live-world-run.log 是 21:53 独立运行（17.88s，同参数但不同批次）；C：22:00 门禁重跑历史参考（旧 manifest c08e2bc2…cf8），均不声称与 D 同一次运行。
+# 冻结副本：target/self-motion-frozen-final-20261024T0030/（build/、target/ 被 gitignore；哈希用于提交追溯）；docs 入库副本：docs/testing/self-motion/frozen/evidence-manifest.json
+a3e874a9e33ead3606bcbd8b5c0cd79b911abb70721585f1847d78592dd7b40a  build\evidence\self-motion\evidence-manifest.json
+a3e874a9e33ead3606bcbd8b5c0cd79b911abb70721585f1847d78592dd7b40a  docs/testing/self-motion/frozen/evidence-manifest.json
+6d09e69b952df675cef1bf6dcbe71a559d0b4b0f471d22c0fbcb82871ff44958  build\evidence\self-motion\run-step1-frame0.png
+0264d920952d7fcd095f16f0931872f852a45fc238c00c7ea113f2b72bcd8be1  build\evidence\self-motion\run-step1-frame1.png
+d00387065ba9af9c13098fe98b787645383f402951aafe2e11969c56ac200373  build\evidence\self-motion\run-step1-frame2.png
+98e6e32809820edf99a5785670c376583e73b8839ca3daf46ee9b5bc3558cf92  build\evidence\self-motion\run-step1-frame3.png
+af2008df44024f41bb26ee83ca1b783539d562eaed2cd279ffbd41cf8a93b832  build\evidence\self-motion\run-step1-frame4.png
+6d03855ea5f68b3a6ab6e3d56ee4b235aa582698e557af171e198434fab1ce6e  build\evidence\self-motion\run-step1-frame5.png
+7fe68ea8370d5da0fa6a8b242fce179f1db11dd5ce11bce3ca51c7835859b639  build\evidence\self-motion\walk-step1-frame0.png
+3d270b893493ae77bf785c386989085ea0daa222d1f138d6fd80456bb2dd4c1f  build\evidence\self-motion\walk-step1-frame1.png
+d9b960b6f1d9f8eff53387c58c0b8afc354661dd3c3965d495e49c13d7690e38  build\evidence\self-motion\walk-step1-frame2.png
+3a1dfaf36e062bdc8f45f23e69974cb40f35ee5a041d2f1ef3f313136acf47f3  build\evidence\self-motion\walk-step1-frame3.png
+11458dfaeb73b39a25cdcdc95009393b75b56838f597fb48a8244711a17353f0  build\evidence\self-motion\walk-step1-frame4.png
+8cd67437e84e0c7fac5238f024783ed2d0a7de5cae5e0ae6fc4aac8ec0aa9f21  build\evidence\self-motion\walk-step1-frame5.png
+be8f4392e01ec24ce0801a486c95fb0ca72ceaae621ddc694b8e21cca672ae55  build\evidence\self-motion\walk-step2-frame0.png
+c822d6367d1d5a1217cbbcbe9a98add108a630ea57893e58e2456dd6879a6dca  build\evidence\self-motion\walk-step2-frame1.png
+a2553e9e83ebcfa7e67877fda9b7c85be8ee6458872bd9266a1823c839ea43d7  build\evidence\self-motion\walk-step2-frame2.png
+9d7acb677dce79ce8676031d72f0905c6dbda87b8ab8d197292ba1387567db86  build\evidence\self-motion\walk-step2-frame3.png
+dd3774cc73fe7be460bb9d476d8a46b188ee5b2a995d3607bccf69b520bdc3f6  build\evidence\self-motion\walk-step2-frame4.png
+5666312f3f488e700199cc68aeea8fdbc5d7858d5bdcec219d262a508ba76622  build\evidence\self-motion\walk-step2-frame5.png
+# 注：A 归档 log 的 sha256 为去除文件末尾多余空行后的字节（仅格式修正，运行内容未改）。

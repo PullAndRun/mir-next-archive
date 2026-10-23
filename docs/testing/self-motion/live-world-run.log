@@ -1,0 +1,19 @@
+    Blocking waiting for file lock on build directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.43s
+     Running tests\live_world.rs (target\debug\deps\live_world-9d361f4c4212894b.exe)
+
+running 2 tests
+PASS 选路：出生点 (330, 270) · 方向 Down · 连续空位 4 格 · 计划 2 次走 + 1 次跑（地图 0）
+没有可用的地图素材，改用合成地图：素材目录 \\?\C:\Users\diana\Documents\github\mir-next\resource\data 里没有找到地图图像库（需要 library-map.json + gfx/** 或 packs/）
+client-live.png：\\?\C:\Users\diana\Documents\github\mir-next\target\client-live.png · 800×600 · 4 种颜色 · 实体 7 · 怪物 6
+test live_client_walks_and_renders_a_frame ... ok
+PASS 地形素材：game-assets/maps/0.mnm（library-map.json + gfx）
+PASS walk #1 权威坐标 (330, 270) -> (330, 271) 方向 Down · UserLocation 0 -> 1
+PASS walk #2 权威坐标 (330, 271) -> (330, 272) 方向 Down · UserLocation 1 -> 2
+PASS run  权威坐标 (330, 272) -> (330, 274) 方向 Down · UserLocation 2 -> 3
+PASS 证据：18 个时刻样本 · 18 张 PNG · manifest \\?\C:\Users\diana\Documents\github\mir-next\build\evidence\self-motion\evidence-manifest.json
+PASS 总位移：(330, 270) -> (330, 274) · 走 2 步 + 跑 2 格
+PASS 相机：自机屏幕锚点恒为 (384, 256) · 世界偏移跑序列 [(0, -10), (0, -22), (0, -32), (0, -42), (0, -54), (0, -64)]
+test live_client_walk_run_capture_continuous_frames ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.88s

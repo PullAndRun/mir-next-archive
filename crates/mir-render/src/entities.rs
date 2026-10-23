@@ -265,6 +265,14 @@ impl EntityKind {
 pub struct EntityView {
     /// 地图坐标。
     pub position: Point,
+    /// 绘制时在格原点上叠加的像素偏移（默认 `(0, 0)`）。
+    ///
+    /// Crystal 把玩家自己的 `OffSetMove` 加到**其他**对象的绘制坐标上
+    /// （`PlayerObject.cs:850-854`），自机则保持屏幕中心。本作把这条规则拆成
+    /// 「全局像素偏移（地形/实体层统一加）+ 实体自身像素偏移」：自机取全局偏移的
+    /// 相反数把自己钉在屏幕中心，其他实体保持 `(0, 0)`（自身动作插值尚未实现）。
+    /// 详见 `mir-client/src/camera.rs` 的 `CameraFrame`。
+    pub pixel_offset: (i32, i32),
     /// 朝向（0=上，顺时针）。
     pub direction: MirDirection,
     /// 实体类型。
@@ -324,6 +332,7 @@ impl EntityView {
     pub fn new(position: Point, direction: MirDirection, kind: EntityKind, image: u16) -> Self {
         Self {
             position,
+            pixel_offset: (0, 0),
             direction,
             kind,
             image,
@@ -340,6 +349,13 @@ impl EntityView {
             action: ActorAction::Standing,
             action_started_ms: 0,
         }
+    }
+
+    /// 设置绘制像素偏移（自机抵消全局相机偏移用，见 [`Self::pixel_offset`]）。
+    #[must_use]
+    pub fn with_pixel_offset(mut self, offset: (i32, i32)) -> Self {
+        self.pixel_offset = offset;
+        self
     }
 
     /// 玩家外观层里是否画武器。
@@ -1174,6 +1190,8 @@ impl EntityRenderer {
     /// Crystal 的相机跟随不是移动中心格，而是把玩家当前移动的
     /// `OffSetMove` 加到所有绘制坐标上（`GameScene.cs` 各 `DrawLocation.Offset(User.OffSetMove)`），
     /// 本参数就是那个偏移。地形层用同一偏移时，玩家相对屏幕保持居中。
+    /// 每个实体自己的 [`EntityView::pixel_offset`] 也在这里叠加：自机用
+    /// `-offset` 抵消全局偏移，仍画在屏幕中心（`PlayerObject.cs:847-854`）。
     pub fn render_at_offset(
         &mut self,
         frame: &mut Frame,
@@ -1189,8 +1207,8 @@ impl EntityRenderer {
         for index in order {
             let entity = &entities[index];
             let (origin_x, origin_y) = geometry::world_to_screen(viewport, center, entity.position);
-            let origin_x = origin_x + offset.0;
-            let origin_y = origin_y + offset.1;
+            let origin_x = origin_x + offset.0 + entity.pixel_offset.0;
+            let origin_y = origin_y + offset.1 + entity.pixel_offset.1;
             let top = self.draw_entity(frame, entity, origin_x, origin_y, now_ms);
             if let Some(percent) = entity.hp_percent {
                 let bar_y = top.unwrap_or(origin_y) - 6;
@@ -2441,6 +2459,42 @@ mod tests {
         );
         assert!(frame.distinct_color_count() >= 5, "四种占位色都应出现");
         assert_eq!(renderer.cache_len(), 0, "没有素材就不该缓存图像");
+    }
+
+    #[test]
+    fn render_at_offset_composes_global_and_entity_pixel_offsets() {
+        let mut renderer = EntityRenderer::empty();
+        let viewport = Viewport::new(200, 200);
+        let center = Point::new(2, 3);
+        let mut frame = Frame::new(200, 200);
+        frame.clear([0, 0, 0, 255]);
+        // 同格一玩家一怪物：怪物带 +48px 自身偏移，应与玩家占位块正好错开一格。
+        let entities = [
+            EntityView::new(center, MirDirection::Down, EntityKind::Player, 0),
+            EntityView::new(center, MirDirection::Down, EntityKind::Monster, 5)
+                .with_pixel_offset((48, 0)),
+        ];
+        let offset = (5, -3);
+        renderer.render_at_offset(&mut frame, viewport, center, &entities, 0, offset);
+        let (origin_x, origin_y) = geometry::world_to_screen(viewport, center, center);
+        let player_left = origin_x + (CELL_WIDTH - 12) / 2 + offset.0;
+        let player_top = origin_y + (CELL_HEIGHT - 18) / 2 + offset.1;
+        let pixel = |x: i32, y: i32| -> [u8; 4] {
+            let index = (usize::try_from(y).unwrap() * frame.width as usize
+                + usize::try_from(x).unwrap())
+                * 4;
+            frame.pixels[index..index + 4].try_into().unwrap()
+        };
+        assert_eq!(
+            pixel(player_left + 6, player_top + 9),
+            EntityKind::Player.color(),
+            "玩家占位块 = 格原点 + 全局偏移"
+        );
+        assert_eq!(
+            pixel(player_left + 48 + 6, player_top + 9),
+            EntityKind::Monster.color(),
+            "怪物占位块 = 格原点 + 全局偏移 + 自身像素偏移"
+        );
     }
 
     #[test]

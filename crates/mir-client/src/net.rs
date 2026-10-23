@@ -3008,6 +3008,7 @@ impl WorldSnapshot {
         if let Some(me) = &self.self_player {
             views.push(EntityView {
                 position: me.position,
+                pixel_offset: (0, 0),
                 direction: me.direction,
                 kind: EntityKind::Player,
                 image: me.looks.armour,
@@ -3032,6 +3033,7 @@ impl WorldSnapshot {
             }
             views.push(EntityView {
                 position: entity.position,
+                pixel_offset: (0, 0),
                 direction: entity.direction,
                 kind: entity.kind,
                 image: entity.image,
@@ -4058,6 +4060,53 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
     }
 }
 
+/// 应用自己的权威落点（`S.UserLocation`）。
+///
+/// 时间基准（X1-01）：有效走/跑落点会把自机的走/跑动作从**接收/应用时刻**
+/// `now_ms` 重新起算；`mir_client::camera` 建立 motion 时用
+/// `SelfPlayer::action_started_ms` 作为同一个起点，因此动作与插值共用一套时钟，
+/// 发包→回包延迟（包括回包时动作已自然播完）不会让 walking gate 提前清 motion。
+///
+/// - 同坐标：服务端拒绝移动/撞墙回拉。只计数、不重设动作，避免重复快照延长动画/插值；
+/// - 1~2 格直线或 45° 对角：按步数切 Walking/Running 并重置动作计时；
+/// - 其他跳变（传送/出生/切图）：只更新坐标/朝向，不重设动作（motion 由 App 清空）；
+/// - 已死亡：不因迟到的 `UserLocation` 复活动作。
+fn apply_self_location(
+    snapshot: &mut WorldSnapshot,
+    location: Point,
+    direction: MirDirection,
+    now_ms: u64,
+) {
+    let Some(old) = snapshot.self_player.as_ref().map(|me| me.position) else {
+        return;
+    };
+    if old == location {
+        snapshot.wall_bump_id = snapshot.wall_bump_id.saturating_add(1);
+        if let Some(me) = &mut snapshot.self_player {
+            me.position = location;
+            me.direction = direction;
+        }
+        return;
+    }
+    let dx = (location.x - old.x).abs();
+    let dy = (location.y - old.y).abs();
+    let steps = dx.max(dy);
+    let straight = dx == 0 || dy == 0 || dx == dy;
+    let Some(me) = &mut snapshot.self_player else {
+        return;
+    };
+    me.position = location;
+    me.direction = direction;
+    if !me.dead && (1..=2).contains(&steps) && straight {
+        let action = if steps == 2 {
+            ActorAction::Running
+        } else {
+            ActorAction::Walking
+        };
+        me.set_action(action, now_ms);
+    }
+}
+
 /// 用一条服务端包更新快照。
 fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: u64) {
     *snapshot
@@ -4234,14 +4283,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 .collect();
         }
         ServerPacket::UserLocation(location) => {
-            if let Some(me) = &mut snapshot.self_player {
-                // 同坐标回包 = 服务端拒绝了这次移动（撞墙/门未开/占位）；本地提示用。
-                if me.position == location.location {
-                    snapshot.wall_bump_id = snapshot.wall_bump_id.saturating_add(1);
-                }
-                me.position = location.location;
-                me.direction = location.direction;
-            }
+            apply_self_location(snapshot, location.location, location.direction, now_ms);
         }
         ServerPacket::ObjectPlayer(player) => {
             // 服务端已经把外观算好（`Armour = ItemInfo.Shape`、`Weapon = ItemInfo.Shape`，

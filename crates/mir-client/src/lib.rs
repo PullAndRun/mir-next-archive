@@ -13,6 +13,7 @@
 
 pub mod assets;
 pub mod audio;
+pub mod camera;
 pub mod client_config;
 pub mod geom;
 pub mod net;

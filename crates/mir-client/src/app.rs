@@ -25,6 +25,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use mir_client::audio::{SoundLibrary, SoundPlayer};
+use mir_client::camera::{self, SelfMotion};
 use mir_client::geom::Rect;
 use mir_client::net::{
     ConnectOptions, MapReloadRequest, NetClient, NetCommand, NetEvent, NetStatus, WorldSnapshot,
@@ -102,59 +103,23 @@ struct LiveState {
     reconnect: ReconnectState,
     /// 建立连接用的参数（重连时复用账号/角色）。
     connect: ConnectOptions,
-    /// 自己最近一步的移动（用于 Crystal 式 `OffSetMove` 插值与相机跟随）。
+    /// 自己最近一步的移动（Crystal `OffSetMove` 插值 + 相机跟随，见
+    /// [`mir_client::camera`]）。
     motion: Option<SelfMotion>,
 }
 
-/// 自己的一步移动：从 `from` 格走到 `to` 格，用于像素级插值。
-///
-/// Crystal 的 `PlayerObject.OffSetMove`（`PlayerObject.cs:765-835`）在走/跑动作的
-/// 每一帧把「整格位移 × (帧号+1)/帧数」加到绘制坐标上；本结构记录这次移动的
-/// 起点/终点与动作开始时间，渲染时按同一公式算偏移。
-#[derive(Debug, Clone, Copy)]
-struct SelfMotion {
-    from: Point,
-    to: Point,
-    started_ms: u64,
-    /// 走/跑的动作时长（Crystal 的 6 帧 × 100ms = 600ms，跑是 2 格/600ms）。
-    duration_ms: u64,
-}
-
-/// 一步移动在 `elapsed_ms` 时刻的像素偏移。
-///
-/// 照 Crystal `PlayerObject.cs:786-834`：`OffSetMove = 整格位移 × (FrameIndex+1)/FrameCount`，
-/// 帧长 100ms、6 帧；走 1 格、跑 2 格。返回"从起点向目标推进的像素"。
-fn self_motion_offset(from: Point, to: Point, elapsed_ms: u64) -> (i32, i32) {
-    let frame_index = (elapsed_ms / 100).min(5) as i32;
-    let fraction = f64::from(frame_index + 1) / 6.0;
-    let dx = f64::from(to.x - from.x) * 48.0 * fraction;
-    let dy = f64::from(to.y - from.y) * 32.0 * fraction;
-    (dx.round() as i32, dy.round() as i32)
-}
-
 impl LiveState {
-    /// 记录自己从 `old` 到 `new` 的一步移动（用于 `OffSetMove` 插值）。
+    /// 用刚应用的权威快照更新 motion（X1-01：动作与插值共用接收/应用时刻）。
     ///
-    /// 只对「走 1 格 / 跑 2 格」建插值；传送、出生、跳变等直接清空。
-    /// Crystal 的跑是 2 格 / 600ms（`Frames.cs` 的 Running：6 帧 × 100ms，
-    /// `PlayerObject.cs:787-790` 里 `i = 2`），本作服务端也是按这个节奏下发。
-    fn update_self_motion(&mut self, old: Point, new: Point, now_ms: u64) {
-        if old == new {
-            return;
-        }
-        let dx = new.x - old.x;
-        let dy = new.y - old.y;
-        let steps = dx.abs().max(dy.abs());
-        let is_straight = dx == 0 || dy == 0 || dx.abs() == dy.abs();
-        if (1..=2).contains(&steps) && is_straight {
-            self.motion = Some(SelfMotion {
-                from: old,
-                to: new,
-                started_ms: now_ms,
-                duration_ms: 600,
-            });
-        } else {
-            self.motion = None;
+    /// 有效走/跑落点由网络层在应用 `S.UserLocation` 时把自机动作重置到同一时刻
+    /// （`net::apply_self_location`）；这里直接用 `SelfPlayer::action_started_ms`
+    /// 作为 motion 起点，不再用 UI 收到快照的 `now`，两者因此同钟。
+    /// 同坐标快照（`old == new`）不重启计时；传送/跳变等清空 motion。
+    fn update_self_motion(&mut self, old: Point, new: Point) {
+        match camera::motion_after_authoritative_step(&self.snapshot, old, new) {
+            camera::StepMotion::Unchanged => {}
+            camera::StepMotion::Invalid => self.motion = None,
+            camera::StepMotion::Started(motion) => self.motion = Some(motion),
         }
     }
 
@@ -826,31 +791,15 @@ impl ClientApp {
         let rendered = match &mut self.mode {
             Mode::Offline | Mode::Login(_) => None,
             Mode::Live(live) => {
-                live.snapshot.tick_animations(now);
-                let mut entities = live.snapshot.entity_views(now);
-                let mut center = live
-                    .snapshot
-                    .self_player
-                    .as_ref()
-                    .map_or(fallback_center, |player| player.position);
-                let mut offset = (0, 0);
-                if let Some(motion) = live.motion {
-                    let elapsed = now.saturating_sub(motion.started_ms);
-                    if elapsed < motion.duration_ms {
-                        // Crystal `PlayerObject.cs:765-835`：走/跑动作的每一帧把
-                        // 「整格位移 × (FrameIndex+1)/FrameCount」加到绘制坐标；
-                        // 相机中心用 Movement（起点），所以地形也随 OffSetMove 平移。
-                        center = motion.from;
-                        offset = self_motion_offset(motion.from, motion.to, elapsed);
-                        // 自己这一格按 Movement 画，由上面的 offset 推进到目标格。
-                        if let Some(first) = entities.first_mut() {
-                            first.position = motion.from;
-                        }
-                    } else {
-                        live.motion = None;
-                    }
-                }
-                Some((entities, center, offset))
+                // 生产渲染前处理（与延迟回包回归测试共用）：
+                // tick_animations → 自然到期/显式打断判定 → apply_camera。
+                let prepared = camera::prepare_frame(
+                    &mut live.snapshot,
+                    &mut live.motion,
+                    fallback_center,
+                    now,
+                );
+                Some((prepared.entities, prepared.center, prepared.offset))
             }
         };
         match rendered {
@@ -2520,6 +2469,8 @@ impl ClientApp {
             live.reconnect.succeeded();
         }
         if closed {
+            // 断线：当前走/跑插值作废，重连成功后从新快照重新起算。
+            live.motion = None;
             live.reconnect.disconnected(now);
         }
         // 退避到点：发起一次重连（复用账号/角色，自动登录并选角）。
@@ -2529,6 +2480,8 @@ impl ClientApp {
                     eprintln!("第 {attempt} 次重连：已发起");
                     live.net = client;
                     live.entered = false;
+                    // 重连会重新落点/可能换图：清掉旧动作的插值，避免残留偏移。
+                    live.motion = None;
                 }
                 Err(error) => {
                     eprintln!("第 {attempt} 次重连失败：{error}");
@@ -2592,7 +2545,11 @@ impl ClientApp {
                     .as_ref()
                     .map(|player| player.position),
             ) {
-                live.update_self_motion(old, new, now);
+                live.update_self_motion(old, new);
+            }
+            // 死亡/复活等会打断动作：清掉插值，避免尸体或复活瞬间残留偏移。
+            if live.snapshot.self_player.as_ref().is_some_and(|me| me.dead) {
+                live.motion = None;
             }
             live.ui.sync(&live.snapshot);
             // 市场窗口刚打开：按当前页签补一次 `C.MarketSearch`（服务端打开时只发
@@ -2662,6 +2619,8 @@ impl ClientApp {
                 self.center = self.clamp_center(position);
                 // 切图事件：SelectMusic（SoundList.cs:38，10147 → Select2.wav）。
                 if let Mode::Live(live) = &mut self.mode {
+                    // 跨图落点不插值：清掉上一张图的走/跑动作，避免残留偏移。
+                    live.motion = None;
                     live.sound
                         .play(mir_client::audio::MAP_CHANGE_SOUND_FILE, now_millis_u64());
                 }
@@ -3341,23 +3300,5 @@ mod tests {
         assert_eq!(scene.map.file_name, "D2083", "地形已换成新地图");
         assert!(scene.map.width > 0 && scene.map.height > 0);
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn self_motion_offset_matches_crystal_walk_and_run() {
-        let from = Point::new(10, 10);
-        // 走右：6 帧、帧长 100ms，第 0 帧就推进 1/6 格，第 5 帧到 48px。
-        assert_eq!(self_motion_offset(from, Point::new(11, 10), 0), (8, 0));
-        assert_eq!(self_motion_offset(from, Point::new(11, 10), 500), (48, 0));
-        // 跑：2 格 / 600ms，最后一帧 96px。
-        assert_eq!(self_motion_offset(from, Point::new(12, 10), 500), (96, 0));
-        // 下：格高 32px。
-        assert_eq!(self_motion_offset(from, Point::new(10, 11), 500), (0, 32));
-        // 右下对角：(48, 32)。
-        assert_eq!(self_motion_offset(from, Point::new(11, 11), 500), (48, 32));
-        // 左上对角：负方向。
-        assert_eq!(self_motion_offset(from, Point::new(9, 9), 500), (-48, -32));
-        // 超时后仍停在最后一帧（调用方在 600ms 时清 motion）。
-        assert_eq!(self_motion_offset(from, Point::new(11, 10), 900), (48, 0));
     }
 }

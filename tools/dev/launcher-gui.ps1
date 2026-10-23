@@ -461,7 +461,11 @@ function Start-Client {
         return $false
     }
     $args = @('--login', '--server', ('127.0.0.1:' + $Port))
-    Start-Process -FilePath $exe -ArgumentList $args -WorkingDirectory $root | Out-Null
+    # 客户端日志落到 target/：图形启动没有控制台，出问题可直接看日志。
+    $env:MIR2_CLIENT_LOG = Join-Path $root 'target\mir-client.log'
+    $clientOut = Join-Path $root 'target\launcher-client.log'
+    $clientErr = Join-Path $root 'target\launcher-client.err.log'
+    Start-Process -FilePath $exe -ArgumentList $args -WorkingDirectory $root -RedirectStandardOutput $clientOut -RedirectStandardError $clientErr | Out-Null
     return $true
 }
 

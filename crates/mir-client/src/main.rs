@@ -107,12 +107,37 @@ impl Default for Options {
 }
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    // 客户端日志：默认 stderr；一键启动器会设置 MIR2_CLIENT_LOG 指向
+    // `target/mir-client.log`，这样图形界面启动（没有控制台）也能事后排查。
+    let filter = || {
+        tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+    };
+    let log_file = std::env::var("MIR2_CLIENT_LOG").ok();
+    if let Some(path) = log_file {
+        if let Some(parent) = std::path::Path::new(&path).parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            Ok(file) => {
+                tracing_subscriber::fmt()
+                    .with_env_filter(filter())
+                    .with_writer(move || file.try_clone().expect("复制日志句柄"))
+                    .with_ansi(false)
+                    .init();
+            }
+            Err(error) => {
+                eprintln!("无法打开客户端日志 {path}：{error}");
+                tracing_subscriber::fmt().with_env_filter(filter()).init();
+            }
+        }
+    } else {
+        tracing_subscriber::fmt().with_env_filter(filter()).init();
+    }
 
     let settings_path = ClientSettings::default_path();
     let mut client_settings = ClientSettings::load(&settings_path);
@@ -404,7 +429,12 @@ fn main() -> Result<()> {
     println!("素材目录：{}", options.data_dir.display());
 
     if options.login {
-        run_login_window(&options, &client_settings, &settings_path);
+        // `--server` 也作用于登录窗口（此前只影响 `--connect`，与注释不符）。
+        let mut login_settings = client_settings.clone();
+        if let Some(server) = &options.server {
+            login_settings.set_server(server);
+        }
+        run_login_window(&options, &login_settings, &settings_path);
         return Ok(());
     }
 

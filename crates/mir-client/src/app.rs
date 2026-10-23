@@ -307,6 +307,8 @@ struct LoginState {
     net: Option<NetClient>,
     /// 正在等待的网络结果。
     pending: Option<Receiver<LoginOutcome>>,
+    /// 本次连接开始时刻（UI 侧看门狗，防止线程异常时按钮永远停在「连接中」）。
+    connect_started: Option<Instant>,
     /// 鼠标位置（逻辑坐标）。
     mouse: Point,
     /// 界面语言。
@@ -351,6 +353,7 @@ impl LoginState {
             screen: LoginScreen::Server,
             net: None,
             pending: None,
+            connect_started: None,
             mouse: Point::new(0, 0),
             language,
             sound: Some(sound),
@@ -1537,6 +1540,11 @@ impl ClientApp {
             manual_select: true,
         };
         login.server.begin_connect();
+        tracing::info!(
+            server = %server,
+            account = %options.account,
+            "登录页发起连接"
+        );
         if !login.announced {
             println!("连接服务器 {server} …");
             login.announced = true;
@@ -1548,6 +1556,7 @@ impl ClientApp {
         }
         let (sender, receiver) = mpsc::channel();
         login.pending = Some(receiver);
+        login.connect_started = Some(Instant::now());
         std::thread::spawn(move || {
             match NetClient::connect(options) {
                 Ok(client) => {
@@ -1602,6 +1611,7 @@ impl ClientApp {
         };
         let (sender, receiver) = mpsc::channel();
         login.pending = Some(receiver);
+        login.connect_started = Some(Instant::now());
         let exited = mir_client::ui::labels::Label::NetworkThreadExited
             .text(self.settings.language())
             .to_owned();
@@ -1641,6 +1651,7 @@ impl ClientApp {
         };
         let (sender, receiver) = mpsc::channel();
         login.pending = Some(receiver);
+        login.connect_started = Some(Instant::now());
         let exited = mir_client::ui::labels::Label::NetworkThreadExited
             .text(self.settings.language())
             .to_owned();
@@ -1677,9 +1688,56 @@ impl ClientApp {
         if let Mode::Login(login) = &mut self.mode {
             login.net = None;
             login.pending = None;
+            login.connect_started = None;
             login.screen = LoginScreen::Server;
             login.server.succeed();
             login.characters.clear_error();
+        }
+        self.request_redraw();
+    }
+
+    /// 自动化/诊断入口：`MIR2_LOGIN_AUTOCONNECT=1` 时登录窗口自动点一次「连接」。
+    ///
+    /// 只用于脚本化复现（playtest/CI），默认不启用；账号/口令由 `--account`/`--password` 预填。
+    fn maybe_auto_connect_login(&mut self) {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        if std::env::var_os("MIR2_LOGIN_AUTOCONNECT").is_none() {
+            return;
+        }
+        if !matches!(self.mode, Mode::Login(_)) {
+            return;
+        }
+        let mut run = false;
+        ONCE.call_once(|| run = true);
+        if run {
+            self.login_connect();
+        }
+    }
+
+    /// 登录看门狗：网络线程异常/卡住时，别让按钮永远停在「连接中」。
+    fn check_login_watchdog(&mut self) {
+        const LIMIT: Duration = Duration::from_secs(25);
+        let stale = match &self.mode {
+            Mode::Login(login) => {
+                login.pending.is_some()
+                    && login
+                        .connect_started
+                        .is_some_and(|started| started.elapsed() > LIMIT)
+            }
+            _ => false,
+        };
+        if !stale {
+            return;
+        }
+        tracing::warn!("登录页等待超过 {}s，重置为可重试", LIMIT.as_secs());
+        if let Mode::Login(login) = &mut self.mode {
+            login.pending = None;
+            login.connect_started = None;
+            login.connect_started = None;
+            login.server.fail(
+                select::ConnectError::Other,
+                Some("等待服务器响应超时".to_owned()),
+            );
         }
         self.request_redraw();
     }
@@ -1709,6 +1767,7 @@ impl ClientApp {
         };
         if let Mode::Login(login) = &mut self.mode {
             login.pending = None;
+            login.connect_started = None;
         }
         match outcome {
             LoginOutcome::Characters(client, snapshot) => {
@@ -1726,6 +1785,7 @@ impl ClientApp {
                 self.enter_world(client, *snapshot);
             }
             LoginOutcome::Failed(error, message) => {
+                tracing::warn!(error = ?error, %message, "登录页连接失败");
                 eprintln!("登录失败：{message}");
                 if let Mode::Login(login) = &mut self.mode {
                     // 连接已经随线程丢弃，回到服务器页让玩家改地址/重试。
@@ -2929,6 +2989,8 @@ impl ApplicationHandler for ClientApp {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.maybe_auto_connect_login();
+        self.check_login_watchdog();
         self.poll_login();
         self.poll_network();
         self.tick_targeting();

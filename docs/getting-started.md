@@ -3,6 +3,21 @@
 目标：从零启动一个本地服务端 + 客户端，并学会用 launcher 查看/停止。
 所有命令都在仓库根目录执行（PowerShell）。
 
+## 双击启动（最省事，推荐）
+
+仓库根目录的 **`启动传奇Next.cmd`** 双击即可：
+
+1. 弹出「传奇-Next 一键启动器」窗口，自动检查 `.env` / 数据库 / `game-assets/` / 可执行文件；
+2. 点 **“开始游戏（服务端+客户端）”**：自动起服务端（隐藏窗口）→ 等端口就绪 → 起客户端；
+   - 首次缺 `mir-server.exe` / `mir-client.exe` 时会提示并自动 `cargo build --release`；
+   - 数据库不可达、端口被占、缺 `.env` 等情况会弹窗说明原因，并显示日志位置；
+3. 点 **“停止服务端”** 停止（复用 `launcher.ps1` 的 PID 身份校验，不按进程名杀）；
+4. “打开日志目录”直达 `target/`；状态区绿色=可用、红色=需要修复。
+
+> 启动器源码：`tools/dev/launcher-gui.ps1`（WinForms，兼容 Windows PowerShell 5.1）。
+> 排错/自检：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/launcher-gui.ps1 -SelfTest`
+> （另有 `-Smoke` 只构造界面、`-E2E -Port 7142` 起停服务端做端到端自检）。
+
 ## 前置依赖
 
 | 依赖 | 版本/说明 | 检查命令 |

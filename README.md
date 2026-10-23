@@ -219,6 +219,12 @@ py tools/assets/build_game_assets.py --verify # 校验
 
 ### 构建与运行
 
+**最简单：双击仓库根目录的 `启动传奇Next.cmd`**——弹出图形启动器，自动检查 `.env`/数据库/素材，
+缺可执行文件时自动构建，一键起服务端+客户端，并可按 PID 安全停止。详见
+[`docs/getting-started.md`](docs/getting-started.md)。
+
+命令行方式：
+
 ```bash
 # 构建全部 crate
 cargo build --release

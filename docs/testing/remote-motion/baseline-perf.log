@@ -1,0 +1,10 @@
+    Finished `release` profile [optimized] target(s) in 0.84s
+     Running tests\remote_perf_baseline.rs (target\release\deps\remote_perf_baseline-35978797d5ad39de.exe)
+
+running 1 test
+baseline_85bfc21 remote_count=1 median=100ns p95=200ns
+baseline_85bfc21 remote_count=50 median=1200ns p95=2100ns
+baseline_85bfc21 remote_count=200 median=4800ns p95=7900ns
+test baseline_perf ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s

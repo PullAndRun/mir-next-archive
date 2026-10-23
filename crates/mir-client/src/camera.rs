@@ -114,6 +114,73 @@ impl SelfMotion {
     }
 }
 
+/// 其他玩家（非自机 Player）最近一步走/跑的运动状态。
+///
+/// 与 [`SelfMotion`] 使用同一套 Crystal `OffSetMove` 公式，但基点/用法不同：
+/// 自机把推进量用于抵消全局偏移保持屏幕中心；远端把推进量作为
+/// `EntityView.pixel_offset` 叠加在**自己的**世界坐标上（相机/地形不动）。
+/// `started_ms` 是客户端应用该 `S.ObjectWalk`/`S.ObjectRun` 的接收时刻。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RemoteMotion {
+    /// 起点格（Crystal `Movement` / 上一条权威位置）。
+    pub from: Point,
+    /// 终点格（该包 `location`）。
+    pub to: Point,
+    /// `Walking` 或 `Running`。
+    pub action: ActorAction,
+    /// 客户端应用该包的时刻（Unix 毫秒），动作与 motion 共用。
+    pub started_ms: u64,
+}
+
+impl RemoteMotion {
+    /// 按一次 ObjectWalk/ObjectRun 建状态；步数必须与动作严格一致（走 1、跑 2），
+    /// 且为直线/45° 对角。不合法返回 `None`（调用方只落点，不伪造一步）。
+    #[must_use]
+    pub fn new(from: Point, to: Point, action: ActorAction, started_ms: u64) -> Option<Self> {
+        let expected = match action {
+            ActorAction::Walking => WALK_STEPS,
+            ActorAction::Running => RUN_STEPS,
+            _ => return None,
+        };
+        let dx = (to.x - from.x).abs();
+        let dy = (to.y - from.y).abs();
+        let steps = dx.max(dy);
+        let straight = dx == 0 || dy == 0 || dx == dy;
+        (steps == expected && straight).then_some(Self {
+            from,
+            to,
+            action,
+            started_ms,
+        })
+    }
+
+    /// 从应用时刻到 `now_ms` 的毫秒数（时钟回拨按 0）。
+    #[must_use]
+    pub const fn elapsed_ms(self, now_ms: u64) -> u64 {
+        now_ms.saturating_sub(self.started_ms)
+    }
+
+    /// 是否仍在 600ms 动作时间内。
+    #[must_use]
+    pub const fn is_active(self, now_ms: u64) -> bool {
+        self.elapsed_ms(now_ms) < MOTION_DURATION_MS
+    }
+
+    /// 当前时刻的远端推进量（从 `from` 推向 `to`，与 `self_motion_offset` 同向）。
+    ///
+    /// 绘制公式（在 `from` 起点上叠加）：
+    ///
+    /// ```text
+    /// screen = world_to_screen(self_center, from) + self_world_offset + advance
+    /// ```
+    ///
+    /// 即 `-remote CrystalOffSetMove`，**不是**相对终点的剩余偏移。
+    #[must_use]
+    pub fn advance_at(self, now_ms: u64) -> (i32, i32) {
+        self_motion_offset(self.from, self.to, self.elapsed_ms(now_ms))
+    }
+}
+
 /// 一次权威快照相对上一条快照的坐标变化，对 motion 的处置。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepMotion {

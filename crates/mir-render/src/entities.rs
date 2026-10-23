@@ -265,13 +265,20 @@ impl EntityKind {
 pub struct EntityView {
     /// 地图坐标。
     pub position: Point,
+    /// 绘制排序用的 Y（默认等于 `position.y`）。
+    ///
+    /// Crystal 的 `DrawY = Movement.Y > CurrentLocation.Y ? Movement.Y : CurrentLocation.Y`
+    /// （`PlayerObject.cs:845`）：走/跑中的对象按**起点和终点里更靠南**的行排序，
+    /// 避免向下的移动在起点行就被南侧站立对象盖住。R46 远端插值用本字段保留该语义，
+    /// 不改既有排序算法（仍按 `(sort_y, position.x)` 升序）。
+    pub sort_y: i32,
     /// 绘制时在格原点上叠加的像素偏移（默认 `(0, 0)`）。
     ///
     /// Crystal 把玩家自己的 `OffSetMove` 加到**其他**对象的绘制坐标上
     /// （`PlayerObject.cs:850-854`），自机则保持屏幕中心。本作把这条规则拆成
     /// 「全局像素偏移（地形/实体层统一加）+ 实体自身像素偏移」：自机取全局偏移的
-    /// 相反数把自己钉在屏幕中心，其他实体保持 `(0, 0)`（自身动作插值尚未实现）。
-    /// 详见 `mir-client/src/camera.rs` 的 `CameraFrame`。
+    /// 相反数把自己钉在屏幕中心；远端玩家 R46 用自身推进量（`RemoteMotion`）。
+    /// 详见 `mir-client/src/camera.rs`。
     pub pixel_offset: (i32, i32),
     /// 朝向（0=上，顺时针）。
     pub direction: MirDirection,
@@ -332,6 +339,7 @@ impl EntityView {
     pub fn new(position: Point, direction: MirDirection, kind: EntityKind, image: u16) -> Self {
         Self {
             position,
+            sort_y: position.y,
             pixel_offset: (0, 0),
             direction,
             kind,
@@ -1201,9 +1209,10 @@ impl EntityRenderer {
         now_ms: u64,
         offset: (i32, i32),
     ) {
-        // 按 Y 升序、同一行按 X 升序；`sort_by_key` 是稳定排序，同格实体保持输入顺序。
+        // 按排序 Y（默认 position.y；走/跑对象为 Crystal DrawY 的 max(from.y,to.y)）
+        // 升序、同一行按 X 升序；`sort_by_key` 是稳定排序，同格实体保持输入顺序。
         let mut order: Vec<usize> = (0..entities.len()).collect();
-        order.sort_by_key(|&index| (entities[index].position.y, entities[index].position.x));
+        order.sort_by_key(|&index| (entities[index].sort_y, entities[index].position.x));
         for index in order {
             let entity = &entities[index];
             let (origin_x, origin_y) = geometry::world_to_screen(viewport, center, entity.position);

@@ -1,0 +1,12 @@
+   Compiling mir-client v0.2.0 (C:\Users\diana\Documents\github\mir-next\crates\mir-client)
+    Finished `release` profile [optimized] target(s) in 26.57s
+     Running tests\remote_motion.rs (target\release\deps\remote_motion-b305a67370dc28b7.exe)
+
+running 1 test
+remote_count=1 baseline(85bfc21) median=100ns p95=200ns | new median=100ns p95=100ns | ratio=0.50 threshold=780ns
+remote_count=50 baseline(85bfc21) median=1200ns p95=2100ns | new median=1400ns p95=1400ns | ratio=0.67 threshold=3440ns
+remote_count=200 baseline(85bfc21) median=4800ns p95=7900ns | new median=6000ns p95=6300ns | ratio=0.80 threshold=11560ns
+perf report: C:\Users\diana\Documents\github\mir-next\crates\mir-client\../..\target/remote-motion-perf.json
+test m4_perf_1_50_200_remotes_1000_frames_baseline_vs_new ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.01s

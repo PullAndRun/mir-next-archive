@@ -110,6 +110,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::camera::RemoteMotion;
 use anyhow::{Context, Result, anyhow, bail};
 use mir_core::Point;
 use mir_core::enums::{
@@ -2447,6 +2448,12 @@ pub struct WorldSnapshot {
     pub self_player: Option<SelfPlayer>,
     /// 其他对象（玩家/怪物/NPC/地面物品），按对象 ID 排序。
     pub entities: BTreeMap<u32, WorldEntity>,
+    /// 其他玩家（非自机 Player）最近一步走/跑的运动状态，按对象 ID 索引。
+    ///
+    /// 只在收到合法 `S.ObjectWalk`/`S.ObjectRun` 时建立；到期、删除、转身、攻击、
+    /// 受击、死亡、切图/重连时清理。状态数上限 = 当前存活且符合条件远端玩家数
+    /// （见 [`crate::camera::RemoteMotion`]）。
+    pub remote_motions: BTreeMap<u32, RemoteMotion>,
     /// 聊天记录（最新在末尾，最多 `CHAT_LOG_LIMIT` 条）。
     pub chat: Vec<ChatLine>,
     /// 背包（`S.UserInformation.Inventory`；`None` 槽位为空，长度固定 46）。
@@ -2578,6 +2585,7 @@ impl Default for WorldSnapshot {
             map: None,
             self_player: None,
             entities: BTreeMap::new(),
+            remote_motions: BTreeMap::new(),
             chat: Vec::new(),
             inventory: Vec::new(),
             equipment: Vec::new(),
@@ -3008,6 +3016,7 @@ impl WorldSnapshot {
         if let Some(me) = &self.self_player {
             views.push(EntityView {
                 position: me.position,
+                sort_y: me.position.y,
                 pixel_offset: (0, 0),
                 direction: me.direction,
                 kind: EntityKind::Player,
@@ -3031,9 +3040,26 @@ impl WorldSnapshot {
                 // 隐身对象不画（Crystal `GameScene.ObjectHidden` 把绘制帧清掉）。
                 continue;
             }
+            // 远端玩家走/跑：绘制在起点格 + 自己的推进量（pixel_offset）。
+            // 相机/地形由自机处理，这里绝不动全局 offset。
+            let remote_motion = if entity.kind == EntityKind::Player {
+                self.remote_motions
+                    .get(object_id)
+                    .copied()
+                    .filter(|motion| motion.is_active(now_ms))
+            } else {
+                None
+            };
+            let (position, pixel_offset) = remote_motion
+                .map_or((entity.position, (0, 0)), |motion| {
+                    (motion.from, motion.advance_at(now_ms))
+                });
+            let sort_y =
+                remote_motion.map_or(entity.position.y, |motion| motion.from.y.max(motion.to.y));
             views.push(EntityView {
-                position: entity.position,
-                pixel_offset: (0, 0),
+                position,
+                sort_y,
+                pixel_offset,
                 direction: entity.direction,
                 kind: entity.kind,
                 image: entity.image,
@@ -3141,6 +3167,17 @@ impl WorldSnapshot {
                 entity.set_action(action, now_ms);
             }
         }
+        // R46：远端 motion 只保留「存活且动作仍走/跑、未满 600ms」的远端 Player。
+        // 到期/死亡/受击/转身/删除后这里清零，状态数有界且不会残留旧时钟。
+        let entities = &self.entities;
+        self.remote_motions.retain(|object_id, motion| {
+            motion.is_active(now_ms)
+                && entities.get(object_id).is_some_and(|entity| {
+                    entity.kind == EntityKind::Player
+                        && !entity.dead
+                        && matches!(entity.action, ActorAction::Walking | ActorAction::Running)
+                })
+        });
     }
 
     /// 重新推导自己的纸娃娃外观（装备/模板/职业/发型变化后调用）。
@@ -4107,6 +4144,84 @@ fn apply_self_location(
     }
 }
 
+/// 应用一个远端玩家（非自机 Player）的 `S.ObjectWalk`/`S.ObjectRun`。
+///
+/// 时间基准（R46）：动作与 [`RemoteMotion`] 都从**应用该包的 `now_ms`** 起算；
+/// 渲染只按 `now_ms - started_ms` 采样，不把传输延迟算进动作进度。
+///
+/// 只有「已知非自机 Player + 该动作步数（走1/跑2）+ 方向与落点一致」才建插值；
+/// 其余情况（初见/非法位移/死亡）只落点、不伪造一步。同坐标重复包只更新朝向，
+/// 不重启动作/延长插值；新的合法包覆盖旧 motion（无队列/预测）。
+fn apply_remote_step(
+    snapshot: &mut WorldSnapshot,
+    object_id: u32,
+    location: Point,
+    direction: MirDirection,
+    action: ActorAction,
+    now_ms: u64,
+) {
+    let self_id = snapshot.self_player.as_ref().map(|me| me.object_id);
+    let Some(existing) = snapshot.entities.get(&object_id) else {
+        // R46-X1-04：未知对象**不创建实体、不建 motion**；等 `S.ObjectPlayer`
+        //（或对象发现包）建立实体后，后续 ObjectWalk/ObjectRun 才走权威落点。
+        // 这里调用 update_entity 只为保留「未知自机 ID」的旧兜底，它不会为
+        // 非自机对象凭空插入实体。
+        update_entity(snapshot, object_id, |entity| {
+            entity.position = location;
+            entity.direction = direction;
+            entity.set_action(action, now_ms);
+        });
+        return;
+    };
+    let old = existing.position;
+    let kind = existing.kind;
+    let dead = existing.dead;
+    // 怪物/NPC/自机不参与 R46 插值；保留原有位置/动作更新。
+    if Some(object_id) == self_id || kind != EntityKind::Player {
+        update_entity(snapshot, object_id, |entity| {
+            entity.position = location;
+            entity.direction = direction;
+            entity.set_action(action, now_ms);
+        });
+        return;
+    }
+    if old == location {
+        // 同坐标重复/回拉：不重启动作、不延长 motion。
+        if let Some(entity) = snapshot.entities.get_mut(&object_id) {
+            entity.direction = direction;
+        }
+        return;
+    }
+    let expected = match action {
+        ActorAction::Walking => 1,
+        ActorAction::Running => 2,
+        _ => 0,
+    };
+    let valid = !dead && expected > 0 && old.moved(direction, expected) == location;
+    if valid {
+        if let Some(motion) = RemoteMotion::new(old, location, action, now_ms) {
+            // 新合法步覆盖旧状态（最新权威步，无队列）。
+            snapshot.remote_motions.insert(object_id, motion);
+        }
+        if let Some(entity) = snapshot.entities.get_mut(&object_id) {
+            entity.position = location;
+            entity.direction = direction;
+            entity.set_action(action, now_ms);
+        }
+    } else {
+        snapshot.remote_motions.remove(&object_id);
+        if let Some(entity) = snapshot.entities.get_mut(&object_id) {
+            entity.position = location;
+            entity.direction = direction;
+            if !dead {
+                // 不匹配/跳变：落包点 snap、不建插值；动作仍按包播放（保持既有
+                // ObjectRun/ObjectWalk 动画语义，R46 只负责位移插值）。
+                entity.set_action(action, now_ms);
+            }
+        }
+    }
+}
+
 /// 用一条服务端包更新快照。
 fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: u64) {
     *snapshot
@@ -4203,6 +4318,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             // Crystal `ServerPackets.MapChanged` 的 weather 字段）。
             snapshot.weather = Some(changed.weather);
             snapshot.entities.clear();
+            snapshot.remote_motions.clear();
             // 换地图等于离开当前 NPC，UI 必须把对话/商店/仓库收起来。
             snapshot.npc_dialog = None;
             snapshot.npc_goods = None;
@@ -4407,10 +4523,12 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
         }
         ServerPacket::ObjectRemove(remove) => {
             snapshot.entities.remove(&remove.object_id);
+            snapshot.remote_motions.remove(&remove.object_id);
             snapshot.gold_piles.remove(&remove.object_id);
             snapshot.pet_masters.remove(&remove.object_id);
         }
         ServerPacket::ObjectTurn(turn) => {
+            snapshot.remote_motions.remove(&turn.object_id);
             update_entity(snapshot, turn.object_id, |entity| {
                 entity.position = turn.location;
                 entity.direction = turn.direction;
@@ -4420,24 +4538,31 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
         ServerPacket::ObjectWalk(walk) => {
             // 走路音：Crystal 在步帧播 `WalkGroundL`（`PlayerObject.cs:3596-3599`）。
             snapshot.push_sound(SoundId::Walk, Spell::None, false);
-            update_entity(snapshot, walk.object_id, |entity| {
-                entity.position = walk.location;
-                entity.direction = walk.direction;
-                entity.set_action(ActorAction::Walking, now_ms);
-            });
+            apply_remote_step(
+                snapshot,
+                walk.object_id,
+                walk.location,
+                walk.direction,
+                ActorAction::Walking,
+                now_ms,
+            );
         }
         ServerPacket::ObjectRun(run) => {
             snapshot.push_sound(SoundId::Run, Spell::None, false);
-            update_entity(snapshot, run.object_id, |entity| {
-                entity.position = run.location;
-                entity.direction = run.direction;
-                entity.set_action(ActorAction::Running, now_ms);
-            });
+            apply_remote_step(
+                snapshot,
+                run.object_id,
+                run.location,
+                run.direction,
+                ActorAction::Running,
+                now_ms,
+            );
         }
         ServerPacket::ObjectAttack(attack) => {
             // 挥空/挥武器（`PlayerObject.cs:4779-4847`）＋施法音（若这一下是魔法，
             // `PlayerObject.cs:1538` 的 `20000 + Spell × 10`）。
             snapshot.push_sound(SoundId::Swing, attack.spell, false);
+            snapshot.remote_motions.remove(&attack.object_id);
             update_entity(snapshot, attack.object_id, |entity| {
                 entity.position = attack.location;
                 entity.direction = attack.direction;
@@ -4450,6 +4575,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             // `MonsterObject.RangeAttack` 同样走攻击动作 + 投射物/命中特效
             // （`MonsterObject.cs:2577-2625`、`PlayerObject.cs:1928`）。
             snapshot.push_sound(SoundId::Swing, attack.spell, false);
+            snapshot.remote_motions.remove(&attack.object_id);
             update_entity(snapshot, attack.object_id, |entity| {
                 entity.position = attack.location;
                 entity.direction = attack.direction;
@@ -4495,6 +4621,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
         ServerPacket::ObjectStruck(struck) => {
             // 被打中的身体音（`PlayerObject.cs:4700-4762` 的 `StruckBodySword + add`）。
             snapshot.push_sound(SoundId::Hit, Spell::None, false);
+            snapshot.remote_motions.remove(&struck.object_id);
             update_entity(snapshot, struck.object_id, |entity| {
                 entity.direction = struck.direction;
                 entity.set_action(ActorAction::Struck, now_ms);
@@ -4526,6 +4653,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
         }
         ServerPacket::ObjectHidden(hidden) => {
             // 隐身/显形（Crystal `GameScene.ObjectHidden`，`GameScene.cs:5780-5790`）。
+            snapshot.remote_motions.remove(&hidden.object_id);
             update_entity(snapshot, hidden.object_id, |entity| {
                 entity.hidden = hidden.hidden;
             });
@@ -4640,6 +4768,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             // 怪物/玩家死亡：Crystal 玩家用 `MaleDie/FemaleDie`（`PlayerObject.cs:4854-4855`），
             // 怪物用 `BaseSound + 9`（`MonsterObject.cs:4087`）；本作统一按性别取死亡音。
             snapshot.push_sound(SoundId::Die, Spell::None, false);
+            snapshot.remote_motions.remove(&died.object_id);
             update_entity(snapshot, died.object_id, |entity| {
                 entity.position = died.location;
                 entity.direction = died.direction;
@@ -5542,8 +5671,19 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
 }
 
 /// 插入或更新一个实体。
+///
+/// R46：同 ID 重建或对象快照位移（ObjectPlayer 带新坐标）时清掉旧的远端 motion，
+/// 避免把上一段动作/旧时钟套到新对象或新位置上；同坐标的外观刷新保留插值。
 fn upsert_entity(snapshot: &mut WorldSnapshot, entity: WorldEntity) {
-    snapshot.entities.insert(entity.object_id, entity);
+    let object_id = entity.object_id;
+    let position_changed = snapshot
+        .entities
+        .get(&object_id)
+        .is_none_or(|old| old.position != entity.position);
+    if position_changed {
+        snapshot.remote_motions.remove(&object_id);
+    }
+    snapshot.entities.insert(object_id, entity);
 }
 
 /// 把协议里的槽位列表搬成界面物品并补齐到固定格数。

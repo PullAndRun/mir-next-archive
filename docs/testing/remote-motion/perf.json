@@ -1,0 +1,51 @@
+{
+  "baseline_command": "R46_PERF_OUT=target/remote-motion-baseline.json; cargo test --release -p mir-client --test remote_perf_baseline -- --ignored --nocapture（在 85bfc21 worktree）",
+  "baseline_commit": "85bfc21",
+  "baseline_commit_full": "85bfc21befae1725d73982afedabefeaca09f110",
+  "baseline_source": "target/remote-motion-baseline.json（85bfc21 worktree 生成）",
+  "host_note": "85bfc21 独立 worktree release 构建 vs 当前 R46 release 构建；同机、同场景 1/50/200 远端 ×1000 帧，每帧 entity_views，纳秒计时",
+  "new_command": "cargo test --release -p mir-client --test remote_motion -- --ignored m4_perf --nocapture",
+  "runs": [
+    {
+      "baseline_median_ns": 100,
+      "baseline_p95_ns": 200,
+      "fixed_threshold_p95_ns": 780,
+      "frames": 1000,
+      "measured_p95_ratio": 0.5,
+      "new_median_ns": 100,
+      "new_p95_ns": 100,
+      "remotes": 1
+    },
+    {
+      "baseline_median_ns": 1200,
+      "baseline_p95_ns": 2100,
+      "fixed_threshold_p95_ns": 3440,
+      "frames": 1000,
+      "measured_p95_ratio": 0.6666666666666666,
+      "new_median_ns": 1400,
+      "new_p95_ns": 1400,
+      "remotes": 50
+    },
+    {
+      "baseline_median_ns": 4800,
+      "baseline_p95_ns": 7900,
+      "fixed_threshold_p95_ns": 11560,
+      "frames": 1000,
+      "measured_p95_ratio": 0.7974683544303798,
+      "new_median_ns": 6000,
+      "new_p95_ns": 6300,
+      "remotes": 200
+    }
+  ],
+  "threshold": {
+    "p95_ratio": 1.4,
+    "p95_slack_ns": 500
+  },
+  "baseline_blobs": {
+    "crates/mir-client/src/net.rs": "262a6e3e3aee3e3c66289597befe83c938a93991",
+    "crates/mir-client/src/camera.rs": "c649138e258afa6287fc8a3dabbbed8a9d97c70c",
+    "crates/mir-render/src/entities.rs": "19b243a05e1ca482c1e23018be1ddf517d644c08",
+    "crates/mir-client/src/app.rs": "e6edc7d94a0d0a826c6a82f07a245341f827bb5b"
+  },
+  "baseline_setup": "git worktree add target/baseline-85bfc21 85bfc21; Copy-Item docs/testing/remote-motion/baseline-bench.rs target/baseline-85bfc21/crates/mir-client/tests/remote_perf_baseline.rs"
+}

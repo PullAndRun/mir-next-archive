@@ -1,0 +1,19 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.72s
+     Running tests\remote_motion.rs (target\debug\deps\remote_motion-a21d989f1e804910.exe)
+
+running 11 tests
+test m4_perf_1_50_200_remotes_1000_frames_baseline_vs_new ... ignored, 性能证据手动运行：先跑 85bfc21 baseline，再跑 cargo test --release -p mir-client --test remote_motion -- --ignored m4_perf
+M2 delay=200ms send=2000000 receive=2000200 motion_started=2000200 action_started=2000200
+M2 delay=600ms send=2000000 receive=2000600 motion_started=2000600 action_started=2000600
+test two_remote_players_are_isolated ... ok
+test same_coordinate_packet_does_not_restart_and_new_step_replaces ... ok
+test interruptions_invalid_unknown_and_id_reuse_clear_state ... ok
+test self_static_and_moving_regressions_keep_anchors_and_global_offset ... ok
+test m4_state_is_bounded_and_has_no_residue ... ok
+test m2_delayed_packets_do_not_count_transmission_time_as_action_progress ... ok
+test m3_boundary_0_99_100_300_500_599_600_700ms ... ok
+test sorting_smoke_moving_players_cross_a_standing_entity_once ... ok
+test m1_north_south_first_frame_and_600ms_endpoint_use_from_and_advance ... ok
+test m3_all_96_direction_action_frame_combinations_match_independent_table ... ok
+
+test result: ok. 10 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s

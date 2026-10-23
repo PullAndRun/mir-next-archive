@@ -1,0 +1,30 @@
+# 第46轮他者玩家插值证据冻结清单（D2 = 提交批次）
+# D2：2026-10-24 02:52 最终门禁（target/r46-final-gate-20261024-025242.log, 12/12）当次 remote_motion_live 重跑产物：manifest + 22 张被 manifest 引用的 PNG。
+# 实际步链：Walk1 Down (330,270→330,271)；Walk2 DownRight (330,271→331,272)；Run DownRight (331,272→333,274)；并发 observer 330,270→331,270 且 A 仍活动（remote from 331,272 pixel 64,42 screen 464,362）。
+# 排除：observer-moving-frame0.png 未被 D2 manifest 引用（旧批次残留，历史未关联），已移至 target/remote-motion-observer-moving-historical.png，不列入 D2。
+# 冻结副本：target/remote-motion-frozen-final-20261024T0300/（23 文件 = manifest + 22 PNG；build/、target/ 被 gitignore）；docs 入库副本：docs/testing/remote-motion/frozen/manifest.json
+# 同批门禁日志：target/r46-final-gate-20261024-025242.log；冻结副本 target/r46-final-gate-frozen.log；SHA256 见 docs/testing/remote-motion/final-gate-log.sha256。
+331a775105e26dc81fb1367e6aa4cbdd5e65349dda550729698a74b0451b10aa  build\evidence\remote-motion\manifest.json
+74ece1d350e7072300a9da4ddc7ae8db52c035cd54d628586c2af8380951ee17  build\evidence\remote-motion\concurrent-observer-remote-frame0.png
+985c552719b8400c825ef49b0dfea20e6f4f00fba9214bfaf412339d28a425fa  build\evidence\remote-motion\run-step1-frame0.png
+32bda5d0aea0fbe1a2362e422edcdb43bd8f0b24365a0973e60003b31b92a5e4  build\evidence\remote-motion\run-step1-frame1.png
+688edbdf0fa61ca49c316d6e9123297b129ca257c4348a6e5bae0b13a277a848  build\evidence\remote-motion\run-step1-frame2.png
+1d4064aa697fff86c5c0ae66a082c241dcc22beef4f695401fee30bd390a552b  build\evidence\remote-motion\run-step1-frame3.png
+07fafa3137513bd44e1b7c2d46596f7cf03a170728131a19cbdee1d742e4d6fa  build\evidence\remote-motion\run-step1-frame4.png
+275943b05e8b81aa2fe835dee73a5ea606d93dcc4f5d3d894be1a0445091d1f1  build\evidence\remote-motion\run-step1-frame5.png
+b37b672787858f32e3fa580557fc8eaf70a06b3c49258c50e2690f5ecbcd4999  build\evidence\remote-motion\run-step1-frame6.png
+3101f3f7d5fc9d9388a9329d82f902689131acc5866d4cdfc23c5c447eb74a10  build\evidence\remote-motion\walk-step1-frame0.png
+e1cf536c1cd46566b47b0e32a6297d77276cc425d0684763dcae4ca3cf924517  build\evidence\remote-motion\walk-step1-frame1.png
+c98a678641660acb9741963ea5789232533076eeb9dc00eba38e6b5aa8f40bf9  build\evidence\remote-motion\walk-step1-frame2.png
+de1f47a5ea970e7525772daa83c116adf2824884bcab631eca02a8611b844ed2  build\evidence\remote-motion\walk-step1-frame3.png
+55511c28bd1e108d2bf21d7a77bc98841ef7dd10512b5d611e9520ec47804654  build\evidence\remote-motion\walk-step1-frame4.png
+996a539698ed331d0c0fc9d5409c23086046b6e32f9829150b8beedfaa45de2a  build\evidence\remote-motion\walk-step1-frame5.png
+6067f0b8f60812a2924a0811a62d8e1ea425de2d86dc8c794cc2f53aa9facf84  build\evidence\remote-motion\walk-step1-frame6.png
+922c8eda11b508c0d801b45677aa54f6fdbdbca20153823d7d1c7b7f29848b1a  build\evidence\remote-motion\walk-step2-frame0.png
+30526b5dd6fdb88c18f56c43961b0414cd44f98faf610825a454ee7ec604bcb3  build\evidence\remote-motion\walk-step2-frame1.png
+0dec5c729b6eef7e9de08923b5120bf1e0f1a0d8b0b60850d5ebbc00296e3793  build\evidence\remote-motion\walk-step2-frame2.png
+c1942ea6127fae7e99706442c3ac76115b7741af14308ea6eb4ba2d46f6685b0  build\evidence\remote-motion\walk-step2-frame3.png
+dc4e9b7c7b74bfc607d974beb13ff768662dc2730fe2790ee2f9af922ad16cc5  build\evidence\remote-motion\walk-step2-frame4.png
+8913770834e6131269bd61dacebfeb6bfb34dbd2dd4105612b1166ae99dffacf  build\evidence\remote-motion\walk-step2-frame5.png
+62b853d75a80374f86d1f07e7e879457f88f35b1157c39e810d8d021077671f9  build\evidence\remote-motion\walk-step2-frame6.png
+331a775105e26dc81fb1367e6aa4cbdd5e65349dda550729698a74b0451b10aa  docs/testing/remote-motion/frozen/manifest.json

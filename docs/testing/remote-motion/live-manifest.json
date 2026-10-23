@@ -1,0 +1,1156 @@
+{
+  "baseline": "85bfc21",
+  "crystal_reference": "github/Crystal HEAD 0e315fe327192afe52c3d7357ddd1f5b7e26c5b8",
+  "generated_at_unix_ms": 1792780457863,
+  "map": "0",
+  "observer": {
+    "name": "Observer",
+    "object_id": 8
+  },
+  "samples": [
+    {
+      "action": "observer",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 300,
+      "frame_index": 0,
+      "global_offset": [
+        -32,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        32,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        331,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\concurrent-observer-remote-frame0.png",
+      "remote_from": [
+        330,
+        272
+      ],
+      "remote_pixel_offset": [
+        0,
+        42
+      ],
+      "remote_screen": [
+        352,
+        362
+      ],
+      "remote_to": [
+        330,
+        274
+      ],
+      "simulated_now_ms": 1792780445201,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780445817
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 0,
+      "frame_index": 0,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\walk-step1-frame0.png",
+      "remote_from": [
+        330,
+        270
+      ],
+      "remote_pixel_offset": [
+        0,
+        6
+      ],
+      "remote_screen": [
+        384,
+        262
+      ],
+      "remote_to": [
+        330,
+        271
+      ],
+      "simulated_now_ms": 1792780443414,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780446419
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 100,
+      "frame_index": 1,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\walk-step1-frame1.png",
+      "remote_from": [
+        330,
+        270
+      ],
+      "remote_pixel_offset": [
+        0,
+        10
+      ],
+      "remote_screen": [
+        384,
+        266
+      ],
+      "remote_to": [
+        330,
+        271
+      ],
+      "simulated_now_ms": 1792780443514,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780447014
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 200,
+      "frame_index": 2,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\walk-step1-frame2.png",
+      "remote_from": [
+        330,
+        270
+      ],
+      "remote_pixel_offset": [
+        0,
+        16
+      ],
+      "remote_screen": [
+        384,
+        272
+      ],
+      "remote_to": [
+        330,
+        271
+      ],
+      "simulated_now_ms": 1792780443614,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780447627
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 300,
+      "frame_index": 3,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\walk-step1-frame3.png",
+      "remote_from": [
+        330,
+        270
+      ],
+      "remote_pixel_offset": [
+        0,
+        22
+      ],
+      "remote_screen": [
+        384,
+        278
+      ],
+      "remote_to": [
+        330,
+        271
+      ],
+      "simulated_now_ms": 1792780443714,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780448240
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 400,
+      "frame_index": 4,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\walk-step1-frame4.png",
+      "remote_from": [
+        330,
+        270
+      ],
+      "remote_pixel_offset": [
+        0,
+        26
+      ],
+      "remote_screen": [
+        384,
+        282
+      ],
+      "remote_to": [
+        330,
+        271
+      ],
+      "simulated_now_ms": 1792780443814,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780448881
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 500,
+      "frame_index": 5,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\walk-step1-frame5.png",
+      "remote_from": [
+        330,
+        270
+      ],
+      "remote_pixel_offset": [
+        0,
+        32
+      ],
+      "remote_screen": [
+        384,
+        288
+      ],
+      "remote_to": [
+        330,
+        271
+      ],
+      "simulated_now_ms": 1792780443914,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780449462
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 600,
+      "frame_index": 6,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\walk-step1-frame6.png",
+      "remote_from": [
+        330,
+        271
+      ],
+      "remote_pixel_offset": [
+        0,
+        0
+      ],
+      "remote_screen": [
+        384,
+        288
+      ],
+      "remote_to": [
+        330,
+        271
+      ],
+      "simulated_now_ms": 1792780444014,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780450053
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 0,
+      "frame_index": 0,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\walk-step2-frame0.png",
+      "remote_from": [
+        330,
+        271
+      ],
+      "remote_pixel_offset": [
+        0,
+        6
+      ],
+      "remote_screen": [
+        384,
+        294
+      ],
+      "remote_to": [
+        330,
+        272
+      ],
+      "simulated_now_ms": 1792780444145,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780450651
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 100,
+      "frame_index": 1,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\walk-step2-frame1.png",
+      "remote_from": [
+        330,
+        271
+      ],
+      "remote_pixel_offset": [
+        0,
+        10
+      ],
+      "remote_screen": [
+        384,
+        298
+      ],
+      "remote_to": [
+        330,
+        272
+      ],
+      "simulated_now_ms": 1792780444245,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780451189
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 200,
+      "frame_index": 2,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\walk-step2-frame2.png",
+      "remote_from": [
+        330,
+        271
+      ],
+      "remote_pixel_offset": [
+        0,
+        16
+      ],
+      "remote_screen": [
+        384,
+        304
+      ],
+      "remote_to": [
+        330,
+        272
+      ],
+      "simulated_now_ms": 1792780444345,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780451734
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 300,
+      "frame_index": 3,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\walk-step2-frame3.png",
+      "remote_from": [
+        330,
+        271
+      ],
+      "remote_pixel_offset": [
+        0,
+        22
+      ],
+      "remote_screen": [
+        384,
+        310
+      ],
+      "remote_to": [
+        330,
+        272
+      ],
+      "simulated_now_ms": 1792780444445,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780452278
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 400,
+      "frame_index": 4,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\walk-step2-frame4.png",
+      "remote_from": [
+        330,
+        271
+      ],
+      "remote_pixel_offset": [
+        0,
+        26
+      ],
+      "remote_screen": [
+        384,
+        314
+      ],
+      "remote_to": [
+        330,
+        272
+      ],
+      "simulated_now_ms": 1792780444545,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780452877
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 500,
+      "frame_index": 5,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\walk-step2-frame5.png",
+      "remote_from": [
+        330,
+        271
+      ],
+      "remote_pixel_offset": [
+        0,
+        32
+      ],
+      "remote_screen": [
+        384,
+        320
+      ],
+      "remote_to": [
+        330,
+        272
+      ],
+      "simulated_now_ms": 1792780444645,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780453463
+    },
+    {
+      "action": "walk",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 600,
+      "frame_index": 6,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\walk-step2-frame6.png",
+      "remote_from": [
+        330,
+        272
+      ],
+      "remote_pixel_offset": [
+        0,
+        0
+      ],
+      "remote_screen": [
+        384,
+        320
+      ],
+      "remote_to": [
+        330,
+        272
+      ],
+      "simulated_now_ms": 1792780444745,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780454031
+    },
+    {
+      "action": "run",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 0,
+      "frame_index": 0,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\run-step1-frame0.png",
+      "remote_from": [
+        330,
+        272
+      ],
+      "remote_pixel_offset": [
+        0,
+        10
+      ],
+      "remote_screen": [
+        384,
+        330
+      ],
+      "remote_to": [
+        330,
+        274
+      ],
+      "simulated_now_ms": 1792780444874,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780454564
+    },
+    {
+      "action": "run",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 100,
+      "frame_index": 1,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\run-step1-frame1.png",
+      "remote_from": [
+        330,
+        272
+      ],
+      "remote_pixel_offset": [
+        0,
+        22
+      ],
+      "remote_screen": [
+        384,
+        342
+      ],
+      "remote_to": [
+        330,
+        274
+      ],
+      "simulated_now_ms": 1792780444974,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780455159
+    },
+    {
+      "action": "run",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 200,
+      "frame_index": 2,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\run-step1-frame2.png",
+      "remote_from": [
+        330,
+        272
+      ],
+      "remote_pixel_offset": [
+        0,
+        32
+      ],
+      "remote_screen": [
+        384,
+        352
+      ],
+      "remote_to": [
+        330,
+        274
+      ],
+      "simulated_now_ms": 1792780445074,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780455689
+    },
+    {
+      "action": "run",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 300,
+      "frame_index": 3,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\run-step1-frame3.png",
+      "remote_from": [
+        330,
+        272
+      ],
+      "remote_pixel_offset": [
+        0,
+        42
+      ],
+      "remote_screen": [
+        384,
+        362
+      ],
+      "remote_to": [
+        330,
+        274
+      ],
+      "simulated_now_ms": 1792780445174,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780456231
+    },
+    {
+      "action": "run",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 400,
+      "frame_index": 4,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\run-step1-frame4.png",
+      "remote_from": [
+        330,
+        272
+      ],
+      "remote_pixel_offset": [
+        0,
+        54
+      ],
+      "remote_screen": [
+        384,
+        374
+      ],
+      "remote_to": [
+        330,
+        274
+      ],
+      "simulated_now_ms": 1792780445274,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780456796
+    },
+    {
+      "action": "run",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 500,
+      "frame_index": 5,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\run-step1-frame5.png",
+      "remote_from": [
+        330,
+        272
+      ],
+      "remote_pixel_offset": [
+        0,
+        64
+      ],
+      "remote_screen": [
+        384,
+        384
+      ],
+      "remote_to": [
+        330,
+        274
+      ],
+      "simulated_now_ms": 1792780445374,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780457335
+    },
+    {
+      "action": "run",
+      "camera_center": [
+        330,
+        270
+      ],
+      "elapsed_ms": 600,
+      "frame_index": 6,
+      "global_offset": [
+        0,
+        0
+      ],
+      "observer_from": [
+        330,
+        270
+      ],
+      "observer_pixel_offset": [
+        0,
+        0
+      ],
+      "observer_screen": [
+        384,
+        256
+      ],
+      "observer_to": [
+        330,
+        270
+      ],
+      "png": "build\\evidence\\remote-motion\\run-step1-frame6.png",
+      "remote_from": [
+        330,
+        274
+      ],
+      "remote_pixel_offset": [
+        0,
+        0
+      ],
+      "remote_screen": [
+        384,
+        384
+      ],
+      "remote_to": [
+        330,
+        274
+      ],
+      "simulated_now_ms": 1792780445474,
+      "terrain_layer_identical": true,
+      "wall_captured_ms": 1792780457862
+    }
+  ],
+  "sampling": "模拟采样 now = 该 ObjectWalk/ObjectRun 应用时刻 + k×100ms；wall_captured_ms 为实际墙钟，二者分列",
+  "server": {
+    "address": "127.0.0.1:49932",
+    "demo_monsters": true,
+    "store": "MemoryStore"
+  },
+  "steps": [
+    {
+      "a_user_location_before": 0,
+      "action": "walk",
+      "b_object_walk_before": 0,
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "motion_started_ms": 1792780443414,
+      "to": [
+        330,
+        271
+      ],
+      "wall_captured_ms": 1792780443414
+    },
+    {
+      "a_user_location_before": 1,
+      "action": "walk",
+      "b_object_walk_before": 1,
+      "direction": "Down",
+      "from": [
+        330,
+        271
+      ],
+      "motion_started_ms": 1792780444145,
+      "to": [
+        330,
+        272
+      ],
+      "wall_captured_ms": 1792780444146
+    },
+    {
+      "a_user_location_before": 2,
+      "action": "run",
+      "b_object_run_before": 0,
+      "direction": "Down",
+      "from": [
+        330,
+        272
+      ],
+      "motion_started_ms": 1792780444874,
+      "to": [
+        330,
+        274
+      ],
+      "wall_captured_ms": 1792780444874
+    }
+  ],
+  "target": {
+    "name": "TargetHero",
+    "object_id": 7
+  },
+  "terrain_source": "game-assets/maps/0.mnm（library-map.json + gfx）",
+  "test": "two_clients_observe_remote_walk_run_interpolation",
+  "viewport": [
+    800,
+    600
+  ]
+}

@@ -1,0 +1,5 @@
+# R46 同批最终门禁日志（D2）
+# 原始：target/r46-final-gate-20261024-025242.log
+# 本地冻结副本：target/r46-final-gate-frozen.log（build/target 被 gitignore，不入库）
+# 12/12 全绿，CI_EXIT=0
+b7be7d4b00e6be13940862a8bdc124fa75c13b3f23894c18b0c4614d40d5fcd0  target/r46-final-gate-frozen.log

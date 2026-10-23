@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.68s
+     Running tests\remote_motion_live.rs (target\debug\deps\remote_motion_live-208106679bd4b012.exe)
+
+running 1 test
+PASS remote-motion live：A id=7，B id=8；walk=2 run=1；22 样本；manifest \\?\C:\Users\diana\Documents\github\mir-next\build\evidence\remote-motion\manifest.json
+test two_clients_observe_remote_walk_run_interpolation ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.33s

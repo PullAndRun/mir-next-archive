@@ -2471,6 +2471,7 @@ impl ClientApp {
         if closed {
             // 断线：当前走/跑插值作废，重连成功后从新快照重新起算。
             live.motion = None;
+            live.snapshot.remote_motions.clear();
             live.reconnect.disconnected(now);
         }
         // 退避到点：发起一次重连（复用账号/角色，自动登录并选角）。
@@ -2482,6 +2483,7 @@ impl ClientApp {
                     live.entered = false;
                     // 重连会重新落点/可能换图：清掉旧动作的插值，避免残留偏移。
                     live.motion = None;
+                    live.snapshot.remote_motions.clear();
                 }
                 Err(error) => {
                     eprintln!("第 {attempt} 次重连失败：{error}");
@@ -2621,6 +2623,7 @@ impl ClientApp {
                 if let Mode::Live(live) = &mut self.mode {
                     // 跨图落点不插值：清掉上一张图的走/跑动作，避免残留偏移。
                     live.motion = None;
+                    live.snapshot.remote_motions.clear();
                     live.sound
                         .play(mir_client::audio::MAP_CHANGE_SOUND_FILE, now_millis_u64());
                 }

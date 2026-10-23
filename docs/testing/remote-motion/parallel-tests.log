@@ -1,0 +1,738 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.68s
+     Running unittests src\lib.rs (target\debug\deps\mir_client-d08cd143690f7562.exe)
+
+running 259 tests
+test audio::tests::audio_mapping_uses_crystal_soundlist_ids ... ok
+test assets::tests::default_or_fallback_depends_on_existence ... ok
+test audio::tests::throttle_tolerates_clock_going_backwards ... ok
+test audio::tests::master_volume_multiplies_and_zero_is_silent ... ok
+test camera::tests::camera_centers_on_movement_cell_and_expires_after_600_ms ... ok
+test audio::tests::disabled_player_is_a_no_op ... ok
+test audio::tests::music_defaults_and_volume_are_independent_of_sound_effects ... ok
+test audio::tests::throttle_blocks_within_one_hundred_millis ... ok
+test audio::tests::music_files_resolve_in_the_crystal_sound_set ... ok
+test assets::tests::derived_dirs_are_under_the_root ... ok
+test audio::tests::throttle_is_per_file ... ok
+test audio::tests::real_sound_files_resolve_when_the_corpus_is_present ... ok
+test camera::tests::self_motion_accepts_walk_run_and_diagonals_only ... ok
+test assets::tests::explicit_missing_falls_back_to_resource_but_keeps_source ... ok
+test camera::tests::apply_camera_keeps_self_at_screen_center_and_moves_the_world ... ok
+test camera::tests::explicit_interrupts_clear_motion_immediately ... ok
+test camera::tests::delayed_run_reply_keeps_action_and_motion_on_one_clock ... ok
+test camera::tests::delayed_walk_reply_keeps_action_and_motion_on_one_clock ... ok
+test camera::tests::next_authoritative_step_replaces_previous_motion ... ok
+test camera::tests::running_offsets_cover_two_cells ... ok
+test audio::tests::volume_is_clamped ... ok
+test camera::tests::same_position_snapshot_does_not_restart_motion_or_animation ... ok
+test camera::tests::teleport_jump_invalidates_motion_and_snaps_to_target ... ok
+test camera::tests::teleports_and_illegal_steps_have_no_offset ... ok
+test camera::tests::walking_offsets_match_crystal_integer_truncation_and_evenizing ... ok
+test client_config::tests::defaults_are_complete ... ok
+test client_config::tests::language_switch_normalises_codes ... ok
+test client_config::tests::key_conflicts_are_rejected ... ok
+test geom::tests::contains_uses_half_open_bounds ... ok
+test geom::tests::inset_and_intersection_clamp_to_empty ... ok
+test net::tests::change_pet_mode_frame_has_index_45_and_mode_byte ... ok
+test net::tests::chat_log_is_capped_and_formats_speaker ... ok
+test net::tests::equipment_drives_the_paper_doll_appearance ... ok
+test net::tests::find_character_matches_exact_then_case_insensitive ... ok
+test net::tests::equipping_and_broken_equipment_refresh_the_appearance ... ok
+test net::tests::guild_member_status_codes_rebuild_the_rank_table ... ok
+test net::tests::guild_storage_gold_and_buff_packets_update_the_snapshot ... ok
+test net::tests::inventory_tracks_user_information_gain_move_and_delete ... ok
+test net::tests::magic_leveled_updates_the_skill_list ... ok
+test net::tests::mail_packets_track_list_flags_and_send_results ... ok
+test net::tests::map_packets_keep_the_music_index ... ok
+test assets::tests::config_used_when_cli_and_env_absent ... ok
+test net::tests::mount_update_sets_and_clears_mount_for_self_and_others ... ok
+test net::tests::npc_dialog_and_shop_resolve_names_prices_and_nearest_npc ... ok
+test net::tests::other_players_appearance_comes_from_object_player_and_player_update ... ok
+test net::tests::pet_mode_cycles_three_states_and_tracks_owner ... ok
+test net::tests::send_output_message_follows_quest_item_and_keeps_server_text ... ok
+test net::tests::quest_packets_track_definitions_progress_removal_and_share_chat ... ok
+test net::tests::snapshot_handles_login_and_entities ... ok
+test net::tests::snapshot_tracks_equipment_buffs_damage_and_effects ... ok
+test net::tests::storage_packets_fill_eighty_slots_and_move_items ... ok
+test newbie::tests::current_step_advances_with_snapshot ... ok
+test newbie::tests::bad_file_falls_back_without_panic ... ok
+test newbie::tests::defaults_have_five_steps ... ok
+test newbie::tests::parses_chain_file ... ok
+test settings::tests::defaults_to_simplified_chinese ... ok
+test settings::tests::music_defaults_on_at_half_volume_independently ... ok
+test settings::tests::panel_state_roundtrips_into_settings ... ok
+test settings::tests::set_language_normalises_aliases ... ok
+test settings::tests::sound_defaults_on_at_half_volume ... ok
+test settings::tests::volume_is_clamped_and_nan_falls_back ... ok
+test ui::bigmap::tests::layout_matches_the_big_map_dialog_offsets ... ok
+test ui::buffs::tests::bar_moves_right_past_the_left_panels_and_capacity_shrinks ... ok
+test ui::buffs::tests::effect_ring_fades_out_over_its_lifetime ... ok
+test ui::buffs::tests::entry_rects_are_capped_and_do_not_overlap ... ok
+test ui::buffs::tests::infinite_and_paused_buffs_do_not_count_down ... ok
+test ui::buffs::tests::remaining_seconds_count_down_with_the_local_clock ... ok
+test ui::death::tests::accept_is_idempotent_for_same_death ... ok
+test ui::death::tests::alive_clears_state ... ok
+test ui::death::tests::dead_action_is_already_finished ... ok
+test ui::death::tests::no_click_sends_nothing_for_twelve_seconds ... ok
+test ui::death::tests::prompt_appears_only_after_death_animation ... ok
+test ui::death::tests::prompt_is_i18n ... ok
+test ui::death::tests::reject_dismisses_without_packet_and_stays_dismissed ... ok
+test ui::death::tests::s_death_injection_waits_for_animation_end ... ok
+test ui::death::tests::yes_maps_to_exactly_one_town_revive_packet ... ok
+test ui::dialog::tests::duplicate_buttons_are_merged ... ok
+test ui::dialog::tests::layout_buttons_are_inside_the_panel_and_hit_testable ... ok
+test ui::dialog::tests::narrow_frames_still_produce_a_visible_dialog ... ok
+test ui::dialog::tests::page_always_has_an_exit_button ... ok
+test ui::dialog::tests::parses_buttons_and_strips_markup ... ok
+test ui::door::tests::door_index_zero_is_legal ... ok
+test ui::door::tests::empty_or_doorless_map_is_silent ... ok
+test ui::door::tests::far_door_still_sends_because_crystal_has_no_range_check ... ok
+test assets::tests::env_wins_over_config ... ok
+test ui::door::tests::known_door_returns_exact_index ... ok
+test ui::door::tests::non_door_and_out_of_bounds_do_not_send ... ok
+test ui::equipment::tests::dura_changed_also_updates_inventory_items ... ok
+test ui::equipment::tests::dura_changed_updates_equipment_and_zero_excludes_stats ... ok
+test ui::equipment::tests::item_types_map_to_the_right_slots_and_paired_slots_pick_empty ... ok
+test ui::equipment::tests::layout_has_fourteen_slots_inside_the_panel ... ok
+test ui::equipment::tests::totals_sum_every_equipped_item ... ok
+test ui::grid::tests::grid_slots_are_inside_the_area_and_hit_testable ... ok
+test ui::grid::tests::narrow_areas_still_produce_at_least_one_row ... ok
+test ui::grid::tests::scrolling_moves_the_visible_window ... ok
+test ui::group::tests::group_chat_prefix_maps_to_a_chat_command ... ok
+test ui::group::tests::hp_colors_change_with_the_percentage ... ok
+test ui::group::tests::invite_messages_are_localized ... ok
+test ui::group::tests::layout_rows_and_buttons_are_hit_testable ... ok
+test ui::group::tests::scrolling_is_clamped_to_the_last_page ... ok
+test ui::group::tests::small_windows_keep_the_panel_on_screen ... ok
+test ui::guild::tests::member_and_buff_scrolling_is_clamped ... ok
+test ui::guild::tests::storage_grid_has_one_hundred_and_twelve_slots ... ok
+test ui::guild::tests::summary_and_status_texts_are_localized ... ok
+test ui::guild::tests::tabs_and_member_rows_are_hit_testable ... ok
+test ui::hud::tests::chat_layout_matches_the_bottom_left_corner ... ok
+test audio::tests::library_prefers_the_first_existing_root ... ok
+test ui::hud::tests::ratio_clamps_to_unit_interval ... ok
+test assets::tests::cli_wins_over_env_and_config ... ok
+test ui::hud::tests::status_layout_keeps_bars_and_text_inside_the_panel ... ok
+test ui::hud::tests::time_weather_text_is_localized_and_optional ... ok
+test ui::hud::tests::visible_chat_lines_are_capped_and_keep_the_newest ... ok
+test ui::input::tests::chinese_characters_count_as_one_each ... ok
+test ui::input::tests::control_characters_are_dropped ... ok
+test ui::input::tests::cursor_edits_stay_on_utf8_boundaries ... ok
+test ui::input::tests::text_fields_enforce_limits_and_numeric_filtering ... ok
+test ui::death::tests::click_yes_sends_once_and_click_no_sends_nothing ... ok
+test ui::inventory::tests::gold_and_hint_areas_are_inside_the_panel ... ok
+test ui::inventory::tests::panel_rect_stays_below_the_status_bar ... ok
+test ui::inventory::tests::slot_hit_testing_matches_the_rects ... ok
+test ui::inventory::tests::slot_rects_are_inside_the_panel_and_do_not_overlap ... ok
+test audio::tests::play_events_are_counted_throttled_and_silent_without_assets ... ok
+test ui::labels::tests::chat_colors_differ_by_channel ... ok
+test ui::labels::tests::chinese_is_the_default_and_english_switches_labels ... ok
+test ui::labels::tests::item_type_slot_and_buff_names_are_localized ... ok
+test ui::labels::tests::every_label_has_both_languages ... ok
+test ui::labels::tests::new_ui_labels_have_both_languages ... ok
+test ui::labels::tests::numbers_use_thousands_separators ... ok
+test ui::labels::tests::unknown_items_are_labelled_with_the_template_index ... ok
+test ui::mail::tests::compose_attachments_toggle_and_serialize ... ok
+test ui::mail::tests::compose_fields_and_grid_are_inside_the_panel ... ok
+test ui::mail::tests::inbox_rows_are_hit_testable_and_paged ... ok
+test ui::mail::tests::parcel_text_and_subject_fall_back_to_the_first_line ... ok
+test ui::mail::tests::sent_dates_are_formatted_and_unset_dates_show_a_dash ... ok
+test audio::tests::real_mna_decodes ... ok
+test audio::tests::missing_device_and_missing_assets_are_silent_without_panic ... ok
+test audio::tests::wav_is_only_used_in_legacy_mode ... ok
+test ui::market::tests::fail_reasons_are_localized ... ok
+test ui::market::tests::labels_cover_all_panels ... ok
+test ui::market::tests::price_and_expiry_text_follow_crystal ... ok
+test ui::minimap::tests::layout_matches_crystal_geometry ... ok
+test ui::equipment::tests::repair_button_emits_repair_item_command ... ok
+test client_config::tests::roundtrips_through_toml_and_disk ... ok
+test ui::minimap::tests::view_falls_back_to_terrain_size ... ok
+test ui::minimap::tests::view_uses_map_information_and_skips_items ... ok
+test client_config::tests::missing_and_bad_files_fall_back_without_panicking ... ok
+test ui::newbie::tests::panel_fits_screen ... ok
+test audio::tests::wav_header_check_rejects_garbage ... ok
+test ui::notice::tests::notice_is_centered_and_buttons_hit_testable ... ok
+test audio::tests::library_resolves_mna_when_wav_is_absent ... ok
+test ui::quest_nav::tests::finds_target_after_progress_lines ... ok
+test ui::quest_nav::tests::malformed_and_no_target_are_ignored_without_panic ... ok
+test ui::quest_nav::tests::parses_go_to_target ... ok
+test ui::quest_nav::tests::parses_server_target_suffix_with_npc_and_coordinates ... ok
+test ui::quests::tests::layout_rows_are_inside_the_panel_and_hit_testable ... ok
+test ui::quests::tests::scrolling_is_clamped_to_the_last_page ... ok
+test ui::quests::tests::small_screen_keeps_items_and_footer_inside_the_panel ... ok
+test settings::tests::old_settings_files_without_sound_fields_still_load ... ok
+test ui::quests::tests::status_and_time_texts_are_localized ... ok
+test ui::quests::tests::task_panel_target_line_is_exposed_for_tracking ... ok
+test settings::tests::roundtrip_through_disk ... ok
+test ui::reconnect::tests::duplicate_disconnect_does_not_reset_progress ... ok
+test ui::reconnect::tests::message_reports_attempt_number ... ok
+test settings::tests::missing_or_broken_file_falls_back_to_default ... ok
+test ui::reconnect::tests::retries_with_exponential_backoff_and_gives_up ... ok
+test ui::reconnect::tests::succeeds_on_first_attempt ... ok
+test ui::select::tests::character_cards_show_class_level_and_equipment_summary ... ok
+test ui::select::tests::character_layout_fits_small_and_large_screens ... ok
+test settings::tests::server_resolution_and_scale_roundtrip_through_disk ... ok
+test ui::select::tests::class_cycle_wraps_around ... ok
+test ui::select::tests::clicking_fields_changes_the_focus ... ok
+test ui::select::tests::empty_character_list_guides_creation_and_creates_with_class_and_gender ... ok
+test ui::select::tests::error_text_is_localized_and_never_forwards_raw_diagnostics ... ok
+test ui::select::tests::failure_shows_a_retry_button_and_retry_clears_the_error ... ok
+test ui::select::tests::selecting_and_entering_a_character_returns_its_slot ... ok
+test ui::select::tests::server_layout_fits_small_and_large_screens ... ok
+test ui::select::tests::server_select_defaults_to_localhost_and_remembers_a_saved_address ... ok
+test ui::settings::tests::click_outside_the_panel_is_ignored ... ok
+test ui::settings::tests::clicks_change_audio_language_display_and_close ... ok
+test ui::settings::tests::key_table_is_localized ... ok
+test ui::settings::tests::layout_fits_small_and_large_screens ... ok
+test ui::settings::tests::scale_stays_inside_the_allowed_range ... ok
+test ui::settings::tests::volume_percent_and_fraction_roundtrip ... ok
+test ui::shop::tests::row_and_price_text_are_localized ... ok
+test ui::hud::tests::map_name_prefers_the_client_table_then_falls_back_to_title_file_and_unknown ... ok
+test ui::map_names::tests::unknown_maps_fall_back_to_the_server_title_then_the_file_name ... ok
+test ui::shop::tests::rows_are_capped_and_stay_above_the_chat_panel ... ok
+test audio::tests::seven_events_reach_the_injectable_sink ... ok
+test ui::map_names::tests::both_language_packs_cover_the_same_maps ... ok
+test ui::shop::tests::rows_are_hit_testable_and_inside_the_panel ... ok
+test ui::minimap::tests::movement_markers_and_tooltip_cover_gates ... ok
+test ui::shop::tests::scrolling_moves_the_visible_window_and_the_scrollbar_thumb ... ok
+test ui::map_names::tests::titles_without_a_file_name_are_reverse_looked_up ... ok
+test ui::skills::tests::cast_targets_the_nearest_monster_in_front ... ok
+test ui::skills::tests::magic_index_prefers_bound_keys_then_falls_back_by_position ... ok
+test ui::skills::tests::press_magic_key_reports_binding_for_unbound_skills ... ok
+test ui::skills::tests::row_text_shows_name_level_and_cost ... ok
+test ui::skills::tests::skill_rows_are_hit_testable ... ok
+test ui::spellfx::tests::direction_steps_match_the_eight_way_enum ... ok
+test ui::spellfx::tests::durations_split_into_cast_area_and_aura ... ok
+test ui::spellfx::tests::spell_names_are_localized ... ok
+test ui::spellfx::tests::spell_visual_categories_cover_the_round_two_skills ... ok
+test ui::storage::tests::storage_panel_holds_eighty_hit_testable_slots ... ok
+test ui::storage::tests::storage_panel_sits_left_of_the_inventory ... ok
+test ui::target::tests::ground_items_are_hoverable_but_not_targetable ... ok
+test ui::target::tests::hit_testing_prefers_monsters_and_skips_items_and_self ... ok
+test ui::target::tests::only_living_monsters_and_players_are_targetable ... ok
+test ui::tests::approach_attacks_automatically_once_the_target_is_adjacent ... ok
+test ui::tests::clicking_a_dialog_button_returns_its_script_key ... ok
+test ui::bigmap::tests::click_destination_maps_point_and_starts_path_to_door_cell ... ok
+test ui::tests::clicking_a_monster_locks_it_and_double_clicking_attacks_it ... ok
+test ui::tests::clicking_a_shop_row_buys_one_item ... ok
+test ui::tests::clicking_an_inventory_slot_selects_it_without_network_action ... ok
+test ui::tests::clicking_an_npc_in_the_world_opens_the_dialog ... ok
+test ui::tests::clicking_outside_panels_does_nothing ... ok
+test ui::tests::clicking_the_bigmap_panel_does_not_walk ... ok
+test ui::tests::clicking_the_ground_clears_the_locked_target ... ok
+test ui::tests::clicking_the_ground_walks_or_turns_toward_the_target ... ok
+test ui::tests::closing_npc_hides_dialog_and_shop ... ok
+test ui::tests::dead_targets_are_dropped_on_sync ... ok
+test ui::tests::double_clicking_an_inventory_item_uses_it ... ok
+test ui::tests::double_clicking_a_distant_target_walks_and_gives_up_after_three_steps ... ok
+test ui::tests::dragging_between_inventory_slots_swaps_and_equipment_to_inventory_unequips ... ok
+test ui::tests::dragging_inventory_to_equipment_emits_move_item_with_inventory_source ... ok
+test ui::tests::escape_closes_the_bigmap_before_other_panels ... ok
+test ui::tests::new_damage_and_effect_events_are_consumed_once_with_the_injected_clock ... ok
+test ui::tests::empty_dialog_page_closes_everything ... ok
+test ui::map_names::tests::map_titles_come_from_the_language_packs ... ok
+test ui::tests::pressing_a_number_key_casts_and_binds_unbound_magic ... ok
+test ui::tests::right_click_inventory_opens_a_context_menu_and_equip_moves_to_a_slot ... ok
+test ui::tests::shop_scrolls_with_the_wheel_and_clamps_to_the_last_page ... ok
+test ui::tests::selected_slot_is_cleared_when_the_inventory_shrinks ... ok
+test ui::text::tests::fallback_width_is_monotonic_and_line_height_positive ... ok
+test ui::newbie::tests::draws_until_all_steps_done ... ok
+test ui::tooltip::tests::content_lists_type_requirement_stats_durability_and_price ... ok
+test ui::tooltip::tests::tooltip_flips_at_screen_edges_and_stays_inside ... ok
+test ui::tooltip::tests::unknown_items_still_get_a_title ... ok
+test ui::trade::tests::layout_has_two_ten_slot_columns_inside_the_panel ... ok
+test ui::trade::tests::small_windows_still_produce_a_usable_panel ... ok
+test ui::text::tests::centered_text_stays_inside_its_rect ... ok
+test ui::typography::tests::closing_punctuation_never_starts_a_line ... ok
+test ui::text::tests::fallback_draws_ascii_pixels ... ok
+test ui::typography::tests::display_width_counts_cjk_as_two ... ok
+test ui::typography::tests::explicit_newlines_are_kept ... ok
+test ui::typography::tests::truncates_to_max_lines_with_ellipsis ... ok
+test ui::typography::tests::truncation_uses_ascii_fallback_for_narrow_width ... ok
+test ui::typography::tests::wraps_mixed_chinese_and_ascii_by_width ... ok
+test ui::wall_bump::tests::no_protocol_packets_are_needed ... ok
+test ui::wall_bump::tests::single_rejection_shows_once ... ok
+test ui::wall_bump::tests::ten_rejections_within_one_second_show_at_least_two_with_gaps ... ok
+test ui::worldtext::tests::damage_numbers_expire_after_one_second_and_rise_upward ... ok
+test ui::worldtext::tests::events_without_a_known_object_are_skipped ... ok
+test ui::worldtext::tests::miss_and_struck_get_text_and_colors ... ok
+test ui::target::tests::cell_boxes_are_drawn_around_the_cell_and_clipped_at_frame_edges ... ok
+test ui::text::tests::missing_preferred_font_does_not_panic ... ok
+test ui::minimap::tests::draws_map_image_and_player_dot ... ok
+test ui::minimap::tests::missing_assets_draw_placeholder_instead_of_panicking ... ok
+test ui::bigmap::tests::drawing_uses_the_map_image_and_marks_the_player ... ok
+test ui::bigmap::tests::missing_assets_draw_a_placeholder_with_the_map_name ... ok
+
+test result: ok. 259 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running unittests src\main.rs (target\debug\deps\mir_client-47af064245e2c82c.exe)
+
+running 15 tests
+test app::tests::chat_submit_keeps_gm_and_group_prefixes ... ok
+test app::tests::digit_keys_map_to_skill_slots_only_for_one_to_nine ... ok
+test app::tests::direction_keys_cover_wasd_and_arrows ... ok
+test tests::parses_class_and_gender_names ... ok
+test app::tests::screenshots_are_numbered_sequentially ... ok
+test overlay::tests::unknown_glyphs_are_blank ... ok
+test tests::parses_cell_with_spaces ... ok
+test tests::rejects_bad_cell_values ... ok
+test tests::data_dir_detection_keeps_existing_and_falls_back ... ok
+test tests::resolves_map_names_and_paths ... ok
+test overlay::tests::live_overlay_draws_entity_and_chat_markers ... ok
+test overlay::tests::overlay_marks_pixels_and_stays_in_bounds ... ok
+test app::tests::map_changed_records_a_reload_request_and_keeps_the_old_map_when_the_file_is_missing ... ok
+test app::tests::map_changed_reloads_the_terrain_when_the_file_exists ... ok
+test app::tests::blank_scene_loads_dev_tree_libraries_when_game_assets_exist ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+     Running tests\anim.rs (target\debug\deps\anim-c394bfa31667797d.exe)
+
+running 6 tests
+test object_attack_and_struck_and_died_follow_crystal_durations ... ok
+test local_player_actions_are_driven_without_a_server_echo ... ok
+test self_death_packet_runs_dying_then_dead ... ok
+test object_run_and_turn_switch_actions ... ok
+test object_walk_drives_a_walking_animation_for_600_ms ... ok
+test walking_player_and_attacking_monster_render_to_a_non_blank_png ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\bigmap_panel.rs (target\debug\deps\bigmap_panel-2c53768bfcdb20c1.exe)
+
+running 4 tests
+test clicking_the_big_map_panel_does_not_walk_or_lock_targets ... ok
+test zero_big_map_index_still_opens_the_panel_with_a_placeholder ... ok
+test missing_assets_draw_a_placeholder_with_the_map_name ... ok
+test pressing_b_renders_the_big_map_panel_and_escape_closes_it ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+
+     Running tests\chat_wrap.rs (target\debug\deps\chat_wrap-fcfbd023d2cd61c1.exe)
+
+running 1 test
+test chat_wraps_long_mixed_text_and_saves_png ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests\client_fx.rs (target\debug\deps\client_fx-068d63647af73ef6.exe)
+
+running 3 tests
+test spell_flash_is_silent_without_assets ... ok
+test attack_swing_effect_renders_on_the_player ... ok
+test attack_swing_and_spell_flash_render_with_real_assets ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.97s
+
+     Running tests\conquest.rs (target\debug\deps\conquest-b92d5b6faccaf910.exe)
+
+running 7 tests
+test conquest_packets_roundtrip_through_encode_decode ... ok
+test snapshot_tracks_objects_and_destroyed_chat ... ok
+test no_conquest_packets_leave_snapshot_and_ui_unchanged ... ok
+test hud_timer_and_result_banner_expire ... ok
+test archer_range_attack_spawns_a_projectile ... ok
+test gate_open_state_changes_the_rendering ... ok
+test objects_render_with_fallback_blocks_and_save_png ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests\font_portability.rs (target\debug\deps\font_portability-794f9071aaecc51b.exe)
+
+running 1 test
+test missing_cjk_glyphs_are_detected_and_skipped ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\friends_panel.rs (target\debug\deps\friends_panel-5e57b8e2656e7322.exe)
+
+running 7 tests
+test friend_actions_map_to_packets_127_to_130 ... ok
+test friends_layout_fits_small_screen_and_row_at_uses_scroll ... ok
+test guild_allies_packet_roundtrips_and_clears_without_guild ... ok
+test scrolled_click_selects_the_absolute_row_and_removes_that_friend ... ok
+test friend_update_replaces_the_list_and_language_switch_redraws ... ok
+test friends_panel_renders_selects_and_saves_png ... ok
+test guild_ally_tab_fits_small_screen_and_saves_png ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+
+     Running tests\group_panel.rs (target\debug\deps\group_panel-b16f887ba63ec1df.exe)
+
+running 2 tests
+test group_layouts_survive_small_windows ... ok
+test group_panel_shows_members_health_and_sends_group_packets ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+
+     Running tests\item_templates.rs (target\debug\deps\item_templates-6d2a01a9dbc10365.exe)
+
+running 6 tests
+test label_helpers_stay_stable_for_missing_templates ... ok
+test gained_item_chat_keeps_the_unknown_placeholder_captured_at_pickup_time ... ok
+test market_listings_freeze_the_template_at_npc_market_time ... ok
+test shop_rows_freeze_the_template_at_npc_goods_time ... ok
+test missing_templates_degrade_to_the_index_number_and_never_panic ... ok
+test inventory_and_equipment_converge_when_the_template_arrives_late ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests\live_world.rs (target\debug\deps\live_world-9d361f4c4212894b.exe)
+
+running 2 tests
+test live_client_walks_and_renders_a_frame ... ok
+test live_client_walk_run_capture_continuous_frames ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.18s
+
+     Running tests\map_changed.rs (target\debug\deps\map_changed-0eedb08e1598c3c6.exe)
+
+running 3 tests
+test map_changed_before_user_information_still_updates_the_map ... ok
+test empty_file_name_falls_back_to_the_map_index_convention ... ok
+test map_changed_clears_entities_updates_position_and_records_a_reload_request ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\map_interaction.rs (target\debug\deps\map_interaction-92088b491c2bfb0f.exe)
+
+running 5 tests
+test fixture_does_not_need_real_assets ... ok
+test bigmap_click_known_cell_sets_destination ... ok
+test minimap_hover_empty_cell_shows_no_tooltip ... ok
+test minimap_hover_npc_shows_exact_name_and_type ... ok
+test minimap_hover_teleport_shows_exact_name_and_coords ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\market_panel.rs (target\debug\deps\market_panel-ecb2f75e96fa22d4.exe)
+
+running 6 tests
+test market_fail_reason_shows_localized_text ... ok
+test market_layouts_fit_small_and_large_screens ... ok
+test market_panel_pages_with_buttons_and_only_requests_unfetched_pages ... ok
+test market_snapshot_tracks_listings_pages_and_messages ... ok
+test market_panel_search_page_buy_bid_and_consign ... ok
+test market_panel_renders_and_saves_png ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+
+     Running tests\minimap_panel.rs (target\debug\deps\minimap_panel-a2d31ffcc01420f8.exe)
+
+running 4 tests
+test injected_map_information_drives_the_minimap_panel ... ok
+test missing_assets_render_a_placeholder_panel ... ok
+test zero_minimap_index_means_no_image ... ok
+test renders_minimap_panel_to_png ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+     Running tests\mount_wings.rs (target\debug\deps\mount_wings-86751571e82fd8f9.exe)
+
+running 1 test
+test mounted_player_renders_mount_and_wings_to_a_png ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.59s
+
+     Running tests\npc_flow.rs (target\debug\deps\npc_flow-0c5ab3e18838d9a8.exe)
+
+running 8 tests
+test npc_dialog_and_shop_labels_are_bilingual ... ok
+test dialog_without_an_exit_button_still_gets_a_localized_close ... ok
+test the_exit_button_closes_the_dialog_and_the_shop ... ok
+test npc_response_shows_the_original_lines_and_parses_buttons ... ok
+test dialog_buttons_dispatch_their_script_keys_as_call_npc ... ok
+test selling_the_selected_inventory_item_sends_c_sell_item ... ok
+test clicking_a_shelf_row_buys_one_item_with_c_buy_item ... ok
+test npc_goods_packet_fills_the_shelf_with_names_prices_and_currency ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\panels.rs (target\debug\deps\panels-586765239665c610.exe)
+
+running 5 tests
+test layouts_survive_small_windows ... ok
+test quest_panel_renders_progress_and_abandons_the_selected_quest ... ok
+test storage_panel_opens_from_npc_storage_and_moves_items_both_ways ... ok
+test mail_panel_reads_collects_locks_deletes_and_sends ... ok
+test guild_panel_shows_members_storage_buffs_and_notice_actions ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+
+     Running tests\path_and_pickup.rs (target\debug\deps\path_and_pickup-c3860bac94aa1973.exe)
+
+running 6 tests
+test clicking_a_far_item_approaches_then_picks_up ... ok
+test unreachable_ground_falls_back_to_one_step_towards_the_target ... ok
+test path_ticks_do_not_require_server_position_updates ... ok
+test path_running_sends_run_for_two_same_direction_steps ... ok
+test clicking_empty_ground_walks_a_multi_step_path_in_order ... ok
+test hovering_a_ground_item_shows_its_name_and_adjacent_click_picks_it_up ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests\player_looks.rs (target\debug\deps\player_looks-7b5b6d103115299a.exe)
+
+running 1 test
+test equipment_layers_reach_the_snapshot_and_the_frame ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.67s
+
+     Running tests\real_assets.rs (target\debug\deps\real_assets-344774d0e1a222a0.exe)
+
+running 3 tests
+test missing_assets_fall_back_to_placeholder_without_panicking ... ok
+test renders_real_map_with_player_monster_and_npc ... ok
+test player_animation_frames_advance_on_real_sprites ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.95s
+
+     Running tests\remote_motion.rs (target\debug\deps\remote_motion-a21d989f1e804910.exe)
+
+running 11 tests
+test m4_perf_1_50_200_remotes_1000_frames_baseline_vs_new ... ignored, 性能证据手动运行：先跑 85bfc21 baseline，再跑 cargo test --release -p mir-client --test remote_motion -- --ignored m4_perf
+test interruptions_invalid_unknown_and_id_reuse_clear_state ... ok
+test self_static_and_moving_regressions_keep_anchors_and_global_offset ... ok
+test m1_north_south_first_frame_and_600ms_endpoint_use_from_and_advance ... ok
+test same_coordinate_packet_does_not_restart_and_new_step_replaces ... ok
+test m4_state_is_bounded_and_has_no_residue ... ok
+test m3_boundary_0_99_100_300_500_599_600_700ms ... ok
+test sorting_smoke_moving_players_cross_a_standing_entity_once ... ok
+test two_remote_players_are_isolated ... ok
+test m2_delayed_packets_do_not_count_transmission_time_as_action_progress ... ok
+test m3_all_96_direction_action_frame_combinations_match_independent_table ... ok
+
+test result: ok. 10 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\remote_motion_live.rs (target\debug\deps\remote_motion_live-208106679bd4b012.exe)
+
+running 1 test
+test two_clients_observe_remote_walk_run_interpolation ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.95s
+
+     Running tests\round2_panels.rs (target\debug\deps\round2_panels-6aca977667a2330c.exe)
+
+running 27 tests
+test at_prefixed_commands_are_sent_as_plain_chat ... ok
+test credit_balance_updates_from_lose_credit ... ok
+test user_information_restores_quest_inventory ... ok
+test character_select_shows_class_level_and_equipment_summary ... ok
+test login_success_exposes_character_list_for_manual_select ... ok
+test object_hidden_hides_entities_everywhere ... ok
+test quest_items_track_gained_and_deleted_items ... ok
+test server_chat_is_shown_as_sent_and_client_system_chat_is_localized ... ok
+test server_select_defaults_to_localhost_and_can_retry ... ok
+test settings_roundtrip_through_disk_survives_restart ... ok
+test market_tab_switch_clears_selection_and_notice ... ok
+test game_shop_tab_sends_market_search_and_buys_with_credits ... ok
+test settings_panel_is_modal_in_the_ui_state ... ok
+test spell_packets_create_visible_effects ... ok
+test languages_switch_labels_immediately ... ok
+test english_login_error_never_shows_raw_chinese_diagnostics ... ok
+test quest_output_message_is_visible_after_quest_item_gained ... ok
+test time_and_weather_follow_server_packets ... ok
+test chat_panel_renders_server_and_client_text_in_both_languages ... ok
+test pet_mode_cycles_and_prints_localized_chat ... ok
+test quest_panel_shows_quest_items_and_fits_small_screens ... ok
+test auction_mail_and_expiry_messages_render ... ok
+test game_shop_tab_fits_small_and_large_screens ... ok
+test login_screens_render_at_both_sizes ... ok
+test quest_items_strip_scrolls_with_wheel_and_pages ... ok
+test settings_panel_layout_and_clicks ... ok
+test language_switch_redraws_every_open_panel ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.06s
+
+     Running tests\social_panels.rs (target\debug\deps\social_panels-b930391c3c96f562.exe)
+
+running 2 tests
+test group_panel_fits_320x240_and_redraws_in_english ... ok
+test guild_member_page_shows_levels_and_refresh_request ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+     Running tests\sound.rs (target\debug\deps\sound-8bddda1e8e1dd975.exe)
+
+running 7 tests
+test local_commands_push_sound_events ... ok
+test item_type_potion_is_the_drink_trigger ... ok
+test packets_produce_sound_events ... ok
+test throttle_blocks_duplicate_walk_sounds ... ok
+test sound_library_resolves_every_mapped_file_when_assets_exist ... ok
+test real_wav_files_open ... ok
+test no_device_player_is_silent_and_does_not_panic ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests\targeting.rs (target\debug\deps\targeting-d4af80f0f08bf9de.exe)
+
+running 4 tests
+test clicking_a_monster_locks_it_and_double_clicking_an_adjacent_one_attacks ... ok
+test double_clicking_a_distant_monster_walks_up_to_three_steps_then_gives_up ... ok
+test clicking_panels_or_the_minimap_never_walks ... ok
+test hovering_a_monster_hits_it_and_draws_an_overhead_health_bar ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests\trade_panel.rs (target\debug\deps\trade_panel-bdb22beabcba4ab0.exe)
+
+running 2 tests
+test trade_layouts_survive_small_windows ... ok
+test trade_panel_accepts_items_gold_and_confirm ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+
+     Running tests\ui_interaction.rs (target\debug\deps\ui_interaction-ba49e5228a6f56ea.exe)
+
+running 1 test
+test interaction_tooltip_use_drag_damage_and_buffs ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.84s
+
+     Running tests\ui_test.rs (target\debug\deps\ui_test-14f11b4723dea727.exe)
+
+running 1 test
+test headless_ui_renders_all_panels_and_dispatches_clicks ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.99s
+
+     Running unittests src\lib.rs (target\debug\deps\mir_render-9365c12c4f2e7b0c.exe)
+
+running 99 tests
+test animation::tests::attacking_holds_the_last_frame_after_finishing ... ok
+test animation::tests::dead_always_draws_the_corpse_frame ... ok
+test animation::tests::frame_at_starts_at_zero_and_steps_by_interval ... ok
+test animation::tests::human_tables_match_crystal_counts_and_flat_layout ... ok
+test animation::tests::monster_defaults_match_crystal_and_flat_layout ... ok
+test animation::tests::skip_is_padding_at_the_end_of_each_direction ... ok
+test animation::tests::wing_tables_match_crystals_effect_columns ... ok
+test animation::tests::standing_loops_and_never_finishes ... ok
+test animation::tests::walking_returns_to_the_standing_frame_after_600_ms ... ok
+test animation::tests::struck_and_dying_use_crystal_count_and_hold_the_last_frame ... ok
+test animation::tests::monster_frames_use_their_own_offsets ... ok
+test entities::tests::mount_and_wing_blocks_use_their_own_frame_sizes ... ok
+test entities::tests::every_player_layer_uses_the_same_action_frame ... ok
+test entities::tests::player_and_layer_libraries_follow_the_flat_corpus ... ok
+test entities::tests::layer_plan_puts_the_weapon_behind_for_left_facing_directions ... ok
+test frame::tests::additive_blending_saturates ... ok
+test frame::tests::blit_at_origin_uses_source_over ... ok
+test entities::tests::monster_libraries_follow_classic_ten_per_file_grouping ... ok
+test entities::tests::block_start_is_the_first_frame_of_the_appearance ... ok
+test entities::tests::mount_and_wings_add_layers_and_the_mount_hides_the_weapon ... ok
+test entities::tests::npc_libraries_switch_every_hundred_images ... ok
+test frame::tests::clear_fills_every_pixel ... ok
+test entities::tests::weapon_front_matches_crystals_direction_split ... ok
+test frame::tests::fill_rect_always_writes_opaque_pixels ... ok
+test frame::tests::alpha_blending_matches_rounded_source_over ... ok
+test entities::tests::hp_bar_is_clipped_inside_the_frame ... ok
+test frame::tests::blit_clips_negative_coordinates ... ok
+test entities::tests::mount_tables_follow_frames_and_the_flat_horse_layout ... ok
+test entities::tests::entities_are_sorted_by_y_then_x ... ok
+test entities::tests::standing_frames_use_direction_and_animation ... ok
+test frame::tests::distinct_colors_counts_rgb_only ... ok
+test entities::tests::layer_plan_skips_missing_layers ... ok
+test frame::tests::fill_rect_clips_to_the_frame ... ok
+test frame::tests::malformed_image_pixels_are_ignored ... ok
+test frame::tests::scale_to_fit_preserves_aspect_ratio_and_never_upscales ... ok
+test frame::tests::blit_clips_right_and_bottom_edges ... ok
+test geometry::tests::cell_bounds_cover_view_range_and_tall_sprites ... ok
+test geometry::tests::relative_cells_move_by_48_and_32 ... ok
+test geometry::tests::screen_to_cell_inverts_the_object_origin ... ok
+test geometry::tests::tile_and_sprite_anchors_differ_as_crystal ... ok
+test geometry::tests::viewport_offsets_match_crystal ... ok
+test geometry::tests::world_to_screen_uses_cell_origin ... ok
+test frame::tests::blit_offscreen_does_nothing ... ok
+test minimap::tests::empty_scene_reports_no_image ... ok
+test entities::tests::render_at_offset_composes_global_and_entity_pixel_offsets ... ok
+test minimap::tests::missing_directory_degrades_without_panicking ... ok
+test minimap::tests::small_image_does_not_overflow_the_view ... ok
+test pathfind::tests::diagonal_paths_are_cheaper_than_staircases ... ok
+test pathfind::tests::heuristic_matches_crystals_distance ... ok
+test pathfind::tests::diagonal_steps_may_not_cut_corners ... ok
+test pathfind::tests::non_walkable_goal_is_rejected_before_searching ... ok
+test pathfind::tests::starts_and_goals_on_the_same_cell_return_an_empty_path ... ok
+test pathfind::tests::straight_line_is_one_step_per_cell ... ok
+test scene::tests::animation_frame_is_configurable ... ok
+test scene::tests::back_and_middle_libraries_follow_map_version ... ok
+test scene::tests::image_index_skips_zero ... ok
+test pathfind::tests::node_limit_stops_the_search ... ok
+test scene::tests::only_two_by_two_or_cell_sized_are_flat ... ok
+test pathfind::tests::wall_detour_keeps_every_step_walkable ... ok
+test scene::tests::remove_black_all_also_touches_rgb565_mount_and_wing_frames ... ok
+test pathfind::tests::result_is_deterministic ... ok
+test scene::tests::remove_black_only_touches_palette_images ... ok
+test minimap::tests::empty_scene_draws_nothing ... ok
+test pathfind::tests::step_limit_matches_crystal_click_distance ... ok
+test sound::tests::cooldown_is_one_hundred_millis ... ok
+test minimap::tests::big_map_projection_keeps_a_small_image_at_one_to_one_and_centers_it ... ok
+test sound::tests::every_event_has_a_file_and_a_label ... ok
+test sound::tests::fallback_name_matches_sound_manager_formula ... ok
+test sound::tests::male_and_female_sounds_use_different_files ... ok
+test sound::tests::map_music_falls_back_to_the_default_theme ... ok
+test sound::tests::mapping_matches_crystal_sound_list_lines ... ok
+test sound::tests::music_indices_match_the_sound_list_music_sections ... ok
+test sound::tests::spell_sound_follows_crystal_naming ... ok
+test text::tests::clip_intersection_is_empty_when_disjoint ... ok
+test minimap::tests::projection_centers_on_player_like_crystal ... ok
+test scene::tests::render_without_libraries_clears_to_background ... ok
+test text::tests::missing_font_path_returns_an_error ... ok
+test tiles::tests::empty_libraries_are_usable_but_return_nothing ... ok
+test tiles::tests::library_table_matches_crystal_wemade_layout ... ok
+test minimap::tests::big_map_needs_an_image_and_a_non_zero_index ... ok
+test text::tests::pixel_fallback_draws_ascii_and_skips_chinese ... ok
+test tiles::tests::missing_directory_is_reported ... ok
+test minimap::tests::projection_clamps_at_map_edges ... ok
+test minimap::tests::zero_sized_map_has_no_projection ... ok
+test tiles::tests::empty_directory_reports_no_libraries ... ok
+test text::tests::invalid_font_data_returns_an_error ... ok
+test minimap::tests::drawing_puts_map_pixels_and_a_yellow_player_dot ... ok
+test scene::tests::render_updates_viewport_and_world_to_screen ... ok
+test minimap::tests::markers_take_their_crystal_colours ... ok
+test minimap::tests::markers_outside_the_view_are_clipped ... ok
+test text::tests::text_width_is_monotonic_and_zero_for_empty ... ok
+test minimap::tests::big_map_projection_downscales_a_large_image_to_the_view ... ok
+test text::tests::clipping_stops_pixels_outside_the_rect ... ok
+test entities::tests::missing_libraries_draw_colored_placeholders ... ok
+test scene::tests::render_with_entities_draws_placeholders_without_assets ... ok
+test pathfind::tests::unreachable_goal_returns_none ... ok
+test text::tests::draws_ascii_and_chinese_pixels ... ok
+test minimap::tests::drawing_the_big_map_scales_the_image_and_marks_the_player ... ok
+test entities::tests::missing_layer_frames_degrade_to_the_bare_body ... ok
+
+test result: ok. 99 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests\asset_modes.rs (target\debug\deps\asset_modes-fc8a7188b87c4bda.exe)
+
+running 5 tests
+test non_legacy_mode_refuses_original_wzl ... ok
+test dev_layout_is_preferred_and_pixels_match ... ok
+test auto_falls_back_to_packs_before_legacy ... ok
+test release_packs_are_used_when_no_dev_tree ... ok
+test real_game_assets_dev_tree_loads ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+     Running tests\release_load.rs (target\debug\deps\release_load-9c61b0d88d933bf9.exe)
+
+running 2 tests
+test release_packs_load_real_assets_and_compare_with_dev ... ok
+test release_packs_render_map_scene_like_dev ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.02s
+
+   Doc-tests mir_client
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests mir_render
+
+running 3 tests
+test crates\mir-render\src\lib.rs - (line 151) - compile ... ok
+test crates\mir-render\src\scene.rs - scene::MapScene (line 51) - compile ... ok
+test crates\mir-render\src\geometry.rs - geometry (line 18) ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+all doctests ran in 0.72s; merged doctests compilation took 0.65s

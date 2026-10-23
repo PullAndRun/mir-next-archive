@@ -681,7 +681,9 @@ impl AccountStore for PgAccountStore {
             // 与 `save_character_versioned` 共用同一把角色锁：先等旧会话把 logout 的
             // 角色行提交完，再读，避免“立刻重登读到旧档”。
             let lock = self.character_write_lock(character_id).await;
+            tracing::debug!(character_id, "find_character: 等待角色写锁");
             let _guard = lock.lock().await;
+            tracing::debug!(character_id, "find_character: 已拿到角色写锁");
             match mir_store::load_character(&self.pool, character_id).await {
                 Ok(row) if row.account_id == account_id => Ok(Some(from_store_character(row))),
                 Ok(_) | Err(mir_store::StoreError::NotFound(_)) => Ok(None),

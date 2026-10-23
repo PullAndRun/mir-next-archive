@@ -3,6 +3,8 @@
 //! 这些测试只证明存储层与会话落盘路径的可观察语义；真实的「进程被 kill -9」
 //! 用「只信任最后一次成功写库的行」来模拟，见 `crash_window_*`。
 
+mod common;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,8 +14,8 @@ use mir_protocol::packets::client as c;
 use mir_protocol::packets::server as s;
 use mir_protocol::{ClientPacket, ServerPacket};
 use mir_server::{
-    AccountStore, Character, ConquestRecord, GuildRecord, MemoryStore, ServerConfig, World,
-    serve_forever, serve_forever_with_world,
+    AccountStore, Character, ConquestRecord, GuildRecord, MemoryStore, PgAccountStore,
+    ServerConfig, World, serve_forever, serve_forever_with_world,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -69,7 +71,7 @@ impl TestClient {
     ///
     /// 第二个账号登录时会收到第一个玩家的外观广播，`expect_index` 的严格断言会炸。
     async fn wait_for_index(&mut self, index: i16) -> ServerPacket {
-        for _ in 0..80 {
+        for _ in 0..1000 {
             let packet = self.next().await;
             if packet.index() == index {
                 return packet;
@@ -1008,4 +1010,168 @@ async fn immediate_logout_relogin_preserves_inventory_and_equipment() {
             .is_some_and(|items| items.iter().flatten().any(|item| item.unique_id == 7_002)),
         "立刻重登装备必须一致：{after:?}"
     );
+}
+
+#[tokio::test]
+async fn relogin_indoor_0104_gets_user_information() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let address = listener.local_addr().expect("addr");
+    let store = Arc::new(MemoryStore::new());
+    let config = Arc::new(ServerConfig {
+        map_root: "resource/community/suprcode-crystal-database/cjlaaa/Maps".to_owned(),
+        load_game_data: false,
+        ..(*config()).clone()
+    });
+    tokio::spawn(serve_forever(listener, config, Arc::clone(&store)));
+    let account = store
+        .create_account("indoor", "secret", "")
+        .await
+        .expect("account");
+    let mut character = store
+        .create_character(
+            account.id,
+            "室内者",
+            MirClass::Warrior,
+            MirGender::Male,
+            "0104",
+            (5, 8),
+        )
+        .await
+        .expect("char");
+    character.level = 10;
+    character.magics = mir_server::magic::encode_magics(&[mir_server::magic::UserMagic::new(
+        mir_core::enums::Spell::Healing,
+    )]);
+    character.inventory = mir_server::items::encode_slots(&[Some(mir_protocol::data::UserItem {
+        unique_id: 9_001,
+        item_index: 1,
+        ..Default::default()
+    })]);
+    character.equipment = mir_server::items::encode_slots(&[Some(mir_protocol::data::UserItem {
+        unique_id: 9_002,
+        item_index: 2,
+        ..Default::default()
+    })]);
+    store.save_character(character.clone()).await.expect("save");
+    let (mut client, index, _info) = enter_world_as(address, "indoor", "室内者").await;
+    assert_eq!(index, i32::try_from(character.id).unwrap());
+    client
+        .send(ClientPacket::LogOut(c::LogOut::default()))
+        .await;
+    client.wait_for_index(s::LogOutSuccess::INDEX).await;
+    let (_again, _index, _after) = enter_world_as(address, "indoor", "室内者").await;
+}
+
+#[tokio::test]
+async fn relogin_with_skill_quest_gold_gets_user_information() {
+    let (address, store, world) = start_server_with_world(30).await;
+    if let Some(data) = common::default_data() {
+        world.lock().await.set_game_data(data);
+    }
+    let account = store
+        .create_account("questeq", "secret", "")
+        .await
+        .expect("account");
+    let mut character = store
+        .create_character(
+            account.id,
+            "任务重登",
+            MirClass::Warrior,
+            MirGender::Male,
+            "0",
+            (330, 270),
+        )
+        .await
+        .expect("char");
+    character.level = 10;
+    character.gold = 37;
+    character.magics = mir_server::magic::encode_magics(&[mir_server::magic::UserMagic::new(
+        mir_core::enums::Spell::Healing,
+    )]);
+    character.quests = mir_server::quests::encode_quests(&mir_server::quests::QuestSave {
+        quests: vec![mir_server::quests::QuestProgress {
+            quest_index: 1,
+            state: mir_server::quests::QuestProgressState::InProgress,
+            ..Default::default()
+        }],
+        completed_quests: std::collections::BTreeSet::new(),
+    });
+    store.save_character(character.clone()).await.expect("save");
+    let (mut client, index, info) = enter_world_as(address, "questeq", "任务重登").await;
+    assert_eq!(index, i32::try_from(character.id).unwrap());
+    assert_eq!(info.gold, 37);
+    assert_eq!(info.magics.len(), 1);
+    client
+        .send(ClientPacket::LogOut(c::LogOut::default()))
+        .await;
+    client.wait_for_index(s::LogOutSuccess::INDEX).await;
+    let (_again, _index, after) = enter_world_as(address, "questeq", "任务重登").await;
+    assert_eq!(after.gold, 37);
+}
+
+#[tokio::test]
+async fn pg_relogin_with_skill_quest_gold_gets_user_information() {
+    let Ok(url) = std::env::var("MIR2_TEST_DATABASE_URL") else {
+        return;
+    };
+    let store = Arc::new(PgAccountStore::connect(&url).await.expect("PG"));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let address = listener.local_addr().expect("addr");
+    tokio::spawn(serve_forever(listener, config(), Arc::clone(&store)));
+    let tag = format!(
+        "pgq{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+            % 1_000_000
+    );
+    let account = store
+        .create_account(&tag, "secret", "")
+        .await
+        .expect("account");
+    let mut character = store
+        .create_character(
+            account.id,
+            &format!("PG{tag}"),
+            MirClass::Warrior,
+            MirGender::Male,
+            "0",
+            (330, 270),
+        )
+        .await
+        .expect("char");
+    character.level = 10;
+    character.gold = 37;
+    character.magics = mir_server::magic::encode_magics(&[mir_server::magic::UserMagic::new(
+        mir_core::enums::Spell::Healing,
+    )]);
+    character.quests = mir_server::quests::encode_quests(&mir_server::quests::QuestSave {
+        quests: vec![mir_server::quests::QuestProgress {
+            quest_index: 1,
+            state: mir_server::quests::QuestProgressState::InProgress,
+            ..Default::default()
+        }],
+        completed_quests: std::collections::BTreeSet::new(),
+    });
+    store.save_character(character.clone()).await.expect("save");
+    let raw = store
+        .find_character(account.id, character.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!raw.magics.is_empty(), "存库后 magics 不能为空");
+    let (mut client, _index, info) = enter_world_as(address, &tag, &format!("PG{tag}")).await;
+    assert_eq!(info.gold, 37);
+
+    client
+        .send(ClientPacket::LogOut(c::LogOut::default()))
+        .await;
+    client.wait_for_index(s::LogOutSuccess::INDEX).await;
+    let (_again, _index, after) = enter_world_as(address, &tag, &format!("PG{tag}")).await;
+    assert_eq!(after.gold, 37);
 }

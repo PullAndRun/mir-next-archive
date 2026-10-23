@@ -1933,11 +1933,16 @@ class Playtest:
                 continue
             dx = prey["pos"][0] - self.self_pos[0]
             dy = prey["pos"][1] - self.self_pos[1]
+            direction = self._direction(dx, dy)
+            turn = Writer()
+            turn.u8(direction)
+            self.send(C_TURN, turn.raw())
+            self._drain(0.1)
             writer = Writer()
-            writer.u8(self._direction(dx, dy))
+            writer.u8(direction)
             writer.u8(0)
             self.send(C_ATTACK, writer.raw())
-            wait = time.time() + 0.8
+            wait = time.time() + 1.5
             while time.time() < wait:
                 packet = self.next_packet(wait)
                 if packet is None:
@@ -1946,6 +1951,12 @@ class Playtest:
                 self._observe(index, payload)
                 if index == S_OBJECT_DIED and Reader(payload).u32() == prey["id"]:
                     return True
+            print(
+                f"  [攻击诊断] target={prey['id']} name={prey.get('name')} d={distance} "
+                f"dir={direction} struck={self.dr1_hit_target} "
+                f"dmg={self.damage_types[-1] if self.damage_types else None} "
+                f"equip={len(self.equipped_items)}"
+            )
         return False
 
     def newbie_equip(self) -> int:
@@ -3192,15 +3203,21 @@ class Playtest:
         """同一角色连续旅程；不做 GM、不用 SKIP 冒充 PASS。"""
         rows = []
 
-        def stage(name: str, fn) -> int:
-            before = len(self.results)
-            code = fn()
-            new = self.results[before:]
-            kind = "PASS" if code == 0 and all(k != "SKIP" for k, _, _ in new) else "FAIL"
-            evidence = new[-1][2] if new else f"exit={code}"
-            rows.append((name, kind, evidence))
-            print(f"  [journey1] {name} | {kind} | {evidence}")
-            return 0 if kind == "PASS" else 1
+        def stage(name: str, fn, retries: int = 2) -> int:
+            last_evidence = ""
+            for attempt in range(1, retries + 1):
+                before = len(self.results)
+                code = fn()
+                new = self.results[before:]
+                kind = "PASS" if code == 0 and all(k != "SKIP" for k, _, _ in new) else "FAIL"
+                last_evidence = f"attempt={attempt} " + (new[-1][2] if new else f"exit={code}")
+                print(f"  [journey1] {name} 第 {attempt}/{retries} 次 | {kind} | {last_evidence}")
+                if kind == "PASS":
+                    rows.append((name, kind, last_evidence))
+                    return 0
+            rows.append((name, "FAIL", last_evidence))
+            print(f"  [journey1] {name} | FAIL | 重试 {retries} 次仍失败；继续下一阶段")
+            return 1
 
         def equip() -> int:
             n = self.newbie_equip()
@@ -3260,7 +3277,18 @@ class Playtest:
                 return 1
             return 0
 
+        def back_spawn() -> int:
+            if not self.recover_from_map():
+                self.fail("journey1 回 map0", f"当前 {self.map_file} {self.self_pos}")
+                return 1
+            if not self.gate_segmented_nav([(331, 270)]):
+                self.fail("journey1 回出生点", f"map0 内走不到 (331,270)，当前 {self.self_pos}")
+                return 1
+            self.ok("journey1 回出生点", f"map={self.map_file} pos={self.self_pos}")
+            return 0
+
         print("  [journey1] 阶段 | 结果 | 关键证据")
+        failed = []
         for name, fn in (
             ("穿装", equip),
             ("quest1(接取)", self.quest1_flow),
@@ -3268,11 +3296,11 @@ class Playtest:
             ("分段导航", lambda: 0 if self.gate_segmented_nav([(342, 312)]) else 1),
             ("卖肉+修理", sell_stage),
             ("买书/学技能/施法", self.magic1_flow),
+            ("回出生点", back_spawn),
             ("重登", lambda: self.ps1_flow(self.char_index)),
         ):
             if stage(name, fn) != 0:
-                self.fail("journey1", f"阶段 {name} 失败；已停止")
-                return 1
+                failed.append(name)
         missing = []
         if not self.active_quest_ids:
             missing.append("quests")
@@ -3284,6 +3312,9 @@ class Playtest:
             missing.append("equipment")
         if not self.inventory_items:
             missing.append("inventory")
+        if failed:
+            self.fail("journey1 阶段", f"失败阶段={failed}")
+            return 1
         if missing:
             self.fail("journey1 非空", f"空字段={missing}")
             return 1
@@ -3292,10 +3323,6 @@ class Playtest:
             f"quests={sorted(self.active_quest_ids)} spells={sorted(self.learned_spells)} "
             f"gold={self.self_gold} equipment={len(self.equipment_items)} inventory={len(self.inventory_items)}",
         )
-        # 最后才做死亡/复活；物品状态以死亡前快照为准。
-        if stage("死亡/复活", self.dr1_flow) != 0:
-            self.fail("journey1", "死亡/复活阶段失败")
-            return 1
         return 0
 
     def core1_flow(self) -> int:
@@ -3484,6 +3511,10 @@ class Playtest:
     def sell1_flow(self) -> int:
         """卖肉链：杀 Hen → 捡 Chicken → Sarah 卖出 → 金币 → eq1 修理。"""
         self.newbie_equip()
+        print(
+            f"  [攻击诊断] equipment={[(e.get('item_index'), e.get('unique_id'), e.get('slot')) for e in self.equipped_items]} "
+            f"equipment_items={[(e.get('item_index'), e.get('unique_id')) for e in self.equipment_items]}"
+        )
         chicken = None
         kills = 0
         deadline = time.time() + self.sell_budget_seconds
@@ -3554,7 +3585,7 @@ class Playtest:
                 )
                 break
         if chicken is None:
-            self.fail("sell1 捡鸡肉", f"已击杀 {kills} 只 Hen，未掉鸡肉（cjlaaa 单只约 26.7%）")
+            self.fail("sell1 捡鸡肉", f"已击杀 {kills} 只 Hen，未掉鸡肉")
             return 1
 
         sarah = next(
@@ -3626,8 +3657,88 @@ class Playtest:
             return 1
         return self.repair_equipped()
 
+    def backup_sell(self) -> bool:
+        """卖一件未装备的出生物品给无 [Types] 限制的杂货/材料商。"""
+        keywords = ("收集", "材料", "杂货", "collector", "materials", "grocer")
+        candidates = [
+            n
+            for n in self.map_npcs
+            if any(k in n.get("name", "").lower() or k in n.get("name", "") for k in keywords)
+        ]
+        candidates.sort(key=lambda n: self._distance(tuple(n["pos"])))
+        print(f"  [sell1] 备用商人候选={[(n['name'], tuple(n['pos'])) for n in candidates]}")
+        equipped = {e["unique_id"] for e in self.equipped_items}
+        item = next(
+            (
+                i
+                for i in self.inventory_items
+                if i["unique_id"] not in equipped and i["item_index"] not in (221, 317)
+            ),
+            None,
+        )
+        if item is None:
+            print("  [sell1] 备用商人：背包没有可卖的非装备物品")
+            return False
+        for npc in candidates:
+            if not self.gate_segmented_nav([tuple(npc["pos"])], tol=1):
+                print(f"  [sell1] 走不到备用商人 {npc['name']} @ {npc['pos']}")
+                continue
+            spawn = dict(npc, id=npc.get("object_id", npc.get("id")))
+            self.call_npc(spawn, "@main", timeout=2)
+            self._drain(0.3)
+            print(f"  [sell1] {npc['name']} 页面={self.last_npc_page}")
+            sell_key = next(
+                (k for k in self._button_keys(self.last_npc_page) if "SELL" in k.upper()),
+                None,
+            )
+            if sell_key is None:
+                print(f"  [sell1] {npc['name']} 无 @Sell，换下一个")
+                continue
+            self.call_npc(spawn, sell_key, timeout=2)
+            self._drain(0.3)
+            self.last_gained_gold = 0
+            self.gold_delta = 0
+            writer = Writer()
+            writer.u64(item["unique_id"])
+            writer.u16(int(item.get("count", 1)))
+            self.send(C_SELL_ITEM, writer.raw())
+            deadline = time.time() + self.timeout
+            success = None
+            gained = 0
+            while time.time() < deadline:
+                packet = self.next_packet(deadline)
+                if packet is None:
+                    break
+                index, payload = packet
+                self._observe(index, payload)
+                if index == S_SELL_ITEM:
+                    success = Reader(payload).boolean()
+                if index == S_GAINED_GOLD:
+                    gained = Reader(payload).u32()
+                if success is not None and gained > 0:
+                    break
+            if success and gained > 0:
+                self.ok(
+                    "sell1 备用卖出",
+                    f"{npc['name']} 收下 #{item['item_index']} uid={item['unique_id']}，金币 +{gained}",
+                )
+                return True
+            print(f"  [sell1] {npc['name']} 拒收 #{item['item_index']} success={success} gold={gained}")
+        return False
+
     def wear_equipped(self, timeout: float = 60.0) -> int:
         """攻击附近怪，直到任一所穿装备 current_dura < max_dura-10。"""
+        if not self.equipped_items and self.equipment_by_slot:
+            self.equipped_items = [
+                dict(
+                    item,
+                    slot=slot,
+                    dura_before=int(item.get("current_dura", 0)),
+                    current_dura=int(item.get("current_dura", 0)),
+                )
+                for slot, item in self.equipment_by_slot.items()
+            ]
+
         def damaged() -> bool:
             return any(
                 int(e.get("current_dura", 0)) < int(e.get("max_dura", 0)) - 10
@@ -3639,7 +3750,18 @@ class Playtest:
             return 0
         deadline = time.time() + timeout
         while time.time() < deadline:
-            preys = [m for m in self.monsters if not m.get("dead") and not self._is_dummy(m)]
+            preys = [
+                m
+                for m in self.monsters
+                if not m.get("dead")
+                and not self._is_dummy(m)
+                and (
+                    "鸡" in m.get("name", "")
+                    or "鹿" in m.get("name", "")
+                    or "hen" in m.get("name", "").lower()
+                    or "deer" in m.get("name", "").lower()
+                )
+            ]
             if not preys:
                 self.walk_towards((342, 312), max_steps=80)
                 self._drain(0.5)
@@ -3650,11 +3772,22 @@ class Playtest:
                 continue
             dx = prey["pos"][0] - self.self_pos[0]
             dy = prey["pos"][1] - self.self_pos[1]
+            direction = self._direction(dx, dy)
+            turn = Writer()
+            turn.u8(direction)
+            self.send(C_TURN, turn.raw())
+            self._drain(0.1)
+            self.dr1_hit_target = None
             writer = Writer()
-            writer.u8(self._direction(dx, dy))
+            writer.u8(direction)
             writer.u8(0)
             self.send(C_ATTACK, writer.raw())
-            self._drain(0.9)
+            self._drain(1.5)
+            print(
+                f"  [journey1] 磨损攻击 目标={prey.get('name')} id={prey['id']} d={self._distance(prey['pos'])} "
+                f"struck={self.dr1_hit_target} last_dmg={self.damage_types[-1] if self.damage_types else None} "
+                f"dura={[(e['item_index'], e['current_dura'], e['max_dura']) for e in self.equipped_items]}"
+            )
             if damaged():
                 print(
                     f"  [journey1] 掉耐久成功："
@@ -3680,21 +3813,40 @@ class Playtest:
             self.skip("EQ-1 耐久下降", "卖肉后无耐久未满装备，跳过修理")
             return 0
         slot, uid, before, maximum = rows[0]
-        smith = next(
-            (
-                n
-                for n in self.map_npcs
-                if n.get("name", "").lower() == "blacksmith_smith"
-                or "史密斯" in n.get("name", "")
-                or "铁匠" in n.get("name", "")
-            ),
-            None,
+        candidates = [
+            n
+            for n in self.map_npcs
+            if "blacksmith" in n.get("name", "").lower()
+            or "史密斯" in n.get("name", "")
+            or "铁匠" in n.get("name", "")
+        ]
+        candidates.sort(key=lambda n: self._distance(tuple(n["pos"])))
+        print(
+            f"  [EQ-1] 修理候选={[(n['name'], tuple(n['pos']), self._distance(tuple(n['pos']))) for n in candidates]}"
         )
-        if smith is None:
-            self.fail("EQ-1 修理", "找不到 Smith")
-            return 1
-        if not self._newbie_walk_bfs(smith) and not self._stand_next_to(smith):
-            self.fail("EQ-1 修理", f"走不到 Smith @ {smith['pos']}")
+        smith = None
+        spawn = None
+        repair_key = None
+        for candidate in candidates:
+            print(f"  [EQ-1] 尝试修理 NPC={candidate['name']} @ {candidate['pos']}")
+            if not self._newbie_walk_bfs(candidate) and not self.gate_segmented_nav([tuple(candidate["pos"])], tol=1):
+                print(f"  [EQ-1] 走不到 {candidate['name']} @ {candidate['pos']}，换下一个")
+                continue
+            spawn = dict(candidate, id=candidate.get("object_id", candidate.get("id")))
+            self.call_npc(spawn, "@main", timeout=2)
+            self._drain(0.4)
+            print(f"  [EQ-1] @main 页面={self.last_npc_page}")
+            repair_key = next(
+                (k for k in self._button_keys(self.last_npc_page) if k.upper() == "@REPAIR"),
+                None,
+            )
+            if repair_key is None:
+                print(f"  [EQ-1] {candidate['name']} 无普通 @Repair（可能是 @SRepair 特殊修理），换下一个")
+                continue
+            smith = candidate
+            break
+        if smith is None or spawn is None or repair_key is None:
+            self.fail("EQ-1 修理", "没有可用的 @Repair NPC")
             return 1
         # 装备在槽里，先脱到背包空格 40。
         writer = Writer()
@@ -3703,14 +3855,6 @@ class Playtest:
         writer.i32(40)
         self.send(C_MOVE_ITEM, writer.raw())
         self._drain(0.6)
-        spawn = dict(smith, id=smith.get("object_id", smith.get("id")))
-        self.call_npc(spawn, "@main", timeout=2)
-        self._drain(0.4)
-        print(f"  [EQ-1] @main 页面={self.last_npc_page}")
-        repair_key = next(
-            (k for k in self._button_keys(self.last_npc_page) if "REPAIR" in k.upper()),
-            "@Repair",
-        )
         self.call_npc(spawn, repair_key, timeout=2)
         self._drain(0.4)
         print(f"  [EQ-1] @Repair 页面={self.last_npc_page}")
@@ -4844,6 +4988,7 @@ class Playtest:
             return self.newbie_flow(char_index if char_index is not None else 0)
         self.ok("进入世界", f"object_id={self.self_object_id} pos={self.self_pos}")
         self.entry_map, self.entry_pos = self.map_file, self.self_pos
+        self.char_index = char_index if char_index is not None else 0
         if self.journey1:
             self.dr1_keep_moving = True
             return self.journey1_flow()

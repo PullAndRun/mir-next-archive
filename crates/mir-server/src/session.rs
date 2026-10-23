@@ -886,6 +886,7 @@ impl<S: AccountStore> Session<S> {
             .find_character(account.id, i64::from(character_index))
             .await?
         else {
+            tracing::warn!(session = self.id, character_index, "start_game: 角色不存在");
             self.send(ServerPacket::StartGame(StartGame {
                 result: 2,
                 resolution: 0,
@@ -1160,35 +1161,27 @@ impl<S: AccountStore> Session<S> {
         // 组队开关的当前值：Crystal 在登录流程里会补一条 `S.SwitchGroup { AllowGroup }`
         // （`PlayerObject.cs:1219`），客户端组队窗口据此点亮开关。
         let allow_group = world.allow_group_of(object_id).unwrap_or(true);
-        // 任务下发（Crystal `GetQuestInfo` / `GetCompletedQuests` / 逐条 `ChangeQuest{Add}`，
-        // `PlayerObject.cs:1185-1212`）。这些包要排在 `UserInformation` 之后，
-        // 所以先收集，等会话自己的包发完再发。
-        let quest_packets = world.quest_login_packets(object_id);
+        // 物品模板与任务包都在 `S.UserInformation` **之后**再取，避免任务/模板构造
+        // 阻塞登录主包（实服重登卡死的现场：active quest + 已学技能）。
         // Crystal 登录序列里 `GetFriends()` 紧跟任务信息（`PlayerObject.cs:1191`）。
         world.send_friends(object_id);
-        // 物品模板：Crystal `StartGame` 后先发 `S.NewItemInfo`（`PlayerObject.cs` 的
-        // `CheckItemInfo` 循环），否则客户端只有 `UserItem.item_index`，背包/装备显示编号。
-        let item_info_packets = world.item_info_packets_for_indices(
-            object_id,
-            inventory
-                .iter()
-                .flatten()
-                .chain(equipment.iter().flatten())
-                .map(|item| item.item_index),
-        );
         drop(world);
 
+        tracing::debug!(
+            session = self.id,
+            character = character.id,
+            map = %character.map,
+            "start_game: world.enter 完成，准备下发登录包"
+        );
         self.object_id = Some(object_id);
         self.stage = Stage::Game;
 
-        // Crystal 的进世界序列：StartGame{Result=4} → NewItemInfo → MapInformation → UserInformation。
+        // 进世界主链：StartGame{Result=4} → MapInformation → UserInformation；
+        // NewItemInfo/任务包随后补发，保证重登主包不受任务/模板构造影响。
         self.send(ServerPacket::StartGame(StartGame {
             result: 4,
             resolution: self.config.allowed_resolution,
         }));
-        for packet in item_info_packets {
-            self.send(packet);
-        }
         self.send(ServerPacket::MapInformation(MapInformation {
             map_index: map_index.unwrap_or(0),
             file_name: character.map.clone(),
@@ -1224,6 +1217,26 @@ impl<S: AccountStore> Session<S> {
             &client_magics,
             quest_inventory.slots(),
         )));
+        tracing::debug!(
+            session = self.id,
+            character = character.id,
+            "start_game: S.UserInformation 已入队"
+        );
+        // 物品模板放在 UserInformation 之后发；登录主包不能被模板查询拖住。
+        let item_info_packets = {
+            let mut world = self.world.lock().await;
+            world.item_info_packets_for_indices(
+                object_id,
+                inventory
+                    .iter()
+                    .flatten()
+                    .chain(equipment.iter().flatten())
+                    .map(|item| item.item_index),
+            )
+        };
+        for packet in item_info_packets {
+            self.send(packet);
+        }
         // `Enqueue(new S.ChangeAMode { Mode = AMode });`（`PlayerObject.cs:1217`）：
         // 排在 `TimeOfDay` 之后、`SwitchGroup` 之前；本作没有 `TimeOfDay`，所以直接紧跟
         // `UserInformation`。
@@ -1246,6 +1259,10 @@ impl<S: AccountStore> Session<S> {
         }
         // 任务表（`PlayerObject.cs:1185-1212`）：全套 `S.NewQuestInfo` → `S.CompleteQuest` →
         // 每条已接任务的 `S.ChangeQuest{Add}`。
+        let quest_packets = {
+            let world = self.world.lock().await;
+            world.quest_login_packets(object_id)
+        };
         for packet in quest_packets {
             self.send(packet);
         }

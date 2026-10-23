@@ -3749,11 +3749,14 @@ class Playtest:
             print(f"  [journey1] 装备已有耐久损耗：{[(e['item_index'], e['current_dura'], e['max_dura']) for e in self.equipped_items]}")
             return 0
         deadline = time.time() + timeout
+        bad_ids: set[int] = set()
+        no_struck = 0
         while time.time() < deadline:
             preys = [
                 m
                 for m in self.monsters
                 if not m.get("dead")
+                and m["id"] not in bad_ids
                 and not self._is_dummy(m)
                 and (
                     "鸡" in m.get("name", "")
@@ -3794,6 +3797,14 @@ class Playtest:
                     f"{[(e['item_index'], e['current_dura'], e['max_dura']) for e in self.equipped_items]}"
                 )
                 return 0
+            if self.dr1_hit_target == prey["id"]:
+                no_struck = 0
+            else:
+                no_struck += 1
+                if no_struck >= 5:
+                    bad_ids.add(prey["id"])
+                    print(f"  [journey1] 连续 5 次未命中，换目标 id={prey['id']}")
+                    no_struck = 0
         self.fail(
             "journey1 耐久损耗",
             f"60s 攻击后仍无装备掉耐久：{[(e['item_index'], e['current_dura'], e['max_dura']) for e in self.equipped_items]}",

@@ -765,13 +765,28 @@ impl World {
     /// 本作没有 `SpecialItemMode`（特戒系统未实现），所以恒走扣耐久分支。
     pub fn damage_weapon(&mut self, player_id: u32) -> Option<DurabilityLoss> {
         let amount = self.rng.next_bounded(4) + 1; // `Random.Next(4) + 1` → 1..=4
-        let item = self
+        let weapon = self
             .players
-            .get(&player_id)?
-            .equipment
-            .get(EQUIPMENT_SLOT_WEAPON)?
-            .clone()?;
-        self.apply_durability_loss(player_id, EQUIPMENT_SLOT_WEAPON, &item, amount as u16)
+            .get(&player_id)
+            .and_then(|player| player.equipment.get(EQUIPMENT_SLOT_WEAPON))
+            .and_then(Clone::clone);
+        let before = weapon.as_ref().map_or(0, |item| item.current_dura);
+        let loss = weapon.clone().and_then(|item| {
+            self.apply_durability_loss(player_id, EQUIPMENT_SLOT_WEAPON, &item, amount as u16)
+        });
+        let after = loss.as_ref().map_or(before, |loss| loss.current_dura);
+        tracing::debug!(
+            player = player_id,
+            slot0_uid = weapon.as_ref().map_or(0, |item| item.unique_id),
+            item_index = weapon.as_ref().map_or(0, |item| item.item_index),
+            current_dura = before,
+            max_dura = weapon.as_ref().map_or(0, |item| item.max_dura),
+            loss = before.saturating_sub(after),
+            weapon_found = weapon.is_some(),
+            applied = loss.is_some(),
+            "damage_weapon"
+        );
+        loss
     }
 
     /// 受击后的**护甲/其它装备**磨损：Crystal `HumanObject.DamageDura()`（`HumanObject.cs:7837-7842`）。

@@ -2854,6 +2854,12 @@ impl World {
         // 本作的 `resolve_player_attack` 把「护甲 >= 伤害」也归为 miss，
         // 因此这里天然满足「miss/被护甲挡不磨」。
         if self.players.contains_key(&hit.attacker_id) {
+            tracing::debug!(
+                attacker = hit.attacker_id,
+                target = hit.target_id,
+                damage = hit.damage,
+                "命中磨损入口"
+            );
             self.damage_weapon(hit.attacker_id);
         }
         // Crystal `MonsterObject.Attacked` 在命中后立即 `DamageDura()`（`:3358` 的

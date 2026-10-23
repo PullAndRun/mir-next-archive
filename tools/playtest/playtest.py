@@ -114,6 +114,7 @@ S_USE_ITEM = 52
 S_GAINED_GOLD = 67
 S_LOSE_GOLD = 68
 S_CHANGE_QUEST = 201
+S_NEW_QUEST_INFO = 204
 S_COMPLETE_QUEST = 202
 S_MAP_CHANGED = 98
 S_NPC_GOODS = 102
@@ -331,6 +332,7 @@ class Playtest:
         self.core1 = False
         self.magic1 = False
         self.journey1 = False
+        self.attack_probe = False
         self.quest_no_deliver = False
         self.active_quest_ids: set[int] = set()
         self.sell_kill_target = 20
@@ -714,7 +716,17 @@ class Playtest:
                 r = Reader(payload)
                 count = r.i32()
                 self.completed_quests = {r.i32() for _ in range(max(0, min(count, 256)))}
+                self.active_quest_ids -= self.completed_quests
                 self.completed_quests_seen = True
+            elif index == S_CHANGE_QUEST:
+                r = Reader(payload)
+                quest_id = r.i32()
+                if quest_id > 0 and quest_id not in self.completed_quests:
+                    self.active_quest_ids.add(quest_id)
+                    print(f"  [任务] 包 {index} 活动任务 +{quest_id} active={sorted(self.active_quest_ids)}")
+            elif index == S_NEW_QUEST_INFO:
+                # 204 是任务定义下发（包含全部可接任务），不能当作 active。
+                pass
             elif index == S_CHAT:
                 r = Reader(payload)
                 message = r.string()
@@ -3101,7 +3113,10 @@ class Playtest:
     # ---------------- 主流程 ----------------
     def magic1_flow(self) -> int:
         """道士治愈术：0104 买 1016 → UseItem → S.NewMagic{61,治愈术} → C.Magic → MP 13→10。"""
-        if not self.newbie_go_bookshop():
+        if self.map_file == "0103" and not self.recover_from_map():
+            self.fail("magic1 回 map0", f"0103 回程失败，pos={self.self_pos}")
+            return 1
+        if self.map_file != "0104" and not self.newbie_go_bookshop():
             return 1
         book_npcs = [
             npc
@@ -3199,6 +3214,58 @@ class Playtest:
             return 1
         return 0
 
+    def attack_probe_flow(self) -> int:
+        """短测：穿装→走到鸡旁→攻击 15 次，打印 Struck/伤害/耐久，不跑 journey。"""
+        self.newbie_equip()
+        print(
+            f"  [probe] equipment={[(e.get('item_index'), e.get('unique_id')) for e in self.equipped_items]}"
+        )
+        attacks = 0
+        deadline = time.time() + 180
+        while attacks < 15 and time.time() < deadline:
+            preys = [
+                m
+                for m in self.monsters
+                if not m.get("dead")
+                and not self._is_dummy(m)
+                and (
+                    "鸡" in m.get("name", "")
+                    or "hen" in m.get("name", "").lower()
+                    or "鹿" in m.get("name", "")
+                    or "deer" in m.get("name", "").lower()
+                )
+            ]
+            if not preys:
+                self.walk_towards((342, 312), max_steps=120)
+                self._drain(0.5)
+                continue
+            prey = min(preys, key=lambda m: self._distance(m["pos"]))
+            if self._distance(prey["pos"]) > 1:
+                self.walk_towards(prey["pos"], max_steps=40)
+                continue
+            dx = prey["pos"][0] - self.self_pos[0]
+            dy = prey["pos"][1] - self.self_pos[1]
+            direction = self._direction(dx, dy)
+            turn = Writer()
+            turn.u8(direction)
+            self.send(C_TURN, turn.raw())
+            self._drain(0.1)
+            self.dr1_hit_target = None
+            writer = Writer()
+            writer.u8(direction)
+            writer.u8(0)
+            self.send(C_ATTACK, writer.raw())
+            self._drain(1.5)
+            attacks += 1
+            print(
+                f"  [probe] attack={attacks} target={prey['id']} name={prey.get('name')} "
+                f"d={self._distance(prey['pos'])} dir={direction} struck={self.dr1_hit_target} "
+                f"dmg={self.damage_types[-1] if self.damage_types else None} "
+                f"dura={[(e['item_index'], e.get('current_dura'), e.get('max_dura')) for e in self.equipped_items]}"
+            )
+        print(f"  [probe] done attacks={attacks}")
+        return 0
+
     def journey1_flow(self) -> int:
         """同一角色连续旅程；不做 GM、不用 SKIP 冒充 PASS。"""
         rows = []
@@ -3213,7 +3280,8 @@ class Playtest:
                 last_evidence = f"attempt={attempt} " + (new[-1][2] if new else f"exit={code}")
                 print(f"  [journey1] {name} 第 {attempt}/{retries} 次 | {kind} | {last_evidence}")
                 if kind == "PASS":
-                    rows.append((name, kind, last_evidence))
+                    label = "PASS" if attempt == 1 else f"PASS(重试{attempt-1})"
+                    rows.append((name, label, last_evidence))
                     return 0
             rows.append((name, "FAIL", last_evidence))
             print(f"  [journey1] {name} | FAIL | 重试 {retries} 次仍失败；继续下一阶段")
@@ -3239,17 +3307,17 @@ class Playtest:
             return self.sell1_flow()
 
         def sell_stage() -> int:
-            self.sell_kill_target = 15
-            self.sell_budget_seconds = 600
+            self.sell_kill_target = 20
+            self.sell_budget_seconds = 900
             code = self.sell1_flow()
             if code == 0:
                 return 0
-            print("  [journey1] 第一轮 15 杀 0 肉，重试 10 杀")
+            print("  [journey1] 第一轮 20 杀 0 肉，重试 10 杀")
             self.sell_kill_target = 10
             self.sell_budget_seconds = 300
             return self.sell1_flow()
 
-        self.quest_no_deliver = True
+        self.quest_no_deliver = False
         def die_stage() -> int:
             before_uids = {e["unique_id"] for e in self.equipment_items}
             print(
@@ -3287,22 +3355,30 @@ class Playtest:
             self.ok("journey1 回出生点", f"map={self.map_file} pos={self.self_pos}")
             return 0
 
+        def back_map0() -> int:
+            if not self.recover_from_map():
+                self.fail("journey1 回 map0", f"当前 {self.map_file} {self.self_pos}")
+                return 1
+            self.ok("journey1 回 map0", f"pos={self.self_pos}")
+            return 0
+
         print("  [journey1] 阶段 | 结果 | 关键证据")
         failed = []
         for name, fn in (
             ("穿装", equip),
-            ("quest1(接取)", self.quest1_flow),
+            ("买书/学技能/施法(1级)", self.magic1_flow),
+            ("回 map0", back_map0),
+            ("quest1(接取+交付)", self.quest1_flow),
             ("死亡脱困+复活", die_stage),
             ("分段导航", lambda: 0 if self.gate_segmented_nav([(342, 312)]) else 1),
             ("卖肉+修理", sell_stage),
-            ("买书/学技能/施法", self.magic1_flow),
             ("回出生点", back_spawn),
             ("重登", lambda: self.ps1_flow(self.char_index)),
         ):
             if stage(name, fn) != 0:
                 failed.append(name)
         missing = []
-        if not self.active_quest_ids:
+        if not self.active_quest_ids and not self.completed_quests:
             missing.append("quests")
         if not self.learned_spells:
             missing.append("spells")
@@ -3652,8 +3728,14 @@ class Playtest:
             self.fail("sell1 金币", f"卖出未加金币：{gold_before}->{gold_after}")
             return 1
         self.ok("sell1 卖出", f"Chicken 卖出，金币 {gold_before}->{gold_after}（+{gold_after - gold_before}）")
-        # 有金币后只对“当前已穿装备”掉耐久并修理，不再重走 eq1_flow。
-        if self.wear_equipped() != 0:
+        # 卖肉击杀本身会磨武器；有磨损就直接修，0 磨损才补打。
+        worn = [
+            (e["item_index"], int(e.get("current_dura", 0)), int(e.get("max_dura", 0)))
+            for e in self.equipped_items
+            if int(e.get("current_dura", 0)) < int(e.get("max_dura", 0))
+        ]
+        print(f"  [journey1] 卖肉后耐久={worn}")
+        if not worn and self.wear_equipped() != 0:
             return 1
         return self.repair_equipped()
 
@@ -3824,14 +3906,63 @@ class Playtest:
             self.skip("EQ-1 耐久下降", "卖肉后无耐久未满装备，跳过修理")
             return 0
         slot, uid, before, maximum = rows[0]
+        if self.map_file == "0":
+            gate0103 = next(
+                (m for m in self.movements if int(m.get("destination", -1)) == 10),
+                None,
+            )
+            if gate0103 is not None:
+                print(
+                    f"  [EQ-1] 0103 门格 dest=10 pos={gate0103['pos']} title={gate0103.get('title')}"
+                )
+                if self.gate_segmented_nav([tuple(gate0103["pos"])], tol=1) and self.step_onto(
+                    tuple(gate0103["pos"])
+                ):
+                    deadline = time.time() + 3.0
+                    while time.time() < deadline and self.map_file == "0":
+                        packet = self.next_packet(time.time() + 0.2)
+                        if packet is None:
+                            continue
+                        self._observe(*packet)
+                    print(f"  [EQ-1] 0103 门后 map={self.map_file} pos={self.self_pos}")
+        if self.map_file == "0103":
+            self._drain(1.0)
+            print(f"  [EQ-1] 0103 NPC={[(n.get('name'), tuple(n['pos'])) for n in self.npcs]}")
+        pool = list(self.npcs) + list(self.map_npcs)
+        if self.map_file == "0103":
+            pool = [n for n in pool if self._distance(tuple(n["pos"])) < 40]
         candidates = [
             n
-            for n in self.map_npcs
+            for n in pool
             if "blacksmith" in n.get("name", "").lower()
             or "史密斯" in n.get("name", "")
             or "铁匠" in n.get("name", "")
+            or "whitney" in n.get("name", "").lower()
+            or "惠特尼" in n.get("name", "")
+            or "vincent" in n.get("name", "").lower()
+            or "文森特" in n.get("name", "")
+            or (
+                self.map_file == "0103"
+                and self._distance((19, 18)) <= 3
+                and max(abs(n["pos"][0] - 19), abs(n["pos"][1] - 18)) <= 2
+            )
         ]
-        candidates.sort(key=lambda n: self._distance(tuple(n["pos"])))
+
+        def repair_rank(n: dict) -> tuple[int, int]:
+            name = n.get("name", "")
+            if self.map_file == "0103" and max(abs(n["pos"][0] - 19), abs(n["pos"][1] - 18)) <= 2:
+                rank = 0
+            elif "vincent" in name.lower() or "文森特" in name:
+                rank = 0
+            elif "whitney" in name.lower() or "惠特尼" in name:
+                rank = 1
+            elif "smith" in name.lower() or "史密斯" in name:
+                rank = 2
+            else:
+                rank = 3
+            return (rank, self._distance(tuple(n["pos"])))
+
+        candidates.sort(key=repair_rank)
         print(
             f"  [EQ-1] 修理候选={[(n['name'], tuple(n['pos']), self._distance(tuple(n['pos']))) for n in candidates]}"
         )
@@ -3903,6 +4034,48 @@ class Playtest:
             "EQ-1 修理/扣款",
             f"uid={uid} 耐久 {before}->{current}/{maximum}，金币 {gold_before}->{gold_after}（扣 {gold_before - gold_after}）",
         )
+        # 修理时把装备脱到背包 40；修完必须重新穿上，否则重登槽位不一致。
+        writer = Writer()
+        writer.u8(1)
+        writer.u64(uid)
+        writer.i32(slot)
+        self.send(C_EQUIP_ITEM, writer.raw())
+        deadline = time.time() + 2.0
+        re_equipped = False
+        while time.time() < deadline:
+            packet = self.next_packet(deadline)
+            if packet is None:
+                break
+            index, payload = packet
+            self._observe(index, payload)
+            if index == S_EQUIP_ITEM and Reader(payload).boolean():
+                re_equipped = True
+                break
+        if not re_equipped:
+            self.fail("EQ-1 重新装备", f"修理后 C.EquipItem uid={uid} slot={slot} 失败")
+            return 1
+        repaired_item = next(
+            (i for i in self.inventory_items if i["unique_id"] == uid), None
+        )
+        if repaired_item is not None:
+            repaired_item = dict(repaired_item, current_dura=current, max_dura=maximum)
+            self.inventory_items = [i for i in self.inventory_items if i["unique_id"] != uid]
+            self.inventory_by_slot = {
+                s: i for s, i in self.inventory_by_slot.items() if i["unique_id"] != uid
+            }
+            self.equipment_items = [i for i in self.equipment_items if i["unique_id"] != uid]
+            self.equipment_items.append(repaired_item)
+            self.equipment_by_slot[slot] = repaired_item
+            self.equipped_items = [
+                dict(
+                    i,
+                    slot=s,
+                    dura_before=int(i.get("current_dura", 0)),
+                    current_dura=int(i.get("current_dura", 0)),
+                )
+                for s, i in self.equipment_by_slot.items()
+            ]
+        self.ok("EQ-1 重新装备", f"uid={uid} 已穿回 slot={slot}")
         return 0
 
     def eq1_flow(self) -> int:
@@ -4553,13 +4726,14 @@ class Playtest:
                 equipment,
                 inventory,
                 set(self.completed_quests),
+                set(self.active_quest_ids),
                 set(self.learned_spells),
             )
 
         before = snapshot_state()
         print(
             f"  [PS-1] 重登前 gold={before[0]} equipment={before[1]} inventory={before[2]} "
-            f"completed={sorted(before[3])} spells={sorted(before[4])}"
+            f"completed={sorted(before[3])} active={sorted(before[4])} spells={sorted(before[5])}"
         )
         if before[0] is None:
             self.fail("PS-1 获得状态", "没收到金币字段")
@@ -4596,6 +4770,7 @@ class Playtest:
         self.equipment_items = []
         self.learned_spells.clear()
         self.completed_quests = set()
+        self.active_quest_ids.clear()
         writer = Writer()
         writer.i32(char_index)
         self.send(C_START_GAME, writer.raw())
@@ -4606,15 +4781,15 @@ class Playtest:
             if packet is None:
                 break
             self._observe(packet[0], packet[1])
-        # 等 S.CompleteQuest/背包装备下发完。
-        self._drain(0.5)
+        # 等任务/背包装备下发完（NewQuestInfo/ChangeQuest 可能晚于 UserInformation）。
+        self._drain(1.2)
         if self.self_object_id is None:
             self.fail("PS-1 重登", "重登后未收到 S.UserInformation")
             return 1
         after = snapshot_state()
         print(
             f"  [PS-1] 重登后 gold={after[0]} equipment={after[1]} inventory={after[2]} "
-            f"completed={sorted(after[3])} spells={sorted(after[4])}"
+            f"completed={sorted(after[3])} active={sorted(after[4])} spells={sorted(after[5])}"
         )
         self.ok("PS-1 重登", f"object_id={self.self_object_id} pos={self.self_pos}")
 
@@ -4628,12 +4803,14 @@ class Playtest:
             or before[0] != after[0]
             or before[3] != after[3]
             or before[4] != after[4]
+            or before[5] != after[5]
         ):
             self.fail(
                 "PS-1 逐字段比对",
                 f"equipment差={before_equip ^ after_equip}；inventory差={before_inv ^ after_inv}；"
                 f"gold {before[0]}->{after[0]}；completed {sorted(before[3])}->{sorted(after[3])}；"
-                f"spells {sorted(before[4])}->{sorted(after[4])}；before={before} after={after}",
+                f"active {sorted(before[4])}->{sorted(after[4])}；"
+                f"spells {sorted(before[5])}->{sorted(after[5])}；before={before} after={after}",
             )
             return 1
         dura_diff = []
@@ -4648,7 +4825,8 @@ class Playtest:
         self.ok(
             "PS-1 逐字段比对",
             f"equipment 槽位 uid/index 全等（{len(before_equip)} 件），inventory 槽位 uid/index 全等"
-            f"（{len(before_inv)} 件），gold={before[0]} completed={sorted(before[3])} spells={sorted(before[4])}",
+            f"（{len(before_inv)} 件），gold={before[0]} completed={sorted(before[3])} "
+            f"active={sorted(before[4])} spells={sorted(before[5])}",
         )
 
         # 恢复后可玩：移动一次、攻击一次。
@@ -5000,6 +5178,8 @@ class Playtest:
         self.ok("进入世界", f"object_id={self.self_object_id} pos={self.self_pos}")
         self.entry_map, self.entry_pos = self.map_file, self.self_pos
         self.char_index = char_index if char_index is not None else 0
+        if self.attack_probe:
+            return self.attack_probe_flow()
         if self.journey1:
             self.dr1_keep_moving = True
             return self.journey1_flow()
@@ -5252,6 +5432,7 @@ def main() -> int:
     parser.add_argument("--core1", action="store_true", help="组合核心闭环：quest1→sell1→levelup1(允许SKIP)→ps1")
     parser.add_argument("--magic1", action="store_true", help="道士魔法：买治愈术书→UseItem→C.Magic→MP 13→10")
     parser.add_argument("--journey1", action="store_true", help="同一角色连续旅程：quest→卖肉→学技能→修理→死亡复活→重登")
+    parser.add_argument("--attack-probe", action="store_true", help="短测：穿装→鸡旁攻击15次，打印 Struck/伤害/耐久")
     parser.add_argument("--dr1-keep-moving", action="store_true", help="DR-1 等待死亡时持续小范围走位（验证“移动才挨打”假设）")
     parser.add_argument(
         "--self-check",
@@ -5299,6 +5480,7 @@ def main() -> int:
     test.core1 = args.core1
     test.magic1 = args.magic1
     test.journey1 = args.journey1
+    test.attack_probe = args.attack_probe
     test.dr1_keep_moving = args.dr1_keep_moving
     try:
         code = test.run()

@@ -773,43 +773,79 @@ async fn journey_natural() {
         .equip_item(player, weapon_uid, MirGridType::Inventory, 0)
         .expect("再穿武器");
 
-    // 10b) 修好后再战一次：真实命中应再次磨损，且攻击/伤害仍生效。
+    // 10b) 修好后再战：最多 10 次攻击，直到真实命中产生磨损；不依赖单次命中。
     let repaired_dura = world.player(player).expect("角色").equipment[0]
         .as_ref()
         .expect("武器")
         .current_dura;
     let target_info = data.monster_info_by_name("鸡").expect("真实鸡模板");
     let target_kind = data.monster(target_info.index).expect("鸡运行期").clone();
-    let player_position = world.player(player).expect("角色").position;
-    let target_cell = adjacent_walkable(world, player_position);
-    let target = world.spawn_monster(MAP, target_kind, target_cell);
-    let target_position = world.monster(target).expect("鸡").position;
-    let direction = direction_between(player_position, target_position);
-    if let Some(p) = world.player_mut(player) {
-        p.direction = direction;
+    let mut target = {
+        let player_position = world.player(player).expect("角色").position;
+        let target_cell = adjacent_walkable(world, player_position);
+        world.spawn_monster(MAP, target_kind.clone(), target_cell)
+    };
+    let mut after_attack = repaired_dura;
+    let mut last_report = None;
+    let mut struck_packets = 0;
+    let mut attempts = 0;
+    for _ in 0..10 {
+        if world.monster(target).is_none_or(|monster| monster.dead) {
+            let player_position = world.player(player).expect("角色").position;
+            let target_cell = adjacent_walkable(world, player_position);
+            target = world.spawn_monster(MAP, target_kind.clone(), target_cell);
+        }
+        let player_position = world.player(player).expect("角色").position;
+        let target_position = world.monster(target).expect("鸡").position;
+        if player_position != target_position {
+            let adjacent = adjacent_walkable(world, target_position);
+            if !try_walk_to_on(world, player, MAP, adjacent) {
+                world.advance_clock(600);
+                world.tick();
+                continue;
+            }
+        }
+        let player_position = world.player(player).expect("角色").position;
+        let target_position = world.monster(target).expect("鸡").position;
+        let direction = direction_between(player_position, target_position);
+        if let Some(p) = world.player_mut(player) {
+            p.direction = direction;
+        }
+        world.advance_clock(2_000);
+        world.tick();
+        let report = world.attack(player, direction).expect("修好后攻击");
+        last_report = report;
+        attempts += 1;
+        world.advance_clock(600);
+        world.tick();
+        struck_packets += take_packets(&mut out_rx)
+            .iter()
+            .filter(|packet| matches!(packet, ServerPacket::ObjectStruck(_)))
+            .count();
+        after_attack = world.player(player).expect("角色").equipment[0]
+            .as_ref()
+            .expect("武器")
+            .current_dura;
+        if after_attack < repaired_dura {
+            break;
+        }
     }
-    world.advance_clock(2_000);
-    world.tick();
-    let report = world.attack(player, direction).expect("修好后攻击");
-    assert!(report.is_some(), "修好后攻击应有命中结算");
-    world.advance_clock(600);
-    world.tick();
-    let after_attack = world.player(player).expect("角色").equipment[0]
-        .as_ref()
-        .expect("武器")
-        .current_dura;
     assert!(
         after_attack < repaired_dura,
-        "修好后命中也必须磨损：{repaired_dura} -> {after_attack}"
+        "修好后 10 次攻击未产生磨损：target={target:?}, player={:?}, target_pos={:?}, report={last_report:?}, struck={struck_packets}, durability={repaired_dura}->{after_attack}",
+        world.player(player).expect("角色").position,
+        world.monster(target).map(|monster| monster.position)
     );
+    let single_hit_wear = repaired_dura - after_attack;
     assert!(
-        (1..=4).contains(&(repaired_dura - after_attack)),
+        (1..=4).contains(&single_hit_wear),
         "单次命中磨损应 1..=4：{repaired_dura} -> {after_attack}"
     );
     eprintln!(
-        "T132 post-repair attack: durability {repaired_dura} -> {after_attack}, damage={:?}",
-        report.map(|r| r.damage)
+        "T132 post-repair attack: durability {repaired_dura} -> {after_attack}, damage={:?}, attempts={attempts}",
+        last_report.map(|r| r.damage)
     );
+
     // 耐久=0 的武器不得贡献任何 DC/AC（既有单测 items.rs:3440 的旅程内复核）。
     let weapon_info = world.item_info(weapon.item_index).expect("武器模板");
     let mut broken_weapon = weapon.clone();

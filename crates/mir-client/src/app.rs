@@ -2260,6 +2260,34 @@ impl ClientApp {
         }
     }
 
+    /// `K`：开关独立商城面板（Crystal `GameshopDialog`；`MainDialogs.cs:186-197` 的
+    /// `GameShopButton` 用 `KeybindOptions.GameShop`，本作按 R50 裁决固定 `K`）。
+    ///
+    /// 只在 live 态由 [`Self::handle_live_key`] 调用；输入框聚焦时文本早退先 return，
+    /// 不会走到这里。打开时按玩家职业初始化筛选（Crystal `GameshopDialog.Show()`）。
+    fn live_toggle_gameshop(&mut self) {
+        let mut changed = false;
+        if let Mode::Live(live) = &mut self.mode {
+            let class = live
+                .snapshot
+                .self_player
+                .as_ref()
+                .map(|player| player.class);
+            changed = live.ui.toggle_gameshop(class);
+        }
+        if changed {
+            self.request_redraw();
+        }
+    }
+
+    /// 商城搜索框回车：重建分类/回第一页（Crystal `GameshopDialog.GetCategories()`）。
+    fn live_gameshop_search(&mut self) {
+        if let Mode::Live(live) = &mut self.mode {
+            live.ui.refresh_gameshop_filters();
+        }
+        self.request_redraw();
+    }
+
     /// `N`：开关邮件面板（Crystal 的邮件窗口没有默认键，本作按需求绑 `N`）。
     fn live_toggle_mail(&mut self) {
         let mut redraw = false;
@@ -2859,6 +2887,7 @@ impl ClientApp {
         let mut text_handled = false;
         let mut text_consumed_key = true;
         let mut market_search_enter = false;
+        let mut gameshop_search_enter = false;
         let mut friend_enter = false;
         if let Mode::Live(live) = &mut self.mode {
             if live.ui.focused_field().is_some() {
@@ -2881,6 +2910,8 @@ impl ClientApp {
                         // `TrustMerchantDialog.cs:1044-1056`）。
                         market_search_enter =
                             live.ui.focused_field() == Some(ui::FieldId::MarketSearch);
+                        gameshop_search_enter =
+                            live.ui.focused_field() == Some(ui::FieldId::GameShopSearch);
                         friend_enter = matches!(
                             live.ui.focused_field(),
                             Some(ui::FieldId::FriendName | ui::FieldId::FriendMemo)
@@ -2893,6 +2924,9 @@ impl ClientApp {
         if text_handled && text_consumed_key {
             if market_search_enter {
                 self.live_market_search();
+            }
+            if gameshop_search_enter {
+                self.live_gameshop_search();
             }
             if friend_enter {
                 self.live_friend_enter();
@@ -2913,6 +2947,13 @@ impl ClientApp {
                 }
                 "m" => {
                     self.live_toggle_minimap();
+                    return;
+                }
+                // `K`：独立商城面板（Crystal `MainDialogs.cs:186-197` 的
+                // `GameShopButton` 用 `KeybindOptions.GameShop` 的默认键；R50 裁决固定
+                // 用 `K`，键位重绑留 R51）。输入框聚焦时上面的文本早退已 return。
+                "k" => {
+                    self.live_toggle_gameshop();
                     return;
                 }
                 "b" => {

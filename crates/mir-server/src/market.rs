@@ -59,16 +59,19 @@
 //!    取回（`Envir.cs:2396`、`PlayerObject.cs:8668-8793`）。
 //!    运行期 [`World::process_auctions`] 由 `server.rs` 的 tick 任务按
 //!    [`AUCTION_SCAN_INTERVAL_MS`] 节流调用（Crystal 是每 10 分钟一次）。
-//! 2. **商城（GameShop）走市场面板页签**：Crystal 有两条商城入口——独立的
-//!    `GameshopDialog`（`S.GameShopInfo`/`S.GameShopStock` 下发目录，`PlayerObject.GetGameShop`，
-//!    `PlayerObject.cs:13913-13944`）和市场面板的 `MarketPanelType.GameShop` 页签
-//!    （`GetMarket` 里的分支被注释掉了，`:8385-8390`，页签原本永远空白）。本作按任务要求
-//!    只做**页签**：`S.NPCMarket` 的每条 `ClientAuction` 里 `auction_id = 商品 GIndex`、
-//!    `item_type = GameShop`、`price = CreditPrice`，每页 [`MARKET_PAGE_SIZE`] 条。
-//!    购买主路径是 `C.GameshopBuy`（包 133）；页签打开时也接受 `C.MarketBuy`（数量 1、
-//!    元宝支付），回 `S.MarketSuccess`/`S.MarketFail`——等价于 Crystal 那段被注释掉的设计。
-//!    商品目录来自 `Server.MirDB` 的商城段（`GameData::game_shop`，Crystal `Envir.GameShopList`，
-//!    `Envir.cs:2911-2923`）；没有数据库时是空列表，购买回「商城里没有商品」。
+//! 2. **商城（GameShop）两条客户端入口都支持**：Crystal 有两条商城入口——独立的
+//!    `GameshopDialog`（登录链 `GetGameShop` 下发 `S.GameShopInfo` 目录、购买成功发
+//!    `S.GameShopStock` 刷新库存，`PlayerObject.cs:13913-13944`）和市场面板的
+//!    `MarketPanelType.GameShop` 页签（`GetMarket` 里的分支被注释掉了，`:8385-8390`，
+//!    页签原本永远空白）。本作两条都做：登录时逐商品发 `S.GameShopInfo`
+//!    （[`World::game_shop_info_packets`]）；购买主路径是 `C.GameshopBuy`（包 133），
+//!    事务提交成功后发 `S.GameShopStock` 刷新库存。页签 `S.NPCMarket` 的每条
+//!    `ClientAuction` 里 `auction_id = 商品 GIndex`、`item_type = GameShop`、
+//!    `price = CreditPrice`，每页 [`MARKET_PAGE_SIZE`] 条；页签打开时也接受
+//!    `C.MarketBuy`（数量 1、元宝支付），回 `S.MarketSuccess`/`S.MarketFail`——等价于
+//!    Crystal 那段被注释掉的设计。商品目录来自 `Server.MirDB` 的商城段
+//!    （`GameData::game_shop`，Crystal `Envir.GameShopList`，`Envir.cs:2911-2923`）；
+//!    没有数据库时是空列表，购买回「商城里没有商品」。
 //! 3. **商城的投递方式**：Crystal 买什么都是**整单寄邮件**（`PlayerObject.cs:13900-13907`），
 //!    本作按任务要求「背包有空位就直接进背包（`S.GainedItem`），放不下的才转系统邮件」。
 //!    元宝余额沿用角色行的 `credit`（Crystal 存在账号 `AccountInfo.Credit` 上，见
@@ -93,9 +96,15 @@
 //!   `GameShop` 时把 `AuctionID` 当 `GIndex`、按「1 份 + 元宝」转发到
 //!   [`World::gameshop_buy`]（Crystal `PlayerObject.cs:8458-8486` 的设计）。直接调
 //!   `World::market_buy` 不会走商城——它只处理 `Envir.Auctions` 里的挂单。
-//! * **不发 `S.GameShopInfo` / `S.GameShopStock`**：本作只做市场面板页签，页签不显示库存；
-//!   库存不足时按 Crystal 回聊天提示（`YouBuyMoreThanAvailable`，`:13776`），不推
-//!   `S.GameShopStock`（客户端的独立商城窗口不在本轮范围）。
+//! * **`S.GameShopInfo` / `S.GameShopStock` 照抄 Crystal 的库存语义（R50-B）**：
+//!   登录链 `GetGameShop()`（`PlayerObject.cs:13913-13944`）逐商品发 `S.GameShopInfo`——
+//!   `Stock != 0` 时已购量取 `iStock ? 个人 GSpurchases : 全服 GameshopLog`，
+//!   `StockLevel = Stock - 已购`，**剩余为负的商品不下发**（Crystal 的
+//!   `Stock - purchased >= 0` 判断为假）；`Stock == 0`（不限量）时 `StockLevel = 0`。
+//!   购买事务提交成功后发 `S.GameShopStock{GIndex, StockLevel = 剩余}`（剩余为 0 也发，
+//!   客户端据此把商品移出列表）；失败/回滚**零包**。Crystal 的 `GameShopStock` 用
+//!   `Product.Info.Index`（物品模板 ID）当键，属于原作缺陷；按中书决策 1，本作读/写计数
+//!   与两个回包统一用 `GIndex`。
 //! * **`Count`/`StackSize` 为 0 时按 1 处理**：Crystal 直接拿 `Product.Count` 算数量，
 //!   0 会算出一封空邮件；本作 `max(1)` 兜底。
 //! * **落盘失败要回滚**：`gameshop_buy` 先扣款发货、会话随后在单事务里落盘；事务失败时
@@ -131,12 +140,12 @@ use mir_core::enums::{
     BindMode, ItemType, MarketCollectionMode, MarketItemType, MarketPanelType, PetMode,
     RequiredType,
 };
-use mir_core::i18n::{format_text, text};
+use mir_core::i18n::{MatchAliases, format_text, text};
 use mir_protocol::ServerPacket;
 use mir_protocol::data::{ClientAuction, GameShopItem, UserItem};
 use mir_protocol::packets::server::{
-    ConsignItem, GainedCredit, GainedGold, LoseCredit, LoseGold, MarketFail, MarketSuccess,
-    NPCConsign, NPCMarket, NPCMarketPage,
+    ConsignItem, GainedCredit, GainedGold, GameShopInfo, GameShopStock, LoseCredit, LoseGold,
+    MarketFail, MarketSuccess, NPCConsign, NPCMarket, NPCMarketPage,
 };
 
 use mir_db::ItemInfo;
@@ -304,6 +313,32 @@ impl GameShopPurchases {
     }
 }
 
+/// 单个商品的 `S.GameShopInfo`（Crystal `PlayerObject.GetGameShop` 的循环体，
+/// `PlayerObject.cs:13913-13944`）。
+///
+/// Crystal 原文：
+/// * `Stock != 0`：已购量按 `iStock` 取个人/全服计数，**只有 `Stock - 已购 >= 0` 才入队**
+///   `S.GameShopInfo{Item, StockLevel = Stock - 已购}`；
+/// * `Stock == 0`（不限量）：入队 `S.GameShopInfo{Item, StockLevel = item.Stock}`，即 `0`。
+///
+/// 返回 `None` = 这件商品本次不下发（限量商品已超卖）。
+fn game_shop_info_packet(
+    product: &GameShopItem,
+    purchases: &GameShopPurchases,
+) -> Option<ServerPacket> {
+    let stock_level = match purchases.remaining(product) {
+        // Stock != 0 且剩余为负：Crystal 的 `Stock - purchased >= 0` 为假，不发。
+        Some(remaining) if remaining < 0 => return None,
+        Some(remaining) => i32::try_from(remaining).ok()?,
+        // Stock == 0：不限量，`StockLevel = item.Stock = 0`。
+        None => 0,
+    };
+    Some(ServerPacket::GameShopInfo(GameShopInfo {
+        item: product.clone(),
+        stock_level,
+    }))
+}
+
 /// 一次成功购买的结算结果（会话层据此把「角色行 + 元宝 + 库存计数」写进同一个事务）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameShopPurchaseReport {
@@ -347,6 +382,27 @@ pub struct GameShopDelivery {
 }
 
 impl GameShopPurchaseReport {
+    /// 购买成功后刷新客户端库存的 `S.GameShopStock`（Crystal `PlayerObject.GameShopStock`，
+    /// `PlayerObject.cs:13703-13723`；购买路径在计数推进后调用，`:13861`）。
+    ///
+    /// * `remaining == None`（不限量 `Stock == 0`）：Crystal 走 `if (Product.Stock != 0)` 不发；
+    /// * 剩余为负：Crystal 的 `Stock - purchased >= 0` 为假、不发（成功购买后不会出现，
+    ///   这里只是防御性兜底）；
+    /// * 其余（含剩余 `0`）：发 `StockLevel = 剩余`，客户端据此把售罄商品移出列表。
+    ///
+    /// `g_index` 必须是商品 `GIndex`（中书决策 1：修正 Crystal 用 `Info.Index` 的缺陷）。
+    #[must_use]
+    pub fn stock_packet(&self) -> Option<ServerPacket> {
+        let remaining = self.remaining?;
+        if remaining < 0 {
+            return None;
+        }
+        Some(ServerPacket::GameShopStock(GameShopStock {
+            g_index: self.g_index,
+            stock_level: i32::try_from(remaining).ok()?,
+        }))
+    }
+
     /// 转成存储层的两组计数行（角色行与邮件由 [`flush_gameshop_update`] 补齐）。
     #[must_use]
     pub fn to_records(
@@ -540,7 +596,8 @@ impl GameShopError {
 /// 本作在服务端补这一道（防改包），口径：
 /// * 空串 / `All` / `None` → 不限职业（`None` 是管理工具新建商品的默认值，
 ///   `Server.MirForms/Database/GameShop.cs:432`，按「没填」处理）；
-/// * 其它值按职业名大小写不敏感比较（中文职业名也认，方便本地化数据）。
+/// * 其它值按**匹配别名表**比较（`config/i18n-aliases.json` 三列：DB 名 / 中文名 /
+///   英文名）：英文与 DB 名大小写不敏感、中文精确匹配；别名表只用于匹配，不是 UI 词表。
 #[must_use]
 pub fn game_shop_class_allows(product: &GameShopItem, class: mir_core::enums::MirClass) -> bool {
     let wanted = product.class.trim();
@@ -554,15 +611,11 @@ pub fn game_shop_class_allows(product: &GameShopItem, class: mir_core::enums::Mi
     if wanted.eq_ignore_ascii_case(english) {
         return true;
     }
-    // 中文职业名（`npc::class_name` 是英文，这里补一张小表）。
-    let chinese = match class {
-        mir_core::enums::MirClass::Warrior => "战士",
-        mir_core::enums::MirClass::Wizard => "法师",
-        mir_core::enums::MirClass::Taoist => "道士",
-        mir_core::enums::MirClass::Assassin => "刺客",
-        mir_core::enums::MirClass::Archer => "弓箭手",
-    };
-    wanted == chinese
+    // 本地化职业名（中文等）走匹配别名表：三列只用于匹配，不是 UI 词表。
+    // 英文名已在上方直接放行，这里再查表保持「DB 名 / 英文名 / 中文名」语义一致。
+    MatchAliases::embedded()
+        .game_shop_class(english)
+        .is_some_and(|alias| alias.matches(wanted))
 }
 
 /// 一条市场条目（Crystal `AuctionInfo`，`Server/MirDatabase/AuctionInfo.cs:5-117`）。
@@ -2406,6 +2459,19 @@ impl World {
             .find(|product| product.g_index == g_index)
     }
 
+    /// 登录链 `GetGameShop()`（Crystal `PlayerObject.cs:13913-13944`）：按
+    /// `Envir.GameShopList` 的顺序为每个商品构造 `S.GameShopInfo`，逐件下发。
+    ///
+    /// 已购计数由会话层从存储层读好后传进来（世界层不缓存计数，见
+    /// [`GameShopPurchases`] 的说明）；剩余为负的限量商品不下发。
+    #[must_use]
+    pub fn game_shop_info_packets(&self, purchases: &GameShopPurchases) -> Vec<ServerPacket> {
+        self.game_shop()
+            .iter()
+            .filter_map(|product| game_shop_info_packet(product, purchases))
+            .collect()
+    }
+
     /// 商城购买：`C.GameshopBuy`，Crystal `PlayerObject.GameshopBuy`
     /// （`Server/MirObjects/PlayerObject.cs:13725-13911`）。
     ///
@@ -3241,5 +3307,67 @@ mod tests {
             vec![2, 1],
             "the latest snapshot must win over a stale one"
         );
+    }
+
+    #[test]
+    fn game_shop_class_allows_accepts_db_english_and_chinese_aliases() {
+        use mir_core::enums::MirClass;
+
+        let classes = [
+            ("Warrior", MirClass::Warrior, "战士"),
+            ("Wizard", MirClass::Wizard, "法师"),
+            ("Taoist", MirClass::Taoist, "道士"),
+            ("Assassin", MirClass::Assassin, "刺客"),
+            ("Archer", MirClass::Archer, "弓箭手"),
+        ];
+        for (english, class, chinese) in classes {
+            let mut product = GameShopItem::default();
+            for allowed in [english, chinese] {
+                product.class = allowed.to_owned();
+                assert!(
+                    game_shop_class_allows(&product, class),
+                    "{allowed:?} must allow {english}"
+                );
+            }
+            product.class = english.to_ascii_lowercase();
+            assert!(
+                game_shop_class_allows(&product, class),
+                "english/db aliases are case-insensitive"
+            );
+            product.class = format!(" {chinese} ");
+            assert!(
+                game_shop_class_allows(&product, class),
+                "leading/trailing whitespace must be trimmed"
+            );
+        }
+    }
+
+    #[test]
+    fn game_shop_class_allows_keeps_wildcards_and_rejects_other_classes() {
+        use mir_core::enums::MirClass;
+
+        let mut product = GameShopItem::default();
+        for wildcard in ["", "All", "all", "None", " none "] {
+            product.class = wildcard.to_owned();
+            for class in [
+                MirClass::Warrior,
+                MirClass::Wizard,
+                MirClass::Taoist,
+                MirClass::Assassin,
+                MirClass::Archer,
+            ] {
+                assert!(
+                    game_shop_class_allows(&product, class),
+                    "empty/All/None means unrestricted"
+                );
+            }
+        }
+        product.class = "战士".to_owned();
+        assert!(game_shop_class_allows(&product, MirClass::Warrior));
+        assert!(!game_shop_class_allows(&product, MirClass::Wizard));
+        product.class = "Archer".to_owned();
+        assert!(!game_shop_class_allows(&product, MirClass::Warrior));
+        product.class = "不存在的职业".to_owned();
+        assert!(!game_shop_class_allows(&product, MirClass::Warrior));
     }
 }

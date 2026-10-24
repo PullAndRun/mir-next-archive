@@ -150,7 +150,20 @@ fn native_monsters_and_players_render_in_dev_and_release_modes() {
         false,
     );
 
-    let out_dir = repo_root().join("docs/testing/monster-native");
+    // R50-F：out_dir 可用 `MIR_NATIVE_EVIDENCE_DIR` 覆盖（相对路径按仓库根解析），
+    // 用于把重跑产物只写 `target/round50/**` 而不覆写冻结的 `docs/testing/monster-native`；
+    // 未设置或为空时保持默认路径，默认行为不变。
+    let out_dir = match std::env::var_os("MIR_NATIVE_EVIDENCE_DIR") {
+        Some(value) if !value.is_empty() => {
+            let path = PathBuf::from(value);
+            if path.is_absolute() {
+                path
+            } else {
+                repo_root().join(path)
+            }
+        }
+        _ => repo_root().join("docs/testing/monster-native"),
+    };
     std::fs::create_dir_all(out_dir.join("png")).expect("evidence png dir");
     let png_dir = out_dir.join("png");
     for entry in std::fs::read_dir(&png_dir).expect("read png dir") {

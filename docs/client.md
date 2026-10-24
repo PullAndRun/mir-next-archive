@@ -839,7 +839,10 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 * 列表：`ClientAuction.seller` 为空串，客户端显示「商城」；价格单位是**元宝**
   （如 `250 元宝`），标题栏余额也显示 `self_player.credit`（`S.UserInformation.Credit`
   初始化，`S.LoseCredit`/`S.GainedCredit` 更新）；表头换成「物品 / 价格 / 分类 / 库存」，
-  库存列当前显示「在售」占位（服务端不实时下发库存，见 `docs/world/gameshop.md` §7.3）。
+  库存列当前显示「在售」占位——`ClientAuction` 不带库存字段，页签这条路径仍然拿不到实时库存
+  （见 `docs/world/gameshop.md` §7.1）。**真实库存只有 R50 新增的独立商城面板（§5.16.1）有**
+  （`S.GameShopInfo.StockLevel` + `S.GameShopStock`），两套 UI 的库存显示口径不同，
+  不能互相替代。
 * 购买：数量输入框 +「购买」→ `C.GameshopBuy{GIndex = auction_id, Quantity, PType}`；
   页签固定用**元宝**（`PType = 0`），数量按「不超过 5 组」在客户端先夹一次
   （例如堆叠上限 10、每份 2 个时，输入 50 会被夹到 25），服务端再独立校验。
@@ -852,6 +855,73 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 测试：`crates/mir-client/tests/market_panel.rs`（市场页签）与 `tests/round2_panels.rs`
 （`game_shop_tab_sends_market_search_and_buys_with_credits`、
 `game_shop_tab_fits_small_and_large_screens`、`credit_balance_updates_from_lose_credit`）。
+注意 `round2_panels` 在**没有覆盖 `TEMP`/`TMP`** 的环境里有 1 条失败
+（`settings_roundtrip_through_disk_survives_restart`，`tests/round2_panels.rs:198`，
+`std::env::temp_dir()` 写权限），与商城改动无关；显式覆盖后有 28 passed
+（`target/round50/r50-c/c3-round2-panels-tmp-override.log`）。
+
+### 5.16.1 独立商城面板（R50-C，`K` 键）
+
+Crystal `GameshopDialog` 风格的**独立面板**，与 §5.16 的市场页签并存、互不替代：
+页签走 `S.NPCMarket` 列表，独立面板走 `S.GameShopInfo` 目录 + `S.GameShopStock` 库存。
+实现：`crates/mir-client/src/ui/gameshop.rs`（2,256 行，2026-10-25 实测）、`ui/mod.rs`
+（`UiState::show_gameshop` / `toggle_gameshop` / `gameshop`）、`app.rs`（`K` 键 +
+`live_gameshop_hit` 鼠标分发）、`net.rs`（`GameShopState`）。
+证据：`target/round50/r50-c/`（`c1-lib-gameshop.log`（15 passed）、
+`c2-gameshop-panel.log`（10 passed）、`k-hotkey-evidence.txt`、4 张面板截图；
+该目录**没有** README，以日志原文为准）。
+
+**布局与交互**（`680×500` 默认、最小 `300×180`；超过 8 条自动分页，4 列 × 2 行）：
+
+* 顶部：标题「商城」+ 元宝/金币余额 + 关闭 `×`；工具栏：搜索框（24 字符、空串不筛）、
+  职业下拉（全部/战士/法师/道士/刺客/弓手）、分节页签（全部/置顶/促销/新品）、
+  分类下拉（取值来自商品 `Category` 字符串）。
+* 列表格：图标 + 名称 + 单价（元宝或金币，随支付方式切换）+ 库存
+  （`>= 99` 显示 `99+`、不限量显示 `∞`、售罄显示「售罄」灰字并禁用购买）。
+* 底部：页码 `‹ 1/N ›`、滚轮翻页、数量输入（`1..=99`）、元宝/金币两个购买按钮。
+* 空态：「商城暂无商品」；断线：面板只在 `Mode::Live` 可开，断线后画「未连接」态。
+
+**`K` 键规则**（证据 `target/round50/r50-c/k-hotkey-evidence.txt`）：
+
+* `K` 是**固定键**，不进改键表（`client_config::KEY_ACTIONS` 仍是 6 个动作）；
+  改键与 `RequireAlt` 语义留 R51。
+* 只在 `Mode::Live` 生效：`app.rs:2853`（`@2a7e77e3`+R50 工作树）`handle_live_key`，
+  `"k"` 分支在 `app.rs:2951-2953`：`"k" => { self.live_toggle_gameshop(); return; }`。
+* 文本输入优先：`app.rs:2920` 的 `if text_handled && text_consumed_key { …; return; }`
+  **早于** `2951`，聊天/搜索框里输入 `k` 不会弹面板；焦点非空时 `handle_live_key`
+  与 `toggle_gameshop` 两处各自早退。
+* 同一时刻只开一个面板：`toggle_gameshop` 先关掉其他工具面板，再把商城面板置为
+  「打开 + 焦点在列表」，再次按 `K` 关闭并清焦点。
+
+> 行号漂移：以上 `app.rs` 行号是 `k-hotkey-evidence.txt` 的**取证快照值**；
+> 2026-10-25 06:2x 复核当前工作树，`"k" =>` 已在 `app.rs:2955`、`handle_live_key` 在 `:2857`、
+> `live_toggle_gameshop` 在 `:2268`。引用时按内容 grep（`"k" =>` / `fn live_toggle_gameshop`），
+> 不要拿行号当永久事实。
+
+**`GameShopState`（`net.rs`）与 `GIndex` 幂等**：
+
+* 目录包 `S.GameShopInfo`：`upsert` 按 `item.g_index` 建键——同一 `GIndex` 的重复/迟到
+  目录包**覆盖旧条目**，不追加、不复制；`StockLevel == 0` 且 `Stock == 0` 表示**不限量**，
+  不置售罄（0 档位判定见 `net.rs` 注释）。
+* 库存包 `S.GameShopStock`：`apply_stock` 按 `GIndex` 找到条目后写 `stock_level`；
+  `stock_level <= 0` 才置 `sold_out = true`；**找不到 `GIndex`** 时只推进版本号、
+  **不凭空造条目**（防止库存包晚于目录包/错包导致幽灵商品）。
+* 断线/重连：世界快照重建时整个 `GameShopState` 清零，等登录链重发目录包；
+  商城面板不在 `Mode::Live` 时不画列表。
+* 与市场页签状态**完全隔离**（页、筛选、选中互不影响，
+  测试 `market_tab_state_is_isolated_from_gameshop`）。
+
+**缺 manifest 占位规则**（fail-closed，不伪造图标）：图标取值顺序是
+①包内 `ItemInfo.image`（非 0 直接用）→②`docs/assets/gameshop-manifest.json` 的
+`gindex → icon_image`→③都没有则返回 0，面板画占位方块并置 `assets_partial`。
+manifest 不存在、或条目 `"partial": true`，都按「缺图标」处理、**不借用近似图标**；
+授权与哈希口径见 [`assets/licensing.md`](assets/licensing.md) §5。
+
+测试：`crates/mir-client/tests/gameshop_panel.rs`（**10 passed**，含
+`wire_packet_chain_catalog_gindex_idempotent_and_stock_refresh`、
+`pure_helpers_match_crystal_buy_and_quantity_rules`、`paging_and_wheel_follow_8_cells`、
+`panel_draws_empty_disconnected_and_png_evidence`、`k_hotkey_wiring_evidence`）。
+**PARTIAL**：只有单次截图取证，没有像素级回归基线；release 包真机往返未测。
 
 ### 5.17 服务器选择与角色选择（`--login`）
 
@@ -1816,10 +1886,12 @@ cargo fmt --all -- --check
   因此不画昼夜光照；`MapDarkLight` 的明暗渲染也未做。天气已接（随 `S.MapChanged.weather`
   显示在 HUD，见 §5.19），但天气粒子特效（雨滴/雪花）没有画；聊天频道切换与物品链接未做；
 * **摆摊/拍卖/商城的剩余项**：NPC 市场（寄售/拍卖/搜索/翻页/买断/出价/提前成交/取回）面板已在
-  §5.14 实现，商城页签在 §5.16 实现；仍缺 Crystal 的**独立商城面板**（`S.GameShopInfo`/
-  `S.GameShopStock` 下发、库存实时刷新、`Class`/`Category` 二级筛选页签）、
-  挂单页的按类型过滤树与滚动条（本作固定 10 行 + 上下页）；**独立商城面板未完成，登记为
-  R50 候选**（前置条件见 [`world/gameshop.md`](world/gameshop.md) §12），不把商城页签当独立面板；
+  §5.14 实现，商城页签在 §5.16 实现；**独立商城面板 R50-C 已实现**（§5.16.1：
+  `S.GameShopInfo` 目录 + `S.GameShopStock` 库存刷新、`Class`/`Category` 筛选、
+  `K` 热键、缺图标占位，证据 `target/round50/r50-c/`）。仍未做：
+  ①`Category` 的**服务端**过滤（现在是客户端本地分节/下拉，服务端只按类型/名字/职业过滤）；
+  ②`K` 改键与 `RequireAlt` 修饰键（固定键）；③面板像素级回归基线（只有单次截图）；
+  ④release 包真机往返。挂单页的按类型过滤树与滚动条（本作固定 10 行 + 上下页）也未做；
 * **任务**：可接任务列表（目前只能从 NPC 对话页接取）、任务详情/奖励选择/共享/追踪控件、
   已完成任务列表的展示（`S.CompleteQuest` 已进快照，面板只列进行中任务）；
 * **仓库**：扩充仓库（`HasExpandedStorage`）、仓库密码、仓库内的金币存取

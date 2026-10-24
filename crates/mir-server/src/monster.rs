@@ -41,6 +41,7 @@ use mir_core::enums::{
     AttackMode, DamageType, DefenceType, MirDirection, Monster as MonsterImage, PetMode,
     PoisonType, Spell,
 };
+use mir_core::i18n::{Language, MatchAliases, MonsterTemplate, monster_display_name};
 use mir_protocol::ServerPacket;
 use mir_protocol::packets::server::{
     ObjectAttack, ObjectDied, ObjectMagic, ObjectRangeAttack, ObjectTurn, ObjectWalk,
@@ -692,7 +693,47 @@ impl MonsterKind {
     /// 但部分社区 DB（如 Jev）把 113 用作 `Armadillo`，所以用名字兜底确认。
     #[must_use]
     pub fn is_archer_guard(&self) -> bool {
-        self.ai == 113 && (self.name.contains("ArcherGuard") || self.name.contains("弓箭守卫"))
+        self.ai == 113
+            && MatchAliases::embedded()
+                .monster_names
+                .iter()
+                .any(|alias| alias.any_contains(&self.name))
+    }
+
+    /// 模板怪物（[`Self::skeleton`] / [`Self::scarecrow`] / [`Self::bone_familiar`] /
+    /// [`Self::shinsu`] 这 4 个兜底种类）对应的显示名词表项。
+    ///
+    /// 这 4 个兜底种类没有 `MonsterInfo` 行，显示边界不能按 `MonsterInfo.Index` 查语言包，
+    /// 所以走内置词表 [`monster_display_name`]。识别方式是「数据名 + 图像」双条件：
+    /// 数据名区分 稻草人 / 神兽，图像区分两个同数据名（`骷髅`）的 `Skeleton` 与
+    /// `BoneFamiliar`。数据库怪物（数据名不同或图像不同）返回 `None`。
+    #[must_use]
+    fn template(&self) -> Option<MonsterTemplate> {
+        [
+            (MonsterTemplate::Skeleton, MonsterImage::Skeleton),
+            (MonsterTemplate::Scarecrow, MonsterImage::Scarecrow),
+            (MonsterTemplate::BoneFamiliar, MonsterImage::BoneFamiliar),
+            (MonsterTemplate::Shinsu, MonsterImage::Shinsu),
+        ]
+        .into_iter()
+        .find_map(|(template, image)| {
+            (self.image == image && self.name == monster_display_name(Language::ZhCn, template))
+                .then_some(template)
+        })
+    }
+
+    /// 显示名（数据名 / 显示名分离的消费端）：模板怪物按语言取内置词表，
+    /// 其它（数据库怪物）回退数据名 [`Self::name`]。
+    ///
+    /// 显示边界（`World::monster_name_for`）先按 `MonsterInfo.Index` 查语言包，查不到时
+    /// 调用本方法：模板怪物在这里拿到中英显示名，数据库怪物拿到数据名（缺词表回退）。
+    /// 数据名本身保持不变，数据库查库与输入匹配语义不受影响。
+    #[must_use]
+    pub fn display_name(&self, language: Language) -> String {
+        self.template().map_or_else(
+            || self.name.clone(),
+            |template| monster_display_name(language, template).to_owned(),
+        )
     }
 
     /// 远程 AI 在贴身时是否改用近战（Crystal `RightGuard/LeftGuard/RedThunderZuma`）。
@@ -952,8 +993,9 @@ impl MonsterKind {
     /// `mir-db` 尚未提供数据，这里给一组可玩的手感值，接入数据库后整条 `MonsterKind` 会被替换。
     #[must_use]
     pub fn skeleton() -> Self {
+        let name = monster_display_name(Language::ZhCn, MonsterTemplate::Skeleton);
         Self {
-            name: "骷髅".to_owned(),
+            name: name.to_owned(),
             image: MonsterImage::Skeleton,
             ai: 5,
             level: 5,
@@ -967,7 +1009,7 @@ impl MonsterKind {
                 agility: 3,
                 ..CombatStats::default()
             },
-            ..Self::new("骷髅", MonsterImage::Skeleton)
+            ..Self::new(name, MonsterImage::Skeleton)
         }
     }
 
@@ -976,8 +1018,9 @@ impl MonsterKind {
     /// 简化：**占位数值**，理由同 [`MonsterKind::skeleton`]。
     #[must_use]
     pub fn scarecrow() -> Self {
+        let name = monster_display_name(Language::ZhCn, MonsterTemplate::Scarecrow);
         Self {
-            name: "稻草人".to_owned(),
+            name: name.to_owned(),
             image: MonsterImage::Scarecrow,
             ai: 0,
             level: 1,
@@ -992,7 +1035,7 @@ impl MonsterKind {
                 agility: 0,
                 ..CombatStats::default()
             },
-            ..Self::new("稻草人", MonsterImage::Scarecrow)
+            ..Self::new(name, MonsterImage::Scarecrow)
         }
     }
 
@@ -1002,8 +1045,9 @@ impl MonsterKind {
     /// （`Settings.cs:162`、`HumanObject.cs:4422`）；本作优先查库，查不到才用这组占位数值。
     #[must_use]
     pub fn bone_familiar() -> Self {
+        let name = monster_display_name(Language::ZhCn, MonsterTemplate::BoneFamiliar);
         Self {
-            name: "骷髅".to_owned(),
+            name: name.to_owned(),
             image: MonsterImage::BoneFamiliar,
             ai: 5,
             level: 8,
@@ -1018,7 +1062,7 @@ impl MonsterKind {
                 agility: 3,
                 ..CombatStats::default()
             },
-            ..Self::new("骷髅", MonsterImage::BoneFamiliar)
+            ..Self::new(name, MonsterImage::BoneFamiliar)
         }
     }
 
@@ -1028,8 +1072,9 @@ impl MonsterKind {
     /// `HumanObject.cs:4471`）；本作优先查库，查不到才用这组占位数值。
     #[must_use]
     pub fn shinsu() -> Self {
+        let name = monster_display_name(Language::ZhCn, MonsterTemplate::Shinsu);
         Self {
-            name: "神兽".to_owned(),
+            name: name.to_owned(),
             image: MonsterImage::Shinsu,
             ai: 5,
             level: 12,
@@ -1046,7 +1091,7 @@ impl MonsterKind {
                 agility: 4,
                 ..CombatStats::default()
             },
-            ..Self::new("神兽", MonsterImage::Shinsu)
+            ..Self::new(name, MonsterImage::Shinsu)
         }
     }
 }
@@ -3003,5 +3048,49 @@ impl World {
             slaves.retain(|slave_id| *slave_id != monster_id);
             !slaves.is_empty()
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn template_display_names_follow_the_builtin_word_table() {
+        assert_eq!(MonsterKind::skeleton().display_name(Language::ZhCn), "骷髅");
+        assert_eq!(
+            MonsterKind::skeleton().display_name(Language::En),
+            "Skeleton"
+        );
+        assert_eq!(
+            MonsterKind::scarecrow().display_name(Language::En),
+            "Scarecrow"
+        );
+        assert_eq!(
+            MonsterKind::bone_familiar().display_name(Language::En),
+            "Bone Familiar",
+            "BoneFamiliar 与 Skeleton 数据名都是 骷髅，必须靠图像区分"
+        );
+        assert_eq!(MonsterKind::shinsu().display_name(Language::En), "Shinsu");
+    }
+
+    #[test]
+    fn template_data_names_stay_stable_for_database_and_matching() {
+        // 数据名是本模块写死的 cjlaaa 中文名，不能跟着显示名一起改，否则
+        // `world.rs` 里 `monster_info_by_name(&kind.name)` 会查不到行。
+        assert_eq!(MonsterKind::skeleton().name, "骷髅");
+        assert_eq!(MonsterKind::scarecrow().name, "稻草人");
+        assert_eq!(MonsterKind::bone_familiar().name, "骷髅");
+        assert_eq!(MonsterKind::shinsu().name, "神兽");
+    }
+
+    #[test]
+    fn display_name_without_a_word_table_entry_falls_back_to_the_data_name() {
+        let database_kind = MonsterKind::new("SkeletonWarrior", MonsterImage::Skeleton);
+        assert_eq!(
+            database_kind.display_name(Language::ZhCn),
+            "SkeletonWarrior"
+        );
+        assert_eq!(database_kind.display_name(Language::En), "SkeletonWarrior");
     }
 }

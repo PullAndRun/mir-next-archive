@@ -154,6 +154,19 @@ pwsh -NoProfile -File tools/dev/asset-smoke.ps1
 - 抽样：`icon-0075/0076/0077/0132/0277/2884/2885/2886/3792` 四角 `alpha=0` 且非空像素充足；
   `icon-3789` 四角是内容本身（黄色），非黑底。
 
+> **数字更正（2026-10-25，R50-D 实测）**：§5.1 末尾与上一段的 **826 条 / 771,854 B** 是
+> 2026-10-22 第二次打包后的**旧快照**，已被本轮实测取代：
+> `game-assets/packs/sprites-item-1.mnp` 现为 **827 条 / 772,675 B /
+> `sha256=3b28fa1b997a29e78054543642674e00c16ce7ac0884cf9e37808abdd38d886f`**
+> （来源：[`gameshop-manifest.json`](gameshop-manifest.json) 的 `icon.release`
+> （`entries: 827`、`pack_sha256_actual`）与 `target/round50/r50-d/README.md`
+> 的 `--verify-release` 实测输出 `release: sprites-item-1.mnp entries=827 icons ok: 82`，exit 0）。
+> 差额 1 条 / 821 B 来自空帧补齐后新增的 `icon-3576`（HardenedRing #403 派生自绘图标，
+> 见上一条）。**以实测字段为准**，不要把 826/771,854 当现状引用。
+> **未重测项（PARTIAL）**：45 包总量（旧值 433,980,520 → 434,328,059 B）与总条目数
+> （旧值 151,581 → 151,750）本轮没有重跑全量重打包，不能按 +1 条推算，需以将来
+> `reconcile_packs.py` 的实测输出为准。
+
 ## 6) 为什么不入库
 
 `game-assets/` 与 `manifest.json` 都是**生成物**（22.5 GB），已加进 `.gitignore`。

@@ -1347,14 +1347,17 @@ impl TestClient {
     /// 进世界序列的包数随功能/数据变化（任务、行会 buff、邮件、欢迎语…），
     /// 逐个断言顺序会让用例和「当前有哪些系统」耦合；这里只关心目标包，
     /// 与 `market_flow.rs` 的做法一致但更宽容。
+    ///
+    /// 上限 512 只是「跳过其它包」的容差：登录链按 Crystal `GetGameShop()` 逐商品下发
+    /// `S.GameShopInfo`（样本库 105 件 → +105 帧），固定 200 会假红；断言语义不变。
     async fn expect_until(&mut self, index: i16) -> ServerPacket {
-        for _ in 0..200 {
+        for _ in 0..512 {
             let packet = self.expect().await;
             if packet.index() == index {
                 return packet;
             }
         }
-        panic!("等待包 {index} 超时（已读 200 个其它包）");
+        panic!("等待包 {index} 超时（已读 512 个其它包）");
     }
 }
 

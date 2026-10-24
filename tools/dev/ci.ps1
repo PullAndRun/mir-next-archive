@@ -133,7 +133,7 @@ Invoke-Gate "文档链接与包编号" "$python tools/docs/check_links.py"
 # 4) i18n：TextKey 完整 + 硬编码棘轮
 Invoke-Gate "TextKey 完整性" "$python tools/i18n/verify_text_keys.py"
 Invoke-Gate "硬编码棘轮（player-visible，阈值 70）" "$python tools/i18n/scan_hardcoded.py --player-visible --strict --fail-above 70"
-Invoke-Gate "硬编码棘轮（no-test，阈值 15）" "$python tools/i18n/scan_hardcoded.py --no-test --player-visible --strict --fail-above 15"
+Invoke-Gate "硬编码棘轮（no-test，阈值 0）" "$python tools/i18n/scan_hardcoded.py --no-test --player-visible --strict --fail-above 0"
 
 # 4b) 资源规则：运行时不得引用老资源格式（棘轮，基线见 tools/dev/legacy-runtime-allowlist.txt）
 Invoke-Gate "运行时不引用老资源格式" "$python tools/dev/check_legacy_refs.py"

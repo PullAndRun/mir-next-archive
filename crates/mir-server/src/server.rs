@@ -111,7 +111,7 @@ impl ConnectionLimiter {
 pub async fn run<S: AccountStore>(config: Arc<ServerConfig>, store: Arc<S>) -> anyhow::Result<()> {
     let listener = TcpListener::bind(config.listen)
         .await
-        .with_context(|| format!("监听 {} 失败", config.listen))?;
+        .with_context(|| format!("failed to bind listener on {}", config.listen))?;
     tracing::info!(address = %config.listen, "传奇-Next 网关已启动");
     serve_forever(listener, config, store).await
 }

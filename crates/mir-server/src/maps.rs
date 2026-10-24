@@ -628,7 +628,7 @@ impl World {
                 AoiKind::Monster => {
                     if let Some(monster) = self.monster(entry.object_id) {
                         let language = self.player_language(viewer.object_id);
-                        let name = self.monster_name_for(language, &monster.kind.name);
+                        let name = self.monster_name_for(language, &monster.kind);
                         monsters.push((
                             crate::world::monster_info_frame(monster, &name),
                             monster.object_id,

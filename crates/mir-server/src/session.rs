@@ -1237,6 +1237,11 @@ impl<S: AccountStore> Session<S> {
         for packet in item_info_packets {
             self.send(packet);
         }
+        // 商城目录：Crystal 登录链 `CheckConquest(); GetGameShop();`（`PlayerObject.cs:1203-1206`）
+        // 逐商品发 `S.GameShopInfo`（`GetGameShop`，`:13913-13944`）。本作没有
+        // `CheckConquest`/`TimeOfDay` 对应的包，按「进世界主包之后」的时序插在这里
+        // （`UserInformation` + 物品模板之后、`ChangeAMode` 之前）。
+        self.send_gameshop_info(character.id).await;
         // `Enqueue(new S.ChangeAMode { Mode = AMode });`（`PlayerObject.cs:1217`）：
         // 排在 `TimeOfDay` 之后、`SwitchGroup` 之前；本作没有 `TimeOfDay`，所以直接紧跟
         // `UserInformation`。
@@ -3100,6 +3105,12 @@ impl<S: AccountStore> Session<S> {
                 let (purchases, stock) = report.to_records(character_id);
                 match self.flush_gameshop(purchases, stock).await {
                     Ok(()) => {
+                        // 事务提交成功后才刷新库存（Crystal `GameshopBuy` 在计数推进后
+                        // `if (Product.Stock != 0) GameShopStock(Product);`，`PlayerObject.cs:13861`）。
+                        // 失败/回滚路径**一个库存包都不发**：客户端不会看到「库存减了但没扣款」。
+                        if let Some(packet) = report.stock_packet() {
+                            self.send(packet);
+                        }
                         if reply == GameShopReply::Market {
                             let message = self.language.format_with(
                                 &self.languages,
@@ -3150,6 +3161,41 @@ impl<S: AccountStore> Session<S> {
                     GameShopReply::Chat => {}
                 }
             }
+        }
+    }
+
+    /// 登录链 `GetGameShop()`（Crystal `PlayerObject.cs:13913-13944`）：逐商品发
+    /// `S.GameShopInfo`，让独立商城窗口一进游戏就拿到目录与库存。
+    ///
+    /// * 计数从存储层现读（世界层不缓存，见 [`GameShopPurchases`]）；
+    /// * 没有商城目录（`load_game_data = false` 或无商城段）时**一个包都不发**，登录包序
+    ///   不受影响；
+    /// * 计数读失败时也不发：宁缺勿错——把「读不到」当 0 会向客户端谎报库存。
+    async fn send_gameshop_info(&self, character_id: i64) {
+        let has_products = {
+            let world = self.world.lock().await;
+            !world.game_shop().is_empty()
+        };
+        if !has_products {
+            return;
+        }
+        let purchases = match self.load_game_shop_counts(character_id).await {
+            Ok(purchases) => purchases,
+            Err(error) => {
+                tracing::warn!(
+                    session = self.id,
+                    %error,
+                    "读商城已购计数失败，本次登录不下发 GameShopInfo"
+                );
+                return;
+            }
+        };
+        let packets = {
+            let world = self.world.lock().await;
+            world.game_shop_info_packets(&purchases)
+        };
+        for packet in packets {
+            self.send(packet);
         }
     }
 

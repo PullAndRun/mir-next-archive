@@ -58,6 +58,7 @@
 //! | `S.ObjectEffect` | `effects`：魔法盾/元素结界等短光效 |
 //! | `S.NPCResponse` | `npc_dialog`：原文行 + 版本号 + 最近 NPC 的 `object_id` |
 //! | `S.NPCGoods` | `npc_goods`：货架 + 价格倍率（物品名/价格来自 `item_infos`） |
+//! | `S.GameShopInfo` / `S.GameShopStock` | `gameshop`：独立商城目录 + 购买后的库存刷新（`GIndex` 幂等） |
 //! | `S.NPCSell` / `S.NPCRepair` / `S.NPCSRepair` | 商店面板的「可出售/可修理」提示 |
 //! | `S.NewMagic` / `S.MagicLeveled` / `S.RemoveMagic` | `magics` |
 //! | `S.GainedGold` / `S.LoseGold` | 金币 |
@@ -123,7 +124,7 @@ use mir_protocol::codec::FrameBuffer;
 use mir_protocol::data::guild_rank::{GuildMember, GuildRank};
 use mir_protocol::data::{
     ClientAuction, ClientBuff, ClientFriend, ClientMagic, ClientMail, ClientQuestProgress,
-    GuildBuff, GuildBuffInfo, GuildStorageItem, ItemInfo, UserItem,
+    GameShopItem, GuildBuff, GuildBuffInfo, GuildStorageItem, ItemInfo, UserItem,
 };
 use mir_protocol::packets::client as c;
 use mir_protocol::packets::server::{GuildBuffList, GuildMemberChange, GuildStorageItemChange};
@@ -1782,6 +1783,110 @@ impl MarketView {
     }
 }
 
+/// 独立商城的一条目录缓存（Crystal `GameScene.GameShopInfoList` 的元素，
+/// `Client/MirScenes/GameScene.cs:6678-6697`）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct GameShopEntry {
+    /// 商品定义；名字/图标/堆叠上限/价格都在 `item.info` 里（`S.GameShopInfo` 整块下发）。
+    pub item: GameShopItem,
+    /// 服务端给的剩余库存：`0` = 不限量（Crystal 语义，`GameShop.cs:6681` 记 `Stock = StockLevel`）。
+    pub stock_level: i32,
+    /// 客户端「售罄」标记：收到 `S.GameShopStock{StockLevel = 0}` 后为真。
+    ///
+    /// Crystal 收到 0 时**把商品从列表删掉**（`GameScene.cs:6690-6693`）；本作按 R50
+    /// 裁决（§1.3「库存零可见」）保留条目、灰显「售罄」且禁止购买，避免整行凭空消失。
+    pub sold_out: bool,
+}
+
+/// 独立商城（Crystal `GameshopDialog`）的目录缓存。
+///
+/// 数据源：
+/// * 登录链 `GetGameShop()` 的 `S.GameShopInfo`（INDEX 250，逐商品一条，
+///   `crates/mir-server/src/market.rs` 的 `game_shop_info_packets`）——目录 + 库存档位；
+/// * 购买成功后的 `S.GameShopStock`（INDEX 251）——按 `GIndex` 刷新剩余库存。
+///
+/// 与市场面板的 `S.NPCMarket` 列表**完全隔离**：两者数据源/状态/筛选互不影响
+/// （市场页签的「商城」页用 `MarketView.listings`，独立面板用这里的 `entries`）。
+///
+/// # `GIndex` 幂等
+///
+/// 契约要求同一 `GIndex` 的迟到/重复 `S.GameShopInfo` 不重复入列（Crystal 的
+/// `GameShopUpdate` 直接 `Add`，重复包会重复入列）；[`Self::upsert`] 按 `item.g_index`
+/// 去重，只刷新内容与库存档位。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct GameShopState {
+    /// 目录条目，保持服务端下发顺序（Crystal `GameShopInfoList` 的顺序）。
+    pub entries: Vec<GameShopEntry>,
+    /// 收到过多少条 `S.GameShopInfo`（UI 据此重算页码/选中/筛选）。
+    pub catalog_version: u64,
+    /// 收到过多少条 `S.GameShopStock`（UI 据此收边「售罄」商品的购买状态）。
+    pub stock_version: u64,
+}
+
+impl GameShopState {
+    /// `S.GameShopInfo` 入列：同一 `GIndex` 只保留一条（重复/迟到包刷新旧条目）。
+    ///
+    /// `stock_level` 是服务端按已购数算好的剩余量；`0` 表示不限量（Crystal 语义），
+    /// 不会把条目标成售罄——售罄只由 [`Self::apply_stock`] 的 0 决定。
+    pub fn upsert(&mut self, item: &GameShopItem, stock_level: i32) {
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.item.g_index == item.g_index)
+        {
+            entry.item = item.clone();
+            entry.stock_level = stock_level.max(0);
+            // 重复目录包不撤销「售罄」：0 档位在目录里是「不限量」语义，
+            // 但已经因 `S.GameShopStock` 售罄的限量商品要等真正的库存刷新才恢复。
+            if stock_level > 0 {
+                entry.sold_out = false;
+            }
+        } else {
+            self.entries.push(GameShopEntry {
+                item: item.clone(),
+                stock_level: stock_level.max(0),
+                sold_out: false,
+            });
+        }
+        self.catalog_version = self.catalog_version.saturating_add(1);
+    }
+
+    /// `S.GameShopStock`：按 `GIndex` 刷新剩余库存；`0` 标售罄并保留条目。
+    ///
+    /// 找不到 `GIndex` 时只推进版本号（目录可能还没到，迟到的库存刷新不应凭空造条目）。
+    pub fn apply_stock(&mut self, g_index: i32, stock_level: i32) {
+        self.stock_version = self.stock_version.saturating_add(1);
+        let Some(entry) = self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.item.g_index == g_index)
+        else {
+            return;
+        };
+        if stock_level <= 0 {
+            entry.stock_level = 0;
+            entry.sold_out = true;
+        } else {
+            entry.stock_level = stock_level;
+            entry.sold_out = false;
+        }
+    }
+
+    /// 取某个 `GIndex` 的条目。
+    #[must_use]
+    pub fn entry(&self, g_index: i32) -> Option<&GameShopEntry> {
+        self.entries
+            .iter()
+            .find(|entry| entry.item.g_index == g_index)
+    }
+
+    /// 目录是否为空（没收到过任何 `S.GameShopInfo`）。
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
 /// 市场每页条目数：Crystal `for (int i = 0; i < 10; i++)`（`PlayerObject.cs:8356`）。
 pub const MARKET_PAGE_SIZE: usize = 10;
 
@@ -2656,6 +2761,11 @@ pub struct WorldSnapshot {
     /// 市场/寄售/拍卖状态（`S.NPCMarket`/`S.NPCMarketPage`/`S.NPCConsign`/
     /// `S.ConsignItem`/`S.MarketFail`/`S.MarketSuccess`，见 [`MarketView`]）。
     pub market: MarketView,
+    /// 独立商城目录缓存（`S.GameShopInfo`/`S.GameShopStock`，见 [`GameShopState`]）。
+    ///
+    /// 与 [`Self::market`] 隔离：市场页签的「商城」页用 `market.listings`，
+    /// 独立商城面板（`K`）用这里的 `entries`，互不覆盖。
+    pub gameshop: GameShopState,
     /// 登录账号下的角色列表（`S.LoginSuccess.Characters`；手动选角窗口用）。
     pub characters: Vec<CharacterInfo>,
     /// 角色列表每次变化 +1（UI 据此刷新选角页）。
@@ -2742,6 +2852,7 @@ impl Default for WorldSnapshot {
             trade: TradeView::new(),
             group: GroupView::new(),
             market: MarketView::default(),
+            gameshop: GameShopState::default(),
             characters: Vec::new(),
             characters_version: 0,
             gold_piles: BTreeMap::new(),
@@ -5567,6 +5678,31 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             snapshot
                 .market
                 .append_page(&page.listings, &snapshot.item_infos);
+        }
+        ServerPacket::GameShopInfo(info) => {
+            // Crystal `GameScene.GameShopUpdate`（`Client/MirScenes/GameScene.cs:6678-6684`）：
+            // 登录链 `GetGameShop()` 逐商品下发 `S.GameShopInfo{Item, StockLevel}`，
+            // 客户端把商品入列、库存记 `StockLevel`。本作按 `GIndex` 幂等去重
+            // （重复/迟到包不重复入列，只刷新内容）。
+            tracing::debug!(
+                g_index = info.item.g_index,
+                stock_level = info.stock_level,
+                "商城商品目录"
+            );
+            snapshot.gameshop.upsert(&info.item, info.stock_level);
+        }
+        ServerPacket::GameShopStock(stock) => {
+            // Crystal `GameScene.GameShopStock`（`GameScene.cs:6686-6697`）：购买成功
+            // 后按 `GIndex` 刷新剩余库存。Crystal 在 `StockLevel == 0` 时把商品从列表
+            // 删掉；本作保留条目并标「售罄」（R50 §1.3「库存零可见」），由 UI 灰显。
+            tracing::debug!(
+                g_index = stock.g_index,
+                stock_level = stock.stock_level,
+                "商城库存刷新"
+            );
+            snapshot
+                .gameshop
+                .apply_stock(stock.g_index, stock.stock_level);
         }
         ServerPacket::NPCConsign(_) => {
             // Crystal `GameScene.NPCConsign`（`GameScene.cs:5626-5631`）：打开寄售面板。

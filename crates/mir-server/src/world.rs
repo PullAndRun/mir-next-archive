@@ -1419,23 +1419,23 @@ impl World {
             .unwrap_or(Language::ZhCn)
     }
 
-    /// 怪物显示名：按 DB `MonsterInfo.Index` 查语言包，未知时回退 DB 原名。
+    /// 怪物显示名：按 DB `MonsterInfo.Index` 查语言包；未知时回退
+    /// [`MonsterKind::display_name`]（模板怪物走内置显示名词表，其余回退数据名）。
+    ///
+    /// 数据库数据名语义不变：`monster_info_by_name` 仍用 `kind.name` 查库。
     #[must_use]
-    pub(crate) fn monster_name_for(&self, language: Language, kind_name: &str) -> String {
+    pub(crate) fn monster_name_for(&self, language: Language, kind: &MonsterKind) -> String {
         let index = self
             .game_data
             .as_ref()
-            .and_then(|data| data.monster_info_by_name(kind_name))
+            .and_then(|data| data.monster_info_by_name(&kind.name))
             .map(|info| info.index);
-        self.languages.as_ref().map_or_else(
-            || kind_name.to_owned(),
-            |library| {
-                index.map_or_else(
-                    || kind_name.to_owned(),
-                    |index| library.monster_name(language, index, kind_name),
-                )
-            },
-        )
+        let fallback = || kind.display_name(language);
+        self.languages.as_ref().map_or_else(fallback, |library| {
+            index.map_or_else(fallback, |index| {
+                library.monster_name(language, index, &kind.name)
+            })
+        })
     }
 
     /// 技能显示名：按 `MagicInfo.Spell` 查语言包，未知时回退 DB 原名。
@@ -5046,7 +5046,7 @@ impl World {
             .difference(&player.visible_monsters)
             .filter_map(|object_id| {
                 self.monster(*object_id).map(|monster| {
-                    let name = self.monster_name_for(language, &monster.kind.name);
+                    let name = self.monster_name_for(language, &monster.kind);
                     monster_info_frame(monster, &name)
                 })
             })
@@ -5394,10 +5394,7 @@ impl World {
             .map(|language| {
                 (
                     *language,
-                    monster_info_frame(
-                        monster,
-                        &self.monster_name_for(*language, &monster.kind.name),
-                    ),
+                    monster_info_frame(monster, &self.monster_name_for(*language, &monster.kind)),
                 )
             })
             .collect()
@@ -6891,6 +6888,29 @@ mod tests {
                 ServerPacket::HealthChanged(health) if health.mp == mp_before - 3
             )),
             "MP consumption must be reflected in S.HealthChanged: {packets:?}"
+        );
+    }
+
+    #[test]
+    fn monster_name_for_routes_template_kinds_through_the_display_word_table() {
+        // 4 个兜底模板没有 MonsterInfo 行：接线前这里回退数据名（中文），
+        // 接线后英文玩家拿到内置显示名词表里的英文名（Skeleton/Bone Familiar/Shinsu）。
+        let world = World::new(999);
+        assert_eq!(
+            world.monster_name_for(Language::En, &MonsterKind::skeleton()),
+            "Skeleton"
+        );
+        assert_eq!(
+            world.monster_name_for(Language::ZhCn, &MonsterKind::skeleton()),
+            "骷髅"
+        );
+        assert_eq!(
+            world.monster_name_for(Language::En, &MonsterKind::bone_familiar()),
+            "Bone Familiar"
+        );
+        assert_eq!(
+            world.monster_name_for(Language::En, &MonsterKind::shinsu()),
+            "Shinsu"
         );
     }
 }

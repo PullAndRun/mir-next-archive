@@ -324,7 +324,20 @@ fn real_monster_walk_advance_and_evidence() {
         apply_walk(&mut snapshot, image, from, direction, started);
     }
 
-    let out_dir = workspace.join("docs/testing/monster-motion");
+    // R50-F：out_dir 可用 `MIR_MOTION_EVIDENCE_DIR` 覆盖（相对路径按工作区根解析），
+    // 用于把重跑产物只写 `target/round50/**` 而不覆写冻结的 `docs/testing/monster-motion`；
+    // 未设置或为空时保持默认路径，默认行为不变。
+    let out_dir = match std::env::var_os("MIR_MOTION_EVIDENCE_DIR") {
+        Some(value) if !value.is_empty() => {
+            let path = PathBuf::from(value);
+            if path.is_absolute() {
+                path
+            } else {
+                workspace.join(path)
+            }
+        }
+        _ => workspace.join("docs/testing/monster-motion"),
+    };
     std::fs::create_dir_all(&out_dir).expect("create evidence dir");
     for name in [
         "frame0.png",

@@ -22,9 +22,21 @@
 //!   与 [`format_text`] 同口径。
 //!
 //! 渲染规则（缺参保留、多参忽略、`{{`/`}}` 转义）见 [`format_text`] 文档。
+//!
+//! # 词表以外的两档（门下裁决 2）
+//!
+//! 「不是 UI 提示文本」的字符串按语义分成两档，都**不进** [`TextKey`] / 语言包：
+//!
+//! * **显示名词表**：[`MonsterTemplate`] / [`monster_display_name`] 给「数据库缺项时的
+//!   模板怪物」内置中英显示名；数据名/匹配名仍由调用方保留（本作沿用 cjlaaa 的中文名），
+//!   显示边界查不到词表时回退数据名。
+//! * **匹配别名**：[`MatchAliases`] 从 `config/i18n-aliases.json` 加载职业名/怪物名的
+//!   「DB 名 / 中文名 / 英文名」三列，只用于匹配（`GameShopItem.Class`、`AI 113` 的
+//!   `ArcherGuard` 兜底），**不得**当渲染词表用。
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::OnceLock;
 
 use serde::Deserialize;
 
@@ -68,6 +80,79 @@ impl Language {
             Self::ZhCn => "简体中文",
             Self::En => "English",
         }
+    }
+}
+
+/// 模板怪物（数据库缺项时的兜底种类）的**显示名**词表。
+///
+/// 门下裁决 2 要求「数据名 / 匹配名」与「显示名」分离：数据库与输入匹配继续用数据名
+/// （`MonsterKind::name`，本作沿用 cjlaaa 的中文名），显示时另查词表；缺词表时回退数据名
+/// （[`LanguageLibrary::monster_name`] 已有这个回退）。
+///
+/// 这 4 个模板怪物不在数据库里（示例沙盒或 `SummonSkeleton`/`SummonShinsu` 的兜底），
+/// 没有 `MonsterInfo.Index` 可以查 `LanguageLibrary::monster_names`，所以内置一份中英显示名。
+/// 它们不是 UI 提示文本（不进 [`TextKey`]），也不是匹配别名（不进
+/// `config/i18n-aliases.json`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MonsterTemplate {
+    /// 示例怪物：骷髅（`MonsterKind::skeleton`）。
+    Skeleton,
+    /// 示例怪物：稻草人（`MonsterKind::scarecrow`）。
+    Scarecrow,
+    /// `SummonSkeleton` 的兜底（Crystal `Settings.SkeletonName = "BoneFamiliar"`）。
+    BoneFamiliar,
+    /// `SummonShinsu` 的兜底（Crystal `Settings.ShinsuName = "Shinsu"`）。
+    Shinsu,
+}
+
+impl MonsterTemplate {
+    /// 全部模板（测试与校验用）。
+    pub const ALL: &'static [Self] = &[
+        Self::Skeleton,
+        Self::Scarecrow,
+        Self::BoneFamiliar,
+        Self::Shinsu,
+    ];
+
+    /// 稳定键名（ASCII，日志/配置对照用）。
+    ///
+    /// 刻意不命名为 `key()`：`tools/i18n/verify_text_keys.py` 会搜索 `TextKey` 那段
+    /// `pub const fn key` 前缀来定位中英键表，文件里更靠前的同名方法会让它解析错表，
+    /// 所以这里用 `stable_key()`。
+    #[must_use]
+    pub const fn stable_key(self) -> &'static str {
+        match self {
+            Self::Skeleton => "skeleton",
+            Self::Scarecrow => "scarecrow",
+            Self::BoneFamiliar => "bone_familiar",
+            Self::Shinsu => "shinsu",
+        }
+    }
+
+    /// 从稳定键名解析。
+    #[must_use]
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|template| template.stable_key() == key)
+    }
+}
+
+/// 取模板怪物的显示名（内置中英两份）。
+///
+/// 中文名同时是这些兜底种类的**数据名**（与 cjlaaa `MonsterInfo.Name` 一致，
+/// `World::monster_name_for` 按数据名查数据库）；英文名只用于显示。
+#[must_use]
+pub const fn monster_display_name(language: Language, template: MonsterTemplate) -> &'static str {
+    match (language, template) {
+        (Language::ZhCn, MonsterTemplate::Skeleton | MonsterTemplate::BoneFamiliar) => "骷髅",
+        (Language::ZhCn, MonsterTemplate::Scarecrow) => "稻草人",
+        (Language::ZhCn, MonsterTemplate::Shinsu) => "神兽",
+        (Language::En, MonsterTemplate::Skeleton) => "Skeleton",
+        (Language::En, MonsterTemplate::Scarecrow) => "Scarecrow",
+        (Language::En, MonsterTemplate::BoneFamiliar) => "Bone Familiar",
+        (Language::En, MonsterTemplate::Shinsu) => "Shinsu",
     }
 }
 
@@ -2375,6 +2460,90 @@ impl LanguageLibrary {
     }
 }
 
+/// 一行匹配别名：同一个游戏概念的「DB 名 / 中文名 / 英文名」三列。
+///
+/// 只用于**匹配**（判断 `GameShopItem.Class` 里的职业写法、怪物名兜底是否命中），
+/// 不是 UI 文案：玩家可见文案一律走 [`TextKey`] / 语言包，**禁止**把它当渲染词表用。
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct NameAlias {
+    /// 数据库里的原始名（英文，例如 `Warrior`、`ArcherGuard`）。
+    pub db_name: String,
+    /// 简体中文名（社区中文数据库使用，例如 `战士`、`弓箭守卫`）。
+    #[serde(rename = "zh-cn")]
+    pub zh_cn: String,
+    /// 英文名（通常与 `db_name` 相同）。
+    pub en: String,
+}
+
+impl NameAlias {
+    /// 名字是否等于本行的任一名（`db_name` / `en` 大小写不敏感，`zh-cn` 精确比较）。
+    #[must_use]
+    pub fn matches(&self, name: &str) -> bool {
+        self.db_name.eq_ignore_ascii_case(name)
+            || self.en.eq_ignore_ascii_case(name)
+            || self.zh_cn == name
+    }
+
+    /// 名字是否**包含**本行的任一名（怪物名兜底做 `contains` 匹配时用）。
+    #[must_use]
+    pub fn any_contains(&self, name: &str) -> bool {
+        name.contains(&self.db_name) || name.contains(&self.en) || name.contains(&self.zh_cn)
+    }
+}
+
+/// 匹配别名表（`config/i18n-aliases.json`）。
+///
+/// 语义三分里的「匹配别名」一档：`market.rs` 的五个职业名与 `monster.rs` 的
+/// `ArcherGuard` 名字兜底共 6 条。它们不翻译给玩家看，只用来识别数据里的不同写法，
+/// 所以单独放一份可替换配置、由代码加载；**不得塞进 UI 词表 / 语言包**。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct MatchAliases {
+    /// 配置版本（当前为 1；改结构时递增）。
+    #[serde(default)]
+    pub version: u32,
+    /// 人读说明（这份表不是 UI 文案）。
+    #[serde(default)]
+    pub description: String,
+    /// 游戏商店 `GameShopItem.Class` 的五个职业。
+    #[serde(default)]
+    pub game_shop_classes: Vec<NameAlias>,
+    /// 怪物名匹配兜底（如 `AI 113` 的 `ArcherGuard`）。
+    #[serde(default)]
+    pub monster_names: Vec<NameAlias>,
+}
+
+impl MatchAliases {
+    /// 解析一份别名表。
+    ///
+    /// # Errors
+    /// JSON 非法时返回错误文本。
+    pub fn from_json(source: &str) -> Result<Self, String> {
+        serde_json::from_str(source).map_err(|error| error.to_string())
+    }
+
+    /// 内置别名表（编译进二进制，与 `LanguageLibrary::embedded` 同风格）。
+    ///
+    /// # Panics
+    /// 仅当仓库里的 `config/i18n-aliases.json` 被改坏时才会 panic；该文件由测试覆盖。
+    #[must_use]
+    pub fn embedded() -> &'static Self {
+        static ALIASES: OnceLock<MatchAliases> = OnceLock::new();
+        ALIASES.get_or_init(|| {
+            Self::from_json(include_str!("../../../config/i18n-aliases.json"))
+                .expect("内置匹配别名表必须合法")
+        })
+    }
+
+    /// 按英文职业名找别名行；找不到返回 `None`（调用方保持原有匹配语义）。
+    #[must_use]
+    pub fn game_shop_class(&self, english_class: &str) -> Option<&NameAlias> {
+        self.game_shop_classes.iter().find(|alias| {
+            alias.db_name.eq_ignore_ascii_case(english_class)
+                || alias.en.eq_ignore_ascii_case(english_class)
+        })
+    }
+}
+
 /// 一个玩家的语言设置。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LanguageCatalog {
@@ -3033,6 +3202,173 @@ mod tests {
         assert_eq!(
             library.quest_name(Language::ZhCn, -1, "UnknownQuest"),
             "UnknownQuest"
+        );
+    }
+
+    #[test]
+    fn monster_template_display_names_are_complete_and_unique() {
+        assert_eq!(MonsterTemplate::ALL.len(), 4);
+        let mut keys = BTreeSet::new();
+        for template in MonsterTemplate::ALL {
+            assert!(
+                keys.insert(template.stable_key()),
+                "模板键必须唯一：{template:?}"
+            );
+            assert_eq!(
+                MonsterTemplate::from_key(template.stable_key()),
+                Some(*template),
+                "模板键必须能解析回来：{}",
+                template.stable_key()
+            );
+            let zh = monster_display_name(Language::ZhCn, *template);
+            let en = monster_display_name(Language::En, *template);
+            assert!(!zh.is_empty(), "模板 {template:?} 缺中文显示名");
+            assert!(!en.is_empty(), "模板 {template:?} 缺英文显示名");
+            assert_ne!(zh, en, "模板 {template:?} 中英显示名不能相同");
+            assert!(
+                en.is_ascii(),
+                "模板 {template:?} 的英文名必须全 ASCII：{en}"
+            );
+        }
+        assert_eq!(MonsterTemplate::from_key("no_such_template"), None);
+    }
+
+    #[test]
+    fn monster_template_data_names_match_the_cjlaaa_database() {
+        // 数据名（中文）必须与 cjlaaa `MonsterInfo.Name` 一致：数据名参与查库与匹配，
+        // 显示名另走词表；这 4 个模板没有 DB 行，所以内置一份中文数据名。
+        assert_eq!(
+            monster_display_name(Language::ZhCn, MonsterTemplate::Skeleton),
+            "骷髅"
+        );
+        assert_eq!(
+            monster_display_name(Language::ZhCn, MonsterTemplate::BoneFamiliar),
+            "骷髅"
+        );
+        assert_eq!(
+            monster_display_name(Language::ZhCn, MonsterTemplate::Scarecrow),
+            "稻草人"
+        );
+        assert_eq!(
+            monster_display_name(Language::ZhCn, MonsterTemplate::Shinsu),
+            "神兽"
+        );
+    }
+
+    #[test]
+    fn embedded_match_aliases_cover_the_six_known_aliases() {
+        let aliases = MatchAliases::embedded();
+        assert_eq!(aliases.version, 1);
+        assert!(!aliases.description.is_empty());
+        assert_eq!(aliases.game_shop_classes.len(), 5);
+        assert_eq!(aliases.monster_names.len(), 1);
+        let expected = [
+            ("Warrior", "战士", "Warrior"),
+            ("Wizard", "法师", "Wizard"),
+            ("Taoist", "道士", "Taoist"),
+            ("Assassin", "刺客", "Assassin"),
+            ("Archer", "弓箭手", "Archer"),
+        ];
+        for (db_name, zh_cn, en) in expected {
+            let row = aliases
+                .game_shop_class(db_name)
+                .unwrap_or_else(|| panic!("缺少职业别名 {db_name}"));
+            assert_eq!(row.db_name, db_name);
+            assert_eq!(row.zh_cn, zh_cn);
+            assert_eq!(row.en, en);
+            for name in [row.db_name.as_str(), row.zh_cn.as_str(), row.en.as_str()] {
+                assert!(row.matches(name), "{db_name} 的三列都必须能自匹配：{name}");
+            }
+            assert!(!row.matches("不存在的职业"));
+        }
+        // 英文职业名大小写不敏感（保持 game_shop_class_allows 旧语义）。
+        assert_eq!(
+            aliases
+                .game_shop_class("wArRiOr")
+                .map(|row| row.zh_cn.as_str()),
+            Some("战士")
+        );
+        let archer_guard = &aliases.monster_names[0];
+        assert_eq!(archer_guard.db_name, "ArcherGuard");
+        assert_eq!(archer_guard.zh_cn, "弓箭守卫");
+        assert!(archer_guard.any_contains("ArcherGuard"));
+        assert!(archer_guard.any_contains("弓箭守卫"));
+        assert!(archer_guard.any_contains("EliteArcherGuard"));
+        assert!(!archer_guard.any_contains("神兽"));
+    }
+
+    #[test]
+    fn match_alias_rows_are_unique_and_complete() {
+        let aliases = MatchAliases::embedded();
+        let mut db_names = BTreeSet::new();
+        let mut zh_names = BTreeSet::new();
+        let mut count = 0;
+        for row in aliases
+            .game_shop_classes
+            .iter()
+            .chain(aliases.monster_names.iter())
+        {
+            count += 1;
+            assert!(!row.db_name.trim().is_empty(), "DB 名列不得为空");
+            assert!(
+                !row.zh_cn.trim().is_empty(),
+                "中文名列不得为空：{}",
+                row.db_name
+            );
+            assert!(
+                !row.en.trim().is_empty(),
+                "英文名列不得为空：{}",
+                row.db_name
+            );
+            assert!(
+                db_names.insert(row.db_name.to_ascii_lowercase()),
+                "DB 名重复：{}",
+                row.db_name
+            );
+            assert!(
+                zh_names.insert(row.zh_cn.clone()),
+                "中文名重复：{}",
+                row.zh_cn
+            );
+        }
+        assert_eq!(count, 6, "6 条匹配别名：五职业 + ArcherGuard");
+    }
+
+    #[test]
+    fn match_aliases_are_not_ui_text_keys() {
+        let aliases = MatchAliases::embedded();
+        let text_keys: BTreeSet<&str> = TextKey::ALL.iter().map(|key| key.key()).collect();
+        let library = LanguageLibrary::embedded();
+        for row in aliases
+            .game_shop_classes
+            .iter()
+            .chain(aliases.monster_names.iter())
+        {
+            for name in [&row.db_name, &row.zh_cn, &row.en] {
+                assert!(
+                    !text_keys.contains(name.as_str()),
+                    "{name} 不得出现在 TextKey：匹配别名严禁当 UI 词表"
+                );
+                for language in Language::ALL {
+                    let pack = library.pack(*language).expect("内置语言包必须存在");
+                    assert!(
+                        !pack.server.values().any(|template| template == name),
+                        "{name} 不得出现在 {language:?} 语言包 server 段"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn match_aliases_json_requires_the_kebab_case_chinese_column() {
+        let source = r#"{"version":1,"description":"","game_shop_classes":[{"db_name":"Warrior","zh-cn":"战士","en":"Warrior"}],"monster_names":[]}"#;
+        let parsed = MatchAliases::from_json(source).expect("合法别名表");
+        assert_eq!(parsed.game_shop_classes[0].zh_cn, "战士");
+        assert!(MatchAliases::from_json("{ 不是 json }").is_err());
+        assert!(
+            MatchAliases::from_json(r#"{"game_shop_classes":[{"db_name":"X"}]}"#).is_err(),
+            "缺 zh-cn/en 列必须报错"
         );
     }
 }

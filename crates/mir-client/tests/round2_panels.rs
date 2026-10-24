@@ -1525,3 +1525,63 @@ fn quest_output_message_is_visible_after_quest_item_gained() {
     en.save_png(screenshot("quest-found"))
         .expect("保存任务物品获得提示截图");
 }
+
+#[test]
+fn r50c_gameshop_hotkey_is_isolated_from_market_tab() {
+    // R50-C：独立商城（固定热键 `K`）与市场「商城页签」共存且状态/数据隔离。
+    // 商城目录来自 `S.GameShopInfo`，市场列表来自 `S.NPCMarket{ItemType=GameShop}`，
+    // 两套状态（页签/选中/搜索）互不覆盖；`Esc` 先关最上层的商城再关市场。
+    let text = text();
+    let mut snapshot = snapshot_with_player(500, &[]);
+    snapshot.apply_packet(&ServerPacket::NPCMarket(
+        mir_protocol::packets::server::NPCMarket {
+            listings: vec![auction(1, 1000, 1, 100)],
+            pages: 1,
+            user_mode: false,
+        },
+    ));
+    assert_eq!(snapshot.market.listings.len(), 1);
+    assert!(
+        snapshot.gameshop.is_empty(),
+        "S.NPCMarket 不得污染商城目录（数据源隔离）"
+    );
+
+    let mut state = UiState::new(Language::En);
+    state.set_time(1_700_000_000_000);
+    state.sync(&snapshot);
+    state.show_market = true;
+    state.market_tab = mir_core::enums::MarketPanelType::GameShop;
+    state.market_selected = Some(1);
+    state.market_search.set("元宝");
+
+    assert!(state.toggle_gameshop(None), "无输入焦点时 K 打开商城");
+    assert!(state.show_gameshop);
+    assert!(state.show_market, "打开商城不得关掉市场页签");
+    assert_eq!(state.market_tab, mir_core::enums::MarketPanelType::GameShop);
+    assert_eq!(state.market_selected, Some(1));
+    assert_eq!(state.market_search.value, "元宝");
+
+    // 两窗同开也能画（商城画在市场之后/上层）；证据写入 R50-C 专属证据目录。
+    let frame = frame_with_language(&mut state, &snapshot, &text, Language::En);
+    let evidence_dir = workspace_root().join("target/round50/r50-c");
+    std::fs::create_dir_all(&evidence_dir).expect("创建 R50-C 证据目录");
+    frame
+        .save_png(evidence_dir.join("gameshop-market-coexist.png"))
+        .expect("保存商城与市场页签共存截图");
+    assert!(state.show_gameshop);
+    assert!(state.show_market);
+
+    // Esc：先关商城、市场保留；再按一次才关市场。
+    assert!(matches!(
+        state.escape(),
+        mir_client::ui::EscapeResult::Panels
+    ));
+    assert!(!state.show_gameshop);
+    assert!(state.show_market);
+    assert_eq!(state.market_search.value, "元宝");
+    assert!(matches!(
+        state.escape(),
+        mir_client::ui::EscapeResult::Panels
+    ));
+    assert!(!state.show_market);
+}

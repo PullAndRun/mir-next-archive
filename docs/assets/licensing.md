@@ -99,3 +99,74 @@ foreach ($root in $roots) {
   2 个「未确认（分发前需确认）」、仅 4 个明确许可（AGPL-3.0 / Apache-2.0 / MIT 各 1 +
   1 个「代码 MIT、美术未确认」）、5 个有文件但无状态行、2 个无 `SOURCES.md`。
 * 这些数字现在只说明「当时来源登记得不完整」，**不再是授权阻塞项**；政策以 §1 为准。
+
+## 5. 商城素材 manifest（R50-D）
+
+商城面板（[`docs/world/gameshop.md`](../world/gameshop.md) §7.3.5）需要的商品图标，
+本轮新增一份**可复核的授权/哈希清单**：
+
+| 项 | 值 |
+|---|---|
+| 清单文件 | [`docs/assets/gameshop-manifest.json`](gameshop-manifest.json)（81,386 B，`sha256=fdf1e178…`，2,038 行） |
+| 生成/校验器 | [`tools/assets/gameshop_manifest.py`](../../tools/assets/gameshop_manifest.py)（只读源码素材，不新造图标） |
+| 条目 | **82**（`gindex` 去重 82，`ok=82`、`partial=0`；商品池是 `Server.MirDB` 商城段的 118 条中图标可解析的 82 条） |
+| 政策 | `license.policy_id = resource-policy-2026-10-20`，即本文 §1 的 2026-10-20 裁决；条目级 `license` 字段逐条重复该 id |
+| 覆盖 | 只覆盖 `resource/` 内素材；清单本身是索引，不含二进制 |
+
+### 5.1 命令与退出码（实测，2026-10-25）
+
+```powershell
+py tools/assets/gameshop_manifest.py --write          # 0：wrote: … bytes=81386 sha256=fdf1e178… entries=82 ok=82 partial=0
+py tools/assets/gameshop_manifest.py --check          # 0：manifest ok: 82
+py tools/assets/gameshop_manifest.py --verify-icons   # 0：icons ok: 82（逐条 sha256）
+py tools/assets/gameshop_manifest.py --verify-release # 0：release: sprites-item-1.mnp entries=827 icons ok: 82
+```
+
+日志与交叉核对：`target/round50/r50-d/{commands.log,cross-check.txt,icons.sha256,mirdb-report.txt}`，
+说明见 `target/round50/r50-d/README.md`。
+
+### 5.2 字段说明
+
+顶层：
+
+| 字段 | 含义 |
+|---|---|
+| `schema_version` / `kind` / `round` / `generated_by` | `1` / `gameshop-manifest` / `R50` / 生成命令 |
+| `license.{policy_id,policy,source_doc,unverified_marker,notes}` | 政策 id 与出处（`unverified` 只用于 partial 条目） |
+| `source.database.{path,bytes,sha256,db_version,counters,sections}` | 源 `Server.MirDB` 的路径/大小/哈希、各段计数（`gameshop: 118`） |
+| `source.clean_report.{db_sha256,db_bytes}` 等 | 图标派生的中间产物（`mirdb` 解析报告）哈希，用于证明「同一样本」 |
+| `icon.{root,dev_path_pattern,logical_pattern,client_lookup}` | 图标在开发树的路径规则，以及客户端取图代码位置（`entities.rs item_icon` / `ui/mod.rs load_icon`） |
+| `icon.release.{file,bytes,sha256,entries,prefix,pack_sha256_actual,index_entries_parsed}` | 发布包 `sprites-item-1.mnp` 的实测指纹：**772,675 B**、`sha256=3b28fa1b997a29e7…`、**827** 条、前缀 `gfx/sprites/item/` |
+| `price.{credit,gold,unit_note}` | 两种货币单价的口径（元宝 = `CreditPrice`、金币 = `GoldPrice`；总额 = 单价 × 数量） |
+| `counts.{entries,ok,partial}` | `82 / 82 / 0` |
+| `groups.*` | 按商品 `Category` 分组计数（`Potion 27`、`Special 12`、`Scroll 11`…） |
+
+`entries[]` 每条：
+
+| 字段 | 含义 |
+|---|---|
+| `gindex` / `item_index` / `name` / `category` / `class` / `count` | 商品与物品模板信息（`gindex` 是购买键，见 gameshop.md §7.3.3） |
+| `credit` / `credit_source` / `gold` / `gold_source` / `price_unit` | 单价及其来源列（`Server.MirDB gameshop.credit_price` 等，便于逐条回溯） |
+| `stock` | 限量时 > 0，`0` = 不限量 |
+| `icon` / `icon_image` / `icon_pack` / `source_path` | 逻辑图标路径、图像编号、所在发布包、开发树路径 |
+| `bytes` / `sha256` | 该图标文件的实测大小与哈希（**逐条**，不是整包一个） |
+| `license` | `resource-policy-2026-10-20`；缺素材时为 `unverified` |
+| `partial` / `partial_reason` | 缺素材时必须 `true` + 明文原因，`bytes/sha256` 置 `null` |
+
+### 5.3 fail-closed 语义（缺素材即失败）
+
+* 任一条目 `partial: true`（图标缺失/解析失败）→ `--check` 打印 `partial: N` 并 **exit 1**；
+  只有显式 `--check --allow-partial` 才放行（用于过渡期，不用于发布）。
+* `--verify-icons` 缺失条目 **exit 1**，并列出缺失清单；哈希不符同样 exit 1。
+* 发布包校验 `--verify-release` 要求 `entries` 与 `manifest.packs` 索引一致（827/827）。
+* 源 DB 被替换/篡改 → `--write` **拒绝生成**（exit 2，「源 DB 不是固定核验样本」）；
+  伪值的 `source.database.sha256` 会被 `--check` 判为问题。
+* 模拟证据：`target/round50/r50-d/partial-sim.log`（隔离副本上复现三类异常，不碰真实 `resource/`）。
+
+> 为什么这么严：商城图标是**玩家可见的素材**，缺图时客户端会画占位方块
+> （[`docs/client.md`](../client.md) §5.16.1「缺 manifest 占位规则」）；若清单把缺失当成功，
+> 发布包会带着空图标上线而无人发现。因此清单的「ok」必须等于「每个图标文件都在且哈希一致」。
+>
+> 与 [`docs/assets/game-assets.md`](game-assets.md) §5.1.1 的口径关系：那里的发布包快照
+> 已按本轮实测更正为 **827 条 / 772,675 B / `sha256=3b28fa1b…`**；本节 `icon.release`
+> 与之同源，旧值 826 条 / 771,854 B 作废。**只信本节与 manifest 的实测字段**。

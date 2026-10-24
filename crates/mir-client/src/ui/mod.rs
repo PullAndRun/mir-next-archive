@@ -16,6 +16,9 @@
 //! * [`trade`]：交易面板（`S.TradeAccept` 自动打开，左右两栏各 10 格 + 金币 + 准备/确认）；
 //! * [`group`]：`P` 组队面板（成员表 + 邀请/离队/踢人 + `!!` 组队聊天提示）；
 //! * [`notice`]：交易/组队邀请的两按钮弹窗；
+//! * [`friends`]：好友面板（在线/黑名单/备注，`C.AddFriend*`/`C.RemoveFriend*`）；
+//! * [`gameshop`]：`K` 独立商城面板（`S.GameShopInfo`/`S.GameShopStock` 目录 + 库存，
+//!   元宝/金币双币购买 `C.GameshopBuy`；与市场页签状态隔离）；
 //! * [`grid`] / [`input`]：上面三个面板共用的物品网格与单行输入框；
 //! * [`skills`]：F3 技能列表与 1..9 施法目标选择；
 //! * [`labels`]：中文/英文标签表。
@@ -38,6 +41,7 @@ pub mod dialog;
 pub mod door;
 pub mod equipment;
 pub mod friends;
+pub mod gameshop;
 pub mod grid;
 pub mod group;
 pub mod guild;
@@ -72,7 +76,7 @@ use std::collections::HashMap;
 
 use mir_core::Point;
 use mir_core::enums::{
-    ItemType, MarketCollectionMode, MarketPanelType, MirDirection, MirGridType, Spell,
+    ItemType, MarketCollectionMode, MarketPanelType, MirClass, MirDirection, MirGridType, Spell,
 };
 use mir_render::{Frame, Image, MapScene};
 
@@ -921,6 +925,8 @@ pub enum FieldId {
     MarketSearch,
     /// 市场面板：寄售售价 / 拍卖出价。
     MarketPrice,
+    /// 独立商城面板：搜索框。
+    GameShopSearch,
     /// 好友面板：要添加的名字。
     FriendName,
     /// 好友面板：备注。
@@ -1023,6 +1029,26 @@ pub struct UiState {
     /// 已被「切页签」清掉的提示版本：`fail_version` / `message_version` 不大于它时
     /// 不画底部红/绿字（避免切到商城页签还残留上一页的失败提示）。
     pub market_notice_dismissed: u64,
+    /// 独立商城面板是否打开（固定热键 `K`；Crystal `MainDialogs.GameShopButton`）。
+    pub show_gameshop: bool,
+    /// 商城职业筛选（Crystal `ClassFilter`：Show All / Warrior / Assassin / Taoist / Wizard / Archer）。
+    pub gameshop_class: gameshop::ClassFilter,
+    /// 商城分区筛选（Crystal `AllItems` / `TopItems` / `DealItems` / `NewItems`）。
+    pub gameshop_section: gameshop::SectionFilter,
+    /// 商城分类筛选（`None` = 全部分类；Crystal `TypeFilter = "Show All"`）。
+    pub gameshop_category: Option<String>,
+    /// 商城搜索框（按物品名包含匹配，Crystal `SearchTextBox`）。
+    pub gameshop_search: input::TextField,
+    /// 商城选中的商品 `GIndex`。
+    pub gameshop_selected: Option<i32>,
+    /// 商城购买份数（1..=99，Crystal `Quantity`）。
+    pub gameshop_quantity: u8,
+    /// 商城结算货币（`gameshop::PAY_CREDIT` 元宝 / `gameshop::PAY_GOLD` 金币）。
+    pub gameshop_pay_type: u8,
+    /// 商城当前页（0 起；Crystal 8 格一页）。
+    pub gameshop_page: usize,
+    /// 商城本地购买检查失败提示（不发包；改选/改份数/改货币时清除）。
+    pub gameshop_notice: Option<gameshop::BuyProblem>,
     /// 当前聚焦的输入框。
     pub focus: Option<FieldId>,
     /// 小地图面板是否打开（`M`）。
@@ -1111,6 +1137,10 @@ pub struct UiState {
     market_consign_version: u64,
     /// 已同步的市场翻页版本（`S.NPCMarketPage`）。
     market_page_version: u64,
+    /// 已同步的商城目录版本（`S.GameShopInfo` 新增/更新计一版）。
+    gameshop_catalog_version: u64,
+    /// 已同步的商城库存版本（`S.GameShopStock` 每次刷新计一版）。
+    gameshop_stock_version: u64,
 }
 
 impl UiState {
@@ -1163,6 +1193,16 @@ impl UiState {
             market_page: 0,
             market_consign_only: false,
             market_notice_dismissed: 0,
+            show_gameshop: false,
+            gameshop_class: gameshop::ClassFilter::All,
+            gameshop_section: gameshop::SectionFilter::All,
+            gameshop_category: None,
+            gameshop_search: input::TextField::new(24),
+            gameshop_selected: None,
+            gameshop_quantity: 1,
+            gameshop_pay_type: gameshop::PAY_GOLD,
+            gameshop_page: 0,
+            gameshop_notice: None,
             focus: None,
             show_minimap: false,
             show_bigmap: false,
@@ -1207,6 +1247,8 @@ impl UiState {
             market_open_version: 0,
             market_consign_version: 0,
             market_page_version: 0,
+            gameshop_catalog_version: 0,
+            gameshop_stock_version: 0,
         }
     }
 
@@ -1365,6 +1407,36 @@ impl UiState {
             .is_some_and(|auction_id| snapshot.market.listing(auction_id).is_none())
         {
             self.market_selected = None;
+        }
+        // 独立商城：`S.GameShopInfo` / `S.GameShopStock` 版本变化后收边页码与选中
+        // （数据本身由 `WorldSnapshot` 按 `GIndex` 幂等维护）。面板只由 `K` 手动开关，
+        // 未连接时不出自动弹窗（Crystal 同样是按钮触发）。
+        if snapshot.gameshop.catalog_version != self.gameshop_catalog_version
+            || snapshot.gameshop.stock_version != self.gameshop_stock_version
+        {
+            self.gameshop_catalog_version = snapshot.gameshop.catalog_version;
+            self.gameshop_stock_version = snapshot.gameshop.stock_version;
+            let now_sec = self.time_millis / 1000;
+            let filtered = self.gameshop_filtered(snapshot, now_sec);
+            let pages = gameshop::page_count(filtered.len());
+            self.gameshop_page = self.gameshop_page.min(pages - 1);
+            // 选中的商品被服务端移除时清选中；被筛掉也清（避免「看不见但买得着」）。
+            let selected = self.gameshop_selected;
+            if selected.is_some_and(|g_index| {
+                snapshot.gameshop.entry(g_index).is_none()
+                    || !filtered.iter().any(|entry| entry.item.g_index == g_index)
+            }) {
+                self.gameshop_selected = None;
+                self.gameshop_quantity = 1;
+                self.gameshop_notice = None;
+            }
+            // 库存/售罄变化后份数重新夹取（Crystal 每次 UpdateShop 都会刷新数量）。
+            if let Some(entry) = self
+                .gameshop_selected
+                .and_then(|g_index| snapshot.gameshop.entry(g_index))
+            {
+                self.gameshop_quantity = gameshop::clamp_quantity(entry, self.gameshop_quantity);
+            }
         }
         // 组队面板滚动/选中收边。
         let member_count = snapshot.group.members.len();
@@ -1605,6 +1677,7 @@ impl UiState {
         self.show_settings = false;
         self.close_trade();
         self.close_market();
+        self.close_gameshop();
         self.focus = None;
         self.drag = None;
         self.context_menu = None;
@@ -1696,6 +1769,78 @@ impl UiState {
         self.focus = None;
     }
 
+    /// 开关独立商城面板（固定热键 `K`；Crystal `MainDialogs.cs:186-197` 的
+    /// `GameShopButton` → `GameshopDialog.Toggle()`，打开时 `Show()` 在
+    /// `GameshopDialog.cs:508-519` 重置筛选/支付/份数）。
+    ///
+    /// 只在 live 态由窗口层调用；输入框聚焦时**不开不关**（窗口层在
+    /// `app.rs` 的文本输入早退里已经 return，这里再守一道，防止以后重排热键顺序后
+    /// `K` 被搜索框吃掉）。返回是否改变了开关状态（决定要不要重绘）。
+    pub fn toggle_gameshop(&mut self, user_class: Option<MirClass>) -> bool {
+        if self.focus.is_some() {
+            return false;
+        }
+        self.show_gameshop = !self.show_gameshop;
+        if self.show_gameshop {
+            // Crystal `GameshopDialog.Show()`：职业筛选用玩家职业、分区/分类回
+            // 「全部」、支付回金币、份数 1、搜索框清空。
+            self.gameshop_class = gameshop::ClassFilter::from_class(user_class);
+            self.gameshop_section = gameshop::SectionFilter::All;
+            self.gameshop_category = None;
+            self.gameshop_search = input::TextField::new(24);
+            self.gameshop_page = 0;
+            self.gameshop_selected = None;
+            self.gameshop_quantity = 1;
+            self.gameshop_pay_type = gameshop::PAY_GOLD;
+            self.gameshop_notice = None;
+        } else {
+            self.focus = None;
+        }
+        true
+    }
+
+    /// 关掉独立商城面板（`K` / 关闭按钮 / `Esc`；Crystal `Hide()` 不发包）。
+    pub fn close_gameshop(&mut self) {
+        self.show_gameshop = false;
+        self.gameshop_selected = None;
+        self.gameshop_notice = None;
+        self.gameshop_page = 0;
+        self.focus = None;
+    }
+
+    /// 选中商城商品：换商品时份数回到 1、旧提示清掉（Crystal 点商品格）。
+    pub fn select_gameshop_entry(&mut self, g_index: Option<i32>) {
+        if self.gameshop_selected != g_index {
+            self.gameshop_quantity = 1;
+            self.gameshop_notice = None;
+        }
+        self.gameshop_selected = g_index;
+    }
+
+    /// 商城搜索/分类变动后重算列表：分类回「全部」、页码回第一页（Crystal
+    /// `GameshopDialog.GetCategories()` 把 `TypeFilter` 重置为 `Show All`、`Page = 0`）。
+    pub fn refresh_gameshop_filters(&mut self) {
+        self.gameshop_category = None;
+        self.gameshop_page = 0;
+        self.gameshop_notice = None;
+    }
+
+    /// 商城当前筛选结果（点击/绘制/滚轮共用；[`gameshop::visible_entries`] 的包装）。
+    fn gameshop_filtered<'a>(
+        &self,
+        snapshot: &'a WorldSnapshot,
+        now_sec: i64,
+    ) -> Vec<&'a crate::net::GameShopEntry> {
+        gameshop::visible_entries(
+            &snapshot.gameshop.entries,
+            self.gameshop_class,
+            self.gameshop_section,
+            self.gameshop_category.as_deref(),
+            &self.gameshop_search.value,
+            now_sec,
+        )
+    }
+
     /// 开关小地图（`M`）。
     pub fn toggle_minimap(&mut self) {
         self.show_minimap = !self.show_minimap;
@@ -1760,6 +1905,11 @@ impl UiState {
         if self.show_trade {
             self.close_trade();
             return EscapeResult::Trade;
+        }
+        // 独立商城面板（`K`）只是本地窗口，关窗不发包（Crystal `GameshopDialog.Hide()`）。
+        if self.show_gameshop {
+            self.close_gameshop();
+            return EscapeResult::Panels;
         }
         // 市场窗只是 NPC 窗口，关窗不发包（Crystal `Hide()`，`TrustMerchantDialog.cs:1398-1412`）。
         if self.show_market {
@@ -1888,6 +2038,23 @@ impl UiState {
                 snapshot.market.listings.len(),
                 self.market_page,
                 self.market_scroll,
+            )
+            .panel
+            .contains(self.mouse)
+        {
+            return true;
+        }
+        if self.show_gameshop
+            && gameshop::gameshop_layout(
+                frame,
+                gameshop::category_names(
+                    &snapshot.gameshop.entries,
+                    self.gameshop_class,
+                    self.gameshop_section,
+                    &self.gameshop_search.value,
+                    self.time_millis / 1000,
+                )
+                .len(),
             )
             .panel
             .contains(self.mouse)
@@ -2033,6 +2200,10 @@ impl UiState {
     ///
     /// `delta > 0` 表示向下滚。
     pub fn on_wheel(&mut self, snapshot: &WorldSnapshot, delta: i32) -> bool {
+        // 独立商城面板开着时，滚轮只翻商城页（一页 8 格），不穿透到下面的市场/商店/背包。
+        if self.show_gameshop {
+            return self.scroll_gameshop(snapshot, delta);
+        }
         // 市场面板用「上一页/下一页」按钮翻页，滚轮不穿透到下面的商店/背包。
         if self.show_market {
             return false;
@@ -2063,6 +2234,25 @@ impl UiState {
             return false;
         }
         self.scroll_shop(snapshot, delta.signum())
+    }
+
+    /// 商城翻页（滚轮；等价于 Crystal 的翻页按钮，一页 8 格）。
+    pub fn scroll_gameshop(&mut self, snapshot: &WorldSnapshot, delta: i32) -> bool {
+        if delta == 0 {
+            return false;
+        }
+        let now_sec = self.time_millis / 1000;
+        let pages = gameshop::page_count(self.gameshop_filtered(snapshot, now_sec).len());
+        let before = self.gameshop_page;
+        if delta < 0 {
+            self.gameshop_page = self.gameshop_page.saturating_sub(1);
+        } else {
+            self.gameshop_page = (self.gameshop_page + 1).min(pages - 1);
+        }
+        if self.gameshop_page != before {
+            self.gameshop_notice = None;
+        }
+        self.gameshop_page != before
     }
 
     /// 滚动组队成员表（超过一屏 12 行时）。
@@ -2557,6 +2747,148 @@ impl UiState {
             max_shape: 5000,
             panel: self.market_tab,
         }
+    }
+
+    /// 点击独立商城面板：关闭 / 职业 / 分区 / 搜索框 / 分类 / 翻页 / 商品格 /
+    /// 支付方式 / 份数 / 买下（Crystal `GameshopDialog` 与 `MirGameShopCell`）。
+    fn click_gameshop(&mut self, snapshot: &WorldSnapshot, frame: Rect) -> Option<UiAction> {
+        let now_sec = self.time_millis / 1000;
+        let filtered = self.gameshop_filtered(snapshot, now_sec);
+        let categories = gameshop::category_names(
+            &snapshot.gameshop.entries,
+            self.gameshop_class,
+            self.gameshop_section,
+            &self.gameshop_search.value,
+            now_sec,
+        );
+        let layout = gameshop::gameshop_layout(frame, categories.len());
+        if !layout.panel.contains(self.mouse) {
+            return None;
+        }
+        // 商城面板吃掉点击，顺便清掉从背包拖过来的幽灵（不参与商城购买）。
+        self.drag = None;
+        if layout.close.contains(self.mouse) {
+            self.close_gameshop();
+            return None;
+        }
+        if let Some(class) = layout.class_at(self.mouse) {
+            self.gameshop_class = class;
+            self.gameshop_page = 0;
+            self.gameshop_selected = None;
+            self.gameshop_quantity = 1;
+            self.gameshop_notice = None;
+            return None;
+        }
+        if let Some(section) = layout.section_at(self.mouse) {
+            // 无新品时「新品」按钮灰显（Crystal 按 `NewButton.Visible` 控制）。
+            if section != gameshop::SectionFilter::New
+                || gameshop::has_new_items(&snapshot.gameshop.entries, now_sec)
+            {
+                self.gameshop_section = section;
+                self.gameshop_page = 0;
+                self.gameshop_selected = None;
+                self.gameshop_quantity = 1;
+                self.gameshop_notice = None;
+            }
+            return None;
+        }
+        if layout.search.contains(self.mouse) {
+            self.focus = Some(FieldId::GameShopSearch);
+            return None;
+        }
+        if let Some(row) = layout.category_at(self.mouse) {
+            self.gameshop_category = if row == 0 {
+                None
+            } else {
+                categories.get(row - 1).cloned()
+            };
+            self.gameshop_page = 0;
+            self.gameshop_selected = None;
+            self.gameshop_quantity = 1;
+            self.gameshop_notice = None;
+            return None;
+        }
+        if let Some(index) = layout.cell_at(self.mouse) {
+            let page_entries = gameshop::page_slice(&filtered, self.gameshop_page);
+            let selected = page_entries.get(index).map(|entry| entry.item.g_index);
+            self.select_gameshop_entry(selected);
+            return None;
+        }
+        if layout.pay_credit.contains(self.mouse) {
+            self.gameshop_pay_type = gameshop::PAY_CREDIT;
+            self.gameshop_notice = None;
+            return None;
+        }
+        if layout.pay_gold.contains(self.mouse) {
+            self.gameshop_pay_type = gameshop::PAY_GOLD;
+            self.gameshop_notice = None;
+            return None;
+        }
+        if layout.qty_minus.contains(self.mouse) || layout.qty_plus.contains(self.mouse) {
+            let step: i32 = if layout.qty_plus.contains(self.mouse) {
+                1
+            } else {
+                -1
+            };
+            let requested = i32::from(self.gameshop_quantity).saturating_add(step);
+            let requested =
+                u8::try_from(requested.clamp(1, i32::from(gameshop::MAX_QUANTITY))).unwrap_or(1);
+            if let Some(entry) = self
+                .gameshop_selected
+                .and_then(|g_index| snapshot.gameshop.entry(g_index))
+            {
+                self.gameshop_quantity = gameshop::clamp_quantity(entry, requested);
+            }
+            self.gameshop_notice = None;
+            return None;
+        }
+        if layout.buy.contains(self.mouse) {
+            // 只允许购买「当前筛选结果里看得见」的选中商品（Crystal 买的是格子上的商品）。
+            let entry = self.gameshop_selected.and_then(|g_index| {
+                filtered
+                    .iter()
+                    .find(|entry| entry.item.g_index == g_index)
+                    .copied()
+            });
+            let me = snapshot.self_player.as_ref();
+            let live = snapshot.is_ready();
+            let gold = me.map_or(0, |me| me.gold);
+            let credit = me.map_or(0, |me| me.credit);
+            return match gameshop::check_buy(
+                entry,
+                self.gameshop_quantity,
+                self.gameshop_pay_type,
+                gold,
+                credit,
+                live,
+            ) {
+                Ok(order) => {
+                    self.gameshop_notice = None;
+                    Some(UiAction::GameShopBuy {
+                        g_index: order.g_index,
+                        quantity: order.quantity,
+                        p_type: order.p_type,
+                    })
+                }
+                Err(problem) => {
+                    self.gameshop_notice = Some(problem);
+                    None
+                }
+            };
+        }
+        if layout.prev.contains(self.mouse) {
+            self.gameshop_page = self.gameshop_page.saturating_sub(1);
+            self.gameshop_notice = None;
+            return None;
+        }
+        if layout.next.contains(self.mouse) {
+            let pages = gameshop::page_count(filtered.len());
+            self.gameshop_page = (self.gameshop_page + 1).min(pages - 1);
+            self.gameshop_notice = None;
+            return None;
+        }
+        // 点在面板空白处：吃掉点击，避免穿透成走路。
+        None
     }
 
     /// 点击市场面板：页签 / 搜索 / 刷新 / 翻页 / 选中行 / 买断-出价 / 取回 / 上架。
@@ -3134,6 +3466,12 @@ impl UiState {
         // 先问各面板要动作，再统一吞掉落在任一新面板上的点击。
         if self.show_trade {
             if let Some(action) = self.click_trade(snapshot, frame) {
+                return Some(action);
+            }
+        }
+        // 独立商城画在市场之后，点击优先于市场。
+        if self.show_gameshop {
+            if let Some(action) = self.click_gameshop(snapshot, frame) {
                 return Some(action);
             }
         }
@@ -3742,6 +4080,23 @@ impl UiState {
         {
             return true;
         }
+        if self.show_gameshop
+            && gameshop::gameshop_layout(
+                frame,
+                gameshop::category_names(
+                    &snapshot.gameshop.entries,
+                    self.gameshop_class,
+                    self.gameshop_section,
+                    &self.gameshop_search.value,
+                    self.time_millis / 1000,
+                )
+                .len(),
+            )
+            .panel
+            .contains(self.mouse)
+        {
+            return true;
+        }
         if self.show_trade && trade::trade_layout(frame).panel.contains(self.mouse) {
             return true;
         }
@@ -3776,6 +4131,7 @@ impl UiState {
             FieldId::GroupName => self.group_name.insert(character),
             FieldId::MarketSearch => self.market_search.insert(character),
             FieldId::MarketPrice => self.market_price.insert(character),
+            FieldId::GameShopSearch => self.gameshop_search.insert(character),
             FieldId::FriendName => self.friends.name.insert(character),
             FieldId::FriendMemo => self.friends.memo.insert(character),
             FieldId::GuildAlly => self.guild_ally.insert(character),
@@ -3799,6 +4155,7 @@ impl UiState {
             FieldId::GroupName => self.group_name.backspace(),
             FieldId::MarketSearch => self.market_search.backspace(),
             FieldId::MarketPrice => self.market_price.backspace(),
+            FieldId::GameShopSearch => self.gameshop_search.backspace(),
             FieldId::FriendName => self.friends.name.backspace(),
             FieldId::FriendMemo => self.friends.memo.backspace(),
             FieldId::GuildAlly => self.guild_ally.backspace(),
@@ -4195,6 +4552,55 @@ pub fn draw(
             message.as_deref(),
             &mut icon_fn,
         );
+    }
+
+    // 独立商城（`K`）：数据来自 `S.GameShopInfo`/`S.GameShopStock` 目录缓存，
+    // 与市场页签的 `S.NPCMarket` 列表完全隔离（画在市场之上，点击优先响应）。
+    if state.show_gameshop {
+        let now_sec = state.time_millis / 1000;
+        let filtered = state.gameshop_filtered(snapshot, now_sec);
+        let categories = gameshop::category_names(
+            &snapshot.gameshop.entries,
+            state.gameshop_class,
+            state.gameshop_section,
+            &state.gameshop_search.value,
+            now_sec,
+        );
+        let layout = gameshop::gameshop_layout(screen, categories.len());
+        let hover = layout.cell_at(state.mouse);
+        let search = state.gameshop_search.clone();
+        let category = state.gameshop_category.clone();
+        let (gold, credit) = snapshot
+            .self_player
+            .as_ref()
+            .map_or((0, 0), |player| (player.gold, player.credit));
+        let view = gameshop::GameShopView {
+            entries: &filtered,
+            categories: &categories,
+            catalog_len: snapshot.gameshop.entries.len(),
+            page: state
+                .gameshop_page
+                .min(gameshop::page_count(filtered.len()).saturating_sub(1)),
+            selected: state.gameshop_selected,
+            quantity: state.gameshop_quantity,
+            pay_type: state.gameshop_pay_type,
+            search: &search,
+            focus: state.focus,
+            hover,
+            class: state.gameshop_class,
+            section: state.gameshop_section,
+            category: category.as_deref(),
+            notice: state.gameshop_notice,
+            gold,
+            credit,
+            live: snapshot.is_ready(),
+            has_new: gameshop::has_new_items(&snapshot.gameshop.entries, now_sec),
+            partial: gameshop::assets_partial_default(),
+            now_sec,
+        };
+        let UiState { icons, .. } = state;
+        let mut icon_fn = |image: u16| -> Option<Image> { load_icon(scene, icons, image) };
+        gameshop::draw(frame, &layout, &context, &view, &mut icon_fn);
     }
 
     if state.show_trade {

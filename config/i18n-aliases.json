@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "description": "匹配别名表（不是 UI 文案）：market.rs 五职业 + monster.rs ArcherGuard 名字兜底，共 6 条；三列 = DB 名 / 中文名 / 英文名，只用于匹配，严禁当渲染词表。",
+  "game_shop_classes": [
+    {
+      "db_name": "Warrior",
+      "zh-cn": "战士",
+      "en": "Warrior"
+    },
+    {
+      "db_name": "Wizard",
+      "zh-cn": "法师",
+      "en": "Wizard"
+    },
+    {
+      "db_name": "Taoist",
+      "zh-cn": "道士",
+      "en": "Taoist"
+    },
+    {
+      "db_name": "Assassin",
+      "zh-cn": "刺客",
+      "en": "Assassin"
+    },
+    {
+      "db_name": "Archer",
+      "zh-cn": "弓箭手",
+      "en": "Archer"
+    }
+  ],
+  "monster_names": [
+    {
+      "db_name": "ArcherGuard",
+      "zh-cn": "弓箭守卫",
+      "en": "ArcherGuard"
+    }
+  ]
+}

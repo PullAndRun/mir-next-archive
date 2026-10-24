@@ -1,9 +1,10 @@
 # R50 证据索引（第 50 轮：独立商城面板 + i18n 收口 + 证据重跑）
 
 > 父单 `JJC-20261025-002`；本索引由礼部 R50-H（子单 `JJC-20261025-002-sub-a78487f6`）维护。
-> 基线 HEAD `d5707c6d7f61af8f02c15f14f54fb4b24b6e4068`；A 批文档提交后 `2a7e77e`；
-> **R50 的功能改动（B/C/E/F 的代码与测试）未提交**，仍在工作树里。
-> 文中所有行号写「`文件:行` @ `d5707c6`/`2a7e77e`+R50 工作树（2026-10-25 取样）」；
+> 基线 HEAD `d5707c6d7f61af8f02c15f14f54fb4b24b6e4068`；R50 已提交：
+> `4d4175a`（制度文档）、`2a7e77e`（A 批文档）、`b3be4af`（B/C/E/F 功能与证据）。
+> 当前 `HEAD = origin/main = b3be4af`；H2 子单 `JJC-20261025-002-sub-e15245f8` 修订本索引。
+> 文中 `文件:行 @ d5707c6/2a7e77e+R50` 是 2026-10-25 提交前的取证快照；
 > 并发改动会让行号漂移，引用前先按内容 grep，不要拿行号当永久事实。
 > 已实测漂移：R50-C 的 `k-hotkey-evidence.txt` 记 `app.rs` 2853/2920/2951-2953/2272，
 > 06:2x 复核为 2857/2920/2955-2957/2268（§4 引用的是取证值）。
@@ -55,7 +56,7 @@ facts entries: 108 (hit 92 / deviation 16); key_checks: 12; doc_defects: 6
 * 写入范围：`README.md`（第 49 轮门禁行）、`docs/testing/round49/README.md`（`:5`/`:57` 就地改 +
   末尾「## 门禁结果（R50-A）」节）、`docs/roadmap.md`（§六）。
 * 基线 `d5707c6` → A 批提交后 `2a7e77e`（`docs/process/round50-plan.md` §四记录）。
-* 该批**已提交**；R50-B/C/E/F 的改动**未提交**，两者不要混为「全都已入库」。
+* 三批均**已提交**：`4d4175a`（制度）、`2a7e77e`（A）、`b3be4af`（B/C/E/F 功能与证据）；`origin/main = b3be4af`。
 
 ## 3. R50-B 服务端商城包链
 
@@ -75,7 +76,7 @@ facts entries: 108 (hit 92 / deviation 16); key_checks: 12; doc_defects: 6
 | [`09-fmt-workspace.log`](../../../target/round50/r50-b/09-fmt-workspace.log) | 全 workspace fmt | 0 |
 | [`10-gameshop-helper-diff.txt`](../../../target/round50/r50-b/10-gameshop-helper-diff.txt) | 测试 helper 容差 200→512（Lead 批准） | 仅测试夹具 |
 
-代码改动（工作树，未提交）：`crates/mir-server/src/session.rs`（登录链 `send_gameshop_info`
+代码改动（已随 `b3be4af` 提交）：`crates/mir-server/src/session.rs`（登录链 `send_gameshop_info`
 与库存包时序）、`crates/mir-server/src/market.rs`（`game_shop_info_packet` /
 `game_shop_info_packets` / `stock_packet`）、`crates/mir-server/tests/{gameshop.rs,
 gameshop_wire.rs,gameshop_failure.rs}`。
@@ -172,6 +173,19 @@ gameshop_wire.rs,gameshop_failure.rs}`。
 `crates/`、`config/`、`tools/`、`README.md`、`docs/roadmap.md`、`docs/testing/round49/**`、
 `docs/process/**`。本批**不新增任何实现状态**：所有「已实现/已通过」均回指本索引或子单证据。
 
+## 8.1 R50-H2 文档返工与 P09 补证
+
+礼部子单 `JJC-20261025-002-sub-e15245f8` 修正已提交时态、失败不发新库存包的边界，
+以及目录/库存刷新共用的三分库存语义；P11 实现修复仍由 R50-C2 处理。
+
+**P09 已补本次 H2 实跑证据**：历史 H 的 `target/round50/r50-h.log` 缺失，旧的
+756/0 不作独立背书。`py -3 tools/docs/check_links.py` 本次实测 exit **0**：
+**782 条相对链接、2 篇 README 文档引用、市场包编号全部一致**（0 断链）。
+标准输出与退出码见 `target/round50/r50-h2/check-links.log`；
+日志使用 UTF-8 输出环境。`git diff --check` 的退出码另记于
+`target/round50/r50-h2/diff-check.log`；逐项改动与命令记录见
+`target/round50/r50-h2/README.md`。本节日志路径以代码文字引用，避免引用本身改变链接计数。
+
 ## 9. 未决与 T 核对点
 
 1. `S.GameShopStock.GIndex` 用商品 `GIndex` 而非 Crystal 的 `Info.Index`（`docs/world/gameshop.md` §7.3.3）——
@@ -181,5 +195,11 @@ gameshop_wire.rs,gameshop_failure.rs}`。
 3. `docs/assets/game-assets.md` 的 45 包总量 / 151,750 条是 2026-10-22 旧值，本轮未重测（PARTIAL）。
 4. 客户端面板只有单次截图，无像素回归基线；「售罄保留条目」与 Crystal 的「移除条目」
    差异需在验收单确认。
-5. `docs/process/round50-{plan,menxia-review,shangshu-dispatch}.md` 的 deviation 16 / doc_defects 6
-   属 R50-01 核对范围，本轮**未修改**这些文件。
+5. **P12 / PARTIAL**：`docs/process/round50-{plan,menxia-review,shangshu-dispatch}.md` 与
+   `facts` 的 deviation 16 / doc_defects 6 是 R50-01 历史快照，本轮**未修改**这些文件；
+   不能将其当作 `b3be4af` 最终源行号认证，16 条 deviation 保留。
+6. **P11 / BLOCK，R50-C2 返工中**：初始耗尽限量商品被误判为不限量，个人限量商品也可能
+   因 `i_stock` 被显示为 `∞`。规则应为 `item.stock == 0` 不限量；
+   `item.stock > 0 && stock_level > 0` 显示剩余；`item.stock > 0 && stock_level <= 0`
+   售罄禁购；`i_stock` 只决定个人/全服计数。需覆盖首次登录、耗尽后重登、重复目录更新，
+   H2 只修正文档，不宣称客户端返工与针对性回归已完成。

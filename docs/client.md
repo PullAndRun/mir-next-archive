@@ -901,10 +901,15 @@ Crystal `GameshopDialog` 风格的**独立面板**，与 §5.16 的市场页签�
 **`GameShopState`（`net.rs`）与 `GIndex` 幂等**：
 
 * 目录包 `S.GameShopInfo`：`upsert` 按 `item.g_index` 建键——同一 `GIndex` 的重复/迟到
-  目录包**覆盖旧条目**，不追加、不复制；`StockLevel == 0` 且 `Stock == 0` 表示**不限量**，
-  不置售罄（0 档位判定见 `net.rs` 注释）。
-* 库存包 `S.GameShopStock`：`apply_stock` 按 `GIndex` 找到条目后写 `stock_level`；
-  `stock_level <= 0` 才置 `sold_out = true`；**找不到 `GIndex`** 时只推进版本号、
+  目录包**覆盖旧条目**，不追加、不复制。
+* 目录与库存刷新统一使用三分语义：`item.stock == 0` → 不限量，显示 `∞`；
+  `item.stock > 0 && stock_level > 0` → 显示剩余量；
+  `item.stock > 0 && stock_level <= 0` → 售罄，保留条目并禁购。
+  `i_stock` 仅选择个人/全服计数模式，不参与不限量判定。
+* **P11 / PARTIAL（R50-C2 返工中）**：`b3be4af` 的初始耗尽目录与面板无限库存判定
+  存在缺陷；以上为业务规则，修复及首次登录、耗尽后重登、重复目录更新边界需另行验证。
+* 库存包 `S.GameShopStock`：`apply_stock` 按 `GIndex` 找到条目后写 `stock_level`，
+  再按上述规则判定售罄；**找不到 `GIndex`** 时只推进版本号、
   **不凭空造条目**（防止库存包晚于目录包/错包导致幽灵商品）。
 * 断线/重连：世界快照重建时整个 `GameShopState` 清零，等登录链重发目录包；
   商城面板不在 `Mode::Live` 时不画列表。

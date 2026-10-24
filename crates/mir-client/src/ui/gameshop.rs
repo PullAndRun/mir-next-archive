@@ -570,7 +570,7 @@ pub fn page_slice<'a>(filtered: &'a [&'a GameShopEntry], page: usize) -> &'a [&'
 pub enum StockDisplay {
     /// 售罄（本作保留条目显示；Crystal 直接删条目）。
     SoldOut,
-    /// 不限量（Crystal 的 `0 → "∞"`）。
+    /// 不限量（Crystal 的 `0 → "∞"`；只在商品原始 `item.stock == 0` 时出现）。
     Unlimited,
     /// `>= 99` 显示 `99+`。
     AtLeast99,
@@ -580,16 +580,22 @@ pub enum StockDisplay {
 
 /// 计算库存显示。
 ///
-/// `stock_level == 0` 且未售罄 = 不限量（Crystal 服务端对 `Stock == 0` 的商品
-/// 下发 `StockLevel = 0`，见 `crates/mir-server/src/market.rs` 的
-/// `game_shop_info_packets`）；`i_stock == true` 也视为不限量。
+/// 是否不限量只看商品原始 `item.stock`（Crystal `GameShopItem.Stock` 上架总量）：
+/// `item.stock == 0` → `∞`（服务端给这种商品下发 `StockLevel = 0`，见
+/// `crates/mir-server/src/market.rs::game_shop_info_packets`）；`item.stock > 0` 是
+/// 限量，按剩余 `stock_level` 显示，剩余 0 显示「售罄」。`i_stock` 不参与判定——
+/// 它只是个人/全服计数模式标记（服务端 `purchased`），限量商品 `i_stock == true`
+/// 仍按剩余库存显示。
 #[must_use]
 pub fn stock_display(entry: &GameShopEntry) -> StockDisplay {
     if entry.sold_out {
         return StockDisplay::SoldOut;
     }
-    if entry.stock_level <= 0 || entry.item.i_stock {
+    if entry.item.stock <= 0 {
         return StockDisplay::Unlimited;
+    }
+    if entry.stock_level <= 0 {
+        return StockDisplay::SoldOut;
     }
     if entry.stock_level >= 99 {
         return StockDisplay::AtLeast99;
@@ -630,6 +636,9 @@ pub fn total_price(entry: &GameShopEntry, quantity: u8, pay_type: u8) -> u64 {
 /// `if ((decimal)(Quantity * Item.Count) / Item.Info.StackSize) > 5` 时夹到
 /// `(5 * StackSize) / Count`；随后 `if (Item.Stock != 0 && Quantity > Item.Stock)`
 /// 夹到库存（`Stock == 0` = 不限量，不夹）。这里用整数运算等价实现。
+///
+/// R50-C2：限量判定用商品原始 `item.stock`（Crystal `Stock`）；剩余取
+/// `stock_level`，剩余 0 时份数收边到下限 1，购买由 [`check_buy`] 拦截。
 #[must_use]
 pub fn clamp_quantity(entry: &GameShopEntry, quantity: u8) -> u8 {
     let mut clamped = quantity.clamp(1, MAX_QUANTITY);
@@ -639,9 +648,10 @@ pub fn clamp_quantity(entry: &GameShopEntry, quantity: u8) -> u8 {
     let max_by_stacks =
         u8::try_from(max_by_stacks.min(u32::from(MAX_QUANTITY))).unwrap_or(MAX_QUANTITY);
     clamped = clamped.min(max_by_stacks);
-    // `stock_level > 0` 才是限量剩余；0 = 不限量（Crystal 语义）。
-    if entry.stock_level > 0 {
-        clamped = clamped.min(u8::try_from(entry.stock_level).unwrap_or(MAX_QUANTITY));
+    // 限量（`item.stock > 0`）按剩余库存夹取；`item.stock == 0` 是不限量，不夹。
+    if entry.item.stock > 0 {
+        let remaining = u8::try_from(entry.stock_level.max(0)).unwrap_or(MAX_QUANTITY);
+        clamped = clamped.min(remaining.max(1));
     }
     clamped
 }
@@ -713,8 +723,13 @@ pub fn check_buy(
     if entry.sold_out {
         return Err(BuyProblem::SoldOut);
     }
+    // 限量（`item.stock > 0`）且剩余 0：即使 `sold_out` 未及时置位的防御分支也禁购，
+    // 不能把「首登已卖空」的限量商品当不限量放行（R50-C2）。
+    if entry.item.stock > 0 && entry.stock_level <= 0 {
+        return Err(BuyProblem::SoldOut);
+    }
     let quantity = clamp_quantity(entry, quantity);
-    if entry.stock_level > 0 && i32::from(quantity) > entry.stock_level {
+    if entry.item.stock > 0 && i32::from(quantity) > entry.stock_level {
         return Err(BuyProblem::OutOfStock);
     }
     match pay_type {
@@ -1986,14 +2001,27 @@ mod tests {
     }
 
     #[test]
-    fn stock_display_keeps_sold_out_visible() {
+    fn stock_display_uses_original_stock_and_ignores_i_stock() {
+        // R50-C2（R50-T 审计 finding 1）：不限量只在 `item.stock == 0`；限量按剩余
+        // `stock_level` 显示，剩余 0 显示「售罄」而不是 ∞。`i_stock` 只是个人/全服
+        // 计数模式标记（`crates/mir-server/src/market.rs` 的 `purchased`），不参与
+        // 不限量判定。
         let mut entry = entry(1, "A", "All", "药品");
         assert_eq!(stock_display(&entry), StockDisplay::Unlimited);
+        // 不限量商品即使带着正的剩余档位也显示 ∞（剩余只对限量商品有意义）。
         entry.stock_level = 7;
+        assert_eq!(stock_display(&entry), StockDisplay::Unlimited);
+        // 限量：`item.stock > 0`，按剩余显示。
+        entry.item.stock = 20;
         assert_eq!(stock_display(&entry), StockDisplay::Count(7));
         entry.stock_level = 99;
         assert_eq!(stock_display(&entry), StockDisplay::AtLeast99);
         entry.stock_level = 0;
+        assert_eq!(
+            stock_display(&entry),
+            StockDisplay::SoldOut,
+            "限量商品剩余 0 必须显示售罄（不能误判为不限量 ∞）"
+        );
         entry.sold_out = true;
         assert_eq!(
             stock_display(&entry),
@@ -2001,34 +2029,67 @@ mod tests {
             "售罄条目必须保留并显示售罄（R50 §1.3）"
         );
         assert_eq!(stock_text(&entry, Language::ZhCn), "售罄");
-        entry.sold_out = false;
-        entry.item.i_stock = true;
-        assert_eq!(stock_display(&entry), StockDisplay::Unlimited);
+        // `i_stock == true` 但上架总量 > 0：仍是限量，显示剩余而不是 ∞。
+        let mut individual = entry.clone();
+        individual.sold_out = false;
+        individual.item.i_stock = true;
+        individual.stock_level = 3;
+        assert_eq!(stock_display(&individual), StockDisplay::Count(3));
     }
 
     #[test]
     fn clamp_quantity_uses_stock_and_five_stack_limit() {
+        // 不限量（`item.stock == 0`）只受 5 组堆叠夹取。
         let mut entry = entry(1, "A", "All", "药品");
         entry.item.count = 2;
         entry.item.info.stack_size = 10;
         // 5 组 × 10 / 每次 2 = 25 份上限。
         assert_eq!(clamp_quantity(&entry, 99), 25);
         assert_eq!(clamp_quantity(&entry, 0), 1);
+        // 限量（`item.stock > 0`）再按剩余库存夹取。
+        entry.item.stock = 8;
         entry.stock_level = 5;
         assert_eq!(
             clamp_quantity(&entry, 99),
             5,
             "限量库存夹取（Crystal Stock 判断）"
         );
+        // 限量售罄：份数保留下限 1，购买由 `check_buy` 拦截（不发包）。
         entry.stock_level = 0;
+        assert_eq!(
+            clamp_quantity(&entry, 99),
+            1,
+            "限量剩余 0 时份数收边到下限 1"
+        );
+        // 不限量：剩余档位为 0 也不参与夹取。
         entry.item.count = 1;
         entry.item.info.stack_size = 1;
+        entry.item.stock = 0;
         // 5 组 / 每次 1 = 5 份上限（不可堆叠也按 5 组夹）。
         assert_eq!(clamp_quantity(&entry, 99), 5);
     }
 
     #[test]
     fn check_buy_matrix_matches_crystal_buy_product() {
+        // 限量售罄（`item.stock > 0` 且剩余 0，未带 `sold_out` 标记的防御分支）：
+        // 必须本地拦截，不能放行成「不限量」。
+        let mut exhausted = entry(9, "B", "All", "药品");
+        exhausted.item.stock = 3;
+        exhausted.stock_level = 0;
+        exhausted.item.count = 1;
+        exhausted.item.info.stack_size = 100;
+        assert_eq!(
+            check_buy(Some(&exhausted), 1, PAY_GOLD, 1_000, 1_000, true),
+            Err(BuyProblem::SoldOut),
+            "限量商品剩余 0 视为售罄、不得放行"
+        );
+        // 不限量商品（`item.stock == 0`）不受剩余档位限制。
+        let mut unlimited_zero = entry(10, "C", "All", "药品");
+        unlimited_zero.item.stock = 0;
+        unlimited_zero.stock_level = 0;
+        let order =
+            check_buy(Some(&unlimited_zero), 3, PAY_GOLD, 1_000, 1_000, true).expect("不限量可买");
+        assert_eq!(order.quantity, 3);
         let mut entry = entry(7, "A", "All", "药品");
         entry.item.gold_price = 100;
         entry.item.credit_price = 10;

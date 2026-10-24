@@ -36,8 +36,9 @@
 > `S.MarketFail`）在 market.md §2，这里只写商城特有的部分。
 >
 > **本轮（R50）状态口径**：本文所有「已实现/已通过」都附证据路径；没有证据或未实测的一律写
-> PARTIAL。代码行号一律写作「`文件:行` @ `2a7e77e3`+R50 未提交改动（2026-10-25 取样）」——
-> R50 的功能改动**尚未提交**，行号只是当次工作树的快照，不是永久事实。
+> PARTIAL。R50 已通过三提交 `4d4175a`（制度文档）、`2a7e77e`（A 批文档）、
+> `b3be4af`（功能与证据）入库，当前 `HEAD = origin/main = b3be4af`。
+> 下文 `@2a7e77e3+R50` 等代码行号是提交前取证快照（2026-10-25），不是永久事实。
 >
 > **行号漂移实测（2026-10-25 06:2x 复核）**：`app.rs` 的 R50-C 取证值已小幅漂移——
 > `k-hotkey-evidence.txt` 记录 `handle_live_key` :2853、`"k" =>` :2951-2953、
@@ -67,8 +68,10 @@
   在找商品之后**插入**职业/等级两道扩展校验（顺序见 §5）；成功后
   `S.LoseCredit`/`S.LoseGold` → 发货（`S.GainedItem`，背包放不下转邮件）→
   （事务提交成功）`S.GameShopStock`。
-- **失败零包**：任何校验失败都**不改状态、不发任何包**（静默类连提示都不发）；
-  落盘失败则回滚世界层并**一个库存包都不发**（见 §8.4、§7.3）。
+- **失败不发新库存包**：校验失败或事务失败都**不发新的 `S.GameShopStock` 库存包**；
+  仍可按错误分支发送 `S.SystemChat` / `S.MarketFail`，静默类校验可不提示。
+  事务失败会回滚世界层（见 §8.4、§7.3）。Crystal 缺货分支会发聊天并刷新库存，
+  Rust 的统一失败分支不刷新库存，这是事务语义选择，不能写成完全一致。
 - **元宝是本作的角色级货币**（`characters.credit`），Crystal 挂在账号
   （`AccountInfo.Credit`）。同账号多角色不共享余额，这是第 1 轮的既定取舍（§4）。
 - **库存计数持久化在 `gameshop_stock` / `gameshop_purchases` 两张表**（迁移 `0011`），
@@ -202,8 +205,9 @@ NPC 入口：脚本动作 `GIVECREDIT` / `TAKECREDIT` / `CHECKCREDIT` 可以给/
 `crates/mir-protocol/src/packets/client.rs`），入口 `World::gameshop_buy`
 （`market.rs`，Crystal `PlayerObject.GameshopBuy`，`PlayerObject.cs:13725-13911`）。
 
-**任何一步失败都不改状态、不发包**（`gameshop_buy` 文档注释明写
-「此时**不改任何状态、不发任何包**」）。是否给玩家提示取决于 `GameShopError::is_silent()`：
+**任何一步校验失败都不改购买状态，也不发新的 `S.GameShopStock` 库存包**。
+`World::gameshop_buy` 本身不发包；会话层可发 `S.SystemChat` / `S.MarketFail`，
+是否给玩家聊天提示取决于 `GameShopError::is_silent()`：
 数量越界、超过 5 组、余额不足、不允许该支付方式是**静默**的（与 Crystal 的裸 `return`
 一致），其余由会话层把 `GameShopError::message()` 发成 `S.Chat{System}`（见 §6 的包序）。
 
@@ -370,11 +374,16 @@ Stock == 0（不限量）:
     发 S.GameShopInfo{Item, StockLevel = Stock}   // 即 0，表示「∞」
 ```
 
-`StockLevel = 0` 在这条链上有两种含义，客户端必须按「来源」区分：
-**目录包里 `StockLevel == 0` 且 `Stock == 0` = 不限量**（显示 `∞`）；
-**`S.GameShopStock` 里 `StockLevel == 0` = 限量商品卖完**（显示「售罄」）。
-`net.rs::GameShopState::upsert` 的注释已把这个区分写死（0 档位不置售罄），
-`apply_stock` 才置售罄。
+客户端应对目录包和库存包统一按商品原始限量值与剩余量判定：
+
+* `item.stock == 0` → 不限量，显示 `∞`；
+* `item.stock > 0 && stock_level > 0` → 显示剩余量（大数显示 `99+`）；
+* `item.stock > 0 && stock_level <= 0` → 售罄，保留条目并禁止购买。
+
+`i_stock` 仅选择个人/全服已购计数模式，不参与不限量判定。目录包的剩余量为 0
+也可能表示限量商品已耗尽，不能按包来源把它当作不限量。**P11 / PARTIAL**：
+`b3be4af` 的初始目录 `upsert` 与面板判定存在错误，R50-C2 正在返工；
+上述是应遵循的业务语义，不以旧测试通过代替首次登录、耗尽后重登、重复目录更新的边界验证。
 
 #### 7.3.3 `GIndex` 口径：**本作有意偏离 Crystal**（T 核对点）
 
@@ -412,7 +421,7 @@ Crystal 的三处键不一致，必须先看清再谈「对齐」：
 | 搜索 | `TextField` 24 字符；空串 = 不筛 | 同上 |
 | 双币 | 元宝/金币两个按钮（`PAY_CREDIT=0` / `PAY_GOLD=1`）；工具栏显示两种余额 | 测试 `purchase_flow_gold_and_credit` |
 | 数量 | `1..=99`，客户端按「不超过 5 组」先夹一次（`pure_helpers_match_crystal_buy_and_quantity_rules`） | 同上 |
-| 库存显示 | `>= 99` → `99+`；`0`（不限量）→ `∞`；售罄 → 「售罄」灰字 + 禁止购买 | `ui/gameshop.rs:26,157,275` |
+| 库存显示（应遵循，P11 返工中） | `item.stock == 0` → `∞`；限量且剩余 `> 0` → 剩余量（`>= 99` 显示 `99+`）；限量且剩余 `<= 0` → 「售罄」灰字 + 禁购；`i_stock` 不决定不限量 | §7.3.2；R50-C2 待针对性验收 |
 | 空态 | 目录为空 → 「商城暂无商品」 | `ui/gameshop.rs:284`；`gameshop-panel-empty.png` |
 | 断线 | 面板只在 `Mode::Live` 可开；断线时 `WorldSnapshot` 不再是 live，面板画「未连接」态 | 测试 `panel_draws_empty_disconnected_and_png_evidence`；`gameshop-panel-disconnected.png` |
 | 缺图标 | 见 §7.3.5 | 测试断言 `assets_partial` + 占位方块 |
@@ -454,13 +463,13 @@ Crystal：`GameScene.cs:6686-6696` 收到 `StockLevel == 0` 的 `S.GameShopStock
 `GameShopInfoList.Remove(...)`——卖完的商品**从列表消失**，客户端不区分
 「不限量」与「卖完」以外的状态，也**没有本地禁用购买**的逻辑（只有列表存在性）。
 
-本作（`net.rs::GameShopState::apply_stock`）：
+本作应遵循的规则（`net.rs::GameShopState::upsert/apply_stock` 与面板共用，
+P11 的 R50-C2 返工中，验收状态见 §7.3.2）：
 
-* `stock_level <= 0` → `stock_level = 0; sold_out = true`，**保留条目**；
-* 面板对 `sold_out` 的条目画「售罄」灰字、`购买` 按钮禁用（点击被 `BuyProblem`
-  拦下，不发包）；
-* 只为「目录包 `StockLevel == 0` 且 `Stock == 0`」显示 `∞`（不限量），**不会**把
-  不限量当售罄（`upsert` 的 0 档位不置售罄）。
+* `item.stock == 0` → `∞`，不限量；`i_stock` 不改变这个条件；
+* `item.stock > 0 && stock_level > 0` → 显示剩余量；
+* `item.stock > 0 && stock_level <= 0` → **保留条目**并置售罄，画灰字且禁用购买，
+  目录首次下发和后续库存刷新使用同一语义。
 
 选择理由：商城面板是「目录 + 库存」两包分开发的，若按 Crystal 删除条目，则后续
 `S.GameShopInfo` 重发（重连/重开）会让商品「复活」，玩家会看到列表抖动；
@@ -542,11 +551,10 @@ Crystal 把 `GameshopLog` 写进 `Server.MirADB` 的全局段（`Envir.cs:2598-2
 | 落盘成功 | 先 `flush_gameshop`，`Ok(())` 之后才 `stock_packet()` | `session.rs:3106-3113` |
 | 客户端可见性 | 不会出现「库存减了但没扣款」：失败时世界层回滚且不刷库存 | 同上 |
 
-> 与 Crystal 的差别：Crystal 在**拒绝购买**时反而会补发一次 `GameShopStock`
-> （`PlayerObject.cs:13772`，让客户端的库存显示回到真实值）；本作在拒绝时不发，
-> 因为客户端的库存只在「自己买成功」后可能失真，而失败路径世界层未改状态，
-> 不需要校正。若将来发现客户端库存与服务端漂移（多人并发限量商品），再按 Crystal
-> 补发校正包——**当前不做**，登记为差异。
+> 与 Crystal 的差别：Crystal 在**缺货拒绝购买**时发送聊天并补发一次 `GameShopStock`
+> （`PlayerObject.cs:13772`，校正客户端库存）；Rust 的统一失败分支可以发
+> `S.SystemChat` / `S.MarketFail`，但不发新的库存包。这是本作「事务提交成功才发
+> 新库存包」的语义选择，不代表多人购买时客户端库存不会漂移；缺货校正包当前未实现。
 
 ---
 

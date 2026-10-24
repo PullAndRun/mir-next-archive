@@ -6,8 +6,10 @@
 //!    `ServerPacket::encode_frame → codec::FrameBuffer → decode_server_packet` 的
 //!    编解码链进入 `WorldSnapshot.gameshop`——与 `net.rs` 后台线程收包后走的是同一套
 //!    解码代码，不用手搓 payload；同一 `GIndex` 的迟到/重复目录包不重复入列（C4）。
-//! 2. **目录/库存语义**：`S.GameShopStock{StockLevel = 0}` 标「售罄」但保留条目可见
-//!    （R50 §1.3 库存零可见；Crystal 会删条目），未知 `GIndex` 不凭空造条目。
+//! 2. **目录/库存语义**：`item.stock == 0` 才是不限量（`S.GameShopInfo` 逐商品携带
+//!    上架总量）；限量商品按 `stock_level` 显示剩余，`S.GameShopStock{StockLevel = 0}`
+//!    标「售罄」但保留条目可见（R50 §1.3 库存零可见；Crystal 会删条目），未知
+//!    `GIndex` 不凭空造条目。`i_stock` 只是个人/全服计数模式标记，不参与不限量判定。
 //! 3. **筛选**：职业 / 分区 / 分类 / 搜索按 `GameshopDialog.GetCategories()` 的顺序
 //!    过滤，结果按物品名排序；分类列表按出现顺序去重。
 //! 4. **热键守卫**：`K` 只在无输入焦点时开关；目录到达不会自动弹窗；面板单实例
@@ -83,7 +85,7 @@ fn item_info(index: i32, name: &str, stack_size: u16) -> ItemInfo {
 }
 
 /// 一条商城商品（默认：职业 `All`、分类「药品」、金币 100 / 元宝 40、每份 1 个、
-/// 上架时间 30 天前、双币可买、不限量）。
+/// 上架时间 30 天前、双币可买、不限量——`item.stock == 0` 才是不限量）。
 fn shop_item(g_index: i32, name: &str) -> GameShopItem {
     GameShopItem {
         item_index: 1000 + g_index,
@@ -102,6 +104,14 @@ fn shop_item(g_index: i32, name: &str) -> GameShopItem {
         can_buy_credit: true,
         can_buy_gold: true,
     }
+}
+
+/// 限量商品：`stock` = 上架总量（Crystal `GameShopItem.Stock`），剩余量由
+/// `S.GameShopInfo` / `S.GameShopStock` 的 `stock_level` 携带。
+fn limited_shop_item(g_index: i32, name: &str, total_stock: i32) -> GameShopItem {
+    let mut item = shop_item(g_index, name);
+    item.stock = total_stock;
+    item
 }
 
 /// 登录成功（live 态）的快照：`S.UserInformation` + `NetStatus::InGame`。
@@ -185,7 +195,7 @@ fn snapshot_with_catalog(gold: u32, credit: u32) -> WorldSnapshot {
     let mut snapshot = live_snapshot(gold, credit);
     let mut alpha = shop_item(11, "Alpha");
     "药品".clone_into(&mut alpha.category);
-    let mut beta = shop_item(12, "Beta");
+    let mut beta = limited_shop_item(12, "Beta", 5);
     "武器".clone_into(&mut beta.category);
     beta.date = DateTimeBinary::from_unix_seconds(NOW_SEC - 2 * 24 * 60 * 60);
     feed_info(&mut snapshot, &alpha, 0);
@@ -314,8 +324,9 @@ fn wire_packet_chain_catalog_gindex_idempotent_and_stock_refresh() {
     assert_eq!(snapshot.gameshop.catalog_version, 0);
 
     // 两个商品经真实编解码链入列；顺序 = 服务端下发顺序。
+    // Alpha 不限量（`item.stock == 0`），Beta 限量（上架总量 5，剩余 5）。
     let mut alpha = shop_item(11, "Alpha");
-    let mut beta = shop_item(12, "Beta");
+    let mut beta = limited_shop_item(12, "Beta", 5);
     beta.info.image = 4;
     feed_info(&mut snapshot, &alpha, 0);
     feed_info(&mut snapshot, &beta, 5);
@@ -325,6 +336,10 @@ fn wire_packet_chain_catalog_gindex_idempotent_and_stock_refresh() {
     assert_eq!(snapshot.gameshop.entries[1].item.g_index, 12);
     assert_eq!(snapshot.gameshop.entry(11).expect("11 在列").stock_level, 0);
     assert_eq!(snapshot.gameshop.entry(12).expect("12 在列").stock_level, 5);
+    assert!(
+        !snapshot.gameshop.entry(11).expect("11 在列").sold_out,
+        "不限量商品的 0 剩余档位不是售罄"
+    );
 
     // 迟到的重复目录包：同一 GIndex 只刷新内容，不重复入列，也不把「不限量 0 档」
     // 误标成售罄（售罄只由 StockLevel = 0 的库存包决定）。
@@ -341,16 +356,29 @@ fn wire_packet_chain_catalog_gindex_idempotent_and_stock_refresh() {
     assert_eq!(entry.item.info.name, "Alpha+", "迟到包应刷新显示名");
     assert!(!entry.sold_out, "目录包不限量 0 档不等于售罄");
     assert_eq!(
+        gameshop::stock_display(entry),
+        StockDisplay::Unlimited,
+        "item.stock == 0 的商品目录 0 档显示 ∞"
+    );
+    assert_eq!(
         snapshot.gameshop.catalog_version, 3,
         "每次目录包都推进版本号"
     );
 
-    // 库存刷新：正数覆盖剩余量。
+    // 库存刷新：正数覆盖剩余量（限量商品）。
     feed_stock(&mut snapshot, 11, 7);
     assert_eq!(snapshot.gameshop.stock_version, 1);
     let entry = snapshot.gameshop.entry(11).expect("11 在列");
     assert_eq!(entry.stock_level, 7);
     assert!(!entry.sold_out);
+    assert_eq!(
+        gameshop::stock_display(entry),
+        StockDisplay::Unlimited,
+        "不限量商品的剩余档位不参与显示"
+    );
+    let beta = snapshot.gameshop.entry(12).expect("12 在列");
+    assert!(!beta.sold_out, "限量商品剩余 5（上架总量 5）不是售罄");
+    assert_eq!(gameshop::stock_display(beta), StockDisplay::Count(5));
 
     // StockLevel = 0：标售罄但条目保留（R50 §1.3「库存零可见」，Crystal 会删条目）。
     feed_stock(&mut snapshot, 12, 0);
@@ -358,6 +386,12 @@ fn wire_packet_chain_catalog_gindex_idempotent_and_stock_refresh() {
     let entry = snapshot.gameshop.entry(12).expect("12 仍在列");
     assert_eq!(entry.stock_level, 0);
     assert!(entry.sold_out, "库存刷新到 0 → 售罄可见");
+    assert_eq!(
+        gameshop::stock_display(entry),
+        StockDisplay::SoldOut,
+        "限量商品剩余 0 显示售罄而不是 ∞"
+    );
+    assert_eq!(gameshop::stock_text(entry, Language::ZhCn), "售罄");
 
     // 未知 GIndex 的库存包：只推进版本号，不凭空造条目（目录可能还没到）。
     feed_stock(&mut snapshot, 999, 3);
@@ -866,7 +900,13 @@ fn purchase_flow_gold_and_credit() {
     feed_stock(&mut snapshot, 12, 0);
     assert!(buy_click(&mut state, &snapshot, frame).is_none());
     assert_eq!(state.gameshop_notice, Some(BuyProblem::SoldOut));
-    assert!(snapshot.gameshop.entry(12).is_some(), "售罄仍保留条目可见");
+    let entry = snapshot.gameshop.entry(12).expect("售罄仍保留条目可见");
+    assert_eq!(
+        gameshop::stock_display(entry),
+        StockDisplay::SoldOut,
+        "限量售罄不能显示成 ∞"
+    );
+    assert_eq!(gameshop::stock_text(entry, Language::ZhCn), "售罄");
 
     // 未选中商品直接点买下：提示，不发包。
     let mut empty_state = open_state(&snapshot);
@@ -935,10 +975,13 @@ fn pure_helpers_match_crystal_buy_and_quantity_rules() {
         "售罄文案必须中英双语"
     );
     let mut at_least = unlimited.clone();
+    // 限量商品（`item.stock > 0`）才显示剩余量级；99+ 仍在限量范围内。
+    at_least.item.stock = 200;
     at_least.stock_level = 99;
     assert_eq!(gameshop::stock_display(&at_least), StockDisplay::AtLeast99);
     assert_eq!(gameshop::stock_text(&at_least, Language::ZhCn), "99+");
     let mut exact = unlimited.clone();
+    exact.item.stock = 200;
     exact.stock_level = 5;
     assert_eq!(gameshop::stock_display(&exact), StockDisplay::Count(5));
     assert_eq!(gameshop::stock_text(&exact, Language::ZhCn), "5");
@@ -970,15 +1013,15 @@ fn pure_helpers_match_crystal_buy_and_quantity_rules() {
         10,
         "不超过 5 组堆叠"
     );
-    let mut limited = entry_with(shop_item(23, "Limited"), 5);
+    let mut limited = entry_with(limited_shop_item(23, "Limited", 20), 5);
     assert_eq!(gameshop::clamp_quantity(&limited, 99), 5, "不超过剩余库存");
     limited.stock_level = 0;
     assert_eq!(
         gameshop::clamp_quantity(&limited, 99),
-        99,
-        "0 = 不限量，不夹"
+        1,
+        "限量售罄时份数收边到下限 1，购买由 check_buy 拦截"
     );
-    let limited_stock = entry_with(shop_item(23, "Limited"), 5);
+    let limited_stock = entry_with(limited_shop_item(23, "Limited", 20), 5);
 
     // 购买检查矩阵（Crystal BuyProduct 的分支一一对应）。
     assert_eq!(
@@ -1032,6 +1075,25 @@ fn pure_helpers_match_crystal_buy_and_quantity_rules() {
         }),
         "通过检查后份数按库存夹取再发包"
     );
+    // 限量商品剩余 0（`item.stock > 0`）：本地拦截，不发 C.GameshopBuy。
+    let exhausted = entry_with(limited_shop_item(24, "Exhausted", 2), 0);
+    assert_eq!(
+        gameshop::check_buy(Some(&exhausted), 1, gameshop::PAY_GOLD, 1_000, 500, true),
+        Err(BuyProblem::SoldOut),
+        "限量商品剩余 0 视为售罄、不得放行"
+    );
+    // 不限量商品（`item.stock == 0`）不受剩余档位限制，可买多份。
+    let unlimited_zero = entry_with(shop_item(25, "UnlimitedZero"), 0);
+    let order = gameshop::check_buy(
+        Some(&unlimited_zero),
+        3,
+        gameshop::PAY_GOLD,
+        1_000,
+        500,
+        true,
+    )
+    .expect("不限量可买多份");
+    assert_eq!(order.quantity, 3);
 
     // 新品窗口：严格大于 now - 7 天（Crystal `AddDays(-7)` 后按上架时间判定）。
     let mut fresh = entry_with(shop_item(31, "Fresh"), 0);
@@ -1306,4 +1368,91 @@ HEAD: d5707c6（派发时给定；本子单不执行 git 命令，行号为本�
         excerpt = excerpt_around(source, k_line, 4, 4),
     );
     std::fs::write(evidence("k-hotkey-evidence.txt"), report).expect("写 K 热键证据文件");
+}
+
+// ===== 11. R50-C2 零库存边界回归（R50-T 审计 finding 1） =====
+
+/// 首登目录：限量商品上架总量 > 0 但剩余 0（开服前已被买空）→ 售罄，不能当不限量。
+#[test]
+fn exhausted_limited_first_catalog_marks_sold_out_not_unlimited() {
+    let mut snapshot = live_snapshot(1_000_000, 500_000);
+    let mut item = limited_shop_item(41, "Exhausted", 3);
+    // `i_stock` 只是个人/全服计数模式标记，不能作为「不限量」依据。
+    item.i_stock = true;
+    feed_info(&mut snapshot, &item, 0);
+    let entry = snapshot.gameshop.entry(41).expect("售罄条目保留可见");
+    assert!(entry.sold_out, "item.stock > 0 且剩余 0 → 首次目录即售罄");
+    assert_eq!(entry.stock_level, 0);
+    assert_eq!(gameshop::stock_display(entry), StockDisplay::SoldOut);
+    assert_eq!(gameshop::stock_text(entry, Language::ZhCn), "售罄");
+    assert_ne!(
+        gameshop::stock_text(entry, Language::ZhCn),
+        "∞",
+        "限量售罄不得显示不限量"
+    );
+    assert_eq!(
+        gameshop::check_buy(Some(entry), 1, gameshop::PAY_GOLD, 1_000_000, 500_000, true),
+        Err(BuyProblem::SoldOut),
+        "售罄禁购"
+    );
+
+    // UI 点击链路同样拦下：选中可见的售罄条目后点「买下」不发包。
+    let frame = Rect::new(0, 0, 800, 600);
+    let mut state = open_state(&snapshot);
+    let layout = layout_for(&state, &snapshot, frame);
+    click(&mut state, &snapshot, frame, center(layout.cells[0]));
+    assert_eq!(state.gameshop_selected, Some(41));
+    assert!(
+        buy_click(&mut state, &snapshot, frame).is_none(),
+        "售罄不得产生 C.GameshopBuy"
+    );
+    assert_eq!(state.gameshop_notice, Some(BuyProblem::SoldOut));
+}
+
+/// 首登目录：真正不限量（`item.stock == 0`）保持不限量语义，后续 0 档刷新也不得售罄。
+#[test]
+fn zero_total_stock_first_catalog_stays_unlimited() {
+    let mut snapshot = live_snapshot(1_000, 500);
+    let item = shop_item(42, "Unlimited");
+    assert_eq!(item.stock, 0, "造数前提：上架总量 0 = 不限量");
+    feed_info(&mut snapshot, &item, 0);
+    let entry = snapshot.gameshop.entry(42).expect("在列");
+    assert!(!entry.sold_out);
+    assert_eq!(gameshop::stock_display(entry), StockDisplay::Unlimited);
+    assert_eq!(gameshop::stock_text(entry, Language::ZhCn), "∞");
+    let order = gameshop::check_buy(Some(entry), 10, gameshop::PAY_GOLD, 1_000, 500, true)
+        .expect("不限量可买");
+    assert_eq!(order.quantity, 10);
+    // 不限量商品收到 StockLevel = 0 的库存刷新：仍然 ∞，不能标售罄。
+    feed_stock(&mut snapshot, 42, 0);
+    let entry = snapshot.gameshop.entry(42).expect("在列");
+    assert!(!entry.sold_out, "不限量商品收到 0 档库存刷新不得标售罄");
+    assert_eq!(gameshop::stock_display(entry), StockDisplay::Unlimited);
+    assert_eq!(gameshop::stock_text(entry, Language::ZhCn), "∞");
+}
+
+/// 已有 normal 条目被后续目录刷新为 0（上架总量不变）→ 必须置回 `sold_out`，
+/// 不能沿用旧 `false`（R50-C2 修复点：upsert 的 stock 与 `stock_level` 联合判定）。
+#[test]
+fn catalog_refresh_from_normal_to_zero_marks_sold_out() {
+    let mut snapshot = live_snapshot(1_000, 500);
+    let item = limited_shop_item(43, "Refresh", 10);
+    feed_info(&mut snapshot, &item, 4);
+    let entry = snapshot.gameshop.entry(43).expect("在列");
+    assert!(!entry.sold_out);
+    assert_eq!(gameshop::stock_display(entry), StockDisplay::Count(4));
+    // 目录刷新把剩余变成 0（上架总量仍是 10）→ 置回售罄。
+    feed_info(&mut snapshot, &item, 0);
+    let entry = snapshot.gameshop.entry(43).expect("仍在列");
+    assert!(
+        entry.sold_out,
+        "已有条目被目录刷新为 0 也要置 sold_out（不能沿用旧 false）"
+    );
+    assert_eq!(gameshop::stock_display(entry), StockDisplay::SoldOut);
+    assert_eq!(gameshop::stock_text(entry, Language::ZhCn), "售罄");
+    // 再刷新回正数 → 恢复可买。
+    feed_info(&mut snapshot, &item, 6);
+    let entry = snapshot.gameshop.entry(43).expect("仍在列");
+    assert!(!entry.sold_out);
+    assert_eq!(gameshop::stock_display(entry), StockDisplay::Count(6));
 }

@@ -1789,9 +1789,16 @@ impl MarketView {
 pub struct GameShopEntry {
     /// 商品定义；名字/图标/堆叠上限/价格都在 `item.info` 里（`S.GameShopInfo` 整块下发）。
     pub item: GameShopItem,
-    /// 服务端给的剩余库存：`0` = 不限量（Crystal 语义，`GameShop.cs:6681` 记 `Stock = StockLevel`）。
+    /// 服务端给的剩余库存（数量单位是「份」）。
+    ///
+    /// 是否「不限量」看商品原始 `item.stock`（Crystal `GameShopItem.Stock` 上架总量），
+    /// **不看** `i_stock`（个人/全服计数模式标记）。限量商品剩余 0 表示已售罄
+    /// （`sold_out` 为真）；`item.stock == 0` 的商品没有剩余概念，恒为不限量。
     pub stock_level: i32,
-    /// 客户端「售罄」标记：收到 `S.GameShopStock{StockLevel = 0}` 后为真。
+    /// 客户端「售罄」标记。
+    ///
+    /// 两个来源：① `S.GameShopInfo` 首次/刷新目录里限量商品（`item.stock > 0`）
+    /// 剩余 `stock_level == 0`（开服前已被买空）；② `S.GameShopStock{StockLevel = 0}`。
     ///
     /// Crystal 收到 0 时**把商品从列表删掉**（`GameScene.cs:6690-6693`）；本作按 R50
     /// 裁决（§1.3「库存零可见」）保留条目、灰显「售罄」且禁止购买，避免整行凭空消失。
@@ -1826,26 +1833,31 @@ pub struct GameShopState {
 impl GameShopState {
     /// `S.GameShopInfo` 入列：同一 `GIndex` 只保留一条（重复/迟到包刷新旧条目）。
     ///
-    /// `stock_level` 是服务端按已购数算好的剩余量；`0` 表示不限量（Crystal 语义），
-    /// 不会把条目标成售罄——售罄只由 [`Self::apply_stock`] 的 0 决定。
+    /// R50-C2（R50-T 审计 finding 1）：是否限量由商品原始 `item.stock`（Crystal
+    /// `GameShopItem.Stock` 上架总量）决定，`i_stock` 只是个人/全服计数模式标记，
+    /// 不参与不限量判定：
+    /// * `item.stock == 0` → 真正不限量（即使 `stock_level <= 0`）；
+    /// * `item.stock > 0 && stock_level <= 0` → 售罄（限量耗尽/首登耗尽，保留可见）；
+    /// * `item.stock > 0 && stock_level > 0` → 正常剩余库存。
+    ///
+    /// 已有条目被后续目录刷新时按新一包重算 `sold_out`（限量剩余归零必须置回售罄，
+    /// 不能沿用旧 `false`）。售罄只由限量判定，不会因不限量商品的 0 档位被误标。
     pub fn upsert(&mut self, item: &GameShopItem, stock_level: i32) {
+        let stock_level = stock_level.max(0);
+        let sold_out = item.stock > 0 && stock_level <= 0;
         if let Some(entry) = self
             .entries
             .iter_mut()
             .find(|entry| entry.item.g_index == item.g_index)
         {
             entry.item = item.clone();
-            entry.stock_level = stock_level.max(0);
-            // 重复目录包不撤销「售罄」：0 档位在目录里是「不限量」语义，
-            // 但已经因 `S.GameShopStock` 售罄的限量商品要等真正的库存刷新才恢复。
-            if stock_level > 0 {
-                entry.sold_out = false;
-            }
+            entry.stock_level = stock_level;
+            entry.sold_out = sold_out;
         } else {
             self.entries.push(GameShopEntry {
                 item: item.clone(),
-                stock_level: stock_level.max(0),
-                sold_out: false,
+                stock_level,
+                sold_out,
             });
         }
         self.catalog_version = self.catalog_version.saturating_add(1);
@@ -1853,6 +1865,7 @@ impl GameShopState {
 
     /// `S.GameShopStock`：按 `GIndex` 刷新剩余库存；`0` 标售罄并保留条目。
     ///
+    /// 找不限量商品（`item.stock == 0`）没有剩余概念：库存包不能把它标售罄。
     /// 找不到 `GIndex` 时只推进版本号（目录可能还没到，迟到的库存刷新不应凭空造条目）。
     pub fn apply_stock(&mut self, g_index: i32, stock_level: i32) {
         self.stock_version = self.stock_version.saturating_add(1);
@@ -1863,6 +1876,11 @@ impl GameShopState {
         else {
             return;
         };
+        if entry.item.stock <= 0 {
+            entry.stock_level = stock_level.max(0);
+            entry.sold_out = false;
+            return;
+        }
         if stock_level <= 0 {
             entry.stock_level = 0;
             entry.sold_out = true;

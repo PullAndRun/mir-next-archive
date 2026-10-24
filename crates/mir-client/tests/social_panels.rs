@@ -58,6 +58,7 @@ fn group_snapshot() -> WorldSnapshot {
         action: mir_render::ActorAction::Standing,
         action_started_ms: 0,
         attack_variant: None,
+        native_action: None,
         looks: mir_client::net::PlayerLooks::default(),
     });
     for (index, name) in ["队长", "道士甲", "法师乙"].iter().enumerate() {
@@ -100,6 +101,7 @@ fn guild_snapshot() -> WorldSnapshot {
         action: mir_render::ActorAction::Standing,
         action_started_ms: 0,
         attack_variant: None,
+        native_action: None,
         looks: mir_client::net::PlayerLooks::default(),
     });
     snapshot.guild_ranks = vec![

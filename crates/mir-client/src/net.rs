@@ -129,6 +129,7 @@ use mir_protocol::packets::client as c;
 use mir_protocol::packets::server::{GuildBuffList, GuildMemberChange, GuildStorageItemChange};
 use mir_protocol::{ClientPacket, DateTimeBinary, ServerPacket};
 use mir_render::animation::{ActorAction, AttackVariant, BodyKind};
+use mir_render::player_layout::{NativeAction, NativeFrameTable, PlayerLayout};
 use mir_render::sound::SoundId;
 use mir_render::{EntityKind, EntityView};
 
@@ -305,6 +306,8 @@ pub enum NetCommand {
         direction: MirDirection,
         /// 本地视觉变体（仅自机 Warrior 普通空挥可能为 `Some`）。
         variant: Option<AttackVariant>,
+        /// R48 原生帧表选择结果（自机攻击；不进入协议）。
+        native_action: Option<NativeAction>,
     },
     /// 捡起脚下物品（`C.PickUp`）。
     PickUp,
@@ -684,14 +687,21 @@ impl NetCommand {
     #[must_use]
     pub const fn local_animation(
         &self,
-    ) -> Option<(ActorAction, MirDirection, Option<AttackVariant>)> {
+    ) -> Option<(
+        ActorAction,
+        MirDirection,
+        Option<AttackVariant>,
+        Option<NativeAction>,
+    )> {
         match self {
-            Self::Turn(direction) => Some((ActorAction::Standing, *direction, None)),
-            Self::Walk(direction) => Some((ActorAction::Walking, *direction, None)),
-            Self::Run(direction) => Some((ActorAction::Running, *direction, None)),
-            Self::Attack { direction, variant } => {
-                Some((ActorAction::Attacking, *direction, *variant))
-            }
+            Self::Turn(direction) => Some((ActorAction::Standing, *direction, None, None)),
+            Self::Walk(direction) => Some((ActorAction::Walking, *direction, None, None)),
+            Self::Run(direction) => Some((ActorAction::Running, *direction, None, None)),
+            Self::Attack {
+                direction,
+                variant,
+                native_action,
+            } => Some((ActorAction::Attacking, *direction, *variant, *native_action)),
             _ => None,
         }
     }
@@ -1014,6 +1024,8 @@ pub struct SelfPlayer {
     ///
     /// 只在动作建立时由生产本地命令写入，逐帧/重绘/快照不重新抽取。
     pub attack_variant: Option<AttackVariant>,
+    /// R48 原生选招结果（Attack1..4），只在本地攻击动作建立时写入。
+    pub native_action: Option<NativeAction>,
     /// 纸娃娃外观（身体/武器/头发/盾牌）；装备变化后由快照重新推导。
     pub looks: PlayerLooks,
 }
@@ -1024,6 +1036,7 @@ impl SelfPlayer {
         self.action = action;
         self.action_started_ms = now_ms;
         self.attack_variant = None;
+        self.native_action = None;
         if action == ActorAction::Dying {
             self.dead = true;
         }
@@ -1082,6 +1095,8 @@ pub struct WorldEntity {
     pub action_started_ms: u64,
     /// R47 攻击变体（目前只由本地自机路径写入；远端保持 `None`）。
     pub attack_variant: Option<AttackVariant>,
+    /// R48 原生选招结果；远端玩家由 `ObjectAttack` 固定为 Attack1。
+    pub native_action: Option<NativeAction>,
 }
 
 impl WorldEntity {
@@ -1112,6 +1127,7 @@ impl WorldEntity {
             action: ActorAction::Standing,
             action_started_ms: 0,
             attack_variant: None,
+            native_action: None,
         }
     }
 
@@ -1120,6 +1136,7 @@ impl WorldEntity {
         self.action = action;
         self.action_started_ms = now_ms;
         self.attack_variant = None;
+        self.native_action = None;
         if action == ActorAction::Dying {
             self.dead = true;
         }
@@ -2244,9 +2261,19 @@ fn finished_action(
     now_ms: u64,
     body_kind: BodyKind,
     attack_variant: Option<AttackVariant>,
+    native_action: Option<NativeAction>,
 ) -> Option<ActorAction> {
-    let duration =
-        mir_render::animation::frames_for_variant(body_kind, action, attack_variant).duration_ms();
+    let duration = if action == ActorAction::Attacking {
+        native_action.map_or_else(
+            || {
+                mir_render::animation::frames_for_variant(body_kind, action, attack_variant)
+                    .duration_ms()
+            },
+            |native| NativeFrameTable::get(native).duration_ms(),
+        )
+    } else {
+        mir_render::animation::frames_for_variant(body_kind, action, attack_variant).duration_ms()
+    };
     if now_ms.saturating_sub(started_at_ms) < duration {
         return None;
     }
@@ -2267,8 +2294,17 @@ fn effective_action(
     now_ms: u64,
     body_kind: BodyKind,
     attack_variant: Option<AttackVariant>,
+    native_action: Option<NativeAction>,
 ) -> ActorAction {
-    finished_action(action, started_at_ms, now_ms, body_kind, attack_variant).unwrap_or(action)
+    finished_action(
+        action,
+        started_at_ms,
+        now_ms,
+        body_kind,
+        attack_variant,
+        native_action,
+    )
+    .unwrap_or(action)
 }
 
 /// 生命百分比（0..=100）：`HP / MaxHP × 100`，四舍五入到整数。
@@ -3050,6 +3086,35 @@ impl WorldSnapshot {
         let mut views = Vec::with_capacity(self.entities.len() + 1);
         let self_id = self.self_player.as_ref().map(|me| me.object_id);
         if let Some(me) = &self.self_player {
+            let action = effective_action(
+                me.action,
+                me.action_started_ms,
+                now_ms,
+                BodyKind::Human,
+                me.attack_variant,
+                me.native_action,
+            );
+            let selected_native = if action == ActorAction::Attacking {
+                me.native_action.unwrap_or(match me.attack_variant {
+                    Some(AttackVariant::Attack3) => NativeAction::Attack3,
+                    Some(AttackVariant::Attack1) | None => NativeAction::Attack1,
+                })
+            } else {
+                PlayerLayout::native_for_actor(
+                    me.class,
+                    action,
+                    me.attack_variant,
+                    me.looks.weapon_shape,
+                )
+            };
+            let player_layout = PlayerLayout::for_native_action(
+                me.class,
+                me.gender,
+                selected_native,
+                me.looks.weapon_shape,
+                me.looks.mount > 0,
+            );
+            let native_action = (action == ActorAction::Attacking).then_some(selected_native);
             views.push(EntityView {
                 position: me.position,
                 sort_y: me.position.y,
@@ -3067,15 +3132,13 @@ impl WorldSnapshot {
                 name: Some(me.name.clone()),
                 dead: me.dead,
                 hp_percent: Some(health_percent(me.hp, me.hp_max)),
-                action: effective_action(
-                    me.action,
-                    me.action_started_ms,
-                    now_ms,
-                    BodyKind::Human,
-                    me.attack_variant,
-                ),
+                action,
                 action_started_ms: me.action_started_ms,
                 attack_variant: me.attack_variant,
+                class: me.class,
+                gender: me.gender,
+                native_action,
+                player_layout,
             });
         }
         for (object_id, entity) in &self.entities {
@@ -3099,6 +3162,47 @@ impl WorldSnapshot {
                 });
             let sort_y =
                 remote_motion.map_or(entity.position.y, |motion| motion.from.y.max(motion.to.y));
+            let selected_native = entity.native_action.unwrap_or_else(|| {
+                PlayerLayout::native_for_actor(
+                    entity.looks.class,
+                    entity.action,
+                    entity.attack_variant,
+                    entity.looks.weapon_shape,
+                )
+            });
+            let action = effective_action(
+                entity.action,
+                entity.action_started_ms,
+                now_ms,
+                body_kind_for(entity.kind),
+                entity.attack_variant,
+                (entity.kind == EntityKind::Player).then_some(selected_native),
+            );
+            let selected_native = if action == ActorAction::Attacking {
+                entity.native_action.unwrap_or(match entity.attack_variant {
+                    Some(AttackVariant::Attack3) => NativeAction::Attack3,
+                    Some(AttackVariant::Attack1) | None => NativeAction::Attack1,
+                })
+            } else {
+                PlayerLayout::native_for_actor(
+                    entity.looks.class,
+                    action,
+                    entity.attack_variant,
+                    entity.looks.weapon_shape,
+                )
+            };
+            let native_action = (action == ActorAction::Attacking).then_some(selected_native);
+            let player_layout = (entity.kind == EntityKind::Player)
+                .then(|| {
+                    PlayerLayout::for_native_action(
+                        entity.looks.class,
+                        entity.looks.gender,
+                        selected_native,
+                        entity.looks.weapon_shape,
+                        entity.looks.mount > 0,
+                    )
+                })
+                .flatten();
             views.push(EntityView {
                 position,
                 sort_y,
@@ -3116,15 +3220,13 @@ impl WorldSnapshot {
                 name: Some(entity.name.clone()),
                 dead: entity.dead,
                 hp_percent: entity.hp_percent,
-                action: effective_action(
-                    entity.action,
-                    entity.action_started_ms,
-                    now_ms,
-                    body_kind_for(entity.kind),
-                    entity.attack_variant,
-                ),
+                action,
                 action_started_ms: entity.action_started_ms,
                 attack_variant: entity.attack_variant,
+                class: entity.class,
+                gender: entity.looks.gender,
+                native_action,
+                player_layout,
             });
         }
         views
@@ -3138,6 +3240,25 @@ impl WorldSnapshot {
         now_ms: u64,
     ) {
         self.apply_local_action_with_variant(action, direction, None, now_ms);
+    }
+
+    /// 本地动作 + R47 变体 + R48 原生选招；三个字段同一时刻建立。
+    pub fn apply_local_attack(
+        &mut self,
+        direction: MirDirection,
+        variant: Option<AttackVariant>,
+        native_action: Option<NativeAction>,
+        now_ms: u64,
+    ) {
+        if let Some(me) = &mut self.self_player {
+            if me.dead {
+                return;
+            }
+            me.direction = direction;
+            me.set_action(ActorAction::Attacking, now_ms);
+            me.attack_variant = variant;
+            me.native_action = native_action;
+        }
     }
 
     /// 本地动作 + R47 攻击变体；变体只在 `Attacking` 时写入，其他动作清掉。
@@ -3223,6 +3344,7 @@ impl WorldSnapshot {
                 now_ms,
                 BodyKind::Human,
                 me.attack_variant,
+                me.native_action,
             ) {
                 me.set_action(action, now_ms);
             }
@@ -3235,6 +3357,7 @@ impl WorldSnapshot {
                 now_ms,
                 body_kind,
                 entity.attack_variant,
+                entity.native_action,
             ) {
                 entity.set_action(action, now_ms);
             }
@@ -3734,8 +3857,12 @@ fn handle_command(
     }
     // 自己的动作没有服务器回显（服务端把 `ObjectWalk` 广播给别人，自己只收到
     // `UserLocation`），所以在发包的同时立即驱动本地动画。
-    if let Some((action, direction, variant)) = command.local_animation() {
-        snapshot.apply_local_action_with_variant(action, direction, variant, now_millis_u64());
+    if let Some((action, direction, variant, native_action)) = command.local_animation() {
+        if action == ActorAction::Attacking {
+            snapshot.apply_local_attack(direction, variant, native_action, now_millis_u64());
+        } else {
+            snapshot.apply_local_action_with_variant(action, direction, variant, now_millis_u64());
+        }
     }
     let packet = match command {
         NetCommand::Turn(direction) => ClientPacket::Turn(c::Turn { direction }),
@@ -4463,6 +4590,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 action: ActorAction::Standing,
                 action_started_ms: 0,
                 attack_variant: None,
+                native_action: None,
                 looks,
             });
             snapshot.magics = info
@@ -4512,6 +4640,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                     },
                     action_started_ms: now_ms,
                     attack_variant: None,
+                    native_action: None,
                 },
             );
         }
@@ -6602,6 +6731,7 @@ mod tests {
         ObjectNPC, ObjectPlayer, ObjectRangeAttack, ObjectStruck, ObjectWalk, PlayerUpdate,
         RemoveBuff, RemoveItem, UserInformation, UserLocation, UserStorage,
     };
+    use mir_render::player_layout::NativeFrameTable;
 
     fn test_item(unique_id: u64, item_index: i32, count: u16) -> UserItem {
         UserItem {
@@ -7131,6 +7261,47 @@ mod tests {
         }));
         assert!(!snapshot.self_player.as_ref().unwrap().looks.has_weapon());
         assert_eq!(snapshot.self_player.as_ref().unwrap().looks.armour, 0);
+    }
+
+    #[test]
+    fn native_attack_keeps_class_gender_and_frame_through_entity_views() {
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.apply_packet(&ServerPacket::UserInformation(UserInformation {
+            object_id: 7,
+            name: "自己".to_owned(),
+            class: MirClass::Wizard,
+            gender: MirGender::Female,
+            location: Point::new(5, 5),
+            ..UserInformation::default()
+        }));
+        snapshot.apply_local_attack(MirDirection::Down, None, Some(NativeAction::Attack4), 1_000);
+        let view = snapshot
+            .entity_views(1_000)
+            .into_iter()
+            .next()
+            .expect("自己");
+        assert_eq!(view.class, MirClass::Wizard);
+        assert_eq!(view.gender, MirGender::Female);
+        assert_eq!(view.native_action, Some(NativeAction::Attack4));
+        assert_eq!(view.action, ActorAction::Attacking);
+        let layout = view.player_layout.expect("原生布局");
+        assert_eq!(layout.class, MirClass::Wizard);
+        assert_eq!(layout.gender, MirGender::Female);
+        assert!(!layout.alt_anim);
+        let native = view.native_action.expect("原生动作");
+        let frames = NativeFrameTable::get(native);
+        assert_eq!(frames.start, 416, "A4 必须用原生 416 起的帧表");
+        assert_eq!(frames.count, 6, "A4 原生帧数 6，不是旧扁平常量");
+        assert_eq!(
+            snapshot.entity_views(1_599)[0].action,
+            ActorAction::Attacking,
+            "A4 第 6 帧仍在 600ms 内"
+        );
+        assert_eq!(
+            snapshot.entity_views(1_600)[0].action,
+            ActorAction::Standing,
+            "A4 原生 600ms 后回 Standing，不能用 50ms 旧常量"
+        );
     }
 
     #[test]

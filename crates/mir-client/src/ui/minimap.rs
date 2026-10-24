@@ -441,6 +441,7 @@ mod tests {
                 action: mir_render::ActorAction::Standing,
                 action_started_ms: 0,
                 attack_variant: None,
+                native_action: None,
                 looks: crate::net::PlayerLooks::default(),
             }),
             ..WorldSnapshot::default()

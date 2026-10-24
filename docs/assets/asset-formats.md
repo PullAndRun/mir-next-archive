@@ -35,6 +35,74 @@
 - 加载：`mir-asset::PackSet` 只读条目表，`image()` 才解压；`LibrarySource::Pack(..)` 与
   `ImageLibrary` 同形（`len/info/image`）。
 
+### 2.1 `player-native/*` 原生玩家库（R48）
+
+Crystal 的玩家动画不是经典 `hum.wzl` 的扁平 600 帧，而是按职业/性别/外观拆成
+`CArmour/CHair/CWeapon/AArmour/…` 等 `.Lib`，每个库再按动作/方向/帧索引。R48 A2
+把这批经典库导入为**独立命名空间**，与旧 `body-000` 等扁平外观并存：
+
+```
+game-assets/gfx/sprites/player-native/
+  carmour-00/index.json + *.png       # 战士/道士/法师/非 alt 刺客弓手
+  aarmour-00/…                        # 刺客 alt
+  ararmour-00/…                       # 弓手 alt
+  cweapon-00/… aweapon-00-r/…        # 按 Weapon/100 选域
+  chair-00/… ahair-00/… arhair-00/…   # 身体/头发/翅膀同域
+```
+
+* key 规则：`<lib小写>-<shape两位>`；空格转 `-`，后缀 `-l/-r/-s`
+  （例 `carmour-00`、`aweapon-00-r`、`arweapon-00-s`）；不得加 `-<等级>` 后缀。
+* `index.json` 的帧索引是 **库内物理帧号**；女性偏移由渲染层按域/`altAnim` 给，
+  **不是统一 `+512`**：
+
+  | 身份 | 身体/头发 | 武器 | 翅膀 |
+  |---|---|---|---|
+  | C 系（战/道/法，及非 alt 刺客/弓手） | 808 | 416 | 840 |
+  | 刺客 alt | 512 | 512 | 544 |
+  | 弓手 alt | 352 | 352 | 352 |
+  | 男性（任意域） | 0 | 0 | 0 |
+
+  偏移加在 `Start + direction * (Count + Skip) + frame` 上，`Start` 本身不含偏移；
+  不要把偏移写进 `index.json`。来源为 Crystal `PlayerObject.cs:445-448,536-539,584-587`
+  与 `NativeLibraryId::{armour_offset,hair_offset,weapon_offset,wing_offset}`。
+* 动作起点来自 `mir-render::player_layout::NativeFrameTable`（A1 136/6、
+  A2 184/6、A3 232/8、A4 416/6，100ms；走/跑/站/受击/死亡同 Crystal）。
+* 计数（证据 batch `1792823484739`）：`262` 个库、`372448` 帧、`84` 个 pack
+  （`game-assets/packs` 共 84 个 `.mnp`，其中 `38` 个
+  `sprites-player-native-*.mnp`）。复现：
+
+  ```bash
+  find game-assets/gfx/sprites/player-native -mindepth 1 -maxdepth 1 -type d | wc -l
+  # 262
+  find game-assets/gfx/sprites/player-native -name '*.png' | wc -l
+  # 372448
+  find game-assets/gfx/sprites/player-native -name index.json -print0 \
+    | xargs -0 grep -h '"count"' | sed 's/[^0-9]//g' \
+    | awk '{s+=$1} END {print s}'
+  # 372448（与 PNG 数一致）
+  ls game-assets/packs/*.mnp | wc -l
+  # 84
+  ls game-assets/packs/sprites-player-native-*.mnp | wc -l
+  # 38
+  ```
+* 重建（经典 `.Lib` → PNG/index → 参与 `game-assets/packs`）：
+
+```bash
+py tools/assets/make_native_player_plan.py \
+  --data-root resource/community/lomcn-artificialmir-client-data/ArtificialMir2/Data \
+  --out target/native-layout/native-player-plan.json
+cargo run -p mir-tools --bin mir-tools -- assets unpack \
+  --plan target/native-layout/native-player-plan.json \
+  --out-root game-assets --format png
+cargo run -p mir-tools --bin mir-tools -- assets pack \
+  --input game-assets --out game-assets/packs --chunk-mb 16
+```
+
+`library-map.json` 的 `libraries` 共 329 项（262 个 `player-native` key + 67 个
+既有扁平 key，含 `hum`/`hair`）；打包后原生库在
+`sprites-player-native-*.mnp`，默认 `auto` 仍优先散装，无散装才读 pack。
+详细证据与限制见 [`../testing/native-player-layout/README.md`](../testing/native-player-layout/README.md)。
+
 #### 2.0.1 确定性打包
 
 `PackWriter` 在内存里攒条目，`finish` 时**按逻辑名排序**写数据区与条目表：
@@ -45,7 +113,7 @@
 `manifest.packs.json` 也逐字节相同。示例：
 
 ```bash
-SOURCE_DATE_EPOCH=1792645029 cargo run -p mir-tools -- assets pack \
+SOURCE_DATE_EPOCH=1792645029 cargo run -p mir-tools --bin mir-tools -- assets pack \
   --input game-assets --out game-assets/packs --chunk-mb 16
 ```
 

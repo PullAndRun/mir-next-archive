@@ -493,6 +493,7 @@ impl UiAction {
             Self::AttackTarget { direction } => Some(NetCommand::Attack {
                 direction: *direction,
                 variant: None,
+                native_action: None,
             }),
             Self::AbandonQuest { quest_index } => Some(NetCommand::AbandonQuest {
                 quest_index: *quest_index,
@@ -4510,6 +4511,7 @@ mod tests {
                 action: mir_render::animation::ActorAction::Standing,
                 action_started_ms: 0,
                 attack_variant: None,
+                native_action: None,
                 looks: crate::net::PlayerLooks::default(),
             }),
             map: Some(MapSnapshot {
@@ -4569,6 +4571,7 @@ mod tests {
                 action: mir_render::animation::ActorAction::Standing,
                 action_started_ms: 0,
                 attack_variant: None,
+                native_action: None,
             },
         );
         snapshot
@@ -5036,6 +5039,7 @@ mod tests {
                 action: mir_render::animation::ActorAction::Standing,
                 action_started_ms: 0,
                 attack_variant: None,
+                native_action: None,
             },
         );
         snapshot
@@ -5067,6 +5071,7 @@ mod tests {
             Some(crate::net::NetCommand::Attack {
                 direction: MirDirection::Right,
                 variant: None,
+                native_action: None,
             }),
             "双击相邻怪物应产生 NetCommand::Attack"
         );

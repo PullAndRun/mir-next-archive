@@ -1,0 +1,3222 @@
+{
+  "schema": 1,
+  "frozen_batch": 1792827856831,
+  "manifest_sha256": "b9dca4d5052bc21f491bb9e8549a28027b8c16c99e756a05135063847c357183",
+  "samples": 272,
+  "png_files": 272,
+  "nonempty_png_files": 272,
+  "non_background_samples": 272,
+  "unique_png_sha256": 216,
+  "unique_character_crop_sha256": 216,
+  "sample_pair_count": 272,
+  "distinct_case_pairs": 42,
+  "png_sha256_mismatches": 0,
+  "gate": {
+    "gate_log": "target/gate-r48-20261024-161758-retry.log",
+    "gate_exit_code": 0,
+    "gate_elapsed_seconds": 246.93799999999464,
+    "gate_summary": "    OK   (2 s)\n\n== 汇总 ==\nOK   cargo fmt --all --check                                 2s\nOK   cargo clippy --workspace --all-targets -D warnings     11s\nOK   cargo test -p mir-server --test duo_smoke（串行）          17s\nOK   cargo test --workspace                                212s\nOK   协议生成器 --check                                           1s\nOK   文档链接与包编号                                                0s\nOK   TextKey 完整性                                             0s\nOK   硬编码棘轮（player-visible，阈值 70）                             0s\nOK   硬编码棘轮（no-test，阈值 15）                                    0s\nOK   运行时不引用老资源格式                                             0s\nOK   物品图标完整性                                                 0s\nOK   PostgreSQL 集成测试（mir-store 串行）                           2s\n==> 全部通过（12 项）",
+    "candidate_file_count": 308,
+    "candidate_file": "target/r48-accept-20261024-161758/candidate.json",
+    "reproduce_exit_code": 0,
+    "reproduce_log": "target/r48-accept-20261024-161758/native-player-reproduce.log",
+    "reproduce_elapsed_seconds": 33.92200000000594,
+    "reproduced_batch": 1792830170093,
+    "sample_pairs": 272,
+    "png_mismatches": 0,
+    "crop_mismatches": 0,
+    "candidate_mismatches": [],
+    "protected_mismatches": []
+  },
+  "gate_log_sha256": "d3abf70a571c2c6c0d917c56ede477f22afb030e8f8a327909ca4fc5d18ebbb8",
+  "reproduce_log_sha256": "f7744e849dee2c5fb86202f4392f8e848db53e8bc63086fa123c84176ea20267",
+  "reproduce_policy": "Original frozen manifest/PNG restored byte-for-byte after real ignored test regeneration; reproduced batch differs only in wall clock. All 272 PNG and crop pairs match. Historical R45/R46/R47 evidence unchanged.",
+  "candidate_parent": "bfa9a0975c1fc324b9c00d5be44d736f254dcad8",
+  "candidate_files": [
+    {
+      "path": "README.md",
+      "blob": "deaef34dffd0d6d8cbdb97bba3a32a41e608c183",
+      "sha256": "720a8112809d425297d1570eb666641d0a60484b6d8c312a92e36e0536877b8f"
+    },
+    {
+      "path": "crates/mir-client/src/app.rs",
+      "blob": "a21404e3423da73fec160b2de3b09077e0fb0eb7",
+      "sha256": "a8452f0280766b711059dda82fc013b05725da8209d9d8d37cc03bc5bd7d2d37"
+    },
+    {
+      "path": "crates/mir-client/src/camera.rs",
+      "blob": "943ad226f8eeea961626aadb37b93ae5a96b7cfa",
+      "sha256": "bbb9c50cd1668c9f86f9bd444caf7bc700cd80d8bc8fa9dadcb8d872d2969f94"
+    },
+    {
+      "path": "crates/mir-client/src/net.rs",
+      "blob": "8ac09fc9fc4d41fe96383fe964f2150bfdd9ef0e",
+      "sha256": "3837e361c12ecea3856265ade85d3b2e71baae0e2e4c167f5f5eca9cc860d222"
+    },
+    {
+      "path": "crates/mir-client/src/ui/bigmap.rs",
+      "blob": "66d5772fb3281ef3f7fdc9a9da098d690971090c",
+      "sha256": "668066e372a54dbfe6dccd0fe7da022653d8746e9fd1f7233d5365f02fc9c6f9"
+    },
+    {
+      "path": "crates/mir-client/src/ui/death.rs",
+      "blob": "522dab4e135e4c91f619439981b821e5b3816f72",
+      "sha256": "5037482c835ce13fa88ac0dd4fc27bad8a6d05cd5ac46672956fb5137bf69103"
+    },
+    {
+      "path": "crates/mir-client/src/ui/minimap.rs",
+      "blob": "eee016097f3b2d918ce2914f2f6b196e382f2634",
+      "sha256": "7424b34b022aa73e66e284f6a5ac537385b45ac124730fc665bcd4fbc08d0477"
+    },
+    {
+      "path": "crates/mir-client/src/ui/mod.rs",
+      "blob": "5faa7339500eac645ce6c6a3a82a9cc535c0d70d",
+      "sha256": "23916f5324509a2c45f97e4295d9382f05b78e01f79c2b81027ef9f08dfe8201"
+    },
+    {
+      "path": "crates/mir-client/src/ui/skills.rs",
+      "blob": "b032a80f7cc9333d095029ac05c460a5ba429831",
+      "sha256": "8f85e6b66190613432fcab84dd38e5b918d56371b9281c9bb3589ae49346db34"
+    },
+    {
+      "path": "crates/mir-client/src/ui/target.rs",
+      "blob": "8ab93810522bf02a93a5ce12c2e9772c4689bf96",
+      "sha256": "966bc2abc4db996f3d7560d070cd899186916fe88249445ebf277c78e93ecc64"
+    },
+    {
+      "path": "crates/mir-client/src/ui/worldtext.rs",
+      "blob": "eb46dea2d1d087412a060f74f35920f046908341",
+      "sha256": "8b42589e1536a955fcdbca97574070e7a490aa84fcd1b2c431c3d691626b94c9"
+    },
+    {
+      "path": "crates/mir-client/tests/anim.rs",
+      "blob": "e53de5f312af17f775c436ae07ecb8300ef3d00a",
+      "sha256": "1eb3204476fab2f4ced602d6262159af0718a75357786b82171cc547d354a58c"
+    },
+    {
+      "path": "crates/mir-client/tests/attack_variant.rs",
+      "blob": "2138dc46c305b0e896c286d88c557225b28bc372",
+      "sha256": "91bf8e418f1b5bc0882a6a8168c2be3592c6d0d08aaedadc21ae46cc72d6e354"
+    },
+    {
+      "path": "crates/mir-client/tests/attack_variant_live.rs",
+      "blob": "47d348030daab292a5d5de450c9b7ea3f7e67cba",
+      "sha256": "018bf7d8ed23b9a26e0e19d370a04c0b005f62d0ba8745f3a224d097eeee8467"
+    },
+    {
+      "path": "crates/mir-client/tests/group_panel.rs",
+      "blob": "283c2ddbb4feefa865139ea5a45f82f6c1c8ee3d",
+      "sha256": "b87df0194175d25f41d1ad1c52e5614a4ad077cdc8b3494160fd4d1e0d36c365"
+    },
+    {
+      "path": "crates/mir-client/tests/map_interaction.rs",
+      "blob": "8929e1a6c80d60f191126fd92b738bc01f8775a3",
+      "sha256": "4b6eeba32a6d7f6b66f436e41c8593b6847ce9758f2cecb9d25df60f6f63a412"
+    },
+    {
+      "path": "crates/mir-client/tests/remote_motion.rs",
+      "blob": "1ea23cd8a0d5aaf9ff39ac1f5a707a40ebf5c989",
+      "sha256": "dbdaccd0c9d6b707ba398d1f0d84c038fef29341f34698aeabe1b7d8bcffb099"
+    },
+    {
+      "path": "crates/mir-client/tests/social_panels.rs",
+      "blob": "4527e53e7382f3c97266ae6c20d10c40c86904fc",
+      "sha256": "5ee3a9fa6916a6dd463039216277e7d321acac75a2ee68525d94503e5893e075"
+    },
+    {
+      "path": "crates/mir-client/tests/targeting.rs",
+      "blob": "b94467fbc0a97f3cb4dde7cefcf339109ce4e5af",
+      "sha256": "478ad6a2b38cf999edd1f0efd2d7f088c2aeef616bd626607d30e0d0dd2195df"
+    },
+    {
+      "path": "crates/mir-render/src/entities.rs",
+      "blob": "c08c947dbc3b02df1ebdec85f56a39cd1dbef5d7",
+      "sha256": "9d735c76b69ed40dc79b688bed83fc3681850bf29d38e99ea310ddaecccddb62"
+    },
+    {
+      "path": "crates/mir-render/src/lib.rs",
+      "blob": "f2494b13d97598b1a0cac59437f829f28ed2c438",
+      "sha256": "f9241f23a3ccad82de607a7138830ab36db220b1b244009a20993e270f347d9f"
+    },
+    {
+      "path": "crates/mir-render/src/native_attack.rs",
+      "blob": "017b2dd53ef99805c9a033906c7fbf13385e924b",
+      "sha256": "5fdabf731fa6d277bb9e560e9efa2652bc7c296e55fbac46414798ccea76e791"
+    },
+    {
+      "path": "crates/mir-render/src/player_layout.rs",
+      "blob": "db6297ed123ab3eed57bf5e145f0d3a0d79d182c",
+      "sha256": "57f328c1bcad52ebad46ca3a15afc1279badb3852c1f2b2c0f2a8759a00f203c"
+    },
+    {
+      "path": "crates/mir-render/tests/native_player_evidence.rs",
+      "blob": "a1401a3c2320a393dd7d6562a17ca8fe60991539",
+      "sha256": "2a6ad023db0b8d620775e2d0811cc4fd21aad52e114fc659a64d8dad61b18a2f"
+    },
+    {
+      "path": "crates/mir-render/tests/native_player_layout.rs",
+      "blob": "9494b04248490fb6f6d3f1c7f7baebe370b937f7",
+      "sha256": "b6c7de9dce5a1cc59a21581498d85c571fa5afb565434ab02d4fa322bff73323"
+    },
+    {
+      "path": "crates/mir-server/src/world.rs",
+      "blob": "c2abce4eb568c7d4e1f63b8a2cf238130a6fdda4",
+      "sha256": "1571a2a41824abdf36ffcbbe28757951a8efa242517551a5537420d5a98c68e7"
+    },
+    {
+      "path": "crates/mir-tools/src/main.rs",
+      "blob": "8f27a1a983bc595836c3a1919b45cf671167a00e",
+      "sha256": "14c2ee4f9b0623f2ad8bfd39d2c2f56c343c53d4acc1187540f71b48b6bae6f6"
+    },
+    {
+      "path": "crates/mir-tools/tests/library_key.rs",
+      "blob": "d4f5c7a8275b2243b408928034669e0919f33694",
+      "sha256": "71f41d5f76f1681106b1f5cd059d38f995b8b2581ec5ab0b83dca9512186d88f"
+    },
+    {
+      "path": "docs/assets/asset-formats.md",
+      "blob": "edc0cca74ba60e0befde5e0bab50249e0d93b0bf",
+      "sha256": "1b8cc610e4b29b0587c1ed5b9a0e8809113ee5e8028e395840275a70deccb349"
+    },
+    {
+      "path": "docs/client.md",
+      "blob": "3e1e4a3311125bb6bd3ffd09795da85caf3bab66",
+      "sha256": "6b8193db37242022a1e305923e74bd1a3aef9780af3f981761761e81f242005a"
+    },
+    {
+      "path": "docs/testing/native-layout/README.md",
+      "blob": "aede176f137a8ce748f9562ff66681a3e7ed300e",
+      "sha256": "b03b08339ea82812c8e0aebe87cb69b8cb0e33de5d09fd13685bf96de29a49be"
+    },
+    {
+      "path": "docs/testing/native-player-layout/README.md",
+      "blob": "b6ff3a01b07ed218b68196ce47fc67507d51ea06",
+      "sha256": "3ea573a42bc8e9784fac345ce07eb04d5bbe9904edfb38ef5fdff66ed9479719"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack1-down-manual-frame0.png",
+      "blob": "0d74947aa63411e00dabf45e1d99c66f315d8c0b",
+      "sha256": "41f27b1524295c759f2545382ec7ff4b43050bda927eaac2062a9212d934a14d"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack1-down-manual-frame1.png",
+      "blob": "d8e5fc71da50f6db40fe4d9fd770b4980a6a1fe2",
+      "sha256": "0b8b7cc7e743a55cdfe63d3c2832e57275234b4c95f0b3d3b9932b4a06645174"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack1-down-manual-frame2.png",
+      "blob": "5717a735f4ab1a6d76855d28d1837df4e1e482e0",
+      "sha256": "5ba4e20fe537178a4e466b164a183ac11f2b9d987807be1ffae8daf000076abf"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack1-down-manual-frame3.png",
+      "blob": "9497b40c5c8f13cdd433f0715fe6941152464c71",
+      "sha256": "29904229dddc7780fb466ef45c87e77a825601af5ac0e2198841738fa7bbfae4"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack1-down-manual-frame4.png",
+      "blob": "5c88d370b028222ed75d7d74fbcc78b3ab04ea33",
+      "sha256": "9d9244d166ea1d98278567bb6d8b79ce5a5fee4c19d817a1a8703329ccd3ed31"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack1-down-manual-frame5.png",
+      "blob": "0c4f3b3aaa9bb842c4b3bc749ddb3ca553c5b1d0",
+      "sha256": "0b7602ba63fc19582dc68709f7ba4ecad1efaeaa4ec715c4bc3107dd6d616e07"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack2-down-manual-frame0.png",
+      "blob": "c4db507b5925ed68eb72de0b693e196ca7fd75d0",
+      "sha256": "236301103af232a4978538ccc754bb40dd820e0d2476974bc3bd82d1e81e314d"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack2-down-manual-frame1.png",
+      "blob": "d3e3740582606c27a4924f4dd7a5f020ecce9176",
+      "sha256": "6e86206199bc52afee5ad93832201b2ac2f281a7f8ad30f1e43985a986250601"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack2-down-manual-frame2.png",
+      "blob": "983c3b7f9ca90f67a49b1081c8182c20275ade06",
+      "sha256": "9cf51774aac56dced7f024c4bccfdf017746faaf84542792977c79bfb61b5935"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack2-down-manual-frame3.png",
+      "blob": "f1caeb03f635bc69aec2dcaa5259b492bf36a2df",
+      "sha256": "4c36dae547192da428295f953995a255ae04bf676c8d6e04016dd6e4d38ae1f9"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack2-down-manual-frame4.png",
+      "blob": "2b50672fab777cb5061aa2dc5635bb0bd694c328",
+      "sha256": "411201560bade0e77a870a2697561b405658757df0ea2863d9641915accf48b3"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack2-down-manual-frame5.png",
+      "blob": "9c15279aaa2549286b0aca74b736ebfa4413ea8f",
+      "sha256": "5b62aaa849466341dbac181cfb17344662111b89d36031a065b476caa89abde6"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack3-down-manual-frame0.png",
+      "blob": "808efd2cc0f1af33138d28d0f7df3047f6f5a73c",
+      "sha256": "fe82d31ed55389c0ee80324c707d4401d1b752a70644257108178a4876cda667"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack3-down-manual-frame1.png",
+      "blob": "6d9fb7e9ac4ccb0deecd4e5cad28f193be1ec7cc",
+      "sha256": "535eaeb7f3d43569fe08316a05ab0bcc69d3d14e66527d2b9ddd545bda4fbab8"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack3-down-manual-frame2.png",
+      "blob": "4e0f50d6f27ca8c00f2bdef1ac801900cc1e54a2",
+      "sha256": "a5ddf467fa098642a8803233716345abdaf43a5602e85b6a7bda7939d34eb7d5"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack3-down-manual-frame3.png",
+      "blob": "8899c6923810031c6415bcbc9d561fc4ccab219f",
+      "sha256": "a5e4fb50366cef79537b5105c98ff2e14b6d380230914d8732b2e8aa03aaa35e"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack3-down-manual-frame4.png",
+      "blob": "710d14f99231c1e7f76fe0ceb84a72efb2d0437e",
+      "sha256": "91195d356aa83df53b751f2ce47818672709a545d03f099305971cc156c269f2"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack3-down-manual-frame5.png",
+      "blob": "58e6af873b552c30b7cfaea649186ed90e7191e9",
+      "sha256": "7282d83e2f8bc14a023e53be0d3deb9258a1c1478baea1be2c685ff3aac3ad52"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack3-down-manual-frame6.png",
+      "blob": "d0d3aa03cac15503ae5b252f0603d2f4b1ff089b",
+      "sha256": "caae384c1482f7c09a45fe2791199ce5bbc895819b09e3beb6cf4c8deda852e1"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack3-down-manual-frame7.png",
+      "blob": "b3248cba0dd0f00d43ef0500a55c2f944836ad82",
+      "sha256": "3a1b2f76fa3ef6b0444dd432fa0d5dde1ab2f27345d4b3e7bf6b28dd855774f4"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-left-prod-frame0.png",
+      "blob": "e6a6776f5e95ae80c23cbbd5faa63a79ff48f90e",
+      "sha256": "e43e84bffd88137b4f3b072d81ab051171a6209566e8dceab4d0ce26ef9ad73b"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-left-prod-frame1.png",
+      "blob": "92ed47e49a22773bf4d7aedcda6559ad1e976fab",
+      "sha256": "4a442ba2c89263023e281ff6692b223c61debdcf9b0986134d451762d6b88231"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-left-prod-frame2.png",
+      "blob": "9c67052264bed96eda383d9db34a07f783bddcfa",
+      "sha256": "94c4166b057e84545e7e046aaef2b41d639f9dc28f22a3620bd7643f82e6d8a2"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-left-prod-frame3.png",
+      "blob": "98a9780e8585337737022b6e071130bc19705e6e",
+      "sha256": "c9e164832d1afb88eff0a1e286be56aecf285a5621400c07e2fdce501fe72522"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-left-prod-frame4.png",
+      "blob": "c3a7d24a500c053d035ba082943276d767cf995e",
+      "sha256": "e718b116c9e195d35f9e0fb999e294c3bd92a70ceabab01c95943dd92e540534"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-left-prod-frame5.png",
+      "blob": "ba1a6ffd2d7e701e91d03675e93c4e3464622036",
+      "sha256": "bdf0ba1920603658e6f097968dabb17e2cf6bc00f35f7d7b4f3a63811a4e6f7a"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-right-prod-frame0.png",
+      "blob": "91867617ab34f9c718ff60def5242f426826a707",
+      "sha256": "e51bb3263060420a008081008a4525014ac310b6290760f92ee73492336f2b49"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-right-prod-frame1.png",
+      "blob": "264129cd5957ff9a1079d31ad73e802cdc6a857c",
+      "sha256": "3d2cd3d45c7e504a516f506bda5d0fb1f46c2680a4cb02299b83e2b388e0c7ce"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-right-prod-frame2.png",
+      "blob": "f767040cad0387d95dca32626aa54cf5b7f4207f",
+      "sha256": "039a5d9deaa778e731247e2156e83bdf2c55a59d161701be50954b1a2bef64d3"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-right-prod-frame3.png",
+      "blob": "ae78f3de5247536ac40a2c00362a2b26799466ec",
+      "sha256": "2d27d87f12bdb0d274b79b2f3dac08fc61ca981a50f2791f3b9cfe4ac8340377"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-right-prod-frame4.png",
+      "blob": "75cfa9bd22217d6a62408b4d01cc8afa3877bd9f",
+      "sha256": "137456dbdc95a68d9481a15dfd1f16d2077abc7ae57b59ca8e26858618ae04eb"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-right-prod-frame5.png",
+      "blob": "23ff22337f0bdf73c28e8a2e1a547fd0ba52a19f",
+      "sha256": "f38945da78b2e29652865394fbcdaa3675c7f8cf40c09825f9878c0fee89839e"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-down-prod-frame0.png",
+      "blob": "b1ed3b2a5c9a5483119d6f0cad429bace7d39dd2",
+      "sha256": "21fd2d2de6a408185b10479b8eea3ad419da1433b2817e9e5f39e7a00b913e45"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-down-prod-frame1.png",
+      "blob": "df163a755322add11d1593f36cc285942b182ef2",
+      "sha256": "50eeb1d70f3395d4df711a52f73c7686391ba4fb04f7553b545595fb18b8db94"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-down-prod-frame2.png",
+      "blob": "5cdeecf9bda5469cb38b902185355747ba14102d",
+      "sha256": "930d9714b9f5e55a5c5b004d47998a13a8bab97df6d580389c0d29418a42fc49"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-down-prod-frame3.png",
+      "blob": "5b736478b662709439df6334e934749c674ae276",
+      "sha256": "cc2a98902656f6d0f92f865cf615f37d1a34aacaf6ac0692d1e21e51bfbc6e5d"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-down-prod-frame4.png",
+      "blob": "9ba376fb7b11bb2efc21931134a82fa580b28ee5",
+      "sha256": "d86eb90c65403b3e33393ba58937700bfbdd118264ef0911974bd547277ab3c9"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-down-prod-frame5.png",
+      "blob": "1a7aba82024c745b070aa91255e72217598af7bd",
+      "sha256": "23f8fbfefc2aa77edf817a677c8c521c9c3db043081433d46c8a056b15054073"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-left-prod-frame0.png",
+      "blob": "19502f8c683fa21d3d698e9707bf8f956ff5e0a9",
+      "sha256": "4b0ef3093a03e2c0c91ff546540bc2e657158a585a4145ea3556a7fa706fdc72"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-left-prod-frame1.png",
+      "blob": "bbf62baf00c1bb5f63661f9ad2ebe7a6eef3a7f7",
+      "sha256": "6d3c2092f237e9fa580a67d3796bf65dd2e4c3160c9bca7ab445c8e79861c562"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-left-prod-frame2.png",
+      "blob": "847dadc3fc7279535d81d1a6b1aabc735afb24c0",
+      "sha256": "33d1beaf29c25a1f092b8b6c4435fdce6f270492bb6307369fd261c99e20e857"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-left-prod-frame3.png",
+      "blob": "0b638e710fb22d59b61bccfcbef22007cef3d2ad",
+      "sha256": "3dc8f4c98dac5a63935b3969a91ede6aec90835af50a022180ceb92639138e72"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-left-prod-frame4.png",
+      "blob": "d8c1f9eb162297fb0c33307b33352f74289d0d3b",
+      "sha256": "96208508bcd6e64bfa125851676e8e4a3883b361a5251b7470f46c748906bb15"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-left-prod-frame5.png",
+      "blob": "0d59729a62a9422f4c505a04c37121a869f2501c",
+      "sha256": "ee0532bc7f727fcb48316c7a79fcfa866f74f04b1091fb1de06c1cb65915c8f6"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-right-prod-frame0.png",
+      "blob": "17f314a8e1641a95fbd9d0930efbd8614e7426c5",
+      "sha256": "dae3702ded16f1570289f08c0fa1b0f5852892c7a00ac1f2dd550ada9cb7ff0d"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-right-prod-frame1.png",
+      "blob": "beec4ac705ce8c42d862f5a0b013302f89ae6af6",
+      "sha256": "2cc227aab5130e697f0998e37a9d86e5a9d5d820ea60588d692cd6f4a7c7329c"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-right-prod-frame2.png",
+      "blob": "3c0bd2e131c35240b32f225106065b9a92c533c7",
+      "sha256": "c6d44368f2c8537015241bff4de8c5dd8b60e0a1ad5a2df0cdf2bfacb4ed169d"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-right-prod-frame3.png",
+      "blob": "da9de86dd3dcc1d8f3a7ce6fff1130b81e523040",
+      "sha256": "dc14791847fb26ca3cc19b1800e50eae1e6bfb99f3fb67c314c371013e6a3bf8"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-right-prod-frame4.png",
+      "blob": "2c5bd5006805a0e03d0f76ef18a389dd6fde1e96",
+      "sha256": "cbc16dad584942cca4dd46cd21890c542ea03467146b6a88e89c9827ca294d0f"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-right-prod-frame5.png",
+      "blob": "f4e4722a035b806148fe9d75b468d32a66398c19",
+      "sha256": "e55c8db5090302b91f4637bfb10c82fe744df5be4d4c8007f7c8d8624795fa3d"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-up-prod-frame0.png",
+      "blob": "4479abfeb888b65a9afdfdbd2604dfb0951be2f8",
+      "sha256": "9bad4b8232dd47964d73ee9b3d5f4a82909419b7fb1af264c2a3b036acebafd7"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-up-prod-frame1.png",
+      "blob": "467b015007385efdcf74f52c58a8d3123ddedcb3",
+      "sha256": "d6cd24f0578f49c34ce3544b0926bd0b048cbbe56565d0b24284da25821fed13"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-up-prod-frame2.png",
+      "blob": "cf7a39a11b8312dd4b2d8f0714f17443ca0822bb",
+      "sha256": "8f1d49de5289b2183b49f3a2b70733f3d6b0650e265c1e14f736de0ceb401e26"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-up-prod-frame3.png",
+      "blob": "4260ecc23a1fe7ff09561f82ef22bacf631a53cc",
+      "sha256": "0e827149fbfdb956201d0a013dbdcf7b4ed7f7da228b8e5776b9060d140b5781"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-up-prod-frame4.png",
+      "blob": "97d1d0ac07274d4c19789ff4d70b51f7b313be73",
+      "sha256": "7d566f686e0d14ef6fd1f5e5b6e957e838e54421b69626c2ef8c3d797585e1b2"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-up-prod-frame5.png",
+      "blob": "01699505a46ab6a069e062c63b980b63ec092c3c",
+      "sha256": "0a9a2b3775fe4ee174eaf2f9279fde4ac3ea74e80f9e952557d586a8559b622c"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack1-down-manual-frame0.png",
+      "blob": "003d839fbd97f196dd011621612034de95d86dad",
+      "sha256": "b25cd254db534d0fd4b0d4b3887174d901b13400a5a9c7c183d7d5403cb56ff4"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack1-down-manual-frame1.png",
+      "blob": "e7fe4ef4ea2c76a0ac914e4904648aa3248ff212",
+      "sha256": "560888fa57ccb0acc3d92f2962b5c63d31f410a3dd28aa835f05caca0738b27f"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack1-down-manual-frame2.png",
+      "blob": "d6d88a7978e7d3c2090fb14b0c1fc26b8665471b",
+      "sha256": "24c0b18283e66c5dec3a4ed94471ff8e27a54135b1ef02ab9b206944a0729844"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack1-down-manual-frame3.png",
+      "blob": "33ea1900e359199485ee4450c8652a2e689a73b8",
+      "sha256": "12bc2c7493be02a30873d684fa563b6748e1a171ed69617f4703d51cb56e0d42"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack1-down-manual-frame4.png",
+      "blob": "c8cc90a9924922adbfe210d30b9524bb769adcd0",
+      "sha256": "92c91e8b593612fcbd3d7a76a62f22986e6f6f609e73003b7b46497fbdeef229"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack1-down-manual-frame5.png",
+      "blob": "57ef12b00e5e598d9655994bac3616416c72ff03",
+      "sha256": "d238117d7bcd7a0d1ff66c1241e5a8c6b6c0d92ec17b9f902bd3744cd05b5639"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack2-down-manual-frame0.png",
+      "blob": "cba1aa1dbedda8a2da841956a717a041f123a87b",
+      "sha256": "099c6ad1d156d7255b657989d2b54a1c69181a4da5540860062be20ee2a3a683"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack2-down-manual-frame1.png",
+      "blob": "1e5c9ecf1758177a3ae4967de0d12418606164d0",
+      "sha256": "024f449b862e4ab19e1b9588e5cedc0c246866e49711e59d34a43b42a94fb57d"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack2-down-manual-frame2.png",
+      "blob": "1390d1a85a6458f6bb7b30697d0b8891aa5a1d02",
+      "sha256": "094b92076f20e5431f8f5c99eb9fc78a6589576cbc57f2547245d12c7a0af86b"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack2-down-manual-frame3.png",
+      "blob": "1211f7ae0c4bd6979669bc01aaeb10ea32008afe",
+      "sha256": "e5400d8446cf56057f1fec4199912f7aae5033893d089d6ff670896c3a483c5b"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack2-down-manual-frame4.png",
+      "blob": "1d02d8256f08dbd3f2b640822017cad64e83618b",
+      "sha256": "4c4fd5b67d092f067023902ec2bf4a9b71808d36e3770b7a7a14348d9092f442"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack2-down-manual-frame5.png",
+      "blob": "931bdd2c95abb8499a928e92dbf0322011207106",
+      "sha256": "d02209e359d82ec64caa889a0cd3b6562c1b1f55f833a47e5a98cb5055cba71a"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack3-down-manual-frame0.png",
+      "blob": "06d7d3c5d341e94f585904b5480a48e22ecb7efd",
+      "sha256": "57f3f226cf6e88e06f4aafc4adff9e6f2e87966fbe51719bf30b381c3395633a"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack3-down-manual-frame1.png",
+      "blob": "e49dd96474f3fd35332f06544be753021f692176",
+      "sha256": "10b191017cd2fea5840646fa8d5a7da5c451df204c32ead77d6b13be7e3c9f6c"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack3-down-manual-frame2.png",
+      "blob": "5b72232be50df8f2c40e8621a1b1580f7804db91",
+      "sha256": "fc92574a67ab12e526510e93196a0d89cd775ff39be2d959b619d1983f1bec78"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack3-down-manual-frame3.png",
+      "blob": "2019e4847f8d926f6a7a6f0786ae181251f780c4",
+      "sha256": "36f9a8932c7436c17b5bc12f60986b1888cd64fa82fcdd5a98b2330d17b46b4a"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack3-down-manual-frame4.png",
+      "blob": "050fea51170f648c55b383883abd84d2dc6b9cee",
+      "sha256": "9d0ddb54620ab40b7a29fd5b0b2cf2f8705be6fbd4e949d91d0d5b113ca1cd8f"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack3-down-manual-frame5.png",
+      "blob": "8df15ef4cc9f329f192f436fa7ff0c6a57dc73b2",
+      "sha256": "a03eaa35bcc19ddb95f44512fcb8ddbaceda96a100a33f1aa891fa6a9128e562"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack3-down-manual-frame6.png",
+      "blob": "bbf8faa0d167556a4b3217d35336701ebd3d484c",
+      "sha256": "706e23c84f4575453e9431605cadcc41a8be24341b738eeb6ead6da2f739b4b0"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack3-down-manual-frame7.png",
+      "blob": "3a9b5f6bd41bfc4f5b6526db9e2ee0e16f1206e7",
+      "sha256": "516949375e5957d5166783c22f767945816e9fd2c42ecb6e236ac7479abd55bd"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-left-prod-frame0.png",
+      "blob": "011dd59560d8bd07712a3a8649702e8fba7e592c",
+      "sha256": "3949b79db285300d849970228735529aa8db2cc62a8a36937d4f32660df5b92d"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-left-prod-frame1.png",
+      "blob": "a972102be33640bef4a0298b30547e97297985e1",
+      "sha256": "ec3dfb9785a8ac2e65aaedd45959f94eda0c6623d2cc25115d0f7eceefe11cb1"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-left-prod-frame2.png",
+      "blob": "08b96f780659bb8720e07db6106a361aa59cd2dd",
+      "sha256": "445fbfc8f52ca17773f5c79a2b66d8c99966d7757eb1c9c8d05b12f6eb9c4ab5"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-left-prod-frame3.png",
+      "blob": "a762c2fe688a891602cdf06359d532744278e914",
+      "sha256": "940cfb3eef24cbdeab2137a815634b9aa7cf14e0e584f489ebcde8a2b8c4bfc3"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-left-prod-frame4.png",
+      "blob": "89846ee99a90f9da56afa3850a19ae1ea227807a",
+      "sha256": "a7e1c354220263e4f4b9ec257786e4b50c1268f28d3187c0ece9d1cf2eaa1877"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-left-prod-frame5.png",
+      "blob": "c3ec8699cab6daec45e3a71a818517fa3bdec723",
+      "sha256": "4d89ffa6ed22579a3cd136e8306eb4e6ed4b228c379e24dfb7d81f64513577cf"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-right-prod-frame0.png",
+      "blob": "8ef9da0d534a6bd7d15480e7657f832431a2e2a5",
+      "sha256": "85ce2391cbd8f51821765d59257328c589b443ee7a84216985243f031b656a96"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-right-prod-frame1.png",
+      "blob": "891d23f9f2226294517aec09354c804e90334b6e",
+      "sha256": "7a537a29469af14e73d1be0896fbac666da8aecf7f9a521ab850af2cfc6703f4"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-right-prod-frame2.png",
+      "blob": "58ad12d5560001972ed6838ed5c0d446af802be6",
+      "sha256": "7f244b8763ead99b059867d7650afb6ab3b33cb1ac9ef0131a56195aa2966697"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-right-prod-frame3.png",
+      "blob": "52e34790aec32b3520183cdbd9ff40b123e25d9a",
+      "sha256": "781b0bda502cf4504628b78d8179f753e40ae47de0bfc6e97334261f5f0486ba"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-right-prod-frame4.png",
+      "blob": "c5ab56694dfc02b85c70d16d09214ad62f9d1990",
+      "sha256": "8767abef3a7d0a17dc94d2fb8e583e1a4ed69a6ec92636237dbe455c1b9c67c7"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-right-prod-frame5.png",
+      "blob": "ab0abfcd7628908b6414fea63eb688d583a8a213",
+      "sha256": "bdfd617b33c5bd550ccc38161c393e023719cfe0c83827c428274ce144adf33f"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-down-prod-frame0.png",
+      "blob": "8635bafd9f1692c24b9dc6323e9235409867b5d5",
+      "sha256": "d44d7d5e594cca16884411b43e6446e7df0e3c3ae58c6d3e82db9a55854fede7"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-down-prod-frame1.png",
+      "blob": "f60c2c5839e00f74ab8efc0fe4a344ea5bab654c",
+      "sha256": "df0885f965fdd60a8755692555af860fbbaf8ad524f71c1534bde92a959ed2cd"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-down-prod-frame2.png",
+      "blob": "b3e4fdc7a5d55a674bc01c4a0874d64fc7994296",
+      "sha256": "cd983cdf2e586ef35e5bf83ea7e54981b8aa273a3cd3d6854cbb9de2670d12e4"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-down-prod-frame3.png",
+      "blob": "b122337ca4e647cf8c7e47679bab0ead75d31cd3",
+      "sha256": "2b7a7c7a313049367ff363b584d90dc49477e8cb82c4859ebe7b1978fabfff42"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-down-prod-frame4.png",
+      "blob": "7920cd46a97373df2448b4b8b5b98e220e6185a6",
+      "sha256": "dcda40e5adc84c8a4dc06f1e035635fba3ce2ff1a0a827a5ca174e8d482fc96e"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-down-prod-frame5.png",
+      "blob": "d5b917946f560eb7cc17e344a0ad81e51a4909ff",
+      "sha256": "ea34b3977b62a708d26d465ff1a8ae9e36e28d6bf26f847e0d845bb78af4d1c4"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-left-prod-frame0.png",
+      "blob": "13007683a82d9c6629faa08200f25e9740250ec7",
+      "sha256": "db51a0f95eb2ba910c0daddb124e029daebfe6da9a5d1952bb1c429f7a5d1605"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-left-prod-frame1.png",
+      "blob": "546eb624127ec5a4dad18a8cb2fb6041d8c99053",
+      "sha256": "16dae11529b6070c582e2ee2e0cfbbcceb14ddf987356dcc805afb11b5fa1d2f"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-left-prod-frame2.png",
+      "blob": "228a57ccb6eed67910a73432bb17a4d7bc137846",
+      "sha256": "7a984ff3a3846469949e57223ea4717c1fe650da9efca65e266527f6de72d308"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-left-prod-frame3.png",
+      "blob": "e788603b313c1a9120715fd270adb43350cfc06e",
+      "sha256": "f3a973ee678241974785bd67a1c385bb4b564dbbcb5e93c03b60720977f1ee97"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-left-prod-frame4.png",
+      "blob": "cfba31085b681c11c230029eba163eb95c6cf73c",
+      "sha256": "dc614d800f080205fcc13b2b350a36372bea76c5858ea2a78a0024baccd33482"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-left-prod-frame5.png",
+      "blob": "7ad5ca0f7410adbdb3a56aedf1da99aef9dabf0a",
+      "sha256": "1464f3f47456f1f41ed8708341182de098b73267d0fd71e1e5e50e0f3344c50e"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-right-prod-frame0.png",
+      "blob": "9223719c31930c75db3b82be419e29cfbb72bda5",
+      "sha256": "e6c03384aeabf304f43995d3686faa63edfd0783cc4affee3743ae9628489a74"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-right-prod-frame1.png",
+      "blob": "26c44e3d454c714dd1cad716c75ede854e4f650d",
+      "sha256": "a76a3702bcd60dbc97a87619bbbb75f216714a056561a3e5c69f72ddc66d97b6"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-right-prod-frame2.png",
+      "blob": "2db267d0f2bab51b79f8fd8f65b079e05994f0b4",
+      "sha256": "eef1c8bae38386f208d4a9ed1f80bbb40efdf33349500695071fbe5855ab6084"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-right-prod-frame3.png",
+      "blob": "5947dc12d6de89356d5fc6653005eb9d11fa0426",
+      "sha256": "c1933c2f5039c83c6c5809671e1a4190c57178b7841129d9a9e962d3714cfc07"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-right-prod-frame4.png",
+      "blob": "59ccb157d3ccb1ca721e4deca9d62a4d143443fa",
+      "sha256": "54575d4b5992df90df4e06e4e3ebbce3c35b8e3aa4a3cb659f2967a1546ffde8"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-right-prod-frame5.png",
+      "blob": "1db6a7f1e85e67be339697887e9c33b04be707af",
+      "sha256": "2edf8c14c95b33847e3f552d36aa3a7f988c832a9308b672926eed71cee1ba12"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-up-prod-frame0.png",
+      "blob": "2e348f906dbe989ec581c7a50c60720bed14fa14",
+      "sha256": "e03d3dc920019ae3146ae7851b513eb6e92201c93c9fff77d4cae300c1f4d983"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-up-prod-frame1.png",
+      "blob": "243772177dc7dcb17cc21acea35cb60b3de7b9c9",
+      "sha256": "ad3719a88dc40fd1c5b241f95c61c014cf7bc143170b9a765c3c851324ca83ff"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-up-prod-frame2.png",
+      "blob": "1f4ae6b085b958af1f43197caee526cb896b6750",
+      "sha256": "d84ceb249e9d7bce362d489baa1ee1fd9a4afc9c6cd7beb6f15cc740a24908c2"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-up-prod-frame3.png",
+      "blob": "d4013ce6c660d68ab532f510e8cbfccb617b7db9",
+      "sha256": "c924ec17796cdf20384dac0c32b48e5b6688a7427a4ca4f3fd19ca6a17c5db8a"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-up-prod-frame4.png",
+      "blob": "b774674230d3eb1af0d4da8faa56ead585fad279",
+      "sha256": "09d6cb48ccea71f495903737f2b27fa17ae769cdb0996d8313b7b38cb2d91bf4"
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-up-prod-frame5.png",
+      "blob": "563ff5ed11034508f7263838e445e182008eb155",
+      "sha256": "586e621a0a78caa761cc25ae90ab0328846674b5f85e9ab7d9e7f72c0ebaa809"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack1-down-manual-frame0.png",
+      "blob": "becd44b0b838114368d821b2d810c0cd0be7a901",
+      "sha256": "e77e9b12f82f34997a84bdba46e5fed8669ae9a10cfd11671ba7a132ff634e32"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack1-down-manual-frame1.png",
+      "blob": "403d37dedb465439315bdb5acbeed9cc9eff002a",
+      "sha256": "8696bdf2f2045b1bf63b0d868e8b10335d8e2e0126ccd257b16cdaefac286a23"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack1-down-manual-frame2.png",
+      "blob": "251c481d2b0d7b169145f82b75e376237e8de3f3",
+      "sha256": "c24a58081365e262e735686245135b9b3e254cdd70dc61cbdddf161320b3afb1"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack1-down-manual-frame3.png",
+      "blob": "d6ab10f5a65622df001990a945ae366d6df41008",
+      "sha256": "219c1ec9e8a8383a9676e6b21694edd344f39e97c2029043c5bdefcdc7528da7"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack1-down-manual-frame4.png",
+      "blob": "4175d6df30af6431e57eda31f6c2b1aa9d4b1d5c",
+      "sha256": "1c0548b90419d37d4d6d802910679e9ae8126d667d107759eb5c5352a6afe672"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack1-down-manual-frame5.png",
+      "blob": "6134c30550dab27a5c7ba187ec4bcfc324157a19",
+      "sha256": "6d403a0698711e3d5caa660f8195d24e82ac9aa219aab06f28716e6e5f521f0e"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack2-down-manual-frame0.png",
+      "blob": "9b89677f5b049d66889a7e583670a236ad454dc3",
+      "sha256": "24c5f81a6c4e270cbc51587246a823044666dbe297c8aab650b60995e16f1c1f"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack2-down-manual-frame1.png",
+      "blob": "9a76800f507f41d4f927aaaa2ab767d960c8c642",
+      "sha256": "937880e7bd97433e79077730415a950f4f7038c785fa527ec7bddc6a1e61a637"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack2-down-manual-frame2.png",
+      "blob": "d60456ba254d5c2c766b81a42cc3115706093e5e",
+      "sha256": "e996e7582022780060d285226e612d626cf8042be94643d6f843632f3f105414"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack2-down-manual-frame3.png",
+      "blob": "af5ec2b179c5aefea97590d88793502b5deb6d0b",
+      "sha256": "63b61eb7c167a7dc71151b142cd85de0b44c569522ab4163cfd336773910e069"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack2-down-manual-frame4.png",
+      "blob": "6967de811a6b3be5372615ea328cf006661b77f8",
+      "sha256": "5cc26392626944a4b35c054d71b0db9bfe5efbd1f0435025b6f5c0d3e6f2a5e5"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack2-down-manual-frame5.png",
+      "blob": "ac5f2f4fbc26b69ef2da48961811b86f3bfb3a2d",
+      "sha256": "4884ff9f317998cd978606622f96b99aae9f96db9f2d522efc610c1437564d24"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack3-down-manual-frame0.png",
+      "blob": "2a7ab6dce5aaac684fbd3b9da73a45dd64875eaf",
+      "sha256": "4934c9af3bb016302470245084b61b9b563454e68408f68a147ebd9a961d50dc"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack3-down-manual-frame1.png",
+      "blob": "f45960e24410442655b40cac0a5a386109d0c45f",
+      "sha256": "59ff281dfe6355f93e4848c8bd8e67d9f1314739562d3139dd3fafa197f06827"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack3-down-manual-frame2.png",
+      "blob": "417caf460ca1946e6f8260826e911a8751db8233",
+      "sha256": "464840817ea640ef4bb3aa51781452fd3cc73b6f2fba6a20f7ae64a548911c0a"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack3-down-manual-frame3.png",
+      "blob": "8cf5e147a18d5b5c86c335266fbfb00a05728d12",
+      "sha256": "b11fcbd3235dd8d465a8c8f376eca489dca99e78945a59f26c3bfc2020a5a950"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack3-down-manual-frame4.png",
+      "blob": "247ef0a4e411373fafa24a2b0a1888ae30dad538",
+      "sha256": "7c73fa8f20aaa3a59d7217515625c69f038f9fd57c9312efbc2550e5d9ea7b40"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack3-down-manual-frame5.png",
+      "blob": "dce6df10434ce7af231908d9600e6917f55aa2fc",
+      "sha256": "b50ed12b2c9b6232bc69b70d677606d534a13bb70e4fbb99620143b137e1ab8b"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack3-down-manual-frame6.png",
+      "blob": "84646973678293c4e32a88c37b36911f211921f3",
+      "sha256": "8b43c6965a37c1c8bda667d479f13a3aa778896fc6e35760c6b3ca34672b46ac"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack3-down-manual-frame7.png",
+      "blob": "94245300186c4b781d86a3d5fb3a80e5712fafc2",
+      "sha256": "2e593048ab3bb6adf468ae3895df2a5f658795f9fa246567f55275c415e8507f"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack4-down-manual-frame0.png",
+      "blob": "9dbf9ed5f1c877ac9782ad4142dd1fca27c24dac",
+      "sha256": "c3b3d4e5ce6d9485e3d912e49925fa8939ecc4217181764514b165308575a351"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack4-down-manual-frame1.png",
+      "blob": "d47367c33a921725f6e7a220074d4f7f6f35612a",
+      "sha256": "dd7784b489183bdb2c487504e74c888c5e8c93dfc2e0f5b8eaeda2168e4e7493"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack4-down-manual-frame2.png",
+      "blob": "c9d3a4b4331c07df0ddc40b8b4fb26d9730b6e28",
+      "sha256": "4d34a17b97999a60a80ba487b04ce302cd25c7d2e7fd2c1da0a273375f67627b"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack4-down-manual-frame3.png",
+      "blob": "80ff942aaf1900b6a2c66d5e24d18c31f210e3a0",
+      "sha256": "845ea00678f5cb8c8d8867e9f572b45dfb043263f6c035e52db614ebce44d28f"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack4-down-manual-frame4.png",
+      "blob": "f39cc14326ab06ac43300bbc61c9ce7ed2ba1ab5",
+      "sha256": "6fe5219fe38c5b2a164d8a5ab96f4079b7cf1957b81b3d4ea3a55328fca97dd7"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack4-down-manual-frame5.png",
+      "blob": "50e2cd9f54a982893c599e60e79ae2c3fcc7b592",
+      "sha256": "3bcadcb304bae0f8771cdf473a7fa4016eea9f9b626ee2263f79a70c5c44e39f"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack1-down-manual-frame0.png",
+      "blob": "31c3e34c05df3c10e605fb8826df5578db61b1aa",
+      "sha256": "19938552dd5a69aee0e7f7773b7135b70105670cc051f6aca453e14a303cc97c"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack1-down-manual-frame1.png",
+      "blob": "ea3fe138ec8a1e6cec8ec123e291163082d993c5",
+      "sha256": "7a5bf6cc6d304293185432c52e304334218c65c399349e0ed985c5f90398e6be"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack1-down-manual-frame2.png",
+      "blob": "29ce3a7d68bcd57b4442645d27ca249cb97a5355",
+      "sha256": "12c3495bd764e2f77c42a2de403aa81c6e878f3a53a222b05f3c78a01611e797"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack1-down-manual-frame3.png",
+      "blob": "fb2b4fa95f3792e1569a6d687be5b27356b6225b",
+      "sha256": "78b7c0d72d6e7e08cabda0ecb750c65553ea8f3364724e781446e1e072ac9698"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack1-down-manual-frame4.png",
+      "blob": "a2e6ae37c84e3a50026098e2061c454fbe2c6bfa",
+      "sha256": "bf4c4fd5eed4e36b6dec6d56a13894853ad0080b5aefab07d87d179b681510ca"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack1-down-manual-frame5.png",
+      "blob": "1deb633792ff7c3ab1507e89869faecac164e1ff",
+      "sha256": "1882d87b48402ca122511959c2828a6ff4aca9f8a4cd672dab198e576f5b8cd2"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack2-down-manual-frame0.png",
+      "blob": "a077bb6350e6bb6dd47f6cb903eb57aeb474950c",
+      "sha256": "ce0c02c07ef7bb53610cea4ba3ec68d97416c442fd4f4ee94f4291143c5dddd3"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack2-down-manual-frame1.png",
+      "blob": "137f1f1b8a14c11c60f7c006277349bcbd0fd640",
+      "sha256": "27a7e5bbc6ce348011777a8c8d9e8f87dc3d5e91dc1594786be8234561f98825"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack2-down-manual-frame2.png",
+      "blob": "60b44bfc6263bd6128932083ba64ee060bf01144",
+      "sha256": "d9129d499c926195ec7ca1f2500ecd68da39d62bdc5a160fd3fd3bd4c2d170ee"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack2-down-manual-frame3.png",
+      "blob": "5a23d2a2362a8aba8d748e54ddab5dbc0385b12b",
+      "sha256": "e43d1b49cd525dc632eb2d2b5cd882a58e26e18568eb88592ed5d31327565a43"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack2-down-manual-frame4.png",
+      "blob": "254a5058d73d52b8ed17b560b2dce7592b6a3858",
+      "sha256": "17c4034ecf4c9c25b686d63fe373f52d47a8100dcaf227c88b3b38f90494f1d8"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack2-down-manual-frame5.png",
+      "blob": "139be105d8a6f1e782e0a9b1b4b0cddfccd78773",
+      "sha256": "49fd7e60e588cd79b460e7cdfe5d5b7a7e49ee19caf008e589673f49034622dc"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack3-down-manual-frame0.png",
+      "blob": "eb0148ac26d1e80e83f7c9d56de57cadae089bb3",
+      "sha256": "faca65d2560901d6c1164f56c675b507429bb1213d4eece3a6bba4668f4ae100"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack3-down-manual-frame1.png",
+      "blob": "c173a91fd6398249fa10c2f7ec69705e864bff5f",
+      "sha256": "9c02199c46a3df4dd9ae5f484f2d766d9fd109a53dc2041ae02b9833b264343b"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack3-down-manual-frame2.png",
+      "blob": "5f4bdfe350ca1a2d2bdb745227e103c4e09a103d",
+      "sha256": "9da57d932b7d6f6ffe334a8ca2c5bbbbac79b70e0ff3a9341de9e9064100cf88"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack3-down-manual-frame3.png",
+      "blob": "97e00a88228e4b085ded34efd27e4e16c14f938e",
+      "sha256": "91c8f614dbfae313e27f20cc768b2916153b9e3c02016f17e811b6bece718f22"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack3-down-manual-frame4.png",
+      "blob": "2d473d4ecf40776ac57b01cd09a9e0f4789b2a48",
+      "sha256": "fa5e0278563b5211d422714c8bd72b4259831f195fbab2d82f64ab2865d092e1"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack3-down-manual-frame5.png",
+      "blob": "0c07560c09a188e810cb4c76ff2e9dd67fcf8384",
+      "sha256": "e78aa8e2f7b5290ca84bfc4606b421bc48bb6152fc458bb3af65300d77cddb46"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack3-down-manual-frame6.png",
+      "blob": "924f28c3be7008950616646d7beff2c47978a1e6",
+      "sha256": "5643ee399de7e2a0f1c57b85325160ad158bdf876df705d089c8e074a21bba00"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack3-down-manual-frame7.png",
+      "blob": "46b51aee606cba16da35ddabd3a8e6ff1ff16993",
+      "sha256": "d9c464c67d98c1a3dce79bf3a4ba4730d52996fff9e15c4d93d535a6b5a7e370"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack4-down-manual-frame0.png",
+      "blob": "7a8cc8ac065c505f1da4ee571cf16c2b81a82c2c",
+      "sha256": "3185d9ffeec80372e5a253b0a1db4eeb740b9d4213657d8869f3ae5332f95bcd"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack4-down-manual-frame1.png",
+      "blob": "488035b86de4f20f5a915d62d38c95e43afe13ac",
+      "sha256": "3e447bc6c0187ae84622d201585d7a746b3fb8d75fefc2da1166990b27a92660"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack4-down-manual-frame2.png",
+      "blob": "d31b417e262a0bcde479638fc14c1c2e4ff0f7f2",
+      "sha256": "796ad51ff7e805aa84ff150f53563bfe47d14e7d9e22f2d359ad4b9b8755e206"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack4-down-manual-frame3.png",
+      "blob": "f9d80a10e12bae5b5242884271e6a0138bd1cb99",
+      "sha256": "a77316b94c4839703cbf2c465c82e437dcb44f67a1d251db7ce00c9d54f19faf"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack4-down-manual-frame4.png",
+      "blob": "5edf08858f0e8f24d119b832bfd2d6b9bfd00bd6",
+      "sha256": "312d4e7b3f15796fc8f89770307f7a38c30a0ccc952e9d5f387d58db2ea02acb"
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack4-down-manual-frame5.png",
+      "blob": "0d07107405e2fdacc4f413a0aca82fad24c9f844",
+      "sha256": "453f100d4ac004a3feb6b5fde951ecaf8ce1ef4b6f9a9a65f949ab90c17fc96a"
+    },
+    {
+      "path": "docs/testing/native-player-layout/manifest.json",
+      "blob": "63c1f1ff2b072aadc6ea4375e2715ebfe765fd58",
+      "sha256": "b9dca4d5052bc21f491bb9e8549a28027b8c16c99e756a05135063847c357183"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack1-down-manual-frame0.png",
+      "blob": "6bceab9e31b4d6968e4ae1ccdaf0e79219bf5c14",
+      "sha256": "de496da661458f31d1c8f5fcc5815eacde98cb8025d8c20e216ffb568f82a84d"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack1-down-manual-frame1.png",
+      "blob": "e9ad801197502a28665ee9eaa107166ac17fde91",
+      "sha256": "b5927a265e33706f35ef3022cfc1945dc62ab222aaa603f74e900eb5e6e3791b"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack1-down-manual-frame2.png",
+      "blob": "6482165bb458d49b1aedcc75c50ae55a3487b701",
+      "sha256": "ee57a6d101b7696d4799199f164a0f6cfd23e86d7cbc7ef1c89be0e80b352749"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack1-down-manual-frame3.png",
+      "blob": "fde927fff301cabf04cce5e163defdccc8bd2ada",
+      "sha256": "f8b13c86f5b11e97a0106699c54e69148cf5bff135de4660b528376c4ab5ddf1"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack1-down-manual-frame4.png",
+      "blob": "4724a86a33972301631f8beb95b333cc59f92b93",
+      "sha256": "d60fc0cd08811370bf56f9b5134dcae13200888f7f2da1c7a953f5de83e87704"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack1-down-manual-frame5.png",
+      "blob": "e90080925202a7d195b21d81a49a10b2d1b07ed9",
+      "sha256": "f88f21bdb4ddab8599616dc893c0ebad2b843698ff479bdae821b5d244914920"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack3-down-manual-frame0.png",
+      "blob": "b1ed7bf08f40e0f666eed6940153da6c80cc95b3",
+      "sha256": "8304d794e3d5a4b2645d332f7b07bdd045540aff25ed74d72e75d379a08777be"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack3-down-manual-frame1.png",
+      "blob": "25dda5f58eb04b97462c181d3790c58c547a0e82",
+      "sha256": "9cffc6133f2561b376541c2e8c56c32c182ab359ec0266ea35a2e8f26d250594"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack3-down-manual-frame2.png",
+      "blob": "1b25008271362725b9b86d65a5277c4c86caa401",
+      "sha256": "594e72816e15e87d93ed945d1d84fc22b4e33f3bf9ca914d190548ac12d6dc33"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack3-down-manual-frame3.png",
+      "blob": "64d0a8b164f2f97d83a3652ad6c89a0eb23f5a16",
+      "sha256": "ff03c4e71fb5d3be65a2063e0a82af56e980f4dd0dea0fb0b2b884fff0c89b3a"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack3-down-manual-frame4.png",
+      "blob": "f1a94032f996ce22f414c740f8f2ee0fc9c4498c",
+      "sha256": "66651a5189a0d2d7c4ada41c94f6eb7a7b1e6e28ef54cfb8b51b5a92d6688b9f"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack3-down-manual-frame5.png",
+      "blob": "a022c1f3c15b3ea430f0353079b0cf168d2538bc",
+      "sha256": "53425a5e770aec8d5ce4e8d886613e9bfb5d6959a18034f8e624847ca7933cb8"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack3-down-manual-frame6.png",
+      "blob": "b5c0b31be649945424d665300b931a62ae20880b",
+      "sha256": "b8b463f509ff2bbafcbaa50edef5bcacfdaaef30dc9edb0c9d69e555a7224124"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack3-down-manual-frame7.png",
+      "blob": "cb9ba1a3ed8e22f9ecccfe0649f6c55927a43640",
+      "sha256": "25a0aa4d439577c9d0b6e90107b81278ab60772037b58af159b1b52893d93d1c"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack1-down-manual-frame0.png",
+      "blob": "40a7588158af89c264edba60136cf83955d9b929",
+      "sha256": "418c7c8288c8543540ccd13dcdee9a435d0c2f0a3e560f3e278570d7f527f60d"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack1-down-manual-frame1.png",
+      "blob": "29dbace386749437d6b1a58004df3493f466b71d",
+      "sha256": "1c370ab04667bea88f33e0504706f65976cf519a557d7c7aab8a57320e59ebe6"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack1-down-manual-frame2.png",
+      "blob": "12791eea0dd0c7a9955d68695d4a02756d89e52d",
+      "sha256": "c5d6e21ddc5e5abea34fef1df4269b1cdcbb271f3a4581891ce7438220b6b62e"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack1-down-manual-frame3.png",
+      "blob": "77a75d30119a851e49fc29111a1431fb18a306a8",
+      "sha256": "35691f632f2d918544c3e06f9fb82466c8ecb2e938e3b917ab1c34f1b3e70d45"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack1-down-manual-frame4.png",
+      "blob": "0acd1d3e3be4dbaf837cdb309fadf022fc7fcc5e",
+      "sha256": "4c736d9b4625ebda805c7d937ac20dc100c95ee8ac0d9afc0fda4864b377fbd8"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack1-down-manual-frame5.png",
+      "blob": "529e6610b949b3a3a1ca983254ce25e3c2b1898a",
+      "sha256": "11bd246ccac6cb12c83ee7d22ff9b9aab49e1caa27cec2ca2f1de0d8e93e95ca"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack3-down-manual-frame0.png",
+      "blob": "4567a3575375cb294c0da232048f04c90c27b726",
+      "sha256": "b78c489ae20f51a5dcc5c1127ea559d088953cc256123f688f9d29a1fe93ea55"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack3-down-manual-frame1.png",
+      "blob": "657ce39a82808613c4201f11dc0b5ecc93a93235",
+      "sha256": "0a554159c39535983e7d3ad9754a7bff83d909649838fad1bc8eb791f12c1f66"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack3-down-manual-frame2.png",
+      "blob": "1654e2262ac066f00274427beca780975db328d0",
+      "sha256": "842ec404aeccf45b309d4066e4dad74a956991208e0a824322d7ef2f10892c30"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack3-down-manual-frame3.png",
+      "blob": "def16f0a393e4b0b626ad6f3aa82bcdc142b62d8",
+      "sha256": "67bc9541b294a228552899a9e3cba794e7e4e2267a8e84cb9afd9bbb18a6698e"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack3-down-manual-frame4.png",
+      "blob": "80a6234a0a575389319a681d53ee27ef9b90689e",
+      "sha256": "922f06e77d784e1a9169f37b5c084202f45b6383f33f1f15ebe820bf47e2f379"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack3-down-manual-frame5.png",
+      "blob": "c1f2280873f6670bfb3a2fadd1ba42f9c116dc8f",
+      "sha256": "64a0bac76996c391d1e959fc870dfdc7da9d41e265591e46bdfbb90824cf66bf"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack3-down-manual-frame6.png",
+      "blob": "4f3a2c9627e2289e82e95163768a819ffc96bc0c",
+      "sha256": "516c88d21ce2dc62dfba688688678c71d68f34cdde8254859598ec89060bcb00"
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack3-down-manual-frame7.png",
+      "blob": "1613db7e7b902fe162377db4e7e824a83e2cfb8e",
+      "sha256": "da3a9e01ba0ce070871aeeaa10e817216c0532a038d2178d0bb4a4ac71548281"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack1-down-manual-frame0.png",
+      "blob": "6bceab9e31b4d6968e4ae1ccdaf0e79219bf5c14",
+      "sha256": "de496da661458f31d1c8f5fcc5815eacde98cb8025d8c20e216ffb568f82a84d"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack1-down-manual-frame1.png",
+      "blob": "e9ad801197502a28665ee9eaa107166ac17fde91",
+      "sha256": "b5927a265e33706f35ef3022cfc1945dc62ab222aaa603f74e900eb5e6e3791b"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack1-down-manual-frame2.png",
+      "blob": "6482165bb458d49b1aedcc75c50ae55a3487b701",
+      "sha256": "ee57a6d101b7696d4799199f164a0f6cfd23e86d7cbc7ef1c89be0e80b352749"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack1-down-manual-frame3.png",
+      "blob": "fde927fff301cabf04cce5e163defdccc8bd2ada",
+      "sha256": "f8b13c86f5b11e97a0106699c54e69148cf5bff135de4660b528376c4ab5ddf1"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack1-down-manual-frame4.png",
+      "blob": "4724a86a33972301631f8beb95b333cc59f92b93",
+      "sha256": "d60fc0cd08811370bf56f9b5134dcae13200888f7f2da1c7a953f5de83e87704"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack1-down-manual-frame5.png",
+      "blob": "e90080925202a7d195b21d81a49a10b2d1b07ed9",
+      "sha256": "f88f21bdb4ddab8599616dc893c0ebad2b843698ff479bdae821b5d244914920"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack2-down-manual-frame0.png",
+      "blob": "3ab5eb0d593b5f14c789f918443f60e7070c367e",
+      "sha256": "f86e5088ef8bd50b74e3f503b67ecd267109f6fcafd2d263851946bbff5db199"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack2-down-manual-frame1.png",
+      "blob": "b129ccf303288faa6775297b1d99db5fb98f4dc1",
+      "sha256": "cf54197d3979fab4c4f85c575c48bc9bc927d806c44ae1bdbeda14d6cf5ee7f5"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack2-down-manual-frame2.png",
+      "blob": "d97214b8807769de1118ff8dc9e18934174d7eaf",
+      "sha256": "1ff25f509cea4fba127fbe9d4655af2c9bf61706b9682aad5de1dd89c46229ea"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack2-down-manual-frame3.png",
+      "blob": "e5b21d3ef78daecf70398b13fe7ba8e107d7f681",
+      "sha256": "76dab66e2f69ebcc1b4670da57f25e95a6e726de723164177607c72b2bee71c5"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack2-down-manual-frame4.png",
+      "blob": "5f0fe915bea6a49a650d6a79bb389be3f9bb681d",
+      "sha256": "70aeb521ee7de10d94fa38c70d6c4dbc450725496ed24db8400293dd93076264"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack2-down-manual-frame5.png",
+      "blob": "db9bbfe49eda138a596b378489b96124e104453f",
+      "sha256": "d6f03bd27a2489dbab16e559aea1a43f61a10dc76f64b3ab85a343ff4283f1a9"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack3-down-manual-frame0.png",
+      "blob": "b1ed7bf08f40e0f666eed6940153da6c80cc95b3",
+      "sha256": "8304d794e3d5a4b2645d332f7b07bdd045540aff25ed74d72e75d379a08777be"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack3-down-manual-frame1.png",
+      "blob": "25dda5f58eb04b97462c181d3790c58c547a0e82",
+      "sha256": "9cffc6133f2561b376541c2e8c56c32c182ab359ec0266ea35a2e8f26d250594"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack3-down-manual-frame2.png",
+      "blob": "1b25008271362725b9b86d65a5277c4c86caa401",
+      "sha256": "594e72816e15e87d93ed945d1d84fc22b4e33f3bf9ca914d190548ac12d6dc33"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack3-down-manual-frame3.png",
+      "blob": "64d0a8b164f2f97d83a3652ad6c89a0eb23f5a16",
+      "sha256": "ff03c4e71fb5d3be65a2063e0a82af56e980f4dd0dea0fb0b2b884fff0c89b3a"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack3-down-manual-frame4.png",
+      "blob": "f1a94032f996ce22f414c740f8f2ee0fc9c4498c",
+      "sha256": "66651a5189a0d2d7c4ada41c94f6eb7a7b1e6e28ef54cfb8b51b5a92d6688b9f"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack3-down-manual-frame5.png",
+      "blob": "a022c1f3c15b3ea430f0353079b0cf168d2538bc",
+      "sha256": "53425a5e770aec8d5ce4e8d886613e9bfb5d6959a18034f8e624847ca7933cb8"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack3-down-manual-frame6.png",
+      "blob": "b5c0b31be649945424d665300b931a62ae20880b",
+      "sha256": "b8b463f509ff2bbafcbaa50edef5bcacfdaaef30dc9edb0c9d69e555a7224124"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack3-down-manual-frame7.png",
+      "blob": "cb9ba1a3ed8e22f9ecccfe0649f6c55927a43640",
+      "sha256": "25a0aa4d439577c9d0b6e90107b81278ab60772037b58af159b1b52893d93d1c"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack4-down-manual-frame0.png",
+      "blob": "d3148b4b419693a050829f41f772f79ffcb14f26",
+      "sha256": "cba65a3f4d339efdbe181ced74a8b7789d08ca55334d2a6382e799ef36bd9956"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack4-down-manual-frame1.png",
+      "blob": "511f561fe781d05cfbf495b7fb82233da0456e4d",
+      "sha256": "9fac3ffb4765b336ad3cd128fc04650d94b45dced57daad772038137b21c27a3"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack4-down-manual-frame2.png",
+      "blob": "ce22e2b1de63d44a4ce47fb201b357742de9b28f",
+      "sha256": "e7167bfdcf5d6329e7a4d8e8e6026ad64d028d9146bded9141fd6041302f93e3"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack4-down-manual-frame3.png",
+      "blob": "df211084925c651272ad36d004b21c9cbd038290",
+      "sha256": "b8d7fd61bea952c0b6b909bd731b8055d97849b0c8b8777006aa0b437f25c268"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack4-down-manual-frame4.png",
+      "blob": "e229f5423e4579b17f9b5a99e888d9d88df6833e",
+      "sha256": "09bf50a1b996783016718691be1f6f0ced6e4d8e1918edb16bf783f42b6686d4"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack4-down-manual-frame5.png",
+      "blob": "083ced20b6aaf6e35dcf6fe61f75ea8faab89f1d",
+      "sha256": "898b90b2ab75e6647698bd201114e343f2a70e8a719d569dc39b9e1d9a3b9080"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack1-down-manual-frame0.png",
+      "blob": "40a7588158af89c264edba60136cf83955d9b929",
+      "sha256": "418c7c8288c8543540ccd13dcdee9a435d0c2f0a3e560f3e278570d7f527f60d"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack1-down-manual-frame1.png",
+      "blob": "29dbace386749437d6b1a58004df3493f466b71d",
+      "sha256": "1c370ab04667bea88f33e0504706f65976cf519a557d7c7aab8a57320e59ebe6"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack1-down-manual-frame2.png",
+      "blob": "12791eea0dd0c7a9955d68695d4a02756d89e52d",
+      "sha256": "c5d6e21ddc5e5abea34fef1df4269b1cdcbb271f3a4581891ce7438220b6b62e"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack1-down-manual-frame3.png",
+      "blob": "77a75d30119a851e49fc29111a1431fb18a306a8",
+      "sha256": "35691f632f2d918544c3e06f9fb82466c8ecb2e938e3b917ab1c34f1b3e70d45"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack1-down-manual-frame4.png",
+      "blob": "0acd1d3e3be4dbaf837cdb309fadf022fc7fcc5e",
+      "sha256": "4c736d9b4625ebda805c7d937ac20dc100c95ee8ac0d9afc0fda4864b377fbd8"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack1-down-manual-frame5.png",
+      "blob": "529e6610b949b3a3a1ca983254ce25e3c2b1898a",
+      "sha256": "11bd246ccac6cb12c83ee7d22ff9b9aab49e1caa27cec2ca2f1de0d8e93e95ca"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack2-down-manual-frame0.png",
+      "blob": "6719b891bac92a17d6a9ded1f13351ca955f4627",
+      "sha256": "a09d51e5265f58909673223a808ad8d6e78345704d0b3e8c41e8934327230dd2"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack2-down-manual-frame1.png",
+      "blob": "b2dad66d4255532434cb0aaefcf3577940748f7d",
+      "sha256": "de12e328e2e11ca417ef2ede5fc5fbe2af1a96e73890320f913217de90075ffb"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack2-down-manual-frame2.png",
+      "blob": "cecf89a12a3d99b1af0c00506731a0da28ea7012",
+      "sha256": "0d64cd9705d7aaf228de14f597ae7d84b40971908cbed84a06b53ccebc486899"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack2-down-manual-frame3.png",
+      "blob": "ac030299f8a01f2cc97da9a7d25ae473c6777e50",
+      "sha256": "e17b7d2c70bbde1cb50b9cd3b7abecf093c00882c56997e9ea3c8bc0f087185f"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack2-down-manual-frame4.png",
+      "blob": "e7dc57280a8499b935b530bcf1e1d33a4638c51c",
+      "sha256": "11a7077dc51ab691dc7b3891facc9f078cc5218c00e490c36c6cd74bfd02c5af"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack2-down-manual-frame5.png",
+      "blob": "af785300c7b0b5e6855b49ec13ad272aee50b5ee",
+      "sha256": "986b19df63e4f33e5979b4b8e7eff6bf157626ac64c981abeb8f361561d9a867"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack3-down-manual-frame0.png",
+      "blob": "4567a3575375cb294c0da232048f04c90c27b726",
+      "sha256": "b78c489ae20f51a5dcc5c1127ea559d088953cc256123f688f9d29a1fe93ea55"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack3-down-manual-frame1.png",
+      "blob": "657ce39a82808613c4201f11dc0b5ecc93a93235",
+      "sha256": "0a554159c39535983e7d3ad9754a7bff83d909649838fad1bc8eb791f12c1f66"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack3-down-manual-frame2.png",
+      "blob": "1654e2262ac066f00274427beca780975db328d0",
+      "sha256": "842ec404aeccf45b309d4066e4dad74a956991208e0a824322d7ef2f10892c30"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack3-down-manual-frame3.png",
+      "blob": "def16f0a393e4b0b626ad6f3aa82bcdc142b62d8",
+      "sha256": "67bc9541b294a228552899a9e3cba794e7e4e2267a8e84cb9afd9bbb18a6698e"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack3-down-manual-frame4.png",
+      "blob": "80a6234a0a575389319a681d53ee27ef9b90689e",
+      "sha256": "922f06e77d784e1a9169f37b5c084202f45b6383f33f1f15ebe820bf47e2f379"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack3-down-manual-frame5.png",
+      "blob": "c1f2280873f6670bfb3a2fadd1ba42f9c116dc8f",
+      "sha256": "64a0bac76996c391d1e959fc870dfdc7da9d41e265591e46bdfbb90824cf66bf"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack3-down-manual-frame6.png",
+      "blob": "4f3a2c9627e2289e82e95163768a819ffc96bc0c",
+      "sha256": "516c88d21ce2dc62dfba688688678c71d68f34cdde8254859598ec89060bcb00"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack3-down-manual-frame7.png",
+      "blob": "1613db7e7b902fe162377db4e7e824a83e2cfb8e",
+      "sha256": "da3a9e01ba0ce070871aeeaa10e817216c0532a038d2178d0bb4a4ac71548281"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack4-down-manual-frame0.png",
+      "blob": "737237996b9a593746de237c2ea9aa375edd22fd",
+      "sha256": "fefbbbb50e7f8155dc9557571d3e593ffd80964fe8fc1b5fd879323ba2d0f009"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack4-down-manual-frame1.png",
+      "blob": "6c2d8bf84c5db8b172db0d35c0664f9be06c5c3d",
+      "sha256": "ec871f161f20ca43c628f4ed8b85dbfc505796c32366103045f8f308e443a1e3"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack4-down-manual-frame2.png",
+      "blob": "d9311ac68cf454a17ca7ad7a2e9c83dcc780bf57",
+      "sha256": "af45b42c5844c9ce2c17c3a6ddbbc4b81804babbaacc6249b165680cacd8816d"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack4-down-manual-frame3.png",
+      "blob": "d6df61daeed4528c75d4ba99c4a5660980ebb820",
+      "sha256": "10369ec7d0a5351c9099f35176601970c975c42289d5dba1a171390969057a5f"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack4-down-manual-frame4.png",
+      "blob": "bd49608bc0797348584f6257a5366ba7efff5ef5",
+      "sha256": "7a6b1fbdc4295283fc39caca34762bdaf78a6c4605a5e2c76145205cdb239d0b"
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack4-down-manual-frame5.png",
+      "blob": "a4ea0c415693eb7d3fe3c0c0a1b5648ccc4e37a9",
+      "sha256": "af20b3b08d4db52ad031e7fbac0aa981dcac8f7a3176a80a660bb915465976dd"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack1-down-manual-frame0.png",
+      "blob": "6bceab9e31b4d6968e4ae1ccdaf0e79219bf5c14",
+      "sha256": "de496da661458f31d1c8f5fcc5815eacde98cb8025d8c20e216ffb568f82a84d"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack1-down-manual-frame1.png",
+      "blob": "e9ad801197502a28665ee9eaa107166ac17fde91",
+      "sha256": "b5927a265e33706f35ef3022cfc1945dc62ab222aaa603f74e900eb5e6e3791b"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack1-down-manual-frame2.png",
+      "blob": "6482165bb458d49b1aedcc75c50ae55a3487b701",
+      "sha256": "ee57a6d101b7696d4799199f164a0f6cfd23e86d7cbc7ef1c89be0e80b352749"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack1-down-manual-frame3.png",
+      "blob": "fde927fff301cabf04cce5e163defdccc8bd2ada",
+      "sha256": "f8b13c86f5b11e97a0106699c54e69148cf5bff135de4660b528376c4ab5ddf1"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack1-down-manual-frame4.png",
+      "blob": "4724a86a33972301631f8beb95b333cc59f92b93",
+      "sha256": "d60fc0cd08811370bf56f9b5134dcae13200888f7f2da1c7a953f5de83e87704"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack1-down-manual-frame5.png",
+      "blob": "e90080925202a7d195b21d81a49a10b2d1b07ed9",
+      "sha256": "f88f21bdb4ddab8599616dc893c0ebad2b843698ff479bdae821b5d244914920"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack3-down-manual-frame0.png",
+      "blob": "b1ed7bf08f40e0f666eed6940153da6c80cc95b3",
+      "sha256": "8304d794e3d5a4b2645d332f7b07bdd045540aff25ed74d72e75d379a08777be"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack3-down-manual-frame1.png",
+      "blob": "25dda5f58eb04b97462c181d3790c58c547a0e82",
+      "sha256": "9cffc6133f2561b376541c2e8c56c32c182ab359ec0266ea35a2e8f26d250594"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack3-down-manual-frame2.png",
+      "blob": "1b25008271362725b9b86d65a5277c4c86caa401",
+      "sha256": "594e72816e15e87d93ed945d1d84fc22b4e33f3bf9ca914d190548ac12d6dc33"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack3-down-manual-frame3.png",
+      "blob": "64d0a8b164f2f97d83a3652ad6c89a0eb23f5a16",
+      "sha256": "ff03c4e71fb5d3be65a2063e0a82af56e980f4dd0dea0fb0b2b884fff0c89b3a"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack3-down-manual-frame4.png",
+      "blob": "f1a94032f996ce22f414c740f8f2ee0fc9c4498c",
+      "sha256": "66651a5189a0d2d7c4ada41c94f6eb7a7b1e6e28ef54cfb8b51b5a92d6688b9f"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack3-down-manual-frame5.png",
+      "blob": "a022c1f3c15b3ea430f0353079b0cf168d2538bc",
+      "sha256": "53425a5e770aec8d5ce4e8d886613e9bfb5d6959a18034f8e624847ca7933cb8"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack3-down-manual-frame6.png",
+      "blob": "b5c0b31be649945424d665300b931a62ae20880b",
+      "sha256": "b8b463f509ff2bbafcbaa50edef5bcacfdaaef30dc9edb0c9d69e555a7224124"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack3-down-manual-frame7.png",
+      "blob": "cb9ba1a3ed8e22f9ecccfe0649f6c55927a43640",
+      "sha256": "25a0aa4d439577c9d0b6e90107b81278ab60772037b58af159b1b52893d93d1c"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack1-down-manual-frame0.png",
+      "blob": "40a7588158af89c264edba60136cf83955d9b929",
+      "sha256": "418c7c8288c8543540ccd13dcdee9a435d0c2f0a3e560f3e278570d7f527f60d"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack1-down-manual-frame1.png",
+      "blob": "29dbace386749437d6b1a58004df3493f466b71d",
+      "sha256": "1c370ab04667bea88f33e0504706f65976cf519a557d7c7aab8a57320e59ebe6"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack1-down-manual-frame2.png",
+      "blob": "12791eea0dd0c7a9955d68695d4a02756d89e52d",
+      "sha256": "c5d6e21ddc5e5abea34fef1df4269b1cdcbb271f3a4581891ce7438220b6b62e"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack1-down-manual-frame3.png",
+      "blob": "77a75d30119a851e49fc29111a1431fb18a306a8",
+      "sha256": "35691f632f2d918544c3e06f9fb82466c8ecb2e938e3b917ab1c34f1b3e70d45"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack1-down-manual-frame4.png",
+      "blob": "0acd1d3e3be4dbaf837cdb309fadf022fc7fcc5e",
+      "sha256": "4c736d9b4625ebda805c7d937ac20dc100c95ee8ac0d9afc0fda4864b377fbd8"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack1-down-manual-frame5.png",
+      "blob": "529e6610b949b3a3a1ca983254ce25e3c2b1898a",
+      "sha256": "11bd246ccac6cb12c83ee7d22ff9b9aab49e1caa27cec2ca2f1de0d8e93e95ca"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack3-down-manual-frame0.png",
+      "blob": "4567a3575375cb294c0da232048f04c90c27b726",
+      "sha256": "b78c489ae20f51a5dcc5c1127ea559d088953cc256123f688f9d29a1fe93ea55"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack3-down-manual-frame1.png",
+      "blob": "657ce39a82808613c4201f11dc0b5ecc93a93235",
+      "sha256": "0a554159c39535983e7d3ad9754a7bff83d909649838fad1bc8eb791f12c1f66"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack3-down-manual-frame2.png",
+      "blob": "1654e2262ac066f00274427beca780975db328d0",
+      "sha256": "842ec404aeccf45b309d4066e4dad74a956991208e0a824322d7ef2f10892c30"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack3-down-manual-frame3.png",
+      "blob": "def16f0a393e4b0b626ad6f3aa82bcdc142b62d8",
+      "sha256": "67bc9541b294a228552899a9e3cba794e7e4e2267a8e84cb9afd9bbb18a6698e"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack3-down-manual-frame4.png",
+      "blob": "80a6234a0a575389319a681d53ee27ef9b90689e",
+      "sha256": "922f06e77d784e1a9169f37b5c084202f45b6383f33f1f15ebe820bf47e2f379"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack3-down-manual-frame5.png",
+      "blob": "c1f2280873f6670bfb3a2fadd1ba42f9c116dc8f",
+      "sha256": "64a0bac76996c391d1e959fc870dfdc7da9d41e265591e46bdfbb90824cf66bf"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack3-down-manual-frame6.png",
+      "blob": "4f3a2c9627e2289e82e95163768a819ffc96bc0c",
+      "sha256": "516c88d21ce2dc62dfba688688678c71d68f34cdde8254859598ec89060bcb00"
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack3-down-manual-frame7.png",
+      "blob": "1613db7e7b902fe162377db4e7e824a83e2cfb8e",
+      "sha256": "da3a9e01ba0ce070871aeeaa10e817216c0532a038d2178d0bb4a4ac71548281"
+    },
+    {
+      "path": "tools/assets/README.md",
+      "blob": "578d11bd3c14964dce143a56c3f9234b0fc3e8ce",
+      "sha256": "bab8ceaeeedea056ca57aa7bed1cd6d5eff33e7cd1afe9b3846f0f0fcb375079"
+    },
+    {
+      "path": "tools/assets/make_native_player_plan.py",
+      "blob": "2e1fe1d192c6719a3dc87aee31a5186a9e29ab7a",
+      "sha256": "17d44460242ddb92e3ed6acd5ed35dc91ab4cc5ed9083ea6f422a8377afc9ed1"
+    },
+    {
+      "path": "tools/dev/ci.ps1",
+      "blob": "8109d589d0af6cc650c5061b6ead0d2786ca55be",
+      "sha256": "7aba2ef3be948815df2ec0dcb2f5bbcdcda67f4f5d2f346b58d82e10dfee2cad"
+    }
+  ],
+  "candidate_blob_mismatches": [],
+  "protected_file_count": 346,
+  "protected_mismatches": [],
+  "png_hashes": [
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack1-down-manual-frame0.png",
+      "sha256": "418c7c8288c8543540ccd13dcdee9a435d0c2f0a3e560f3e278570d7f527f60d",
+      "character_crop_sha256": "bacaa857c367ac6ac99f02a18394026e6b143c61dadcb98ecc2608aedabcb272",
+      "non_background_pixels": 1472
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack1-down-manual-frame1.png",
+      "sha256": "1c370ab04667bea88f33e0504706f65976cf519a557d7c7aab8a57320e59ebe6",
+      "character_crop_sha256": "5701bd0d90ceafbbdb2940a62ac38931360db5df1a6607c9e9fe7be6c6dc41f8",
+      "non_background_pixels": 1442
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack1-down-manual-frame2.png",
+      "sha256": "c5d6e21ddc5e5abea34fef1df4269b1cdcbb271f3a4581891ce7438220b6b62e",
+      "character_crop_sha256": "51ad0e7487a014a94bc8b8b3349a53ae8956f0253514ae7625c78640e89c7a8e",
+      "non_background_pixels": 1343
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack1-down-manual-frame3.png",
+      "sha256": "35691f632f2d918544c3e06f9fb82466c8ecb2e938e3b917ab1c34f1b3e70d45",
+      "character_crop_sha256": "d852f265d7636a63173f0def22be499f2d24cfaa2038403940b4708d881053f3",
+      "non_background_pixels": 1208
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack1-down-manual-frame4.png",
+      "sha256": "4c736d9b4625ebda805c7d937ac20dc100c95ee8ac0d9afc0fda4864b377fbd8",
+      "character_crop_sha256": "f28257fb70f6d49d3a67be609313467e786403ec52493f227b05d93e9f635431",
+      "non_background_pixels": 1094
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack1-down-manual-frame5.png",
+      "sha256": "11bd246ccac6cb12c83ee7d22ff9b9aab49e1caa27cec2ca2f1de0d8e93e95ca",
+      "character_crop_sha256": "3459f46fa989df7e48dc12955654f5478262a85e117b5952580ec27ba2309143",
+      "non_background_pixels": 1244
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack1-down-manual-frame0.png",
+      "sha256": "de496da661458f31d1c8f5fcc5815eacde98cb8025d8c20e216ffb568f82a84d",
+      "character_crop_sha256": "48de3442064fdad4e4a42da5daf0780a9c311546c7d2336f5d2936f56a3f1fcb",
+      "non_background_pixels": 1301
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack1-down-manual-frame1.png",
+      "sha256": "b5927a265e33706f35ef3022cfc1945dc62ab222aaa603f74e900eb5e6e3791b",
+      "character_crop_sha256": "20e63ace20458aea044e69c9430ca57aaef895907d4e886f2ee0c6d35dd65520",
+      "non_background_pixels": 1248
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack1-down-manual-frame2.png",
+      "sha256": "ee57a6d101b7696d4799199f164a0f6cfd23e86d7cbc7ef1c89be0e80b352749",
+      "character_crop_sha256": "7ee4bdc9f55114f5391f93066db4f62255f6b13bead4fb2013687209e35d2a10",
+      "non_background_pixels": 1199
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack1-down-manual-frame3.png",
+      "sha256": "f8b13c86f5b11e97a0106699c54e69148cf5bff135de4660b528376c4ab5ddf1",
+      "character_crop_sha256": "380fdb2bbda17a255ca9e948ddd68259c9783f96062bd9ac9bfbcc86eb7d3eae",
+      "non_background_pixels": 1097
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack1-down-manual-frame4.png",
+      "sha256": "d60fc0cd08811370bf56f9b5134dcae13200888f7f2da1c7a953f5de83e87704",
+      "character_crop_sha256": "8e88d97b9d0f92ba2ac7e29e6b74a7d350261fc1a7ce8f933ccf1f5c9ac91ac2",
+      "non_background_pixels": 973
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack1-down-manual-frame5.png",
+      "sha256": "f88f21bdb4ddab8599616dc893c0ebad2b843698ff479bdae821b5d244914920",
+      "character_crop_sha256": "0fae59a344f704cb0c9ba5c8bb2bb3720d67168147d970f36481a494ccfc05cf",
+      "non_background_pixels": 1133
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack2-down-manual-frame0.png",
+      "sha256": "a09d51e5265f58909673223a808ad8d6e78345704d0b3e8c41e8934327230dd2",
+      "character_crop_sha256": "729bd10baeed28419bb9e65cd54e3d7bf02c8cae7f578f0f5b1dd38792ac0963",
+      "non_background_pixels": 1345
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack2-down-manual-frame1.png",
+      "sha256": "de12e328e2e11ca417ef2ede5fc5fbe2af1a96e73890320f913217de90075ffb",
+      "character_crop_sha256": "f0460c666bab9917f48b58c01a8d410dbcdad0c19ff9ba79a3fef3f0b8eedbfb",
+      "non_background_pixels": 1312
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack2-down-manual-frame2.png",
+      "sha256": "0d64cd9705d7aaf228de14f597ae7d84b40971908cbed84a06b53ccebc486899",
+      "character_crop_sha256": "9784345d146d2f72c674cf7da42ba67e4312d6ce872f3979e416c3c1fb9d3da8",
+      "non_background_pixels": 1223
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack2-down-manual-frame3.png",
+      "sha256": "e17b7d2c70bbde1cb50b9cd3b7abecf093c00882c56997e9ea3c8bc0f087185f",
+      "character_crop_sha256": "34d335a5d17958552ec23f78e8d804450471973e1ce1ad23b302961d8ca4537c",
+      "non_background_pixels": 1093
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack2-down-manual-frame4.png",
+      "sha256": "11a7077dc51ab691dc7b3891facc9f078cc5218c00e490c36c6cd74bfd02c5af",
+      "character_crop_sha256": "e8be6033861908b5fabdb8841330ff3585dcf15e2d8eb57cc841a507f487ba18",
+      "non_background_pixels": 1180
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack2-down-manual-frame5.png",
+      "sha256": "986b19df63e4f33e5979b4b8e7eff6bf157626ac64c981abeb8f361561d9a867",
+      "character_crop_sha256": "da3796b9e32e202ebaf53419d3b1463ac354f64959c827a07e8f270559c0a94f",
+      "non_background_pixels": 1370
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack2-down-manual-frame0.png",
+      "sha256": "f86e5088ef8bd50b74e3f503b67ecd267109f6fcafd2d263851946bbff5db199",
+      "character_crop_sha256": "cb26357c0d1e41ec91df7baa150c129c71e899cb27f871a9a651da010e95fda8",
+      "non_background_pixels": 1220
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack2-down-manual-frame1.png",
+      "sha256": "cf54197d3979fab4c4f85c575c48bc9bc927d806c44ae1bdbeda14d6cf5ee7f5",
+      "character_crop_sha256": "6f611c3d5ecfb8dcd30827add7b86f70e20b331214fdde75be236c01b9a25fc8",
+      "non_background_pixels": 1247
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack2-down-manual-frame2.png",
+      "sha256": "1ff25f509cea4fba127fbe9d4655af2c9bf61706b9682aad5de1dd89c46229ea",
+      "character_crop_sha256": "38db46dc718451fa01fbdb9aaa46dd591f311f728bd4ab2ffcf05fcd3dcabea2",
+      "non_background_pixels": 1133
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack2-down-manual-frame3.png",
+      "sha256": "76dab66e2f69ebcc1b4670da57f25e95a6e726de723164177607c72b2bee71c5",
+      "character_crop_sha256": "2cbc32a486e426037db74c1756ccd38a881d8afb454929813fb23f547aeb418e",
+      "non_background_pixels": 1060
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack2-down-manual-frame4.png",
+      "sha256": "70aeb521ee7de10d94fa38c70d6c4dbc450725496ed24db8400293dd93076264",
+      "character_crop_sha256": "e930a78bd8716f103c53337600d064c27c436f7e59292864d7de77cb37a40dfa",
+      "non_background_pixels": 1088
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack2-down-manual-frame5.png",
+      "sha256": "d6f03bd27a2489dbab16e559aea1a43f61a10dc76f64b3ab85a343ff4283f1a9",
+      "character_crop_sha256": "5f4c5d9ecdd1f8a4932da1a6de15fa44545e91f65e1dedd040024bff8bbc48d8",
+      "non_background_pixels": 1186
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack3-down-manual-frame0.png",
+      "sha256": "b78c489ae20f51a5dcc5c1127ea559d088953cc256123f688f9d29a1fe93ea55",
+      "character_crop_sha256": "d1d798308390a959a2f0e495903ab0625d1a1ee57ee047a48d359d5e7d020da2",
+      "non_background_pixels": 1368
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack3-down-manual-frame1.png",
+      "sha256": "0a554159c39535983e7d3ad9754a7bff83d909649838fad1bc8eb791f12c1f66",
+      "character_crop_sha256": "922f1bbb64295f27eabb70461a85ee79ba609262f8deae794ddf13d8aa18367f",
+      "non_background_pixels": 1421
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack3-down-manual-frame2.png",
+      "sha256": "842ec404aeccf45b309d4066e4dad74a956991208e0a824322d7ef2f10892c30",
+      "character_crop_sha256": "5ef39059762670aebb66a5179b3b39b6decabac96f995e0b598e1f9f7d82cae3",
+      "non_background_pixels": 1491
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack3-down-manual-frame3.png",
+      "sha256": "67bc9541b294a228552899a9e3cba794e7e4e2267a8e84cb9afd9bbb18a6698e",
+      "character_crop_sha256": "25bcc63a50dae7253b470a77daa9e815b18813a6f266dd38267253523f2beead",
+      "non_background_pixels": 1506
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack3-down-manual-frame4.png",
+      "sha256": "922f06e77d784e1a9169f37b5c084202f45b6383f33f1f15ebe820bf47e2f379",
+      "character_crop_sha256": "b7f3bba43e2742c75e27463b8496318079060fcec701140f82338cb8b30e56de",
+      "non_background_pixels": 1181
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack3-down-manual-frame5.png",
+      "sha256": "64a0bac76996c391d1e959fc870dfdc7da9d41e265591e46bdfbb90824cf66bf",
+      "character_crop_sha256": "beb9244d7efda29db5e7e4cd70756c993c5f10290307da543cac8fb35c7866d0",
+      "non_background_pixels": 986
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack3-down-manual-frame6.png",
+      "sha256": "516c88d21ce2dc62dfba688688678c71d68f34cdde8254859598ec89060bcb00",
+      "character_crop_sha256": "7723484683b1a095afed7a8db53fc9bbbb0c66a587c6257591b25ba9e6793e9d",
+      "non_background_pixels": 1304
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack3-down-manual-frame7.png",
+      "sha256": "da3a9e01ba0ce070871aeeaa10e817216c0532a038d2178d0bb4a4ac71548281",
+      "character_crop_sha256": "952146e32f439cdfd39da71a6afd65a8de9b8a2f744cebefc22bb1819da118cd",
+      "non_background_pixels": 1180
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack3-down-manual-frame0.png",
+      "sha256": "8304d794e3d5a4b2645d332f7b07bdd045540aff25ed74d72e75d379a08777be",
+      "character_crop_sha256": "bd9693c16e466a9591d092f48da24ffc9650a5580048158d4895e0642ba5340c",
+      "non_background_pixels": 1318
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack3-down-manual-frame1.png",
+      "sha256": "9cffc6133f2561b376541c2e8c56c32c182ab359ec0266ea35a2e8f26d250594",
+      "character_crop_sha256": "d2a0b907ce360ab8d08b7aab816aa9e9cf6b43c0a8053a6b66434d4bedead80d",
+      "non_background_pixels": 1284
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack3-down-manual-frame2.png",
+      "sha256": "594e72816e15e87d93ed945d1d84fc22b4e33f3bf9ca914d190548ac12d6dc33",
+      "character_crop_sha256": "a834cb341f78619636d641c0213ad3de0701a6c0bf7514f3a2157bb9acd48bbe",
+      "non_background_pixels": 1241
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack3-down-manual-frame3.png",
+      "sha256": "ff03c4e71fb5d3be65a2063e0a82af56e980f4dd0dea0fb0b2b884fff0c89b3a",
+      "character_crop_sha256": "2ee70b2f955864ae052f436c656a1ec0d910f445e2edbade934ef62acbabd367",
+      "non_background_pixels": 1297
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack3-down-manual-frame4.png",
+      "sha256": "66651a5189a0d2d7c4ada41c94f6eb7a7b1e6e28ef54cfb8b51b5a92d6688b9f",
+      "character_crop_sha256": "c7d2330297c59ed1a8a9a4196065811b3e6574bb17e16056dcfcf8c46d7015be",
+      "non_background_pixels": 1108
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack3-down-manual-frame5.png",
+      "sha256": "53425a5e770aec8d5ce4e8d886613e9bfb5d6959a18034f8e624847ca7933cb8",
+      "character_crop_sha256": "11fb061e25485d507bc83e4df098b01b6a89ff942a6f4a853e406d3b63862188",
+      "non_background_pixels": 899
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack3-down-manual-frame6.png",
+      "sha256": "b8b463f509ff2bbafcbaa50edef5bcacfdaaef30dc9edb0c9d69e555a7224124",
+      "character_crop_sha256": "2ebefe93d1eae9c30f055cad7ec94bab94b322717d66757e65e786cd7ce302f9",
+      "non_background_pixels": 1152
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack3-down-manual-frame7.png",
+      "sha256": "25a0aa4d439577c9d0b6e90107b81278ab60772037b58af159b1b52893d93d1c",
+      "character_crop_sha256": "911f50a93c3d53011419fc7983ba2568f1e5775bcfb0c4f2e8df11f193491623",
+      "non_background_pixels": 1085
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack4-down-manual-frame0.png",
+      "sha256": "fefbbbb50e7f8155dc9557571d3e593ffd80964fe8fc1b5fd879323ba2d0f009",
+      "character_crop_sha256": "565ca15fcab09d0762819a007660f764bd32ccde677a905df76bb706fc68766c",
+      "non_background_pixels": 838
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack4-down-manual-frame1.png",
+      "sha256": "ec871f161f20ca43c628f4ed8b85dbfc505796c32366103045f8f308e443a1e3",
+      "character_crop_sha256": "4729c49347d26ded1ec9cc7f999e3092a93e7e4b54becdd8398714b7536230c0",
+      "non_background_pixels": 833
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack4-down-manual-frame2.png",
+      "sha256": "af45b42c5844c9ce2c17c3a6ddbbc4b81804babbaacc6249b165680cacd8816d",
+      "character_crop_sha256": "3198e34c1b5ac56a876e81043cb94dceb56a39589fab2c41e468f2687603372b",
+      "non_background_pixels": 840
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack4-down-manual-frame3.png",
+      "sha256": "10369ec7d0a5351c9099f35176601970c975c42289d5dba1a171390969057a5f",
+      "character_crop_sha256": "502e34f54f68d3d637c4ebfec0eaf2070681bdf4461cf9fb7791529edadacd2c",
+      "non_background_pixels": 827
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack4-down-manual-frame4.png",
+      "sha256": "7a6b1fbdc4295283fc39caca34762bdaf78a6c4605a5e2c76145205cdb239d0b",
+      "character_crop_sha256": "d43029d44bd4b859cfb7df9a6bfcca0c4d305e719233930cf08be63edbc2f7bc",
+      "non_background_pixels": 833
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-male-plain-attack4-down-manual-frame5.png",
+      "sha256": "af20b3b08d4db52ad031e7fbac0aa981dcac8f7a3176a80a660bb915465976dd",
+      "character_crop_sha256": "9fc5effa470ec42272bfa8c8ac21da83c9136495875828e8e537bbb29ca1b40a",
+      "non_background_pixels": 845
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack4-down-manual-frame0.png",
+      "sha256": "cba65a3f4d339efdbe181ced74a8b7789d08ca55334d2a6382e799ef36bd9956",
+      "character_crop_sha256": "2fc73a5c2b81ffb49f469e16620cc517af8469031c64f2276e61a265a2236c12",
+      "non_background_pixels": 719
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack4-down-manual-frame1.png",
+      "sha256": "9fac3ffb4765b336ad3cd128fc04650d94b45dced57daad772038137b21c27a3",
+      "character_crop_sha256": "af01edcc1f5d3a6982f528de33ba8ceb58000782bed2ea29ddcea9c0577374be",
+      "non_background_pixels": 729
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack4-down-manual-frame2.png",
+      "sha256": "e7167bfdcf5d6329e7a4d8e8e6026ad64d028d9146bded9141fd6041302f93e3",
+      "character_crop_sha256": "b00c50d9b4e1b9b8efafbdc4a245f9431d0e2670d8139cb179470ba88d9fa60d",
+      "non_background_pixels": 734
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack4-down-manual-frame3.png",
+      "sha256": "b8d7fd61bea952c0b6b909bd731b8055d97849b0c8b8777006aa0b437f25c268",
+      "character_crop_sha256": "8e0cd9ca80ca2763d9d9c239d0eb269133b0d305bdf6fa9b3bd47b42e6af4c39",
+      "non_background_pixels": 727
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack4-down-manual-frame4.png",
+      "sha256": "09bf50a1b996783016718691be1f6f0ced6e4d8e1918edb16bf783f42b6686d4",
+      "character_crop_sha256": "4bcb4e8c131e4a354ca370d2728236d9c1e7a4c289bcaf60730c710623b07dd9",
+      "non_background_pixels": 697
+    },
+    {
+      "path": "docs/testing/native-player-layout/warrior-female-plain-attack4-down-manual-frame5.png",
+      "sha256": "898b90b2ab75e6647698bd201114e343f2a70e8a719d569dc39b9e1d9a3b9080",
+      "character_crop_sha256": "bdfd6351598eb8b1f63805fdbf24b7cab7aae1b1a4ed5ff00e68bd9a4e9d555a",
+      "non_background_pixels": 696
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack1-down-manual-frame0.png",
+      "sha256": "418c7c8288c8543540ccd13dcdee9a435d0c2f0a3e560f3e278570d7f527f60d",
+      "character_crop_sha256": "bacaa857c367ac6ac99f02a18394026e6b143c61dadcb98ecc2608aedabcb272",
+      "non_background_pixels": 1472
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack1-down-manual-frame1.png",
+      "sha256": "1c370ab04667bea88f33e0504706f65976cf519a557d7c7aab8a57320e59ebe6",
+      "character_crop_sha256": "5701bd0d90ceafbbdb2940a62ac38931360db5df1a6607c9e9fe7be6c6dc41f8",
+      "non_background_pixels": 1442
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack1-down-manual-frame2.png",
+      "sha256": "c5d6e21ddc5e5abea34fef1df4269b1cdcbb271f3a4581891ce7438220b6b62e",
+      "character_crop_sha256": "51ad0e7487a014a94bc8b8b3349a53ae8956f0253514ae7625c78640e89c7a8e",
+      "non_background_pixels": 1343
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack1-down-manual-frame3.png",
+      "sha256": "35691f632f2d918544c3e06f9fb82466c8ecb2e938e3b917ab1c34f1b3e70d45",
+      "character_crop_sha256": "d852f265d7636a63173f0def22be499f2d24cfaa2038403940b4708d881053f3",
+      "non_background_pixels": 1208
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack1-down-manual-frame4.png",
+      "sha256": "4c736d9b4625ebda805c7d937ac20dc100c95ee8ac0d9afc0fda4864b377fbd8",
+      "character_crop_sha256": "f28257fb70f6d49d3a67be609313467e786403ec52493f227b05d93e9f635431",
+      "non_background_pixels": 1094
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack1-down-manual-frame5.png",
+      "sha256": "11bd246ccac6cb12c83ee7d22ff9b9aab49e1caa27cec2ca2f1de0d8e93e95ca",
+      "character_crop_sha256": "3459f46fa989df7e48dc12955654f5478262a85e117b5952580ec27ba2309143",
+      "non_background_pixels": 1244
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack1-down-manual-frame0.png",
+      "sha256": "de496da661458f31d1c8f5fcc5815eacde98cb8025d8c20e216ffb568f82a84d",
+      "character_crop_sha256": "48de3442064fdad4e4a42da5daf0780a9c311546c7d2336f5d2936f56a3f1fcb",
+      "non_background_pixels": 1301
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack1-down-manual-frame1.png",
+      "sha256": "b5927a265e33706f35ef3022cfc1945dc62ab222aaa603f74e900eb5e6e3791b",
+      "character_crop_sha256": "20e63ace20458aea044e69c9430ca57aaef895907d4e886f2ee0c6d35dd65520",
+      "non_background_pixels": 1248
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack1-down-manual-frame2.png",
+      "sha256": "ee57a6d101b7696d4799199f164a0f6cfd23e86d7cbc7ef1c89be0e80b352749",
+      "character_crop_sha256": "7ee4bdc9f55114f5391f93066db4f62255f6b13bead4fb2013687209e35d2a10",
+      "non_background_pixels": 1199
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack1-down-manual-frame3.png",
+      "sha256": "f8b13c86f5b11e97a0106699c54e69148cf5bff135de4660b528376c4ab5ddf1",
+      "character_crop_sha256": "380fdb2bbda17a255ca9e948ddd68259c9783f96062bd9ac9bfbcc86eb7d3eae",
+      "non_background_pixels": 1097
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack1-down-manual-frame4.png",
+      "sha256": "d60fc0cd08811370bf56f9b5134dcae13200888f7f2da1c7a953f5de83e87704",
+      "character_crop_sha256": "8e88d97b9d0f92ba2ac7e29e6b74a7d350261fc1a7ce8f933ccf1f5c9ac91ac2",
+      "non_background_pixels": 973
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack1-down-manual-frame5.png",
+      "sha256": "f88f21bdb4ddab8599616dc893c0ebad2b843698ff479bdae821b5d244914920",
+      "character_crop_sha256": "0fae59a344f704cb0c9ba5c8bb2bb3720d67168147d970f36481a494ccfc05cf",
+      "non_background_pixels": 1133
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack3-down-manual-frame0.png",
+      "sha256": "b78c489ae20f51a5dcc5c1127ea559d088953cc256123f688f9d29a1fe93ea55",
+      "character_crop_sha256": "d1d798308390a959a2f0e495903ab0625d1a1ee57ee047a48d359d5e7d020da2",
+      "non_background_pixels": 1368
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack3-down-manual-frame1.png",
+      "sha256": "0a554159c39535983e7d3ad9754a7bff83d909649838fad1bc8eb791f12c1f66",
+      "character_crop_sha256": "922f1bbb64295f27eabb70461a85ee79ba609262f8deae794ddf13d8aa18367f",
+      "non_background_pixels": 1421
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack3-down-manual-frame2.png",
+      "sha256": "842ec404aeccf45b309d4066e4dad74a956991208e0a824322d7ef2f10892c30",
+      "character_crop_sha256": "5ef39059762670aebb66a5179b3b39b6decabac96f995e0b598e1f9f7d82cae3",
+      "non_background_pixels": 1491
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack3-down-manual-frame3.png",
+      "sha256": "67bc9541b294a228552899a9e3cba794e7e4e2267a8e84cb9afd9bbb18a6698e",
+      "character_crop_sha256": "25bcc63a50dae7253b470a77daa9e815b18813a6f266dd38267253523f2beead",
+      "non_background_pixels": 1506
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack3-down-manual-frame4.png",
+      "sha256": "922f06e77d784e1a9169f37b5c084202f45b6383f33f1f15ebe820bf47e2f379",
+      "character_crop_sha256": "b7f3bba43e2742c75e27463b8496318079060fcec701140f82338cb8b30e56de",
+      "non_background_pixels": 1181
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack3-down-manual-frame5.png",
+      "sha256": "64a0bac76996c391d1e959fc870dfdc7da9d41e265591e46bdfbb90824cf66bf",
+      "character_crop_sha256": "beb9244d7efda29db5e7e4cd70756c993c5f10290307da543cac8fb35c7866d0",
+      "non_background_pixels": 986
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack3-down-manual-frame6.png",
+      "sha256": "516c88d21ce2dc62dfba688688678c71d68f34cdde8254859598ec89060bcb00",
+      "character_crop_sha256": "7723484683b1a095afed7a8db53fc9bbbb0c66a587c6257591b25ba9e6793e9d",
+      "non_background_pixels": 1304
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-male-plain-attack3-down-manual-frame7.png",
+      "sha256": "da3a9e01ba0ce070871aeeaa10e817216c0532a038d2178d0bb4a4ac71548281",
+      "character_crop_sha256": "952146e32f439cdfd39da71a6afd65a8de9b8a2f744cebefc22bb1819da118cd",
+      "non_background_pixels": 1180
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack3-down-manual-frame0.png",
+      "sha256": "8304d794e3d5a4b2645d332f7b07bdd045540aff25ed74d72e75d379a08777be",
+      "character_crop_sha256": "bd9693c16e466a9591d092f48da24ffc9650a5580048158d4895e0642ba5340c",
+      "non_background_pixels": 1318
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack3-down-manual-frame1.png",
+      "sha256": "9cffc6133f2561b376541c2e8c56c32c182ab359ec0266ea35a2e8f26d250594",
+      "character_crop_sha256": "d2a0b907ce360ab8d08b7aab816aa9e9cf6b43c0a8053a6b66434d4bedead80d",
+      "non_background_pixels": 1284
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack3-down-manual-frame2.png",
+      "sha256": "594e72816e15e87d93ed945d1d84fc22b4e33f3bf9ca914d190548ac12d6dc33",
+      "character_crop_sha256": "a834cb341f78619636d641c0213ad3de0701a6c0bf7514f3a2157bb9acd48bbe",
+      "non_background_pixels": 1241
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack3-down-manual-frame3.png",
+      "sha256": "ff03c4e71fb5d3be65a2063e0a82af56e980f4dd0dea0fb0b2b884fff0c89b3a",
+      "character_crop_sha256": "2ee70b2f955864ae052f436c656a1ec0d910f445e2edbade934ef62acbabd367",
+      "non_background_pixels": 1297
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack3-down-manual-frame4.png",
+      "sha256": "66651a5189a0d2d7c4ada41c94f6eb7a7b1e6e28ef54cfb8b51b5a92d6688b9f",
+      "character_crop_sha256": "c7d2330297c59ed1a8a9a4196065811b3e6574bb17e16056dcfcf8c46d7015be",
+      "non_background_pixels": 1108
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack3-down-manual-frame5.png",
+      "sha256": "53425a5e770aec8d5ce4e8d886613e9bfb5d6959a18034f8e624847ca7933cb8",
+      "character_crop_sha256": "11fb061e25485d507bc83e4df098b01b6a89ff942a6f4a853e406d3b63862188",
+      "non_background_pixels": 899
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack3-down-manual-frame6.png",
+      "sha256": "b8b463f509ff2bbafcbaa50edef5bcacfdaaef30dc9edb0c9d69e555a7224124",
+      "character_crop_sha256": "2ebefe93d1eae9c30f055cad7ec94bab94b322717d66757e65e786cd7ce302f9",
+      "non_background_pixels": 1152
+    },
+    {
+      "path": "docs/testing/native-player-layout/wizard-female-plain-attack3-down-manual-frame7.png",
+      "sha256": "25a0aa4d439577c9d0b6e90107b81278ab60772037b58af159b1b52893d93d1c",
+      "character_crop_sha256": "911f50a93c3d53011419fc7983ba2568f1e5775bcfb0c4f2e8df11f193491623",
+      "non_background_pixels": 1085
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack1-down-manual-frame0.png",
+      "sha256": "418c7c8288c8543540ccd13dcdee9a435d0c2f0a3e560f3e278570d7f527f60d",
+      "character_crop_sha256": "bacaa857c367ac6ac99f02a18394026e6b143c61dadcb98ecc2608aedabcb272",
+      "non_background_pixels": 1472
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack1-down-manual-frame1.png",
+      "sha256": "1c370ab04667bea88f33e0504706f65976cf519a557d7c7aab8a57320e59ebe6",
+      "character_crop_sha256": "5701bd0d90ceafbbdb2940a62ac38931360db5df1a6607c9e9fe7be6c6dc41f8",
+      "non_background_pixels": 1442
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack1-down-manual-frame2.png",
+      "sha256": "c5d6e21ddc5e5abea34fef1df4269b1cdcbb271f3a4581891ce7438220b6b62e",
+      "character_crop_sha256": "51ad0e7487a014a94bc8b8b3349a53ae8956f0253514ae7625c78640e89c7a8e",
+      "non_background_pixels": 1343
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack1-down-manual-frame3.png",
+      "sha256": "35691f632f2d918544c3e06f9fb82466c8ecb2e938e3b917ab1c34f1b3e70d45",
+      "character_crop_sha256": "d852f265d7636a63173f0def22be499f2d24cfaa2038403940b4708d881053f3",
+      "non_background_pixels": 1208
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack1-down-manual-frame4.png",
+      "sha256": "4c736d9b4625ebda805c7d937ac20dc100c95ee8ac0d9afc0fda4864b377fbd8",
+      "character_crop_sha256": "f28257fb70f6d49d3a67be609313467e786403ec52493f227b05d93e9f635431",
+      "non_background_pixels": 1094
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack1-down-manual-frame5.png",
+      "sha256": "11bd246ccac6cb12c83ee7d22ff9b9aab49e1caa27cec2ca2f1de0d8e93e95ca",
+      "character_crop_sha256": "3459f46fa989df7e48dc12955654f5478262a85e117b5952580ec27ba2309143",
+      "non_background_pixels": 1244
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack1-down-manual-frame0.png",
+      "sha256": "de496da661458f31d1c8f5fcc5815eacde98cb8025d8c20e216ffb568f82a84d",
+      "character_crop_sha256": "48de3442064fdad4e4a42da5daf0780a9c311546c7d2336f5d2936f56a3f1fcb",
+      "non_background_pixels": 1301
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack1-down-manual-frame1.png",
+      "sha256": "b5927a265e33706f35ef3022cfc1945dc62ab222aaa603f74e900eb5e6e3791b",
+      "character_crop_sha256": "20e63ace20458aea044e69c9430ca57aaef895907d4e886f2ee0c6d35dd65520",
+      "non_background_pixels": 1248
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack1-down-manual-frame2.png",
+      "sha256": "ee57a6d101b7696d4799199f164a0f6cfd23e86d7cbc7ef1c89be0e80b352749",
+      "character_crop_sha256": "7ee4bdc9f55114f5391f93066db4f62255f6b13bead4fb2013687209e35d2a10",
+      "non_background_pixels": 1199
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack1-down-manual-frame3.png",
+      "sha256": "f8b13c86f5b11e97a0106699c54e69148cf5bff135de4660b528376c4ab5ddf1",
+      "character_crop_sha256": "380fdb2bbda17a255ca9e948ddd68259c9783f96062bd9ac9bfbcc86eb7d3eae",
+      "non_background_pixels": 1097
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack1-down-manual-frame4.png",
+      "sha256": "d60fc0cd08811370bf56f9b5134dcae13200888f7f2da1c7a953f5de83e87704",
+      "character_crop_sha256": "8e88d97b9d0f92ba2ac7e29e6b74a7d350261fc1a7ce8f933ccf1f5c9ac91ac2",
+      "non_background_pixels": 973
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack1-down-manual-frame5.png",
+      "sha256": "f88f21bdb4ddab8599616dc893c0ebad2b843698ff479bdae821b5d244914920",
+      "character_crop_sha256": "0fae59a344f704cb0c9ba5c8bb2bb3720d67168147d970f36481a494ccfc05cf",
+      "non_background_pixels": 1133
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack3-down-manual-frame0.png",
+      "sha256": "b78c489ae20f51a5dcc5c1127ea559d088953cc256123f688f9d29a1fe93ea55",
+      "character_crop_sha256": "d1d798308390a959a2f0e495903ab0625d1a1ee57ee047a48d359d5e7d020da2",
+      "non_background_pixels": 1368
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack3-down-manual-frame1.png",
+      "sha256": "0a554159c39535983e7d3ad9754a7bff83d909649838fad1bc8eb791f12c1f66",
+      "character_crop_sha256": "922f1bbb64295f27eabb70461a85ee79ba609262f8deae794ddf13d8aa18367f",
+      "non_background_pixels": 1421
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack3-down-manual-frame2.png",
+      "sha256": "842ec404aeccf45b309d4066e4dad74a956991208e0a824322d7ef2f10892c30",
+      "character_crop_sha256": "5ef39059762670aebb66a5179b3b39b6decabac96f995e0b598e1f9f7d82cae3",
+      "non_background_pixels": 1491
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack3-down-manual-frame3.png",
+      "sha256": "67bc9541b294a228552899a9e3cba794e7e4e2267a8e84cb9afd9bbb18a6698e",
+      "character_crop_sha256": "25bcc63a50dae7253b470a77daa9e815b18813a6f266dd38267253523f2beead",
+      "non_background_pixels": 1506
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack3-down-manual-frame4.png",
+      "sha256": "922f06e77d784e1a9169f37b5c084202f45b6383f33f1f15ebe820bf47e2f379",
+      "character_crop_sha256": "b7f3bba43e2742c75e27463b8496318079060fcec701140f82338cb8b30e56de",
+      "non_background_pixels": 1181
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack3-down-manual-frame5.png",
+      "sha256": "64a0bac76996c391d1e959fc870dfdc7da9d41e265591e46bdfbb90824cf66bf",
+      "character_crop_sha256": "beb9244d7efda29db5e7e4cd70756c993c5f10290307da543cac8fb35c7866d0",
+      "non_background_pixels": 986
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack3-down-manual-frame6.png",
+      "sha256": "516c88d21ce2dc62dfba688688678c71d68f34cdde8254859598ec89060bcb00",
+      "character_crop_sha256": "7723484683b1a095afed7a8db53fc9bbbb0c66a587c6257591b25ba9e6793e9d",
+      "non_background_pixels": 1304
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-male-plain-attack3-down-manual-frame7.png",
+      "sha256": "da3a9e01ba0ce070871aeeaa10e817216c0532a038d2178d0bb4a4ac71548281",
+      "character_crop_sha256": "952146e32f439cdfd39da71a6afd65a8de9b8a2f744cebefc22bb1819da118cd",
+      "non_background_pixels": 1180
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack3-down-manual-frame0.png",
+      "sha256": "8304d794e3d5a4b2645d332f7b07bdd045540aff25ed74d72e75d379a08777be",
+      "character_crop_sha256": "bd9693c16e466a9591d092f48da24ffc9650a5580048158d4895e0642ba5340c",
+      "non_background_pixels": 1318
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack3-down-manual-frame1.png",
+      "sha256": "9cffc6133f2561b376541c2e8c56c32c182ab359ec0266ea35a2e8f26d250594",
+      "character_crop_sha256": "d2a0b907ce360ab8d08b7aab816aa9e9cf6b43c0a8053a6b66434d4bedead80d",
+      "non_background_pixels": 1284
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack3-down-manual-frame2.png",
+      "sha256": "594e72816e15e87d93ed945d1d84fc22b4e33f3bf9ca914d190548ac12d6dc33",
+      "character_crop_sha256": "a834cb341f78619636d641c0213ad3de0701a6c0bf7514f3a2157bb9acd48bbe",
+      "non_background_pixels": 1241
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack3-down-manual-frame3.png",
+      "sha256": "ff03c4e71fb5d3be65a2063e0a82af56e980f4dd0dea0fb0b2b884fff0c89b3a",
+      "character_crop_sha256": "2ee70b2f955864ae052f436c656a1ec0d910f445e2edbade934ef62acbabd367",
+      "non_background_pixels": 1297
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack3-down-manual-frame4.png",
+      "sha256": "66651a5189a0d2d7c4ada41c94f6eb7a7b1e6e28ef54cfb8b51b5a92d6688b9f",
+      "character_crop_sha256": "c7d2330297c59ed1a8a9a4196065811b3e6574bb17e16056dcfcf8c46d7015be",
+      "non_background_pixels": 1108
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack3-down-manual-frame5.png",
+      "sha256": "53425a5e770aec8d5ce4e8d886613e9bfb5d6959a18034f8e624847ca7933cb8",
+      "character_crop_sha256": "11fb061e25485d507bc83e4df098b01b6a89ff942a6f4a853e406d3b63862188",
+      "non_background_pixels": 899
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack3-down-manual-frame6.png",
+      "sha256": "b8b463f509ff2bbafcbaa50edef5bcacfdaaef30dc9edb0c9d69e555a7224124",
+      "character_crop_sha256": "2ebefe93d1eae9c30f055cad7ec94bab94b322717d66757e65e786cd7ce302f9",
+      "non_background_pixels": 1152
+    },
+    {
+      "path": "docs/testing/native-player-layout/taoist-female-plain-attack3-down-manual-frame7.png",
+      "sha256": "25a0aa4d439577c9d0b6e90107b81278ab60772037b58af159b1b52893d93d1c",
+      "character_crop_sha256": "911f50a93c3d53011419fc7983ba2568f1e5775bcfb0c4f2e8df11f193491623",
+      "non_background_pixels": 1085
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack1-down-manual-frame0.png",
+      "sha256": "19938552dd5a69aee0e7f7773b7135b70105670cc051f6aca453e14a303cc97c",
+      "character_crop_sha256": "a4b33ac2b8a088b0b0a7848bbb1c8041b509fff5906ad90bc873af0bd329a456",
+      "non_background_pixels": 1392
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack1-down-manual-frame1.png",
+      "sha256": "7a5bf6cc6d304293185432c52e304334218c65c399349e0ed985c5f90398e6be",
+      "character_crop_sha256": "da449ea4eae4083b124015c3242497fdec0d3699a71ad128f3621d7557c620a9",
+      "non_background_pixels": 1390
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack1-down-manual-frame2.png",
+      "sha256": "12c3495bd764e2f77c42a2de403aa81c6e878f3a53a222b05f3c78a01611e797",
+      "character_crop_sha256": "d4a7725c95b7cf418e699676263ca4aab1bc0bffe3fe88509b9195ee23666ebd",
+      "non_background_pixels": 1429
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack1-down-manual-frame3.png",
+      "sha256": "78b7c0d72d6e7e08cabda0ecb750c65553ea8f3364724e781446e1e072ac9698",
+      "character_crop_sha256": "1518eef8c1bd2ec382b53c1ceec3120a63028c9cfb31c98d75171527165a599b",
+      "non_background_pixels": 1276
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack1-down-manual-frame4.png",
+      "sha256": "bf4c4fd5eed4e36b6dec6d56a13894853ad0080b5aefab07d87d179b681510ca",
+      "character_crop_sha256": "f62605a9ff93c3a839d4af042c6264489d015a7f0a7910de7d06aadbccb7e95d",
+      "non_background_pixels": 1398
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack1-down-manual-frame5.png",
+      "sha256": "1882d87b48402ca122511959c2828a6ff4aca9f8a4cd672dab198e576f5b8cd2",
+      "character_crop_sha256": "bb0b99cd917e7b756e7030ef0d63c0e03a19d6a979ec16ee5aff57c20390a691",
+      "non_background_pixels": 1414
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack1-down-manual-frame0.png",
+      "sha256": "e77e9b12f82f34997a84bdba46e5fed8669ae9a10cfd11671ba7a132ff634e32",
+      "character_crop_sha256": "237c42efde6862e840d7bdaeb13f493902b3a855da6865bae7296a452f05b5f2",
+      "non_background_pixels": 1252
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack1-down-manual-frame1.png",
+      "sha256": "8696bdf2f2045b1bf63b0d868e8b10335d8e2e0126ccd257b16cdaefac286a23",
+      "character_crop_sha256": "ffe99e05b1ee18546765ee464b054e860e33576e89ae4f137ca73592d342810b",
+      "non_background_pixels": 1233
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack1-down-manual-frame2.png",
+      "sha256": "c24a58081365e262e735686245135b9b3e254cdd70dc61cbdddf161320b3afb1",
+      "character_crop_sha256": "5f09364c371acabd6ff071d6033896185493cfe2ebcb1d66c6062634a54291d3",
+      "non_background_pixels": 1272
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack1-down-manual-frame3.png",
+      "sha256": "219c1ec9e8a8383a9676e6b21694edd344f39e97c2029043c5bdefcdc7528da7",
+      "character_crop_sha256": "8db721f0f50c71072463f583c15ed91708c64772889f22fed20ffb34afc926ac",
+      "non_background_pixels": 1144
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack1-down-manual-frame4.png",
+      "sha256": "1c0548b90419d37d4d6d802910679e9ae8126d667d107759eb5c5352a6afe672",
+      "character_crop_sha256": "e0a01458d927b138e852d90e6c24d3c604fceb7906a25e699f9455fe86d3930e",
+      "non_background_pixels": 1224
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack1-down-manual-frame5.png",
+      "sha256": "6d403a0698711e3d5caa660f8195d24e82ac9aa219aab06f28716e6e5f521f0e",
+      "character_crop_sha256": "356e4280919fc5a1eccd2ba00aaf238e60bb11ecc5030666fb04e7a5d557e061",
+      "non_background_pixels": 1255
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack2-down-manual-frame0.png",
+      "sha256": "ce0c02c07ef7bb53610cea4ba3ec68d97416c442fd4f4ee94f4291143c5dddd3",
+      "character_crop_sha256": "27f7b393e5d4962ac20cf5beb8babd4edfc7d8976d3331d926ae4f3c3b236f24",
+      "non_background_pixels": 1348
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack2-down-manual-frame1.png",
+      "sha256": "27a7e5bbc6ce348011777a8c8d9e8f87dc3d5e91dc1594786be8234561f98825",
+      "character_crop_sha256": "395a2b89dc56743dc7b4c95b32e0eb915a2ad86b261c8b9952c261ae8cb8ad35",
+      "non_background_pixels": 1157
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack2-down-manual-frame2.png",
+      "sha256": "d9129d499c926195ec7ca1f2500ecd68da39d62bdc5a160fd3fd3bd4c2d170ee",
+      "character_crop_sha256": "46a2ad3e038a31b055e3e032897ad75f4de8b54d086b561865b85518a8372ed4",
+      "non_background_pixels": 1273
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack2-down-manual-frame3.png",
+      "sha256": "e43d1b49cd525dc632eb2d2b5cd882a58e26e18568eb88592ed5d31327565a43",
+      "character_crop_sha256": "e8aeae39ca3f39d1ac0928a4edbd3fd69aefef2c9436cf458e65817f712d9bc1",
+      "non_background_pixels": 1303
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack2-down-manual-frame4.png",
+      "sha256": "17c4034ecf4c9c25b686d63fe373f52d47a8100dcaf227c88b3b38f90494f1d8",
+      "character_crop_sha256": "ce626aad7829398b29204f63346d4101d12bfa3af7ad3c6ae246ec91eb256532",
+      "non_background_pixels": 1281
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack2-down-manual-frame5.png",
+      "sha256": "49fd7e60e588cd79b460e7cdfe5d5b7a7e49ee19caf008e589673f49034622dc",
+      "character_crop_sha256": "fc7f6e04acfb920265b165ced81a0cc3ebc3db298b1a12d9139568d85d1e1fc9",
+      "non_background_pixels": 1409
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack2-down-manual-frame0.png",
+      "sha256": "24c5f81a6c4e270cbc51587246a823044666dbe297c8aab650b60995e16f1c1f",
+      "character_crop_sha256": "f236cf83256a6c65174c3dbff6c77e433cf5d7133c46c819db8737a1615af0a1",
+      "non_background_pixels": 1209
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack2-down-manual-frame1.png",
+      "sha256": "937880e7bd97433e79077730415a950f4f7038c785fa527ec7bddc6a1e61a637",
+      "character_crop_sha256": "5643099c4aecaa6de29b72597c420ba71a6db6579e0ae36f88b6370c993855b7",
+      "non_background_pixels": 1074
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack2-down-manual-frame2.png",
+      "sha256": "e996e7582022780060d285226e612d626cf8042be94643d6f843632f3f105414",
+      "character_crop_sha256": "d7d5bdce71c286824a3547074c09f907bd123e51c368c61db1ae159af98b428b",
+      "non_background_pixels": 1139
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack2-down-manual-frame3.png",
+      "sha256": "63b61eb7c167a7dc71151b142cd85de0b44c569522ab4163cfd336773910e069",
+      "character_crop_sha256": "1d7ee7bbc7ffbd615f90ebc33b72be112c4beaba9938c967c5c8b1acef6a5301",
+      "non_background_pixels": 1113
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack2-down-manual-frame4.png",
+      "sha256": "5cc26392626944a4b35c054d71b0db9bfe5efbd1f0435025b6f5c0d3e6f2a5e5",
+      "character_crop_sha256": "96578dde28897abaca914d5e931636c6d5a28b1fd333dae14235dd601a8bc96d",
+      "non_background_pixels": 1112
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack2-down-manual-frame5.png",
+      "sha256": "4884ff9f317998cd978606622f96b99aae9f96db9f2d522efc610c1437564d24",
+      "character_crop_sha256": "c3dab2e0b066aa7e3571981ba09355b729a4344bd8d9886560d9cfa2ea214e83",
+      "non_background_pixels": 1252
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack3-down-manual-frame0.png",
+      "sha256": "faca65d2560901d6c1164f56c675b507429bb1213d4eece3a6bba4668f4ae100",
+      "character_crop_sha256": "6fb6062cc46a8ba5860942aceb19a1b275aced3ab81c7cf257f6d384e01f3234",
+      "non_background_pixels": 1127
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack3-down-manual-frame1.png",
+      "sha256": "9c02199c46a3df4dd9ae5f484f2d766d9fd109a53dc2041ae02b9833b264343b",
+      "character_crop_sha256": "bc102392e402e9db032e36f35791523ed3bfdcacaf180d798a6a14c02426d340",
+      "non_background_pixels": 1563
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack3-down-manual-frame2.png",
+      "sha256": "9da57d932b7d6f6ffe334a8ca2c5bbbbac79b70e0ff3a9341de9e9064100cf88",
+      "character_crop_sha256": "531aa4242050a46e328ed48e239d211ec34041b0e243e4db0d9d6eae0364cec6",
+      "non_background_pixels": 1433
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack3-down-manual-frame3.png",
+      "sha256": "91c8f614dbfae313e27f20cc768b2916153b9e3c02016f17e811b6bece718f22",
+      "character_crop_sha256": "6fcc41ea4a5c0e7f86c5e6b73abe371ecc4a4d89d5009572c16d79b4e7038cb4",
+      "non_background_pixels": 1360
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack3-down-manual-frame4.png",
+      "sha256": "fa5e0278563b5211d422714c8bd72b4259831f195fbab2d82f64ab2865d092e1",
+      "character_crop_sha256": "74ecad8d1b71b8bba036009ba20fb4c8a2c2afe262fcba46779ff751df661467",
+      "non_background_pixels": 1439
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack3-down-manual-frame5.png",
+      "sha256": "e78aa8e2f7b5290ca84bfc4606b421bc48bb6152fc458bb3af65300d77cddb46",
+      "character_crop_sha256": "c045b130f502d6eef489aefc50557ea0e2e0dbd40a8a52fc06abf031687bf64c",
+      "non_background_pixels": 1455
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack3-down-manual-frame6.png",
+      "sha256": "5643ee399de7e2a0f1c57b85325160ad158bdf876df705d089c8e074a21bba00",
+      "character_crop_sha256": "9bc46969227207b838b1805d9dd55296b9d793b9a17822e9730fee93ac17bd34",
+      "non_background_pixels": 1080
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack3-down-manual-frame7.png",
+      "sha256": "d9c464c67d98c1a3dce79bf3a4ba4730d52996fff9e15c4d93d535a6b5a7e370",
+      "character_crop_sha256": "389639d32bd9384c2814de9de6b8d7698cf861b7866cb68a03feeed6b1a8fa38",
+      "non_background_pixels": 1181
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack3-down-manual-frame0.png",
+      "sha256": "4934c9af3bb016302470245084b61b9b563454e68408f68a147ebd9a961d50dc",
+      "character_crop_sha256": "a72de8427591b8a443901d80d251e231649048205930889475fbe48df12178b5",
+      "non_background_pixels": 1017
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack3-down-manual-frame1.png",
+      "sha256": "59ff281dfe6355f93e4848c8bd8e67d9f1314739562d3139dd3fafa197f06827",
+      "character_crop_sha256": "91515504149de02277b8846d1b15311408b0ec7a6cf75f4dd468bd98c31cc2a8",
+      "non_background_pixels": 1385
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack3-down-manual-frame2.png",
+      "sha256": "464840817ea640ef4bb3aa51781452fd3cc73b6f2fba6a20f7ae64a548911c0a",
+      "character_crop_sha256": "374d41f926835c977d73a23cafe3f3c3ba152ecfc76452ad9289fb937dadcedb",
+      "non_background_pixels": 1298
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack3-down-manual-frame3.png",
+      "sha256": "b11fcbd3235dd8d465a8c8f376eca489dca99e78945a59f26c3bfc2020a5a950",
+      "character_crop_sha256": "097ab825d22985d7d04c016e43e179afd853a855d7c7acabdc958aae9d11a61f",
+      "non_background_pixels": 1090
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack3-down-manual-frame4.png",
+      "sha256": "7c73fa8f20aaa3a59d7217515625c69f038f9fd57c9312efbc2550e5d9ea7b40",
+      "character_crop_sha256": "6ffc810429dbfe0553050645aadb9ba6f470adc4b62d65281c33921a2b1e287b",
+      "non_background_pixels": 1185
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack3-down-manual-frame5.png",
+      "sha256": "b50ed12b2c9b6232bc69b70d677606d534a13bb70e4fbb99620143b137e1ab8b",
+      "character_crop_sha256": "df9062f57e8a6b61a22404e190714be576d091e7165a378f3c929842cffebc99",
+      "non_background_pixels": 1290
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack3-down-manual-frame6.png",
+      "sha256": "8b43c6965a37c1c8bda667d479f13a3aa778896fc6e35760c6b3ca34672b46ac",
+      "character_crop_sha256": "d9658b19547e60bb0ebd9ae5f61cf3e3c226211cdb7f2ef81697d77e840aa926",
+      "non_background_pixels": 949
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack3-down-manual-frame7.png",
+      "sha256": "2e593048ab3bb6adf468ae3895df2a5f658795f9fa246567f55275c415e8507f",
+      "character_crop_sha256": "a00c614a38fe71cac02d1e856cde60d4738450e7980ced19bedafa42858ae10c",
+      "non_background_pixels": 1048
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack4-down-manual-frame0.png",
+      "sha256": "3185d9ffeec80372e5a253b0a1db4eeb740b9d4213657d8869f3ae5332f95bcd",
+      "character_crop_sha256": "2562f33db6f45b0e41cd84c38bf8d55b3585d97ed873b9635aac44f74e7c129e",
+      "non_background_pixels": 1411
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack4-down-manual-frame1.png",
+      "sha256": "3e447bc6c0187ae84622d201585d7a746b3fb8d75fefc2da1166990b27a92660",
+      "character_crop_sha256": "488b6e9851179ea8d60112005d227bc146c517cda63978d1f8a5111f3bc51ffa",
+      "non_background_pixels": 1502
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack4-down-manual-frame2.png",
+      "sha256": "796ad51ff7e805aa84ff150f53563bfe47d14e7d9e22f2d359ad4b9b8755e206",
+      "character_crop_sha256": "904cc95721a4bd64ac6f17ed7412198621114ce8f042be83c7425e35c800fdaf",
+      "non_background_pixels": 1264
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack4-down-manual-frame3.png",
+      "sha256": "a77316b94c4839703cbf2c465c82e437dcb44f67a1d251db7ce00c9d54f19faf",
+      "character_crop_sha256": "ecef068fb3f1b812ea8a75a92ae010f67d2ebe52d725da4221ef387afc955fee",
+      "non_background_pixels": 1269
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack4-down-manual-frame4.png",
+      "sha256": "312d4e7b3f15796fc8f89770307f7a38c30a0ccc952e9d5f387d58db2ea02acb",
+      "character_crop_sha256": "0d8765c4aae373cd2bc7119a7a1b4b9cdc1faa0cdb80c9e62a4f8896eb343158",
+      "non_background_pixels": 1378
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-male-alt-attack4-down-manual-frame5.png",
+      "sha256": "453f100d4ac004a3feb6b5fde951ecaf8ce1ef4b6f9a9a65f949ab90c17fc96a",
+      "character_crop_sha256": "93bca50a0a281a3d85b200921727eb487f6b267f832f2debcb7236762d003eae",
+      "non_background_pixels": 1232
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack4-down-manual-frame0.png",
+      "sha256": "c3b3d4e5ce6d9485e3d912e49925fa8939ecc4217181764514b165308575a351",
+      "character_crop_sha256": "275ce9cb2ac77d71bbe2de2962421491496422162c3574ee2fd566a26a9a1eb7",
+      "non_background_pixels": 1232
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack4-down-manual-frame1.png",
+      "sha256": "dd7784b489183bdb2c487504e74c888c5e8c93dfc2e0f5b8eaeda2168e4e7493",
+      "character_crop_sha256": "3ffcdd3f4a3936106b50d4052d967828ed80d7dd35c1018fc896004d460f6b7b",
+      "non_background_pixels": 1373
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack4-down-manual-frame2.png",
+      "sha256": "4d34a17b97999a60a80ba487b04ce302cd25c7d2e7fd2c1da0a273375f67627b",
+      "character_crop_sha256": "a78498d1fcfea8ac76f72233accf193d89681cb086df4eded3308d79cae7c276",
+      "non_background_pixels": 1110
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack4-down-manual-frame3.png",
+      "sha256": "845ea00678f5cb8c8d8867e9f572b45dfb043263f6c035e52db614ebce44d28f",
+      "character_crop_sha256": "4e3d16cb3c21d96ad66ac1d92ed35f2e30f16eef321a66e58e6429e6a74b012a",
+      "non_background_pixels": 1140
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack4-down-manual-frame4.png",
+      "sha256": "6fe5219fe38c5b2a164d8a5ab96f4079b7cf1957b81b3d4ea3a55328fca97dd7",
+      "character_crop_sha256": "99e29eaedde50d52e2f983519f8bdf97553a0f0b3d31856fa0fc60bd287e03a9",
+      "non_background_pixels": 1205
+    },
+    {
+      "path": "docs/testing/native-player-layout/assassin-female-alt-attack4-down-manual-frame5.png",
+      "sha256": "3bcadcb304bae0f8771cdf473a7fa4016eea9f9b626ee2263f79a70c5c44e39f",
+      "character_crop_sha256": "ab26af80c22f3ecfb54ef844b8c89940e3ace3e9f62db319a2d4c197d6501167",
+      "non_background_pixels": 1109
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack1-down-manual-frame0.png",
+      "sha256": "b25cd254db534d0fd4b0d4b3887174d901b13400a5a9c7c183d7d5403cb56ff4",
+      "character_crop_sha256": "a68af488a1e977a8180e53a09a3614cfa8eaec784ba7307c1dff7019504a1973",
+      "non_background_pixels": 1309
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack1-down-manual-frame1.png",
+      "sha256": "560888fa57ccb0acc3d92f2962b5c63d31f410a3dd28aa835f05caca0738b27f",
+      "character_crop_sha256": "080f5f34525e2aa975f49b89870b7b20d6c5e8d474cc6e19e111fa1fd36311b0",
+      "non_background_pixels": 1399
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack1-down-manual-frame2.png",
+      "sha256": "24c0b18283e66c5dec3a4ed94471ff8e27a54135b1ef02ab9b206944a0729844",
+      "character_crop_sha256": "c4c0c589482d1ecf3a963a376070b7561776819b37509a00d774bfd6d1b164d1",
+      "non_background_pixels": 1392
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack1-down-manual-frame3.png",
+      "sha256": "12bc2c7493be02a30873d684fa563b6748e1a171ed69617f4703d51cb56e0d42",
+      "character_crop_sha256": "98259da2a6bc151e12612542f957f16e66e6d563df08f72695cf762643072bd5",
+      "non_background_pixels": 1556
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack1-down-manual-frame4.png",
+      "sha256": "92c91e8b593612fcbd3d7a76a62f22986e6f6f609e73003b7b46497fbdeef229",
+      "character_crop_sha256": "fd28876bc584c7230527209bf453fdb35c6f3477d9d3cdb5c792871c3f883171",
+      "non_background_pixels": 1559
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack1-down-manual-frame5.png",
+      "sha256": "d238117d7bcd7a0d1ff66c1241e5a8c6b6c0d92ec17b9f902bd3744cd05b5639",
+      "character_crop_sha256": "a23721aede0cd74bf9cf0975ffaf4e4f90fd9ad978e0a1c7981c058d6ed09463",
+      "non_background_pixels": 1444
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack1-down-manual-frame0.png",
+      "sha256": "41f27b1524295c759f2545382ec7ff4b43050bda927eaac2062a9212d934a14d",
+      "character_crop_sha256": "e8522548198f8edbb5a8ded321fe7cbe00a75d7fc5aea8c6528dd98e90b502b1",
+      "non_background_pixels": 1166
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack1-down-manual-frame1.png",
+      "sha256": "0b8b7cc7e743a55cdfe63d3c2832e57275234b4c95f0b3d3b9932b4a06645174",
+      "character_crop_sha256": "545eae3af860e8c23fd0b423fe4c8b1b4bb51fde16f6992378d9678453701025",
+      "non_background_pixels": 1199
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack1-down-manual-frame2.png",
+      "sha256": "5ba4e20fe537178a4e466b164a183ac11f2b9d987807be1ffae8daf000076abf",
+      "character_crop_sha256": "d9ef6d1ba469cb384f9f776eb2db72df5790f9922bf2b44551eedda5259b96d3",
+      "non_background_pixels": 1193
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack1-down-manual-frame3.png",
+      "sha256": "29904229dddc7780fb466ef45c87e77a825601af5ac0e2198841738fa7bbfae4",
+      "character_crop_sha256": "5deb6a149a4ace2f5755ebd014dc95a72d76f07e4b3f74334e8a856ba18eda58",
+      "non_background_pixels": 1303
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack1-down-manual-frame4.png",
+      "sha256": "9d9244d166ea1d98278567bb6d8b79ce5a5fee4c19d817a1a8703329ccd3ed31",
+      "character_crop_sha256": "9bfa5252dc2b55b64278b0ba2602ef6e092546f9d36c78774f98fdaa574f17dd",
+      "non_background_pixels": 1367
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack1-down-manual-frame5.png",
+      "sha256": "0b7602ba63fc19582dc68709f7ba4ecad1efaeaa4ec715c4bc3107dd6d616e07",
+      "character_crop_sha256": "f005692209c7eb60abc10e13c62d6c390cd9378e7b7613c61461c0723556d373",
+      "non_background_pixels": 1246
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack2-down-manual-frame0.png",
+      "sha256": "099c6ad1d156d7255b657989d2b54a1c69181a4da5540860062be20ee2a3a683",
+      "character_crop_sha256": "855a3e7abee78a7f1c45b66daeee321d49e9855424df01f6f11c2b1423dc1f90",
+      "non_background_pixels": 1273
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack2-down-manual-frame1.png",
+      "sha256": "024f449b862e4ab19e1b9588e5cedc0c246866e49711e59d34a43b42a94fb57d",
+      "character_crop_sha256": "f38ce93acea422c3ee97788c96e9300675cba2166b380c10f59a9adfaae6edab",
+      "non_background_pixels": 1451
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack2-down-manual-frame2.png",
+      "sha256": "094b92076f20e5431f8f5c99eb9fc78a6589576cbc57f2547245d12c7a0af86b",
+      "character_crop_sha256": "3482b330de20895d59c2d09df1bb85dc59728fcace1fea2edd6e27d2e12e363f",
+      "non_background_pixels": 1508
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack2-down-manual-frame3.png",
+      "sha256": "e5400d8446cf56057f1fec4199912f7aae5033893d089d6ff670896c3a483c5b",
+      "character_crop_sha256": "86bfa68bd9879206c5e34ca855bf90a51887cc9a46010e92a5ecf64d874463a7",
+      "non_background_pixels": 1361
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack2-down-manual-frame4.png",
+      "sha256": "4c4fd5b67d092f067023902ec2bf4a9b71808d36e3770b7a7a14348d9092f442",
+      "character_crop_sha256": "5720b490af2f6021417e248aebffc7bf2e7c08be4f8120118a638b8c5f59b4dc",
+      "non_background_pixels": 1505
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack2-down-manual-frame5.png",
+      "sha256": "d02209e359d82ec64caa889a0cd3b6562c1b1f55f833a47e5a98cb5055cba71a",
+      "character_crop_sha256": "b4fc1d7547e5b94c08e6c51a6939878cc0036c0c960730606532600d2287a446",
+      "non_background_pixels": 1461
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack2-down-manual-frame0.png",
+      "sha256": "236301103af232a4978538ccc754bb40dd820e0d2476974bc3bd82d1e81e314d",
+      "character_crop_sha256": "c099918c1d515292a5dc7d5852c7f2304952199d7912c9f65bfb19d2ec6b307d",
+      "non_background_pixels": 1132
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack2-down-manual-frame1.png",
+      "sha256": "6e86206199bc52afee5ad93832201b2ac2f281a7f8ad30f1e43985a986250601",
+      "character_crop_sha256": "1800b542c171f31773f8668f8033a9012910bed7aa76a66b3e86e1795d0b23b5",
+      "non_background_pixels": 1275
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack2-down-manual-frame2.png",
+      "sha256": "9cf51774aac56dced7f024c4bccfdf017746faaf84542792977c79bfb61b5935",
+      "character_crop_sha256": "703d1f9df7891159b1cb79fd6d3173de68c351823504e2addccf1c74fed7706f",
+      "non_background_pixels": 1243
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack2-down-manual-frame3.png",
+      "sha256": "4c36dae547192da428295f953995a255ae04bf676c8d6e04016dd6e4d38ae1f9",
+      "character_crop_sha256": "5791013bb90224a8c128da2f8a3436b2c52d370cb4cc05a163de5882c6ee45df",
+      "non_background_pixels": 1208
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack2-down-manual-frame4.png",
+      "sha256": "411201560bade0e77a870a2697561b405658757df0ea2863d9641915accf48b3",
+      "character_crop_sha256": "1163ad84cb4ec747bf582334d8185f29e2a8ef41ba759d766a93791686e4eaf4",
+      "non_background_pixels": 1295
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack2-down-manual-frame5.png",
+      "sha256": "5b62aaa849466341dbac181cfb17344662111b89d36031a065b476caa89abde6",
+      "character_crop_sha256": "99b6e765a16e92770ab6b90016aed5e0a050bbe36fd4bd3c02319908bb4c44d7",
+      "non_background_pixels": 1253
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack3-down-manual-frame0.png",
+      "sha256": "57f3f226cf6e88e06f4aafc4adff9e6f2e87966fbe51719bf30b381c3395633a",
+      "character_crop_sha256": "520452b581e4f860f6145beb538342fcb7a726e642d95bea8b1ad50587378521",
+      "non_background_pixels": 1472
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack3-down-manual-frame1.png",
+      "sha256": "10b191017cd2fea5840646fa8d5a7da5c451df204c32ead77d6b13be7e3c9f6c",
+      "character_crop_sha256": "780fd8de5d299d8d312bd57f0de144519162cef200e493cfb445c4e90d5b28b0",
+      "non_background_pixels": 1346
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack3-down-manual-frame2.png",
+      "sha256": "fc92574a67ab12e526510e93196a0d89cd775ff39be2d959b619d1983f1bec78",
+      "character_crop_sha256": "2621c04245e33a9f39513ad9e657e7d36b4eec3597b9486c1d4db9265141e503",
+      "non_background_pixels": 1372
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack3-down-manual-frame3.png",
+      "sha256": "36f9a8932c7436c17b5bc12f60986b1888cd64fa82fcdd5a98b2330d17b46b4a",
+      "character_crop_sha256": "02438d80192e50888b7380fef2f6b5124c84e46b5febddc2373c9aeaeb48023b",
+      "non_background_pixels": 1326
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack3-down-manual-frame4.png",
+      "sha256": "9d0ddb54620ab40b7a29fd5b0b2cf2f8705be6fbd4e949d91d0d5b113ca1cd8f",
+      "character_crop_sha256": "7df45ae12771af8f6943655562eb302babd79c2c2c000172580e84ada1f32011",
+      "non_background_pixels": 1328
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack3-down-manual-frame5.png",
+      "sha256": "a03eaa35bcc19ddb95f44512fcb8ddbaceda96a100a33f1aa891fa6a9128e562",
+      "character_crop_sha256": "7d43fb46a2230c146d528b156255311e4288a52bf6f830b8a9e27202f961b2d9",
+      "non_background_pixels": 1326
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack3-down-manual-frame6.png",
+      "sha256": "706e23c84f4575453e9431605cadcc41a8be24341b738eeb6ead6da2f739b4b0",
+      "character_crop_sha256": "02ea5f8f9ae5ac5ccdf55b380052c48654ed7138883fb79323536193385abb94",
+      "non_background_pixels": 1345
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-attack3-down-manual-frame7.png",
+      "sha256": "516949375e5957d5166783c22f767945816e9fd2c42ecb6e236ac7479abd55bd",
+      "character_crop_sha256": "7d26131b80032294a770ca1e24b63abebac0c853bbd2078b7e1fbf4c8b6b90a4",
+      "non_background_pixels": 1334
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack3-down-manual-frame0.png",
+      "sha256": "fe82d31ed55389c0ee80324c707d4401d1b752a70644257108178a4876cda667",
+      "character_crop_sha256": "bb9e68544dea83177e8114e7cef8919ad75da7096058d07347bce435bfde2e71",
+      "non_background_pixels": 1335
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack3-down-manual-frame1.png",
+      "sha256": "535eaeb7f3d43569fe08316a05ab0bcc69d3d14e66527d2b9ddd545bda4fbab8",
+      "character_crop_sha256": "2501f36f920738512c8cd2fe9fbc08688b541405ea8c6806dc876210fee341b0",
+      "non_background_pixels": 1212
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack3-down-manual-frame2.png",
+      "sha256": "a5ddf467fa098642a8803233716345abdaf43a5602e85b6a7bda7939d34eb7d5",
+      "character_crop_sha256": "5298386ee3caa1b6466bcbef402980f2f178e29a52f4b8f78a425b5f0b19b090",
+      "non_background_pixels": 1239
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack3-down-manual-frame3.png",
+      "sha256": "a5e4fb50366cef79537b5105c98ff2e14b6d380230914d8732b2e8aa03aaa35e",
+      "character_crop_sha256": "888af534f2a31d810a252500bf3027207eac49747b1b62f510ca9ef6215e4586",
+      "non_background_pixels": 1149
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack3-down-manual-frame4.png",
+      "sha256": "91195d356aa83df53b751f2ce47818672709a545d03f099305971cc156c269f2",
+      "character_crop_sha256": "6017145adeb24d281cdeb93429c81dfe6fadd7a6054f26b2a728c2fb886ad86b",
+      "non_background_pixels": 1145
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack3-down-manual-frame5.png",
+      "sha256": "7282d83e2f8bc14a023e53be0d3deb9258a1c1478baea1be2c685ff3aac3ad52",
+      "character_crop_sha256": "0c38d832b0590892ebfef75b2db46c6833125cba8574bc9b8742ec347c62f894",
+      "non_background_pixels": 1142
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack3-down-manual-frame6.png",
+      "sha256": "caae384c1482f7c09a45fe2791199ce5bbc895819b09e3beb6cf4c8deda852e1",
+      "character_crop_sha256": "e280e037e8161155edf6f9d79402ce55b93bb92a77c3a5b8c3beabaafbfd22b5",
+      "non_background_pixels": 1168
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-attack3-down-manual-frame7.png",
+      "sha256": "3a1b2f76fa3ef6b0444dd432fa0d5dde1ab2f27345d4b3e7bf6b28dd855774f4",
+      "character_crop_sha256": "af1ed53b057bc25b8fc1a71807b2cdf3d4ecde7de57f589155cd7b8a416ac366",
+      "non_background_pixels": 1220
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-up-prod-frame0.png",
+      "sha256": "e03d3dc920019ae3146ae7851b513eb6e92201c93c9fff77d4cae300c1f4d983",
+      "character_crop_sha256": "8f953103f704dd4230123f5dceace1153691947cd40d9d80bec5bc0e0795ae20",
+      "non_background_pixels": 1417
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-up-prod-frame1.png",
+      "sha256": "ad3719a88dc40fd1c5b241f95c61c014cf7bc143170b9a765c3c851324ca83ff",
+      "character_crop_sha256": "349beddacae56aae8fe993e8faa61cd8f50a8b76fc6aee36f829a241ab276976",
+      "non_background_pixels": 1155
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-up-prod-frame2.png",
+      "sha256": "d84ceb249e9d7bce362d489baa1ee1fd9a4afc9c6cd7beb6f15cc740a24908c2",
+      "character_crop_sha256": "da26b1217ebee79f2d40efa025e93ee34b315de2742b43f536cbe1e31680f692",
+      "non_background_pixels": 1598
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-up-prod-frame3.png",
+      "sha256": "c924ec17796cdf20384dac0c32b48e5b6688a7427a4ca4f3fd19ca6a17c5db8a",
+      "character_crop_sha256": "14b6a5237d2b05bce88968d9db452712ab901f5f09861cd5cb33598dc465f424",
+      "non_background_pixels": 1697
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-up-prod-frame4.png",
+      "sha256": "09d6cb48ccea71f495903737f2b27fa17ae769cdb0996d8313b7b38cb2d91bf4",
+      "character_crop_sha256": "fd8531c535d7495567ec5725409f6eec53361de2865513add9c0b9258144c74d",
+      "non_background_pixels": 1488
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-up-prod-frame5.png",
+      "sha256": "586e621a0a78caa761cc25ae90ab0328846674b5f85e9ab7d9e7f72c0ebaa809",
+      "character_crop_sha256": "87875d8fb21041e8bd9942c18d9a9c224d748d1c82ef73f7ba0ec43a39e9f43d",
+      "non_background_pixels": 1559
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-up-prod-frame0.png",
+      "sha256": "9bad4b8232dd47964d73ee9b3d5f4a82909419b7fb1af264c2a3b036acebafd7",
+      "character_crop_sha256": "e050d9c7604ae9d8db468e8b9e11901d24f0e7daa6a728d942368c0ac797dda8",
+      "non_background_pixels": 1289
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-up-prod-frame1.png",
+      "sha256": "d6cd24f0578f49c34ce3544b0926bd0b048cbbe56565d0b24284da25821fed13",
+      "character_crop_sha256": "1bca3b03656bbd600d353cc01c36e75a978c6f49bd62c9fbf3673210d141896e",
+      "non_background_pixels": 1099
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-up-prod-frame2.png",
+      "sha256": "8f1d49de5289b2183b49f3a2b70733f3d6b0650e265c1e14f736de0ceb401e26",
+      "character_crop_sha256": "915b2a3ddc65a1ad6ff66c127ce6c4c545181fac2dd3fbcb88e60a31a240ab1b",
+      "non_background_pixels": 1414
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-up-prod-frame3.png",
+      "sha256": "0e827149fbfdb956201d0a013dbdcf7b4ed7f7da228b8e5776b9060d140b5781",
+      "character_crop_sha256": "f3cf63f0572173359f1c2ede3ce6f1e3251c33a22a15806bc93b439a17f5d58e",
+      "non_background_pixels": 1446
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-up-prod-frame4.png",
+      "sha256": "7d566f686e0d14ef6fd1f5e5b6e957e838e54421b69626c2ef8c3d797585e1b2",
+      "character_crop_sha256": "1e6f74be6019f2056ee38012f63c776c997884eaaa7301d5738e1febfef34053",
+      "non_background_pixels": 1248
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-up-prod-frame5.png",
+      "sha256": "0a9a2b3775fe4ee174eaf2f9279fde4ac3ea74e80f9e952557d586a8559b622c",
+      "character_crop_sha256": "ed7fefb4efcf3084c036faaf2bd8b2e5e2888c36b8fd5dbfdc30a2223314d1e1",
+      "non_background_pixels": 1343
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-left-prod-frame0.png",
+      "sha256": "db51a0f95eb2ba910c0daddb124e029daebfe6da9a5d1952bb1c429f7a5d1605",
+      "character_crop_sha256": "79f15c9be6bc84d558610ade9426f3b064405bc1aa032d3a4f7ffff58f4bb607",
+      "non_background_pixels": 1445
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-left-prod-frame1.png",
+      "sha256": "16dae11529b6070c582e2ee2e0cfbbcceb14ddf987356dcc805afb11b5fa1d2f",
+      "character_crop_sha256": "59195dd38875f94b1f6691ce927e5b488582c518cd2bac914550289ee94e75f5",
+      "non_background_pixels": 1564
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-left-prod-frame2.png",
+      "sha256": "7a984ff3a3846469949e57223ea4717c1fe650da9efca65e266527f6de72d308",
+      "character_crop_sha256": "aa7894f864ede7481dea1c2502c6cb351a94aab3931c29998ecf6efdf4b01204",
+      "non_background_pixels": 1538
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-left-prod-frame3.png",
+      "sha256": "f3a973ee678241974785bd67a1c385bb4b564dbbcb5e93c03b60720977f1ee97",
+      "character_crop_sha256": "90e19d8114072f2f7a3884bf1768f37e2044a8ed0ccab1302b9b8db893cee4bf",
+      "non_background_pixels": 1368
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-left-prod-frame4.png",
+      "sha256": "dc614d800f080205fcc13b2b350a36372bea76c5858ea2a78a0024baccd33482",
+      "character_crop_sha256": "34d6c307563c6a89444d85d3af187c50ee667d66f4cf1b57f5d2de6b2f503a0e",
+      "non_background_pixels": 1432
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-left-prod-frame5.png",
+      "sha256": "1464f3f47456f1f41ed8708341182de098b73267d0fd71e1e5e50e0f3344c50e",
+      "character_crop_sha256": "ae37b2628e9adaedeb1a1c9711d60f6dead33bcff7da6f601f0649bb997d78cd",
+      "non_background_pixels": 1270
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-left-prod-frame0.png",
+      "sha256": "4b0ef3093a03e2c0c91ff546540bc2e657158a585a4145ea3556a7fa706fdc72",
+      "character_crop_sha256": "0f3d7b691fb0063c5f2af25e46c38696edceb6f0657bdb7ad7fd75c4ecc6c7ad",
+      "non_background_pixels": 1218
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-left-prod-frame1.png",
+      "sha256": "6d3c2092f237e9fa580a67d3796bf65dd2e4c3160c9bca7ab445c8e79861c562",
+      "character_crop_sha256": "47f37d92f3dffc38b1d09fab87d78de5ed76e4b286d1e92d3d448b99a98f8a07",
+      "non_background_pixels": 1345
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-left-prod-frame2.png",
+      "sha256": "33d1beaf29c25a1f092b8b6c4435fdce6f270492bb6307369fd261c99e20e857",
+      "character_crop_sha256": "3d89abd6d77f5f4e22b2ebe62b611adf0da0d5ee7bffb8e3eeb55dbb27208eeb",
+      "non_background_pixels": 1259
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-left-prod-frame3.png",
+      "sha256": "3dc8f4c98dac5a63935b3969a91ede6aec90835af50a022180ceb92639138e72",
+      "character_crop_sha256": "7759e47a8a9b261e7641b37ae2448b74ff276166e77cf571d26423619453dd2c",
+      "non_background_pixels": 1121
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-left-prod-frame4.png",
+      "sha256": "96208508bcd6e64bfa125851676e8e4a3883b361a5251b7470f46c748906bb15",
+      "character_crop_sha256": "b84b3a38309d5aeb32e4e35ad384a24f5cbbacac00b2bef677c832b9da9334d3",
+      "non_background_pixels": 1200
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-left-prod-frame5.png",
+      "sha256": "ee0532bc7f727fcb48316c7a79fcfa866f74f04b1091fb1de06c1cb65915c8f6",
+      "character_crop_sha256": "1d46582334831e898e3c4f41cd7d562448bd377ba5844d7510d4b9ac8418d229",
+      "non_background_pixels": 1090
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-down-prod-frame0.png",
+      "sha256": "d44d7d5e594cca16884411b43e6446e7df0e3c3ae58c6d3e82db9a55854fede7",
+      "character_crop_sha256": "248571138ee078c51d3d502669a102fc701d8a3aa38333ddca6f0db353fd1777",
+      "non_background_pixels": 1461
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-down-prod-frame1.png",
+      "sha256": "df0885f965fdd60a8755692555af860fbbaf8ad524f71c1534bde92a959ed2cd",
+      "character_crop_sha256": "2947f0eeaecc2ff41ccb85482642f22c83ec40645baf420fc235cd33ec24507e",
+      "non_background_pixels": 1518
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-down-prod-frame2.png",
+      "sha256": "cd983cdf2e586ef35e5bf83ea7e54981b8aa273a3cd3d6854cbb9de2670d12e4",
+      "character_crop_sha256": "6bbe3f320eb88ce72cee870247447df39e712c328435cd70fa489130686a0b2b",
+      "non_background_pixels": 1397
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-down-prod-frame3.png",
+      "sha256": "2b7a7c7a313049367ff363b584d90dc49477e8cb82c4859ebe7b1978fabfff42",
+      "character_crop_sha256": "e9bc7b4b08832be27672527d9cae06cf7e8b18dca2c2525797845c7c4cd54db8",
+      "non_background_pixels": 1259
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-down-prod-frame4.png",
+      "sha256": "dcda40e5adc84c8a4dc06f1e035635fba3ce2ff1a0a827a5ca174e8d482fc96e",
+      "character_crop_sha256": "c89ffc5bb44fbaabd22a26cfb1827512f267b259d04c657eee2649fc326eccae",
+      "non_background_pixels": 1177
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-down-prod-frame5.png",
+      "sha256": "ea34b3977b62a708d26d465ff1a8ae9e36e28d6bf26f847e0d845bb78af4d1c4",
+      "character_crop_sha256": "26b62ac519bf55a70df78a5f3f15d1ca128673e6e3720718dd85675a9fc9df16",
+      "non_background_pixels": 1275
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-down-prod-frame0.png",
+      "sha256": "21fd2d2de6a408185b10479b8eea3ad419da1433b2817e9e5f39e7a00b913e45",
+      "character_crop_sha256": "eb30bc8b72178d177b255678d1774064cdb85311301e00d57b2438b42ac4a64b",
+      "non_background_pixels": 1311
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-down-prod-frame1.png",
+      "sha256": "50eeb1d70f3395d4df711a52f73c7686391ba4fb04f7553b545595fb18b8db94",
+      "character_crop_sha256": "601590ed68ffa45104abdb4a162d71656c3eefe4cadf761911a3435e6c1d79fc",
+      "non_background_pixels": 1285
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-down-prod-frame2.png",
+      "sha256": "930d9714b9f5e55a5c5b004d47998a13a8bab97df6d580389c0d29418a42fc49",
+      "character_crop_sha256": "2b0ec0f56cbc747ceb793deb4171c46f56e2f01deeffecce971b2e97036eb776",
+      "non_background_pixels": 1252
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-down-prod-frame3.png",
+      "sha256": "cc2a98902656f6d0f92f865cf615f37d1a34aacaf6ac0692d1e21e51bfbc6e5d",
+      "character_crop_sha256": "ec3be02117ab6e8215e1f7c242f3576c84c5adbafc0b980cda60f56cfc74e4c6",
+      "non_background_pixels": 1129
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-down-prod-frame4.png",
+      "sha256": "d86eb90c65403b3e33393ba58937700bfbdd118264ef0911974bd547277ab3c9",
+      "character_crop_sha256": "d3b6624f61185dad0a52bd5c9c61571a07957457a5b7f754012a76f20a7e470b",
+      "non_background_pixels": 1047
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-down-prod-frame5.png",
+      "sha256": "23f8fbfefc2aa77edf817a677c8c521c9c3db043081433d46c8a056b15054073",
+      "character_crop_sha256": "ffc6d90687bf36d9d12624931478d818ad96fbe763e0fdba4f391d8af5dd512e",
+      "non_background_pixels": 1167
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-right-prod-frame0.png",
+      "sha256": "e6c03384aeabf304f43995d3686faa63edfd0783cc4affee3743ae9628489a74",
+      "character_crop_sha256": "81d6e4cc092e3d74df21bd6b91f801ae098b66b6545fd22c6175f8bb875ae3f0",
+      "non_background_pixels": 1351
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-right-prod-frame1.png",
+      "sha256": "a76a3702bcd60dbc97a87619bbbb75f216714a056561a3e5c69f72ddc66d97b6",
+      "character_crop_sha256": "f018278125d6c08e87a3eb71dbfe1bf47e5d938636b72cc9c95dee32b3826dd3",
+      "non_background_pixels": 1514
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-right-prod-frame2.png",
+      "sha256": "eef1c8bae38386f208d4a9ed1f80bbb40efdf33349500695071fbe5855ab6084",
+      "character_crop_sha256": "4e9b8838c30da195e02057e7d31c3cc054c31a67a6881f67f0267e78b7477896",
+      "non_background_pixels": 1438
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-right-prod-frame3.png",
+      "sha256": "c1933c2f5039c83c6c5809671e1a4190c57178b7841129d9a9e962d3714cfc07",
+      "character_crop_sha256": "037a45978d12b84d5c8e15323593706cd9409fb780f8ba695712ba84ad9f70ef",
+      "non_background_pixels": 1703
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-right-prod-frame4.png",
+      "sha256": "54575d4b5992df90df4e06e4e3ebbce3c35b8e3aa4a3cb659f2967a1546ffde8",
+      "character_crop_sha256": "b5c5d097b4dc8e7de2fc7247e52c9b9ee003a4abc6797bbae21dcbf97e2b463e",
+      "non_background_pixels": 1656
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-plain-attack1-right-prod-frame5.png",
+      "sha256": "2edf8c14c95b33847e3f552d36aa3a7f988c832a9308b672926eed71cee1ba12",
+      "character_crop_sha256": "95cf33073ae83b15667cc1e10738fd234cb67f339a0e19432816bb49cba4d8ba",
+      "non_background_pixels": 1443
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-right-prod-frame0.png",
+      "sha256": "dae3702ded16f1570289f08c0fa1b0f5852892c7a00ac1f2dd550ada9cb7ff0d",
+      "character_crop_sha256": "abb990deb760c6c8897ace0c6748d3ba49310178298b39210ea131e7d1b5fac4",
+      "non_background_pixels": 1232
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-right-prod-frame1.png",
+      "sha256": "2cc227aab5130e697f0998e37a9d86e5a9d5d820ea60588d692cd6f4a7c7329c",
+      "character_crop_sha256": "8c2bbc1200aeca5c844ca0862a3811a6b2de27aa7415928b67240b7726440167",
+      "non_background_pixels": 1373
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-right-prod-frame2.png",
+      "sha256": "c6d44368f2c8537015241bff4de8c5dd8b60e0a1ad5a2df0cdf2bfacb4ed169d",
+      "character_crop_sha256": "ce5030e1e2839e175aaa5dc21e7c7708eea77b67d78af1529bd0df8d1ff0bdbf",
+      "non_background_pixels": 1262
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-right-prod-frame3.png",
+      "sha256": "dc14791847fb26ca3cc19b1800e50eae1e6bfb99f3fb67c314c371013e6a3bf8",
+      "character_crop_sha256": "42246cdc198a2118943d5272183f1d05a8a1c995039fdbca928bbf8de8d4bb09",
+      "non_background_pixels": 1443
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-right-prod-frame4.png",
+      "sha256": "cbc16dad584942cca4dd46cd21890c542ea03467146b6a88e89c9827ca294d0f",
+      "character_crop_sha256": "b90660ff5b3a4e9bb8409cc4d0a4bc45d96dd05df854a12783cc2cf64182a041",
+      "non_background_pixels": 1435
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-plain-attack1-right-prod-frame5.png",
+      "sha256": "e55c8db5090302b91f4637bfb10c82fe744df5be4d4c8007f7c8d8624795fa3d",
+      "character_crop_sha256": "4e97c86bcb6f39e9f2dbafb9220114a95729537ca7e2a3f8146ab70607e1e5bb",
+      "non_background_pixels": 1290
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-left-prod-frame0.png",
+      "sha256": "3949b79db285300d849970228735529aa8db2cc62a8a36937d4f32660df5b92d",
+      "character_crop_sha256": "366e95c8f1fe90afb65359b7339c1125004a4ced50b72e1d638dda08a0879cd5",
+      "non_background_pixels": 1234
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-left-prod-frame1.png",
+      "sha256": "ec3dfb9785a8ac2e65aaedd45959f94eda0c6623d2cc25115d0f7eceefe11cb1",
+      "character_crop_sha256": "fd5f42b48a32ed6ac5f2cf579d9527263664fe83b67aef0041e086ace801c61b",
+      "non_background_pixels": 1192
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-left-prod-frame2.png",
+      "sha256": "445fbfc8f52ca17773f5c79a2b66d8c99966d7757eb1c9c8d05b12f6eb9c4ab5",
+      "character_crop_sha256": "6e81b47ff144d285c20c6954825fd3619a91fd30263de21484e301070899f2c4",
+      "non_background_pixels": 1286
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-left-prod-frame3.png",
+      "sha256": "940cfb3eef24cbdeab2137a815634b9aa7cf14e0e584f489ebcde8a2b8c4bfc3",
+      "character_crop_sha256": "adb6e94749d62c5c3d24fa574045fa3b7cc6b6770b6f33b54d42e24feda97445",
+      "non_background_pixels": 1268
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-left-prod-frame4.png",
+      "sha256": "a7e1c354220263e4f4b9ec257786e4b50c1268f28d3187c0ece9d1cf2eaa1877",
+      "character_crop_sha256": "51a24fdc137dff522006b11ec02dc8bb576eb6cfa4f9cb7ce6f4d5fff0910829",
+      "non_background_pixels": 1211
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-left-prod-frame5.png",
+      "sha256": "4d89ffa6ed22579a3cd136e8306eb4e6ed4b228c379e24dfb7d81f64513577cf",
+      "character_crop_sha256": "b54f143e01b71dbfc9d6f00694d852a1c1582e44a307f60ce4884d14d353afba",
+      "non_background_pixels": 1267
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-left-prod-frame0.png",
+      "sha256": "e43e84bffd88137b4f3b072d81ab051171a6209566e8dceab4d0ce26ef9ad73b",
+      "character_crop_sha256": "d8cce8286d56365060caa8e7e0b304efdb27939bbdb058e147f0f56615322210",
+      "non_background_pixels": 1106
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-left-prod-frame1.png",
+      "sha256": "4a442ba2c89263023e281ff6692b223c61debdcf9b0986134d451762d6b88231",
+      "character_crop_sha256": "be9ab8bd0bed5ffc562ec3228590938834be25355b3f6be092bc0383abfd4f3e",
+      "non_background_pixels": 1062
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-left-prod-frame2.png",
+      "sha256": "94c4166b057e84545e7e046aaef2b41d639f9dc28f22a3620bd7643f82e6d8a2",
+      "character_crop_sha256": "c833da45cffbf8572d610de5c218e92fd30be8e1f035f8b263467b09cc2d745b",
+      "non_background_pixels": 1146
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-left-prod-frame3.png",
+      "sha256": "c9e164832d1afb88eff0a1e286be56aecf285a5621400c07e2fdce501fe72522",
+      "character_crop_sha256": "103acf318924a54c1390076b61dd0ee85bdf081150fc44927f19741956abc2f8",
+      "non_background_pixels": 1130
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-left-prod-frame4.png",
+      "sha256": "e718b116c9e195d35f9e0fb999e294c3bd92a70ceabab01c95943dd92e540534",
+      "character_crop_sha256": "569d0a6d64b119c29e821e7fa30b11c3c4e664597f03e899131d6c9507d71e76",
+      "non_background_pixels": 1116
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-left-prod-frame5.png",
+      "sha256": "bdf0ba1920603658e6f097968dabb17e2cf6bc00f35f7d7b4f3a63811a4e6f7a",
+      "character_crop_sha256": "03a48070a72e4b0883cbcdbb215e5802add6075564a1ad814b18575ef26f748a",
+      "non_background_pixels": 1145
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-right-prod-frame0.png",
+      "sha256": "85ce2391cbd8f51821765d59257328c589b443ee7a84216985243f031b656a96",
+      "character_crop_sha256": "075c8db0b81f0ca11cae5f2771b92c5f41f21e88181c8638f391d6fc62f27afd",
+      "non_background_pixels": 1290
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-right-prod-frame1.png",
+      "sha256": "7a537a29469af14e73d1be0896fbac666da8aecf7f9a521ab850af2cfc6703f4",
+      "character_crop_sha256": "3035f14056955f29f15dfec3d9af662021a4e5430af90dcf58c0a5d8fde4fad7",
+      "non_background_pixels": 1261
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-right-prod-frame2.png",
+      "sha256": "7f244b8763ead99b059867d7650afb6ab3b33cb1ac9ef0131a56195aa2966697",
+      "character_crop_sha256": "3ad005f47a06a36a802f6a2493220a6dff41ad5d6fc2b2a874f040228be9c160",
+      "non_background_pixels": 1284
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-right-prod-frame3.png",
+      "sha256": "781b0bda502cf4504628b78d8179f753e40ae47de0bfc6e97334261f5f0486ba",
+      "character_crop_sha256": "5a0b87c2b78a70e897d084d786fc128cf8058e1a951696598988e3960751cd33",
+      "non_background_pixels": 1264
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-right-prod-frame4.png",
+      "sha256": "8767abef3a7d0a17dc94d2fb8e583e1a4ed69a6ec92636237dbe455c1b9c67c7",
+      "character_crop_sha256": "094334d64ebdedd90fb21109cd045a2b2f2eabd6bfcd297ee9c282d1c8c6ccaf",
+      "non_background_pixels": 1240
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-male-alt-walkingbow-right-prod-frame5.png",
+      "sha256": "bdfd617b33c5bd550ccc38161c393e023719cfe0c83827c428274ce144adf33f",
+      "character_crop_sha256": "f3db49e6133f1a8f421be2e7dd5dbbc91b8a42ef4cfe253727d12cb7fff699a1",
+      "non_background_pixels": 1310
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-right-prod-frame0.png",
+      "sha256": "e51bb3263060420a008081008a4525014ac310b6290760f92ee73492336f2b49",
+      "character_crop_sha256": "10461ffd7e01891df1e57065855787b7cc5e28567fce902d3470dd85af1b1a2b",
+      "non_background_pixels": 1160
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-right-prod-frame1.png",
+      "sha256": "3d2cd3d45c7e504a516f506bda5d0fb1f46c2680a4cb02299b83e2b388e0c7ce",
+      "character_crop_sha256": "51f590b31629efde57a9d271ecb5d2b17c00465f963aa7ef8fce8bf1d7d9bf89",
+      "non_background_pixels": 1152
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-right-prod-frame2.png",
+      "sha256": "039a5d9deaa778e731247e2156e83bdf2c55a59d161701be50954b1a2bef64d3",
+      "character_crop_sha256": "fbebc83cc329d1b29c1273d7fcb63c2890c4f1a77b6e069319f5269bc540b173",
+      "non_background_pixels": 1153
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-right-prod-frame3.png",
+      "sha256": "2d27d87f12bdb0d274b79b2f3dac08fc61ca981a50f2791f3b9cfe4ac8340377",
+      "character_crop_sha256": "62e4bb5a5870ab693edffa961b2eb9372ff141f636d77eb2a82bad5b2c98bae5",
+      "non_background_pixels": 1139
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-right-prod-frame4.png",
+      "sha256": "137456dbdc95a68d9481a15dfd1f16d2077abc7ae57b59ca8e26858618ae04eb",
+      "character_crop_sha256": "d030bcde8f20de5cadc6f328cc60764208e67c2d73031967c6fbac4e58ed238c",
+      "non_background_pixels": 1111
+    },
+    {
+      "path": "docs/testing/native-player-layout/archer-female-alt-walkingbow-right-prod-frame5.png",
+      "sha256": "f38945da78b2e29652865394fbcdaa3675c7f8cf40c09825f9878c0fee89839e",
+      "character_crop_sha256": "c30d901bf4216a962000366c5408c52faaae07cb2cb996b50a2fc89734553f12",
+      "non_background_pixels": 1173
+    }
+  ],
+  "limitations": [
+    "窗口/FPS/TCP live 40 次采样未测",
+    "DoubleSlash 生产恒 false",
+    "ObjectAttack 远端仅 A1",
+    "Spell/双持/AttackRange PARTIAL",
+    "弓手 A4 不使用；女性 C 系 A4 cweapon-00 六帧越界，安静跳过武器层",
+    "game-assets 为 gitignored；发布须携带或重建默认散装原生库与 packs"
+  ]
+}

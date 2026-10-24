@@ -110,7 +110,7 @@ use std::path::{Path, PathBuf};
 
 use mir_asset::{Image, ImageInfo, LibrarySource};
 use mir_core::Point;
-use mir_core::enums::MirDirection;
+use mir_core::enums::{MirClass, MirDirection, MirGender};
 
 use crate::Frame;
 use crate::animation::{
@@ -118,6 +118,9 @@ use crate::animation::{
     NPC_STANDING, WING_FRAMES_PER_APPEARANCE, wing_frames_for,
 };
 use crate::geometry::{self, CELL_HEIGHT, CELL_WIDTH, Viewport};
+use crate::player_layout::{
+    NativeAction, NativeEffectTable, NativeFrameTable, NativeHand, NativeLayer, PlayerLayout,
+};
 use crate::scene::remove_black_all;
 
 /// 每个玩家外观（身体/武器/头发）在扁平 `.wzl` 里占的帧数。
@@ -333,6 +336,14 @@ pub struct EntityView {
     pub action_started_ms: u64,
     /// R47 攻击变体；`None` = 旧行为/非入围攻击。建立动作时固定，不逐帧重抽。
     pub attack_variant: Option<AttackVariant>,
+    /// 玩家职业；非玩家/未知时用 `Warrior` 保持旧版式。
+    pub class: MirClass,
+    /// 玩家性别；非玩家/未知时用 `Male` 保持旧版式。
+    pub gender: MirGender,
+    /// R48 原生选招结果（仅 `ActorAction::Attacking` 有值）。
+    pub native_action: Option<NativeAction>,
+    /// R48 原生玩家库布局；非玩家/骑乘/无外观时为 `None`。
+    pub player_layout: Option<PlayerLayout>,
 }
 
 impl EntityView {
@@ -359,6 +370,10 @@ impl EntityView {
             action: ActorAction::Standing,
             action_started_ms: 0,
             attack_variant: None,
+            class: MirClass::Warrior,
+            gender: MirGender::Male,
+            native_action: None,
+            player_layout: None,
         }
     }
 
@@ -1060,6 +1075,22 @@ impl EntityLibraries {
         }
     }
 
+    /// 按 `library_key` 取原生玩家图库（散装或小包）；缺库返回 `None`。
+    ///
+    /// 与旧 `library(stem)` 不同，这里不把键拆成 `file_stem` 再猜路径，
+    /// 调用方必须传 `library-map.json` 里登记的稳定键（如 `carmour-00`）。
+    pub fn native_library(&mut self, key: &str) -> Option<&LibrarySource> {
+        self.library(key)
+    }
+
+    /// 取原生玩家库的一帧；缺库/缺帧/空图返回 `None`（渲染端安静跳过该层）。
+    #[must_use]
+    pub fn native_image(&mut self, key: &str, index: u32) -> Option<Image> {
+        let index = usize::try_from(index).ok()?;
+        let library = self.native_library(key)?;
+        library.image(index).ok().filter(|image| !image.is_empty())
+    }
+
     /// 取一个图库；文件不存在或打开失败返回 `None`。
     fn library(&mut self, stem: &str) -> Option<&LibrarySource> {
         if !self.opened.contains_key(stem) {
@@ -1139,6 +1170,8 @@ pub struct EntityRenderer {
     /// 见 `tests/player_layers.rs` 与 `docs/client.md` §9.14）。身体/头发库全部对齐，
     /// 所以这个探测对它们总是得到 0。
     phase: BTreeMap<(SpriteLibrary, u32), u32>,
+    /// 原生玩家库解码缓存：`(library_key, frame) → 图像`。
+    native_cache: BTreeMap<(String, u32), Option<Image>>,
 }
 
 impl EntityRenderer {
@@ -1151,6 +1184,7 @@ impl EntityRenderer {
             cache_hits: 0,
             cache_misses: 0,
             phase: BTreeMap::new(),
+            native_cache: BTreeMap::new(),
         }
     }
 
@@ -1314,6 +1348,10 @@ impl EntityRenderer {
         origin_y: i32,
         now_ms: u64,
     ) -> Option<i32> {
+        if let Some(native_top) = self.draw_native_player(frame, entity, origin_x, origin_y, now_ms)
+        {
+            return native_top;
+        }
         let plan = player_layer_plan_at(entity, now_ms);
         let mut top = None;
         let mut body_drawn = false;
@@ -1350,6 +1388,157 @@ impl EntityRenderer {
         }
         self.draw_attack_swing(frame, entity, origin_x, origin_y, now_ms);
         top
+    }
+
+    /// 原生玩家绘制路径（R48）：身体/头发/武器/翅膀按 Crystal 库与逐帧 `altAnim`。
+    ///
+    /// 返回 `None` 表示该玩家没有原生布局（骑乘/未知）或身体库不可用，调用方回退
+    /// 旧的扁平版式；返回 `Some(top)` 表示已处理（某些层缺帧时安静跳过，不跨库回退）。
+    // 外层区分“走原生路径/回退”，内层是该路径的绘制 top；语义不同，不用 Option 折叠。
+    #[allow(clippy::option_option)]
+    fn draw_native_player(
+        &mut self,
+        frame: &mut Frame,
+        entity: &EntityView,
+        origin_x: i32,
+        origin_y: i32,
+        now_ms: u64,
+    ) -> Option<Option<i32>> {
+        let layout = entity.player_layout?;
+        let action = entity
+            .native_action
+            .unwrap_or_else(|| layout.native_action(entity.action, entity.attack_variant));
+        let sequence = NativeFrameTable::get(action);
+        let elapsed = now_ms.saturating_sub(entity.action_started_ms);
+        let local = if action == NativeAction::Standing {
+            u16::try_from((elapsed / sequence.interval_ms.max(1)) % u64::from(sequence.count))
+                .unwrap_or(0)
+        } else {
+            u16::try_from(
+                (elapsed / sequence.interval_ms.max(1)).min(u64::from(sequence.count - 1)),
+            )
+            .unwrap_or(0)
+        };
+        let id = layout.library_id();
+        let body_key = id.library_key(NativeLayer::Armour, entity.armour)?;
+        // 只有“库不存在”才允许回退旧的扁平版式；库存在但精确帧缺失时
+        // 必须留在原生路径，不能转成 Standing 或别的库（t26 R48-X1-04）。
+        self.libraries.native_library(&body_key)?;
+        let body_index =
+            u32::from(id.armour_offset()) + u32::from(sequence.index_of(entity.direction, local));
+        let body = self.native_cached(&body_key, body_index);
+
+        let weapon_shape = entity.weapon_shape;
+        let main_key = (weapon_shape != NO_LAYER)
+            .then(|| id.library_key(NativeLayer::Weapon(NativeHand::Main), weapon_shape))
+            .flatten();
+        let off_key = (weapon_shape != NO_LAYER
+            && matches!(
+                layout.weapon_segment,
+                crate::player_layout::WeaponSegment::Assassin
+                    | crate::player_layout::WeaponSegment::Archer
+            ))
+        .then(|| id.library_key(NativeLayer::Weapon(NativeHand::Off), weapon_shape))
+        .flatten();
+        let weapon_index =
+            u32::from(id.weapon_offset()) + u32::from(sequence.index_of(entity.direction, local));
+        let hair_key = (entity.hair != NO_LAYER)
+            .then(|| id.library_key(NativeLayer::Hair, entity.hair))
+            .flatten();
+        let hair_index =
+            u32::from(id.hair_offset()) + u32::from(sequence.index_of(entity.direction, local));
+        let wing_key = (entity.wings != 0)
+            .then(|| id.library_key(NativeLayer::Wing, entity.wings.saturating_sub(1)))
+            .flatten();
+        let effect = NativeEffectTable::get(action);
+        let effect_local = if action == NativeAction::Standing {
+            u16::try_from((elapsed / effect.interval_ms.max(1)) % u64::from(effect.count))
+                .unwrap_or(0)
+        } else {
+            u16::try_from(
+                (elapsed / effect.interval_ms.max(1))
+                    .min(u64::from(effect.count.saturating_sub(1))),
+            )
+            .unwrap_or(0)
+        };
+        let wing_index = u32::from(id.wing_offset())
+            + u32::from(effect.index_of(entity.direction, effect_local));
+
+        let archer_extra_off = layout.class == MirClass::Archer
+            && layout.weapon_segment == crate::player_layout::WeaponSegment::Archer;
+        let (order, order_len) = crate::player_layout::draw_order(
+            entity.direction,
+            main_key.is_some(),
+            off_key.is_some(),
+            archer_extra_off,
+        );
+        let mut top = None;
+        for layer in &order[..order_len] {
+            match layer {
+                crate::player_layout::NativeDrawLayer::Body => {
+                    if let Some(image) = &body {
+                        let (bx, by) = (
+                            origin_x + i32::from(image.info.offset_x),
+                            origin_y + i32::from(image.info.offset_y),
+                        );
+                        frame.blit(image, bx, by);
+                        top = Some(by);
+                    } else {
+                        // 库存在但该动作帧缺失：画占位，不静默回退到 Standing。
+                        frame.fill_rect(origin_x, origin_y, 28, 40, [255, 0, 255, 255]);
+                        top = Some(origin_y);
+                    }
+                }
+                crate::player_layout::NativeDrawLayer::Head => {
+                    if let Some(key) = &hair_key {
+                        if let Some(image) = self.native_cached(key, hair_index) {
+                            frame.blit(
+                                &image,
+                                origin_x + i32::from(image.info.offset_x),
+                                origin_y + i32::from(image.info.offset_y),
+                            );
+                        }
+                    }
+                }
+                crate::player_layout::NativeDrawLayer::Wing => {
+                    if let Some(key) = &wing_key {
+                        if let Some(image) = self.native_cached(key, wing_index) {
+                            frame.blit(
+                                &image,
+                                origin_x + i32::from(image.info.offset_x),
+                                origin_y + i32::from(image.info.offset_y),
+                            );
+                        }
+                    }
+                }
+                crate::player_layout::NativeDrawLayer::Weapon(hand) => {
+                    let key = match hand {
+                        NativeHand::Main => &main_key,
+                        NativeHand::Off => &off_key,
+                    };
+                    if let Some(key) = key {
+                        if let Some(image) = self.native_cached(key, weapon_index) {
+                            frame.blit(
+                                &image,
+                                origin_x + i32::from(image.info.offset_x),
+                                origin_y + i32::from(image.info.offset_y),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        Some(top)
+    }
+
+    fn native_cached(&mut self, key: &str, index: u32) -> Option<Image> {
+        if let Some(cached) = self.native_cache.get(&(key.to_owned(), index)) {
+            return cached.clone();
+        }
+        let image = self.libraries.native_image(key, index);
+        self.native_cache
+            .insert((key.to_owned(), index), image.clone());
+        image
     }
 
     /// 攻击挥砍光效：`effect.wzl` 的 3 张光效按挥砍进度播放。
@@ -1788,6 +1977,56 @@ mod tests {
     const OVERLAP: (i32, i32) = (22, -30);
 
     /// 一套带身体/武器/头发的合成素材目录。
+    #[test]
+    fn native_body_missing_frame_stays_native_instead_of_flat_fallback() {
+        let dir = TempDir::new("native-missing-frame");
+        let library_dir = dir.join("gfx/sprites/player-native/carmour-00");
+        std::fs::create_dir_all(&library_dir).expect("创建原生库目录");
+        std::fs::write(
+            library_dir.join("index.json"),
+            r#"{"count":1,"format":"png","images":[]}"#,
+        )
+        .expect("写 index");
+        let map = mir_asset::LibraryMap {
+            libraries: [(
+                "carmour-00".to_owned(),
+                mir_asset::LibraryEntry {
+                    lib: None,
+                    dirs: vec!["gfx/sprites/player-native/carmour-00".to_owned()],
+                    prefix: None,
+                },
+            )]
+            .into_iter()
+            .collect(),
+            ..mir_asset::LibraryMap::default()
+        };
+        let mut renderer = EntityRenderer::new(EntityLibraries::open_with_sources(
+            dir.join("data"),
+            Some(&dir.join("gfx")),
+            Some(&dir.0),
+            Some(&map),
+            None,
+            false,
+        ));
+        let mut view = EntityView::new(Point::new(1, 1), MirDirection::Down, EntityKind::Player, 0);
+        view.armour = 0;
+        view.action = ActorAction::Attacking;
+        view.native_action = Some(NativeAction::Attack1);
+        view.player_layout = Some(PlayerLayout::new(
+            MirClass::Warrior,
+            MirGender::Male,
+            false,
+            0,
+        ));
+        let mut frame = Frame::new(100, 100);
+        frame.clear([0, 0, 0, 255]);
+        let top = renderer
+            .draw_native_player(&mut frame, &view, 50, 50, 0)
+            .expect("库存在时必须留在原生路径");
+        assert_eq!(top, Some(50));
+        assert_eq!(frame.pixel(50, 50), Some([255, 0, 255, 255]));
+    }
+
     fn synthetic_assets() -> TempDir {
         let dir = TempDir::new("assets");
         // 身体：块 0（`hum.wzl`），8 个方向各 1 帧站立，40×60 盖住格子上方。

@@ -655,6 +655,7 @@ mod tests {
                 action: ActorAction::Standing,
                 action_started_ms: 0,
                 attack_variant: None,
+                native_action: None,
                 looks: PlayerLooks::default(),
             }),
             ..WorldSnapshot::default()

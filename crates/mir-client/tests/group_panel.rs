@@ -249,6 +249,7 @@ fn group_snapshot() -> WorldSnapshot {
             action: mir_render::animation::ActorAction::Standing,
             action_started_ms: 0,
             attack_variant: None,
+            native_action: None,
         },
     );
     // 同图近距离时服务端会补发队友血条（`crates/mir-server/src/group.rs` 的 `group_join`）。

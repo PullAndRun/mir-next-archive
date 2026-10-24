@@ -22,6 +22,13 @@ $ErrorActionPreference = "Continue"
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Set-Location $root
 
+# 测试临时目录固定到仓库内：本机沙箱会拒绝 cargo 派生的测试进程写系统 %TEMP%
+# （`mir-render`/`mir-tools` 共 4 个用例以 PermissionDenied(5) 失败），
+# 而工作区内的 `target\tmp` 可写且方便清理。放在这里让所有 `cargo test` 项继承。
+$env:TEMP = Join-Path $root "target\tmp"
+$env:TMP = $env:TEMP
+New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
+
 $results = @()
 function Invoke-Gate {
     param([string]$Name, [string]$Command)

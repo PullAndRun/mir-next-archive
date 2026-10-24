@@ -1238,21 +1238,32 @@ resource/data --out target/perf-render.json`；摄像机每帧横移 1 格，连
 
 ```text
 坐骑
-朝 Left/Up/UpLeft/DownLeft：武器 → 身体 → 头发 → 翅膀 → 盾牌
-朝 UpRight/Right/DownRight/Down：身体 → 头发 → 翅膀 → 盾牌 → 武器
+朝 Left/Up/UpLeft：主手 → 身体 → 头发 → 翅膀 → 副手
+朝 DownLeft：      主手 → 身体 → 翅膀 → 头发 → 副手
+朝 UpRight/Right： 副手 → 身体 → 头发 → 翅膀 → 主手
+朝 DownRight/Down：副手 → 身体 → 翅膀 → 头发 → 主手
+弓手（WeaponLibrary1=null，AR 弓在 WeaponLibrary2）：
+朝左组/右组都在最后无条件再画一次 DrawWeapon2；左组末尾因此出现两次副手，
+右组身体前一次、末尾一次。Crystal 不按方向组跳过这额外一次。
 （骑乘时 Crystal 不画武器，PlayerObject.cs:4886,4914；本作同样跳过）
 ```
 
-顺序来自 `PlayerObject.Draw`（`Client/MirObjects/PlayerObject.cs:4877-4926`）：
+顺序来自 `PlayerObject.Draw`（`Client/MirObjects/PlayerObject.cs:4884-4923`）：
 
 | 步骤 | Crystal | 说明 |
 |---|---|---|
 | 1 | `:4884` `DrawMount()` | 坐骑，画在身体之下；`MountType < 0` 或未骑乘时不画（`:5086`） |
-| 2 | `:4886-4892` 方向∈{Left,Up,UpLeft,DownLeft} → `DrawWeapon()`（身体**之前**） | 朝左上/上/左下/左时武器被身体挡住 |
+| 2 | `:4886-4892` `DrawWeapon()`/`DrawWeapon2()`（身体**之前**） | 朝左组画主手，朝右组画副手 |
 | 3 | `:4894` `DrawBody()` | 身体层 |
-| 4 | `:4896-4911` `DrawHead()` / `DrawWings()` | 头发与翅膀；Crystal 按方向交换两者顺序，本作按需求固定为「头发之后画翅膀」 |
-| 5 | `:4914-4923` 方向∈{UpRight,Right,DownRight,Down} → `DrawWeapon()`（身体**之后**） | 朝右上/右/右下/下时武器在最前面 |
-| 6 | `:4921-4922` 弓箭手 `DrawWeapon2()` | 双持/职业武器，本作未做 |
+| 4 | `:4896-4911` `DrawHead()` / `DrawWings()` | 朝上/左/左上/右上/右先头发后翅膀；朝下/左下/右下先翅膀后头发 |
+| 5 | `:4914-4921` `DrawWeapon()`/`DrawWeapon2()`（身体**之后**） | 朝左组画副手，朝右组画主手 |
+| 6 | `:4922` 弓箭手 `DrawWeapon2()` | **所有方向**在方向分支之后无条件再补一次副手 |
+
+本作 `player_layout::draw_order` 用纯函数锁定这 8 个方向的层序；主手=`WeaponLibrary1`
+（普通唯一武器/刺客 WeaponsR），副手=`WeaponLibrary2`（刺客 WeaponsL、弓手
+`ARWeapons`/`ARWeaponsS`，普通职业为空）。弓手的 `WeaponLibrary1` 为 null，弓只存
+在 `WeaponLibrary2`（Off）；因此左组末尾的两次副手与右组身体前/末尾各一次，都是
+Crystal 同层重复绘制，不是两把弓。
 
 帧公式：
 
@@ -1311,16 +1322,38 @@ resource/data --out target/perf-render.json`；摄像机每帧横移 1 格，连
   正好对应 `Frames.cs:157-170` 的 effect 列；`wingserieseffect_x.wzl` 是 10 帧/方向
   的另一种布局，不能按 600 帧块索引，本作不用。
 
-### 6.3 动作帧表与时长（`mir-render/src/animation.rs`）
+### 6.3 动作帧表与时长（`mir-render/src/animation.rs` / `player_layout.rs`）
 
 Crystal 的 `Frame` 是 `Start / Count / Skip / Interval`（`Client/MirObjects/Frames.cs:203-244`），
 绘制帧号 `DrawFrame = Frame.Start + (Frame.OffSet * Direction) + FrameIndex`
 （`PlayerObject.cs:761`、`MonsterObject.cs:357`），其中 `Frame.OffSet = Count + Skip`
 （`Frames.cs:209-212`）。**`Skip` 是每个方向段末尾的空槽数，不是播放前跳过的帧**。
 
-扁平 `resource/data/hum.wzl` 每个外观块 600 帧，动作顺序与经典 `Hum.wil` 相同，
-但每个方向固定 8 帧。`Start/Skip` 按这个布局适配，`Count/Interval` 与 Crystal
-完全一致（`Frames.cs:157-170`）：
+`resource/data/hum.wzl` 是旧的扁平 600 帧布局，仅作为原生库缺失/骑乘时的
+fallback；默认 auto→dev 路径下玩家走原生 `player-native/*` 库。原生布局的
+`Start/Count/Skip/Interval` 来自 Crystal `Frames.cs:157-185`（Player 段）与
+`PlayerObject.cs` 的 `Frames` 选择（`mir-render/src/player_layout.rs`）：
+
+| 动作 | `NativeAction` | Body Start/Count/Skip | Body Interval | Effect Start/Count/Skip | Effect Interval |
+|---|---|---|---|---|---|
+| 站立 | `Standing` | 0/4/0 | 500 ms | 0/8/0 | 250 ms |
+| 行走 | `Walking` | 32/6/0 | 100 ms | 64/6/0 | 100 ms |
+| 跑步 | `Running` | 80/6/0 | 100 ms | 112/6/0 | 100 ms |
+| 攻击 1 | `Attack1` | 136/6/0 | 100 ms | 168/6/0 | 100 ms |
+| 攻击 2 | `Attack2` | 184/6/0 | 100 ms | 216/6/0 | 100 ms |
+| 攻击 3 | `Attack3` | 232/8/0 | 100 ms | 264/8/0 | 100 ms |
+| 攻击 4 | `Attack4` | 416/6/0 | 100 ms | 448/6/0 | 100 ms |
+| 法术 | `Spell` | 296/6/0 | 100 ms | 328/6/0 | 100 ms |
+| 受击 | `Struck` | 360/3/0 | 100 ms | 392/3/0 | 100 ms |
+| 死亡 | `Die` | 384/4/0 | 100 ms | 416/4/0 | 100 ms |
+| 尸体 | `Dead` | 387/1/3 | 1000 ms | 419/1/3 | 1000 ms |
+
+`Start/Count/Skip` 是身体帧；`Effect Start/Count/Skip` 是独立的翅膀/光效帧表，不能
+用身体帧号代替。站立身体 4 帧而 effect 8 帧、攻击 3 身体 232 起而 effect 264 起，
+是最容易被混用的两处。
+
+扁平 fallback 仍按 `resource/data/hum.wzl` 的 600 帧布局
+（`mir-render/src/animation.rs::human_frames`），不能把原生表套到旧图上：
 
 | 动作 | `ActorAction` | Start | Count | Skip | 步长 | Interval | 时长 |
 |---|---|---|---|---|---|---|---|
@@ -1328,24 +1361,77 @@ Crystal 的 `Frame` 是 `Start / Count / Skip / Interval`（`Client/MirObjects/F
 | 行走 | `Walking` | 64 | 6 | 2 | 8 | 100 ms | **600 ms** |
 | 跑步 | `Running` | 128 | 6 | 2 | 8 | 100 ms | **600 ms** |
 | 攻击 1 | `Attacking` | 200 | 6 | 2 | 8 | **50 ms** | **300 ms** |
-| 攻击 2 | （未选择） | 264 | 6 | 2 | 8 | 50 ms | 300 ms |
-| 攻击 3（双手） | （未选择） | 328 | 8 | 0 | 8 | 50 ms | 400 ms |
+| 攻击 2（未选择） | — | 264 | 6 | 2 | 8 | 50 ms | 300 ms |
+| 攻击 3（双手，未选择） | — | 328 | 8 | 0 | 8 | 50 ms | 400 ms |
 | 受击 | `Struck` | 472 | 3 | 5 | 8 | 100 ms | **300 ms** |
 | 死亡 | `Dying` | 536 | 4 | 4 | 8 | 100 ms | **400 ms** |
 | 尸体 | `Dead` | 539 | 1 | 7 | 8 | 1000 ms | 保持 |
 
-* 192~199 是 8 个方向的 1 帧姿态，所以攻击 1 从 200 开始；这些起点由
-  `tests/animation_assets.rs` 对真实 `hum.wzl` 逐帧解码验证。
-* **攻击间隔取 50 ms（6 帧 = 300 ms）是第 7 轮校准**：服务端
-  `PLAYER_ATTACK_DAMAGE_DELAY_MS = 300`（`HumanObject.cs:3201` 的 `DelayedAction`），
-  挥砍要在伤害落地时正好播完；Crystal 帧表写的是 100 ms，本作有意不同。跑步保持
-  6 × 100 ms = 600 ms，与服务端跑动一致。
-* 攻击的**输入间隔**另由 `User.AttackSpeed` 控制（`UserObject.cs:173-174`：
-  `1400 - AttackSpeed*60 - min(370, Level*14)`，最低 550 ms）；本作只播放可见动作，
-  不模拟输入冷却。
-* 攻击统一用 `Attack1`；Crystal 的 `Attack2/Attack3/Attack4` 尚未按职业/武器选择。
-* 播放规则：站立循环 4 帧；走/跑播完回 Standing 第 0 帧；攻击/受击/死亡播完保持
-  最后一帧；`Dead` 永远停尸体帧（`PlayerObject.cs:2317-2323,2500-2508`）。
+扁平攻击 1 的 50 ms 是第 7 轮校准，对齐服务端
+`PLAYER_ATTACK_DAMAGE_DELAY_MS = 300`（`HumanObject.cs:3201` 的
+`DelayedAction`）；Crystal 帧表写 100 ms，本作有意不同。原生表则严格用
+Crystal 的 100 ms。扁平旧路径在 `variant=None` 时默认 Attack1（50 ms）；
+一旦攻击事件带 `AttackVariant::Attack1/Attack3`，改用 `HUMAN_ATTACK1_R47`/
+`HUMAN_ATTACK3_R47`（100 ms，600/800 ms），只有原生 `select_attack1`
+才区分 A1–A4。
+
+女性外观的偏移**不是统一 +512**：`NativeLibraryId` 按域/`altAnim` 分别给身体、
+头发、武器、翅膀偏移：
+
+| 身份 | 身体/头发 | 武器 | 翅膀 |
+|---|---|---|---|
+| C 系（战/道/法，及非 alt 刺客/弓手） | 808 | 416 | 840 |
+| 刺客 alt | 512 | 512 | 544 |
+| 弓手 alt | 352 | 352 | 352 |
+| 男性（任意域） | 0 | 0 | 0 |
+
+偏移加在 `Start + direction * (Count + Skip) + frame` 上，`Start` 本身不含偏移，
+`index.json` 也不写偏移。来源是 Crystal `ArmourOffSet/HairOffSet/WeaponOffSet/
+WingOffset`（`PlayerObject.cs:445-448,536-539,584-587`），实现在
+`NativeLibraryId::{armour_offset,hair_offset,weapon_offset,wing_offset}`。
+原生库域按 Crystal `PlayerObject.cs:368-412,457-503,584-587`：
+
+* 战/道/法恒为 C 系（`carmour/chair/cweapon`）；
+* 刺客 `altAnim` 才是 `aarmour/ahair`，否则 C 系；
+* 弓手 `altAnim` 才是 `ararmour/arhair`，否则 C 系；
+* 武器按 `Weapon / 100` 独立选域：普通 `CWeapons`、刺客 `AWeaponsR/L`、
+  弓手 `ARWeapons/ARWeaponsS`；身体/头发域随 `altAnim`。翅膀库域也随
+  `altAnim`，但帧偏移独立（女性 C 系 840、刺客 alt 544、弓手 alt 352，男性 0）。
+
+`altAnim` 的生产近似：当前协议没有 AttackRange/Stance/Spell/Sneek/DashAttack
+等独立动作或技能字段，`PlayerLayout::for_action` 只在刺客/弓手且未骑乘时判定：
+
+* 刺客：有职业武器（`Weapon/100 == 1`）或无武器，且动作 ∈
+  `{Standing,Walking,Running,Attacking,Struck,Dying}`；
+* 弓手：有职业武器（`Weapon/100 == 2`），且动作 ∈
+  `{WalkingBow,RunningBow,AttackRange1/2,Jump}`；`Walking/Running` 在
+  `native_for_actor` 里先映射成 `WalkingBow/RunningBow`，所以这两个动作会走
+  alt；普通 `Attacking` 映射成 `Attack1`，**反而不满足 alt 集合**，会用 C 系
+  身体 + AR 武器库。`AttackRange*` 目前没有协议入口，只留在类型/测试里。
+* 战/道/法恒 false；骑乘直接返回 `None`（整体走旧扁平路径）。
+
+Crystal 的集合更大（刺客还含 Stance/Die/Attack1..4/Sneek/Spell/DashAttack，
+弓手还含 AttackRange1..2/Jump）；本作没有这些独立动作，用 `Attacking` 统一
+承载，所以这是**显式近似**，不是逐项等价。
+
+攻击选招按 `PlayerObject.cs:1055-1075`：默认职业 Shift 且无目标时
+`Next(100)>=20 ? Attack1 : Attack3`；刺客 Shift 惰性抽两次，
+DoubleSlash 优先且 0 抽（生产恒 false，协议无技能字段），非 Shift 抽一次；
+弓手 0 抽 Attack1。帧表和时长都由 `NativeFrameTable` 给出，不再用扁平
+600/50/300 常量。`Attack4` 的 `TwinDrakeBlade/FlamingSword` 映射有单测，
+但协议没有 Attack4/Spell，生产路径 **PARTIAL**。
+
+播放规则：站立循环 4 帧；走/跑播完回 Standing 第 0 帧；攻击/受击/死亡播完保持
+最后一帧；`Dead` 永远停尸体帧（`PlayerObject.cs:2317-2323,2500-2508`）。
+原生路径要求身体库存在；**身体库键/库不存在时整个玩家回退旧扁平路径**
+（旧路径再按身体层决定是否画占位）。身体库存在但当前动作/方向的身体帧缺失时，
+在该层画 28×40 品红占位，**仍留在原生路径**，不跨库回退成 Standing/Attack1；
+头发/武器/翅膀单层缺帧时才安静跳过该层。没有原生库或骑乘同样整体回退旧扁平路径。
+原生层按 §6.1 的 8 方向层序绘制：普通职业/刺客的主、副手随方向在身体前后切换；
+弓手 `WeaponLibrary1=null`，AR 弓只在 `WeaponLibrary2`（Off），所有方向末尾都按
+`PlayerObject.cs:4921-4922` 再画一次 `DrawWeapon2`（左组末尾两次、右组身体前后各一次）。
+没有盾牌层，扁平路径仍沿用 §6.1 的方向规则。Crystal 对本地 `User` 跳过翅膀，
+本作未复刻这一分支，本地玩家也画翅膀。
 
 #### 坐骑与翅膀帧表
 
@@ -1366,22 +1452,30 @@ Crystal 的 `Frame` 是 `Start / Count / Skip / Interval`（`Client/MirObjects/F
 * 攻击段在 `horse*.wzl` 的 384 起（Crystal 的 `MountAttack` 相对偏移是 168），
   死亡/尸体段是扁平素材额外提供的，按实测取 512/576。
 
-翅膀帧表直接取 `Frames.cs:157-170` 每行的第五～八角（effect 段）：
+翅膀帧表取 `Frames.cs:157-185` 每行的 effect 列（`NativeEffectTable`），
+和身体表相互独立：
 
-| 动作 | `Wing*` 常量 | Start | Count | Skip | Interval |
-|---|---|---|---|---|---|
-| 站立 | `WING_STANDING` | 0 | 8 | 0 | 250 ms |
-| 行走 | `WING_WALKING` | 64 | 8 | 0 | 100 ms |
-| 跑步 | `WING_RUNNING` | 112 | 8 | 0 | 100 ms |
-| 攻击 1 | `WING_ATTACKING` | 168 | 8 | 0 | 100 ms |
-| 受击 | `WING_STRUCK` | 392 | 3 | 0 | 100 ms |
-| 死亡 | `WING_DYING` | 416 | 4 | 0 | 100 ms |
-| 尸体 | `WING_DEAD` | 419 | 1 | 3 | 1000 ms |
+| 动作 | effect Start | Count | Skip | Interval |
+|---|---|---|---|---|
+| 站立 | 0 | 8 | 0 | 250 ms |
+| 行走 | 64 | 6 | 0 | 100 ms |
+| 跑步 | 112 | 6 | 0 | 100 ms |
+| 攻击 1 | 168 | 6 | 0 | 100 ms |
+| 攻击 2 | 216 | 6 | 0 | 100 ms |
+| 攻击 3 | 264 | 8 | 0 | 100 ms |
+| 攻击 4 | 448 | 6 | 0 | 100 ms |
+| 法术 | 328 | 6 | 0 | 100 ms |
+| 受击 | 392 | 3 | 0 | 100 ms |
+| 死亡 | 416 | 4 | 0 | 100 ms |
+| 尸体 | 419 | 1 | 3 | 1000 ms |
 
-翅膀的 `DrawWingFrame = EffectStart + EffectOffSet × direction + EffectFrameIndex`
-（`PlayerObject.cs:762`），与身体 `DrawFrame` 是两套帧号；本作在
-`player_layer_plan_at` 里分别按 `wing_frames(action)` 取帧，
-`mir-render` 的合成素材测试断言「翅膀压在头发上」「坐骑被身体盖住」。
+注意站立 effect 是 8 帧（身体只有 4 帧），`EffectOffSet = Count + Skip` 也按 effect
+自己的 Count 计算。翅膀帧号：
+`DrawWingFrame = EffectStart + EffectOffSet × direction + EffectFrameIndex`
+（`PlayerObject.cs:762`），再加 `WingOffset`（男性 0；女性 C 系 840、刺客 alt 544、
+弓手 alt 352，`PlayerObject.cs:448,539,584-587,5080`）。它与身体 `DrawFrame` 是
+两套帧号，不能复用身体帧号。`game-assets/gfx/sprites/player-native/chum-effect-*`
+的 index 就是该 effect 表；缺 effect 库/帧时安静跳过该层。
 
 怪物默认表来自 Crystal `Frames.cs:25-31`（站立 4×500、行走 6×100、攻击 6×100、
 受击 2×200、死亡 10×100、尸体 1×1000）。扁平 `monN.wzl` 没有 Crystal `.Lib` 的
@@ -1658,12 +1752,19 @@ cargo fmt --all -- --check
   [`client-experience-backlog.md`](client-experience-backlog.md)。
 * 武器发光（`WeaponEffect`）、中毒染色与等级特效；坐骑/翅膀已支持基础绘制，
   但坐骑/翅膀的逐外观精确素材映射（`Mount/*.Lib`、`CHumEffect/*.Lib`）尚未接入；
-* 攻击变招（Attack2/3/4 按职业/武器/随机选择，`PlayerObject.cs:1055-1075`）、
-  弓箭手用 `WalkingBow/RunningBow/AttackRange*`、刺客 `Sneek`；目前统一用 Attack1；
+* 原生选招：本地攻击命令按 Crystal `PlayerObject.cs:1055-1075` 走 `select_attack1`，
+  可选 A1..A4（刺客 Shift 分支可达 A2/A4）；但旧扁平 `variant` 只写 A1/A3，
+  `native_action` 也不进入协议，服务端 `S.ObjectAttack` 没有原生动作字段。
+  远端玩家 `net::entity_views` 只把已有 `AttackVariant::Attack1/Attack3` 映射成
+  A1/A3，协议没有 Attack4/Spell，`TwinDrakeBlade/FlamingSword` 映射只在单测可达
+  （生产 PARTIAL），DoubleSlash 生产恒 false。因此**网络上可见的他人攻击只有
+  A1/A3**，不能把本地 A1–A4 选择说成网络全量覆盖。
+* 弓手 alt 的 `WalkingBow/RunningBow` 已接入；`AttackRange1–3` 因协议没有独立
+  远程动作，仍以 `Attacking` → `Attack1` 近似（PARTIAL）。刺客 `Sneek` 尚未接入；
+  双持（`WeaponLibrary2`）与弓手全方向第二遍 `DrawWeapon2` 已按 §6.1 接入。
 * 怪物逐图像帧表：`!Mon.dat` / Crystal `.Lib` 的 `BodyLibrary.Frames` 尚未解析，
   只用 §6.3 的保守默认；某些怪物（如 `mon1.wzl` 图像 1/2）的受击/死亡段不在默认
   偏移上，会回退到站立帧；
-* 刺客双持（`WeaponLibrary2`）与弓箭手第二遍武器（`PlayerObject.cs:4921-4922`）；
 * 装备面板里的角色小预览（面板目前只有 14 个槽的图标 + 名称 + 属性汇总）；
 * 鼠标悬停地面物品的拾取提示框（现在只画物品名；`P` 键与点击拾取已可用）；
   大地图点击寻路（`BigMapDialog.cs:612-628`）仍只吃掉点击；

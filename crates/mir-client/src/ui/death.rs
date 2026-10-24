@@ -162,6 +162,7 @@ mod tests {
             action: ActorAction::Dying,
             action_started_ms: started,
             attack_variant: None,
+            native_action: None,
             looks: crate::net::PlayerLooks::default(),
         }
     }

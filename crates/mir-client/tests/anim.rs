@@ -344,7 +344,7 @@ fn local_player_actions_are_driven_without_a_server_echo() {
     // 自己的走：服务端只回 UserLocation，客户端必须在发包时本地驱动。
     assert_eq!(
         NetCommand::Walk(MirDirection::Right).local_animation(),
-        Some((ActorAction::Walking, MirDirection::Right, None))
+        Some((ActorAction::Walking, MirDirection::Right, None, None))
     );
     snapshot.apply_local_action(ActorAction::Walking, MirDirection::Right, T0);
     let me = snapshot.self_player.as_ref().expect("自己");

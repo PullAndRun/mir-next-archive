@@ -389,6 +389,7 @@ fn perform_attack(
         attacker.send(NetCommand::Attack {
             direction,
             variant: Some(variant),
+            native_action: None,
         }),
         "生产命令应进入网络队列"
     );

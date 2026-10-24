@@ -388,15 +388,47 @@ fn assets_unpack(args: &mut impl Iterator<Item = String>) -> Result<()> {
         None => IndexSpec::All,
         Some(raw) => parse_index_spec(raw)?,
     };
+    let library_key = derive_library_key(&lib_path)?;
     unpack_one(
         &lib_path,
+        &library_key,
         &out_dir,
-        index_spec,
-        reason.as_deref(),
-        dry_run,
-        verify,
-        &alpha_formats,
+        &UnpackOptions {
+            spec: index_spec,
+            reason: reason.as_deref(),
+            dry_run,
+            verify,
+            alpha_formats: &alpha_formats,
+        },
     )?;
+    Ok(())
+}
+
+/// 由库文件名推导默认 `library_key`：小写、空格转 `-`、去扩展名。
+///
+/// 原生玩家库的真实文件名包含空格后缀（`00 L.Lib` / `00 S.Lib`），
+/// 计划里必须显式提供带域前缀的 key；单库 CLI 缺省也只做这一层规范化。
+fn derive_library_key(lib_path: &Path) -> Result<String> {
+    let stem = lib_path.file_stem().map_or_else(
+        || "library".to_owned(),
+        |value| value.to_string_lossy().to_string(),
+    );
+    let key = stem.to_lowercase().replace(' ', "-");
+    validate_library_key(&key)
+        .with_context(|| format!("库 {} 的 library_key", lib_path.display()))?;
+    Ok(key)
+}
+
+fn validate_library_key(key: &str) -> Result<()> {
+    if key.is_empty() {
+        anyhow::bail!("library_key 不能为空");
+    }
+    if let Some(bad) = key
+        .chars()
+        .find(|ch| !(ch.is_ascii_lowercase() || ch.is_ascii_digit() || *ch == '-'))
+    {
+        anyhow::bail!("library_key={key} 含非法字符 {bad:?}（只允许 [a-z0-9-]）");
+    }
     Ok(())
 }
 
@@ -427,8 +459,12 @@ fn unpackage_plan(
     let mut total_libraries = 0usize;
     let mut total_outputs = 0usize;
     let mut written_dirs: Vec<PathBuf> = Vec::new();
-    // stem（`hum.wzl` → `hum`）→ 该库拆出的目录（相对 out_root，POSIX 风格，不带尾斜杠）
+    // library_key → 该库拆出的目录（相对 out_root，POSIX 风格，不带尾斜杠）。
+    // 原生玩家库的文件名会撞 stem（CArmour/00.Lib、AArmour/00.Lib），所以计划必须能显式给
+    // 带域前缀的 key；缺省仍回退到规范化 file_stem，保持旧计划兼容。
     let mut library_dirs: std::collections::BTreeMap<String, (String, Vec<String>)> =
+        std::collections::BTreeMap::new();
+    let mut key_sources: std::collections::BTreeMap<String, String> =
         std::collections::BTreeMap::new();
     for entry in libraries {
         let lib = entry
@@ -460,10 +496,21 @@ fn unpackage_plan(
             None => default_alpha_formats.to_vec(),
         };
         let lib_path = resolve_plan_lib(Path::new(&source_root), lib);
-        let stem = Path::new(lib).file_stem().map_or_else(
-            || "library".to_owned(),
-            |value| value.to_string_lossy().to_string(),
-        );
+        let library_key = match entry.get("library_key").and_then(serde_json::Value::as_str) {
+            Some(key) => key.to_owned(),
+            None => derive_library_key(Path::new(lib))?,
+        };
+        validate_library_key(&library_key)
+            .with_context(|| format!("libraries[] lib={lib} 的 library_key"))?;
+        if let Some(previous) = key_sources.get(&library_key) {
+            if previous != lib {
+                anyhow::bail!(
+                    "library_key={library_key} 同时指向 {previous} 与 {lib}；请为不同库使用唯一 key"
+                );
+            }
+        } else {
+            key_sources.insert(library_key.clone(), lib.to_owned());
+        }
         let default_dir = entry
             .get("dest")
             .and_then(serde_json::Value::as_str)
@@ -473,8 +520,8 @@ fn unpackage_plan(
                         .get("category")
                         .and_then(serde_json::Value::as_str)
                         .map_or_else(
-                            || out_root.join("gfx").join(&stem),
-                            |category| out_root.join("gfx").join(category).join(&stem),
+                            || out_root.join("gfx").join(&library_key),
+                            |category| out_root.join("gfx").join(category).join(&library_key),
                         )
                 },
                 |dest| out_root.join(dest),
@@ -520,12 +567,15 @@ fn unpackage_plan(
             if !map_only {
                 total_images += unpack_one(
                     &lib_path,
+                    &library_key,
                     &out_dir,
-                    output_spec,
-                    reason,
-                    dry_run,
-                    verify,
-                    &alpha_formats,
+                    &UnpackOptions {
+                        spec: output_spec,
+                        reason,
+                        dry_run,
+                        verify,
+                        alpha_formats: &alpha_formats,
+                    },
                 )?;
             }
             total_outputs += 1;
@@ -534,7 +584,7 @@ fn unpackage_plan(
                     let relative = relative.to_string_lossy().replace('\\', "/");
                     if !relative.is_empty() {
                         library_dirs
-                            .entry(stem.clone())
+                            .entry(library_key.clone())
                             .or_insert_with(|| (lib.to_owned(), Vec::new()))
                             .1
                             .push(relative);
@@ -613,16 +663,26 @@ fn resolve_plan_lib(source_root: &Path, lib: &str) -> PathBuf {
     }
 }
 
+struct UnpackOptions<'a> {
+    spec: IndexSpec,
+    reason: Option<&'a str>,
+    dry_run: bool,
+    verify: bool,
+    alpha_formats: &'a [u8],
+}
+
 /// 拆一个库：写 `index.json` + `<index>.png`；返回拆出的图数（含空图）。
 fn unpack_one(
     lib_path: &Path,
+    library_key: &str,
     out_dir: &Path,
-    spec: IndexSpec,
-    reason: Option<&str>,
-    dry_run: bool,
-    verify: bool,
-    alpha_formats: &[u8],
+    opts: &UnpackOptions<'_>,
 ) -> Result<usize> {
+    let spec = opts.spec.clone();
+    let reason = opts.reason;
+    let dry_run = opts.dry_run;
+    let verify = opts.verify;
+    let alpha_formats = opts.alpha_formats;
     if verify {
         return verify_unpacked(lib_path, out_dir, alpha_formats);
     }
@@ -737,6 +797,7 @@ fn unpack_one(
 
     let index_json = serde_json::json!({
         "version": 1,
+        "library_key": library_key,
         "lib": lib_path.file_name().map(|name| name.to_string_lossy().to_string()),
         "source": lib_path.display().to_string(),
         "source_bytes": source_bytes,

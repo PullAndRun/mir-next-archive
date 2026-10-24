@@ -236,6 +236,7 @@ fn clicking_a_monster_locks_it_and_double_clicking_an_adjacent_one_attacks() {
         Some(NetCommand::Attack {
             direction: MirDirection::Right,
             variant: None,
+            native_action: None,
         }),
         "双击相邻怪物应产生 NetCommand::Attack"
     );

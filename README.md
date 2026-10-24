@@ -317,6 +317,7 @@ pwsh -NoProfile -File tools/dev/release-smoke.ps1
 | [`docs/testing/ci-assets.md`](docs/testing/ci-assets.md) | CI 素材依赖审计：哪些测试读 `resource/`、缺素材如何 skip，以及无素材复现脚本 |
 | [`docs/testing/self-motion/README.md`](docs/testing/self-motion/README.md) | 自机移动插值证据索引：逐帧对照 CSV、live_world 批次（A/B/C 历史 + **D 提交选定**）、冻结哈希、单测动态覆盖边界（camera 12 项：公式 6 + 生命周期 6）与四类窗口未实测 |
 | [`docs/testing/remote-motion/README.md`](docs/testing/remote-motion/README.md) | 第 46 轮他者玩家 Walk/Run 插值证据索引：96 组合独立期望、双客户端 live、D2 冻结哈希、真实 baseline 性能与覆盖边界 |
+| [`docs/testing/native-player-layout/README.md`](docs/testing/native-player-layout/README.md) | 第 48 轮原生玩家选库/选招证据：A/AR/C 域与 altAnim、Crystal 选招、200 帧 / 144 唯一 PNG 哈希、默认 auto→dev 路径、Attack4/DoubleSlash 限制 |
 | [`docs/client-experience-backlog.md`](docs/client-experience-backlog.md) | 第 45 轮登记的后续体验清单：攻击变招/他者插值/怪物帧表/光照/天气/UI/音效/按键（含 Crystal 出处与验收） |
 | [`docs/client.md`](docs/client.md) | 客户端：协议流程、按键/鼠标、面板与字体 |
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |

@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use mir_client::attack::{AttackContext, AttackRng, select_attack_variant_with_rng};
+use mir_client::attack::AttackRng;
 use mir_client::audio::{SoundLibrary, SoundPlayer};
 use mir_client::camera::{self, SelfMotion};
 use mir_client::geom::Rect;
@@ -37,6 +37,8 @@ use mir_client::ui::{self, UiAction, UiState, UiText};
 use mir_core::Language;
 use mir_core::Point;
 use mir_core::enums::{ItemType, MirDirection, Spell};
+use mir_render::native_attack::select_attack1;
+use mir_render::player_layout::NativeAction;
 use mir_render::sound::SoundId;
 use mir_render::{ActorAction, Frame, MapScene};
 use winit::application::ApplicationHandler;
@@ -133,13 +135,22 @@ impl LiveState {
     /// 音效也在这里**本地预播**：服务端不会把 `ObjectWalk`/`ObjectRun`/`ObjectAttack`
     /// 回发给动作发起者（`mir-server/src/world.rs:2428-2449`），不本地播的话自己走路没声音。
     fn send(&mut self, command: NetCommand) {
-        if let Some((action, direction, variant)) = command.local_animation() {
-            self.snapshot.apply_local_action_with_variant(
-                action,
-                direction,
-                variant,
-                now_millis_u64(),
-            );
+        if let Some((action, direction, variant, native_action)) = command.local_animation() {
+            if action == ActorAction::Attacking {
+                self.snapshot.apply_local_attack(
+                    direction,
+                    variant,
+                    native_action,
+                    now_millis_u64(),
+                );
+            } else {
+                self.snapshot.apply_local_action_with_variant(
+                    action,
+                    direction,
+                    variant,
+                    now_millis_u64(),
+                );
+            }
             // 本地动作 → 音效（Crystal 同样在动画帧上播，`PlayerObject.cs:3596-3599`、
             // `:4779-4847`）。
             let sound = match action {
@@ -3092,9 +3103,10 @@ impl ApplicationHandler for ClientApp {
     }
 }
 
-/// 生产本地攻击命令：按 R47 选招规则决定是否带变体。
+/// 生产本地攻击命令：按 Crystal `PlayerObject.cs:1055-1075` 为所有职业选原生帧表。
 ///
-/// 普通攻击仍只发既有 `C.Attack`（variant 不进入协议）；选招只在建立动作时抽一次。
+/// R47 的 A1/A3 仍写入 `variant`（旧扁平渲染路径），R48 的 A1..A4 写入
+/// `native_action`；两者都不进入协议。`DoubleSlash` 当前协议拿不到，显式传 `false`。
 fn local_attack_command(
     live: &mut LiveState,
     direction: MirDirection,
@@ -3104,17 +3116,29 @@ fn local_attack_command(
         return NetCommand::Attack {
             direction,
             variant: None,
+            native_action: None,
         };
     };
-    let context = AttackContext {
-        class: me.class,
-        shift: live.shift,
-        has_target,
-        spell: Spell::None,
-        riding: me.looks.mount > 0,
+    let class = me.class;
+    let riding = me.looks.mount > 0;
+    let native_action = if riding {
+        None
+    } else {
+        let mut roll = |_| u32::from(live.attack_rng.next_roll());
+        Some(select_attack1(
+            class, live.shift, has_target, None, false, &mut roll,
+        ))
     };
-    let variant = select_attack_variant_with_rng(&context, &mut live.attack_rng);
-    NetCommand::Attack { direction, variant }
+    let variant = match native_action {
+        Some(NativeAction::Attack3) => Some(mir_render::animation::AttackVariant::Attack3),
+        Some(NativeAction::Attack1) => Some(mir_render::animation::AttackVariant::Attack1),
+        _ => None,
+    };
+    NetCommand::Attack {
+        direction,
+        variant,
+        native_action,
+    }
 }
 
 /// 把 winit 按键转成配置里的键名（设置面板捕获用；修饰键返回 `None`）。

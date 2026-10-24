@@ -6376,6 +6376,12 @@ mod tests {
         world.insert_map("0", test_map("0"));
         let (player, mut rx) = player(1, "fallback reviver", Point::new(10, 10), "0");
         world.enter(player);
+        // 根因：`World::now()` 未冻结时会把真实 `started.elapsed()` 叠加进返回值。
+        // 若这里先 set_player_hp（记录 revive_time=now()+60000）再 advance_clock(59999)，
+        // 两条语句之间真实耗时 >=1ms 时冻结值会变成 death_now+delta+59999，
+        // 越过 revive_time，tick 就会在 deadline 前复活。死亡前先 advance_clock(0)
+        // 把时钟冻结，后续 revive_time 与快进都基于同一冻结时钟。
+        world.advance_clock(0);
         world.set_player_hp(1, 0);
         drain(&mut rx);
 
@@ -6389,6 +6395,7 @@ mod tests {
         assert!(!player.dead, "deadline 后应兜底复活");
         assert_eq!(player.position, Point::new(10, 10), "兜底复活是原地");
         assert_eq!(player.hp, player.stats.hp);
+        assert_eq!(player.mp, player.stats.mp);
         assert_eq!(player.revive_time, 0);
         let packets = drain(&mut rx);
         assert!(

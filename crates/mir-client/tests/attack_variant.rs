@@ -90,6 +90,7 @@ fn self_snapshot(class: MirClass) -> WorldSnapshot {
             action: ActorAction::Standing,
             action_started_ms: 0,
             attack_variant: None,
+            native_action: None,
             looks: PlayerLooks::default(),
         }),
         ..WorldSnapshot::default()
@@ -100,9 +101,12 @@ fn apply_attack(snapshot: &mut WorldSnapshot, variant: AttackVariant) {
     let command = NetCommand::Attack {
         direction: MirDirection::Right,
         variant: Some(variant),
+        native_action: None,
     };
-    let (action, direction, selected) = command.local_animation().expect("攻击本地动作");
+    let (action, direction, selected, native_action) =
+        command.local_animation().expect("攻击本地动作");
     assert_eq!(selected, Some(variant));
+    assert_eq!(native_action, None);
     snapshot.apply_local_action_with_variant(action, direction, selected, T0);
 }
 

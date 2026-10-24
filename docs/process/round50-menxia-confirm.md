@@ -46,4 +46,11 @@
 - [R49索引](../testing/round49/README.md#L66)区分“门禁12/12 PASS”与“整体PASS-WITH-PARTIAL、P01–P08未清”；R50同样区分行为门禁与范围验收。
 - R50的12项来自当前原始日志实测；不将历史12/12预写为未来固定项数，也不混用两轮P编号。
 - **最终确认：同意Review→PendingConfirm→Done，以PASS-WITH-PARTIAL收口已界定R50范围。** 不清零剩余PARTIAL，不认定严格Crystal复刻或逐像素一致。
-- 看板仅经CLI以menxia执行memo、state、show核验指定confirm_by后confirm approve、validate；实际结果补记如下。
+- 看板仅经CLI以menxia执行memo、state、show核验指定confirm_by后confirm approve、validate；实际结果如下。
+- memo使用CLI规定的`memo <ID> menxia <决策> <风险> --as menxia`语法，exit0。
+- state Done exit0，自动进入PendingConfirm；随后show实证from_state=Review、target_state=Done、confirm_by=menxia。
+- confirm approve exit0，原始回执：`✅ JJC-20261025-002 confirm approve → Done`；最终show实证state=Done、org=完成、无pending_confirm，updatedAt=`2026-10-24T23:37:45Z`。
+- validate exit0，原始回执：`✅ 看板校验通过：104 条任务符合 schema v3.1`。
+- CLI将输入理由中斜杠串压缩：最终now仅保留“P01闭环；保留P02-P08”，省略P09/P11/P10/P12编号；本记录明确保留完整结论，终态不再写看板。
+- 交付时点补记：父代理并发提交本记录初稿及尚书验收为`f289fc2575ed46d10206f5ba873b794d2f7e5f99`；上文4c41a45和3项未跟踪是本轮初核时点。补记后status为本记录修改及两冻结JSON，`git diff --exit-code`因此exit1（预期文档差异），本门下执行者未git写。
+- 非业务工具失败原文：首轮glob=`Error: tool call timed out after 30000ms`（缩小目录重查成功）；首次write=`Error: invalid justification: expected a non-empty sentence`（补有效理由后成功创建）。CLI无失败。

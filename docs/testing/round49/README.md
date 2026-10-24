@@ -2,7 +2,7 @@
 
 - 日期：2026-10-25（Asia/Shanghai）
 - 子单：`JJC-20261025-001`（R49-01 冻结、R49-05 文档与 i18n 收口、R49-06 后续）
-- **当前门禁：`current_gate=PARTIAL`**。本索引只登记本轮真实产物；最终全量门禁由队长跑完后另记，不沿用历史批次的固定结论。
+- **门禁**：gate=12/12 PASS；日志 target/round49/final-gate.log，182,941 B，sha256 5d475f4f…，exit 0，commit d5707c6；R49 verdict=PASS-WITH-PARTIAL（P01–P08 未清）。本索引只登记本轮真实产物；不沿用历史批次的固定结论。
 - 入库约束：`docs/testing/monster-native/player-resource-freeze-before.json`（44,844,165 B）与 `player-resource-freeze.json`（45,219,533 B）超过 1 MiB，**只登记路径/字节/SHA256，不入库**；路径与哈希见 `wip-freeze.json` 与 `../monster-native/freeze.json`。
 
 ## 1. 冻结与审计
@@ -54,7 +54,7 @@
 - **独立商城未完成，移至 R50**（前置条件见 [`../../world/gameshop.md`](../../world/gameshop.md) §12），不计入 R49。
 - **i18n**：`--no-test --strict` 仍有 15 处（3 个文件），不得写成 0；新增玩家可见文字必须走 TextKey/Label。
 - **Attack 证据**：R47 目录保留原样；PNG 位级非确定（两次运行 2/25 帧像素差），审计以 manifest 语义（索引/图层/选帧摘要 `d7a645df075396ac`）为准。
-- **门禁**：`current_gate=PARTIAL`，待队长最终全量门禁；不写“12/12”固定值。
+- **门禁**：gate=12/12 PASS；日志 target/round49/final-gate.log，182,941 B，sha256 5d475f4f…，exit 0，commit d5707c6；R49 verdict=PASS-WITH-PARTIAL（P01–P08 未清）；12/12 为 R49 当次实际项数，不预写后续固定值。
 
 ## 5. 相关文档
 
@@ -62,3 +62,10 @@
 - [`../../roadmap.md`](../../roadmap.md) §六：R49 收口状态与 R50 前项。
 - [`../../i18n.md`](../../i18n.md) §7：两条棘轮的真实计数与基线解释。
 - [`../../../README.md`](../../../README.md)：当前状态表第 49 轮行与文档索引。
+
+## 门禁结果（R50-A）
+
+- 门禁行刷新（2026-10-25，R50-A）：gate=12/12 PASS；日志 target/round49/final-gate.log，182,941 B，sha256 5d475f4f…，exit 0，commit d5707c6；R49 verdict=PASS-WITH-PARTIAL（P01–P08 未清）。
+- 依据：`target/round49/final-gate.log` 实测 182,941 B、sha256 `5d475f4fb78a0ffd98d14ff9b0400d48c8d73ebbd3eb941c528a90f7048d9426`；日志内 12 项均 OK、无 `[FAIL]`/`[ERROR]`，进程退出码 0；commit `d5707c6` 为 119 files changed。
+- 边界：R49 的 PARTIAL 项（P01–P08）保持未清，不因门禁结果回填为通过；独立商城面板仍移至 R50。本索引既有哈希、PNG 表、日志登记与 `manifest.json` 均未改动；本文件仅 :5、:57 两行门禁状态就地刷新，并追加本节。
+- 证据：`target/round50/r50-a.log`（前后 `git diff` 全文、`git hash-object` 三文件、命令/原始退出码/时间）。

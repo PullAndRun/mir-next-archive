@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-25T07:26:01.893569+08:00",
+  "generated_at": "2026-10-25T07:27:01.423693+08:00",
   "audit_revision": 2,
   "head": "2ef42854a2ed3b1bd3ad719dbc64eb19c2cf20d5",
   "origin_main": "2ef42854a2ed3b1bd3ad719dbc64eb19c2cf20d5",
@@ -372,8 +372,8 @@
     },
     {
       "path": "docs/testing/round50/round50-final-audit.md",
-      "bytes": 27882,
-      "sha256": "23b8ca42c44db7121236204e8dfe9e31a7683255b388a0ce6ea104c208508fdc",
+      "bytes": 28560,
+      "sha256": "3d2cb6e43c04494a32636d7127239cc7258b7a06a3060a0aee00df0ac958ae9c",
       "commit": "audit-local-evidence"
     },
     {
@@ -604,7 +604,7 @@
     {
       "id": "E-i18n",
       "path": "target/round50/r50-e/README.md",
-      "result": "independently rerun no-test strict0 and strict60; exit0/0"
+      "result": "T-v1 historical independent rerun no-test0/strict60 exit0/0; T2 reads retained E logs and same-head full gate,does not rerun scan/test."
     },
     {
       "id": "F-frozen",
@@ -707,7 +707,7 @@
         {
           "id": "E-i18n",
           "path": "target/round50/r50-e/README.md",
-          "result": "independently rerun no-test strict0 and strict60; exit0/0"
+          "result": "T-v1 historical independent rerun no-test0/strict60 exit0/0; T2 reads retained E logs and same-head full gate,does not rerun scan/test."
         },
         {
           "id": "F-frozen",
@@ -781,5 +781,12 @@
       "bytes": 45219533,
       "sha256": "c7d896e7f5eee4706b943912c0c564d10d61c98d163143f051c2d632daecde32"
     }
-  ]
+  ],
+  "delivery_observation": {
+    "observed_at": "2026-10-25T07:27:01.310132+08:00",
+    "head_after_parent_committed_audit": "2e7e89bc7ce96e4f2a99f250328dcc1d89c7ba72",
+    "delta_from_audited_head": "docs/testing/round50/final-manifest.json    | 785 ++++++++++++++++++++++++++++\n docs/testing/round50/round50-final-audit.md | 235 +++++++++\n 2 files changed, 1020 insertions(+)",
+    "note": "Parent independently committed audit docs during T2; audited functional HEAD and gate remain2ef4285; T2 postscript/hash refresh follow that commit; no new gate claimed.",
+    "status": "M docs/testing/round50/round50-final-audit.md\n?? docs/testing/monster-native/player-resource-freeze-before.json\n?? docs/testing/monster-native/player-resource-freeze.json"
+  }
 }

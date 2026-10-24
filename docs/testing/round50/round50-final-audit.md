@@ -96,6 +96,8 @@ py -3 -X utf8 -c 'from pathlib import Path;import hashlib;p=Path("target/round50
 
 本次使用 edict 与 code-review-7d 技能；用户三文件写范围优先，未创建额外HTML报告。manifest 不自哈希以避免递归；最终文件外部哈希在交付消息登记。
 
+**交付时点补记（07:26:21 +08:00 后复核）**：父代理在本审计核验期间将两份审计文档提交为 `2e7e89b`，因此交付工作区 HEAD 已从被审功能提交 `2ef4285` 前移。只读 `git diff 2ef4285 --stat` 仅两份授权审计文档，crates/config/tools/产品文档功能树没有改变；当时 status 仅两个既有冻结 JSON。P01 的“gate head==HEAD”严格指门禁及本次审计取证时的 `2ef4285`，不声称 attempt3 曾在后续审计文档提交上运行。本补记与 manifest 指纹更新发生于该父代理提交之后，随后 status 可出现两份授权审计文档修改；本刑部执行者没有 git 写操作。
+
 ---
 
 ## v1 原文存档（仅历史引用；以下 BLOCK/P01/P09/P11 为当时结论）

@@ -161,6 +161,7 @@ mod tests {
             dead: true,
             action: ActorAction::Dying,
             action_started_ms: started,
+            attack_variant: None,
             looks: crate::net::PlayerLooks::default(),
         }
     }

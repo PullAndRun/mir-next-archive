@@ -1,0 +1,47 @@
+{
+  "baseline_commit": "55bd709",
+  "baseline_commit_full": "55bd709",
+  "batch_size": 100,
+  "batches": 10,
+  "clock": {
+    "sample_note": "now = start_ms + offset；覆盖 0..duration 的活动帧与终点",
+    "sample_offsets_ms": [
+      0,
+      99,
+      100,
+      299,
+      300,
+      499,
+      500,
+      599,
+      600,
+      799,
+      800
+    ],
+    "start_ms": 1792790000000
+  },
+  "command": "cargo test --release -p mir-client --test attack_perf_baseline -- --ignored --nocapture",
+  "iterations": 1000,
+  "runs": [
+    {
+      "batches_ns": [
+        4700,
+        2700,
+        2600,
+        2600,
+        2700,
+        2700,
+        2700,
+        2600,
+        2600,
+        2700
+      ],
+      "mean_ns_per_action": 28.6,
+      "median_ns_per_action": 27.0,
+      "p95_ns_per_action": 47.0,
+      "total_ns": 28600
+    }
+  ],
+  "scenario": "1000 × 旧 ActorAnimation::new(Attacking) + 11 帧决策（55bd709 旧 Attack1/50ms 路径）",
+  "schema": 2
+}

@@ -440,6 +440,7 @@ mod tests {
                 dead: false,
                 action: mir_render::ActorAction::Standing,
                 action_started_ms: 0,
+                attack_variant: None,
                 looks: crate::net::PlayerLooks::default(),
             }),
             ..WorldSnapshot::default()

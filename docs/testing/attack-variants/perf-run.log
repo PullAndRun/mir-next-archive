@@ -1,0 +1,12 @@
+# release，同机；baseline 数据来自 55bd709 独立 worktree 的 baseline-raw.json。
+# 命令：cargo test --release -p mir-client --test attack_variant -- --ignored --nocapture attack_perf
+    Finished `release` profile [optimized] target(s) in 0.79s
+     Running tests\attack_variant.rs (target\release\deps\attack_variant-64a8e914c3393c29.exe)
+
+running 1 test
+baseline(55bd709) p95=47.0ns | new p95 selection=2.0 build=23.0 frames=67.0 end_to_end=67.0ns | ratio=1.43 threshold=1065.8ns
+perf report: C:\Users\diana\Documents\github\mir-next\crates\mir-client\../..\target/attack-variant-perf.json
+test attack_perf_1000_actions_baseline_vs_new ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s
+

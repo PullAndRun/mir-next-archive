@@ -1,0 +1,10 @@
+batch_id=1792807006205
+terrain_source=game-assets/maps/0.mnm + game-assets/gfx (unpacked, asset_mode=dev)
+samples=25
+png_hashes_ok=true (25/25)
+docs_build_manifest_byte_identical=true
+attack3_distinct_pixel_hashes=8/8
+release_pack_check=packs=46（hum/hum2 Attack3 344..351 已验证）
+legacy_cross_check=skipped（默认构建不启用 legacy；legacy 构建加 MIR2_TEST_LEGACY=1 才交叉校验）
+previous_t20_batch=1792806118685 (historical; final gate reran live)
+bad=

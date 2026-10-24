@@ -364,6 +364,7 @@ mod tests {
                 name_colour: None,
                 action: mir_render::animation::ActorAction::Standing,
                 action_started_ms: 0,
+                attack_variant: None,
             },
         );
         snapshot

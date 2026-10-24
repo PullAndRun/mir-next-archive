@@ -24,6 +24,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use mir_client::attack::{AttackContext, AttackRng, select_attack_variant_with_rng};
 use mir_client::audio::{SoundLibrary, SoundPlayer};
 use mir_client::camera::{self, SelfMotion};
 use mir_client::geom::Rect;
@@ -106,6 +107,8 @@ struct LiveState {
     /// 自己最近一步的移动（Crystal `OffSetMove` 插值 + 相机跟随，见
     /// [`mir_client::camera`]）。
     motion: Option<SelfMotion>,
+    /// R47 本地空挥选招 RNG；每动作最多抽一次，重绘/快照不抽。
+    attack_rng: AttackRng,
 }
 
 impl LiveState {
@@ -130,9 +133,13 @@ impl LiveState {
     /// 音效也在这里**本地预播**：服务端不会把 `ObjectWalk`/`ObjectRun`/`ObjectAttack`
     /// 回发给动作发起者（`mir-server/src/world.rs:2428-2449`），不本地播的话自己走路没声音。
     fn send(&mut self, command: NetCommand) {
-        if let Some((action, direction)) = command.local_animation() {
-            self.snapshot
-                .apply_local_action(action, direction, now_millis_u64());
+        if let Some((action, direction, variant)) = command.local_animation() {
+            self.snapshot.apply_local_action_with_variant(
+                action,
+                direction,
+                variant,
+                now_millis_u64(),
+            );
             // 本地动作 → 音效（Crystal 同样在动画帧上播，`PlayerObject.cs:3596-3599`、
             // `:4779-4847`）。
             let sound = match action {
@@ -269,6 +276,7 @@ pub fn run_live(
         reconnect: ReconnectState::default(),
         connect,
         motion: None,
+        attack_rng: AttackRng::from_epoch(now_millis_u64()),
     }));
     run_app(
         scene,
@@ -1063,9 +1071,13 @@ impl ClientApp {
         if let Mode::Live(live) = &mut self.mode {
             live.ui.cancel_path();
         }
+        let mut has_target = false;
         let action = match &mut self.mode {
             Mode::Live(live) => {
                 if live.ui.target_object_id.is_some() {
+                    // 锁定 ID 存在即算有目标；即使 attack_target 因目标无效/不可达
+                    // 返回 None，也不得回退到无目标随机分支（Crystal TargetObject != null）。
+                    has_target = true;
                     live.ui.set_time(now_millis());
                     live.ui.attack_target(&live.snapshot)
                 } else {
@@ -1080,7 +1092,8 @@ impl ClientApp {
         }
         if let Mode::Live(live) = &mut self.mode {
             if let Some(direction) = live.snapshot.self_player.as_ref().map(|me| me.direction) {
-                live.send(NetCommand::Attack(direction));
+                let command = local_attack_command(live, direction, has_target);
+                live.send(command);
             }
         }
     }
@@ -1296,7 +1309,8 @@ impl ClientApp {
             // 朝锁定目标攻击（`C.Attack`）。目标相邻时由 `UiState::attack_target`
             // 产生，非相邻时会先产生 `WorldMove`（走一步靠近）。
             UiAction::AttackTarget { direction } => {
-                live.send(NetCommand::Attack(direction));
+                let command = local_attack_command(live, direction, true);
+                live.send(command);
             }
             // 设置动作在上面已经提前返回（不需要 `live` 之外的窗口句柄等字段）。
             UiAction::Settings(_) | UiAction::DismissDeath => {}
@@ -1905,6 +1919,7 @@ impl ClientApp {
             reconnect: ReconnectState::default(),
             connect: ConnectOptions::default(),
             motion: None,
+            attack_rng: AttackRng::from_epoch(now_millis_u64()),
         }));
         if let Some(window) = &self.window {
             window.set_title(
@@ -2472,6 +2487,9 @@ impl ClientApp {
             // 断线：当前走/跑插值作废，重连成功后从新快照重新起算。
             live.motion = None;
             live.snapshot.remote_motions.clear();
+            if let Some(me) = &mut live.snapshot.self_player {
+                me.set_action(ActorAction::Standing, now_millis_u64());
+            }
             live.reconnect.disconnected(now);
         }
         // 退避到点：发起一次重连（复用账号/角色，自动登录并选角）。
@@ -2484,6 +2502,9 @@ impl ClientApp {
                     // 重连会重新落点/可能换图：清掉旧动作的插值，避免残留偏移。
                     live.motion = None;
                     live.snapshot.remote_motions.clear();
+                    if let Some(me) = &mut live.snapshot.self_player {
+                        me.set_action(ActorAction::Standing, now_millis_u64());
+                    }
                 }
                 Err(error) => {
                     eprintln!("第 {attempt} 次重连失败：{error}");
@@ -3069,6 +3090,31 @@ impl ApplicationHandler for ClientApp {
         }
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_animation));
     }
+}
+
+/// 生产本地攻击命令：按 R47 选招规则决定是否带变体。
+///
+/// 普通攻击仍只发既有 `C.Attack`（variant 不进入协议）；选招只在建立动作时抽一次。
+fn local_attack_command(
+    live: &mut LiveState,
+    direction: MirDirection,
+    has_target: bool,
+) -> NetCommand {
+    let Some(me) = live.snapshot.self_player.as_ref() else {
+        return NetCommand::Attack {
+            direction,
+            variant: None,
+        };
+    };
+    let context = AttackContext {
+        class: me.class,
+        shift: live.shift,
+        has_target,
+        spell: Spell::None,
+        riding: me.looks.mount > 0,
+    };
+    let variant = select_attack_variant_with_rng(&context, &mut live.attack_rng);
+    NetCommand::Attack { direction, variant }
 }
 
 /// 把 winit 按键转成配置里的键名（设置面板捕获用；修饰键返回 `None`）。

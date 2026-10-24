@@ -78,6 +78,7 @@ fn snapshot() -> WorldSnapshot {
         dead: false,
         action: mir_render::ActorAction::Standing,
         action_started_ms: 0,
+        attack_variant: None,
         looks: mir_client::net::PlayerLooks::default(),
     });
     snapshot.entities.insert(

@@ -1,0 +1,126 @@
+{
+  "baseline": {
+    "batches_ns": [
+      4700,
+      2700,
+      2600,
+      2600,
+      2700,
+      2700,
+      2700,
+      2600,
+      2600,
+      2700
+    ],
+    "mean_ns_per_action": 28.6,
+    "median_ns_per_action": 27.0,
+    "p95_ns_per_action": 47.0,
+    "total_ns": 28600
+  },
+  "baseline_command": "cargo test --release -p mir-client --test attack_perf_baseline -- --ignored --nocapture（55bd709 独立 worktree）",
+  "baseline_commit": "55bd709",
+  "baseline_source": "target/attack-variant-baseline.json",
+  "batch_size": 100,
+  "batches": 10,
+  "clock": {
+    "sample_note": "now = start_ms + offset；覆盖 0..duration 的活动帧与终点（Attack1 600ms, Attack3 800ms）",
+    "sample_offsets_ms": [
+      0,
+      99,
+      100,
+      299,
+      300,
+      499,
+      500,
+      599,
+      600,
+      799,
+      800
+    ],
+    "start_ms": 1792790000000
+  },
+  "iterations": 1000,
+  "new": {
+    "build": {
+      "batches_ns": [
+        2300,
+        400,
+        400,
+        400,
+        300,
+        400,
+        400,
+        300,
+        300,
+        300
+      ],
+      "mean_ns_per_action": 5.5,
+      "median_ns_per_action": 4.0,
+      "p95_ns_per_action": 23.0,
+      "total_ns": 5500
+    },
+    "end_to_end": {
+      "batches_ns": [
+        6700,
+        6400,
+        6200,
+        6100,
+        6400,
+        6100,
+        6100,
+        6200,
+        6100,
+        6000
+      ],
+      "mean_ns_per_action": 62.3,
+      "median_ns_per_action": 62.0,
+      "p95_ns_per_action": 67.0,
+      "total_ns": 62300
+    },
+    "frames": {
+      "batches_ns": [
+        6700,
+        6600,
+        6700,
+        6600,
+        6500,
+        6600,
+        6600,
+        6600,
+        6600,
+        6500
+      ],
+      "mean_ns_per_action": 66.0,
+      "median_ns_per_action": 66.0,
+      "p95_ns_per_action": 67.0,
+      "total_ns": 66000
+    },
+    "measured_p95_ratio": 1.425531914893617,
+    "selection": {
+      "batches_ns": [
+        200,
+        200,
+        100,
+        100,
+        100,
+        100,
+        200,
+        100,
+        100,
+        100
+      ],
+      "mean_ns_per_action": 1.3,
+      "median_ns_per_action": 1.0,
+      "p95_ns_per_action": 2.0,
+      "total_ns": 1300
+    }
+  },
+  "new_command": "cargo test --release -p mir-client --test attack_variant -- --ignored attack_perf --nocapture",
+  "scenario": "1000 次攻击动作；baseline=旧 Attack1/50ms 建立+11 帧决策；new=分相 select/new_with_variant/frame_at 与端到端",
+  "schema": 2,
+  "threshold": {
+    "fixed_end_to_end_p95_ns": 1065.8,
+    "p95_ratio": 1.4,
+    "p95_slack_ns": 1000.0
+  }
+}

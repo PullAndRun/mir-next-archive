@@ -490,7 +490,10 @@ impl UiAction {
                 object_id: *object_id,
                 key: key.clone(),
             }),
-            Self::AttackTarget { direction } => Some(NetCommand::Attack(*direction)),
+            Self::AttackTarget { direction } => Some(NetCommand::Attack {
+                direction: *direction,
+                variant: None,
+            }),
             Self::AbandonQuest { quest_index } => Some(NetCommand::AbandonQuest {
                 quest_index: *quest_index,
             }),
@@ -4506,6 +4509,7 @@ mod tests {
                 dead: false,
                 action: mir_render::animation::ActorAction::Standing,
                 action_started_ms: 0,
+                attack_variant: None,
                 looks: crate::net::PlayerLooks::default(),
             }),
             map: Some(MapSnapshot {
@@ -4564,6 +4568,7 @@ mod tests {
                 name_colour: None,
                 action: mir_render::animation::ActorAction::Standing,
                 action_started_ms: 0,
+                attack_variant: None,
             },
         );
         snapshot
@@ -5030,6 +5035,7 @@ mod tests {
                 name_colour: None,
                 action: mir_render::animation::ActorAction::Standing,
                 action_started_ms: 0,
+                attack_variant: None,
             },
         );
         snapshot
@@ -5058,7 +5064,10 @@ mod tests {
         );
         assert_eq!(
             action.net_command(),
-            Some(crate::net::NetCommand::Attack(MirDirection::Right)),
+            Some(crate::net::NetCommand::Attack {
+                direction: MirDirection::Right,
+                variant: None,
+            }),
             "双击相邻怪物应产生 NetCommand::Attack"
         );
         assert!(state.approach.is_none(), "相邻时不需要靠近");

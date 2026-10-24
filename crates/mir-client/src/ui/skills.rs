@@ -369,6 +369,7 @@ mod tests {
                 dead: false,
                 action: mir_render::animation::ActorAction::Standing,
                 action_started_ms: 0,
+                attack_variant: None,
                 looks: crate::net::PlayerLooks::default(),
             }),
             ..WorldSnapshot::default()
@@ -442,6 +443,7 @@ mod tests {
                     name_colour: None,
                     action: mir_render::animation::ActorAction::Standing,
                     action_started_ms: 0,
+                    attack_variant: None,
                 },
             );
         }

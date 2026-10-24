@@ -1,0 +1,28 @@
+batch_id=1792807006205
+test=two_clients_attack1_attack3_live_evidence
+samples=25
+female-attack1-down frame=0 actual=232 attack_frame=Some(232) logical=Some(160) png=female-attack1-down-frame0.png png_byte_hash=358055c992df5e9b
+female-attack1-down frame=1 actual=233 attack_frame=Some(233) logical=Some(161) png=female-attack1-down-frame1.png png_byte_hash=deda08c4ace62d1b
+female-attack1-down frame=2 actual=234 attack_frame=Some(234) logical=Some(162) png=female-attack1-down-frame2.png png_byte_hash=165aa75d34bf4933
+female-attack1-down frame=3 actual=235 attack_frame=Some(235) logical=Some(163) png=female-attack1-down-frame3.png png_byte_hash=2c26482099210b18
+female-attack1-down frame=4 actual=236 attack_frame=Some(236) logical=Some(164) png=female-attack1-down-frame4.png png_byte_hash=cc036270e4e7e16b
+female-attack1-down frame=5 actual=237 attack_frame=Some(237) logical=Some(165) png=female-attack1-down-frame5.png png_byte_hash=6672e6061df0e188
+female-attack1-down frame=6 actual=32 attack_frame=None logical=None png=female-attack1-down-frame6.png png_byte_hash=680e09a6b88ea82d
+female-attack1-right frame=0 actual=216 attack_frame=Some(216) logical=Some(148) png=female-attack1-right-frame0.png png_byte_hash=95ffd7b4eae38e86
+female-attack1-right frame=1 actual=217 attack_frame=Some(217) logical=Some(149) png=female-attack1-right-frame1.png png_byte_hash=0afdcdc108977127
+female-attack3-right frame=0 actual=344 attack_frame=Some(344) logical=Some(248) png=female-attack3-right-frame0.png png_byte_hash=5c3a6c7d27f3b596
+female-attack3-right frame=1 actual=345 attack_frame=Some(345) logical=Some(249) png=female-attack3-right-frame1.png png_byte_hash=85f8831d46844064
+female-attack3-right frame=2 actual=346 attack_frame=Some(346) logical=Some(250) png=female-attack3-right-frame2.png png_byte_hash=8e5fa53ffe8fabe5
+female-attack3-right frame=3 actual=347 attack_frame=Some(347) logical=Some(251) png=female-attack3-right-frame3.png png_byte_hash=93d793ecac21a31f
+female-attack3-right frame=4 actual=348 attack_frame=Some(348) logical=Some(252) png=female-attack3-right-frame4.png png_byte_hash=703c086c96c54b7f
+female-attack3-right frame=5 actual=349 attack_frame=Some(349) logical=Some(253) png=female-attack3-right-frame5.png png_byte_hash=f0cba0822123e81f
+female-attack3-right frame=6 actual=350 attack_frame=Some(350) logical=Some(254) png=female-attack3-right-frame6.png png_byte_hash=27ac1b073a6e71b5
+female-attack3-right frame=7 actual=351 attack_frame=Some(351) logical=Some(255) png=female-attack3-right-frame7.png png_byte_hash=db1c8679e1671d65
+female-attack3-right frame=8 actual=16 attack_frame=None logical=None png=female-attack3-right-frame8.png png_byte_hash=4a088b17bd548068
+male-attack1-right frame=0 actual=216 attack_frame=Some(216) logical=Some(148) png=male-attack1-right-frame0.png png_byte_hash=2ab53bf46b90578f
+male-attack1-right frame=1 actual=217 attack_frame=Some(217) logical=Some(149) png=male-attack1-right-frame1.png png_byte_hash=4cf214404e2e7fe5
+male-attack1-right frame=2 actual=218 attack_frame=Some(218) logical=Some(150) png=male-attack1-right-frame2.png png_byte_hash=8c3ef1e6d4fa5848
+male-attack1-right frame=3 actual=219 attack_frame=Some(219) logical=Some(151) png=male-attack1-right-frame3.png png_byte_hash=fa9c273cab295a9e
+male-attack1-right frame=4 actual=220 attack_frame=Some(220) logical=Some(152) png=male-attack1-right-frame4.png png_byte_hash=7755a187893092f6
+male-attack1-right frame=5 actual=221 attack_frame=Some(221) logical=Some(153) png=male-attack1-right-frame5.png png_byte_hash=1a2705669ae94f14
+male-attack1-right frame=6 actual=16 attack_frame=None logical=None png=male-attack1-right-frame6.png png_byte_hash=1bc928ffe2876d52

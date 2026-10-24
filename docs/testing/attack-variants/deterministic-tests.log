@@ -1,0 +1,20 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.61s
+     Running tests\attack_variant.rs (target\debug\deps\attack_variant-924b77fb5c3dad66.exe)
+
+running 13 tests
+test a1_locked_or_invalid_target_is_not_none ... ok
+test a1_matrix_only_eligible_warrior_shift_no_target_can_vary ... ok
+test attack_perf_1000_actions_baseline_vs_new ... ignored, 性能证据手动运行：先跑 55bd709 baseline，再 cargo test --release -p mir-client --test attack_variant -- --ignored attack_perf
+test a1_seed_uses_full_u64_epoch_and_process_id ... ok
+test a3_interruptions_new_attack_and_map_change_clear_variant ... ok
+test a1_rng_draws_only_for_shift_empty_swing ... ok
+test a3_attack1_600ms_and_attack3_800ms_do_not_fall_to_standing_at_300ms ... ok
+test a3_entity_view_fields_are_propagated_to_renderer_contract ... ok
+test a1_rng_is_bounded_and_each_action_has_one_draw ... ok
+test a3_local_attack_clock_is_not_shifted_by_late_server_ack ... ok
+test a3_non_eligible_classes_keep_legacy_attack1_50ms ... ok
+test a1_roll_boundaries_0_19_20_99_and_illegal_100 ... ok
+test a3_variant_is_established_once_and_survives_render_snapshot ... ok
+
+test result: ok. 12 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

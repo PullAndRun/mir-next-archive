@@ -30,9 +30,11 @@
 //! | 站立 | 0 | 4 | 4 | 8 | 500 ms | [`HUMAN_STANDING`] |
 //! | 行走 | 64 | 6 | 2 | 8 | 100 ms | [`HUMAN_WALKING`] |
 //! | 跑步 | 128 | 6 | 2 | 8 | 100 ms | [`HUMAN_RUNNING`] |
-//! | 攻击 1 | 200 | 6 | 2 | 8 | **50 ms** | [`HUMAN_ATTACK1`] |
+//! | 攻击 1（旧） | 200 | 6 | 2 | 8 | **50 ms** | [`HUMAN_ATTACK1`] |
+//! | 攻击 1（R47 入围） | 200 | 6 | 2 | 8 | **100 ms** | [`HUMAN_ATTACK1_R47`] |
 //! | 攻击 2 | 264 | 6 | 2 | 8 | **50 ms** | [`HUMAN_ATTACK2`] |
-//! | 攻击 3（双手） | 328 | 8 | 0 | 8 | **50 ms** | [`HUMAN_ATTACK3`] |
+//! | 攻击 3（旧） | 328 | 8 | 0 | 8 | **50 ms** | [`HUMAN_ATTACK3`] |
+//! | 攻击 3（R47 入围） | 328 | 8 | 0 | 8 | **100 ms** | [`HUMAN_ATTACK3_R47`] |
 //! | 受击 | 472 | 3 | 5 | 8 | 100 ms | [`HUMAN_STRUCK`] |
 //! | 死亡 | 536 | 4 | 4 | 8 | 100 ms | [`HUMAN_DYING`] |
 //! | 尸体 | 539 | 1 | 7 | 8 | 1000 ms | [`HUMAN_DEAD`] |
@@ -217,6 +219,66 @@ impl ActorAction {
     }
 }
 
+/// R47 普通空挥选中的 Crystal 攻击变体（仅客户端本地视觉）。
+///
+/// Crystal `PlayerObject.cs:1055-1075` 的 default 分支只在 Shift + 无目标时
+/// `Next(100) >= 20 ? Attack1 : Attack3`；本作只把 Warrior/未骑乘/Spell.None
+/// 的 Shift+Space 空挥映射到这里，其余分支继续用旧 `HUMAN_ATTACK1`（50ms）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AttackVariant {
+    /// Crystal `MirAction.Attack1`：逻辑 136/6 帧，转换后扁平布局 200/6，100ms。
+    Attack1,
+    /// Crystal `MirAction.Attack3`：逻辑 232/8 帧，转换后扁平布局 328/8，100ms。
+    Attack3,
+}
+
+impl AttackVariant {
+    /// 稳定的小写名字（日志/manifest/测试）。
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Attack1 => "attack1",
+            Self::Attack3 => "attack3",
+        }
+    }
+
+    /// Crystal 逻辑帧表（不是扁平 `.wzl` 的物理索引）。
+    #[must_use]
+    pub const fn crystal_sequence(self) -> FrameSequence {
+        match self {
+            Self::Attack1 => FrameSequence::new(136, 6, 0, 100),
+            Self::Attack3 => FrameSequence::new(232, 8, 0, 100),
+        }
+    }
+
+    /// Crystal effect（翅膀/武器光效列）逻辑帧表。
+    #[must_use]
+    pub const fn crystal_effect_sequence(self) -> FrameSequence {
+        match self {
+            Self::Attack1 => FrameSequence::new(168, 6, 0, 100),
+            Self::Attack3 => FrameSequence::new(264, 8, 0, 100),
+        }
+    }
+
+    /// game-assets/扁平 `.wzl` 转换后的身体帧表（100ms；R47 入围路径）。
+    #[must_use]
+    pub const fn converted_sequence(self) -> FrameSequence {
+        match self {
+            Self::Attack1 => HUMAN_ATTACK1_R47,
+            Self::Attack3 => HUMAN_ATTACK3_R47,
+        }
+    }
+
+    /// 转换后的翅膀/effect 帧表；Attack3 有 8 帧 effect，Attack1 有 6 帧。
+    #[must_use]
+    pub const fn converted_effect_sequence(self) -> FrameSequence {
+        match self {
+            Self::Attack1 => WING_ATTACK1_R47,
+            Self::Attack3 => WING_ATTACK3_R47,
+        }
+    }
+}
+
 /// 帧表所属的素材种类：玩家、怪物、NPC。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum BodyKind {
@@ -266,6 +328,12 @@ pub const HUMAN_RUNNING: FrameSequence = FrameSequence::new(128, 6, 2, 100);
 /// 的 `DelayedAction`），镜头要在伤害落地时正好播完挥砍；这个节奏也是本轮任务
 /// 要求的「攻击 300 ms」。跑步仍保持 6 × 100 ms = 600 ms（与服务器跑动一致）。
 pub const HUMAN_ATTACK1: FrameSequence = FrameSequence::new(200, 6, 2, 50);
+/// R47 入围路径的 Attack1：转换后扁平布局 200/6 帧，但间隔用 Crystal 的
+/// **100ms**（6 帧 = 600ms），不再采用旧的 50ms/300ms 对齐。
+pub const HUMAN_ATTACK1_R47: FrameSequence = FrameSequence::new(200, 6, 2, 100);
+/// R47 入围路径的 Attack3（双手）：转换后扁平布局 328/8 帧，Crystal 100ms
+/// （8 帧 = 800ms）；不能把它误写成逻辑起点 232。
+pub const HUMAN_ATTACK3_R47: FrameSequence = FrameSequence::new(328, 8, 0, 100);
 /// 人类攻击 2：`Frames.cs:163` 的 `Frame(184, 6, 0, 100)`；间隔同 [`HUMAN_ATTACK1`]。
 pub const HUMAN_ATTACK2: FrameSequence = FrameSequence::new(264, 6, 2, 50);
 /// 人类攻击 3（双手）：`Frames.cs:164` 的 `Frame(232, 8, 0, 100)`；间隔 50 ms。
@@ -285,14 +353,29 @@ pub const HUMAN_DEAD: FrameSequence = FrameSequence::new(539, 1, 7, 1000);
 // Crystal 的变招选择（`PlayerObject.cs:1055-1075`）需要职业/武器/随机数，尚未接入。
 #[must_use]
 pub const fn human_frames(action: ActorAction) -> FrameSequence {
-    match action {
-        ActorAction::Standing => HUMAN_STANDING,
-        ActorAction::Walking => HUMAN_WALKING,
-        ActorAction::Running => HUMAN_RUNNING,
-        ActorAction::Attacking => HUMAN_ATTACK1,
-        ActorAction::Struck => HUMAN_STRUCK,
-        ActorAction::Dying => HUMAN_DYING,
-        ActorAction::Dead => HUMAN_DEAD,
+    human_frames_for(action, None)
+}
+
+/// 取人类动作帧表；`AttackVariant::Some` 时 Attack1/3 使用 R47 的 100ms 表，
+/// `None` 保持旧行为（Attack1 50ms）。
+#[must_use]
+pub const fn human_frames_for(
+    action: ActorAction,
+    variant: Option<AttackVariant>,
+) -> FrameSequence {
+    match (action, variant) {
+        (ActorAction::Attacking, Some(AttackVariant::Attack1)) => HUMAN_ATTACK1_R47,
+        (ActorAction::Attacking, Some(AttackVariant::Attack3)) => HUMAN_ATTACK3_R47,
+        (ActorAction::Attacking, None) => HUMAN_ATTACK1,
+        _ => match action {
+            ActorAction::Standing => HUMAN_STANDING,
+            ActorAction::Walking => HUMAN_WALKING,
+            ActorAction::Running => HUMAN_RUNNING,
+            ActorAction::Struck => HUMAN_STRUCK,
+            ActorAction::Dying => HUMAN_DYING,
+            ActorAction::Dead => HUMAN_DEAD,
+            ActorAction::Attacking => HUMAN_ATTACK1,
+        },
     }
 }
 
@@ -396,6 +479,10 @@ pub const WING_RUNNING: FrameSequence = FrameSequence::new(112, 8, 0, 100);
 /// 翅膀攻击：`Frames.cs:162` 的攻击 1 effect 段 `Frame(..., 168, 8, 0, 100)`。
 // 简化：所有攻击都映射到攻击 1 的 effect 段。原因：`ActorAction` 不区分 Attack1..4。
 pub const WING_ATTACKING: FrameSequence = FrameSequence::new(168, 8, 0, 100);
+/// R47 Attack1 的 effect：逻辑 168/6 帧，转换后每方向仍 8 槽（6 有效+2 空）。
+pub const WING_ATTACK1_R47: FrameSequence = FrameSequence::new(168, 6, 2, 100);
+/// R47 Attack3 的 effect：逻辑 264/8 帧，转换后每方向 8 槽。
+pub const WING_ATTACK3_R47: FrameSequence = FrameSequence::new(264, 8, 0, 100);
 /// 翅膀受击：`Frames.cs:168` 的 effect 段 `Frame(..., 392, 3, 0, 100)`。
 pub const WING_STRUCK: FrameSequence = FrameSequence::new(392, 3, 0, 100);
 /// 翅膀死亡：`Frames.cs:169` 的 effect 段 `Frame(..., 416, 4, 0, 100)`。
@@ -406,22 +493,42 @@ pub const WING_DEAD: FrameSequence = FrameSequence::new(419, 1, 3, 1000);
 /// 取某个动作的翅膀帧表（对应 `Frames.cs:157-170` 的 effect 列）。
 #[must_use]
 pub const fn wing_frames(action: ActorAction) -> FrameSequence {
-    match action {
-        ActorAction::Standing => WING_STANDING,
-        ActorAction::Walking => WING_WALKING,
-        ActorAction::Running => WING_RUNNING,
-        ActorAction::Attacking => WING_ATTACKING,
-        ActorAction::Struck => WING_STRUCK,
-        ActorAction::Dying => WING_DYING,
-        ActorAction::Dead => WING_DEAD,
+    wing_frames_for(action, None)
+}
+
+/// 取翅膀 effect 帧表；R47 入围攻击按变体使用 168/6（Attack1）或 264/8（Attack3）。
+#[must_use]
+pub const fn wing_frames_for(action: ActorAction, variant: Option<AttackVariant>) -> FrameSequence {
+    match (action, variant) {
+        (ActorAction::Attacking, Some(AttackVariant::Attack1)) => WING_ATTACK1_R47,
+        (ActorAction::Attacking, Some(AttackVariant::Attack3)) => WING_ATTACK3_R47,
+        _ => match action {
+            ActorAction::Standing => WING_STANDING,
+            ActorAction::Walking => WING_WALKING,
+            ActorAction::Running => WING_RUNNING,
+            ActorAction::Attacking => WING_ATTACKING,
+            ActorAction::Struck => WING_STRUCK,
+            ActorAction::Dying => WING_DYING,
+            ActorAction::Dead => WING_DEAD,
+        },
     }
 }
 
 /// 取某个素材种类的动作帧表。
 #[must_use]
 pub const fn frames_for(body_kind: BodyKind, action: ActorAction) -> FrameSequence {
+    frames_for_variant(body_kind, action, None)
+}
+
+/// 取某个素材种类的动作帧表；变体只对 Human 生效，怪物/NPC 忽略。
+#[must_use]
+pub const fn frames_for_variant(
+    body_kind: BodyKind,
+    action: ActorAction,
+    variant: Option<AttackVariant>,
+) -> FrameSequence {
     match body_kind {
-        BodyKind::Human => human_frames(action),
+        BodyKind::Human => human_frames_for(action, variant),
         BodyKind::Monster => monster_frames(action),
         BodyKind::Npc => npc_frames(action),
     }
@@ -444,6 +551,8 @@ pub struct ActorAnimation {
     pub direction: MirDirection,
     /// 素材种类（决定回站立时用哪张帧表）。
     pub body_kind: BodyKind,
+    /// R47 攻击变体；`None` = 旧行为/非入围攻击。
+    pub attack_variant: Option<AttackVariant>,
 }
 
 impl ActorAnimation {
@@ -455,12 +564,25 @@ impl ActorAnimation {
         body_kind: BodyKind,
         started_at_ms: u64,
     ) -> Self {
+        Self::new_with_variant(action, direction, body_kind, started_at_ms, None)
+    }
+
+    /// 带 R47 攻击变体构造动画；帧表因此在建立时固定，逐帧/重绘不重抽。
+    #[must_use]
+    pub const fn new_with_variant(
+        action: ActorAction,
+        direction: MirDirection,
+        body_kind: BodyKind,
+        started_at_ms: u64,
+        attack_variant: Option<AttackVariant>,
+    ) -> Self {
         Self {
             action,
             started_at_ms,
-            frames: frames_for(body_kind, action),
+            frames: frames_for_variant(body_kind, action, attack_variant),
             direction,
             body_kind,
+            attack_variant,
         }
     }
 
@@ -480,7 +602,13 @@ impl ActorAnimation {
         } else {
             view.action
         };
-        Self::new(action, view.direction, body_kind, view.action_started_ms)
+        Self::new_with_variant(
+            action,
+            view.direction,
+            body_kind,
+            view.action_started_ms,
+            view.attack_variant,
+        )
     }
 
     /// 动作时长（毫秒）。
@@ -665,6 +793,168 @@ mod tests {
         assert_eq!(WING_STANDING.index_of(DOWN, 0), 4 * 8);
         assert_eq!(WING_STANDING.index_of(DOWN, 7), 4 * 8 + 7);
         assert_eq!(WING_STANDING.duration_ms(), 2_000);
+    }
+
+    #[test]
+    fn r47_attack_variant_logical_vs_converted_tables_and_8_directions() {
+        // Crystal 逻辑帧（不是扁平 .wzl 物理索引）。
+        assert_eq!(
+            AttackVariant::Attack1.crystal_sequence(),
+            FrameSequence::new(136, 6, 0, 100)
+        );
+        assert_eq!(
+            AttackVariant::Attack3.crystal_sequence(),
+            FrameSequence::new(232, 8, 0, 100)
+        );
+        // game-assets/hum.wzl 转换后：起点 200/328，每方向 8 槽。
+        assert_eq!(
+            AttackVariant::Attack1.converted_sequence(),
+            FrameSequence::new(200, 6, 2, 100)
+        );
+        assert_eq!(
+            AttackVariant::Attack3.converted_sequence(),
+            FrameSequence::new(328, 8, 0, 100)
+        );
+        assert_eq!(
+            AttackVariant::Attack1.converted_sequence().duration_ms(),
+            600
+        );
+        assert_eq!(
+            AttackVariant::Attack3.converted_sequence().duration_ms(),
+            800
+        );
+
+        // 男女共享身体/effect 帧表（Crystal 的性别差异是 ArmourOffSet/WingOffset，
+        // 不是 Frames 表的 Start/Count）。这里仍按两性别各跑一次矩阵，防止未来把
+        // 性别错误塞进帧索引。
+        for _gender in [
+            mir_core::enums::MirGender::Male,
+            mir_core::enums::MirGender::Female,
+        ] {
+            for direction in [
+                MirDirection::Up,
+                MirDirection::UpRight,
+                MirDirection::Right,
+                MirDirection::DownRight,
+                MirDirection::Down,
+                MirDirection::DownLeft,
+                MirDirection::Left,
+                MirDirection::UpLeft,
+            ] {
+                let dir = u16::from(direction as u8);
+                for frame in 0..6 {
+                    assert_eq!(
+                        AttackVariant::Attack1
+                            .converted_sequence()
+                            .index_of(direction, frame),
+                        200 + dir * 8 + frame
+                    );
+                    assert_eq!(
+                        AttackVariant::Attack1
+                            .crystal_sequence()
+                            .index_of(direction, frame),
+                        136 + dir * 6 + frame,
+                        "Crystal 逻辑帧 Start=136、每方向 6 槽"
+                    );
+                    assert_eq!(
+                        AttackVariant::Attack1
+                            .converted_effect_sequence()
+                            .index_of(direction, frame),
+                        168 + dir * 8 + frame
+                    );
+                    assert_eq!(
+                        AttackVariant::Attack1
+                            .crystal_effect_sequence()
+                            .index_of(direction, frame),
+                        168 + dir * 6 + frame
+                    );
+                }
+                for frame in 0..8 {
+                    assert_eq!(
+                        AttackVariant::Attack3
+                            .converted_sequence()
+                            .index_of(direction, frame),
+                        328 + dir * 8 + frame
+                    );
+                    assert_eq!(
+                        AttackVariant::Attack3
+                            .crystal_sequence()
+                            .index_of(direction, frame),
+                        232 + dir * 8 + frame,
+                        "Crystal 逻辑 232 ≠ 物理 328"
+                    );
+                    assert_eq!(
+                        AttackVariant::Attack3
+                            .converted_effect_sequence()
+                            .index_of(direction, frame),
+                        264 + dir * 8 + frame
+                    );
+                    assert_eq!(
+                        AttackVariant::Attack3
+                            .crystal_effect_sequence()
+                            .index_of(direction, frame),
+                        264 + dir * 8 + frame
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn r47_attack_variant_boundaries_600_and_800ms() {
+        let attack1 = ActorAnimation::new_with_variant(
+            ActorAction::Attacking,
+            DOWN,
+            BodyKind::Human,
+            10_000,
+            Some(AttackVariant::Attack1),
+        );
+        assert_eq!(attack1.duration_ms(), 600);
+        assert_eq!(attack1.frame_at(10_000).index, 200 + 4 * 8);
+        assert_eq!(attack1.frame_at(10_099).index, 200 + 4 * 8);
+        assert_eq!(attack1.frame_at(10_100).index, 200 + 4 * 8 + 1);
+        assert_eq!(attack1.frame_at(10_300).index, 200 + 4 * 8 + 3);
+        assert!(!attack1.frame_at(10_300).finished, "300ms 不得提前结束");
+        assert_eq!(attack1.frame_at(10_599).index, 200 + 4 * 8 + 5);
+        assert!(attack1.frame_at(10_600).finished);
+        assert!(attack1.frame_at(10_900).finished);
+
+        let attack3 = ActorAnimation::new_with_variant(
+            ActorAction::Attacking,
+            DOWN,
+            BodyKind::Human,
+            20_000,
+            Some(AttackVariant::Attack3),
+        );
+        assert_eq!(attack3.duration_ms(), 800);
+        assert_eq!(attack3.frame_at(20_000).index, 328 + 4 * 8);
+        assert_eq!(attack3.frame_at(20_100).index, 328 + 4 * 8 + 1);
+        assert_eq!(attack3.frame_at(20_600).index, 328 + 4 * 8 + 6);
+        assert_eq!(attack3.frame_at(20_700).index, 328 + 4 * 8 + 7, "末帧起点");
+        assert_eq!(attack3.frame_at(20_799).index, 328 + 4 * 8 + 7);
+        assert!(!attack3.frame_at(20_799).finished);
+        assert!(attack3.frame_at(20_800).finished);
+        assert!(attack3.frame_at(20_900).finished);
+
+        // 旧路径（None）仍为 50ms×6=300ms，供非入围分支使用。
+        let legacy = ActorAnimation::new(ActorAction::Attacking, DOWN, BodyKind::Human, 0);
+        assert_eq!(legacy.duration_ms(), 300);
+    }
+
+    #[test]
+    fn r47_wing_effect_uses_variant_specific_tables() {
+        assert_eq!(
+            wing_frames_for(ActorAction::Attacking, Some(AttackVariant::Attack1)),
+            FrameSequence::new(168, 6, 2, 100)
+        );
+        assert_eq!(
+            wing_frames_for(ActorAction::Attacking, Some(AttackVariant::Attack3)),
+            FrameSequence::new(264, 8, 0, 100)
+        );
+        assert_eq!(
+            wing_frames_for(ActorAction::Attacking, None),
+            WING_ATTACKING
+        );
     }
 
     #[test]

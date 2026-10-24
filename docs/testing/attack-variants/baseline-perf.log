@@ -1,0 +1,6 @@
+# 55bd709 独立 worktree，真实 release 构建；命令见 perf.json 的 baseline_command。
+running 1 test
+baseline_55bd709 batches=10 total=28600ns mean=28.6ns/action median=27.0ns p95=47.0ns
+test attack_perf_baseline ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

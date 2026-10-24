@@ -283,6 +283,7 @@ HUMAN_FRAMES = union_sequences(
     (64, 6, 2),   # HUMAN_WALKING
     (128, 6, 2),  # HUMAN_RUNNING
     (200, 6, 2),  # HUMAN_ATTACK1
+    (328, 8, 0),  # HUMAN_ATTACK3, Crystal Client/MirObjects/Frames.cs:163
     (472, 3, 5),  # HUMAN_STRUCK
     (536, 4, 4),  # HUMAN_DYING
     (539, 1, 7),  # HUMAN_DEAD

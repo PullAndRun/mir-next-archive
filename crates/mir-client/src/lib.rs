@@ -12,6 +12,7 @@
 //! 画一帧 UI 到 PNG。
 
 pub mod assets;
+pub mod attack;
 pub mod audio;
 pub mod camera;
 pub mod client_config;

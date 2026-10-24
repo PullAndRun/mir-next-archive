@@ -1,0 +1,1099 @@
+{
+  "actors": {
+    "female": {
+      "class": "Warrior",
+      "gender": "Female",
+      "name": "R47Female",
+      "object_id": 1
+    },
+    "male": {
+      "class": "Warrior",
+      "gender": "Male",
+      "name": "R47Male",
+      "object_id": 2
+    }
+  },
+  "asset_mode": "dev",
+  "assets_source": "unpacked",
+  "baseline": "55bd709",
+  "batch_id": 1792807006205,
+  "crystal_reference": "github/Crystal HEAD 0e315fe327192afe52c3d7357ddd1f5b7e26c5b8",
+  "entry": "NetCommand::Attack { variant } → ClientApp/NetClient 生产本地动作 → C.Attack",
+  "generated_at_unix_ms": 1792807006205,
+  "layer_availability": {
+    "absent_standard_character": [
+      "weapon",
+      "shield",
+      "wing",
+      "mount"
+    ],
+    "attack3_swing_effect": "degraded: no generic effect.wzl swing mapping; intentionally skipped",
+    "loaded": [
+      "body",
+      "hair"
+    ],
+    "note": "标准新角色无武器/盾/翅膀/坐骑；武器/盾/翅膀层由 entities 单测锁帧契约"
+  },
+  "legacy_cross_check": "skipped（默认构建不启用 legacy；legacy 构建加 MIR2_TEST_LEGACY=1 才交叉校验）",
+  "map": "0",
+  "protocol": {
+    "action_progress": "action_started_ms..now_ms; send/transmission never added to progress",
+    "client_packet": "C.Attack（direction+spell=None）",
+    "clock": "client wall clock; server packets have no protocol timestamp",
+    "extra_client_attack_packets": 0,
+    "variant_in_protocol": false
+  },
+  "release_pack_check": "packs=46（hum/hum2 Attack3 344..351 已验证）",
+  "rng_injection": "测试注入确定性变体（Attack3 等价 roll=0，Attack1 等价 roll=20）；A1 单测覆盖选择器",
+  "samples": [
+    {
+      "action": "female-attack1-down",
+      "action_now": "attacking",
+      "actual_index": 232,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 232,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 459,
+      "elapsed_ms": 0,
+      "frame_index": 0,
+      "layers": [
+        {
+          "frame": 232,
+          "layer": "body"
+        },
+        {
+          "frame": 832,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 160,
+      "pixel_hash": "33c7064243e6101c",
+      "png": "build\\evidence\\attack-variants\\female-attack1-down-frame0.png",
+      "png_byte_hash": "358055c992df5e9b",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806983228,
+      "source_started_ms": 1792806983228,
+      "variant": "attack1",
+      "view_variant": "attack1",
+      "wall_captured_ms": 1792806984159
+    },
+    {
+      "action": "female-attack1-down",
+      "action_now": "attacking",
+      "actual_index": 233,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 233,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 459,
+      "elapsed_ms": 100,
+      "frame_index": 1,
+      "layers": [
+        {
+          "frame": 233,
+          "layer": "body"
+        },
+        {
+          "frame": 833,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 161,
+      "pixel_hash": "caee8e13c20a1183",
+      "png": "build\\evidence\\attack-variants\\female-attack1-down-frame1.png",
+      "png_byte_hash": "deda08c4ace62d1b",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806983328,
+      "source_started_ms": 1792806983228,
+      "variant": "attack1",
+      "view_variant": "attack1",
+      "wall_captured_ms": 1792806984919
+    },
+    {
+      "action": "female-attack1-down",
+      "action_now": "attacking",
+      "actual_index": 234,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 234,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 462,
+      "elapsed_ms": 200,
+      "frame_index": 2,
+      "layers": [
+        {
+          "frame": 234,
+          "layer": "body"
+        },
+        {
+          "frame": 834,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 162,
+      "pixel_hash": "a709a48bde9d98ef",
+      "png": "build\\evidence\\attack-variants\\female-attack1-down-frame2.png",
+      "png_byte_hash": "165aa75d34bf4933",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806983428,
+      "source_started_ms": 1792806983228,
+      "variant": "attack1",
+      "view_variant": "attack1",
+      "wall_captured_ms": 1792806985723
+    },
+    {
+      "action": "female-attack1-down",
+      "action_now": "attacking",
+      "actual_index": 235,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 235,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 462,
+      "elapsed_ms": 300,
+      "frame_index": 3,
+      "layers": [
+        {
+          "frame": 235,
+          "layer": "body"
+        },
+        {
+          "frame": 835,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 163,
+      "pixel_hash": "211d87a5200d6b19",
+      "png": "build\\evidence\\attack-variants\\female-attack1-down-frame3.png",
+      "png_byte_hash": "2c26482099210b18",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806983528,
+      "source_started_ms": 1792806983228,
+      "variant": "attack1",
+      "view_variant": "attack1",
+      "wall_captured_ms": 1792806986485
+    },
+    {
+      "action": "female-attack1-down",
+      "action_now": "attacking",
+      "actual_index": 236,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 236,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 461,
+      "elapsed_ms": 400,
+      "frame_index": 4,
+      "layers": [
+        {
+          "frame": 236,
+          "layer": "body"
+        },
+        {
+          "frame": 836,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 164,
+      "pixel_hash": "97bd66cdc5e73285",
+      "png": "build\\evidence\\attack-variants\\female-attack1-down-frame4.png",
+      "png_byte_hash": "cc036270e4e7e16b",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806983628,
+      "source_started_ms": 1792806983228,
+      "variant": "attack1",
+      "view_variant": "attack1",
+      "wall_captured_ms": 1792806987204
+    },
+    {
+      "action": "female-attack1-down",
+      "action_now": "attacking",
+      "actual_index": 237,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 237,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 461,
+      "elapsed_ms": 500,
+      "frame_index": 5,
+      "layers": [
+        {
+          "frame": 237,
+          "layer": "body"
+        },
+        {
+          "frame": 837,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 165,
+      "pixel_hash": "2d2405e4c0d11f8c",
+      "png": "build\\evidence\\attack-variants\\female-attack1-down-frame5.png",
+      "png_byte_hash": "6672e6061df0e188",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806983728,
+      "source_started_ms": 1792806983228,
+      "variant": "attack1",
+      "view_variant": "attack1",
+      "wall_captured_ms": 1792806987931
+    },
+    {
+      "action": "female-attack1-down",
+      "action_now": "standing",
+      "actual_index": 32,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": null,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 461,
+      "elapsed_ms": 600,
+      "frame_index": 6,
+      "layers": [
+        {
+          "frame": 32,
+          "layer": "body"
+        },
+        {
+          "frame": 632,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": null,
+      "pixel_hash": "530f358863bf5874",
+      "png": "build\\evidence\\attack-variants\\female-attack1-down-frame6.png",
+      "png_byte_hash": "680e09a6b88ea82d",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806983828,
+      "source_started_ms": 1792806983228,
+      "variant": "attack1",
+      "view_variant": null,
+      "wall_captured_ms": 1792806988666
+    },
+    {
+      "action": "female-attack1-right",
+      "action_now": "attacking",
+      "actual_index": 216,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 216,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 461,
+      "elapsed_ms": 0,
+      "frame_index": 0,
+      "layers": [
+        {
+          "frame": 216,
+          "layer": "body"
+        },
+        {
+          "frame": 816,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 148,
+      "pixel_hash": "81d855d605e5f1f9",
+      "png": "build\\evidence\\attack-variants\\female-attack1-right-frame0.png",
+      "png_byte_hash": "95ffd7b4eae38e86",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806989722,
+      "source_started_ms": 1792806989722,
+      "variant": "attack1",
+      "view_variant": "attack1",
+      "wall_captured_ms": 1792806990414
+    },
+    {
+      "action": "female-attack1-right",
+      "action_now": "attacking",
+      "actual_index": 217,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 217,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 462,
+      "elapsed_ms": 100,
+      "frame_index": 1,
+      "layers": [
+        {
+          "frame": 217,
+          "layer": "body"
+        },
+        {
+          "frame": 817,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 149,
+      "pixel_hash": "a2f73df23815710c",
+      "png": "build\\evidence\\attack-variants\\female-attack1-right-frame1.png",
+      "png_byte_hash": "0afdcdc108977127",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806989822,
+      "source_started_ms": 1792806989722,
+      "variant": "attack1",
+      "view_variant": "attack1",
+      "wall_captured_ms": 1792806991126
+    },
+    {
+      "action": "female-attack3-right",
+      "action_now": "attacking",
+      "actual_index": 344,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 344,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 459,
+      "elapsed_ms": 0,
+      "frame_index": 0,
+      "layers": [
+        {
+          "frame": 344,
+          "layer": "body"
+        },
+        {
+          "frame": 944,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 248,
+      "pixel_hash": "51a3e0c24f2c5eed",
+      "png": "build\\evidence\\attack-variants\\female-attack3-right-frame0.png",
+      "png_byte_hash": "5c3a6c7d27f3b596",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806992167,
+      "source_started_ms": 1792806992167,
+      "variant": "attack3",
+      "view_variant": "attack3",
+      "wall_captured_ms": 1792806992902
+    },
+    {
+      "action": "female-attack3-right",
+      "action_now": "attacking",
+      "actual_index": 345,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 345,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 461,
+      "elapsed_ms": 100,
+      "frame_index": 1,
+      "layers": [
+        {
+          "frame": 345,
+          "layer": "body"
+        },
+        {
+          "frame": 945,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 249,
+      "pixel_hash": "1d3d4a7859dba3ef",
+      "png": "build\\evidence\\attack-variants\\female-attack3-right-frame1.png",
+      "png_byte_hash": "85f8831d46844064",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806992267,
+      "source_started_ms": 1792806992167,
+      "variant": "attack3",
+      "view_variant": "attack3",
+      "wall_captured_ms": 1792806993696
+    },
+    {
+      "action": "female-attack3-right",
+      "action_now": "attacking",
+      "actual_index": 346,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 346,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 461,
+      "elapsed_ms": 200,
+      "frame_index": 2,
+      "layers": [
+        {
+          "frame": 346,
+          "layer": "body"
+        },
+        {
+          "frame": 946,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 250,
+      "pixel_hash": "4d7f82794f79d5f4",
+      "png": "build\\evidence\\attack-variants\\female-attack3-right-frame2.png",
+      "png_byte_hash": "8e5fa53ffe8fabe5",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806992367,
+      "source_started_ms": 1792806992167,
+      "variant": "attack3",
+      "view_variant": "attack3",
+      "wall_captured_ms": 1792806994491
+    },
+    {
+      "action": "female-attack3-right",
+      "action_now": "attacking",
+      "actual_index": 347,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 347,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 462,
+      "elapsed_ms": 300,
+      "frame_index": 3,
+      "layers": [
+        {
+          "frame": 347,
+          "layer": "body"
+        },
+        {
+          "frame": 947,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 251,
+      "pixel_hash": "69a2696a9288bf4a",
+      "png": "build\\evidence\\attack-variants\\female-attack3-right-frame3.png",
+      "png_byte_hash": "93d793ecac21a31f",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806992467,
+      "source_started_ms": 1792806992167,
+      "variant": "attack3",
+      "view_variant": "attack3",
+      "wall_captured_ms": 1792806995257
+    },
+    {
+      "action": "female-attack3-right",
+      "action_now": "attacking",
+      "actual_index": 348,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 348,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 460,
+      "elapsed_ms": 400,
+      "frame_index": 4,
+      "layers": [
+        {
+          "frame": 348,
+          "layer": "body"
+        },
+        {
+          "frame": 948,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 252,
+      "pixel_hash": "c7085e96c6ed080c",
+      "png": "build\\evidence\\attack-variants\\female-attack3-right-frame4.png",
+      "png_byte_hash": "703c086c96c54b7f",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806992567,
+      "source_started_ms": 1792806992167,
+      "variant": "attack3",
+      "view_variant": "attack3",
+      "wall_captured_ms": 1792806996040
+    },
+    {
+      "action": "female-attack3-right",
+      "action_now": "attacking",
+      "actual_index": 349,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 349,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 462,
+      "elapsed_ms": 500,
+      "frame_index": 5,
+      "layers": [
+        {
+          "frame": 349,
+          "layer": "body"
+        },
+        {
+          "frame": 949,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 253,
+      "pixel_hash": "00d44abe41bfcf93",
+      "png": "build\\evidence\\attack-variants\\female-attack3-right-frame5.png",
+      "png_byte_hash": "f0cba0822123e81f",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806992667,
+      "source_started_ms": 1792806992167,
+      "variant": "attack3",
+      "view_variant": "attack3",
+      "wall_captured_ms": 1792806996835
+    },
+    {
+      "action": "female-attack3-right",
+      "action_now": "attacking",
+      "actual_index": 350,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 350,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 462,
+      "elapsed_ms": 600,
+      "frame_index": 6,
+      "layers": [
+        {
+          "frame": 350,
+          "layer": "body"
+        },
+        {
+          "frame": 950,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 254,
+      "pixel_hash": "197cc38aead660f6",
+      "png": "build\\evidence\\attack-variants\\female-attack3-right-frame6.png",
+      "png_byte_hash": "27ac1b073a6e71b5",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806992767,
+      "source_started_ms": 1792806992167,
+      "variant": "attack3",
+      "view_variant": "attack3",
+      "wall_captured_ms": 1792806997596
+    },
+    {
+      "action": "female-attack3-right",
+      "action_now": "attacking",
+      "actual_index": 351,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 351,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 459,
+      "elapsed_ms": 700,
+      "frame_index": 7,
+      "layers": [
+        {
+          "frame": 351,
+          "layer": "body"
+        },
+        {
+          "frame": 951,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 255,
+      "pixel_hash": "a025b4e397a23fac",
+      "png": "build\\evidence\\attack-variants\\female-attack3-right-frame7.png",
+      "png_byte_hash": "db1c8679e1671d65",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806992867,
+      "source_started_ms": 1792806992167,
+      "variant": "attack3",
+      "view_variant": "attack3",
+      "wall_captured_ms": 1792806998320
+    },
+    {
+      "action": "female-attack3-right",
+      "action_now": "standing",
+      "actual_index": 16,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": null,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 458,
+      "elapsed_ms": 800,
+      "frame_index": 8,
+      "layers": [
+        {
+          "frame": 16,
+          "layer": "body"
+        },
+        {
+          "frame": 616,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": null,
+      "pixel_hash": "b029503b484136b2",
+      "png": "build\\evidence\\attack-variants\\female-attack3-right-frame8.png",
+      "png_byte_hash": "4a088b17bd548068",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792806992967,
+      "source_started_ms": 1792806992167,
+      "variant": "attack3",
+      "view_variant": null,
+      "wall_captured_ms": 1792806999107
+    },
+    {
+      "action": "male-attack1-right",
+      "action_now": "attacking",
+      "actual_index": 216,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 216,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 457,
+      "elapsed_ms": 0,
+      "frame_index": 0,
+      "layers": [
+        {
+          "frame": 216,
+          "layer": "body"
+        },
+        {
+          "frame": 1416,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 148,
+      "pixel_hash": "772bf40c39615976",
+      "png": "build\\evidence\\attack-variants\\male-attack1-right-frame0.png",
+      "png_byte_hash": "2ab53bf46b90578f",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792807000160,
+      "source_started_ms": 1792807000160,
+      "variant": "attack1",
+      "view_variant": "attack1",
+      "wall_captured_ms": 1792807000941
+    },
+    {
+      "action": "male-attack1-right",
+      "action_now": "attacking",
+      "actual_index": 217,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 217,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 461,
+      "elapsed_ms": 100,
+      "frame_index": 1,
+      "layers": [
+        {
+          "frame": 217,
+          "layer": "body"
+        },
+        {
+          "frame": 1417,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 149,
+      "pixel_hash": "1649a0eebaa1f1ca",
+      "png": "build\\evidence\\attack-variants\\male-attack1-right-frame1.png",
+      "png_byte_hash": "4cf214404e2e7fe5",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792807000260,
+      "source_started_ms": 1792807000160,
+      "variant": "attack1",
+      "view_variant": "attack1",
+      "wall_captured_ms": 1792807001651
+    },
+    {
+      "action": "male-attack1-right",
+      "action_now": "attacking",
+      "actual_index": 218,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 218,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 463,
+      "elapsed_ms": 200,
+      "frame_index": 2,
+      "layers": [
+        {
+          "frame": 218,
+          "layer": "body"
+        },
+        {
+          "frame": 1418,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 150,
+      "pixel_hash": "bd7158cfde7d986c",
+      "png": "build\\evidence\\attack-variants\\male-attack1-right-frame2.png",
+      "png_byte_hash": "8c3ef1e6d4fa5848",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792807000360,
+      "source_started_ms": 1792807000160,
+      "variant": "attack1",
+      "view_variant": "attack1",
+      "wall_captured_ms": 1792807002391
+    },
+    {
+      "action": "male-attack1-right",
+      "action_now": "attacking",
+      "actual_index": 219,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 219,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 460,
+      "elapsed_ms": 300,
+      "frame_index": 3,
+      "layers": [
+        {
+          "frame": 219,
+          "layer": "body"
+        },
+        {
+          "frame": 1419,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 151,
+      "pixel_hash": "ad91d9039a29f0db",
+      "png": "build\\evidence\\attack-variants\\male-attack1-right-frame3.png",
+      "png_byte_hash": "fa9c273cab295a9e",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792807000460,
+      "source_started_ms": 1792807000160,
+      "variant": "attack1",
+      "view_variant": "attack1",
+      "wall_captured_ms": 1792807003405
+    },
+    {
+      "action": "male-attack1-right",
+      "action_now": "attacking",
+      "actual_index": 220,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 220,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 461,
+      "elapsed_ms": 400,
+      "frame_index": 4,
+      "layers": [
+        {
+          "frame": 220,
+          "layer": "body"
+        },
+        {
+          "frame": 1420,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 152,
+      "pixel_hash": "a040e05a36ac7098",
+      "png": "build\\evidence\\attack-variants\\male-attack1-right-frame4.png",
+      "png_byte_hash": "7755a187893092f6",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792807000560,
+      "source_started_ms": 1792807000160,
+      "variant": "attack1",
+      "view_variant": "attack1",
+      "wall_captured_ms": 1792807004349
+    },
+    {
+      "action": "male-attack1-right",
+      "action_now": "attacking",
+      "actual_index": 221,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": 221,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 461,
+      "elapsed_ms": 500,
+      "frame_index": 5,
+      "layers": [
+        {
+          "frame": 221,
+          "layer": "body"
+        },
+        {
+          "frame": 1421,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": 153,
+      "pixel_hash": "2201e159805afeb4",
+      "png": "build\\evidence\\attack-variants\\male-attack1-right-frame5.png",
+      "png_byte_hash": "1a2705669ae94f14",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792807000660,
+      "source_started_ms": 1792807000160,
+      "variant": "attack1",
+      "view_variant": "attack1",
+      "wall_captured_ms": 1792807005248
+    },
+    {
+      "action": "male-attack1-right",
+      "action_now": "standing",
+      "actual_index": 16,
+      "actual_index_semantics": "body 层实际渲染帧（含外观块偏移）；Standing 为 32/16/16",
+      "attack_frame_index": null,
+      "camera_center": [
+        330,
+        270
+      ],
+      "distinct_colors": 456,
+      "elapsed_ms": 600,
+      "frame_index": 6,
+      "layers": [
+        {
+          "frame": 16,
+          "layer": "body"
+        },
+        {
+          "frame": 1216,
+          "layer": "hair"
+        }
+      ],
+      "logical_index": null,
+      "pixel_hash": "689ab07a5012b3bf",
+      "png": "build\\evidence\\attack-variants\\male-attack1-right-frame6.png",
+      "png_byte_hash": "1bc928ffe2876d52",
+      "self_screen": [
+        384,
+        256
+      ],
+      "simulated_now_ms": 1792807000760,
+      "source_started_ms": 1792807000160,
+      "variant": "attack1",
+      "view_variant": null,
+      "wall_captured_ms": 1792807006107
+    }
+  ],
+  "server": {
+    "address": "127.0.0.1:52964",
+    "store": "MemoryStore"
+  },
+  "steps": [
+    {
+      "action_started_ms": 1792806983228,
+      "attacker_ack_wall_ms": 1792806983228,
+      "command_enqueued_wall_ms": 1792806983199,
+      "converted": {
+        "count": 6,
+        "effect_count": 6,
+        "effect_start": 168,
+        "interval_ms": 100,
+        "skip": 2,
+        "start": 200
+      },
+      "crystal_logical": {
+        "count": 6,
+        "effect_count": 6,
+        "effect_start": 168,
+        "skip": 0,
+        "start": 136
+      },
+      "direction": "Down",
+      "injected_roll": 20,
+      "label": "female-attack1-down",
+      "observer_object_attack_after": 1,
+      "observer_object_attack_before": 0,
+      "send_to_ack_ms": 29,
+      "sent_wall_ms": 1792806983199,
+      "source_started_ms": 1792806983228,
+      "variant": "attack1"
+    },
+    {
+      "action_started_ms": 1792806989722,
+      "attacker_ack_wall_ms": 1792806989722,
+      "command_enqueued_wall_ms": 1792806989701,
+      "converted": {
+        "count": 6,
+        "effect_count": 6,
+        "effect_start": 168,
+        "interval_ms": 100,
+        "skip": 2,
+        "start": 200
+      },
+      "crystal_logical": {
+        "count": 6,
+        "effect_count": 6,
+        "effect_start": 168,
+        "skip": 0,
+        "start": 136
+      },
+      "direction": "Right",
+      "injected_roll": 20,
+      "label": "female-attack1-right",
+      "observer_object_attack_after": 2,
+      "observer_object_attack_before": 1,
+      "send_to_ack_ms": 21,
+      "sent_wall_ms": 1792806989701,
+      "source_started_ms": 1792806989722,
+      "variant": "attack1"
+    },
+    {
+      "action_started_ms": 1792806992167,
+      "attacker_ack_wall_ms": 1792806992168,
+      "command_enqueued_wall_ms": 1792806992156,
+      "converted": {
+        "count": 8,
+        "effect_count": 8,
+        "effect_start": 264,
+        "interval_ms": 100,
+        "skip": 0,
+        "start": 328
+      },
+      "crystal_logical": {
+        "count": 8,
+        "effect_count": 8,
+        "effect_start": 264,
+        "skip": 0,
+        "start": 232
+      },
+      "direction": "Right",
+      "injected_roll": 0,
+      "label": "female-attack3-right",
+      "observer_object_attack_after": 3,
+      "observer_object_attack_before": 2,
+      "send_to_ack_ms": 12,
+      "sent_wall_ms": 1792806992156,
+      "source_started_ms": 1792806992167,
+      "variant": "attack3"
+    },
+    {
+      "action_started_ms": 1792807000160,
+      "attacker_ack_wall_ms": 1792807000160,
+      "command_enqueued_wall_ms": 1792807000142,
+      "converted": {
+        "count": 6,
+        "effect_count": 6,
+        "effect_start": 168,
+        "interval_ms": 100,
+        "skip": 2,
+        "start": 200
+      },
+      "crystal_logical": {
+        "count": 6,
+        "effect_count": 6,
+        "effect_start": 168,
+        "skip": 0,
+        "start": 136
+      },
+      "direction": "Right",
+      "injected_roll": 20,
+      "label": "male-attack1-right",
+      "observer_object_attack_after": 1,
+      "observer_object_attack_before": 0,
+      "send_to_ack_ms": 18,
+      "sent_wall_ms": 1792807000142,
+      "source_started_ms": 1792807000160,
+      "variant": "attack1"
+    }
+  ],
+  "terrain_source": "game-assets/maps/0.mnm（library-map.json + gfx 散装）",
+  "test": "two_clients_attack1_attack3_live_evidence"
+}

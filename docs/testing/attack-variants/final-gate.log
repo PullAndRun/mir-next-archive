@@ -1,0 +1,3005 @@
+    测试库（workspace 测试与 PG 门禁共用）：postgres://postgres:***@nas:3001/mir2_test
+== 本地门禁（无远端 CI；python=py）==
+
+==> cargo fmt --all --check
+    OK   (2 s)
+
+==> cargo clippy --workspace --all-targets -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.88s
+    OK   (1 s)
+
+==> cargo test -p mir-server --test duo_smoke（串行）
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.63s
+     Running tests\duo_smoke.rs (target\debug\deps\duo_smoke-079f1f6fd06774f6.exe)
+
+running 7 tests
+test duo_disconnect_removes_avatar_and_relogin_keeps_state ... ok
+test duo_group_experience_is_shared_in_range_only ... ignored, flaky: depends on live combat (moving monsters/random hit rolls); group_exp_shares unit tests in tests/group.rs cover the same world-level logic
+test duo_group_experience_skips_member_out_of_range ... ignored, flaky: depends on live combat (moving monsters/random hit rolls); group_exp_shares unit tests in tests/group.rs cover the same world-level logic
+test duo_group_invite_and_membership_sync ... ok
+test duo_pk_damages_and_kills_then_gm_revive ... ok
+test duo_players_see_each_other_and_walks_sync ... ok
+test duo_trade_handshake_and_gold_transfer ... ok
+
+test result: ok. 5 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 6.64s
+
+    OK   (7 s)
+
+==> cargo test --workspace
+   Compiling mir-render v0.2.0 (C:\Users\diana\Documents\github\mir-next\crates\mir-render)
+   Compiling mir-server v0.2.0 (C:\Users\diana\Documents\github\mir-next\crates\mir-server)
+   Compiling mir-client v0.2.0 (C:\Users\diana\Documents\github\mir-next\crates\mir-client)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.31s
+     Running unittests src\lib.rs (target\debug\deps\mir_asset-609956b67203ce97.exe)
+
+running 70 tests
+test dxt1::tests::four_colour_mode_interpolates_third_and_second ... ok
+test dxt1::tests::crops_padded_pixels ... ok
+test dxt1::tests::short_data_stops_without_panic ... ok
+test dxt1::tests::solid_block_expands_with_bit_replication ... ok
+test lib_container::tests::header_rejects_negative_count ... ok
+test dxt1::tests::three_colour_mode_has_transparent_selector ... ok
+test lib_container::tests::record_parses_all_fields_and_mask_flag ... ok
+test image::tests::format_names_are_stable ... ok
+test image::tests::border_connected_black_removal_keeps_interior_black ... ok
+test image::tests::palette_zero_is_opaque_black ... ok
+test lib_container::tests::v3_without_frame_seek_uses_index_offset_eight ... ok
+test image::tests::rgb565_expansion_matches_crystal ... ok
+test lib_container::tests::empty_record_needs_no_pixel_format ... ok
+test dxt1::tests::storage_size_matches_squish_get_storage_requirements ... ok
+test lib_container::tests::header_rejects_short_prefix ... ok
+test image::tests::black_to_transparent_only_touches_palette_formats ... ok
+test lib_container::tests::record_rejects_negative_dimensions ... ok
+test lib_container::tests::record_rejects_unknown_pixel_storage ... ok
+test lib_container::tests::v2_and_v3_headers_differ_only_in_index_offset ... ok
+test lib_container::tests::v3_prefix_without_third_field_is_truncated ... ok
+test image::tests::row_bytes_matches_crystal_width_bytes ... ok
+test lib_container::tests::header_rejects_old_version ... ok
+test lib_container::tests::record_detects_dxt1_by_exact_storage_size ... ok
+test lib_container::tests::record_rejects_negative_length ... ok
+test lib_container::tests::v1_and_v2_use_index_offset_eight ... ok
+test library_map::tests::empty_table_is_valid_so_callers_can_fall_back ... ok
+test library_map::tests::parses_dirs_and_prefix ... ok
+test palette::palette8_tests::unmapped_colour_falls_back_to_none ... ok
+test palette::palette8_tests::wemade_palette_round_trips_through_indices ... ok
+test wzl::tests::empty_record_is_all_zero ... ok
+test wzl::tests::expand_24_bit_rows_are_flipped ... ok
+test wzl::tests::expand_palette_and_flip ... ok
+test wzl::tests::index_ignores_trailing_bytes ... ok
+test wzl::tests::index_parses_header_count_and_offsets ... ok
+test wzl::tests::index_rejects_short_header ... ok
+test wzl::tests::record_parses_565_fields ... ok
+test wzl::tests::record_rejects_short_header ... ok
+test wzl::tests::record_rejects_unknown_format ... ok
+test wzl::tests::zero_length_forces_width_zero ... ok
+test atlas::tests::missing_atlas_json_is_io_error_so_callers_can_fall_back ... ok
+test library::tests::v3_header_shorter_than_index_offset_is_reported ... ok
+test library::tests::truncation_is_reported ... ok
+test library::tests::opens_v3_lib_without_frame_seek ... ok
+test library::tests::index_out_of_range_is_reported ... ok
+test library::tests::unknown_format_is_rejected ... ok
+test library::tests::wzl_without_index_reports_missing_companion ... ok
+test library::tests::opens_wzl_from_wzx_path ... ok
+test library::tests::opens_synthetic_lib_and_decodes ... ok
+test library::tests::opens_synthetic_wzl_and_decodes_all_formats ... ok
+test library::tests::bad_magic_for_unknown_file ... ok
+test library::tests::sniff_synthetic_lib_without_extension ... ok
+test wil::tests::real_objects81_decodes_if_assets_exist ... ok
+test unpacked::tests::unpacked_round_trips_shadow_metadata ... ok
+test unpacked::tests::missing_index_is_an_error_so_callers_can_fall_back ... ok
+test wil::tests::synthetic_wil_decodes_header_and_rgb565 ... ok
+test wil::tests::broken_signature_and_short_index_are_reported ... ok
+test audio_mna::tests::mna_round_trips_meta_and_bytes ... ok
+test audio_mna::tests::tampered_mna_is_rejected ... ok
+test pack::tests::pack_round_trips_pixels_and_metadata ... ok
+test pack::tests::palette8_entries_round_trip_through_palette_bin ... ok
+test unpacked::tests::library_source_can_read_from_mnp_packs ... ok
+test unpacked::tests::unpacked_pixels_match_source_library ... ok
+test pack::tests::unverified_open_skips_sha_but_verified_open_rejects ... ok
+test unpacked::tests::library_source_prefers_unpacked_and_falls_back ... ok
+test pack::tests::tampered_pack_is_detected_by_sha256 ... ok
+test pack::tests::pack_writer_is_deterministic_regardless_of_insertion_order ... ok
+test pack::tests::palette8_matches_real_library_pixels ... ok
+test pack::tests::packed_images_match_source_library_pixels ... ok
+test pack::tests::pack_set_reads_manifest_and_filters_by_prefix ... ok
+test pack::tests::pack_set_finds_palette_across_packs ... ok
+
+test result: ok. 70 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests\atlas_dir.rs (target\debug\deps\atlas_dir-5000db88b2dec793.exe)
+
+running 1 test
+test atlas_pixels_match_unpacked_pngs_and_are_preferred ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\png_export.rs (target\debug\deps\png_export-eb89af4ebb1d6b3a.exe)
+
+running 1 test
+test png_export_smoke ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\real_files.rs (target\debug\deps\real_files-e65fb33a3ca4e779.exe)
+
+running 6 tests
+test decodes_real_lib_library ... ok
+test palette_and_alpha_sanity ... ok
+test decodes_real_wzl_libraries ... ok
+test decodes_v3_lib_without_frame_seek ... ok
+test decodes_v1_lib_with_dxt1 ... ok
+test wzx_offsets_and_decoded_sizes_are_consistent ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s
+
+     Running unittests src\lib.rs (target\debug\deps\mir_client-db2bd89a32867f30.exe)
+
+running 259 tests
+test audio::tests::audio_mapping_uses_crystal_soundlist_ids ... ok
+test assets::tests::derived_dirs_are_under_the_root ... ok
+test assets::tests::default_or_fallback_depends_on_existence ... ok
+test audio::tests::real_sound_files_resolve_when_the_corpus_is_present ... ok
+test audio::tests::master_volume_multiplies_and_zero_is_silent ... ok
+test audio::tests::music_defaults_and_volume_are_independent_of_sound_effects ... ok
+test assets::tests::explicit_missing_falls_back_to_resource_but_keeps_source ... ok
+test audio::tests::disabled_player_is_a_no_op ... ok
+test camera::tests::next_authoritative_step_replaces_previous_motion ... ok
+test audio::tests::throttle_is_per_file ... ok
+test audio::tests::throttle_blocks_within_one_hundred_millis ... ok
+test audio::tests::throttle_tolerates_clock_going_backwards ... ok
+test audio::tests::volume_is_clamped ... ok
+test assets::tests::config_used_when_cli_and_env_absent ... ok
+test camera::tests::teleports_and_illegal_steps_have_no_offset ... ok
+test camera::tests::camera_centers_on_movement_cell_and_expires_after_600_ms ... ok
+test camera::tests::explicit_interrupts_clear_motion_immediately ... ok
+test camera::tests::walking_offsets_match_crystal_integer_truncation_and_evenizing ... ok
+test camera::tests::delayed_run_reply_keeps_action_and_motion_on_one_clock ... ok
+test camera::tests::running_offsets_cover_two_cells ... ok
+test camera::tests::same_position_snapshot_does_not_restart_motion_or_animation ... ok
+test camera::tests::self_motion_accepts_walk_run_and_diagonals_only ... ok
+test camera::tests::teleport_jump_invalidates_motion_and_snaps_to_target ... ok
+test camera::tests::apply_camera_keeps_self_at_screen_center_and_moves_the_world ... ok
+test audio::tests::music_files_resolve_in_the_crystal_sound_set ... ok
+test camera::tests::delayed_walk_reply_keeps_action_and_motion_on_one_clock ... ok
+test client_config::tests::defaults_are_complete ... ok
+test client_config::tests::key_conflicts_are_rejected ... ok
+test client_config::tests::language_switch_normalises_codes ... ok
+test geom::tests::contains_uses_half_open_bounds ... ok
+test geom::tests::inset_and_intersection_clamp_to_empty ... ok
+test net::tests::change_pet_mode_frame_has_index_45_and_mode_byte ... ok
+test net::tests::chat_log_is_capped_and_formats_speaker ... ok
+test net::tests::find_character_matches_exact_then_case_insensitive ... ok
+test net::tests::equipment_drives_the_paper_doll_appearance ... ok
+test net::tests::equipping_and_broken_equipment_refresh_the_appearance ... ok
+test net::tests::guild_member_status_codes_rebuild_the_rank_table ... ok
+test audio::tests::missing_device_and_missing_assets_are_silent_without_panic ... ok
+test net::tests::guild_storage_gold_and_buff_packets_update_the_snapshot ... ok
+test net::tests::inventory_tracks_user_information_gain_move_and_delete ... ok
+test net::tests::magic_leveled_updates_the_skill_list ... ok
+test net::tests::mail_packets_track_list_flags_and_send_results ... ok
+test net::tests::map_packets_keep_the_music_index ... ok
+test net::tests::mount_update_sets_and_clears_mount_for_self_and_others ... ok
+test audio::tests::library_resolves_mna_when_wav_is_absent ... ok
+test net::tests::npc_dialog_and_shop_resolve_names_prices_and_nearest_npc ... ok
+test net::tests::other_players_appearance_comes_from_object_player_and_player_update ... ok
+test net::tests::pet_mode_cycles_three_states_and_tracks_owner ... ok
+test net::tests::quest_packets_track_definitions_progress_removal_and_share_chat ... ok
+test net::tests::send_output_message_follows_quest_item_and_keeps_server_text ... ok
+test net::tests::snapshot_handles_login_and_entities ... ok
+test audio::tests::play_events_are_counted_throttled_and_silent_without_assets ... ok
+test net::tests::snapshot_tracks_equipment_buffs_damage_and_effects ... ok
+test net::tests::storage_packets_fill_eighty_slots_and_move_items ... ok
+test newbie::tests::bad_file_falls_back_without_panic ... ok
+test newbie::tests::defaults_have_five_steps ... ok
+test newbie::tests::current_step_advances_with_snapshot ... ok
+test newbie::tests::parses_chain_file ... ok
+test settings::tests::defaults_to_simplified_chinese ... ok
+test settings::tests::music_defaults_on_at_half_volume_independently ... ok
+test settings::tests::panel_state_roundtrips_into_settings ... ok
+test assets::tests::env_wins_over_config ... ok
+test settings::tests::set_language_normalises_aliases ... ok
+test audio::tests::library_prefers_the_first_existing_root ... ok
+test settings::tests::sound_defaults_on_at_half_volume ... ok
+test settings::tests::volume_is_clamped_and_nan_falls_back ... ok
+test ui::bigmap::tests::layout_matches_the_big_map_dialog_offsets ... ok
+test assets::tests::cli_wins_over_env_and_config ... ok
+test ui::buffs::tests::bar_moves_right_past_the_left_panels_and_capacity_shrinks ... ok
+test ui::buffs::tests::effect_ring_fades_out_over_its_lifetime ... ok
+test audio::tests::wav_is_only_used_in_legacy_mode ... ok
+test ui::buffs::tests::entry_rects_are_capped_and_do_not_overlap ... ok
+test ui::buffs::tests::infinite_and_paused_buffs_do_not_count_down ... ok
+test ui::buffs::tests::remaining_seconds_count_down_with_the_local_clock ... ok
+test ui::death::tests::accept_is_idempotent_for_same_death ... ok
+test ui::death::tests::alive_clears_state ... ok
+test ui::death::tests::dead_action_is_already_finished ... ok
+test ui::death::tests::no_click_sends_nothing_for_twelve_seconds ... ok
+test ui::death::tests::prompt_appears_only_after_death_animation ... ok
+test ui::death::tests::prompt_is_i18n ... ok
+test ui::death::tests::reject_dismisses_without_packet_and_stays_dismissed ... ok
+test ui::death::tests::s_death_injection_waits_for_animation_end ... ok
+test ui::death::tests::yes_maps_to_exactly_one_town_revive_packet ... ok
+test ui::dialog::tests::duplicate_buttons_are_merged ... ok
+test audio::tests::wav_header_check_rejects_garbage ... ok
+test ui::dialog::tests::layout_buttons_are_inside_the_panel_and_hit_testable ... ok
+test ui::dialog::tests::narrow_frames_still_produce_a_visible_dialog ... ok
+test ui::dialog::tests::page_always_has_an_exit_button ... ok
+test ui::dialog::tests::parses_buttons_and_strips_markup ... ok
+test ui::door::tests::door_index_zero_is_legal ... ok
+test ui::door::tests::empty_or_doorless_map_is_silent ... ok
+test ui::door::tests::far_door_still_sends_because_crystal_has_no_range_check ... ok
+test ui::door::tests::known_door_returns_exact_index ... ok
+test client_config::tests::missing_and_bad_files_fall_back_without_panicking ... ok
+test ui::door::tests::non_door_and_out_of_bounds_do_not_send ... ok
+test ui::equipment::tests::dura_changed_also_updates_inventory_items ... ok
+test client_config::tests::roundtrips_through_toml_and_disk ... ok
+test ui::equipment::tests::dura_changed_updates_equipment_and_zero_excludes_stats ... ok
+test ui::equipment::tests::item_types_map_to_the_right_slots_and_paired_slots_pick_empty ... ok
+test ui::equipment::tests::layout_has_fourteen_slots_inside_the_panel ... ok
+test settings::tests::missing_or_broken_file_falls_back_to_default ... ok
+test ui::equipment::tests::totals_sum_every_equipped_item ... ok
+test ui::grid::tests::grid_slots_are_inside_the_area_and_hit_testable ... ok
+test ui::grid::tests::narrow_areas_still_produce_at_least_one_row ... ok
+test ui::grid::tests::scrolling_moves_the_visible_window ... ok
+test ui::group::tests::group_chat_prefix_maps_to_a_chat_command ... ok
+test ui::group::tests::hp_colors_change_with_the_percentage ... ok
+test ui::group::tests::invite_messages_are_localized ... ok
+test ui::group::tests::layout_rows_and_buttons_are_hit_testable ... ok
+test ui::group::tests::scrolling_is_clamped_to_the_last_page ... ok
+test ui::group::tests::small_windows_keep_the_panel_on_screen ... ok
+test ui::guild::tests::member_and_buff_scrolling_is_clamped ... ok
+test ui::guild::tests::summary_and_status_texts_are_localized ... ok
+test ui::guild::tests::storage_grid_has_one_hundred_and_twelve_slots ... ok
+test ui::guild::tests::tabs_and_member_rows_are_hit_testable ... ok
+test settings::tests::server_resolution_and_scale_roundtrip_through_disk ... ok
+test ui::hud::tests::chat_layout_matches_the_bottom_left_corner ... ok
+test ui::hud::tests::ratio_clamps_to_unit_interval ... ok
+test ui::hud::tests::status_layout_keeps_bars_and_text_inside_the_panel ... ok
+test settings::tests::old_settings_files_without_sound_fields_still_load ... ok
+test ui::hud::tests::time_weather_text_is_localized_and_optional ... ok
+test ui::hud::tests::visible_chat_lines_are_capped_and_keep_the_newest ... ok
+test ui::input::tests::chinese_characters_count_as_one_each ... ok
+test ui::input::tests::control_characters_are_dropped ... ok
+test ui::input::tests::cursor_edits_stay_on_utf8_boundaries ... ok
+test settings::tests::roundtrip_through_disk ... ok
+test ui::input::tests::text_fields_enforce_limits_and_numeric_filtering ... ok
+test ui::inventory::tests::gold_and_hint_areas_are_inside_the_panel ... ok
+test ui::inventory::tests::panel_rect_stays_below_the_status_bar ... ok
+test ui::inventory::tests::slot_hit_testing_matches_the_rects ... ok
+test ui::inventory::tests::slot_rects_are_inside_the_panel_and_do_not_overlap ... ok
+test ui::labels::tests::chat_colors_differ_by_channel ... ok
+test ui::labels::tests::chinese_is_the_default_and_english_switches_labels ... ok
+test audio::tests::real_mna_decodes ... ok
+test ui::death::tests::click_yes_sends_once_and_click_no_sends_nothing ... ok
+test ui::labels::tests::item_type_slot_and_buff_names_are_localized ... ok
+test ui::labels::tests::every_label_has_both_languages ... ok
+test ui::labels::tests::new_ui_labels_have_both_languages ... ok
+test ui::labels::tests::numbers_use_thousands_separators ... ok
+test ui::labels::tests::unknown_items_are_labelled_with_the_template_index ... ok
+test ui::mail::tests::compose_attachments_toggle_and_serialize ... ok
+test ui::mail::tests::compose_fields_and_grid_are_inside_the_panel ... ok
+test ui::mail::tests::inbox_rows_are_hit_testable_and_paged ... ok
+test ui::mail::tests::parcel_text_and_subject_fall_back_to_the_first_line ... ok
+test ui::mail::tests::sent_dates_are_formatted_and_unset_dates_show_a_dash ... ok
+test ui::market::tests::fail_reasons_are_localized ... ok
+test ui::market::tests::labels_cover_all_panels ... ok
+test ui::market::tests::price_and_expiry_text_follow_crystal ... ok
+test ui::minimap::tests::layout_matches_crystal_geometry ... ok
+test audio::tests::seven_events_reach_the_injectable_sink ... ok
+test ui::minimap::tests::view_falls_back_to_terrain_size ... ok
+test ui::minimap::tests::view_uses_map_information_and_skips_items ... ok
+test ui::newbie::tests::panel_fits_screen ... ok
+test ui::notice::tests::notice_is_centered_and_buttons_hit_testable ... ok
+test ui::quest_nav::tests::finds_target_after_progress_lines ... ok
+test ui::quest_nav::tests::malformed_and_no_target_are_ignored_without_panic ... ok
+test ui::quest_nav::tests::parses_go_to_target ... ok
+test ui::quest_nav::tests::parses_server_target_suffix_with_npc_and_coordinates ... ok
+test ui::quests::tests::layout_rows_are_inside_the_panel_and_hit_testable ... ok
+test ui::equipment::tests::repair_button_emits_repair_item_command ... ok
+test ui::quests::tests::scrolling_is_clamped_to_the_last_page ... ok
+test ui::quests::tests::small_screen_keeps_items_and_footer_inside_the_panel ... ok
+test ui::quests::tests::status_and_time_texts_are_localized ... ok
+test ui::quests::tests::task_panel_target_line_is_exposed_for_tracking ... ok
+test ui::reconnect::tests::duplicate_disconnect_does_not_reset_progress ... ok
+test ui::reconnect::tests::message_reports_attempt_number ... ok
+test ui::reconnect::tests::retries_with_exponential_backoff_and_gives_up ... ok
+test ui::reconnect::tests::succeeds_on_first_attempt ... ok
+test ui::select::tests::character_cards_show_class_level_and_equipment_summary ... ok
+test ui::select::tests::character_layout_fits_small_and_large_screens ... ok
+test ui::select::tests::class_cycle_wraps_around ... ok
+test ui::select::tests::clicking_fields_changes_the_focus ... ok
+test ui::select::tests::empty_character_list_guides_creation_and_creates_with_class_and_gender ... ok
+test ui::select::tests::error_text_is_localized_and_never_forwards_raw_diagnostics ... ok
+test ui::select::tests::failure_shows_a_retry_button_and_retry_clears_the_error ... ok
+test ui::select::tests::selecting_and_entering_a_character_returns_its_slot ... ok
+test ui::select::tests::server_layout_fits_small_and_large_screens ... ok
+test ui::select::tests::server_select_defaults_to_localhost_and_remembers_a_saved_address ... ok
+test ui::settings::tests::click_outside_the_panel_is_ignored ... ok
+test ui::settings::tests::clicks_change_audio_language_display_and_close ... ok
+test ui::settings::tests::key_table_is_localized ... ok
+test ui::settings::tests::layout_fits_small_and_large_screens ... ok
+test ui::settings::tests::volume_percent_and_fraction_roundtrip ... ok
+test ui::settings::tests::scale_stays_inside_the_allowed_range ... ok
+test ui::shop::tests::row_and_price_text_are_localized ... ok
+test ui::shop::tests::rows_are_capped_and_stay_above_the_chat_panel ... ok
+test ui::shop::tests::rows_are_hit_testable_and_inside_the_panel ... ok
+test ui::shop::tests::scrolling_moves_the_visible_window_and_the_scrollbar_thumb ... ok
+test ui::skills::tests::cast_targets_the_nearest_monster_in_front ... ok
+test ui::skills::tests::magic_index_prefers_bound_keys_then_falls_back_by_position ... ok
+test ui::skills::tests::press_magic_key_reports_binding_for_unbound_skills ... ok
+test ui::skills::tests::row_text_shows_name_level_and_cost ... ok
+test ui::skills::tests::skill_rows_are_hit_testable ... ok
+test ui::spellfx::tests::direction_steps_match_the_eight_way_enum ... ok
+test ui::spellfx::tests::durations_split_into_cast_area_and_aura ... ok
+test ui::spellfx::tests::spell_names_are_localized ... ok
+test ui::spellfx::tests::spell_visual_categories_cover_the_round_two_skills ... ok
+test ui::storage::tests::storage_panel_holds_eighty_hit_testable_slots ... ok
+test ui::storage::tests::storage_panel_sits_left_of_the_inventory ... ok
+test ui::target::tests::ground_items_are_hoverable_but_not_targetable ... ok
+test ui::target::tests::hit_testing_prefers_monsters_and_skips_items_and_self ... ok
+test ui::map_names::tests::unknown_maps_fall_back_to_the_server_title_then_the_file_name ... ok
+test ui::hud::tests::map_name_prefers_the_client_table_then_falls_back_to_title_file_and_unknown ... ok
+test ui::map_names::tests::both_language_packs_cover_the_same_maps ... ok
+test ui::minimap::tests::movement_markers_and_tooltip_cover_gates ... ok
+test ui::target::tests::only_living_monsters_and_players_are_targetable ... ok
+test ui::tests::approach_attacks_automatically_once_the_target_is_adjacent ... ok
+test ui::map_names::tests::titles_without_a_file_name_are_reverse_looked_up ... ok
+test ui::tests::clicking_a_dialog_button_returns_its_script_key ... ok
+test ui::tests::clicking_a_monster_locks_it_and_double_clicking_attacks_it ... ok
+test ui::tests::clicking_a_shop_row_buys_one_item ... ok
+test ui::tests::clicking_an_inventory_slot_selects_it_without_network_action ... ok
+test ui::tests::clicking_an_npc_in_the_world_opens_the_dialog ... ok
+test ui::tests::clicking_outside_panels_does_nothing ... ok
+test ui::tests::clicking_the_bigmap_panel_does_not_walk ... ok
+test ui::tests::clicking_the_ground_clears_the_locked_target ... ok
+test ui::tests::clicking_the_ground_walks_or_turns_toward_the_target ... ok
+test ui::tests::closing_npc_hides_dialog_and_shop ... ok
+test ui::tests::dead_targets_are_dropped_on_sync ... ok
+test ui::tests::double_clicking_an_inventory_item_uses_it ... ok
+test ui::bigmap::tests::click_destination_maps_point_and_starts_path_to_door_cell ... ok
+test ui::tests::double_clicking_a_distant_target_walks_and_gives_up_after_three_steps ... ok
+test ui::tests::dragging_between_inventory_slots_swaps_and_equipment_to_inventory_unequips ... ok
+test ui::tests::dragging_inventory_to_equipment_emits_move_item_with_inventory_source ... ok
+test ui::tests::escape_closes_the_bigmap_before_other_panels ... ok
+test ui::tests::empty_dialog_page_closes_everything ... ok
+test ui::tests::new_damage_and_effect_events_are_consumed_once_with_the_injected_clock ... ok
+test ui::tests::pressing_a_number_key_casts_and_binds_unbound_magic ... ok
+test ui::tests::right_click_inventory_opens_a_context_menu_and_equip_moves_to_a_slot ... ok
+test ui::tests::selected_slot_is_cleared_when_the_inventory_shrinks ... ok
+test ui::newbie::tests::draws_until_all_steps_done ... ok
+test ui::tests::shop_scrolls_with_the_wheel_and_clamps_to_the_last_page ... ok
+test ui::text::tests::fallback_width_is_monotonic_and_line_height_positive ... ok
+test ui::tooltip::tests::content_lists_type_requirement_stats_durability_and_price ... ok
+test ui::text::tests::centered_text_stays_inside_its_rect ... ok
+test ui::tooltip::tests::tooltip_flips_at_screen_edges_and_stays_inside ... ok
+test ui::tooltip::tests::unknown_items_still_get_a_title ... ok
+test ui::map_names::tests::map_titles_come_from_the_language_packs ... ok
+test ui::trade::tests::layout_has_two_ten_slot_columns_inside_the_panel ... ok
+test ui::trade::tests::small_windows_still_produce_a_usable_panel ... ok
+test ui::typography::tests::closing_punctuation_never_starts_a_line ... ok
+test ui::text::tests::fallback_draws_ascii_pixels ... ok
+test ui::typography::tests::display_width_counts_cjk_as_two ... ok
+test ui::typography::tests::explicit_newlines_are_kept ... ok
+test ui::typography::tests::truncates_to_max_lines_with_ellipsis ... ok
+test ui::typography::tests::truncation_uses_ascii_fallback_for_narrow_width ... ok
+test ui::typography::tests::wraps_mixed_chinese_and_ascii_by_width ... ok
+test ui::wall_bump::tests::single_rejection_shows_once ... ok
+test ui::wall_bump::tests::no_protocol_packets_are_needed ... ok
+test ui::wall_bump::tests::ten_rejections_within_one_second_show_at_least_two_with_gaps ... ok
+test ui::worldtext::tests::damage_numbers_expire_after_one_second_and_rise_upward ... ok
+test ui::worldtext::tests::events_without_a_known_object_are_skipped ... ok
+test ui::worldtext::tests::miss_and_struck_get_text_and_colors ... ok
+test ui::target::tests::cell_boxes_are_drawn_around_the_cell_and_clipped_at_frame_edges ... ok
+test ui::text::tests::missing_preferred_font_does_not_panic ... ok
+test ui::minimap::tests::missing_assets_draw_placeholder_instead_of_panicking ... ok
+test ui::minimap::tests::draws_map_image_and_player_dot ... ok
+test ui::bigmap::tests::drawing_uses_the_map_image_and_marks_the_player ... ok
+test ui::bigmap::tests::missing_assets_draw_a_placeholder_with_the_map_name ... ok
+
+test result: ok. 259 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running unittests src\main.rs (target\debug\deps\mir_client-7c22f4b701b14395.exe)
+
+running 15 tests
+test overlay::tests::unknown_glyphs_are_blank ... ok
+test app::tests::chat_submit_keeps_gm_and_group_prefixes ... ok
+test tests::parses_class_and_gender_names ... ok
+test tests::resolves_map_names_and_paths ... ok
+test app::tests::screenshots_are_numbered_sequentially ... ok
+test app::tests::digit_keys_map_to_skill_slots_only_for_one_to_nine ... ok
+test tests::parses_cell_with_spaces ... ok
+test app::tests::direction_keys_cover_wasd_and_arrows ... ok
+test tests::rejects_bad_cell_values ... ok
+test tests::data_dir_detection_keeps_existing_and_falls_back ... ok
+test overlay::tests::live_overlay_draws_entity_and_chat_markers ... ok
+test overlay::tests::overlay_marks_pixels_and_stays_in_bounds ... ok
+test app::tests::map_changed_records_a_reload_request_and_keeps_the_old_map_when_the_file_is_missing ... ok
+test app::tests::map_changed_reloads_the_terrain_when_the_file_exists ... ok
+test app::tests::blank_scene_loads_dev_tree_libraries_when_game_assets_exist ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.38s
+
+     Running tests\anim.rs (target\debug\deps\anim-f4dc9cc191203bcd.exe)
+
+running 6 tests
+test object_attack_and_struck_and_died_follow_crystal_durations ... ok
+test self_death_packet_runs_dying_then_dead ... ok
+test object_run_and_turn_switch_actions ... ok
+test object_walk_drives_a_walking_animation_for_600_ms ... ok
+test local_player_actions_are_driven_without_a_server_echo ... ok
+test walking_player_and_attacking_monster_render_to_a_non_blank_png ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\attack_variant.rs (target\debug\deps\attack_variant-d0ed6e27a30d1891.exe)
+
+running 13 tests
+test a1_locked_or_invalid_target_is_not_none ... ok
+test a1_rng_draws_only_for_shift_empty_swing ... ok
+test attack_perf_1000_actions_baseline_vs_new ... ignored, 性能证据手动运行：先跑 55bd709 baseline，再 cargo test --release -p mir-client --test attack_variant -- --ignored attack_perf
+test a1_matrix_only_eligible_warrior_shift_no_target_can_vary ... ok
+test a1_roll_boundaries_0_19_20_99_and_illegal_100 ... ok
+test a3_entity_view_fields_are_propagated_to_renderer_contract ... ok
+test a3_non_eligible_classes_keep_legacy_attack1_50ms ... ok
+test a3_local_attack_clock_is_not_shifted_by_late_server_ack ... ok
+test a3_interruptions_new_attack_and_map_change_clear_variant ... ok
+test a3_attack1_600ms_and_attack3_800ms_do_not_fall_to_standing_at_300ms ... ok
+test a3_variant_is_established_once_and_survives_render_snapshot ... ok
+test a1_seed_uses_full_u64_epoch_and_process_id ... ok
+test a1_rng_is_bounded_and_each_action_has_one_draw ... ok
+
+test result: ok. 12 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\attack_variant_live.rs (target\debug\deps\attack_variant_live-b09195e4c18b176e.exe)
+
+running 1 test
+test two_clients_attack1_attack3_live_evidence ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.01s
+
+     Running tests\bigmap_panel.rs (target\debug\deps\bigmap_panel-cd20e2ee739159b2.exe)
+
+running 4 tests
+test clicking_the_big_map_panel_does_not_walk_or_lock_targets ... ok
+test zero_big_map_index_still_opens_the_panel_with_a_placeholder ... ok
+test missing_assets_draw_a_placeholder_with_the_map_name ... ok
+test pressing_b_renders_the_big_map_panel_and_escape_closes_it ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.63s
+
+     Running tests\chat_wrap.rs (target\debug\deps\chat_wrap-c6392d5a6ef1c024.exe)
+
+running 1 test
+test chat_wraps_long_mixed_text_and_saves_png ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests\client_fx.rs (target\debug\deps\client_fx-0fda832c51076bd4.exe)
+
+running 3 tests
+test spell_flash_is_silent_without_assets ... ok
+test attack_swing_effect_renders_on_the_player ... ok
+test attack_swing_and_spell_flash_render_with_real_assets ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.21s
+
+     Running tests\conquest.rs (target\debug\deps\conquest-ad11aef00c47f5b3.exe)
+
+running 7 tests
+test conquest_packets_roundtrip_through_encode_decode ... ok
+test snapshot_tracks_objects_and_destroyed_chat ... ok
+test no_conquest_packets_leave_snapshot_and_ui_unchanged ... ok
+test hud_timer_and_result_banner_expire ... ok
+test archer_range_attack_spawns_a_projectile ... ok
+test gate_open_state_changes_the_rendering ... ok
+test objects_render_with_fallback_blocks_and_save_png ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running tests\font_portability.rs (target\debug\deps\font_portability-77c4f7f82758c195.exe)
+
+running 1 test
+test missing_cjk_glyphs_are_detected_and_skipped ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\friends_panel.rs (target\debug\deps\friends_panel-3742a9dd4d3812aa.exe)
+
+running 7 tests
+test friend_actions_map_to_packets_127_to_130 ... ok
+test friends_layout_fits_small_screen_and_row_at_uses_scroll ... ok
+test guild_allies_packet_roundtrips_and_clears_without_guild ... ok
+test scrolled_click_selects_the_absolute_row_and_removes_that_friend ... ok
+test friend_update_replaces_the_list_and_language_switch_redraws ... ok
+test friends_panel_renders_selects_and_saves_png ... ok
+test guild_ally_tab_fits_small_screen_and_saves_png ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+     Running tests\group_panel.rs (target\debug\deps\group_panel-ac356f28f3d3863c.exe)
+
+running 2 tests
+test group_layouts_survive_small_windows ... ok
+test group_panel_shows_members_health_and_sends_group_packets ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+
+     Running tests\item_templates.rs (target\debug\deps\item_templates-60f5e527a51c718f.exe)
+
+running 6 tests
+test label_helpers_stay_stable_for_missing_templates ... ok
+test market_listings_freeze_the_template_at_npc_market_time ... ok
+test gained_item_chat_keeps_the_unknown_placeholder_captured_at_pickup_time ... ok
+test shop_rows_freeze_the_template_at_npc_goods_time ... ok
+test missing_templates_degrade_to_the_index_number_and_never_panic ... ok
+test inventory_and_equipment_converge_when_the_template_arrives_late ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests\live_world.rs (target\debug\deps\live_world-61904821ee3ef6f2.exe)
+
+running 2 tests
+test live_client_walks_and_renders_a_frame ... ok
+test live_client_walk_run_capture_continuous_frames ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.42s
+
+     Running tests\map_changed.rs (target\debug\deps\map_changed-c485deae7d641dbc.exe)
+
+running 3 tests
+test map_changed_before_user_information_still_updates_the_map ... ok
+test empty_file_name_falls_back_to_the_map_index_convention ... ok
+test map_changed_clears_entities_updates_position_and_records_a_reload_request ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\map_interaction.rs (target\debug\deps\map_interaction-4772f7166d81aecf.exe)
+
+running 5 tests
+test fixture_does_not_need_real_assets ... ok
+test bigmap_click_known_cell_sets_destination ... ok
+test minimap_hover_empty_cell_shows_no_tooltip ... ok
+test minimap_hover_npc_shows_exact_name_and_type ... ok
+test minimap_hover_teleport_shows_exact_name_and_coords ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\market_panel.rs (target\debug\deps\market_panel-2a5b8516b8c2a6e4.exe)
+
+running 6 tests
+test market_fail_reason_shows_localized_text ... ok
+test market_layouts_fit_small_and_large_screens ... ok
+test market_panel_search_page_buy_bid_and_consign ... ok
+test market_panel_pages_with_buttons_and_only_requests_unfetched_pages ... ok
+test market_snapshot_tracks_listings_pages_and_messages ... ok
+test market_panel_renders_and_saves_png ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
+
+     Running tests\minimap_panel.rs (target\debug\deps\minimap_panel-8a37a62536cafe60.exe)
+
+running 4 tests
+test injected_map_information_drives_the_minimap_panel ... ok
+test missing_assets_render_a_placeholder_panel ... ok
+test zero_minimap_index_means_no_image ... ok
+test renders_minimap_panel_to_png ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
+
+     Running tests\mount_wings.rs (target\debug\deps\mount_wings-758248dacfd3fc16.exe)
+
+running 1 test
+test mounted_player_renders_mount_and_wings_to_a_png ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.67s
+
+     Running tests\npc_flow.rs (target\debug\deps\npc_flow-bd5b60f7ea661689.exe)
+
+running 8 tests
+test npc_dialog_and_shop_labels_are_bilingual ... ok
+test dialog_without_an_exit_button_still_gets_a_localized_close ... ok
+test npc_response_shows_the_original_lines_and_parses_buttons ... ok
+test dialog_buttons_dispatch_their_script_keys_as_call_npc ... ok
+test the_exit_button_closes_the_dialog_and_the_shop ... ok
+test clicking_a_shelf_row_buys_one_item_with_c_buy_item ... ok
+test selling_the_selected_inventory_item_sends_c_sell_item ... ok
+test npc_goods_packet_fills_the_shelf_with_names_prices_and_currency ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\panels.rs (target\debug\deps\panels-743a3d6de19a827a.exe)
+
+running 5 tests
+test layouts_survive_small_windows ... ok
+test quest_panel_renders_progress_and_abandons_the_selected_quest ... ok
+test storage_panel_opens_from_npc_storage_and_moves_items_both_ways ... ok
+test mail_panel_reads_collects_locks_deletes_and_sends ... ok
+test guild_panel_shows_members_storage_buffs_and_notice_actions ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+
+     Running tests\path_and_pickup.rs (target\debug\deps\path_and_pickup-831986819e9c8c60.exe)
+
+running 6 tests
+test unreachable_ground_falls_back_to_one_step_towards_the_target ... ok
+test clicking_a_far_item_approaches_then_picks_up ... ok
+test path_ticks_do_not_require_server_position_updates ... ok
+test path_running_sends_run_for_two_same_direction_steps ... ok
+test clicking_empty_ground_walks_a_multi_step_path_in_order ... ok
+test hovering_a_ground_item_shows_its_name_and_adjacent_click_picks_it_up ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests\player_looks.rs (target\debug\deps\player_looks-833bc3b61bffacf2.exe)
+
+running 1 test
+test equipment_layers_reach_the_snapshot_and_the_frame ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.56s
+
+     Running tests\real_assets.rs (target\debug\deps\real_assets-c606ecbf9751a308.exe)
+
+running 3 tests
+test missing_assets_fall_back_to_placeholder_without_panicking ... ok
+test renders_real_map_with_player_monster_and_npc ... ok
+test player_animation_frames_advance_on_real_sprites ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.12s
+
+     Running tests\remote_motion.rs (target\debug\deps\remote_motion-098b69d5edbb5546.exe)
+
+running 11 tests
+test m4_perf_1_50_200_remotes_1000_frames_baseline_vs_new ... ignored, 性能证据手动运行：先跑 85bfc21 baseline，再跑 cargo test --release -p mir-client --test remote_motion -- --ignored m4_perf
+test interruptions_invalid_unknown_and_id_reuse_clear_state ... ok
+test m1_north_south_first_frame_and_600ms_endpoint_use_from_and_advance ... ok
+test m2_delayed_packets_do_not_count_transmission_time_as_action_progress ... ok
+test same_coordinate_packet_does_not_restart_and_new_step_replaces ... ok
+test m3_boundary_0_99_100_300_500_599_600_700ms ... ok
+test self_static_and_moving_regressions_keep_anchors_and_global_offset ... ok
+test sorting_smoke_moving_players_cross_a_standing_entity_once ... ok
+test m4_state_is_bounded_and_has_no_residue ... ok
+test two_remote_players_are_isolated ... ok
+test m3_all_96_direction_action_frame_combinations_match_independent_table ... ok
+
+test result: ok. 10 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\remote_motion_live.rs (target\debug\deps\remote_motion_live-69b3b4e1aca4b3c7.exe)
+
+running 1 test
+test two_clients_observe_remote_walk_run_interpolation ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.78s
+
+     Running tests\round2_panels.rs (target\debug\deps\round2_panels-a3b65d8cc892ee88.exe)
+
+running 27 tests
+test credit_balance_updates_from_lose_credit ... ok
+test at_prefixed_commands_are_sent_as_plain_chat ... ok
+test object_hidden_hides_entities_everywhere ... ok
+test login_success_exposes_character_list_for_manual_select ... ok
+test character_select_shows_class_level_and_equipment_summary ... ok
+test quest_items_track_gained_and_deleted_items ... ok
+test server_chat_is_shown_as_sent_and_client_system_chat_is_localized ... ok
+test server_select_defaults_to_localhost_and_can_retry ... ok
+test user_information_restores_quest_inventory ... ok
+test settings_roundtrip_through_disk_survives_restart ... ok
+test market_tab_switch_clears_selection_and_notice ... ok
+test game_shop_tab_sends_market_search_and_buys_with_credits ... ok
+test settings_panel_is_modal_in_the_ui_state ... ok
+test spell_packets_create_visible_effects ... ok
+test languages_switch_labels_immediately ... ok
+test english_login_error_never_shows_raw_chinese_diagnostics ... ok
+test quest_output_message_is_visible_after_quest_item_gained ... ok
+test time_and_weather_follow_server_packets ... ok
+test pet_mode_cycles_and_prints_localized_chat ... ok
+test auction_mail_and_expiry_messages_render ... ok
+test chat_panel_renders_server_and_client_text_in_both_languages ... ok
+test quest_panel_shows_quest_items_and_fits_small_screens ... ok
+test game_shop_tab_fits_small_and_large_screens ... ok
+test login_screens_render_at_both_sizes ... ok
+test quest_items_strip_scrolls_with_wheel_and_pages ... ok
+test settings_panel_layout_and_clicks ... ok
+test language_switch_redraws_every_open_panel ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.34s
+
+     Running tests\social_panels.rs (target\debug\deps\social_panels-e9f223e8cfa8f3d6.exe)
+
+running 2 tests
+test group_panel_fits_320x240_and_redraws_in_english ... ok
+test guild_member_page_shows_levels_and_refresh_request ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+     Running tests\sound.rs (target\debug\deps\sound-ce78ca0036f1aac1.exe)
+
+running 7 tests
+test packets_produce_sound_events ... ok
+test item_type_potion_is_the_drink_trigger ... ok
+test throttle_blocks_duplicate_walk_sounds ... ok
+test local_commands_push_sound_events ... ok
+test sound_library_resolves_every_mapped_file_when_assets_exist ... ok
+test real_wav_files_open ... ok
+test no_device_player_is_silent_and_does_not_panic ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\targeting.rs (target\debug\deps\targeting-07ffd9cf8da968ea.exe)
+
+running 4 tests
+test clicking_panels_or_the_minimap_never_walks ... ok
+test double_clicking_a_distant_monster_walks_up_to_three_steps_then_gives_up ... ok
+test clicking_a_monster_locks_it_and_double_clicking_an_adjacent_one_attacks ... ok
+test hovering_a_monster_hits_it_and_draws_an_overhead_health_bar ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests\trade_panel.rs (target\debug\deps\trade_panel-8f1705353d6b1652.exe)
+
+running 2 tests
+test trade_layouts_survive_small_windows ... ok
+test trade_panel_accepts_items_gold_and_confirm ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+     Running tests\ui_interaction.rs (target\debug\deps\ui_interaction-2f9c8170b1ad5966.exe)
+
+running 1 test
+test interaction_tooltip_use_drag_damage_and_buffs ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
+
+     Running tests\ui_test.rs (target\debug\deps\ui_test-95ea1659c2aea066.exe)
+
+running 1 test
+test headless_ui_renders_all_panels_and_dispatches_clicks ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+     Running unittests src\lib.rs (target\debug\deps\mir_core-901873af9062b2c7.exe)
+
+running 42 tests
+test color::tests::rgb_roundtrip ... ok
+test datetime::tests::unix_epoch_roundtrip ... ok
+test datetime::tests::known_dotnet_value ... ok
+test i18n::tests::format_text_renders_literal_braces ... ok
+test enums::direction::tests::left_and_right_are_mirrored ... ok
+test enums::direction::tests::reverse_is_opposite_delta ... ok
+test i18n::tests::round_one_keys_keep_their_wording ... ok
+test i18n::tests::every_key_has_a_key_name ... ok
+test i18n::tests::every_key_is_translated_in_every_language ... ok
+test i18n::tests::format_text_ignores_extra_arguments ... ok
+test i18n::tests::format_text_keeps_missing_placeholders ... ok
+test datetime::tests::unset_is_zero ... ok
+test i18n::tests::every_key_has_same_placeholders_in_every_language ... ok
+test i18n::tests::guild_permission_extension_keys_are_specific ... ok
+test i18n::tests::guild_permission_names_render_naturally_in_both_languages ... ok
+test i18n::tests::in_game_command_switches_language ... ok
+test i18n::tests::language_pack_rejects_unknown_code ... ok
+test i18n::tests::missing_pack_falls_back_to_builtin_text ... ok
+test i18n::tests::placeholder_arguments_are_snake_case ... ok
+test i18n::tests::text_key_all_is_complete ... ok
+test i18n::tests::text_key_all_has_no_duplicates ... ok
+test i18n::tests::default_language_is_simplified_chinese ... ok
+test i18n::tests::switching_by_code_works_and_rejects_garbage ... ok
+test point::tests::moving_then_back_is_identity ... ok
+test i18n::tests::format_text_without_arguments_matches_text ... ok
+test point::tests::range_uses_chebyshev_distance ... ok
+test point::tests::direction_matches_crystal_table ... ok
+test i18n::tests::text_key_names_are_unique ... ok
+test rng::tests::chance_edges ... ok
+test rng::tests::bounded_stays_in_range ... ok
+test rng::tests::different_seeds_differ ... ok
+test rng::tests::same_seed_same_sequence ... ok
+test rng::tests::zero_range_is_degenerate ... ok
+test i18n::tests::format_text_replaces_every_declared_placeholder ... ok
+test i18n::tests::language_packs_have_no_unknown_keys ... ok
+test i18n::tests::embedded_pack_matches_builtin_text ... ok
+test i18n::tests::language_catalog_formats_in_current_language ... ok
+test i18n::tests::map_titles_are_localized ... ok
+test i18n::tests::generated_name_packs_are_localized_and_fallback ... ok
+test i18n::tests::language_packs_have_identical_key_sets ... ok
+test i18n::tests::embedded_language_packs_cover_every_key ... ok
+test i18n::tests::language_library_formats_like_builtin_templates ... ok
+
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\i18n.rs (target\debug\deps\i18n-845f7fcb2eea97b0.exe)
+
+running 9 tests
+test format_text_ignores_extra_arguments ... ok
+test round_one_keys_keep_their_wording ... ok
+test format_text_substitutes_known_placeholders_and_keeps_unknown_ones ... ok
+test text_key_all_has_unique_names ... ok
+test every_key_renders_all_of_its_declared_placeholders ... ok
+test both_packs_share_the_same_key_set ... ok
+test both_packs_carry_every_key_with_the_builtin_template ... ok
+test language_library_format_matches_format_text ... ok
+test language_library_embedded_matches_the_config_files ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src\lib.rs (target\debug\deps\mir_db-379075e0db8ad197.exe)
+
+running 85 tests
+test conquest::tests::legacy_repair_cost_has_the_same_width ... ok
+test conquest::tests::truncated_conquest_is_an_error ... ok
+test drops::tests::parses_item_gold_and_quest_lines ... ok
+test drops::tests::roll_keeps_quest_required_flag_aligned_with_items ... ok
+test drops::tests::gold_range_is_half_to_one_and_a_half ... ok
+test drops::tests::group_first_stops_after_first_hit ... ok
+test item::tests::legacy_item_fixed_block_lands_in_stats ... ok
+test drops::tests::guaranteed_drop_always_rolls ... ok
+test conquest::tests::roundtrip_all_versions ... ok
+test drops::tests::parses_group_blocks ... ok
+test dragon::tests::default_matches_crystal_initializers ... ok
+test drops::tests::rejects_malformed_lines ... ok
+test dragon::tests::roundtrip ... ok
+test item::tests::game_shop_legacy_paths ... ok
+test item::tests::game_shop_modern_path_reuses_db_decoder ... ok
+test dragon::tests::truncated_dragon_is_an_error ... ok
+test item::tests::legacy_slots_gate_is_84 ... ok
+test item::tests::modern_item_reuses_packet_decoder ... ok
+test drops::tests::guaranteed_rule_and_rate_use_right_open_rng ... ok
+test magic::tests::legacy_tail_costs_one_plus_eight_bytes ... ok
+test map::tests::movement_gates_69_and_95 ... ok
+test magic::tests::roundtrip_all_versions ... ok
+test map::tests::respawn_extras_only_after_67 ... ok
+test magic::tests::truncated_magic_is_an_error ... ok
+test map::tests::truncated_map_is_an_error ... ok
+test mnd::tests::rejects_bad_magic_and_truncation ... ok
+test map::tests::roundtrip_all_versions ... ok
+test npc::tests::truncated_npc_is_an_error ... ok
+test npc_script::tests::buttons_accept_arguments_and_bracket_labels ... ok
+test drops::tests::rate_scales_the_denominator ... ok
+test npc_script::tests::comments_and_empty_lines_do_not_reach_the_page ... ok
+test monster::tests::legacy_level_is_one_byte_before_62 ... ok
+test monster::tests::truncated_monster_is_an_error ... ok
+test monster::tests::roundtrip_modern_and_legacy ... ok
+test npc::tests::conquest_and_sabuk_share_one_slot ... ok
+test npc::tests::roundtrip_all_versions ... ok
+test monster::tests::legacy_fixed_block_reads_signed_bytes ... ok
+test npc_script::tests::color_markup_and_placeholders_are_kept_verbatim ... ok
+test npc_script::tests::compare_operators_follow_crystal ... ok
+test npc_script::tests::each_if_starts_a_new_segment ... ok
+test npc::tests::legacy_image_is_one_byte_before_72 ... ok
+test npc_script::tests::else_if_is_accepted_but_ignored ... ok
+test npc_script::tests::else_say_is_separated_from_say ... ok
+test mnd::tests::roundtrip_sections_and_compression ... ok
+test npc_script::tests::normalize_key_accepts_all_common_spellings ... ok
+test npc_script::tests::parses_pages_and_plain_say ... ok
+test npc_script::tests::quest_actions_are_recognised_as_extensions ... ok
+test npc_script::tests::quest_section_records_signed_indexes ... ok
+test npc_script::tests::splits_segments_at_if_and_routes_else_branches ... ok
+test npc_script::tests::trade_section_lists_goods_with_line_indexes ... ok
+test quest::tests::roundtrip_all_versions ... ok
+test npc_script::tests::unsupported_checks_are_recorded_not_dropped ... ok
+test quest::tests::truncated_quest_is_an_error ... ok
+test quest::tests::zero_max_level_means_unlimited ... ok
+test drops::tests::group_children_are_independent_probabilities ... ok
+test quest_script::tests::bad_lines_become_warnings_not_failures ... ok
+test quest_script::tests::comments_and_blank_lines_are_ignored ... ok
+test quest_script::tests::counts_default_to_one_and_parse_errors_to_zero ... ok
+test quest_script::tests::flag_bounds_follow_globals ... ok
+test quest_script::tests::parses_every_section_of_a_real_shaped_file ... ok
+test quest_script::tests::quoted_message_is_extracted ... ok
+test quest_script::tests::repeated_sections_accumulate ... ok
+test quest_script::tests::resolve_path_joins_the_quest_directory ... ok
+test quest_script::tests::section_names_are_case_insensitive_and_order_independent ... ok
+test quest_script::tests::unknown_sections_are_reported ... ok
+test report::tests::leftover_warning_is_printed ... ok
+test report::tests::quoted_escapes_quotes_and_backslashes ... ok
+test report::tests::report_of_empty_db_is_stable ... ok
+test respawn::tests::gt_map_roundtrip ... ok
+test respawn::tests::respawn_timer_matches_sample_layout ... ok
+test schema::tests::envir_bundle_roundtrip_and_index ... ok
+test schema::tests::rejects_truncated_envir_bundle ... ok
+test tests::absurd_count_is_rejected_before_allocating ... ok
+test schema::tests::roundtrip_default_db ... ok
+test tests::bogus_versions_are_rejected ... ok
+test tests::minimal_v117_has_all_sections_and_gt_tail ... ok
+test tests::minimal_v60_parses_without_gated_sections ... ok
+test tests::non_bool_byte_means_misalignment ... ok
+test tests::trailing_bytes_are_reported_but_not_fatal ... ok
+test tests::truncated_file_reports_offset_and_section ... ok
+test npc_script::tests::missing_script_is_an_io_error ... ok
+test drops::tests::loads_a_real_drop_file_from_the_index ... ok
+test npc_script::tests::missing_insert_only_warns ... ok
+test npc_script::tests::insert_appends_lines_from_another_file ... ok
+test npc_script::tests::include_copies_curly_block ... ok
+
+test result: ok. 85 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src\main.rs (target\debug\deps\mir_db-3eb99a8995465e22.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\npc_scripts.rs (target\debug\deps\npc_scripts-8d6d6e2fb8b4a46c.exe)
+
+running 3 tests
+test blacksmith_script_matches_the_hand_read_structure ... ok
+test trade_item_names_resolve_against_the_database ... ok
+test every_sample_script_parses ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.04s
+
+     Running tests\samples.rs (target\debug\deps\samples-22f9b237416201a2.exe)
+
+running 5 tests
+test cjlaaa_matches_the_documented_layout ... ok
+test truncated_real_sample_is_rejected ... ok
+test legacy_samples_hit_the_old_branches ... ok
+test every_sample_parses_with_zero_leftover ... ok
+test maps_and_monsters_roundtrip_byte_exactly ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running unittests src\lib.rs (target\debug\deps\mir_protocol-93ca4055916dafd0.exe)
+
+running 178 tests
+test codec::tests::frame_layout_matches_crystal ... ok
+test codec::tests::frame_buffer_handles_partial_reads ... ok
+test data::base_stats::tests::roundtrip_with_multiple_stats_and_caps ... ok
+test data::client_buff::tests::default_buff_is_minimal ... ok
+test data::client_buff::tests::roundtrip_with_stats_and_values ... ok
+test data::base_stats::tests::single_stat_matches_hand_derived_bytes ... ok
+test data::base_stats::tests::truncated_payload_errors ... ok
+test data::base_stats::tests::unknown_enum_values_fall_back_to_default ... ok
+test data::client_auction::tests::auction_id_comes_before_the_item ... ok
+test data::client_auction::tests::client_auction_empty_roundtrip ... ok
+test data::client_auction::tests::client_auction_roundtrip ... ok
+test data::client_auction::tests::item_type_is_the_last_byte ... ok
+test data::client_auction::tests::truncated_payload_errors ... ok
+test data::client_buff::tests::bytes_match_hand_derived_layout ... ok
+test codec::tests::multiple_frames_in_one_push ... ok
+test data::base_stats::tests::empty_stats_still_writes_job_and_caps ... ok
+test codec::tests::gzip_roundtrip ... ok
+test data::client_buff::tests::paused_is_written_before_stats ... ok
+test codec::tests::frame_buffer_rejects_short_length ... ok
+test data::client_buff::tests::truncated_payload_errors ... ok
+test data::client_data::tests::client_magic_roundtrip ... ok
+test data::client_friend::tests::client_friend_empty_roundtrip ... ok
+test data::client_friend::tests::client_friend_layout ... ok
+test data::client_friend::tests::client_friend_roundtrip ... ok
+test data::client_gt_map::tests::all_strings_empty ... ok
+test data::client_gt_map::tests::bytes_match_hand_derived_layout ... ok
+test data::client_gt_map::tests::truncated_payload_errors ... ok
+test data::client_hero_information::tests::bytes_match_hand_derived_layout ... ok
+test data::client_hero_information::tests::empty_name_costs_one_byte ... ok
+test data::client_hero_information::tests::roundtrip_with_chinese_name ... ok
+test data::client_mail::tests::bools_and_date_order ... ok
+test data::client_data::tests::chat_item_roundtrip ... ok
+test data::client_mail::tests::client_mail_empty_roundtrip ... ok
+test data::client_friend::tests::truncated_payload_errors ... ok
+test data::client_gt_map::tests::roundtrip ... ok
+test data::client_mail::tests::client_mail_roundtrip ... ok
+test data::client_hero_information::tests::truncated_payload_errors ... ok
+test data::client_mail::tests::item_count_and_payload ... ok
+test data::client_mail::tests::truncated_payload_errors ... ok
+test data::client_map_info::tests::bytes_match_hand_derived_layout ... ok
+test data::client_map_info::tests::empty_map_info_is_twenty_one_bytes ... ok
+test data::client_map_info::tests::negative_counts_error ... ok
+test data::client_map_info::tests::npc_icon_normalization_is_kept ... ok
+test data::client_map_info::tests::roundtrip ... ok
+test data::client_map_info::tests::title_is_written_before_dimensions ... ok
+test data::client_map_info::tests::truncated_payload_errors ... ok
+test data::client_monster_info::tests::bool_order_is_push_before_tame ... ok
+test data::client_monster_info::tests::roundtrip ... ok
+test data::client_monster_info::tests::truncated_payload_errors ... ok
+test data::client_movement_info::tests::bytes_match_hand_derived_layout ... ok
+test data::client_movement_info::tests::roundtrip ... ok
+test data::client_movement_info::tests::truncated_payload_errors ... ok
+test data::client_npc_info::tests::icon_falls_back_to_big_map_icon_on_decode ... ok
+test data::client_npc_info::tests::image_precedes_rate ... ok
+test data::client_npc_info::tests::roundtrip ... ok
+test data::client_npc_info::tests::truncated_payload_errors ... ok
+test data::client_npc_info::tests::zero_icon_and_zero_big_map_icon_stay_zero ... ok
+test data::client_quest_info::tests::empty_lists_match_hand_derived_bytes ... ok
+test data::client_quest_info::tests::quest_icon_matches_crystal_switch ... ok
+test data::client_quest_info::tests::roundtrip_with_descriptions_and_rewards ... ok
+test data::client_quest_info::tests::same_finish_npc_is_computed_not_written ... ok
+test data::client_quest_info::tests::truncated_payload_errors ... ok
+test data::client_quest_progress::tests::bytes_match_hand_derived_layout ... ok
+test data::client_quest_progress::tests::no_quest_info_on_the_wire ... ok
+test data::client_quest_progress::tests::roundtrip_with_chinese_tasks ... ok
+test data::client_recipe_info::tests::empty_lists_roundtrip ... ok
+test data::client_recipe_info::tests::item_lists_are_counted_with_i32 ... ok
+test data::client_recipe_info::tests::roundtrip ... ok
+test data::client_quest_progress::tests::truncated_payload_errors ... ok
+test data::client_recipe_info::tests::truncated_payload_errors ... ok
+test data::game_shop_item::tests::db_path_has_no_info_and_roundtrips ... ok
+test data::game_shop_item::tests::default_count_is_one ... ok
+test data::game_shop_item::tests::info_sits_between_gindex_and_gold_price ... ok
+test data::game_shop_item::tests::roundtrip ... ok
+test data::game_shop_item::tests::truncated_payload_errors ... ok
+test data::guild_buff::tests::guild_buff_default_roundtrip ... ok
+test data::guild_buff::tests::guild_buff_info_default_points_requirement_is_one ... ok
+test data::guild_buff::tests::guild_buff_info_layout ... ok
+test data::guild_buff::tests::guild_buff_info_roundtrip ... ok
+test data::guild_buff::tests::guild_buff_roundtrip_and_absolute_bytes ... ok
+test data::guild_buff::tests::truncated_payload_errors ... ok
+test data::guild_rank::tests::guild_rank_roundtrip_with_members ... ok
+test data::guild_rank::tests::guild_rank_roundtrip_without_members ... ok
+test data::guild_rank::tests::index_sits_between_options_and_member_count ... ok
+test data::guild_rank::tests::options_are_a_raw_bitmask ... ok
+test data::guild_rank::tests::truncated_members_error ... ok
+test data::guild_storage_item::tests::guild_storage_item_roundtrip ... ok
+test data::guild_storage_item::tests::truncated_payload_errors ... ok
+test data::guild_storage_item::tests::user_id_is_written_after_the_item ... ok
+test data::item_info::tests::absent_tooltip_costs_one_byte ... ok
+test data::item_info::tests::bool_byte_and_flag_offsets ... ok
+test data::item_info::tests::default_matches_crystal_field_initializers ... ok
+test data::item_info::tests::roundtrip_with_all_field_kinds ... ok
+test data::item_info::tests::truncated_payload_errors ... ok
+test data::item_info::tests::unknown_enum_bytes_fall_back_to_defaults ... ok
+test data::item_rental_information::tests::bytes_match_hand_derived_layout ... ok
+test data::item_rental_information::tests::roundtrip ... ok
+test data::item_rental_information::tests::truncated_payload_errors ... ok
+test data::notice::tests::bytes_match_hand_derived_layout ... ok
+test data::notice::tests::empty_strings_still_write_length_prefixes ... ok
+test data::notice::tests::roundtrip ... ok
+test data::notice::tests::truncated_payload_errors ... ok
+test data::quest_item_reward::tests::count_is_ushort_not_int ... ok
+test data::quest_item_reward::tests::default_count_is_one ... ok
+test data::quest_item_reward::tests::item_comes_before_count ... ok
+test data::quest_item_reward::tests::roundtrip_with_nondefault_item ... ok
+test data::quest_item_reward::tests::truncated_payload_errors ... ok
+test data::rank_character_info::tests::bytes_match_hand_derived_layout ... ok
+test data::rank_character_info::tests::roundtrip_with_chinese_name ... ok
+test data::rank_character_info::tests::server_only_fields_are_not_written ... ok
+test data::rank_character_info::tests::truncated_payload_errors ... ok
+test data::select_info::tests::bytes_match_hand_derived_layout ... ok
+test data::select_info::tests::empty_name_and_unknown_enum_value ... ok
+test data::select_info::tests::roundtrip ... ok
+test data::select_info::tests::truncated_payload_errors ... ok
+test data::user_item::tests::awake_roundtrip ... ok
+test data::user_item::tests::counts_are_ushort_not_int ... ok
+test data::user_item::tests::empty_slot_writes_only_a_bool ... ok
+test data::user_item::tests::minimal_item_matches_hand_derived_bytes ... ok
+test data::user_item::tests::nested_item_roundtrip ... ok
+test data::user_item::tests::optionals_absent_by_default ... ok
+test data::user_item::tests::rental_information_roundtrip ... ok
+test data::user_item::tests::slot_presence_flag_is_inverted_crystal_semantics ... ok
+test data::user_item::tests::stats_count_sums_absolute_values ... ok
+test data::user_item::tests::stats_keep_sorted_dictionary_order_and_drop_zero ... ok
+test data::user_item::tests::truncated_payload_errors ... ok
+test data::world_map_icon::tests::bytes_match_hand_derived_layout ... ok
+test data::world_map_icon::tests::empty_title_costs_one_byte ... ok
+test data::world_map_icon::tests::roundtrip ... ok
+test data::world_map_icon::tests::truncated_payload_errors ... ok
+test data::world_map_setup::tests::empty_icon_list_is_five_bytes ... ok
+test data::world_map_setup::tests::icon_count_prefixes_the_list ... ok
+test data::world_map_setup::tests::negative_count_errors ... ok
+test data::world_map_setup::tests::roundtrip ... ok
+test data::world_map_setup::tests::truncated_payload_errors ... ok
+test manual::client::tests::chat_roundtrip ... ok
+test manual::client::tests::mail_cost_roundtrip_has_five_ids_without_count ... ok
+test manual::client::tests::market_search_roundtrip_and_field_order ... ok
+test manual::client::tests::send_mail_roundtrip_has_five_ids_without_count ... ok
+test manual::server::conquest_packet_tests::conquest_packet_indices_are_outside_generated_range ... ok
+test manual::server::conquest_packet_tests::conquest_info_roundtrips_through_server_packet ... ok
+test manual::server::conquest_packet_tests::conquest_object_roundtrips_through_server_packet ... ok
+test manual::server::tests::awakening_need_materials_none_is_a_single_false ... ok
+test manual::server::conquest_packet_tests::conquest_result_roundtrips_through_server_packet ... ok
+test manual::server::tests::awakening_need_materials_roundtrip ... ok
+test manual::server::tests::chat_item_stats_roundtrip_when_stats_present ... ok
+test manual::server::conquest_packet_tests::guild_allies_index_is_303_and_empty_table_roundtrips ... ok
+test manual::server::tests::chat_item_stats_write_skips_absent_stats_but_read_always_expects_one ... ok
+test manual::server::conquest_packet_tests::guild_allies_roundtrips_through_server_packet ... ok
+test manual::server::tests::complete_quest_roundtrip ... ok
+test manual::server::tests::game_shop_info_roundtrip ... ok
+test manual::server::tests::get_rented_items_roundtrip ... ok
+test manual::server::tests::guild_member_change_below_six_has_no_rank_block ... ok
+test manual::server::tests::guild_member_change_roundtrip_with_ranks ... ok
+test manual::server::tests::guild_notice_change_negative_update_is_a_bare_int ... ok
+test manual::server::tests::guild_notice_change_roundtrip ... ok
+test manual::server::tests::guild_storage_item_change_without_item_is_a_short_prefix ... ok
+test manual::server::tests::guild_storage_item_change_roundtrip ... ok
+test manual::server::tests::guild_storage_item_change_writes_user_id_before_the_item ... ok
+test manual::server::tests::hero_create_request_roundtrip ... ok
+test manual::server::tests::guild_storage_list_roundtrip ... ok
+test manual::server::tests::magic_roundtrip ... ok
+test manual::server::tests::map_information_bit_flags ... ok
+test manual::server::tests::object_magic_roundtrip ... ok
+test manual::server::tests::rankings_roundtrip ... ok
+test manual::server::tests::update_rental_item_presence_byte_comes_from_loan_item ... ok
+test manual::server::tests::update_rental_item_roundtrip ... ok
+test manual::server::tests::user_information_roundtrip ... ok
+test manual::server::tests::user_slots_refresh_none_writes_one_byte_each ... ok
+test manual::server::tests::user_slots_refresh_roundtrip ... ok
+test manual::server::tests::user_storage_none_is_a_single_false ... ok
+test manual::server::tests::user_storage_roundtrip ... ok
+test tests::long_string_uses_seven_bit_prefix ... ok
+test tests::primitives_are_little_endian ... ok
+test tests::reading_past_end_errors ... ok
+test tests::string_roundtrip_matches_dotnet_prefix ... ok
+test packets::client::roundtrip::default_packets_roundtrip ... ok
+test packets::server::roundtrip::default_packets_roundtrip ... ok
+
+test result: ok. 178 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\flags_fidelity.rs (target\debug\deps\flags_fidelity-8565b565c8cfd4df.exe)
+
+running 4 tests
+test guild_rank_options_leader_is_255 ... ok
+test required_class_keeps_bit_combinations ... ok
+test other_flag_enums_keep_unknown_bits ... ok
+test guild_status_packet_preserves_leader_permissions ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\robustness.rs (target\debug\deps\robustness-d4d9e85b97379ea7.exe)
+
+running 4 tests
+test frame_length_classes_match_crystal_semantics ... ok
+test generated_string_boundary_samples_must_error ... ok
+test all_generated_ids_hit_real_dispatch_and_unknown_id_is_rejected ... ok
+test fuzz_random_bodies_never_panic ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src\lib.rs (target\debug\deps\mir_render-6f087d8191a629a3.exe)
+
+running 103 tests
+test animation::tests::monster_frames_use_their_own_offsets ... ok
+test animation::tests::attacking_holds_the_last_frame_after_finishing ... ok
+test animation::tests::r47_wing_effect_uses_variant_specific_tables ... ok
+test animation::tests::wing_tables_match_crystals_effect_columns ... ok
+test animation::tests::monster_defaults_match_crystal_and_flat_layout ... ok
+test animation::tests::r47_attack_variant_boundaries_600_and_800ms ... ok
+test entities::tests::npc_libraries_switch_every_hundred_images ... ok
+test entities::tests::layer_plan_skips_missing_layers ... ok
+test animation::tests::frame_at_starts_at_zero_and_steps_by_interval ... ok
+test animation::tests::skip_is_padding_at_the_end_of_each_direction ... ok
+test animation::tests::standing_loops_and_never_finishes ... ok
+test animation::tests::struck_and_dying_use_crystal_count_and_hold_the_last_frame ... ok
+test animation::tests::walking_returns_to_the_standing_frame_after_600_ms ... ok
+test animation::tests::human_tables_match_crystal_counts_and_flat_layout ... ok
+test entities::tests::block_start_is_the_first_frame_of_the_appearance ... ok
+test entities::tests::entities_are_sorted_by_y_then_x ... ok
+test entities::tests::layer_plan_puts_the_weapon_behind_for_left_facing_directions ... ok
+test animation::tests::dead_always_draws_the_corpse_frame ... ok
+test entities::tests::monster_libraries_follow_classic_ten_per_file_grouping ... ok
+test entities::tests::mount_and_wing_blocks_use_their_own_frame_sizes ... ok
+test entities::tests::mount_and_wings_add_layers_and_the_mount_hides_the_weapon ... ok
+test entities::tests::mount_tables_follow_frames_and_the_flat_horse_layout ... ok
+test entities::tests::player_and_layer_libraries_follow_the_flat_corpus ... ok
+test entities::tests::r47_attack_variant_drives_body_weapon_hair_and_wing_layers ... ok
+test entities::tests::weapon_front_matches_crystals_direction_split ... ok
+test frame::tests::additive_blending_saturates ... ok
+test frame::tests::alpha_blending_matches_rounded_source_over ... ok
+test entities::tests::every_player_layer_uses_the_same_action_frame ... ok
+test frame::tests::blit_at_origin_uses_source_over ... ok
+test frame::tests::blit_clips_negative_coordinates ... ok
+test entities::tests::standing_frames_use_direction_and_animation ... ok
+test animation::tests::r47_attack_variant_logical_vs_converted_tables_and_8_directions ... ok
+test entities::tests::hp_bar_is_clipped_inside_the_frame ... ok
+test frame::tests::blit_clips_right_and_bottom_edges ... ok
+test frame::tests::blit_offscreen_does_nothing ... ok
+test frame::tests::clear_fills_every_pixel ... ok
+test frame::tests::distinct_colors_counts_rgb_only ... ok
+test frame::tests::fill_rect_always_writes_opaque_pixels ... ok
+test frame::tests::fill_rect_clips_to_the_frame ... ok
+test frame::tests::malformed_image_pixels_are_ignored ... ok
+test frame::tests::scale_to_fit_preserves_aspect_ratio_and_never_upscales ... ok
+test geometry::tests::cell_bounds_cover_view_range_and_tall_sprites ... ok
+test geometry::tests::relative_cells_move_by_48_and_32 ... ok
+test entities::tests::render_at_offset_composes_global_and_entity_pixel_offsets ... ok
+test geometry::tests::screen_to_cell_inverts_the_object_origin ... ok
+test geometry::tests::tile_and_sprite_anchors_differ_as_crystal ... ok
+test geometry::tests::viewport_offsets_match_crystal ... ok
+test geometry::tests::world_to_screen_uses_cell_origin ... ok
+test minimap::tests::empty_scene_reports_no_image ... ok
+test minimap::tests::missing_directory_degrades_without_panicking ... ok
+test minimap::tests::small_image_does_not_overflow_the_view ... ok
+test pathfind::tests::diagonal_steps_may_not_cut_corners ... ok
+test pathfind::tests::heuristic_matches_crystals_distance ... ok
+test pathfind::tests::diagonal_paths_are_cheaper_than_staircases ... ok
+test pathfind::tests::non_walkable_goal_is_rejected_before_searching ... ok
+test pathfind::tests::starts_and_goals_on_the_same_cell_return_an_empty_path ... ok
+test pathfind::tests::straight_line_is_one_step_per_cell ... ok
+test pathfind::tests::node_limit_stops_the_search ... ok
+test scene::tests::animation_frame_is_configurable ... ok
+test pathfind::tests::result_is_deterministic ... ok
+test scene::tests::image_index_skips_zero ... ok
+test scene::tests::back_and_middle_libraries_follow_map_version ... ok
+test minimap::tests::empty_scene_draws_nothing ... ok
+test pathfind::tests::wall_detour_keeps_every_step_walkable ... ok
+test scene::tests::only_two_by_two_or_cell_sized_are_flat ... ok
+test pathfind::tests::step_limit_matches_crystal_click_distance ... ok
+test scene::tests::remove_black_all_also_touches_rgb565_mount_and_wing_frames ... ok
+test scene::tests::remove_black_only_touches_palette_images ... ok
+test sound::tests::cooldown_is_one_hundred_millis ... ok
+test sound::tests::every_event_has_a_file_and_a_label ... ok
+test sound::tests::fallback_name_matches_sound_manager_formula ... ok
+test sound::tests::male_and_female_sounds_use_different_files ... ok
+test minimap::tests::projection_clamps_at_map_edges ... ok
+test sound::tests::mapping_matches_crystal_sound_list_lines ... ok
+test sound::tests::map_music_falls_back_to_the_default_theme ... ok
+test minimap::tests::big_map_projection_keeps_a_small_image_at_one_to_one_and_centers_it ... ok
+test scene::tests::render_without_libraries_clears_to_background ... ok
+test sound::tests::spell_sound_follows_crystal_naming ... ok
+test minimap::tests::projection_centers_on_player_like_crystal ... ok
+test sound::tests::music_indices_match_the_sound_list_music_sections ... ok
+test text::tests::clip_intersection_is_empty_when_disjoint ... ok
+test minimap::tests::zero_sized_map_has_no_projection ... ok
+test text::tests::missing_font_path_returns_an_error ... ok
+test tiles::tests::empty_libraries_are_usable_but_return_nothing ... ok
+test tiles::tests::library_table_matches_crystal_wemade_layout ... ok
+test text::tests::pixel_fallback_draws_ascii_and_skips_chinese ... ok
+test tiles::tests::missing_directory_is_reported ... ok
+test tiles::tests::empty_directory_reports_no_libraries ... ok
+test minimap::tests::big_map_needs_an_image_and_a_non_zero_index ... ok
+test text::tests::invalid_font_data_returns_an_error ... ok
+test minimap::tests::drawing_puts_map_pixels_and_a_yellow_player_dot ... ok
+test scene::tests::render_updates_viewport_and_world_to_screen ... ok
+test minimap::tests::markers_take_their_crystal_colours ... ok
+test entities::tests::missing_libraries_draw_colored_placeholders ... ok
+test minimap::tests::markers_outside_the_view_are_clipped ... ok
+test minimap::tests::big_map_projection_downscales_a_large_image_to_the_view ... ok
+test text::tests::text_width_is_monotonic_and_zero_for_empty ... ok
+test text::tests::clipping_stops_pixels_outside_the_rect ... ok
+test pathfind::tests::unreachable_goal_returns_none ... ok
+test scene::tests::render_with_entities_draws_placeholders_without_assets ... ok
+test text::tests::draws_ascii_and_chinese_pixels ... ok
+test minimap::tests::drawing_the_big_map_scales_the_image_and_marks_the_player ... ok
+test entities::tests::missing_layer_frames_degrade_to_the_bare_body ... ok
+
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests\asset_modes.rs (target\debug\deps\asset_modes-a2c25a5a402f1429.exe)
+
+running 5 tests
+test non_legacy_mode_refuses_original_wzl ... ok
+test dev_layout_is_preferred_and_pixels_match ... ok
+test release_packs_are_used_when_no_dev_tree ... ok
+test auto_falls_back_to_packs_before_legacy ... ok
+test real_game_assets_dev_tree_loads ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+
+     Running tests\release_load.rs (target\debug\deps\release_load-016f121f9403da1d.exe)
+
+running 2 tests
+test release_packs_load_real_assets_and_compare_with_dev ... ok
+test release_packs_render_map_scene_like_dev ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.51s
+
+     Running unittests src\lib.rs (target\debug\deps\mir_server-3ccd26a6181372c7.exe)
+
+running 151 tests
+test aoi::tests::move_across_buckets_keeps_single_entry ... ok
+test aoi::tests::insert_same_id_replaces_old_bucket ... ok
+test aoi::tests::insert_query_remove_roundtrip ... ok
+test aoi::tests::negative_coordinates_bucket_correctly ... ok
+test aoi::tests::different_kinds_with_same_id_do_not_overwrite ... ok
+test combat::tests::high_agility_dodges_and_zero_agility_never_dodges ... ok
+test combat::tests::positive_luck_pins_max_and_negative_luck_pins_min ... ok
+test buffs::tests::buff_kinds_map_to_crystal_buff_types ... ok
+test buffs::tests::stack_rules_split_skills_from_potions ... ok
+test combat::tests::armour_at_or_above_damage_counts_as_miss ... ok
+test combat::tests::attack_power_stays_inside_bounds ... ok
+test combat::tests::attack_power_clamps_negative_and_inverted_ranges ... ok
+test combat::tests::base_stats_grow_with_level_and_keep_min_dc_below_max ... ok
+test combat::tests::base_stats_match_crystal_level_one ... ok
+test combat::tests::critical_hit_adds_floor_of_ratio_times_ten ... ok
+test combat::tests::player_attack_delay_matches_crystal_formula ... ok
+test combat::tests::monster_hit_damage_is_damage_minus_armour ... ok
+test aoi::tests::radius_query_is_chebyshev_and_orders_by_y_x_id ... ok
+test combat::tests::zero_critical_rate_never_crits ... ok
+test combat::tests::chicken_hit_rate_with_accuracy_seven_and_agility_ten_is_about_73_percent ... ok
+test config::tests::explicit_asset_root_wins_and_is_adopted ... ok
+test buffs::tests::minutes_to_ms_matches_setting ... ok
+test buffs::tests::percent_health_clamps_to_byte_range ... ok
+test config::tests::defaults_are_playable ... ok
+test exp::tests::discovers_the_index_sample_when_available ... ok
+test exp::tests::fallback_curve_is_cubic_and_starts_at_crystal_first_entry ... ok
+test config::tests::missing_explicit_asset_root_falls_back_to_resource ... ok
+test exp::tests::total_exp_and_level_lookup_are_inverse ... ok
+test exp::tests::rejects_garbage_instead_of_guessing ... ok
+test gamedata::tests::default_dataset_is_the_chinese_cjlaaa ... ok
+test exp::tests::parses_crystal_exp_list ... ok
+test gamedata::tests::discovers_a_database_from_the_index ... ok
+test gamedata::tests::drop_paths_are_normalized_for_unix_and_keep_forward_slashes ... ok
+test gamedata::tests::monster_info_maps_to_runtime_stats ... ok
+test gamedata::tests::sample_database_exposes_item_templates_and_drop_tables ... ok
+test gamedata::tests::spawn_groups_cover_all_respawns_with_known_templates ... ok
+test gamedata::tests::world_filled_from_database_spawns_monsters ... ok
+test gm::tests::gm_accounts_parser_ignores_blanks_and_duplicates ... ok
+test gm::tests::movement_lines_are_sorted_by_distance_and_capped ... ok
+test gm::tests::movement_lines_mark_special_kinds_and_same_map ... ok
+test gm::tests::movement_lines_never_exceed_the_list_limit ... ok
+test items::tests::amulet_images_follow_the_stack_thresholds ... ok
+test config::tests::derived_db_path_is_none_when_nothing_exists ... ok
+test items::tests::friendly_name_strips_trailing_digits_and_brackets ... ok
+test items::tests::item_weight_counts_stacks_but_not_amulets ... ok
+test items::tests::slot_mapping_matches_crystal_can_equip_item ... ok
+test config::tests::explicit_map_root_is_not_overwritten_by_derivation ... ok
+test items::tests::zero_durability_equipment_contributes_no_stats ... ok
+test magic::tests::client_magic_clamps_experience ... ok
+test magic::tests::cost_delay_and_multiplier_follow_crystal ... ok
+test magic::tests::empty_blob_is_empty_list_and_garbage_is_an_error ... ok
+test magic::tests::magic_record_matches_crystal_layout ... ok
+test gm::tests::is_gm_accepts_admin_flag_or_listed_account ... ok
+test magic::tests::power_uses_banker_rounding_and_rolls ... ok
+test magic::tests::spell_kinds_cover_the_supported_subset ... ok
+test mail::tests::cost_matches_crystal_formula ... ok
+test mail::tests::expiry_uses_thirty_days ... ok
+test mail::tests::parcel_collected_default_depends_on_auto_settings ... ok
+test mail::tests::record_roundtrip_keeps_attachments ... ok
+test magic::tests::area_buff_targets_match_the_old_bruteforce_scan ... ok
+test market::tests::auction_record_roundtrip_keeps_every_field ... ok
+test market::tests::commission_matches_crystal_formula ... ok
+test market::tests::consign_labels_match_crystal ... ok
+test market::tests::corrupt_item_blob_is_rejected ... ok
+test market::tests::market_fail_reasons_match_crystal_numbers ... ok
+test config::tests::map_root_derives_from_asset_root ... ok
+test market::tests::market_state_defaults_match_crystal ... ok
+test metrics::tests::counters_move_up_and_down_without_going_negative ... ok
+test metrics::tests::empty_ring_reports_nothing ... ok
+test market::tests::process_auctions_owns_expiry_and_auto_sale ... ok
+test metrics::tests::label_escaping_covers_quotes_and_backslashes ... ok
+test metrics::tests::ring_keeps_only_the_latest_samples ... ok
+test metrics::tests::render_contains_the_documented_fields ... ok
+test metrics::tests::ring_quantiles_on_a_known_series ... ok
+test metrics::tests::summary_line_is_delimited_by_spaces ... ok
+test metrics::tests::tick_and_db_samples_land_in_separate_rings ... ok
+test metrics::tests::write_failures_and_packet_drops_are_independent ... ok
+test pg_store::tests::datetime_roundtrip_handles_unset ... ok
+test quest_inventory::tests::add_rejects_when_full_without_mutating ... ok
+test quest_inventory::tests::add_stacks_into_existing_stack_before_new_slot ... ok
+test config::tests::derived_db_path_prefers_mnd_package ... ok
+test pg_store::tests::db_save_records_are_bounded_and_drop_oldest ... ok
+test quest_inventory::tests::add_uses_first_empty_slot ... ok
+test quest_inventory::tests::can_gain_accepts_partial_stack_when_no_free_slot ... ok
+test quest_inventory::tests::decode_empty_block_is_empty_and_oversize_is_truncated ... ok
+test quest_inventory::tests::encode_decode_roundtrip ... ok
+test quest_inventory::tests::gained_and_delete_frames_use_crystal_indices ... ok
+test quest_inventory::tests::new_inventory_has_forty_empty_slots ... ok
+test quest_inventory::tests::take_removes_across_slots_and_reports_deletions ... ok
+test quest_inventory::tests::remove_unneeded_drops_only_unrequired_items ... ok
+test quest_inventory::tests::task_needs_item_only_for_unfinished_matching_task ... ok
+test quests::tests::empty_block_decodes_to_no_quests ... ok
+test quests::tests::codec_roundtrip_keeps_every_field ... ok
+test quests::tests::empty_task_description_has_no_task_navigation_line ... ok
+test quests::tests::navigation_only_converts_real_map_titles ... ok
+test quests::tests::objective_matching_ignores_case_and_spaces ... ok
+test quests::tests::no_npc_or_map_gets_explicit_no_navigation_line ... ok
+test quests::tests::objectives_complete_only_when_every_task_is_done ... ok
+test quests::tests::real_quest_1_target_line_carries_npc_map_and_coordinates ... ok
+test quests::tests::real_jev_quest_5_navigation_uses_handin_npc_map ... ok
+test quests::tests::state_values_roundtrip ... ok
+test session::tests::account_rules_match_crystal ... ok
+test session::tests::autosave_backoff_doubles_and_saturates ... ok
+test session::tests::character_name_allows_chinese_and_underscore ... ok
+test config::tests::derived_db_path_ignores_legacy_mirdb_layouts ... ok
+test session::tests::quest_accept_failure_uses_specific_too_many_key ... ok
+test session::tests::requeue_guild_writes_puts_failed_batch_first ... ok
+test session::tests::requeue_mail_writes_keeps_every_mail ... ok
+test storage::tests::corrupt_blob_is_an_error ... ok
+test storage::tests::empty_blob_decodes_to_eighty_empty_slots ... ok
+test storage::tests::storage_blob_round_trips_and_is_clamped ... ok
+test trade::tests::facing_each_other_matches_crystal ... ok
+test trade::tests::gold_packet_carries_the_running_total ... ok
+test trade::tests::trade_state_starts_with_ten_empty_slots ... ok
+test world::tests::cannot_walk_out_of_bounds ... ok
+test world::tests::character_snapshot_preserves_bind_fields ... ok
+test world::tests::action_time_enforces_move_delay ... ok
+test store::tests::account_names_are_case_insensitive ... ok
+test store::tests::gameshop_update_failure_writes_nothing ... ok
+test store::tests::bind_fields_survive_character_round_trip ... ok
+test world::tests::entering_world_notifies_both_directions ... ok
+test world::tests::chat_reaches_people_in_range_only ... ok
+test world::tests::death_sets_revive_timer_and_broadcasts_object_died ... ok
+test world::tests::five_four_damage_hits_kill_a_five_hp_monster ... ok
+test store::tests::account_and_character_lifecycle ... ok
+test world::tests::level_up_from_99_plus_five_matches_crystal ... ok
+test world::tests::multiple_levels_take_the_new_threshold_after_each_level ... ok
+test world::tests::leaving_notifies_observers ... ok
+test world::tests::tick_decays_run_counter_and_clears_steps_when_idle ... ok
+test world::tests::spawning_monster_broadcasts_object_monster_to_players_in_range ... ok
+test world::tests::sixty_second_fallback_revives_in_place_after_deadline ... ok
+test world::tests::run_stamina_penalty_costs_hp_after_ten_runs ... ok
+test world::tests::cannot_walk_onto_occupied_cell ... ok
+test world::tests::turn_resets_step_counter_so_run_needs_a_fresh_walk ... ok
+test world::tests::real_attack_path_eventually_kills_a_five_hp_monster ... ok
+test world::tests::walk_then_run_is_allowed_but_run_from_standstill_is_not ... ok
+test world::tests::town_revive_moves_to_bind_point_and_restores_hp_mp_without_touching_items ... ok
+test world::tests::town_revive_prefers_valid_player_bind_point ... ok
+test world::tests::town_revive_falls_back_to_start_when_bind_is_invalid ... ok
+test world::tests::walking_moves_and_sends_user_location_and_object_walk ... ok
+test aoi::tests::random_operations_match_bruteforce_scan ... ok
+test world::tests::healing_book_learns_and_casts_at_level_one_taoist ... ok
+test world::tests::basic_sword_book_learns_but_fencing_is_not_castable ... ok
+test server::mnd_load_tests::legacy_database_still_loads_in_debug_when_mnd_missing ... ok
+test world::tests::starter_weapon_equip_grants_dc_and_accuracy ... ok
+test session::tests::pickup_buy_and_finish_failures_send_player_chat ... ok
+test world::tests::object_monster_name_follows_session_language ... ok
+test gamedata::tests::windows_style_drop_path_loads_the_jev_table ... ok
+test market::tests::concurrent_flushes_keep_the_latest_snapshot ... ok
+test world::tests::weapon_wears_on_hit_and_not_on_miss_in_world_attack_path ... ok
+test server::mnd_load_tests::load_game_data_prefers_mnd_package ... ok
+
+test result: ok. 151 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running unittests src\main.rs (target\debug\deps\mir_server-247baae3765bed61.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\anti_flood.rs (target\debug\deps\anti_flood-d26c0523293ed6cc.exe)
+
+running 8 tests
+test connection_limiter_enforces_both_limits ... ok
+test per_second_limit_closes_burst_connections ... ok
+test per_ip_concurrent_limit_closes_extra_connections ... ok
+test zero_thresholds_disable_the_limits ... ok
+test garbage_and_oversized_frames_keep_server_alive ... ok
+test idle_client_is_disconnected_by_heartbeat_timeout ... ok
+test packet_flood_is_dropped_but_keeps_the_connection ... ok
+test packet_rate_limit_at_200_per_second_drops_excess_and_keepalive_responds ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.99s
+
+     Running tests\aoi.rs (target\debug\deps\aoi-e5cfe2fafee05831.exe)
+
+running 6 tests
+test broadcast_uses_grid_and_follows_placement ... ok
+test melee_target_is_found_through_the_grid_after_placement ... ok
+test view_radius_is_crystal_data_range_sixteen ... ok
+test player_enter_and_leave_view_is_diffed_both_ways ... ok
+test door_state_machine_blocks_opens_and_auto_closes_with_wire_packets ... ok
+test monster_walk_updates_the_grid_and_player_view ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\conquest.rs (target\debug\deps\conquest-e026ab974e469350.exe)
+
+running 37 tests
+test init_conquests_resolves_maps_and_starts_unowned ... ok
+test score_and_owner_text_roundtrip ... ok
+test ending_war_resets_objects_and_sends_result ... ok
+test castle_tax_pool_and_price_rate ... ok
+test request_war_checks_guild_level ... ok
+test slow_buff_increases_move_delay_and_paralysis_blocks_actions ... ok
+test destroying_a_gate_makes_the_cell_walkable ... ok
+test conquest_archer_does_not_shoot_same_guild_player ... ok
+test destroyed_conquest_archer_stops_shooting ... ok
+test open_and_close_gate_changes_walkability_and_broadcasts ... ok
+test start_war_spawns_gate_walls_and_archers ... ok
+test war_end_uses_world_clock_regardless_of_real_time ... ok
+test conquest_gated_movement_requires_the_owning_guild ... ok
+test classic_captures_when_only_one_guild_holds_the_palace ... ok
+test request_war_requires_guild_leader ... ok
+test schedule_starts_the_war_and_broadcasts_a_system_message ... ok
+test attacking_a_gate_broadcasts_its_reduced_hp ... ok
+test capture_through_the_palace_map_for_the_capture_game ... ok
+test weekday_and_minute_helpers_match_the_schedule ... ok
+test classic_requires_the_attacker_to_take_the_castle ... ok
+test request_war_succeeds_and_queues_the_attacker ... ok
+test request_war_checks_guild_gold_and_deducts_it ... ok
+test control_points_change_owner_and_decide_the_castle ... ok
+test schedule_skips_days_that_are_not_configured ... ok
+test request_war_inside_the_window_starts_immediately ... ok
+test conquest_archer_shoots_enemy_player_in_range ... ok
+test request_war_rejects_while_at_war_and_when_already_owner ... ok
+test forced_war_ends_at_war_end_time ... ok
+test entering_conquest_map_sends_info_and_objects ... ok
+test schedule_ends_the_war_after_the_window ... ok
+test king_of_hill_scores_and_captures ... ok
+test object_durability_survives_a_restart ... ok
+test war_state_survives_a_restart ... ok
+test war_zone_paints_names_green_and_protects_killers ... ok
+test conquest_archers_only_shoot_enemy_guilds_during_the_war ... ok
+test persistence_roundtrip_and_restart_recovery ... ok
+test real_database_exposes_a_complete_conquest_record ... ok
+
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\conquest_e2e.rs (target\debug\deps\conquest_e2e-dddbf922f9010087.exe)
+
+running 9 tests
+test conquest_bid_rejected_when_not_higher_than_current ... ok
+test conquest_bid_keeps_high_bid_and_refunds_previous_bidder ... ok
+test conquest_apply_level_and_gold_gate_deducts_fee ... ok
+test conquest_apply_rejected_when_level_or_gold_insufficient ... ok
+test conquest_objects_gate_wall_archer_state ... ok
+test conquest_settlement_result_and_tax_ownership ... ok
+test conquest_war_starts_from_npc_script_keyword ... ok
+test conquest_war_start_info_packet_fields ... ok
+test conquest_reload_from_postgres_restores_owner_tax_and_objects ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running tests\drops.rs (target\debug\deps\drops-6fc0cc036bd352f0.exe)
+
+running 6 tests
+test group_drop_children_keep_their_own_quest_required_flags ... ok
+test empty_or_gold_only_rolls_keep_the_flag_array_aligned ... ok
+test quest_required_flag_is_parsed_from_the_q_suffix ... ok
+test roll_keeps_quest_required_aligned_with_items ... ok
+test quest_required_only_table_still_reports_the_item_for_interception ... ok
+test measured_drop_rate_matches_configured_chance_within_tolerance ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\duo_smoke.rs (target\debug\deps\duo_smoke-578b4b864296d081.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+
+     Running tests\fault_injection.rs (target\debug\deps\fault_injection-ae9b628c427f4636.exe)
+
+running 3 tests
+test save_failure_keeps_old_row_and_next_success_persists_new_row ... ok
+test redis_absent_does_not_break_server_startup_or_protocol_handshake ... ok
+test rpo_bounded_by_autosave_after_hard_kill ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.08s
+
+     Running tests\fault_pg.rs (target\debug\deps\fault_pg-45b00bf0dcce42e1.exe)
+
+running 6 tests
+test durability_survives_a_real_postgres_round_trip ... ignored, 需要 pg_proxy.py/python 与真实 PG；手工跑: cargo test -p mir-server --test fault_pg -- --ignored --test-threads=1
+test pg_terminate_disconnects_save_and_next_save_recovers ... ignored, 需要 pg_proxy.py/python 与真实 PG；手工跑: cargo test -p mir-server --test fault_pg -- --ignored --test-threads=1
+test proxy_outage_fails_save_then_recovers_after_resume ... ignored, 需要 pg_proxy.py/python 与真实 PG；手工跑: cargo test -p mir-server --test fault_pg -- --ignored --test-threads=1
+test saturated_test_pool_waits_then_succeeds_after_release ... ignored, 需要 pg_proxy.py/python 与真实 PG；手工跑: cargo test -p mir-server --test fault_pg -- --ignored --test-threads=1
+test sustained_pool_close_records_failure_and_reconnects_new_store ... ignored, 需要 pg_proxy.py/python 与真实 PG；手工跑: cargo test -p mir-server --test fault_pg -- --ignored --test-threads=1
+test transient_terminate_is_transparent_and_metrics_show_success_not_failure ... ignored, 需要 pg_proxy.py/python 与真实 PG；手工跑: cargo test -p mir-server --test fault_pg -- --ignored --test-threads=1
+
+test result: ok. 0 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\gameshop.rs (target\debug\deps\gameshop-499d2ca31f06ab37.exe)
+
+running 21 tests
+test sample_db_path_is_resolved_from_manifest_dir ... ok
+test market_panel_lists_shop_items_and_pages_by_ten ... ok
+test restart_keeps_credit_and_stock ... ok
+test i18n_gameshop_errors_follow_language ... ok
+test npc_script_can_give_and_check_credit ... ok
+test catalog_is_loaded_and_bound_to_item_templates ... ok
+test purchase_deducts_credit_and_delivers_item ... ok
+test purchase_without_enough_credit_is_rejected_silently ... ok
+test rollback_restores_credit_items_and_mail ... ok
+test quantity_limits_are_enforced ... ok
+test payment_flags_are_enforced ... ok
+test rollback_handles_merged_stacks ... ok
+test failed_flush_rolls_back_purchase ... ok
+test stock_and_class_limits_are_enforced ... ok
+test quest_inventory_survives_gameshop_flush_and_relogin ... ok
+test i18n_session_syncs_language_and_renders_success ... ok
+test i18n_gameshop_mail_and_mail_errors_follow_language ... ok
+test bag_full_purchase_goes_to_mailbox ... ok
+test i18n_market_mails_follow_language ... ok
+test postgres_gameshop_purchase_persists ... ok
+test gameshop_buy_round_trips_over_the_wire ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+     Running tests\gm.rs (target\debug\deps\gm-a89ca15de7dc83a4.exe)
+
+running 30 tests
+test recall_moves_target_to_gm ... ok
+test invalid_arguments_report_usage_and_change_nothing ... ok
+test heal_command_restores_hp_and_revives ... ok
+test item_command_reports_unknown_item ... ok
+test non_command_chat_is_not_consumed ... ok
+test map_command_teleports_to_given_coordinates ... ok
+test kick_command_reports_missing_target ... ok
+test mob_command_reports_unknown_monster_and_bad_count ... ok
+test warp_command_moves_another_player ... ok
+test revive_command_revives_dead_player ... ok
+test setpk_command_sets_pk_points ... ok
+test clearbag_command_empties_the_inventory ... ok
+test clearitem_command_removes_ground_items ... ok
+test mapinfo_command_reports_position_and_counts ... ok
+test help_lists_the_extended_commands ... ok
+test kill_command_kills_named_player ... ok
+test gold_and_credit_commands_add_currency ... ok
+test mob_command_spawns_in_adjacent_cells_and_reports_object_ids ... ok
+test mob_command_spawns_monsters_at_the_gm ... ok
+test level_command_updates_level_stats_and_max_experience ... ok
+test unknown_command_hints_at_help ... ok
+test reboot_command_schedules_countdown_and_validates_seconds ... ok
+test item_command_gives_items_by_index_and_by_name ... ok
+test mob_command_spawned_monster_can_be_attacked ... ok
+test who_lists_players_exactly_once ... ok
+test learn_command_grants_the_spell_at_level_three ... ok
+test learn_command_accepts_enum_names_indices_and_custom_levels ... ok
+test learn_command_twice_reports_already_known_without_duplicating ... ok
+test learn_command_accepts_chinese_aliases_from_the_data_file ... ok
+test learn_command_unknown_name_lists_candidates ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\gold_drop.rs (target\debug\deps\gold_drop-749ff473f0238b2e.exe)
+
+running 3 tests
+test killing_a_real_hen_drops_items_but_never_gold ... ok
+test killing_a_real_scarecrow0_drops_gold_then_pickup_credits_and_broadcasts ... ok
+test real_jev_data_hen_and_deer_have_no_gold_but_scarecrow_does ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.01s
+
+     Running tests\group.rs (target\debug\deps\group-b74cca3cad22a076.exe)
+
+running 24 tests
+test invite_expires_after_the_extension_timeout ... ok
+test inviter_logging_out_makes_the_invitation_stale ... ok
+test invite_self_is_rejected ... ok
+test accepting_without_an_invitation_is_rejected ... ok
+test accept_creates_the_group_and_pushes_the_member_list ... ok
+test group_chat_reaches_members_only ... ok
+test invite_unknown_name_is_rejected_with_a_hint ... ok
+test invite_sends_group_invite_to_target_and_switch_group_to_inviter ... ok
+test last_member_leaving_dissolves_the_group ... ok
+test decline_notifies_the_inviter_without_creating_a_group ... ok
+test group_exp_shares_is_deterministic_in_range_out_of_range_dead_and_off_map ... ok
+test invite_target_already_in_a_group_is_rejected ... ok
+test nearby_group_members_share_experience_with_the_party_bonus ... ok
+test distant_group_members_do_not_share_experience ... ok
+test off_map_members_count_for_the_party_size_but_receive_nothing ... ok
+test group_chat_outside_a_group_is_dropped_silently ... ok
+test logging_out_removes_the_member_from_the_group ... ok
+test invite_cooldown_is_silent_and_does_not_reach_the_target ... ok
+test switching_the_group_flag_off_leaves_the_group ... ok
+test dead_members_still_count_towards_the_party_size_crystal_quirk ... ok
+test leaving_notifies_the_remaining_members_with_delete_member ... ok
+test only_the_leader_can_remove_members ... ok
+test member_map_change_notifies_the_group_and_keeps_it ... ok
+test invite_group_full_is_rejected ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\guild.rs (target\debug\deps\guild-2ddcc9906c604ee1.exe)
+
+running 27 tests
+test guild_settings_parse_the_real_ini_shape ... ok
+test create_guild_rejects_insufficient_gold ... ok
+test accepting_twice_or_joining_twice_is_rejected ... ok
+test create_guild_rejects_short_long_and_illegal_names ... ok
+test create_guild_rejects_low_level ... ok
+test create_guild_rejects_duplicate_name_ignoring_case_and_spaces ... ok
+test invite_then_accept_adds_member_and_sends_status ... ok
+test kick_member_clears_guild_and_sends_empty_status ... ok
+test character_guild_index_round_trips_through_store ... ok
+test edit_notice_broadcasts_and_requires_permission ... ok
+test guild_gains_exp_and_levels_up ... ok
+test leader_can_transfer_then_leave ... ok
+test last_leader_cannot_leave_while_others_remain ... ok
+test kick_requires_permission_and_rank ... ok
+test guild_invite_requires_recruit_permission ... ok
+test member_leave_removes_from_guild ... ok
+test real_data_guild_scripts_and_creation_flow ... ok
+test create_guild_deducts_gold_and_marks_writes ... ok
+test create_guild_twice_is_rejected ... ok
+test relogin_rebinds_guild_membership ... ok
+test last_member_leaving_disbands_and_deletes_row ... ok
+test promote_to_leader_requires_level_and_transfers_leadership ... ok
+test promote_and_demote_member ... ok
+test guild_chat_only_reaches_online_members ... ok
+test npc_createguild_page_requests_a_name ... ok
+test npc_createguild_action_creates_the_guild ... ok
+test npc_createguild_page_rejects_low_level ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\guild_allies.rs (target\debug\deps\guild_allies-c2ab829178c6434f.exe)
+
+running 6 tests
+test login_without_a_guild_sends_no_allies_packet ... ok
+test accepting_an_ally_request_broadcasts_to_both_guilds ... ok
+test forming_an_alliance_broadcasts_the_same_table_to_both_guilds ... ok
+test removing_an_alliance_broadcasts_an_empty_table ... ok
+test dissolving_a_guild_clears_the_ally_backlink_and_notifies_the_survivor ... ok
+test login_with_a_guild_sends_the_allies_table ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\guild_storage.rs (target\debug\deps\guild_storage-9cbe9f891af842ce.exe)
+
+running 22 tests
+test guild_settings_parses_buff_sections_with_crystal_defaults ... ok
+test real_guild_settings_buff_list_can_be_activated ... ok
+test gold_deposit_and_withdrawal_broadcast_to_the_guild ... ok
+test guild_buff_info_list_is_pushed_at_login_and_on_demand ... ok
+test gold_deposit_is_capped_at_uint_max ... ok
+test gold_withdrawal_respects_the_player_gold_cap ... ok
+test guild_buff_purchase_checks_level_points_and_bank_gold ... ok
+test guild_level_up_awards_spare_points_that_buffs_consume ... ok
+test guild_buff_reactivation_charges_gold_again ... ok
+test guild_buff_purchase_requires_permission_and_a_known_buff ... ok
+test joining_a_guild_pushes_its_active_buffs ... ok
+test guild_buff_applies_stats_to_all_online_members_and_expires ... ok
+test retrieve_without_permission_sends_chat_but_no_failure_packet ... ok
+test store_item_rejects_dont_store_bind_and_occupied_slot ... ok
+test retrieve_when_inventory_is_full_is_rejected ... ok
+test retrieve_item_requires_an_empty_inventory_slot ... ok
+test storage_move_swaps_items_and_requires_permission ... ok
+test kicked_member_cannot_retrieve_but_another_member_can ... ok
+test store_item_checks_safe_zone_permission_and_slot ... ok
+test storage_and_buffs_survive_a_store_roundtrip ... ok
+test storage_list_request_is_throttled_until_rejoin ... ok
+test full_storage_rejects_new_items ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\item_info.rs (target\debug\deps\item_info-89519dbc3a36b575.exe)
+
+running 3 tests
+test send_item_info_dedups_and_ignores_unknown_templates ... ok
+test login_item_info_packets_cover_unique_inventory_and_equipment_indices ... ok
+test item_name_is_localized_per_session_language ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests\items.rs (target\debug\deps\items-c1d2de191df38340.exe)
+
+running 25 tests
+test item_uid_generator_is_monotonic_and_restores_from_a_database_maximum ... ok
+test inventory_blob_roundtrips_through_crystal_layout ... ok
+test ground_item_expires_after_the_configured_timeout_and_broadcasts_remove ... ok
+test gold_pile_expires_and_broadcasts_object_remove ... ok
+test picking_up_gold_credits_the_player_and_sends_gained_gold ... ok
+test equipping_checks_slot_type_class_and_required_level ... ok
+test drop_item_removes_it_from_the_bag_and_creates_a_ground_item ... ok
+test equipping_a_weapon_applies_its_stats_and_broadcasts_player_update ... ok
+test dropping_part_of_a_stack_keeps_the_rest_in_the_bag ... ok
+test pickup_fails_when_inventory_is_full ... ok
+test ground_item_enters_and_leaves_view_following_player_movement ... ok
+test newly_created_items_get_unique_ids_from_the_generator ... ok
+test monster_without_killer_or_drop_table_drops_nothing ... ok
+test item_lookup_accepts_index_and_ignores_case_and_spaces_in_names ... ok
+test moving_inside_the_inventory_swaps_two_slots ... ok
+test pickup_rejects_overweight_but_can_be_disabled ... ok
+test pickup_only_reaches_the_players_own_cell ... ok
+test pickup_moves_item_into_inventory_and_sends_gained_item ... ok
+test pickup_respects_owner_protection_until_it_expires ... ok
+test unequipping_requires_an_empty_inventory_slot ... ok
+test drop_cells_stack_at_most_five_and_overflow_to_neighbors ... ok
+test gold_drop_pickup_end_to_end_credits_gold_and_broadcasts ... ok
+test gold_pile_splits_at_max_drop_gold ... ok
+test monster_death_places_drop_items_and_gold_around_the_corpse ... ok
+test quest_required_drop_never_lands_on_the_ground ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\journey_server.rs (target\debug\deps\journey_server-ca90c57178399898.exe)
+
+running 1 test
+test journey_natural ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.79s
+
+     Running tests\login_flow.rs (target\debug\deps\login_flow-ae75a1696a26b4c8.exe)
+
+running 7 tests
+test character_snapshot_carries_daily_reset_timestamp ... ok
+test daily_reset_persists_before_entering_world ... ok
+test daily_reset_save_failure_does_not_block_login ... ok
+test wrong_password_is_rejected_with_result_4 ... ok
+test full_login_character_and_world_flow ... ok
+test pet_mode_survives_logout_and_relogin ... ok
+test gm_chat_is_silent_for_normal_accounts_and_works_for_gm ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\magic.rs (target\debug\deps\magic-3965eb52ee343eff.exe)
+
+running 24 tests
+test magic_blob_roundtrips_through_crystal_layout ... ok
+test real_database_exposes_magic_infos ... ok
+test first_skill_book_ignores_level_for_a_level_one_newbie ... ok
+test casting_before_action_time_ends_is_rejected ... ok
+test magic_key_rebinding_clears_the_previous_owner ... ok
+test firebang_hits_the_whole_3x3_area ... ok
+test book_class_requirement_is_enforced ... ok
+test book_learning_adds_magic_sends_new_magic_and_consumes_book ... ok
+test casting_during_cooldown_is_rejected ... ok
+test book_level_requirement_is_enforced ... ok
+test magic_resist_causes_the_bolt_to_miss ... ok
+test heal_restores_hp_in_chunks_with_health_changed ... ok
+test killing_a_monster_grants_magic_experience ... ok
+test unsupported_spells_are_registered_but_apply_nothing ... ok
+test hellfire_burns_a_line_of_cells ... ok
+test mass_healing_heals_everyone_in_the_area ... ok
+test skill_experience_is_capped_at_three ... ok
+test learning_the_same_book_at_max_level_is_rejected ... ok
+test casting_without_mana_is_rejected_and_spends_nothing ... ok
+test using_a_non_book_item_fails_without_learning ... ok
+test casting_out_of_range_is_rejected ... ok
+test using_a_known_spell_book_upgrades_one_level ... ok
+test fireball_damages_monster_through_magic_defence_after_delay ... ok
+test magic_level_up_sends_magic_leveled_and_magic_delay ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\maps.rs (target\debug\deps\maps-44cc6bbe0a343cad.exe)
+
+running 20 tests
+test bichon_has_a_walkable_movement_point_near_the_plaza ... ok
+test player_can_walk_from_the_plaza_into_a_natural_teleport_point ... ok
+test real_database_has_movement_points_that_resolve_to_maps ... ok
+test real_map_files_load_and_change_map_moves_between_them ... ok
+test unknown_map_change_reports_an_error_and_keeps_the_player_in_place ... ok
+test out_of_bounds_destination_falls_back_inside_the_map ... ok
+test movement_points_come_from_the_database_on_first_entry ... ok
+test need_hole_movement_point_requires_an_open_hole ... ok
+test turning_on_a_movement_source_counts_as_movement ... ok
+test first_entry_registers_respawns_and_spawns_monsters_only_once ... ok
+test same_map_teleport_moves_the_player_and_sends_map_changed ... ok
+test two_map_changes_in_a_row_do_not_leak_monsters ... ok
+test map_changed_packet_carries_the_full_map_info ... ok
+test walking_onto_a_movement_source_teleports_on_the_next_tick ... ok
+test movement_delay_blocks_an_immediate_retrigger ... ok
+test cross_map_change_removes_from_old_map_and_reveals_the_new_map ... ok
+test map_change_clears_the_old_visibility_sets ... ok
+test ground_items_and_npcs_are_visible_after_map_change ... ok
+test need_move_movement_point_records_the_destination_for_entermap ... ok
+test npc_move_actions_teleport_by_file_name_and_by_index ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\market_flow.rs (target\debug\deps\market_flow-6f0367593f15da15.exe)
+
+running 4 tests
+test consign_without_npc_dialog_is_rejected ... ok
+test market_search_round_trips_over_the_wire ... ok
+test market_operations_on_missing_listing_report_failure ... ok
+test market_page_and_refresh_round_trip ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.44s
+
+     Running tests\market_persistence.rs (target\debug\deps\market_persistence-d3572554233b0b31.exe)
+
+running 21 tests
+test auction_expires_after_48_hours_and_mails_the_seller ... ok
+test batch_consign_fees_must_be_covered_for_all_items ... ok
+test batch_consign_rolls_back_when_one_item_is_missing ... ok
+test batch_get_back_rolls_back_when_one_listing_is_missing ... ok
+test batch_consign_rejects_more_than_ten_items ... ok
+test batch_consign_ten_items_and_batch_get_back_ten ... ok
+test market_cleanup_refund_is_at_most_once ... ok
+test expired_auction_without_bid_only_expires ... ok
+test failed_sale_flush_retries_without_double_delivery ... ok
+test auto_sale_crash_window_is_consistent ... ok
+test expired_auctions_are_purged_on_restart ... ok
+test market_auction_survives_restart ... ok
+test market_update_persists_character_and_auctions_atomically ... ok
+test market_bid_attribution_survives_restart ... ok
+test expired_auction_with_bid_sells_automatically ... ok
+test reload_advances_next_auction_id_from_max_id ... ok
+test flush_failure_keeps_mail_queue_for_retry ... ok
+test market_buyout_survives_restart ... ok
+test repeated_scan_sells_an_auction_only_once ... ok
+test sale_committed_by_session_flush_survives_tick_failure ... ok
+test postgres_market_persistence_roundtrip ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+     Running tests\metrics.rs (target\debug\deps\metrics-93e3f7370b45adbf.exe)
+
+running 6 tests
+test ring_window_and_percentiles_are_bounded ... ok
+test metrics_exposes_db_pool_gauges_when_probe_present ... ok
+test metrics_endpoint_reports_players_connections_and_tick_fields ... ok
+test metrics_endpoint_returns_404_for_unknown_paths_and_healthz ... ok
+test internal_records_gauge_tracks_growth_and_stops_at_cap ... ok
+test metrics_endpoint_lists_players_per_map ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\mnd_data.rs (target\debug\deps\mnd_data-2b66067b16c25e5a.exe)
+
+running 4 tests
+test reports_legacy_vs_mnd_load_time ... ok
+test mnd_sizes_and_section_counts_are_reported ... ok
+test mnd_roundtrip_matches_legacy_database ... ok
+test m2_native_db_and_memory_fs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.07s
+
+     Running tests\monster_ai.rs (target\debug\deps\monster_ai-392c0b25d46cf5cf.exe)
+
+running 2 tests
+test audit_support_labels_and_key_ais_are_stable ... ok
+test full_ai_table_entries_have_branch_and_named_test ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\monster_combat.rs (target\debug\deps\monster_combat-7fdfe321a1fa3e41.exe)
+
+running 34 tests
+test snow_wolf_aoe_radius_two ... ok
+test horned_archer_and_warrior_have_audited_ranges ... ok
+test cannibal_tentacles_uses_view_range_ranged ... ok
+test monster_outside_view_range_does_not_aggro ... ok
+test healthy_deer_does_not_flee ... ok
+test low_health_deer_flees_away_from_target ... ok
+test summoned_bugbat_inherits_master_target ... ok
+test monster_acquires_target_inside_view_range ... ok
+test player_attack_retargets_adjacent_oma_and_it_retaliates ... ok
+test armadillo_family_flees_at_low_health ... ok
+test monster_walks_one_step_toward_target_and_broadcasts_walk ... ok
+test monster_kills_player_and_sends_death_packet ... ok
+test newbie_weapon_kills_hen_within_fifteen_swings ... ok
+test monster_attacks_after_delay_and_damages_player ... ok
+test newly_audited_scenery_ais_stay_stationary ... ok
+test extra_missing_ai_ranges_and_stationary ... ok
+test frozen_miner_aoe_radius_one ... ok
+test restless_jar_stays_stationary_and_ranged_six ... ok
+test player_kills_monster_and_broadcasts_object_died_then_remove ... ok
+test snow_yeti_has_ranged_nine ... ok
+test hellknight_uses_generic_melee_path ... ok
+test trainer_scenery_is_stationary_and_does_not_attack ... ok
+test summoner_death_removes_its_slaves ... ok
+test trap_rock_children_expire_after_five_seconds ... ok
+test bugbat_maggot_summons_with_cap_and_cooldown ... ok
+test trap_rock_show_spawns_children_once ... ok
+test poison_hugger_has_ranged_five ... ok
+test rng_is_reproducible_for_the_same_seed ... ok
+test sand_snail_aoe_radius_one ... ok
+test tree_and_trainer_are_stationary_scenery ... ok
+test player_entering_world_receives_nearby_monsters ... ok
+test walking_out_of_range_removes_monster_and_walking_back_adds_it ... ok
+test newbie_weapon_hits_hen_at_least_seventy_percent ... ok
+test death_and_experience_packets_survive_large_world_batch_flush ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\move_feedback.rs (target\debug\deps\move_feedback-67888f3ddd749e30.exe)
+
+running 7 tests
+test blocked_370_310_pulls_back_exact ... ok
+test wall_rejection_sends_real_location ... ok
+test real_map_cell_370_310_diagnostic ... ok
+test successful_walk_does_not_send_extra_user_location ... ok
+test ten_wall_bumps_are_throttled_and_do_not_bounce ... ok
+test busy_retry_success_does_not_send_rejection ... ok
+test second_wall_episode_after_leaving_and_returning_gets_feedback ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.37s
+
+     Running tests\newbie_flow.rs (target\debug\deps\newbie_flow-40bbdc037552aa19.exe)
+
+running 3 tests
+2026-10-24T01:58:54.430140Z  INFO mir_server::config: 未找到 game-assets/ → 回落到 resource/（行为与旧版一致；可用 MIR2_ASSET_DIR 指定） fallback="resource"
+2026-10-24T01:58:54.430255Z  INFO mir_server::config: 未找到 game-assets/ → 回落到 resource/（行为与旧版一致；可用 MIR2_ASSET_DIR 指定） fallback="resource"
+2026-10-24T01:58:54.445978Z  INFO mir_server::maps: 已加载地图 map=0104 path=C:\Users\diana\Documents\github\mir-next\crates\mir-server\../../resource/map\0104.map source="map" width=13 height=16
+2026-10-24T01:58:54.448546Z  WARN mir_server::server: 开发期使用显式旧格式数据库 path="C:\\Users\\diana\\Documents\\github\\mir-next\\crates\\mir-server\\../../resource/community/clgforever910-mir2database/Daneo1989/Server.MirDB"
+2026-10-24T01:58:54.448910Z  WARN mir_server::exp: 没有可用的 ExpList.ini，退回近似曲线 exp = level^3 * 100 factor=100
+2026-10-24T01:58:54.449053Z  WARN mir_server::guild: 没有可用的 GuildSettings.ini，行会使用代码默认值（不升级、不限人数）
+2026-10-24T01:58:54.449079Z  INFO mir_server::server: 已加载数据包 path=C:\Users\diana\Documents\github\mir-next\crates\mir-server\../../resource/community/clgforever910-mir2database/Daneo1989/Server.MirDB source="legacy" monsters=506 items=1348 drop_dir=C:\Users\diana\Documents\github\mir-next\crates\mir-server\../../resource/community/clgforever910-mir2database/Daneo1989\Envir\Drops
+2026-10-24T01:58:54.449504Z  INFO mir_server::maps: 已加载地图 map=0104 path=C:\Users\diana\Documents\github\mir-next\crates\mir-server\../../resource/map\0104.map source="map" width=13 height=16
+2026-10-24T01:58:54.454106Z  INFO mir_server::npc: 已刷出地图 NPC map=0104 title=Library npcs=1
+2026-10-24T01:58:54.454106Z  INFO mir_server::npc: 已刷出地图 NPC map=0104 title=Library npcs=1
+2026-10-24T01:58:54.454136Z  INFO mir_server::server: 出生地图已初始化 map=0104 npcs=1 groups=0 spawned=0
+2026-10-24T01:58:54.454200Z  INFO mir_server::server: 已载入行会 count=0
+2026-10-24T01:58:54.454219Z  INFO mir_server::server: 已载入攻城状态 count=0
+2026-10-24T01:58:54.454215Z  INFO mir_server::npc: 已刷出地图 NPC map=0104 title=Library npcs=0
+2026-10-24T01:58:54.454246Z  INFO mir_server::server: 已载入市场挂单 loaded=0 sold=0 purged=0
+2026-10-24T01:58:54.454246Z  INFO mir_server::world: 首次进入地图：已补齐 NPC 与刷怪点 map=0104 npcs=0 groups=0 spawned=0
+2026-10-24T01:58:54.454290Z DEBUG mir_server::world: 进入世界：初始化 HP player=10000 hp=18 max_hp=18 dead=false
+2026-10-24T01:58:54.454452Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=8 index=93 ok=true
+2026-10-24T01:58:54.454508Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=165 index=93 ok=true
+2026-10-24T01:58:54.454532Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=97 index=93 ok=true
+2026-10-24T01:58:54.454589Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=100 index=32 ok=true
+2026-10-24T01:58:54.454603Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=95 index=32 ok=true
+2026-10-24T01:58:54.454612Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=97 index=32 ok=true
+2026-10-24T01:58:54.454621Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=105 index=32 ok=true
+2026-10-24T01:58:54.454629Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=124 index=32 ok=true
+2026-10-24T01:58:54.454637Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=101 index=32 ok=true
+2026-10-24T01:58:54.454646Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=120 index=32 ok=true
+2026-10-24T01:58:54.454654Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=108 index=32 ok=true
+2026-10-24T01:58:54.454662Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=132 index=32 ok=true
+2026-10-24T01:58:54.454670Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=126 index=32 ok=true
+2026-10-24T01:58:54.454678Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=102 index=32 ok=true
+2026-10-24T01:58:54.454695Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=89 index=32 ok=true
+2026-10-24T01:58:54.454703Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=121 index=32 ok=true
+2026-10-24T01:58:54.454711Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=107 index=32 ok=true
+2026-10-24T01:58:54.454719Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=96 index=32 ok=true
+2026-10-24T01:58:54.454727Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=58 index=32 ok=true
+2026-10-24T01:58:54.454735Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=52 index=32 ok=true
+2026-10-24T01:58:54.454742Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=59 index=32 ok=true
+2026-10-24T01:58:54.454752Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=58 index=32 ok=true
+2026-10-24T01:58:54.454759Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=57 index=32 ok=true
+2026-10-24T01:58:54.454767Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=57 index=32 ok=true
+2026-10-24T01:58:54.455252Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=160 index=102 ok=true
+2026-10-24T01:58:54.455266Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=4 index=103 ok=true
+2026-10-24T01:58:54.455357Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=57 index=66 ok=true
+2026-10-24T01:58:54.457907Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=47 index=117 ok=true
+2026-10-24T01:58:54.457935Z DEBUG mir_server::world: send_to_player object_id=10000 session_id=1 len=14 index=52 ok=true
+2026-10-24T01:58:54.458561Z  INFO mir_server::server: 已加载语言包 dir=config/lang languages=2
+2026-10-24T01:58:54.458904Z  INFO mir_server::server: 接受连接 session=1 peer=127.0.0.1:52940
+2026-10-24T01:58:54.459064Z DEBUG mir_server::server: writer 写入 socket session=1 bytes=4
+2026-10-24T01:58:54.459301Z  INFO mir_server::session: 客户端版本校验通过 session=1 peer=127.0.0.1:52940
+2026-10-24T01:58:54.459358Z DEBUG mir_server::server: writer 写入 socket session=1 bytes=5
+test non_gm_bookshop_purchase_and_reading_path ... ok
+2026-10-24T01:58:54.459822Z  WARN mir_server::server: 开发期使用显式旧格式数据库 path="C:\\Users\\diana\\Documents\\github\\mir-next\\crates\\mir-server\\../../resource/community/clgforever910-mir2database/Daneo1989/Server.MirDB"
+2026-10-24T01:58:54.459992Z DEBUG mir_server::server: writer 写入 socket session=1 bytes=5
+2026-10-24T01:58:54.460135Z  INFO mir_server::server: metrics summary metrics=players=0 maps=0 connections=1 rejected=0 ticks=1 tick_last_us=35 tick_p99_us=35 db_saves=0 db_save_p95_us=0 db_save_failed=0 autosaves=0 db_flushes=0 db_flush_p95_us=0 mail_queue=0 dropped=0 write_failed=0
+2026-10-24T01:58:54.460332Z  WARN mir_server::exp: 没有可用的 ExpList.ini，退回近似曲线 exp = level^3 * 100 factor=100
+2026-10-24T01:58:54.460442Z  WARN mir_server::guild: 没有可用的 GuildSettings.ini，行会使用代码默认值（不升级、不限人数）
+2026-10-24T01:58:54.460459Z  INFO mir_server::server: 已加载数据包 path=C:\Users\diana\Documents\github\mir-next\crates\mir-server\../../resource/community/clgforever910-mir2database/Daneo1989/Server.MirDB source="legacy" monsters=506 items=1348 drop_dir=C:\Users\diana\Documents\github\mir-next\crates\mir-server\../../resource/community/clgforever910-mir2database/Daneo1989\Envir\Drops
+2026-10-24T01:58:54.460573Z  INFO mir_server::session: 登录成功 session=1 account=newbie characters=0
+2026-10-24T01:58:54.460639Z DEBUG mir_server::server: writer 写入 socket session=1 bytes=8
+2026-10-24T01:58:54.460758Z  INFO mir_server::session: 角色创建成功 session=1 name=newbiehero
+2026-10-24T01:58:54.460813Z DEBUG mir_server::server: writer 写入 socket session=1 bytes=31
+2026-10-24T01:58:54.460961Z  INFO mir_server::maps: 已加载地图 map=0104 path=C:\Users\diana\Documents\github\mir-next\crates\mir-server\../../resource/map\0104.map source="map" width=13 height=16
+2026-10-24T01:58:54.460997Z DEBUG mir_server::session: 登录时补做每日任务重置并立即落盘 session=1 character=1
+2026-10-24T01:58:54.461074Z DEBUG mir_server::world: 进入世界：初始化 HP player=2 hp=15 max_hp=18 dead=false
+2026-10-24T01:58:54.461202Z DEBUG mir_server::world: send_to_player object_id=2 session_id=1 len=8 index=245 ok=true
+2026-10-24T01:58:54.461220Z DEBUG mir_server::session: start_game: world.enter 完成，准备下发登录包 session=1 character=1 map=0104
+2026-10-24T01:58:54.461261Z DEBUG mir_server::session: start_game: S.UserInformation 已入队 session=1 character=1
+2026-10-24T01:58:54.461312Z DEBUG mir_server::world: send_to_player object_id=2 session_id=1 len=13 index=248 ok=true
+2026-10-24T01:58:54.461641Z  INFO mir_server::npc: 已刷出地图 NPC map=0104 title=Library npcs=1
+2026-10-24T01:58:54.461660Z  INFO mir_server::server: 出生地图已初始化 map=0104 npcs=1 groups=0 spawned=0
+2026-10-24T01:58:54.461708Z  INFO mir_server::server: 已载入行会 count=0
+2026-10-24T01:58:54.461720Z  INFO mir_server::server: 已载入攻城状态 count=0
+2026-10-24T01:58:54.461728Z  INFO mir_server::server: 已载入市场挂单 loaded=0 sold=0 purged=0
+2026-10-24T01:58:54.466667Z  INFO mir_server::server: 已加载语言包 dir=config/lang languages=2
+2026-10-24T01:58:54.466931Z  INFO mir_server::server: 接受连接 session=1 peer=127.0.0.1:52942
+2026-10-24T01:58:54.467049Z DEBUG mir_server::server: writer 写入 socket session=1 bytes=4
+2026-10-24T01:58:54.467234Z  INFO mir_server::session: 客户端版本校验通过 session=1 peer=127.0.0.1:52942
+2026-10-24T01:58:54.467279Z DEBUG mir_server::server: writer 写入 socket session=1 bytes=5
+2026-10-24T01:58:54.467827Z DEBUG mir_server::server: writer 写入 socket session=1 bytes=5
+2026-10-24T01:58:54.467997Z  INFO mir_server::server: metrics summary metrics=players=0 maps=0 connections=2 rejected=0 ticks=2 tick_last_us=16 tick_p99_us=35 db_saves=2 db_save_p95_us=36 db_save_failed=0 autosaves=0 db_flushes=0 db_flush_p95_us=0 mail_queue=0 dropped=0 write_failed=0
+2026-10-24T01:58:54.468512Z  INFO mir_server::session: 登录成功 session=1 account=iteminfo characters=0
+2026-10-24T01:58:54.468681Z DEBUG mir_server::server: writer 写入 socket session=1 bytes=8
+2026-10-24T01:58:54.468843Z  INFO mir_server::session: 角色创建成功 session=1 name=iteminfohero
+2026-10-24T01:58:54.468894Z DEBUG mir_server::server: writer 写入 socket session=1 bytes=33
+2026-10-24T01:58:54.469049Z DEBUG mir_server::session: 登录时补做每日任务重置并立即落盘 session=1 character=1
+2026-10-24T01:58:54.469135Z DEBUG mir_server::world: 进入世界：初始化 HP player=2 hp=15 max_hp=18 dead=false
+2026-10-24T01:58:54.469285Z DEBUG mir_server::world: send_to_player object_id=2 session_id=1 len=8 index=245 ok=true
+2026-10-24T01:58:54.469302Z DEBUG mir_server::session: start_game: world.enter 完成，准备下发登录包 session=1 character=1 map=0104
+2026-10-24T01:58:54.469373Z DEBUG mir_server::session: start_game: S.UserInformation 已入队 session=1 character=1
+2026-10-24T01:58:54.469452Z DEBUG mir_server::world: send_to_player object_id=2 session_id=1 len=13 index=248 ok=true
+2026-10-24T01:58:54.496065Z  INFO mir_server::session: 进入世界 session=1 character=newbiehero object_id=2
+2026-10-24T01:58:54.496318Z DEBUG mir_server::server: writer 写入 socket session=1 bytes=56543
+2026-10-24T01:58:54.497240Z DEBUG mir_server::world: send_to_player object_id=2 session_id=1 len=18 index=38 ok=true
+2026-10-24T01:58:54.497291Z DEBUG mir_server::items: 装备结果 player=2 from=0 to=0 unique_id=Some(1879894533795217409) ok=true error=None
+2026-10-24T01:58:54.497306Z DEBUG mir_server::session: 装备穿戴成功 session=1 unique_id=1879894533795217409 to=0
+2026-10-24T01:58:54.497354Z DEBUG mir_server::server: writer 写入 socket session=1 bytes=30
+2026-10-24T01:58:54.497631Z DEBUG mir_server::server: writer 写入 socket session=1 bytes=35
+2026-10-24T01:58:54.498078Z  INFO mir_server::server: 接受连接 session=2 peer=127.0.0.1:52943
+2026-10-24T01:58:54.498164Z  INFO mir_server::server: 连接关闭 session=1 peer=127.0.0.1:52940
+2026-10-24T01:58:54.498331Z DEBUG mir_server::server: writer 写入 socket session=2 bytes=4
+2026-10-24T01:58:54.498431Z  INFO mir_server::session: 客户端版本校验通过 session=2 peer=127.0.0.1:52943
+2026-10-24T01:58:54.498474Z DEBUG mir_server::server: writer 写入 socket session=2 bytes=5
+2026-10-24T01:58:54.498922Z  INFO mir_server::session: 登录成功 session=2 account=newbie characters=1
+2026-10-24T01:58:54.498979Z DEBUG mir_server::server: writer 写入 socket session=2 bytes=35
+2026-10-24T01:58:54.499115Z DEBUG mir_server::world: 进入世界：初始化 HP player=3 hp=15 max_hp=60 dead=false
+2026-10-24T01:58:54.499227Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=8 index=245 ok=true
+2026-10-24T01:58:54.499246Z DEBUG mir_server::session: start_game: world.enter 完成，准备下发登录包 session=2 character=1 map=0104
+2026-10-24T01:58:54.499272Z DEBUG mir_server::session: start_game: S.UserInformation 已入队 session=2 character=1
+2026-10-24T01:58:54.499318Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=13 index=248 ok=true
+2026-10-24T01:58:54.500990Z  INFO mir_server::session: 进入世界 session=2 character=newbiehero object_id=3
+2026-10-24T01:58:54.501115Z DEBUG mir_server::server: writer 写入 socket session=2 bytes=56543
+2026-10-24T01:58:54.501833Z  INFO mir_server::session: 进入世界 session=1 character=iteminfohero object_id=2
+2026-10-24T01:58:54.502006Z DEBUG mir_server::server: writer 写入 socket session=2 bytes=13
+2026-10-24T01:58:54.502022Z DEBUG mir_server::server: writer 写入 socket session=1 bytes=56545
+2026-10-24T01:58:54.502144Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=8 index=93 ok=true
+2026-10-24T01:58:54.502188Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=165 index=93 ok=true
+2026-10-24T01:58:54.502205Z DEBUG mir_server::session: NPC 对话 session=2 npc=1 page=[@MAIN-1] lines=7 panels=[] closed=false unsupported=0
+2026-10-24T01:58:54.502269Z DEBUG mir_server::server: writer 写入 socket session=2 bytes=173
+2026-10-24T01:58:54.502403Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=97 index=93 ok=true
+2026-10-24T01:58:54.502468Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=105 index=32 ok=true
+2026-10-24T01:58:54.502481Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=100 index=32 ok=true
+2026-10-24T01:58:54.502494Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=98 index=32 ok=true
+2026-10-24T01:58:54.502505Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=108 index=32 ok=true
+2026-10-24T01:58:54.502515Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=123 index=32 ok=true
+2026-10-24T01:58:54.502530Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=97 index=32 ok=true
+2026-10-24T01:58:54.502543Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=121 index=32 ok=true
+2026-10-24T01:58:54.502555Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=106 index=32 ok=true
+2026-10-24T01:58:54.502568Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=136 index=32 ok=true
+2026-10-24T01:58:54.502580Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=128 index=32 ok=true
+2026-10-24T01:58:54.502591Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=106 index=32 ok=true
+2026-10-24T01:58:54.502604Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=89 index=32 ok=true
+2026-10-24T01:58:54.502617Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=121 index=32 ok=true
+2026-10-24T01:58:54.502627Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=105 index=32 ok=true
+2026-10-24T01:58:54.502639Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=98 index=32 ok=true
+2026-10-24T01:58:54.502649Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=56 index=32 ok=true
+2026-10-24T01:58:54.502660Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=53 index=32 ok=true
+2026-10-24T01:58:54.502672Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=53 index=32 ok=true
+2026-10-24T01:58:54.502683Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=59 index=32 ok=true
+2026-10-24T01:58:54.502695Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=59 index=32 ok=true
+2026-10-24T01:58:54.502707Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=53 index=32 ok=true
+2026-10-24T01:58:54.502895Z DEBUG mir_server::world: send_to_player object_id=2 session_id=1 len=79 index=32 ok=true
+2026-10-24T01:58:54.502952Z DEBUG mir_server::server: writer 写入 socket session=1 bytes=79
+2026-10-24T01:58:54.502967Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=160 index=102 ok=true
+2026-10-24T01:58:54.502981Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=4 index=103 ok=true
+2026-10-24T01:58:54.502992Z DEBUG mir_server::session: NPC 对话 session=2 npc=1 page=[@BUYSELL] lines=4 panels=["buy", "sell"] closed=false unsupported=0
+2026-10-24T01:58:54.503058Z DEBUG mir_server::server: writer 写入 socket session=2 bytes=2235
+2026-10-24T01:58:54.503394Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=57 index=66 ok=true
+2026-10-24T01:58:54.503433Z DEBUG mir_server::session: 买到物品 session=2 item=973 count=1 cost=500
+2026-10-24T01:58:54.503482Z DEBUG mir_server::server: writer 写入 socket session=2 bytes=65
+2026-10-24T01:58:54.503602Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=47 index=117 ok=true
+2026-10-24T01:58:54.503621Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=14 index=52 ok=true
+2026-10-24T01:58:54.503632Z DEBUG mir_server::session: 使用物品 session=2 item=Fencing hp=0 mp=0 pot_hp=0 pot_mp=0 buffs=0 spell=Some(Fencing)
+2026-10-24T01:58:54.503683Z DEBUG mir_server::server: writer 写入 socket session=2 bytes=61
+2026-10-24T01:58:54.503788Z DEBUG mir_server::world: send_to_player object_id=3 session_id=2 len=14 index=52 ok=true
+2026-10-24T01:58:54.503805Z DEBUG mir_server::session: 使用物品被拒绝 session=2 error=no item with UUID 1879894533795217415 in the inventory
+2026-10-24T01:58:54.503844Z DEBUG mir_server::server: writer 写入 socket session=2 bytes=14
+test new_player_gets_starter_items_and_learns_from_bookshop ... ok
+test request_item_info_sends_template_once ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+     Running tests\npc.rs (target\debug\deps\npc-9c2158c183593fe5.exe)
+
+running 46 tests
+test color_markup_is_unwrapped ... ok
+test prices_follow_crystal_formulas ... ok
+test constants_are_exposed ... ok
+test parse_buff_kind_ignores_case_and_separators ... ok
+test attacking_wears_the_weapon_by_one_to_four_points ... ok
+test buying_an_item_costs_gold_and_sends_both_packets ... ok
+test broken_weapon_loses_its_stats_and_notifies_once ... ok
+test book_shop_goods_can_sell_skill_books ... ok
+test button_jump_requires_a_button_that_was_shown ... ok
+test give_buff_adds_the_buff_with_the_scripted_duration ... ok
+test buying_with_a_full_bag_is_refused ... ok
+test buying_without_gold_changes_nothing ... ok
+test durability_survives_an_inventory_round_trip ... ok
+test multiple_durability_losses_in_one_period_are_coalesced ... ok
+test exit_closes_the_dialog ... ok
+test durability_drop_is_sent_once_per_dura_delay ... ok
+test call_npc_returns_rendered_dialog ... ok
+test failed_check_runs_else_actions_and_follows_goto ... ok
+test high_level_player_gets_the_success_branch ... ok
+test gold_moves_both_ways_through_the_npc ... ok
+test give_buff_rejects_unknown_names_and_bad_durations ... ok
+test map_entry_info_lists_npcs_and_movements ... ok
+test monster_hit_wears_armour_in_the_same_settlement ... ok
+test entering_world_sends_object_npc_and_npcs_block_movement ... ok
+test repairing_a_full_durability_item_is_rejected_with_a_notice ... ok
+test give_buff_defaults_to_one_minute_when_the_duration_is_missing ... ok
+test repairing_restores_durability_and_costs_gold ... ok
+test give_name_list_offers_buttons_and_requests_input ... ok
+test dead_players_and_distant_npcs_are_rejected ... ok
+test repairing_without_gold_explains_the_cost ... ok
+test give_name_list_without_names_reports_empty_list ... ok
+test repairing_without_gold_changes_nothing ... ok
+test insert_directive_pulls_in_another_page ... ok
+test level_one_newbie_gets_the_first_skill_book_for_free ... ok
+test scripts_load_from_the_database_directory ... ok
+test selling_a_bound_item_is_refused ... ok
+test spawned_npcs_carry_database_fields ... ok
+test starter_items_filter_by_class_from_start_item_flag ... ok
+test selling_an_item_gives_half_its_price ... ok
+test selling_outside_a_shop_page_is_refused ... ok
+test taking_damage_wears_every_slot_except_the_weapon ... ok
+test take_check_item_hands_over_the_item_and_sends_delete_item ... ok
+test take_item_keyword_shares_the_take_check_item_path ... ok
+test take_check_item_without_a_checked_item_refuses_and_says_why ... ok
+test real_database_shop_has_goods ... ok
+test real_database_npcs_and_scripts ... ok
+
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests\npc_input.rs (target\debug\deps\npc_input-53c43a8750692c2b.exe)
+
+running 1 test
+test npc_confirm_input_reaches_the_same_page_as_the_button ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\npc_map_info.rs (target\debug\deps\npc_map_info-bec3d2b1d2ab3e85.exe)
+
+running 2 tests
+test new_map_info_falls_back_to_all_when_bigmap_flags_missing ... ok
+test new_map_info_keeps_crystal_filter_when_flags_present ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests\npc_names.rs (target\debug\deps\npc_names-f0fff594e4d55218.exe)
+
+running 3 tests
+test english_session_keeps_original_npc_name ... ok
+test chinese_session_shows_localized_npc_name_in_object_and_map_info ... ok
+test unknown_npc_falls_back_to_database_name_without_panicking ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests\npc_shop.rs (target\debug\deps\npc_shop-645ecbe419e5e7b5.exe)
+
+running 7 tests
+test real_librarian_rejects_purchase_when_inventory_is_full ... ok
+test real_librarian_first_book_is_free_for_level_one_without_magics ... ok
+test real_librarian_rejects_purchase_when_gold_is_insufficient ... ok
+test real_librarian_buys_book_for_500_gold_in_lose_gold_then_gained_item_order ... ok
+test selling_a_real_chicken_at_a_real_butcher_credits_half_price ... ok
+test selling_a_type_outside_the_shop_types_is_refused_with_a_system_chat ... ok
+test buying_an_item_applies_the_npc_rate_and_sends_lose_gold_before_gained_item ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests\persistence_audit.rs (target\debug\deps\persistence_audit-060e41d1a24ccd9d.exe)
+
+running 22 tests
+test conquest_state_survives_restart ... ok
+test guild_state_survives_restart ... ok
+test concurrent_saves_are_serialized_and_keep_a_consistent_row ... ok
+test failed_character_save_keeps_previous_row_and_returns_error ... ok
+test concurrent_versioned_saves_are_serialized_and_latest_wins ... ok
+test restart_restores_inventory_equipment_and_magics_bytes ... ok
+test character_row_roundtrips_all_audited_columns ... ok
+test failed_versioned_save_does_not_advance_version ... ok
+test same_version_concurrent_saves_only_one_wins ... ok
+test restart_restores_quests_and_quest_inventory ... ok
+test versioned_save_rejects_older_snapshot ... ok
+test immediate_logout_relogin_preserves_inventory_and_equipment ... ok
+test relogin_indoor_0104_gets_user_information ... ok
+test logout_saves_gold_before_next_login ... ok
+test relogin_with_skill_quest_gold_gets_user_information ... ok
+test tcp_disconnect_saves_gold_before_next_login ... ok
+test pg_relogin_with_skill_quest_gold_gets_user_information ... ok
+test versioned_saves_still_meet_the_autosave_rpo ... ok
+test autosave_bounds_the_crash_window_to_autosave_secs ... ok
+test autosave_then_logout_keeps_the_latest_versioned_snapshot ... ok
+test autosave_retries_after_a_failed_write ... ok
+test autosave_writes_only_dirty_characters ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.26s
+
+     Running tests\persistence_equipment.rs (target\debug\deps\persistence_equipment-8a2d16b1baf0db2b.exe)
+
+running 2 tests
+test character_snapshot_copies_equipped_weapon ... ok
+test equipment_survives_immediate_store_roundtrip ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\pet_mode.rs (target\debug\deps\pet_mode-50c4b6f3434f1619.exe)
+
+running 3 tests
+test pet_mode_values_match_crystal_byte_column ... ok
+test old_characters_default_to_both ... ok
+test pet_mode_survives_character_logout_and_login ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\pk.rs (target\debug\deps\pk-91e65ccc966515d0.exe)
+
+running 27 tests
+test guard_ignores_white_and_brown_players_until_red ... ok
+test group_mode_allows_non_member ... ok
+test real_database_exposes_safe_zone_and_guard_template ... ok
+test killing_a_red_player_adds_no_pk_points ... ok
+test pk_points_decay_one_per_pk_delay ... ok
+test all_mode_hits_any_player ... ok
+test monster_kill_inside_safe_zone_does_not_drop ... ok
+test first_hit_makes_attacker_brown ... ok
+test guard_walks_back_home_when_idle ... ok
+test attacking_a_red_player_adds_no_pk_and_no_brown ... ok
+test safe_zone_blocks_player_attack ... ok
+test change_attack_mode_echoes_to_self_only ... ok
+test guard_attacks_red_player_and_uses_ac_defence ... ok
+test kill_adds_pk_points_and_turns_name_red ... ok
+test guild_mode_refuses_same_guild ... ok
+test enemy_guild_mode_hits_nobody_without_wars ... ok
+test red_name_falls_back_to_yellow_after_decay ... ok
+test monster_kill_outside_safe_zone_still_drops_in_crystal ... ok
+test red_death_drops_whole_inventory ... ok
+test killer_can_pick_up_death_drops ... ok
+test revive_keeps_pk_points ... ok
+test peace_mode_refuses_player_target ... ok
+test pvp_attack_delays_damage_and_broadcasts_packets ... ok
+test group_mode_refuses_group_mate ... ok
+test normal_death_drops_equipment_and_inventory_by_probability ... ok
+test red_brown_mode_only_hits_red_or_brown_players ... ok
+test pvp_critical_broadcasts_object_effect_and_indicator ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\postgres_guild.rs (target\debug\deps\postgres_guild-1d955198a3f4b641.exe)
+
+running 1 test
+test postgres_guild_persistence_roundtrip ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests\postgres_login.rs (target\debug\deps\postgres_login-0f51641d356c8883.exe)
+
+running 1 test
+test postgres_backed_login_and_language_persistence ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests\quest_daily.rs (target\debug\deps\quest_daily-b23a0f64c2d351fd.exe)
+
+running 4 tests
+test daily_reset_due_uses_a_24h_window ... ok
+test apply_daily_reset_rewrites_the_login_record ... ok
+test offline_cross_day_login_resets_daily_quests ... ok
+test reset_daily_quests_clears_player_daily_but_keeps_in_progress ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\quests.rs (target\debug\deps\quests-2ebdf3ec1379581d.exe)
+
+running 38 tests
+test abandon_quest_clears_carry_items_from_quest_inventory ... ok
+test accept_quest_records_progress_and_sends_change_quest ... ok
+test abandon_quest_clears_the_progress ... ok
+test carry_items_are_given_on_accept_and_taken_on_finish ... ok
+test finish_uses_the_selected_optional_reward ... ok
+test harness_helpers_are_wired ... ok
+test market_snapshot_must_use_live_quest_inventory ... ok
+test npc_finishquest_action_completes_the_quest ... ok
+test finish_clears_leftover_quest_items_not_needed_anymore ... ok
+test finish_rejects_two_rewards_when_only_one_slot_is_free ... ok
+test finish_deducts_collected_items_from_quest_inventory ... ok
+test finish_requires_the_finisher_npc_nearby ... ok
+test accept_rejects_duplicates_and_completed_quests ... ok
+test full_quest_inventory_does_not_intercept ... ok
+test gained_quest_item_frame_carries_the_incremental_item ... ok
+test real_quest_script_parses_into_tasks_and_rewards ... ok
+test finish_rejects_unfinished_quests ... ok
+test intercepted_drop_keeps_its_count_and_durability ... ok
+test npc_object_packet_lists_script_quests ... ok
+test monster_death_advances_the_killer_quest ... ok
+test item_progress_counts_the_inventory ... ok
+test kill_progress_completes_the_quest ... ok
+test npc_checkquest_reads_the_real_state ... ok
+test accept_rejects_the_wrong_npc ... ok
+test quest_items_are_intercepted_only_for_unfinished_collect_tasks ... ok
+test finish_quest_pays_gold_exp_and_fixed_items ... ok
+test quest_progress_round_trips_through_the_byte_block ... ok
+test accept_rejects_level_class_and_prerequisite ... ok
+test npc_script_quest_list_links_the_craft_lady ... ok
+test quest_inventory_roundtrips_through_world_and_store_blob ... ok
+test login_packets_carry_the_quest_catalogue ... ok
+test daily_quests_are_filtered_counted_and_reset ... ok
+test synthetic_script_parses_every_supported_section ... ok
+test real_luke_script_gates_the_dialog_on_quest_completion ... ok
+test you_found_hint_is_sent_after_gained_quest_item ... ok
+test timed_quest_expires_and_is_abandoned ... ok
+test real_quest_can_be_completed_end_to_end ... ok
+test real_database_quests_and_npc_links ... ok
+
+test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests\reboot.rs (target\debug\deps\reboot-c7f94c6fde83cea6.exe)
+
+running 6 tests
+test reboot_countdown_broadcasts_seconds ... ok
+test reconnect_after_grace_falls_back_to_select ... ok
+test reboot_force_saves_online_character ... ok
+test reboot_force_save_retries_once_after_failure ... ok
+test reconnect_within_grace_restores_last_character ... ok
+test reboot_counts_down_then_disconnects_and_stops_the_server ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.76s
+
+     Running tests\save_seq.rs (target\debug\deps\save_seq-370556bbb8c3b513.exe)
+
+running 2 tests
+test seq_resets_to_one_after_simulated_restart ... ok
+test concurrent_saves_have_unique_monotonic_seq_and_time ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests\skills.rs (target\debug\deps\skills-a320d802231b365a.exe)
+
+running 67 tests
+test great_fox_spirit_aoe_does_not_fire_on_no_fight_maps ... ok
+test magic_monster_kites_when_adjacent ... ok
+test fire_wall_without_mana_is_rejected ... ok
+test magic_cast_is_interrupted_when_target_dies ... ok
+test attack_only_pet_locks_the_masters_target ... ok
+test broadcast_text_renders_per_recipient_language ... ok
+test guards_ignore_pets ... ok
+test evil_centipede_aoe_does_not_fire_on_no_fight_maps ... ok
+test aoe_does_not_hit_players_on_no_fight_maps ... ok
+test hiding_without_mana_is_rejected ... ok
+test both_mode_pet_attacks_nearest_wild ... ok
+test lightning_without_mana_is_rejected ... ok
+test bone_spearman_line_damage_is_delayed_by_distance ... ok
+test hiding_is_seen_by_cool_eye_monster_of_equal_level ... ok
+test magic_monster_casts_and_damages_the_target ... ok
+test magic_aoe_hits_multiple_targets_but_not_outside_radius ... ok
+test fire_wall_limit_recycles_the_oldest_cast ... ok
+test hiding_hides_from_monsters_and_breaks_on_walking_only ... ok
+test evil_centipede_is_physical_aoe_with_green_and_paralysis ... ok
+test magic_line_attack_penetrates_two_players ... ok
+test fire_wall_spawns_five_cells_and_burns_each_cell_every_two_seconds ... ok
+test bone_spearman_line_continues_past_high_wall ... ok
+test move_only_pet_follows_without_attacking ... ok
+test great_fox_spirit_close_range_uses_radius_two ... ok
+test bone_spearman_line_hits_target_before_high_wall ... ok
+test magic_monster_respects_attack_speed_cooldown ... ok
+test monster_magic_does_not_cast_out_of_range ... ok
+test magic_monster_does_not_cast_out_of_range ... ok
+test lightning_sends_magic_to_caster_before_object_magic_broadcast ... ok
+test peaceful_master_pet_does_not_retaliate_against_players ... ok
+test monster_magic_respects_cooldown ... ok
+test monster_magic_stops_when_target_is_dead ... ok
+test bone_spearman_line_wall_without_target_after_does_not_panic ... ok
+test great_fox_spirit_ranged_form_uses_radius_seven_and_range_attack ... ok
+test pet_death_to_a_wild_monster_does_not_panic_the_master ... ok
+test peaceful_masters_pet_does_not_attack_players ... ok
+test pet_never_targets_its_own_master ... ok
+test pet_mode_resets_on_recall_and_pet_death ... ok
+test pet_retaliates_when_attacked_by_a_player ... ok
+test ranged_ai_ranges_cover_the_data_archer_templates ... ok
+test players_cannot_attack_pets_without_all_mode ... ok
+test poisoning_requires_a_target_and_does_not_spend_mana ... ok
+test pets_disappear_when_the_master_logs_out_or_dies ... ok
+test poisoning_applies_green_then_red_and_ticks_each_two_seconds ... ok
+test rest_mode_pet_does_not_search_or_follow ... ok
+test ranged_monster_shoots_from_six_cells ... ok
+test pets_do_not_attack_each_other ... ok
+test recasting_hiding_while_hidden_only_refreshes_duration ... ok
+test sep_high_wizard_fire_bang_aoe_hits_multiple_targets ... ok
+test summon_skeleton_creates_a_pet_that_attacks_the_masters_target ... ok
+test summoned_pets_do_not_grant_experience ... ok
+test summoning_the_same_pet_again_recalls_instead_of_creating_a_second ... ok
+test sep_wizard_casts_great_fire_ball_and_deals_damage ... ok
+test target_lost_monster_returns_home ... ok
+test system_text_uses_the_players_language ... ok
+test summoning_on_a_no_pets_map_is_rejected_after_spending_mana ... ok
+test teleport_moves_the_caster_at_200ms_and_applies_mana_penalty ... ok
+test teleport_without_mana_is_rejected_and_keeps_position ... ok
+test town_archer_does_not_chase_without_a_route ... ok
+test lightning_pierces_six_cells_hitting_first_target_per_cell ... ok
+test undead_flag_is_bridged_from_monster_info_at_spawn ... ok
+test thunderbolt_gets_fifty_percent_bonus_against_undead ... ok
+test town_archer_only_shoots_red_name_at_the_pk_threshold ... ok
+test venom_spider_line_does_not_fire_on_no_fight_maps ... ok
+test wild_monster_switches_target_to_the_pet_that_bites_it ... ok
+test wild_monster_targets_and_attacks_a_pet_then_pet_retaliates ... ok
+test venom_spider_line_hits_two_cells_and_poisons ... ok
+
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\social.rs (target\debug\deps\social-15b6729a4c50a2e5.exe)
+
+running 32 tests
+test friends_codec_roundtrip_and_empty_default ... ok
+test mentee_experience_banks_for_the_mentor ... ok
+test friend_limit_is_configurable_and_zero_means_unlimited ... ok
+test marriage_reply_declined_keeps_both_single ... ok
+test mentee_graduates_automatically_when_level_gap_closes ... ok
+test spouse_teleport_rejects_unmarried_and_offline_spouse ... ok
+test mentoring_ends_and_mentor_collects_the_bank ... ok
+test divorce_clears_both_sides ... ok
+test spouse_name_is_lookupable_after_relogin_style_restore ... ok
+test ally_replies_are_localized ... ok
+test marriage_request_and_accept_links_both_sides ... ok
+test allied_players_are_reported_as_allied ... ok
+test social_snapshot_carries_marriage_and_mentorship_for_persistence ... ok
+test add_remove_and_block_friends ... ok
+test friend_list_is_capped ... ok
+test spouse_teleport_moves_next_to_the_spouse_same_map ... ok
+test spouse_teleport_is_refused_when_the_lover_disables_recall ... ok
+test mentor_request_enforces_level_gap_and_class ... ok
+test marriage_request_rejects_underlevel_and_self ... ok
+test wedding_ring_template_can_be_pinned_explicitly ... ok
+test spouse_teleport_skips_partner_ring_check_when_spouse_is_offline ... ok
+test spouse_teleport_requires_a_worn_wedding_ring ... ok
+test guild_alliance_is_bidirectional_and_persisted_in_record ... ok
+test friend_update_packet_contains_saved_names_and_online_flags ... ok
+test guild_alliance_respects_max_limit ... ok
+test wedding_ring_use_teleports_to_the_spouse ... ok
+test marriage_gives_each_side_a_wedding_ring ... ok
+test spouse_teleport_refuses_when_partner_wears_no_ring ... ok
+test spouse_teleport_refuses_when_rings_do_not_point_at_each_other ... ok
+test spouse_teleport_crosses_maps_when_the_spouse_is_elsewhere ... ok
+test guild_ally_limit_zero_means_unlimited ... ok
+test wedding_ring_use_equips_it_before_teleporting ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\storage_mail.rs (target\debug\deps\storage_mail-beb1aa91a4b1cb64.exe)
+
+running 26 tests
+test real_npc_scripts_with_storage_page_parse ... ok
+test store_item_rejects_out_of_range_and_occupied_slots ... ok
+test collect_requires_post_office_acceptance ... ok
+test store_item_moves_into_storage_and_acks ... ok
+test collect_rejects_when_bag_is_full ... ok
+test locked_mail_cannot_be_deleted_until_unlocked ... ok
+test store_item_requires_storage_dialog_npc_and_range ... ok
+test store_item_rejects_bound_items ... ok
+test mail_writes_persist_and_reload_through_memory_store ... ok
+test mail_with_uncollected_attachments_cannot_be_deleted ... ok
+test storage_page_sends_user_storage_once_then_only_npc_storage ... ok
+test mailbox_list_keeps_only_the_last_hundred_mails ... ok
+test npc_pages_open_storage_and_mail_panels ... ok
+test send_mail_unstamped_takes_only_the_first_attachment ... ok
+test mail_locked_item_is_echoed ... ok
+test take_back_item_returns_to_inventory_and_rejects_full_bag ... ok
+test read_mail_marks_opened_and_resends_the_list ... ok
+test post_office_page_accepts_parcels_then_collect_moves_them_to_bag ... ok
+test mail_cost_request_matches_crystal_formula ... ok
+test send_mail_rejects_missing_recipient_and_insufficient_gold ... ok
+test send_mail_rejects_unmailable_items_and_rate_limits ... ok
+test letter_without_attachments_is_collected_and_notifies_online_recipient ... ok
+test send_mail_with_attachment_and_gold_uses_stamp_and_acks ... ok
+test session_login_round_trips_storage ... ok
+test session_login_sends_mail_list_and_filters_expired_mail ... ok
+test session_send_mail_to_offline_character_by_name ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests\trade.rs (target\debug\deps\trade-bdbf946ae477dbb7.exe)
+
+running 30 tests
+test depositing_more_gold_than_held_is_rejected ... ok
+test changing_the_trade_resets_both_preparations ... ok
+test logging_out_cancels_the_trade ... ok
+test deposit_and_retrieve_reject_out_of_range_or_occupied_slots ... ok
+test changing_map_cancels_the_trade ... ok
+test depositing_a_dont_trade_item_is_rejected ... ok
+test depositing_and_retrieving_an_item_keeps_both_sides_in_sync ... ok
+test revive_broadcasts_object_revived_to_observer_and_self ... ok
+test depositing_gold_is_deducted_and_refunded_on_cancel ... ok
+test item_counts_and_unique_ids_are_conserved_by_the_swap ... ok
+test move_item_trade_grid_deposits_retrieves_and_completes_trade ... ok
+test dying_cancels_the_trade ... ok
+test cancelling_with_a_full_bag_mails_the_item_instead ... ok
+test cancelling_twice_is_idempotent ... ok
+test accepting_the_invitation_puts_both_players_into_trade ... ok
+test cancelling_returns_items_and_gold_to_the_owner ... ok
+test turning_around_cancels_the_trade ... ok
+test trade_request_sends_invitation_to_the_faced_player ... ok
+test walking_away_cancels_the_trade ... ok
+test trade_request_requires_a_faced_player ... ok
+test trade_request_is_throttled_by_trade_delay ... ok
+test trade_request_rejects_trading_with_yourself ... ok
+test declining_the_invitation_notifies_the_inviter ... ok
+test trade_request_respects_the_allow_trade_switch ... ok
+test trade_request_rejects_a_player_that_does_not_face_back ... ok
+test both_confirmations_swap_items_and_gold ... ok
+test trade_request_rejects_a_target_out_of_range ... ok
+test full_bag_makes_the_trade_fail_without_exchanging_anything ... ok
+test a_single_confirmation_does_not_trade ... ok
+test trade_request_rejects_players_already_trading_or_invited ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\use_items.rs (target\debug\deps\use_items-b4b073fc54b9d484.exe)
+
+running 18 tests
+test real_database_exposes_potions_and_shield_spells ... ok
+test mana_potion_restores_mp_through_the_pot_pool ... ok
+test haste_raises_attack_speed_and_shortens_the_attack_delay ... ok
+test magic_booster_raises_magic_power_and_mana_cost ... ok
+test magic_shield_reduces_incoming_monster_damage ... ok
+test normal_potion_fills_the_pot_pool_and_heals_over_time ... ok
+test unknown_item_shapes_and_scrolls_are_rejected_without_consuming ... ok
+test potion_level_requirement_is_enforced ... ok
+test potion_class_requirement_is_enforced ... ok
+test normal_potion_at_full_health_is_rejected_without_consuming ... ok
+test using_a_book_still_learns_the_spell ... ok
+test dead_player_cannot_use_a_potion_but_a_resurrection_scroll_revives ... ok
+test protection_field_raises_defence_until_it_expires ... ok
+test sun_potion_heals_the_flat_amount_immediately ... ok
+test expiring_a_health_buff_resends_health_and_object_health ... ok
+test drop_gold_spawns_a_gold_pile_and_loses_gold ... ok
+test area_shields_buff_nearby_players_with_level_scaled_defence ... ok
+test visible_buffs_are_broadcast_and_magic_shield_sends_object_effects ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\world_lifecycle.rs (target\debug\deps\world_lifecycle-e519068058209837.exe)
+
+running 14 tests
+test master_experience_table_comes_from_the_index_sample_when_present ... ok
+test random_delay_stays_inside_crystals_window ... ok
+test high_level_killer_gets_reduced_experience_from_a_weak_monster ... ok
+test register_spawn_group_fills_count_and_reports_state ... ok
+test full_health_player_resets_the_timer_without_healing ... ok
+test killing_one_monster_respawns_one_after_delay_and_never_exceeds_count ... ok
+test zero_hp_character_enters_at_full_health_and_can_move ... ok
+test killing_a_monster_grants_experience_and_notifies_only_the_killer ... ok
+test attacking_postpones_regen_but_walking_does_not ... ok
+test enough_experience_levels_up_recalculates_stats_and_sends_packets ... ok
+test wounded_idle_player_regenerates_after_the_delay_and_receives_health_changed ... ok
+test respawn_tick_scale_stretches_the_interval ... ok
+test fallback_revives_only_after_60s_and_counts_metric ... ok
+test player_dies_then_revives_in_place_and_can_walk_again ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\mir_store-100d0ff477258dee.exe)
+
+running 15 tests
+test password::tests::generate_salt_returns_24_fresh_bytes ... ok
+test repo::tests::new_account_and_default_account_use_simplified_chinese ... ok
+test repo::tests::is_supported_language_matches_normalize_language ... ok
+test repo::tests::normalize_language_accepts_every_alias ... ok
+test password::tests::hash_password_matches_crystal_vector ... ok
+test repo::tests::normalize_language_ignores_case_and_surrounding_space ... ok
+test repo::tests::normalize_language_rejects_unsupported_codes ... ok
+test password::tests::hash_password_produces_replacement_characters ... ok
+test password::tests::hash_password_encodes_unicode_password_as_utf8 ... ok
+test password::tests::encode_hash_keeps_nul_out_of_text ... ok
+test password::tests::verify_password_rejects_tampered_hash_or_salt ... ok
+test password::tests::legacy_lossy_hash_still_verifies_after_encoding ... ok
+test password::tests::set_password_regenerates_salt_and_hash ... ok
+test password::tests::verify_password_accepts_only_the_original_password ... ok
+test password::tests::hash_password_is_deterministic ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\guild_roundtrip.rs (target\debug\deps\guild_roundtrip-55f6368fcd30720c.exe)
+
+running 1 test
+test guild_repository_roundtrip_rolls_back ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests\migrations.rs (target\debug\deps\migrations-3a3e109f10ffc7eb.exe)
+
+running 4 tests
+test migration_drill_from_0013_to_0016 ... ok
+test drill_bootstrap_base_database ... ok
+test drill_probe_current_database ... ok
+test drill_url_parser_and_host_allowlist ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\store_roundtrip.rs (target\debug\deps\store_roundtrip-39920329e500379c.exe)
+
+running 4 tests
+test legacy_password_hash_survives_migration_0010 ... ok
+test mail_crud_roundtrip_rolls_back ... ok
+test account_with_nul_hash_roundtrips ... ok
+test account_and_character_lifecycle_rolls_back ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running unittests src\bin\data_import.rs (target\debug\deps\data_import-4704cbf1d94c8266.exe)
+
+running 3 tests
+test tests::reference_kind_covers_required_sources ... ok
+test tests::name_normalization_ignores_case_and_whitespace ... ok
+test tests::icon_available_requires_png_and_not_all_empty ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src\bin\map_import.rs (target\debug\deps\map_import-69492d82abdc2ed7.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\main.rs (target\debug\deps\mir_tools-97f36a42c29f5fa9.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\mir_world-ab6edf625baf9f57.exe)
+
+running 20 tests
+test map::tests::v3_synthetic_layout ... ok
+test map::tests::v100_synthetic_layout ... ok
+test map::tests::v5_synthetic_wall_bits ... ok
+test map::tests::rejects_short_truncated_and_invalid_files ... ok
+test map::tests::v0_synthetic_round_trip ... ok
+test map::tests::v1_synthetic_layout ... ok
+test map::tests::v2_synthetic_door_and_fishing ... ok
+test map::tests::v4_synthetic_layout ... ok
+test map::tests::tolerates_trailing_bytes_like_crystal ... ok
+test map::tests::v6_synthetic_wall_bits ... ok
+test map::tests::v7_synthetic_layout ... ok
+test map::tests::rescues_legacy_v0_with_zero_width_low_byte ... ok
+test map::tests::real_cjlaaa_v1_map_decodes_client_tile_fields ... ok
+test mnm::tests::mnm_roundtrip_is_lossless ... ok
+test map::tests::loads_0100_15x18 ... ok
+test mnm::tests::map_load_accepts_mnm_path_directly ... ok
+test mnm::tests::map_load_prefers_sibling_mnm_over_legacy_map ... ok
+test mnm::tests::real_maps_report_mnm_size_ratio ... ok
+test mnm::tests::real_v0_v1_v4_maps_roundtrip_cell_for_cell ... ok
+test map::tests::loads_bichon_700x700 ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+   Doc-tests mir_asset
+
+running 2 tests
+test crates\mir-asset\src\lib.rs - (line 70) ... ignored
+test crates\mir-asset\src\library.rs - library::ImageLibrary (line 58) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 1.39s; merged doctests compilation took 0.50s
+   Doc-tests mir_client
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests mir_core
+
+running 2 tests
+test crates\mir-core\src\i18n.rs - i18n::format_text (line 1372) ... ok
+test crates\mir-core\src\i18n.rs - i18n::guild_permission_name (line 1409) ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+all doctests ran in 0.51s; merged doctests compilation took 0.42s
+   Doc-tests mir_db
+
+running 1 test
+test crates\mir-db\src\lib.rs - (line 7) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.58s; merged doctests compilation took 0.50s
+   Doc-tests mir_protocol
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests mir_render
+
+running 3 tests
+test crates\mir-render\src\lib.rs - (line 151) - compile ... ok
+test crates\mir-render\src\scene.rs - scene::MapScene (line 51) - compile ... ok
+test crates\mir-render\src\geometry.rs - geometry (line 18) ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+all doctests ran in 0.78s; merged doctests compilation took 0.68s
+   Doc-tests mir_server
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests mir_store
+
+running 1 test
+test crates\mir-store\src\lib.rs - (line 55) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 1.05s; merged doctests compilation took 0.97s
+   Doc-tests mir_world
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    OK   (237 s)
+
+==> 协议生成器 --check
+packets: 432, files changed: 0
+    OK   (1 s)
+
+==> 文档链接与包编号
+[OK] 530 ��������ӡ�2 ƪ README �ĵ����á��г������ȫ��һ��
+    OK   (1 s)
+
+==> TextKey 完整性
+��7.2 ����            : 207��Ԥ�� 207��
+��7.2 Ψһ��          : 200
+�ظ����ֵļ�         : 5��item_potion_no_effect_full��market_label_sold��market_label_expired��trade_already_trading��trade_not_facing��
+�� 1 ���޲μ�        : 11
+��չ�������� ��7.2��  : 30
+TextKey ���� / ALL   : 241 / 241
+�������ļ�           : 92
+���԰� server ��     : zh=241 en=241
+�˶Բ���             : 0
+
+[OK] ��7.2 207 �� �� 200 ������ 11 ���� 1 �ּ��� 30 ����չ���� 241 �� TextKey ȫ����Ӧ����©�����޹¶�������Ӣռλһ��
+    OK   (0 s)
+
+==> 硬编码棘轮（player-visible，阈值 70）
+
+crates/mir-server/src/combat.rs��1 ����
+  663: min > max ʱȡ min��test��
+
+crates/mir-server/src/exp.rs��2 ����
+  374: ���ļ�����ʱ��¼��Դ·����test��
+  379: ������resource/ ��û�� ExpList.ini ������test��
+
+crates/mir-server/src/gamedata.rs��9 ����
+  1084: ������resource/ ��û�� Server.MirDB ������test��
+  1098: ������resource/ ��û�� Server.MirDB ������test��
+  1121: ������resource/ ��û�� Server.MirDB ������test��
+  1149: ������resource/ ��û�� Server.MirDB ������test��
+  1167: ������resource/ ��û�� Server.MirDB ������test��
+  1181: ������ܲ鵽ͬһ��ģ�壨test��
+  1186: �������ܲ鵽ͬһ��ģ�壨test��
+  1192: �������ڴ����ݿ�û�е���Ŀ¼��test��
+  1203: ������������û�д��������Ĺ��test��
+
+crates/mir-server/src/items.rs��1 ����
+  3446: ��Ʒ{index}��test��
+
+crates/mir-server/src/magic.rs��5 ����
+  3156: ��������test��
+  3277: ���{object_id}��test��
+  3391: AOI ��ѯ���Ӧ�������б�����ɨ��һ�£�test��
+  3396: ֻ����ͬͼ�����б�ѩ��뾶�ڵ���ң����߽磩��test��
+  3441: {spell:?} Ӧ���Ѿ���ʵ�֣�test��
+
+crates/mir-server/src/mail.rs��3 ����
+  1230: ���ף�test��
+  1250: ���ף�test��
+  1252: �������㣨test��
+
+crates/mir-server/src/market.rs��5 ����
+  559: սʿ
+  560: ��ʦ
+  561: ��ʿ
+  562: �̿�
+  563: ������
+
+crates/mir-server/src/monster.rs��9 ����
+  695: ��������
+  956: ����
+  970: ����
+  980: ������
+  995: ������
+  1006: ����
+  1021: ����
+  1032: ����
+  1049: ����
+
+crates/mir-server/src/pg_store.rs��2 ����
+  1262: ��ɵ� 76 ��Ӧ��������test��
+  1267: ���뱣�����µ� seq��test��
+
+crates/mir-server/src/server.rs��1 ����
+  114: ���� {} ʧ��
+
+crates/mir-server/src/session.rs��4 ����
+  3764: ����ʧ�ܰ�ָ���˱ܣ��Ҳ����� AUTOSAVE_RETRY_MAX_MS��test��
+  3769: 0 ��ʧ��Ҳ����Сֵ�㣨�����ԣ���test��
+  3802: ʧ�����λص����ף��ڼ���׷�ӵ����ں��棨���и��ǣ���д���£���test��
+  3807: �ع�����α����ܱ���һ�� take ȡ������������test��
+
+crates/mir-server/src/store.rs��3 ����
+  1487: �þ���test��
+  1556: �ع��ߣ�test��
+  1587: ����ɫ�������ܱ�д��test��
+
+crates/mir-server/src/world.rs��21 ����
+  5868: ת�����������ܣ�test��
+  5890: ���ܾ�ʱҲӦ�����˻� UserLocation��test��
+  5895: ���ܾ���Ӧ�ƶ���test��
+  5918: ���� 10 ������Ӧ��Ѫ��ʵ�� HP = {}��test��
+  6015: skip: ������û�� index 13 �Ĺ��test��
+  6051: skip: ������û�� Blink��test��
+  6092: ��ʵ����·��Ҳ����㲥 ObjectDied��{packets:?}��test��
+  6139: ����㲥 S.ObjectDied��{packets:?}��test��
+  6146: ��ɱ�߱����յ����飺{packets:?}��test��
+  6153: ʬ�嵽�ں����������Ƴ���test��
+  6165: �������ԣ�test��
+  6196: �������ǣ�test��
+  6202: �󶨻سǵ㣨test��
+  6218: �󶨻سǣ�test��
+  6233: C.TownRevive ������������Ұ󶨻سǵ㣨test��
+  6242: ����Ч��test��
+  6258: ����㲻����ʱ������˳����㣨test��
+  6398: ���׸���Ҳmust emit S.Revived: {packets:?}��test��
+  6496: ĥ����ԣ�test��
+  6535: ����һ�������;�Ӧ�½� 1..=4��ʵ�� {after_hit}��test��
+  6541: �񵲲��ԣ�test��
+
+�ϼ� 66 ��Ӳ�������ģ�32 ���ļ���ɨ�裩
+[OK] ���� 66 ����δ�������� 70
+    OK   (0 s)
+
+==> 硬编码棘轮（no-test，阈值 15）
+
+crates/mir-server/src/market.rs��5 ����
+  559: սʿ
+  560: ��ʦ
+  561: ��ʿ
+  562: �̿�
+  563: ������
+
+crates/mir-server/src/monster.rs��9 ����
+  695: ��������
+  956: ����
+  970: ����
+  980: ������
+  995: ������
+  1006: ����
+  1021: ����
+  1032: ����
+  1049: ����
+
+crates/mir-server/src/server.rs��1 ����
+  114: ���� {} ʧ��
+
+�ϼ� 15 ��Ӳ�������ģ�32 ���ļ���ɨ�裩
+[OK] ���� 15 ����δ�������� 15
+    OK   (0 s)
+
+==> 运行时不引用老资源格式
+����ʱ�ϸ�ʽ���ã���ǰ 0 �� / ���� 0 �������� 0��
+[OK] ����ʱδ�����ϸ�ʽ����
+    OK   (0 s)
+
+==> 物品图标完整性
+��Ʒͼ���飺kept=1346��Υ��=0������ before=1349 after=1346 pruned=3 warn=1
+OK ���б�����Ʒģ�嶼��ͼ��
+    OK   (1 s)
+
+==> PostgreSQL 集成测试（mir-store 串行）
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.61s
+     Running unittests src\lib.rs (target\debug\deps\mir_store-4c79c53a36207bd7.exe)
+
+running 15 tests
+test password::tests::encode_hash_keeps_nul_out_of_text ... ok
+test password::tests::generate_salt_returns_24_fresh_bytes ... ok
+test password::tests::hash_password_encodes_unicode_password_as_utf8 ... ok
+test password::tests::hash_password_is_deterministic ... ok
+test password::tests::hash_password_matches_crystal_vector ... ok
+test password::tests::hash_password_produces_replacement_characters ... ok
+test password::tests::legacy_lossy_hash_still_verifies_after_encoding ... ok
+test password::tests::set_password_regenerates_salt_and_hash ... ok
+test password::tests::verify_password_accepts_only_the_original_password ... ok
+test password::tests::verify_password_rejects_tampered_hash_or_salt ... ok
+test repo::tests::is_supported_language_matches_normalize_language ... ok
+test repo::tests::new_account_and_default_account_use_simplified_chinese ... ok
+test repo::tests::normalize_language_accepts_every_alias ... ok
+test repo::tests::normalize_language_ignores_case_and_surrounding_space ... ok
+test repo::tests::normalize_language_rejects_unsupported_codes ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\guild_roundtrip.rs (target\debug\deps\guild_roundtrip-d970a3b2fca37dd9.exe)
+
+running 1 test
+test guild_repository_roundtrip_rolls_back ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests\migrations.rs (target\debug\deps\migrations-2d8d5182a370b713.exe)
+
+running 4 tests
+test drill_bootstrap_base_database ... ok
+test drill_probe_current_database ... ok
+test drill_url_parser_and_host_allowlist ... ok
+test migration_drill_from_0013_to_0016 ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\store_roundtrip.rs (target\debug\deps\store_roundtrip-b3392d7c6fbd2527.exe)
+
+running 4 tests
+test account_and_character_lifecycle_rolls_back ... ok
+test account_with_nul_hash_roundtrips ... ok
+test legacy_password_hash_survives_migration_0010 ... ok
+test mail_crud_roundtrip_rolls_back ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+   Doc-tests mir_store
+
+running 1 test
+test crates\mir-store\src\lib.rs - (line 55) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.92s; merged doctests compilation took 0.84s
+    OK   (4 s)
+
+== 汇总 ==
+OK   cargo fmt --all --check                                 2s
+OK   cargo clippy --workspace --all-targets -D warnings      1s
+OK   cargo test -p mir-server --test duo_smoke（串行）           7s
+OK   cargo test --workspace                                237s
+OK   协议生成器 --check                                           1s
+OK   文档链接与包编号                                                1s
+OK   TextKey 完整性                                             0s
+OK   硬编码棘轮（player-visible，阈值 70）                             0s
+OK   硬编码棘轮（no-test，阈值 15）                                    0s
+OK   运行时不引用老资源格式                                             0s
+OK   物品图标完整性                                                 1s
+OK   PostgreSQL 集成测试（mir-store 串行）                           4s
+==> 全部通过（12 项）

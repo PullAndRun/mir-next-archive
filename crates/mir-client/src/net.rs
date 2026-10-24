@@ -128,7 +128,7 @@ use mir_protocol::data::{
 use mir_protocol::packets::client as c;
 use mir_protocol::packets::server::{GuildBuffList, GuildMemberChange, GuildStorageItemChange};
 use mir_protocol::{ClientPacket, DateTimeBinary, ServerPacket};
-use mir_render::animation::{ActorAction, BodyKind};
+use mir_render::animation::{ActorAction, AttackVariant, BodyKind};
 use mir_render::sound::SoundId;
 use mir_render::{EntityKind, EntityView};
 
@@ -297,7 +297,15 @@ pub enum NetCommand {
     /// 跑两步（`C.Run`）。
     Run(MirDirection),
     /// 物理攻击（`C.Attack`）。
-    Attack(MirDirection),
+    ///
+    /// `variant` 是 R47 客户端本地视觉选招结果；`None` 保持旧 Attack1/50ms。
+    /// 它**不进入协议**：`C.Attack` 仍只有 direction/spell。
+    Attack {
+        /// 攻击方向。
+        direction: MirDirection,
+        /// 本地视觉变体（仅自机 Warrior 普通空挥可能为 `Some`）。
+        variant: Option<AttackVariant>,
+    },
     /// 捡起脚下物品（`C.PickUp`）。
     PickUp,
     /// 开门（`C.Opendoor`，index 136，payload 1 字节门号）。
@@ -669,17 +677,21 @@ pub enum NetCommand {
 }
 
 impl NetCommand {
-    /// 这条命令是否让**自己**立即切动作；返回 `(动作, 朝向)`。
+    /// 这条命令是否让**自己**立即切动作；返回 `(动作, 朝向, 攻击变体)`。
     ///
     /// 走/跑/攻击/转身在 Crystal 客户端都是先本地播放动作再发包
     /// （`PlayerObject.cs:1313-1334,1356-1429`），本作保留这个顺序。
     #[must_use]
-    pub const fn local_animation(&self) -> Option<(ActorAction, MirDirection)> {
+    pub const fn local_animation(
+        &self,
+    ) -> Option<(ActorAction, MirDirection, Option<AttackVariant>)> {
         match self {
-            Self::Turn(direction) => Some((ActorAction::Standing, *direction)),
-            Self::Walk(direction) => Some((ActorAction::Walking, *direction)),
-            Self::Run(direction) => Some((ActorAction::Running, *direction)),
-            Self::Attack(direction) => Some((ActorAction::Attacking, *direction)),
+            Self::Turn(direction) => Some((ActorAction::Standing, *direction, None)),
+            Self::Walk(direction) => Some((ActorAction::Walking, *direction, None)),
+            Self::Run(direction) => Some((ActorAction::Running, *direction, None)),
+            Self::Attack { direction, variant } => {
+                Some((ActorAction::Attacking, *direction, *variant))
+            }
             _ => None,
         }
     }
@@ -998,15 +1010,20 @@ pub struct SelfPlayer {
     pub action: ActorAction,
     /// 当前动作开始时间（Unix 毫秒）。
     pub action_started_ms: u64,
+    /// R47 普通空挥选中的攻击变体；`None` 表示旧行为/非入围。
+    ///
+    /// 只在动作建立时由生产本地命令写入，逐帧/重绘/快照不重新抽取。
+    pub attack_variant: Option<AttackVariant>,
     /// 纸娃娃外观（身体/武器/头发/盾牌）；装备变化后由快照重新推导。
     pub looks: PlayerLooks,
 }
 
 impl SelfPlayer {
-    /// 切到一个新动作并记录开始时间。
+    /// 切到一个新动作并记录开始时间；旧攻击变体随新动作清掉。
     pub fn set_action(&mut self, action: ActorAction, now_ms: u64) {
         self.action = action;
         self.action_started_ms = now_ms;
+        self.attack_variant = None;
         if action == ActorAction::Dying {
             self.dead = true;
         }
@@ -1016,6 +1033,12 @@ impl SelfPlayer {
         ) {
             self.dead = false;
         }
+    }
+
+    /// 建立 R47 攻击动作：动作与变体在同一时刻固定，之后不再重抽。
+    pub fn set_attack_action(&mut self, variant: AttackVariant, now_ms: u64) {
+        self.set_action(ActorAction::Attacking, now_ms);
+        self.attack_variant = Some(variant);
     }
 }
 
@@ -1057,6 +1080,8 @@ pub struct WorldEntity {
     pub action: ActorAction,
     /// 当前动作开始时间（Unix 毫秒）。
     pub action_started_ms: u64,
+    /// R47 攻击变体（目前只由本地自机路径写入；远端保持 `None`）。
+    pub attack_variant: Option<AttackVariant>,
 }
 
 impl WorldEntity {
@@ -1086,13 +1111,15 @@ impl WorldEntity {
             name_colour: None,
             action: ActorAction::Standing,
             action_started_ms: 0,
+            attack_variant: None,
         }
     }
 
-    /// 切到一个新动作并记录开始时间。
+    /// 切到一个新动作并记录开始时间；旧攻击变体随新动作清掉。
     pub fn set_action(&mut self, action: ActorAction, now_ms: u64) {
         self.action = action;
         self.action_started_ms = now_ms;
+        self.attack_variant = None;
         if action == ActorAction::Dying {
             self.dead = true;
         }
@@ -1102,6 +1129,12 @@ impl WorldEntity {
         ) {
             self.dead = false;
         }
+    }
+
+    /// 建立本地攻击动作并固定变体（远端/ObjectAttack 不会调用）。
+    pub fn set_attack_action(&mut self, variant: AttackVariant, now_ms: u64) {
+        self.set_action(ActorAction::Attacking, now_ms);
+        self.attack_variant = Some(variant);
     }
 }
 
@@ -2210,8 +2243,10 @@ fn finished_action(
     started_at_ms: u64,
     now_ms: u64,
     body_kind: BodyKind,
+    attack_variant: Option<AttackVariant>,
 ) -> Option<ActorAction> {
-    let duration = mir_render::animation::frames_for(body_kind, action).duration_ms();
+    let duration =
+        mir_render::animation::frames_for_variant(body_kind, action, attack_variant).duration_ms();
     if now_ms.saturating_sub(started_at_ms) < duration {
         return None;
     }
@@ -2231,8 +2266,9 @@ fn effective_action(
     started_at_ms: u64,
     now_ms: u64,
     body_kind: BodyKind,
+    attack_variant: Option<AttackVariant>,
 ) -> ActorAction {
-    finished_action(action, started_at_ms, now_ms, body_kind).unwrap_or(action)
+    finished_action(action, started_at_ms, now_ms, body_kind, attack_variant).unwrap_or(action)
 }
 
 /// 生命百分比（0..=100）：`HP / MaxHP × 100`，四舍五入到整数。
@@ -3031,8 +3067,15 @@ impl WorldSnapshot {
                 name: Some(me.name.clone()),
                 dead: me.dead,
                 hp_percent: Some(health_percent(me.hp, me.hp_max)),
-                action: effective_action(me.action, me.action_started_ms, now_ms, BodyKind::Human),
+                action: effective_action(
+                    me.action,
+                    me.action_started_ms,
+                    now_ms,
+                    BodyKind::Human,
+                    me.attack_variant,
+                ),
                 action_started_ms: me.action_started_ms,
+                attack_variant: me.attack_variant,
             });
         }
         for (object_id, entity) in &self.entities {
@@ -3078,8 +3121,10 @@ impl WorldSnapshot {
                     entity.action_started_ms,
                     now_ms,
                     body_kind_for(entity.kind),
+                    entity.attack_variant,
                 ),
                 action_started_ms: entity.action_started_ms,
+                attack_variant: entity.attack_variant,
             });
         }
         views
@@ -3092,12 +3137,31 @@ impl WorldSnapshot {
         direction: MirDirection,
         now_ms: u64,
     ) {
+        self.apply_local_action_with_variant(action, direction, None, now_ms);
+    }
+
+    /// 本地动作 + R47 攻击变体；变体只在 `Attacking` 时写入，其他动作清掉。
+    pub fn apply_local_action_with_variant(
+        &mut self,
+        action: ActorAction,
+        direction: MirDirection,
+        variant: Option<AttackVariant>,
+        now_ms: u64,
+    ) {
         if let Some(me) = &mut self.self_player {
             if me.dead {
                 return;
             }
             me.direction = direction;
-            me.set_action(action, now_ms);
+            if action == ActorAction::Attacking {
+                if let Some(variant) = variant {
+                    me.set_attack_action(variant, now_ms);
+                } else {
+                    me.set_action(action, now_ms);
+                }
+            } else {
+                me.set_action(action, now_ms);
+            }
         }
     }
 
@@ -3153,17 +3217,25 @@ impl WorldSnapshot {
     /// 这里只维护「动作字段」，让快照本身也反映当前阶段。
     pub fn tick_animations(&mut self, now_ms: u64) {
         if let Some(me) = &mut self.self_player {
-            if let Some(action) =
-                finished_action(me.action, me.action_started_ms, now_ms, BodyKind::Human)
-            {
+            if let Some(action) = finished_action(
+                me.action,
+                me.action_started_ms,
+                now_ms,
+                BodyKind::Human,
+                me.attack_variant,
+            ) {
                 me.set_action(action, now_ms);
             }
         }
         for entity in self.entities.values_mut() {
             let body_kind = body_kind_for(entity.kind);
-            if let Some(action) =
-                finished_action(entity.action, entity.action_started_ms, now_ms, body_kind)
-            {
+            if let Some(action) = finished_action(
+                entity.action,
+                entity.action_started_ms,
+                now_ms,
+                body_kind,
+                entity.attack_variant,
+            ) {
                 entity.set_action(action, now_ms);
             }
         }
@@ -3662,14 +3734,14 @@ fn handle_command(
     }
     // 自己的动作没有服务器回显（服务端把 `ObjectWalk` 广播给别人，自己只收到
     // `UserLocation`），所以在发包的同时立即驱动本地动画。
-    if let Some((action, direction)) = command.local_animation() {
-        snapshot.apply_local_action(action, direction, now_millis_u64());
+    if let Some((action, direction, variant)) = command.local_animation() {
+        snapshot.apply_local_action_with_variant(action, direction, variant, now_millis_u64());
     }
     let packet = match command {
         NetCommand::Turn(direction) => ClientPacket::Turn(c::Turn { direction }),
         NetCommand::Walk(direction) => ClientPacket::Walk(c::Walk { direction }),
         NetCommand::Run(direction) => ClientPacket::Run(c::Run { direction }),
-        NetCommand::Attack(direction) => ClientPacket::Attack(c::Attack {
+        NetCommand::Attack { direction, .. } => ClientPacket::Attack(c::Attack {
             direction,
             spell: mir_core::enums::Spell::None,
         }),
@@ -4390,6 +4462,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 dead: false,
                 action: ActorAction::Standing,
                 action_started_ms: 0,
+                attack_variant: None,
                 looks,
             });
             snapshot.magics = info
@@ -4438,6 +4511,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                         ActorAction::Standing
                     },
                     action_started_ms: now_ms,
+                    attack_variant: None,
                 },
             );
         }
@@ -6152,6 +6226,7 @@ fn update_entity(
             me.dead = temporary.dead;
             me.action = temporary.action;
             me.action_started_ms = temporary.action_started_ms;
+            me.attack_variant = temporary.attack_variant;
             me.looks = temporary.looks;
         }
     }

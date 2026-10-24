@@ -1,0 +1,99 @@
+{
+  "parent": "fdef540d1a2ec648549055c9c655bc9994abcacc",
+  "started": "2026-10-24T09:55:32.9400949+08:00",
+  "log": "target/gate-r47-20261024-095531.log",
+  "files": [
+    {
+      "path": "crates/mir-client/src/app.rs",
+      "blob": "ff39749db14126fd9e8eb808871f3509cfb02adc"
+    },
+    {
+      "path": "crates/mir-client/src/attack.rs",
+      "blob": "5f93fdb5600cc7d2b10230934bae5c9da53909c1"
+    },
+    {
+      "path": "crates/mir-client/src/camera.rs",
+      "blob": "9aa48deeb12cb3d46bb881275fe3198e6bcef1fd"
+    },
+    {
+      "path": "crates/mir-client/src/lib.rs",
+      "blob": "35e0a21f62df74e66a4db31d68d99a9faa5ecc03"
+    },
+    {
+      "path": "crates/mir-client/src/net.rs",
+      "blob": "0ac79c620784a3294cf44242c1c73933486f218f"
+    },
+    {
+      "path": "crates/mir-client/src/ui/bigmap.rs",
+      "blob": "c6717764c3412b5b2ec74a8bbe6c03cf9b2d5d1a"
+    },
+    {
+      "path": "crates/mir-client/src/ui/death.rs",
+      "blob": "8bbb267e46bbe564da369c0b1c1ab577af5673e5"
+    },
+    {
+      "path": "crates/mir-client/src/ui/minimap.rs",
+      "blob": "85d3f3f6cd6e024c7416c326898a4d361b42b032"
+    },
+    {
+      "path": "crates/mir-client/src/ui/mod.rs",
+      "blob": "623bebbe7c946eee7bcd79354cca7d2f4588d7c6"
+    },
+    {
+      "path": "crates/mir-client/src/ui/skills.rs",
+      "blob": "c510a6ccef63d9063cacfad17cd234f8a5cb21e9"
+    },
+    {
+      "path": "crates/mir-client/src/ui/target.rs",
+      "blob": "8f3220b13a8702af87d2a5673e46f8bc49bef24f"
+    },
+    {
+      "path": "crates/mir-client/src/ui/worldtext.rs",
+      "blob": "b7a528d182bad9b4907c66bf4bee4a8896a397c5"
+    },
+    {
+      "path": "crates/mir-client/tests/anim.rs",
+      "blob": "56167c4074f5e03b7aaeba9e94754f5c446686cd"
+    },
+    {
+      "path": "crates/mir-client/tests/attack_variant_live.rs",
+      "blob": "96f9516a3b000e9bed977d2dcdefb4020ab9d4d6"
+    },
+    {
+      "path": "crates/mir-client/tests/attack_variant.rs",
+      "blob": "b1c99f0740497c98b2e823fbd93d776d91b3a61d"
+    },
+    {
+      "path": "crates/mir-client/tests/group_panel.rs",
+      "blob": "9951a5bd543aecaf283c2b2a39d98761fe4c0877"
+    },
+    {
+      "path": "crates/mir-client/tests/map_interaction.rs",
+      "blob": "65cc26ffe151149d56f0b589c048050d4e675cbc"
+    },
+    {
+      "path": "crates/mir-client/tests/remote_motion.rs",
+      "blob": "d5ef1f1f71614babd986a816fec9de54c8eef993"
+    },
+    {
+      "path": "crates/mir-client/tests/social_panels.rs",
+      "blob": "252a48d6be378effafb374b9a2968fec86872697"
+    },
+    {
+      "path": "crates/mir-client/tests/targeting.rs",
+      "blob": "ff0b9c88db28464fc002452da1550b5fd5b95b90"
+    },
+    {
+      "path": "crates/mir-render/src/animation.rs",
+      "blob": "7670251edb3f2fc06c2b4e0fcdd6b9c55c493b6c"
+    },
+    {
+      "path": "crates/mir-render/src/entities.rs",
+      "blob": "9ff9e6b89db1bd99b29225f6a88ad0eaf662d596"
+    },
+    {
+      "path": "tools/assets/analyze_usage.py",
+      "blob": "b6f6fe6fdac5f691508b435c7392053f96f77afe"
+    }
+  ]
+}

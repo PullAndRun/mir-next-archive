@@ -114,8 +114,8 @@ use mir_core::enums::MirDirection;
 
 use crate::Frame;
 use crate::animation::{
-    ActorAction, ActorAnimation, BodyKind, FrameChoice, FrameSequence, HUMAN_STANDING,
-    NPC_STANDING, WING_FRAMES_PER_APPEARANCE, wing_frames,
+    ActorAction, ActorAnimation, AttackVariant, FrameChoice, FrameSequence, HUMAN_STANDING,
+    NPC_STANDING, WING_FRAMES_PER_APPEARANCE, wing_frames_for,
 };
 use crate::geometry::{self, CELL_HEIGHT, CELL_WIDTH, Viewport};
 use crate::scene::remove_black_all;
@@ -331,6 +331,8 @@ pub struct EntityView {
     pub action: ActorAction,
     /// 当前动作的开始时间（Unix 毫秒）。默认 `0`：渲染时按动画计数换算时间。
     pub action_started_ms: u64,
+    /// R47 攻击变体；`None` = 旧行为/非入围攻击。建立动作时固定，不逐帧重抽。
+    pub attack_variant: Option<AttackVariant>,
 }
 
 impl EntityView {
@@ -356,6 +358,7 @@ impl EntityView {
             hp_percent: None,
             action: ActorAction::Standing,
             action_started_ms: 0,
+            attack_variant: None,
         }
     }
 
@@ -816,11 +819,12 @@ fn player_layer_plan_with_choice(
         // 简化：`wingeffect_x.wzl` 只有 2 个翅膀块，外观号对 2 取模。
         // 原因：Crystal 的 `CHumEffect/*.Lib` 有 6 个文件，扁平语料只合成了 2 个。
         let block = (entity.wings - 1) % WING_BLOCKS.max(1);
+        let animated = entity.animation();
         let choice = sequence_choice(
             entity,
             now_ms,
-            wing_frames(entity.animation().action),
-            wing_frames(ActorAction::Standing),
+            wing_frames_for(animated.action, animated.attack_variant),
+            wing_frames_for(ActorAction::Standing, None),
         );
         LayerFrame {
             layer: PlayerLayer::Wing,
@@ -1039,6 +1043,23 @@ impl EntityLibraries {
         self.opened.len()
     }
 
+    /// 已打开图库的实际来源：`"unpacked"` / `"pack"` / `"legacy-wzl"`。
+    ///
+    /// 会触发一次打开（与渲染路径一致），用于证据断言“没有静默回退”。
+    #[must_use]
+    #[allow(unreachable_patterns, clippy::match_wildcard_for_single_variants)]
+    pub fn source_kind(&mut self, stem: &str) -> Option<&'static str> {
+        match self.library(stem)? {
+            LibrarySource::Unpacked(_) | LibrarySource::UnpackedDirs(_) => Some("unpacked"),
+            LibrarySource::Pack(_) => Some("pack"),
+            // `Packed` only exists with the `legacy` feature; keep the arm
+            // feature-agnostic because workspace feature unification may compile
+            // this match with that variant present.
+            #[allow(unreachable_patterns, clippy::match_wildcard_for_single_variants)]
+            _ => Some("legacy-wzl"),
+        }
+    }
+
     /// 取一个图库；文件不存在或打开失败返回 `None`。
     fn library(&mut self, stem: &str) -> Option<&LibrarySource> {
         if !self.opened.contains_key(stem) {
@@ -1083,7 +1104,7 @@ impl EntityLibraries {
     }
 
     /// 某一帧是否存在：只读记录头，不解码像素。
-    fn has_frame(&mut self, library: SpriteLibrary, index: u32) -> bool {
+    pub fn has_frame(&mut self, library: SpriteLibrary, index: u32) -> bool {
         let Ok(index) = usize::try_from(index) else {
             return false;
         };
@@ -1347,12 +1368,12 @@ impl EntityRenderer {
         if entity.kind != EntityKind::Player || entity.action != ActorAction::Attacking {
             return;
         }
-        let animation = ActorAnimation::new(
-            ActorAction::Attacking,
-            entity.direction,
-            BodyKind::Human,
-            entity.action_started_ms,
-        );
+        // Attack3（双手）没有可用的 CWeaponEffect/挥砍索引映射；真实降级为不画
+        // 通用 effect.wzl 挥砍光效，绝不复用 Attack1 三张索引冒充对齐。
+        if entity.attack_variant == Some(AttackVariant::Attack3) {
+            return;
+        }
+        let animation = entity.animation();
         let choice = animation.frame_at(now_ms);
         let sequence = animation.frames;
         let local = choice
@@ -2282,6 +2303,45 @@ mod tests {
         assert_eq!(plan.layers()[2].library, SpriteLibrary::Shield);
     }
 
+    #[test]
+    fn r47_attack_variant_drives_body_weapon_hair_and_wing_layers() {
+        let mut player = equipped_player(MirDirection::Down);
+        player.action = ActorAction::Attacking;
+        player.action_started_ms = 1_000;
+        player.attack_variant = Some(crate::animation::AttackVariant::Attack3);
+        let plan = player_layer_plan_at(&player, 1_000);
+        let frame = |layer| {
+            plan.layers()
+                .iter()
+                .find(|item| item.layer == layer)
+                .unwrap_or_else(|| panic!("缺层 {layer:?}"))
+                .frame
+        };
+        // 方向 Down=4；Attack3 转换起点 328，每方向 8 帧。
+        let attack_frame = 328 + 4 * 8;
+        assert_eq!(frame(PlayerLayer::Body), attack_frame);
+        assert_eq!(frame(PlayerLayer::Weapon), 3 * 600 + attack_frame);
+        assert_eq!(frame(PlayerLayer::Hair), 2 * 600 + attack_frame);
+        player.shield = 0;
+        let with_shield = player_layer_plan_at(&player, 1_000);
+        let shield = with_shield
+            .layers()
+            .iter()
+            .find(|item| item.layer == PlayerLayer::Shield)
+            .expect("盾牌层");
+        assert_eq!(shield.frame, attack_frame);
+
+        // 翅膀走 Crystal effect 列：Attack3 264 + 方向步长 8；不能拿身体 328。
+        player.wings = 1;
+        let with_wing = player_layer_plan_at(&player, 1_000);
+        let wing = with_wing
+            .layers()
+            .iter()
+            .find(|item| item.layer == PlayerLayer::Wing)
+            .expect("翅膀层");
+        assert_eq!(wing.frame, 264 + 4 * 8);
+    }
+
     fn mounted_player(direction: MirDirection) -> EntityView {
         let mut player = equipped_player(direction);
         player.mount = 1;
@@ -2612,6 +2672,46 @@ mod tests {
             .filter(|pixel| pixel[0] == 0 && pixel[1] == 255 && pixel[2] == 0)
             .count();
         assert!(swing_pixels > 0, "攻击时应叠一层挥砍光效");
+
+        // R47 Attack3 没有通用挥砍 effect 映射：真实降级为不画，不能复用 Attack1 索引。
+        let mut attack3 = attacking.clone();
+        attack3.attack_variant = Some(crate::animation::AttackVariant::Attack3);
+        let mut no_swing = Frame::new(200, 200);
+        no_swing.clear([0, 0, 0, 255]);
+        renderer.render(
+            &mut no_swing,
+            Viewport::new(200, 200),
+            Point::new(2, 3),
+            &[attack3],
+            10,
+        );
+        assert!(
+            !no_swing
+                .pixels
+                .chunks_exact(4)
+                .any(|pixel| pixel[0] == 0 && pixel[1] == 255 && pixel[2] == 0),
+            "Attack3 应记录为无通用挥砍光效，不得复用 Attack1 索引"
+        );
+
+        // Attack1 入围变体仍使用通用 3 张挥砍光效。
+        let mut attack1 = attacking.clone();
+        attack1.attack_variant = Some(crate::animation::AttackVariant::Attack1);
+        let mut with_swing = Frame::new(200, 200);
+        with_swing.clear([0, 0, 0, 255]);
+        renderer.render(
+            &mut with_swing,
+            Viewport::new(200, 200),
+            Point::new(2, 3),
+            &[attack1],
+            10,
+        );
+        assert!(
+            with_swing
+                .pixels
+                .chunks_exact(4)
+                .any(|pixel| pixel[0] == 0 && pixel[1] == 255 && pixel[2] == 0),
+            "Attack1 应保留通用挥砍光效"
+        );
 
         // 站着不画光效。
         let mut standing = attacking.clone();

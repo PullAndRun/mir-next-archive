@@ -1,0 +1,58 @@
+{
+  "generated_at": "2026-10-24T09:00:25+0800",
+  "plan_sha256": "a897b8a9e311104c7e016c2f0cdf3583c4a565a35ceb646bf30093a3a9ebaccd",
+  "categories": {
+    "gfx/tiles": {
+      "files": 104160,
+      "bytes": 732189386
+    },
+    "gfx/sprites": {
+      "files": 54980,
+      "bytes": 330499886
+    },
+    "gfx/ui": {
+      "files": 144,
+      "bytes": 13882584
+    },
+    "maps": {
+      "files": 385,
+      "bytes": 13149287,
+      "mapinfo_entries": 389,
+      "format": "mnm"
+    },
+    "audio": {
+      "files": 105,
+      "bytes": 4430538
+    },
+    "data/other": {
+      "files": 4,
+      "bytes": 442390
+    },
+    "fonts": {
+      "files": 1,
+      "bytes": 8331336
+    },
+    "index": {
+      "files": 1,
+      "bytes": 1200
+    },
+    "packs": {
+      "files": 45,
+      "bytes": 434176803
+    }
+  },
+  "totals": {
+    "files": 159825,
+    "bytes": 1537103410
+  },
+  "libraries": 67,
+  "verify": {
+    "outputs_checked": 1182,
+    "png_total": 150108,
+    "missing_frames": 27810,
+    "issues": 0
+  },
+  "list_command": "pwsh -NoProfile -Command \"(Get-Content game-assets/manifest.assets.json -Raw | ConvertFrom-Json).categories\""
+}
+
+写出 C:\Users\diana\Documents\github\mir-next\game-assets\manifest.assets.json / C:\Users\diana\Documents\github\mir-next\game-assets\index\summary.json

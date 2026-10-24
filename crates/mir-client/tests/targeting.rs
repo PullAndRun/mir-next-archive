@@ -233,7 +233,10 @@ fn clicking_a_monster_locks_it_and_double_clicking_an_adjacent_one_attacks() {
     );
     assert_eq!(
         action.net_command(),
-        Some(NetCommand::Attack(MirDirection::Right)),
+        Some(NetCommand::Attack {
+            direction: MirDirection::Right,
+            variant: None,
+        }),
         "双击相邻怪物应产生 NetCommand::Attack"
     );
 }

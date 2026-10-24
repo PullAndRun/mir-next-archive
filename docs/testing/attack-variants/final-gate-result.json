@@ -1,0 +1,8 @@
+{
+  "log": "target/gate-r47-20261024-095531.log",
+  "exit_code": 0,
+  "finished": "2026-10-24T09:59:49.4645971+08:00",
+  "elapsed_seconds": 255.7559684,
+  "source_count": 23,
+  "source_mismatches": []
+}

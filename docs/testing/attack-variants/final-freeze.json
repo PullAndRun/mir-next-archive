@@ -1,0 +1,176 @@
+{
+  "schema": 1,
+  "batch_id": 1792807006205,
+  "previous_t20_batch_id": 1792806118685,
+  "reason": "Final 12-gate workspace suite reran live test; this gate-generated batch is final, prior t20 batch is historical. Source blobs unchanged.",
+  "asset_mode": "dev",
+  "assets_source": "unpacked",
+  "png_count": 25,
+  "png_hashes_ok": true,
+  "docs_build_manifest_byte_identical": true,
+  "gate_count": 12,
+  "gate_exit_code": 0,
+  "source_blob_count": 23,
+  "source_mismatches": [],
+  "release_pack_check": "packs=46（hum/hum2 Attack3 344..351 已验证）",
+  "legacy_cross_check": "skipped（默认构建不启用 legacy；legacy 构建加 MIR2_TEST_LEGACY=1 才交叉校验）",
+  "sha256_files": [
+    {
+      "path": "docs/testing/attack-variants/female-attack1-down-frame0.png",
+      "sha256": "10427ce57702f1131e122b98005f0dc608e6da103b179d22f229a48a0af5d6d1",
+      "png_byte_hash": "358055c992df5e9b"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-down-frame1.png",
+      "sha256": "fa3c4f8fe5b076fe680155febd427d340ff02183236944c54d72d30114156d8d",
+      "png_byte_hash": "deda08c4ace62d1b"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-down-frame2.png",
+      "sha256": "987e475c01c6a8e1d2c887dc18f252b8aef9870388d66f6f4294a796c5f01bf6",
+      "png_byte_hash": "165aa75d34bf4933"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-down-frame3.png",
+      "sha256": "6da8c26be0bf3894bb53dcfa4733bf16542696a0f57052c1e3a4127ec69ef2b7",
+      "png_byte_hash": "2c26482099210b18"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-down-frame4.png",
+      "sha256": "1b7b0f449573ae99cf875567358143e5b22c2f02475c81af2196a595ecdc16ee",
+      "png_byte_hash": "cc036270e4e7e16b"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-down-frame5.png",
+      "sha256": "3f5bd6951d10839b8f41da7d9b4cb10257ad66143d379ec8ff941b2039ddd5ed",
+      "png_byte_hash": "6672e6061df0e188"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-down-frame6.png",
+      "sha256": "a697cece352668957fd999debcd98b20cb25f072e005c15c7a680a74566dadad",
+      "png_byte_hash": "680e09a6b88ea82d"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-right-frame0.png",
+      "sha256": "a41fc8317b41b6959f12b30036aee5588435d87c9a4dfcf53ac4812654802f51",
+      "png_byte_hash": "95ffd7b4eae38e86"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-right-frame1.png",
+      "sha256": "21655a89f951ed992b6ed729de312d433d7cec49281e04dda029216e539c838d",
+      "png_byte_hash": "0afdcdc108977127"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame0.png",
+      "sha256": "ecabf5b57bddd8e0db3fcfa444667f92fcb576cce8c70912dd8fd19af76a37e0",
+      "png_byte_hash": "5c3a6c7d27f3b596"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame1.png",
+      "sha256": "b9fc1097ca020231d25246370c247eb962aa4fa9712cfb41387d35e6c2ff2b15",
+      "png_byte_hash": "85f8831d46844064"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame2.png",
+      "sha256": "7ac5f83919bfb4ecbb5b43746893205db6c992e40cccd2b308e14e13a15130c3",
+      "png_byte_hash": "8e5fa53ffe8fabe5"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame3.png",
+      "sha256": "9a04775cb66642ffa5a8b0bb3f118f130abc8dacb40dc75a1be808f95c6291bf",
+      "png_byte_hash": "93d793ecac21a31f"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame4.png",
+      "sha256": "dd7b56ccfd4a16508d42695bdfcee04c1739f2ef6b855c8c8eee3e9df1a4fc5e",
+      "png_byte_hash": "703c086c96c54b7f"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame5.png",
+      "sha256": "d6eb80565ece8b64f4f465258ffa9f6b13b9b386a1e0a7706b5e21d245606490",
+      "png_byte_hash": "f0cba0822123e81f"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame6.png",
+      "sha256": "277c5b3dd7ee9658e5fe9da314762501754bab2299e1e0e52fe9ccaca56b75d7",
+      "png_byte_hash": "27ac1b073a6e71b5"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame7.png",
+      "sha256": "f0bb2c8756c5d26652380d43d7017596a80a666dea1a89b99f8c6e4796e6bbb3",
+      "png_byte_hash": "db1c8679e1671d65"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame8.png",
+      "sha256": "5cd3d9750b839ff8d13f14931967fc36a6818b6af14d629c647de327f7203379",
+      "png_byte_hash": "4a088b17bd548068"
+    },
+    {
+      "path": "docs/testing/attack-variants/male-attack1-right-frame0.png",
+      "sha256": "a59f35cdd3dd2df77f822d5b47dd68d4e4f14f784d91726febb1a049e1ed4c58",
+      "png_byte_hash": "2ab53bf46b90578f"
+    },
+    {
+      "path": "docs/testing/attack-variants/male-attack1-right-frame1.png",
+      "sha256": "7a08e2996f40b888400b41eb3d21a27d36ded0c4597f378c31fbcfbaeae09808",
+      "png_byte_hash": "4cf214404e2e7fe5"
+    },
+    {
+      "path": "docs/testing/attack-variants/male-attack1-right-frame2.png",
+      "sha256": "f8bc45995951dbdbe56dfac1527f7dd789ca165ea24fc80474d5b59e9885981a",
+      "png_byte_hash": "8c3ef1e6d4fa5848"
+    },
+    {
+      "path": "docs/testing/attack-variants/male-attack1-right-frame3.png",
+      "sha256": "bc80ed3ebd10fe17646ff769e20a8949f7e98823b646d2f5e65e1e87fc8b1766",
+      "png_byte_hash": "fa9c273cab295a9e"
+    },
+    {
+      "path": "docs/testing/attack-variants/male-attack1-right-frame4.png",
+      "sha256": "504f4ad6db5ec538fea988b6971bb04f21349390507278c58155f416c87dc3a3",
+      "png_byte_hash": "7755a187893092f6"
+    },
+    {
+      "path": "docs/testing/attack-variants/male-attack1-right-frame5.png",
+      "sha256": "ed115003658c4053040b117623f8d8b96f5187bad294752347d6d1f8b95ad693",
+      "png_byte_hash": "1a2705669ae94f14"
+    },
+    {
+      "path": "docs/testing/attack-variants/male-attack1-right-frame6.png",
+      "sha256": "3b4ef0bace774ee62867d2d173f4387cf66a743689e3896f1284f516fe989c20",
+      "png_byte_hash": "1bc928ffe2876d52"
+    },
+    {
+      "path": "docs/testing/attack-variants/live-manifest.json",
+      "sha256": "310d549196195dcaa732895aaa9ac65612375e65c1bbb10469b67e95b953ba5a"
+    },
+    {
+      "path": "docs/testing/attack-variants/live-run.log",
+      "sha256": "c99dc4662a45286a9ae7e65d7d3c63fbee1d7376ff186347f43e579e19f04647"
+    },
+    {
+      "path": "docs/testing/attack-variants/frame-table.csv",
+      "sha256": "55ee3abe3c757e5348ce13fcaefb4022fb1328f7b94c7ec5d0000281b697485e"
+    },
+    {
+      "path": "docs/testing/attack-variants/perf.json",
+      "sha256": "a823004d4833e0c5b5b65bac07ad7742d371ebc157119cf34bc2ec9421201cee"
+    },
+    {
+      "path": "docs/testing/attack-variants/baseline-raw.json",
+      "sha256": "bdfe48f8fdbb209ac1d1bf96d5e286d1307f6cf0a1ce9e9cfbc773af846092ce"
+    },
+    {
+      "path": "docs/testing/attack-variants/final-gate.log",
+      "sha256": "6625801336bfa7aed08289761492bd2a9d9ed0f846661d3a694a215ebd50ab6c"
+    },
+    {
+      "path": "docs/testing/attack-variants/final-candidate.json",
+      "sha256": "cc25e737a17db0c05191af2cfb54d5189ac141599022e5d114d5682b6bd2c965"
+    },
+    {
+      "path": "docs/testing/attack-variants/final-gate-result.json",
+      "sha256": "630bd4603d5245dfd3d5db3d640b133637133736961d7a5c9859d582f530503f"
+    }
+  ]
+}

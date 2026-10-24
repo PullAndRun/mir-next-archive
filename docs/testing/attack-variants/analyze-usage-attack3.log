@@ -1,0 +1,18 @@
+== 素材引用分析 ==
+[1/4] 扫描地图：389 张（resource/community/suprcode-crystal-database/cjlaaa/Maps）
+  [cjlaaa] 100/389 张地图（2.6s）
+  [cjlaaa] 200/389 张地图（5.9s）
+  [cjlaaa] 300/389 张地图（8.5s）
+  [cjlaaa] 389 张地图 / 20880105 格，版本 {1: 388, 5: 1}，缺 0 张，11.91s
+[2/4] 扫描 Server.MirDB 模板引用
+[3/4] 扫描音频引用
+[4/4] 统计 .wzl 索引与帧体积
+  [wzl] 349 个库 / 7509950 项（非空 5329305），用到 69 个库、157933 帧、939.6MP，5.5s
+
+== 完成 ==
+  图库：保留 67 个 / 186,294 帧，PNG 估计 1409 MB
+  瓦片：21 个图库；地图 389 张 / 314 MB
+  怪物：261 个图像（已刷出 225），未映射 14
+  音频：104 个 / 38.6 MB，缺失 20
+  图库总量 21.69 GB，其中未使用约 21.31 GB
+  产物：target/used-assets.json、target/asset-usage-stats.json、target/asset-usage-report.md

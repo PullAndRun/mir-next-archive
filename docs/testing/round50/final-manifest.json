@@ -1,0 +1,785 @@
+{
+  "generated_at": "2026-10-25T07:26:01.893569+08:00",
+  "audit_revision": 2,
+  "head": "2ef42854a2ed3b1bd3ad719dbc64eb19c2cf20d5",
+  "origin_main": "2ef42854a2ed3b1bd3ad719dbc64eb19c2cf20d5",
+  "verdict": "PASS-WITH-PARTIAL",
+  "commits": [
+    {
+      "commit": "4d4175aa23610ec341cc8df7973ff15577dbeba9",
+      "files": 3,
+      "insertions": 436,
+      "deletions": 0
+    },
+    {
+      "commit": "2a7e77e3a3c2d849180dea9e9e12348c21440032",
+      "files": 3,
+      "insertions": 11,
+      "deletions": 4
+    },
+    {
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252",
+      "files": 28,
+      "insertions": 9900,
+      "deletions": 191
+    },
+    {
+      "commit": "2ef42854a2ed3b1bd3ad719dbc64eb19c2cf20d5",
+      "files": 7,
+      "insertions": 334,
+      "deletions": 72
+    }
+  ],
+  "gate": {
+    "attempt": 3,
+    "log": "target/round50/final-gate2.log",
+    "bytes": 186193,
+    "sha256": "47c8405c1a28c4bd651ff9abc21896ac7e4611617e573cab1f810035afeeeacb",
+    "exit_code": 0,
+    "exit_code_source": "original process exit code recorded in final-gate2.meta.txt;not inferred from summary;not rerun in T2",
+    "start_utc": "2026-10-24T23:12:39Z",
+    "end_utc": "2026-10-24T23:15:50Z",
+    "head": "2ef42854a2ed3b1bd3ad719dbc64eb19c2cf20d5",
+    "items_actual": [
+      {
+        "name": "cargo fmt --all --check",
+        "result": "OK",
+        "seconds": 2
+      },
+      {
+        "name": "cargo clippy --workspace --all-targets -D warnings",
+        "result": "OK",
+        "seconds": 5
+      },
+      {
+        "name": "cargo test -p mir-server --test duo_smoke（串行）",
+        "result": "OK",
+        "seconds": 27
+      },
+      {
+        "name": "cargo test --workspace",
+        "result": "OK",
+        "seconds": 150
+      },
+      {
+        "name": "协议生成器 --check",
+        "result": "OK",
+        "seconds": 1
+      },
+      {
+        "name": "文档链接与包编号",
+        "result": "OK",
+        "seconds": 0
+      },
+      {
+        "name": "TextKey 完整性",
+        "result": "OK",
+        "seconds": 0
+      },
+      {
+        "name": "硬编码棘轮（player-visible，阈值 70）",
+        "result": "OK",
+        "seconds": 0
+      },
+      {
+        "name": "硬编码棘轮（no-test，阈值 0）",
+        "result": "OK",
+        "seconds": 0
+      },
+      {
+        "name": "运行时不引用老资源格式",
+        "result": "OK",
+        "seconds": 0
+      },
+      {
+        "name": "物品图标完整性",
+        "result": "OK",
+        "seconds": 1
+      },
+      {
+        "name": "PostgreSQL 集成测试（mir-store 串行）",
+        "result": "OK",
+        "seconds": 3
+      }
+    ],
+    "ok_actual": 12,
+    "fail_actual": 0,
+    "meta_sha256": "91c06d8db940aaec269a009816e9778b5ebe3b169b9f63c10d6d196fa4ed99fe",
+    "meta_bytes": 427,
+    "command": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale",
+    "previous_attempt": {
+      "log": "target/round50/final-gate.log",
+      "bytes": 185889,
+      "sha256": "8676fee8ae4d89ed3e50b26d010de9165b154fafac5c7cb5d8f0cdfed3d541ca",
+      "exit_code": 0,
+      "start_utc": "2026-10-24T22:41:52Z",
+      "end_utc": "2026-10-24T22:44:33Z",
+      "attempt": 2,
+      "head_at_gate": "2a7e77e3a3c2d849180dea9e9e12348c21440032",
+      "meta_sha256": "a97a3564f048c084fc788a609ce6eef7cd186f257e015e69cc17c84c11d250de",
+      "items_actual": [
+        {
+          "name": "cargo fmt --all --check",
+          "result": "OK",
+          "seconds": 2
+        },
+        {
+          "name": "cargo clippy --workspace --all-targets -D warnings",
+          "result": "OK",
+          "seconds": 1
+        },
+        {
+          "name": "cargo test -p mir-server --test duo_smoke serial",
+          "result": "OK",
+          "seconds": 25
+        },
+        {
+          "name": "cargo test --workspace",
+          "result": "OK",
+          "seconds": 127
+        },
+        {
+          "name": "protocol generator --check",
+          "result": "OK",
+          "seconds": 1
+        },
+        {
+          "name": "documentation links and packet numbers",
+          "result": "OK",
+          "seconds": 0
+        },
+        {
+          "name": "TextKey completeness",
+          "result": "OK",
+          "seconds": 0
+        },
+        {
+          "name": "player-visible hardcoded ratchet <=70",
+          "result": "OK",
+          "seconds": 0
+        },
+        {
+          "name": "no-test hardcoded ratchet <=0",
+          "result": "OK",
+          "seconds": 0
+        },
+        {
+          "name": "runtime legacy references",
+          "result": "OK",
+          "seconds": 0
+        },
+        {
+          "name": "item icon completeness",
+          "result": "OK",
+          "seconds": 1
+        },
+        {
+          "name": "PostgreSQL mir-store serial integration",
+          "result": "OK",
+          "seconds": 2
+        }
+      ],
+      "snapshot_limit": "Feature tree was committed after gate. Clean tracked worktree and all batch file mtimes before gate end support lineage; no gate-time per-file SHA256 freeze establishes strict identity."
+    },
+    "script_changed_since_b3be4af": false
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 40150,
+      "sha256": "49a0b14f3474da7ae45e0fe33f6b131718b88cb17e309639e182138909b4390a",
+      "commit": "2a7e77e3a3c2d849180dea9e9e12348c21440032"
+    },
+    {
+      "path": "config/i18n-aliases.json",
+      "bytes": 831,
+      "sha256": "6ef6808703f5f5e601f875e3c7f4041081f93923fbf406c2c2572d5d2fba7986",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "crates/mir-client/src/app.rs",
+      "bytes": 142314,
+      "sha256": "c02132894c6bbfcdd1684720296afa9637dc2e8dc2fd70bbe598284a064a2197",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "crates/mir-client/src/net.rs",
+      "bytes": 355258,
+      "sha256": "4a21336e3dd7c4dc044038773aaeb957b251946b5504d93e0cf3b0e89f32f102",
+      "commit": "2ef42854a2ed3b1bd3ad719dbc64eb19c2cf20d5"
+    },
+    {
+      "path": "crates/mir-client/src/ui/gameshop.rs",
+      "bytes": 78676,
+      "sha256": "d4181a1db1627053cc27538109e373da53aab8d8300d13d5852b02f4b304419c",
+      "commit": "2ef42854a2ed3b1bd3ad719dbc64eb19c2cf20d5"
+    },
+    {
+      "path": "crates/mir-client/src/ui/mod.rs",
+      "bytes": 219185,
+      "sha256": "4d5b415b90cf688928bd882de79d4dbb2dea4e25e26c3251f971b1cfc397fa62",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "crates/mir-client/tests/gameshop_panel.rs",
+      "bytes": 56295,
+      "sha256": "85da244a53961896560c96758550bc15f53f26ab2f0924dd80d3483eafedcfd5",
+      "commit": "2ef42854a2ed3b1bd3ad719dbc64eb19c2cf20d5"
+    },
+    {
+      "path": "crates/mir-client/tests/monster_motion.rs",
+      "bytes": 19867,
+      "sha256": "9a10daa34c291a2c75ad3ab04196b6ccce209c4965e91e5713fe4bf7e5acdf41",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "crates/mir-client/tests/round2_panels.rs",
+      "bytes": 58909,
+      "sha256": "d0f6f2cbf32f70919c63d7aeb5b4e982ce48ea01426717ddbe54d920f669ac86",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "crates/mir-core/src/i18n.rs",
+      "bytes": 175222,
+      "sha256": "b0632d991295ac40b6fca94d846f2dc0620e8e522db9717abf5368b71ba7370f",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "crates/mir-render/tests/monster_native_evidence.rs",
+      "bytes": 15205,
+      "sha256": "54dd8443c49f8d93e01c58e279d7b78bc3390ef0c87e24f84c4b028214feeafc",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "crates/mir-server/src/maps.rs",
+      "bytes": 39205,
+      "sha256": "b37a152e785f03872202dedb2f2d21170a96654b6e0ad139c2e5378d45497e24",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "crates/mir-server/src/market.rs",
+      "bytes": 153627,
+      "sha256": "44f9616362a73606ec87a65a00f5ac39cbf02da9e49b652e5ab69ad999a69c82",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "crates/mir-server/src/monster.rs",
+      "bytes": 127463,
+      "sha256": "3153a5bbffea9c3eb0175c9a260a89da21f24ca9ecc1ef7f6e1de5776cd1af6f",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "crates/mir-server/src/server.rs",
+      "bytes": 36352,
+      "sha256": "acea25de1d43e628da09d1112b72c7df119496f51e4ef515a9c10b9a84e9d712",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "crates/mir-server/src/session.rs",
+      "bytes": 172870,
+      "sha256": "9330bdaf802d384ceb4d1eb186acc39e642b835f23979e9cdb68fbcd83261960",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "crates/mir-server/src/world.rs",
+      "bytes": 304906,
+      "sha256": "1a83645451f9711fb4336821e044b56683564feccee2b8261c21aa6dd2262142",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "crates/mir-server/tests/gameshop.rs",
+      "bytes": 82173,
+      "sha256": "334299699e4616290c6dd238225ae28885e2d37782c65246d24321d95454c46b",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "crates/mir-server/tests/gameshop_failure.rs",
+      "bytes": 11044,
+      "sha256": "04dd17e4c387d09f32f288b0bcf91e2a9bde78b541d5ffbb3d9964438a729a70",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "crates/mir-server/tests/gameshop_wire.rs",
+      "bytes": 22900,
+      "sha256": "a2f1f720d08b8b130183b1e87047efadab9097a785c2825bfe171d0d47517a48",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "docs/assets/game-assets.md",
+      "bytes": 10252,
+      "sha256": "67b133b410e7c2a7f039f6812b4f4bed7557d69e667855117951ed1218b2f4f3",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "docs/assets/gameshop-manifest.json",
+      "bytes": 81386,
+      "sha256": "fdf1e178321b68e03647d6d88d823653bd4f9ff3f9a756c391e5108d0788b67f",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "docs/assets/licensing.md",
+      "bytes": 11148,
+      "sha256": "6ccfe25b5120639b283933abe1eff440edd021d60d74e93ef50f53222294443b",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "docs/client.md",
+      "bytes": 150630,
+      "sha256": "f5ac8b87603d65f72e287358d5a07f6b2181d08b7875ed1924ead2ab74dce03f",
+      "commit": "2ef42854a2ed3b1bd3ad719dbc64eb19c2cf20d5"
+    },
+    {
+      "path": "docs/i18n.md",
+      "bytes": 69185,
+      "sha256": "0ef5d0a4fe0c8887fb1d33dc6f0e41bfa91dc7390b8ec7c0088933d2a32ae5ab",
+      "commit": "2ef42854a2ed3b1bd3ad719dbc64eb19c2cf20d5"
+    },
+    {
+      "path": "docs/process/round50-menxia-review.md",
+      "bytes": 18355,
+      "sha256": "de0477c9761d987f5140913c9787b6de2689f69d1c83ee429170cf22d16469c6",
+      "commit": "4d4175aa23610ec341cc8df7973ff15577dbeba9"
+    },
+    {
+      "path": "docs/process/round50-plan.md",
+      "bytes": 18614,
+      "sha256": "6c701243f4693e2ba00469d48c78f1977028b45369af419d6bda2e4f8e5808af",
+      "commit": "4d4175aa23610ec341cc8df7973ff15577dbeba9"
+    },
+    {
+      "path": "docs/process/round50-shangshu-dispatch.md",
+      "bytes": 20802,
+      "sha256": "0622b25f467a99badf8c276f52f9b663b3d8cfa2f1027f8c5eccc6d459afcfa4",
+      "commit": "4d4175aa23610ec341cc8df7973ff15577dbeba9"
+    },
+    {
+      "path": "docs/roadmap.md",
+      "bytes": 18309,
+      "sha256": "90b17d743bbf0d4deea51b3ad5072c7fe14a075def51bdacd44141136ba09f40",
+      "commit": "2a7e77e3a3c2d849180dea9e9e12348c21440032"
+    },
+    {
+      "path": "docs/testing/round49/README.md",
+      "bytes": 6789,
+      "sha256": "7d6a49921211f7e35c24857d8d1e6d4762e3a12ca870902bc4e8645a33ea895a",
+      "commit": "2a7e77e3a3c2d849180dea9e9e12348c21440032"
+    },
+    {
+      "path": "docs/testing/round50/README.md",
+      "bytes": 17884,
+      "sha256": "76c1affe95fd9b289bbc03860702397e2604871d2285fba2422aae5a758c97cf",
+      "commit": "2ef42854a2ed3b1bd3ad719dbc64eb19c2cf20d5"
+    },
+    {
+      "path": "docs/testing/round50/round50-final-audit.md",
+      "bytes": 27882,
+      "sha256": "23b8ca42c44db7121236204e8dfe9e31a7683255b388a0ce6ea104c208508fdc",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "docs/world/gameshop.md",
+      "bytes": 48471,
+      "sha256": "c2ffc6860b86897e00a865e59f971deb0261c51eb891f0b99d8eb20a7e1b838d",
+      "commit": "2ef42854a2ed3b1bd3ad719dbc64eb19c2cf20d5"
+    },
+    {
+      "path": "target/round50/facts/evidence.md",
+      "bytes": 5128,
+      "sha256": "7a1cda8b2fd013bd431db7f8c440af0893d7d19342dab3ddc4971a17596eb34e",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/facts/facts.json",
+      "bytes": 79374,
+      "sha256": "f453c0652419a3b2a42e1b51ce16405c5b216297c9597375c8f6e5c061d7b642",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/final-gate-summary.log",
+      "bytes": 1223,
+      "sha256": "62c704bc37f6e494c880054df41963d68c2a2165d1aacc06edc4d7c8a44f6ed6",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/final-gate.log",
+      "bytes": 185889,
+      "sha256": "8676fee8ae4d89ed3e50b26d010de9165b154fafac5c7cb5d8f0cdfed3d541ca",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/final-gate.meta.txt",
+      "bytes": 332,
+      "sha256": "a97a3564f048c084fc788a609ce6eef7cd186f257e015e69cc17c84c11d250de",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/final-gate2-summary.log",
+      "bytes": 2703,
+      "sha256": "6eb78b22e5ef0534f54de8251e2889cae8168ec7a9df63781a7c78b67ca0fe15",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/final-gate2.log",
+      "bytes": 186193,
+      "sha256": "47c8405c1a28c4bd651ff9abc21896ac7e4611617e573cab1f810035afeeeacb",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/final-gate2.meta.txt",
+      "bytes": 427,
+      "sha256": "91c06d8db940aaec269a009816e9778b5ebe3b169b9f63c10d6d196fa4ed99fe",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-b/README.md",
+      "bytes": 11368,
+      "sha256": "d8863dca456e8d11bf4355e05f7506130ae5437bf4f2f214dc35dd282815fa96",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-c/clippy-fix.log",
+      "bytes": 164,
+      "sha256": "9d94652e4d3f185fab4b6f378c5e52ba9cb4dc34aa1ee516618ee12175fe0233",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-c2/README.md",
+      "bytes": 7895,
+      "sha256": "ec0a46b400afeb7a825590bada0de01514babd741146fa092d573179af5a1c08",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-c2/c1-lib-gameshop.log",
+      "bytes": 2136,
+      "sha256": "eb0768c573ffa51628f4ca045742d17950467a70512cf83ca674407dff9213b6",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-c2/c2-gameshop-panel.log",
+      "bytes": 1653,
+      "sha256": "4dddb4d1740c5f61bb02cf9c994d35d9fadd667053c63a30a09a417efd37e594",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-c2/clippy-mir-client.log",
+      "bytes": 164,
+      "sha256": "400f1c467ce24cd674f7de0e034ef3e36e8050c7125818453a2d8c30efc621ed",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-c2/commands-and-exit-codes.txt",
+      "bytes": 1492,
+      "sha256": "4a9a756f084ce6849b43d5571573a21b54eb99753e7445041984fcc5e926ab7e",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-c2/fmt-check.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-c2/green-c1-lib-gameshop.log",
+      "bytes": 1563,
+      "sha256": "b0d97f0e3e7dc3e6dbc34138d34d56c58d2f9b18a12b8a174a5126dd6dabccf3",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-c2/green-c2-gameshop-panel.log",
+      "bytes": 1107,
+      "sha256": "4e30cd2af64473640a86d05cf6f158982e6794cf819e8b4a99597eb84676e159",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-c2/red-c1-lib-gameshop.log",
+      "bytes": 2982,
+      "sha256": "dab66f44efb1ae69d50ed52f27d3bb2df3230fa3d8ee7ad8155d29794635a18f",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-c2/red-c2-gameshop-panel.log",
+      "bytes": 3050,
+      "sha256": "a866e73d71b924f3fa7b856be0e321a0e574eacaea69a6336210caf601bca2e8",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-c2/revert-for-red.py",
+      "bytes": 2627,
+      "sha256": "5f4c0a070458a63b7469151bdfb7dbfb57a6b5618870f7eaf2509caf08a31477",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-d/README.md",
+      "bytes": 4225,
+      "sha256": "ff4e16aae7a1d8e0eca4c6043ffb183a8cd58339e701787f7cb5993975af5f4f",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-e/README.md",
+      "bytes": 9602,
+      "sha256": "f7b24dbe2afc126fd1a875dd4c659e579c97666a871f77b6eb20caeaf8bb2ad9",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-f/f3-attack-semantics.json",
+      "bytes": 34644,
+      "sha256": "d5358b60a0659f34de53a2932b218b5ce02f6c31067d5ef36e7675952ae5b762",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-f/frozen-compare-final.json",
+      "bytes": 639,
+      "sha256": "c181dcb7972399f4c7087522ae1fe8c879226ae6aeeb0f3e6c76d526274d9223",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-f/frozen-final.json",
+      "bytes": 20223,
+      "sha256": "2f99be7ef3c4304062269d8abbc8949c209aeaad6b11afdc9366505eae854173",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-f/r50-f-evidence-summary.md",
+      "bytes": 18558,
+      "sha256": "8dcd323755dc32fb15077eb8ae106b00daebc37ee754ffba1850a0ab9badf5ec",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-h2/README.md",
+      "bytes": 4347,
+      "sha256": "b80735f3a99ca9d239bc52980b5a2db9fe68455c1d246665135d67844bc52915",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-h2/check-links.log",
+      "bytes": 167,
+      "sha256": "a19a4bc15b5f6497eadc981e13470a65e233c89eb0ebfd895d9e045e5cfc1a5d",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "target/round50/r50-h2/diff-check.log",
+      "bytes": 490,
+      "sha256": "e66e80fd4c04348e5d8e108bab4d74af8fc1046532ed9153d878980a49badf49",
+      "commit": "audit-local-evidence"
+    },
+    {
+      "path": "tools/assets/gameshop_manifest.py",
+      "bytes": 48097,
+      "sha256": "cb36f68df30af260c586a623e7f0fbaf78a093a68619e99c73cf42b2be152c99",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    },
+    {
+      "path": "tools/dev/ci.ps1",
+      "bytes": 9846,
+      "sha256": "b64228d2eec5cd852ba27fa5f452342d38812ae31bf4264e8ba2b49a86d9d19c",
+      "commit": "b3be4afcef9934d18b2b5bbe074e182235b31252"
+    }
+  ],
+  "evidence_index": [
+    {
+      "id": "A-gate-v2",
+      "path": "target/round50/final-gate2-summary.log",
+      "result": "attempt3;12 actual OK;0 FAIL;meta original-process exit0;gate head==HEAD==origin/main"
+    },
+    {
+      "id": "01-facts",
+      "path": "target/round50/facts/evidence.md",
+      "result": "77/57 references; total108 hit92 deviation16; negative probe exit1; historical snapshot"
+    },
+    {
+      "id": "B-server",
+      "path": "target/round50/r50-b/README.md",
+      "result": "real TCP fixture tests plus optional real DB sample; missing DB can skip"
+    },
+    {
+      "id": "C-client-v2",
+      "path": "target/round50/r50-c2/README.md",
+      "result": "P11 fixed;lib red12/3 exit101 -> green15/0 exit0;panel red8/5 exit101 ->green13/0 exit0;three new wire boundary regressions"
+    },
+    {
+      "id": "D-assets",
+      "path": "docs/assets/gameshop-manifest.json",
+      "result": "82/82 icon hashes independently verified; actual DB/pack hashes match;827 pack entries recorded"
+    },
+    {
+      "id": "E-i18n",
+      "path": "target/round50/r50-e/README.md",
+      "result": "independently rerun no-test strict0 and strict60; exit0/0"
+    },
+    {
+      "id": "F-frozen",
+      "path": "target/round50/r50-f/frozen-final.json",
+      "result": "70 files129219674B independently hashed; zero current mismatches"
+    },
+    {
+      "id": "F-pixels",
+      "path": "target/round50/r50-f/f3-attack-semantics.json",
+      "result": "SEMANTIC_IDENTICAL; pixels differ3/25 frames;2580 differing pixels"
+    },
+    {
+      "id": "H-docs-v2",
+      "path": "target/round50/r50-h2/check-links.log",
+      "result": "782 relative links;2 README references;0broken;exit0;historical status prose remains in product docs"
+    },
+    {
+      "id": "T-v1-history",
+      "path": "docs/testing/round50/round50-final-audit.md",
+      "result": "v1 report verbatim appended as historical; input report/manifest raw fingerprints retained in history"
+    }
+  ],
+  "partial": [
+    "P01 RESOLVED: attempt3 meta head==HEAD==2ef4285; raw log sha matches meta; 12 actual OK/0 FAIL; original process exit0 recorded.",
+    "P02 attempt1 exit1/clippy21 reported by lead; original overwritten; attempt2 exit0 and clippy-fix log retained; first failure cannot be independently reconstructed.",
+    "P03 E deviation1:8 display names use parallel localized template table instead8 TextKey extensions.",
+    "P04 E deviation2:authorized write scope expanded to world.rs/maps.rs for runtime display hookup.",
+    "P05 F semantic identity has pixel differences3/25 frames2580pixels; C has no pixel regression baseline.",
+    "P06 D corrected old snapshot826/771854B to827/772675B; actual pack hash matches current manifest.",
+    "P07 real DB test returns success if optional sample absent; asset checks permit unavailable source/release informational skips.",
+    "P08 fixed K binding until R51; role-level currency, inventory-first/mail fallback, GIndex correction and no stock refresh on shortage deviate from Crystal.",
+    "P09 SUPPLEMENTED: r50-h2/check-links.log records 782 relative links,2 README references,0 broken,exit0; old756 remains historical only.",
+    "P10 R49 exact !Mon.dat mapping/riding/Push/Jump/Dash/Blend117/Reverse/Effect/Sorting plus absent self_moving/landed remain out of R50 scope.",
+    "P11 FIXED: commit2ef4285 upsert recalculates sold_out for positive original stock and exhausted remaining; i_stock no longer implies unlimited;3 lib+3 wire boundary regressions red-to-green, final gate same HEAD. Illegal negative original stock uses <=0 defensively in UI/apply_stock; normal server catalog filters negative remaining.",
+    "P12 facts77/57/108 anchors describe prefeature snapshot with16 deviations, not current-source fresh certification. Product docs still contain b3be4af/current and C2-in-progress status snapshots; v2 report/manifest supersede them."
+  ],
+  "toolchain": {
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+    "node": "v24.18.0"
+  },
+  "history": {
+    "v1_inputs_before_overwrite": [
+      {
+        "path": "docs/testing/round50/final-manifest.json",
+        "bytes": 14375,
+        "sha256": "9d3cef6feb7d648a642d61736bd02f70a4a79fa9d45a58d13bb3bb782bcad7c4"
+      },
+      {
+        "path": "docs/testing/round50/round50-final-audit.md",
+        "bytes": 15986,
+        "sha256": "5246bfd911f4f3414b8022cfba676ac84e049ccec2f7f04eb632bd8271602e11"
+      }
+    ],
+    "v1_report_preserved_verbatim": true,
+    "v1_manifest_metadata": {
+      "generated_at": "2026-10-25T06:57:26.765126+08:00",
+      "head": "b3be4afcef9934d18b2b5bbe074e182235b31252",
+      "verdict": "BLOCK",
+      "partial": [
+        "P01 gate meta HEAD2a7e77e vs current b3be4af; no gate-time file-hash freeze; clean tracked tree and pre-gate mtimes support lineage only.",
+        "P02 attempt1 exit1/clippy21 reported by lead; original overwritten; attempt2 exit0 and clippy-fix log retained; first failure cannot be independently reconstructed.",
+        "P03 E deviation1:8 display names use parallel localized template table instead8 TextKey extensions.",
+        "P04 E deviation2:authorized write scope expanded to world.rs/maps.rs for runtime display hookup.",
+        "P05 F semantic identity has pixel differences3/25 frames2580pixels; C has no pixel regression baseline.",
+        "P06 D corrected old snapshot826/771854B to827/772675B; actual pack hash matches current manifest.",
+        "P07 real DB test returns success if optional sample absent; asset checks permit unavailable source/release informational skips.",
+        "P08 fixed K binding until R51; role-level currency, inventory-first/mail fallback, GIndex correction and no stock refresh on shortage deviate from Crystal.",
+        "P09 H standalone log missing; historical756links/0broken unverified count; final gate docs OK does not establish that count.",
+        "P10 R49 exact !Mon.dat mapping/riding/Push/Jump/Dash/Blend117/Reverse/Effect/Sorting plus absent self_moving/landed remain out of R50 scope.",
+        "P11 initial limited zero remaining item is misclassified unlimited and client purchase allowed; i_stock=true also incorrectly displays unlimited even for positive individual limited stock; current acceptance BLOCK.",
+        "P12 facts77/57/108 anchors describe prefeature snapshot with16 deviations, not current-source fresh certification."
+      ],
+      "evidence_index": [
+        {
+          "id": "A-gate",
+          "path": "target/round50/final-gate-summary.log",
+          "result": "12 measured OK rows; zero FAIL markers; meta exit0"
+        },
+        {
+          "id": "01-facts",
+          "path": "target/round50/facts/evidence.md",
+          "result": "77/57 references; total108 hit92 deviation16; negative probe exit1; historical snapshot"
+        },
+        {
+          "id": "B-server",
+          "path": "target/round50/r50-b/README.md",
+          "result": "real TCP fixture tests plus optional real DB sample; missing DB can skip"
+        },
+        {
+          "id": "C-client",
+          "path": "target/round50/r50-c",
+          "result": "runtime packets wired; initial limited depleted item defect"
+        },
+        {
+          "id": "D-assets",
+          "path": "docs/assets/gameshop-manifest.json",
+          "result": "82/82 icon hashes independently verified; actual DB/pack hashes match;827 pack entries recorded"
+        },
+        {
+          "id": "E-i18n",
+          "path": "target/round50/r50-e/README.md",
+          "result": "independently rerun no-test strict0 and strict60; exit0/0"
+        },
+        {
+          "id": "F-frozen",
+          "path": "target/round50/r50-f/frozen-final.json",
+          "result": "70 files129219674B independently hashed; zero current mismatches"
+        },
+        {
+          "id": "F-pixels",
+          "path": "target/round50/r50-f/f3-attack-semantics.json",
+          "result": "SEMANTIC_IDENTICAL; pixels differ3/25 frames;2580 differing pixels"
+        },
+        {
+          "id": "H-docs",
+          "path": "docs/testing/round50/README.md",
+          "result": "stale precommit wording; target/round50/r50-h.log absent;756/0 not separately certified"
+        }
+      ]
+    }
+  },
+  "verification": {
+    "commit_unique_files": 34,
+    "feature_files_actual": 28,
+    "feature_files_claimed_in_request": 29,
+    "repair_files_actual": 7,
+    "new_or_modified_committed_files_over_1MiB": [],
+    "forbidden_committed_paths": [],
+    "frozen": {
+      "files_actual": 70,
+      "bytes_actual": 129219674,
+      "hash_mismatches": []
+    },
+    "assets": {
+      "icons_actual": 82,
+      "icon_mismatches": [],
+      "database": {
+        "path": "resource/community/suprcode-crystal-database/cjlaaa/Server.MirDB",
+        "bytes": 452106,
+        "sha256": "ace4fa6a70e18db7f8454350326d611ce6c56826b9f9a4f214797a3f8a5f69d0"
+      },
+      "pack": {
+        "path": "game-assets/packs/sprites-item-1.mnp",
+        "bytes": 772675,
+        "sha256": "3b28fa1b997a29e78054543642674e00c16ce7ac0884cf9e37808abdd38d886f"
+      },
+      "pack_entries_recorded": 827,
+      "pack_index_reparsed_in_T2": false
+    },
+    "f_pixels": {
+      "frames": 25,
+      "semantic_mismatch": 0,
+      "pixel_diff_frames": 3,
+      "total_pixel_diff_px": 2580,
+      "diff_algorithm_rerun": false
+    },
+    "docs_status_caveat": "product docs retain b3be4af current-head/C2-in-progress snapshots; v2 supersedes;negative original stock <=0 implementation differs from ==0 business wording",
+    "working_tree_porcelain": "?? docs/testing/monster-native/player-resource-freeze-before.json\n?? docs/testing/monster-native/player-resource-freeze.json\n?? docs/testing/round50/final-manifest.json\n?? docs/testing/round50/round50-final-audit.md"
+  },
+  "audit_write_scope": [
+    "docs/testing/round50/final-manifest.json",
+    "docs/testing/round50/round50-final-audit.md",
+    "target/round50/final-gate2-summary.log"
+  ],
+  "excluded_untracked_large": [
+    {
+      "path": "docs/testing/monster-native/player-resource-freeze-before.json",
+      "bytes": 44844165,
+      "sha256": "70845aefd4dd689a55ab0618b36bbf692a4b33ebb5ee2f3a662dedc17a3dc9de"
+    },
+    {
+      "path": "docs/testing/monster-native/player-resource-freeze.json",
+      "bytes": 45219533,
+      "sha256": "c7d896e7f5eee4706b943912c0c564d10d61c98d163143f051c2d632daecde32"
+    }
+  ]
+}

@@ -824,6 +824,10 @@ fn unpack_one(
         serde_json::to_string_pretty(&index_json).context("序列化 index.json 失败")?,
     )
     .with_context(|| format!("写 {} 失败", index_path.display()))?;
+    // 原生 `.Lib` 帧表是独立运行期元数据：必须与 index.json/PNG 一起落盘，
+    // 后面 `assets pack` 会把它当普通 raw entry 打进 `.mnp`，不能只留在构建期。
+    let frames = library.frames()?;
+    write_frames_json(lib_path, library_key, &index_json, frames.as_ref(), out_dir)?;
     println!(
         "lib={} total={total} selected={} png={written} index={}",
         lib_path.display(),
@@ -831,6 +835,143 @@ fn unpack_one(
         index_path.display()
     );
     Ok(indices.len())
+}
+
+/// 写/删 `frames.json`：原生帧表是 release pack-only 也能读到的独立 raw entry。
+fn write_frames_json(
+    lib_path: &Path,
+    library_key: &str,
+    index_json: &serde_json::Value,
+    frames: Option<&mir_asset::FrameSet>,
+    out_dir: &Path,
+) -> Result<()> {
+    let path = out_dir.join("frames.json");
+    let Some(frames) = frames else {
+        // 无表库不伪造 DefaultMonster；清掉可能残留的旧 frames.json。
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .with_context(|| format!("删除无表库残留 {} 失败", path.display()))?;
+        }
+        return Ok(());
+    };
+    let doc = frames_document(lib_path, library_key, index_json, frames)?;
+    std::fs::write(&path, serde_json::to_string_pretty(&doc)? + "\n")
+        .with_context(|| format!("写 {} 失败", path.display()))?;
+    Ok(())
+}
+
+fn frames_document(
+    lib_path: &Path,
+    library_key: &str,
+    index_json: &serde_json::Value,
+    frames: &mir_asset::FrameSet,
+) -> Result<serde_json::Value> {
+    let (layout, frame_seek) = lib_layout(lib_path)?;
+    let actions: Vec<serde_json::Value> = frames
+        .frames
+        .iter()
+        .map(|frame| {
+            let by_direction: Vec<Vec<i32>> = (0..8)
+                .map(|direction| {
+                    frame
+                        .frame_indices(direction)
+                        .map_or_else(Vec::new, Iterator::collect)
+                })
+                .collect();
+            serde_json::json!({
+                "action": frame.action_name(),
+                "raw_action": frame.action,
+                "start": frame.start,
+                "count": frame.count,
+                "skip": frame.skip,
+                "interval": frame.interval,
+                "effect_start": frame.effect_start,
+                "effect_count": frame.effect_count,
+                "effect_skip": frame.effect_skip,
+                "effect_interval": frame.effect_interval,
+                "reverse": frame.reverse,
+                "blend": frame.blend,
+                "frames_by_direction": by_direction,
+            })
+        })
+        .collect();
+    let mut frame_numbers: Vec<i32> = actions
+        .iter()
+        .flat_map(|action| {
+            action["frames_by_direction"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|direction| direction.as_array().into_iter().flatten())
+                .filter_map(serde_json::Value::as_i64)
+                .filter_map(|value| i32::try_from(value).ok())
+        })
+        .collect();
+    frame_numbers.sort_unstable();
+    frame_numbers.dedup();
+    let images = index_json
+        .get("images")
+        .and_then(serde_json::Value::as_array)
+        .map(|images| {
+            images
+                .iter()
+                .map(|entry| {
+                    serde_json::json!({
+                        "index": entry.get("index"),
+                        "png": entry.get("png"),
+                        "width": entry.get("width"),
+                        "height": entry.get("height"),
+                        "offset_x": entry.get("offset_x"),
+                        "offset_y": entry.get("offset_y"),
+                        "shadow_x": entry.get("shadow_x"),
+                        "shadow_y": entry.get("shadow_y"),
+                        "empty": entry.get("empty"),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let source_hash = sha256_file(lib_path)?;
+    Ok(serde_json::json!({
+        "schema_version": 1,
+        "image": library_key,
+        "library_key": library_key,
+        "source": lib_path.display().to_string(),
+        "source_hash": source_hash,
+        "source_sha256": source_hash,
+        "source_bytes": std::fs::metadata(lib_path).map_or(0, |meta| meta.len()),
+        "layout": layout,
+        "frame_source": "native",
+        "frame_seek": frame_seek,
+        "count": frames.frames.len(),
+        "frame_count": frames.frames.len(),
+        "unknown_actions": frames.unknown_actions,
+        "frame_numbers": frame_numbers,
+        "actions": actions,
+        "images": images,
+    }))
+}
+
+fn lib_layout(path: &Path) -> Result<(&'static str, Option<u64>)> {
+    let head = std::fs::read(path).with_context(|| format!("读取 {} 头失败", path.display()))?;
+    anyhow::ensure!(head.len() >= 8, "{} 头不足 8 字节", path.display());
+    let version = i32::from_le_bytes([head[0], head[1], head[2], head[3]]);
+    let count = u32::try_from(i32::from_le_bytes([head[4], head[5], head[6], head[7]]))
+        .context("图像数量为负")?;
+    match version {
+        1 => Ok(("v1", None)),
+        2 => Ok(("v2", None)),
+        3 if head.len() >= 12 => {
+            let third = u32::from_le_bytes([head[8], head[9], head[10], head[11]]);
+            if u64::from(third) == 8 + u64::from(count) * 4 {
+                Ok(("v3_no_frames", None))
+            } else {
+                Ok(("v3_frames", Some(u64::from(third))))
+            }
+        }
+        3 => Ok(("v3_no_frames", None)),
+        other => anyhow::bail!("{} 版本 {other} 不支持", path.display()),
+    }
 }
 
 /// 校验已有拆包产物与库一致：逐图比 `pixels_sha256` 与 PNG 像素。
@@ -915,6 +1056,7 @@ fn verify_unpacked(lib_path: &Path, out_dir: &Path, alpha_formats: &[u8]) -> Res
             }
         }
     }
+    verify_frames_json(lib_path, &index, &library, out_dir, &mut bad)?;
     if bad > 0 {
         anyhow::bail!("verify 失败：{bad} 张图与库不一致（{}）", out_dir.display());
     }
@@ -925,6 +1067,42 @@ fn verify_unpacked(lib_path: &Path, out_dir: &Path, alpha_formats: &[u8]) -> Res
         out_dir.display()
     );
     Ok(images.len())
+}
+
+/// 验证 `frames.json` 是当前 `.Lib` 帧表的完整投影；无表库不得有伪造文件。
+fn verify_frames_json(
+    lib_path: &Path,
+    index: &serde_json::Value,
+    library: &mir_asset::ImageLibrary,
+    out_dir: &Path,
+    bad: &mut usize,
+) -> Result<()> {
+    let path = out_dir.join("frames.json");
+    let frames = library.frames()?;
+    match frames {
+        Some(frames) => {
+            let key = index
+                .get("library_key")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown");
+            let expected = frames_document(lib_path, key, index, &frames)?;
+            let actual: serde_json::Value = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|text| serde_json::from_str(&text).ok())
+                .unwrap_or(serde_json::Value::Null);
+            if actual != expected {
+                println!("MISMATCH frames.json {}", path.display());
+                *bad += 1;
+            }
+        }
+        None => {
+            if path.exists() {
+                println!("MISMATCH frames.json 无表库不应有帧表 {}", path.display());
+                *bad += 1;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn read_png_rgba(path: &Path) -> Result<(u32, u32, Vec<u8>)> {

@@ -319,6 +319,7 @@ fn interaction_tooltip_use_drag_damage_and_buffs() {
         }),
         auto_register: true,
         manual_select: false,
+        monster_frames: std::collections::BTreeMap::new(),
     })
     .expect("启动客户端网络线程");
     let mut snapshot = client

@@ -303,6 +303,54 @@ impl BodyKind {
     }
 }
 
+/// 原生怪物（t40 `frames.json`）的动作生命期。
+///
+/// Crystal `MonsterObject.cs:524/642` 把 `Frame.Interval` 写入 `FrameInterval`，
+/// `ProcessFrames` 在 `UpdateFrame() >= Frame.Count` 时切换动作，所以总时长是
+/// `Count × Interval`，不是服务端僵直常量。这里优先查实际帧表；只有整张表缺失
+/// （无游戏素材）才回退 `Frames.cs:25-31` 的 DefaultMonster：Standing 4×500、
+/// Walk/Run 6×100、Attack1 6×100、Struck 2×200、Die 10×100；Dead 不自动转。
+/// 表存在但缺动作时返回 `None`，由调用方保持动作，绝不伪造默认时长。
+#[must_use]
+pub fn monster_action_duration_ms(
+    action: ActorAction,
+    frames: Option<&mir_asset::FrameSet>,
+) -> Option<u64> {
+    if action == ActorAction::Dead {
+        return None;
+    }
+    let raw = match action {
+        ActorAction::Standing => 0,
+        ActorAction::Walking => 1,
+        ActorAction::Running => 2,
+        ActorAction::Attacking => 9,
+        ActorAction::Struck => 18,
+        ActorAction::Dying => 21,
+        ActorAction::Dead => unreachable!(),
+    };
+    let Some(frames) = frames else {
+        // 整张原生表缺失（无 game-assets 素材/未导入）才用 DefaultMonster。
+        return monster_native_duration_ms(action);
+    };
+    frames.get(raw).and_then(|frame| {
+        let count = u64::try_from(frame.count).ok()?;
+        let interval = u64::try_from(frame.interval).ok()?;
+        count.checked_mul(interval)
+    })
+}
+
+/// 无帧表时的 `DefaultMonster` 时长（`Frames.cs:25-31`）。
+#[must_use]
+pub const fn monster_native_duration_ms(action: ActorAction) -> Option<u64> {
+    match action {
+        ActorAction::Standing => Some(2_000),
+        ActorAction::Walking | ActorAction::Running | ActorAction::Attacking => Some(600),
+        ActorAction::Struck => Some(400),
+        ActorAction::Dying => Some(1_000),
+        ActorAction::Dead => None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 人类帧表
 // ---------------------------------------------------------------------------
@@ -966,5 +1014,68 @@ mod tests {
         assert_eq!(attack.frame_at(0).index, 128 + 4 * 8);
         assert!(!attack.frame_at(299).finished);
         assert!(attack.frame_at(300).finished);
+    }
+
+    #[test]
+    fn monster_native_lifetime_falls_back_to_default_monster() {
+        assert_eq!(
+            monster_action_duration_ms(ActorAction::Standing, None),
+            Some(2_000)
+        );
+        assert_eq!(
+            monster_action_duration_ms(ActorAction::Walking, None),
+            Some(600)
+        );
+        assert_eq!(
+            monster_action_duration_ms(ActorAction::Running, None),
+            Some(600)
+        );
+        assert_eq!(
+            monster_action_duration_ms(ActorAction::Attacking, None),
+            Some(600)
+        );
+        assert_eq!(
+            monster_action_duration_ms(ActorAction::Struck, None),
+            Some(400)
+        );
+        assert_eq!(
+            monster_action_duration_ms(ActorAction::Dying, None),
+            Some(1_000)
+        );
+        assert_eq!(monster_action_duration_ms(ActorAction::Dead, None), None);
+    }
+
+    #[test]
+    fn monster_duration_derives_from_frame_count_and_interval() {
+        let frame = mir_asset::Frame {
+            action: 9,
+            start: 0,
+            count: 6,
+            skip: 0,
+            interval: 200,
+            effect_start: 0,
+            effect_count: 0,
+            effect_skip: 0,
+            effect_interval: 0,
+            reverse: false,
+            blend: false,
+        };
+        let frames = mir_asset::FrameSet {
+            frames: vec![frame],
+            unknown_actions: Vec::new(),
+        };
+        assert_eq!(
+            monster_action_duration_ms(ActorAction::Attacking, Some(&frames)),
+            Some(1_200)
+        );
+        // 表里缺 Struck：不能伪造 DefaultMonster 的 400ms，由调用方保持当前动作。
+        assert_eq!(
+            monster_action_duration_ms(ActorAction::Struck, Some(&frames)),
+            None
+        );
+        assert_eq!(
+            monster_action_duration_ms(ActorAction::Dead, Some(&frames)),
+            None
+        );
     }
 }

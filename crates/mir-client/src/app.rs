@@ -18,6 +18,7 @@
 //! 网络线程由 [`NetClient`] 管理；窗口创建失败时 `ClientApp` 被丢弃，
 //! `NetClient` 的 `Drop` 会发送 `Quit` 并回收线程，不会留下半开连接。
 
+use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -26,6 +27,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use mir_client::attack::AttackRng;
 use mir_client::audio::{SoundLibrary, SoundPlayer};
+use mir_client::camera::MonsterMotionParams;
 use mir_client::camera::{self, SelfMotion};
 use mir_client::geom::Rect;
 use mir_client::net::{
@@ -452,6 +454,36 @@ pub fn run_login(options: LoginOptions) {
     );
 }
 
+/// 登录窗口/进世界共用的一份素材解析结果。
+///
+/// 窗口渲染（[`blank_scene`]/[`load_world_scene`]）、session 怪物帧表
+/// （[`App::login_connect`]）与进世界后的 motion 参数必须来自同一次发现；否则
+/// dev 与 packs 并存时各路径可能各自发现出不同的素材根（t44 R49-X1-03）。
+/// CLI `--server` 路径在 `main` 里已按 `--asset-dir`/`--asset-mode` 显式解析，
+/// `run_connected` 直接复用那份 [`mir_client::assets::ResolvedAssets`]；登录窗口
+/// 没有这些参数，只能按 `MIR2_ASSET_DIR`/`MIR2_ASSET_MODE` 自动发现一次。
+struct LiveAssets {
+    /// 素材根（`data` 的父目录；没有父目录时为 `None`，与旧行为一致）。
+    root: Option<PathBuf>,
+    /// 解析出来的散装/小包来源。
+    resolved: mir_client::assets::ResolvedAssets,
+    /// 是否允许老的 `.wzl` 回退（仅 `asset_mode = legacy`）。
+    allow_legacy: bool,
+}
+
+/// 登录窗口的素材自动发现（环境变量优先，缺省 `auto`）。
+fn discover_live_assets(data_dir: &Path) -> LiveAssets {
+    let resolved = mir_client::assets::ResolvedAssets::discover_for_data_dir(data_dir);
+    let allow_legacy = resolved
+        .effective()
+        .is_none_or(mir_client::assets::AssetMode::allow_legacy);
+    LiveAssets {
+        root: data_dir.parent().map(Path::to_path_buf),
+        resolved,
+        allow_legacy,
+    }
+}
+
 /// 空白地形（登录窗口背景）：1024×1024 全可走格子 + 真实瓦片图库（没有地形图像，
 /// 但保留图库供诊断/后续使用）+ 实体图库。
 fn blank_scene(data_dir: &Path) -> MapScene {
@@ -468,18 +500,15 @@ fn blank_scene(data_dir: &Path) -> MapScene {
     // `open_dir` 失败（素材目录不存在/全缺）时退回空图库，登录窗口仍能开；
     // 只 warn 一次，避免每帧刷屏。
     let gfx_dir = mir_client::assets::gfx_dir_for_data_dir(data_dir);
-    let assets = mir_client::assets::ResolvedAssets::discover_for_data_dir(data_dir);
-    let asset_root = data_dir.parent();
-    let allow_legacy = assets
-        .effective()
-        .is_none_or(mir_client::assets::AssetMode::allow_legacy);
+    let assets = discover_live_assets(data_dir);
+    let asset_root = assets.root.as_deref();
     let libraries = mir_render::TileLibraries::open_with_sources(
         data_dir,
         Some(gfx_dir.as_path()),
         asset_root,
-        assets.map.as_ref(),
-        assets.packs.as_ref(),
-        allow_legacy,
+        assets.resolved.map.as_ref(),
+        assets.resolved.packs.as_ref(),
+        assets.allow_legacy,
     )
     .unwrap_or_else(|error| {
         eprintln!("警告：登录背景加载素材图库失败（{error}），使用空图库");
@@ -499,11 +528,72 @@ fn blank_scene(data_dir: &Path) -> MapScene {
             data_dir,
             Some(gfx_dir.as_path()),
             asset_root,
-            assets.map.as_ref(),
-            assets.packs.as_ref(),
-            allow_legacy,
+            assets.resolved.map.as_ref(),
+            assets.resolved.packs.as_ref(),
+            assets.allow_legacy,
         ),
     )
+}
+
+fn monster_frames_for_libraries(
+    libraries: &mir_render::EntityLibraries,
+) -> BTreeMap<u16, mir_asset::FrameSet> {
+    mir_client::assets::monster_frames_from_libraries(libraries)
+}
+
+/// 从 game-assets 的 `frames.json` 读出怪物走/跑帧数与间隔。
+///
+/// 只读当前场景已打开的图库，不复制实体集合；缺省参数由
+/// [`MonsterMotionParams::default`] 提供（6×100ms）。
+fn monster_motion_params(
+    libraries: &mir_render::EntityLibraries,
+) -> BTreeMap<u16, MonsterMotionParams> {
+    let mut params = BTreeMap::new();
+    for image in 1..=800u16 {
+        let key = format!("monster-{image:03}");
+        let Some(frames) = libraries.monster_frames(&key) else {
+            continue;
+        };
+        let walk = frames.get(1);
+        let run = frames.get(2);
+        let (walk_count, walk_interval_ms) = walk.map_or((6, 100), |frame| {
+            (frame.count.max(1) as u8, frame.interval.max(1) as u64)
+        });
+        let (run_count, run_interval_ms) = run.map_or((6, 100), |frame| {
+            (frame.count.max(1) as u8, frame.interval.max(1) as u64)
+        });
+        params.insert(
+            image,
+            MonsterMotionParams {
+                walk_count,
+                walk_interval_ms,
+                run_count,
+                run_interval_ms,
+            },
+        );
+    }
+    params
+}
+
+/// 把旧快照里的怪物帧表/参数补回新快照。
+///
+/// 会话快照通常自带完整表；但测试夹具、旧服务器或只带部分怪物的快照可能为空
+/// 或缺项，不能因此把连接前加载的配置整体清掉（t44 R49-X1-03）。逐键保留，
+/// 新快照已有的键优先。
+fn backfill_monster_assets(
+    snapshot: &mut WorldSnapshot,
+    old_frames: BTreeMap<u16, mir_asset::FrameSet>,
+    old_params: BTreeMap<u16, MonsterMotionParams>,
+) {
+    for (image, frames) in old_frames {
+        snapshot.monster_frames.entry(image).or_insert(frames);
+    }
+    for (image, params) in old_params {
+        snapshot
+            .monster_motion_params
+            .entry(image)
+            .or_insert(params);
+    }
 }
 
 /// 按服务器地图名加载地形，失败时退回空白图（登录后也能进世界）。
@@ -514,19 +604,15 @@ fn load_world_scene(map_name: &str, map_dir: &Path, data_dir: &Path) -> MapScene
         map_dir.join(format!("{map_name}.map"))
     };
     let gfx_dir = mir_client::assets::gfx_dir_for_data_dir(data_dir);
-    let assets = mir_client::assets::ResolvedAssets::discover_for_data_dir(data_dir);
-    let asset_root = data_dir.parent();
-    let allow_legacy = assets
-        .effective()
-        .is_none_or(mir_client::assets::AssetMode::allow_legacy);
+    let assets = discover_live_assets(data_dir);
     match MapScene::load_with_sources(
         &path,
         data_dir,
         Some(gfx_dir.as_path()),
-        asset_root,
-        assets.map.as_ref(),
-        assets.packs.as_ref(),
-        allow_legacy,
+        assets.root.as_deref(),
+        assets.resolved.map.as_ref(),
+        assets.resolved.packs.as_ref(),
+        assets.allow_legacy,
     ) {
         Ok(scene) => {
             println!(
@@ -1581,6 +1667,15 @@ impl ClientApp {
 
     /// 发起登录（连接失败可重试：`ServerSelectState::fail` 之后按钮变成「重试」）。
     fn login_connect(&mut self) {
+        // 与进世界渲染同一份素材解析（`load_world_scene` 也用 `discover_live_assets`）：
+        // session 帧表与渲染图库不能各发现一次（t44 R49-X1-03）。
+        let assets = discover_live_assets(&self.data_dir);
+        let monster_frames = mir_client::assets::load_monster_frames_from_resolved(
+            &self.data_dir,
+            assets.root.as_deref(),
+            &assets.resolved,
+            assets.allow_legacy,
+        );
         let Mode::Login(login) = &mut self.mode else {
             return;
         };
@@ -1596,6 +1691,7 @@ impl ClientApp {
             create: None,
             auto_register: true,
             manual_select: true,
+            monster_frames,
         };
         login.server.begin_connect();
         tracing::info!(
@@ -1857,13 +1953,21 @@ impl ClientApp {
     }
 
     /// 登录成功：加载服务器地图并切到联机模式（复用 `LiveState`）。
-    fn enter_world(&mut self, net: NetClient, snapshot: WorldSnapshot) {
+    fn enter_world(&mut self, net: NetClient, mut snapshot: WorldSnapshot) {
         let map_name = snapshot
             .map
             .as_ref()
             .map(|map| map.file_name.clone())
             .unwrap_or_default();
         let scene = load_world_scene(&map_name, &self.map_dir, &self.data_dir);
+        // 合并而不是整体覆盖：连接前 session 已带同一份表；若 UI 这边素材缺失
+        // 或只加载到一部分，不能把会话配置清空（t44 R49-X1-03）。
+        snapshot
+            .monster_frames
+            .extend(monster_frames_for_libraries(scene.entity_libraries()));
+        snapshot
+            .monster_motion_params
+            .extend(monster_motion_params(scene.entity_libraries()));
         let center = snapshot
             .self_player
             .as_ref()
@@ -2571,7 +2675,12 @@ impl ClientApp {
                 .self_player
                 .as_ref()
                 .map(|player| player.position);
+            let old_monster_frames = live.snapshot.monster_frames.clone();
+            let old_monster_params = live.snapshot.monster_motion_params.clone();
             live.snapshot = snapshot;
+            // 后续整体快照不能丢掉连接前加载的素材配置；session 正常会带同一份，
+            // 但测试/旧服务器快照可能为空或只带部分怪物，逐键保留 UI 已有配置。
+            backfill_monster_assets(&mut live.snapshot, old_monster_frames, old_monster_params);
             if let (Some(old), Some(new)) = (
                 old_self_pos,
                 live.snapshot
@@ -3272,6 +3381,54 @@ mod tests {
         let empty = blank_scene(&empty_root.join("data"));
         assert!(empty.libraries().is_empty());
         std::fs::remove_dir_all(&empty_root).ok();
+    }
+
+    #[test]
+    fn backfill_keeps_old_monster_assets_when_new_snapshot_is_partial() {
+        fn frames(count: i32) -> mir_asset::FrameSet {
+            mir_asset::FrameSet {
+                frames: vec![mir_asset::Frame {
+                    action: 1,
+                    start: 0,
+                    count,
+                    skip: 0,
+                    interval: 100,
+                    effect_start: 0,
+                    effect_count: 0,
+                    effect_skip: 0,
+                    effect_interval: 0,
+                    reverse: false,
+                    blend: false,
+                }],
+                unknown_actions: Vec::new(),
+            }
+        }
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.monster_frames.insert(184, frames(10));
+        snapshot.monster_motion_params.insert(
+            184,
+            MonsterMotionParams {
+                walk_count: 10,
+                walk_interval_ms: 100,
+                run_count: 10,
+                run_interval_ms: 100,
+            },
+        );
+        let old_frames = BTreeMap::from([(5u16, frames(6))]);
+        let old_params = BTreeMap::from([(
+            5u16,
+            MonsterMotionParams {
+                walk_count: 6,
+                walk_interval_ms: 100,
+                run_count: 6,
+                run_interval_ms: 100,
+            },
+        )]);
+        backfill_monster_assets(&mut snapshot, old_frames, old_params);
+        assert_eq!(snapshot.monster_frames[&5].get(1).unwrap().count, 6);
+        assert_eq!(snapshot.monster_frames[&184].get(1).unwrap().count, 10);
+        assert_eq!(snapshot.monster_motion_params[&5].walk_count, 6);
+        assert_eq!(snapshot.monster_motion_params[&184].walk_count, 10);
     }
 
     #[test]

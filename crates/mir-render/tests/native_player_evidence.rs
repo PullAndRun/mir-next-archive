@@ -143,6 +143,7 @@ fn now_millis() -> u64 {
         .unwrap_or(u64::MAX)
 }
 
+#[allow(clippy::match_wildcard_for_single_variants)]
 fn source_kind(source: &mir_asset::LibrarySource) -> &'static str {
     match source {
         mir_asset::LibrarySource::Unpacked(_) | mir_asset::LibrarySource::UnpackedDirs(_) => {

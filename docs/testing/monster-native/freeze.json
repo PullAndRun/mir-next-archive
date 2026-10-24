@@ -1,0 +1,126 @@
+{
+ "schema": "mir-next/r49-d-freeze/v3",
+ "batch": 1792847715360,
+ "batch_scope": "本文件只冻结 1792847715360 采样批次；raw-manifest.json 与当前工作树可能更晚，见 evidence_consistency",
+ "generated_at_unix_ms": 1792849822476,
+ "evidence_manifest": "docs/testing/monster-native/manifest.json",
+ "evidence_manifest_sha256": "d3b1d4c4c89b3484e36ae4775b93fddf0f478688edc0e66765c8d27b66fc2c51",
+ "frame_table": "docs/testing/monster-native/monster-frame-table.csv",
+ "frame_table_sha256": "c05bb902a2aa9e075c775be4de43e64f2b8aba6853bae94e6724ad0bcc4e1475",
+ "player_resource_freeze_before": "docs/testing/monster-native/player-resource-freeze-before.json",
+ "player_resource_freeze_before_sha256": "70845aefd4dd689a55ab0618b36bbf692a4b33ebb5ee2f3a662dedc17a3dc9de",
+ "player_resource_freeze": "docs/testing/monster-native/player-resource-freeze.json",
+ "player_resource_freeze_sha256": "c7d896e7f5eee4706b943912c0c564d10d61c98d163143f051c2d632daecde32",
+ "evidence_consistency": {
+  "status": "PARTIAL",
+  "checked_at": "2026-10-25T03:41:56+08:00",
+  "raw_manifest": "docs/testing/monster-native/raw-manifest.json",
+  "raw_manifest_generated_at_unix_ms": 1792865639318,
+  "raw_manifest_note": "晚于本冻结批；本文件的聚合哈希不覆盖该次运行，需队长重跑后另立冻结",
+  "client_binary": {
+   "path": "target/debug/deps/monster_native_evidence-326d5f1505730207.exe",
+   "sha256_at_manifest": "00b3df83ea96a9c954e045a2e75d87338b9b446b2a78eaec9d766ef76ea30544",
+   "sha256_current_disk": "da0ab79ad6660a062db168f5bd68e7fde30b4e10dbadd46487e8fd28f1b2fecc",
+   "match": false
+  },
+  "source_blobs": {
+   "crates/mir-render/src/entities.rs": {
+    "manifest": "0153679045a9",
+    "current": "8aad2e074574",
+    "match": false
+   },
+   "crates/mir-render/src/animation.rs": {
+    "manifest": "ba905a9c484d",
+    "current": "b08dfecad239",
+    "match": false
+   },
+   "crates/mir-client/src/camera.rs": {
+    "manifest": "3ae7a5a2eea6",
+    "current": "c57dc92d627c",
+    "match": false
+   },
+   "crates/mir-render/src/player_layout.rs": {
+    "manifest": "57f328c1bcad",
+    "current": "57f328c1bcad",
+    "match": true
+   }
+  },
+  "note": "不伪造新哈希：manifest 值为采样批次原值，current 为本轮只读复核值"
+ },
+ "counts": {
+  "player_samples": 12,
+  "monster_samples": 24,
+  "mixed_scenes": 2,
+  "png_files": 52,
+  "unique_png_sha256": 38,
+  "unique_crop_sha256": 38,
+  "csv_rows": 224,
+  "source_libraries": 4
+ },
+ "unique_png_sha256": 38,
+ "unique_crop_sha256": 38,
+ "player_resource_equal": true,
+ "required_player_keys": [
+  "carmour-00",
+  "carmour-24",
+  "aarmour-00",
+  "ararmour-00",
+  "cweapon-00",
+  "aweapon-00-r",
+  "aweapon-00-l",
+  "arweapon-00",
+  "arweapon-00-s",
+  "chair-00",
+  "ahair-00",
+  "arhair-00"
+ ],
+ "required_player_key_presence": {
+  "carmour-00": true,
+  "carmour-24": true,
+  "aarmour-00": true,
+  "ararmour-00": true,
+  "cweapon-00": true,
+  "aweapon-00-r": true,
+  "aweapon-00-l": true,
+  "arweapon-00": true,
+  "arweapon-00-s": true,
+  "chair-00": true,
+  "ahair-00": true,
+  "arhair-00": true
+ },
+ "required_player_keys_all_present": true,
+ "player_libraries": {
+  "player_keys": 262,
+  "player_pngs": 372448
+ },
+ "gate": {
+  "scope": "historical sample batch 1792847715360 only; current worktree gate is PARTIAL and pending the captain's final full run",
+  "command": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale",
+  "passed": 12,
+  "failed": 0,
+  "log": "target/gate-r49-d.log",
+  "log_sha256": "ca7eae59283e769577aee264c0910c4379197e32cbe8e886cee855e05c44f4bb",
+  "first_attempt_log": "target/gate-r49-d-first-fail.log",
+  "first_attempt_note": "first run failed only on cargo fmt; after formatting, all checks passed",
+  "flake_note": "two earlier plain runs hit the existing journey_natural natural-chicken-price flake; isolated rerun passed and the final plain gate passed without serializing",
+  "current_gate_status": "PARTIAL",
+  "current_gate_note": "当前工作树最终全量门禁未跑；不沿用本历史批次结论，待队长最终全量门禁后另记"
+ },
+ "frozen_dirs": {
+  "docs/testing/attack-variants": {
+   "assertion_at_freeze": "0 diff after final restore",
+   "checked_at": "2026-10-25T03:41:56+08:00",
+   "current_status": "0 (git status --porcelain -- docs/testing/attack-variants 为空)",
+   "audit_history": "round49 刑部审计时曾出现 27 个 tracked M；因此 0 diff 只是采样结论，不是长期保证",
+   "note": "R49 起 live 测试只写 target/attack-variants；本目录只读，需队长复核/恢复后才可宣称 0 diff"
+  },
+  "docs/testing/native-player-layout": "0 diff"
+ },
+ "limitations": [
+  "Push/Jump/Dash not tested",
+  "mount frame tables not tested",
+  "window four-boundary/FPS not tested",
+  "no loopback TCP live run in this evidence mode",
+  "evidence covers only sampled batch 1792847715360; raw-manifest/disk binary are newer (see evidence_consistency)"
+ ]
+}

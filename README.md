@@ -66,11 +66,12 @@
 | 可观测性 `/metrics` | ✅ | Prometheus 文本端点（`MIR2_METRICS_LISTEN`，默认关闭）：在线/连接/限流拒绝/丢包/tick 分位数/拍卖扫描/邮件队列/DB 落盘耗时、**autosave/失败计数**；30 秒汇总日志（见 [`docs/server/metrics.md`](docs/server/metrics.md)） |
 | 数据持久化 | ✅ | PostgreSQL 迁移 0001–0016；**角色周期 autosave**（`MIR2_AUTOSAVE_SECS` 默认 30s、只写脏行，RPO ≤31s，`0`=退回下线存盘）、行会/攻城 dirty 100ms、失败退避 1s→30s 与批次回灌重试（见 [`docs/store/schema.md`](docs/store/schema.md) §8） |
 | 寄售 / 拍卖市场 | ✅ | NPC `[@CONSIGN]`/`[@MARKET]` 上架、搜索/翻页/买断/出价/提前成交/取回、5% 佣金与手续费、**48 小时过期**（Crystal 7 天，本作有意差异）、**批量上架/取回 ≤10 全成全回滚**、**到期自动成交**（`process_auctions` 每 60s；买家收物品邮件、卖家收「成交价 − 5%」金币邮件）、启动时清理未成交过期单、迁移 0009 持久化与同事务/幂等重试；Crystal 的「卖家上线 `MarketGetBack` 领钱」改为邮件直达（见 `docs/world/market.md` §9） |
-| 商城（GameShop）与元宝 | 🟡 | 市场面板商城页签、`C.GameshopBuy` 真实扣元宝/金币、职业等级与库存校验、背包优先/放不下转商城邮件、库存计数迁移 0011 单事务持久化；独立商城面板与 `S.GameShopInfo`/`S.GameShopStock` 下发未做（`docs/world/gameshop.md`） |
+| 商城（GameShop）与元宝 | 🟡 | 市场面板商城页签、`C.GameshopBuy` 真实扣元宝/金币、职业等级与库存校验、背包优先/放不下转商城邮件、库存计数迁移 0011 单事务持久化；独立商城面板与 `S.GameShopInfo`/`S.GameShopStock` 下发**未做（R49 未完成，移至 R50 前置）**，见 `docs/world/gameshop.md` §12 |
 | 攻城与领地 | 🟡 | 攻城主体已实现（申请/时间表/城主判定/税收/战区/箭塔/器械简化实体 300–302 扩展包）；旗子/控制点 NPC、城门开关与领地租借未做 |
 | Rust 客户端（渲染与 UI） | 🟡 | **真实素材渲染**：`.Lib`/`.wzl+.wzx`/`.wil+.wix`（第 6 轮新增）、数据目录 `resource/data`（`--data-dir`）、视口内瓦片解码 + 4096 张缓存（release 800×600 行走 ≈0.50 ms/帧、1080p ≈1.45 ms/帧；100 玩家 720p ≈1.42 ms）、缺资源占位回退；等距地图 + 联机 + 实体精灵 + 装备分层外观 + 逐帧动画（站立/走/跑/攻击/受击/死亡；**攻击 6×50ms=300ms** 对齐服务端伤害延迟）+ **攻击挥砍光效**（`magic2.wzl`）+ **技能命中闪光**（`magic.wzl` 10 帧/雷电 `magic2.wzl` 20–29）+ 中文 UI（状态栏/聊天/背包/纸娃娃/tooltip/商店/对话/技能/buff/小地图/大地图/任务/任务物品栏（滚轮翻页）/邮件/仓库/行会/组队/交易/市场/商城页签/设置面板/服务器与角色选择/**好友面板（F）**/**行会联盟页签**/**组队面板（P）与行会成员页刷新**）+ 技能表现（火墙/雷电/瞬息移动/隐身/召唤）+ 宠物命令（`V` 键三态）+ `@` 命令原样发送 + 伤害数字 + 头顶血条 + 目标锁定 + 拖拽穿脱 + 点地走路 + **音效映射/100ms 节流/BGM 按地图切换**（rodio，可无声降级）+ **攻城 UI**（300–302：器械/血条/摧毁、HUD 倒计时与结算横幅）+ **聊天折行/避头尾/字符级 IME 光标** + **小地图传送点标记/悬停提示** + **断线重连（1s/2s/4s ×3 + 顶部横幅）** + **设置面板 O（主/音乐/音效滑杆、窗口模式、6 键重绑、`client.toml`）**；HUD 天气随切图显示（`S.MapChanged.weather`），时间/昼夜因服务端未下发 `S.TimeOfDay` 暂不显示；坐骑/翅膀精确素材、寻路待做；**自机走/跑插值与相机跟随（第 45 轮）已实现**，四类真实窗口边界未实测（见 [`docs/client.md`](docs/client.md) §4/§8） |
 | 工具链（`mir-tools`） | 🟡 | 地图检查、协议统计、MirDB 报告、图库查看/导出；素材库编辑器未做 |
 | 素材索引（`mir2_dev`） | ✅ | `tools/asset-index/` 把 `resource/` 的 233 万文件登记进 PostgreSQL，按名字/扩展名/仓库查询 |
+| 第 49 轮（R49）收口 | 🟡 | 怪物原生帧表 + 走/跑插值已收口（**限 118 个 used 怪物库、目标客户端路径**）；缺源 >800、4 个 v2、Blend 117/Reverse/Effect/Sorting、坐骑/攻击变招/Push-Jump-Dash 未完成或 PARTIAL；**独立商城未完成，移至 R50**；当前 `current_gate=PARTIAL`，待队长最终全量门禁。证据索引见 [`docs/testing/round49/README.md`](docs/testing/round49/README.md) |
 
 ### 核心闭环验收（第 28/40/41/43 轮）
 
@@ -318,6 +319,7 @@ pwsh -NoProfile -File tools/dev/release-smoke.ps1
 | [`docs/testing/self-motion/README.md`](docs/testing/self-motion/README.md) | 自机移动插值证据索引：逐帧对照 CSV、live_world 批次（A/B/C 历史 + **D 提交选定**）、冻结哈希、单测动态覆盖边界（camera 12 项：公式 6 + 生命周期 6）与四类窗口未实测 |
 | [`docs/testing/remote-motion/README.md`](docs/testing/remote-motion/README.md) | 第 46 轮他者玩家 Walk/Run 插值证据索引：96 组合独立期望、双客户端 live、D2 冻结哈希、真实 baseline 性能与覆盖边界 |
 | [`docs/testing/native-player-layout/README.md`](docs/testing/native-player-layout/README.md) | 第 48 轮原生玩家选库/选招证据：A/AR/C 域与 altAnim、Crystal 选招、200 帧 / 144 唯一 PNG 哈希、默认 auto→dev 路径、Attack4/DoubleSlash 限制 |
+| [`docs/testing/round49/README.md`](docs/testing/round49/README.md) | 第 49 轮证据索引：冻结清单/刑部审计/四项文档检查、怪物原生帧表与 i18n 收口边界（gate=PARTIAL，不宣称 12/12） |
 | [`docs/client-experience-backlog.md`](docs/client-experience-backlog.md) | 第 45 轮登记的后续体验清单：攻击变招/他者插值/怪物帧表/光照/天气/UI/音效/按键（含 Crystal 出处与验收） |
 | [`docs/client.md`](docs/client.md) | 客户端：协议流程、按键/鼠标、面板与字体 |
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |

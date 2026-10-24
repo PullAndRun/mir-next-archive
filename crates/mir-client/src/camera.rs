@@ -45,6 +45,7 @@
 
 use crate::net::WorldSnapshot;
 use mir_core::Point;
+use mir_core::enums::MirDirection;
 use mir_render::{ActorAction, CELL_HEIGHT, CELL_WIDTH, EntityView};
 
 /// 走/跑的帧数（`Frames.cs:158-159` 的 `Count = 6`）。
@@ -178,6 +179,151 @@ impl RemoteMotion {
     #[must_use]
     pub fn advance_at(self, now_ms: u64) -> (i32, i32) {
         self_motion_offset(self.from, self.to, self.elapsed_ms(now_ms))
+    }
+}
+
+/// 怪物走/跑帧表参数（`frames.json` 的 Walking/Running）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MonsterMotionParams {
+    /// Walking 动作帧数。
+    pub walk_count: u8,
+    /// Walking 每帧毫秒。
+    pub walk_interval_ms: u64,
+    /// Running 动作帧数。
+    pub run_count: u8,
+    /// Running 每帧毫秒。
+    pub run_interval_ms: u64,
+}
+
+impl Default for MonsterMotionParams {
+    fn default() -> Self {
+        Self {
+            walk_count: 6,
+            walk_interval_ms: MOTION_INTERVAL_MS,
+            run_count: 6,
+            run_interval_ms: MOTION_INTERVAL_MS,
+        }
+    }
+}
+
+/// 怪物（非玩家）最近一步走/跑的运动状态。
+///
+/// 与 [`RemoteMotion`] 不同，Crystal `MonsterObject.cs:345-433` 的
+/// `Movement` 是**当前格身后** 1/2 格，`DrawingLocation = Movement + OffSetMove`；
+/// 因此渲染基点是 `from`，`pixel_offset` 是 `-OffSetMove`（[`MonsterMotion::advance_at`]），
+/// 不是 `OffSetMove` 本身。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MonsterMotion {
+    /// 动作起点（Crystal `Movement`，当前格身后 `steps` 格）。
+    pub from: Point,
+    /// 当前权威格（Crystal `CurrentLocation`，即终点）。
+    pub to: Point,
+    /// 朝向（`Movement` → `CurrentLocation`）。
+    pub direction: MirDirection,
+    /// `Walking` 或 `Running`。
+    pub action: ActorAction,
+    /// 该包应用时刻。
+    pub started_ms: u64,
+    /// 实际帧数（`Frame.Count`）。
+    pub frame_count: u8,
+    /// 每帧毫秒（`Frame.Interval`）。
+    pub interval_ms: u64,
+}
+
+impl MonsterMotion {
+    /// 建一条怪物动作；只接受走 1、跑 2 的直线/45° 位移。
+    #[must_use]
+    pub fn new(
+        from: Point,
+        to: Point,
+        action: ActorAction,
+        started_ms: u64,
+        frame_count: u8,
+        interval_ms: u64,
+    ) -> Option<Self> {
+        let expected = match action {
+            ActorAction::Walking => WALK_STEPS,
+            ActorAction::Running => RUN_STEPS,
+            _ => return None,
+        };
+        let dx = (to.x - from.x).abs();
+        let dy = (to.y - from.y).abs();
+        let steps = dx.max(dy);
+        let straight = dx == 0 || dy == 0 || dx == dy;
+        (frame_count > 0 && steps == expected && straight).then_some(Self {
+            from,
+            to,
+            direction: from.direction_to(to),
+            action,
+            started_ms,
+            frame_count,
+            interval_ms: interval_ms.max(1),
+        })
+    }
+
+    /// 已过毫秒。
+    #[must_use]
+    pub const fn elapsed_ms(self, now_ms: u64) -> u64 {
+        now_ms.saturating_sub(self.started_ms)
+    }
+
+    /// 动作总时长。
+    #[must_use]
+    pub const fn duration_ms(self) -> u64 {
+        self.frame_count as u64 * self.interval_ms
+    }
+
+    /// 是否仍在动作时间内。
+    #[must_use]
+    pub const fn is_active(self, now_ms: u64) -> bool {
+        self.elapsed_ms(now_ms) < self.duration_ms()
+    }
+
+    /// 当前帧序号（0 起；超过末帧按末帧，但通常 `is_active` 已过滤）。
+    #[must_use]
+    pub const fn frame_index(self, now_ms: u64) -> u32 {
+        let index = self.elapsed_ms(now_ms) / self.interval_ms;
+        if index >= self.frame_count as u64 {
+            self.frame_count as u32 - 1
+        } else {
+            index as u32
+        }
+    }
+
+    /// 当前正向推进量（从起点格指向终点格）。
+    ///
+    /// Crystal 的 `OffSetMove` 是“从终点回推起点”的负向量；渲染器把实体画在
+    /// 起点格上，必须加 **`-OffSetMove`** 才是正确方向（t44 R49-X1-04）。
+    #[must_use]
+    pub fn advance_at(self, now_ms: u64) -> (i32, i32) {
+        let (x, y) = self.offset_at(now_ms);
+        (-x, -y)
+    }
+
+    /// 当前 `OffSetMove`（Crystal `MonsterObject.cs:388-420` 的 8 方向公式）。
+    ///
+    /// 注意 C# 的 `%` 对负数保留负号；这里用 Rust `%`（不是 `rem_euclid`）。
+    #[must_use]
+    pub fn offset_at(self, now_ms: u64) -> (i32, i32) {
+        let index = self.frame_index(now_ms) + 1;
+        let count = i32::from(self.frame_count);
+        let steps = match self.action {
+            ActorAction::Running => RUN_STEPS,
+            _ => WALK_STEPS,
+        };
+        let dx = CELL_WIDTH * steps * index as i32 / count;
+        let dy = CELL_HEIGHT * steps * index as i32 / count;
+        let (x, y) = match self.direction {
+            MirDirection::Up => (0, dy),
+            MirDirection::UpRight => (-dx, dy),
+            MirDirection::Right => (-dx, 0),
+            MirDirection::DownRight => (-dx, -dy),
+            MirDirection::Down => (0, -dy),
+            MirDirection::DownLeft => (dx, -dy),
+            MirDirection::Left => (dx, 0),
+            MirDirection::UpLeft => (dx, dy),
+        };
+        (x % 2 + x, y % 2 + y)
     }
 }
 
@@ -980,5 +1126,143 @@ mod tests {
         assert_eq!(prepared.center, target);
         assert_eq!(prepared.offset, (0, 0));
         assert_eq!(prepared.entities[0].position, target);
+    }
+}
+
+#[cfg(test)]
+mod monster_motion_tests {
+    use super::*;
+
+    fn motion(direction: MirDirection, running: bool, count: u8) -> MonsterMotion {
+        let to = Point::new(10, 10);
+        let steps = if running { RUN_STEPS } else { WALK_STEPS };
+        let from = to.moved(direction.reverse(), steps);
+        MonsterMotion::new(
+            from,
+            to,
+            if running {
+                ActorAction::Running
+            } else {
+                ActorAction::Walking
+            },
+            0,
+            count,
+            100,
+        )
+        .expect("合法怪兽步")
+    }
+
+    #[test]
+    fn monster_walk_offsets_follow_crystal_eight_directions() {
+        let expected = [
+            (MirDirection::Up, (0, 6)),
+            (MirDirection::UpRight, (-8, 6)),
+            (MirDirection::Right, (-8, 0)),
+            (MirDirection::DownRight, (-8, -6)),
+            (MirDirection::Down, (0, -6)),
+            (MirDirection::DownLeft, (8, -6)),
+            (MirDirection::Left, (8, 0)),
+            (MirDirection::UpLeft, (8, 6)),
+        ];
+        for (direction, offset) in expected {
+            assert_eq!(
+                motion(direction, false, 6).offset_at(0),
+                offset,
+                "{direction:?}"
+            );
+        }
+        assert_eq!(
+            motion(MirDirection::Right, false, 6).offset_at(500),
+            (-48, 0)
+        );
+    }
+
+    #[test]
+    fn monster_render_advance_is_negated_offset() {
+        // 渲染器把实体画在起点格，必须加 -OffSetMove；八方向符号不能照抄 offset。
+        let expected = [
+            (MirDirection::Up, (0, -6)),
+            (MirDirection::UpRight, (8, -6)),
+            (MirDirection::Right, (8, 0)),
+            (MirDirection::DownRight, (8, 6)),
+            (MirDirection::Down, (0, 6)),
+            (MirDirection::DownLeft, (-8, 6)),
+            (MirDirection::Left, (-8, 0)),
+            (MirDirection::UpLeft, (-8, -6)),
+        ];
+        for (direction, advance) in expected {
+            let motion = motion(direction, false, 6);
+            assert_eq!(motion.advance_at(0), advance, "{direction:?}");
+            assert_eq!(
+                motion.advance_at(0),
+                (-motion.offset_at(0).0, -motion.offset_at(0).1)
+            );
+        }
+        assert_eq!(
+            motion(MirDirection::Right, false, 6).advance_at(500),
+            (48, 0)
+        );
+        assert_eq!(
+            motion(MirDirection::Right, true, 6).advance_at(500),
+            (96, 0)
+        );
+    }
+
+    #[test]
+    fn monster_run_offsets_use_two_cells() {
+        assert_eq!(motion(MirDirection::Right, true, 6).offset_at(0), (-16, 0));
+        assert_eq!(
+            motion(MirDirection::Right, true, 6).offset_at(500),
+            (-96, 0)
+        );
+    }
+
+    #[test]
+    fn monster_frame_count_and_interval_drive_duration() {
+        let walk = motion(MirDirection::Down, false, 8);
+        assert_eq!(walk.duration_ms(), 800);
+        assert!(walk.is_active(799));
+        assert!(!walk.is_active(800));
+        assert_eq!(walk.frame_index(0), 0);
+        assert_eq!(walk.frame_index(700), 7);
+        // 5 帧时单帧步长为 48/5=9.6，C# 截断为 9，偶数化后为 10。
+        assert_eq!(motion(MirDirection::Right, false, 5).offset_at(0), (-10, 0));
+    }
+
+    #[test]
+    fn monster_motion_rejects_bad_steps() {
+        let from = Point::new(10, 10);
+        assert!(
+            MonsterMotion::new(from, Point::new(12, 10), ActorAction::Walking, 0, 6, 100).is_none()
+        );
+        assert!(
+            MonsterMotion::new(from, Point::new(10, 10), ActorAction::Running, 0, 6, 100).is_none()
+        );
+    }
+
+    #[test]
+    fn monster_right_walk_screen_position_converges_without_96px_jump() {
+        // Crystal `MonsterObject.cs:384-437`：实体画在 `Movement`（from），
+        // 屏幕再加 **-OffSetMove**。若直接加 OffSetMove，最后一帧会画到终点左侧
+        // 96px，然后 motion 到期瞬间跳到终点——这正是 t44 R49-X1-04。
+        let motion = motion(MirDirection::Right, false, 6);
+        let from_x = motion.from.x * 48;
+        let to_x = motion.to.x * 48;
+        assert_eq!(motion.from, Point::new(9, 10));
+        assert_eq!(motion.to, Point::new(10, 10));
+        assert_eq!(from_x + motion.advance_at(0).0, from_x + 8);
+        let buggy_last = from_x + motion.offset_at(500).0;
+        assert_eq!(buggy_last, to_x - 96);
+        assert_eq!(to_x - buggy_last, 96);
+        let mut previous = from_x + motion.advance_at(0).0;
+        for elapsed in [100, 200, 300, 400, 500] {
+            let x = from_x + motion.advance_at(elapsed).0;
+            assert!(x >= previous, "{elapsed}ms 屏幕 x 回退：{previous} -> {x}");
+            assert!(x <= to_x, "{elapsed}ms 屏幕 x 越过终点：{x} > {to_x}");
+            previous = x;
+        }
+        assert_eq!(previous, to_x);
+        // motion 到期后实体改画在 to；末帧与终点同一像素列，无跳变。
+        assert_eq!(from_x + motion.advance_at(500).0, motion.to.x * 48);
     }
 }

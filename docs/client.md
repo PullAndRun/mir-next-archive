@@ -1308,9 +1308,35 @@ Crystal 同层重复绘制，不是两把弓。
 `Skeleton = 22`），而 `resource/data/mon1..mon53.wzl` 是经典 Mir2/盛大布局（怪物图像按
 0..=9、10..=19 分组，对应 `Mon1`、`Mon2`…）。两者不是同一套编号，所以演示怪物可能显示成
 同一 `monN` 文件里的另一个怪物外观。`resource/data/!Mon.dat` 里有每只怪的图库与动作帧表，
-本模块尚未解析；解析后可以做到逐个怪物精确映射。怪物帧号还做了逐级回退：
+本模块尚未解析（R49 的原生表来自 Crystal `.Lib` v3 的 `frames.json`，不是 `!Mon.dat`）；
+解析后可以做到逐个怪物精确映射。怪物帧号还做了逐级回退：
 精确帧 → 该图像站立帧 → 库首帧 → 占位方块，因为并非每个 `monN.wzx` 都恰好有
 `10*430` 帧（例如 `mon1.wzx` 只有 1086 帧）。
+
+R49 B 起，**默认 `game-assets` 路径**优先读 A2 生成的
+`gfx/sprites/monster-native/monster-{image:03}/frames.json`：动作号保持 Crystal
+原始号（0/1/2/9/18/21/22），帧号是 `Start + direction*(Count+Skip) + local`，
+不再套 `(image%10)*430` 的旧扁平区间。只有缺 `frames.json`、表损坏或该动作缺表时
+才走上面的旧 `monN` 回退；有原生表但缺某一帧不会跨动作借帧。动作生命期为
+Standing 2000ms、Walk/Run 600ms、Attack1 600ms、Struck=帧 Count×Interval、Dying 1000ms，
+Dead 停住；逐帧仍由 `Interval/Count` 决定。证据与边界见
+[`testing/native-monster/README.md`](testing/native-monster/README.md)。
+
+覆盖范围按证据写：A2 只导入了 **118 个 v3 used 怪物库**（used 中 4 个是 v2、无 `frameSeek`，
+不能按 `Frames.cs` 语义读；另有约 800 个 appearance 在源里缺对应 `.Lib`，保持 missing）。
+逐帧真实渲染只覆盖 `005/022/039/023`，其余 used 库只有结构/计数证据；**不能**写成
+“122 个 used 全 native”。Crystal 的 Blend（117）/Reverse/Effect/Sorting 语义尚未移植。
+R49 当前 gate=PARTIAL，待队长最终全量门禁，不能沿用历史批次结论。
+
+R49 C 起，**怪物走/跑**也按 Crystal `MonsterObject.cs:345-433` 插值：只有
+`Walking/Running` 建立 `MonsterMotion`；`Movement = CurrentLocation` 身后 1/2 格，
+`OffSetMove` 按 8 方向、`CellW=48/CellH=32`、`Frame.Count/Interval` 逐帧计算，
+最后做 C# 同语义的 `x % 2 + x`（保留负数符号，不是 `rem_euclid`）；绘制/排序锚点用
+`Movement` 与 `CurrentLocation` 的较大 Y。动作自然结束、受击/死亡/删除/切图/断线时
+清状态；Push/Jump/DashAttack 本轮不扩散。帧数优先取 `frames.json` 的 Walking/Running
+`Count`，缺表回退 6×100ms。证据见 [`testing/monster-motion/README.md`](testing/monster-motion/README.md)。
+真实证据只覆盖 `005/022/184` 三只怪（不同方向/不同 Walk 帧数）；坐骑帧表、Push/Jump/DashAttack
+仍未接入，窗口四边界与 FPS 未实测。
 
 坐骑/翅膀的扁平语料与 Crystal 的 `Mount/*.Lib` / `CHumEffect/*.Lib` 也不是一一对应：
 
@@ -1744,8 +1770,9 @@ cargo fmt --all -- --check
 ## 8. 尚未实现
 
 * **移动插值的边界实测**：自机走/跑插值公式、单测与单方向 live 回归已通过；但
-  **四类真实窗口边界（中央/触边/沿边/反向离边）未实测**，≥600ms/跳变无窗口录屏，
-  他人/怪物仍是逐格推进，坐骑帧表也未按 Crystal `MountWalking/MountRunning` 插值。
+  **四类真实窗口边界（中央/触边/沿边/反向离边）未实测**，≥600ms/跳变无窗口录屏；
+  他人玩家与怪物走/跑已做逐帧插值（R46/R49 C），但坐骑帧表仍未按 Crystal
+  `MountWalking/MountRunning` 插值；Push/Jump/DashAttack 尚未接入。
   相机中心 clamp 只对越界的异常/回退中心生效，正常落点仍在屏幕中心。**本轮未测 FPS/帧耗时（帧率）**；
   文中性能数字（如 §6.0）仅第 13 轮历史数据，不适用于本轮移动插值/相机跟随改动。证据与冻结批次见
   [`testing/self-motion/README.md`](testing/self-motion/README.md)，后续清单见
@@ -1762,9 +1789,12 @@ cargo fmt --all -- --check
 * 弓手 alt 的 `WalkingBow/RunningBow` 已接入；`AttackRange1–3` 因协议没有独立
   远程动作，仍以 `Attacking` → `Attack1` 近似（PARTIAL）。刺客 `Sneek` 尚未接入；
   双持（`WeaponLibrary2`）与弓手全方向第二遍 `DrawWeapon2` 已按 §6.1 接入。
-* 怪物逐图像帧表：`!Mon.dat` / Crystal `.Lib` 的 `BodyLibrary.Frames` 尚未解析，
-  只用 §6.3 的保守默认；某些怪物（如 `mon1.wzl` 图像 1/2）的受击/死亡段不在默认
-  偏移上，会回退到站立帧；
+* **怪物逐图像帧表（R49 B/C，PARTIAL）**：已按 Crystal `.Lib` v3 原生帧表导入 118 个 used
+  库，并接入默认 `game-assets` 客户端路径（§6.2）；但 4 个 v2 库（无 `frameSeek`）与约 800 个
+  源缺 `.Lib` 的 appearance 未导入，逐帧真实渲染只覆盖 `005/022/039/023`；Blend（117）/
+  Reverse/Effect/Sorting 未移植；`!Mon.dat` 精确外观映射仍未解析（§6.2）。缺表/坏表/单动作
+  缺表时才回退旧的 `monN` 保守默认（如 `mon1.wzl` 图像 1/2 的受击/死亡段会回退站立帧）。
+  R49 当前 gate=PARTIAL，待队长最终全量门禁；
 * 装备面板里的角色小预览（面板目前只有 14 个槽的图标 + 名称 + 属性汇总）；
 * 鼠标悬停地面物品的拾取提示框（现在只画物品名；`P` 键与点击拾取已可用）；
   大地图点击寻路（`BigMapDialog.cs:612-628`）仍只吃掉点击；
@@ -1788,7 +1818,8 @@ cargo fmt --all -- --check
 * **摆摊/拍卖/商城的剩余项**：NPC 市场（寄售/拍卖/搜索/翻页/买断/出价/提前成交/取回）面板已在
   §5.14 实现，商城页签在 §5.16 实现；仍缺 Crystal 的**独立商城面板**（`S.GameShopInfo`/
   `S.GameShopStock` 下发、库存实时刷新、`Class`/`Category` 二级筛选页签）、
-  挂单页的按类型过滤树与滚动条（本作固定 10 行 + 上下页）；
+  挂单页的按类型过滤树与滚动条（本作固定 10 行 + 上下页）；**独立商城面板未完成，登记为
+  R50 候选**（前置条件见 [`world/gameshop.md`](world/gameshop.md) §12），不把商城页签当独立面板；
 * **任务**：可接任务列表（目前只能从 NPC 对话页接取）、任务详情/奖励选择/共享/追踪控件、
   已完成任务列表的展示（`S.CompleteQuest` 已进快照，面板只列进行中任务）；
 * **仓库**：扩充仓库（`HasExpandedStorage`）、仓库密码、仓库内的金币存取

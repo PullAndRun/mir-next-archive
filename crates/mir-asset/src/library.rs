@@ -187,6 +187,16 @@ impl ImageLibrary {
             Backend::Wil(reader) => reader.image(index),
         }
     }
+
+    /// 旧版 `.Lib` 的可选原生帧表；v1/v2、无 `frameSeek` 的 v3 与非 `.Lib` 容器返回 `None`。
+    ///
+    /// v4 会在这里明确报错，不静默当无表。
+    pub fn frames(&self) -> Result<Option<crate::FrameSet>, AssetError> {
+        match self.kind {
+            LibraryKind::Lib => crate::FrameSet::from_file(&self.path),
+            LibraryKind::Wzl | LibraryKind::Wil => Ok(None),
+        }
+    }
 }
 
 /// 取小写扩展名。

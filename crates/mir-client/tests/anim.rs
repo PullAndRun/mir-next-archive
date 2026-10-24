@@ -265,7 +265,7 @@ fn self_death_packet_runs_dying_then_dead() {
 fn object_attack_and_struck_and_died_follow_crystal_durations() {
     let mut snapshot = injected_world();
 
-    // 攻击：300 ms（6 帧 × 50 ms，与服务器 300 ms 命中延迟对齐）。
+    // 原生怪物攻击：6 帧 × 100 ms = 600 ms（t41 固定生命期）。
     snapshot.apply_packet_at(
         &ServerPacket::ObjectAttack(ObjectAttack {
             object_id: MONSTER_ID,
@@ -286,13 +286,13 @@ fn object_attack_and_struck_and_died_follow_crystal_durations() {
         view.animation().frame_at(T0 + 150).index,
         "攻击动画在不同时间必须取不同帧"
     );
-    snapshot.tick_animations(T0 + 299);
+    snapshot.tick_animations(T0 + 599);
     assert_eq!(
         snapshot.entities[&MONSTER_ID].action,
         ActorAction::Attacking,
-        "300 ms 之前不能提前结束"
+        "600 ms 之前不能提前结束"
     );
-    snapshot.tick_animations(T0 + 300);
+    snapshot.tick_animations(T0 + 600);
     assert_eq!(snapshot.entities[&MONSTER_ID].action, ActorAction::Standing);
 
     // 受击：人类 3 帧 × 100 ms = 300 ms。

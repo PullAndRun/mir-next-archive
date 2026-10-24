@@ -44,7 +44,7 @@
 | 邮件 | ✅ | 发送（金币/物品附件、邮票、邮费、10 秒限速）、阅读、邮局受理、领取附件、锁定/删除、`mail` 表持久化、30 天过期（扩展）、系统邮件（交易退货/市场退款）与商城邮件（背包溢出）；行会邮件、物品找回未做（见 `docs/world/mail.md`） |
 | 玩家交易 | ✅ | 面朝格发起、接受/拒绝、10 格交易栏、金币、双方确认、取消与动作中止、背包满寄邮件；28 个端到端用例（见 `docs/world/trade.md`） |
 | 寄售 / 拍卖 | ✅ | NPC 托管市场：寄售一口价、拍卖出价、搜索/翻页、提前成交、下架/收款、5% 佣金与 **48 小时过期**（Crystal 7 天，本作差异）、**批量上架/取回 ≤10 全成全回滚**、**到期自动成交**（`process_auctions` 每 60s，买家物品邮件 + 卖家金币邮件，同事务/幂等/崩溃重结算）、启动清理未成交过期单、迁移 0009 持久化（见 `docs/world/market.md`） |
-| 商城（GameShop）与元宝 | 🟡 | 市场面板商城页签、`C.GameshopBuy` 真实扣元宝/金币、职业等级与库存校验、背包优先/放不下转商城邮件、迁移 0011 库存计数单事务持久化；元宝为**角色级**（Crystal 是账号级）；独立商城面板与 `S.GameShopInfo`/`S.GameShopStock` 未做（见 `docs/world/gameshop.md`） |
+| 商城（GameShop）与元宝 | 🟡 | 市场面板商城页签、`C.GameshopBuy` 真实扣元宝/金币、职业等级与库存校验、背包优先/放不下转商城邮件、迁移 0011 库存计数单事务持久化；元宝为**角色级**（Crystal 是账号级）；独立商城面板与 `S.GameShopInfo`/`S.GameShopStock` **未完成，移至 R50**（R50 前置：素材授权/哈希 manifest、真实包链、事务失败包序，见 [`docs/world/gameshop.md`](world/gameshop.md) §12；不提前计入 R50 完成项） |
 | PK 与攻击模式 | ✅ | Peace/Group/Guild/RedBrown/All、安全区禁打、PK 值与红/黄/棕名、死亡掉落、守卫（见 `docs/world/pk.md`） |
 | 攻城（沙巴克） | 🟡 | 申请/时间表/四种城主判定/夺城/税收/传送点/箭塔、迁移 0008；第 8 轮补器械简化实体（Gate/Wall/Archer + 300–302 扩展包 + **迁移 0016** + `OPENGATE`/`CLOSEGATE` + 箭塔 `ObjectRangeAttack`）；旗子/控制点 NPC、修理未做（见 `docs/world/conquest.md` §8.6） |
 
@@ -61,7 +61,7 @@
 | UI（状态栏/聊天/背包/商店/技能/任务/任务物品栏/邮件/仓库/行会/组队/交易/市场/商城页签/设置面板/服务器选择） | ✅ | 主要面板已可用；第 2 轮补了设置面板（音效/音乐/语言/分辨率/按键说明）、登录窗口与服务器/角色选择、市场商城页签与技能表现（火墙/雷电/瞬息移动/隐身/召唤）；第 4 轮补任务物品栏（40 格图标 + 数量）与 HUD 天气；第 5 轮补宠物模式 V 键、任务物品滚轮翻页、`@` 命令原样发送与 `S.SendOutputMessage` 三频道；第 7 轮补攻击 300ms 节奏、挥砍/技能命中特效、音效 100ms 节流与 BGM 按地图切换；第 8 轮补好友面板（F）与行会联盟页签、**攻城 UI**（300–302 器械/HUD/结算横幅）；第 9 轮补组队面板（P，成员/HP/职业/地图）与行会成员页（四列 + 刷新）；第 13 轮补聊天折行/避头尾/省略号与字符级 IME 光标；第 15 轮补小地图传送点标记/悬停提示与断线重连（3 次退避 + 横幅）；第 16 轮补设置面板 O（主/音乐/音效滑杆、窗口模式、6 键重绑、`client.toml`）；细节缺口见 [`docs/client.md`](client.md) §8 |
 | 汉字字体 | ✅ | `ab_glyph` + 系统 TrueType 字体回退；找不到字体时退回点阵（中文会显示为空白并打印警告） |
 | 地图切换 / 小地图 / 音效 / 背景音乐 | ✅ | 小地图/大地图/任务/邮件/仓库/行会/交易面板、rodio 音效与背景音乐 |
-| 自机移动插值 | ✅ | 第 45 轮：自机走/跑 6×100ms 整数像素插值 + 相机跟随（照 Crystal `OffSetMove`）；四类真实窗口边界未实测、≥600ms/跳变无窗口录屏，他人/怪物插值未做（见 [`docs/testing/self-motion/README.md`](testing/self-motion/README.md)） |
+| 移动插值 | ✅ | 第 45 轮自机走/跑 6×100ms 整数像素插值 + 相机跟随（照 Crystal `OffSetMove`）；第 46 轮他者玩家、第 49 C 怪物走/跑已按 Crystal 插值（怪物真实证据限 `005/022/184`，见 [`docs/testing/monster-motion/README.md`](testing/monster-motion/README.md)）；四类真实窗口边界未实测、≥600ms/跳变无窗口录屏；坐骑帧表、Push/Jump/Dash 未接（见 [`docs/testing/self-motion/README.md`](testing/self-motion/README.md)） |
 | 寻路 / 天气粒子 / 光照 | ⏳ | 大地图点击寻路、天气粒子特效、光照待做；天气类型已随 `S.MapChanged.weather` 显示在 HUD，时间因服务端未下发 `S.TimeOfDay` 不显示 |
 
 ## 四、与 Crystal 的已知偏差
@@ -103,8 +103,9 @@
 1. **i18n 收口（照单执行）**：`docs/i18n.md` §7 已给出逐条清单（第 1 类玩家可见 170+ 处，
    含 `文件:行`、`TextKey` 建议名与参数占位）。先做 §7.5 的参数化 `TextKey` API，
    再按表迁移；`tools/i18n/scan_hardcoded.py` 可复跑核对。
-2. **商城收尾**：独立商城面板（`S.GameShopInfo`/`S.GameShopStock`）与客户端 `Class`/`Category`
-   过滤、商城邮件附件领取的全链路端到端用例（见 `docs/world/gameshop.md` §7.3、§10）。
+2. **商城收尾（R50）**：独立商城面板（`S.GameShopInfo`/`S.GameShopStock`）与客户端 `Class`/`Category`
+   过滤、商城邮件附件领取的全链路端到端用例（R49 **未完成**；前置条件见 `docs/world/gameshop.md`
+   §12，不提前计入 R50 完成项）。
 3. **技能补全**：`Blink`/`ShoulderDash`/`StormEscape` 等位移、`PoisonCloud`/`FrostCrunch`
    持续伤害、`ThunderStorm`/`TrapHexagon` 地图级技能、护身符消耗系统、`PetSave`/`PetExp`
    （见 `docs/world/magic.md` §11）。
@@ -112,7 +113,23 @@
    `cargo test -p mir-server --test aoi` 与既有包序回归后翻 ✅。
 5. **市场收尾**：✅ 已完成——拍卖到期自动成交（与 Crystal `ProcessAuction` 对齐，见 `docs/world/market.md` §9）。
 6. **攻城与领地**：旗子/控制点 NPC、城门开关与修理、领地租借。
-7. **客户端表现**：他人/怪物格间插值（自机插值已于第 45 轮完成）、大地图点击寻路、天气/光照、
-   坐骑/翅膀精确素材映射、小地图 NPC 任务标记。
+7. **客户端表现**：坐骑/翅膀精确素材映射、大地图点击寻路、天气/光照、小地图 NPC 任务标记
+   （自机/他者/怪物插值已分别于第 45/46/49 轮完成）。
 8. **任务补全**：✅ 任务物品栏、YouFound、`Q` 标记掉落、每日任务重置均已完成；剩余 `CallDefaultNPC`。
 9. **行会补全**：新建职位/权限编辑/邀请入会界面、行会投票；联盟页签与 `S.GuildAllies`(303) 权威名单已实现。
+
+## 六、第 49 轮收口状态（2026-10-25）
+
+本轮只做“有真实证据的收口”，不把采样结论外推成全量；最终全量门禁由队长统一跑，当前为 **PARTIAL**。
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| 怪物原生帧表（R49 B） | 🟡 已收口（限 118 个 used 怪物库、目标客户端路径） | `.Lib` v3 的 `frames.json` 接入默认 `game-assets`；4 个 v2、约 800 个源缺 `.Lib` 的 appearance 未导入；逐帧真实渲染只覆盖 `005/022/039/023`；Blend（117）/Reverse/Effect/Sorting 未移植。证据 [`docs/testing/native-monster/README.md`](testing/native-monster/README.md) |
+| 怪物走/跑插值（R49 C） | 🟡 已收口（限 `005/022/184` 真实证据） | 照 Crystal `MonsterObject.cs:345-433`；坐骑帧表、Push/Jump/Dash 未接。证据 [`docs/testing/monster-motion/README.md`](testing/monster-motion/README.md) |
+| 文档与 i18n 收口（R49-05） | 🟡 PARTIAL | i18n CI 口径 66（≤70 通过）、文档口径 15（未达 0）；链接检查 `[OK] 670`（最终复跑）；`git diff --check` 0；证据 [`docs/testing/round49/README.md`](testing/round49/README.md) |
+| 独立商城面板 | ⏳ 未完成，移至 R50 | 不把市场页签当独立面板；前置条件见 [`docs/world/gameshop.md`](world/gameshop.md) §12 |
+
+> 第 49 轮冻结的 WIP 状态（33 条 tracked/untracked 差异、**109 个 WIP 文件**（19 tracked + 90
+> untracked 展开）、4 个证据目录、两份 44/45 MB 大 JSON 只登记不入库）见
+> [`docs/testing/round49/wip-freeze.json`](testing/round49/wip-freeze.json)；刑部审计
+> 结论与 BLOCK 项见 [`docs/testing/round49/round49-xingbu-wip-audit.md`](testing/round49/round49-xingbu-wip-audit.md)。

@@ -12,6 +12,7 @@
 //! `tools/assets/build_game_assets.py` 把这些抽成独立目录后，运行时只认这一份，
 //! 用户也可以把素材放到任意盘符再用 `--asset-dir` / 环境变量指过去。
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// 素材形态：开发期散装 / 发布期小包 / 自动。
@@ -180,6 +181,62 @@ pub fn gfx_dir_for_data_dir(data_dir: &Path) -> PathBuf {
     data_dir
         .parent()
         .map_or_else(|| PathBuf::from("gfx"), |root| root.join("gfx"))
+}
+
+/// 从素材目录读出所有原生怪物完整帧表（外观号 → `frames.json`）。
+///
+/// 只给拿不到启动参数的入口用（登录窗口按 `MIR2_ASSET_DIR`/`MIR2_ASSET_MODE`
+/// 自动发现一次）；CLI `--server` 联机路径已经在 `main` 里解析过素材根与
+/// `--asset-mode`，必须把**同一份** [`ResolvedAssets`] 交给
+/// [`load_monster_frames_from_resolved`]，否则 session 与渲染会各自发现一次
+/// 素材根（dev 与 packs 并存时会话读 dev、渲染读 pack，t44 R49-X1-03）。
+#[must_use]
+pub fn load_monster_frames(data_dir: &Path) -> BTreeMap<u16, mir_asset::FrameSet> {
+    let assets = ResolvedAssets::discover_for_data_dir(data_dir);
+    let asset_root = data_dir.parent();
+    let allow_legacy = assets.effective().is_none_or(AssetMode::allow_legacy);
+    load_monster_frames_from_resolved(data_dir, asset_root, &assets, allow_legacy)
+}
+
+/// 用**已解析**的素材来源装载 session 怪物帧表（外观号 → 完整 `FrameSet`）。
+///
+/// 这是渲染与联机会话的唯一同源入口：`data_dir`/`asset_root`/`resolved`/
+/// `allow_legacy` 必须与渲染 `MapScene::load_with_sources` 使用的参数完全一致
+/// （CLI 的 `--asset-dir`/`--asset-mode`/`--data-dir` 解析结果）。连接前把它交给
+/// [`crate::net::ConnectOptions::monster_frames`]，`ObjectWalk` 到达时 session
+/// 就能按真实 `Count/Interval` 建 motion，而不是等快照后再补（t44 R49-X1-03）。
+#[must_use]
+pub fn load_monster_frames_from_resolved(
+    data_dir: &Path,
+    asset_root: Option<&Path>,
+    resolved: &ResolvedAssets,
+    allow_legacy: bool,
+) -> BTreeMap<u16, mir_asset::FrameSet> {
+    let gfx_dir = gfx_dir_for_data_dir(data_dir);
+    let libraries = mir_render::EntityLibraries::open_with_sources(
+        data_dir,
+        Some(gfx_dir.as_path()),
+        asset_root,
+        resolved.map.as_ref(),
+        resolved.packs.as_ref(),
+        allow_legacy,
+    );
+    monster_frames_from_libraries(&libraries)
+}
+
+/// 从已打开的图库收集 `monster-001..=800` 的完整帧表。
+#[must_use]
+pub fn monster_frames_from_libraries(
+    libraries: &mir_render::EntityLibraries,
+) -> BTreeMap<u16, mir_asset::FrameSet> {
+    let mut frames = BTreeMap::new();
+    for image in 1..=800u16 {
+        let key = format!("monster-{image:03}");
+        if let Some(set) = libraries.monster_frames(&key) {
+            frames.insert(image, (*set).clone());
+        }
+    }
+    frames
 }
 
 /// 默认资源根（抽取器 [`tools/assets/build_game_assets.py`] 的默认输出）。

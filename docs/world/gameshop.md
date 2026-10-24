@@ -51,6 +51,10 @@
 - **商城提示仍是中文硬编码**（`GameShopError::message()`），已登记在
   [`docs/i18n.md`](../i18n.md) §7.2 的收口清单。
 
+**第 49 轮没有实现独立商城面板**：本轮只收口市场面板的商城页签与库存/事务边界。独立面板
+（`GameshopDialog` 风格、`S.GameShopInfo`/`S.GameShopStock`）登记为 **R50 候选**，前置条件见
+§12；在满足 §12 前，任何文档都不得把页签写成“独立商城已完成”。
+
 ---
 
 ## 2. 数据模型 `GameShopItem`
@@ -281,7 +285,7 @@ C.MarketBuy{AuctionID = GIndex, BidPrice}   // 74，商城页签打开时的兼�
 失败原因映射见 `GameShopError::market_reason()`：
 余额不够 → `LowGold(4)`、背包满 → `NoSpace(5)`、其余 → `TooFar(7)`。
 
-### 7.3 Crystal 独立商城面板（未实现，登记）
+### 7.3 Crystal 独立商城面板（未实现；R50 前置，见 §12）
 
 Crystal 的 `GameshopDialog` 用 `S.GameShopInfo`（250）逐条下发目录、`S.GameShopStock`（251）
 刷新库存，客户端按 `Class`/`Category`/搜索框过滤。本作**没有**这两个包的下发路径
@@ -297,6 +301,9 @@ Crystal 的 `GameshopDialog` 用 `S.GameShopInfo`（250）逐条下发目录、`
 1. 登录/打开面板时把 `GameShopItem`（包路径）逐条塞进 `S.GameShopInfo`；
 2. 购买后按剩余库存发 `S.GameShopStock{GIndex, StockLevel}`；
 3. 客户端 `GameScene.GameShopInfoList` 的增删语义见 `GameScene.cs:6679-6696`。
+
+R49 不实现该面板；R50 若启动，先满足 §12 的素材授权/哈希 manifest、真实包链、事务失败包序
+三项前置，再谈客户端页签与库存刷新。
 
 ---
 
@@ -412,8 +419,45 @@ Crystal 把 `GameshopLog` 写进 `Server.MirADB` 的全局段（`Envir.cs:2598-2
 
 ## 11. 未做 / 明确不做
 
-* 独立商城面板（`GameshopDialog` 风格）与 `S.GameShopInfo`/`S.GameShopStock` 下发。
+* 独立商城面板（`GameshopDialog` 风格）与 `S.GameShopInfo`/`S.GameShopStock` 下发
+  （R50 前置条件见 §12；R49 未实现）。
 * 商城 `Category` 二级筛选（服务端不按 `Category` 过滤；页签只按物品类型/名字/职业过滤）。
 * 商城条目编辑/定价管理（Crystal 走 GM 命令 `AddGameShopItem` 等，`Envir.cs:4340`、`:4380`）。
 * 元宝充值/充值渠道（协议里没有）。
 * 跨服/多世界共享库存（`gameshop_stock` 是单库全局）。
+
+---
+
+## 12. R50 前置条件（未完成，不构成“已实现”）
+
+第 49 轮**没有**实现独立商城面板；本节只登记 R50 若启动该功能必须先满足的条件，避免把
+市场页签或测试内手工 fixture 当成 Crystal `GameshopDialog` 的等价实现。
+
+### 12.1 素材授权与哈希 manifest
+
+* 面板/页签/图标/空态素材必须先在 [`docs/assets/licensing.md`](../assets/licensing.md) 的授权政策下登记；
+  直接引用 `resource/` 未登记文件不算完成。
+* 生成可复核的商城素材 manifest：`GIndex → 图标/名称/价格/页签分组`，每项带 `source_path`、
+  `bytes`、`sha256`；发布包链只消费 manifest 指向的 `.mnp` 条目（dev/release 双路径一致）。
+* 新增玩家可见文字（页签、空态、错误、按钮）一律走 `TextKey`/`Label`，中英模板占位符一致；
+  不允许在客户端面板里新增中文字面量。
+
+### 12.2 真实包链
+
+* `S.GameShopInfo`(250)/`S.GameShopStock`(251) 必须由真实 `Server.MirDB` 商城段驱动
+  （`GameShopItem` 绑定 `ItemIndex`），不能用测试内手写目录冒充。
+* 必须同时跑通 dev 散装 `game-assets/gfx` 与 release `game-assets/packs`（含
+  `manifest.packs.json` 回读）；缺包/坏包要有明确失败，不得静默回退到空列表。
+* 商品图标与背包/市场图标必须同源哈希；面板列表的 `Class`/`Category` 过滤要能对照
+  Crystal `GameScene.cs:6679-6696` 的增删语义。
+
+### 12.3 事务失败包序
+
+* 独立面板的“购买→扣款→发货→库存刷新”必须与现有 `GameShopUpdate` 同事务；事务失败时
+  回滚包序固定为：退货币（`S.GainedCredit`/`S.GainedGold`）→ 反向扣减/删除到货物品 →
+  删除商城邮件 → 回灌待写队列；客户端不得先显示成功再收到回滚。
+* `S.GameShopStock` 刷新必须在事务提交成功后发；失败时不得发新库存，只能发失败回执。
+* 端到端用例至少覆盖：并发购买不超卖、事务失败回滚、断线重连后库存一致、背包满转邮件后
+  再领取；每条用例要断言包序与最终 DB 状态，而不是只看“收到成功包”。
+
+> 以上三项未全部满足前，路线图/README 的独立商城只能写“未完成（R50 前置）”，不能写“已收口”。

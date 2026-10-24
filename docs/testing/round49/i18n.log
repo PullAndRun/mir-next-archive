@@ -1,0 +1,78 @@
+# R49-05 文档与 i18n 四项检查记录
+
+- 子单：`JJC-20261025-001-sub-fd937482`（礼部）
+- 环境：Windows 10，PATH 无 `python`，统一用 `py -3`；命令前设 `PYTHONIOENCODING=utf-8`
+- 记录口径：原始退出码 + 关键输出；不把 PASS 的 check1 与未达 0 的 check2 混写
+- **总体：`current_gate=PARTIAL`**（最终全量门禁待队长；本文件不代表全量门禁通过）
+
+## 1. strict 棘轮（player-visible + 测试夹具）
+
+- 时间：2026-10-25T03:45:45+08:00
+- 命令：`py -3 tools/i18n/scan_hardcoded.py --player-visible --strict --fail-above 70`
+- 退出码：**0**
+- 关键输出：`合计 66 处硬编码中文（32 个文件已扫描）` / `[OK] 命中 66 处，未超过上限 70`
+- 结论：**PASS（66 ≤ 70）**。第 27 轮基线为 69，本轮 66；两条棘轮不是同一条（见 `docs/i18n.md` §7.1）。
+- 原始日志：`target/r49/r49-05-check1-strict.log`
+
+## 2. no-test 棘轮（player-visible 排除测试）
+
+- 时间：2026-10-25T03:45:45+08:00
+- 命令：`py -3 tools/i18n/scan_hardcoded.py --player-visible --no-test --strict`
+- 退出码：**0**（该命令没有 `--fail-above`，脚本不会因 15 处失败；**不能据此写成通过**）
+- 关键输出：`合计 15 处硬编码中文（32 个文件已扫描）`
+- 结论：**未达文档口径 0，PARTIAL**。15 处清单（逐条真实行号）：
+
+| 文件 | 行 | 文本 |
+|---|---|---|
+| `crates/mir-server/src/market.rs` | 559-563 | 战士 / 法师 / 道士 / 刺客 / 弓箭手（五行职业名） |
+| `crates/mir-server/src/monster.rs` | 695 | 弓箭守卫 |
+| `crates/mir-server/src/monster.rs` | 956、970 | 骷髅 |
+| `crates/mir-server/src/monster.rs` | 980、995 | 稻草人 |
+| `crates/mir-server/src/monster.rs` | 1006、1021 | 骷髅 |
+| `crates/mir-server/src/monster.rs` | 1032、1049 | 神兽 |
+| `crates/mir-server/src/server.rs` | 114 | 「监听 {} 失败」 |
+
+- 说明：15 = market 5（职业名标签匹配表）+ monster 9（`skeleton`/`scarecrow`/`bone_familiar`/`shinsu` 展示名）+ server 1（启动失败日志）。其中部分不是玩家可见，但当前 no-test 口径仍计入；不夸大、不篡改。
+- 参考：不加 `--strict` 的 `--player-visible` 为 269 处，`--player-visible --no-test` 为 26 处；仅作趋势参考，不是门禁口径。
+- 原始日志：`target/r49/r49-05-check2-no-test.log`
+
+## 3. 文档链接检查
+
+- 首跑：2026-10-25T03:45:45+08:00
+  - 命令：`py -3 tools/docs/check_links.py`
+  - 退出码：**1**（新文件尚未落盘，属真实失败）
+  - 输出：断链 `README.md -> docs/testing/round49/README.md`、`docs/i18n.md -> testing/round49/i18n.log`、`docs/roadmap.md -> testing/round49/README.md`
+  - 原始日志：`target/r49/r49-05-check3-links-first-fail.log`
+- 复跑 1：2026-10-25T03:46:25+08:00
+  - 退出码：**1**；`[FAIL] 2 个问题（已检查 669 条相对链接）`，仍缺 `i18n.log`
+- 复跑 2（`i18n.log` 落盘后）：2026-10-25T03:46:49+08:00
+  - 退出码：**0**
+  - 输出：`[OK] 669 条相对链接、2 篇 README 文档引用、市场包编号全部一致`
+  - 原始日志：`target/r49/r49-05-check3-links.log`
+- 结论：**PASS（669 条）**；首次失败如实保留，不删不改。
+
+## 4. 空白错误与工作树
+
+- 时间：2026-10-25T03:45:46+08:00
+- `git diff --check`：退出码 **0**，无输出（无空白错误）
+- `git status --porcelain`：**39 条**（R49-01 冻结时 33 条；差值来自 R49-05 新增文档、`monster-*` 证据目录与 `attack-variants/README.md` 等）
+- 说明：本任务**不** `git add`/`commit`；状态条目仅供队长最终门禁与提交候选参考。
+- 原始日志：`target/r49/r49-05-check4-status.log`、`target/r49/r49-05-status-final.log`
+
+## 5. 最终结果与 PARTIAL 标注
+
+- check3 最终复跑：2026-10-25T03:46:49+08:00，退出码 **0**，`[OK] 669 条相对链接、2 篇 README 文档引用、市场包编号全部一致`
+- 汇总：check1 exit 0 / 66；check2 exit 0 / **15（未达 0）**；check3 exit 0 / 669；check4 diff-check exit 0、porcelain 39 条
+- **PARTIAL**：R49-05 文档口径已收口，但 no-test 15 未归零、最终全量门禁未跑、证据链部分批次的 raw-manifest/二进制与冻结值不一致，需队长重跑后另记。
+
+## 6. 最终复跑（全部文档定稿后）
+
+- 时间：2026-10-25T03:49:44+08:00 ～ 03:49:45+08:00
+- check1：退出码 **0**，66 处（`[OK] 未超过上限 70`）
+- check2：退出码 **0**，15 处（仍未达 0）
+- check3：退出码 **0**，`[OK] 670 条相对链接、2 篇 README 文档引用、市场包编号全部一致`
+  （比 03:46:49 多 1 条：本 README 的失败说明新增指向 `i18n.log` 的链接）
+- check4：`git diff --check` 退出码 **0**；`git status --porcelain` 39 条
+- 原始日志：`target/r49/r49-05-check{1,2,3,4}-*.log` 与 `target/r49/r49-05-status-final.log`
+- 文档最终微调（README 事实校正）后复核：2026-10-25T03:52:43+08:00，check3 仍为 **0 / 670**，`git diff --check` 仍为 0，状态 39 条。
+- 结论仍为 **PARTIAL**：最终全量门禁未跑，不以本轮文档检查代替。

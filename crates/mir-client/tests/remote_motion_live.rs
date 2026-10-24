@@ -101,6 +101,7 @@ fn login(address: SocketAddr, account: &str, character: &str) -> (NetClient, Wor
         }),
         auto_register: true,
         manual_select: false,
+        monster_frames: std::collections::BTreeMap::new(),
     })
     .expect("启动客户端网络线程");
     let snapshot = client
@@ -327,7 +328,13 @@ fn capture_remote(
     samples
 }
 
+/// R49-X1-03 说明：本测试需要**两个真实联机客户端**（同一进程内起真实服务端 +
+/// 两条 `NetClient` 连接 + 可用回环端口），并依赖本机真实 `game-assets`，属于
+/// 双客户端插值门禁（R46 语义）。全量门禁默认不跑它（`#[ignore]`），需要单独
+/// 显式执行以保留该门禁的证据：
+/// `cargo test -p mir-client --test remote_motion_live -- --ignored`
 #[test]
+#[ignore = "需要两个真实联机客户端与可用回环端口（自起真实服务端，回环 TCP）；全量门禁默认不跑，显式 --ignored 单独执行"]
 fn two_clients_observe_remote_walk_run_interpolation() {
     let root = workspace_root();
     let (runtime, address) = start_server(&root);

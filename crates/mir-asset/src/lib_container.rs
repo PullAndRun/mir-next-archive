@@ -58,10 +58,14 @@ const GZIP_MAGIC: [u8; 2] = [0x1F, 0x8B];
 /// `.Lib` 文件头。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LibHeader {
+    /// 版本号（1/2/3）。
+    pub(crate) version: i32,
     /// 图像数量。
     pub(crate) count: u32,
     /// 偏移表起始位置。见 [`parse_header`] 里对两种 v3 布局的说明。
     pub(crate) index_offset: u64,
+    /// 真 v3 帧表位置；v1/v2 与「v3 无 frameSeek」为 `None`。
+    pub(crate) frame_seek: Option<u64>,
 }
 
 /// 解析 `.Lib` 文件头。
@@ -113,6 +117,7 @@ pub(crate) fn parse_header(prefix: &[u8], path: &Path) -> Result<LibHeader, Asse
         });
     }
     let count = raw_count as u32;
+    let mut frame_seek = None;
     let index_offset = if version >= 3 {
         let Some(third) = prefix.get(8..12) else {
             return Err(AssetError::Truncated {
@@ -126,14 +131,17 @@ pub(crate) fn parse_header(prefix: &[u8], path: &Path) -> Result<LibHeader, Asse
         if u64::from(third) == MIN_HEADER_LEN + u64::from(count) * 4 {
             MIN_HEADER_LEN
         } else {
+            frame_seek = Some(u64::from(third));
             V3_HEADER_LEN
         }
     } else {
         MIN_HEADER_LEN
     };
     Ok(LibHeader {
+        version,
         count,
         index_offset,
+        frame_seek,
     })
 }
 
@@ -478,11 +486,19 @@ mod tests {
     fn v2_and_v3_headers_differ_only_in_index_offset() {
         let v2 = parse_header(&header_bytes(2, 7, 0), memory_path()).expect("v2 头应当合法");
         assert_eq!(v2.count, 7);
+        assert_eq!(v2.version, 2);
         assert_eq!(v2.index_offset, 8);
+        assert_eq!(v2.frame_seek, None);
         // Crystal 布局：第三个 i32 是 frameSeek（这里给 0），偏移表从 12 开始。
         let v3 = parse_header(&header_bytes(3, 4096, 0), memory_path()).expect("v3 头应当合法");
         assert_eq!(v3.count, 4096);
+        assert_eq!(v3.version, 3);
         assert_eq!(v3.index_offset, 12);
+        assert_eq!(v3.frame_seek, Some(0));
+        let true_v3 =
+            parse_header(&header_bytes(3, 7, 44), memory_path()).expect("带 frameSeek 的 v3");
+        assert_eq!(true_v3.index_offset, 12);
+        assert_eq!(true_v3.frame_seek, Some(44));
     }
 
     #[test]
@@ -492,6 +508,7 @@ mod tests {
             .expect("无 frameSeek 的 v3 应当合法");
         assert_eq!(v3.count, 368);
         assert_eq!(v3.index_offset, 8);
+        assert_eq!(v3.frame_seek, None);
     }
 
     #[test]

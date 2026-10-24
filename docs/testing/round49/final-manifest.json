@@ -1,0 +1,2388 @@
+{
+  "schema": "legend-next/round49-final-manifest/v1",
+  "generated_at": "2026-10-25T04:18:17+0800",
+  "generator": "target/round49/build_final_manifest.py（临时脚本，不入库）",
+  "auditor": "刑部/御史台只读终审（gpt-6.1-sol），子单 JJC-20261025-001-sub-6282c186",
+  "head": "f0be3645a96776f876d033480f6fac4a1769214d",
+  "working_directory": "C:/Users/diana/Documents/github/mir-next",
+  "summary": {
+    "git_status_entries": 39,
+    "tracked_modified": 25,
+    "untracked_entries": 14,
+    "untracked_expanded": 94,
+    "files_hashed": 119,
+    "files_total_bytes": 131472694,
+    "commit_candidates": 117,
+    "commit_candidate_bytes": 41408996,
+    "excluded_oversize": 2,
+    "excluded_oversize_bytes": 90063698,
+    "hash_drift": [],
+    "unclassified": [
+      "docs/testing/round49/manifest.json",
+      "docs/testing/round49/wip-freeze.json"
+    ],
+    "forbidden_hits": 0,
+    "status_partition": {
+      "initial_freeze_files": 104,
+      "r49_05_documentation_files": 12,
+      "team_and_roles_rewrite": 1,
+      "r49_06_audit_artifacts": 2,
+      "note": "39 条 status = 25 M + 14 untracked；展开为 119 文件。冻结基线 33 条（19M+14 untracked，104 文件随树哈希）+ R49-05 12 文档 + team-and-roles.md + 2 个审计产物。"
+    }
+  },
+  "gate": {
+    "meta_path": "target/round49/final-gate.meta.txt",
+    "log_path": "target/round49/final-gate.log",
+    "log_bytes": 182941,
+    "log_sha256": "5d475f4fb78a0ffd98d14ff9b0400d48c8d73ebbd3eb941c528a90f7048d9426",
+    "exit_code": 0,
+    "exit_code_source": "final-gate.meta.txt 的 exit_code 字段（ci.ps1 直接返回值；非 Tee/管道码）",
+    "start_utc": "2026-10-24T19:54:36Z",
+    "end_utc": "2026-10-24T19:57:32Z",
+    "start_epoch": 1792871676,
+    "end_epoch": 1792871852,
+    "duration_s": 176,
+    "items_passed": 12,
+    "items_total": 12,
+    "items": [
+      {
+        "code": "OK",
+        "name": "cargo fmt --all --check",
+        "seconds": 2
+      },
+      {
+        "code": "OK",
+        "name": "cargo clippy --workspace --all-targets -D warnings",
+        "seconds": 6
+      },
+      {
+        "code": "OK",
+        "name": "cargo test -p mir-server --test duo_smoke（串行）",
+        "seconds": 8
+      },
+      {
+        "code": "OK",
+        "name": "cargo test --workspace",
+        "seconds": 153
+      },
+      {
+        "code": "OK",
+        "name": "协议生成器 --check",
+        "seconds": 1
+      },
+      {
+        "code": "OK",
+        "name": "文档链接与包编号",
+        "seconds": 0
+      },
+      {
+        "code": "OK",
+        "name": "TextKey 完整性",
+        "seconds": 0
+      },
+      {
+        "code": "OK",
+        "name": "硬编码棘轮（player-visible，阈值 70）",
+        "seconds": 0
+      },
+      {
+        "code": "OK",
+        "name": "硬编码棘轮（no-test，阈值 15）",
+        "seconds": 0
+      },
+      {
+        "code": "OK",
+        "name": "运行时不引用老资源格式",
+        "seconds": 0
+      },
+      {
+        "code": "OK",
+        "name": "物品图标完整性",
+        "seconds": 1
+      },
+      {
+        "code": "OK",
+        "name": "PostgreSQL 集成测试（mir-store 串行）",
+        "seconds": 2
+      }
+    ],
+    "tail_line": "==> 全部通过（12 项）",
+    "cross_check": "时长 176s = 各项 Seconds 之和 173s + 启动/收尾 3s；日志 mtime 2026-10-25 03:57:32+08:00 与 end_utc 一致",
+    "note": "任务简报中的 2026-10-25T19:54:36Z 为笔误；meta/log 实测为 2026-10-24T19:54:36Z（本地 03:54:36）→19:57:32（本地 03:57:32）。"
+  },
+  "acceptance_commands": [
+    {
+      "id": "ACC-01a",
+      "command": "cargo test -p mir-asset --test real_framesets",
+      "exit_code": 0,
+      "exit_code_source": "02:14 基线日志：test result ok（1 passed; 3 ignored），驱动 ALLDONE；日志未打印 shell 退出码",
+      "log": {
+        "path": "target/r49-evidence-tests.log",
+        "exists": true,
+        "bytes": 1623,
+        "sha256": "108570ba581d884aa851a4e3d2082807c8e17ff9dc3cc880cffca31894cea59b",
+        "explicit_exit_code_in_log": false
+      },
+      "result": "1 passed; 0 failed; 3 ignored"
+    },
+    {
+      "id": "ACC-01b",
+      "command": "cargo test -p mir-asset --test real_framesets -- --ignored --nocapture",
+      "exit_code": 0,
+      "exit_code_source": "frames-negative-stride.log 逐步显式 [exit code: 0]（4 passed）",
+      "log": {
+        "path": "target/r49/frames-negative-stride.log",
+        "exists": true,
+        "bytes": 13697,
+        "sha256": "7666f6cb6951e68cd0f5cf57b20c7509539d7ac2dcdfaaad9c05221e1b391909",
+        "explicit_exit_code_in_log": true
+      },
+      "result": "4 passed（真实素材）"
+    },
+    {
+      "id": "ACC-02",
+      "command": "cargo test -p mir-render --test monster_native -- --ignored --nocapture",
+      "exit_code": 0,
+      "exit_code_source": "02:14 基线日志：test result ok（3 passed, 8.20s）",
+      "log": {
+        "path": "target/r49-evidence-tests.log",
+        "exists": true,
+        "bytes": 1623,
+        "sha256": "108570ba581d884aa851a4e3d2082807c8e17ff9dc3cc880cffca31894cea59b",
+        "explicit_exit_code_in_log": false
+      },
+      "result": "3 passed"
+    },
+    {
+      "id": "ACC-03",
+      "command": "cargo test -p mir-render --test monster_native_evidence -- --ignored --nocapture",
+      "exit_code": 0,
+      "exit_code_source": "02:14 基线日志：test result ok（1 passed, 33.99s）",
+      "log": {
+        "path": "target/r49-evidence-tests.log",
+        "exists": true,
+        "bytes": 1623,
+        "sha256": "108570ba581d884aa851a4e3d2082807c8e17ff9dc3cc880cffca31894cea59b",
+        "explicit_exit_code_in_log": false
+      },
+      "result": "1 passed; 33.99s"
+    },
+    {
+      "id": "ACC-04",
+      "command": "cargo test -p mir-client --lib -- camera::monster_motion_tests",
+      "exit_code": 0,
+      "exit_code_source": "02:14 基线日志：6 passed",
+      "log": {
+        "path": "target/r49-evidence-tests.log",
+        "exists": true,
+        "bytes": 1623,
+        "sha256": "108570ba581d884aa851a4e3d2082807c8e17ff9dc3cc880cffca31894cea59b",
+        "explicit_exit_code_in_log": false
+      },
+      "result": "6 passed; 267 filtered out"
+    },
+    {
+      "id": "ACC-05",
+      "command": "cargo test -p mir-client --test monster_motion -- --ignored --nocapture",
+      "exit_code": 0,
+      "exit_code_source": "x1-03-cli-frames.log 显式 EXIT=0（1 passed; 4 filtered; 3.89s）",
+      "log": {
+        "path": "target/r49/x1-03-cli-frames.log",
+        "exists": true,
+        "bytes": 27533,
+        "sha256": "49e3df76a9ffb3f61f262f7dcb2ec156852ceac01a307c1e4c58031ab88f587d",
+        "explicit_exit_code_in_log": true
+      },
+      "result": "1 passed; 4 filtered"
+    },
+    {
+      "id": "ACC-06",
+      "command": "cargo test -p mir-tools --test monster_native_import -- --ignored --nocapture",
+      "exit_code": 0,
+      "exit_code_source": "02:14 基线日志：4 passed",
+      "log": {
+        "path": "target/r49-evidence-tests.log",
+        "exists": true,
+        "bytes": 1623,
+        "sha256": "108570ba581d884aa851a4e3d2082807c8e17ff9dc3cc880cffca31894cea59b",
+        "explicit_exit_code_in_log": false
+      },
+      "result": "4 passed"
+    },
+    {
+      "id": "ACC-07",
+      "command": "py -3 tools/i18n/scan_hardcoded.py --player-visible --strict --fail-above 70",
+      "exit_code": 0,
+      "exit_code_source": "日志末行 [OK] 命中 66 处，未超过上限 70",
+      "log": {
+        "path": "target/r49/r49-05-check1-strict.log",
+        "exists": true,
+        "bytes": 3699,
+        "sha256": "fa9576d371a99a188af914fe85bca54b1e2c2d0f0478c4c0c55cbe916eac5130",
+        "explicit_exit_code_in_log": false
+      },
+      "result": "66 处（上限 70）PASS"
+    },
+    {
+      "id": "ACC-08",
+      "command": "py -3 tools/i18n/scan_hardcoded.py --no-test --player-visible --strict --fail-above 15",
+      "exit_code": 0,
+      "exit_code_source": "日志末行 合计 15 处，等于阈值 15（未超过）；无显式 [OK] 行，退出码由驱动未记录",
+      "log": {
+        "path": "target/r49/r49-05-check2-no-test.log",
+        "exists": true,
+        "bytes": 452,
+        "sha256": "d211b7e51d721831397e239cc1b38f22ad23fd44bc0cf413d4596b3889675bc9",
+        "explicit_exit_code_in_log": false
+      },
+      "result": "15 处（上限 15）PASS，但未清零"
+    },
+    {
+      "id": "ACC-09",
+      "command": "py -3 tools/docs/check_links.py",
+      "exit_code": 0,
+      "exit_code_source": "日志 [OK] 670 条相对链接…（首次运行曾 exit 1，留档 first-fail）",
+      "log": {
+        "path": "target/r49/r49-05-check3-links.log",
+        "exists": true,
+        "bytes": 84,
+        "sha256": "e39a8825bf3eeff582d2f27a12a655ef81125cd276fb9361d2976ad337ce8085",
+        "explicit_exit_code_in_log": false
+      },
+      "result": "670 条相对链接 + 2 篇 README 引用 + 市场包编号全部一致"
+    },
+    {
+      "id": "ACC-10",
+      "command": "git diff --check",
+      "exit_code": 0,
+      "exit_code_source": "check4-diff-check.log 末行显式 [exit code: 0]（仅 CRLF 警告，无 whitespace error）",
+      "log": {
+        "path": "target/r49/r49-05-check4-diff-check.log",
+        "exists": true,
+        "bytes": 3085,
+        "sha256": "3bbb97475f61eeaa112da71382474cd2580304bd34863294ba16d65870aecb40",
+        "explicit_exit_code_in_log": true
+      },
+      "result": "无 whitespace error"
+    },
+    {
+      "id": "ACC-11",
+      "command": "pwsh -File tools/dev/ci.ps1 -KillStale",
+      "exit_code": 0,
+      "exit_code_source": "final-gate.meta.txt；12/12 OK；原始 exit 0",
+      "log": {
+        "path": "target/round49/final-gate.log",
+        "exists": true,
+        "bytes": 182941,
+        "sha256": "5d475f4fb78a0ffd98d14ff9b0400d48c8d73ebbd3eb941c528a90f7048d9426",
+        "explicit_exit_code_in_log": false
+      },
+      "result": "12/12 项 OK，176s"
+    },
+    {
+      "id": "ACC-12",
+      "command": "cargo test -p mir-client --test cli_monster_frames -- --ignored",
+      "exit_code": 0,
+      "exit_code_source": "x1-03-cli-frames.log 显式 EXIT=0（2 passed, 6.67s）",
+      "log": {
+        "path": "target/r49/x1-03-cli-frames.log",
+        "exists": true,
+        "bytes": 27533,
+        "sha256": "49e3df76a9ffb3f61f262f7dcb2ec156852ceac01a307c1e4c58031ab88f587d",
+        "explicit_exit_code_in_log": true
+      },
+      "result": "2 passed"
+    },
+    {
+      "id": "ACC-13",
+      "command": "cargo test -p mir-client --test remote_motion_live -- --ignored",
+      "exit_code": 0,
+      "exit_code_source": "x1-03-cli-frames.log 显式 EXIT=0（1 passed, 17.85s）",
+      "log": {
+        "path": "target/r49/x1-03-cli-frames.log",
+        "exists": true,
+        "bytes": 27533,
+        "sha256": "49e3df76a9ffb3f61f262f7dcb2ec156852ceac01a307c1e4c58031ab88f587d",
+        "explicit_exit_code_in_log": true
+      },
+      "result": "1 passed（R46 双客户端）"
+    }
+  ],
+  "evidence_logs": [
+    {
+      "path": "target/round49/final-gate.log",
+      "bytes": 182941,
+      "sha256": "5d475f4fb78a0ffd98d14ff9b0400d48c8d73ebbd3eb941c528a90f7048d9426"
+    },
+    {
+      "path": "target/round49/final-gate.meta.txt",
+      "bytes": 227,
+      "sha256": "9594e828beb57f891825aeb0f0224c2f32ad3467ecc0e70736e80433141b3566"
+    },
+    {
+      "path": "target/r49/frames-negative-stride.log",
+      "bytes": 13697,
+      "sha256": "7666f6cb6951e68cd0f5cf57b20c7509539d7ac2dcdfaaad9c05221e1b391909"
+    },
+    {
+      "path": "target/r49/frames-negative-stride-run1-env-blocked.log",
+      "bytes": 16617,
+      "sha256": "21f124e3c769a42e6c64d191c75dce5ec3ca7f1be598348b20d03be513886128"
+    },
+    {
+      "path": "target/r49/frames-negative-stride-scan.json",
+      "bytes": 933,
+      "sha256": "f53bcca9cb636ec80b285212e722dc2d0338af47b7ab486932d15262b2339baa"
+    },
+    {
+      "path": "target/r49/used-monster-images.json",
+      "bytes": 470300,
+      "sha256": "7a6e0908731f8a8467f31d93db50b4513a3e271c7cdf1a2db8a690c0b5c291eb"
+    },
+    {
+      "path": "target/r49/x1-03-cli-frames.log",
+      "bytes": 27533,
+      "sha256": "49e3df76a9ffb3f61f262f7dcb2ec156852ceac01a307c1e4c58031ab88f587d"
+    },
+    {
+      "path": "target/r49/attack-evidence.log",
+      "bytes": 16521,
+      "sha256": "740d16a05fe97fa1a361742ab0d783d51c584c07ec7a81a79a76ef617a5792d7"
+    },
+    {
+      "path": "target/r49-evidence-tests.log",
+      "bytes": 1623,
+      "sha256": "108570ba581d884aa851a4e3d2082807c8e17ff9dc3cc880cffca31894cea59b"
+    },
+    {
+      "path": "target/r49/r49-05-check1-strict.log",
+      "bytes": 3699,
+      "sha256": "fa9576d371a99a188af914fe85bca54b1e2c2d0f0478c4c0c55cbe916eac5130"
+    },
+    {
+      "path": "target/r49/r49-05-check2-no-test.log",
+      "bytes": 452,
+      "sha256": "d211b7e51d721831397e239cc1b38f22ad23fd44bc0cf413d4596b3889675bc9"
+    },
+    {
+      "path": "target/r49/r49-05-check3-links.log",
+      "bytes": 84,
+      "sha256": "e39a8825bf3eeff582d2f27a12a655ef81125cd276fb9361d2976ad337ce8085"
+    },
+    {
+      "path": "target/r49/r49-05-check3-links-first-fail.log",
+      "bytes": 285,
+      "sha256": "16e963029ac940357630fd5548763bb4b2204c5d2cf4909b3fc7dbff65409bb7"
+    },
+    {
+      "path": "target/r49/r49-05-check4-diff-check.log",
+      "bytes": 3085,
+      "sha256": "3bbb97475f61eeaa112da71382474cd2580304bd34863294ba16d65870aecb40"
+    },
+    {
+      "path": "target/r49/r49-05-check4-status.log",
+      "bytes": 1421,
+      "sha256": "bc3fc17755664f7db41aacc86da76d526186a9d955be6e1e3fa1e5666739e576"
+    },
+    {
+      "path": "target/r49/r49-05-status-final.log",
+      "bytes": 1421,
+      "sha256": "bc3fc17755664f7db41aacc86da76d526186a9d955be6e1e3fa1e5666739e576"
+    },
+    {
+      "path": "docs/testing/round49/wip-freeze.json",
+      "bytes": 181100,
+      "sha256": "1cb0efa73d2fca1c106b984611cfaff186338f342cffba93e9c8c39b7b9043ef"
+    },
+    {
+      "path": "docs/testing/round49/manifest.json",
+      "bytes": 129339,
+      "sha256": "9f2c86657c9c0498041c1f02210488a34e05d385ae39fb2456cf5f384be87a59"
+    },
+    {
+      "path": "docs/testing/round49/i18n.log",
+      "bytes": 5152,
+      "sha256": "7eafa30026bd852b18c321460d5c7bd8cb4b5a80d41d450b4498181e29c5d3b4"
+    },
+    {
+      "path": "docs/testing/round49/README.md",
+      "bytes": 5635,
+      "sha256": "d2e8dcfaace5d5a8b61ee69780cc7b70e6c7b138656cca846a6108b8d2f44d75"
+    },
+    {
+      "path": "docs/testing/monster-motion/README.md",
+      "bytes": 2624,
+      "sha256": "a47f6bcc2d78b59ffa34f553ca5627ff856db6019651631772ec1193530f7dee"
+    },
+    {
+      "path": "docs/testing/monster-native/README.md",
+      "bytes": 7724,
+      "sha256": "04e702b476162087b20df500c72b8e4771a8796b498c99d96af29f33434f3ac7"
+    },
+    {
+      "path": "docs/testing/monster-native/freeze.json",
+      "bytes": 5066,
+      "sha256": "4908cf14f51ba173cd798374e6842b9f203bed8ab556e5527b316e5c71848726"
+    },
+    {
+      "path": "docs/testing/attack-variants/README.md",
+      "bytes": 17952,
+      "sha256": "e8452aea2eac693a4d57b557c094258941205c8a4b14e2014cd7ef3698d8c6d7"
+    },
+    {
+      "path": "docs/process/round49-shangshu-dispatch.md",
+      "bytes": 18307,
+      "sha256": "70f41d4ad5c992d7a40e63af6af9d148a86e937f783e73b8c48ec76bfc14bebd"
+    },
+    {
+      "path": "docs/process/round49-menxia-review.md",
+      "bytes": 18617,
+      "sha256": "7c6b4efacc899f9b854c615b66cf745c1b83d6fe014d0cfa8602c245651173d0"
+    },
+    {
+      "path": "README.md",
+      "bytes": 40042,
+      "sha256": "5a74fad9c75b9b7b400e14a5a1ca1ac4acce802167f2e071eb9dca06acbb5d71"
+    },
+    {
+      "path": "target/r49/scan-alliance-libs.mjs",
+      "bytes": 4076,
+      "sha256": "21dc5bb53b8df3e8fde859f50564de6814139d10aaedd846687e06409537c970"
+    },
+    {
+      "path": "docs/testing/round49/round49-xingbu-wip-audit.md",
+      "bytes": 32065,
+      "sha256": "8815fa64dd6be256e97c6af51222814d104ede2fa97f7121c3b02a9174eae46a"
+    },
+    {
+      "path": "docs/testing/round49/audit-probe-results.json",
+      "bytes": 129458,
+      "sha256": "bd104b256c98a5c5f7166bd080a358fc86eda355e61d4957420831f278cb39ea"
+    }
+  ],
+  "files": [
+    {
+      "path": "README.md",
+      "git_status": "M",
+      "bytes": 40042,
+      "sha256": "5a74fad9c75b9b7b400e14a5a1ca1ac4acce802167f2e071eb9dca06acbb5d71",
+      "source": "r49_05_documentation",
+      "baseline": {
+        "stage": "R49-05",
+        "sha256": "5a74fad9c75b9b7b400e14a5a1ca1ac4acce802167f2e071eb9dca06acbb5d71",
+        "match": true
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-asset/src/lib.rs",
+      "git_status": "M",
+      "bytes": 6731,
+      "sha256": "6590ad69e71285677388eae7e5e3376d15f04feb3672d55873a8c72c65f7fe75",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "6590ad69e71285677388eae7e5e3376d15f04feb3672d55873a8c72c65f7fe75",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-asset/src/lib_container.rs",
+      "git_status": "M",
+      "bytes": 26189,
+      "sha256": "08c44b46b4f15114ee90c5b4ad256fd5c95d41661cb06a6f0d7c94ca82f88afa",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "08c44b46b4f15114ee90c5b4ad256fd5c95d41661cb06a6f0d7c94ca82f88afa",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-asset/src/library.rs",
+      "git_status": "M",
+      "bytes": 25785,
+      "sha256": "0a2f419433ecf6064ebe9260e6549766c2eb2ff059f1a1649a737e67dc4b5b19",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "0a2f419433ecf6064ebe9260e6549766c2eb2ff059f1a1649a737e67dc4b5b19",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-client/src/app.rs",
+      "git_status": "M",
+      "bytes": 140497,
+      "sha256": "b5c535f6b1be36d0a0165e97d6c11ce929352902efdfc2b8ab74539ee3c13c46",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "b5c535f6b1be36d0a0165e97d6c11ce929352902efdfc2b8ab74539ee3c13c46",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-client/src/assets.rs",
+      "git_status": "M",
+      "bytes": 19023,
+      "sha256": "7163971509464196c563308e9888fab2f7437c3998fe9a59fb1be93792243e63",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "7163971509464196c563308e9888fab2f7437c3998fe9a59fb1be93792243e63",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-client/src/camera.rs",
+      "git_status": "M",
+      "bytes": 52953,
+      "sha256": "c57dc92d627c45fe50d545b16872da43e3b5ea761a52d0756ba1996d8f6e9272",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "c57dc92d627c45fe50d545b16872da43e3b5ea761a52d0756ba1996d8f6e9272",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-client/src/main.rs",
+      "git_status": "M",
+      "bytes": 37468,
+      "sha256": "9de995ce1f8f2beb3a81c0d2766cdea038ce594e81ec2347af54cf53f5bc8143",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "9de995ce1f8f2beb3a81c0d2766cdea038ce594e81ec2347af54cf53f5bc8143",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-client/src/net.rs",
+      "git_status": "M",
+      "bytes": 339207,
+      "sha256": "15e1d30b956b7f7d0557850b2a13a7a12c79a3d4e2105f7756717aa0142ccaad",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "15e1d30b956b7f7d0557850b2a13a7a12c79a3d4e2105f7756717aa0142ccaad",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-client/tests/anim.rs",
+      "git_status": "M",
+      "bytes": 18194,
+      "sha256": "c2817a61370f7a7d473c4703bc920592d0bfc32caacfd1331bc65e3e69e78c89",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "c2817a61370f7a7d473c4703bc920592d0bfc32caacfd1331bc65e3e69e78c89",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-client/tests/attack_variant_live.rs",
+      "git_status": "M",
+      "bytes": 48628,
+      "sha256": "515e786876337d0414b441ce7063b8d4bd007d83c46473069349d17d4d69458a",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "515e786876337d0414b441ce7063b8d4bd007d83c46473069349d17d4d69458a",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-client/tests/live_world.rs",
+      "git_status": "M",
+      "bytes": 38831,
+      "sha256": "21f27601492ce236dd7390301a367a48079d22a5e667b4f2c75ad1af80c41c02",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "21f27601492ce236dd7390301a367a48079d22a5e667b4f2c75ad1af80c41c02",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-client/tests/remote_motion_live.rs",
+      "git_status": "M",
+      "bytes": 27630,
+      "sha256": "f3b336dd7773430e525a3994681aee45e2754a1b610b4146836eccad1d8ee68b",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "f3b336dd7773430e525a3994681aee45e2754a1b610b4146836eccad1d8ee68b",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-client/tests/ui_interaction.rs",
+      "git_status": "M",
+      "bytes": 20666,
+      "sha256": "29ed7fd77fc81737da3d8e13cafc2c94ecea97042135b2a3b685e72e6f50e05a",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "29ed7fd77fc81737da3d8e13cafc2c94ecea97042135b2a3b685e72e6f50e05a",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-client/tests/ui_test.rs",
+      "git_status": "M",
+      "bytes": 15662,
+      "sha256": "0bebab160ed1b9dc4d2db9fb8f2d8685266023f4424eac1bb4f63a2d9d8935c1",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "0bebab160ed1b9dc4d2db9fb8f2d8685266023f4424eac1bb4f63a2d9d8935c1",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-render/src/animation.rs",
+      "git_status": "M",
+      "bytes": 45810,
+      "sha256": "b08dfecad239bc397fcb9533f303918c973f5bfb6cbe01615c679a05c5064ed6",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "b08dfecad239bc397fcb9533f303918c973f5bfb6cbe01615c679a05c5064ed6",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-render/src/entities.rs",
+      "git_status": "M",
+      "bytes": 140266,
+      "sha256": "8aad2e0745743812aafe2b345f92e38b41e99e0b67b5be9400e46a472043d432",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "8aad2e0745743812aafe2b345f92e38b41e99e0b67b5be9400e46a472043d432",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-render/tests/native_player_evidence.rs",
+      "git_status": "M",
+      "bytes": 23536,
+      "sha256": "38be50de584abe0638bf635ff3ff0a9b53f1f3be46ada1047556435a2f715885",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "38be50de584abe0638bf635ff3ff0a9b53f1f3be46ada1047556435a2f715885",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-tools/src/main.rs",
+      "git_status": "M",
+      "bytes": 104515,
+      "sha256": "db487781910ff7bf13d451cbb05b0f4d268f5791c970f7a2dd411fa5e6a0f76a",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "db487781910ff7bf13d451cbb05b0f4d268f5791c970f7a2dd411fa5e6a0f76a",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/client.md",
+      "git_status": "M",
+      "bytes": 144889,
+      "sha256": "fc774f11278b128c905c591e5401b80e983c223d9ae7725e6eaa5a914e1b69b3",
+      "source": "r49_05_documentation",
+      "baseline": {
+        "stage": "R49-05",
+        "sha256": "fc774f11278b128c905c591e5401b80e983c223d9ae7725e6eaa5a914e1b69b3",
+        "match": true
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/i18n.md",
+      "git_status": "M",
+      "bytes": 62859,
+      "sha256": "316c82fb65f2fbc57d9b3c520655d1f7f1bff75f80cb3cea8c40a5afd832c4b3",
+      "source": "r49_05_documentation",
+      "baseline": {
+        "stage": "R49-05",
+        "sha256": "316c82fb65f2fbc57d9b3c520655d1f7f1bff75f80cb3cea8c40a5afd832c4b3",
+        "match": true
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/process/team-and-roles.md",
+      "git_status": "M",
+      "bytes": 16364,
+      "sha256": "ed6175960102c4bc779bd8bdc1a490379978165cd3c6cfd560fd312a28f7690e",
+      "source": "team_and_roles_rewrite",
+      "baseline": {
+        "stage": "none",
+        "note": "门禁前重写的团队分工文档，无冻结基线；属 R49-06 允许演进的唯一非文档阶段文件"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/roadmap.md",
+      "git_status": "M",
+      "bytes": 18202,
+      "sha256": "f6dfa9d36ab31cd966f05b33ee4a900bf8c3df48ddec70a5d3a32eb3e1e6a585",
+      "source": "r49_05_documentation",
+      "baseline": {
+        "stage": "R49-05",
+        "sha256": "f6dfa9d36ab31cd966f05b33ee4a900bf8c3df48ddec70a5d3a32eb3e1e6a585",
+        "match": true
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/attack-variants/README.md",
+      "git_status": "M",
+      "bytes": 17952,
+      "sha256": "e8452aea2eac693a4d57b557c094258941205c8a4b14e2014cd7ef3698d8c6d7",
+      "source": "r49_05_documentation",
+      "baseline": {
+        "stage": "R49-05",
+        "sha256": "e8452aea2eac693a4d57b557c094258941205c8a4b14e2014cd7ef3698d8c6d7",
+        "match": true
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/world/gameshop.md",
+      "git_status": "M",
+      "bytes": 29639,
+      "sha256": "b0198e7068c3f5476af234e986d9809add7dfd9d7330e5cd246789e5bc293028",
+      "source": "r49_05_documentation",
+      "baseline": {
+        "stage": "R49-05",
+        "sha256": "b0198e7068c3f5476af234e986d9809add7dfd9d7330e5cd246789e5bc293028",
+        "match": true
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-asset/src/frames.rs",
+      "git_status": "?",
+      "bytes": 24880,
+      "sha256": "509a5c9c3df6b971c8bf6f9663f937bca438b872b547c4ee9aa8528e846ef809",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "509a5c9c3df6b971c8bf6f9663f937bca438b872b547c4ee9aa8528e846ef809",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-asset/tests/real_framesets.rs",
+      "git_status": "?",
+      "bytes": 15386,
+      "sha256": "4481c3479cfeb18b7c5d59da5da7ab0fad61c0b4299a78e3026d0620427fe939",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "4481c3479cfeb18b7c5d59da5da7ab0fad61c0b4299a78e3026d0620427fe939",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-client/tests/cli_monster_frames.rs",
+      "git_status": "?",
+      "bytes": 14843,
+      "sha256": "a13126827cda43c7eb3dc52d6b2fde590732609754fd8bfaf9dd6764302d4ce1",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "a13126827cda43c7eb3dc52d6b2fde590732609754fd8bfaf9dd6764302d4ce1",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-client/tests/monster_motion.rs",
+      "git_status": "?",
+      "bytes": 19279,
+      "sha256": "b5e03ff81943293d953280ae35e37851b3a861b5a4321bd6455f55497d808b52",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "b5e03ff81943293d953280ae35e37851b3a861b5a4321bd6455f55497d808b52",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-render/tests/monster_native.rs",
+      "git_status": "?",
+      "bytes": 16247,
+      "sha256": "e2cf3ae2c69500bc1a3b24cbeaab28f8d28f015583aced46ba9f83e6f7109a33",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "e2cf3ae2c69500bc1a3b24cbeaab28f8d28f015583aced46ba9f83e6f7109a33",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-render/tests/monster_native_evidence.rs",
+      "git_status": "?",
+      "bytes": 14618,
+      "sha256": "f1efc860980370b1f8128ba0aa6b9095a555723a437dd8b1fc0cd46064baa3a1",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "f1efc860980370b1f8128ba0aa6b9095a555723a437dd8b1fc0cd46064baa3a1",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "crates/mir-tools/tests/monster_native_import.rs",
+      "git_status": "?",
+      "bytes": 12915,
+      "sha256": "c64317f37471325f47e5c67aa410e160863430b041518c22e607cdaaad0c18a3",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "c64317f37471325f47e5c67aa410e160863430b041518c22e607cdaaad0c18a3",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/process/round49-menxia-review.md",
+      "git_status": "?",
+      "bytes": 18617,
+      "sha256": "7c6b4efacc899f9b854c615b66cf745c1b83d6fe014d0cfa8602c245651173d0",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "7c6b4efacc899f9b854c615b66cf745c1b83d6fe014d0cfa8602c245651173d0",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/process/round49-plan.md",
+      "git_status": "?",
+      "bytes": 13506,
+      "sha256": "2eeb9b07d6b487e986fb9c79b85d7d5273c29f85f26d43c3600706e5c0061873",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "2eeb9b07d6b487e986fb9c79b85d7d5273c29f85f26d43c3600706e5c0061873",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/process/round49-shangshu-dispatch.md",
+      "git_status": "?",
+      "bytes": 18307,
+      "sha256": "70f41d4ad5c992d7a40e63af6af9d148a86e937f783e73b8c48ec76bfc14bebd",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "70f41d4ad5c992d7a40e63af6af9d148a86e937f783e73b8c48ec76bfc14bebd",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-motion/README.md",
+      "git_status": "?",
+      "bytes": 2624,
+      "sha256": "a47f6bcc2d78b59ffa34f553ca5627ff856db6019651631772ec1193530f7dee",
+      "source": "r49_05_documentation",
+      "baseline": {
+        "stage": "R49-05",
+        "sha256": "a47f6bcc2d78b59ffa34f553ca5627ff856db6019651631772ec1193530f7dee",
+        "match": true
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-motion/frame0.png",
+      "git_status": "?",
+      "bytes": 703538,
+      "sha256": "6299e2486087fb89758efe67e06816c6c921bbf14b3f1d2ed03431aae61fa9a9",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "6299e2486087fb89758efe67e06816c6c921bbf14b3f1d2ed03431aae61fa9a9",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-motion/frame10_184_1000ms.png",
+      "git_status": "?",
+      "bytes": 687609,
+      "sha256": "21bc4a574300cdec725241775478a34f49eed034c4854725dc755586bb5d9994",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "21bc4a574300cdec725241775478a34f49eed034c4854725dc755586bb5d9994",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-motion/frame5.png",
+      "git_status": "?",
+      "bytes": 696586,
+      "sha256": "874f5fe2a8232c7547c067d280e1ed779064d56f0a846d076c875bf18e0a6455",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "874f5fe2a8232c7547c067d280e1ed779064d56f0a846d076c875bf18e0a6455",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-motion/frame6_005_600ms.png",
+      "git_status": "?",
+      "bytes": 694244,
+      "sha256": "681533270a015d78508f1ee3871e4f406b668a04693723a6e95f5adef3646f0f",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "681533270a015d78508f1ee3871e4f406b668a04693723a6e95f5adef3646f0f",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-motion/manifest.json",
+      "git_status": "?",
+      "bytes": 12081,
+      "sha256": "9209a977a9746aaaed7be57e7ae72bb32c4ff92afcab8d13ee747387d0dce3ad",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "9209a977a9746aaaed7be57e7ae72bb32c4ff92afcab8d13ee747387d0dce3ad",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-motion/stride-zero-render.json",
+      "git_status": "?",
+      "bytes": 18478,
+      "sha256": "8e33fd0e127cb265f569d0d1e32a52f0ca959312e9dd2a371b19f6818a823b37",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "8e33fd0e127cb265f569d0d1e32a52f0ca959312e9dd2a371b19f6818a823b37",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-motion/stride-zero/010-standing-down.png",
+      "git_status": "?",
+      "bytes": 10580,
+      "sha256": "b55c84aed8509f28ff0b6c6b71d150809fcce6e387adf1b5634d8d55658c7ced",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "b55c84aed8509f28ff0b6c6b71d150809fcce6e387adf1b5634d8d55658c7ced",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-motion/stride-zero/041-standing-down.png",
+      "git_status": "?",
+      "bytes": 54692,
+      "sha256": "0c0ab11f70354c5ff898dfb86727e41bad237cd5661fd1430426498c11af1e47",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "0c0ab11f70354c5ff898dfb86727e41bad237cd5661fd1430426498c11af1e47",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-motion/stride-zero/043-standing-down.png",
+      "git_status": "?",
+      "bytes": 7954,
+      "sha256": "cd5242868c2d86405c9403e32bc81b8988953e919077a245c4637bdd677d5a13",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "cd5242868c2d86405c9403e32bc81b8988953e919077a245c4637bdd677d5a13",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-motion/stride-zero/062-standing-down.png",
+      "git_status": "?",
+      "bytes": 38808,
+      "sha256": "283a9b24f482c10cbc5af9464707807500d44d31644d2b0014c7e94a65444d36",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "283a9b24f482c10cbc5af9464707807500d44d31644d2b0014c7e94a65444d36",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/README.md",
+      "git_status": "?",
+      "bytes": 7724,
+      "sha256": "04e702b476162087b20df500c72b8e4771a8796b498c99d96af29f33434f3ac7",
+      "source": "r49_05_documentation",
+      "baseline": {
+        "stage": "R49-05",
+        "sha256": "04e702b476162087b20df500c72b8e4771a8796b498c99d96af29f33434f3ac7",
+        "match": true
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/freeze.json",
+      "git_status": "?",
+      "bytes": 5066,
+      "sha256": "4908cf14f51ba173cd798374e6842b9f203bed8ab556e5527b316e5c71848726",
+      "source": "r49_05_documentation",
+      "baseline": {
+        "stage": "R49-05",
+        "sha256": "4908cf14f51ba173cd798374e6842b9f203bed8ab556e5527b316e5c71848726",
+        "match": true
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/manifest.json",
+      "git_status": "?",
+      "bytes": 107624,
+      "sha256": "d3b1d4c4c89b3484e36ae4775b93fddf0f478688edc0e66765c8d27b66fc2c51",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "d3b1d4c4c89b3484e36ae4775b93fddf0f478688edc0e66765c8d27b66fc2c51",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/monster-frame-table.csv",
+      "git_status": "?",
+      "bytes": 28244,
+      "sha256": "c05bb902a2aa9e075c775be4de43e64f2b8aba6853bae94e6724ad0bcc4e1475",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "c05bb902a2aa9e075c775be4de43e64f2b8aba6853bae94e6724ad0bcc4e1475",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/player-resource-freeze-before.json",
+      "git_status": "?",
+      "bytes": 44844165,
+      "sha256": "70845aefd4dd689a55ab0618b36bbf692a4b33ebb5ee2f3a662dedc17a3dc9de",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "70845aefd4dd689a55ab0618b36bbf692a4b33ebb5ee2f3a662dedc17a3dc9de",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "excluded_oversize_gt_1MiB"
+    },
+    {
+      "path": "docs/testing/monster-native/player-resource-freeze.json",
+      "git_status": "?",
+      "bytes": 45219533,
+      "sha256": "c7d896e7f5eee4706b943912c0c564d10d61c98d163143f051c2d632daecde32",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "c7d896e7f5eee4706b943912c0c564d10d61c98d163143f051c2d632daecde32",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "excluded_oversize_gt_1MiB"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-female-alt-attack1.png",
+      "git_status": "?",
+      "bytes": 690287,
+      "sha256": "daa013518c4cbe6e7273f07edb25f510940d434587b126c98f1cb9c1ed64ed49",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "daa013518c4cbe6e7273f07edb25f510940d434587b126c98f1cb9c1ed64ed49",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-female-alt-standing.png",
+      "git_status": "?",
+      "bytes": 690170,
+      "sha256": "540f60c80b9d49db8a2cab5e824e360a83b4efd3490d0611a3342c7263ff889b",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "540f60c80b9d49db8a2cab5e824e360a83b4efd3490d0611a3342c7263ff889b",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-male-alt-attack1.png",
+      "git_status": "?",
+      "bytes": 690584,
+      "sha256": "5b0968817e8eddf8b56b49f807b01813301b1dc59ecf68aef121fd8f2f092d5e",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "5b0968817e8eddf8b56b49f807b01813301b1dc59ecf68aef121fd8f2f092d5e",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-male-alt-standing.png",
+      "git_status": "?",
+      "bytes": 690635,
+      "sha256": "d062c78c6eaa954286f50aab8d9b7e5c243a7e30f65467fb41477ec756c3e293",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "d062c78c6eaa954286f50aab8d9b7e5c243a7e30f65467fb41477ec756c3e293",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-male-plain-attack1.png",
+      "git_status": "?",
+      "bytes": 691494,
+      "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-male-plain-standing.png",
+      "git_status": "?",
+      "bytes": 690769,
+      "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-female-alt-attack1.png",
+      "git_status": "?",
+      "bytes": 690824,
+      "sha256": "60698c2948d24857a1d8e25f379fe054bdcb1cf8fdc733c8ab4291abf706b23c",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "60698c2948d24857a1d8e25f379fe054bdcb1cf8fdc733c8ab4291abf706b23c",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-female-alt-standing.png",
+      "git_status": "?",
+      "bytes": 690486,
+      "sha256": "6605415e0d60d21de63cabc884b8741646615c99e9076f1f23a46904edef0250",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "6605415e0d60d21de63cabc884b8741646615c99e9076f1f23a46904edef0250",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-male-alt-attack1.png",
+      "git_status": "?",
+      "bytes": 691126,
+      "sha256": "8d4f4681bed4e339f5948a98b0838cc4c160c00ee9ece70c24bf7b9e795b010b",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "8d4f4681bed4e339f5948a98b0838cc4c160c00ee9ece70c24bf7b9e795b010b",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-male-alt-standing.png",
+      "git_status": "?",
+      "bytes": 690586,
+      "sha256": "349944863518da8fbb6a4243d00cbeab3d5f139100d8870eae49576f0cf6a024",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "349944863518da8fbb6a4243d00cbeab3d5f139100d8870eae49576f0cf6a024",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-male-plain-attack1.png",
+      "git_status": "?",
+      "bytes": 691494,
+      "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-male-plain-standing.png",
+      "git_status": "?",
+      "bytes": 690769,
+      "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-attack1.png",
+      "git_status": "?",
+      "bytes": 691621,
+      "sha256": "ca3deb6d8f460f102704d41a2ae7d8860ace174c8fe21bee197b90361b9d04b0",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "ca3deb6d8f460f102704d41a2ae7d8860ace174c8fe21bee197b90361b9d04b0",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-dead.png",
+      "git_status": "?",
+      "bytes": 688875,
+      "sha256": "ff278d66ea7fd9b5c85295afd17b40090918a61556fd3d9bad19084dbdda0f58",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "ff278d66ea7fd9b5c85295afd17b40090918a61556fd3d9bad19084dbdda0f58",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-dying.png",
+      "git_status": "?",
+      "bytes": 692001,
+      "sha256": "3002739efefc8736992f344822a60b9d9f329d2841edd40f31e6ed83c9b00165",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "3002739efefc8736992f344822a60b9d9f329d2841edd40f31e6ed83c9b00165",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-standing.png",
+      "git_status": "?",
+      "bytes": 691464,
+      "sha256": "c6391c5e184ada86258d4eec5589f5639cb8ff50a59fd85c864e232105f36a85",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "c6391c5e184ada86258d4eec5589f5639cb8ff50a59fd85c864e232105f36a85",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-struck.png",
+      "git_status": "?",
+      "bytes": 692361,
+      "sha256": "b4ca4742125aa7b0b4a35bf4da4bd8c70c586a9bc37043d61ec4b388e6e88c75",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "b4ca4742125aa7b0b4a35bf4da4bd8c70c586a9bc37043d61ec4b388e6e88c75",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-walking.png",
+      "git_status": "?",
+      "bytes": 691456,
+      "sha256": "c2851b84ea765356641ca9aa35f0f69c032c1c45c72434537ffadfd4968f257b",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "c2851b84ea765356641ca9aa35f0f69c032c1c45c72434537ffadfd4968f257b",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-attack1.png",
+      "git_status": "?",
+      "bytes": 695463,
+      "sha256": "7a6a558e331ac746b28f5ec01d8b3b64f56d319e72c91c3ae4b7ea07ab4a27a6",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "7a6a558e331ac746b28f5ec01d8b3b64f56d319e72c91c3ae4b7ea07ab4a27a6",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-dead.png",
+      "git_status": "?",
+      "bytes": 690168,
+      "sha256": "f113c10353994ffcec7af24e2fbc0f87d95961c600806282959b46c4dcc9a6fd",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "f113c10353994ffcec7af24e2fbc0f87d95961c600806282959b46c4dcc9a6fd",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-dying.png",
+      "git_status": "?",
+      "bytes": 695221,
+      "sha256": "84c744ec0287e65b5b71b7b92af99868be81862f749ee9430db02dd334ba341d",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "84c744ec0287e65b5b71b7b92af99868be81862f749ee9430db02dd334ba341d",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-standing.png",
+      "git_status": "?",
+      "bytes": 694430,
+      "sha256": "1fc79ec16cddc42524cb2c9f2f85717d1fd4dc535c71865f84f8ad587da85c3e",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "1fc79ec16cddc42524cb2c9f2f85717d1fd4dc535c71865f84f8ad587da85c3e",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-struck.png",
+      "git_status": "?",
+      "bytes": 695256,
+      "sha256": "bcf27cf629709ebd9017aa10e8de5db0964e26a55b47c5bdda74e555e8b72833",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "bcf27cf629709ebd9017aa10e8de5db0964e26a55b47c5bdda74e555e8b72833",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-walking.png",
+      "git_status": "?",
+      "bytes": 694151,
+      "sha256": "fc27fb345b56357bd51c7d9da3c411007e9aece710dd9429b54a52605a5eba84",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "fc27fb345b56357bd51c7d9da3c411007e9aece710dd9429b54a52605a5eba84",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-attack1.png",
+      "git_status": "?",
+      "bytes": 696468,
+      "sha256": "399d10598412ba479cb4210845253f7f753fcb3f09a8adc0ef50ee6ac7d67d92",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "399d10598412ba479cb4210845253f7f753fcb3f09a8adc0ef50ee6ac7d67d92",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-dead.png",
+      "git_status": "?",
+      "bytes": 689919,
+      "sha256": "2162b69cd45f2322099c2e0a83283acbd61772ac77bd51c1d671515aeadcf596",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "2162b69cd45f2322099c2e0a83283acbd61772ac77bd51c1d671515aeadcf596",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-dying.png",
+      "git_status": "?",
+      "bytes": 698254,
+      "sha256": "34f39680005890fce10abd794ff5e76186d1fd40137d06cf7db7623843975b72",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "34f39680005890fce10abd794ff5e76186d1fd40137d06cf7db7623843975b72",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-standing.png",
+      "git_status": "?",
+      "bytes": 696827,
+      "sha256": "4140431ed9fa7f93ab12bc8fdab4b351402fb39399358de59c452158cb73a946",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "4140431ed9fa7f93ab12bc8fdab4b351402fb39399358de59c452158cb73a946",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-struck.png",
+      "git_status": "?",
+      "bytes": 698820,
+      "sha256": "bb8d1dfa5a5f3ba01166049258d2abdcfe299fdc942a063e1a3d456822a8dc40",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "bb8d1dfa5a5f3ba01166049258d2abdcfe299fdc942a063e1a3d456822a8dc40",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-walking.png",
+      "git_status": "?",
+      "bytes": 697157,
+      "sha256": "514eb5083512b5529a5973b59a4d774f032386b3525dbc51c134215dd30c5af7",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "514eb5083512b5529a5973b59a4d774f032386b3525dbc51c134215dd30c5af7",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-attack1.png",
+      "git_status": "?",
+      "bytes": 693723,
+      "sha256": "6dceb4b7f234ec6aac53389017fcff52ab106a03b0622003781ba435d86454a6",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "6dceb4b7f234ec6aac53389017fcff52ab106a03b0622003781ba435d86454a6",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-dead.png",
+      "git_status": "?",
+      "bytes": 695806,
+      "sha256": "8d80a4f2f3bbea5044c6c71f67f4831a71ebf1f1340edb16e4f3ecbfa5ffb365",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "8d80a4f2f3bbea5044c6c71f67f4831a71ebf1f1340edb16e4f3ecbfa5ffb365",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-dying.png",
+      "git_status": "?",
+      "bytes": 696117,
+      "sha256": "27c4e9358c812cd6f0fe4bd1173cf906179d906226fe792c1c58aaf41df780b2",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "27c4e9358c812cd6f0fe4bd1173cf906179d906226fe792c1c58aaf41df780b2",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-standing.png",
+      "git_status": "?",
+      "bytes": 694415,
+      "sha256": "b0834ea1bb63e75e6b96b0a371537c77cfcd748b97590c5d1315946e15db702d",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "b0834ea1bb63e75e6b96b0a371537c77cfcd748b97590c5d1315946e15db702d",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-struck.png",
+      "git_status": "?",
+      "bytes": 695848,
+      "sha256": "e0f98cb6db4a3084e9f53acf3aefd667facc7bddcb57a2cf59f9a729fb3bf9d8",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "e0f98cb6db4a3084e9f53acf3aefd667facc7bddcb57a2cf59f9a729fb3bf9d8",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-walking.png",
+      "git_status": "?",
+      "bytes": 693702,
+      "sha256": "c9c6a2bb75b2845c16517cb30faddf13dc8b0513dc6392d6a8570aeeede216e9",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "c9c6a2bb75b2845c16517cb30faddf13dc8b0513dc6392d6a8570aeeede216e9",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/self-moved-dev.png",
+      "git_status": "?",
+      "bytes": 696661,
+      "sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/self-moved-release.png",
+      "git_status": "?",
+      "bytes": 696661,
+      "sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/self-still-dev.png",
+      "git_status": "?",
+      "bytes": 711139,
+      "sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/self-still-release.png",
+      "git_status": "?",
+      "bytes": 711139,
+      "sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/taoist-female-attack1.png",
+      "git_status": "?",
+      "bytes": 691117,
+      "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/taoist-female-standing.png",
+      "git_status": "?",
+      "bytes": 690593,
+      "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/taoist-male-attack1.png",
+      "git_status": "?",
+      "bytes": 691494,
+      "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/taoist-male-standing.png",
+      "git_status": "?",
+      "bytes": 690769,
+      "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/warrior-female-attack1.png",
+      "git_status": "?",
+      "bytes": 691117,
+      "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/warrior-female-standing.png",
+      "git_status": "?",
+      "bytes": 690593,
+      "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/warrior-male-attack1.png",
+      "git_status": "?",
+      "bytes": 691494,
+      "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/warrior-male-standing.png",
+      "git_status": "?",
+      "bytes": 690769,
+      "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/wizard-female-attack1.png",
+      "git_status": "?",
+      "bytes": 691117,
+      "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/wizard-female-standing.png",
+      "git_status": "?",
+      "bytes": 690593,
+      "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/wizard-male-attack1.png",
+      "git_status": "?",
+      "bytes": 691494,
+      "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/png/wizard-male-standing.png",
+      "git_status": "?",
+      "bytes": 690769,
+      "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/monster-native/raw-manifest.json",
+      "git_status": "?",
+      "bytes": 23858,
+      "sha256": "93eb7c5cb0755840fd570adabe86bfc0d8ad22c0c0f6edfa93de812f93fc6649",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "93eb7c5cb0755840fd570adabe86bfc0d8ad22c0c0f6edfa93de812f93fc6649",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/native-monster/README.md",
+      "git_status": "?",
+      "bytes": 7922,
+      "sha256": "7de8c30e4c17110810c7f089365cd376eb8a7a10388fbec184819f65b48abc98",
+      "source": "r49_05_documentation",
+      "baseline": {
+        "stage": "R49-05",
+        "sha256": "7de8c30e4c17110810c7f089365cd376eb8a7a10388fbec184819f65b48abc98",
+        "match": true
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/round49/README.md",
+      "git_status": "?",
+      "bytes": 5635,
+      "sha256": "d2e8dcfaace5d5a8b61ee69780cc7b70e6c7b138656cca846a6108b8d2f44d75",
+      "source": "r49_05_documentation",
+      "baseline": {
+        "stage": "R49-05",
+        "sha256": "d2e8dcfaace5d5a8b61ee69780cc7b70e6c7b138656cca846a6108b8d2f44d75",
+        "match": true
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/round49/audit-detail-results.json",
+      "git_status": "?",
+      "bytes": 66033,
+      "sha256": "e5fd6c329313f3d8f28030bab37c52c90cb34e522f13bfb9494fec4ed9acc7c5",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "e5fd6c329313f3d8f28030bab37c52c90cb34e522f13bfb9494fec4ed9acc7c5",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/round49/audit-probe-results.json",
+      "git_status": "?",
+      "bytes": 129458,
+      "sha256": "bd104b256c98a5c5f7166bd080a358fc86eda355e61d4957420831f278cb39ea",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "bd104b256c98a5c5f7166bd080a358fc86eda355e61d4957420831f278cb39ea",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/round49/audit-report-validation.json",
+      "git_status": "?",
+      "bytes": 192,
+      "sha256": "4056d6711f42aa51956dcd565b5f4ac8418bf5942697b261a4c6bd63af13c26b",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "4056d6711f42aa51956dcd565b5f4ac8418bf5942697b261a4c6bd63af13c26b",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/round49/audit_detail_probe.py",
+      "git_status": "?",
+      "bytes": 6702,
+      "sha256": "8b1d7ca19a62ee70566a06b2bd66214fa33cb8f6d00005e1d961e37e4cca78f4",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "8b1d7ca19a62ee70566a06b2bd66214fa33cb8f6d00005e1d961e37e4cca78f4",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/round49/audit_probe.py",
+      "git_status": "?",
+      "bytes": 7225,
+      "sha256": "3b4b73dfbb6f22461e925bacecb757c541bee5fe4a06ae6853e4277c3e862906",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "3b4b73dfbb6f22461e925bacecb757c541bee5fe4a06ae6853e4277c3e862906",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/round49/code-review-report-round49.html",
+      "git_status": "?",
+      "bytes": 46849,
+      "sha256": "00d6245158c59ed34aeaab11b99a28b00c7b9a51e6ca9c289feb3c255a9bbcb1",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "00d6245158c59ed34aeaab11b99a28b00c7b9a51e6ca9c289feb3c255a9bbcb1",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/round49/i18n.log",
+      "git_status": "?",
+      "bytes": 5152,
+      "sha256": "7eafa30026bd852b18c321460d5c7bd8cb4b5a80d41d450b4498181e29c5d3b4",
+      "source": "r49_05_documentation",
+      "baseline": {
+        "stage": "R49-05",
+        "sha256": "7eafa30026bd852b18c321460d5c7bd8cb4b5a80d41d450b4498181e29c5d3b4",
+        "match": true
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/round49/manifest.json",
+      "git_status": "?",
+      "bytes": 129339,
+      "sha256": "9f2c86657c9c0498041c1f02210488a34e05d385ae39fb2456cf5f384be87a59",
+      "source": "audit_artifact_r49_05_stage_manifest",
+      "baseline": {
+        "stage": "self",
+        "note": "审计产物自指文件；哈希在本清单生成前记录，不参与冻结漂移对照"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/round49/record-audit-memo.sh",
+      "git_status": "?",
+      "bytes": 324,
+      "sha256": "8383573a2c9a08d342b3a9440a2fd35009ef116bbbb599694fc6577daed083d1",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "8383573a2c9a08d342b3a9440a2fd35009ef116bbbb599694fc6577daed083d1",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/round49/render_audit_report.py",
+      "git_status": "?",
+      "bytes": 4888,
+      "sha256": "592b9e8314390d14d6f58cff627ecd9072ab76761004f45daae98b7e812fd114",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "592b9e8314390d14d6f58cff627ecd9072ab76761004f45daae98b7e812fd114",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/round49/round49-xingbu-wip-audit.md",
+      "git_status": "?",
+      "bytes": 32065,
+      "sha256": "8815fa64dd6be256e97c6af51222814d104ede2fa97f7121c3b02a9174eae46a",
+      "source": "initial_freeze",
+      "baseline": {
+        "stage": "R49-01 wip-freeze",
+        "sha256": "8815fa64dd6be256e97c6af51222814d104ede2fa97f7121c3b02a9174eae46a",
+        "match": true,
+        "note": "哈希漂移清单为 0（脚本已逐文件对照 wip-freeze.json sha256_worktree_raw）"
+      },
+      "commit_state": "commit_candidate"
+    },
+    {
+      "path": "docs/testing/round49/wip-freeze.json",
+      "git_status": "?",
+      "bytes": 181100,
+      "sha256": "1cb0efa73d2fca1c106b984611cfaff186338f342cffba93e9c8c39b7b9043ef",
+      "source": "audit_artifact_r49_01_freeze_baseline",
+      "baseline": {
+        "stage": "self",
+        "note": "审计产物自指文件；哈希在本清单生成前记录，不参与冻结漂移对照"
+      },
+      "commit_state": "commit_candidate"
+    }
+  ],
+  "pending_commit": {
+    "count_hashed": 117,
+    "bytes_hashed": 41408996,
+    "paths": [
+      "README.md",
+      "crates/mir-asset/src/lib.rs",
+      "crates/mir-asset/src/lib_container.rs",
+      "crates/mir-asset/src/library.rs",
+      "crates/mir-client/src/app.rs",
+      "crates/mir-client/src/assets.rs",
+      "crates/mir-client/src/camera.rs",
+      "crates/mir-client/src/main.rs",
+      "crates/mir-client/src/net.rs",
+      "crates/mir-client/tests/anim.rs",
+      "crates/mir-client/tests/attack_variant_live.rs",
+      "crates/mir-client/tests/live_world.rs",
+      "crates/mir-client/tests/remote_motion_live.rs",
+      "crates/mir-client/tests/ui_interaction.rs",
+      "crates/mir-client/tests/ui_test.rs",
+      "crates/mir-render/src/animation.rs",
+      "crates/mir-render/src/entities.rs",
+      "crates/mir-render/tests/native_player_evidence.rs",
+      "crates/mir-tools/src/main.rs",
+      "docs/client.md",
+      "docs/i18n.md",
+      "docs/process/team-and-roles.md",
+      "docs/roadmap.md",
+      "docs/testing/attack-variants/README.md",
+      "docs/world/gameshop.md",
+      "crates/mir-asset/src/frames.rs",
+      "crates/mir-asset/tests/real_framesets.rs",
+      "crates/mir-client/tests/cli_monster_frames.rs",
+      "crates/mir-client/tests/monster_motion.rs",
+      "crates/mir-render/tests/monster_native.rs",
+      "crates/mir-render/tests/monster_native_evidence.rs",
+      "crates/mir-tools/tests/monster_native_import.rs",
+      "docs/process/round49-menxia-review.md",
+      "docs/process/round49-plan.md",
+      "docs/process/round49-shangshu-dispatch.md",
+      "docs/testing/monster-motion/README.md",
+      "docs/testing/monster-motion/frame0.png",
+      "docs/testing/monster-motion/frame10_184_1000ms.png",
+      "docs/testing/monster-motion/frame5.png",
+      "docs/testing/monster-motion/frame6_005_600ms.png",
+      "docs/testing/monster-motion/manifest.json",
+      "docs/testing/monster-motion/stride-zero-render.json",
+      "docs/testing/monster-motion/stride-zero/010-standing-down.png",
+      "docs/testing/monster-motion/stride-zero/041-standing-down.png",
+      "docs/testing/monster-motion/stride-zero/043-standing-down.png",
+      "docs/testing/monster-motion/stride-zero/062-standing-down.png",
+      "docs/testing/monster-native/README.md",
+      "docs/testing/monster-native/freeze.json",
+      "docs/testing/monster-native/manifest.json",
+      "docs/testing/monster-native/monster-frame-table.csv",
+      "docs/testing/monster-native/png/archer-female-alt-attack1.png",
+      "docs/testing/monster-native/png/archer-female-alt-standing.png",
+      "docs/testing/monster-native/png/archer-male-alt-attack1.png",
+      "docs/testing/monster-native/png/archer-male-alt-standing.png",
+      "docs/testing/monster-native/png/archer-male-plain-attack1.png",
+      "docs/testing/monster-native/png/archer-male-plain-standing.png",
+      "docs/testing/monster-native/png/assassin-female-alt-attack1.png",
+      "docs/testing/monster-native/png/assassin-female-alt-standing.png",
+      "docs/testing/monster-native/png/assassin-male-alt-attack1.png",
+      "docs/testing/monster-native/png/assassin-male-alt-standing.png",
+      "docs/testing/monster-native/png/assassin-male-plain-attack1.png",
+      "docs/testing/monster-native/png/assassin-male-plain-standing.png",
+      "docs/testing/monster-native/png/monster-005-attack1.png",
+      "docs/testing/monster-native/png/monster-005-dead.png",
+      "docs/testing/monster-native/png/monster-005-dying.png",
+      "docs/testing/monster-native/png/monster-005-standing.png",
+      "docs/testing/monster-native/png/monster-005-struck.png",
+      "docs/testing/monster-native/png/monster-005-walking.png",
+      "docs/testing/monster-native/png/monster-022-attack1.png",
+      "docs/testing/monster-native/png/monster-022-dead.png",
+      "docs/testing/monster-native/png/monster-022-dying.png",
+      "docs/testing/monster-native/png/monster-022-standing.png",
+      "docs/testing/monster-native/png/monster-022-struck.png",
+      "docs/testing/monster-native/png/monster-022-walking.png",
+      "docs/testing/monster-native/png/monster-023-attack1.png",
+      "docs/testing/monster-native/png/monster-023-dead.png",
+      "docs/testing/monster-native/png/monster-023-dying.png",
+      "docs/testing/monster-native/png/monster-023-standing.png",
+      "docs/testing/monster-native/png/monster-023-struck.png",
+      "docs/testing/monster-native/png/monster-023-walking.png",
+      "docs/testing/monster-native/png/monster-039-attack1.png",
+      "docs/testing/monster-native/png/monster-039-dead.png",
+      "docs/testing/monster-native/png/monster-039-dying.png",
+      "docs/testing/monster-native/png/monster-039-standing.png",
+      "docs/testing/monster-native/png/monster-039-struck.png",
+      "docs/testing/monster-native/png/monster-039-walking.png",
+      "docs/testing/monster-native/png/self-moved-dev.png",
+      "docs/testing/monster-native/png/self-moved-release.png",
+      "docs/testing/monster-native/png/self-still-dev.png",
+      "docs/testing/monster-native/png/self-still-release.png",
+      "docs/testing/monster-native/png/taoist-female-attack1.png",
+      "docs/testing/monster-native/png/taoist-female-standing.png",
+      "docs/testing/monster-native/png/taoist-male-attack1.png",
+      "docs/testing/monster-native/png/taoist-male-standing.png",
+      "docs/testing/monster-native/png/warrior-female-attack1.png",
+      "docs/testing/monster-native/png/warrior-female-standing.png",
+      "docs/testing/monster-native/png/warrior-male-attack1.png",
+      "docs/testing/monster-native/png/warrior-male-standing.png",
+      "docs/testing/monster-native/png/wizard-female-attack1.png",
+      "docs/testing/monster-native/png/wizard-female-standing.png",
+      "docs/testing/monster-native/png/wizard-male-attack1.png",
+      "docs/testing/monster-native/png/wizard-male-standing.png",
+      "docs/testing/monster-native/raw-manifest.json",
+      "docs/testing/native-monster/README.md",
+      "docs/testing/round49/README.md",
+      "docs/testing/round49/audit-detail-results.json",
+      "docs/testing/round49/audit-probe-results.json",
+      "docs/testing/round49/audit-report-validation.json",
+      "docs/testing/round49/audit_detail_probe.py",
+      "docs/testing/round49/audit_probe.py",
+      "docs/testing/round49/code-review-report-round49.html",
+      "docs/testing/round49/i18n.log",
+      "docs/testing/round49/manifest.json",
+      "docs/testing/round49/record-audit-memo.sh",
+      "docs/testing/round49/render_audit_report.py",
+      "docs/testing/round49/round49-xingbu-wip-audit.md",
+      "docs/testing/round49/wip-freeze.json"
+    ],
+    "post_gate_artifacts_not_in_hash_table": [
+      {
+        "path": "docs/testing/round49/final-manifest.json",
+        "note": "本清单自身，无法自哈希；生成后由终审报告记录字节与哈希"
+      },
+      {
+        "path": "docs/testing/round49/round49-xingbu-final-audit.md",
+        "note": "终审报告，门禁后写入（dispatch §六允许）"
+      }
+    ],
+    "note": "待审提交=117 个已哈希候选 + 2 个门禁后终审文档（若队长采纳提交建议）。target/** 不提交。"
+  },
+  "exclusions": [
+    {
+      "pattern": "docs/testing/monster-native/player-resource-freeze-before.json",
+      "bytes": 44844165,
+      "sha256": "70845aef...",
+      "reason": "44.8MB > 1MiB 入库上限；超大快照仅本地保留"
+    },
+    {
+      "pattern": "docs/testing/monster-native/player-resource-freeze.json",
+      "bytes": 45219533,
+      "sha256": "c7d896e7...",
+      "reason": "45.2MB > 1MiB 入库上限；超大快照仅本地保留"
+    },
+    {
+      "pattern": "target/**",
+      "reason": "构建产物/证据日志/临时脚本；gitignore；不提交"
+    },
+    {
+      "pattern": ".env",
+      "reason": "密钥与资源路径；绝不入库"
+    },
+    {
+      "pattern": "github/**",
+      "reason": "上游参考仓库快照"
+    },
+    {
+      "pattern": "resource/**",
+      "reason": "原始素材库（大体量）"
+    },
+    {
+      "pattern": "game-assets/**",
+      "reason": "生成素材（大体量）"
+    }
+  ],
+  "forbidden_scan": {
+    "hits": [],
+    "checked": [
+      "target/",
+      ".env",
+      "github/",
+      "resource/",
+      "game-assets/",
+      ">1MiB"
+    ],
+    "note": "对 119 个待审文件路径扫描，命中 0（两个超大 JSON 单独列于 exclusions，不在提交候选内）。"
+  },
+  "partials": [
+    {
+      "id": "P01",
+      "item": "i18n no-test 门禁 15 处（阈值 15，未清零）",
+      "status": "PARTIAL",
+      "evidence": "target/r49/r49-05-check2-no-test.log（15 处 / 32 文件）；门禁项“硬编码棘轮（no-test，阈值 15）”OK",
+      "impact": "门禁通过但技术债仍在；玩家可见 66 处已由阈值 70 接受。"
+    },
+    {
+      "id": "P02",
+      "item": "monster-native 证据元数据不一致",
+      "status": "PARTIAL",
+      "evidence": "docs/testing/monster-native/freeze.json：batch=1792847715360 早于 raw-manifest 生成 1792865639318；client_binary manifest 00b3df83… vs 磁盘 da0ab79a…；source_blobs entities 0153679045a9→8aad2e074574、animation ba905a9c484d→b08dfecad239、camera 3ae7a5a2eea6→c57dc92d627c",
+      "impact": "证据批次、二进制与源 blob 非同一快照；README/freeze.json 已如实标注 PARTIAL，未伪造一致。"
+    },
+    {
+      "id": "P03",
+      "item": "monster-motion 历史产物 self_moving.png / landed.png 不存在",
+      "status": "PARTIAL",
+      "evidence": "全仓无此二文件；README 仅引用 4 张实存 PNG；仅 crates/mir-client/tests/monster_motion.rs:334-335 有删除陈旧文件逻辑",
+      "impact": "R49-05 已改写 README 为实存 4 图，无文档/测试断链；但门下评测 §5.3 原文仍点名，需队长/门下确认是否降级为不适用。"
+    },
+    {
+      "id": "P04",
+      "item": "attack-variants PNG 位级非确定",
+      "status": "PARTIAL",
+      "evidence": "docs/testing/attack-variants/README.md §8：同输入两次运行 2/25 帧像素不同；语义摘要 d7a645df075396ac 稳定；R49 证据默认写 target/attack-variants",
+      "impact": "位级不可复现，语义级可复现；不构成门禁失败。"
+    },
+    {
+      "id": "P05",
+      "item": "未实现/缺源内容保留",
+      "status": "PARTIAL",
+      "evidence": "Blend117/Reverse/Effect/Sorting 未实现；坐骑、攻击变招、Push-Jump-Dash、商城列 R50；4 个 v2 帧表；>800 怪物缺源（frames-negative-stride-scan.json non_v3: 515/530/531/534 old_no_frames、800 file_missing）",
+      "impact": "属范围缺口，非假绿；已在 round49/README 与 R49-05 unresolved 中列明。"
+    },
+    {
+      "id": "P06",
+      "item": "文档仍写门禁前状态",
+      "status": "PARTIAL",
+      "evidence": "README.md:74 “current_gate=PARTIAL，待队长最终全量门禁”；docs/testing/round49/README 开头与 §4 同步滞后",
+      "impact": "门禁 12/12 exit 0 后应更新；本轮只读审计不代改，列为遗留项。"
+    },
+    {
+      "id": "P07",
+      "item": "“放宽不改已接受表语义”的证据范围仅 118 used 库",
+      "status": "PARTIAL（论证成立但仅限已核范围）",
+      "evidence": "target/r49/frames-negative-stride-scan.json：items=123、valid_v3_frames=118、newly_accepted_frames=[]、negative_stride_frames_in_used_libs=0；target/r49/scan-alliance-libs.mjs 为全库扫描脚本但未落盘 900 库结果",
+      "impact": "118 个 used 库语义不变成立；任务要求的“全 900 库 oldRejected/newlyAccepted=0”无落盘产物，不可外推；且该论证不能消除 monster-native 证据的批次/二进制不一致（P02）。"
+    },
+    {
+      "id": "P08",
+      "item": "R46 remote_motion_live 新增 #[ignore]",
+      "status": "PARTIAL",
+      "evidence": "target/r49/x1-03-cli-frames.log 单独 --ignored 运行通过；门禁 cargo test --workspace 不会执行它",
+      "impact": "门禁覆盖面缩小，已记录；需队长决定是否纳入门禁或专用步骤。"
+    }
+  ],
+  "legacy_items": [
+    {
+      "path": "README.md",
+      "line": 74,
+      "text": "第 49 轮行仍写“current_gate=PARTIAL，待队长最终全量门禁”",
+      "action": "建议门禁后更新为 final_gate=12/12 exit 0"
+    },
+    {
+      "path": "docs/testing/round49/README.md",
+      "line": "开头/§4",
+      "text": "仍写当前门禁=PARTIAL、待队长最终全量门禁",
+      "action": "建议更新为最终门禁结果"
+    }
+  ],
+  "consistency": {
+    "with_r49_01_wip_freeze": "104 个冻结文件逐文件字节/哈希 0 漂移（any_mismatch=[]）；新增 6 个 M 全部属 R49-05 文档阶段或 team-and-roles 重写。",
+    "with_r49_05_documentation_stage": "12 个 R49-05 文件全部与 manifest r49_05 sha256 一致（0 漂移）；R49-05 自述 current_gate=PARTIAL / final_gate_run_on_current_worktree=false 已被本清单 gate 实测 supersede。",
+    "with_r49_01_verdict": "R49-01 结论 PASS-WITH-PARTIAL 的 PARTIAL 项在本清单 P01–P08 中保留并补证；前次 wip 审计 BLOCK 的“缺素材空过”疑点已由源码 assert 复核（见 audit md §6）。"
+  },
+  "reproduce_commands": [
+    "git status --porcelain  # 期望 39 条 = 25 M + 14 untracked",
+    "py -3 target/round49/final_audit_hashes.py  # 期望 119 文件、any_mismatch=[]（脚本本地临时）",
+    "py -3 target/round49/build_final_manifest.py  # 本清单与门禁摘要的生成脚本",
+    "Get-FileHash target/round49/final-gate.log -Algorithm SHA256  # 期望 5d475f4f…",
+    "cargo test -p mir-asset --test real_framesets -- --ignored --nocapture",
+    "cargo test -p mir-render --test monster_native -- --ignored --nocapture",
+    "cargo test -p mir-render --test monster_native_evidence -- --ignored --nocapture",
+    "cargo test -p mir-client --lib -- camera::monster_motion_tests",
+    "cargo test -p mir-client --test monster_motion -- --ignored --nocapture",
+    "cargo test -p mir-tools --test monster_native_import -- --ignored --nocapture",
+    "py -3 tools/i18n/scan_hardcoded.py --player-visible --strict --fail-above 70",
+    "py -3 tools/i18n/scan_hardcoded.py --no-test --player-visible --strict --fail-above 15",
+    "py -3 tools/docs/check_links.py",
+    "git diff --check",
+    "pwsh -File tools/dev/ci.ps1 -KillStale  # 队长唯一门禁；12/12、exit 0"
+  ],
+  "audit_scope_note": "只读终审：未运行全量门禁、未重跑 ignored 测试、未修改 crates/证据/旧日志、未 git add/commit。门禁数字取队长实测 meta/log；ignored 证据取 02:14–02:49 已落盘日志。审计产物在门禁之后写入，属 dispatch §六声明的允许终审产物，不使门禁失效。"
+}

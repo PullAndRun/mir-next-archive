@@ -1,0 +1,1 @@
+node "C:/Users/diana/.dsh/skills/edict/scripts/edict.mjs" memo JJC-20261025-001 xingbu "御史台 WIP 只读审计：BLOCK；合法负stride仍被拒；最终证据身份过期且两份44MB冻结超限；攻击图为合理重跑但冻结说明须更新；详见 docs/testing/round49/round49-xingbu-wip-audit.md" --as xingbu

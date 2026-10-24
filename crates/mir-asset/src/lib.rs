@@ -92,6 +92,7 @@ mod audio_mna;
 #[cfg(feature = "legacy")]
 mod dxt1;
 mod error;
+pub mod frames;
 mod image;
 #[cfg(feature = "legacy")]
 mod lib_container;
@@ -111,6 +112,7 @@ mod wzl;
 pub use atlas::{AtlasFrame, AtlasLibrary, AtlasMeta};
 pub use audio_mna::{AudioClip, AudioCodec, AudioMeta};
 pub use error::AssetError;
+pub use frames::{FRAME_RECORD_LEN, Frame, FrameSet, action_name};
 pub use image::{
     Image, ImageInfo, black_to_transparent, black_to_transparent_rgb,
     black_to_transparent_rgb_border, format,

@@ -1,0 +1,925 @@
+{
+  "asset_mode": "dev(unpacked) vs release(pack-only)",
+  "generated_at_unix_ms": 1792865639318,
+  "map": "game-assets/maps/0.mnm",
+  "mixed": [
+    {
+      "camera_center": [
+        330,
+        270
+      ],
+      "dev_png": "docs/testing/monster-native/png/self-still-dev.png",
+      "label": "self-still",
+      "pixel_diff": 0,
+      "release_png": "docs/testing/monster-native/png/self-still-release.png",
+      "source_kind_dev": "unpacked",
+      "source_kind_release": "pack"
+    },
+    {
+      "camera_center": [
+        331,
+        270
+      ],
+      "dev_png": "docs/testing/monster-native/png/self-moved-dev.png",
+      "label": "self-moved",
+      "pixel_diff": 0,
+      "release_png": "docs/testing/monster-native/png/self-moved-release.png",
+      "source_kind_dev": "unpacked",
+      "source_kind_release": "pack"
+    }
+  ],
+  "player_cases": 12,
+  "png": [
+    "docs/testing/monster-native/warrior-male-standing.png",
+    "docs/testing/monster-native/warrior-male-attack1.png",
+    "docs/testing/monster-native/warrior-female-standing.png",
+    "docs/testing/monster-native/warrior-female-attack1.png",
+    "docs/testing/monster-native/wizard-male-standing.png",
+    "docs/testing/monster-native/wizard-male-attack1.png",
+    "docs/testing/monster-native/wizard-female-standing.png",
+    "docs/testing/monster-native/wizard-female-attack1.png",
+    "docs/testing/monster-native/taoist-male-standing.png",
+    "docs/testing/monster-native/taoist-male-attack1.png",
+    "docs/testing/monster-native/taoist-female-standing.png",
+    "docs/testing/monster-native/taoist-female-attack1.png",
+    "docs/testing/monster-native/assassin-male-alt-standing.png",
+    "docs/testing/monster-native/assassin-male-alt-attack1.png",
+    "docs/testing/monster-native/assassin-female-alt-standing.png",
+    "docs/testing/monster-native/assassin-female-alt-attack1.png",
+    "docs/testing/monster-native/assassin-male-plain-standing.png",
+    "docs/testing/monster-native/assassin-male-plain-attack1.png",
+    "docs/testing/monster-native/archer-male-alt-standing.png",
+    "docs/testing/monster-native/archer-male-alt-attack1.png",
+    "docs/testing/monster-native/archer-female-alt-standing.png",
+    "docs/testing/monster-native/archer-female-alt-attack1.png",
+    "docs/testing/monster-native/archer-male-plain-standing.png",
+    "docs/testing/monster-native/archer-male-plain-attack1.png",
+    "docs/testing/monster-native/monster-005-standing.png",
+    "docs/testing/monster-native/monster-005-walking.png",
+    "docs/testing/monster-native/monster-005-attack1.png",
+    "docs/testing/monster-native/monster-005-struck.png",
+    "docs/testing/monster-native/monster-005-dying.png",
+    "docs/testing/monster-native/monster-005-dead.png",
+    "docs/testing/monster-native/monster-022-standing.png",
+    "docs/testing/monster-native/monster-022-walking.png",
+    "docs/testing/monster-native/monster-022-attack1.png",
+    "docs/testing/monster-native/monster-022-struck.png",
+    "docs/testing/monster-native/monster-022-dying.png",
+    "docs/testing/monster-native/monster-022-dead.png",
+    "docs/testing/monster-native/monster-039-standing.png",
+    "docs/testing/monster-native/monster-039-walking.png",
+    "docs/testing/monster-native/monster-039-attack1.png",
+    "docs/testing/monster-native/monster-039-struck.png",
+    "docs/testing/monster-native/monster-039-dying.png",
+    "docs/testing/monster-native/monster-039-dead.png",
+    "docs/testing/monster-native/monster-023-standing.png",
+    "docs/testing/monster-native/monster-023-walking.png",
+    "docs/testing/monster-native/monster-023-attack1.png",
+    "docs/testing/monster-native/monster-023-struck.png",
+    "docs/testing/monster-native/monster-023-dying.png",
+    "docs/testing/monster-native/monster-023-dead.png"
+  ],
+  "samples": [
+    {
+      "alt_anim": false,
+      "attack_png": "docs/testing/monster-native/png/warrior-male-attack1.png",
+      "changed_pixels": 1371,
+      "class": "Warrior",
+      "gender": "Male",
+      "kind": "player",
+      "name": "warrior-male",
+      "native_action": "Attack1",
+      "standing_png": "docs/testing/monster-native/png/warrior-male-standing.png",
+      "weapon_shape": 0
+    },
+    {
+      "alt_anim": false,
+      "attack_png": "docs/testing/monster-native/png/warrior-female-attack1.png",
+      "changed_pixels": 1224,
+      "class": "Warrior",
+      "gender": "Female",
+      "kind": "player",
+      "name": "warrior-female",
+      "native_action": "Attack1",
+      "standing_png": "docs/testing/monster-native/png/warrior-female-standing.png",
+      "weapon_shape": 0
+    },
+    {
+      "alt_anim": false,
+      "attack_png": "docs/testing/monster-native/png/wizard-male-attack1.png",
+      "changed_pixels": 1371,
+      "class": "Wizard",
+      "gender": "Male",
+      "kind": "player",
+      "name": "wizard-male",
+      "native_action": "Attack1",
+      "standing_png": "docs/testing/monster-native/png/wizard-male-standing.png",
+      "weapon_shape": 0
+    },
+    {
+      "alt_anim": false,
+      "attack_png": "docs/testing/monster-native/png/wizard-female-attack1.png",
+      "changed_pixels": 1224,
+      "class": "Wizard",
+      "gender": "Female",
+      "kind": "player",
+      "name": "wizard-female",
+      "native_action": "Attack1",
+      "standing_png": "docs/testing/monster-native/png/wizard-female-standing.png",
+      "weapon_shape": 0
+    },
+    {
+      "alt_anim": false,
+      "attack_png": "docs/testing/monster-native/png/taoist-male-attack1.png",
+      "changed_pixels": 1371,
+      "class": "Taoist",
+      "gender": "Male",
+      "kind": "player",
+      "name": "taoist-male",
+      "native_action": "Attack1",
+      "standing_png": "docs/testing/monster-native/png/taoist-male-standing.png",
+      "weapon_shape": 0
+    },
+    {
+      "alt_anim": false,
+      "attack_png": "docs/testing/monster-native/png/taoist-female-attack1.png",
+      "changed_pixels": 1224,
+      "class": "Taoist",
+      "gender": "Female",
+      "kind": "player",
+      "name": "taoist-female",
+      "native_action": "Attack1",
+      "standing_png": "docs/testing/monster-native/png/taoist-female-standing.png",
+      "weapon_shape": 0
+    },
+    {
+      "alt_anim": true,
+      "attack_png": "docs/testing/monster-native/png/assassin-male-alt-attack1.png",
+      "changed_pixels": 1343,
+      "class": "Assassin",
+      "gender": "Male",
+      "kind": "player",
+      "name": "assassin-male-alt",
+      "native_action": "Attack1",
+      "standing_png": "docs/testing/monster-native/png/assassin-male-alt-standing.png",
+      "weapon_shape": 100
+    },
+    {
+      "alt_anim": true,
+      "attack_png": "docs/testing/monster-native/png/assassin-female-alt-attack1.png",
+      "changed_pixels": 1216,
+      "class": "Assassin",
+      "gender": "Female",
+      "kind": "player",
+      "name": "assassin-female-alt",
+      "native_action": "Attack1",
+      "standing_png": "docs/testing/monster-native/png/assassin-female-alt-standing.png",
+      "weapon_shape": 100
+    },
+    {
+      "alt_anim": false,
+      "attack_png": "docs/testing/monster-native/png/assassin-male-plain-attack1.png",
+      "changed_pixels": 1371,
+      "class": "Assassin",
+      "gender": "Male",
+      "kind": "player",
+      "name": "assassin-male-plain",
+      "native_action": "Attack1",
+      "standing_png": "docs/testing/monster-native/png/assassin-male-plain-standing.png",
+      "weapon_shape": 0
+    },
+    {
+      "alt_anim": true,
+      "attack_png": "docs/testing/monster-native/png/archer-male-alt-attack1.png",
+      "changed_pixels": 1240,
+      "class": "Archer",
+      "gender": "Male",
+      "kind": "player",
+      "name": "archer-male-alt",
+      "native_action": "Attack1",
+      "standing_png": "docs/testing/monster-native/png/archer-male-alt-standing.png",
+      "weapon_shape": 200
+    },
+    {
+      "alt_anim": true,
+      "attack_png": "docs/testing/monster-native/png/archer-female-alt-attack1.png",
+      "changed_pixels": 1111,
+      "class": "Archer",
+      "gender": "Female",
+      "kind": "player",
+      "name": "archer-female-alt",
+      "native_action": "Attack1",
+      "standing_png": "docs/testing/monster-native/png/archer-female-alt-standing.png",
+      "weapon_shape": 200
+    },
+    {
+      "alt_anim": false,
+      "attack_png": "docs/testing/monster-native/png/archer-male-plain-attack1.png",
+      "changed_pixels": 1371,
+      "class": "Archer",
+      "gender": "Male",
+      "kind": "player",
+      "name": "archer-male-plain",
+      "native_action": "Attack1",
+      "standing_png": "docs/testing/monster-native/png/archer-male-plain-standing.png",
+      "weapon_shape": 0
+    },
+    {
+      "action": "standing",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 1522,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 5,
+      "kind": "monster",
+      "library_key": "monster-005",
+      "motion_tick_ms": 100,
+      "object_id": 1005,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-005-standing.png",
+      "sample_ms": 0,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "walking",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 1506,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 5,
+      "kind": "monster",
+      "library_key": "monster-005",
+      "motion_tick_ms": 100,
+      "object_id": 1005,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-005-walking.png",
+      "sample_ms": 100,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "attack1",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 1589,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 5,
+      "kind": "monster",
+      "library_key": "monster-005",
+      "motion_tick_ms": 100,
+      "object_id": 1005,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-005-attack1.png",
+      "sample_ms": 0,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "struck",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 1775,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 5,
+      "kind": "monster",
+      "library_key": "monster-005",
+      "motion_tick_ms": 100,
+      "object_id": 1005,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-005-struck.png",
+      "sample_ms": 0,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "dying",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 1803,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 5,
+      "kind": "monster",
+      "library_key": "monster-005",
+      "motion_tick_ms": 100,
+      "object_id": 1005,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-005-dying.png",
+      "sample_ms": 0,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "dead",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 754,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 5,
+      "kind": "monster",
+      "library_key": "monster-005",
+      "motion_tick_ms": 100,
+      "object_id": 1005,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-005-dead.png",
+      "sample_ms": 1000,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "standing",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 2076,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 22,
+      "kind": "monster",
+      "library_key": "monster-022",
+      "motion_tick_ms": 100,
+      "object_id": 1022,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-022-standing.png",
+      "sample_ms": 0,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "walking",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 2049,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 22,
+      "kind": "monster",
+      "library_key": "monster-022",
+      "motion_tick_ms": 100,
+      "object_id": 1022,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-022-walking.png",
+      "sample_ms": 100,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "attack1",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 2506,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 22,
+      "kind": "monster",
+      "library_key": "monster-022",
+      "motion_tick_ms": 100,
+      "object_id": 1022,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-022-attack1.png",
+      "sample_ms": 0,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "struck",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 2370,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 22,
+      "kind": "monster",
+      "library_key": "monster-022",
+      "motion_tick_ms": 100,
+      "object_id": 1022,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-022-struck.png",
+      "sample_ms": 0,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "dying",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 2354,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 22,
+      "kind": "monster",
+      "library_key": "monster-022",
+      "motion_tick_ms": 100,
+      "object_id": 1022,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-022-dying.png",
+      "sample_ms": 0,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "dead",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 1441,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 22,
+      "kind": "monster",
+      "library_key": "monster-022",
+      "motion_tick_ms": 100,
+      "object_id": 1022,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-022-dead.png",
+      "sample_ms": 1000,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "standing",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 2179,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 39,
+      "kind": "monster",
+      "library_key": "monster-039",
+      "motion_tick_ms": 100,
+      "object_id": 1039,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-039-standing.png",
+      "sample_ms": 0,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "walking",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 2083,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 39,
+      "kind": "monster",
+      "library_key": "monster-039",
+      "motion_tick_ms": 100,
+      "object_id": 1039,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-039-walking.png",
+      "sample_ms": 100,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "attack1",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 2082,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 39,
+      "kind": "monster",
+      "library_key": "monster-039",
+      "motion_tick_ms": 100,
+      "object_id": 1039,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-039-attack1.png",
+      "sample_ms": 0,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "struck",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 2609,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 39,
+      "kind": "monster",
+      "library_key": "monster-039",
+      "motion_tick_ms": 100,
+      "object_id": 1039,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-039-struck.png",
+      "sample_ms": 0,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "dying",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 2623,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 39,
+      "kind": "monster",
+      "library_key": "monster-039",
+      "motion_tick_ms": 100,
+      "object_id": 1039,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-039-dying.png",
+      "sample_ms": 0,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "dead",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 2787,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 39,
+      "kind": "monster",
+      "library_key": "monster-039",
+      "motion_tick_ms": 100,
+      "object_id": 1039,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-039-dead.png",
+      "sample_ms": 1000,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "standing",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 3395,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 23,
+      "kind": "monster",
+      "library_key": "monster-023",
+      "motion_tick_ms": 100,
+      "object_id": 1023,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-023-standing.png",
+      "sample_ms": 0,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "walking",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 3331,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 23,
+      "kind": "monster",
+      "library_key": "monster-023",
+      "motion_tick_ms": 100,
+      "object_id": 1023,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-023-walking.png",
+      "sample_ms": 100,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "attack1",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 3054,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 23,
+      "kind": "monster",
+      "library_key": "monster-023",
+      "motion_tick_ms": 100,
+      "object_id": 1023,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-023-attack1.png",
+      "sample_ms": 0,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "struck",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 3675,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 23,
+      "kind": "monster",
+      "library_key": "monster-023",
+      "motion_tick_ms": 100,
+      "object_id": 1023,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-023-struck.png",
+      "sample_ms": 0,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "dying",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 3920,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 23,
+      "kind": "monster",
+      "library_key": "monster-023",
+      "motion_tick_ms": 100,
+      "object_id": 1023,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-023-dying.png",
+      "sample_ms": 0,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    },
+    {
+      "action": "dead",
+      "action_started_ms": 0,
+      "asset_mode": "dev/unpacked",
+      "changed_pixels": 2007,
+      "classification": "native-frames-json",
+      "direction": "Down",
+      "from": [
+        330,
+        270
+      ],
+      "image": 23,
+      "kind": "monster",
+      "library_key": "monster-023",
+      "motion_tick_ms": 100,
+      "object_id": 1023,
+      "pixel_offset": [
+        0,
+        0
+      ],
+      "png": "docs/testing/monster-native/png/monster-023-dead.png",
+      "sample_ms": 1000,
+      "sort_y": 270,
+      "started_ms": 0,
+      "to": [
+        330,
+        270
+      ]
+    }
+  ],
+  "test": "native_monsters_and_players_render_in_dev_and_release_modes"
+}

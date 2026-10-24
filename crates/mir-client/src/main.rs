@@ -538,6 +538,22 @@ fn run_connected(
             "联机模式需要 --account NAME --password PASS --character NAME（角色不存在时加 --create-character）"
         );
     }
+    // CLI `--server` 联机路径也必须在连接前装好原生怪物帧表。这里复用**渲染
+    // 场景的同一份素材解析**（`--asset-dir`/`--asset-mode`/`--data-dir` 的输出），
+    // 不再自己 `discover` 一次：dev 与 packs 并存时，各自发现会让会话读 dev、
+    // 渲染读 pack（t44 R49-X1-03）。
+    let monster_frames = mir_client::assets::load_monster_frames_from_resolved(
+        &options.data_dir,
+        Some(assets.root),
+        assets.resolved,
+        assets.allow_legacy,
+    );
+    if monster_frames.is_empty() {
+        eprintln!(
+            "警告：{} 没有读到原生怪物帧表，联机移动/动作时长将退回默认值",
+            options.data_dir.display()
+        );
+    }
     let connect = ConnectOptions {
         server: server.to_owned(),
         account: options.account.clone(),
@@ -546,6 +562,7 @@ fn run_connected(
         create: options.create.clone(),
         auto_register: options.auto_register,
         manual_select: false,
+        monster_frames,
     };
     println!("连接服务器 {server} …");
     let client = NetClient::connect(connect.clone())?;

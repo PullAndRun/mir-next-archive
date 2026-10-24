@@ -1,0 +1,5202 @@
+{
+ "schema": "mir-next/r49-d-monster-native-evidence/v2",
+ "batch": 1792847715360,
+ "generated_at_unix_ms": 1792847691005,
+ "hash_algorithm": "sha256 over PNG bytes and over RGBA pixel bytes of the alpha bbox",
+ "asset_mode": "default game-assets auto->dev/unpacked; release pack-only",
+ "map": "game-assets/maps/0.mnm",
+ "crystal_reference": "github/Crystal HEAD 0e315fe327192afe52c3d7357ddd1f5b7e26c5b8",
+ "baseline": {
+  "git_head": "fdef540",
+  "source_blobs": {
+   "crates/mir-render/src/entities.rs": "0153679045a9c09d227e50dd362eef7c2fcb528ab6a75b11b6b40ed9b57281f9",
+   "crates/mir-render/src/player_layout.rs": "57f328c1bcad52ebad46ca3a15afc1279badb3852c1f2b2c0f2a8759a00f203c",
+   "crates/mir-render/src/animation.rs": "ba905a9c484d435c12b8d787f0ad2ce2a89bc77db33bd7bf85d5c03970110bc7",
+   "crates/mir-client/src/camera.rs": "3ae7a5a2eea6147a4ddef36b33611ddfa700585aedbd42ecd2eedb53ae1b538a"
+  }
+ },
+ "client_binary": {
+  "path": "target\\debug\\deps\\monster_native_evidence-326d5f1505730207.exe",
+  "sha256": "00b3df83ea96a9c954e045a2e75d87338b9b446b2a78eaec9d766ef76ea30544"
+ },
+ "assets": {
+  "library_map_sha256": "29a4df1d3c1f752ac15c7e720e136781bb07801b016c2ad199e9f34664827f79",
+  "packs_manifest_sha256": "b0ba79f904543a4c231882d67610cf1ad692da665229bd1b7dab8e2fcfc1ee2a",
+  "native_pack_set_sha256": "b3689d39d9cddb9e49d982c894e346a3cfd14ac6b5617b96a29379b5b734203d",
+  "native_packs": [
+   {
+    "file": "sprites-monster-native-1.mnp",
+    "sha256": "546bd37c9834a840b66cc6353a118fd332934a5119e6e077e29b9e5e3c336800",
+    "entries": 4609
+   },
+   {
+    "file": "sprites-monster-native-2.mnp",
+    "sha256": "e4de845be3fd9a19a0ed940f75eff83ed64679c6050385f108408dae984ecaef",
+    "entries": 3435
+   },
+   {
+    "file": "sprites-monster-native-3.mnp",
+    "sha256": "2d4a145549acbc96d1cdbea7be30fb525fc0760be5e9706d6a58593f48547346",
+    "entries": 3808
+   },
+   {
+    "file": "sprites-monster-native-4.mnp",
+    "sha256": "1e1d5f03fa97691514cbb24fe8f5969350db61f832c6328e78516857c93c5261",
+    "entries": 2669
+   },
+   {
+    "file": "sprites-monster-native-5.mnp",
+    "sha256": "d021da5545552eeb1ccee6290069b9afa4e1607223cbc8b2f14027207040a7c7",
+    "entries": 3681
+   },
+   {
+    "file": "sprites-monster-native-6.mnp",
+    "sha256": "312c8e5bfebdffef2aeac614fd595cf68ba3335204a8d91c1a7aaf023816005f",
+    "entries": 2873
+   },
+   {
+    "file": "sprites-monster-native-7.mnp",
+    "sha256": "93b14e93445e08e200c2a78a0f30ee4d3151327eb39a8c25eac569c81aeffdb0",
+    "entries": 382
+   },
+   {
+    "file": "sprites-monster-native-8.mnp",
+    "sha256": "2e24d37d197f5a69f927685194e234064a8952b86ae49e638884ee17941e26f2",
+    "entries": 1788
+   },
+   {
+    "file": "sprites-monster-native-9.mnp",
+    "sha256": "e447c88044311fa2cb7872473de1090ca6b26afdaf401c2b8b300083b8c603f3",
+    "entries": 1218
+   },
+   {
+    "file": "sprites-monster-native-10.mnp",
+    "sha256": "a95218dcd951b129d3ff84188437001099955d7ec4a6f1748e2d9fa800a614ae",
+    "entries": 2205
+   },
+   {
+    "file": "sprites-monster-native-11.mnp",
+    "sha256": "0fe01474e2bb4303d9f99c2f7c2b33c5f038269397664b877b69603b86541676",
+    "entries": 2405
+   },
+   {
+    "file": "sprites-monster-native-12.mnp",
+    "sha256": "5887dd235934ec8017bcc2e60ce62ff29939f0a86fbff5c0f56abff213b88562",
+    "entries": 689
+   }
+  ]
+ },
+ "counts": {
+  "player_samples": 12,
+  "monster_samples": 24,
+  "mixed_scenes": 2,
+  "png_files": 52,
+  "unique_png_sha256": 38,
+  "unique_crop_sha256": 38,
+  "csv_rows": 224,
+  "source_libraries": 4
+ },
+ "player_resource_freeze": "docs/testing/monster-native/player-resource-freeze.json",
+ "samples": [
+  {
+   "alt_anim": false,
+   "attack_png": "docs/testing/monster-native/png/warrior-male-attack1.png",
+   "changed_pixels": 1371,
+   "class": "Warrior",
+   "gender": "Male",
+   "kind": "player",
+   "name": "warrior-male",
+   "native_action": "Attack1",
+   "standing_png": "docs/testing/monster-native/png/warrior-male-standing.png",
+   "weapon_shape": 0,
+   "png": [
+    "docs/testing/monster-native/png/warrior-male-standing.png",
+    "docs/testing/monster-native/png/warrior-male-attack1.png"
+   ],
+   "png_sha256": {
+    "standing": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+    "attack1": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736"
+   },
+   "crop_sha256": {
+    "standing": "3af9850af529d78ddcca1b44c10d0cc0b747009b05837a2d3689661a7ac1cf74",
+    "attack1": "0be72d2d12bb210291762e8f943d34fa335abb4e0c84c3e6ccc8b26b4bdc0e8c"
+   }
+  },
+  {
+   "alt_anim": false,
+   "attack_png": "docs/testing/monster-native/png/warrior-female-attack1.png",
+   "changed_pixels": 1224,
+   "class": "Warrior",
+   "gender": "Female",
+   "kind": "player",
+   "name": "warrior-female",
+   "native_action": "Attack1",
+   "standing_png": "docs/testing/monster-native/png/warrior-female-standing.png",
+   "weapon_shape": 0,
+   "png": [
+    "docs/testing/monster-native/png/warrior-female-standing.png",
+    "docs/testing/monster-native/png/warrior-female-attack1.png"
+   ],
+   "png_sha256": {
+    "standing": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+    "attack1": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19"
+   },
+   "crop_sha256": {
+    "standing": "6cbf439112c55cedeefd5c79563b4c59194eeacce8c1655446b476824b8a7c9a",
+    "attack1": "33fdc4bf9e0e6ad9070fd0683bdcc60eabdb6c5c676e893b0fe07fdd44a3a41d"
+   }
+  },
+  {
+   "alt_anim": false,
+   "attack_png": "docs/testing/monster-native/png/wizard-male-attack1.png",
+   "changed_pixels": 1371,
+   "class": "Wizard",
+   "gender": "Male",
+   "kind": "player",
+   "name": "wizard-male",
+   "native_action": "Attack1",
+   "standing_png": "docs/testing/monster-native/png/wizard-male-standing.png",
+   "weapon_shape": 0,
+   "png": [
+    "docs/testing/monster-native/png/wizard-male-standing.png",
+    "docs/testing/monster-native/png/wizard-male-attack1.png"
+   ],
+   "png_sha256": {
+    "standing": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+    "attack1": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736"
+   },
+   "crop_sha256": {
+    "standing": "3af9850af529d78ddcca1b44c10d0cc0b747009b05837a2d3689661a7ac1cf74",
+    "attack1": "0be72d2d12bb210291762e8f943d34fa335abb4e0c84c3e6ccc8b26b4bdc0e8c"
+   }
+  },
+  {
+   "alt_anim": false,
+   "attack_png": "docs/testing/monster-native/png/wizard-female-attack1.png",
+   "changed_pixels": 1224,
+   "class": "Wizard",
+   "gender": "Female",
+   "kind": "player",
+   "name": "wizard-female",
+   "native_action": "Attack1",
+   "standing_png": "docs/testing/monster-native/png/wizard-female-standing.png",
+   "weapon_shape": 0,
+   "png": [
+    "docs/testing/monster-native/png/wizard-female-standing.png",
+    "docs/testing/monster-native/png/wizard-female-attack1.png"
+   ],
+   "png_sha256": {
+    "standing": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+    "attack1": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19"
+   },
+   "crop_sha256": {
+    "standing": "6cbf439112c55cedeefd5c79563b4c59194eeacce8c1655446b476824b8a7c9a",
+    "attack1": "33fdc4bf9e0e6ad9070fd0683bdcc60eabdb6c5c676e893b0fe07fdd44a3a41d"
+   }
+  },
+  {
+   "alt_anim": false,
+   "attack_png": "docs/testing/monster-native/png/taoist-male-attack1.png",
+   "changed_pixels": 1371,
+   "class": "Taoist",
+   "gender": "Male",
+   "kind": "player",
+   "name": "taoist-male",
+   "native_action": "Attack1",
+   "standing_png": "docs/testing/monster-native/png/taoist-male-standing.png",
+   "weapon_shape": 0,
+   "png": [
+    "docs/testing/monster-native/png/taoist-male-standing.png",
+    "docs/testing/monster-native/png/taoist-male-attack1.png"
+   ],
+   "png_sha256": {
+    "standing": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+    "attack1": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736"
+   },
+   "crop_sha256": {
+    "standing": "3af9850af529d78ddcca1b44c10d0cc0b747009b05837a2d3689661a7ac1cf74",
+    "attack1": "0be72d2d12bb210291762e8f943d34fa335abb4e0c84c3e6ccc8b26b4bdc0e8c"
+   }
+  },
+  {
+   "alt_anim": false,
+   "attack_png": "docs/testing/monster-native/png/taoist-female-attack1.png",
+   "changed_pixels": 1224,
+   "class": "Taoist",
+   "gender": "Female",
+   "kind": "player",
+   "name": "taoist-female",
+   "native_action": "Attack1",
+   "standing_png": "docs/testing/monster-native/png/taoist-female-standing.png",
+   "weapon_shape": 0,
+   "png": [
+    "docs/testing/monster-native/png/taoist-female-standing.png",
+    "docs/testing/monster-native/png/taoist-female-attack1.png"
+   ],
+   "png_sha256": {
+    "standing": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+    "attack1": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19"
+   },
+   "crop_sha256": {
+    "standing": "6cbf439112c55cedeefd5c79563b4c59194eeacce8c1655446b476824b8a7c9a",
+    "attack1": "33fdc4bf9e0e6ad9070fd0683bdcc60eabdb6c5c676e893b0fe07fdd44a3a41d"
+   }
+  },
+  {
+   "alt_anim": true,
+   "attack_png": "docs/testing/monster-native/png/assassin-male-alt-attack1.png",
+   "changed_pixels": 1343,
+   "class": "Assassin",
+   "gender": "Male",
+   "kind": "player",
+   "name": "assassin-male-alt",
+   "native_action": "Attack1",
+   "standing_png": "docs/testing/monster-native/png/assassin-male-alt-standing.png",
+   "weapon_shape": 100,
+   "png": [
+    "docs/testing/monster-native/png/assassin-male-alt-standing.png",
+    "docs/testing/monster-native/png/assassin-male-alt-attack1.png"
+   ],
+   "png_sha256": {
+    "standing": "349944863518da8fbb6a4243d00cbeab3d5f139100d8870eae49576f0cf6a024",
+    "attack1": "8d4f4681bed4e339f5948a98b0838cc4c160c00ee9ece70c24bf7b9e795b010b"
+   },
+   "crop_sha256": {
+    "standing": "794304887370477e08f73c5e956a1c3e7bfb274f9f9be16993585b0ec19e302e",
+    "attack1": "5d275d0f33c8107ed9886ef013d58fee5372cb7f33b1bb4af421a9779291ebaa"
+   }
+  },
+  {
+   "alt_anim": true,
+   "attack_png": "docs/testing/monster-native/png/assassin-female-alt-attack1.png",
+   "changed_pixels": 1216,
+   "class": "Assassin",
+   "gender": "Female",
+   "kind": "player",
+   "name": "assassin-female-alt",
+   "native_action": "Attack1",
+   "standing_png": "docs/testing/monster-native/png/assassin-female-alt-standing.png",
+   "weapon_shape": 100,
+   "png": [
+    "docs/testing/monster-native/png/assassin-female-alt-standing.png",
+    "docs/testing/monster-native/png/assassin-female-alt-attack1.png"
+   ],
+   "png_sha256": {
+    "standing": "6605415e0d60d21de63cabc884b8741646615c99e9076f1f23a46904edef0250",
+    "attack1": "60698c2948d24857a1d8e25f379fe054bdcb1cf8fdc733c8ab4291abf706b23c"
+   },
+   "crop_sha256": {
+    "standing": "d2515820da956ee7321ab074e071a05979799b08550b8c85f2fb9c2aad1533e4",
+    "attack1": "9e34e1fbf52d30e9424f276c26e6a483cfb99b7f99e8769a80a4721d792e5374"
+   }
+  },
+  {
+   "alt_anim": false,
+   "attack_png": "docs/testing/monster-native/png/assassin-male-plain-attack1.png",
+   "changed_pixels": 1371,
+   "class": "Assassin",
+   "gender": "Male",
+   "kind": "player",
+   "name": "assassin-male-plain",
+   "native_action": "Attack1",
+   "standing_png": "docs/testing/monster-native/png/assassin-male-plain-standing.png",
+   "weapon_shape": 0,
+   "png": [
+    "docs/testing/monster-native/png/assassin-male-plain-standing.png",
+    "docs/testing/monster-native/png/assassin-male-plain-attack1.png"
+   ],
+   "png_sha256": {
+    "standing": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+    "attack1": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736"
+   },
+   "crop_sha256": {
+    "standing": "3af9850af529d78ddcca1b44c10d0cc0b747009b05837a2d3689661a7ac1cf74",
+    "attack1": "0be72d2d12bb210291762e8f943d34fa335abb4e0c84c3e6ccc8b26b4bdc0e8c"
+   }
+  },
+  {
+   "alt_anim": true,
+   "attack_png": "docs/testing/monster-native/png/archer-male-alt-attack1.png",
+   "changed_pixels": 1240,
+   "class": "Archer",
+   "gender": "Male",
+   "kind": "player",
+   "name": "archer-male-alt",
+   "native_action": "Attack1",
+   "standing_png": "docs/testing/monster-native/png/archer-male-alt-standing.png",
+   "weapon_shape": 200,
+   "png": [
+    "docs/testing/monster-native/png/archer-male-alt-standing.png",
+    "docs/testing/monster-native/png/archer-male-alt-attack1.png"
+   ],
+   "png_sha256": {
+    "standing": "d062c78c6eaa954286f50aab8d9b7e5c243a7e30f65467fb41477ec756c3e293",
+    "attack1": "5b0968817e8eddf8b56b49f807b01813301b1dc59ecf68aef121fd8f2f092d5e"
+   },
+   "crop_sha256": {
+    "standing": "b49f22e7e615288601ec02db60f90c2632d9d5b6d44ef5778ddc76f80b262dde",
+    "attack1": "7f74a32fff68d7fe86f05d4656ae495d41e162258b4ed2f06d37c59ac67d14fa"
+   }
+  },
+  {
+   "alt_anim": true,
+   "attack_png": "docs/testing/monster-native/png/archer-female-alt-attack1.png",
+   "changed_pixels": 1111,
+   "class": "Archer",
+   "gender": "Female",
+   "kind": "player",
+   "name": "archer-female-alt",
+   "native_action": "Attack1",
+   "standing_png": "docs/testing/monster-native/png/archer-female-alt-standing.png",
+   "weapon_shape": 200,
+   "png": [
+    "docs/testing/monster-native/png/archer-female-alt-standing.png",
+    "docs/testing/monster-native/png/archer-female-alt-attack1.png"
+   ],
+   "png_sha256": {
+    "standing": "540f60c80b9d49db8a2cab5e824e360a83b4efd3490d0611a3342c7263ff889b",
+    "attack1": "daa013518c4cbe6e7273f07edb25f510940d434587b126c98f1cb9c1ed64ed49"
+   },
+   "crop_sha256": {
+    "standing": "42d6a2d05f7edd35fd4d72aa40ab58350df03eb9ecd5d6d2f90ef82bdf22e7ff",
+    "attack1": "b7fea07f2d916290b5bf9c3c6bfc0eb586e3e32243f34ef540926ef7768ab122"
+   }
+  },
+  {
+   "alt_anim": false,
+   "attack_png": "docs/testing/monster-native/png/archer-male-plain-attack1.png",
+   "changed_pixels": 1371,
+   "class": "Archer",
+   "gender": "Male",
+   "kind": "player",
+   "name": "archer-male-plain",
+   "native_action": "Attack1",
+   "standing_png": "docs/testing/monster-native/png/archer-male-plain-standing.png",
+   "weapon_shape": 0,
+   "png": [
+    "docs/testing/monster-native/png/archer-male-plain-standing.png",
+    "docs/testing/monster-native/png/archer-male-plain-attack1.png"
+   ],
+   "png_sha256": {
+    "standing": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+    "attack1": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736"
+   },
+   "crop_sha256": {
+    "standing": "3af9850af529d78ddcca1b44c10d0cc0b747009b05837a2d3689661a7ac1cf74",
+    "attack1": "0be72d2d12bb210291762e8f943d34fa335abb4e0c84c3e6ccc8b26b4bdc0e8c"
+   }
+  },
+  {
+   "action": "standing",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 1522,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 5,
+   "kind": "monster",
+   "library_key": "monster-005",
+   "motion_tick_ms": 100,
+   "object_id": 1005,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-005-standing.png",
+   "sample_ms": 0,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "c6391c5e184ada86258d4eec5589f5639cb8ff50a59fd85c864e232105f36a85",
+   "crop_sha256": "eab178e4107d27235af71e841a1ed9b7c1e32a3dbb4dbf31444c796a4467dec2",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "walking",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 1506,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 5,
+   "kind": "monster",
+   "library_key": "monster-005",
+   "motion_tick_ms": 100,
+   "object_id": 1005,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-005-walking.png",
+   "sample_ms": 100,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "c2851b84ea765356641ca9aa35f0f69c032c1c45c72434537ffadfd4968f257b",
+   "crop_sha256": "52655b3820573a068089e243508fd54d4d3f8cdd0c060f396bf5c06fb291fc5e",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "attack1",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 1589,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 5,
+   "kind": "monster",
+   "library_key": "monster-005",
+   "motion_tick_ms": 100,
+   "object_id": 1005,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-005-attack1.png",
+   "sample_ms": 0,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "ca3deb6d8f460f102704d41a2ae7d8860ace174c8fe21bee197b90361b9d04b0",
+   "crop_sha256": "6febc61f7c73ed046616b1b92c65f43efbd8d1508cf47f56b11731063876f6e7",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "struck",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 1775,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 5,
+   "kind": "monster",
+   "library_key": "monster-005",
+   "motion_tick_ms": 100,
+   "object_id": 1005,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-005-struck.png",
+   "sample_ms": 0,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "b4ca4742125aa7b0b4a35bf4da4bd8c70c586a9bc37043d61ec4b388e6e88c75",
+   "crop_sha256": "48da094b31c65736df35bb97d27dae381802263fb81243ba919900ffeff85277",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "dying",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 1803,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 5,
+   "kind": "monster",
+   "library_key": "monster-005",
+   "motion_tick_ms": 100,
+   "object_id": 1005,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-005-dying.png",
+   "sample_ms": 0,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "3002739efefc8736992f344822a60b9d9f329d2841edd40f31e6ed83c9b00165",
+   "crop_sha256": "a715940f6e96ebff072b7382388c7f914119a875cf19325225a9ec6ef27e7e2d",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "dead",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 754,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 5,
+   "kind": "monster",
+   "library_key": "monster-005",
+   "motion_tick_ms": 100,
+   "object_id": 1005,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-005-dead.png",
+   "sample_ms": 1000,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "ff278d66ea7fd9b5c85295afd17b40090918a61556fd3d9bad19084dbdda0f58",
+   "crop_sha256": "f84869612dba43a4a71310315d008cd5ce92fce7e745a9f8536fa39d610ed52a",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "standing",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 2076,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 22,
+   "kind": "monster",
+   "library_key": "monster-022",
+   "motion_tick_ms": 100,
+   "object_id": 1022,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-022-standing.png",
+   "sample_ms": 0,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "1fc79ec16cddc42524cb2c9f2f85717d1fd4dc535c71865f84f8ad587da85c3e",
+   "crop_sha256": "8e7da9d1c5f3bc3edc43990b6ce17fbd00562aa53b68e6e44342bf3f26cfc008",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "walking",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 2049,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 22,
+   "kind": "monster",
+   "library_key": "monster-022",
+   "motion_tick_ms": 100,
+   "object_id": 1022,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-022-walking.png",
+   "sample_ms": 100,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "fc27fb345b56357bd51c7d9da3c411007e9aece710dd9429b54a52605a5eba84",
+   "crop_sha256": "1d14e0cec8af0699ed9239ef7a08e567c4cf7801ab5559d9c1c6a9ee1aa108bf",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "attack1",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 2506,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 22,
+   "kind": "monster",
+   "library_key": "monster-022",
+   "motion_tick_ms": 100,
+   "object_id": 1022,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-022-attack1.png",
+   "sample_ms": 0,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "7a6a558e331ac746b28f5ec01d8b3b64f56d319e72c91c3ae4b7ea07ab4a27a6",
+   "crop_sha256": "8e65b012d25fd907c7c4b695633dfa5e6f7edb433a3efda245face84374a792e",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "struck",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 2370,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 22,
+   "kind": "monster",
+   "library_key": "monster-022",
+   "motion_tick_ms": 100,
+   "object_id": 1022,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-022-struck.png",
+   "sample_ms": 0,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "bcf27cf629709ebd9017aa10e8de5db0964e26a55b47c5bdda74e555e8b72833",
+   "crop_sha256": "6da70f3033eef8fb0df7146ecc2c3aa6cc43b579f5590de0e234a265c9796b8a",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "dying",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 2354,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 22,
+   "kind": "monster",
+   "library_key": "monster-022",
+   "motion_tick_ms": 100,
+   "object_id": 1022,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-022-dying.png",
+   "sample_ms": 0,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "84c744ec0287e65b5b71b7b92af99868be81862f749ee9430db02dd334ba341d",
+   "crop_sha256": "94d924c0ec91d2becab2ff9d9bd4b02f488ec4308bf596506a63694bf0f3cfa8",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "dead",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 1441,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 22,
+   "kind": "monster",
+   "library_key": "monster-022",
+   "motion_tick_ms": 100,
+   "object_id": 1022,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-022-dead.png",
+   "sample_ms": 1000,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "f113c10353994ffcec7af24e2fbc0f87d95961c600806282959b46c4dcc9a6fd",
+   "crop_sha256": "898d6954b51367747e131b0c8610eb6a3a370dfd87887047713c0d2fb5ad635e",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "standing",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 2179,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 39,
+   "kind": "monster",
+   "library_key": "monster-039",
+   "motion_tick_ms": 100,
+   "object_id": 1039,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-039-standing.png",
+   "sample_ms": 0,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "b0834ea1bb63e75e6b96b0a371537c77cfcd748b97590c5d1315946e15db702d",
+   "crop_sha256": "200d6c9d405ec99bfb5046861da5458042b5c6f1b65ac854720a914faa05af75",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "walking",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 2083,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 39,
+   "kind": "monster",
+   "library_key": "monster-039",
+   "motion_tick_ms": 100,
+   "object_id": 1039,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-039-walking.png",
+   "sample_ms": 100,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "c9c6a2bb75b2845c16517cb30faddf13dc8b0513dc6392d6a8570aeeede216e9",
+   "crop_sha256": "037361ccaa4238f844dbd7d5872ab6744689dc46e0cef00f765aa73411192449",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "attack1",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 2082,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 39,
+   "kind": "monster",
+   "library_key": "monster-039",
+   "motion_tick_ms": 100,
+   "object_id": 1039,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-039-attack1.png",
+   "sample_ms": 0,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "6dceb4b7f234ec6aac53389017fcff52ab106a03b0622003781ba435d86454a6",
+   "crop_sha256": "c993bc6d699e40ccf5adee04696ffa6242018bb7d662d42c73563029f2f70330",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "struck",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 2609,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 39,
+   "kind": "monster",
+   "library_key": "monster-039",
+   "motion_tick_ms": 100,
+   "object_id": 1039,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-039-struck.png",
+   "sample_ms": 0,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "e0f98cb6db4a3084e9f53acf3aefd667facc7bddcb57a2cf59f9a729fb3bf9d8",
+   "crop_sha256": "7d28f40bb27455a54ba783b5f0615493e82548f86f994ede01a55d5d3633e054",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "dying",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 2623,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 39,
+   "kind": "monster",
+   "library_key": "monster-039",
+   "motion_tick_ms": 100,
+   "object_id": 1039,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-039-dying.png",
+   "sample_ms": 0,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "27c4e9358c812cd6f0fe4bd1173cf906179d906226fe792c1c58aaf41df780b2",
+   "crop_sha256": "d54d8f6e60f74796a1830880d9e13ac73fc34003921838500b3ce624813bd78c",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "dead",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 2787,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 39,
+   "kind": "monster",
+   "library_key": "monster-039",
+   "motion_tick_ms": 100,
+   "object_id": 1039,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-039-dead.png",
+   "sample_ms": 1000,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "8d80a4f2f3bbea5044c6c71f67f4831a71ebf1f1340edb16e4f3ecbfa5ffb365",
+   "crop_sha256": "3223263882f73e6100121b756169b0b7f782d5bab3d54bdd549ddb5c6e58dea7",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "standing",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 3395,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 23,
+   "kind": "monster",
+   "library_key": "monster-023",
+   "motion_tick_ms": 100,
+   "object_id": 1023,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-023-standing.png",
+   "sample_ms": 0,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "4140431ed9fa7f93ab12bc8fdab4b351402fb39399358de59c452158cb73a946",
+   "crop_sha256": "628e57836dddc4d2a2eb3c55ad4415a361dbf8c2f19a24a05c39cf21a38e6c10",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "walking",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 3331,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 23,
+   "kind": "monster",
+   "library_key": "monster-023",
+   "motion_tick_ms": 100,
+   "object_id": 1023,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-023-walking.png",
+   "sample_ms": 100,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "514eb5083512b5529a5973b59a4d774f032386b3525dbc51c134215dd30c5af7",
+   "crop_sha256": "7173822f9164c350244b4b431c0f1e896158b86750e4ba309cb13305d0747621",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "attack1",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 3054,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 23,
+   "kind": "monster",
+   "library_key": "monster-023",
+   "motion_tick_ms": 100,
+   "object_id": 1023,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-023-attack1.png",
+   "sample_ms": 0,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "399d10598412ba479cb4210845253f7f753fcb3f09a8adc0ef50ee6ac7d67d92",
+   "crop_sha256": "c158651b07b8cf1de0d839da284785ce127c579e996078f7fe1ffead63dbb434",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "struck",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 3675,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 23,
+   "kind": "monster",
+   "library_key": "monster-023",
+   "motion_tick_ms": 100,
+   "object_id": 1023,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-023-struck.png",
+   "sample_ms": 0,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "bb8d1dfa5a5f3ba01166049258d2abdcfe299fdc942a063e1a3d456822a8dc40",
+   "crop_sha256": "a1f4e66de7aaecf6766ca58bcc4d5e97708c663b0a88ed0e035e089a8c10e75e",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "dying",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 3920,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 23,
+   "kind": "monster",
+   "library_key": "monster-023",
+   "motion_tick_ms": 100,
+   "object_id": 1023,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-023-dying.png",
+   "sample_ms": 0,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "34f39680005890fce10abd794ff5e76186d1fd40137d06cf7db7623843975b72",
+   "crop_sha256": "690dc4c21e87c557b18aaed8d05f4ac6826bd4cef9516ff7b288bc0b20471c47",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  },
+  {
+   "action": "dead",
+   "action_started_ms": 0,
+   "asset_mode": "dev/unpacked",
+   "changed_pixels": 2007,
+   "classification": "native-frames-json",
+   "direction": "Down",
+   "from": [
+    330,
+    270
+   ],
+   "image": 23,
+   "kind": "monster",
+   "library_key": "monster-023",
+   "motion_tick_ms": 100,
+   "object_id": 1023,
+   "pixel_offset": [
+    0,
+    0
+   ],
+   "png": "docs/testing/monster-native/png/monster-023-dead.png",
+   "sample_ms": 1000,
+   "sort_y": 270,
+   "started_ms": 0,
+   "to": [
+    330,
+    270
+   ],
+   "png_sha256": "2162b69cd45f2322099c2e0a83283acbd61772ac77bd51c1d671515aeadcf596",
+   "crop_sha256": "7a3976e54bdda87691a4c30cdafcb6507c9a56d0f762508f2a4d9aa72ae8038e",
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ]
+  }
+ ],
+ "mixed": [
+  {
+   "camera_center": [
+    330,
+    270
+   ],
+   "dev_png": "docs/testing/monster-native/png/self-still-dev.png",
+   "label": "self-still",
+   "pixel_diff": 0,
+   "release_png": "docs/testing/monster-native/png/self-still-release.png",
+   "source_kind_dev": "unpacked",
+   "source_kind_release": "pack",
+   "dev_png_sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c",
+   "dev_crop_sha256": "db252f09521578c16374abbc79efebcf1dd7c88b387c3e349a60bda3abbcd09f",
+   "release_png_sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c",
+   "release_crop_sha256": "db252f09521578c16374abbc79efebcf1dd7c88b387c3e349a60bda3abbcd09f"
+  },
+  {
+   "camera_center": [
+    331,
+    270
+   ],
+   "dev_png": "docs/testing/monster-native/png/self-moved-dev.png",
+   "label": "self-moved",
+   "pixel_diff": 0,
+   "release_png": "docs/testing/monster-native/png/self-moved-release.png",
+   "source_kind_dev": "unpacked",
+   "source_kind_release": "pack",
+   "dev_png_sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d",
+   "dev_crop_sha256": "244217274e42733c9b6aa8eb392863bbac8b66f5838c542673f64ab7b91d6517",
+   "release_png_sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d",
+   "release_crop_sha256": "244217274e42733c9b6aa8eb392863bbac8b66f5838c542673f64ab7b91d6517"
+  }
+ ],
+ "action_tables": [
+  {
+   "library_key": "monster-005",
+   "source_sha256": "cd91ef91c870a6a4c5793d072ad142f72ca5f3c139663b0731bce7ca11ee8136",
+   "source_path": "resource/community/mirfiles-alliance/Alliance/Data/Data(Mount-Npc...)/Monster/005.Lib",
+   "actions": [
+    {
+     "raw_action": 0,
+     "action": "Standing",
+     "start": 0,
+     "count": 4,
+     "skip": 0,
+     "interval": 500,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       0,
+       1,
+       2,
+       3
+      ],
+      [
+       4,
+       5,
+       6,
+       7
+      ],
+      [
+       8,
+       9,
+       10,
+       11
+      ],
+      [
+       12,
+       13,
+       14,
+       15
+      ],
+      [
+       16,
+       17,
+       18,
+       19
+      ],
+      [
+       20,
+       21,
+       22,
+       23
+      ],
+      [
+       24,
+       25,
+       26,
+       27
+      ],
+      [
+       28,
+       29,
+       30,
+       31
+      ]
+     ],
+     "duration_ms": 2000
+    },
+    {
+     "raw_action": 1,
+     "action": "Walking",
+     "start": 32,
+     "count": 6,
+     "skip": 0,
+     "interval": 100,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       32,
+       33,
+       34,
+       35,
+       36,
+       37
+      ],
+      [
+       38,
+       39,
+       40,
+       41,
+       42,
+       43
+      ],
+      [
+       44,
+       45,
+       46,
+       47,
+       48,
+       49
+      ],
+      [
+       50,
+       51,
+       52,
+       53,
+       54,
+       55
+      ],
+      [
+       56,
+       57,
+       58,
+       59,
+       60,
+       61
+      ],
+      [
+       62,
+       63,
+       64,
+       65,
+       66,
+       67
+      ],
+      [
+       68,
+       69,
+       70,
+       71,
+       72,
+       73
+      ],
+      [
+       74,
+       75,
+       76,
+       77,
+       78,
+       79
+      ]
+     ],
+     "duration_ms": 600
+    },
+    {
+     "raw_action": 9,
+     "action": "Attack1",
+     "start": 80,
+     "count": 6,
+     "skip": 0,
+     "interval": 100,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       80,
+       81,
+       82,
+       83,
+       84,
+       85
+      ],
+      [
+       86,
+       87,
+       88,
+       89,
+       90,
+       91
+      ],
+      [
+       92,
+       93,
+       94,
+       95,
+       96,
+       97
+      ],
+      [
+       98,
+       99,
+       100,
+       101,
+       102,
+       103
+      ],
+      [
+       104,
+       105,
+       106,
+       107,
+       108,
+       109
+      ],
+      [
+       110,
+       111,
+       112,
+       113,
+       114,
+       115
+      ],
+      [
+       116,
+       117,
+       118,
+       119,
+       120,
+       121
+      ],
+      [
+       122,
+       123,
+       124,
+       125,
+       126,
+       127
+      ]
+     ],
+     "duration_ms": 600
+    },
+    {
+     "raw_action": 18,
+     "action": "Struck",
+     "start": 128,
+     "count": 2,
+     "skip": 0,
+     "interval": 200,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       128,
+       129
+      ],
+      [
+       130,
+       131
+      ],
+      [
+       132,
+       133
+      ],
+      [
+       134,
+       135
+      ],
+      [
+       136,
+       137
+      ],
+      [
+       138,
+       139
+      ],
+      [
+       140,
+       141
+      ],
+      [
+       142,
+       143
+      ]
+     ],
+     "duration_ms": 400
+    },
+    {
+     "raw_action": 21,
+     "action": "Die",
+     "start": 144,
+     "count": 10,
+     "skip": 0,
+     "interval": 100,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       144,
+       145,
+       146,
+       147,
+       148,
+       149,
+       150,
+       151,
+       152,
+       153
+      ],
+      [
+       154,
+       155,
+       156,
+       157,
+       158,
+       159,
+       160,
+       161,
+       162,
+       163
+      ],
+      [
+       164,
+       165,
+       166,
+       167,
+       168,
+       169,
+       170,
+       171,
+       172,
+       173
+      ],
+      [
+       174,
+       175,
+       176,
+       177,
+       178,
+       179,
+       180,
+       181,
+       182,
+       183
+      ],
+      [
+       184,
+       185,
+       186,
+       187,
+       188,
+       189,
+       190,
+       191,
+       192,
+       193
+      ],
+      [
+       194,
+       195,
+       196,
+       197,
+       198,
+       199,
+       200,
+       201,
+       202,
+       203
+      ],
+      [
+       204,
+       205,
+       206,
+       207,
+       208,
+       209,
+       210,
+       211,
+       212,
+       213
+      ],
+      [
+       214,
+       215,
+       216,
+       217,
+       218,
+       219,
+       220,
+       221,
+       222,
+       223
+      ]
+     ],
+     "duration_ms": 1000
+    },
+    {
+     "raw_action": 22,
+     "action": "Dead",
+     "start": 153,
+     "count": 1,
+     "skip": 9,
+     "interval": 1000,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       153
+      ],
+      [
+       163
+      ],
+      [
+       173
+      ],
+      [
+       183
+      ],
+      [
+       193
+      ],
+      [
+       203
+      ],
+      [
+       213
+      ],
+      [
+       223
+      ]
+     ],
+     "duration_ms": 1000
+    },
+    {
+     "raw_action": 28,
+     "action": "Revive",
+     "start": 144,
+     "count": 10,
+     "skip": 0,
+     "interval": 100,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": true,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       144,
+       145,
+       146,
+       147,
+       148,
+       149,
+       150,
+       151,
+       152,
+       153
+      ],
+      [
+       154,
+       155,
+       156,
+       157,
+       158,
+       159,
+       160,
+       161,
+       162,
+       163
+      ],
+      [
+       164,
+       165,
+       166,
+       167,
+       168,
+       169,
+       170,
+       171,
+       172,
+       173
+      ],
+      [
+       174,
+       175,
+       176,
+       177,
+       178,
+       179,
+       180,
+       181,
+       182,
+       183
+      ],
+      [
+       184,
+       185,
+       186,
+       187,
+       188,
+       189,
+       190,
+       191,
+       192,
+       193
+      ],
+      [
+       194,
+       195,
+       196,
+       197,
+       198,
+       199,
+       200,
+       201,
+       202,
+       203
+      ],
+      [
+       204,
+       205,
+       206,
+       207,
+       208,
+       209,
+       210,
+       211,
+       212,
+       213
+      ],
+      [
+       214,
+       215,
+       216,
+       217,
+       218,
+       219,
+       220,
+       221,
+       222,
+       223
+      ]
+     ],
+     "duration_ms": 1000
+    }
+   ],
+   "frames_json_sha256": "07faafe3eb0d4d905bd647612f78e03695ac0c7fa4e939747f09cddc0cc6093c"
+  },
+  {
+   "library_key": "monster-022",
+   "source_sha256": "e152ef8e2e63de848755062b0c88b1108a4ad092abe67ed1f28b108dcf197b06",
+   "source_path": "resource/community/mirfiles-alliance/Alliance/Data/Data(Mount-Npc...)/Monster/022.Lib",
+   "actions": [
+    {
+     "raw_action": 0,
+     "action": "Standing",
+     "start": 0,
+     "count": 4,
+     "skip": 0,
+     "interval": 500,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       0,
+       1,
+       2,
+       3
+      ],
+      [
+       4,
+       5,
+       6,
+       7
+      ],
+      [
+       8,
+       9,
+       10,
+       11
+      ],
+      [
+       12,
+       13,
+       14,
+       15
+      ],
+      [
+       16,
+       17,
+       18,
+       19
+      ],
+      [
+       20,
+       21,
+       22,
+       23
+      ],
+      [
+       24,
+       25,
+       26,
+       27
+      ],
+      [
+       28,
+       29,
+       30,
+       31
+      ]
+     ],
+     "duration_ms": 2000
+    },
+    {
+     "raw_action": 1,
+     "action": "Walking",
+     "start": 32,
+     "count": 6,
+     "skip": 0,
+     "interval": 100,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       32,
+       33,
+       34,
+       35,
+       36,
+       37
+      ],
+      [
+       38,
+       39,
+       40,
+       41,
+       42,
+       43
+      ],
+      [
+       44,
+       45,
+       46,
+       47,
+       48,
+       49
+      ],
+      [
+       50,
+       51,
+       52,
+       53,
+       54,
+       55
+      ],
+      [
+       56,
+       57,
+       58,
+       59,
+       60,
+       61
+      ],
+      [
+       62,
+       63,
+       64,
+       65,
+       66,
+       67
+      ],
+      [
+       68,
+       69,
+       70,
+       71,
+       72,
+       73
+      ],
+      [
+       74,
+       75,
+       76,
+       77,
+       78,
+       79
+      ]
+     ],
+     "duration_ms": 600
+    },
+    {
+     "raw_action": 9,
+     "action": "Attack1",
+     "start": 80,
+     "count": 6,
+     "skip": 0,
+     "interval": 100,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       80,
+       81,
+       82,
+       83,
+       84,
+       85
+      ],
+      [
+       86,
+       87,
+       88,
+       89,
+       90,
+       91
+      ],
+      [
+       92,
+       93,
+       94,
+       95,
+       96,
+       97
+      ],
+      [
+       98,
+       99,
+       100,
+       101,
+       102,
+       103
+      ],
+      [
+       104,
+       105,
+       106,
+       107,
+       108,
+       109
+      ],
+      [
+       110,
+       111,
+       112,
+       113,
+       114,
+       115
+      ],
+      [
+       116,
+       117,
+       118,
+       119,
+       120,
+       121
+      ],
+      [
+       122,
+       123,
+       124,
+       125,
+       126,
+       127
+      ]
+     ],
+     "duration_ms": 600
+    },
+    {
+     "raw_action": 18,
+     "action": "Struck",
+     "start": 128,
+     "count": 2,
+     "skip": 0,
+     "interval": 200,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       128,
+       129
+      ],
+      [
+       130,
+       131
+      ],
+      [
+       132,
+       133
+      ],
+      [
+       134,
+       135
+      ],
+      [
+       136,
+       137
+      ],
+      [
+       138,
+       139
+      ],
+      [
+       140,
+       141
+      ],
+      [
+       142,
+       143
+      ]
+     ],
+     "duration_ms": 400
+    },
+    {
+     "raw_action": 21,
+     "action": "Die",
+     "start": 144,
+     "count": 10,
+     "skip": 0,
+     "interval": 100,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       144,
+       145,
+       146,
+       147,
+       148,
+       149,
+       150,
+       151,
+       152,
+       153
+      ],
+      [
+       154,
+       155,
+       156,
+       157,
+       158,
+       159,
+       160,
+       161,
+       162,
+       163
+      ],
+      [
+       164,
+       165,
+       166,
+       167,
+       168,
+       169,
+       170,
+       171,
+       172,
+       173
+      ],
+      [
+       174,
+       175,
+       176,
+       177,
+       178,
+       179,
+       180,
+       181,
+       182,
+       183
+      ],
+      [
+       184,
+       185,
+       186,
+       187,
+       188,
+       189,
+       190,
+       191,
+       192,
+       193
+      ],
+      [
+       194,
+       195,
+       196,
+       197,
+       198,
+       199,
+       200,
+       201,
+       202,
+       203
+      ],
+      [
+       204,
+       205,
+       206,
+       207,
+       208,
+       209,
+       210,
+       211,
+       212,
+       213
+      ],
+      [
+       214,
+       215,
+       216,
+       217,
+       218,
+       219,
+       220,
+       221,
+       222,
+       223
+      ]
+     ],
+     "duration_ms": 1000
+    },
+    {
+     "raw_action": 22,
+     "action": "Dead",
+     "start": 153,
+     "count": 1,
+     "skip": 9,
+     "interval": 1000,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       153
+      ],
+      [
+       163
+      ],
+      [
+       173
+      ],
+      [
+       183
+      ],
+      [
+       193
+      ],
+      [
+       203
+      ],
+      [
+       213
+      ],
+      [
+       223
+      ]
+     ],
+     "duration_ms": 1000
+    },
+    {
+     "raw_action": 28,
+     "action": "Revive",
+     "start": 144,
+     "count": 10,
+     "skip": 0,
+     "interval": 100,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": true,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       144,
+       145,
+       146,
+       147,
+       148,
+       149,
+       150,
+       151,
+       152,
+       153
+      ],
+      [
+       154,
+       155,
+       156,
+       157,
+       158,
+       159,
+       160,
+       161,
+       162,
+       163
+      ],
+      [
+       164,
+       165,
+       166,
+       167,
+       168,
+       169,
+       170,
+       171,
+       172,
+       173
+      ],
+      [
+       174,
+       175,
+       176,
+       177,
+       178,
+       179,
+       180,
+       181,
+       182,
+       183
+      ],
+      [
+       184,
+       185,
+       186,
+       187,
+       188,
+       189,
+       190,
+       191,
+       192,
+       193
+      ],
+      [
+       194,
+       195,
+       196,
+       197,
+       198,
+       199,
+       200,
+       201,
+       202,
+       203
+      ],
+      [
+       204,
+       205,
+       206,
+       207,
+       208,
+       209,
+       210,
+       211,
+       212,
+       213
+      ],
+      [
+       214,
+       215,
+       216,
+       217,
+       218,
+       219,
+       220,
+       221,
+       222,
+       223
+      ]
+     ],
+     "duration_ms": 1000
+    }
+   ],
+   "frames_json_sha256": "49292d6a5b239ef3048b7f9158cba41e6eb73e69e83839411a9eed99b7d59eaa"
+  },
+  {
+   "library_key": "monster-039",
+   "source_sha256": "94367e515f4862f67ebd5695494ef3164b418d119813066a55f1e2548cc4d81b",
+   "source_path": "resource/community/mirfiles-alliance/Alliance/Data/Data(Mount-Npc...)/Monster/039.Lib",
+   "actions": [
+    {
+     "raw_action": 0,
+     "action": "Standing",
+     "start": 0,
+     "count": 4,
+     "skip": 0,
+     "interval": 500,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       0,
+       1,
+       2,
+       3
+      ],
+      [
+       4,
+       5,
+       6,
+       7
+      ],
+      [
+       8,
+       9,
+       10,
+       11
+      ],
+      [
+       12,
+       13,
+       14,
+       15
+      ],
+      [
+       16,
+       17,
+       18,
+       19
+      ],
+      [
+       20,
+       21,
+       22,
+       23
+      ],
+      [
+       24,
+       25,
+       26,
+       27
+      ],
+      [
+       28,
+       29,
+       30,
+       31
+      ]
+     ],
+     "duration_ms": 2000
+    },
+    {
+     "raw_action": 1,
+     "action": "Walking",
+     "start": 32,
+     "count": 6,
+     "skip": 0,
+     "interval": 100,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       32,
+       33,
+       34,
+       35,
+       36,
+       37
+      ],
+      [
+       38,
+       39,
+       40,
+       41,
+       42,
+       43
+      ],
+      [
+       44,
+       45,
+       46,
+       47,
+       48,
+       49
+      ],
+      [
+       50,
+       51,
+       52,
+       53,
+       54,
+       55
+      ],
+      [
+       56,
+       57,
+       58,
+       59,
+       60,
+       61
+      ],
+      [
+       62,
+       63,
+       64,
+       65,
+       66,
+       67
+      ],
+      [
+       68,
+       69,
+       70,
+       71,
+       72,
+       73
+      ],
+      [
+       74,
+       75,
+       76,
+       77,
+       78,
+       79
+      ]
+     ],
+     "duration_ms": 600
+    },
+    {
+     "raw_action": 9,
+     "action": "Attack1",
+     "start": 80,
+     "count": 6,
+     "skip": 0,
+     "interval": 100,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       80,
+       81,
+       82,
+       83,
+       84,
+       85
+      ],
+      [
+       86,
+       87,
+       88,
+       89,
+       90,
+       91
+      ],
+      [
+       92,
+       93,
+       94,
+       95,
+       96,
+       97
+      ],
+      [
+       98,
+       99,
+       100,
+       101,
+       102,
+       103
+      ],
+      [
+       104,
+       105,
+       106,
+       107,
+       108,
+       109
+      ],
+      [
+       110,
+       111,
+       112,
+       113,
+       114,
+       115
+      ],
+      [
+       116,
+       117,
+       118,
+       119,
+       120,
+       121
+      ],
+      [
+       122,
+       123,
+       124,
+       125,
+       126,
+       127
+      ]
+     ],
+     "duration_ms": 600
+    },
+    {
+     "raw_action": 18,
+     "action": "Struck",
+     "start": 128,
+     "count": 2,
+     "skip": 0,
+     "interval": 200,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       128,
+       129
+      ],
+      [
+       130,
+       131
+      ],
+      [
+       132,
+       133
+      ],
+      [
+       134,
+       135
+      ],
+      [
+       136,
+       137
+      ],
+      [
+       138,
+       139
+      ],
+      [
+       140,
+       141
+      ],
+      [
+       142,
+       143
+      ]
+     ],
+     "duration_ms": 400
+    },
+    {
+     "raw_action": 21,
+     "action": "Die",
+     "start": 144,
+     "count": 10,
+     "skip": 0,
+     "interval": 100,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       144,
+       145,
+       146,
+       147,
+       148,
+       149,
+       150,
+       151,
+       152,
+       153
+      ],
+      [
+       154,
+       155,
+       156,
+       157,
+       158,
+       159,
+       160,
+       161,
+       162,
+       163
+      ],
+      [
+       164,
+       165,
+       166,
+       167,
+       168,
+       169,
+       170,
+       171,
+       172,
+       173
+      ],
+      [
+       174,
+       175,
+       176,
+       177,
+       178,
+       179,
+       180,
+       181,
+       182,
+       183
+      ],
+      [
+       184,
+       185,
+       186,
+       187,
+       188,
+       189,
+       190,
+       191,
+       192,
+       193
+      ],
+      [
+       194,
+       195,
+       196,
+       197,
+       198,
+       199,
+       200,
+       201,
+       202,
+       203
+      ],
+      [
+       204,
+       205,
+       206,
+       207,
+       208,
+       209,
+       210,
+       211,
+       212,
+       213
+      ],
+      [
+       214,
+       215,
+       216,
+       217,
+       218,
+       219,
+       220,
+       221,
+       222,
+       223
+      ]
+     ],
+     "duration_ms": 1000
+    },
+    {
+     "raw_action": 22,
+     "action": "Dead",
+     "start": 153,
+     "count": 1,
+     "skip": 9,
+     "interval": 1000,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       153
+      ],
+      [
+       163
+      ],
+      [
+       173
+      ],
+      [
+       183
+      ],
+      [
+       193
+      ],
+      [
+       203
+      ],
+      [
+       213
+      ],
+      [
+       223
+      ]
+     ],
+     "duration_ms": 1000
+    },
+    {
+     "raw_action": 28,
+     "action": "Revive",
+     "start": 144,
+     "count": 10,
+     "skip": 0,
+     "interval": 100,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": true,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       144,
+       145,
+       146,
+       147,
+       148,
+       149,
+       150,
+       151,
+       152,
+       153
+      ],
+      [
+       154,
+       155,
+       156,
+       157,
+       158,
+       159,
+       160,
+       161,
+       162,
+       163
+      ],
+      [
+       164,
+       165,
+       166,
+       167,
+       168,
+       169,
+       170,
+       171,
+       172,
+       173
+      ],
+      [
+       174,
+       175,
+       176,
+       177,
+       178,
+       179,
+       180,
+       181,
+       182,
+       183
+      ],
+      [
+       184,
+       185,
+       186,
+       187,
+       188,
+       189,
+       190,
+       191,
+       192,
+       193
+      ],
+      [
+       194,
+       195,
+       196,
+       197,
+       198,
+       199,
+       200,
+       201,
+       202,
+       203
+      ],
+      [
+       204,
+       205,
+       206,
+       207,
+       208,
+       209,
+       210,
+       211,
+       212,
+       213
+      ],
+      [
+       214,
+       215,
+       216,
+       217,
+       218,
+       219,
+       220,
+       221,
+       222,
+       223
+      ]
+     ],
+     "duration_ms": 1000
+    }
+   ],
+   "frames_json_sha256": "d81124059449684785ee01544a8730b592346c0ea08836b045851acb881752d4"
+  },
+  {
+   "library_key": "monster-023",
+   "source_sha256": "851909c35ff9fccb47a93ca353bfb517ad39acc05297e179fadf42cfd54c398b",
+   "source_path": "resource/community/mirfiles-alliance/Alliance/Data/Data(Mount-Npc...)/Monster/023.Lib",
+   "actions": [
+    {
+     "raw_action": 0,
+     "action": "Standing",
+     "start": 0,
+     "count": 4,
+     "skip": 0,
+     "interval": 500,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       0,
+       1,
+       2,
+       3
+      ],
+      [
+       4,
+       5,
+       6,
+       7
+      ],
+      [
+       8,
+       9,
+       10,
+       11
+      ],
+      [
+       12,
+       13,
+       14,
+       15
+      ],
+      [
+       16,
+       17,
+       18,
+       19
+      ],
+      [
+       20,
+       21,
+       22,
+       23
+      ],
+      [
+       24,
+       25,
+       26,
+       27
+      ],
+      [
+       28,
+       29,
+       30,
+       31
+      ]
+     ],
+     "duration_ms": 2000
+    },
+    {
+     "raw_action": 1,
+     "action": "Walking",
+     "start": 32,
+     "count": 6,
+     "skip": 0,
+     "interval": 100,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       32,
+       33,
+       34,
+       35,
+       36,
+       37
+      ],
+      [
+       38,
+       39,
+       40,
+       41,
+       42,
+       43
+      ],
+      [
+       44,
+       45,
+       46,
+       47,
+       48,
+       49
+      ],
+      [
+       50,
+       51,
+       52,
+       53,
+       54,
+       55
+      ],
+      [
+       56,
+       57,
+       58,
+       59,
+       60,
+       61
+      ],
+      [
+       62,
+       63,
+       64,
+       65,
+       66,
+       67
+      ],
+      [
+       68,
+       69,
+       70,
+       71,
+       72,
+       73
+      ],
+      [
+       74,
+       75,
+       76,
+       77,
+       78,
+       79
+      ]
+     ],
+     "duration_ms": 600
+    },
+    {
+     "raw_action": 9,
+     "action": "Attack1",
+     "start": 80,
+     "count": 6,
+     "skip": 0,
+     "interval": 100,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       80,
+       81,
+       82,
+       83,
+       84,
+       85
+      ],
+      [
+       86,
+       87,
+       88,
+       89,
+       90,
+       91
+      ],
+      [
+       92,
+       93,
+       94,
+       95,
+       96,
+       97
+      ],
+      [
+       98,
+       99,
+       100,
+       101,
+       102,
+       103
+      ],
+      [
+       104,
+       105,
+       106,
+       107,
+       108,
+       109
+      ],
+      [
+       110,
+       111,
+       112,
+       113,
+       114,
+       115
+      ],
+      [
+       116,
+       117,
+       118,
+       119,
+       120,
+       121
+      ],
+      [
+       122,
+       123,
+       124,
+       125,
+       126,
+       127
+      ]
+     ],
+     "duration_ms": 600
+    },
+    {
+     "raw_action": 18,
+     "action": "Struck",
+     "start": 128,
+     "count": 2,
+     "skip": 0,
+     "interval": 200,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       128,
+       129
+      ],
+      [
+       130,
+       131
+      ],
+      [
+       132,
+       133
+      ],
+      [
+       134,
+       135
+      ],
+      [
+       136,
+       137
+      ],
+      [
+       138,
+       139
+      ],
+      [
+       140,
+       141
+      ],
+      [
+       142,
+       143
+      ]
+     ],
+     "duration_ms": 400
+    },
+    {
+     "raw_action": 21,
+     "action": "Die",
+     "start": 144,
+     "count": 10,
+     "skip": 0,
+     "interval": 100,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       144,
+       145,
+       146,
+       147,
+       148,
+       149,
+       150,
+       151,
+       152,
+       153
+      ],
+      [
+       154,
+       155,
+       156,
+       157,
+       158,
+       159,
+       160,
+       161,
+       162,
+       163
+      ],
+      [
+       164,
+       165,
+       166,
+       167,
+       168,
+       169,
+       170,
+       171,
+       172,
+       173
+      ],
+      [
+       174,
+       175,
+       176,
+       177,
+       178,
+       179,
+       180,
+       181,
+       182,
+       183
+      ],
+      [
+       184,
+       185,
+       186,
+       187,
+       188,
+       189,
+       190,
+       191,
+       192,
+       193
+      ],
+      [
+       194,
+       195,
+       196,
+       197,
+       198,
+       199,
+       200,
+       201,
+       202,
+       203
+      ],
+      [
+       204,
+       205,
+       206,
+       207,
+       208,
+       209,
+       210,
+       211,
+       212,
+       213
+      ],
+      [
+       214,
+       215,
+       216,
+       217,
+       218,
+       219,
+       220,
+       221,
+       222,
+       223
+      ]
+     ],
+     "duration_ms": 1000
+    },
+    {
+     "raw_action": 22,
+     "action": "Dead",
+     "start": 153,
+     "count": 1,
+     "skip": 9,
+     "interval": 1000,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": false,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       153
+      ],
+      [
+       163
+      ],
+      [
+       173
+      ],
+      [
+       183
+      ],
+      [
+       193
+      ],
+      [
+       203
+      ],
+      [
+       213
+      ],
+      [
+       223
+      ]
+     ],
+     "duration_ms": 1000
+    },
+    {
+     "raw_action": 28,
+     "action": "Revive",
+     "start": 144,
+     "count": 10,
+     "skip": 0,
+     "interval": 100,
+     "effect_start": 0,
+     "effect_count": 0,
+     "effect_skip": 0,
+     "effect_interval": 0,
+     "reverse": true,
+     "blend": false,
+     "frames_by_direction": [
+      [
+       144,
+       145,
+       146,
+       147,
+       148,
+       149,
+       150,
+       151,
+       152,
+       153
+      ],
+      [
+       154,
+       155,
+       156,
+       157,
+       158,
+       159,
+       160,
+       161,
+       162,
+       163
+      ],
+      [
+       164,
+       165,
+       166,
+       167,
+       168,
+       169,
+       170,
+       171,
+       172,
+       173
+      ],
+      [
+       174,
+       175,
+       176,
+       177,
+       178,
+       179,
+       180,
+       181,
+       182,
+       183
+      ],
+      [
+       184,
+       185,
+       186,
+       187,
+       188,
+       189,
+       190,
+       191,
+       192,
+       193
+      ],
+      [
+       194,
+       195,
+       196,
+       197,
+       198,
+       199,
+       200,
+       201,
+       202,
+       203
+      ],
+      [
+       204,
+       205,
+       206,
+       207,
+       208,
+       209,
+       210,
+       211,
+       212,
+       213
+      ],
+      [
+       214,
+       215,
+       216,
+       217,
+       218,
+       219,
+       220,
+       221,
+       222,
+       223
+      ]
+     ],
+     "duration_ms": 1000
+    }
+   ],
+   "frames_json_sha256": "be42e1479ae5921ea5244afe24738e1151d017be1ded7dc79c03c7b3eae00e8f"
+  }
+ ],
+ "csv": "docs/testing/monster-native/monster-frame-table.csv",
+ "pixel_samples": [
+  {
+   "path": "docs/testing/monster-native/png/archer-female-alt-attack1.png",
+   "png_sha256": "daa013518c4cbe6e7273f07edb25f510940d434587b126c98f1cb9c1ed64ed49",
+   "png_bytes": 690287,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "b7fea07f2d916290b5bf9c3c6bfc0eb586e3e32243f34ef540926ef7768ab122",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/archer-female-alt-standing.png",
+   "png_sha256": "540f60c80b9d49db8a2cab5e824e360a83b4efd3490d0611a3342c7263ff889b",
+   "png_bytes": 690170,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "42d6a2d05f7edd35fd4d72aa40ab58350df03eb9ecd5d6d2f90ef82bdf22e7ff",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/archer-male-alt-attack1.png",
+   "png_sha256": "5b0968817e8eddf8b56b49f807b01813301b1dc59ecf68aef121fd8f2f092d5e",
+   "png_bytes": 690584,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "7f74a32fff68d7fe86f05d4656ae495d41e162258b4ed2f06d37c59ac67d14fa",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/archer-male-alt-standing.png",
+   "png_sha256": "d062c78c6eaa954286f50aab8d9b7e5c243a7e30f65467fb41477ec756c3e293",
+   "png_bytes": 690635,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "b49f22e7e615288601ec02db60f90c2632d9d5b6d44ef5778ddc76f80b262dde",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/archer-male-plain-attack1.png",
+   "png_sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+   "png_bytes": 691494,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "0be72d2d12bb210291762e8f943d34fa335abb4e0c84c3e6ccc8b26b4bdc0e8c",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/archer-male-plain-standing.png",
+   "png_sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+   "png_bytes": 690769,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "3af9850af529d78ddcca1b44c10d0cc0b747009b05837a2d3689661a7ac1cf74",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/assassin-female-alt-attack1.png",
+   "png_sha256": "60698c2948d24857a1d8e25f379fe054bdcb1cf8fdc733c8ab4291abf706b23c",
+   "png_bytes": 690824,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "9e34e1fbf52d30e9424f276c26e6a483cfb99b7f99e8769a80a4721d792e5374",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/assassin-female-alt-standing.png",
+   "png_sha256": "6605415e0d60d21de63cabc884b8741646615c99e9076f1f23a46904edef0250",
+   "png_bytes": 690486,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "d2515820da956ee7321ab074e071a05979799b08550b8c85f2fb9c2aad1533e4",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/assassin-male-alt-attack1.png",
+   "png_sha256": "8d4f4681bed4e339f5948a98b0838cc4c160c00ee9ece70c24bf7b9e795b010b",
+   "png_bytes": 691126,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "5d275d0f33c8107ed9886ef013d58fee5372cb7f33b1bb4af421a9779291ebaa",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/assassin-male-alt-standing.png",
+   "png_sha256": "349944863518da8fbb6a4243d00cbeab3d5f139100d8870eae49576f0cf6a024",
+   "png_bytes": 690586,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "794304887370477e08f73c5e956a1c3e7bfb274f9f9be16993585b0ec19e302e",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/assassin-male-plain-attack1.png",
+   "png_sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+   "png_bytes": 691494,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "0be72d2d12bb210291762e8f943d34fa335abb4e0c84c3e6ccc8b26b4bdc0e8c",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/assassin-male-plain-standing.png",
+   "png_sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+   "png_bytes": 690769,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "3af9850af529d78ddcca1b44c10d0cc0b747009b05837a2d3689661a7ac1cf74",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-005-attack1.png",
+   "png_sha256": "ca3deb6d8f460f102704d41a2ae7d8860ace174c8fe21bee197b90361b9d04b0",
+   "png_bytes": 691621,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "6febc61f7c73ed046616b1b92c65f43efbd8d1508cf47f56b11731063876f6e7",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-005-dead.png",
+   "png_sha256": "ff278d66ea7fd9b5c85295afd17b40090918a61556fd3d9bad19084dbdda0f58",
+   "png_bytes": 688875,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "f84869612dba43a4a71310315d008cd5ce92fce7e745a9f8536fa39d610ed52a",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-005-dying.png",
+   "png_sha256": "3002739efefc8736992f344822a60b9d9f329d2841edd40f31e6ed83c9b00165",
+   "png_bytes": 692001,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "a715940f6e96ebff072b7382388c7f914119a875cf19325225a9ec6ef27e7e2d",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-005-standing.png",
+   "png_sha256": "c6391c5e184ada86258d4eec5589f5639cb8ff50a59fd85c864e232105f36a85",
+   "png_bytes": 691464,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "eab178e4107d27235af71e841a1ed9b7c1e32a3dbb4dbf31444c796a4467dec2",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-005-struck.png",
+   "png_sha256": "b4ca4742125aa7b0b4a35bf4da4bd8c70c586a9bc37043d61ec4b388e6e88c75",
+   "png_bytes": 692361,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "48da094b31c65736df35bb97d27dae381802263fb81243ba919900ffeff85277",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-005-walking.png",
+   "png_sha256": "c2851b84ea765356641ca9aa35f0f69c032c1c45c72434537ffadfd4968f257b",
+   "png_bytes": 691456,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "52655b3820573a068089e243508fd54d4d3f8cdd0c060f396bf5c06fb291fc5e",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-022-attack1.png",
+   "png_sha256": "7a6a558e331ac746b28f5ec01d8b3b64f56d319e72c91c3ae4b7ea07ab4a27a6",
+   "png_bytes": 695463,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "8e65b012d25fd907c7c4b695633dfa5e6f7edb433a3efda245face84374a792e",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-022-dead.png",
+   "png_sha256": "f113c10353994ffcec7af24e2fbc0f87d95961c600806282959b46c4dcc9a6fd",
+   "png_bytes": 690168,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "898d6954b51367747e131b0c8610eb6a3a370dfd87887047713c0d2fb5ad635e",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-022-dying.png",
+   "png_sha256": "84c744ec0287e65b5b71b7b92af99868be81862f749ee9430db02dd334ba341d",
+   "png_bytes": 695221,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "94d924c0ec91d2becab2ff9d9bd4b02f488ec4308bf596506a63694bf0f3cfa8",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-022-standing.png",
+   "png_sha256": "1fc79ec16cddc42524cb2c9f2f85717d1fd4dc535c71865f84f8ad587da85c3e",
+   "png_bytes": 694430,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "8e7da9d1c5f3bc3edc43990b6ce17fbd00562aa53b68e6e44342bf3f26cfc008",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-022-struck.png",
+   "png_sha256": "bcf27cf629709ebd9017aa10e8de5db0964e26a55b47c5bdda74e555e8b72833",
+   "png_bytes": 695256,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "6da70f3033eef8fb0df7146ecc2c3aa6cc43b579f5590de0e234a265c9796b8a",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-022-walking.png",
+   "png_sha256": "fc27fb345b56357bd51c7d9da3c411007e9aece710dd9429b54a52605a5eba84",
+   "png_bytes": 694151,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "1d14e0cec8af0699ed9239ef7a08e567c4cf7801ab5559d9c1c6a9ee1aa108bf",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-023-attack1.png",
+   "png_sha256": "399d10598412ba479cb4210845253f7f753fcb3f09a8adc0ef50ee6ac7d67d92",
+   "png_bytes": 696468,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "c158651b07b8cf1de0d839da284785ce127c579e996078f7fe1ffead63dbb434",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-023-dead.png",
+   "png_sha256": "2162b69cd45f2322099c2e0a83283acbd61772ac77bd51c1d671515aeadcf596",
+   "png_bytes": 689919,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "7a3976e54bdda87691a4c30cdafcb6507c9a56d0f762508f2a4d9aa72ae8038e",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-023-dying.png",
+   "png_sha256": "34f39680005890fce10abd794ff5e76186d1fd40137d06cf7db7623843975b72",
+   "png_bytes": 698254,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "690dc4c21e87c557b18aaed8d05f4ac6826bd4cef9516ff7b288bc0b20471c47",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-023-standing.png",
+   "png_sha256": "4140431ed9fa7f93ab12bc8fdab4b351402fb39399358de59c452158cb73a946",
+   "png_bytes": 696827,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "628e57836dddc4d2a2eb3c55ad4415a361dbf8c2f19a24a05c39cf21a38e6c10",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-023-struck.png",
+   "png_sha256": "bb8d1dfa5a5f3ba01166049258d2abdcfe299fdc942a063e1a3d456822a8dc40",
+   "png_bytes": 698820,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "a1f4e66de7aaecf6766ca58bcc4d5e97708c663b0a88ed0e035e089a8c10e75e",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-023-walking.png",
+   "png_sha256": "514eb5083512b5529a5973b59a4d774f032386b3525dbc51c134215dd30c5af7",
+   "png_bytes": 697157,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "7173822f9164c350244b4b431c0f1e896158b86750e4ba309cb13305d0747621",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-039-attack1.png",
+   "png_sha256": "6dceb4b7f234ec6aac53389017fcff52ab106a03b0622003781ba435d86454a6",
+   "png_bytes": 693723,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "c993bc6d699e40ccf5adee04696ffa6242018bb7d662d42c73563029f2f70330",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-039-dead.png",
+   "png_sha256": "8d80a4f2f3bbea5044c6c71f67f4831a71ebf1f1340edb16e4f3ecbfa5ffb365",
+   "png_bytes": 695806,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "3223263882f73e6100121b756169b0b7f782d5bab3d54bdd549ddb5c6e58dea7",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-039-dying.png",
+   "png_sha256": "27c4e9358c812cd6f0fe4bd1173cf906179d906226fe792c1c58aaf41df780b2",
+   "png_bytes": 696117,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "d54d8f6e60f74796a1830880d9e13ac73fc34003921838500b3ce624813bd78c",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-039-standing.png",
+   "png_sha256": "b0834ea1bb63e75e6b96b0a371537c77cfcd748b97590c5d1315946e15db702d",
+   "png_bytes": 694415,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "200d6c9d405ec99bfb5046861da5458042b5c6f1b65ac854720a914faa05af75",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-039-struck.png",
+   "png_sha256": "e0f98cb6db4a3084e9f53acf3aefd667facc7bddcb57a2cf59f9a729fb3bf9d8",
+   "png_bytes": 695848,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "7d28f40bb27455a54ba783b5f0615493e82548f86f994ede01a55d5d3633e054",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-039-walking.png",
+   "png_sha256": "c9c6a2bb75b2845c16517cb30faddf13dc8b0513dc6392d6a8570aeeede216e9",
+   "png_bytes": 693702,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "037361ccaa4238f844dbd7d5872ab6744689dc46e0cef00f765aa73411192449",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/self-moved-dev.png",
+   "png_sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d",
+   "png_bytes": 696661,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "244217274e42733c9b6aa8eb392863bbac8b66f5838c542673f64ab7b91d6517",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/self-moved-release.png",
+   "png_sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d",
+   "png_bytes": 696661,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "244217274e42733c9b6aa8eb392863bbac8b66f5838c542673f64ab7b91d6517",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/self-still-dev.png",
+   "png_sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c",
+   "png_bytes": 711139,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "db252f09521578c16374abbc79efebcf1dd7c88b387c3e349a60bda3abbcd09f",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/self-still-release.png",
+   "png_sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c",
+   "png_bytes": 711139,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "db252f09521578c16374abbc79efebcf1dd7c88b387c3e349a60bda3abbcd09f",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/taoist-female-attack1.png",
+   "png_sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+   "png_bytes": 691117,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "33fdc4bf9e0e6ad9070fd0683bdcc60eabdb6c5c676e893b0fe07fdd44a3a41d",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/taoist-female-standing.png",
+   "png_sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+   "png_bytes": 690593,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "6cbf439112c55cedeefd5c79563b4c59194eeacce8c1655446b476824b8a7c9a",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/taoist-male-attack1.png",
+   "png_sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+   "png_bytes": 691494,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "0be72d2d12bb210291762e8f943d34fa335abb4e0c84c3e6ccc8b26b4bdc0e8c",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/taoist-male-standing.png",
+   "png_sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+   "png_bytes": 690769,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "3af9850af529d78ddcca1b44c10d0cc0b747009b05837a2d3689661a7ac1cf74",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/warrior-female-attack1.png",
+   "png_sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+   "png_bytes": 691117,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "33fdc4bf9e0e6ad9070fd0683bdcc60eabdb6c5c676e893b0fe07fdd44a3a41d",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/warrior-female-standing.png",
+   "png_sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+   "png_bytes": 690593,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "6cbf439112c55cedeefd5c79563b4c59194eeacce8c1655446b476824b8a7c9a",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/warrior-male-attack1.png",
+   "png_sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+   "png_bytes": 691494,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "0be72d2d12bb210291762e8f943d34fa335abb4e0c84c3e6ccc8b26b4bdc0e8c",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/warrior-male-standing.png",
+   "png_sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+   "png_bytes": 690769,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "3af9850af529d78ddcca1b44c10d0cc0b747009b05837a2d3689661a7ac1cf74",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/wizard-female-attack1.png",
+   "png_sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+   "png_bytes": 691117,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "33fdc4bf9e0e6ad9070fd0683bdcc60eabdb6c5c676e893b0fe07fdd44a3a41d",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/wizard-female-standing.png",
+   "png_sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+   "png_bytes": 690593,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "6cbf439112c55cedeefd5c79563b4c59194eeacce8c1655446b476824b8a7c9a",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/wizard-male-attack1.png",
+   "png_sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+   "png_bytes": 691494,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "0be72d2d12bb210291762e8f943d34fa335abb4e0c84c3e6ccc8b26b4bdc0e8c",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/wizard-male-standing.png",
+   "png_sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+   "png_bytes": 690769,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "3af9850af529d78ddcca1b44c10d0cc0b747009b05837a2d3689661a7ac1cf74",
+   "size": [
+    800,
+    600
+   ]
+  }
+ ],
+ "limitations": [
+  "仅 005/022/039/023 四库逐动作真实渲染；其余 used 库只做结构/计数，未逐帧像素覆盖。",
+  "Revive(22)/Attack2/3/4 等动作在部分库缺表，CSV 中以 present=false 标记，不跨动作借帧。",
+  "Push/Jump/Dash、坐骑帧表、窗口四边界、FPS 未测。",
+  "死亡动作渲染夹在末帧，生命周期由客户端 tick_animations 推进。"
+ ],
+ "raw_manifest": "docs/testing/monster-native/raw-manifest.json",
+ "raw_run_generated_at_unix_ms": 1792847691005,
+ "png_files": [
+  {
+   "path": "docs/testing/monster-native/png/archer-female-alt-attack1.png",
+   "png_sha256": "daa013518c4cbe6e7273f07edb25f510940d434587b126c98f1cb9c1ed64ed49",
+   "png_bytes": 690287,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "b7fea07f2d916290b5bf9c3c6bfc0eb586e3e32243f34ef540926ef7768ab122",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/archer-female-alt-standing.png",
+   "png_sha256": "540f60c80b9d49db8a2cab5e824e360a83b4efd3490d0611a3342c7263ff889b",
+   "png_bytes": 690170,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "42d6a2d05f7edd35fd4d72aa40ab58350df03eb9ecd5d6d2f90ef82bdf22e7ff",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/archer-male-alt-attack1.png",
+   "png_sha256": "5b0968817e8eddf8b56b49f807b01813301b1dc59ecf68aef121fd8f2f092d5e",
+   "png_bytes": 690584,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "7f74a32fff68d7fe86f05d4656ae495d41e162258b4ed2f06d37c59ac67d14fa",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/archer-male-alt-standing.png",
+   "png_sha256": "d062c78c6eaa954286f50aab8d9b7e5c243a7e30f65467fb41477ec756c3e293",
+   "png_bytes": 690635,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "b49f22e7e615288601ec02db60f90c2632d9d5b6d44ef5778ddc76f80b262dde",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/archer-male-plain-attack1.png",
+   "png_sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+   "png_bytes": 691494,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "0be72d2d12bb210291762e8f943d34fa335abb4e0c84c3e6ccc8b26b4bdc0e8c",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/archer-male-plain-standing.png",
+   "png_sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+   "png_bytes": 690769,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "3af9850af529d78ddcca1b44c10d0cc0b747009b05837a2d3689661a7ac1cf74",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/assassin-female-alt-attack1.png",
+   "png_sha256": "60698c2948d24857a1d8e25f379fe054bdcb1cf8fdc733c8ab4291abf706b23c",
+   "png_bytes": 690824,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "9e34e1fbf52d30e9424f276c26e6a483cfb99b7f99e8769a80a4721d792e5374",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/assassin-female-alt-standing.png",
+   "png_sha256": "6605415e0d60d21de63cabc884b8741646615c99e9076f1f23a46904edef0250",
+   "png_bytes": 690486,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "d2515820da956ee7321ab074e071a05979799b08550b8c85f2fb9c2aad1533e4",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/assassin-male-alt-attack1.png",
+   "png_sha256": "8d4f4681bed4e339f5948a98b0838cc4c160c00ee9ece70c24bf7b9e795b010b",
+   "png_bytes": 691126,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "5d275d0f33c8107ed9886ef013d58fee5372cb7f33b1bb4af421a9779291ebaa",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/assassin-male-alt-standing.png",
+   "png_sha256": "349944863518da8fbb6a4243d00cbeab3d5f139100d8870eae49576f0cf6a024",
+   "png_bytes": 690586,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "794304887370477e08f73c5e956a1c3e7bfb274f9f9be16993585b0ec19e302e",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/assassin-male-plain-attack1.png",
+   "png_sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+   "png_bytes": 691494,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "0be72d2d12bb210291762e8f943d34fa335abb4e0c84c3e6ccc8b26b4bdc0e8c",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/assassin-male-plain-standing.png",
+   "png_sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+   "png_bytes": 690769,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "3af9850af529d78ddcca1b44c10d0cc0b747009b05837a2d3689661a7ac1cf74",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-005-attack1.png",
+   "png_sha256": "ca3deb6d8f460f102704d41a2ae7d8860ace174c8fe21bee197b90361b9d04b0",
+   "png_bytes": 691621,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "6febc61f7c73ed046616b1b92c65f43efbd8d1508cf47f56b11731063876f6e7",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-005-dead.png",
+   "png_sha256": "ff278d66ea7fd9b5c85295afd17b40090918a61556fd3d9bad19084dbdda0f58",
+   "png_bytes": 688875,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "f84869612dba43a4a71310315d008cd5ce92fce7e745a9f8536fa39d610ed52a",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-005-dying.png",
+   "png_sha256": "3002739efefc8736992f344822a60b9d9f329d2841edd40f31e6ed83c9b00165",
+   "png_bytes": 692001,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "a715940f6e96ebff072b7382388c7f914119a875cf19325225a9ec6ef27e7e2d",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-005-standing.png",
+   "png_sha256": "c6391c5e184ada86258d4eec5589f5639cb8ff50a59fd85c864e232105f36a85",
+   "png_bytes": 691464,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "eab178e4107d27235af71e841a1ed9b7c1e32a3dbb4dbf31444c796a4467dec2",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-005-struck.png",
+   "png_sha256": "b4ca4742125aa7b0b4a35bf4da4bd8c70c586a9bc37043d61ec4b388e6e88c75",
+   "png_bytes": 692361,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "48da094b31c65736df35bb97d27dae381802263fb81243ba919900ffeff85277",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-005-walking.png",
+   "png_sha256": "c2851b84ea765356641ca9aa35f0f69c032c1c45c72434537ffadfd4968f257b",
+   "png_bytes": 691456,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "52655b3820573a068089e243508fd54d4d3f8cdd0c060f396bf5c06fb291fc5e",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-022-attack1.png",
+   "png_sha256": "7a6a558e331ac746b28f5ec01d8b3b64f56d319e72c91c3ae4b7ea07ab4a27a6",
+   "png_bytes": 695463,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "8e65b012d25fd907c7c4b695633dfa5e6f7edb433a3efda245face84374a792e",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-022-dead.png",
+   "png_sha256": "f113c10353994ffcec7af24e2fbc0f87d95961c600806282959b46c4dcc9a6fd",
+   "png_bytes": 690168,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "898d6954b51367747e131b0c8610eb6a3a370dfd87887047713c0d2fb5ad635e",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-022-dying.png",
+   "png_sha256": "84c744ec0287e65b5b71b7b92af99868be81862f749ee9430db02dd334ba341d",
+   "png_bytes": 695221,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "94d924c0ec91d2becab2ff9d9bd4b02f488ec4308bf596506a63694bf0f3cfa8",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-022-standing.png",
+   "png_sha256": "1fc79ec16cddc42524cb2c9f2f85717d1fd4dc535c71865f84f8ad587da85c3e",
+   "png_bytes": 694430,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "8e7da9d1c5f3bc3edc43990b6ce17fbd00562aa53b68e6e44342bf3f26cfc008",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-022-struck.png",
+   "png_sha256": "bcf27cf629709ebd9017aa10e8de5db0964e26a55b47c5bdda74e555e8b72833",
+   "png_bytes": 695256,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "6da70f3033eef8fb0df7146ecc2c3aa6cc43b579f5590de0e234a265c9796b8a",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-022-walking.png",
+   "png_sha256": "fc27fb345b56357bd51c7d9da3c411007e9aece710dd9429b54a52605a5eba84",
+   "png_bytes": 694151,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "1d14e0cec8af0699ed9239ef7a08e567c4cf7801ab5559d9c1c6a9ee1aa108bf",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-023-attack1.png",
+   "png_sha256": "399d10598412ba479cb4210845253f7f753fcb3f09a8adc0ef50ee6ac7d67d92",
+   "png_bytes": 696468,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "c158651b07b8cf1de0d839da284785ce127c579e996078f7fe1ffead63dbb434",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-023-dead.png",
+   "png_sha256": "2162b69cd45f2322099c2e0a83283acbd61772ac77bd51c1d671515aeadcf596",
+   "png_bytes": 689919,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "7a3976e54bdda87691a4c30cdafcb6507c9a56d0f762508f2a4d9aa72ae8038e",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-023-dying.png",
+   "png_sha256": "34f39680005890fce10abd794ff5e76186d1fd40137d06cf7db7623843975b72",
+   "png_bytes": 698254,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "690dc4c21e87c557b18aaed8d05f4ac6826bd4cef9516ff7b288bc0b20471c47",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-023-standing.png",
+   "png_sha256": "4140431ed9fa7f93ab12bc8fdab4b351402fb39399358de59c452158cb73a946",
+   "png_bytes": 696827,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "628e57836dddc4d2a2eb3c55ad4415a361dbf8c2f19a24a05c39cf21a38e6c10",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-023-struck.png",
+   "png_sha256": "bb8d1dfa5a5f3ba01166049258d2abdcfe299fdc942a063e1a3d456822a8dc40",
+   "png_bytes": 698820,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "a1f4e66de7aaecf6766ca58bcc4d5e97708c663b0a88ed0e035e089a8c10e75e",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-023-walking.png",
+   "png_sha256": "514eb5083512b5529a5973b59a4d774f032386b3525dbc51c134215dd30c5af7",
+   "png_bytes": 697157,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "7173822f9164c350244b4b431c0f1e896158b86750e4ba309cb13305d0747621",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-039-attack1.png",
+   "png_sha256": "6dceb4b7f234ec6aac53389017fcff52ab106a03b0622003781ba435d86454a6",
+   "png_bytes": 693723,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "c993bc6d699e40ccf5adee04696ffa6242018bb7d662d42c73563029f2f70330",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-039-dead.png",
+   "png_sha256": "8d80a4f2f3bbea5044c6c71f67f4831a71ebf1f1340edb16e4f3ecbfa5ffb365",
+   "png_bytes": 695806,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "3223263882f73e6100121b756169b0b7f782d5bab3d54bdd549ddb5c6e58dea7",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-039-dying.png",
+   "png_sha256": "27c4e9358c812cd6f0fe4bd1173cf906179d906226fe792c1c58aaf41df780b2",
+   "png_bytes": 696117,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "d54d8f6e60f74796a1830880d9e13ac73fc34003921838500b3ce624813bd78c",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-039-standing.png",
+   "png_sha256": "b0834ea1bb63e75e6b96b0a371537c77cfcd748b97590c5d1315946e15db702d",
+   "png_bytes": 694415,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "200d6c9d405ec99bfb5046861da5458042b5c6f1b65ac854720a914faa05af75",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-039-struck.png",
+   "png_sha256": "e0f98cb6db4a3084e9f53acf3aefd667facc7bddcb57a2cf59f9a729fb3bf9d8",
+   "png_bytes": 695848,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "7d28f40bb27455a54ba783b5f0615493e82548f86f994ede01a55d5d3633e054",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/monster-039-walking.png",
+   "png_sha256": "c9c6a2bb75b2845c16517cb30faddf13dc8b0513dc6392d6a8570aeeede216e9",
+   "png_bytes": 693702,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "037361ccaa4238f844dbd7d5872ab6744689dc46e0cef00f765aa73411192449",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/self-moved-dev.png",
+   "png_sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d",
+   "png_bytes": 696661,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "244217274e42733c9b6aa8eb392863bbac8b66f5838c542673f64ab7b91d6517",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/self-moved-release.png",
+   "png_sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d",
+   "png_bytes": 696661,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "244217274e42733c9b6aa8eb392863bbac8b66f5838c542673f64ab7b91d6517",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/self-still-dev.png",
+   "png_sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c",
+   "png_bytes": 711139,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "db252f09521578c16374abbc79efebcf1dd7c88b387c3e349a60bda3abbcd09f",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/self-still-release.png",
+   "png_sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c",
+   "png_bytes": 711139,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "db252f09521578c16374abbc79efebcf1dd7c88b387c3e349a60bda3abbcd09f",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/taoist-female-attack1.png",
+   "png_sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+   "png_bytes": 691117,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "33fdc4bf9e0e6ad9070fd0683bdcc60eabdb6c5c676e893b0fe07fdd44a3a41d",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/taoist-female-standing.png",
+   "png_sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+   "png_bytes": 690593,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "6cbf439112c55cedeefd5c79563b4c59194eeacce8c1655446b476824b8a7c9a",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/taoist-male-attack1.png",
+   "png_sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+   "png_bytes": 691494,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "0be72d2d12bb210291762e8f943d34fa335abb4e0c84c3e6ccc8b26b4bdc0e8c",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/taoist-male-standing.png",
+   "png_sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+   "png_bytes": 690769,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "3af9850af529d78ddcca1b44c10d0cc0b747009b05837a2d3689661a7ac1cf74",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/warrior-female-attack1.png",
+   "png_sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+   "png_bytes": 691117,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "33fdc4bf9e0e6ad9070fd0683bdcc60eabdb6c5c676e893b0fe07fdd44a3a41d",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/warrior-female-standing.png",
+   "png_sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+   "png_bytes": 690593,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "6cbf439112c55cedeefd5c79563b4c59194eeacce8c1655446b476824b8a7c9a",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/warrior-male-attack1.png",
+   "png_sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+   "png_bytes": 691494,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "0be72d2d12bb210291762e8f943d34fa335abb4e0c84c3e6ccc8b26b4bdc0e8c",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/warrior-male-standing.png",
+   "png_sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+   "png_bytes": 690769,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "3af9850af529d78ddcca1b44c10d0cc0b747009b05837a2d3689661a7ac1cf74",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/wizard-female-attack1.png",
+   "png_sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+   "png_bytes": 691117,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "33fdc4bf9e0e6ad9070fd0683bdcc60eabdb6c5c676e893b0fe07fdd44a3a41d",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/wizard-female-standing.png",
+   "png_sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+   "png_bytes": 690593,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "6cbf439112c55cedeefd5c79563b4c59194eeacce8c1655446b476824b8a7c9a",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/wizard-male-attack1.png",
+   "png_sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+   "png_bytes": 691494,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "0be72d2d12bb210291762e8f943d34fa335abb4e0c84c3e6ccc8b26b4bdc0e8c",
+   "size": [
+    800,
+    600
+   ]
+  },
+  {
+   "path": "docs/testing/monster-native/png/wizard-male-standing.png",
+   "png_sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+   "png_bytes": 690769,
+   "crop_bbox": [
+    0,
+    0,
+    800,
+    600
+   ],
+   "crop_sha256": "3af9850af529d78ddcca1b44c10d0cc0b747009b05837a2d3689661a7ac1cf74",
+   "size": [
+    800,
+    600
+   ]
+  }
+ ],
+ "reproduce": {
+  "render": "TEMP=target/tmp TMP=target/tmp cargo test -p mir-render --test monster_native_evidence -- --ignored --nocapture",
+  "player_regression": "TEMP=target/tmp TMP=target/tmp cargo test -p mir-render --test native_player_layout -- --ignored --nocapture --test-threads=1",
+  "native_monster": "TEMP=target/tmp TMP=target/tmp cargo test -p mir-render --test monster_native -- --ignored --nocapture",
+  "import": "TEMP=target/tmp TMP=target/tmp cargo test -p mir-tools --test monster_native_import -- --ignored",
+  "gates": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale"
+ }
+}

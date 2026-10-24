@@ -105,10 +105,11 @@
 //! （[`EntityRenderer::render`]）按动画计数当作
 //! 100 ms 节拍推进时间，行为与之前的站立帧播放兼容。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use mir_asset::{Image, ImageInfo, LibrarySource};
+use mir_asset::{FrameSet, Image, ImageInfo, LibrarySource};
 use mir_core::Point;
 use mir_core::enums::{MirClass, MirDirection, MirGender};
 
@@ -911,6 +912,40 @@ pub struct EntityLibraries {
     opened: BTreeMap<String, Option<LibrarySource>>,
 }
 
+/// 原生怪物的一个有符号帧表（`Frame.Start/Count/Skip/Interval`）。
+///
+/// 与人类扁平帧表不同，怪物 `.Lib` 的方向步长 `Count + Skip` 在真实素材中
+/// 可以为 0（8 方向共享）或负（`Count=1, Skip=-1`），因此全程使用 `i64`。
+#[derive(Debug, Clone, Copy)]
+struct MonsterSequence {
+    start: i64,
+    count: i64,
+    skip: i64,
+    interval_ms: u64,
+}
+
+impl MonsterSequence {
+    fn local_at(self, elapsed_ms: u64, looped: bool) -> i64 {
+        let interval = self.interval_ms.max(1);
+        let frame = i64::try_from(elapsed_ms / interval).unwrap_or(i64::MAX);
+        if looped {
+            frame % self.count
+        } else {
+            frame.min(self.count - 1)
+        }
+    }
+
+    fn index(self, direction: MirDirection, local: i64) -> Option<u32> {
+        let stride = self.count.checked_add(self.skip)?;
+        let direction = i64::from(direction as u8);
+        let index = self
+            .start
+            .checked_add(direction.checked_mul(stride)?)?
+            .checked_add(local)?;
+        u32::try_from(index).ok()
+    }
+}
+
 impl EntityLibraries {
     /// 扫描目录，建立文件名索引（不打开任何图像库）。
     ///
@@ -1091,6 +1126,79 @@ impl EntityLibraries {
         library.image(index).ok().filter(|image| !image.is_empty())
     }
 
+    /// 取某个原生怪物库的 `frames.json`。
+    ///
+    /// t40 把帧表放在拆包目录或发布包的 `frames.json` 里；这里不猜 `.Lib`
+    /// 的 `frameSeek`，只读该元数据。缺库/缺文件返回 `None`，由调用方决定
+    /// 是整体走 `DefaultMonster`（缺表）还是跳过动作层（有表缺动作）。
+    #[must_use]
+    pub fn monster_frames(&self, key: &str) -> Option<Arc<FrameSet>> {
+        if let Some(map) = self.map.as_ref() {
+            if let Some(root) = self.asset_root.as_ref() {
+                for dir in map.dirs(key).unwrap_or_default() {
+                    let path = root.join(dir).join("frames.json");
+                    if let Ok(text) = std::fs::read_to_string(&path) {
+                        if let Some(frames) = parse_frames_json(&text) {
+                            return Some(Arc::new(frames));
+                        }
+                        eprintln!("警告：原生怪物帧表 {} 解析失败，按缺表处理", path.display());
+                        return None;
+                    }
+                }
+            }
+            if let (Some(packs), Some(prefix)) = (self.packs.as_ref(), map.prefix(key)) {
+                let name = format!("{prefix}frames.json");
+                if let Ok(bytes) = packs.data(&name) {
+                    if let Ok(text) = String::from_utf8(bytes) {
+                        if let Some(frames) = parse_frames_json(&text) {
+                            return Some(Arc::new(frames));
+                        }
+                        eprintln!("警告：原生怪物帧表 {name} 解析失败，按缺表处理");
+                    }
+                }
+            }
+        }
+        // 没有 library-map（例如直接打开的拆包根）时，退化到固定布局。
+        if let Some(gfx) = self.gfx_dir.as_ref() {
+            let path = gfx
+                .join("sprites")
+                .join("monster-native")
+                .join(key)
+                .join("frames.json");
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                return parse_frames_json(&text).map(Arc::new);
+            }
+        }
+        None
+    }
+
+    /// 原生怪物当前动作的逐方向帧表。
+    ///
+    /// `Frame.Skip` 在 Crystal 是有符号的：`Count + Skip` 可以是 0（8 方向共享
+    /// 同一批帧）或负数（`Count=1, Skip=-1`）；这里必须保留符号并用 checked
+    /// 算术算最终帧号，不能把合法的共享表误判成缺动作（t44 R49-X1-01）。
+    fn monster_sequence(frames: &FrameSet, action: ActorAction) -> Option<MonsterSequence> {
+        let raw_action = match action {
+            ActorAction::Standing => 0,
+            ActorAction::Walking => 1,
+            ActorAction::Running => 2,
+            ActorAction::Attacking => 9,
+            ActorAction::Struck => 18,
+            ActorAction::Dying => 21,
+            ActorAction::Dead => 22,
+        };
+        let frame = frames.get(raw_action)?;
+        if frame.count <= 0 || frame.interval <= 0 {
+            return None;
+        }
+        Some(MonsterSequence {
+            start: i64::from(frame.start),
+            count: i64::from(frame.count),
+            skip: i64::from(frame.skip),
+            interval_ms: u64::try_from(frame.interval).ok()?,
+        })
+    }
+
     /// 取一个图库；文件不存在或打开失败返回 `None`。
     fn library(&mut self, stem: &str) -> Option<&LibrarySource> {
         if !self.opened.contains_key(stem) {
@@ -1172,6 +1280,10 @@ pub struct EntityRenderer {
     phase: BTreeMap<(SpriteLibrary, u32), u32>,
     /// 原生玩家库解码缓存：`(library_key, frame) → 图像`。
     native_cache: BTreeMap<(String, u32), Option<Image>>,
+    /// 原生怪物帧表缓存：`library_key → frames.json` 解析结果。
+    monster_frames: BTreeMap<String, Option<Arc<FrameSet>>>,
+    /// 已经打印过的原生怪物诊断，避免每帧刷屏。
+    monster_diagnostics: BTreeSet<String>,
 }
 
 impl EntityRenderer {
@@ -1185,6 +1297,8 @@ impl EntityRenderer {
             cache_misses: 0,
             phase: BTreeMap::new(),
             native_cache: BTreeMap::new(),
+            monster_frames: BTreeMap::new(),
+            monster_diagnostics: BTreeSet::new(),
         }
     }
 
@@ -1295,6 +1409,13 @@ impl EntityRenderer {
         if entity.kind == EntityKind::Player {
             return self.draw_player(frame, entity, origin_x, origin_y, now_ms);
         }
+        if entity.kind == EntityKind::Monster {
+            if let Some(native) =
+                self.draw_native_monster(frame, entity, origin_x, origin_y, now_ms)
+            {
+                return native;
+            }
+        }
         let (library, exact, base, item) = sprite_target(entity, now_ms);
         // 动作帧缺失时先回退到该方向的站立帧，再回退图像首帧/库首帧。
         let standing = match entity.kind {
@@ -1333,6 +1454,66 @@ impl EntityRenderer {
         // 素材缺失：画一个小方块，至少让测试与无素材客户端看到"这里有个东西"。
         draw_placeholder(frame, origin_x, origin_y, entity);
         None
+    }
+
+    /// 原生怪物绘制路径（R49 t41）。
+    ///
+    /// 外层区分“有没有帧表”：没有表才回退旧的 `DefaultMonster` 扁平图库；有表
+    /// 但缺某个动作/帧时返回 `Some(None)`，安静跳过，绝不能跨库回退到 `Standing`
+    /// 或 `DefaultMonster`。帧号严格来自 `frames.json` 的 `Start + dir*(Count+Skip)`，
+    /// 动作生命期在 `net.rs` 的实体时钟里推进。
+    // 外层表示是否接管，内层表示绘制 top；两者语义不同。
+    #[allow(clippy::option_option)]
+    fn draw_native_monster(
+        &mut self,
+        frame: &mut Frame,
+        entity: &EntityView,
+        origin_x: i32,
+        origin_y: i32,
+        now_ms: u64,
+    ) -> Option<Option<i32>> {
+        let key = format!("monster-{:03}", entity.image);
+        let frames = if let Some(cached) = self.monster_frames.get(&key) {
+            cached.clone()
+        } else {
+            let loaded = self.libraries.monster_frames(&key);
+            self.monster_frames.insert(key.clone(), loaded.clone());
+            loaded
+        };
+        let frames = frames?;
+        let Some(sequence) = EntityLibraries::monster_sequence(&frames, entity.action) else {
+            if self
+                .monster_diagnostics
+                .insert(format!("{key}/action/{:?}", entity.action))
+            {
+                eprintln!(
+                    "警告：原生怪物 {key} 缺动作 {:?}，跳过该帧；不回退 DefaultMonster",
+                    entity.action
+                );
+            }
+            return Some(None);
+        };
+        let elapsed = now_ms.saturating_sub(entity.action_started_ms);
+        let local = sequence.local_at(elapsed, entity.action == ActorAction::Standing);
+        let Some(index) = sequence.index(entity.direction, local) else {
+            return Some(None);
+        };
+        let Some(image) = self.native_cached(&key, index) else {
+            if self
+                .monster_diagnostics
+                .insert(format!("{key}/frame/{index}"))
+            {
+                eprintln!(
+                    "警告：原生怪物 {key} 动作 {:?} 帧 {index} 缺失/空图，跳过该帧",
+                    entity.action
+                );
+            }
+            return Some(None);
+        };
+        let x = origin_x + i32::from(image.info.offset_x);
+        let y = origin_y + i32::from(image.info.offset_y);
+        frame.blit(&image, x, y);
+        Some(Some(y))
     }
 
     /// 画一个玩家：按 [`player_layer_plan_at`] 的顺序叠身体/头发/盾牌/武器。
@@ -1812,6 +1993,73 @@ fn draw_placeholder(frame: &mut Frame, origin_x: i32, origin_y: i32, entity: &En
     let top = origin_y + (CELL_HEIGHT - 18) / 2;
     frame.fill_rect(left - 1, top - 1, 14, 20, [0, 0, 0, 255]);
     frame.fill_rect(left, top, 12, 18, color);
+}
+
+/// 解析 t40 的 `frames.json`。
+///
+/// 生成器把每条动作写成扁平 JSON 对象；这里只读取渲染需要的 9 个整数字段与
+/// 两个 bool，不引入 serde 依赖。字段缺失/类型不对返回 `None`，让上层按
+/// “缺表”诊断，绝不猜一个默认动作。
+fn parse_frames_json(text: &str) -> Option<FrameSet> {
+    let actions_at = text.find("\"actions\"")?;
+    let array_at = text[actions_at..].find('[')? + actions_at;
+    let mut pos = array_at + 1;
+    let mut frames: Vec<mir_asset::Frame> = Vec::new();
+    while let Some(rel) = text[pos..].find("\"raw_action\"") {
+        let raw_at = pos + rel;
+        let object_at = text[..raw_at].rfind('{')?;
+        let object_end = text[raw_at..].find('}')? + raw_at;
+        let object = &text[object_at..=object_end];
+        let raw = json_i32(object, "raw_action")?;
+        let raw = u8::try_from(raw).ok()?;
+        let frame = mir_asset::Frame {
+            action: raw,
+            start: json_i32(object, "start")?,
+            count: json_i32(object, "count")?,
+            skip: json_i32(object, "skip")?,
+            interval: json_i32(object, "interval")?,
+            effect_start: json_i32(object, "effect_start")?,
+            effect_count: json_i32(object, "effect_count")?,
+            effect_skip: json_i32(object, "effect_skip")?,
+            effect_interval: json_i32(object, "effect_interval")?,
+            reverse: json_bool(object, "reverse")?,
+            blend: json_bool(object, "blend")?,
+        };
+        // 与 `.Lib` 解析共用校验：负 Start/Count/Interval、多帧负 stride、
+        // Count=1/Skip<-1、下标溢出、重复动作都不能从 `frames.json` 混进来。
+        if frame.layout_error().is_some() || frames.iter().any(|known| known.action == raw) {
+            return None;
+        }
+        frames.push(frame);
+        pos = object_end + 1;
+        if text[pos..].trim_start().starts_with(']') {
+            break;
+        }
+    }
+    (!frames.is_empty()).then_some(FrameSet {
+        frames,
+        unknown_actions: Vec::new(),
+    })
+}
+
+fn json_i32(object: &str, key: &str) -> Option<i32> {
+    let key_at = object.find(&format!("\"{key}\""))?;
+    let colon = object[key_at..].find(':')? + key_at;
+    let rest = object[colon + 1..].trim_start();
+    let end = rest
+        .find(|c: char| !(c.is_ascii_digit() || c == '-'))
+        .unwrap_or(rest.len());
+    rest[..end].parse().ok()
+}
+
+fn json_bool(object: &str, key: &str) -> Option<bool> {
+    let key_at = object.find(&format!("\"{key}\""))?;
+    let colon = object[key_at..].find(':')? + key_at;
+    match object[colon + 1..].trim_start() {
+        rest if rest.starts_with("true") => Some(true),
+        rest if rest.starts_with("false") => Some(false),
+        _ => None,
+    }
 }
 
 /// 画头顶血条：黑底 + 按百分比宽度的前景（Crystal `MapObject.DrawHealth`，
@@ -2970,6 +3218,159 @@ mod tests {
                 .chunks_exact(4)
                 .any(|pixel| pixel[0] == 0 && pixel[1] == 255 && pixel[2] == 0),
             "站立时不应画挥砍光效"
+        );
+    }
+
+    #[test]
+    fn monster_sequence_keeps_signed_skip_and_stride_zero() {
+        let frame = |count: i32, skip: i32| mir_asset::Frame {
+            action: 1,
+            start: 100,
+            count,
+            skip,
+            interval: 100,
+            effect_start: 0,
+            effect_count: 0,
+            effect_skip: 0,
+            effect_interval: 0,
+            reverse: false,
+            blend: false,
+        };
+        let stride_zero = FrameSet {
+            frames: vec![frame(20, -20)],
+            unknown_actions: Vec::new(),
+        };
+        let sequence = EntityLibraries::monster_sequence(&stride_zero, ActorAction::Walking)
+            .expect("Count>1、Skip=-Count 是合法 stride=0");
+        assert_eq!(sequence.skip, -20);
+        assert_eq!(sequence.count, 20);
+        assert_eq!(sequence.index(MirDirection::DownRight, 0), Some(100));
+        assert_eq!(sequence.index(MirDirection::UpLeft, 19), Some(119));
+    }
+
+    #[test]
+    fn frames_json_accepts_stride_zero_and_single_frame_negative_skip() {
+        let json = r#"{
+            "schema_version": 1,
+            "image": 10,
+            "count": 3,
+            "actions": [
+                {"raw_action": 0, "start": 0, "count": 4, "skip": -4, "interval": 500,
+                 "effect_start": 0, "effect_count": 0, "effect_skip": 0, "effect_interval": 0,
+                 "reverse": false, "blend": false},
+                {"raw_action": 1, "start": 4, "count": 1, "skip": -1, "interval": 100,
+                 "effect_start": 0, "effect_count": 0, "effect_skip": 0, "effect_interval": 0,
+                 "reverse": false, "blend": false},
+                {"raw_action": 9, "start": 100, "count": 4, "skip": 8, "interval": 100,
+                 "effect_start": 0, "effect_count": 0, "effect_skip": 0, "effect_interval": 0,
+                 "reverse": false, "blend": false}
+            ]
+        }"#;
+        let set = parse_frames_json(json).expect("负 Skip/零 stride 是合法帧表");
+        let shared = set.get(0).expect("Standing");
+        for direction in 0..8 {
+            assert_eq!(
+                shared.frame_indices(direction),
+                Some(0..4),
+                "Count+Skip==0 时 8 方向共享 Standing 帧"
+            );
+        }
+        let single = set.get(1).expect("Walking Count=1/Skip=-1");
+        for direction in 0..8 {
+            assert_eq!(single.frame_indices(direction), Some(4..5));
+        }
+        let normal = set.get(9).expect("Attack1");
+        assert_eq!(normal.frame_indices(2), Some(124..128));
+    }
+
+    #[test]
+    fn frames_json_rejects_negative_count_interval_start_and_duplicate_action() {
+        let action = |start: i32, count: i32, skip: i32, interval: i32| {
+            format!(
+                r#"{{"raw_action": 0, "start": {start}, "count": {count}, "skip": {skip}, "interval": {interval},
+                    "effect_start": 0, "effect_count": 0, "effect_skip": 0, "effect_interval": 0,
+                    "reverse": false, "blend": false}}"#
+            )
+        };
+        let rejected = [
+            action(0, -1, 4, 100),
+            action(0, 4, 4, -1),
+            action(-1, 4, 4, 100),
+            format!("{},{}", action(0, 4, 4, 100), action(0, 4, 4, 100)),
+        ];
+        for json in rejected {
+            assert!(
+                parse_frames_json(&format!(r#"{{"actions": [{json}]}}"#)).is_none(),
+                "非法帧表必须拒绝：{json}"
+            );
+        }
+    }
+
+    #[test]
+    fn frames_json_rejects_multi_frame_negative_stride() {
+        let json = r#"{
+            "actions": [
+                {"raw_action": 0, "start": 0, "count": 4, "skip": -8, "interval": 500,
+                 "effect_start": 0, "effect_count": 0, "effect_skip": 0, "effect_interval": 0,
+                 "reverse": false, "blend": false}
+            ]
+        }"#;
+        assert!(
+            parse_frames_json(json).is_none(),
+            "Count>1 且 Count+Skip<0 会让方向重叠，仍必须拒绝"
+        );
+    }
+
+    #[test]
+    fn frames_json_keeps_raw_action_numbers_and_layout() {
+        let json = r#"{
+            "schema_version": 1,
+            "image": 5,
+            "count": 3,
+            "actions": [
+                {"raw_action": 0, "start": 0, "count": 4, "skip": 4, "interval": 500,
+                 "effect_start": 0, "effect_count": 0, "effect_skip": 0, "effect_interval": 0,
+                 "reverse": false, "blend": false},
+                {"raw_action": 9, "start": 200, "count": 6, "skip": 2, "interval": 100,
+                 "effect_start": 0, "effect_count": 0, "effect_skip": 0, "effect_interval": 0,
+                 "reverse": false, "blend": false},
+                {"raw_action": 18, "start": 472, "count": 3, "skip": 5, "interval": 100,
+                 "effect_start": 0, "effect_count": 0, "effect_skip": 0, "effect_interval": 0,
+                 "reverse": false, "blend": false}
+            ]
+        }"#;
+        let set = parse_frames_json(json).expect("合法 frames.json");
+        assert_eq!(set.frames.len(), 3);
+        assert_eq!(
+            set.get(9).expect("Attack1 原号").frame_indices(2),
+            Some(216..222)
+        );
+        assert_eq!(
+            set.get(18).expect("Struck 原号").frame_indices(0),
+            Some(472..475)
+        );
+        assert!(set.get(1).is_none(), "没有 Walking 时不得猜表");
+    }
+
+    #[test]
+    fn frames_json_rejects_incomplete_or_invalid_records() {
+        assert!(parse_frames_json(r#"{"actions": []}"#).is_none());
+        assert!(
+            parse_frames_json(
+                r#"{"actions":[{"raw_action":0,"start":0,"count":4,"skip":4,"interval":500,
+                    "effect_start":0,"effect_count":0,"effect_skip":0,"effect_interval":0,
+                    "reverse":false,"blend":false}]}"#
+            )
+            .is_some()
+        );
+        assert!(
+            parse_frames_json(
+                r#"{"actions":[{"raw_action":0,"start":0,"count":4,"skip":4,
+                    "effect_start":0,"effect_count":0,"effect_skip":0,"effect_interval":0,
+                    "reverse":false,"blend":false}]}"#
+            )
+            .is_none(),
+            "缺 interval 的记录必须拒绝，不能悄悄补 0"
         );
     }
 }

@@ -1,0 +1,520 @@
+{
+  "batch": "2026-10-24T18:47:35Z",
+  "crystal_reference": "github/Crystal Client/MirObjects/MonsterObject.cs:384-437",
+  "data_note": "005 与 022 的真实 Walk 都是 6×100ms（仅图像 offset 不同），所以另加 184（10×100ms）证明每怪时长来自各自 Count×Interval；这不是参数未接入。",
+  "findings": {
+    "X1-01": "renderer/frames 保留有符号 Skip；010/041/043/062 Standing 像素见 stride-zero-render.json",
+    "X1-02": "实际时长用 Count×Interval；184 Walk 10×100=1000ms、Attack 8×100=800ms",
+    "X1-03": "ConnectOptions→initial_world_snapshot→NetClient 首帧快照带 frames/params；每怪按 image 取自己的表",
+    "X1-04": "pixel_offset=-OffSetMove；Right 8→48→落点 0，无 96px 跳变"
+  },
+  "formula": "Movement=CurrentLocation-1/2格; pixel_offset=-OffSetMove; OffSetMove 8方向 48/32 每格并做 %2 偶数化",
+  "frame_source": "EntityLibraries::monster_frames (生产 frames.json 解析器)",
+  "generated_at_unix_ms": 1792867655565,
+  "limitations": [
+    "005/022 的 frames.json 动作数值完全相同（Walk 6×100），无法用真实数据证明两者参数不同；用 184 的 10×100 证明按怪生效。",
+    "010/041/043/062 的 frames.json 没有 Walking/Running 动作；Crystal Frame==null 时安静跳过，故这两动作像素为 0 属数据限制，见 stride-zero-render.json。",
+    "证据是软件光栅渲染；未启动 GUI 做真人视觉验收。"
+  ],
+  "samples": [
+    {
+      "camera_center": [
+        334,
+        270
+      ],
+      "elapsed_ms": 0,
+      "monsters": [
+        {
+          "action": "Walking",
+          "direction": "Right",
+          "from": [
+            330,
+            270
+          ],
+          "image": 5,
+          "pixel_offset": [
+            8,
+            0
+          ],
+          "position": [
+            330,
+            270
+          ],
+          "to": [
+            331,
+            270
+          ],
+          "walk": {
+            "count": 6,
+            "duration_ms": 600,
+            "frame": {
+              "count": 6,
+              "direction_range": [
+                44,
+                50
+              ],
+              "frame_index": 0,
+              "interval_ms": 100,
+              "skip": 0,
+              "start": 32
+            },
+            "interval_ms": 100
+          }
+        },
+        {
+          "action": "Walking",
+          "direction": "Down",
+          "from": [
+            334,
+            270
+          ],
+          "image": 22,
+          "pixel_offset": [
+            0,
+            6
+          ],
+          "position": [
+            334,
+            270
+          ],
+          "to": [
+            334,
+            271
+          ],
+          "walk": {
+            "count": 6,
+            "duration_ms": 600,
+            "frame": {
+              "count": 6,
+              "direction_range": [
+                56,
+                62
+              ],
+              "frame_index": 0,
+              "interval_ms": 100,
+              "skip": 0,
+              "start": 32
+            },
+            "interval_ms": 100
+          }
+        },
+        {
+          "action": "Walking",
+          "direction": "Left",
+          "from": [
+            338,
+            270
+          ],
+          "image": 184,
+          "pixel_offset": [
+            -4,
+            0
+          ],
+          "position": [
+            338,
+            270
+          ],
+          "to": [
+            337,
+            270
+          ],
+          "walk": {
+            "count": 10,
+            "duration_ms": 1000,
+            "frame": {
+              "count": 10,
+              "direction_range": [
+                108,
+                118
+              ],
+              "frame_index": 0,
+              "interval_ms": 100,
+              "skip": 0,
+              "start": 48
+            },
+            "interval_ms": 100
+          }
+        }
+      ],
+      "name": "frame0",
+      "png": "docs/testing/monster-motion/frame0.png",
+      "simulated_now_ms": 1795000000000,
+      "wall_captured_ms": 1792867653957
+    },
+    {
+      "camera_center": [
+        334,
+        270
+      ],
+      "elapsed_ms": 500,
+      "monsters": [
+        {
+          "action": "Walking",
+          "direction": "Right",
+          "from": [
+            330,
+            270
+          ],
+          "image": 5,
+          "pixel_offset": [
+            48,
+            0
+          ],
+          "position": [
+            330,
+            270
+          ],
+          "to": [
+            331,
+            270
+          ],
+          "walk": {
+            "count": 6,
+            "duration_ms": 600,
+            "frame": {
+              "count": 6,
+              "direction_range": [
+                44,
+                50
+              ],
+              "frame_index": 5,
+              "interval_ms": 100,
+              "skip": 0,
+              "start": 32
+            },
+            "interval_ms": 100
+          }
+        },
+        {
+          "action": "Walking",
+          "direction": "Down",
+          "from": [
+            334,
+            270
+          ],
+          "image": 22,
+          "pixel_offset": [
+            0,
+            32
+          ],
+          "position": [
+            334,
+            270
+          ],
+          "to": [
+            334,
+            271
+          ],
+          "walk": {
+            "count": 6,
+            "duration_ms": 600,
+            "frame": {
+              "count": 6,
+              "direction_range": [
+                56,
+                62
+              ],
+              "frame_index": 5,
+              "interval_ms": 100,
+              "skip": 0,
+              "start": 32
+            },
+            "interval_ms": 100
+          }
+        },
+        {
+          "action": "Walking",
+          "direction": "Left",
+          "from": [
+            338,
+            270
+          ],
+          "image": 184,
+          "pixel_offset": [
+            -28,
+            0
+          ],
+          "position": [
+            338,
+            270
+          ],
+          "to": [
+            337,
+            270
+          ],
+          "walk": {
+            "count": 10,
+            "duration_ms": 1000,
+            "frame": {
+              "count": 10,
+              "direction_range": [
+                108,
+                118
+              ],
+              "frame_index": 5,
+              "interval_ms": 100,
+              "skip": 0,
+              "start": 48
+            },
+            "interval_ms": 100
+          }
+        }
+      ],
+      "name": "frame5",
+      "png": "docs/testing/monster-motion/frame5.png",
+      "simulated_now_ms": 1795000000500,
+      "wall_captured_ms": 1792867654481
+    },
+    {
+      "camera_center": [
+        334,
+        270
+      ],
+      "elapsed_ms": 600,
+      "monsters": [
+        {
+          "action": "Standing",
+          "direction": "Right",
+          "from": [
+            330,
+            270
+          ],
+          "image": 5,
+          "pixel_offset": [
+            0,
+            0
+          ],
+          "position": [
+            331,
+            270
+          ],
+          "to": [
+            331,
+            270
+          ],
+          "walk": {
+            "count": 6,
+            "duration_ms": 600,
+            "frame": {
+              "count": 6,
+              "direction_range": [
+                44,
+                50
+              ],
+              "frame_index": 5,
+              "interval_ms": 100,
+              "skip": 0,
+              "start": 32
+            },
+            "interval_ms": 100
+          }
+        },
+        {
+          "action": "Standing",
+          "direction": "Down",
+          "from": [
+            334,
+            270
+          ],
+          "image": 22,
+          "pixel_offset": [
+            0,
+            0
+          ],
+          "position": [
+            334,
+            271
+          ],
+          "to": [
+            334,
+            271
+          ],
+          "walk": {
+            "count": 6,
+            "duration_ms": 600,
+            "frame": {
+              "count": 6,
+              "direction_range": [
+                56,
+                62
+              ],
+              "frame_index": 5,
+              "interval_ms": 100,
+              "skip": 0,
+              "start": 32
+            },
+            "interval_ms": 100
+          }
+        },
+        {
+          "action": "Walking",
+          "direction": "Left",
+          "from": [
+            338,
+            270
+          ],
+          "image": 184,
+          "pixel_offset": [
+            -34,
+            0
+          ],
+          "position": [
+            338,
+            270
+          ],
+          "to": [
+            337,
+            270
+          ],
+          "walk": {
+            "count": 10,
+            "duration_ms": 1000,
+            "frame": {
+              "count": 10,
+              "direction_range": [
+                108,
+                118
+              ],
+              "frame_index": 6,
+              "interval_ms": 100,
+              "skip": 0,
+              "start": 48
+            },
+            "interval_ms": 100
+          }
+        }
+      ],
+      "name": "frame6_005_600ms",
+      "png": "docs/testing/monster-motion/frame6_005_600ms.png",
+      "simulated_now_ms": 1795000000600,
+      "wall_captured_ms": 1792867655013
+    },
+    {
+      "camera_center": [
+        334,
+        270
+      ],
+      "elapsed_ms": 1000,
+      "monsters": [
+        {
+          "action": "Standing",
+          "direction": "Right",
+          "from": [
+            330,
+            270
+          ],
+          "image": 5,
+          "pixel_offset": [
+            0,
+            0
+          ],
+          "position": [
+            331,
+            270
+          ],
+          "to": [
+            331,
+            270
+          ],
+          "walk": {
+            "count": 6,
+            "duration_ms": 600,
+            "frame": {
+              "count": 6,
+              "direction_range": [
+                44,
+                50
+              ],
+              "frame_index": 5,
+              "interval_ms": 100,
+              "skip": 0,
+              "start": 32
+            },
+            "interval_ms": 100
+          }
+        },
+        {
+          "action": "Standing",
+          "direction": "Down",
+          "from": [
+            334,
+            270
+          ],
+          "image": 22,
+          "pixel_offset": [
+            0,
+            0
+          ],
+          "position": [
+            334,
+            271
+          ],
+          "to": [
+            334,
+            271
+          ],
+          "walk": {
+            "count": 6,
+            "duration_ms": 600,
+            "frame": {
+              "count": 6,
+              "direction_range": [
+                56,
+                62
+              ],
+              "frame_index": 5,
+              "interval_ms": 100,
+              "skip": 0,
+              "start": 32
+            },
+            "interval_ms": 100
+          }
+        },
+        {
+          "action": "Standing",
+          "direction": "Left",
+          "from": [
+            338,
+            270
+          ],
+          "image": 184,
+          "pixel_offset": [
+            0,
+            0
+          ],
+          "position": [
+            337,
+            270
+          ],
+          "to": [
+            337,
+            270
+          ],
+          "walk": {
+            "count": 10,
+            "duration_ms": 1000,
+            "frame": {
+              "count": 10,
+              "direction_range": [
+                108,
+                118
+              ],
+              "frame_index": 9,
+              "interval_ms": 100,
+              "skip": 0,
+              "start": 48
+            },
+            "interval_ms": 100
+          }
+        }
+      ],
+      "name": "frame10_184_1000ms",
+      "png": "docs/testing/monster-motion/frame10_184_1000ms.png",
+      "simulated_now_ms": 1795000001000,
+      "wall_captured_ms": 1792867655565
+    }
+  ],
+  "terrain_source": "game-assets/maps/0.mnm + library-map.json + gfx",
+  "test": "real_monster_walk_advance_and_evidence",
+  "ticket": "R49 t48 (audit t44 X1-01..X1-04)"
+}

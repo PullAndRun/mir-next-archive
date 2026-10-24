@@ -5,6 +5,10 @@
 不做 Attack2/4、他职业、技能、双击、坐骑/疾风、远端随机同步、300ms 伤害队列、
 冷却、怪物/NPC、寻路、光照/UI/音效；最终候选通过 12 项门禁后冻结提交。
 
+> **R49 起状态**：本目录是 R47 冻结证据（只读）。新的 live 测试默认写
+> `target/attack-variants/`，可用 `MIR_ATTACK_EVIDENCE_DIR` 覆盖；测试带
+> `#[ignore]`，不参与默认全量门禁，真实渲染回归需显式 `--ignored`。见 §8。
+
 ## 1. Gate 0：Crystal 与转换资产对照
 
 Crystal `PlayerObject.cs:1055-1075` 的 default 分支：
@@ -151,9 +155,10 @@ female/male 两个 Warrior 互为观察者：
 * `actual_index` 是实际 body 层渲染帧（含外观块基址，Standing Down/Right 为
   32/16，male Right 为 16）；`attack_frame_index` 是扁平攻击序列帧（216/344），
   `logical_index` 是 Crystal 136/232 逻辑序列帧。三者分列，禁止混用。
-* `build/evidence/attack-variants/` 与 `docs/testing/attack-variants/` 的
+* （R47 历史流程）`build/evidence/attack-variants/` 与 `docs/testing/attack-variants/` 的
   `live-manifest.json` 字节一致；25 张 PNG 的 `png_byte_hash` 由测试落盘后读回字节计算，
   `live-run.log` 头部的 `batch_id` 与 manifest 的 `generated_at_unix_ms` 同批。
+  R49 起默认输出改为 `target/attack-variants/`（gitignored），不再写本目录，见 §8。
 * 标准角色无武器/无翅膀时只有 body/hair 层；武器/盾/翅膀层由 `entities` 单测锁帧。
   Attack3 的通用挥砍光效降级为无，manifest/docs 记录，不冒充完整对齐。
 
@@ -182,7 +187,8 @@ new      batch p95 = selection 2.0 / build 23.0 / frames 67.0 / end_to_end 67.0 
 
 ## 6. 最终验收冻结（2026-10-24）
 
-* 最终门禁：`pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale`，12/12 全绿，
+* 最终门禁：`pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale`，12 项全绿（R47 历史批次；
+  R49 起不再复用该结论，见 §8），
   耗时 255.76 秒；完整输出 `final-gate.log`，结果 `final-gate-result.json`，
   启动前 23 个源码/测试/工具 blob 见 `final-candidate.json`；结束后逐项复核无变化。
   原始日志为 `target/gate-r47-20261024-095531.log`；前一截断门禁不计通过。
@@ -221,3 +227,24 @@ new      batch p95 = selection 2.0 / build 23.0 / frames 67.0 / end_to_end 67.0 
 * 女性/男性素材偏移（ArmourOffSet）沿用现有渲染路径，本轮未改。
 * `build/evidence/attack-variants/` 为 gitignore 临时 PNG；提交证据以本目录
   manifest/CSV/日志为准。
+
+## 8. R49 起的运行方式：本目录只读、证据写 `target/`
+
+`crates/mir-client/tests/attack_variant_live.rs` 当前行为（与 §1–§7 的 R47 冻结快照不同）：
+
+* 默认输出 `target/attack-variants/`（相对仓库根，gitignored）；`MIR_ATTACK_EVIDENCE_DIR`
+  可覆盖为任意相对/绝对目录。manifest 的 `evidence.output_dir` / `output_dir_env` /
+  `tracked=false` 记录实际落点。
+* **绝不写** `docs/testing/attack-variants/`；该 R47 冻结目录只读参照，测试运行前后做
+  目录字节指纹校验（`evidence.frozen_r47.fingerprint_unchanged`）。若旧目录曾被历史
+  全量门禁刷新，恢复 tracked 原样由队长执行
+  `git checkout -- docs/testing/attack-variants/`，测试本身不写该目录。
+* 测试带 `#[ignore = "需要完整 game-assets 与真实渲染管线；全量门禁默认不跑"]`，
+  **不参与默认全量门禁**；真实渲染回归必须显式
+  `cargo test -p mir-client --test attack_variant_live -- --ignored`。
+* 审计以 manifest 语义为准（`index_semantics` / `native_selection`：索引、图层、选帧），
+  PNG 位级哈希只证明该次运行；R49 两次运行的 2/25 帧像素差记录在
+  `docs/testing/round49/README.md`，不据此宣称逐位确定。
+* R49 新批次（如 `1792862532745`）只落 `target/attack-variants/`，不覆盖本目录；
+  本目录的 `live-manifest.json`/PNG/日志仍是 R47 批次 `1792807006205` 的冻结快照。
+* 当前工作树最终全量门禁未跑：`current_gate=PARTIAL`，不以 R47 的历史门禁结论代替。

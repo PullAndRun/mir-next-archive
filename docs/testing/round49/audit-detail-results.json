@@ -1,0 +1,2307 @@
+{
+  "sampled_at": "2026-10-24T18:29:36.489999+00:00",
+  "head": "f0be3645a96776f876d033480f6fac4a1769214d",
+  "inventory": [
+    {
+      "path": "crates/mir-asset/src/frames.rs",
+      "bytes": 19969,
+      "sha256": "8d788f008de783a0e1b93510bde26a05778d9d319860e9f5f3d5cb9bc547f00a"
+    },
+    {
+      "path": "crates/mir-asset/src/lib.rs",
+      "bytes": 6731,
+      "sha256": "6590ad69e71285677388eae7e5e3376d15f04feb3672d55873a8c72c65f7fe75"
+    },
+    {
+      "path": "crates/mir-asset/src/lib_container.rs",
+      "bytes": 26189,
+      "sha256": "08c44b46b4f15114ee90c5b4ad256fd5c95d41661cb06a6f0d7c94ca82f88afa"
+    },
+    {
+      "path": "crates/mir-asset/src/library.rs",
+      "bytes": 25785,
+      "sha256": "0a2f419433ecf6064ebe9260e6549766c2eb2ff059f1a1649a737e67dc4b5b19"
+    },
+    {
+      "path": "crates/mir-asset/tests/real_framesets.rs",
+      "bytes": 8775,
+      "sha256": "4fe171ac37a339f847aa40cd4512c79029e4c908b0d04376595b3c6a27afcda7"
+    },
+    {
+      "path": "crates/mir-client/src/app.rs",
+      "bytes": 139322,
+      "sha256": "c188f3f2ef2794ace52066f78a7f81609ef77d5e83bbfddab67ef0bf2782a5ab"
+    },
+    {
+      "path": "crates/mir-client/src/assets.rs",
+      "bytes": 18012,
+      "sha256": "272b0c541c1a3ce9c2dd7023475bee3b3aa935f5261d78cbf0dfbbb9f7220874"
+    },
+    {
+      "path": "crates/mir-client/src/camera.rs",
+      "bytes": 52953,
+      "sha256": "c57dc92d627c45fe50d545b16872da43e3b5ea761a52d0756ba1996d8f6e9272"
+    },
+    {
+      "path": "crates/mir-client/src/main.rs",
+      "bytes": 37213,
+      "sha256": "5ef5d1eb97f965b489deab953da66bdea5fa67c22f775ed8e564e8a12fbd0c49"
+    },
+    {
+      "path": "crates/mir-client/src/net.rs",
+      "bytes": 339207,
+      "sha256": "15e1d30b956b7f7d0557850b2a13a7a12c79a3d4e2105f7756717aa0142ccaad"
+    },
+    {
+      "path": "crates/mir-client/tests/anim.rs",
+      "bytes": 18194,
+      "sha256": "c2817a61370f7a7d473c4703bc920592d0bfc32caacfd1331bc65e3e69e78c89"
+    },
+    {
+      "path": "crates/mir-client/tests/attack_variant_live.rs",
+      "bytes": 27992,
+      "sha256": "1aff48f7f1bae349fc8ee5b5c26a733bf1c330cd4424e1d01987466d72f83d7a"
+    },
+    {
+      "path": "crates/mir-client/tests/cli_monster_frames.rs",
+      "bytes": 2389,
+      "sha256": "a31b0b90dff5fafbfef10a934a1a48aa9c8f3dcd47757a2db0a5dddae53a12fb"
+    },
+    {
+      "path": "crates/mir-client/tests/live_world.rs",
+      "bytes": 38831,
+      "sha256": "21f27601492ce236dd7390301a367a48079d22a5e667b4f2c75ad1af80c41c02"
+    },
+    {
+      "path": "crates/mir-client/tests/monster_motion.rs",
+      "bytes": 19279,
+      "sha256": "b5e03ff81943293d953280ae35e37851b3a861b5a4321bd6455f55497d808b52"
+    },
+    {
+      "path": "crates/mir-client/tests/remote_motion_live.rs",
+      "bytes": 27114,
+      "sha256": "3c7e5ba304051db88796aacdc0c03771e48bf6e6241648769b7e7b8f84af1a20"
+    },
+    {
+      "path": "crates/mir-client/tests/ui_interaction.rs",
+      "bytes": 20666,
+      "sha256": "29ed7fd77fc81737da3d8e13cafc2c94ecea97042135b2a3b685e72e6f50e05a"
+    },
+    {
+      "path": "crates/mir-client/tests/ui_test.rs",
+      "bytes": 15662,
+      "sha256": "0bebab160ed1b9dc4d2db9fb8f2d8685266023f4424eac1bb4f63a2d9d8935c1"
+    },
+    {
+      "path": "crates/mir-render/src/animation.rs",
+      "bytes": 45810,
+      "sha256": "b08dfecad239bc397fcb9533f303918c973f5bfb6cbe01615c679a05c5064ed6"
+    },
+    {
+      "path": "crates/mir-render/src/entities.rs",
+      "bytes": 140266,
+      "sha256": "8aad2e0745743812aafe2b345f92e38b41e99e0b67b5be9400e46a472043d432"
+    },
+    {
+      "path": "crates/mir-render/tests/monster_native.rs",
+      "bytes": 16247,
+      "sha256": "e2cf3ae2c69500bc1a3b24cbeaab28f8d28f015583aced46ba9f83e6f7109a33"
+    },
+    {
+      "path": "crates/mir-render/tests/monster_native_evidence.rs",
+      "bytes": 14618,
+      "sha256": "f1efc860980370b1f8128ba0aa6b9095a555723a437dd8b1fc0cd46064baa3a1"
+    },
+    {
+      "path": "crates/mir-render/tests/native_player_evidence.rs",
+      "bytes": 23536,
+      "sha256": "38be50de584abe0638bf635ff3ff0a9b53f1f3be46ada1047556435a2f715885"
+    },
+    {
+      "path": "crates/mir-tools/src/main.rs",
+      "bytes": 104515,
+      "sha256": "db487781910ff7bf13d451cbb05b0f4d268f5791c970f7a2dd411fa5e6a0f76a"
+    },
+    {
+      "path": "crates/mir-tools/tests/monster_native_import.rs",
+      "bytes": 12915,
+      "sha256": "c64317f37471325f47e5c67aa410e160863430b041518c22e607cdaaad0c18a3"
+    },
+    {
+      "path": "docs/client.md",
+      "bytes": 143550,
+      "sha256": "bac99052d90f7d6e6076015ec11f4d12f596a6243896201c128ff250d7a1e235"
+    },
+    {
+      "path": "docs/process/round49-menxia-review.md",
+      "bytes": 18617,
+      "sha256": "7c6b4efacc899f9b854c615b66cf745c1b83d6fe014d0cfa8602c245651173d0"
+    },
+    {
+      "path": "docs/process/round49-plan.md",
+      "bytes": 13506,
+      "sha256": "2eeb9b07d6b487e986fb9c79b85d7d5273c29f85f26d43c3600706e5c0061873"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-down-frame0.png",
+      "bytes": 691944,
+      "sha256": "069c7c66ac88eadc53df22a71a2c4924e0b36eb8df159675749ddff2636dbe27"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-down-frame1.png",
+      "bytes": 691740,
+      "sha256": "03b717ca0af8a458899c9e06b745409fa945ddf2cfbab743639b60984d41432b"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-down-frame2.png",
+      "bytes": 692198,
+      "sha256": "f9322e8bc6871db8ccb275d880b57744451f45b57048c66308e7cdd52ffb750d"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-down-frame3.png",
+      "bytes": 693301,
+      "sha256": "cb50d77510b6b124828df14d775a8985fbf80d379fc429d7bf5fc6149fc5d383"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-down-frame4.png",
+      "bytes": 693224,
+      "sha256": "d9897a196fe0f6224c887aac33793cc91ac502036df7638b21db3733087cfb81"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-down-frame5.png",
+      "bytes": 692979,
+      "sha256": "40745e59889aae4168b5e3db40eb06a609ab48f8e19ddcbc5c2beb9a8823b0d8"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-down-frame6.png",
+      "bytes": 690541,
+      "sha256": "72263442a53b2334336b664c8a8b00210bac40fd920dba55fba2441c2b150f1d"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-right-frame0.png",
+      "bytes": 691479,
+      "sha256": "f2d9fc3d579f10342b980709d7263ba5eaa90ae9f6b97492b760681f00036cc5"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack1-right-frame1.png",
+      "bytes": 692327,
+      "sha256": "fbf49c3f53efe1e34ab7fabfda825b50246d4c50b25b42869cd2197a3a22f401"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame0.png",
+      "bytes": 691768,
+      "sha256": "861ea22a34471bc58a384090890c32effc4c634b5edb850f19dca0311a335fbe"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame1.png",
+      "bytes": 692814,
+      "sha256": "028c530025288a4429919d46eb24316083cd96ab0bda8a6be2299c7ed62c8ff7"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame2.png",
+      "bytes": 691175,
+      "sha256": "4a3a5561caaffc4d55c4660c02404f93911d3d9225d5f9d52e5f6ef25bc3fc5c"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame3.png",
+      "bytes": 691537,
+      "sha256": "455a0eec17f25cdc26ea94f8853d6614b492c644d97875f18310713abd4c4eed"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame4.png",
+      "bytes": 691984,
+      "sha256": "522973e4d524037b5924508aa9ffa20e2fb1ce66673b5a5854a7c5fd94d054e8"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame5.png",
+      "bytes": 692701,
+      "sha256": "afb8a4ff8caaa1bdbc899408b98c16a9992ebbbfeba76ec4125e1b12cd1d5cc5"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame6.png",
+      "bytes": 692186,
+      "sha256": "cdcc70a4daef6ae5d14598dcc0420d563a67f24c5fc713b58b6377e962e288e9"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame7.png",
+      "bytes": 691858,
+      "sha256": "6d59c68f93e46e17145d693c99cc62e3a08c7a658be7b98af48b8450be2fee9c"
+    },
+    {
+      "path": "docs/testing/attack-variants/female-attack3-right-frame8.png",
+      "bytes": 690128,
+      "sha256": "8638639cf5d6eebd3fc1b0074adf5f1e08e55b2e8a3c808aac4324c5278acbe9"
+    },
+    {
+      "path": "docs/testing/attack-variants/live-manifest.json",
+      "bytes": 29811,
+      "sha256": "288d323487f935cf6b3778e3aff95fed3311e8de7684c024ba82fafc3a188e4c"
+    },
+    {
+      "path": "docs/testing/attack-variants/live-run.log",
+      "bytes": 3706,
+      "sha256": "ee1ace5d093989288c85f45f49b9f25420abe452d3dd5aa386193517cca7e002"
+    },
+    {
+      "path": "docs/testing/attack-variants/male-attack1-right-frame0.png",
+      "bytes": 691604,
+      "sha256": "a9971049e14c5a60d458c2d42ca736b60b94c3ad2de9ee68387025312cc2b19d"
+    },
+    {
+      "path": "docs/testing/attack-variants/male-attack1-right-frame1.png",
+      "bytes": 693005,
+      "sha256": "2ea5f305a54377338aadd0649f1843aec717165c16afdd7e6c7fe63ab01dca8c"
+    },
+    {
+      "path": "docs/testing/attack-variants/male-attack1-right-frame2.png",
+      "bytes": 692191,
+      "sha256": "6fdc6dc083084b6f4938746c58b491a05ecd95707e8049e78cfcdbb0ade20b65"
+    },
+    {
+      "path": "docs/testing/attack-variants/male-attack1-right-frame3.png",
+      "bytes": 693457,
+      "sha256": "90b5618a70a8aa210e3558b3265e4691b7b597e89e1f46fb8bda8bfe053f2dca"
+    },
+    {
+      "path": "docs/testing/attack-variants/male-attack1-right-frame4.png",
+      "bytes": 693117,
+      "sha256": "60091758f855629347941866c3cd9ff1b06e539f4b36b8cd5e39ef8e0e218db0"
+    },
+    {
+      "path": "docs/testing/attack-variants/male-attack1-right-frame5.png",
+      "bytes": 692263,
+      "sha256": "35fc6291d22ba212416cd51f04b6fc16e7125c2c8c909e224d8f168917415c35"
+    },
+    {
+      "path": "docs/testing/attack-variants/male-attack1-right-frame6.png",
+      "bytes": 689259,
+      "sha256": "2cabdac271b495e8a6e11011e77eefc9f819a3f85f210f363a6d3ff0440e01ba"
+    },
+    {
+      "path": "docs/testing/monster-motion/README.md",
+      "bytes": 2217,
+      "sha256": "2082377392b16e687ba43279da67675e1c247669e93c8f279ec80fbb64f58bc3"
+    },
+    {
+      "path": "docs/testing/monster-motion/frame0.png",
+      "bytes": 703538,
+      "sha256": "6299e2486087fb89758efe67e06816c6c921bbf14b3f1d2ed03431aae61fa9a9"
+    },
+    {
+      "path": "docs/testing/monster-motion/frame10_184_1000ms.png",
+      "bytes": 687609,
+      "sha256": "21bc4a574300cdec725241775478a34f49eed034c4854725dc755586bb5d9994"
+    },
+    {
+      "path": "docs/testing/monster-motion/frame5.png",
+      "bytes": 696586,
+      "sha256": "874f5fe2a8232c7547c067d280e1ed779064d56f0a846d076c875bf18e0a6455"
+    },
+    {
+      "path": "docs/testing/monster-motion/frame6_005_600ms.png",
+      "bytes": 694244,
+      "sha256": "681533270a015d78508f1ee3871e4f406b668a04693723a6e95f5adef3646f0f"
+    },
+    {
+      "path": "docs/testing/monster-motion/manifest.json",
+      "bytes": 12081,
+      "sha256": "b55b4c3cfe4a79fee54b73dcaf937c9299fb334b9786e4c4e9951f0e66ede761"
+    },
+    {
+      "path": "docs/testing/monster-motion/stride-zero-render.json",
+      "bytes": 18478,
+      "sha256": "7fabb470e4c91d8a80839bf401cd5d7c4d848ac66350a7d399fdfa561c1f5252"
+    },
+    {
+      "path": "docs/testing/monster-motion/stride-zero/010-standing-down.png",
+      "bytes": 10580,
+      "sha256": "b55c84aed8509f28ff0b6c6b71d150809fcce6e387adf1b5634d8d55658c7ced"
+    },
+    {
+      "path": "docs/testing/monster-motion/stride-zero/041-standing-down.png",
+      "bytes": 54692,
+      "sha256": "0c0ab11f70354c5ff898dfb86727e41bad237cd5661fd1430426498c11af1e47"
+    },
+    {
+      "path": "docs/testing/monster-motion/stride-zero/043-standing-down.png",
+      "bytes": 7954,
+      "sha256": "cd5242868c2d86405c9403e32bc81b8988953e919077a245c4637bdd677d5a13"
+    },
+    {
+      "path": "docs/testing/monster-motion/stride-zero/062-standing-down.png",
+      "bytes": 38808,
+      "sha256": "283a9b24f482c10cbc5af9464707807500d44d31644d2b0014c7e94a65444d36"
+    },
+    {
+      "path": "docs/testing/monster-native/README.md",
+      "bytes": 5451,
+      "sha256": "ad3b360a9bdd1522d26fb64fc0d4a386fdc6e696fb45ce414f59014b496e1b0f"
+    },
+    {
+      "path": "docs/testing/monster-native/freeze.json",
+      "bytes": 2729,
+      "sha256": "f9abe6fe8358357d97bcd8c8597e2dca1ace2915ca0c99e50c670ddf3628aa8a"
+    },
+    {
+      "path": "docs/testing/monster-native/manifest.json",
+      "bytes": 107624,
+      "sha256": "d3b1d4c4c89b3484e36ae4775b93fddf0f478688edc0e66765c8d27b66fc2c51"
+    },
+    {
+      "path": "docs/testing/monster-native/monster-frame-table.csv",
+      "bytes": 28244,
+      "sha256": "c05bb902a2aa9e075c775be4de43e64f2b8aba6853bae94e6724ad0bcc4e1475"
+    },
+    {
+      "path": "docs/testing/monster-native/player-resource-freeze-before.json",
+      "bytes": 44844165,
+      "sha256": "70845aefd4dd689a55ab0618b36bbf692a4b33ebb5ee2f3a662dedc17a3dc9de"
+    },
+    {
+      "path": "docs/testing/monster-native/player-resource-freeze.json",
+      "bytes": 45219533,
+      "sha256": "c7d896e7f5eee4706b943912c0c564d10d61c98d163143f051c2d632daecde32"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-female-alt-attack1.png",
+      "bytes": 690287,
+      "sha256": "daa013518c4cbe6e7273f07edb25f510940d434587b126c98f1cb9c1ed64ed49"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-female-alt-standing.png",
+      "bytes": 690170,
+      "sha256": "540f60c80b9d49db8a2cab5e824e360a83b4efd3490d0611a3342c7263ff889b"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-male-alt-attack1.png",
+      "bytes": 690584,
+      "sha256": "5b0968817e8eddf8b56b49f807b01813301b1dc59ecf68aef121fd8f2f092d5e"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-male-alt-standing.png",
+      "bytes": 690635,
+      "sha256": "d062c78c6eaa954286f50aab8d9b7e5c243a7e30f65467fb41477ec756c3e293"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-male-plain-attack1.png",
+      "bytes": 691494,
+      "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-male-plain-standing.png",
+      "bytes": 690769,
+      "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-female-alt-attack1.png",
+      "bytes": 690824,
+      "sha256": "60698c2948d24857a1d8e25f379fe054bdcb1cf8fdc733c8ab4291abf706b23c"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-female-alt-standing.png",
+      "bytes": 690486,
+      "sha256": "6605415e0d60d21de63cabc884b8741646615c99e9076f1f23a46904edef0250"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-male-alt-attack1.png",
+      "bytes": 691126,
+      "sha256": "8d4f4681bed4e339f5948a98b0838cc4c160c00ee9ece70c24bf7b9e795b010b"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-male-alt-standing.png",
+      "bytes": 690586,
+      "sha256": "349944863518da8fbb6a4243d00cbeab3d5f139100d8870eae49576f0cf6a024"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-male-plain-attack1.png",
+      "bytes": 691494,
+      "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-male-plain-standing.png",
+      "bytes": 690769,
+      "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-attack1.png",
+      "bytes": 691621,
+      "sha256": "ca3deb6d8f460f102704d41a2ae7d8860ace174c8fe21bee197b90361b9d04b0"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-dead.png",
+      "bytes": 688875,
+      "sha256": "ff278d66ea7fd9b5c85295afd17b40090918a61556fd3d9bad19084dbdda0f58"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-dying.png",
+      "bytes": 692001,
+      "sha256": "3002739efefc8736992f344822a60b9d9f329d2841edd40f31e6ed83c9b00165"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-standing.png",
+      "bytes": 691464,
+      "sha256": "c6391c5e184ada86258d4eec5589f5639cb8ff50a59fd85c864e232105f36a85"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-struck.png",
+      "bytes": 692361,
+      "sha256": "b4ca4742125aa7b0b4a35bf4da4bd8c70c586a9bc37043d61ec4b388e6e88c75"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-walking.png",
+      "bytes": 691456,
+      "sha256": "c2851b84ea765356641ca9aa35f0f69c032c1c45c72434537ffadfd4968f257b"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-attack1.png",
+      "bytes": 695463,
+      "sha256": "7a6a558e331ac746b28f5ec01d8b3b64f56d319e72c91c3ae4b7ea07ab4a27a6"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-dead.png",
+      "bytes": 690168,
+      "sha256": "f113c10353994ffcec7af24e2fbc0f87d95961c600806282959b46c4dcc9a6fd"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-dying.png",
+      "bytes": 695221,
+      "sha256": "84c744ec0287e65b5b71b7b92af99868be81862f749ee9430db02dd334ba341d"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-standing.png",
+      "bytes": 694430,
+      "sha256": "1fc79ec16cddc42524cb2c9f2f85717d1fd4dc535c71865f84f8ad587da85c3e"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-struck.png",
+      "bytes": 695256,
+      "sha256": "bcf27cf629709ebd9017aa10e8de5db0964e26a55b47c5bdda74e555e8b72833"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-walking.png",
+      "bytes": 694151,
+      "sha256": "fc27fb345b56357bd51c7d9da3c411007e9aece710dd9429b54a52605a5eba84"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-attack1.png",
+      "bytes": 696468,
+      "sha256": "399d10598412ba479cb4210845253f7f753fcb3f09a8adc0ef50ee6ac7d67d92"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-dead.png",
+      "bytes": 689919,
+      "sha256": "2162b69cd45f2322099c2e0a83283acbd61772ac77bd51c1d671515aeadcf596"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-dying.png",
+      "bytes": 698254,
+      "sha256": "34f39680005890fce10abd794ff5e76186d1fd40137d06cf7db7623843975b72"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-standing.png",
+      "bytes": 696827,
+      "sha256": "4140431ed9fa7f93ab12bc8fdab4b351402fb39399358de59c452158cb73a946"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-struck.png",
+      "bytes": 698820,
+      "sha256": "bb8d1dfa5a5f3ba01166049258d2abdcfe299fdc942a063e1a3d456822a8dc40"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-walking.png",
+      "bytes": 697157,
+      "sha256": "514eb5083512b5529a5973b59a4d774f032386b3525dbc51c134215dd30c5af7"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-attack1.png",
+      "bytes": 693723,
+      "sha256": "6dceb4b7f234ec6aac53389017fcff52ab106a03b0622003781ba435d86454a6"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-dead.png",
+      "bytes": 695806,
+      "sha256": "8d80a4f2f3bbea5044c6c71f67f4831a71ebf1f1340edb16e4f3ecbfa5ffb365"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-dying.png",
+      "bytes": 696117,
+      "sha256": "27c4e9358c812cd6f0fe4bd1173cf906179d906226fe792c1c58aaf41df780b2"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-standing.png",
+      "bytes": 694415,
+      "sha256": "b0834ea1bb63e75e6b96b0a371537c77cfcd748b97590c5d1315946e15db702d"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-struck.png",
+      "bytes": 695848,
+      "sha256": "e0f98cb6db4a3084e9f53acf3aefd667facc7bddcb57a2cf59f9a729fb3bf9d8"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-walking.png",
+      "bytes": 693702,
+      "sha256": "c9c6a2bb75b2845c16517cb30faddf13dc8b0513dc6392d6a8570aeeede216e9"
+    },
+    {
+      "path": "docs/testing/monster-native/png/self-moved-dev.png",
+      "bytes": 696661,
+      "sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d"
+    },
+    {
+      "path": "docs/testing/monster-native/png/self-moved-release.png",
+      "bytes": 696661,
+      "sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d"
+    },
+    {
+      "path": "docs/testing/monster-native/png/self-still-dev.png",
+      "bytes": 711139,
+      "sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c"
+    },
+    {
+      "path": "docs/testing/monster-native/png/self-still-release.png",
+      "bytes": 711139,
+      "sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c"
+    },
+    {
+      "path": "docs/testing/monster-native/png/taoist-female-attack1.png",
+      "bytes": 691117,
+      "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19"
+    },
+    {
+      "path": "docs/testing/monster-native/png/taoist-female-standing.png",
+      "bytes": 690593,
+      "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764"
+    },
+    {
+      "path": "docs/testing/monster-native/png/taoist-male-attack1.png",
+      "bytes": 691494,
+      "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736"
+    },
+    {
+      "path": "docs/testing/monster-native/png/taoist-male-standing.png",
+      "bytes": 690769,
+      "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778"
+    },
+    {
+      "path": "docs/testing/monster-native/png/warrior-female-attack1.png",
+      "bytes": 691117,
+      "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19"
+    },
+    {
+      "path": "docs/testing/monster-native/png/warrior-female-standing.png",
+      "bytes": 690593,
+      "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764"
+    },
+    {
+      "path": "docs/testing/monster-native/png/warrior-male-attack1.png",
+      "bytes": 691494,
+      "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736"
+    },
+    {
+      "path": "docs/testing/monster-native/png/warrior-male-standing.png",
+      "bytes": 690769,
+      "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778"
+    },
+    {
+      "path": "docs/testing/monster-native/png/wizard-female-attack1.png",
+      "bytes": 691117,
+      "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19"
+    },
+    {
+      "path": "docs/testing/monster-native/png/wizard-female-standing.png",
+      "bytes": 690593,
+      "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764"
+    },
+    {
+      "path": "docs/testing/monster-native/png/wizard-male-attack1.png",
+      "bytes": 691494,
+      "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736"
+    },
+    {
+      "path": "docs/testing/monster-native/png/wizard-male-standing.png",
+      "bytes": 690769,
+      "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778"
+    },
+    {
+      "path": "docs/testing/monster-native/raw-manifest.json",
+      "bytes": 23858,
+      "sha256": "93eb7c5cb0755840fd570adabe86bfc0d8ad22c0c0f6edfa93de812f93fc6649"
+    },
+    {
+      "path": "docs/testing/native-monster/README.md",
+      "bytes": 7510,
+      "sha256": "923df0fd8aa4ab853e9b2478e06220a335a7a793b62d4efde3d88b2fb10b0d79"
+    },
+    {
+      "path": "docs/testing/round49/audit-probe-results.json",
+      "bytes": 129458,
+      "sha256": "bd104b256c98a5c5f7166bd080a358fc86eda355e61d4957420831f278cb39ea"
+    },
+    {
+      "path": "docs/testing/round49/audit_detail_probe.py",
+      "bytes": 6702,
+      "sha256": "8b1d7ca19a62ee70566a06b2bd66214fa33cb8f6d00005e1d961e37e4cca78f4"
+    },
+    {
+      "path": "docs/testing/round49/audit_probe.py",
+      "bytes": 7225,
+      "sha256": "3b4b73dfbb6f22461e925bacecb757c541bee5fe4a06ae6853e4277c3e862906"
+    }
+  ],
+  "changed_since_first_probe": [
+    {
+      "path": "crates/mir-client/src/app.rs",
+      "before": "822cdad82d74a0db6df6d2d078e12acf9e1faae64bc7cdbfb40166796a64bb0e",
+      "after": "c188f3f2ef2794ace52066f78a7f81609ef77d5e83bbfddab67ef0bf2782a5ab"
+    },
+    {
+      "path": "crates/mir-client/src/main.rs",
+      "before": "63a713e624b0bd74201e018b274da6fddf06331a1edfe2f01f70a567e50b070e",
+      "after": "5ef5d1eb97f965b489deab953da66bdea5fa67c22f775ed8e564e8a12fbd0c49"
+    },
+    {
+      "path": "crates/mir-client/tests/monster_motion.rs",
+      "before": "6a7449f40dfd7611725f9c7248b1639b4b2d34b5ce00c6999c5ef5ec13c4c11b",
+      "after": "b5e03ff81943293d953280ae35e37851b3a861b5a4321bd6455f55497d808b52"
+    },
+    {
+      "path": "crates/mir-render/tests/monster_native.rs",
+      "before": "143f5200603e92adf50ab2f331c2e7760d402135fb484fcd0b2b7b631a6b3f05",
+      "after": "e2cf3ae2c69500bc1a3b24cbeaab28f8d28f015583aced46ba9f83e6f7109a33"
+    },
+    {
+      "path": "crates/mir-render/tests/monster_native_evidence.rs",
+      "before": "1f24555f35c1cfa336debb47dd365516c1a9f6e76682563813278b3930d474b8",
+      "after": "f1efc860980370b1f8128ba0aa6b9095a555723a437dd8b1fc0cd46064baa3a1"
+    }
+  ],
+  "flags": {
+    "reverse_by_action": {
+      "28": 107,
+      "25": 4
+    },
+    "blend": [
+      {
+        "key": "monster-117",
+        "action": 27,
+        "reverse": false,
+        "blend": true,
+        "effect_count": 0
+      },
+      {
+        "key": "monster-117",
+        "action": 0,
+        "reverse": false,
+        "blend": true,
+        "effect_count": 0
+      },
+      {
+        "key": "monster-117",
+        "action": 1,
+        "reverse": false,
+        "blend": true,
+        "effect_count": 0
+      },
+      {
+        "key": "monster-117",
+        "action": 14,
+        "reverse": false,
+        "blend": true,
+        "effect_count": 0
+      },
+      {
+        "key": "monster-117",
+        "action": 18,
+        "reverse": false,
+        "blend": true,
+        "effect_count": 0
+      },
+      {
+        "key": "monster-117",
+        "action": 21,
+        "reverse": false,
+        "blend": true,
+        "effect_count": 0
+      },
+      {
+        "key": "monster-117",
+        "action": 28,
+        "reverse": true,
+        "blend": true,
+        "effect_count": 0
+      }
+    ],
+    "effects": []
+  },
+  "player_freeze": {
+    "before_counts": {
+      "player_keys": 262,
+      "player_pngs": 372448
+    },
+    "after_counts": null,
+    "before_keys": [
+      "counts",
+      "elapsed_seconds",
+      "generated_at",
+      "key_presence",
+      "maps",
+      "player_index_sha256",
+      "player_library_keys",
+      "player_library_keys_sha256",
+      "player_png_sha256"
+    ],
+    "after_keys": [
+      "schema",
+      "generated_at_unix_ms",
+      "before_file",
+      "after_full_file",
+      "note",
+      "before",
+      "after",
+      "player_library_keys_equal",
+      "player_index_png_hashes_equal",
+      "required_keys",
+      "required_key_presence",
+      "all_required_present",
+      "native_player_layout_test",
+      "pack_container_note"
+    ]
+  },
+  "attack": {
+    "old_batch": 1792807006205,
+    "new_batch": 1792865433773,
+    "old_packs": "packs=46（hum/hum2 Attack3 344..351 已验证）",
+    "new_packs": "packs=96（hum/hum2 Attack3 344..351 已验证）",
+    "samples": [
+      {
+        "png": "docs/testing/attack-variants/female-attack1-down-frame0.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "33c7064243e6101c",
+        "new_pixel_hash": "b2a11c532d6d3f65"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack1-down-frame1.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "caee8e13c20a1183",
+        "new_pixel_hash": "1aa5a3afbe56b90d"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack1-down-frame2.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "a709a48bde9d98ef",
+        "new_pixel_hash": "894cfb5d87cea282"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack1-down-frame3.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "211d87a5200d6b19",
+        "new_pixel_hash": "86d6e2d99032e5f4"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack1-down-frame4.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "97bd66cdc5e73285",
+        "new_pixel_hash": "92a367882f8e1245"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack1-down-frame5.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "2d2405e4c0d11f8c",
+        "new_pixel_hash": "905d041f12be6fce"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack1-down-frame6.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "530f358863bf5874",
+        "new_pixel_hash": "5cc7e3286ead6f9a"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack1-right-frame0.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "81d855d605e5f1f9",
+        "new_pixel_hash": "e0e5a5d84465ce90"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack1-right-frame1.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "a2f73df23815710c",
+        "new_pixel_hash": "95f293361241ba78"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack3-right-frame0.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "51a3e0c24f2c5eed",
+        "new_pixel_hash": "0a0d9876c3490438"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack3-right-frame1.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "1d3d4a7859dba3ef",
+        "new_pixel_hash": "b1af081b4ba6cae7"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack3-right-frame2.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "4d7f82794f79d5f4",
+        "new_pixel_hash": "e153cd4c590c3e46"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack3-right-frame3.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "69a2696a9288bf4a",
+        "new_pixel_hash": "dc49deab608e0c97"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack3-right-frame4.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "c7085e96c6ed080c",
+        "new_pixel_hash": "243dd4c244559dad"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack3-right-frame5.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "00d44abe41bfcf93",
+        "new_pixel_hash": "2d8dd2ef50498c2c"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack3-right-frame6.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "197cc38aead660f6",
+        "new_pixel_hash": "0c5a06895dc08b08"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack3-right-frame7.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "a025b4e397a23fac",
+        "new_pixel_hash": "5c7776d23a69715d"
+      },
+      {
+        "png": "docs/testing/attack-variants/female-attack3-right-frame8.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "b029503b484136b2",
+        "new_pixel_hash": "77aced281f1f790a"
+      },
+      {
+        "png": "docs/testing/attack-variants/male-attack1-right-frame0.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "772bf40c39615976",
+        "new_pixel_hash": "819fe0a89790f461"
+      },
+      {
+        "png": "docs/testing/attack-variants/male-attack1-right-frame1.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "1649a0eebaa1f1ca",
+        "new_pixel_hash": "afee739f681a23ff"
+      },
+      {
+        "png": "docs/testing/attack-variants/male-attack1-right-frame2.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "bd7158cfde7d986c",
+        "new_pixel_hash": "1d60212b880eb862"
+      },
+      {
+        "png": "docs/testing/attack-variants/male-attack1-right-frame3.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "ad91d9039a29f0db",
+        "new_pixel_hash": "8128613ce938d230"
+      },
+      {
+        "png": "docs/testing/attack-variants/male-attack1-right-frame4.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "a040e05a36ac7098",
+        "new_pixel_hash": "3c8de89a4484c10c"
+      },
+      {
+        "png": "docs/testing/attack-variants/male-attack1-right-frame5.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "2201e159805afeb4",
+        "new_pixel_hash": "12c12ad4adf6197f"
+      },
+      {
+        "png": "docs/testing/attack-variants/male-attack1-right-frame6.png",
+        "png_byte_hash_matches": true,
+        "pixel_hash_matches": true,
+        "changes": {},
+        "old_pixel_hash": "689ab07a5012b3bf",
+        "new_pixel_hash": "a7dc6fe730fcd02b"
+      }
+    ]
+  },
+  "native_manifest_png_checks": [
+    {
+      "png": "docs/testing/monster-native/png/archer-female-alt-attack1.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/archer-female-alt-standing.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/archer-male-alt-attack1.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/archer-male-alt-standing.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/archer-male-plain-attack1.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/archer-male-plain-standing.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/assassin-female-alt-attack1.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/assassin-female-alt-standing.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/assassin-male-alt-attack1.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/assassin-male-alt-standing.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/assassin-male-plain-attack1.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/assassin-male-plain-standing.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-005-attack1.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-005-dead.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-005-dying.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-005-standing.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-005-struck.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-005-walking.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-022-attack1.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-022-dead.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-022-dying.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-022-standing.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-022-struck.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-022-walking.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-023-attack1.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-023-dead.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-023-dying.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-023-standing.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-023-struck.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-023-walking.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-039-attack1.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-039-dead.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-039-dying.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-039-standing.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-039-struck.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/monster-039-walking.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/self-moved-dev.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/self-moved-release.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/self-still-dev.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/self-still-release.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/taoist-female-attack1.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/taoist-female-standing.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/taoist-male-attack1.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/taoist-male-standing.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/warrior-female-attack1.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/warrior-female-standing.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/warrior-male-attack1.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/warrior-male-standing.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/wizard-female-attack1.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/wizard-female-standing.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/wizard-male-attack1.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    },
+    {
+      "png": "docs/testing/monster-native/png/wizard-male-standing.png",
+      "png_sha_matches": true,
+      "crop_sha_matches": true,
+      "bbox_actual": [
+        0,
+        0,
+        800,
+        600
+      ],
+      "bbox_manifest": [
+        0,
+        0,
+        800,
+        600
+      ]
+    }
+  ],
+  "native_metadata": {
+    "manifest_batch": 1792847715360,
+    "raw_generated": 1792865639318,
+    "frozen_batch": 1792847715360,
+    "native_packs": 12,
+    "current_source_sha256": {
+      "crates/mir-render/src/entities.rs": "8aad2e0745743812aafe2b345f92e38b41e99e0b67b5be9400e46a472043d432",
+      "crates/mir-render/src/player_layout.rs": "57f328c1bcad52ebad46ca3a15afc1279badb3852c1f2b2c0f2a8759a00f203c",
+      "crates/mir-render/src/animation.rs": "b08dfecad239bc397fcb9533f303918c973f5bfb6cbe01615c679a05c5064ed6",
+      "crates/mir-client/src/camera.rs": "c57dc92d627c45fe50d545b16872da43e3b5ea761a52d0756ba1996d8f6e9272"
+    },
+    "manifest_source_sha256": {
+      "crates/mir-render/src/entities.rs": "0153679045a9c09d227e50dd362eef7c2fcb528ab6a75b11b6b40ed9b57281f9",
+      "crates/mir-render/src/player_layout.rs": "57f328c1bcad52ebad46ca3a15afc1279badb3852c1f2b2c0f2a8759a00f203c",
+      "crates/mir-render/src/animation.rs": "ba905a9c484d435c12b8d787f0ad2ce2a89bc77db33bd7bf85d5c03970110bc7",
+      "crates/mir-client/src/camera.rs": "3ae7a5a2eea6147a4ddef36b33611ddfa700585aedbd42ecd2eedb53ae1b538a"
+    }
+  },
+  "target/gate-r49-final2.log": {
+    "sha256": "f0747ddf1d22b287c3e2a45cd283b03bffeb6051ec31871747741a086335a5fa",
+    "utf8_replacements": 1457,
+    "tail": [
+      {
+        "line": 3075,
+        "text": "test password::tests::verify_password_rejects_tampered_hash_or_salt ... ok"
+      },
+      {
+        "line": 3076,
+        "text": "test repo::tests::is_supported_language_matches_normalize_language ... ok"
+      },
+      {
+        "line": 3077,
+        "text": "test repo::tests::new_account_and_default_account_use_simplified_chinese ... ok"
+      },
+      {
+        "line": 3078,
+        "text": "test repo::tests::normalize_language_accepts_every_alias ... ok"
+      },
+      {
+        "line": 3079,
+        "text": "test repo::tests::normalize_language_ignores_case_and_surrounding_space ... ok"
+      },
+      {
+        "line": 3080,
+        "text": "test repo::tests::normalize_language_rejects_unsupported_codes ... ok"
+      },
+      {
+        "line": 3081,
+        "text": ""
+      },
+      {
+        "line": 3082,
+        "text": "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"
+      },
+      {
+        "line": 3083,
+        "text": ""
+      },
+      {
+        "line": 3084,
+        "text": "     Running tests\\guild_roundtrip.rs (target\\debug\\deps\\guild_roundtrip-d970a3b2fca37dd9.exe)"
+      },
+      {
+        "line": 3085,
+        "text": ""
+      },
+      {
+        "line": 3086,
+        "text": "running 1 test"
+      },
+      {
+        "line": 3087,
+        "text": "test guild_repository_roundtrip_rolls_back ... ok"
+      },
+      {
+        "line": 3088,
+        "text": ""
+      },
+      {
+        "line": 3089,
+        "text": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s"
+      },
+      {
+        "line": 3090,
+        "text": ""
+      },
+      {
+        "line": 3091,
+        "text": "     Running tests\\migrations.rs (target\\debug\\deps\\migrations-2d8d5182a370b713.exe)"
+      },
+      {
+        "line": 3092,
+        "text": ""
+      },
+      {
+        "line": 3093,
+        "text": "running 4 tests"
+      },
+      {
+        "line": 3094,
+        "text": "test drill_bootstrap_base_database ... ok"
+      },
+      {
+        "line": 3095,
+        "text": "test drill_probe_current_database ... ok"
+      },
+      {
+        "line": 3096,
+        "text": "test drill_url_parser_and_host_allowlist ... ok"
+      },
+      {
+        "line": 3097,
+        "text": "test migration_drill_from_0013_to_0016 ... ok"
+      },
+      {
+        "line": 3098,
+        "text": ""
+      },
+      {
+        "line": 3099,
+        "text": "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      },
+      {
+        "line": 3100,
+        "text": ""
+      },
+      {
+        "line": 3101,
+        "text": "     Running tests\\store_roundtrip.rs (target\\debug\\deps\\store_roundtrip-b3392d7c6fbd2527.exe)"
+      },
+      {
+        "line": 3102,
+        "text": ""
+      },
+      {
+        "line": 3103,
+        "text": "running 4 tests"
+      },
+      {
+        "line": 3104,
+        "text": "test account_and_character_lifecycle_rolls_back ... ok"
+      },
+      {
+        "line": 3105,
+        "text": "test account_with_nul_hash_roundtrips ... ok"
+      },
+      {
+        "line": 3106,
+        "text": "test legacy_password_hash_survives_migration_0010 ... ok"
+      },
+      {
+        "line": 3107,
+        "text": "test mail_crud_roundtrip_rolls_back ... ok"
+      },
+      {
+        "line": 3108,
+        "text": ""
+      },
+      {
+        "line": 3109,
+        "text": "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s"
+      },
+      {
+        "line": 3110,
+        "text": ""
+      },
+      {
+        "line": 3111,
+        "text": "   Doc-tests mir_store"
+      },
+      {
+        "line": 3112,
+        "text": ""
+      },
+      {
+        "line": 3113,
+        "text": "running 1 test"
+      },
+      {
+        "line": 3114,
+        "text": "test crates\\mir-store\\src\\lib.rs - (line 55) - compile ... ok"
+      },
+      {
+        "line": 3115,
+        "text": ""
+      },
+      {
+        "line": 3116,
+        "text": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      },
+      {
+        "line": 3117,
+        "text": ""
+      },
+      {
+        "line": 3118,
+        "text": "all doctests ran in 0.78s; merged doctests compilation took 0.70s"
+      },
+      {
+        "line": 3119,
+        "text": "    OK   (2 s)"
+      },
+      {
+        "line": 3120,
+        "text": ""
+      },
+      {
+        "line": 3121,
+        "text": "== ���� =="
+      },
+      {
+        "line": 3122,
+        "text": "OK   cargo fmt --all --check                                 2s"
+      },
+      {
+        "line": 3123,
+        "text": "OK   cargo clippy --workspace --all-targets -D warnings      1s"
+      },
+      {
+        "line": 3124,
+        "text": "OK   cargo test -p mir-server --test duo_smoke�����У�          12s"
+      },
+      {
+        "line": 3125,
+        "text": "OK   cargo test --workspace                                133s"
+      },
+      {
+        "line": 3126,
+        "text": "OK   Э�������� --check                                           1s"
+      },
+      {
+        "line": 3127,
+        "text": "OK   �ĵ�����������                                                0s"
+      },
+      {
+        "line": 3128,
+        "text": "OK   TextKey ������                                             0s"
+      },
+      {
+        "line": 3129,
+        "text": "OK   Ӳ���뼬�֣�player-visible����ֵ 70��                             0s"
+      },
+      {
+        "line": 3130,
+        "text": "OK   Ӳ���뼬�֣�no-test����ֵ 15��                                    0s"
+      },
+      {
+        "line": 3131,
+        "text": "OK   ����ʱ����������Դ��ʽ                                             0s"
+      },
+      {
+        "line": 3132,
+        "text": "OK   ��Ʒͼ��������                                                 1s"
+      },
+      {
+        "line": 3133,
+        "text": "OK   PostgreSQL ���ɲ��ԣ�mir-store ���У�                           2s"
+      },
+      {
+        "line": 3134,
+        "text": "==> ȫ��ͨ����12 �"
+      }
+    ]
+  },
+  "target/r49-evidence-tests.log": {
+    "sha256": "108570ba581d884aa851a4e3d2082807c8e17ff9dc3cc880cffca31894cea59b",
+    "utf8_replacements": 0,
+    "tail": [
+      {
+        "line": 1,
+        "text": "=== real_framesets ==="
+      },
+      {
+        "line": 2,
+        "text": "test real_v4_is_rejected_not_parsed_as_v3 ... ignored, 真实素材：cargo test -p mir-asset --test real_framesets -- --ignored"
+      },
+      {
+        "line": 3,
+        "text": "test action_names_match_mir_action_numbers ... ok"
+      },
+      {
+        "line": 4,
+        "text": ""
+      },
+      {
+        "line": 5,
+        "text": "test result: ok. 1 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      },
+      {
+        "line": 6,
+        "text": ""
+      },
+      {
+        "line": 7,
+        "text": "=== camera lib ==="
+      },
+      {
+        "line": 8,
+        "text": "test camera::monster_motion_tests::monster_run_offsets_use_two_cells ... ok"
+      },
+      {
+        "line": 9,
+        "text": "test camera::monster_motion_tests::monster_motion_rejects_bad_steps ... ok"
+      },
+      {
+        "line": 10,
+        "text": ""
+      },
+      {
+        "line": 11,
+        "text": "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 267 filtered out; finished in 0.00s"
+      },
+      {
+        "line": 12,
+        "text": ""
+      },
+      {
+        "line": 13,
+        "text": "=== monster_native ignored ==="
+      },
+      {
+        "line": 14,
+        "text": "警告：原生怪物 monster-062 缺动作 Running，跳过该帧；不回退 DefaultMonster"
+      },
+      {
+        "line": 15,
+        "text": "stride-zero evidence: C:\\Users\\diana\\Documents\\github\\mir-next\\crates\\mir-render\\../..\\docs/testing/monster-motion"
+      },
+      {
+        "line": 16,
+        "text": "test stride_zero_monsters_render_standing_pixels_in_dev_and_pack ... ok"
+      },
+      {
+        "line": 17,
+        "text": ""
+      },
+      {
+        "line": 18,
+        "text": "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.20s"
+      },
+      {
+        "line": 19,
+        "text": ""
+      },
+      {
+        "line": 20,
+        "text": "=== monster_native_evidence ignored ==="
+      },
+      {
+        "line": 21,
+        "text": "running 1 test"
+      },
+      {
+        "line": 22,
+        "text": "monster-native evidence: C:\\Users\\diana\\Documents\\github\\mir-next\\docs/testing/monster-native"
+      },
+      {
+        "line": 23,
+        "text": "test native_monsters_and_players_render_in_dev_and_release_modes ... ok"
+      },
+      {
+        "line": 24,
+        "text": ""
+      },
+      {
+        "line": 25,
+        "text": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 33.99s"
+      },
+      {
+        "line": 26,
+        "text": ""
+      },
+      {
+        "line": 27,
+        "text": "=== monster_native_import ignored ==="
+      },
+      {
+        "line": 28,
+        "text": "test all_a0_native_monsters_in_release_packs ... ok"
+      },
+      {
+        "line": 29,
+        "text": "test real_monster_native_verify_checks_frames_json ... ok"
+      },
+      {
+        "line": 30,
+        "text": "test real_monster_native_import_pack_round_trip_without_source_readback ... ok"
+      },
+      {
+        "line": 31,
+        "text": ""
+      },
+      {
+        "line": 32,
+        "text": "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.42s"
+      },
+      {
+        "line": 33,
+        "text": ""
+      },
+      {
+        "line": 34,
+        "text": "ALLDONE"
+      }
+    ]
+  },
+  "duplicates": {
+    "docs/testing/monster-native/": [
+      [
+        "docs/testing/monster-native/png/archer-male-plain-attack1.png",
+        "docs/testing/monster-native/png/assassin-male-plain-attack1.png",
+        "docs/testing/monster-native/png/taoist-male-attack1.png",
+        "docs/testing/monster-native/png/warrior-male-attack1.png",
+        "docs/testing/monster-native/png/wizard-male-attack1.png"
+      ],
+      [
+        "docs/testing/monster-native/png/archer-male-plain-standing.png",
+        "docs/testing/monster-native/png/assassin-male-plain-standing.png",
+        "docs/testing/monster-native/png/taoist-male-standing.png",
+        "docs/testing/monster-native/png/warrior-male-standing.png",
+        "docs/testing/monster-native/png/wizard-male-standing.png"
+      ],
+      [
+        "docs/testing/monster-native/png/self-moved-dev.png",
+        "docs/testing/monster-native/png/self-moved-release.png"
+      ],
+      [
+        "docs/testing/monster-native/png/self-still-dev.png",
+        "docs/testing/monster-native/png/self-still-release.png"
+      ],
+      [
+        "docs/testing/monster-native/png/taoist-female-attack1.png",
+        "docs/testing/monster-native/png/warrior-female-attack1.png",
+        "docs/testing/monster-native/png/wizard-female-attack1.png"
+      ],
+      [
+        "docs/testing/monster-native/png/taoist-female-standing.png",
+        "docs/testing/monster-native/png/warrior-female-standing.png",
+        "docs/testing/monster-native/png/wizard-female-standing.png"
+      ]
+    ],
+    "docs/testing/monster-motion/": []
+  }
+}

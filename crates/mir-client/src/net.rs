@@ -110,7 +110,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::camera::RemoteMotion;
+use crate::camera::{MonsterMotion, MonsterMotionParams, RemoteMotion};
 use anyhow::{Context, Result, anyhow, bail};
 use mir_core::Point;
 use mir_core::enums::{
@@ -231,6 +231,11 @@ pub struct ConnectOptions {
     pub password: String,
     /// 角色名。
     pub character: String,
+    /// 原生怪物完整帧表（外观号 → `frames.json`）。
+    ///
+    /// 由 UI 在连接前从默认素材加载；session 在收到第一条移动包前就持有它，
+    /// 避免真实联机退回 6 帧默认值（t44 R49-X1-03）。
+    pub monster_frames: BTreeMap<u16, mir_asset::FrameSet>,
     /// 角色不存在时是否自动创建。
     pub create: Option<CreateCharacter>,
     /// 账号不存在时是否自动注册（默认 `true`；`--no-register` 关闭）。
@@ -252,6 +257,7 @@ impl Default for ConnectOptions {
             create: None,
             auto_register: true,
             manual_select: false,
+            monster_frames: BTreeMap::new(),
         }
     }
 }
@@ -2255,6 +2261,9 @@ fn body_kind_for(kind: EntityKind) -> BodyKind {
 }
 
 /// 一次性动作播完后应该切到哪个动作；`None` 表示还不到切换的时候。
+// 参数与调用点一一对应：动作、时钟、体型、攻击变体、原生动作、怪物帧表、
+// 怪物 motion；拆结构体会让三处调用各自构造临时对象，反而模糊来源。
+#[allow(clippy::too_many_arguments)]
 fn finished_action(
     action: ActorAction,
     started_at_ms: u64,
@@ -2262,8 +2271,22 @@ fn finished_action(
     body_kind: BodyKind,
     attack_variant: Option<AttackVariant>,
     native_action: Option<NativeAction>,
+    monster_frames: Option<&mir_asset::FrameSet>,
+    monster_motion: Option<&MonsterMotion>,
 ) -> Option<ActorAction> {
-    let duration = if action == ActorAction::Attacking {
+    let duration = if body_kind == BodyKind::Monster {
+        // t44 R49-X1-02：怪物必须用实际帧表 Count×Interval；只有整张表缺失时
+        // `monster_action_duration_ms` 才回退 DefaultMonster。走/跑还要优先用
+        // 建 motion 时冻结的 Count/Interval，保证动作切换与 motion 清理同一时刻。
+        if let Some(motion) = monster_motion.filter(|motion| {
+            matches!(motion.action, ActorAction::Walking | ActorAction::Running)
+                && motion.action == action
+        }) {
+            motion.duration_ms()
+        } else {
+            mir_render::animation::monster_action_duration_ms(action, monster_frames)?
+        }
+    } else if action == ActorAction::Attacking {
         native_action.map_or_else(
             || {
                 mir_render::animation::frames_for_variant(body_kind, action, attack_variant)
@@ -2288,6 +2311,7 @@ fn finished_action(
 }
 
 /// 把动作归一化：已经播完的走/跑/攻击/受击显示为 Standing，死亡显示为 Dead。
+#[allow(clippy::too_many_arguments)]
 fn effective_action(
     action: ActorAction,
     started_at_ms: u64,
@@ -2295,6 +2319,8 @@ fn effective_action(
     body_kind: BodyKind,
     attack_variant: Option<AttackVariant>,
     native_action: Option<NativeAction>,
+    monster_frames: Option<&mir_asset::FrameSet>,
+    monster_motion: Option<&MonsterMotion>,
 ) -> ActorAction {
     finished_action(
         action,
@@ -2303,6 +2329,8 @@ fn effective_action(
         body_kind,
         attack_variant,
         native_action,
+        monster_frames,
+        monster_motion,
     )
     .unwrap_or(action)
 }
@@ -2526,6 +2554,15 @@ pub struct WorldSnapshot {
     /// 受击、死亡、切图/重连时清理。状态数上限 = 当前存活且符合条件远端玩家数
     /// （见 [`crate::camera::RemoteMotion`]）。
     pub remote_motions: BTreeMap<u32, RemoteMotion>,
+    /// 怪物（非玩家）最近一步走/跑的运动状态，按对象 ID 索引。
+    pub monster_motions: BTreeMap<u32, MonsterMotion>,
+    /// 怪物外观号 → 完整帧表（来自 `frames.json`；用于实际动作时长）。
+    ///
+    /// 与 [`Self::monster_motion_params`] 一样，必须在会话建立前写入
+    /// [`ConnectOptions::monster_frames`]，不能只保存在 UI 副本里。
+    pub monster_frames: BTreeMap<u16, mir_asset::FrameSet>,
+    /// 怪物外观号 → 走/跑帧表参数（来自 `frames.json`；缺省 6×100ms）。
+    pub monster_motion_params: BTreeMap<u16, MonsterMotionParams>,
     /// 聊天记录（最新在末尾，最多 `CHAT_LOG_LIMIT` 条）。
     pub chat: Vec<ChatLine>,
     /// 背包（`S.UserInformation.Inventory`；`None` 槽位为空，长度固定 46）。
@@ -2658,6 +2695,9 @@ impl Default for WorldSnapshot {
             self_player: None,
             entities: BTreeMap::new(),
             remote_motions: BTreeMap::new(),
+            monster_motions: BTreeMap::new(),
+            monster_frames: BTreeMap::new(),
+            monster_motion_params: BTreeMap::new(),
             chat: Vec::new(),
             inventory: Vec::new(),
             equipment: Vec::new(),
@@ -3093,6 +3133,8 @@ impl WorldSnapshot {
                 BodyKind::Human,
                 me.attack_variant,
                 me.native_action,
+                None,
+                None,
             );
             let selected_native = if action == ActorAction::Attacking {
                 me.native_action.unwrap_or(match me.attack_variant {
@@ -3156,12 +3198,27 @@ impl WorldSnapshot {
             } else {
                 None
             };
-            let (position, pixel_offset) = remote_motion
-                .map_or((entity.position, (0, 0)), |motion| {
+            let monster_motion = if entity.kind == EntityKind::Monster
+                && matches!(entity.action, ActorAction::Walking | ActorAction::Running)
+            {
+                self.monster_motions
+                    .get(object_id)
+                    .copied()
+                    .filter(|motion| motion.is_active(now_ms))
+            } else {
+                None
+            };
+            let (position, pixel_offset) = if let Some(motion) = monster_motion {
+                (motion.from, motion.advance_at(now_ms))
+            } else {
+                remote_motion.map_or((entity.position, (0, 0)), |motion| {
                     (motion.from, motion.advance_at(now_ms))
-                });
-            let sort_y =
-                remote_motion.map_or(entity.position.y, |motion| motion.from.y.max(motion.to.y));
+                })
+            };
+            let sort_y = monster_motion
+                .map(|motion| motion.from.y.max(motion.to.y))
+                .or_else(|| remote_motion.map(|motion| motion.from.y.max(motion.to.y)))
+                .unwrap_or(entity.position.y);
             let selected_native = entity.native_action.unwrap_or_else(|| {
                 PlayerLayout::native_for_actor(
                     entity.looks.class,
@@ -3177,6 +3234,8 @@ impl WorldSnapshot {
                 body_kind_for(entity.kind),
                 entity.attack_variant,
                 (entity.kind == EntityKind::Player).then_some(selected_native),
+                self.monster_frames.get(&entity.image),
+                monster_motion.as_ref(),
             );
             let selected_native = if action == ActorAction::Attacking {
                 entity.native_action.unwrap_or(match entity.attack_variant {
@@ -3345,11 +3404,15 @@ impl WorldSnapshot {
                 BodyKind::Human,
                 me.attack_variant,
                 me.native_action,
+                None,
+                None,
             ) {
                 me.set_action(action, now_ms);
             }
         }
-        for entity in self.entities.values_mut() {
+        let monster_frames = &self.monster_frames;
+        let monster_motions = &self.monster_motions;
+        for (object_id, entity) in &mut self.entities {
             let body_kind = body_kind_for(entity.kind);
             if let Some(action) = finished_action(
                 entity.action,
@@ -3358,6 +3421,8 @@ impl WorldSnapshot {
                 body_kind,
                 entity.attack_variant,
                 entity.native_action,
+                monster_frames.get(&entity.image),
+                monster_motions.get(object_id),
             ) {
                 entity.set_action(action, now_ms);
             }
@@ -3369,6 +3434,15 @@ impl WorldSnapshot {
             motion.is_active(now_ms)
                 && entities.get(object_id).is_some_and(|entity| {
                     entity.kind == EntityKind::Player
+                        && !entity.dead
+                        && matches!(entity.action, ActorAction::Walking | ActorAction::Running)
+                })
+        });
+        // R49-C：怪物 motion 同理；动作自然结束/受击/死亡/删除后清掉。
+        self.monster_motions.retain(|object_id, motion| {
+            motion.is_active(now_ms)
+                && entities.get(object_id).is_some_and(|entity| {
+                    entity.kind == EntityKind::Monster
                         && !entity.dead
                         && matches!(entity.action, ActorAction::Walking | ActorAction::Running)
                 })
@@ -3517,6 +3591,50 @@ impl Drop for NetClient {
 }
 
 /// 后台会话主循环。
+/// 从会话启动时携带的完整怪物帧表派生走/跑参数。
+fn monster_motion_params_from_frames(
+    frames: &BTreeMap<u16, mir_asset::FrameSet>,
+) -> BTreeMap<u16, MonsterMotionParams> {
+    frames
+        .iter()
+        .map(|(&image, set)| {
+            let timing = |action| {
+                set.get(action).and_then(|frame| {
+                    Some((
+                        u8::try_from(frame.count).ok()?.max(1),
+                        u64::try_from(frame.interval).ok()?.max(1),
+                    ))
+                })
+            };
+            let walk = timing(1).unwrap_or((6, 100));
+            let run = timing(2).unwrap_or((6, 100));
+            (
+                image,
+                MonsterMotionParams {
+                    walk_count: walk.0,
+                    walk_interval_ms: walk.1,
+                    run_count: run.0,
+                    run_interval_ms: run.1,
+                },
+            )
+        })
+        .collect()
+}
+
+/// 会话启动时的第一份快照。
+///
+/// t44 R49-X1-03：每怪 motion 参数必须在这里就带入会话，而不是等 UI 收到快照后
+/// 再补；这样第一条 `ObjectWalk` 到达时 `apply_monster_step` 已能用真实
+/// `Count/Interval` 建 motion。
+fn initial_world_snapshot(options: &ConnectOptions) -> WorldSnapshot {
+    WorldSnapshot {
+        status: NetStatus::Verifying,
+        monster_frames: options.monster_frames.clone(),
+        monster_motion_params: monster_motion_params_from_frames(&options.monster_frames),
+        ..WorldSnapshot::default()
+    }
+}
+
 fn session(
     options: &ConnectOptions,
     commands: &Receiver<NetCommand>,
@@ -3526,10 +3644,7 @@ fn session(
     stream.set_nodelay(true).ok();
     stream.set_read_timeout(Some(READ_TIMEOUT))?;
 
-    let mut snapshot = WorldSnapshot {
-        status: NetStatus::Verifying,
-        ..WorldSnapshot::default()
-    };
+    let mut snapshot = initial_world_snapshot(options);
     send_snapshot(events, &snapshot);
 
     let mut stage = Stage::AwaitConnected;
@@ -4375,8 +4490,20 @@ fn apply_remote_step(
     let old = existing.position;
     let kind = existing.kind;
     let dead = existing.dead;
-    // 怪物/NPC/自机不参与 R46 插值；保留原有位置/动作更新。
-    if Some(object_id) == self_id || kind != EntityKind::Player {
+    // 自机不参与远端插值；怪物走 MonsterObject 的后退起点公式。
+    if Some(object_id) == self_id {
+        update_entity(snapshot, object_id, |entity| {
+            entity.position = location;
+            entity.direction = direction;
+            entity.set_action(action, now_ms);
+        });
+        return;
+    }
+    if kind == EntityKind::Monster {
+        apply_monster_step(snapshot, object_id, location, direction, action, now_ms);
+        return;
+    }
+    if kind != EntityKind::Player {
         update_entity(snapshot, object_id, |entity| {
             entity.position = location;
             entity.direction = direction;
@@ -4415,6 +4542,97 @@ fn apply_remote_step(
             if !dead {
                 // 不匹配/跳变：落包点 snap、不建插值；动作仍按包播放（保持既有
                 // ObjectRun/ObjectWalk 动画语义，R46 只负责位移插值）。
+                entity.set_action(action, now_ms);
+            }
+        }
+    }
+}
+
+/// 应用一只怪物的 `S.ObjectWalk`/`S.ObjectRun`。
+///
+/// Crystal `MonsterObject.cs:345-433`：`Movement` 在 `CurrentLocation` 身后
+/// 1/2 格；渲染基点用 `from`，`OffSetMove` 由 [`MonsterMotion::offset_at`] 逐帧算。
+fn apply_monster_step(
+    snapshot: &mut WorldSnapshot,
+    object_id: u32,
+    location: Point,
+    direction: MirDirection,
+    action: ActorAction,
+    now_ms: u64,
+) {
+    let Some(existing) = snapshot.entities.get(&object_id) else {
+        return;
+    };
+    let old = existing.position;
+    let dead = existing.dead;
+    let image = existing.image;
+    if old == location {
+        if let Some(entity) = snapshot.entities.get_mut(&object_id) {
+            entity.direction = direction;
+        }
+        return;
+    }
+    let expected = match action {
+        ActorAction::Walking => 1,
+        ActorAction::Running => 2,
+        _ => 0,
+    };
+    let valid = !dead && expected > 0 && old.moved(direction, expected) == location;
+    if valid {
+        let params = snapshot
+            .monster_motion_params
+            .get(&image)
+            .copied()
+            .unwrap_or_default();
+        let raw_action = if action == ActorAction::Running { 2 } else { 1 };
+        let frame_entry = snapshot.monster_frames.get(&image);
+        let (frame_count, interval_ms) = match frame_entry {
+            Some(frames) => {
+                let Some(pair) = frames.get(raw_action).and_then(|frame| {
+                    Some((
+                        u8::try_from(frame.count).ok().filter(|count| *count > 0)?,
+                        u64::try_from(frame.interval).ok().filter(|ms| *ms > 0)?,
+                    ))
+                }) else {
+                    // Crystal `MonsterObject.cs:373-378`：有帧表但缺当前动作时
+                    // `Frame == null`，`Movement = CurrentLocation`、`OffSetMove = Empty`，
+                    // 不播帧也不借用其它动作；动作保持到下一条服务端包
+                    // （`MonsterObject.cs:511-524/633-642`）。这里同样不建 motion，
+                    // 不退回 6×100 的默认节拍。
+                    snapshot.monster_motions.remove(&object_id);
+                    if let Some(entity) = snapshot.entities.get_mut(&object_id) {
+                        entity.position = location;
+                        entity.direction = direction;
+                        if !dead {
+                            entity.set_action(action, now_ms);
+                        }
+                    }
+                    return;
+                };
+                pair
+            }
+            // 整张帧表缺失（DefaultMonster 库）才用连接前缓存的 6×100 参数。
+            None => match action {
+                ActorAction::Running => (params.run_count, params.run_interval_ms),
+                _ => (params.walk_count, params.walk_interval_ms),
+            },
+        };
+        if let Some(motion) =
+            MonsterMotion::new(old, location, action, now_ms, frame_count, interval_ms)
+        {
+            snapshot.monster_motions.insert(object_id, motion);
+        }
+        if let Some(entity) = snapshot.entities.get_mut(&object_id) {
+            entity.position = location;
+            entity.direction = direction;
+            entity.set_action(action, now_ms);
+        }
+    } else {
+        snapshot.monster_motions.remove(&object_id);
+        if let Some(entity) = snapshot.entities.get_mut(&object_id) {
+            entity.position = location;
+            entity.direction = direction;
+            if !dead {
                 entity.set_action(action, now_ms);
             }
         }
@@ -4518,6 +4736,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             snapshot.weather = Some(changed.weather);
             snapshot.entities.clear();
             snapshot.remote_motions.clear();
+            snapshot.monster_motions.clear();
             // 换地图等于离开当前 NPC，UI 必须把对话/商店/仓库收起来。
             snapshot.npc_dialog = None;
             snapshot.npc_goods = None;
@@ -4727,11 +4946,13 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
         ServerPacket::ObjectRemove(remove) => {
             snapshot.entities.remove(&remove.object_id);
             snapshot.remote_motions.remove(&remove.object_id);
+            snapshot.monster_motions.remove(&remove.object_id);
             snapshot.gold_piles.remove(&remove.object_id);
             snapshot.pet_masters.remove(&remove.object_id);
         }
         ServerPacket::ObjectTurn(turn) => {
             snapshot.remote_motions.remove(&turn.object_id);
+            snapshot.monster_motions.remove(&turn.object_id);
             update_entity(snapshot, turn.object_id, |entity| {
                 entity.position = turn.location;
                 entity.direction = turn.direction;
@@ -4766,6 +4987,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             // `PlayerObject.cs:1538` 的 `20000 + Spell × 10`）。
             snapshot.push_sound(SoundId::Swing, attack.spell, false);
             snapshot.remote_motions.remove(&attack.object_id);
+            snapshot.monster_motions.remove(&attack.object_id);
             update_entity(snapshot, attack.object_id, |entity| {
                 entity.position = attack.location;
                 entity.direction = attack.direction;
@@ -4779,6 +5001,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             // （`MonsterObject.cs:2577-2625`、`PlayerObject.cs:1928`）。
             snapshot.push_sound(SoundId::Swing, attack.spell, false);
             snapshot.remote_motions.remove(&attack.object_id);
+            snapshot.monster_motions.remove(&attack.object_id);
             update_entity(snapshot, attack.object_id, |entity| {
                 entity.position = attack.location;
                 entity.direction = attack.direction;
@@ -4825,6 +5048,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             // 被打中的身体音（`PlayerObject.cs:4700-4762` 的 `StruckBodySword + add`）。
             snapshot.push_sound(SoundId::Hit, Spell::None, false);
             snapshot.remote_motions.remove(&struck.object_id);
+            snapshot.monster_motions.remove(&struck.object_id);
             update_entity(snapshot, struck.object_id, |entity| {
                 entity.direction = struck.direction;
                 entity.set_action(ActorAction::Struck, now_ms);
@@ -4857,6 +5081,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
         ServerPacket::ObjectHidden(hidden) => {
             // 隐身/显形（Crystal `GameScene.ObjectHidden`，`GameScene.cs:5780-5790`）。
             snapshot.remote_motions.remove(&hidden.object_id);
+            snapshot.monster_motions.remove(&hidden.object_id);
             update_entity(snapshot, hidden.object_id, |entity| {
                 entity.hidden = hidden.hidden;
             });
@@ -4972,6 +5197,7 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             // 怪物用 `BaseSound + 9`（`MonsterObject.cs:4087`）；本作统一按性别取死亡音。
             snapshot.push_sound(SoundId::Die, Spell::None, false);
             snapshot.remote_motions.remove(&died.object_id);
+            snapshot.monster_motions.remove(&died.object_id);
             update_entity(snapshot, died.object_id, |entity| {
                 entity.position = died.location;
                 entity.direction = died.direction;
@@ -6727,9 +6953,9 @@ mod tests {
     };
     use mir_protocol::packets::server::{
         AddBuff, DamageIndicator, DeleteItem, EquipItem, GuildStatus, MountUpdate, MoveItem,
-        NPCGoods, NPCResponse, NPCStorage, NewItemInfo, ObjectEffect, ObjectItem, ObjectMonster,
-        ObjectNPC, ObjectPlayer, ObjectRangeAttack, ObjectStruck, ObjectWalk, PlayerUpdate,
-        RemoveBuff, RemoveItem, UserInformation, UserLocation, UserStorage,
+        NPCGoods, NPCResponse, NPCStorage, NewItemInfo, ObjectAttack, ObjectEffect, ObjectItem,
+        ObjectMonster, ObjectNPC, ObjectPlayer, ObjectRangeAttack, ObjectStruck, ObjectWalk,
+        PlayerUpdate, RemoveBuff, RemoveItem, UserInformation, UserLocation, UserStorage,
     };
     use mir_render::player_layout::NativeFrameTable;
 
@@ -7987,5 +8213,289 @@ mod tests {
             mir_protocol::packets::server::ObjectRemove { object_id: 42 },
         ));
         assert!(!snapshot.has_pet());
+    }
+
+    #[test]
+    fn monster_walk_uses_behind_origin_and_per_frame_offset() {
+        let now = 1000;
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.monster_motion_params.insert(
+            5,
+            MonsterMotionParams {
+                walk_count: 6,
+                walk_interval_ms: 100,
+                run_count: 6,
+                run_interval_ms: 100,
+            },
+        );
+        for (id, location, direction) in [
+            (41, Point::new(10, 10), MirDirection::Right),
+            (42, Point::new(20, 20), MirDirection::Down),
+        ] {
+            snapshot.apply_packet_at(
+                &ServerPacket::ObjectMonster(ObjectMonster {
+                    object_id: id,
+                    location,
+                    image: mir_core::enums::Monster::from_value(5).unwrap_or_default(),
+                    direction,
+                    ..ObjectMonster::default()
+                }),
+                now,
+            );
+            snapshot.apply_packet_at(
+                &ServerPacket::ObjectWalk(ObjectWalk {
+                    object_id: id,
+                    location: location.moved(direction, 1),
+                    direction,
+                }),
+                now,
+            );
+        }
+        let moving = snapshot.entity_views(now);
+        let right = moving
+            .iter()
+            .find(|view| view.position == Point::new(10, 10))
+            .unwrap();
+        let down = moving
+            .iter()
+            .find(|view| view.position == Point::new(20, 20))
+            .unwrap();
+        assert_eq!(right.position, Point::new(10, 10));
+        // t44 R49-X1-04：Crystal 把实体画在 from（Movement 后方），
+        // `OffSetMove` 是负偏移；屏幕相对位移是它的相反数。
+        assert_eq!(right.pixel_offset, (8, 0));
+        assert_eq!(down.pixel_offset, (0, 6));
+        let at_500 = snapshot.entity_views(now + 500);
+        assert_eq!(
+            at_500
+                .iter()
+                .find(|view| view.position == Point::new(10, 10))
+                .unwrap()
+                .pixel_offset,
+            (48, 0)
+        );
+        let at_end = snapshot.entity_views(now + 600);
+        let right = at_end
+            .iter()
+            .find(|view| view.position == Point::new(11, 10))
+            .unwrap();
+        assert_eq!(right.position, Point::new(11, 10));
+        assert_eq!(right.pixel_offset, (0, 0));
+        // 屏幕绝对坐标必须单调收敛到终点，不能在 600ms 从 -48 跳到终点 +48。
+        let destination_x = 11 * 48;
+        assert_eq!(10 * 48 + 8, 488);
+        assert_eq!(10 * 48 + 48, destination_x);
+        assert_eq!(11 * 48, destination_x);
+        assert_eq!(down.pixel_offset, (0, 6));
+    }
+
+    fn test_frames(entries: &[(u8, i32, i32, i32, i32)]) -> mir_asset::FrameSet {
+        mir_asset::FrameSet {
+            frames: entries
+                .iter()
+                .map(|&(action, start, count, skip, interval)| mir_asset::Frame {
+                    action,
+                    start,
+                    count,
+                    skip,
+                    interval,
+                    effect_start: 0,
+                    effect_count: 0,
+                    effect_skip: 0,
+                    effect_interval: 0,
+                    reverse: false,
+                    blend: false,
+                })
+                .collect(),
+            unknown_actions: Vec::new(),
+        }
+    }
+
+    fn insert_monster(snapshot: &mut WorldSnapshot, id: u32, image: u16, position: Point) {
+        snapshot.entities.insert(
+            id,
+            WorldEntity::new(
+                id,
+                EntityKind::Monster,
+                "monster".to_owned(),
+                position,
+                MirDirection::Right,
+                image,
+            ),
+        );
+    }
+
+    #[test]
+    fn monster_walk_duration_uses_table_count_times_interval() {
+        let now = 1_000;
+        let mut snapshot = WorldSnapshot::default();
+        insert_monster(&mut snapshot, 7, 184, Point::new(10, 10));
+        // 184 的真实帧表：Walking = Count10 × 100ms（1000ms）。
+        snapshot
+            .monster_frames
+            .insert(184, test_frames(&[(1, 48, 10, 0, 100), (0, 0, 6, 0, 500)]));
+        snapshot.apply_packet_at(
+            &ServerPacket::ObjectWalk(ObjectWalk {
+                object_id: 7,
+                location: Point::new(11, 10),
+                direction: MirDirection::Right,
+            }),
+            now,
+        );
+        assert_eq!(snapshot.monster_motions[&7].duration_ms(), 1_000);
+        // 600ms 时仍在 Walking：不能按 DefaultMonster 的 600ms 提前清 motion。
+        let at_600 = snapshot.entity_views(now + 600);
+        let view = at_600
+            .iter()
+            .find(|view| view.position == Point::new(10, 10))
+            .unwrap();
+        assert_eq!(view.action, ActorAction::Walking);
+        assert!(view.pixel_offset.0 > 0);
+        snapshot.tick_animations(now + 999);
+        assert_eq!(snapshot.entities[&7].action, ActorAction::Walking);
+        assert!(snapshot.monster_motions.contains_key(&7));
+        snapshot.tick_animations(now + 1_000);
+        assert_eq!(snapshot.entities[&7].action, ActorAction::Standing);
+        assert!(!snapshot.monster_motions.contains_key(&7));
+    }
+
+    #[test]
+    fn monster_walk_duration_uses_frozen_default_params_when_table_is_missing() {
+        let now = 1_000;
+        let mut snapshot = WorldSnapshot::default();
+        insert_monster(&mut snapshot, 7, 5, Point::new(10, 10));
+        // 无整表（DefaultMonster 库）时，motion 冻结的 10×100 才是到期依据。
+        snapshot.monster_motion_params.insert(
+            5,
+            MonsterMotionParams {
+                walk_count: 10,
+                walk_interval_ms: 100,
+                run_count: 10,
+                run_interval_ms: 100,
+            },
+        );
+        snapshot.apply_packet_at(
+            &ServerPacket::ObjectWalk(ObjectWalk {
+                object_id: 7,
+                location: Point::new(11, 10),
+                direction: MirDirection::Right,
+            }),
+            now,
+        );
+        assert_eq!(snapshot.monster_motions[&7].duration_ms(), 1_000);
+        assert_eq!(
+            snapshot
+                .entity_views(now + 600)
+                .iter()
+                .find(|view| view.position == Point::new(10, 10))
+                .unwrap()
+                .action,
+            ActorAction::Walking
+        );
+        snapshot.tick_animations(now + 600);
+        assert_eq!(snapshot.entities[&7].action, ActorAction::Walking);
+        snapshot.tick_animations(now + 1_000);
+        assert_eq!(snapshot.entities[&7].action, ActorAction::Standing);
+        assert!(!snapshot.monster_motions.contains_key(&7));
+    }
+
+    #[test]
+    fn monster_attack_duration_uses_table_count_times_interval() {
+        let now = 1_000;
+        let mut snapshot = WorldSnapshot::default();
+        insert_monster(&mut snapshot, 7, 184, Point::new(10, 10));
+        // 184 的真实帧表：Attack1 = Count8 × 100ms（800ms）。
+        snapshot
+            .monster_frames
+            .insert(184, test_frames(&[(9, 328, 8, 0, 100)]));
+        snapshot.apply_packet_at(
+            &ServerPacket::ObjectAttack(ObjectAttack {
+                object_id: 7,
+                location: Point::new(10, 10),
+                direction: MirDirection::Right,
+                ..ObjectAttack::default()
+            }),
+            now,
+        );
+        assert_eq!(snapshot.entities[&7].action, ActorAction::Attacking);
+        assert_eq!(
+            snapshot
+                .entity_views(now + 799)
+                .iter()
+                .find(|view| view.position == Point::new(10, 10))
+                .unwrap()
+                .action,
+            ActorAction::Attacking
+        );
+        snapshot.tick_animations(now + 799);
+        assert_eq!(snapshot.entities[&7].action, ActorAction::Attacking);
+        snapshot.tick_animations(now + 800);
+        assert_eq!(snapshot.entities[&7].action, ActorAction::Standing);
+    }
+
+    #[test]
+    fn monster_missing_action_snaps_without_fake_default_motion() {
+        let now = 1_000;
+        let mut snapshot = WorldSnapshot::default();
+        insert_monster(&mut snapshot, 7, 5, Point::new(10, 10));
+        // 表存在但没有 Walking（005 就没有 Running；010/041/043/062 没有 Walking）。
+        snapshot
+            .monster_frames
+            .insert(5, test_frames(&[(0, 0, 4, 0, 500)]));
+        snapshot.apply_packet_at(
+            &ServerPacket::ObjectWalk(ObjectWalk {
+                object_id: 7,
+                location: Point::new(11, 10),
+                direction: MirDirection::Right,
+            }),
+            now,
+        );
+        // Crystal MonsterObject.cs:373-378：Frame=null 时 Movement=CurrentLocation。
+        assert!(!snapshot.monster_motions.contains_key(&7));
+        assert_eq!(snapshot.entities[&7].position, Point::new(11, 10));
+        assert_eq!(snapshot.entities[&7].action, ActorAction::Walking);
+        snapshot.tick_animations(now + 600);
+        assert_eq!(snapshot.entities[&7].action, ActorAction::Walking);
+    }
+
+    #[test]
+    fn monster_motion_params_follow_each_frame_table() {
+        let frames = BTreeMap::from([
+            (5u16, test_frames(&[(1, 32, 6, 0, 100)])),
+            (
+                184u16,
+                test_frames(&[(1, 48, 10, 0, 100), (2, 0, 2, 0, 150)]),
+            ),
+        ]);
+        let params = monster_motion_params_from_frames(&frames);
+        assert_eq!(params[&5].walk_count, 6);
+        assert_eq!(params[&5].walk_interval_ms, 100);
+        assert_eq!(params[&184].walk_count, 10);
+        assert_eq!(params[&184].run_count, 2);
+        assert_eq!(params[&184].run_interval_ms, 150);
+        assert_ne!(params[&5], params[&184]);
+        assert!(monster_motion_params_from_frames(&BTreeMap::new()).is_empty());
+    }
+
+    #[test]
+    fn initial_snapshot_carries_frames_and_params_from_connect_options() {
+        let options = ConnectOptions {
+            monster_frames: BTreeMap::from([
+                (5u16, test_frames(&[(1, 32, 6, 0, 100)])),
+                (184u16, test_frames(&[(1, 48, 10, 0, 100)])),
+            ]),
+            ..Default::default()
+        };
+        let snapshot = initial_world_snapshot(&options);
+        assert_eq!(snapshot.status, NetStatus::Verifying);
+        assert_eq!(snapshot.monster_frames.len(), 2);
+        assert_eq!(snapshot.monster_frames[&5].get(1).unwrap().count, 6);
+        assert_eq!(snapshot.monster_frames[&184].get(1).unwrap().count, 10);
+        assert_eq!(snapshot.monster_motion_params[&5].walk_count, 6);
+        assert_eq!(snapshot.monster_motion_params[&184].walk_count, 10);
+        assert_ne!(
+            snapshot.monster_motion_params[&5],
+            snapshot.monster_motion_params[&184]
+        );
     }
 }

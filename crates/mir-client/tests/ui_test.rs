@@ -289,6 +289,7 @@ fn headless_ui_renders_all_panels_and_dispatches_clicks() {
         }),
         auto_register: true,
         manual_select: false,
+        monster_frames: std::collections::BTreeMap::new(),
     })
     .expect("启动客户端网络线程");
     let mut snapshot = client

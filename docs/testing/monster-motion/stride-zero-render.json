@@ -1,0 +1,809 @@
+{
+  "batch": "2026-10-24T18:48:38Z",
+  "count1_negative_skip": {
+    "action": "Dead",
+    "count": 1,
+    "eight_directions_identical": true,
+    "image": "monster-041",
+    "raw_action": 22,
+    "skip": -1
+  },
+  "crystal_reference": "github/Crystal Client/MirObjects/MonsterObject.cs:511-524,633-642",
+  "generated_at_unix_ms": 1792867718611,
+  "monsters": [
+    {
+      "image": "monster-010",
+      "missing_actions": [
+        {
+          "action": "Walking",
+          "crystal_behavior": "Frame==null → OffSetMove=Empty, Movement=CurrentLocation",
+          "non_background": 0,
+          "present_in_frames_json": false
+        },
+        {
+          "action": "Running",
+          "crystal_behavior": "Frame==null → OffSetMove=Empty, Movement=CurrentLocation",
+          "non_background": 0,
+          "present_in_frames_json": false
+        }
+      ],
+      "mode": "dev",
+      "source": "unpacked",
+      "standing": [
+        {
+          "direction": "Up",
+          "distinct_colors": 86,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 3450
+        },
+        {
+          "direction": "UpRight",
+          "distinct_colors": 86,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 3450
+        },
+        {
+          "direction": "Right",
+          "distinct_colors": 86,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 3450
+        },
+        {
+          "direction": "DownRight",
+          "distinct_colors": 86,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 3450
+        },
+        {
+          "direction": "Down",
+          "distinct_colors": 86,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 3450
+        },
+        {
+          "direction": "DownLeft",
+          "distinct_colors": 86,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 3450
+        },
+        {
+          "direction": "Left",
+          "distinct_colors": 86,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 3450
+        },
+        {
+          "direction": "UpLeft",
+          "distinct_colors": 86,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 3450
+        }
+      ],
+      "standing_frame": {
+        "count": 4,
+        "interval_ms": 500,
+        "skip": -4,
+        "start": 0
+      }
+    },
+    {
+      "image": "monster-041",
+      "missing_actions": [
+        {
+          "action": "Walking",
+          "crystal_behavior": "Frame==null → OffSetMove=Empty, Movement=CurrentLocation",
+          "non_background": 0,
+          "present_in_frames_json": false
+        },
+        {
+          "action": "Running",
+          "crystal_behavior": "Frame==null → OffSetMove=Empty, Movement=CurrentLocation",
+          "non_background": 0,
+          "present_in_frames_json": false
+        }
+      ],
+      "mode": "dev",
+      "source": "unpacked",
+      "standing": [
+        {
+          "direction": "Up",
+          "distinct_colors": 153,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 23888
+        },
+        {
+          "direction": "UpRight",
+          "distinct_colors": 153,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 23888
+        },
+        {
+          "direction": "Right",
+          "distinct_colors": 153,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 23888
+        },
+        {
+          "direction": "DownRight",
+          "distinct_colors": 153,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 23888
+        },
+        {
+          "direction": "Down",
+          "distinct_colors": 153,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 23888
+        },
+        {
+          "direction": "DownLeft",
+          "distinct_colors": 153,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 23888
+        },
+        {
+          "direction": "Left",
+          "distinct_colors": 153,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 23888
+        },
+        {
+          "direction": "UpLeft",
+          "distinct_colors": 153,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 23888
+        }
+      ],
+      "standing_frame": {
+        "count": 4,
+        "interval_ms": 1000,
+        "skip": -4,
+        "start": 0
+      }
+    },
+    {
+      "image": "monster-043",
+      "missing_actions": [
+        {
+          "action": "Walking",
+          "crystal_behavior": "Frame==null → OffSetMove=Empty, Movement=CurrentLocation",
+          "non_background": 0,
+          "present_in_frames_json": false
+        },
+        {
+          "action": "Running",
+          "crystal_behavior": "Frame==null → OffSetMove=Empty, Movement=CurrentLocation",
+          "non_background": 0,
+          "present_in_frames_json": false
+        }
+      ],
+      "mode": "dev",
+      "source": "unpacked",
+      "standing": [
+        {
+          "direction": "Up",
+          "distinct_colors": 56,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 2646
+        },
+        {
+          "direction": "UpRight",
+          "distinct_colors": 56,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 2646
+        },
+        {
+          "direction": "Right",
+          "distinct_colors": 56,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 2646
+        },
+        {
+          "direction": "DownRight",
+          "distinct_colors": 56,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 2646
+        },
+        {
+          "direction": "Down",
+          "distinct_colors": 56,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 2646
+        },
+        {
+          "direction": "DownLeft",
+          "distinct_colors": 56,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 2646
+        },
+        {
+          "direction": "Left",
+          "distinct_colors": 56,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 2646
+        },
+        {
+          "direction": "UpLeft",
+          "distinct_colors": 56,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 2646
+        }
+      ],
+      "standing_frame": {
+        "count": 4,
+        "interval_ms": 1000,
+        "skip": -4,
+        "start": 0
+      }
+    },
+    {
+      "image": "monster-062",
+      "missing_actions": [
+        {
+          "action": "Walking",
+          "crystal_behavior": "Frame==null → OffSetMove=Empty, Movement=CurrentLocation",
+          "non_background": 0,
+          "present_in_frames_json": false
+        },
+        {
+          "action": "Running",
+          "crystal_behavior": "Frame==null → OffSetMove=Empty, Movement=CurrentLocation",
+          "non_background": 0,
+          "present_in_frames_json": false
+        }
+      ],
+      "mode": "dev",
+      "source": "unpacked",
+      "standing": [
+        {
+          "direction": "Up",
+          "distinct_colors": 130,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 14647
+        },
+        {
+          "direction": "UpRight",
+          "distinct_colors": 130,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 14647
+        },
+        {
+          "direction": "Right",
+          "distinct_colors": 130,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 14647
+        },
+        {
+          "direction": "DownRight",
+          "distinct_colors": 130,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 14647
+        },
+        {
+          "direction": "Down",
+          "distinct_colors": 130,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 14647
+        },
+        {
+          "direction": "DownLeft",
+          "distinct_colors": 130,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 14647
+        },
+        {
+          "direction": "Left",
+          "distinct_colors": 130,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 14647
+        },
+        {
+          "direction": "UpLeft",
+          "distinct_colors": 130,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 14647
+        }
+      ],
+      "standing_frame": {
+        "count": 4,
+        "interval_ms": 1000,
+        "skip": -4,
+        "start": 0
+      }
+    },
+    {
+      "image": "monster-010",
+      "missing_actions": [
+        {
+          "action": "Walking",
+          "crystal_behavior": "Frame==null → OffSetMove=Empty, Movement=CurrentLocation",
+          "non_background": 0,
+          "present_in_frames_json": false
+        },
+        {
+          "action": "Running",
+          "crystal_behavior": "Frame==null → OffSetMove=Empty, Movement=CurrentLocation",
+          "non_background": 0,
+          "present_in_frames_json": false
+        }
+      ],
+      "mode": "pack",
+      "source": "pack",
+      "standing": [
+        {
+          "direction": "Up",
+          "distinct_colors": 86,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 3450
+        },
+        {
+          "direction": "UpRight",
+          "distinct_colors": 86,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 3450
+        },
+        {
+          "direction": "Right",
+          "distinct_colors": 86,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 3450
+        },
+        {
+          "direction": "DownRight",
+          "distinct_colors": 86,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 3450
+        },
+        {
+          "direction": "Down",
+          "distinct_colors": 86,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 3450
+        },
+        {
+          "direction": "DownLeft",
+          "distinct_colors": 86,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 3450
+        },
+        {
+          "direction": "Left",
+          "distinct_colors": 86,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 3450
+        },
+        {
+          "direction": "UpLeft",
+          "distinct_colors": 86,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 3450
+        }
+      ],
+      "standing_frame": {
+        "count": 4,
+        "interval_ms": 500,
+        "skip": -4,
+        "start": 0
+      }
+    },
+    {
+      "image": "monster-041",
+      "missing_actions": [
+        {
+          "action": "Walking",
+          "crystal_behavior": "Frame==null → OffSetMove=Empty, Movement=CurrentLocation",
+          "non_background": 0,
+          "present_in_frames_json": false
+        },
+        {
+          "action": "Running",
+          "crystal_behavior": "Frame==null → OffSetMove=Empty, Movement=CurrentLocation",
+          "non_background": 0,
+          "present_in_frames_json": false
+        }
+      ],
+      "mode": "pack",
+      "source": "pack",
+      "standing": [
+        {
+          "direction": "Up",
+          "distinct_colors": 153,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 23888
+        },
+        {
+          "direction": "UpRight",
+          "distinct_colors": 153,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 23888
+        },
+        {
+          "direction": "Right",
+          "distinct_colors": 153,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 23888
+        },
+        {
+          "direction": "DownRight",
+          "distinct_colors": 153,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 23888
+        },
+        {
+          "direction": "Down",
+          "distinct_colors": 153,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 23888
+        },
+        {
+          "direction": "DownLeft",
+          "distinct_colors": 153,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 23888
+        },
+        {
+          "direction": "Left",
+          "distinct_colors": 153,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 23888
+        },
+        {
+          "direction": "UpLeft",
+          "distinct_colors": 153,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 23888
+        }
+      ],
+      "standing_frame": {
+        "count": 4,
+        "interval_ms": 1000,
+        "skip": -4,
+        "start": 0
+      }
+    },
+    {
+      "image": "monster-043",
+      "missing_actions": [
+        {
+          "action": "Walking",
+          "crystal_behavior": "Frame==null → OffSetMove=Empty, Movement=CurrentLocation",
+          "non_background": 0,
+          "present_in_frames_json": false
+        },
+        {
+          "action": "Running",
+          "crystal_behavior": "Frame==null → OffSetMove=Empty, Movement=CurrentLocation",
+          "non_background": 0,
+          "present_in_frames_json": false
+        }
+      ],
+      "mode": "pack",
+      "source": "pack",
+      "standing": [
+        {
+          "direction": "Up",
+          "distinct_colors": 56,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 2646
+        },
+        {
+          "direction": "UpRight",
+          "distinct_colors": 56,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 2646
+        },
+        {
+          "direction": "Right",
+          "distinct_colors": 56,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 2646
+        },
+        {
+          "direction": "DownRight",
+          "distinct_colors": 56,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 2646
+        },
+        {
+          "direction": "Down",
+          "distinct_colors": 56,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 2646
+        },
+        {
+          "direction": "DownLeft",
+          "distinct_colors": 56,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 2646
+        },
+        {
+          "direction": "Left",
+          "distinct_colors": 56,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 2646
+        },
+        {
+          "direction": "UpLeft",
+          "distinct_colors": 56,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 2646
+        }
+      ],
+      "standing_frame": {
+        "count": 4,
+        "interval_ms": 1000,
+        "skip": -4,
+        "start": 0
+      }
+    },
+    {
+      "image": "monster-062",
+      "missing_actions": [
+        {
+          "action": "Walking",
+          "crystal_behavior": "Frame==null → OffSetMove=Empty, Movement=CurrentLocation",
+          "non_background": 0,
+          "present_in_frames_json": false
+        },
+        {
+          "action": "Running",
+          "crystal_behavior": "Frame==null → OffSetMove=Empty, Movement=CurrentLocation",
+          "non_background": 0,
+          "present_in_frames_json": false
+        }
+      ],
+      "mode": "pack",
+      "source": "pack",
+      "standing": [
+        {
+          "direction": "Up",
+          "distinct_colors": 130,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 14647
+        },
+        {
+          "direction": "UpRight",
+          "distinct_colors": 130,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 14647
+        },
+        {
+          "direction": "Right",
+          "distinct_colors": 130,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 14647
+        },
+        {
+          "direction": "DownRight",
+          "distinct_colors": 130,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 14647
+        },
+        {
+          "direction": "Down",
+          "distinct_colors": 130,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 14647
+        },
+        {
+          "direction": "DownLeft",
+          "distinct_colors": 130,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 14647
+        },
+        {
+          "direction": "Left",
+          "distinct_colors": 130,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 14647
+        },
+        {
+          "direction": "UpLeft",
+          "distinct_colors": 130,
+          "frame_range": [
+            0,
+            4
+          ],
+          "non_background": 14647
+        }
+      ],
+      "standing_frame": {
+        "count": 4,
+        "interval_ms": 1000,
+        "skip": -4,
+        "start": 0
+      }
+    }
+  ],
+  "note": "010/041/043/062 的 frames.json 只有 Standing/Attack/Struck/Die/Dead/Revive，没有 Walking/Running；Crystal 对 Frame==null 的移动动作不位移、不借帧，故这两个动作非背景像素必须为 0。",
+  "test": "stride_zero_monsters_render_standing_pixels_in_dev_and_pack"
+}

@@ -1,0 +1,3105 @@
+{
+  "schema": "round49-manifest/v1",
+  "task": {
+    "id": "JJC-20261025-001-sub-aa73c714",
+    "parent": "JJC-20261025-001",
+    "role": "libu",
+    "model_route": "gpt-6.1-sol",
+    "title": "R49-01 WIP 冻结事实"
+  },
+  "generated_at": "2026-10-25T03:28:01+08:00",
+  "artifacts": {
+    "wip_freeze": {
+      "path": "docs/testing/round49/wip-freeze.json",
+      "bytes": 181100,
+      "sha256": "1cb0efa73d2fca1c106b984611cfaff186338f342cffba93e9c8c39b7b9043ef"
+    },
+    "manifest": {
+      "path": "docs/testing/round49/manifest.json",
+      "bytes": null,
+      "sha256": null,
+      "note": "self-referential；最终 size/SHA256 在写出后由回报给出"
+    },
+    "existing_readonly_audit_artifacts": [
+      "docs/testing/round49/audit-probe-results.json",
+      "docs/testing/round49/audit-detail-results.json",
+      "docs/testing/round49/round49-xingbu-wip-audit.md",
+      "docs/testing/round49/code-review-report-round49.html",
+      "docs/testing/round49/audit-report-validation.json",
+      "docs/testing/round49/audit_probe.py",
+      "docs/testing/round49/audit_detail_probe.py",
+      "docs/testing/round49/render_audit_report.py",
+      "docs/testing/round49/record-audit-memo.sh"
+    ]
+  },
+  "freeze_summary": {
+    "head": "f0be3645a96776f876d033480f6fac4a1769214d",
+    "branch": "main",
+    "sampling_started_at": "2026-10-25T03:27:49+08:00",
+    "sampling_end_before_write": "2026-10-25T03:28:00+08:00",
+    "timezone": "Asia/Shanghai (+08:00)",
+    "status_entries": 33,
+    "tracked_modified_files": 19,
+    "untracked_entries": 14,
+    "untracked_expanded_files": 90,
+    "total_wip_files_frozen": 109,
+    "oversize_files_count": 2,
+    "sampling_stable": true,
+    "worktree_fingerprint_sha256": "9268fb8ffbb2711cc074c054c77f838e0ec9b624a6fd15261a1252c77ecb7c36",
+    "diff_stat_summary": {
+      "files_changed": 19,
+      "insertions": 2361,
+      "deletions": 131,
+      "raw": " crates/mir-asset/src/lib.rs                       |   2 +\n crates/mir-asset/src/lib_container.rs             |  17 +\n crates/mir-asset/src/library.rs                   |  10 +\n crates/mir-client/src/app.rs                      | 199 ++++++-\n crates/mir-client/src/assets.rs                   |  57 ++\n crates/mir-client/src/camera.rs                   | 284 ++++++++++\n crates/mir-client/src/main.rs                     |  17 +\n crates/mir-client/src/net.rs                      | 544 ++++++++++++++++++-\n crates/mir-client/tests/anim.rs                   |   8 +-\n crates/mir-client/tests/attack_variant_live.rs    | 627 +++++++++++++++++++---\n crates/mir-client/tests/live_world.rs             |   1 +\n crates/mir-client/tests/remote_motion_live.rs     |   7 +\n crates/mir-client/tests/ui_interaction.rs         |   1 +\n crates/mir-client/tests/ui_test.rs                |   1 +\n crates/mir-render/src/animation.rs                | 111 ++++\n crates/mir-render/src/entities.rs                 | 405 +++++++++++++-\n crates/mir-render/tests/native_player_evidence.rs |   1 +\n crates/mir-tools/src/main.rs                      | 178 ++++++\n docs/client.md                                    |  22 +-\n 19 files changed, 2361 insertions(+), 131 deletions(-)\n",
+      "note": "insertions/deletions 从 git diff --stat 原文末尾行解析；解析失败时为 null"
+    },
+    "diff_check_exit_code": 0
+  },
+  "frozen_files": [
+    {
+      "path": "crates/mir-asset/src/lib.rs",
+      "status": "M",
+      "bytes": 6731,
+      "sha256": "6590ad69e71285677388eae7e5e3376d15f04feb3672d55873a8c72c65f7fe75",
+      "type": "text",
+      "category": "source"
+    },
+    {
+      "path": "crates/mir-asset/src/lib_container.rs",
+      "status": "M",
+      "bytes": 26189,
+      "sha256": "08c44b46b4f15114ee90c5b4ad256fd5c95d41661cb06a6f0d7c94ca82f88afa",
+      "type": "text",
+      "category": "source"
+    },
+    {
+      "path": "crates/mir-asset/src/library.rs",
+      "status": "M",
+      "bytes": 25785,
+      "sha256": "0a2f419433ecf6064ebe9260e6549766c2eb2ff059f1a1649a737e67dc4b5b19",
+      "type": "text",
+      "category": "source"
+    },
+    {
+      "path": "crates/mir-client/src/app.rs",
+      "status": "M",
+      "bytes": 140497,
+      "sha256": "b5c535f6b1be36d0a0165e97d6c11ce929352902efdfc2b8ab74539ee3c13c46",
+      "type": "text",
+      "category": "source"
+    },
+    {
+      "path": "crates/mir-client/src/assets.rs",
+      "status": "M",
+      "bytes": 19023,
+      "sha256": "7163971509464196c563308e9888fab2f7437c3998fe9a59fb1be93792243e63",
+      "type": "text",
+      "category": "source"
+    },
+    {
+      "path": "crates/mir-client/src/camera.rs",
+      "status": "M",
+      "bytes": 52953,
+      "sha256": "c57dc92d627c45fe50d545b16872da43e3b5ea761a52d0756ba1996d8f6e9272",
+      "type": "text",
+      "category": "source"
+    },
+    {
+      "path": "crates/mir-client/src/main.rs",
+      "status": "M",
+      "bytes": 37468,
+      "sha256": "9de995ce1f8f2beb3a81c0d2766cdea038ce594e81ec2347af54cf53f5bc8143",
+      "type": "text",
+      "category": "source"
+    },
+    {
+      "path": "crates/mir-client/src/net.rs",
+      "status": "M",
+      "bytes": 339207,
+      "sha256": "15e1d30b956b7f7d0557850b2a13a7a12c79a3d4e2105f7756717aa0142ccaad",
+      "type": "text",
+      "category": "source"
+    },
+    {
+      "path": "crates/mir-client/tests/anim.rs",
+      "status": "M",
+      "bytes": 18194,
+      "sha256": "c2817a61370f7a7d473c4703bc920592d0bfc32caacfd1331bc65e3e69e78c89",
+      "type": "text",
+      "category": "test"
+    },
+    {
+      "path": "crates/mir-client/tests/attack_variant_live.rs",
+      "status": "M",
+      "bytes": 48628,
+      "sha256": "515e786876337d0414b441ce7063b8d4bd007d83c46473069349d17d4d69458a",
+      "type": "text",
+      "category": "test"
+    },
+    {
+      "path": "crates/mir-client/tests/live_world.rs",
+      "status": "M",
+      "bytes": 38831,
+      "sha256": "21f27601492ce236dd7390301a367a48079d22a5e667b4f2c75ad1af80c41c02",
+      "type": "text",
+      "category": "test"
+    },
+    {
+      "path": "crates/mir-client/tests/remote_motion_live.rs",
+      "status": "M",
+      "bytes": 27630,
+      "sha256": "f3b336dd7773430e525a3994681aee45e2754a1b610b4146836eccad1d8ee68b",
+      "type": "text",
+      "category": "test"
+    },
+    {
+      "path": "crates/mir-client/tests/ui_interaction.rs",
+      "status": "M",
+      "bytes": 20666,
+      "sha256": "29ed7fd77fc81737da3d8e13cafc2c94ecea97042135b2a3b685e72e6f50e05a",
+      "type": "text",
+      "category": "test"
+    },
+    {
+      "path": "crates/mir-client/tests/ui_test.rs",
+      "status": "M",
+      "bytes": 15662,
+      "sha256": "0bebab160ed1b9dc4d2db9fb8f2d8685266023f4424eac1bb4f63a2d9d8935c1",
+      "type": "text",
+      "category": "test"
+    },
+    {
+      "path": "crates/mir-render/src/animation.rs",
+      "status": "M",
+      "bytes": 45810,
+      "sha256": "b08dfecad239bc397fcb9533f303918c973f5bfb6cbe01615c679a05c5064ed6",
+      "type": "text",
+      "category": "source"
+    },
+    {
+      "path": "crates/mir-render/src/entities.rs",
+      "status": "M",
+      "bytes": 140266,
+      "sha256": "8aad2e0745743812aafe2b345f92e38b41e99e0b67b5be9400e46a472043d432",
+      "type": "text",
+      "category": "source"
+    },
+    {
+      "path": "crates/mir-render/tests/native_player_evidence.rs",
+      "status": "M",
+      "bytes": 23536,
+      "sha256": "38be50de584abe0638bf635ff3ff0a9b53f1f3be46ada1047556435a2f715885",
+      "type": "text",
+      "category": "test"
+    },
+    {
+      "path": "crates/mir-tools/src/main.rs",
+      "status": "M",
+      "bytes": 104515,
+      "sha256": "db487781910ff7bf13d451cbb05b0f4d268f5791c970f7a2dd411fa5e6a0f76a",
+      "type": "text",
+      "category": "source"
+    },
+    {
+      "path": "docs/client.md",
+      "status": "M",
+      "bytes": 143550,
+      "sha256": "bac99052d90f7d6e6076015ec11f4d12f596a6243896201c128ff250d7a1e235",
+      "type": "text",
+      "category": "docs"
+    },
+    {
+      "path": "crates/mir-asset/src/frames.rs",
+      "status": "??",
+      "bytes": 24880,
+      "sha256": "509a5c9c3df6b971c8bf6f9663f937bca438b872b547c4ee9aa8528e846ef809",
+      "type": "text",
+      "category": "source"
+    },
+    {
+      "path": "crates/mir-asset/tests/real_framesets.rs",
+      "status": "??",
+      "bytes": 15386,
+      "sha256": "4481c3479cfeb18b7c5d59da5da7ab0fad61c0b4299a78e3026d0620427fe939",
+      "type": "text",
+      "category": "test"
+    },
+    {
+      "path": "crates/mir-client/tests/cli_monster_frames.rs",
+      "status": "??",
+      "bytes": 14843,
+      "sha256": "a13126827cda43c7eb3dc52d6b2fde590732609754fd8bfaf9dd6764302d4ce1",
+      "type": "text",
+      "category": "test"
+    },
+    {
+      "path": "crates/mir-client/tests/monster_motion.rs",
+      "status": "??",
+      "bytes": 19279,
+      "sha256": "b5e03ff81943293d953280ae35e37851b3a861b5a4321bd6455f55497d808b52",
+      "type": "text",
+      "category": "test"
+    },
+    {
+      "path": "crates/mir-render/tests/monster_native.rs",
+      "status": "??",
+      "bytes": 16247,
+      "sha256": "e2cf3ae2c69500bc1a3b24cbeaab28f8d28f015583aced46ba9f83e6f7109a33",
+      "type": "text",
+      "category": "test"
+    },
+    {
+      "path": "crates/mir-render/tests/monster_native_evidence.rs",
+      "status": "??",
+      "bytes": 14618,
+      "sha256": "f1efc860980370b1f8128ba0aa6b9095a555723a437dd8b1fc0cd46064baa3a1",
+      "type": "text",
+      "category": "test"
+    },
+    {
+      "path": "crates/mir-tools/tests/monster_native_import.rs",
+      "status": "??",
+      "bytes": 12915,
+      "sha256": "c64317f37471325f47e5c67aa410e160863430b041518c22e607cdaaad0c18a3",
+      "type": "text",
+      "category": "test"
+    },
+    {
+      "path": "docs/process/round49-menxia-review.md",
+      "status": "??",
+      "bytes": 18617,
+      "sha256": "7c6b4efacc899f9b854c615b66cf745c1b83d6fe014d0cfa8602c245651173d0",
+      "type": "text",
+      "category": "docs"
+    },
+    {
+      "path": "docs/process/round49-plan.md",
+      "status": "??",
+      "bytes": 13506,
+      "sha256": "2eeb9b07d6b487e986fb9c79b85d7d5273c29f85f26d43c3600706e5c0061873",
+      "type": "text",
+      "category": "docs"
+    },
+    {
+      "path": "docs/process/round49-shangshu-dispatch.md",
+      "status": "??",
+      "bytes": 18307,
+      "sha256": "70f41d4ad5c992d7a40e63af6af9d148a86e937f783e73b8c48ec76bfc14bebd",
+      "type": "text",
+      "category": "docs"
+    },
+    {
+      "path": "docs/testing/monster-motion/README.md",
+      "status": "??",
+      "bytes": 2217,
+      "sha256": "2082377392b16e687ba43279da67675e1c247669e93c8f279ec80fbb64f58bc3",
+      "type": "text",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-motion/frame0.png",
+      "status": "??",
+      "bytes": 703538,
+      "sha256": "6299e2486087fb89758efe67e06816c6c921bbf14b3f1d2ed03431aae61fa9a9",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-motion/frame10_184_1000ms.png",
+      "status": "??",
+      "bytes": 687609,
+      "sha256": "21bc4a574300cdec725241775478a34f49eed034c4854725dc755586bb5d9994",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-motion/frame5.png",
+      "status": "??",
+      "bytes": 696586,
+      "sha256": "874f5fe2a8232c7547c067d280e1ed779064d56f0a846d076c875bf18e0a6455",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-motion/frame6_005_600ms.png",
+      "status": "??",
+      "bytes": 694244,
+      "sha256": "681533270a015d78508f1ee3871e4f406b668a04693723a6e95f5adef3646f0f",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-motion/manifest.json",
+      "status": "??",
+      "bytes": 12081,
+      "sha256": "9209a977a9746aaaed7be57e7ae72bb32c4ff92afcab8d13ee747387d0dce3ad",
+      "type": "text",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-motion/stride-zero-render.json",
+      "status": "??",
+      "bytes": 18478,
+      "sha256": "8e33fd0e127cb265f569d0d1e32a52f0ca959312e9dd2a371b19f6818a823b37",
+      "type": "text",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-motion/stride-zero/010-standing-down.png",
+      "status": "??",
+      "bytes": 10580,
+      "sha256": "b55c84aed8509f28ff0b6c6b71d150809fcce6e387adf1b5634d8d55658c7ced",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-motion/stride-zero/041-standing-down.png",
+      "status": "??",
+      "bytes": 54692,
+      "sha256": "0c0ab11f70354c5ff898dfb86727e41bad237cd5661fd1430426498c11af1e47",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-motion/stride-zero/043-standing-down.png",
+      "status": "??",
+      "bytes": 7954,
+      "sha256": "cd5242868c2d86405c9403e32bc81b8988953e919077a245c4637bdd677d5a13",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-motion/stride-zero/062-standing-down.png",
+      "status": "??",
+      "bytes": 38808,
+      "sha256": "283a9b24f482c10cbc5af9464707807500d44d31644d2b0014c7e94a65444d36",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/README.md",
+      "status": "??",
+      "bytes": 5451,
+      "sha256": "ad3b360a9bdd1522d26fb64fc0d4a386fdc6e696fb45ce414f59014b496e1b0f",
+      "type": "text",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/freeze.json",
+      "status": "??",
+      "bytes": 2729,
+      "sha256": "f9abe6fe8358357d97bcd8c8597e2dca1ace2915ca0c99e50c670ddf3628aa8a",
+      "type": "text",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/manifest.json",
+      "status": "??",
+      "bytes": 107624,
+      "sha256": "d3b1d4c4c89b3484e36ae4775b93fddf0f478688edc0e66765c8d27b66fc2c51",
+      "type": "text",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/monster-frame-table.csv",
+      "status": "??",
+      "bytes": 28244,
+      "sha256": "c05bb902a2aa9e075c775be4de43e64f2b8aba6853bae94e6724ad0bcc4e1475",
+      "type": "text",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/player-resource-freeze-before.json",
+      "status": "??",
+      "bytes": 44844165,
+      "sha256": "70845aefd4dd689a55ab0618b36bbf692a4b33ebb5ee2f3a662dedc17a3dc9de",
+      "type": "text",
+      "category": "excluded_oversize"
+    },
+    {
+      "path": "docs/testing/monster-native/player-resource-freeze.json",
+      "status": "??",
+      "bytes": 45219533,
+      "sha256": "c7d896e7f5eee4706b943912c0c564d10d61c98d163143f051c2d632daecde32",
+      "type": "text",
+      "category": "excluded_oversize"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-female-alt-attack1.png",
+      "status": "??",
+      "bytes": 690287,
+      "sha256": "daa013518c4cbe6e7273f07edb25f510940d434587b126c98f1cb9c1ed64ed49",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-female-alt-standing.png",
+      "status": "??",
+      "bytes": 690170,
+      "sha256": "540f60c80b9d49db8a2cab5e824e360a83b4efd3490d0611a3342c7263ff889b",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-male-alt-attack1.png",
+      "status": "??",
+      "bytes": 690584,
+      "sha256": "5b0968817e8eddf8b56b49f807b01813301b1dc59ecf68aef121fd8f2f092d5e",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-male-alt-standing.png",
+      "status": "??",
+      "bytes": 690635,
+      "sha256": "d062c78c6eaa954286f50aab8d9b7e5c243a7e30f65467fb41477ec756c3e293",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-male-plain-attack1.png",
+      "status": "??",
+      "bytes": 691494,
+      "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/archer-male-plain-standing.png",
+      "status": "??",
+      "bytes": 690769,
+      "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-female-alt-attack1.png",
+      "status": "??",
+      "bytes": 690824,
+      "sha256": "60698c2948d24857a1d8e25f379fe054bdcb1cf8fdc733c8ab4291abf706b23c",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-female-alt-standing.png",
+      "status": "??",
+      "bytes": 690486,
+      "sha256": "6605415e0d60d21de63cabc884b8741646615c99e9076f1f23a46904edef0250",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-male-alt-attack1.png",
+      "status": "??",
+      "bytes": 691126,
+      "sha256": "8d4f4681bed4e339f5948a98b0838cc4c160c00ee9ece70c24bf7b9e795b010b",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-male-alt-standing.png",
+      "status": "??",
+      "bytes": 690586,
+      "sha256": "349944863518da8fbb6a4243d00cbeab3d5f139100d8870eae49576f0cf6a024",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-male-plain-attack1.png",
+      "status": "??",
+      "bytes": 691494,
+      "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/assassin-male-plain-standing.png",
+      "status": "??",
+      "bytes": 690769,
+      "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-attack1.png",
+      "status": "??",
+      "bytes": 691621,
+      "sha256": "ca3deb6d8f460f102704d41a2ae7d8860ace174c8fe21bee197b90361b9d04b0",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-dead.png",
+      "status": "??",
+      "bytes": 688875,
+      "sha256": "ff278d66ea7fd9b5c85295afd17b40090918a61556fd3d9bad19084dbdda0f58",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-dying.png",
+      "status": "??",
+      "bytes": 692001,
+      "sha256": "3002739efefc8736992f344822a60b9d9f329d2841edd40f31e6ed83c9b00165",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-standing.png",
+      "status": "??",
+      "bytes": 691464,
+      "sha256": "c6391c5e184ada86258d4eec5589f5639cb8ff50a59fd85c864e232105f36a85",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-struck.png",
+      "status": "??",
+      "bytes": 692361,
+      "sha256": "b4ca4742125aa7b0b4a35bf4da4bd8c70c586a9bc37043d61ec4b388e6e88c75",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-005-walking.png",
+      "status": "??",
+      "bytes": 691456,
+      "sha256": "c2851b84ea765356641ca9aa35f0f69c032c1c45c72434537ffadfd4968f257b",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-attack1.png",
+      "status": "??",
+      "bytes": 695463,
+      "sha256": "7a6a558e331ac746b28f5ec01d8b3b64f56d319e72c91c3ae4b7ea07ab4a27a6",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-dead.png",
+      "status": "??",
+      "bytes": 690168,
+      "sha256": "f113c10353994ffcec7af24e2fbc0f87d95961c600806282959b46c4dcc9a6fd",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-dying.png",
+      "status": "??",
+      "bytes": 695221,
+      "sha256": "84c744ec0287e65b5b71b7b92af99868be81862f749ee9430db02dd334ba341d",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-standing.png",
+      "status": "??",
+      "bytes": 694430,
+      "sha256": "1fc79ec16cddc42524cb2c9f2f85717d1fd4dc535c71865f84f8ad587da85c3e",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-struck.png",
+      "status": "??",
+      "bytes": 695256,
+      "sha256": "bcf27cf629709ebd9017aa10e8de5db0964e26a55b47c5bdda74e555e8b72833",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-022-walking.png",
+      "status": "??",
+      "bytes": 694151,
+      "sha256": "fc27fb345b56357bd51c7d9da3c411007e9aece710dd9429b54a52605a5eba84",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-attack1.png",
+      "status": "??",
+      "bytes": 696468,
+      "sha256": "399d10598412ba479cb4210845253f7f753fcb3f09a8adc0ef50ee6ac7d67d92",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-dead.png",
+      "status": "??",
+      "bytes": 689919,
+      "sha256": "2162b69cd45f2322099c2e0a83283acbd61772ac77bd51c1d671515aeadcf596",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-dying.png",
+      "status": "??",
+      "bytes": 698254,
+      "sha256": "34f39680005890fce10abd794ff5e76186d1fd40137d06cf7db7623843975b72",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-standing.png",
+      "status": "??",
+      "bytes": 696827,
+      "sha256": "4140431ed9fa7f93ab12bc8fdab4b351402fb39399358de59c452158cb73a946",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-struck.png",
+      "status": "??",
+      "bytes": 698820,
+      "sha256": "bb8d1dfa5a5f3ba01166049258d2abdcfe299fdc942a063e1a3d456822a8dc40",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-023-walking.png",
+      "status": "??",
+      "bytes": 697157,
+      "sha256": "514eb5083512b5529a5973b59a4d774f032386b3525dbc51c134215dd30c5af7",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-attack1.png",
+      "status": "??",
+      "bytes": 693723,
+      "sha256": "6dceb4b7f234ec6aac53389017fcff52ab106a03b0622003781ba435d86454a6",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-dead.png",
+      "status": "??",
+      "bytes": 695806,
+      "sha256": "8d80a4f2f3bbea5044c6c71f67f4831a71ebf1f1340edb16e4f3ecbfa5ffb365",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-dying.png",
+      "status": "??",
+      "bytes": 696117,
+      "sha256": "27c4e9358c812cd6f0fe4bd1173cf906179d906226fe792c1c58aaf41df780b2",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-standing.png",
+      "status": "??",
+      "bytes": 694415,
+      "sha256": "b0834ea1bb63e75e6b96b0a371537c77cfcd748b97590c5d1315946e15db702d",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-struck.png",
+      "status": "??",
+      "bytes": 695848,
+      "sha256": "e0f98cb6db4a3084e9f53acf3aefd667facc7bddcb57a2cf59f9a729fb3bf9d8",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/monster-039-walking.png",
+      "status": "??",
+      "bytes": 693702,
+      "sha256": "c9c6a2bb75b2845c16517cb30faddf13dc8b0513dc6392d6a8570aeeede216e9",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/self-moved-dev.png",
+      "status": "??",
+      "bytes": 696661,
+      "sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/self-moved-release.png",
+      "status": "??",
+      "bytes": 696661,
+      "sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/self-still-dev.png",
+      "status": "??",
+      "bytes": 711139,
+      "sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/self-still-release.png",
+      "status": "??",
+      "bytes": 711139,
+      "sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/taoist-female-attack1.png",
+      "status": "??",
+      "bytes": 691117,
+      "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/taoist-female-standing.png",
+      "status": "??",
+      "bytes": 690593,
+      "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/taoist-male-attack1.png",
+      "status": "??",
+      "bytes": 691494,
+      "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/taoist-male-standing.png",
+      "status": "??",
+      "bytes": 690769,
+      "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/warrior-female-attack1.png",
+      "status": "??",
+      "bytes": 691117,
+      "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/warrior-female-standing.png",
+      "status": "??",
+      "bytes": 690593,
+      "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/warrior-male-attack1.png",
+      "status": "??",
+      "bytes": 691494,
+      "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/warrior-male-standing.png",
+      "status": "??",
+      "bytes": 690769,
+      "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/wizard-female-attack1.png",
+      "status": "??",
+      "bytes": 691117,
+      "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/wizard-female-standing.png",
+      "status": "??",
+      "bytes": 690593,
+      "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/wizard-male-attack1.png",
+      "status": "??",
+      "bytes": 691494,
+      "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/png/wizard-male-standing.png",
+      "status": "??",
+      "bytes": 690769,
+      "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+      "type": "binary",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/monster-native/raw-manifest.json",
+      "status": "??",
+      "bytes": 23858,
+      "sha256": "93eb7c5cb0755840fd570adabe86bfc0d8ad22c0c0f6edfa93de812f93fc6649",
+      "type": "text",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/native-monster/README.md",
+      "status": "??",
+      "bytes": 7510,
+      "sha256": "923df0fd8aa4ab853e9b2478e06220a335a7a793b62d4efde3d88b2fb10b0d79",
+      "type": "text",
+      "category": "evidence"
+    },
+    {
+      "path": "docs/testing/round49/audit-detail-results.json",
+      "status": "??",
+      "bytes": 66033,
+      "sha256": "e5fd6c329313f3d8f28030bab37c52c90cb34e522f13bfb9494fec4ed9acc7c5",
+      "type": "text",
+      "category": "audit"
+    },
+    {
+      "path": "docs/testing/round49/audit-probe-results.json",
+      "status": "??",
+      "bytes": 129458,
+      "sha256": "bd104b256c98a5c5f7166bd080a358fc86eda355e61d4957420831f278cb39ea",
+      "type": "text",
+      "category": "audit"
+    },
+    {
+      "path": "docs/testing/round49/audit-report-validation.json",
+      "status": "??",
+      "bytes": 192,
+      "sha256": "4056d6711f42aa51956dcd565b5f4ac8418bf5942697b261a4c6bd63af13c26b",
+      "type": "text",
+      "category": "audit"
+    },
+    {
+      "path": "docs/testing/round49/audit_detail_probe.py",
+      "status": "??",
+      "bytes": 6702,
+      "sha256": "8b1d7ca19a62ee70566a06b2bd66214fa33cb8f6d00005e1d961e37e4cca78f4",
+      "type": "text",
+      "category": "audit"
+    },
+    {
+      "path": "docs/testing/round49/audit_probe.py",
+      "status": "??",
+      "bytes": 7225,
+      "sha256": "3b4b73dfbb6f22461e925bacecb757c541bee5fe4a06ae6853e4277c3e862906",
+      "type": "text",
+      "category": "audit"
+    },
+    {
+      "path": "docs/testing/round49/code-review-report-round49.html",
+      "status": "??",
+      "bytes": 46849,
+      "sha256": "00d6245158c59ed34aeaab11b99a28b00c7b9a51e6ca9c289feb3c255a9bbcb1",
+      "type": "text",
+      "category": "audit"
+    },
+    {
+      "path": "docs/testing/round49/record-audit-memo.sh",
+      "status": "??",
+      "bytes": 324,
+      "sha256": "8383573a2c9a08d342b3a9440a2fd35009ef116bbbb599694fc6577daed083d1",
+      "type": "text",
+      "category": "audit"
+    },
+    {
+      "path": "docs/testing/round49/render_audit_report.py",
+      "status": "??",
+      "bytes": 4888,
+      "sha256": "592b9e8314390d14d6f58cff627ecd9072ab76761004f45daae98b7e812fd114",
+      "type": "text",
+      "category": "audit"
+    },
+    {
+      "path": "docs/testing/round49/round49-xingbu-wip-audit.md",
+      "status": "??",
+      "bytes": 32065,
+      "sha256": "8815fa64dd6be256e97c6af51222814d104ede2fa97f7121c3b02a9174eae46a",
+      "type": "text",
+      "category": "audit"
+    }
+  ],
+  "evidence_directories": [
+    {
+      "path": "docs/testing/monster-native",
+      "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+      "file_count": 59,
+      "total_bytes": 126287870,
+      "tracked_in_head_count": 0,
+      "untracked_count": 59,
+      "relative_to_head": "untracked_new_not_in_HEAD",
+      "aggregate_sha256": "7db4ee77575d977e052e9911380e908481a0c386580747e911122c08068429bc",
+      "files": [
+        {
+          "path": "docs/testing/monster-native/freeze.json",
+          "bytes": 2729,
+          "sha256": "f9abe6fe8358357d97bcd8c8597e2dca1ace2915ca0c99e50c670ddf3628aa8a",
+          "type": "text",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/manifest.json",
+          "bytes": 107624,
+          "sha256": "d3b1d4c4c89b3484e36ae4775b93fddf0f478688edc0e66765c8d27b66fc2c51",
+          "type": "text",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/monster-frame-table.csv",
+          "bytes": 28244,
+          "sha256": "c05bb902a2aa9e075c775be4de43e64f2b8aba6853bae94e6724ad0bcc4e1475",
+          "type": "text",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/player-resource-freeze-before.json",
+          "bytes": 44844165,
+          "sha256": "70845aefd4dd689a55ab0618b36bbf692a4b33ebb5ee2f3a662dedc17a3dc9de",
+          "type": "text",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/player-resource-freeze.json",
+          "bytes": 45219533,
+          "sha256": "c7d896e7f5eee4706b943912c0c564d10d61c98d163143f051c2d632daecde32",
+          "type": "text",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/archer-female-alt-attack1.png",
+          "bytes": 690287,
+          "sha256": "daa013518c4cbe6e7273f07edb25f510940d434587b126c98f1cb9c1ed64ed49",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/archer-female-alt-standing.png",
+          "bytes": 690170,
+          "sha256": "540f60c80b9d49db8a2cab5e824e360a83b4efd3490d0611a3342c7263ff889b",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/archer-male-alt-attack1.png",
+          "bytes": 690584,
+          "sha256": "5b0968817e8eddf8b56b49f807b01813301b1dc59ecf68aef121fd8f2f092d5e",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/archer-male-alt-standing.png",
+          "bytes": 690635,
+          "sha256": "d062c78c6eaa954286f50aab8d9b7e5c243a7e30f65467fb41477ec756c3e293",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/archer-male-plain-attack1.png",
+          "bytes": 691494,
+          "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/archer-male-plain-standing.png",
+          "bytes": 690769,
+          "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/assassin-female-alt-attack1.png",
+          "bytes": 690824,
+          "sha256": "60698c2948d24857a1d8e25f379fe054bdcb1cf8fdc733c8ab4291abf706b23c",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/assassin-female-alt-standing.png",
+          "bytes": 690486,
+          "sha256": "6605415e0d60d21de63cabc884b8741646615c99e9076f1f23a46904edef0250",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/assassin-male-alt-attack1.png",
+          "bytes": 691126,
+          "sha256": "8d4f4681bed4e339f5948a98b0838cc4c160c00ee9ece70c24bf7b9e795b010b",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/assassin-male-alt-standing.png",
+          "bytes": 690586,
+          "sha256": "349944863518da8fbb6a4243d00cbeab3d5f139100d8870eae49576f0cf6a024",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/assassin-male-plain-attack1.png",
+          "bytes": 691494,
+          "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/assassin-male-plain-standing.png",
+          "bytes": 690769,
+          "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-005-attack1.png",
+          "bytes": 691621,
+          "sha256": "ca3deb6d8f460f102704d41a2ae7d8860ace174c8fe21bee197b90361b9d04b0",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-005-dead.png",
+          "bytes": 688875,
+          "sha256": "ff278d66ea7fd9b5c85295afd17b40090918a61556fd3d9bad19084dbdda0f58",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-005-dying.png",
+          "bytes": 692001,
+          "sha256": "3002739efefc8736992f344822a60b9d9f329d2841edd40f31e6ed83c9b00165",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-005-standing.png",
+          "bytes": 691464,
+          "sha256": "c6391c5e184ada86258d4eec5589f5639cb8ff50a59fd85c864e232105f36a85",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-005-struck.png",
+          "bytes": 692361,
+          "sha256": "b4ca4742125aa7b0b4a35bf4da4bd8c70c586a9bc37043d61ec4b388e6e88c75",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-005-walking.png",
+          "bytes": 691456,
+          "sha256": "c2851b84ea765356641ca9aa35f0f69c032c1c45c72434537ffadfd4968f257b",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-022-attack1.png",
+          "bytes": 695463,
+          "sha256": "7a6a558e331ac746b28f5ec01d8b3b64f56d319e72c91c3ae4b7ea07ab4a27a6",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-022-dead.png",
+          "bytes": 690168,
+          "sha256": "f113c10353994ffcec7af24e2fbc0f87d95961c600806282959b46c4dcc9a6fd",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-022-dying.png",
+          "bytes": 695221,
+          "sha256": "84c744ec0287e65b5b71b7b92af99868be81862f749ee9430db02dd334ba341d",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-022-standing.png",
+          "bytes": 694430,
+          "sha256": "1fc79ec16cddc42524cb2c9f2f85717d1fd4dc535c71865f84f8ad587da85c3e",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-022-struck.png",
+          "bytes": 695256,
+          "sha256": "bcf27cf629709ebd9017aa10e8de5db0964e26a55b47c5bdda74e555e8b72833",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-022-walking.png",
+          "bytes": 694151,
+          "sha256": "fc27fb345b56357bd51c7d9da3c411007e9aece710dd9429b54a52605a5eba84",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-023-attack1.png",
+          "bytes": 696468,
+          "sha256": "399d10598412ba479cb4210845253f7f753fcb3f09a8adc0ef50ee6ac7d67d92",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-023-dead.png",
+          "bytes": 689919,
+          "sha256": "2162b69cd45f2322099c2e0a83283acbd61772ac77bd51c1d671515aeadcf596",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-023-dying.png",
+          "bytes": 698254,
+          "sha256": "34f39680005890fce10abd794ff5e76186d1fd40137d06cf7db7623843975b72",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-023-standing.png",
+          "bytes": 696827,
+          "sha256": "4140431ed9fa7f93ab12bc8fdab4b351402fb39399358de59c452158cb73a946",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-023-struck.png",
+          "bytes": 698820,
+          "sha256": "bb8d1dfa5a5f3ba01166049258d2abdcfe299fdc942a063e1a3d456822a8dc40",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-023-walking.png",
+          "bytes": 697157,
+          "sha256": "514eb5083512b5529a5973b59a4d774f032386b3525dbc51c134215dd30c5af7",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-039-attack1.png",
+          "bytes": 693723,
+          "sha256": "6dceb4b7f234ec6aac53389017fcff52ab106a03b0622003781ba435d86454a6",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-039-dead.png",
+          "bytes": 695806,
+          "sha256": "8d80a4f2f3bbea5044c6c71f67f4831a71ebf1f1340edb16e4f3ecbfa5ffb365",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-039-dying.png",
+          "bytes": 696117,
+          "sha256": "27c4e9358c812cd6f0fe4bd1173cf906179d906226fe792c1c58aaf41df780b2",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-039-standing.png",
+          "bytes": 694415,
+          "sha256": "b0834ea1bb63e75e6b96b0a371537c77cfcd748b97590c5d1315946e15db702d",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-039-struck.png",
+          "bytes": 695848,
+          "sha256": "e0f98cb6db4a3084e9f53acf3aefd667facc7bddcb57a2cf59f9a729fb3bf9d8",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/monster-039-walking.png",
+          "bytes": 693702,
+          "sha256": "c9c6a2bb75b2845c16517cb30faddf13dc8b0513dc6392d6a8570aeeede216e9",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/self-moved-dev.png",
+          "bytes": 696661,
+          "sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/self-moved-release.png",
+          "bytes": 696661,
+          "sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/self-still-dev.png",
+          "bytes": 711139,
+          "sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/self-still-release.png",
+          "bytes": 711139,
+          "sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/taoist-female-attack1.png",
+          "bytes": 691117,
+          "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/taoist-female-standing.png",
+          "bytes": 690593,
+          "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/taoist-male-attack1.png",
+          "bytes": 691494,
+          "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/taoist-male-standing.png",
+          "bytes": 690769,
+          "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/warrior-female-attack1.png",
+          "bytes": 691117,
+          "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/warrior-female-standing.png",
+          "bytes": 690593,
+          "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/warrior-male-attack1.png",
+          "bytes": 691494,
+          "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/warrior-male-standing.png",
+          "bytes": 690769,
+          "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/wizard-female-attack1.png",
+          "bytes": 691117,
+          "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/wizard-female-standing.png",
+          "bytes": 690593,
+          "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/wizard-male-attack1.png",
+          "bytes": 691494,
+          "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/png/wizard-male-standing.png",
+          "bytes": 690769,
+          "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+          "type": "binary",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/raw-manifest.json",
+          "bytes": 23858,
+          "sha256": "93eb7c5cb0755840fd570adabe86bfc0d8ad22c0c0f6edfa93de812f93fc6649",
+          "type": "text",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-native/README.md",
+          "bytes": 5451,
+          "sha256": "ad3b360a9bdd1522d26fb64fc0d4a386fdc6e696fb45ce414f59014b496e1b0f",
+          "type": "text",
+          "source_round": "R49-D 怪物原生帧表/双模式证据（batch 1792847715360；来源 README.md/freeze.json）",
+          "tracked_in_head": false
+        }
+      ]
+    },
+    {
+      "path": "docs/testing/monster-motion",
+      "source_round": "R49-C 怪物走/跑插值证据（来源 README.md）",
+      "file_count": 11,
+      "total_bytes": 2926787,
+      "tracked_in_head_count": 0,
+      "untracked_count": 11,
+      "relative_to_head": "untracked_new_not_in_HEAD",
+      "aggregate_sha256": "a0fb1dc0df833223525265d04c749720308b98e18e4a0c1372791f2f8c62667e",
+      "files": [
+        {
+          "path": "docs/testing/monster-motion/frame0.png",
+          "bytes": 703538,
+          "sha256": "6299e2486087fb89758efe67e06816c6c921bbf14b3f1d2ed03431aae61fa9a9",
+          "type": "binary",
+          "source_round": "R49-C 怪物走/跑插值证据（来源 README.md）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-motion/frame10_184_1000ms.png",
+          "bytes": 687609,
+          "sha256": "21bc4a574300cdec725241775478a34f49eed034c4854725dc755586bb5d9994",
+          "type": "binary",
+          "source_round": "R49-C 怪物走/跑插值证据（来源 README.md）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-motion/frame5.png",
+          "bytes": 696586,
+          "sha256": "874f5fe2a8232c7547c067d280e1ed779064d56f0a846d076c875bf18e0a6455",
+          "type": "binary",
+          "source_round": "R49-C 怪物走/跑插值证据（来源 README.md）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-motion/frame6_005_600ms.png",
+          "bytes": 694244,
+          "sha256": "681533270a015d78508f1ee3871e4f406b668a04693723a6e95f5adef3646f0f",
+          "type": "binary",
+          "source_round": "R49-C 怪物走/跑插值证据（来源 README.md）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-motion/manifest.json",
+          "bytes": 12081,
+          "sha256": "9209a977a9746aaaed7be57e7ae72bb32c4ff92afcab8d13ee747387d0dce3ad",
+          "type": "text",
+          "source_round": "R49-C 怪物走/跑插值证据（来源 README.md）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-motion/README.md",
+          "bytes": 2217,
+          "sha256": "2082377392b16e687ba43279da67675e1c247669e93c8f279ec80fbb64f58bc3",
+          "type": "text",
+          "source_round": "R49-C 怪物走/跑插值证据（来源 README.md）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-motion/stride-zero/010-standing-down.png",
+          "bytes": 10580,
+          "sha256": "b55c84aed8509f28ff0b6c6b71d150809fcce6e387adf1b5634d8d55658c7ced",
+          "type": "binary",
+          "source_round": "R49-C 怪物走/跑插值证据（来源 README.md）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-motion/stride-zero/041-standing-down.png",
+          "bytes": 54692,
+          "sha256": "0c0ab11f70354c5ff898dfb86727e41bad237cd5661fd1430426498c11af1e47",
+          "type": "binary",
+          "source_round": "R49-C 怪物走/跑插值证据（来源 README.md）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-motion/stride-zero/043-standing-down.png",
+          "bytes": 7954,
+          "sha256": "cd5242868c2d86405c9403e32bc81b8988953e919077a245c4637bdd677d5a13",
+          "type": "binary",
+          "source_round": "R49-C 怪物走/跑插值证据（来源 README.md）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-motion/stride-zero/062-standing-down.png",
+          "bytes": 38808,
+          "sha256": "283a9b24f482c10cbc5af9464707807500d44d31644d2b0014c7e94a65444d36",
+          "type": "binary",
+          "source_round": "R49-C 怪物走/跑插值证据（来源 README.md）",
+          "tracked_in_head": false
+        },
+        {
+          "path": "docs/testing/monster-motion/stride-zero-render.json",
+          "bytes": 18478,
+          "sha256": "8e33fd0e127cb265f569d0d1e32a52f0ca959312e9dd2a371b19f6818a823b37",
+          "type": "text",
+          "source_round": "R49-C 怪物走/跑插值证据（来源 README.md）",
+          "tracked_in_head": false
+        }
+      ]
+    },
+    {
+      "path": "docs/testing/native-monster",
+      "source_round": "R49-A2 怪物原生帧导入证据（来源 README.md）",
+      "file_count": 1,
+      "total_bytes": 7510,
+      "tracked_in_head_count": 0,
+      "untracked_count": 1,
+      "relative_to_head": "untracked_new_not_in_HEAD",
+      "aggregate_sha256": "9c1a212b5484d6978c606308ac07f2f40c0224c496fd3930a8f0d3040500dc24",
+      "files": [
+        {
+          "path": "docs/testing/native-monster/README.md",
+          "bytes": 7510,
+          "sha256": "923df0fd8aa4ab853e9b2478e06220a335a7a793b62d4efde3d88b2fb10b0d79",
+          "type": "text",
+          "source_round": "R49-A2 怪物原生帧导入证据（来源 README.md）",
+          "tracked_in_head": false
+        }
+      ]
+    },
+    {
+      "path": "docs/testing/attack-variants",
+      "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+      "file_count": 50,
+      "total_bytes": 18864323,
+      "tracked_in_head_count": 50,
+      "untracked_count": 0,
+      "relative_to_head": "tracked_in_HEAD_clean_no_change",
+      "aggregate_sha256": "5b2c222484dc75dcf9c16bd27aaab001893d2867273f83537f86579214a8318c",
+      "files": [
+        {
+          "path": "docs/testing/attack-variants/analyze-usage-attack3.log",
+          "bytes": 915,
+          "sha256": "6f0c33f5370f8417451fb85b17c050240f983d36003a598ff967b84d735d56f4",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/attack3-asset-plan.json",
+          "bytes": 1228554,
+          "sha256": "6083842e46249b537915225ed7b6ea2780932978b0771f964811594ebe6f9d7e",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/attack3-pack-rebuild.log",
+          "bytes": 3232,
+          "sha256": "77eba0fe610a41e40caf9529ad3ad07140fde2d09144222dedd842dccde5e694",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/attack3-unpack.log",
+          "bytes": 14490,
+          "sha256": "5b012f39cd89af351a0aa082c0a496bda4e71ec2925020ca6708f115e1ec5940",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/baseline-bench.rs",
+          "bytes": 3700,
+          "sha256": "f19d241a16e921efea09e2db6f81be32275f4c7f9593dd699d358cc851a62b33",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/baseline-perf.log",
+          "bytes": 325,
+          "sha256": "3a776b62323192893f7a2aa586f6f7cce1a2268d84f8dda4f41e479e8efdd8f8",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/baseline-raw.json",
+          "bytes": 976,
+          "sha256": "bdfe48f8fdbb209ac1d1bf96d5e286d1307f6cf0a1ce9e9cfbc773af846092ce",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/build-manifest-attack3.log",
+          "bytes": 1358,
+          "sha256": "4d08a016d7fb79d55f227c44aaa35f863044ec44c01ab81ec3e2dc5a8499ee4f",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/clippy.log",
+          "bytes": 346,
+          "sha256": "f11a8cc0a75473497d719f98d00ec816bc928f6205ab6e0e47caa34785b581a6",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/deterministic-tests.log",
+          "bytes": 1244,
+          "sha256": "4c8af0cbe7497395ff6a94c10a6359aab9182cc414884328ad13da0f4ebad301",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack1-down-frame0.png",
+          "bytes": 693570,
+          "sha256": "10427ce57702f1131e122b98005f0dc608e6da103b179d22f229a48a0af5d6d1",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack1-down-frame1.png",
+          "bytes": 693625,
+          "sha256": "fa3c4f8fe5b076fe680155febd427d340ff02183236944c54d72d30114156d8d",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack1-down-frame2.png",
+          "bytes": 694014,
+          "sha256": "987e475c01c6a8e1d2c887dc18f252b8aef9870388d66f6f4294a796c5f01bf6",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack1-down-frame3.png",
+          "bytes": 695546,
+          "sha256": "6da8c26be0bf3894bb53dcfa4733bf16542696a0f57052c1e3a4127ec69ef2b7",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack1-down-frame4.png",
+          "bytes": 695308,
+          "sha256": "1b7b0f449573ae99cf875567358143e5b22c2f02475c81af2196a595ecdc16ee",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack1-down-frame5.png",
+          "bytes": 695033,
+          "sha256": "3f5bd6951d10839b8f41da7d9b4cb10257ad66143d379ec8ff941b2039ddd5ed",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack1-down-frame6.png",
+          "bytes": 689501,
+          "sha256": "a697cece352668957fd999debcd98b20cb25f072e005c15c7a680a74566dadad",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack1-right-frame0.png",
+          "bytes": 693191,
+          "sha256": "a41fc8317b41b6959f12b30036aee5588435d87c9a4dfcf53ac4812654802f51",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack1-right-frame1.png",
+          "bytes": 694022,
+          "sha256": "21655a89f951ed992b6ed729de312d433d7cec49281e04dda029216e539c838d",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack3-right-frame0.png",
+          "bytes": 691389,
+          "sha256": "ecabf5b57bddd8e0db3fcfa444667f92fcb576cce8c70912dd8fd19af76a37e0",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack3-right-frame1.png",
+          "bytes": 691900,
+          "sha256": "b9fc1097ca020231d25246370c247eb962aa4fa9712cfb41387d35e6c2ff2b15",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack3-right-frame2.png",
+          "bytes": 690010,
+          "sha256": "7ac5f83919bfb4ecbb5b43746893205db6c992e40cccd2b308e14e13a15130c3",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack3-right-frame3.png",
+          "bytes": 689858,
+          "sha256": "9a04775cb66642ffa5a8b0bb3f118f130abc8dacb40dc75a1be808f95c6291bf",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack3-right-frame4.png",
+          "bytes": 691470,
+          "sha256": "dd7b56ccfd4a16508d42695bdfcee04c1739f2ef6b855c8c8eee3e9df1a4fc5e",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack3-right-frame5.png",
+          "bytes": 692316,
+          "sha256": "d6eb80565ece8b64f4f465258ffa9f6b13b9b386a1e0a7706b5e21d245606490",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack3-right-frame6.png",
+          "bytes": 691314,
+          "sha256": "277c5b3dd7ee9658e5fe9da314762501754bab2299e1e0e52fe9ccaca56b75d7",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack3-right-frame7.png",
+          "bytes": 691490,
+          "sha256": "f0bb2c8756c5d26652380d43d7017596a80a666dea1a89b99f8c6e4796e6bbb3",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/female-attack3-right-frame8.png",
+          "bytes": 689358,
+          "sha256": "5cd3d9750b839ff8d13f14931967fc36a6818b6af14d629c647de327f7203379",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/final-candidate.json",
+          "bytes": 3091,
+          "sha256": "cc25e737a17db0c05191af2cfb54d5189ac141599022e5d114d5682b6bd2c965",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/final-freeze.json",
+          "bytes": 7558,
+          "sha256": "afe92f30828e6dff7acf774db9de29ff7b139f400679ef7913eedccc14e6d0d9",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/final-gate-result.json",
+          "bytes": 211,
+          "sha256": "630bd4603d5245dfd3d5db3d640b133637133736961d7a5c9859d582f530503f",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/final-gate.log",
+          "bytes": 177245,
+          "sha256": "6625801336bfa7aed08289761492bd2a9d9ed0f846661d3a694a215ebd50ab6c",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/fmt-check.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/frame-table.csv",
+          "bytes": 4947,
+          "sha256": "55ee3abe3c757e5348ce13fcaefb4022fb1328f7b94c7ec5d0000281b697485e",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/full-suite-tests.log",
+          "bytes": 44743,
+          "sha256": "4d190d1cf5bfcd2023250280b062bf0919451f556ee9411417522e27eb41e37d",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/legacy-live-run.log",
+          "bytes": 696,
+          "sha256": "933ad81ec821dd99e707439d464f0f9db6cb21df676db5efb0a645640ce3f090",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/links-check.log",
+          "bytes": 63,
+          "sha256": "dfcd771199a453ed5f2d28f5a89afbb88a8ec63c28d7c30c55d26ef0ea13d02e",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/live-evidence-check.log",
+          "bytes": 486,
+          "sha256": "cac425738e77bdc8732a8ada064461c64e29fabfc10cfe5d382852c1597461f0",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/live-manifest.json",
+          "bytes": 30910,
+          "sha256": "fd02ec1d8f5e533d20e51c8d5fac3763c620ab32315bd1e29ea467fd948d3eed",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/live-run.log",
+          "bytes": 3734,
+          "sha256": "1f53c7d708a631d02fa17f59329166a179981a0f895833b61040ed797d901276",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/male-attack1-right-frame0.png",
+          "bytes": 692966,
+          "sha256": "a59f35cdd3dd2df77f822d5b47dd68d4e4f14f784d91726febb1a049e1ed4c58",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/male-attack1-right-frame1.png",
+          "bytes": 694131,
+          "sha256": "7a08e2996f40b888400b41eb3d21a27d36ded0c4597f378c31fbcfbaeae09808",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/male-attack1-right-frame2.png",
+          "bytes": 693928,
+          "sha256": "f8bc45995951dbdbe56dfac1527f7dd789ca165ea24fc80474d5b59e9885981a",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/male-attack1-right-frame3.png",
+          "bytes": 695189,
+          "sha256": "bc80ed3ebd10fe17646ff769e20a8949f7e98823b646d2f5e65e1e87fc8b1766",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/male-attack1-right-frame4.png",
+          "bytes": 694749,
+          "sha256": "504f4ad6db5ec538fea988b6971bb04f21349390507278c58155f416c87dc3a3",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/male-attack1-right-frame5.png",
+          "bytes": 693910,
+          "sha256": "ed115003658c4053040b117623f8d8b96f5187bad294752347d6d1f8b95ad693",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/male-attack1-right-frame6.png",
+          "bytes": 688456,
+          "sha256": "3b4ef0bace774ee62867d2d173f4387cf66a743689e3896f1284f516fe989c20",
+          "type": "binary",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/perf-run.log",
+          "bytes": 756,
+          "sha256": "a7254370c53c5d03274243d5f772a3fe46915fbe64736e83d95263cbb145b42f",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/perf.json",
+          "bytes": 2608,
+          "sha256": "a823004d4833e0c5b5b65bac07ad7742d371ebc157119cf34bc2ec9421201cee",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        },
+        {
+          "path": "docs/testing/attack-variants/README.md",
+          "bytes": 15891,
+          "sha256": "d7520c32980d2f69f7038481f11ced970cf91c64bf590a51486b2a17bb91674c",
+          "type": "text",
+          "source_round": "R47 空挥 Attack1/Attack3 冻结证据（tracked，当前相对 HEAD 无变化）",
+          "tracked_in_head": true
+        }
+      ]
+    }
+  ],
+  "commit_candidates": {
+    "count": 107,
+    "total_bytes": 40895944,
+    "paths": [
+      {
+        "path": "crates/mir-asset/src/lib.rs",
+        "bytes": 6731,
+        "sha256": "6590ad69e71285677388eae7e5e3376d15f04feb3672d55873a8c72c65f7fe75",
+        "category": "source"
+      },
+      {
+        "path": "crates/mir-asset/src/lib_container.rs",
+        "bytes": 26189,
+        "sha256": "08c44b46b4f15114ee90c5b4ad256fd5c95d41661cb06a6f0d7c94ca82f88afa",
+        "category": "source"
+      },
+      {
+        "path": "crates/mir-asset/src/library.rs",
+        "bytes": 25785,
+        "sha256": "0a2f419433ecf6064ebe9260e6549766c2eb2ff059f1a1649a737e67dc4b5b19",
+        "category": "source"
+      },
+      {
+        "path": "crates/mir-client/src/app.rs",
+        "bytes": 140497,
+        "sha256": "b5c535f6b1be36d0a0165e97d6c11ce929352902efdfc2b8ab74539ee3c13c46",
+        "category": "source"
+      },
+      {
+        "path": "crates/mir-client/src/assets.rs",
+        "bytes": 19023,
+        "sha256": "7163971509464196c563308e9888fab2f7437c3998fe9a59fb1be93792243e63",
+        "category": "source"
+      },
+      {
+        "path": "crates/mir-client/src/camera.rs",
+        "bytes": 52953,
+        "sha256": "c57dc92d627c45fe50d545b16872da43e3b5ea761a52d0756ba1996d8f6e9272",
+        "category": "source"
+      },
+      {
+        "path": "crates/mir-client/src/main.rs",
+        "bytes": 37468,
+        "sha256": "9de995ce1f8f2beb3a81c0d2766cdea038ce594e81ec2347af54cf53f5bc8143",
+        "category": "source"
+      },
+      {
+        "path": "crates/mir-client/src/net.rs",
+        "bytes": 339207,
+        "sha256": "15e1d30b956b7f7d0557850b2a13a7a12c79a3d4e2105f7756717aa0142ccaad",
+        "category": "source"
+      },
+      {
+        "path": "crates/mir-client/tests/anim.rs",
+        "bytes": 18194,
+        "sha256": "c2817a61370f7a7d473c4703bc920592d0bfc32caacfd1331bc65e3e69e78c89",
+        "category": "test"
+      },
+      {
+        "path": "crates/mir-client/tests/attack_variant_live.rs",
+        "bytes": 48628,
+        "sha256": "515e786876337d0414b441ce7063b8d4bd007d83c46473069349d17d4d69458a",
+        "category": "test"
+      },
+      {
+        "path": "crates/mir-client/tests/live_world.rs",
+        "bytes": 38831,
+        "sha256": "21f27601492ce236dd7390301a367a48079d22a5e667b4f2c75ad1af80c41c02",
+        "category": "test"
+      },
+      {
+        "path": "crates/mir-client/tests/remote_motion_live.rs",
+        "bytes": 27630,
+        "sha256": "f3b336dd7773430e525a3994681aee45e2754a1b610b4146836eccad1d8ee68b",
+        "category": "test"
+      },
+      {
+        "path": "crates/mir-client/tests/ui_interaction.rs",
+        "bytes": 20666,
+        "sha256": "29ed7fd77fc81737da3d8e13cafc2c94ecea97042135b2a3b685e72e6f50e05a",
+        "category": "test"
+      },
+      {
+        "path": "crates/mir-client/tests/ui_test.rs",
+        "bytes": 15662,
+        "sha256": "0bebab160ed1b9dc4d2db9fb8f2d8685266023f4424eac1bb4f63a2d9d8935c1",
+        "category": "test"
+      },
+      {
+        "path": "crates/mir-render/src/animation.rs",
+        "bytes": 45810,
+        "sha256": "b08dfecad239bc397fcb9533f303918c973f5bfb6cbe01615c679a05c5064ed6",
+        "category": "source"
+      },
+      {
+        "path": "crates/mir-render/src/entities.rs",
+        "bytes": 140266,
+        "sha256": "8aad2e0745743812aafe2b345f92e38b41e99e0b67b5be9400e46a472043d432",
+        "category": "source"
+      },
+      {
+        "path": "crates/mir-render/tests/native_player_evidence.rs",
+        "bytes": 23536,
+        "sha256": "38be50de584abe0638bf635ff3ff0a9b53f1f3be46ada1047556435a2f715885",
+        "category": "test"
+      },
+      {
+        "path": "crates/mir-tools/src/main.rs",
+        "bytes": 104515,
+        "sha256": "db487781910ff7bf13d451cbb05b0f4d268f5791c970f7a2dd411fa5e6a0f76a",
+        "category": "source"
+      },
+      {
+        "path": "docs/client.md",
+        "bytes": 143550,
+        "sha256": "bac99052d90f7d6e6076015ec11f4d12f596a6243896201c128ff250d7a1e235",
+        "category": "docs"
+      },
+      {
+        "path": "crates/mir-asset/src/frames.rs",
+        "bytes": 24880,
+        "sha256": "509a5c9c3df6b971c8bf6f9663f937bca438b872b547c4ee9aa8528e846ef809",
+        "category": "source"
+      },
+      {
+        "path": "crates/mir-asset/tests/real_framesets.rs",
+        "bytes": 15386,
+        "sha256": "4481c3479cfeb18b7c5d59da5da7ab0fad61c0b4299a78e3026d0620427fe939",
+        "category": "test"
+      },
+      {
+        "path": "crates/mir-client/tests/cli_monster_frames.rs",
+        "bytes": 14843,
+        "sha256": "a13126827cda43c7eb3dc52d6b2fde590732609754fd8bfaf9dd6764302d4ce1",
+        "category": "test"
+      },
+      {
+        "path": "crates/mir-client/tests/monster_motion.rs",
+        "bytes": 19279,
+        "sha256": "b5e03ff81943293d953280ae35e37851b3a861b5a4321bd6455f55497d808b52",
+        "category": "test"
+      },
+      {
+        "path": "crates/mir-render/tests/monster_native.rs",
+        "bytes": 16247,
+        "sha256": "e2cf3ae2c69500bc1a3b24cbeaab28f8d28f015583aced46ba9f83e6f7109a33",
+        "category": "test"
+      },
+      {
+        "path": "crates/mir-render/tests/monster_native_evidence.rs",
+        "bytes": 14618,
+        "sha256": "f1efc860980370b1f8128ba0aa6b9095a555723a437dd8b1fc0cd46064baa3a1",
+        "category": "test"
+      },
+      {
+        "path": "crates/mir-tools/tests/monster_native_import.rs",
+        "bytes": 12915,
+        "sha256": "c64317f37471325f47e5c67aa410e160863430b041518c22e607cdaaad0c18a3",
+        "category": "test"
+      },
+      {
+        "path": "docs/process/round49-menxia-review.md",
+        "bytes": 18617,
+        "sha256": "7c6b4efacc899f9b854c615b66cf745c1b83d6fe014d0cfa8602c245651173d0",
+        "category": "docs"
+      },
+      {
+        "path": "docs/process/round49-plan.md",
+        "bytes": 13506,
+        "sha256": "2eeb9b07d6b487e986fb9c79b85d7d5273c29f85f26d43c3600706e5c0061873",
+        "category": "docs"
+      },
+      {
+        "path": "docs/process/round49-shangshu-dispatch.md",
+        "bytes": 18307,
+        "sha256": "70f41d4ad5c992d7a40e63af6af9d148a86e937f783e73b8c48ec76bfc14bebd",
+        "category": "docs"
+      },
+      {
+        "path": "docs/testing/monster-motion/README.md",
+        "bytes": 2217,
+        "sha256": "2082377392b16e687ba43279da67675e1c247669e93c8f279ec80fbb64f58bc3",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-motion/frame0.png",
+        "bytes": 703538,
+        "sha256": "6299e2486087fb89758efe67e06816c6c921bbf14b3f1d2ed03431aae61fa9a9",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-motion/frame10_184_1000ms.png",
+        "bytes": 687609,
+        "sha256": "21bc4a574300cdec725241775478a34f49eed034c4854725dc755586bb5d9994",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-motion/frame5.png",
+        "bytes": 696586,
+        "sha256": "874f5fe2a8232c7547c067d280e1ed779064d56f0a846d076c875bf18e0a6455",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-motion/frame6_005_600ms.png",
+        "bytes": 694244,
+        "sha256": "681533270a015d78508f1ee3871e4f406b668a04693723a6e95f5adef3646f0f",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-motion/manifest.json",
+        "bytes": 12081,
+        "sha256": "9209a977a9746aaaed7be57e7ae72bb32c4ff92afcab8d13ee747387d0dce3ad",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-motion/stride-zero-render.json",
+        "bytes": 18478,
+        "sha256": "8e33fd0e127cb265f569d0d1e32a52f0ca959312e9dd2a371b19f6818a823b37",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-motion/stride-zero/010-standing-down.png",
+        "bytes": 10580,
+        "sha256": "b55c84aed8509f28ff0b6c6b71d150809fcce6e387adf1b5634d8d55658c7ced",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-motion/stride-zero/041-standing-down.png",
+        "bytes": 54692,
+        "sha256": "0c0ab11f70354c5ff898dfb86727e41bad237cd5661fd1430426498c11af1e47",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-motion/stride-zero/043-standing-down.png",
+        "bytes": 7954,
+        "sha256": "cd5242868c2d86405c9403e32bc81b8988953e919077a245c4637bdd677d5a13",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-motion/stride-zero/062-standing-down.png",
+        "bytes": 38808,
+        "sha256": "283a9b24f482c10cbc5af9464707807500d44d31644d2b0014c7e94a65444d36",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/README.md",
+        "bytes": 5451,
+        "sha256": "ad3b360a9bdd1522d26fb64fc0d4a386fdc6e696fb45ce414f59014b496e1b0f",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/freeze.json",
+        "bytes": 2729,
+        "sha256": "f9abe6fe8358357d97bcd8c8597e2dca1ace2915ca0c99e50c670ddf3628aa8a",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/manifest.json",
+        "bytes": 107624,
+        "sha256": "d3b1d4c4c89b3484e36ae4775b93fddf0f478688edc0e66765c8d27b66fc2c51",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/monster-frame-table.csv",
+        "bytes": 28244,
+        "sha256": "c05bb902a2aa9e075c775be4de43e64f2b8aba6853bae94e6724ad0bcc4e1475",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/archer-female-alt-attack1.png",
+        "bytes": 690287,
+        "sha256": "daa013518c4cbe6e7273f07edb25f510940d434587b126c98f1cb9c1ed64ed49",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/archer-female-alt-standing.png",
+        "bytes": 690170,
+        "sha256": "540f60c80b9d49db8a2cab5e824e360a83b4efd3490d0611a3342c7263ff889b",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/archer-male-alt-attack1.png",
+        "bytes": 690584,
+        "sha256": "5b0968817e8eddf8b56b49f807b01813301b1dc59ecf68aef121fd8f2f092d5e",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/archer-male-alt-standing.png",
+        "bytes": 690635,
+        "sha256": "d062c78c6eaa954286f50aab8d9b7e5c243a7e30f65467fb41477ec756c3e293",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/archer-male-plain-attack1.png",
+        "bytes": 691494,
+        "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/archer-male-plain-standing.png",
+        "bytes": 690769,
+        "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/assassin-female-alt-attack1.png",
+        "bytes": 690824,
+        "sha256": "60698c2948d24857a1d8e25f379fe054bdcb1cf8fdc733c8ab4291abf706b23c",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/assassin-female-alt-standing.png",
+        "bytes": 690486,
+        "sha256": "6605415e0d60d21de63cabc884b8741646615c99e9076f1f23a46904edef0250",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/assassin-male-alt-attack1.png",
+        "bytes": 691126,
+        "sha256": "8d4f4681bed4e339f5948a98b0838cc4c160c00ee9ece70c24bf7b9e795b010b",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/assassin-male-alt-standing.png",
+        "bytes": 690586,
+        "sha256": "349944863518da8fbb6a4243d00cbeab3d5f139100d8870eae49576f0cf6a024",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/assassin-male-plain-attack1.png",
+        "bytes": 691494,
+        "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/assassin-male-plain-standing.png",
+        "bytes": 690769,
+        "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-005-attack1.png",
+        "bytes": 691621,
+        "sha256": "ca3deb6d8f460f102704d41a2ae7d8860ace174c8fe21bee197b90361b9d04b0",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-005-dead.png",
+        "bytes": 688875,
+        "sha256": "ff278d66ea7fd9b5c85295afd17b40090918a61556fd3d9bad19084dbdda0f58",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-005-dying.png",
+        "bytes": 692001,
+        "sha256": "3002739efefc8736992f344822a60b9d9f329d2841edd40f31e6ed83c9b00165",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-005-standing.png",
+        "bytes": 691464,
+        "sha256": "c6391c5e184ada86258d4eec5589f5639cb8ff50a59fd85c864e232105f36a85",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-005-struck.png",
+        "bytes": 692361,
+        "sha256": "b4ca4742125aa7b0b4a35bf4da4bd8c70c586a9bc37043d61ec4b388e6e88c75",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-005-walking.png",
+        "bytes": 691456,
+        "sha256": "c2851b84ea765356641ca9aa35f0f69c032c1c45c72434537ffadfd4968f257b",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-022-attack1.png",
+        "bytes": 695463,
+        "sha256": "7a6a558e331ac746b28f5ec01d8b3b64f56d319e72c91c3ae4b7ea07ab4a27a6",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-022-dead.png",
+        "bytes": 690168,
+        "sha256": "f113c10353994ffcec7af24e2fbc0f87d95961c600806282959b46c4dcc9a6fd",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-022-dying.png",
+        "bytes": 695221,
+        "sha256": "84c744ec0287e65b5b71b7b92af99868be81862f749ee9430db02dd334ba341d",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-022-standing.png",
+        "bytes": 694430,
+        "sha256": "1fc79ec16cddc42524cb2c9f2f85717d1fd4dc535c71865f84f8ad587da85c3e",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-022-struck.png",
+        "bytes": 695256,
+        "sha256": "bcf27cf629709ebd9017aa10e8de5db0964e26a55b47c5bdda74e555e8b72833",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-022-walking.png",
+        "bytes": 694151,
+        "sha256": "fc27fb345b56357bd51c7d9da3c411007e9aece710dd9429b54a52605a5eba84",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-023-attack1.png",
+        "bytes": 696468,
+        "sha256": "399d10598412ba479cb4210845253f7f753fcb3f09a8adc0ef50ee6ac7d67d92",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-023-dead.png",
+        "bytes": 689919,
+        "sha256": "2162b69cd45f2322099c2e0a83283acbd61772ac77bd51c1d671515aeadcf596",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-023-dying.png",
+        "bytes": 698254,
+        "sha256": "34f39680005890fce10abd794ff5e76186d1fd40137d06cf7db7623843975b72",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-023-standing.png",
+        "bytes": 696827,
+        "sha256": "4140431ed9fa7f93ab12bc8fdab4b351402fb39399358de59c452158cb73a946",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-023-struck.png",
+        "bytes": 698820,
+        "sha256": "bb8d1dfa5a5f3ba01166049258d2abdcfe299fdc942a063e1a3d456822a8dc40",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-023-walking.png",
+        "bytes": 697157,
+        "sha256": "514eb5083512b5529a5973b59a4d774f032386b3525dbc51c134215dd30c5af7",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-039-attack1.png",
+        "bytes": 693723,
+        "sha256": "6dceb4b7f234ec6aac53389017fcff52ab106a03b0622003781ba435d86454a6",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-039-dead.png",
+        "bytes": 695806,
+        "sha256": "8d80a4f2f3bbea5044c6c71f67f4831a71ebf1f1340edb16e4f3ecbfa5ffb365",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-039-dying.png",
+        "bytes": 696117,
+        "sha256": "27c4e9358c812cd6f0fe4bd1173cf906179d906226fe792c1c58aaf41df780b2",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-039-standing.png",
+        "bytes": 694415,
+        "sha256": "b0834ea1bb63e75e6b96b0a371537c77cfcd748b97590c5d1315946e15db702d",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-039-struck.png",
+        "bytes": 695848,
+        "sha256": "e0f98cb6db4a3084e9f53acf3aefd667facc7bddcb57a2cf59f9a729fb3bf9d8",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/monster-039-walking.png",
+        "bytes": 693702,
+        "sha256": "c9c6a2bb75b2845c16517cb30faddf13dc8b0513dc6392d6a8570aeeede216e9",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/self-moved-dev.png",
+        "bytes": 696661,
+        "sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/self-moved-release.png",
+        "bytes": 696661,
+        "sha256": "5394490123fd5672850b0a4f9780d8ccee5ec8837de23bcb98b5559fb411719d",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/self-still-dev.png",
+        "bytes": 711139,
+        "sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/self-still-release.png",
+        "bytes": 711139,
+        "sha256": "9d584c00589c39ca0254b9716c62eccf5443e2439c2423686b7f99cc0686a86c",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/taoist-female-attack1.png",
+        "bytes": 691117,
+        "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/taoist-female-standing.png",
+        "bytes": 690593,
+        "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/taoist-male-attack1.png",
+        "bytes": 691494,
+        "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/taoist-male-standing.png",
+        "bytes": 690769,
+        "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/warrior-female-attack1.png",
+        "bytes": 691117,
+        "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/warrior-female-standing.png",
+        "bytes": 690593,
+        "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/warrior-male-attack1.png",
+        "bytes": 691494,
+        "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/warrior-male-standing.png",
+        "bytes": 690769,
+        "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/wizard-female-attack1.png",
+        "bytes": 691117,
+        "sha256": "348033710fe5fa9ccc1ae8cf42c1c19825ab07dbd6efad594cd31ce33cd0df19",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/wizard-female-standing.png",
+        "bytes": 690593,
+        "sha256": "9d3fc9ab25cf80512186e7335a2da2f854ed85ea2e0435a0d419bbc53e7f3764",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/wizard-male-attack1.png",
+        "bytes": 691494,
+        "sha256": "17eb4a99819cffd83bbd4c33292d431a5de8c23d5ba3d313ecbdaeecc1a55736",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/png/wizard-male-standing.png",
+        "bytes": 690769,
+        "sha256": "625e09ddd2864518f828aa78b27dd481e1f83ea0da68ed1929dccda60daf5778",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/monster-native/raw-manifest.json",
+        "bytes": 23858,
+        "sha256": "93eb7c5cb0755840fd570adabe86bfc0d8ad22c0c0f6edfa93de812f93fc6649",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/native-monster/README.md",
+        "bytes": 7510,
+        "sha256": "923df0fd8aa4ab853e9b2478e06220a335a7a793b62d4efde3d88b2fb10b0d79",
+        "category": "evidence"
+      },
+      {
+        "path": "docs/testing/round49/audit-detail-results.json",
+        "bytes": 66033,
+        "sha256": "e5fd6c329313f3d8f28030bab37c52c90cb34e522f13bfb9494fec4ed9acc7c5",
+        "category": "audit"
+      },
+      {
+        "path": "docs/testing/round49/audit-probe-results.json",
+        "bytes": 129458,
+        "sha256": "bd104b256c98a5c5f7166bd080a358fc86eda355e61d4957420831f278cb39ea",
+        "category": "audit"
+      },
+      {
+        "path": "docs/testing/round49/audit-report-validation.json",
+        "bytes": 192,
+        "sha256": "4056d6711f42aa51956dcd565b5f4ac8418bf5942697b261a4c6bd63af13c26b",
+        "category": "audit"
+      },
+      {
+        "path": "docs/testing/round49/audit_detail_probe.py",
+        "bytes": 6702,
+        "sha256": "8b1d7ca19a62ee70566a06b2bd66214fa33cb8f6d00005e1d961e37e4cca78f4",
+        "category": "audit"
+      },
+      {
+        "path": "docs/testing/round49/audit_probe.py",
+        "bytes": 7225,
+        "sha256": "3b4b73dfbb6f22461e925bacecb757c541bee5fe4a06ae6853e4277c3e862906",
+        "category": "audit"
+      },
+      {
+        "path": "docs/testing/round49/code-review-report-round49.html",
+        "bytes": 46849,
+        "sha256": "00d6245158c59ed34aeaab11b99a28b00c7b9a51e6ca9c289feb3c255a9bbcb1",
+        "category": "audit"
+      },
+      {
+        "path": "docs/testing/round49/record-audit-memo.sh",
+        "bytes": 324,
+        "sha256": "8383573a2c9a08d342b3a9440a2fd35009ef116bbbb599694fc6577daed083d1",
+        "category": "audit"
+      },
+      {
+        "path": "docs/testing/round49/render_audit_report.py",
+        "bytes": 4888,
+        "sha256": "592b9e8314390d14d6f58cff627ecd9072ab76761004f45daae98b7e812fd114",
+        "category": "audit"
+      },
+      {
+        "path": "docs/testing/round49/round49-xingbu-wip-audit.md",
+        "bytes": 32065,
+        "sha256": "8815fa64dd6be256e97c6af51222814d104ede2fa97f7121c3b02a9174eae46a",
+        "category": "audit"
+      }
+    ]
+  },
+  "must_exclude": [
+    {
+      "path": "docs/testing/monster-native/player-resource-freeze-before.json",
+      "bytes": 44844165,
+      "sha256": "70845aefd4dd689a55ab0618b36bbf692a4b33ebb5ee2f3a662dedc17a3dc9de",
+      "reason": "44 MB 级玩家冻结 JSON，超过单文件 1 MiB 入库上限；只登记本地可复核路径/字节/SHA256，不复制、不入库、不删除",
+      "action": "must_not_commit_keep_local"
+    },
+    {
+      "path": "docs/testing/monster-native/player-resource-freeze.json",
+      "bytes": 45219533,
+      "sha256": "c7d896e7f5eee4706b943912c0c564d10d61c98d163143f051c2d632daecde32",
+      "reason": "45 MB 级玩家冻结 JSON，超过单文件 1 MiB 入库上限；只登记本地可复核路径/字节/SHA256，不复制、不入库、不删除",
+      "action": "must_not_commit_keep_local"
+    },
+    {
+      "path": "target/**",
+      "reason": "构建/门禁/临时证据目录，.gitignore:5 `**/target/` 已忽略；包含 target/attack-variants 新批次与历史 gate 日志，不能入库",
+      "action": "must_not_commit"
+    },
+    {
+      "path": "game-assets/**",
+      "reason": "运行时素材视图（.gitignore:27，约 22.5GB 生成资产）；不入库",
+      "action": "must_not_commit"
+    },
+    {
+      "path": "resource/**",
+      "reason": "原始资源树（.gitignore:1）；不入库",
+      "action": "must_not_commit"
+    },
+    {
+      "path": "github/**",
+      "reason": "外部参考克隆（.gitignore:9）；不入库",
+      "action": "must_not_commit"
+    },
+    {
+      "path": ".env",
+      "reason": "本地凭据文件（.gitignore:2）；禁止读取/输出/提交值",
+      "action": "must_not_commit"
+    }
+  ],
+  "historical_gate": {
+    "logs": [
+      {
+        "path": "target/gate-r49-d.log",
+        "bytes": 179162,
+        "sha256": "ca7eae59283e769577aee264c0910c4379197e32cbe8e886cee855e05c44f4bb",
+        "mtime": "2026-10-24T21:48:12+08:00",
+        "encoding": "gbk",
+        "gate_items_ok": 12,
+        "gate_items_failed": 0,
+        "summary_line": "==> 全部通过（12 项）",
+        "conclusion": "历史全量门禁 12/12 通过；对应当次工作树，已被后续变更超越，不能作为当前证据",
+        "stale": true
+      },
+      {
+        "path": "target/gate-r49-final2.log",
+        "bytes": 180943,
+        "sha256": "f0747ddf1d22b287c3e2a45cd283b03bffeb6051ec31871747741a086335a5fa",
+        "mtime": "2026-10-25T02:12:16+08:00",
+        "encoding": "gbk",
+        "gate_items_ok": 12,
+        "gate_items_failed": 0,
+        "summary_line": "==> 全部通过（12 项）",
+        "conclusion": "历史全量门禁 12/12 通过；对应当次工作树，已被后续变更超越，不能作为当前证据",
+        "stale": true
+      }
+    ],
+    "note": "两条日志均来自旧工作树；target/gate-r49-d.log 是 R49-D 最终通过批次，target/gate-r49-final2.log 是最近一次本地全量门禁。二者均不作为当前树证据。"
+  },
+  "current_gate": {
+    "status": "PARTIAL",
+    "final_gate_run_on_current_worktree": false,
+    "required_command": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale",
+    "executor": "队长（唯一执行者；R49-01 不得运行）",
+    "last_known_local_gate": "target/gate-r49-final2.log @ 2026-10-25T02:12:16+08:00, 12/12",
+    "reason": "最近一次全量门禁完成于 2026-10-25T02:12:16+08:00，之后仍有 5 个 tracked M 文件 （app.rs/assets.rs/main.rs/attack_variant_live.rs/remote_motion_live.rs）和后续 untracked WIP 修改；当前工作树没有对应的最终全量门禁日志与原始退出码。",
+    "wip_files_newer_than_last_gate_count": 85,
+    "wip_files_newer_than_last_gate": [
+      "crates/mir-client/src/app.rs",
+      "crates/mir-client/src/assets.rs",
+      "crates/mir-client/src/main.rs",
+      "crates/mir-client/tests/attack_variant_live.rs",
+      "crates/mir-client/tests/remote_motion_live.rs",
+      "crates/mir-asset/src/frames.rs",
+      "crates/mir-asset/tests/real_framesets.rs",
+      "crates/mir-client/tests/cli_monster_frames.rs",
+      "crates/mir-client/tests/monster_motion.rs",
+      "crates/mir-render/tests/monster_native.rs",
+      "crates/mir-render/tests/monster_native_evidence.rs",
+      "docs/process/round49-menxia-review.md",
+      "docs/process/round49-shangshu-dispatch.md",
+      "docs/testing/monster-motion/frame0.png",
+      "docs/testing/monster-motion/frame10_184_1000ms.png",
+      "docs/testing/monster-motion/frame5.png",
+      "docs/testing/monster-motion/frame6_005_600ms.png",
+      "docs/testing/monster-motion/manifest.json",
+      "docs/testing/monster-motion/stride-zero-render.json",
+      "docs/testing/monster-motion/stride-zero/010-standing-down.png",
+      "docs/testing/monster-motion/stride-zero/041-standing-down.png",
+      "docs/testing/monster-motion/stride-zero/043-standing-down.png",
+      "docs/testing/monster-motion/stride-zero/062-standing-down.png",
+      "docs/testing/monster-native/png/archer-female-alt-attack1.png",
+      "docs/testing/monster-native/png/archer-female-alt-standing.png",
+      "docs/testing/monster-native/png/archer-male-alt-attack1.png",
+      "docs/testing/monster-native/png/archer-male-alt-standing.png",
+      "docs/testing/monster-native/png/archer-male-plain-attack1.png",
+      "docs/testing/monster-native/png/archer-male-plain-standing.png",
+      "docs/testing/monster-native/png/assassin-female-alt-attack1.png",
+      "docs/testing/monster-native/png/assassin-female-alt-standing.png",
+      "docs/testing/monster-native/png/assassin-male-alt-attack1.png",
+      "docs/testing/monster-native/png/assassin-male-alt-standing.png",
+      "docs/testing/monster-native/png/assassin-male-plain-attack1.png",
+      "docs/testing/monster-native/png/assassin-male-plain-standing.png",
+      "docs/testing/monster-native/png/monster-005-attack1.png",
+      "docs/testing/monster-native/png/monster-005-dead.png",
+      "docs/testing/monster-native/png/monster-005-dying.png",
+      "docs/testing/monster-native/png/monster-005-standing.png",
+      "docs/testing/monster-native/png/monster-005-struck.png",
+      "docs/testing/monster-native/png/monster-005-walking.png",
+      "docs/testing/monster-native/png/monster-022-attack1.png",
+      "docs/testing/monster-native/png/monster-022-dead.png",
+      "docs/testing/monster-native/png/monster-022-dying.png",
+      "docs/testing/monster-native/png/monster-022-standing.png",
+      "docs/testing/monster-native/png/monster-022-struck.png",
+      "docs/testing/monster-native/png/monster-022-walking.png",
+      "docs/testing/monster-native/png/monster-023-attack1.png",
+      "docs/testing/monster-native/png/monster-023-dead.png",
+      "docs/testing/monster-native/png/monster-023-dying.png",
+      "docs/testing/monster-native/png/monster-023-standing.png",
+      "docs/testing/monster-native/png/monster-023-struck.png",
+      "docs/testing/monster-native/png/monster-023-walking.png",
+      "docs/testing/monster-native/png/monster-039-attack1.png",
+      "docs/testing/monster-native/png/monster-039-dead.png",
+      "docs/testing/monster-native/png/monster-039-dying.png",
+      "docs/testing/monster-native/png/monster-039-standing.png",
+      "docs/testing/monster-native/png/monster-039-struck.png",
+      "docs/testing/monster-native/png/monster-039-walking.png",
+      "docs/testing/monster-native/png/self-moved-dev.png",
+      "docs/testing/monster-native/png/self-moved-release.png",
+      "docs/testing/monster-native/png/self-still-dev.png",
+      "docs/testing/monster-native/png/self-still-release.png",
+      "docs/testing/monster-native/png/taoist-female-attack1.png",
+      "docs/testing/monster-native/png/taoist-female-standing.png",
+      "docs/testing/monster-native/png/taoist-male-attack1.png",
+      "docs/testing/monster-native/png/taoist-male-standing.png",
+      "docs/testing/monster-native/png/warrior-female-attack1.png",
+      "docs/testing/monster-native/png/warrior-female-standing.png",
+      "docs/testing/monster-native/png/warrior-male-attack1.png",
+      "docs/testing/monster-native/png/warrior-male-standing.png",
+      "docs/testing/monster-native/png/wizard-female-attack1.png",
+      "docs/testing/monster-native/png/wizard-female-standing.png",
+      "docs/testing/monster-native/png/wizard-male-attack1.png",
+      "docs/testing/monster-native/png/wizard-male-standing.png",
+      "docs/testing/monster-native/raw-manifest.json",
+      "docs/testing/round49/audit-detail-results.json",
+      "docs/testing/round49/audit-probe-results.json",
+      "docs/testing/round49/audit-report-validation.json",
+      "docs/testing/round49/audit_detail_probe.py",
+      "docs/testing/round49/audit_probe.py",
+      "docs/testing/round49/code-review-report-round49.html",
+      "docs/testing/round49/record-audit-memo.sh",
+      "docs/testing/round49/render_audit_report.py",
+      "docs/testing/round49/round49-xingbu-wip-audit.md"
+    ],
+    "do_not_reuse_old_green": true,
+    "gate_items_fixed_count": null,
+    "gate_items_note": "门禁实际项数与通过数以队长本次运行的日志/退出码为准；不允许固定 12/12。",
+    "next_step": "等待 R49-05 文档/i18n 收口后由队长运行一次完整门禁，再交 R49-06 只读终审"
+  },
+  "delta_45_to_actual": {
+    "zhongshu_baseline_files": 45,
+    "shangshu_dispatch_snapshot": {
+      "files_changed": 46,
+      "insertions": 1951,
+      "deletions": 230,
+      "source": "docs/process/round49-shangshu-dispatch.md §一（2026-10-25 派发时只读采样）"
+    },
+    "actual_sampled": {
+      "tracked_modified_files": 19,
+      "insertions": 2361,
+      "deletions": 131,
+      "untracked_entries": 14,
+      "untracked_expanded_files": 90,
+      "total_wip_files": 109
+    },
+    "difference_files": 27,
+    "explanation": [
+      "45 是中书旧方案基线，46 是尚书派发时快照；两者都不是当前事实，必须以本次 19 个 tracked M 为准。",
+      "46→19 的最可能来源：队长于 2026-10-25T03:22:45 左右对 docs/testing/attack-variants/ 执行 git checkout -- 恢复 R47 tracked 原样；该目录当前 status=0、diff=0，且其中 PNG mtime 为 03:22:45。46-27=19 数量吻合。",
+      "派发时没有落盘逐文件 status 清单，因此无法逐项重建被恢复的 27 个路径；该解释标记为时间相关推断，不作为已证明的审计结论。",
+      "文件数下降不代表 WIP 缩小：14 条未跟踪 porcelain 条目展开为 90 个实际文件（7 个新源码/测试、3 份流程文档、3 个证据目录、round49 审计目录），全部已纳入冻结。",
+      "插入数由 1951 升至 2361、删除数由 230 降至 131，可与恢复 tracked 证据文件及后续 frames/assets/attack 修复同时发生；仅作一致性解释。"
+    ],
+    "confidence": "partial",
+    "unverifiable_reason": "仓库内没有保存派发时刻的完整 git status 文件；只能依据派发说明文字、当前 status 与 attack-variants mtime 做时间相关推断。"
+  },
+  "post_write_consistency": {
+    "checked_after": "2026-10-25T03:28:01+08:00",
+    "status_same_as_sample": true,
+    "diff_stat_same_as_sample": true,
+    "frozen_file_sha_changed": [],
+    "untracked_file_count_after_wip_freeze": 91,
+    "expected_delta": "写 wip-freeze.json 使 git ls-files --others 增加 1 个文件；未跟踪目录在 git status --porcelain 中仍为同一条记录。",
+    "note": "本检查在写 manifest 之前执行；manifest 自身写于其后。"
+  },
+  "reproduce_commands": [
+    "git rev-parse HEAD",
+    "git rev-parse --abbrev-ref HEAD",
+    "git status --porcelain",
+    "git diff --stat",
+    "git diff --check",
+    "git ls-files --modified",
+    "git ls-files --others --exclude-standard",
+    "git hash-object --path <相对路径> <相对路径>",
+    "git rev-parse HEAD:<相对路径>",
+    "git ls-files --stage -- <相对路径>",
+    "pwsh -NoProfile -Command \"Get-FileHash -LiteralPath '<路径>' -Algorithm SHA256\"",
+    "py -3 -c \"import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())\" <小文件路径>",
+    "# 最终全量门禁只能由队长在稳定树运行：pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale"
+  ],
+  "reproduce_note": "R49-01/礼部不运行 cargo test、ci.ps1、i18n 或链接检查；上述复现命令中门禁一条仅登记给队长。",
+  "risks": [
+    "当前工作树最终全量门禁未运行：current_gate=PARTIAL，不能沿用 02:12 的 12/12。",
+    "45→19 的 27 文件差异只能做时间相关解释，缺少派发时刻逐文件清单，不能宣称已逐项重建。",
+    "两份 44/45 MB 玩家冻结 JSON 超 1MiB 上限，只能本地保留并在本清单登记，不能入库。",
+    "证据候选总量较大（PNG 约 60 张），单文件合规但整体体积需队长/尚书决定。",
+    "本次未运行任何功能/门禁/i18n 验证；冻结只证明采样时刻文件状态与哈希，不证明功能通过。",
+    "忽略目录（target/game-assets/resource/github）内容不在冻结范围内。"
+  ],
+  "r49_05_documentation_stage": {
+    "schema": "r49-05-documentation-stage/v1",
+    "task_id": "JJC-20261025-001-sub-fd937482",
+    "role": "libu",
+    "appended_at": "2026-10-25T03:49:14+08:00",
+    "mode": "append_only_preserve_initial_freeze",
+    "preserved_initial_freeze": {
+      "manifest_generated_at": "2026-10-25T03:28:01+08:00",
+      "head": "f0be3645a96776f876d033480f6fac4a1769214d",
+      "status_entries": 33,
+      "tracked_modified_files": 19,
+      "untracked_entries": 14,
+      "untracked_expanded_files": 90,
+      "total_wip_files_frozen": 109,
+      "oversize_files_count": 2,
+      "worktree_fingerprint_sha256": "9268fb8ffbb2711cc074c054c77f838e0ec9b624a6fd15261a1252c77ecb7c36"
+    },
+    "checks": [
+      {
+        "id": "i18n_strict_player_visible",
+        "command": "py -3 tools/i18n/scan_hardcoded.py --player-visible --strict --fail-above 70",
+        "started_at": "2026-10-25T03:45:45+08:00",
+        "exit_code": 0,
+        "hits": 66,
+        "limit": 70,
+        "result": "PASS",
+        "log": "target/r49/r49-05-check1-strict.log"
+      },
+      {
+        "id": "i18n_no_test",
+        "command": "py -3 tools/i18n/scan_hardcoded.py --player-visible --no-test --strict",
+        "started_at": "2026-10-25T03:45:45+08:00",
+        "exit_code": 0,
+        "hits": 15,
+        "target": 0,
+        "result": "PARTIAL_NOT_ZERO",
+        "log": "target/r49/r49-05-check2-no-test.log",
+        "files": {
+          "crates/mir-server/src/market.rs": [
+            559,
+            560,
+            561,
+            562,
+            563
+          ],
+          "crates/mir-server/src/monster.rs": [
+            695,
+            956,
+            970,
+            980,
+            995,
+            1006,
+            1021,
+            1032,
+            1049
+          ],
+          "crates/mir-server/src/server.rs": [
+            114
+          ]
+        }
+      },
+      {
+        "id": "docs_check_links",
+        "command": "py -3 tools/docs/check_links.py",
+        "started_at": "2026-10-25T03:52:43+08:00",
+        "exit_code": 0,
+        "relative_links": 670,
+        "readme_refs": 2,
+        "result": "PASS",
+        "first_attempt_exit_code": 1,
+        "first_attempt_reason": "新建 README.md/i18n.log 尚未落盘，检查器报断链；文件落盘后复跑通过",
+        "log": "target/r49/r49-05-check3-links.log",
+        "first_attempt_log": "target/r49/r49-05-check3-links-first-fail.log",
+        "final_attempt_note": "全部文档定稿后复核仍为 670"
+      },
+      {
+        "id": "git_diff_check",
+        "command": "git diff --check",
+        "started_at": "2026-10-25T03:45:46+08:00",
+        "exit_code": 0,
+        "output": "",
+        "result": "PASS"
+      },
+      {
+        "id": "git_status_porcelain",
+        "command": "git status --porcelain",
+        "started_at": "2026-10-25T03:45:46+08:00",
+        "exit_code": 0,
+        "entries": 39,
+        "note": "R49-01 冻结时 33 条；差值来自 R49-05 文档与证据改动；本任务不 git add/commit",
+        "log": "target/r49/r49-05-check4-status.log"
+      }
+    ],
+    "i18n_ratchets": {
+      "strict_player_visible": 66,
+      "strict_limit": 70,
+      "strict_baseline_round27": 69,
+      "no_test_player_visible": 15,
+      "no_test_target": 0,
+      "non_strict_player_visible": 269,
+      "non_strict_no_test": 26,
+      "note": "66 与 15 是两条不同口径；15 未归零，不能写成 0；269/26 仅趋势参考"
+    },
+    "changed_files": [
+      {
+        "path": "README.md",
+        "bytes": 40042,
+        "sha256": "5a74fad9c75b9b7b400e14a5a1ca1ac4acce802167f2e071eb9dca06acbb5d71",
+        "kind": "doc",
+        "change_reason": "当前状态表补第 49 轮行、文档索引指向 round49、商城行标注 R50 未完成"
+      },
+      {
+        "path": "docs/client.md",
+        "bytes": 144889,
+        "sha256": "fc774f11278b128c905c591e5401b80e983c223d9ae7725e6eaa5a914e1b69b3",
+        "kind": "doc",
+        "change_reason": "§6.2/§8 统一 R49 收口口径：118 used 库 frames.json、走/跑插值已收口、坐骑/攻击变招/Push-Jump-Dash 未完成、缺源与 v2 拒绝如实写 PARTIAL"
+      },
+      {
+        "path": "docs/roadmap.md",
+        "bytes": 18202,
+        "sha256": "f6dfa9d36ab31cd966f05b33ee4a900bf8c3df48ddec70a5d3a32eb3e1e6a585",
+        "kind": "doc",
+        "change_reason": "补 §六 R49 收口状态；独立商城明确未完成移至 R50；修正 109 个 WIP 文件与 669 链接"
+      },
+      {
+        "path": "docs/world/gameshop.md",
+        "bytes": 29639,
+        "sha256": "b0198e7068c3f5476af234e986d9809add7dfd9d7330e5cd246789e5bc293028",
+        "kind": "doc",
+        "change_reason": "§7.3/§11/§12 写 R50 前置：素材授权与哈希 manifest、真实包链、事务失败包序；不写实现已完成"
+      },
+      {
+        "path": "docs/i18n.md",
+        "bytes": 62859,
+        "sha256": "316c82fb65f2fbc57d9b3c520655d1f7f1bff75f80cb3cea8c40a5afd832c4b3",
+        "kind": "doc",
+        "change_reason": "两条棘轮实测 66/15 与基线解释；15 处逐条清单；不把 no-test=15 写成 0"
+      },
+      {
+        "path": "docs/testing/monster-native/README.md",
+        "bytes": 7724,
+        "sha256": "04e702b476162087b20df500c72b8e4771a8796b498c99d96af29f33434f3ac7",
+        "kind": "doc",
+        "change_reason": "批次标注历史、pack 数字 12/29,762/183,611,378、§8 证据链 PARTIAL 表、门禁不写固定 12/12"
+      },
+      {
+        "path": "docs/testing/monster-native/freeze.json",
+        "bytes": 5066,
+        "sha256": "4908cf14f51ba173cd798374e6842b9f203bed8ab556e5527b316e5c71848726",
+        "kind": "metadata",
+        "change_reason": "只修订过期断言：batch_scope、evidence_consistency(PARTIAL)、gate scope/current_gate_status、frozen_dirs 对象、limitations；未伪造新哈希"
+      },
+      {
+        "path": "docs/testing/monster-motion/README.md",
+        "bytes": 2624,
+        "sha256": "a47f6bcc2d78b59ffa34f553ca5627ff856db6019651631772ec1193530f7dee",
+        "kind": "doc",
+        "change_reason": "R49 起攻击 live 证据只写 target/attack-variants；R47 目录 0 diff 仅为采样结论；gate PARTIAL"
+      },
+      {
+        "path": "docs/testing/native-monster/README.md",
+        "bytes": 7922,
+        "sha256": "7de8c30e4c17110810c7f089365cd376eb8a7a10388fbec184819f65b48abc98",
+        "kind": "doc",
+        "change_reason": "122 used 中 118 v3 + 4 v2、全库 >800 缺源；pack 12/29,762/183,611,378；当前 gate PARTIAL"
+      },
+      {
+        "path": "docs/testing/attack-variants/README.md",
+        "bytes": 17952,
+        "sha256": "e8452aea2eac693a4d57b557c094258941205c8a4b14e2014cd7ef3698d8c6d7",
+        "kind": "doc",
+        "change_reason": "队长授权扩展：默认 target/attack-variants、MIR_ATTACK_EVIDENCE_DIR 覆盖、#[ignore] 不进全量门禁、R47 只读、真实渲染需 --ignored"
+      },
+      {
+        "path": "docs/testing/round49/README.md",
+        "bytes": 5635,
+        "sha256": "d2e8dcfaace5d5a8b61ee69780cc7b70e6c7b138656cca846a6108b8d2f44d75",
+        "kind": "new",
+        "change_reason": "新建本轮证据索引：冻结/审计/四项检查/分领域证据/收口边界"
+      },
+      {
+        "path": "docs/testing/round49/i18n.log",
+        "bytes": 5152,
+        "sha256": "7eafa30026bd852b18c321460d5c7bd8cb4b5a80d41d450b4498181e29c5d3b4",
+        "kind": "new",
+        "change_reason": "新建四项检查原始退出码与计数记录（含 check3 首跑失败与复跑通过）"
+      }
+    ],
+    "evidence_logs": [
+      {
+        "path": "target/r49/r49-05-check1-strict.log",
+        "bytes": 3699,
+        "sha256": "fa9576d371a99a188af914fe85bca54b1e2c2d0f0478c4c0c55cbe916eac5130",
+        "tracked": false
+      },
+      {
+        "path": "target/r49/r49-05-check2-no-test.log",
+        "bytes": 452,
+        "sha256": "d211b7e51d721831397e239cc1b38f22ad23fd44bc0cf413d4596b3889675bc9",
+        "tracked": false
+      },
+      {
+        "path": "target/r49/r49-05-check3-links-first-fail.log",
+        "bytes": 285,
+        "sha256": "16e963029ac940357630fd5548763bb4b2204c5d2cf4909b3fc7dbff65409bb7",
+        "tracked": false
+      },
+      {
+        "path": "target/r49/r49-05-check3-links.log",
+        "bytes": 84,
+        "sha256": "e39a8825bf3eeff582d2f27a12a655ef81125cd276fb9361d2976ad337ce8085",
+        "tracked": false
+      },
+      {
+        "path": "target/r49/r49-05-check4-diff-check.log",
+        "bytes": 3085,
+        "sha256": "3bbb97475f61eeaa112da71382474cd2580304bd34863294ba16d65870aecb40",
+        "tracked": false
+      },
+      {
+        "path": "target/r49/r49-05-check4-status.log",
+        "bytes": 1421,
+        "sha256": "bc3fc17755664f7db41aacc86da76d526186a9d955be6e1e3fa1e5666739e576",
+        "tracked": false
+      },
+      {
+        "path": "target/r49/r49-05-status-final.log",
+        "bytes": 1421,
+        "sha256": "bc3fc17755664f7db41aacc86da76d526186a9d955be6e1e3fa1e5666739e576",
+        "tracked": false
+      }
+    ],
+    "gate": {
+      "current_status": "PARTIAL",
+      "final_gate_run_on_current_worktree": false,
+      "required_command": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale",
+      "executor": "队长（唯一执行者）",
+      "do_not_reuse_old_green": true,
+      "note": "R49-05 只做文档/i18n 检查，不跑 cargo/全量门禁，不写 12/12 固定结论"
+    },
+    "consistency_with_r49_01": {
+      "initial_freeze_preserved": true,
+      "initial_freeze_keys_unchanged": true,
+      "head_unchanged": true,
+      "oversize_files_untouched": true,
+      "wip_files_frozen": 109,
+      "status_entries_at_freeze": 33,
+      "status_entries_after_docs": 39,
+      "delta_explanation": "R49-05 新增 docs/testing/round49/README.md 与 i18n.log，并修订 10 个既有文档/元数据；未改源码、未动两份大 JSON",
+      "discrepancy_note": "交办口径写 119 个 WIP 展开项；R49-01 冻结 JSON 实测 total_wip_files_frozen=109（19 tracked modified + 90 untracked 展开），本阶段按实测 109 记录"
+    },
+    "unresolved": [
+      "i18n --no-test --strict 仍 15 处（market 5 / monster 9 / server 1），文档口径 0 未达",
+      "最终全量门禁未跑：current_gate=PARTIAL，需队长执行 tools/dev/ci.ps1 -KillStale",
+      "monster-native 证据批次 1792847715360 与 raw-manifest/磁盘二进制/source blob 不一致，需重跑后另立冻结",
+      "缺源 >800 appearance 与 4 个 v2 .Lib 未导入；Blend 117/Reverse/Effect/Sorting 未移植",
+      "坐骑、攻击变招远端同步、Push/Jump/Dash 未完成；独立商城移至 R50",
+      "attack PNG 两次运行 2/25 帧像素差，审计只能以 manifest 语义为准"
+    ],
+    "note": "本阶段只追加 r49_05_documentation_stage；R49-01 的 generated_at/artifacts/freeze_summary/commit_candidates/must_exclude/current_gate 等原字段逐项保留",
+    "updated_at": "2026-10-25T03:53:02+08:00",
+    "final_verification": {
+      "at": "2026-10-25T03:52:43+08:00",
+      "check1_exit_code": 0,
+      "check1_hits": 66,
+      "check1_limit": 70,
+      "check2_exit_code": 0,
+      "check2_hits": 15,
+      "check2_target": 0,
+      "check3_exit_code": 0,
+      "check3_relative_links": 670,
+      "check4_diff_check_exit_code": 0,
+      "check4_status_entries": 39,
+      "note": "文档定稿后复跑；check3 由 669 增至 670（round49 README 新增指向 i18n.log 的链接）"
+    }
+  }
+}

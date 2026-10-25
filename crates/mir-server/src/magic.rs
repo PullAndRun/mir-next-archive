@@ -5774,7 +5774,7 @@ mod tests {
                 ServerPacket::AddBuff(add) if add.buff.buff_type == BuffType::TemporalFlux
             )
         });
-        // 先断言四包存在，再比较顺序：`Option<usize>` 的 `None < Some(_)` 为真，
+        // 先断言五个位置存在，再比较顺序：`Option<usize>` 的 `None < Some(_)` 为真，
         // 若缺包直接比较会假通过（B4-2）。
         assert!(
             effect_at.is_some(),
@@ -6716,9 +6716,10 @@ mod tests {
 
     #[test]
     fn frost_crunch_freezing_added_stats_source_extends_the_frozen_roll() {
-        // 本用例**只覆盖附加属性来源**（`UserItem.added_stats`，Crystal
-        // `HumanObject.cs:1965` 的 `Stats.Add(temp.AddedStats)`）；模板属性与 buff
-        // 属性来源见 `caster_freezing_sums_template_added_and_buff_stats`。
+        // 本用例**只覆盖附加属性来源**（`UserItem.added_stats`，Crystal 普通装备的
+        // `HumanObject.cs:1859` 的 `Stats.Add(temp.AddedStats)`；Crystal 的 `:1965-1966`
+        // 是**嵌套插槽**（socket）路径 `RefreshSocketStats`，与本例的根装备附加属性分开）；
+        // 模板属性与 buff 属性来源见 `caster_freezing_sums_template_added_and_buff_stats`。
         // 用一个存在但 Freezing=0、无耐久的模板，确保测试点在附加属性而非模板查表。
         let plain = mir_db::ItemInfo {
             index: 1,
@@ -6802,7 +6803,9 @@ mod tests {
     #[test]
     fn caster_freezing_sums_template_added_and_buff_stats() {
         // Crystal `RefreshStats`：装备模板属性（`HumanObject.cs:1858`）+
-        // 附加属性（`:1965`）+ 生效 buff 属性（`:2332`），最终 `:5987` 读总和。
+        // 根装备附加属性（`:1859`）+ 生效 buff 属性（`:2332`），最终 `:5987` 读总和。
+        // Crystal `:1965-1966` 是嵌套插槽（socket）路径 `RefreshSocketStats`，与根装备
+        // 附加属性（`:1859`）分开记录，不并入本断言。
         let template = mir_db::ItemInfo {
             index: 1,
             name: "FreezingRing".to_owned(),
@@ -7057,7 +7060,7 @@ mod tests {
     fn frost_crunch_real_cast_uses_the_freezing_roll() {
         // B4-4（Lead/T3 明确缺口）：既有施毒测试只断言 duration ∈ 5..19，恒写 5 也会绿。
         // 本用例固定 rng 种子、让模板 Freezing=7，真实施法得到的 Frozen 毒时长必须
-        // 落在 5..=12 且**至少一个种子 > 5**——把“5 + roll”写死成 5 的实现会失败。
+        // 落在 5..=11 且**至少一个种子 > 5**——把“5 + roll”写死成 5 的实现会失败。
         let mut rolled_above_five = Vec::new();
         for seed in 0..=23u64 {
             let template = mir_db::ItemInfo {
@@ -7089,8 +7092,8 @@ mod tests {
                 round51_spawn_monster(&mut world, MonsterKind::skeleton(), Point::new(12, 10));
             let frozen = round51_cast_frost_until_frozen(&mut world, monster);
             assert!(
-                (5..=12).contains(&frozen.duration),
-                "seed {seed}: template Freezing=7 -> Frozen duration in 5..=12, actual {}",
+                (5..=11).contains(&frozen.duration),
+                "seed {seed}: template Freezing=7 -> Frozen duration in 5..=11, actual {}",
                 frozen.duration
             );
             if frozen.duration > 5 {
@@ -7183,6 +7186,468 @@ mod tests {
                 .casts
                 .contains_key(&Spell::ShoulderDash),
             "a failed prerequisite does not set the cooldown (Crystal returns early)"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // R52-B4：Freezing 全来源 + 零 RNG 后续序列对照 + StormEscape 真实升级/跨图
+    // -----------------------------------------------------------------------
+
+    /// Freezing=0 时 `freeze_roll` 恒 0 且**不消耗随机数**（Crystal `Random.Next(0)`）。
+    #[test]
+    fn freezing_roll_consumes_no_rng_when_no_source() {
+        let mut world = round51_default_world(vec![round51_magic(Spell::FrostCrunch, 9)]);
+        let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        assert_eq!(world.caster_freezing(1), 0, "无 Freezing 来源");
+        let mut control = world.rng().clone();
+        assert_eq!(world.freeze_roll(1), 0, "Freezing=0 → 额外时长 0");
+        let mut after = world.rng().clone();
+        let expected: Vec<u32> = (0..8).map(|_| control.next_bounded(1_000)).collect();
+        let actual: Vec<u32> = (0..8).map(|_| after.next_bounded(1_000)).collect();
+        assert_eq!(
+            actual, expected,
+            "Freezing=0 时 freeze_roll 不得消耗随机数（Crystal Random.Next(0)）"
+        );
+    }
+
+    /// Freezing>0 时 `freeze_roll` 恰好消耗一次随机数，取值等于对照序列的下一次抽取。
+    #[test]
+    fn freezing_roll_consumes_exactly_one_draw() {
+        let template = mir_db::ItemInfo {
+            index: 1,
+            name: "FreezingRing".to_owned(),
+            stats: {
+                let mut stats = Stats::default();
+                stats.set(Stat::Freezing, 7);
+                stats
+            },
+            ..Default::default()
+        };
+        let mut world = round51_world_with_items(
+            vec![round51_magic(Spell::FrostCrunch, 9)],
+            vec![round51_map_info("0", false)],
+            vec![template],
+        );
+        let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        world.player_mut(1).expect("玩家").equipment[0] = Some(UserItem {
+            item_index: 1,
+            ..Default::default()
+        });
+        assert_eq!(world.caster_freezing(1), 7);
+        let mut control = world.rng().clone();
+        let expected_roll = control.next_range(0, 6);
+        assert_eq!(
+            world.freeze_roll(1),
+            expected_roll,
+            "Freezing=7 → Random.Next(7)"
+        );
+        let mut after = world.rng().clone();
+        let expected: Vec<u32> = (0..8).map(|_| control.next_bounded(1_000)).collect();
+        let actual: Vec<u32> = (0..8).map(|_| after.next_bounded(1_000)).collect();
+        assert_eq!(actual, expected, "freeze_roll 恰好消耗一次随机数");
+    }
+
+    /// 多个有效根装备槽：模板 Freezing 与附加属性全部相加（3+2 + 1+4 = 10）。
+    #[test]
+    fn freezing_sums_multiple_root_slots_and_added_stats() {
+        let template_a = mir_db::ItemInfo {
+            index: 1,
+            name: "FreezingRingA".to_owned(),
+            stats: {
+                let mut stats = Stats::default();
+                stats.set(Stat::Freezing, 3);
+                stats
+            },
+            ..Default::default()
+        };
+        let template_b = mir_db::ItemInfo {
+            index: 2,
+            name: "FreezingRingB".to_owned(),
+            stats: {
+                let mut stats = Stats::default();
+                stats.set(Stat::Freezing, 1);
+                stats
+            },
+            ..Default::default()
+        };
+        let mut world = round51_world_with_items(
+            vec![round51_magic(Spell::FrostCrunch, 9)],
+            vec![round51_map_info("0", false)],
+            vec![template_a, template_b],
+        );
+        let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        round51_learn(&mut world, 1, Spell::FrostCrunch, 3);
+        let monster =
+            round51_spawn_monster(&mut world, MonsterKind::skeleton(), Point::new(12, 10));
+        let mut slot0 = UserItem {
+            item_index: 1,
+            ..Default::default()
+        };
+        slot0.added_stats.set(Stat::Freezing, 2);
+        world.player_mut(1).expect("玩家").equipment[0] = Some(slot0);
+        let mut slot1 = UserItem {
+            item_index: 2,
+            ..Default::default()
+        };
+        slot1.added_stats.set(Stat::Freezing, 4);
+        world.player_mut(1).expect("玩家").equipment[1] = Some(slot1);
+        assert_eq!(
+            world.caster_freezing(1),
+            10,
+            "两槽：模板 3+1、附加 2+4（Crystal :1858 + :1859）"
+        );
+        let mut saw_positive = false;
+        for _ in 0..64 {
+            let roll = world.freeze_roll(1);
+            assert!((0..=9).contains(&roll), "Freezing=10 → 额外时长 ∈ 0..=9");
+            saw_positive |= roll > 0;
+        }
+        assert!(saw_positive, "Freezing=10 应至少抽到一次 >0");
+        let frozen = round51_cast_frost_until_frozen(&mut world, monster);
+        assert!(
+            (5..=14).contains(&frozen.duration),
+            "真实施法时长 = 5 + roll ∈ 5..=14，实际 {}",
+            frozen.duration
+        );
+    }
+
+    /// 坏装备（`current_dura=0` 且模板 `durability>0`）整件跳过，但有效 buff 的 `Freezing` 仍生效。
+    #[test]
+    fn damaged_equipment_with_buff_keeps_buff_freezing() {
+        let template = mir_db::ItemInfo {
+            index: 1,
+            name: "FreezingRing".to_owned(),
+            durability: 10_000,
+            stats: {
+                let mut stats = Stats::default();
+                stats.set(Stat::Freezing, 7);
+                stats
+            },
+            ..Default::default()
+        };
+        let mut world = round51_world_with_items(
+            vec![round51_magic(Spell::FrostCrunch, 9)],
+            vec![round51_map_info("0", false)],
+            vec![template],
+        );
+        let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        round51_learn(&mut world, 1, Spell::FrostCrunch, 3);
+        let monster =
+            round51_spawn_monster(&mut world, MonsterKind::skeleton(), Point::new(12, 10));
+        let mut item = UserItem {
+            item_index: 1,
+            current_dura: 0,
+            ..Default::default()
+        };
+        item.added_stats.set(Stat::Freezing, 5);
+        world.player_mut(1).expect("玩家").equipment[0] = Some(item);
+        assert_eq!(
+            world.caster_freezing(1),
+            0,
+            "坏装备整件跳过：模板 7 与附加 5 都不计（Crystal :1836）"
+        );
+        let mut buff_stats = Stats::default();
+        buff_stats.set(Stat::Freezing, 3);
+        assert!(world.add_buff(1, BuffKind::TemporalFlux, 30_000, buff_stats, 1));
+        assert_eq!(world.caster_freezing(1), 3, "只剩 buff 的 Freezing=3");
+        let mut saw_positive = false;
+        for _ in 0..64 {
+            let roll = world.freeze_roll(1);
+            assert!((0..=2).contains(&roll), "Freezing=3 → 额外时长 ∈ 0..=2");
+            saw_positive |= roll > 0;
+        }
+        assert!(saw_positive, "Freezing=3 应至少抽到一次 >0");
+        let frozen = round51_cast_frost_until_frozen(&mut world, monster);
+        assert!(
+            (5..=7).contains(&frozen.duration),
+            "坏装备+buff3 → 时长 ∈ 5..=7，实际 {}",
+            frozen.duration
+        );
+    }
+
+    /// 模板 `durability=0` 的装备不因 `current_dura=0` 被跳过；附加属性照常相加（5+4=9）。
+    #[test]
+    fn zero_durability_equipment_added_freezing_counts() {
+        let template = mir_db::ItemInfo {
+            index: 1,
+            name: "ZeroDurabilityAmulet".to_owned(),
+            durability: 0,
+            stats: {
+                let mut stats = Stats::default();
+                stats.set(Stat::Freezing, 5);
+                stats
+            },
+            ..Default::default()
+        };
+        let mut world = round51_world_with_items(
+            vec![round51_magic(Spell::FrostCrunch, 9)],
+            vec![round51_map_info("0", false)],
+            vec![template],
+        );
+        let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        round51_learn(&mut world, 1, Spell::FrostCrunch, 3);
+        let monster =
+            round51_spawn_monster(&mut world, MonsterKind::skeleton(), Point::new(12, 10));
+        let mut item = UserItem {
+            item_index: 1,
+            current_dura: 0,
+            ..Default::default()
+        };
+        item.added_stats.set(Stat::Freezing, 4);
+        world.player_mut(1).expect("玩家").equipment[0] = Some(item);
+        assert_eq!(
+            world.caster_freezing(1),
+            9,
+            "durability=0 → 不跳过；模板 5 + 附加 4 = 9"
+        );
+        let mut saw_positive = false;
+        for _ in 0..64 {
+            let roll = world.freeze_roll(1);
+            assert!((0..=8).contains(&roll), "Freezing=9 → 额外时长 ∈ 0..=8");
+            saw_positive |= roll > 0;
+        }
+        assert!(saw_positive, "Freezing=9 应至少抽到一次 >0");
+        let frozen = round51_cast_frost_until_frozen(&mut world, monster);
+        assert!(
+            (5..=13).contains(&frozen.duration),
+            "0 耐久+added4 → 时长 ∈ 5..=13，实际 {}",
+            frozen.duration
+        );
+    }
+
+    /// `StormEscape`：真实施法升级到 3 级 → 五位置先 `is_some` 再排序 → 跨图落图结算。
+    #[test]
+    fn storm_escape_real_level_up_then_five_positions() {
+        let mut world = round51_default_world(vec![round51_magic(Spell::StormEscape, 9)]);
+        let mut caster_rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        let mut observer_rx = round51_add_player(&mut world, 2, "0", Point::new(12, 10));
+        round51_learn(&mut world, 1, Spell::StormEscape, 0);
+
+        // fixture 的 need1-3 = 0：每次成功传送都必然升级（0→1→2→3）。
+        for _ in 0..40 {
+            {
+                let player = world.player_mut(1).expect("玩家");
+                player.action_time = 0;
+                player.attack_time = 0;
+                player.magic.spell_time = 0;
+                player.magic.casts.clear();
+                player.mp = player.stats.mp;
+            }
+            let position = world.player(1).expect("玩家").position;
+            let landing = Point::new(position.x, position.y + 3);
+            world
+                .cast_magic(1, Spell::StormEscape, MirDirection::Down, 0, landing)
+                .expect("狂风施法成功");
+            world.advance_clock(750);
+            world.resolve_pending_magic(world.now());
+            let level = world
+                .player(1)
+                .expect("玩家")
+                .magics
+                .iter()
+                .find(|magic| magic.spell == Spell::StormEscape)
+                .expect("已学")
+                .level;
+            if level == 3 {
+                break;
+            }
+            if world.player(1).expect("玩家").position != Point::new(10, 10) {
+                world
+                    .change_map(1, "0", Point::new(10, 10), MirDirection::Down)
+                    .expect("回位");
+            }
+        }
+        let learned = *world
+            .player(1)
+            .expect("玩家")
+            .magics
+            .iter()
+            .find(|magic| magic.spell == Spell::StormEscape)
+            .expect("已学");
+        assert_eq!(learned.level, 3, "真实施法升级应到 3 级");
+        assert_eq!(
+            learned.experience, 0,
+            "满级后修炼值清零（level_magic 满级分支，HumanObject.cs:6930-6950）"
+        );
+        let packets = round51_packets(&mut caster_rx);
+        let leveled = packets
+            .iter()
+            .filter(|packet| {
+                matches!(packet, ServerPacket::MagicLeveled(message) if message.spell == Spell::StormEscape)
+            })
+            .count();
+        assert!(
+            leveled >= 3,
+            "0→1→2→3 应至少 3 次 MagicLeveled，实际 {leveled}"
+        );
+        let delayed = packets
+            .iter()
+            .filter(|packet| {
+                matches!(packet, ServerPacket::MagicDelay(message) if message.spell == Spell::StormEscape)
+            })
+            .count();
+        assert!(delayed >= 3, "每次升级应回 MagicDelay，实际 {delayed}");
+
+        // 五位置：先断言存在，再比较顺序（Crystal `HumanObject.cs:6080-6092`）。
+        round51_packets(&mut caster_rx);
+        round51_packets(&mut observer_rx);
+        world
+            .change_map(1, "0", Point::new(10, 10), MirDirection::Down)
+            .expect("回位");
+        let _ = world.remove_buff(1, BuffKind::TemporalFlux);
+        {
+            let player = world.player_mut(1).expect("玩家");
+            player.action_time = 0;
+            player.attack_time = 0;
+            player.magic.spell_time = 0;
+            player.magic.casts.clear();
+            player.mp = player.stats.mp;
+        }
+        world
+            .cast_magic(
+                1,
+                Spell::StormEscape,
+                MirDirection::Down,
+                0,
+                Point::new(10, 13),
+            )
+            .expect("3 级狂风施法成功");
+        world.advance_clock(750);
+        world.resolve_pending_magic(world.now());
+        assert_eq!(
+            world.player(1).expect("玩家").position,
+            Point::new(10, 13),
+            "3 级 Random.Next(4) > 3 不可能，必传送"
+        );
+        assert!(
+            world.buff_value(1, BuffKind::TemporalFlux).is_some(),
+            "成功传送加 TemporalFlux"
+        );
+        let packets = round51_packets(&mut caster_rx);
+        let effect_at = packets.iter().position(|packet| {
+            matches!(packet, ServerPacket::ObjectEffect(effect) if effect.effect == SpellEffect::StormEscape)
+        });
+        let buff_at = packets.iter().position(|packet| {
+            matches!(packet, ServerPacket::AddBuff(add) if add.buff.buff_type == BuffType::TemporalFlux)
+        });
+        let effect_at = effect_at.expect("本人必须收到 ObjectEffect{StormEscape}");
+        let buff_at = buff_at.expect("本人必须收到 AddBuff(TemporalFlux)");
+        assert!(
+            effect_at < buff_at,
+            "本人顺序：ObjectEffect(StormEscape) → AddBuff(TemporalFlux)"
+        );
+        let packets = round51_packets(&mut observer_rx);
+        let out_at = packets
+            .iter()
+            .position(|packet| matches!(packet, ServerPacket::ObjectTeleportOut(_)))
+            .expect("观察者必须收到 ObjectTeleportOut");
+        let in_at = packets
+            .iter()
+            .position(|packet| matches!(packet, ServerPacket::ObjectTeleportIn(_)))
+            .expect("观察者必须收到 ObjectTeleportIn");
+        let effect_at = packets
+            .iter()
+            .position(|packet| {
+                matches!(packet, ServerPacket::ObjectEffect(effect) if effect.effect == SpellEffect::StormEscape)
+            })
+            .expect("观察者必须收到 ObjectEffect{StormEscape}");
+        assert!(
+            out_at < in_at && in_at < effect_at,
+            "观察者顺序：ObjectTeleportOut → ObjectTeleportIn → ObjectEffect(StormEscape)"
+        );
+
+        // 跨图：换图后施法，落图结算使用施法者当前图。
+        world.insert_map("1", round51_map("1"));
+        world
+            .change_map(1, "1", Point::new(20, 20), MirDirection::Down)
+            .expect("换图");
+        let _ = world.remove_buff(1, BuffKind::TemporalFlux);
+        {
+            let player = world.player_mut(1).expect("玩家");
+            player.action_time = 0;
+            player.attack_time = 0;
+            player.magic.spell_time = 0;
+            player.magic.casts.clear();
+            player.mp = player.stats.mp;
+        }
+        world
+            .cast_magic(
+                1,
+                Spell::StormEscape,
+                MirDirection::Down,
+                0,
+                Point::new(20, 23),
+            )
+            .expect("跨图后施法成功");
+        world.advance_clock(750);
+        world.resolve_pending_magic(world.now());
+        let player = world.player(1).expect("玩家");
+        assert_eq!(player.map, "1", "落图结算使用施法者当前图");
+        assert_eq!(player.position, Point::new(20, 23), "落点相对当前图");
+    }
+
+    /// 玩家 Frozen 后真实 `World::attack` 拒攻，且不消耗动作计时；两跳后恢复。
+    #[test]
+    fn player_frozen_blocks_real_attack() {
+        let mut world = round51_default_world(vec![]);
+        let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        let monster =
+            round51_spawn_monster(&mut world, MonsterKind::skeleton(), Point::new(11, 10));
+        world.player_mut(1).expect("玩家").direction = MirDirection::Right;
+        let report = world
+            .attack(1, MirDirection::Right)
+            .expect("正常攻击应成功")
+            .expect("前方有怪应命中");
+        assert_eq!(report.target, monster, "正常攻击目标");
+
+        let now = world.now();
+        assert!(world.apply_poison_to_player(
+            1,
+            PoisonState::new(PoisonType::Frozen, 0, 2, now + 1_000, 0).with_tick_speed(1_000)
+        ));
+        assert!(world.player(1).expect("玩家").is_frozen());
+        {
+            let player = world.player_mut(1).expect("玩家");
+            player.action_time = 0;
+            player.attack_time = 0;
+        }
+        let error = world
+            .attack(1, MirDirection::Right)
+            .expect_err("Frozen 必须拒绝真实攻击");
+        assert!(
+            matches!(error, crate::world::CombatError::Frozen { object_id: 1 }),
+            "应为 CombatError::Frozen，实际 {error:?}"
+        );
+        assert_eq!(
+            world.player(1).expect("玩家").action_time,
+            0,
+            "拒攻不写 ActionTime"
+        );
+        assert_eq!(
+            world.player(1).expect("玩家").attack_time,
+            0,
+            "拒攻不写 AttackTime"
+        );
+
+        world.advance_clock(1_100);
+        world.tick();
+        world.advance_clock(1_100);
+        world.tick();
+        assert!(
+            !world.player(1).expect("玩家").is_frozen(),
+            "两跳后 Frozen 应移除"
+        );
+        {
+            let player = world.player_mut(1).expect("玩家");
+            player.action_time = 0;
+            player.attack_time = 0;
+        }
+        assert!(
+            world
+                .attack(1, MirDirection::Right)
+                .expect("解冻后应能攻击")
+                .is_some(),
+            "解冻后应能真实命中"
         );
     }
 }

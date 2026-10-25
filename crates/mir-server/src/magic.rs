@@ -3106,20 +3106,37 @@ impl World {
         true
     }
 
-    /// 施法者装备汇总的 `Stat.Freezing`（Crystal `Stats[Stat.Freezing]`，
-    /// 由 `HumanObject.RefreshStats` 把所有装备/状态的同名属性加起来）。
+    /// 施法者装备/增益汇总的 `Stat.Freezing`（Crystal `Stats[Stat.Freezing]`，
+    /// 由 `HumanObject.RefreshStats` 把所有装备模板属性、装备附加属性与生效 buff
+    /// 的同名属性加起来，`:2332` 的 `RefreshBuffs` + `:1858`/`:1965` 的
+    /// `Stats.Add(realItem.Stats)` / `Stats.Add(temp.AddedStats)`）。
     ///
     /// 本作的 `CombatStats` 还没有 `freezing` 字段（`combat.rs` 不在本轮写范围），
-    /// 所以这里直接读 14 个装备槽的 `added_stats`；缺省 0，语义与 Crystal 一致
+    /// 所以这里按 `RefreshStats` 的加法顺序直接汇总：
+    /// ① 每件装备的模板属性 `ItemInfo.stats`（`:1858`）→ ② 其附加属性
+    /// `UserItem.added_stats`（`:1965`）→ ③ 玩家当前生效增益的 `ActiveBuff.stats`
+    /// （`:2332` RefreshBuffs）。缺省 0，语义与 Crystal 一致
     /// （`Random.Next(0)` 恒为 0 → 时长 5，`HumanObject.cs:5987`）。
+    ///
+    /// 未覆盖：行会/其它系统级加成（本作没有 Freezing 表示，保持现状）。
     fn caster_freezing(&self, caster_id: u32) -> i32 {
         self.players.get(&caster_id).map_or(0, |player| {
-            player
-                .equipment
+            let mut total = 0;
+            for item in player.equipment.iter().flatten() {
+                // ① 装备模板属性（Crystal `realItem.Stats`，`HumanObject.cs:1858`）。
+                total += self
+                    .item_info(item.item_index)
+                    .map_or(0, |info| info.stats.get(Stat::Freezing));
+                // ② 附加属性（Crystal `temp.AddedStats`，`HumanObject.cs:1965`）。
+                total += item.added_stats.get(Stat::Freezing);
+            }
+            // ③ 生效增益属性（Crystal `RefreshBuffs`，`HumanObject.cs:2332`）。
+            total += player
+                .buffs
                 .iter()
-                .flatten()
-                .map(|item| item.added_stats.get(Stat::Freezing))
-                .sum()
+                .map(|buff| buff.stats.get(Stat::Freezing))
+                .sum::<i32>();
+            total
         })
     }
 
@@ -4711,6 +4728,27 @@ mod tests {
         world
     }
 
+    /// 与 [`round51_world`] 相同，但带一份物品模板库（用于验证装备**模板属性**
+    /// 参与 `caster_freezing` 汇总）。
+    fn round51_world_with_items(
+        magics: Vec<MagicInfo>,
+        maps: Vec<mir_db::MapInfo>,
+        items: Vec<mir_db::ItemInfo>,
+    ) -> World {
+        let db = MirDb {
+            magics,
+            maps,
+            items,
+            ..MirDb::default()
+        };
+        let mut world = World::new(999);
+        world.set_game_data(Arc::new(GameData::from_db(db, None)));
+        world.insert_map("0", round51_map("0"));
+        world.insert_map("nt", round51_map("nt"));
+        world.advance_clock(0);
+        world
+    }
+
     fn round51_default_world(magics: Vec<MagicInfo>) -> World {
         round51_world(
             magics,
@@ -4832,6 +4870,27 @@ mod tests {
             )),
             "the caster must also receive their own S.ObjectEffect{{Teleport}} (P06)"
         );
+        // P06 包序（Crystal `HumanObject.cs:6119-6128`）：先 `Teleport`（Out/In）→
+        // 再广播 `S.ObjectEffect{Teleport}` → 最后 `AddBuff(TemporalFlux, 30s)`。
+        // `S.ObjectTeleportOut/In` 是广播给**周围**的（本人靠 `ChangeMap`/`UserLocation`
+        // 同步地图），所以 Out/In 的顺序在观察者包流上断言，光效→buff 的顺序在本人包流上断言。
+        let effect_at = caster_packets.iter().position(|packet| {
+            matches!(
+                packet,
+                ServerPacket::ObjectEffect(effect) if effect.effect == SpellEffect::Teleport
+            )
+        });
+        let buff_at = caster_packets.iter().position(|packet| {
+            matches!(
+                packet,
+                ServerPacket::AddBuff(add) if add.buff.buff_type == BuffType::TemporalFlux
+            )
+        });
+        assert!(
+            effect_at < buff_at,
+            "本人包序必须是 ObjectEffect{{Teleport}} < AddBuff(TemporalFlux)，\
+             实际 Effect={effect_at:?} Buff={buff_at:?}"
+        );
         let packets = round51_packets(&mut observer_rx);
         assert!(
             packets.iter().any(|packet| matches!(
@@ -4845,6 +4904,25 @@ mod tests {
                 .iter()
                 .any(|packet| matches!(packet, ServerPacket::ObjectTeleportIn(_))),
             "teleport must send ObjectTeleportOut/In"
+        );
+        // 观察者包序：ObjectTeleportOut（旧格）先于 ObjectTeleportIn（新格），
+        // 都先于落地的 `S.ObjectEffect{Teleport}`（Crystal `MapObject.Teleport` 的顺序）。
+        let out_at = packets
+            .iter()
+            .position(|packet| matches!(packet, ServerPacket::ObjectTeleportOut(_)));
+        let in_at = packets
+            .iter()
+            .position(|packet| matches!(packet, ServerPacket::ObjectTeleportIn(_)));
+        let observer_effect_at = packets.iter().position(|packet| {
+            matches!(
+                packet,
+                ServerPacket::ObjectEffect(effect) if effect.effect == SpellEffect::Teleport
+            )
+        });
+        assert!(
+            out_at < in_at && in_at < observer_effect_at,
+            "观察者包序必须是 TeleportOut < TeleportIn < ObjectEffect{{Teleport}}，\
+             实际 Out={out_at:?} In={in_at:?} Effect={observer_effect_at:?}"
         );
     }
 
@@ -5415,6 +5493,9 @@ mod tests {
         round51_learn(&mut world, 1, Spell::ShoulderDash, 3);
         round51_packets(&mut caster_rx);
         let now = world.now();
+        // 关键：先放一个**非零**的 StepCounter，才能证明零步失败路径把它清零
+        // （Crystal `HumanObject.cs:5155-5156` 无条件 `CellTime = now+500; _stepCounter = 0`）。
+        world.player_mut(1).expect("玩家").step_counter = 3;
 
         world
             .cast_magic(
@@ -5705,14 +5786,21 @@ mod tests {
     }
 
     #[test]
-    fn frost_crunch_freezing_stat_extends_the_frozen_roll() {
+    fn frost_crunch_freezing_added_stats_source_extends_the_frozen_roll() {
+        // 本用例**只覆盖附加属性来源**（`UserItem.added_stats`，Crystal
+        // `HumanObject.cs:1965` 的 `Stats.Add(temp.AddedStats)`）；模板属性与 buff
+        // 属性来源见 `caster_freezing_sums_template_added_and_buff_stats`。
         let mut world = round51_default_world(vec![]);
         let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
         assert_eq!(world.caster_freezing(1), 0, "无 Freezing 装备时为 0");
         let mut item = mir_protocol::data::UserItem::default();
         item.added_stats.set(Stat::Freezing, 17);
         world.player_mut(1).expect("玩家").equipment[0] = Some(item);
-        assert_eq!(world.caster_freezing(1), 17, "读取装备的 Freezing 属性");
+        assert_eq!(
+            world.caster_freezing(1),
+            17,
+            "读取装备附加属性的 Freezing（模板属性未配置）"
+        );
         for _ in 0..64 {
             let bonus = world.freeze_roll(1);
             assert!(
@@ -5722,6 +5810,133 @@ mod tests {
         }
         world.player_mut(1).expect("玩家").equipment[0] = None;
         assert_eq!(world.freeze_roll(1), 0, "Freezing=0 时不抽取、额外时长 0");
+    }
+
+    /// 反复施放 FrostCrunch（每次重置法术硬直/冷却/蓝量与目标血量），直到目标真的
+    /// 吃到 Frozen 毒；返回那条毒。固定种子（`World::new(999)`）保证结果确定可复现。
+    fn round51_cast_frost_until_frozen(world: &mut World, monster: u32) -> PoisonState {
+        let monster_position = world.monster(monster).expect("怪物").position;
+        for _ in 0..400 {
+            {
+                let player = world.player_mut(1).expect("玩家");
+                player.action_time = 0;
+                player.magic.spell_time = 0;
+                player.magic.casts.remove(&Spell::FrostCrunch);
+                player.mp = player.stats.mp;
+            }
+            {
+                let target = world.monster_mut(monster).expect("怪物");
+                target.hp = 10_000;
+                target.stats.hp = 10_000;
+            }
+            world
+                .cast_magic(
+                    1,
+                    Spell::FrostCrunch,
+                    MirDirection::Right,
+                    monster,
+                    monster_position,
+                )
+                .expect("冰咆哮施法成功");
+            // 飞行延迟 = MaxDistance*50 + 500（Crystal `HumanObject.cs:3939-3952`）。
+            let distance = world
+                .player(1)
+                .expect("玩家")
+                .position
+                .max_distance(monster_position);
+            world.advance_clock(i64::from(distance) * 50 + 500);
+            world.resolve_pending_magic(world.now());
+            if let Some(poison) = world
+                .monster(monster)
+                .expect("怪物")
+                .poisons
+                .iter()
+                .find(|poison| poison.kind == PoisonType::Frozen)
+            {
+                return *poison;
+            }
+        }
+        panic!("400 次施法都没吃到 Frozen 毒（固定种子下不应发生）");
+    }
+
+    #[test]
+    fn caster_freezing_sums_template_added_and_buff_stats() {
+        // Crystal `RefreshStats`：装备模板属性（`HumanObject.cs:1858`）+
+        // 附加属性（`:1965`）+ 生效 buff 属性（`:2332`），最终 `:5987` 读总和。
+        let template = mir_db::ItemInfo {
+            index: 1,
+            name: "FreezingRing".to_owned(),
+            stats: {
+                let mut stats = Stats::default();
+                stats.set(Stat::Freezing, 7);
+                stats
+            },
+            ..Default::default()
+        };
+        let mut world = round51_world_with_items(
+            vec![round51_magic(Spell::FrostCrunch, 9)],
+            vec![round51_map_info("0", false), round51_map_info("nt", true)],
+            vec![template],
+        );
+        let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        round51_learn(&mut world, 1, Spell::FrostCrunch, 3);
+        let monster =
+            round51_spawn_monster(&mut world, MonsterKind::skeleton(), Point::new(12, 10));
+
+        // ① 装备模板属性 7。
+        let item = mir_protocol::data::UserItem {
+            item_index: 1,
+            ..Default::default()
+        };
+        world.player_mut(1).expect("玩家").equipment[0] = Some(item);
+        assert_eq!(world.caster_freezing(1), 7, "模板属性 Freezing=7");
+        // ② 附加属性 +5。
+        world.player_mut(1).expect("玩家").equipment[0]
+            .as_mut()
+            .expect("装备")
+            .added_stats
+            .set(Stat::Freezing, 5);
+        assert_eq!(world.caster_freezing(1), 12, "模板 7 + 附加 5 = 12");
+        // ③ 生效 buff 属性 +3。
+        let mut buff_stats = Stats::default();
+        buff_stats.set(Stat::Freezing, 3);
+        assert!(world.add_buff(1, BuffKind::TemporalFlux, 30_000, buff_stats, 1));
+        assert_eq!(
+            world.caster_freezing(1),
+            15,
+            "模板 7 + 附加 5 + buff 3 = 15"
+        );
+
+        // `Random.Next(15)` ∈ 0..=14；固定种子下多次抽取必定出现 >0（真正消耗了 RNG）。
+        let mut saw_positive = false;
+        for _ in 0..64 {
+            let bonus = world.freeze_roll(1);
+            assert!((0..=14).contains(&bonus), "Freezing=15 → 额外时长 ∈ 0..=14");
+            saw_positive |= bonus > 0;
+        }
+        assert!(saw_positive, "Freezing=15 时 Random.Next 应至少抽到一次 >0");
+
+        // 真实施法：目标 Frozen 毒时长 = 5 + roll ∈ 5..=19（`HumanObject.cs:5987`）。
+        let frozen = round51_cast_frost_until_frozen(&mut world, monster);
+        assert!(
+            (5..=19).contains(&frozen.duration),
+            "Frozen 时长 = 5 + Random.Next(15) ∈ 5..=19，实际 {}",
+            frozen.duration
+        );
+    }
+
+    #[test]
+    fn frozen_duration_is_five_without_any_freezing_source() {
+        // 三个来源全 0 → Crystal `Random.Next(0)` 恒 0 → 时长 5，且不消耗随机数。
+        let mut world = round51_default_world(vec![round51_magic(Spell::FrostCrunch, 9)]);
+        let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        round51_learn(&mut world, 1, Spell::FrostCrunch, 3);
+        let monster =
+            round51_spawn_monster(&mut world, MonsterKind::skeleton(), Point::new(12, 10));
+        assert_eq!(world.caster_freezing(1), 0);
+        let frozen = round51_cast_frost_until_frozen(&mut world, monster);
+        assert_eq!(frozen.duration, 5, "无 Freezing 来源时 Frozen 固定 5 跳");
+        assert_eq!(world.freeze_roll(1), 0, "Freezing=0 时额外时长恒 0");
     }
 
     #[test]

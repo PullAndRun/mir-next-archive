@@ -58,8 +58,8 @@ PARTIAL：D3离线/异图安全清场是已接受偏差，Crystal原毒雾通常
 ### B4 / 兵部 / deepseek R51定向补证
 
 写范围 `crates/mir-server/src/magic.rs`（测试及引用勘误）、新`crates/mir-server/tests/round52_regression.rs`；证据`target/round52/b4/**`；生产修复另列并先登记，客户端装备DeleteItem生产改动归C，不默认划入本批。B3评审/Lead提交后启动。
-启动契约：读实际默认GameData/DB加载链、Crystal七技能MagicInfo及R51终审v4；先断言默认七记录关键字段与来源SHA，独立期望，逐技能MP/cooldown-1ms/到期；Dash2500ms、PoisonCloud等级3为12000ms。真实施法产生非空Slow/Frozen，固定种子命中/未命中计数都非零，玩家/怪物与Frozen后真实World::attack拒攻；Freezing7≤11、多有效根槽/added、坏装备+buff、0耐久+added、零RNG后续序列对照。StormEscape真实升级，五位置先is_some再排序并跑跨图；普通added引用1858/1859与插槽1965/1966分开。落实D1/D4/D5、M06/M08；旧反例不删。
-验收命令：`cargo test -p mir-server round52_regression -- --nocapture`；`cargo test -p mir-server --lib magic::tests:: -- --nocapture`。named tests至少`round52_regression_default_magic_info_cost_cooldown`、`round52_regression_real_slow_frozen_players_monsters`、`round52_regression_frozen_attack_rejected`、`round52_regression_freezing_sources_and_rng_state`、`round52_regression_stormescape_order_cross_map`。缺默认记录只将对应G4记录点名PARTIAL；假fixture、空断言、无日志、零命中均BLOCK。
+启动契约：读实际默认GameData/DB加载链、Crystal七技能MagicInfo及R51终审v4；先断言默认七记录关键字段与来源SHA，独立期望，逐技能MP/cooldown-1ms/到期；Dash2500ms；PoisonCloud 默认冷却为 L2=12000ms、L3=10000ms。原派发文字“毒雾等级3为12000ms”有误，现作可见勘误并保留原错误记录以便追溯。真实施法产生非空Slow/Frozen，固定种子命中/未命中计数都非零，玩家/怪物与Frozen后真实World::attack拒攻；Freezing7≤11、多有效根槽/added、坏装备+buff、0耐久+added、零RNG后续序列对照。StormEscape真实升级，五位置先is_some再排序并跑跨图；普通added引用1858/1859与插槽1965/1966分开。落实D1/D4/D5、M06/M08；旧反例不删。
+验收命令：`cargo test -p mir-server round52_regression -- --nocapture`；`cargo test -p mir-server --lib magic::tests:: -- --nocapture`。named tests 至少 `round52_regression_default_magic_info_cost_cooldown`、`round52_regression_real_frost_crunch_slow_frozen_monsters`、`round52_regression_player_poison_state_real_attack_blocks_frozen_target`、`round52_regression_freezing_sources_and_rng_state`、`round52_regression_stormescape_order_cross_map`。缺默认记录只将对应G4记录点名PARTIAL；假fixture、空断言、无日志、零命中均BLOCK。
 
 ### C / 工部 / deepseek客户端与真实wire
 

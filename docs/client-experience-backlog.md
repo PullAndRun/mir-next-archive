@@ -4,9 +4,9 @@
 
 **当前状态（2026-10-25）**：他者 Walk/Run 插值 R46 已交付，怪物走/跑插值 R49 已交付（限 `005/022/184` 真实证据）；R49 导入 118 个 used 怪物库的原生帧表，4 个 v2、约 800 个缺源 appearance 与 Blend/Reverse/Effect/Sorting 仍 PARTIAL。R48 本地 A1–A4 选招、弓手 WalkingBow/RunningBow 与双持绘制已接入，但远端攻击只有 A1/A3、DoubleSlash 生产恒 false、刺客 Sneek 与协议原生动作仍未闭合；不能继续把这些已交付子项统一写为未实施。
 
-R50 独立商城面板、目录/库存真实包链和素材 manifest 已交付；服务端 Category、K 改键/修饰键、像素基线/release 真机往返继续顺延。R51 已 **Done / PASS-WITH-PARTIAL**，五技能 Blink/StormEscape/FrostCrunch/ThunderStorm/ShoulderDash 已交付；客户端 Walking/Walk 借帧仍非原生 dash，152/153 已有消费分支，但错误预测格 + 已有 motion/队列的敏感回纠证据未闭合。
+R50 独立商城面板、目录/库存真实包链和素材 manifest 已交付；服务端 Category、K 改键/修饰键、像素基线/release 真机往返继续顺延。R51 已 **Done / PASS-WITH-PARTIAL**，五技能 Blink/StormEscape/FrostCrunch/ThunderStorm/ShoulderDash 已交付；客户端 Walking/Walk 借帧仍非原生 dash，152/153 已有消费分支，错误预测格 + 已有 motion/队列的敏感回纠证据已由 R52 C 补齐；原生表现仍未闭合。
 
-**R52 计划中，尚未实现/验证**：C/G6 接装备 UUID 的 DeleteItem 扣数/耗尽、两技能 149/125 场生命周期与入视野同步、152/153 敏感回纠；B1–B4 承接耗材/服务端技能及 R51 定向补证。原生 dash 帧/视觉/声音/时序、guild Freezing 与真 socket 顺延；火墙逐对象 ProcessSpell/InTrapRock 属独立系统，不由 TrapHexagon 局部绿灯覆盖。十一项承接详见 [路线图 §五](roadmap.md#五下一步优先级r52-a2026-10-25)及 [R52 索引](testing/round52/README.md)。
+**R52 已交付（含 PARTIAL）**：B1–B4/C 已完成装备 UUID DeleteItem 扣数/耗尽、PoisonCloud/TrapHexagon 的 149/125 场包与生命周期子项、152/153 敏感回纠及 R51 定向补证；门禁 attempt2 12/12 PASS（exit0）。125 无服务端生产者、真 socket、原生 dash 帧/视觉/声音/时序、guild Freezing/嵌套槽与火墙逐对象 ProcessSpell/InTrapRock 仍未覆盖；这些边界不得回写为“未实现全部 R52”。详见 [路线图 §五](roadmap.md#五下一步优先级r52-a2026-10-25)及 [R52 索引](testing/round52/README.md)。
 
 ## 第 45 轮原始登记（历史快照）
 Crystal 参考版本：`github/Crystal` HEAD `0e315fe327192afe52c3d7357ddd1f5b7e26c5b8`。

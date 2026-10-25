@@ -100,29 +100,29 @@
 
 ## 五、下一步优先级（R52 A，2026-10-25）
 
-R50 独立商城已交付；R51 已 **Done / PASS-WITH-PARTIAL**，已交付 Blink、StormEscape、FrostCrunch、ThunderStorm、ShoulderDash 五技能。PoisonCloud/TrapHexagon 与护身符耗材仍未实现，不能把该终态写成七技能完整。R51 [终审 v4 §D](testing/round51/round51-final-audit-v4.md)的十一项按下表承接；P03/P10 closed 是历史结论，不因补证计划重新打开或扩大。
+R50 独立商城已交付；R51 已 **Done / PASS-WITH-PARTIAL**，已交付 Blink、StormEscape、FrostCrunch、ThunderStorm、ShoulderDash 五技能。R52 B1–B4/C 已交付护身符耗材原语、PoisonCloud、TrapHexagon、R51 定向回归与客户端 wire，当前交付仍含 **PARTIAL**，T 的 G7 **BLOCK** 待 H 收口复核；125 无服务端生产者、真 socket、原生 dash 表现、Frost 玩家目标、guild/嵌套槽与旧技能耗材等边界不得写成完整闭环。R51 [终审 v4 §D](testing/round51/round51-final-audit-v4.md)的十一项仍按下表承接；P03/P10 closed 是历史结论，不因补证计划重新打开或扩大。
 
-1. **R52 主线（未实现 / 计划中）**：装备栏护身符/绿毒耗材、PoisonCloud 真实毒雾场、TrapHexagon 独立 Shock 控制，以及服务端真实产包到客户端装备快照/存档的闭环（G1–G3/G6）。裁决以[门下 D1–D5、M01–M08](process/round52-menxia-review.md)和[派发契约](process/round52-shangshu-dispatch.md)为准；只给新两技能接耗材（D4），不扩大旧技能语义。
-2. **R51 定向补证（计划中）**：实际默认七技能 MagicInfo/耗蓝/冷却（G4），Slow/Frozen、Frost 玩家目标、来源/RNG、StormEscape 严格包序/跨图（G5），152/153 敏感回纠（G6）；现有分项绿灯不替代这些证据。
-3. **文档与 i18n（G7）**：保留 R49/R50/R51 原日志和历史结论；A 批仅实测文档检查，当前 TextKey 与扫描计数见 [i18n §7.9](i18n.md)。R50 参数化 TextKey 与 no-test 收口已交付，不再按待实施派活。
+1. **R52 主线（已交付，含 PARTIAL）**：B1 护身符耗材原语、B2 PoisonCloud、B3 TrapHexagon、B4 R51 定向补证与 C 客户端真实 wire 均已交付；PoisonCloud 使用 5 毒 + 5 符，Trap 使用 1 符，服务端/客户端证据与 attempt2 门禁 **12/12 PASS（exit 0）** 已归档。G1/G6 的已证子项不等于所有存档、125、socket 或表现边界闭合，详见[门下 D1–D5、M01–M08](process/round52-menxia-review.md)和[派发契约](process/round52-shangshu-dispatch.md)。
+2. **R51 定向补证（B4 已交付，含 PARTIAL）**：已从默认数据加载链记录七技能资料（默认数据共 107 条）及 MP/冷却边界，并完成 Slow/Frozen、StormEscape、来源/RNG 等本轮回归；Frost 玩家目标、guild/嵌套槽及其它未覆盖边界仍为 PARTIAL，现有分项绿灯不替代未覆盖的真实 socket 或原生表现证据。
+3. **文档与 i18n（G7）**：保留 R49/R50/R51 原日志和历史结论；本轮收口同步当前 TextKey 与扫描计数，实测值见 [i18n §7.9](i18n.md)。R50 参数化 TextKey 与 no-test 收口已交付，不再按待实施派活。
 4. **商城已交付 / 残余顺延**：R50 的独立面板、250/251 真实包链、库存/失败事务及素材 manifest 见 [商城 §12](world/gameshop.md#12-r50-交付索引与残余原r50-前置条件已完成保留结论)。服务端 Category 过滤、K 改键、像素基线与 release 真机往返仍按 [客户端 §5.16.1/§8](client.md)保留，不扩入 R52。
 5. **其它独立系统顺延**：PetSave/PetExp、AOI 全量验收、攻城旗子/控制点/修门/领地、坐骑/天气/光照/攻击变招、大地图寻路、CallDefaultNPC、行会职位/投票 UI。市场拍卖到期自动成交、任务物品栏/YouFound/Q 标记/每日重置、行会联盟页签与 303 权威名单已交付。
 
-| R51 §D 项 | R52 处置（均为计划，未写 closed） |
+| R51 §D 项 | R52 处置（已交付项与顺延边界） |
 |---|---|
-| 1 两技能/耗材；Frost 玩家 PvP | B1/B2/B3/C：G1–G3/G6；Frost 玩家目标由 B4/G5 补证；旧技能耗材顺延 |
-| 2 默认逐技能 MP/冷却 | B4/G4；实际默认记录及来源 SHA，ShoulderDash 2500ms；缺记录点名对应 PARTIAL |
-| 3 非空 Slow、概率两侧、玩家/怪物 | B4/G5；真实施法及命中/未命中计数 |
-| 4 StormEscape 包序/跨图 | B4/G5；真实升级，五位置先存在再排序；另跑跨图 |
-| 5 玩家 Frozen 实际拒攻 | B4/G5；真实 World::attack 拒攻 |
-| 6 152/153 敏感回纠 | C/G6；错误预测格 + 已有 motion/队列，两分支分别证明 |
+| 1 两技能/耗材；Frost 玩家 PvP | B1/B2/B3/C 已交付 G1–G3/G6 子项；Frost 玩家真实目标仍 PARTIAL，旧技能耗材顺延 |
+| 2 默认逐技能 MP/冷却 | B4/G4 已交付；默认记录及来源 SHA、ShoulderDash 2500ms、PoisonCloud L2/L3 边界已记录；未覆盖边界点名 PARTIAL |
+| 3 非空 Slow、概率两侧、玩家/怪物 | B4/G5 已交付定向回归；玩家 Frost 真实施法仍 PARTIAL |
+| 4 StormEscape 包序/跨图 | B4/G5 已交付；真实升级、五位置包序与跨图结果已记录 |
+| 5 玩家 Frozen 实际拒攻 | B4/G5 已交付拒攻证据；玩家真实 Frost 命中仍未冒称覆盖 |
+| 6 152/153 敏感回纠 | C/G6 已交付；错误预测格 + 已有 motion/队列两分支均有证据 |
 | 7 火墙逐对象 ProcessSpell/InTrapRock | 顺延 R53 候选，P04 保留；TrapHexagon 不等于 TrapRock |
 | 8 原生 dash 帧/视觉/声音/时序 | 顺延，P08 保留；Walking/Walk 借帧仍为 PARTIAL |
 | 9 guild Freezing / 真 socket | 顺延；World→encode→decode→快照不等于 socket 端到端 |
 | 10 多根槽有效装备 / 1965–1966 插槽 | 多根槽由 B4/G5 补证；嵌套插槽属性顺延 PARTIAL |
-| 11 零 RNG/坏装备+buff/0 耐久+added | B4/G5；真实状态序列对照，Freezing7 上界收紧至 11 |
+| 11 零 RNG/坏装备+buff/0 耐久+added | B4/G5 已交付状态序列对照，Freezing7 上界收紧至 11；未覆盖边界仍 PARTIAL |
 
-实施顺序为 A → B1 → B2 → B3 → B4 → C → Lead 唯一全量门禁 → T → 尚书 → 指定门下确认；各批串行独立评审且仅 Lead 提交。G1–G3/G6 核心缺口返工，G4/G5 逐子项判定；D3 离线/异图安全清场是已批准的生命周期偏差，仍须实现和实证并单列 PARTIAL。当前 A 文档检查不能证明 R52 功能完成，证据规划见 [R52 索引](testing/round52/README.md)。
+实施顺序为 A → B1 → B2 → B3 → B4 → C → Lead 唯一全量门禁 → T → 尚书 → 指定门下确认；各批串行独立评审且仅 Lead 提交。G1–G3/G6 已有交付子项但仍保留 125、socket、存档及表现边界，G4/G5 逐子项判定；D3 离线/异图安全清场是已批准的生命周期偏差，须单列 PARTIAL。T 当前 BLOCK 仅指 G7 文档收口，H 收口证据见 [R52 索引](testing/round52/README.md)。
 
 ## 六、第 49 轮收口状态（2026-10-25）
 

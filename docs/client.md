@@ -1853,11 +1853,11 @@ cargo clippy -p mir-client -p mir-render --all-targets --no-deps -- -D warnings
 cargo fmt --all -- --check
 ```
 
-## 8. 尚未实现
+## 8. 未实现与 PARTIAL（R52 H 当前口径）
 
-**R51 / R52 分界（R52 A，2026-10-25）**：R51 已 **Done / PASS-WITH-PARTIAL**，Blink/StormEscape/FrostCrunch/ThunderStorm/ShoulderDash 五技能已交付。客户端真实 World→encode→decode→WorldSnapshot 两例已有绿灯，152/153 消费分支已存在；但错误预测格 + 已有 motion/队列的权威位置回纠、Standing、清队列及消费不可删的敏感证据仍缺，不能把旧例当作此项 closed。动作/声音仍借 Walking/Walk，原生 dash 帧、视觉、声音、时序均未验。
+**R51 / R52 分界（2026-10-26）**：R51 已 **Done / PASS-WITH-PARTIAL**，Blink/StormEscape/FrostCrunch/ThunderStorm/ShoulderDash 五技能已交付。R52/C 已以真实服务端产包完成进程内 World→encode→decode→WorldSnapshot 链路；DeleteItem 按 UUID 消费装备计数/耗尽摘槽，客户端消费 149（ObjectSpell）、125（ObjectProjectile）、26（ObjectRemove）、152/153，并维护 `spell_fields` 视图。152/153 错误预测格 + 已有 motion/队列的敏感回纠已有证据。该 wire 验证不是网络栈/真实 socket 验收；125 无服务端生产者、原生 dash 帧/视觉/声音/时序、Frost 玩家目标及其它既有 PARTIAL 仍保留。
 
-**R52/G6 计划中，尚未实现/验证**：装备材料 DeleteItem 需按 UUID 同时覆盖部分扣数/归零摘槽、错误 UUID 不动/背包同模板不误扣，并串到生产存档重登；PoisonCloud/TrapHexagon 需真实服务端产包→编解码→快照、149/125 生成/撤销及入视野同步，且分别补强 152/153。当前 DeleteItem 仅处理背包，不能宣称装备耗材闭环已成。G1–G3/G6 核心缺口须返工，素材不足不能延期场生命周期；原生视觉/音频与真 socket 仍可单列 PARTIAL。Frost 玩家目标 PvP、默认资料/Slow/Frozen/严格包序/来源与 RNG 补证，以及火墙/InTrapRock 等十一项的分工与顺延见 [路线图 §五](roadmap.md#五下一步优先级r52-a2026-10-25)和 [R52 索引](testing/round52/README.md)，本 A 批未运行功能测试。
+**R52 已交付但有界（不代表完整）**：护身符耗材、PoisonCloud、TrapHexagon 及客户端装备扣数与技能场包消费已有 B1–B4/C 证据。PoisonCloud 的服务端场生成/撤销使用 149/26；125 是 ObjectProjectile，当前没有服务端生产者，不能描述成毒雾撤销链或完整生命周期覆盖。G6 wire 使用进程内真实产包链，不是生产 socket；根装备覆盖不代表嵌套槽等价。Frost 玩家目标 PvP、guild Freezing、原生 dash 视觉/音频/时序、Walking/Walk 借帧、火墙逐对象 ProcessSpell/InTrapRock 仍为 PARTIAL/顺延；详细范围见 [路线图 §五](roadmap.md#五下一步优先级r52-a2026-10-25) 和 [R52 索引](testing/round52/README.md)。本 H 批仅做文档与静态检查，不重跑全量功能门禁。
 
 * **移动插值的边界实测**：自机走/跑插值公式、单测与单方向 live 回归已通过；但
   **四类真实窗口边界（中央/触边/沿边/反向离边）未实测**，≥600ms/跳变无窗口录屏；

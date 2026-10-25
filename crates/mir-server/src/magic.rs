@@ -94,7 +94,10 @@ use crate::buffs::{
 };
 use crate::combat::PendingHit;
 use crate::monster::MonsterKind;
-use crate::world::{MOVE_DELAY_MS, PLAYER_REGEN_DELAY_MS, Player, VIEW_RANGE, World};
+use crate::world::{
+    MOVE_DELAY_MS, PLAYER_REGEN_DELAY_MS, Player, VIEW_RANGE, World, spell_field_view_location,
+    spell_field_visible_to_client,
+};
 /// 技能最高等级：Crystal 的 `MagicInfo` 只有 `Level1`/`Level2`/`Level3` 三档
 /// （`MagicInfo.cs:16`），`LevelMagic` 的 `default:` 分支对 3 级直接返回
 /// （`HumanObject.cs:6968-6969`）。
@@ -240,6 +243,52 @@ pub const POISON_CLOUD_POISON_SHAPE: u16 = 1;
 
 /// 毒雾一次施法烧掉的护身符/毒药数量：`GetAmulet(5)` + `GetPoison(5, 1)`（`HumanObject.cs:4545-4549`）。
 pub const POISON_CLOUD_MATERIAL_COUNT: u32 = 5;
+
+/// 困魔咒（`TrapHexagon`）落地延迟：`DelayedAction(..., Envir.Time + 500, ...)`
+/// （`HumanObject.cs:4634-4638`）。
+pub const TRAP_HEXAGON_DELAY_MS: i64 = 500;
+
+/// 困魔咒持续时间的等级步长：`duration = (magic.Level * 5 + 10) * 1000`
+/// （`HumanObject.cs:4632`）。
+pub const TRAP_HEXAGON_DURATION_STEP_MS: i64 = 5_000;
+
+/// 困魔咒持续时间的基数：0 级 10 秒、3 级 25 秒（`HumanObject.cs:4632`）。
+pub const TRAP_HEXAGON_BASE_DURATION_MS: i64 = 10_000;
+
+/// 困魔咒耗材数量：`GetAmulet(1)`（`HumanObject.cs:4630`）。
+pub const TRAP_HEXAGON_AMULET_COUNT: u32 = 1;
+
+/// 困魔咒耗材形状：护身符（`Shape = 0`，与 `GetAmulet` 的 `FindItem` 参数一致）。
+pub const TRAP_HEXAGON_AMULET_SHAPE: u16 = 0;
+
+/// 困魔咒外围场对象的 `TickSpeed`（`Map.cs:1815`，`SpellObject{ TickSpeed = 100 }`）。
+///
+/// 本作的场没有周期伤害，`next_tick` 设为 [`i64::MAX`] 表示「不结算」，这个常量只做
+/// 与 Crystal 的数值对照，实际不参与调度。
+pub const TRAP_HEXAGON_FIELD_TICK_MS: i64 = 100;
+
+/// 困魔咒中心怪等级上限差：`target.Level > player.Level + 2` 的怪不受影响
+/// （`HumanObject.cs:4621`、`Map.cs:1782`）。
+pub const TRAP_HEXAGON_LEVEL_MARGIN: u16 = 2;
+
+/// 困魔咒八个外围场相对施法落点的坐标（`Map.cs:1797-1815`）：
+/// `Up/Right/Down/Left` 各走 2 格，再沿 `Right`/`Up` 各偏移 1 格展开。
+pub const TRAP_HEXAGON_FIELD_POINTS: [(i32, i32); 8] = [
+    (1, -2),
+    (-1, -2),
+    (2, -1),
+    (2, 1),
+    (1, 2),
+    (-1, 2),
+    (-2, -1),
+    (-2, 1),
+];
+
+/// 困魔咒持续时间（毫秒）：`(level * 5 + 10) * 1000`（`HumanObject.cs:4632`）。
+#[must_use]
+pub const fn trap_hexagon_duration_ms(level: u8) -> i64 {
+    (level as i64 * TRAP_HEXAGON_DURATION_STEP_MS) + TRAP_HEXAGON_BASE_DURATION_MS
+}
 
 /// 怪物被 `PoisonType.Slow` 每跳叠加的移动/攻击间隔：`MoveSpeed += 100`、
 /// `AttackSpeed += 100`（`MonsterObject.cs:1544-1553`）。
@@ -585,6 +634,10 @@ pub struct SpellField {
     /// 是否向客户端广播过（Crystal `SpellObject.Show`）：毒雾 9 格里只有
     /// 首个实际生成的对象为 `true`（`Map.cs:1452-1460`）。
     pub show: bool,
+    /// 绑定的中心怪对象 ID（Crystal `SpellObject.Target`）：`0` = 无绑定
+    /// （火墙/毒雾）；困魔咒的 8 个外围场填中心怪，中心怪 `ShockTime` 归零或死亡时
+    /// 整组场提前撤销（`SpellObject.cs:60-70`、`Map.cs:1815`）。
+    pub target_monster: u32,
 }
 
 /// 技能类别：决定施法时走哪条效果分支。
@@ -634,6 +687,10 @@ pub enum SpellKind {
     /// 12 跳绿毒（`HumanObject.cs:4543-4567` + `Map.cs:1434-1486` +
     /// `SpellObject.cs:150-163`）。
     PoisonCloud,
+    /// 困魔咒（`TrapHexagon`）：施法前 3×2 预检、延迟 500ms、落地 3×3 重检写
+    /// `ShockTime`，再在落点周围生成 8 个绑定中心怪的场对象
+    /// （`HumanObject.cs:4596-4644` + `Map.cs:1752-1832` + `SpellObject.cs:51-70`）。
+    TrapHexagon,
     /// 已登记、但本作没有效果（见 [`REGISTERED_UNSUPPORTED`]）。
     Unsupported,
 }
@@ -664,6 +721,7 @@ pub const fn spell_kind(spell: Spell) -> SpellKind {
         Spell::SummonSkeleton | Spell::SummonShinsu => SpellKind::Summon,
         Spell::Poisoning => SpellKind::Poison,
         Spell::PoisonCloud => SpellKind::PoisonCloud,
+        Spell::TrapHexagon => SpellKind::TrapHexagon,
         Spell::ShoulderDash => SpellKind::ShoulderDash,
         Spell::Blink => SpellKind::Blink,
         Spell::StormEscape => SpellKind::StormEscape,
@@ -823,6 +881,17 @@ pub enum MagicEffect {
         /// `PoisonAttack <= 0` 时为 0 且不消耗随机数。
         bonus_damage: i32,
     },
+    /// 困魔咒落地（`Map.cs:1752-1832`）：3×3 重检写 `ShockTime`，再在落点周围铺
+    /// 8 个绑定中心怪的场对象。
+    TrapHexagon {
+        /// 施法时所在的地图（Crystal 的 `DelayedAction` 挂在施法时的 `Map.ActionList`，
+        /// 落地用 `centerTarget.CurrentMap`；本作按施法图落地）。
+        map: String,
+        /// 施法落点（3×2 预检与 3×3 重检的中心）。
+        location: Point,
+        /// 持续时间（`(magic.Level * 5 + 10) * 1000`，`HumanObject.cs:4632`）。
+        duration_ms: i64,
+    },
 }
 
 /// 延迟魔法效果（Crystal 里每个对象/地图各有一条 `ActionList`，本作合并成世界级队列）。
@@ -962,6 +1031,25 @@ pub struct CastReport {
     pub buff: Option<BuffKind>,
     /// 本次扣掉的魔法。
     pub cost: i32,
+}
+
+/// [`World::cast_magic`] 里「公共检查已通过、但耗材/预检失败」时回显 `cast = false`
+/// 所需的施法上下文。
+///
+/// Crystal 的失败分支仍然照发 `S.Magic` 与 `S.ObjectMagic`（`HumanObject.cs:3773-3779`），
+/// 但公共检查的副作用（MP、`ActionTime`、`AttackTime`、`SpellTime`、`Direction`）
+/// 都已经发生，`cast = false` 只表示不写本技能 `CastTime`、不排延迟效果。
+#[derive(Clone, Copy)]
+struct RefusedCast<'a> {
+    object_id: u32,
+    spell: Spell,
+    level: u8,
+    target_id: u32,
+    target_location: Point,
+    position: Point,
+    map: &'a str,
+    direction: MirDirection,
+    cost: i32,
 }
 
 /// 一次「用书学会技能」的结果。
@@ -1484,6 +1572,15 @@ impl World {
                     target_id = 0;
                 }
             }
+            SpellKind::TrapHexagon => {
+                // `TrapHexagon(magic, spellTargetLock ? target.CurrentLocation : location, ...)`
+                // （`HumanObject.cs:3656-3657`）：没有锁定目标就用包里的落点，为空时退回
+                // 自己脚下；目标由 3×2 预检自己扫，不读 `target_id`。
+                if target_location.x == 0 && target_location.y == 0 {
+                    target_location = position;
+                }
+                target_id = 0;
+            }
             SpellKind::Unsupported => unreachable!("already dispatched above"),
         }
         // `if ((location.X != 0) && (location.Y != 0) && magic.Info.Range != 0
@@ -1627,6 +1724,46 @@ impl World {
                 consumed_amulet && consumed_poison,
                 "find_spell_material 成功后 consume_spell_material 必须成功"
             );
+        }
+
+        // --- 困魔咒（`TrapHexagon`，`HumanObject.cs:4596-4644`） ----------------------
+        // 顺序照抄 Crystal：先 3×2 预检（没有任何目标 → `cast = false` 直接 return），
+        // 再 `GetAmulet(1)`（不足 → 同样 `cast = false`），再 `LevelMagic`、排 500ms
+        // 延迟动作、扣耗材、`cast = true`。两条失败路径都在公共检查之后，所以 MP 已扣、
+        // 动作/`SpellTime` 已锁，只是不写本技能 `CastTime`、不排效果。
+        if kind == SpellKind::TrapHexagon {
+            let caster_level = self.players[&object_id].level;
+            let mut material = None;
+            if self.trap_hexagon_precheck(&map, target_location, object_id, caster_level) {
+                material = self.find_spell_material(
+                    object_id,
+                    TRAP_HEXAGON_AMULET_COUNT,
+                    TRAP_HEXAGON_AMULET_SHAPE,
+                );
+            }
+            let Some(amulet_slot) = material else {
+                let report = self.refused_cast_report(RefusedCast {
+                    object_id,
+                    spell,
+                    level: magic.level,
+                    target_id,
+                    target_location,
+                    position,
+                    map: &map,
+                    direction,
+                    cost,
+                });
+                return Ok(report);
+            };
+            let consumed =
+                self.consume_spell_material(object_id, amulet_slot, TRAP_HEXAGON_AMULET_COUNT);
+            debug_assert!(
+                consumed,
+                "find_spell_material 成功后 consume_spell_material 必须成功"
+            );
+            // `LevelMagic(magic)`（`HumanObject.cs:4632`）：施法成功即训练一次；
+            // 落地 `train = true` 再训练一次（`Map.cs:2356`）。
+            self.level_magic(object_id, spell);
         }
 
         // --- 效果（`HumanObject.cs:3499-3771` + `Map.cs:856-`） ---------------------
@@ -1801,6 +1938,20 @@ impl World {
                         location: target_location,
                         damage: value,
                         bonus_damage,
+                    },
+                ));
+            }
+            SpellKind::TrapHexagon => {
+                // `TrapHexagon`：`DelayedAction(DelayedType.Magic, Envir.Time + 500, this,
+                // magic, value, location)`（`HumanObject.cs:4634-4638`），`value =
+                // (magic.Level * 5 + 10) * 1000`（`:4632`）。落地范围/中心怪重检在
+                // [`Self::land_trap_hexagon`]。
+                effects.push((
+                    now + TRAP_HEXAGON_DELAY_MS,
+                    MagicEffect::TrapHexagon {
+                        map: map.clone(),
+                        location: target_location,
+                        duration_ms: trap_hexagon_duration_ms(magic.level),
                     },
                 ));
             }
@@ -2400,6 +2551,31 @@ impl World {
                     now,
                 );
             }
+            MagicEffect::TrapHexagon {
+                map: field_map,
+                location,
+                duration_ms,
+            } => {
+                // `Map.cs:1752-1832`：落地时以落点为中心再做一次 3×3 重检（施法前的
+                // 预检是 3×2，不含 `y + 1` 那行），中心怪确定后才铺 8 个外围场。
+                //
+                // D3 偏差：Crystal 的 `DelayedAction` 挂在施法时那张图的 `ActionList`
+                // 上，只查 `player.Node != null`（`Map.cs:856-866`），施法者中途换图时
+                // 场仍会在旧图生成；本作沿用 B2 毒雾的口径：施法者已换图/离线则丢弃。
+                let caster_on_map = self
+                    .players
+                    .get(&action.caster_id)
+                    .is_some_and(|caster| caster.map == field_map);
+                if caster_on_map {
+                    self.land_trap_hexagon(
+                        action.caster_id,
+                        &field_map,
+                        location,
+                        duration_ms,
+                        now,
+                    );
+                }
+            }
             MagicEffect::Lightning {
                 origin,
                 direction,
@@ -2848,6 +3024,8 @@ impl World {
                 bonus_damage: 0,
                 cast_location: cell,
                 show: true,
+                // 火墙不绑怪（Crystal `SpellObject.Target` 为 null）。
+                target_monster: 0,
             });
         }
     }
@@ -2893,27 +3071,60 @@ impl World {
     /// `IsAttackTarget(null)` 拒绝而停止伤害（`SpellObject.cs:150-163`）；换图强清也
     /// 只对火墙生效（`SpellObject.cs:78-86`）。本作对两者统一「施法者离线/换图即清场」，
     /// 这是 R52 安全化偏差（PARTIAL），与 Crystal 不完全等价。
+    ///
+    /// 困魔咒（`TrapHexagon`）不套用「施法者离线即清场」：Crystal 的
+    /// `SpellObject.Process` 只在 `Caster == null` 时撤销火墙家族
+    /// （`SpellObject.cs:66-72`），困魔咒的场留到 `ExpireTime`；提前撤销的唯一条件是
+    /// 绑定的中心怪 `ShockTime == 0`（`SpellObject.cs:73-78`），本作据此判断中心怪
+    /// 死亡/换图/Shock 到期。
     pub(crate) fn tick_spell_fields(&mut self, now: i64) {
         let mut index = 0;
         while index < self.spell_fields.len() {
             let field = self.spell_fields[index].clone();
-            let caster_gone = self
-                .players
-                .get(&field.caster_id)
-                .is_none_or(|caster| caster.map != field.map);
+            let caster_gone = field.spell != Spell::TrapHexagon
+                && self
+                    .players
+                    .get(&field.caster_id)
+                    .is_none_or(|caster| caster.map != field.map);
             // Crystal 到期用严格 `Envir.Time > ExpireTime`（`SpellObject.cs:66`）：
             // 毒雾 6000ms 那一跳仍然结算，6000 之后的下一个 world tick 才移除。
-            let expired = if field.spell == Spell::PoisonCloud {
+            let expired = if field.spell == Spell::PoisonCloud || field.spell == Spell::TrapHexagon
+            {
                 now > field.expire_at
             } else {
                 now >= field.expire_at
             };
-            if expired || caster_gone {
-                let packet = ServerPacket::ObjectRemove(ObjectRemove {
-                    object_id: field.object_id,
-                })
-                .encode_frame();
-                self.broadcast(&field.map, field.center, None, &packet, field.object_id);
+            // 困魔咒绑定中心怪：`Envir.Time < ExpireTime && ob.ShockTime != 0` 才留场
+            // （`SpellObject.cs:73-78`），所以中心怪消失/死亡/换图/Shock 提前结束都撤销。
+            let shock_released = field.spell == Spell::TrapHexagon
+                && !self.monster(field.target_monster).is_some_and(|monster| {
+                    !monster.dead && monster.map == field.map && now < monster.shock_time
+                });
+            if expired || caster_gone || shock_released {
+                // 撤销广播只对「客户端真的收到过这个对象」的场发生：
+                // * 火墙沿用 B2 行为，每格生成时都广播、到期逐格撤销；
+                // * 毒雾 3×3 只有首个 `show == true` 的对象发给客户端，其余 8 个内部场
+                //   不能广播撤销（否则客户端会收到未知 ID 的 `ObjectRemove`，对应
+                //   Crystal `SpellObject.cs:509` 的 `Show` 门槛）；
+                // * 困魔咒 8 个外围场全部 `show == true`。
+                if field.spell == Spell::FireWall || spell_field_visible_to_client(&field) {
+                    let packet = ServerPacket::ObjectRemove(ObjectRemove {
+                        object_id: field.object_id,
+                    })
+                    .encode_frame();
+                    // 撤销广播要发在**客户端可见位置**上：毒雾的可见对象在落点中心
+                    // （`CastLocation`），不是它 3×3 里那个内部格（Crystal `SpellObject.cs:509`、
+                    // `:522-530`）。
+                    self.broadcast(
+                        &field.map,
+                        spell_field_view_location(&field),
+                        None,
+                        &packet,
+                        field.object_id,
+                    );
+                }
+                // 已见集合同步清掉：之后谁再进视野/原地移动都不会再补发或再撤销。
+                self.forget_spell_field(field.object_id);
                 self.spell_fields.remove(index);
                 continue;
             }
@@ -2921,6 +3132,9 @@ impl World {
                 self.spell_fields[index].next_tick = now + field.tick_ms;
                 match field.spell {
                     Spell::PoisonCloud => self.apply_poison_cloud_tick(&field, now),
+                    // 纯视觉/状态场，没有周期伤害（Crystal `SpellObject.ProcessSpell`
+                    // 的 `TrapHexagon` 也是空实现）。
+                    Spell::TrapHexagon => {}
                     _ => self.apply_fire_wall_tick(&field),
                 }
             }
@@ -2980,6 +3194,218 @@ impl World {
         }
     }
 
+    /// `cast = false` 的统一回显路径（材料不足 / 预检无目标）。
+    ///
+    /// Crystal 的耗材分支失败后 `cast` 保持 `false`，但 `S.Magic` 与 `S.ObjectMagic`
+    /// 仍然照发（`HumanObject.cs:3773-3779`）；公共检查的副作用（MP、`ActionTime`、
+    /// `AttackTime`、`SpellTime`、`Direction`）都已经发生，不在这里回滚。
+    fn refused_cast_report(&mut self, refused: RefusedCast<'_>) -> CastReport {
+        let RefusedCast {
+            object_id,
+            spell,
+            level,
+            target_id,
+            target_location,
+            position,
+            map,
+            direction,
+            cost,
+        } = refused;
+        self.send_to_player(
+            object_id,
+            &ServerPacket::Magic(Magic {
+                spell,
+                target_id,
+                target: target_location,
+                cast: false,
+                level,
+                secondary_target_ids: Vec::new(),
+            })
+            .encode_frame(),
+        );
+        let packet = ServerPacket::ObjectMagic(ObjectMagic {
+            object_id,
+            location: position,
+            direction,
+            spell,
+            target_id,
+            target: target_location,
+            cast: false,
+            level,
+            self_broadcast: false,
+            secondary_target_ids: Vec::new(),
+        })
+        .encode_frame();
+        self.broadcast(map, position, Some(object_id), &packet, object_id);
+        CastReport {
+            spell,
+            level,
+            target_id,
+            location: target_location,
+            damage: None,
+            heal: None,
+            buff: None,
+            cost,
+        }
+    }
+
+    /// 困魔咒施法前的 **3×2** 预检（`HumanObject.cs:4596-4622`）。
+    ///
+    /// 范围：`x ∈ [location.X - 1, location.X + 1]`、`y ∈ [location.Y - 1, location.Y]`，
+    /// 即 3 列 × 2 行（**不含 `y + 1` 那行**，第三行只可能在落地重检时被扫到）。
+    /// 每格必须可走（`CurrentMap.ValidPoint`），格内怪物必须能被打
+    /// （`IsAttackTarget(this)`）且 `Level <= caster.Level + 2`。
+    fn trap_hexagon_precheck(
+        &self,
+        map: &str,
+        location: Point,
+        caster_id: u32,
+        caster_level: u16,
+    ) -> bool {
+        for dx in -1..=1 {
+            for dy in -1..=0 {
+                let cell = Point::new(location.x + dx, location.y + dy);
+                if !self.walkable_on(map, cell) {
+                    continue;
+                }
+                for monster_id in self.monsters_on_cell(map, cell) {
+                    let Some(monster) = self.monster(monster_id) else {
+                        continue;
+                    };
+                    if monster.dead || monster.kind.level > caster_level + TRAP_HEXAGON_LEVEL_MARGIN
+                    {
+                        continue;
+                    }
+                    if self.monster_is_attack_target_of_player(caster_id, monster_id) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// 困魔咒落地（Crystal `Map.CompleteMagic` 的 `TrapHexagon` 区域，`Map.cs:1752-1832`）。
+    ///
+    /// * 以落点为中心 **3×3** 重检（外层 y、内层 x，越界跳过；格必须可走）；
+    /// * 中心格上的**任何**怪先记作 `centerTarget`（Crystal 不检查可攻击/等级，
+    ///   `:1770-1772`，同格后出现的对象覆盖前一个）；
+    /// * 其他格：`IsAttackTarget(player)`、未死、`Level <= player.Level + 2` 的怪
+    ///   写入 `ShockTime = Envir.Time + duration` 并清空 `Target`；`centerTarget` 还没
+    ///   确定时取第一只这样的怪（`:1774-1791`）；
+    /// * 没有任何中心怪 → 直接返回（不生成场、不训练，`:1793`）；
+    /// * 以落点为中心生成 8 个外围场（`:1797-1829`），每个场绑定中心怪、
+    ///   `ExpireTime = now + duration`；`Show` 恒 `true`（`SpellObject.GetInfo` 的
+    ///   `default` 分支，`SpellObject.cs:553-560`）；
+    /// * `train = true` → `LevelMagic`（`Map.cs:2356`）。
+    ///
+    /// D2 差异（已批准）：Crystal 的边界判断是 `spawnpoint.X <= 0 || X > Width`
+    /// （`Map.cs:1808-1809`），会跳过 `x = 0`、放行 `x == Width`；本作按合法地图坐标
+    /// 安全剪裁——`in_bounds` 不过的点直接跳过。
+    fn land_trap_hexagon(
+        &mut self,
+        caster_id: u32,
+        map: &str,
+        location: Point,
+        duration_ms: i64,
+        now: i64,
+    ) {
+        let Some(caster_level) = self.players.get(&caster_id).map(|caster| caster.level) else {
+            return;
+        };
+        let mut center: Option<u32> = None;
+        let mut shocked: Vec<u32> = Vec::new();
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let cell = Point::new(location.x + dx, location.y + dy);
+                if !self.walkable_on(map, cell) {
+                    continue;
+                }
+                for monster_id in self.monsters_on_cell(map, cell) {
+                    let Some(monster) = self.monster(monster_id) else {
+                        continue;
+                    };
+                    if monster.dead || monster.map != map {
+                        continue;
+                    }
+                    if dy == 0 && dx == 0 {
+                        center = Some(monster_id);
+                    }
+                    if monster.kind.level > caster_level + TRAP_HEXAGON_LEVEL_MARGIN {
+                        continue;
+                    }
+                    if !self.monster_is_attack_target_of_player(caster_id, monster_id) {
+                        continue;
+                    }
+                    if center.is_none() {
+                        center = Some(monster_id);
+                    }
+                    shocked.push(monster_id);
+                }
+            }
+        }
+        let Some(center_id) = center else {
+            return;
+        };
+        for monster_id in shocked {
+            if let Some(monster) = self.monster_mut(monster_id) {
+                // `mobTarget.ShockTime = Envir.Time + value; mobTarget.Target = null;`
+                // （`Map.cs:1785-1786`）。宠物用独立的 `pet_target`（`MonsterObject.cs:1928-1955`），
+                // 落地这一刻同样要清，否则被 Shock 的宠物还留着旧仇恨目标。
+                monster.shock_time = now + duration_ms;
+                monster.target = None;
+                monster.pet_target = None;
+            }
+        }
+        // 八外围场：`for (i = 0; i < 8; i += 2)`（Up/Right/Down/Left）再
+        // `for (j = 0; j <= 4; j += 4)`：`PointMove(location, i, 2)` 后沿
+        // `Right`/`Up` 再走 1 格（`j` 加到方向枚举上：`Right + 4 = Left`、
+        // `Up + 4 = Down`），展开即 [`TRAP_HEXAGON_FIELD_POINTS`]（`Map.cs:1797-1815`）。
+        for (dx, dy) in TRAP_HEXAGON_FIELD_POINTS {
+            let spawn = Point::new(location.x + dx, location.y + dy);
+            if !self.in_bounds(map, spawn) {
+                continue;
+            }
+            let object_id = self.allocate_object_id();
+            let field = SpellField {
+                object_id,
+                map: map.to_owned(),
+                center: spawn,
+                radius: 0,
+                damage: 0,
+                caster_id,
+                expire_at: now + duration_ms,
+                // 没有周期伤害：`next_tick = i64::MAX` 让 tick 永远不结算
+                // （Crystal 的 `ProcessSpell` 对 `TrapHexagon` 也是空实现）。
+                next_tick: i64::MAX,
+                tick_ms: TRAP_HEXAGON_FIELD_TICK_MS,
+                spell: Spell::TrapHexagon,
+                direction: MirDirection::Up,
+                cast_id: 0,
+                bonus_damage: 0,
+                cast_location: location,
+                show: true,
+                target_monster: center_id,
+            };
+            let frame = ServerPacket::ObjectSpell(ObjectSpell {
+                object_id,
+                // `SpellObject.GetInfo` 的 `default` 分支用 `CurrentLocation`
+                // （`SpellObject.cs:553-560`）：8 个场各自在自己的格子上可见。
+                location: spawn,
+                spell: Spell::TrapHexagon,
+                direction: MirDirection::Up,
+                param: false,
+            })
+            .encode_frame();
+            self.broadcast(map, spawn, None, &frame, object_id);
+            // 生成即同步「已见集合」：刚收到 ObjectSpell 的观察者不该在下次移动时
+            // 再被补发一次（R2；C 批复用同一差分状态）。
+            self.mark_spell_field_visible(&field);
+            self.spell_fields.push(field);
+        }
+        self.level_magic(caster_id, Spell::TrapHexagon);
+    }
+
     /// 毒雾落地（Crystal `Map.CompleteMagic` 的 `PoisonCloud` 区域，`Map.cs:1434-1486`）：
     /// 以落点为中心的 3×3 逐格生成毒云，`6000ms` 内每 `1000ms` 一跳（这里用
     /// [`POISON_CLOUD_EXPIRE_MS`] / [`POISON_CLOUD_TICK_MS`]）。同图同格已有同类
@@ -3023,19 +3449,7 @@ impl World {
                 }
                 let object_id = self.allocate_object_id();
                 let first = show;
-                if first {
-                    let frame = ServerPacket::ObjectSpell(ObjectSpell {
-                        object_id,
-                        location,
-                        spell: Spell::PoisonCloud,
-                        direction: MirDirection::Up,
-                        param: false,
-                    })
-                    .encode_frame();
-                    self.broadcast(map, location, None, &frame, object_id);
-                    show = false;
-                }
-                self.spell_fields.push(SpellField {
+                let field = SpellField {
                     object_id,
                     map: map.to_owned(),
                     center: cell,
@@ -3053,7 +3467,26 @@ impl World {
                     bonus_damage,
                     cast_location: location,
                     show: first,
-                });
+                    // 毒雾不绑怪（Crystal `SpellObject.Target` 为 null）。
+                    target_monster: 0,
+                };
+                if first {
+                    let frame = ServerPacket::ObjectSpell(ObjectSpell {
+                        object_id,
+                        // `SpellObject.cs:509`、`:522-530`：Show 对象的位置是 `CastLocation`。
+                        location,
+                        spell: Spell::PoisonCloud,
+                        direction: MirDirection::Up,
+                        param: false,
+                    })
+                    .encode_frame();
+                    self.broadcast(map, location, None, &frame, object_id);
+                    show = false;
+                }
+                // 只有 `show == true` 的首对象对客户端可见；生成即登记已见集合，
+                // 避免视野内玩家移动时重复补发（R2；B2 的 9 格内部场永不可见）。
+                self.mark_spell_field_visible(&field);
+                self.spell_fields.push(field);
             }
         }
         // `show` 字段落库时已逐个写好：首对象 true、其余 false（见上）。
@@ -5097,12 +5530,10 @@ mod tests {
         assert_eq!(spell_kind(Spell::FrostCrunch), SpellKind::FrostCrunch);
         assert_eq!(spell_kind(Spell::ThunderStorm), SpellKind::ThunderStorm);
         assert_eq!(spell_kind(Spell::ShoulderDash), SpellKind::ShoulderDash);
-        // 固定 PARTIAL：`TrapHexagon` 仍拒绝（R52-B3 才接）。
-        assert_eq!(
-            spell_kind(Spell::TrapHexagon),
-            SpellKind::Unsupported,
-            "TrapHexagon 本轮仍是 PARTIAL"
-        );
+        // R52-B3：`TrapHexagon` 已接真实实现（3×2 预检 + 护身符 + 500ms 落地 +
+        // 3×3 重检 + 8 外围场），不再是 `Unsupported`；行为断言见 integration 测试
+        // `tests/round52_trap_hexagon.rs`。
+        assert_eq!(spell_kind(Spell::TrapHexagon), SpellKind::TrapHexagon);
         // R52-B2：`PoisonCloud` 已接耗材（符 5 + 绿毒 5），不再是 `Unsupported`；
         // 真实施法行为见 integration 测试 `tests/round52_poison_cloud.rs`。
         assert_eq!(spell_kind(Spell::PoisonCloud), SpellKind::PoisonCloud);
@@ -5807,34 +6238,48 @@ mod tests {
         );
     }
 
-    // --- 固定 PARTIAL：TrapHexagon ---------------------------------------
+    // --- R52-B3：TrapHexagon 已接真实实现 ---------------------------------
     //
-    // R52-B2 把 PoisonCloud 接成了真实技能（耗材 + 延迟落点 + 3×3 毒云 + 绿毒），
-    // 它的行为断言全部搬到 integration 测试 `crates/mir-server/tests/round52_poison_cloud.rs`；
-    // 这里只保留仍是 PARTIAL 的 TrapHexagon（R52-B3 接）。
+    // 行为断言全部搬到 integration 测试 `crates/mir-server/tests/round52_trap_hexagon.rs`；
+    // 这里只保留「不再是 `Unsupported`」和「预检无目标时 `cast = false`、不排效果」两条。
 
     #[test]
-    fn partial_poison_cloud_and_trap_hexagon_are_refused_without_mana() {
+    fn trap_hexagon_is_implemented_and_refuses_without_targets() {
         let mut world = round51_default_world(vec![
             round51_magic(Spell::PoisonCloud, 8),
             round51_magic(Spell::TrapHexagon, 8),
         ]);
         let _caster_rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
-        // PoisonCloud 不再是 PARTIAL（仍有独立测试覆盖真实行为）。
         assert_eq!(spell_kind(Spell::PoisonCloud), SpellKind::PoisonCloud);
         let spell = Spell::TrapHexagon;
-        assert_eq!(
-            spell_kind(spell),
-            SpellKind::Unsupported,
-            "{spell:?} is a fixed PARTIAL spell"
-        );
+        assert_eq!(spell_kind(spell), SpellKind::TrapHexagon);
         round51_learn(&mut world, 1, spell, 1);
-        let mp = world.player(1).expect("玩家").mp;
-        let error = world
+        let (mp, action_time, spell_time, casts) = {
+            let player = world.player(1).expect("玩家");
+            (
+                player.mp,
+                player.action_time,
+                player.magic.spell_time,
+                player.magic.casts.clone(),
+            )
+        };
+        let report = world
             .cast_magic(1, spell, MirDirection::Down, 0, Point::new(10, 10))
-            .expect_err("PARTIAL spells must be genuinely refused");
-        assert_eq!(error, MagicError::UnsupportedSpell(spell));
-        assert_eq!(world.player(1).expect("玩家").mp, mp, "拒绝时不扣蓝");
+            .expect("预检无目标不是错误：只是 cast = false");
+        assert_eq!(report.spell, spell);
+        {
+            let player = world.player(1).expect("玩家");
+            // 公共检查（动作/SpellTime/冷却/MP）已经发生，不因耗材段落失败回滚。
+            assert!(player.mp < mp, "公共检查的 MP 已经扣掉");
+            assert!(player.action_time > action_time, "动作锁定保留");
+            assert!(player.magic.spell_time > spell_time, "SpellTime 保留");
+            assert_eq!(
+                player.magic.casts, casts,
+                "cast = false 不写本技能 CastTime"
+            );
+        }
+        assert!(world.pending_magic().is_empty(), "不排延迟效果");
+        assert!(world.spell_fields().is_empty(), "没有落地就不生成场");
         world
             .player_mut(1)
             .expect("玩家")

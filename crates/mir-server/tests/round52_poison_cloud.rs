@@ -1045,11 +1045,13 @@ fn round52_poison_cloud_grid_tick_poison_and_expiry() {
         "ExpireTime = 落地 + 6000（`Map.cs:1450`）"
     );
     // `Show` 语义：9 格里只有首个实际生成的对象为 true。
+    let shown_fields: Vec<_> = fields.iter().filter(|field| field.show).collect();
     assert_eq!(
-        fields.iter().filter(|field| field.show).count(),
+        shown_fields.len(),
         1,
         "只有首个实际生成的对象 Show = true（`Map.cs:1452-1462`）"
     );
+    let shown_field_id = shown_fields[0].object_id;
     // 客户端只看到一条 `S.ObjectSpell`（`SpellObject.GetInfo` 对 `!Show` 返回 null）。
     let observer_packets = harness.packets(observer);
     let spell_packets: Vec<_> = observer_packets
@@ -1157,7 +1159,13 @@ fn round52_poison_cloud_grid_tick_poison_and_expiry() {
     );
     let obs = harness.packets(observer);
     let removed = object_remove_ids(&obs);
-    assert_eq!(removed.len(), 9, "9 格各广播一条 S.ObjectRemove");
+    // R2/F2：只有那个 `Show` 对象对客户端可见，到期只撤销它；8 个隐藏内部场
+    // （`show=false`）从未发给客户端，不能再广播未知 ID 的 26。
+    assert_eq!(
+        removed,
+        vec![shown_field_id],
+        "到期只撤销 1 个 Show 对象（隐藏内部场不发未知 ID 撤销）"
+    );
 
     // 12 跳绿毒：毒雾到期后毒继续按 1000ms 结算；怪物口径最后一跳不结算
     // （`MonsterObject.cs:1476-1491`），跳满 12 跳后整条移除。
@@ -1446,6 +1454,18 @@ fn round52_poison_cloud_pk_and_caster_lifecycle() {
         .iter()
         .map(|field| field.object_id)
         .collect();
+    let shown_field_id = offline
+        .world
+        .spell_fields()
+        .iter()
+        .find(|field| field.show)
+        .expect("首个 Show 场")
+        .object_id;
+    let hidden_field_ids: Vec<u32> = field_ids
+        .iter()
+        .copied()
+        .filter(|object_id| *object_id != shown_field_id)
+        .collect();
     offline.drain(observer);
     assert!(offline.world.leave(caster).is_some(), "施法者下线");
     offline.elapse(1);
@@ -1454,8 +1474,18 @@ fn round52_poison_cloud_pk_and_caster_lifecycle() {
         "已铺场阶段：施法者下线即清场（D3 已接受偏差）"
     );
     let removed = object_remove_ids(&offline.packets(observer));
-    for id in field_ids {
-        assert!(removed.contains(&id), "每格都广播 S.ObjectRemove（{id}）");
+    // R2/F2：只撤销客户端见过的那个 `Show` 对象（同批可能还有施法者玩家对象的
+    // AOI 撤销，按场 ID 过滤）；隐藏内部场不广播未知 ID。
+    assert_eq!(
+        removed
+            .iter()
+            .filter(|object_id| **object_id == shown_field_id)
+            .count(),
+        1,
+        "已铺场阶段下线只广播 1 条 S.ObjectRemove（Show 对象）"
+    );
+    for id in hidden_field_ids {
+        assert!(!removed.contains(&id), "隐藏内部场（{id}）不发未知 ID 撤销");
     }
 
     // --- pending 阶段：施法者下线 → 不生成任何场 ---
@@ -1545,6 +1575,18 @@ fn round52_poison_cloud_pk_and_caster_lifecycle() {
         .iter()
         .map(|field| field.object_id)
         .collect();
+    let shown_field_id = moved
+        .world
+        .spell_fields()
+        .iter()
+        .find(|field| field.show)
+        .expect("首个 Show 场")
+        .object_id;
+    let hidden_field_ids: Vec<u32> = field_ids
+        .iter()
+        .copied()
+        .filter(|object_id| *object_id != shown_field_id)
+        .collect();
     moved.drain(observer);
     moved.set_map(caster, "其他地图");
     moved.elapse(1);
@@ -1552,12 +1594,20 @@ fn round52_poison_cloud_pk_and_caster_lifecycle() {
         moved.world.spell_fields().is_empty(),
         "施法者换图即清场（D3 已接受偏差；Crystal 毒雾会留到 ExpireTime）"
     );
-    // 异图撤销也要发给观察者：逐格 `S.ObjectRemove(26)`。
+    // 异图撤销只针对客户端见过的 `Show` 对象（R2/F2）；隐藏内部场不发未知 ID 26。
     let removed = object_remove_ids(&moved.packets(observer));
-    for id in field_ids {
+    assert_eq!(
+        removed
+            .iter()
+            .filter(|object_id| **object_id == shown_field_id)
+            .count(),
+        1,
+        "换图清场时只撤销 Show 对象一次"
+    );
+    for id in hidden_field_ids {
         assert!(
-            removed.contains(&id),
-            "换图清场时每格都广播 S.ObjectRemove（{id}），实际 {removed:?}"
+            !removed.contains(&id),
+            "换图清场时隐藏内部场（{id}）不发未知 ID 撤销，实际 {removed:?}"
         );
     }
 

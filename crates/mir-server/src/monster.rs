@@ -1132,6 +1132,14 @@ pub struct Monster {
     pub move_time: i64,
     /// 攻击冷却截止（Crystal `AttackTime`）。
     pub attack_time: i64,
+    /// 困魔咒 `Shock` 状态的截止时刻（Crystal `MonsterObject.ShockTime`，
+    /// `MonsterObject.cs:604`，绝对值）。
+    ///
+    /// **独立于 `Frozen`/`Paralysis`**：不进 `CanAttack`（Crystal `:650-665` 不含它，
+    /// 贴身照样能打），只否决移动（`CanMove`，`:642`）并在够不到目标时清目标
+    /// （`ProcessTarget`，`:1858-1862`）。被有效伤害打中、或自己的攻击动作入口会清零
+    /// （`Attacked`/`Attack`，`:2620-2625`、`:2150-2155`）；护甲全额挡下的那次不算。
+    pub shock_time: i64,
     /// `HumanWizard` 的 `FearTime`：进入射程后的首轮 5 秒走位窗口。
     pub fear_time: i64,
     /// 下次搜索目标的时刻（Crystal `SearchTime`）。
@@ -1244,6 +1252,7 @@ impl Monster {
             action_time: now + MONSTER_SPAWN_ACTION_MS,
             move_time: 0,
             attack_time: 0,
+            shock_time: 0,
             fear_time: 0,
             search_time,
             roam_time,
@@ -1270,7 +1279,8 @@ impl Monster {
 
     /// 怪物是否还能行动：Crystal `MonsterObject.CanMove`（`MonsterObject.cs:634-649`）
     /// 去掉宠物条件。**Frozen 由 `GetPoison(PoisonType.Frozen)` 直接否决**（`:640`），
-    /// 所以被冰咆哮冻住的怪在毒时长内一步都走不了。
+    /// 所以被冰咆哮冻住的怪在毒时长内一步都走不了；困魔咒的 `ShockTime` 同样只卡移动
+    /// （`:642`，`Envir.Time > ShockTime`）。
     #[must_use]
     pub fn can_move(&self, now: i64) -> bool {
         !self.dead
@@ -1278,6 +1288,7 @@ impl Monster {
                 .poisons
                 .iter()
                 .any(|poison| poison.kind.value() == PoisonType::Frozen.value())
+            && now > self.shock_time
             && now > self.move_time
             && now > self.action_time
     }
@@ -1293,6 +1304,26 @@ impl Monster {
                 .any(|poison| poison.kind.value() == PoisonType::Frozen.value())
             && now > self.attack_time
             && now > self.action_time
+    }
+
+    /// 困魔咒 Shock 生效时「够得到目标」的距离（Crystal `MonsterObject.ProcessTarget`
+    /// 用 `InAttackRange` 判断，`MonsterObject.cs:1858-1862`）。
+    ///
+    /// 远程攻击优先；专属魔法/特殊攻击用模板自己的施法距离；守卫/攻城箭塔用视野；
+    /// 其余近战怪为 1 格。Shock 只否决移动，够得到就照常出手。
+    #[must_use]
+    pub fn shock_reach_range(&self) -> i32 {
+        self.kind
+            .ranged_attack_range()
+            .or_else(|| self.kind.monster_magic().map(|spec| spec.range))
+            .or_else(|| self.kind.monster_special().map(|spec| spec.range))
+            .unwrap_or_else(|| {
+                if self.kind.is_guard() || self.kind.is_conquest_archer() {
+                    self.kind.view_range
+                } else {
+                    1
+                }
+            })
     }
 
     /// 血量百分比（Crystal `MonsterObject.HealthPercent`，`MonsterObject.cs:559-565`）。
@@ -1498,8 +1529,46 @@ impl World {
         monster.operate_time = Self::monster_operate_time(monster, now);
     }
 
+    /// 困魔咒 Shock 中够不到目标就清目标（Crystal `MonsterObject.ProcessTarget`，
+    /// `MonsterObject.cs:1858-1862`：`if (Envir.Time < ShockTime) { Target = null; return; }`）。
+    ///
+    /// 放在 [`Self::process_ai`] 入口统一处理：宠物（`pet_target`）、低血逃跑、
+    /// 专属魔法/特殊攻击等分支都可能抢在 `process_target` 之前 return，必须一起覆盖。
+    /// 目标可达时**不清**——Shock 不进 `CanAttack`（`MonsterObject.cs:650-665`），
+    /// 贴身/射程内照样攻击。
+    fn clear_shocked_targets(&mut self, monster: &mut Monster, now: i64) {
+        if now >= monster.shock_time {
+            return;
+        }
+        if let Some(target_id) = monster.target {
+            let reachable = self
+                .attackable_position(&monster.map, target_id)
+                .is_some_and(|target_position| {
+                    monster
+                        .position
+                        .in_range(target_position, monster.shock_reach_range())
+                });
+            if !reachable {
+                monster.target = None;
+            }
+        }
+        // 宠物用独立的 `pet_target`（Crystal 宠物走同一 `ProcessTarget`，只是
+        // `Attack()` 里 `InRange(..., 1)`，所以够得到就是贴身）。
+        if let Some(target_id) = monster.pet_target {
+            let reachable = self
+                .attackable_position(&monster.map, target_id)
+                .is_some_and(|target_position| monster.position.in_range(target_position, 1));
+            if !reachable {
+                monster.pet_target = None;
+            }
+        }
+    }
+
     /// Crystal `MonsterObject.ProcessAI`（`MonsterObject.cs:1671-1733`）。
     fn process_ai(&mut self, monster: &mut Monster, now: i64) {
+        // Shock 的目标清理先于所有分支（宠物/树/守卫/专属攻击都会提前 return）。
+        self.clear_shocked_targets(monster, now);
+
         // 召唤物（`Master != null`）：跟随主人、攻击主人的目标（`MonsterObject.cs:1704-1721`、
         // `:1821-1825`）。走路逻辑与野生怪共用，所以单独分支，不参与 `CheckAlone` 的省电。
         if monster.master.is_some() {
@@ -1760,6 +1829,19 @@ impl World {
         };
 
         let ranged_range = monster.kind.ranged_attack_range();
+        // 困魔咒 Shock（Crystal `MonsterObject.ProcessTarget`，`MonsterObject.cs:1858-1862`）：
+        // `process_ai` 入口已经清过一轮，这里按刚解析出的目标位置再兜一次底——
+        // 够不到就清目标原地不动；能打到（含贴身）照常攻击（Shock 不进 `CanAttack`，
+        // `:650-665`，只否决移动 `:642`）。
+        if now < monster.shock_time
+            && (!same_map
+                || !monster
+                    .position
+                    .in_range(target_position, monster.shock_reach_range()))
+        {
+            monster.target = None;
+            return;
+        }
         // AI 47 `TrapRock`：Show() 生成角落子石；父石只触发一次，子石按普通近战。
         if monster.kind.ai == 47 && !self.trap_rock_shown.contains(&monster.object_id) {
             self.process_trap_rock(monster.object_id, target_id, now);
@@ -1768,7 +1850,16 @@ impl World {
         // AI 12 `BugBatMaggot`：攻击动作是召唤 BugBat（`BugBagMaggot.cs:30-48`），
         // 不做普通近战；上限/冷却由 `World::process_bugbat_summon` 控制。
         if monster.kind.ai == 12 {
+            // `process_bugbat_summon` 用 `monster_mut` 清世界里的 Shock，并写召唤冷却/
+            // 攻击计时；而这里是 `tick_monsters` 的克隆（循环末尾会写回），所以要把
+            // 世界里的最新计时同步回克隆，否则写回会把召唤动作的 ActionTime/AttackTime
+            // 覆盖掉（Crystal `BugBagMaggot.cs:46-47`：ActionTime +300 / AttackTime +3000）。
+            monster.shock_time = 0;
             self.process_bugbat_summon(monster.object_id, target_id, now);
+            if let Some(master) = self.monster(monster.object_id) {
+                monster.action_time = master.action_time;
+                monster.attack_time = master.attack_time;
+            }
             return;
         }
         if let Some(spec) = monster.kind.monster_magic() {
@@ -2043,6 +2134,8 @@ impl World {
     /// `MonsterObject.cs:1008-1016`、`:2627-2630`）；野生怪打宠物时正常记在攻击者身上，
     /// 宠物死亡本来就跳过经验/掉落（`monster_died` 的 `master.is_some()` 分支）。
     fn attack_monster(&mut self, monster: &mut Monster, target_id: u32, now: i64) -> bool {
+        // Crystal `Attack()` 第一行无条件 `ShockTime = 0`（`MonsterObject.cs:2150-2155`）。
+        monster.shock_time = 0;
         let Some(target_position) = self.attackable_position(&monster.map, target_id) else {
             return false;
         };
@@ -2126,6 +2219,10 @@ impl World {
             monster.target = None;
             return;
         }
+        // Crystal `BoneSpearman.Attack`：确认目标后 `ShockTime = 0`（`Monsters/BoneSpearman.cs:27-49`）；
+        // `RedMoonEvil.ProcessTarget` 先 `ShockTime = 0` 再逐个目标 `Attack()`
+        // （`Monsters/RedMoonEvil.cs:31-52`）。
+        monster.shock_time = 0;
         monster.direction = monster.position.direction_to(target_position);
         let packet = if monster.kind.ai == 50 && distance > 2 {
             ServerPacket::ObjectRangeAttack(ObjectRangeAttack {
@@ -2294,6 +2391,9 @@ impl World {
         if targets.is_empty() {
             return false;
         }
+        // Crystal `HumanWizard.Attack`：确认目标合法后 `ShockTime = 0`
+        // （`Monsters/HumanWizard.cs:26-55`，同类 `Clone` 也走这里）。
+        monster.shock_time = 0;
         let direction = monster.position.direction_to(target_position);
         let secondary_target_ids = targets
             .iter()
@@ -2437,6 +2537,8 @@ impl World {
     /// 广播 `S.ObjectRangeAttack`，伤害延迟 `max_distance * 50 + 500ms`
     /// （`MonsterObject.ProjectileAttack`）。
     fn ranged_attack(&mut self, monster: &mut Monster, target_id: u32, now: i64) -> bool {
+        // Crystal `RangeAttack()` 同样先清 `ShockTime`（`MonsterObject.cs:2179`）。
+        monster.shock_time = 0;
         let Some(target_position) = self.attackable_position(&monster.map, target_id) else {
             return false;
         };
@@ -2757,6 +2859,8 @@ impl World {
     /// 塞进 `ActionList`，300ms 后才在 `CompleteAttack` 里调 `target.Attacked(...)`。
     /// mir-next 用 [`World::pending_hits`] 复现这一延迟。
     fn monster_attack(&mut self, monster: &mut Monster, target_id: u32, now: i64) {
+        // Crystal `Attack()` 第一行无条件 `ShockTime = 0`（`MonsterObject.cs:2150-2155`）。
+        monster.shock_time = 0;
         let Some(target) = self.players.get(&target_id) else {
             monster.target = None;
             return;
@@ -2813,6 +2917,8 @@ impl World {
     ///
     /// 动作锁定 `ActionTime = now + 500`（`:76`），攻击冷却 `now + AttackSpeed`（`:77`）。
     fn guard_attack(&mut self, monster: &mut Monster, target_id: u32, now: i64) {
+        // Crystal `Attack()` 第一行无条件 `ShockTime = 0`（`MonsterObject.cs:2150-2155`）。
+        monster.shock_time = 0;
         let Some(target) = self.players.get(&target_id) else {
             monster.target = None;
             return;

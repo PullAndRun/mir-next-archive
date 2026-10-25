@@ -59,8 +59,8 @@ use mir_protocol::packets::server::{
     ChangeAMode, ColourChanged, DamageIndicator, Death, GainExperience, HealthChanged,
     LevelChanged, MarriageRequest, MentorRequest, MentorUpdate, ObjectAttack, ObjectColourChanged,
     ObjectDied, ObjectEffect, ObjectHealth, ObjectLeveled, ObjectMonster, ObjectPlayer,
-    ObjectRemove, ObjectRevived, ObjectRun, ObjectStruck, ObjectTurn, ObjectWalk, Opendoor,
-    RefreshItem, Revived, Struck, UserLocation,
+    ObjectRemove, ObjectRevived, ObjectRun, ObjectSpell, ObjectStruck, ObjectTurn, ObjectWalk,
+    Opendoor, RefreshItem, Revived, Struck, UserLocation,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -70,7 +70,7 @@ use crate::combat::{self, CombatStats, PendingHit};
 use crate::exp::ExpTable;
 use crate::gamedata::GameData;
 use crate::items::{GroundItem, ItemUidGenerator};
-use crate::magic::{MagicState, PendingMagic, UserMagic};
+use crate::magic::{MagicState, PendingMagic, SpellField, UserMagic};
 use crate::maps::{PendingMapMove, map_cache_limit_from_env};
 use crate::monster::{Monster, MonsterKind};
 use crate::npc::{Npc, NpcState};
@@ -836,6 +836,11 @@ pub struct World {
     /// 本作没有 `ObjectType.Spell` 这一层对象，火墙用「中心 + 半径 + 到期 + 伤害间隔」
     /// 的轻量结构表示；每 tick 用 AOI 查半径内的玩家/怪物结算伤害（见 [`crate::magic`]）。
     pub(crate) spell_fields: Vec<crate::magic::SpellField>,
+    /// 每个玩家当前可见的法术场对象 ID 集合（困魔咒 8 个外围场的入视野同步用）。
+    ///
+    /// 场对象不在 `aoi` 索引里（它们不是玩家/怪物），所以单独做一份差分；放
+    /// `World` 而不是 [`Player`] 上，避免所有测试文件的 `Player` 字面量都要补字段。
+    pub(crate) field_views: HashMap<u32, BTreeSet<u32>>,
     /// 下一次火墙「施法实例」编号（Crystal `_fireWallCastSeq`，`HumanObject.cs:4178`）。
     ///
     /// 地图配置 `FireWallLimit/FireWallCount` 按施法实例计数，超限时一次回收最老实例的
@@ -1125,6 +1130,7 @@ impl World {
             pending_hits: Vec::new(),
             pending_magic: Vec::new(),
             spell_fields: Vec::new(),
+            field_views: HashMap::new(),
             next_spell_cast_id: 1,
             pets: HashMap::new(),
             pet_modes: HashMap::new(),
@@ -1218,6 +1224,7 @@ impl World {
             pending_hits: Vec::new(),
             pending_magic: Vec::new(),
             spell_fields: Vec::new(),
+            field_views: HashMap::new(),
             next_spell_cast_id: 1,
             pets: HashMap::new(),
             pet_modes: HashMap::new(),
@@ -1943,6 +1950,8 @@ impl World {
         // 之后，由会话在 `on_start_game` 里调 `guild_player_online` 补发；
         // Crystal `PlayerObject.cs:1309`）。
         self.guild_bind_player(object_id);
+        // 视野内的法术场（困魔咒 8 个外围场）随进图补发。
+        self.sync_player_spell_fields(object_id);
     }
 
     /// 把玩家移出世界，并通知周围玩家移除。
@@ -1981,6 +1990,7 @@ impl World {
         self.market_searches.remove(&object_id);
         // 语言映射随对象销毁：对象 ID 会被复用，不清掉会让新玩家继承旧语言。
         self.player_languages.remove(&object_id);
+        self.field_views.remove(&object_id);
         self.sent_item_infos.remove(&object_id);
         self.pet_modes.remove(&object_id);
         self.friends.remove(&object_id);
@@ -2129,6 +2139,7 @@ impl World {
         // `HumanObject.cs:2470-2476`、`:7864`、`:8152`）：玩家 → 怪物 → 地面物品的进入/离开包。
         self.sync_player_players(object_id);
         self.sync_player_monsters(object_id);
+        self.sync_player_spell_fields(object_id);
         self.sync_player_ground_items(object_id);
         Ok(to)
     }
@@ -2226,6 +2237,7 @@ impl World {
         self.broadcast(&map, destination, Some(object_id), &packet, object_id);
         self.send_user_location(object_id);
         self.sync_player_monsters(object_id);
+        self.sync_player_spell_fields(object_id);
         self.sync_player_ground_items(object_id);
         Ok(destination)
     }
@@ -2238,6 +2250,16 @@ impl World {
     #[must_use]
     pub fn pending_hits(&self) -> &[PendingHit] {
         &self.pending_hits
+    }
+
+    /// 已排队但还没到结算时刻的延迟魔法效果（只读）。
+    ///
+    /// 对应 Crystal 每个对象的 `ActionList` 里 `DelayedType.Magic` 那一项
+    /// （`Server/MirObjects/MapObject.cs:228-233`）；困魔咒的 500ms 落地就挂在这里，
+    /// 测试用它断言「施法成功但场还没生成」的中间状态。
+    #[must_use]
+    pub fn pending_magic(&self) -> &[PendingMagic] {
+        &self.pending_magic
     }
 
     /// 玩家物理攻击（Crystal `HumanObject.Attack` 的近战分支，`HumanObject.cs:2848-3204`）。
@@ -3007,6 +3029,10 @@ impl World {
         let mut owner = None;
         if let Some(monster) = self.monster_mut(hit.target_id) {
             monster.hp = (monster.hp - result.damage).max(0);
+            // Crystal `MonsterObject.Attacked`：有效伤害结算后 `ShockTime = 0`
+            // （`MonsterObject.cs:2620-2625`）；护甲全额挡下 / miss 在上面已经 return，
+            // 所以「护甲早退不解除」是这一句位置的自然后果。
+            monster.shock_time = 0;
             died = monster.hp == 0;
             percent = monster.health_percent();
             owner = monster.expo_owner;
@@ -4698,6 +4724,15 @@ impl World {
         target_id: u32,
         now: i64,
     ) -> bool {
+        // Crystal `BugBagMaggot.Attack` 第一行就是 `ShockTime = 0;`（`BugBagMaggot.cs:30-53`），
+        // 召唤动作同样算「有效攻击入口」。
+        if self
+            .monster(master_id)
+            .is_some_and(|master| master.kind.ai == 12 && !master.dead)
+            && let Some(master) = self.monster_mut(master_id)
+        {
+            master.shock_time = 0;
+        }
         let Some(master) = self.monster(master_id) else {
             return false;
         };
@@ -5104,6 +5139,7 @@ impl World {
         let Some(player) = self.players.get(&player_id) else {
             return;
         };
+        let now = self.now();
         let map = player.map.clone();
         let position = player.position;
         let visible: BTreeSet<u32> = self
@@ -5121,7 +5157,7 @@ impl World {
             .filter_map(|object_id| {
                 self.monster(*object_id).map(|monster| {
                     let name = self.monster_name_for(language, &monster.kind);
-                    monster_info_frame(monster, &name)
+                    monster_info_frame_at(monster, &name, now)
                 })
             })
             .collect();
@@ -5136,6 +5172,92 @@ impl World {
             let _ = player.sender.send(frame);
         }
         player.visible_monsters = visible;
+    }
+
+    /// 玩家移动/进图后刷新「我能看见哪些法术场」，并做差分。
+    ///
+    /// 可见性必须按每个法术自己的 `GetInfo`/`Show` 语义算（Crystal `SpellObject.cs:490-560`）：
+    ///
+    /// * `show == false` 的场只是服务端内部对象（毒雾 3×3 的 8 个非首格），永远不可见；
+    /// * 可见位置是 [`spell_field_view_location`]——毒雾是 `CastLocation`（落点中心），
+    ///   困魔咒的 8 个外围场各自在自己的格子上；
+    /// * 本轮只覆盖 [`spell_field_visible_to_client`] 放行的场（困魔咒/毒雾）：火墙的
+    ///   生成与替换回收仍是 B2 的逐格直接广播，不在这条记账链里（见该函数的说明）。
+    ///
+    /// `field_views` 记录「已经发过 `ObjectSpell` 的场对象 ID」，生成/进入/退出/回收
+    /// 四个路径都维护它，保证同一个对象最多补发一次、最多撤销一次。
+    fn sync_player_spell_fields(&mut self, player_id: u32) {
+        let Some(player) = self.players.get(&player_id) else {
+            return;
+        };
+        let map = player.map.clone();
+        let position = player.position;
+        let visible: BTreeSet<u32> = self
+            .spell_fields
+            .iter()
+            .filter(|field| {
+                spell_field_visible_to_client(field)
+                    && field.map == map
+                    && position.in_range(spell_field_view_location(field), VIEW_RANGE)
+            })
+            .map(|field| field.object_id)
+            .collect();
+        let empty = BTreeSet::new();
+        let previous = self.field_views.get(&player_id).unwrap_or(&empty);
+        let removals: Vec<u32> = previous.difference(&visible).copied().collect();
+        let adds: Vec<Vec<u8>> = visible
+            .difference(previous)
+            .filter_map(|object_id| {
+                self.spell_fields
+                    .iter()
+                    .find(|field| field.object_id == *object_id)
+                    .map(|field| spell_field_frame(field, false))
+            })
+            .collect();
+        let Some(player) = self.players.get_mut(&player_id) else {
+            return;
+        };
+        for object_id in removals {
+            let _ = player.sender.send(object_remove_frame(object_id));
+        }
+        for frame in adds {
+            let _ = player.sender.send(frame);
+        }
+        self.field_views.insert(player_id, visible);
+    }
+
+    /// 新生成一个客户端可见的法术场对象后，把「已经收到 ObjectSpell」的玩家记进
+    /// `field_views`——广播范围与 [`Self::sync_player_spell_fields`] 的可见判定一致，
+    /// 否则下一次移动会把同一个对象再补发一次。
+    pub(crate) fn mark_spell_field_visible(&mut self, field: &SpellField) {
+        if !spell_field_visible_to_client(field) {
+            return;
+        }
+        let view_location = spell_field_view_location(field);
+        let recipients: Vec<u32> = self
+            .players
+            .iter()
+            .filter(|(_, player)| {
+                player.map == field.map && player.position.in_range(view_location, VIEW_RANGE)
+            })
+            .map(|(object_id, _)| *object_id)
+            .collect();
+        for player_id in recipients {
+            self.field_views
+                .entry(player_id)
+                .or_default()
+                .insert(field.object_id);
+        }
+    }
+
+    /// 法术场对象回收后，把所有玩家的「已见集合」里对应 ID 清掉。
+    ///
+    /// 回收时服务器会给曾经的观察者广播一次 `ObjectRemove`；清掉标记后，即使玩家
+    /// 还站在原格（或再次进入视野）也不会再补发/再撤销这个已不存在的对象。
+    pub(crate) fn forget_spell_field(&mut self, object_id: u32) {
+        for visible in self.field_views.values_mut() {
+            visible.remove(&object_id);
+        }
     }
 
     /// 玩家移动后刷新「我能看见哪些玩家」，并做**双向**差分。
@@ -5463,12 +5585,17 @@ impl World {
 
     /// 怪物在各语言下的外观帧（`S.ObjectMonster.name` 按会话语言）。
     pub(crate) fn monster_frames(&self, monster: &Monster) -> HashMap<Language, Vec<u8>> {
+        let now = self.now();
         Language::ALL
             .iter()
             .map(|language| {
                 (
                     *language,
-                    monster_info_frame(monster, &self.monster_name_for(*language, &monster.kind)),
+                    monster_info_frame_at(
+                        monster,
+                        &self.monster_name_for(*language, &monster.kind),
+                        now,
+                    ),
                 )
             })
             .collect()
@@ -5681,7 +5808,19 @@ impl World {
 }
 
 /// 怪物外观包（Crystal `MonsterObject.GetInfo`，对应 `S.ObjectMonster`）。
+///
+/// 保留不带时钟的旧签名（`maps.rs` 的出生广播在用）；`shock_time` 按 `now = 0`
+/// 计算——出生时还没有困魔咒状态，恒为 0。
 pub(crate) fn monster_info_frame(monster: &Monster, name: &str) -> Vec<u8> {
+    monster_info_frame_at(monster, name, 0)
+}
+
+/// 带世界时钟的怪物外观包。
+///
+/// `ObjectMonster.shock_time` 在 Crystal 里是**剩余毫秒**
+/// （`MonsterObject.cs:2874`：`ShockTime > 0 ? ShockTime - Envir.Time : 0`），
+/// 所以这里用 `now` 换算；客户端靠它在怪物脚下画禁锢动画。
+pub(crate) fn monster_info_frame_at(monster: &Monster, name: &str, now: i64) -> Vec<u8> {
     ServerPacket::ObjectMonster(ObjectMonster {
         object_id: monster.object_id,
         name: name.to_owned(),
@@ -5704,11 +5843,50 @@ pub(crate) fn monster_info_frame(monster: &Monster, name: &str) -> Vec<u8> {
         hidden: false,
         extra: false,
         extra_byte: 0,
-        shock_time: 0,
+        shock_time: (monster.shock_time - now).max(0),
         binding_shot_center: false,
         master_object_id: monster.master.unwrap_or(0),
         rarity: MonsterType::Normal,
         buffs: Vec::new(),
+    })
+    .encode_frame()
+}
+
+/// 法术场对象「客户端可见」的判定（Crystal `SpellObject.GetInfo` 的 `Show` 门槛，
+/// `SpellObject.cs:490-530`）：`show == false` 的对象只在服务端存在，不发 `ObjectSpell`。
+///
+/// 本轮 R52-B3 只把困魔咒与毒雾接进这条「生成/进入/退出/回收」记账链：火墙的生成
+/// （`create_fire_wall`）与最老一次施法的替换回收（`recycle_oldest_fire_wall`）仍是
+/// B2 的逐格直接广播、不登记 `field_views`，若把它也判为可见，玩家在视野内移动时
+/// 会因「已见集合里没有它」被再补发一次、回收后再补发一次撤销。C 批若要统一火墙，
+/// 需同时补齐它生成/替换两处的 [`World::mark_spell_field_visible`] 与
+/// [`World::forget_spell_field`] 维护后再放开这里的限制。
+pub(crate) fn spell_field_visible_to_client(field: &SpellField) -> bool {
+    field.show && matches!(field.spell, Spell::PoisonCloud | Spell::TrapHexagon)
+}
+
+/// 法术场在客户端上的坐标（Crystal `SpellObject.GetInfo` 里 `S.ObjectSpell.Location`，
+/// `SpellObject.cs:509`、`:522-530`）。
+///
+/// 毒雾 3×3 只有首个对象可见，且位置是 `CastLocation`（落点中心）；其余 8 格只是
+/// 服务端伤害场。困魔咒的 8 个外围场各自可见，位置就是场格本身（`default` 分支）。
+pub(crate) fn spell_field_view_location(field: &SpellField) -> Point {
+    if field.spell == Spell::PoisonCloud {
+        field.cast_location
+    } else {
+        field.center
+    }
+}
+
+/// `ObjectSpell` 帧：持续法术场对象的「进入视野」包（Crystal `SpellObject.GetInfo` 的
+/// `default` 分支，`SpellObject.cs:553-560`）。
+pub(crate) fn spell_field_frame(field: &SpellField, param: bool) -> Vec<u8> {
+    ServerPacket::ObjectSpell(ObjectSpell {
+        object_id: field.object_id,
+        location: spell_field_view_location(field),
+        spell: field.spell,
+        direction: field.direction,
+        param,
     })
     .encode_frame()
 }

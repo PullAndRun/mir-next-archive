@@ -865,9 +865,8 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 Crystal `GameshopDialog` 风格的**独立面板**，与 §5.16 的市场页签并存、互不替代：
 页签走 `S.NPCMarket` 列表，独立面板走 `S.GameShopInfo` 目录 + `S.GameShopStock` 库存。
 历史取证基线为 `HEAD = origin/main = 716db42`（2026-10-25），R50 已完成且为 **PASS-WITH-PARTIAL**；
-截至本批文档更新时，文档批 `7802eb9`、功能批 `13f7c78` 已提交；R51 T1 终审为 **BLOCK**，
-功能返工批及后续 HEAD 见[后续审计索引](testing/round51/README.md)。历史提交与残余保持 [R50 验收](process/round50-shangshu-acceptance.md)
-及 [T2](testing/round50/round50-final-audit.md#L66)口径，P02–P08/P10 与 P12 历史取证边界继续保留。
+文档批 `7802eb9`、功能批 `13f7c78` 是历史提交。R51 T1 **BLOCK** 保留为当时审计结论，后续返工后当前终态已为 **Done / PASS-WITH-PARTIAL**，见 [R51 终审 v4](testing/round51/round51-final-audit-v4.md)、[尚书验收](process/round51-shangshu-acceptance.md)及[门下确认](process/round51-menxia-confirm.md)。R52 仅进入文档/计划阶段，不能引用 R51 门禁作为 R52 功能完成证据。
+历史提交与残余保持 [R50 验收](process/round50-shangshu-acceptance.md)及 [T2](testing/round50/round50-final-audit.md#L66)口径，P02–P08/P10 与 P12 历史取证边界继续保留。
 `S.GameShopInfo`（Index 250）字段为 `Item: GameShopItem`（含 `ItemInfo`）、`StockLevel: i32`；
 `S.GameShopStock`（Index 251）字段为 `GIndex: i32`、`StockLevel: i32`，均按此顺序编码且不压缩。
 `GIndex` 是商品 Index，区别于物品模板 `ItemIndex` / `Info.Index`；详见
@@ -1855,6 +1854,10 @@ cargo fmt --all -- --check
 ```
 
 ## 8. 尚未实现
+
+**R51 / R52 分界（R52 A，2026-10-25）**：R51 已 **Done / PASS-WITH-PARTIAL**，Blink/StormEscape/FrostCrunch/ThunderStorm/ShoulderDash 五技能已交付。客户端真实 World→encode→decode→WorldSnapshot 两例已有绿灯，152/153 消费分支已存在；但错误预测格 + 已有 motion/队列的权威位置回纠、Standing、清队列及消费不可删的敏感证据仍缺，不能把旧例当作此项 closed。动作/声音仍借 Walking/Walk，原生 dash 帧、视觉、声音、时序均未验。
+
+**R52/G6 计划中，尚未实现/验证**：装备材料 DeleteItem 需按 UUID 同时覆盖部分扣数/归零摘槽、错误 UUID 不动/背包同模板不误扣，并串到生产存档重登；PoisonCloud/TrapHexagon 需真实服务端产包→编解码→快照、149/125 生成/撤销及入视野同步，且分别补强 152/153。当前 DeleteItem 仅处理背包，不能宣称装备耗材闭环已成。G1–G3/G6 核心缺口须返工，素材不足不能延期场生命周期；原生视觉/音频与真 socket 仍可单列 PARTIAL。Frost 玩家目标 PvP、默认资料/Slow/Frozen/严格包序/来源与 RNG 补证，以及火墙/InTrapRock 等十一项的分工与顺延见 [路线图 §五](roadmap.md#五下一步优先级r52-a2026-10-25)和 [R52 索引](testing/round52/README.md)，本 A 批未运行功能测试。
 
 * **移动插值的边界实测**：自机走/跑插值公式、单测与单方向 live 回归已通过；但
   **四类真实窗口边界（中央/触边/沿边/反向离边）未实测**，≥600ms/跳变无窗口录屏；

@@ -10,4 +10,6 @@
 
 治理收口：[尚书验收（ACCEPT-WITH-PARTIAL）](../../process/round51-shangshu-acceptance.md) ｜ [门下确认（Review→Done）](../../process/round51-menxia-confirm.md)。
 
+后续承接：[R52 范围、G1–G7 与证据规划](../round52/README.md)及[路线图十一项逐条映射](../../roadmap.md#五下一步优先级r52-a2026-10-25)；均为计划/待实现与补证，不改 R51 Done/PASS-WITH-PARTIAL、P03/P10 closed 或历史 BLOCK。
+
 门禁原件：attempt8 `target/round51/final-gate8.log` 188,937 B sha256 `817f531c…` exit 0 12/12 HEAD=8cbe713（attempt1–7 历史保留，attempt1/4 为失败史）。P09 文档时态修正见[礼部返工记录](../../process/round51-libu-docs.md#L46)；B3 返工边界见[尚书派发](../../process/round51-shangshu-rework-dispatch.md)，B4/T4 契约见[尚书 B4 派发](../../process/round51-shangshu-rework-dispatch-b4.md)。旧审计产物不覆盖。

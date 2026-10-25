@@ -35,7 +35,9 @@
   而不是一次性加满。
 - **`S.MagicDelay` 只在技能升级时发一次**（`HumanObject.cs:6972-6976`），**不是每次施法都发**；
   每次施法里客户端靠 `S.Magic` + `ClientMagic.Delay` 自己算冷却。
-- 本作已实现 **15 个伤害/治疗/位移/召唤/中毒技能**与 **9 个增益技能**：
+- R51 已 **Done / PASS-WITH-PARTIAL**，另外交付 `Blink`、`StormEscape`、`FrostCrunch`、`ThunderStorm`、`ShoulderDash` 五技能；[尚书验收](../process/round51-shangshu-acceptance.md)、[门下确认](../process/round51-menxia-confirm.md)与[终审 v4](../testing/round51/round51-final-audit-v4.md)共同限定范围。
+  `PoisonCloud` / `TrapHexagon` 仍为 `UnsupportedSpell`，护身符/毒药耗材未实现；Frost 玩家目标、火墙逐对象/InTrapRock、152/153 敏感回纠与 Walking/Walk 借帧等保留 PARTIAL。R52 对两技能/耗材与指定补证的承诺均为**未实现 / 计划中**，十一项逐条承接见[路线图 §五](../roadmap.md#五下一步优先级r52-a2026-10-25)与[R52 索引](../testing/round52/README.md)。
+- 本作原有 **15 个伤害/治疗/位移/召唤/中毒技能**与 **9 个增益技能**：
   - 伤害/治疗：`FireBall`、`GreatFireBall`、`ThunderBolt`（含不死系 ×1.5）、`SoulFireBall`、
     `HellFire`、`FireBang`、`Healing`、`MassHealing`；
   - 第 2 轮新增：`FireWall`（持续伤害场）、`Lightning`（前方 6 格贯穿）、`Teleport`（瞬息移动）、
@@ -675,7 +677,13 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 | Fury | 16 | 增益（攻速） | ✅ 已实现 | `AttackSpeed += 4`，`60 + 10L` 秒（`:6160-6164`） |
 | MagicBooster | 51 | 增益（魔力） | ✅ 已实现 | `MinMC/MaxMC += 6 + 6L`、耗蓝 +`6 + L`%，60 秒（`:4345-4350`、`:6228-6240`） |
 | Rage / ImmortalSkin / UltimateEnhancer / PetEnhancer / ElementalBarrier | 13/17/77/85/131 | 增益 | ⛔ 登记 | 见 `magic::REGISTERED_UNSUPPORTED`（`docs/world/buffs.md` §6） |
-| 其余（`Blink`、`ShoulderDash`、`ThunderStorm`、`PoisonCloud`、`SummonHolyDeva`、`TrapHexagon`、`IceStorm` 等） | — | — | ❌ 未实现 | 模板能查到，施法返回 `UnsupportedSpell`；若模板缺失则 `UnknownSpell` |
+| Blink | 151 | 定点位移 | R51 已交付 | 五个位置的包存在/包序已补强；默认数据边界另由 R52/G4 补证 |
+| StormEscape | 55 | 随机位移/清仇恨 | R51 已交付，有补证项 | buff→LevelMagic 严格包序、真实升级与专门跨图运行例待 R52/G5 |
+| FrostCrunch | 41 | 减速/冰冻 | R51 已交付 / PARTIAL | P03 closed 为历史结论；玩家目标 PvP、真实非空 Slow/概率两侧与 Frozen 实际拒攻仍待 R52/G5 |
+| ThunderStorm | 42 | 区域雷击 | R51 已交付 | 施法图冻结已闭合；不等同于地图持续场系统全部完成 |
+| ShoulderDash | 5 | 冲撞位移 | R51 已交付 / PARTIAL | StepCounter 3→0 已补；火墙逐对象 ProcessSpell/InTrapRock、原生 dash 与 152/153 敏感回纠保留 |
+| PoisonCloud / TrapHexagon | 83/73 | 毒雾场 / 陷阱控制 | **未实现，R52 计划中** | 当前仍 Unsupported；需装备耗材、真实场/独立 Shock 及客户端/存档闭环（G1–G3/G6） |
+| 其余（`SummonHolyDeva`、`IceStorm`、`BackStep` 等） | — | — | ❌ 未实现 | 模板能查到时施法返回 `UnsupportedSpell`；若模板缺失则 `UnknownSpell` |
 
 「✅ 已实现」的 9 个增益技能走 `SpellKind::Buff`：施法照常扣蓝、写冷却、发
 `S.Magic`/`S.ObjectMagic`，然后按 Crystal 的时机套 buff（`docs/world/buffs.md` 有逐条公式与包序）。
@@ -759,22 +767,22 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 
 ---
 
-## 11. 未做（TODO）
+## 11. 未做（TODO；R52 A 当前口径）
 
+- **R52 主交付仍未实现**：PoisonCloud 真实毒雾场 + 符5/shape1绿毒5、TrapHexagon 陷阱 + 符1；当前仍 Unsupported。G1/G2/G3/G6 需装备合法根槽递增单堆搜索（含6/9，不跨堆/补背包，不按耐久过滤）、双材料原子预检、Count/UUID/耗尽/生产存档/客户端完整闭环。其它旧技能耗材沿 D4 顺延。
+- 计划遵从 D2：公共扣蓝后材料失败仍扣 MP、保留动作/SpellTime，cast=false、不写本技能 CastTime、不排延迟效果；Trap 3×2 预检/3×3 落地、外围合法坐标安全剪裁，独立 Shock 不能用 Frozen 替代，专属 AI 漏控属核心返工。D3 离线/异图安全清场是**批准但尚未实现/实证**的生命周期偏差，须点名 PARTIAL；不声称 Crystal 所有场均清场或必然空指针。
+- **R51 已交付五技能的定向补证尚缺**：默认七记录逐技能 MP/冷却（ShoulderDash2500ms）、真实 Slow/Frozen/玩家目标及 Frozen 拒攻、StormEscape 真实升级五位置严格包序/跨图、多根槽/附加/有效 buff、零 RNG 后续状态；Freezing7 理论 Frozen 上限11，现有 `5..=12` 断言需 B4 收紧运行。普通根装备模板/added 对照 Crystal1858/1859，嵌套插槽1965/1966另保留 PARTIAL；本 A 批不改源码注释或断言。
+- **明确顺延**：火墙逐对象 ProcessSpell/InTrapRock（P04）、原生 dash 帧/视觉/声音/时序（P08）、guild Freezing/PoisonAttack 来源、1965/1966 嵌套插槽及真 socket。当前 Walking/Walk 借用与 World→编解码→快照不扩大为原生 dash 或 socket 全等价。十一项完整映射见 [路线图 §五](../roadmap.md#五下一步优先级r52-a2026-10-25)。
 - 开关型技能（`SpellToggle`）：需要玩家级开关状态与攻击分支配合（`Thrusting`、`HalfMoon`、
   `FlamingSword`、`TwinDrakeBlade`…）。
 - **仍登记但无效果的增益技能**：`Rage`、`ImmortalSkin`、`UltimateEnhancer`、
-  `PetEnhancer`、`ElementalBarrier`（都是 `AddBuff`，只是效果需要额外系统：
-  狂暴/金刚不坏的百分比换算是纯数值、神兽强化要宠物）。
-- 护身符/毒药消耗：见 §10 第 7 条（`SoulFireBall`/`Hiding`/`Summon*`/`SoulShield`/
-  `BlessedArmour`/`Poisoning` 都不消耗）。
-- 位移/传送类：`Blink`、`ShoulderDash`、`BackStep`、`StormEscape`
-  （`Teleport` 已实现，见 §6.4）。
+  `PetEnhancer`、`ElementalBarrier`（都是 `AddBuff`，效果需要额外系统）。
+- 旧技能护身符/毒药消耗：见 §10 第 7 条（`SoulFireBall`/`Hiding`/`Summon*`/`SoulShield`/
+  `BlessedArmour`/`Poisoning` 都不消耗），不随本轮新两技能扩入。
+- 位移/传送类：`BackStep` 未实现；`Teleport` 既有，Blink/ShoulderDash/StormEscape 已于 R51 交付。
 - 召唤/宠物：`SummonHolyDeva`；`SummonSkeleton`/`SummonShinsu` 已实现（§6.6），
   但 `PetSave`（下线保留）、`PetExp`（宠物经验）未做。
-- 持续伤害/中毒：`PoisonCloud`、`FrostCrunch` 的减速/冰冻（`Poisoning` 已实现，§6.7）。
-- 地图级持续技能对象：`ThunderStorm`、`TrapHexagon`、`HealingCircle` 等
-  （`FireWall` 已用 `SpellField` 实现，§6.2）。
+- 其它地图持续技能：`HealingCircle` 等未实现；FireWall 既有 SpellField；ThunderStorm 是已交付区域雷击，不作待补持续场列项。
 - 英雄（`HeroObject`）技能：`S.HeroInformation.magics` 仍恒为空。
 - 技能冷却的客户端下发：本作发 `ClientMagic.CastTime = 0`（Crystal 发的是
   `int.MinValue - Envir.Time` 的巨负值，语义等价）。

@@ -44,7 +44,7 @@
 | 邮件 | ✅ | 发送（金币/物品附件、邮票、邮费、10 秒限速）、阅读、邮局受理、领取附件、锁定/删除、`mail` 表持久化、30 天过期（扩展）、系统邮件（交易退货/市场退款）与商城邮件（背包溢出）；行会邮件、物品找回未做（见 `docs/world/mail.md`） |
 | 玩家交易 | ✅ | 面朝格发起、接受/拒绝、10 格交易栏、金币、双方确认、取消与动作中止、背包满寄邮件；28 个端到端用例（见 `docs/world/trade.md`） |
 | 寄售 / 拍卖 | ✅ | NPC 托管市场：寄售一口价、拍卖出价、搜索/翻页、提前成交、下架/收款、5% 佣金与 **48 小时过期**（Crystal 7 天，本作差异）、**批量上架/取回 ≤10 全成全回滚**、**到期自动成交**（`process_auctions` 每 60s，买家物品邮件 + 卖家金币邮件，同事务/幂等/崩溃重结算）、启动清理未成交过期单、迁移 0009 持久化（见 `docs/world/market.md`） |
-| 商城（GameShop）与元宝 | 🟡 | 市场面板商城页签、`C.GameshopBuy` 真实扣元宝/金币、职业等级与库存校验、背包优先/放不下转商城邮件、迁移 0011 库存计数单事务持久化；元宝为**角色级**（Crystal 是账号级）；独立商城面板与 `S.GameShopInfo`/`S.GameShopStock` **未完成，移至 R50**（R50 前置：素材授权/哈希 manifest、真实包链、事务失败包序，见 [`docs/world/gameshop.md`](world/gameshop.md) §12；不提前计入 R50 完成项） |
+| 商城（GameShop）与元宝 | 🟡 已交付，有残余 | R50 独立商城面板、`S.GameShopInfo`(250)/`S.GameShopStock`(251) 真实目录/库存包链、客户端Class/Category筛选、K热键、素材manifest、库存/失败事务均已交付；市场页签、元宝/金币交易与迁移0011沿用，元宝仍为角色级（Crystal账号级）。服务端Category过滤、K改键与像素/release真机仍PARTIAL，见[商城 §12](world/gameshop.md)及[客户端 §5.16.1](client.md)。 |
 | PK 与攻击模式 | ✅ | Peace/Group/Guild/RedBrown/All、安全区禁打、PK 值与红/黄/棕名、死亡掉落、守卫（见 `docs/world/pk.md`） |
 | 攻城（沙巴克） | 🟡 | 申请/时间表/四种城主判定/夺城/税收/传送点/箭塔、迁移 0008；第 8 轮补器械简化实体（Gate/Wall/Archer + 300–302 扩展包 + **迁移 0016** + `OPENGATE`/`CLOSEGATE` + 箭塔 `ObjectRangeAttack`）；旗子/控制点 NPC、修理未做（见 `docs/world/conquest.md` §8.6） |
 
@@ -98,25 +98,31 @@
 - [`docs/store/mirdb-format.md`](store/mirdb-format.md) — 数据库格式与版本门
 - [`docs/store/drops.md`](store/drops.md) — 掉落表语义
 
-## 五、下一步优先级
+## 五、下一步优先级（R52 A，2026-10-25）
 
-1. **i18n 收口（照单执行）**：`docs/i18n.md` §7 已给出逐条清单（第 1 类玩家可见 170+ 处，
-   含 `文件:行`、`TextKey` 建议名与参数占位）。先做 §7.5 的参数化 `TextKey` API，
-   再按表迁移；`tools/i18n/scan_hardcoded.py` 可复跑核对。
-2. **商城收尾（R50）**：独立商城面板（`S.GameShopInfo`/`S.GameShopStock`）与客户端 `Class`/`Category`
-   过滤、商城邮件附件领取的全链路端到端用例（R49 **未完成**；前置条件见 `docs/world/gameshop.md`
-   §12，不提前计入 R50 完成项）。
-3. **技能补全**：`Blink`/`ShoulderDash`/`StormEscape` 等位移、`PoisonCloud`/`FrostCrunch`
-   持续伤害、`ThunderStorm`/`TrapHexagon` 地图级技能、护身符消耗系统、`PetSave`/`PetExp`
-   （见 `docs/world/magic.md` §11）。
-4. **AOI 验收收尾**：8×8 桶网格、视野 16、进出视野差分与门状态机已实现，补跑
-   `cargo test -p mir-server --test aoi` 与既有包序回归后翻 ✅。
-5. **市场收尾**：✅ 已完成——拍卖到期自动成交（与 Crystal `ProcessAuction` 对齐，见 `docs/world/market.md` §9）。
-6. **攻城与领地**：旗子/控制点 NPC、城门开关与修理、领地租借。
-7. **客户端表现**：坐骑/翅膀精确素材映射、大地图点击寻路、天气/光照、小地图 NPC 任务标记
-   （自机/他者/怪物插值已分别于第 45/46/49 轮完成）。
-8. **任务补全**：✅ 任务物品栏、YouFound、`Q` 标记掉落、每日任务重置均已完成；剩余 `CallDefaultNPC`。
-9. **行会补全**：新建职位/权限编辑/邀请入会界面、行会投票；联盟页签与 `S.GuildAllies`(303) 权威名单已实现。
+R50 独立商城已交付；R51 已 **Done / PASS-WITH-PARTIAL**，已交付 Blink、StormEscape、FrostCrunch、ThunderStorm、ShoulderDash 五技能。PoisonCloud/TrapHexagon 与护身符耗材仍未实现，不能把该终态写成七技能完整。R51 [终审 v4 §D](testing/round51/round51-final-audit-v4.md)的十一项按下表承接；P03/P10 closed 是历史结论，不因补证计划重新打开或扩大。
+
+1. **R52 主线（未实现 / 计划中）**：装备栏护身符/绿毒耗材、PoisonCloud 真实毒雾场、TrapHexagon 独立 Shock 控制，以及服务端真实产包到客户端装备快照/存档的闭环（G1–G3/G6）。裁决以[门下 D1–D5、M01–M08](process/round52-menxia-review.md)和[派发契约](process/round52-shangshu-dispatch.md)为准；只给新两技能接耗材（D4），不扩大旧技能语义。
+2. **R51 定向补证（计划中）**：实际默认七技能 MagicInfo/耗蓝/冷却（G4），Slow/Frozen、Frost 玩家目标、来源/RNG、StormEscape 严格包序/跨图（G5），152/153 敏感回纠（G6）；现有分项绿灯不替代这些证据。
+3. **文档与 i18n（G7）**：保留 R49/R50/R51 原日志和历史结论；A 批仅实测文档检查，当前 TextKey 与扫描计数见 [i18n §7.9](i18n.md)。R50 参数化 TextKey 与 no-test 收口已交付，不再按待实施派活。
+4. **商城已交付 / 残余顺延**：R50 的独立面板、250/251 真实包链、库存/失败事务及素材 manifest 见 [商城 §12](world/gameshop.md#12-r50-交付索引与残余原r50-前置条件已完成保留结论)。服务端 Category 过滤、K 改键、像素基线与 release 真机往返仍按 [客户端 §5.16.1/§8](client.md)保留，不扩入 R52。
+5. **其它独立系统顺延**：PetSave/PetExp、AOI 全量验收、攻城旗子/控制点/修门/领地、坐骑/天气/光照/攻击变招、大地图寻路、CallDefaultNPC、行会职位/投票 UI。市场拍卖到期自动成交、任务物品栏/YouFound/Q 标记/每日重置、行会联盟页签与 303 权威名单已交付。
+
+| R51 §D 项 | R52 处置（均为计划，未写 closed） |
+|---|---|
+| 1 两技能/耗材；Frost 玩家 PvP | B1/B2/B3/C：G1–G3/G6；Frost 玩家目标由 B4/G5 补证；旧技能耗材顺延 |
+| 2 默认逐技能 MP/冷却 | B4/G4；实际默认记录及来源 SHA，ShoulderDash 2500ms；缺记录点名对应 PARTIAL |
+| 3 非空 Slow、概率两侧、玩家/怪物 | B4/G5；真实施法及命中/未命中计数 |
+| 4 StormEscape 包序/跨图 | B4/G5；真实升级，五位置先存在再排序；另跑跨图 |
+| 5 玩家 Frozen 实际拒攻 | B4/G5；真实 World::attack 拒攻 |
+| 6 152/153 敏感回纠 | C/G6；错误预测格 + 已有 motion/队列，两分支分别证明 |
+| 7 火墙逐对象 ProcessSpell/InTrapRock | 顺延 R53 候选，P04 保留；TrapHexagon 不等于 TrapRock |
+| 8 原生 dash 帧/视觉/声音/时序 | 顺延，P08 保留；Walking/Walk 借帧仍为 PARTIAL |
+| 9 guild Freezing / 真 socket | 顺延；World→encode→decode→快照不等于 socket 端到端 |
+| 10 多根槽有效装备 / 1965–1966 插槽 | 多根槽由 B4/G5 补证；嵌套插槽属性顺延 PARTIAL |
+| 11 零 RNG/坏装备+buff/0 耐久+added | B4/G5；真实状态序列对照，Freezing7 上界收紧至 11 |
+
+实施顺序为 A → B1 → B2 → B3 → B4 → C → Lead 唯一全量门禁 → T → 尚书 → 指定门下确认；各批串行独立评审且仅 Lead 提交。G1–G3/G6 核心缺口返工，G4/G5 逐子项判定；D3 离线/异图安全清场是已批准的生命周期偏差，仍须实现和实证并单列 PARTIAL。当前 A 文档检查不能证明 R52 功能完成，证据规划见 [R52 索引](testing/round52/README.md)。
 
 ## 六、第 49 轮收口状态（2026-10-25）
 

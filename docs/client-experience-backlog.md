@@ -1,7 +1,14 @@
-# 客户端体验后续清单（第 45 轮登记，未实施）
+# 客户端体验后续清单（第 45 轮登记，R52 A 更新）
 
-本清单只**记录**第 45 轮体验优化（自机移动插值/相机跟随）之后仍值得做的客户端体验项，
-不在本轮实施；每项都给出 Crystal 出处、现状/影响、可验收标准与排序。
+本清单保留第 45 轮体验优化（自机移动插值/相机跟随）之后的历史登记；下表是 R45 时点，后续交付与当前残余以本节更新及 [客户端文档](client.md)为准。每项仍保留 Crystal 出处、验收标准与排序。
+
+**当前状态（2026-10-25）**：他者 Walk/Run 插值 R46 已交付，怪物走/跑插值 R49 已交付（限 `005/022/184` 真实证据）；R49 导入 118 个 used 怪物库的原生帧表，4 个 v2、约 800 个缺源 appearance 与 Blend/Reverse/Effect/Sorting 仍 PARTIAL。R48 本地 A1–A4 选招、弓手 WalkingBow/RunningBow 与双持绘制已接入，但远端攻击只有 A1/A3、DoubleSlash 生产恒 false、刺客 Sneek 与协议原生动作仍未闭合；不能继续把这些已交付子项统一写为未实施。
+
+R50 独立商城面板、目录/库存真实包链和素材 manifest 已交付；服务端 Category、K 改键/修饰键、像素基线/release 真机往返继续顺延。R51 已 **Done / PASS-WITH-PARTIAL**，五技能 Blink/StormEscape/FrostCrunch/ThunderStorm/ShoulderDash 已交付；客户端 Walking/Walk 借帧仍非原生 dash，152/153 已有消费分支，但错误预测格 + 已有 motion/队列的敏感回纠证据未闭合。
+
+**R52 计划中，尚未实现/验证**：C/G6 接装备 UUID 的 DeleteItem 扣数/耗尽、两技能 149/125 场生命周期与入视野同步、152/153 敏感回纠；B1–B4 承接耗材/服务端技能及 R51 定向补证。原生 dash 帧/视觉/声音/时序、guild Freezing 与真 socket 顺延；火墙逐对象 ProcessSpell/InTrapRock 属独立系统，不由 TrapHexagon 局部绿灯覆盖。十一项承接详见 [路线图 §五](roadmap.md#五下一步优先级r52-a2026-10-25)及 [R52 索引](testing/round52/README.md)。
+
+## 第 45 轮原始登记（历史快照）
 Crystal 参考版本：`github/Crystal` HEAD `0e315fe327192afe52c3d7357ddd1f5b7e26c5b8`。
 
 排序口径：**P1 = 日常游玩高频可见**（走跑/战斗动作）；**P2 = 长时间沉浸感**（怪物外观/光照）；

@@ -1,0 +1,113 @@
+{
+  "schema_version": "round51-t2-final-audit-v2",
+  "task": "JJC-20261025-003",
+  "subtask": "JJC-20261025-003-sub-c0e495c7",
+  "auditor": "刑部/御史台 T2 independent read-only review (gpt-6.1-sol)",
+  "verdict": "BLOCK",
+  "head": "f500269",
+  "head_full": "f500269974c92d32b3510aef902e1d8fd2e7c2c6",
+  "branch": "main",
+  "origin_main_verified": "f500269974c92d32b3510aef902e1d8fd2e7c2c6",
+  "repository": "C:/Users/diana/Documents/github/mir-next",
+  "audit_date": "2026-10-25 Asia/Shanghai",
+  "commit_chain": [
+    {"sha": "7802eb9d3e7d4431b5454a7f8a0355c7057440e9", "role": "A documentation"},
+    {"sha": "13f7c7828c162f3f3c1c293a672af4b84f0fd5e4", "role": "B initial implementation, T1 audit target"},
+    {"sha": "fd0febc0d56c5c28383fa684f260b214a2c51bcd", "role": "B2 rework P03/P04/P05/P06/P07/P10"},
+    {"sha": "997eea4676201d15acfcefc68a9b9cd9a5395c98", "role": "P09 documentation and immutable T1 archive"},
+    {"sha": "f500269974c92d32b3510aef902e1d8fd2e7c2c6", "role": "TextKey 241 to 243 and attempt4 failure fix"}
+  ],
+  "gate5": {
+    "log_path": "target/round51/final-gate5.log",
+    "meta_path": "target/round51/final-gate5.meta.txt",
+    "head": "f500269974c92d32b3510aef902e1d8fd2e7c2c6",
+    "bytes": 189824,
+    "sha256": "091e096410bdb4788487da7966517a0de5d73e0a5801591c3475a86818367d11",
+    "independent_hash_and_size_match_meta": true,
+    "exit_code": 0,
+    "start_utc": "2026-10-25T03:07:21Z",
+    "end_utc": "2026-10-25T03:11:33Z",
+    "wall_seconds": 252,
+    "items_count": 12,
+    "passed_count": 12,
+    "failed_count": 0,
+    "code_source": "Raw summary records OK/FAIL. Code=0 below is inferred successful classification; individual numeric process codes are not separately stored. Aggregate exit_code=0 is explicit in meta.",
+    "items": [
+      {"name": "cargo fmt --all --check", "code": 0, "status": "OK", "seconds": 3},
+      {"name": "cargo clippy --workspace --all-targets -D warnings", "code": 0, "status": "OK", "seconds": 20},
+      {"name": "cargo test -p mir-server --test duo_smoke（串行）", "code": 0, "status": "OK", "seconds": 15},
+      {"name": "cargo test --workspace", "code": 0, "status": "OK", "seconds": 206},
+      {"name": "协议生成器 --check", "code": 0, "status": "OK", "seconds": 1},
+      {"name": "文档链接与包编号", "code": 0, "status": "OK", "seconds": 0},
+      {"name": "TextKey 完整性", "code": 0, "status": "OK", "seconds": 0},
+      {"name": "硬编码棘轮（player-visible，阈值70）", "code": 0, "status": "OK", "seconds": 0},
+      {"name": "硬编码棘轮（no-test，阈值0）", "code": 0, "status": "OK", "seconds": 0},
+      {"name": "运行时不引用老资源格式", "code": 0, "status": "OK", "seconds": 0},
+      {"name": "物品图标完整性", "code": 0, "status": "OK", "seconds": 1},
+      {"name": "PostgreSQL 集成测试（mir-store 串行）", "code": 0, "status": "OK", "seconds": 4}
+    ],
+    "reported_seconds_sum": 250,
+    "duration_note": "2 seconds difference from wall time comes from integer rounding and runner overhead; no timings fabricated.",
+    "scope_note": "Workspace command uses --skip duo_ --skip fault_pg; duo_smoke and PostgreSQL are separate entries. Full gate was observed, not rerun by T2.",
+    "summary_path": "target/round51/final-gate5-summary.log",
+    "summary_bytes": 2263,
+    "summary_sha256": "07d25d74976a25a7395c7bb9b78de48cd6af75ebbf96abd856907a278d5ff53b"
+  },
+  "historical_gate_attempts": [
+    {"attempt": 1, "head_short": "7802eb9", "log": "target/round51/final-gate.log", "meta": "target/round51/final-gate.meta.txt", "bytes": 188766, "sha256": "81bb05e3d424799082b49d2b655461b318ae9479d906c921c93b3270de33568b", "exit_code": 1, "hash_size_match": true, "correction": "Actual sole FAIL: player-visible hardcode ratchet 96 > 70; clippy OK. Lead's stated gate1-clippy-only failure is contradicted by original gate1 summary."},
+    {"attempt": 2, "head_short": "7802eb9", "log": "target/round51/final-gate2.log", "meta": "target/round51/final-gate2.meta.txt", "bytes": 186895, "sha256": "146577c4e64f944019caaacd9e8245a46d55372e68eed594b89a8293025f3398", "exit_code": 0, "hash_size_match": true, "note": "12/12, implementation uncommitted; cannot substitute for a committed implementation tree."},
+    {"attempt": 3, "head_short": "13f7c78", "log": "target/round51/final-gate3.log", "meta": "target/round51/final-gate3.meta.txt", "bytes": 186888, "sha256": "0539b82fb2eff360e4c0e6315e40c9a9a506a6ab11ac956ca7730c6fb530bd48", "exit_code": 0, "hash_size_match": true, "note": "12/12 on T1 target, not B2/current HEAD."},
+    {"attempt": 4, "head_short": "997eea4", "log": "target/round51/final-gate4.log", "meta": "target/round51/final-gate4.meta.txt", "bytes": 63050, "sha256": "05a7b193ddafe24ed6627aad1919fefeb29ca192864cf6c73cca8a93685b0f18", "exit_code": 1, "hash_size_match": true, "note": "Only workspace test failed: mir-core text_key_all_is_complete actual243 expected241. Explicitly NOT PASS."}
+  ],
+  "artifacts": {
+    "audit": {"path": "docs/testing/round51/round51-final-audit-v2.md", "bytes": 19230, "sha256": "d7e7ca18001061fa75b3c05fcdcf3ff0ccaffd0d5546055d6529fa7e1050b15d"},
+    "manifest": {"path": "docs/testing/round51/final-manifest-v2.json", "self_sha256_policy": "Final manifest SHA256 delivered to Lead via send_message and authorized child delegate-result; not embedded in itself to avoid circular self-hash."},
+    "gate_summary": {"path": "target/round51/final-gate5-summary.log", "bytes": 2263, "sha256": "07d25d74976a25a7395c7bb9b78de48cd6af75ebbf96abd856907a278d5ff53b"}
+  },
+  "p_status": {
+    "P01": "partial", "P02": "partial", "P03": "open", "P04": "partial", "P05": "closed", "P06": "closed", "P07": "partial", "P08": "partial", "P09": "closed", "P10": "open"
+  },
+  "blocking_findings": [
+    {"id": "P03", "source": "crates/mir-server/src/magic.rs:3115-3123", "finding": "caster_freezing sums item.added_stats only; omits item template Stats and buff Stats. Crystal HumanObject.cs:1858,1965,2332 aggregates all sources before FrostCrunch uses Stats[Stat.Freezing] at5987. Frozen duration parity fails when Freezing comes from omitted sources.", "required": "Repair full Freezing aggregation and verify template/added/buff sources; do not declare P03 closed without correction or explicit authorized scope decision."},
+    {"id": "P10", "source": "target/round51/b2/07-seven-row-matrix.md; target/round51/b2/00-summary.md", "finding": "Matrix claims nonzero StepCounter reset and strict Bell/ObjectEffect/buff order are tested, but cases do not establish those preconditions/order. Frost control case injects poisons directly. All-closed/no-open summary is inaccurate.", "required": "Correct evidence claims before acceptance; schedule missing meaningful assertions for R52."}
+  ],
+  "partial_list": [
+    {"p": "P01", "scope": "PoisonCloud remains Unsupported, real rejection and no MP cost", "acceptance": "acceptable explicit partial; implementation pending reagent/resource batch"},
+    {"p": "P02", "scope": "TrapHexagon remains Unsupported, real rejection and no MP cost", "acceptance": "acceptable explicit partial; implementation pending reagent/resource batch"},
+    {"p": "P03", "scope": "FrostCrunch player targets deferred to PvP batch", "acceptance": "acceptable scope partial; DOES NOT waive Freezing aggregation defect"},
+    {"p": "P04", "scope": "ShoulderDash firewall stops at entering hit; not full per-object ProcessSpell behavior", "acceptance": "acceptable explicit partial"},
+    {"p": "P04", "scope": "No InTrapRock system", "acceptance": "acceptable explicit system gap"},
+    {"p": "P08", "scope": "Dash/push uses Walking/Walk sounds, no native dash animation or visual parity run", "acceptance": "acceptable visible degradation if explicitly approved"},
+    {"p": "P07/P10", "scope": "Failure snapback with wrong predicted coordinate and active motion; nonzero StepCounter; real nonempty Frost application; strict temporal packet order/default MagicInfo", "acceptance": "mandatory R52 verification backlog, not represented as already tested"}
+  ],
+  "reproduction": {
+    "commands_executed_by_t2": [
+      {"command": "py -3 tools/docs/check_links.py", "exit_code": 0, "phase": "before v2 artifacts", "relative_links": 1039, "readmes_checked": 2},
+      {"command": "py -3 tools/i18n/verify_text_keys.py", "exit_code": 0, "all_keys": 243, "extension_keys": 32, "zh_keys": 243, "en_keys": 243},
+      {"command": "cargo test -p mir-client --test round51_spells_wire", "exit_code": 0, "passed": 2, "failed": 0, "ignored": 0, "job_id": "bash-bc55d3b091854a64"}
+    ],
+    "post_artifact_checks": [{"command": "py -3 tools/docs/check_links.py", "exit_code": 0, "relative_links": 1104, "readmes_checked": 2}, {"command": "py -3 tools/i18n/verify_text_keys.py", "exit_code": 0, "all_keys": 243, "extension_keys": 32, "zh_keys": 243, "en_keys": 243}],
+    "read_only_git_commands": ["git rev-parse HEAD origin/main", "git log -5 --format=%H", "git status --short --untracked-files=all", "git diff 716db42..HEAD -- crates/mir-protocol tools/dev/ci.ps1", "git diff --check"],
+    "hash_recipe": "For each artifact read original bytes; Node crypto.createHash('sha256').update(bytes).digest('hex'); compare byte length and hash to immutable meta.",
+    "not_executed": ["full CI/gate rerun", "ignored evidence tests", "source mutation probe", "visual/pixel/resource playback tests", "git commit/push"]
+  },
+  "hygiene": {
+    "changed_paths_against_716db42": 24,
+    "max_checked_r51_blob_bytes": 350031,
+    "max_blob_path": "crates/mir-client/src/net.rs",
+    "r51_blobs_over_1mib": 0,
+    "new_allow_clippy_matches": 0,
+    "scan_scope": "3725 added lines in R51 crates/config/tools; bounded private-key-header/common-token-pattern scan returned0; not a historical full-repository secret audit.",
+    "unexpected_tracked_changes_at_audit": [],
+    "known_untracked_before_audit": [
+      {"path": "docs/testing/monster-native/player-resource-freeze-before.json", "bytes": 44844165},
+      {"path": "docs/testing/monster-native/player-resource-freeze.json", "bytes": 45219533}
+    ],
+    "expected_untracked_after_audit": ["docs/testing/monster-native/player-resource-freeze-before.json", "docs/testing/monster-native/player-resource-freeze.json", "docs/testing/round51/round51-final-audit-v2.md", "docs/testing/round51/final-manifest-v2.json"],
+    "summary_under_ignored_target": true,
+    "final_postconditions": {"head_and_origin_main": "f500269974c92d32b3510aef902e1d8fd2e7c2c6", "tracked_changes": [], "untracked_paths_exactly_match_expected": true, "git_commit_or_push_performed": false}
+  },
+  "v1_relationship": "v1 audit/manifest/README remain immutable historical artifacts on13f7c78, committed by997eea4. v2 independently reviews f500269 and retains BLOCK for remaining/new findings; v1 P09 historical text is not rewritten into a current verdict.",
+  "source_evidence_note": "target original evidence remains local/ignored. Hash manifest is an index and does not recreate missing raw evidence on another machine.",
+  "lead_disposition": "Keep main task in rework/review. After P03 aggregate fix and P10 evidence correction, consider PASS-WITH-PARTIAL only with explicit acceptance of listed residuals. Do not mark all closed."
+}

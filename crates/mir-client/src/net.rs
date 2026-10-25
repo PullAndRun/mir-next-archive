@@ -5111,6 +5111,45 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 now_ms,
             );
         }
+        // 第 51 轮「冲撞」五连包（Crystal `GameScene` 的 `UserDash/ObjectDash/
+        // UserDashFail/ObjectDashFail/MagicCast`，服务端 `HumanObject.ShoulderDash`
+        // 逐格发包，`HumanObject.cs:4975-5157`）。
+        ServerPacket::UserDash(dash) => {
+            // 自机落点：服务端逐格发，每包一格；复用 `UserLocation` 的
+            // 「1 格直线 = Walking」分支，保持动作/插值同一套时钟。
+            snapshot.push_sound(SoundId::Walk, Spell::None, false);
+            apply_self_location(snapshot, dash.location, dash.direction, now_ms);
+        }
+        ServerPacket::ObjectDash(dash) => {
+            // 远端冲撞：客户端没有独立 dash 动作，按走路动作逐格插值。
+            snapshot.push_sound(SoundId::Walk, Spell::None, false);
+            apply_remote_step(
+                snapshot,
+                dash.object_id,
+                dash.location,
+                dash.direction,
+                ActorAction::Walking,
+                now_ms,
+            );
+        }
+        ServerPacket::UserDashFail(fail) => {
+            // 冲撞失败（零移动/安全区/被挡）：拉回服务端权威格；同坐标时
+            // `apply_self_location` 只计一次撞墙，不重启动画。
+            apply_self_location(snapshot, fail.location, fail.direction, now_ms);
+        }
+        ServerPacket::ObjectDashFail(fail) => {
+            snapshot.remote_motions.remove(&fail.object_id);
+            snapshot.monster_motions.remove(&fail.object_id);
+            update_entity(snapshot, fail.object_id, |entity| {
+                entity.position = fail.location;
+                entity.direction = fail.direction;
+                entity.set_action(ActorAction::Standing, now_ms);
+            });
+        }
+        ServerPacket::MagicCast(cast) => {
+            // 冲撞收尾的 `S.MagicCast`（index 122）：只有施法音，没有落点/弹道。
+            snapshot.push_sound(SoundId::Cast, cast.spell, false);
+        }
         ServerPacket::ObjectAttack(attack) => {
             // 挥空/挥武器（`PlayerObject.cs:4779-4847`）＋施法音（若这一下是魔法，
             // `PlayerObject.cs:1538` 的 `20000 + Spell × 10`）。

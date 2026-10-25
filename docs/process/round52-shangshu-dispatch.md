@@ -101,4 +101,7 @@ PARTIAL：D3离线/异图安全清场是已接受偏差，Crystal原毒雾通常
 
 ## 6. 本次看板回执
 
-核验前`validate --json`：`ok:true / schema:v3.1 / tasks:117 / issues:[]`；父单实际Assigned。七delegate、memo、Assigned→Doing及最终validate回执待顺序登记后补入。无执行代理启动，功能验收均未运行。
+核验前`validate --json`：`ok:true / schema:v3.1 / tasks:117 / issues:[]`，父单Assigned。A/B1/B2/B3/B4/C/T依表顺序逐一`delegate ... --as shangshu`，七次均exit0并返回上表真实ID；均为父单直系委派，未重复创建主单。
+`memo JJC-20261025-004 shangshu ... --as shangshu`已记录映射/严格DAG/M01–M08与风险，exit0；`state JJC-20261025-004 Doing "尚书派发：七子单已登记" --as shangshu`回执`Assigned → Doing`，exit0，无exit3。
+最终`validate --json`：`ok:true / schema:v3.1 / tasks:124 / issues:[]`，exit0；真实`show`确认父单Doing、now为“尚书派发：七子单已登记”，末子单owner=xingbu、依赖C+Lead门禁完整。子单Doing为CLI登记默认状态，不代表依赖满足或执行已启动。
+无执行代理启动、无cargo/git写操作、功能验收均未运行；Lead应先启动A，其后按DAG与独立评审逐批释放。派发文档的最终bytes/SHA及文档静态校验回执另经send_message交Lead，不将文件自身SHA写回产生循环。

@@ -105,3 +105,31 @@ PARTIAL：D3离线/异图安全清场是已接受偏差，Crystal原毒雾通常
 `memo JJC-20261025-004 shangshu ... --as shangshu`已记录映射/严格DAG/M01–M08与风险，exit0；`state JJC-20261025-004 Doing "尚书派发：七子单已登记" --as shangshu`回执`Assigned → Doing`，exit0，无exit3。
 最终`validate --json`：`ok:true / schema:v3.1 / tasks:124 / issues:[]`，exit0；真实`show`确认父单Doing、now为“尚书派发：七子单已登记”，末子单owner=xingbu、依赖C+Lead门禁完整。子单Doing为CLI登记默认状态，不代表依赖满足或执行已启动。
 无执行代理启动、无cargo/git写操作、功能验收均未运行；Lead应先启动A，其后按DAG与独立评审逐批释放。派发文档的最终bytes/SHA及文档静态校验回执另经send_message交Lead，不将文件自身SHA写回产生循环。
+
+## 9. 勘误与 C 批接缝授权（2026-10-25）
+
+### 9.1 E1：协议编号勘误（不改协议线格式）
+
+- 经只读核验 Crystal `Shared/Enums.cs` 与 `crates/mir-protocol/src/packets/server.rs` 对应 `INDEX`，本轮统一口径为：`149 = ObjectSpell`（毒雾/持续法术场的生成包），`125 = ObjectProjectile`（不是撤销包），撤销/移除为 `ObjectRemove = 26`。
+- 原 §3-B2、§3-B3、§3-C 中出现的“149/125”均按上述事实解释；本勘误不改协议线格式、不改枚举、不改 INDEX、不改既有包编码。C/T 文档与证据统一采用“149 生成 / 26 撤销”，`125` 仅按 `ObjectProjectile` 原义核验。
+- 服务端现有毒雾生成路径由 `ObjectSpell(149)` 广播，回收、离线/异图清场和到期路径由 `ObjectRemove(26)` 广播；不得再把 `125` 写作毒雾撤销。
+
+### 9.2 E2：C 批 world.rs 最小接缝授权
+
+- 允许 C 在 `crates/mir-server/src/world.rs` 增加**最小** spell-field 入视野补发接缝：玩家进入已有视野时，对当前地图、范围内可见且仍有效的毒雾 field 重发对应 `ObjectSpell(149)`；离场/撤销沿既有 `ObjectRemove(26)` 语义，不另造撤销协议或重构视野系统。
+- 授权仅覆盖必需的入视野钩子与对应测试/证据；复用现有 AOI/玩家入视野差分路径和 `SpellField` 状态，避免新增全量视野扫描、重复对象登记或产品范围扩张。若实现需要修改 `world.rs` 之外的服务端文件，必须先报 Lead 登记精确路径与理由，再继续。
+- C 的原写范围 `crates/mir-client/src/net.rs` 与 `crates/mir-client/tests/round52_spells_wire.rs`（及已批准的 R51 测试加强）保持不变；本条是为完成真实服务端到客户端接缝的定向授权，不代表 B2 重新开放产品开发。
+
+### 9.3 E3：归属与门禁
+
+- 入视野补发归 C 批接缝责任，不能以 D3 `PARTIAL`、`NT`、摘要声明或“后续再做”放行；D3 仅覆盖已批准的离线/异图生命周期偏差，不覆盖场同步缺口。
+- C 必须以真实服务端产包完成 `encode → decode → WorldSnapshot` 链路断言：生成包确为 `ObjectSpell` index `149`，撤销包确为 `ObjectRemove` index `26`，并对玩家进入已有毒雾视野时的 `149` 重发做可失败断言；同时保留离场/撤销的 `26` 验证。手造成功包、只验背包快照、只验客户端解码而无真实服务端产包，均不得作为放行证据。
+- T 在独立终审前核对 C 的真实产包、编解码、WorldSnapshot、入视野重发和撤销证据，并复核本节授权路径未扩大到其它服务端文件；缺任一项按 M04/M08 处理，不得写完整通过。
+
+### 9.4 B2 复审最小返工边界
+
+- 本轮 B2 复审 R1/R2/R3 均属于**测试/摘要最小返工**，不扩大产品范围、不新增产品语义、不借返工改写 D3 边界：
+  - **R1 / M02**：背包反例显式放入每种不少于 5 个材料；核对根装备为空、准确槽/UUID/Count、施法前后背包不变及公共失败状态，确保错误搜背包的实现会真实失败。
+  - **R2 / M04/M08**：替换目标下线的恒真局部值断言，改用 World 内身份/AOI/仍在线对照来跨过实际下一跳并验证场仍在；如摘要声称 pending 异图无 `ObjectSpell`，补 observer 的 `149 = 0` 断言或删除该未证实声称。重入仍在活跃毒雾格时应恢复正常受击，不得写成永久免疫。
+  - **R3 / 首轮遗漏**：在现有附伤用例内补 PoisonAttack 失效来源对照（坏耐久根装备的模板与 added 同时不贡献，并保留有效 buff/移除或到期 buff 的分离对照），用固定种子/前置断言证明结果差异与 RNG 不多抽；生产聚合路径无需因本项扩大文件范围。
+- R1/R2/R3 完成后仅按既有复审要求重跑原毒雾定向命令及受影响的格式/静态检查，并保留失败历史；不得借“测试全绿”抹除原 BLOCK，也不得将本节返工写成 G1 或整体产品闭合。

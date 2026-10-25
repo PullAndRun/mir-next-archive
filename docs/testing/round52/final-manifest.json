@@ -1,0 +1,60 @@
+{
+  "schema": "round52-final-audit-v1",
+  "verdict": "BLOCK",
+  "head": "46be80bbd45e2eea18a73d1915b1258f7784c9b2",
+  "origin_main": "46be80bbd45e2eea18a73d1915b1258f7784c9b2",
+  "requested_commit_chain": ["6f975fa", "9a72d16", "4efe600", "6310329", "d06a916", "0d7b4a1", "55e3593", "46be80b"],
+  "actual_commit_chain": ["6f975fa", "9a72d16", "f1f2e22", "4efe600", "6310329", "d06a916", "0d7b4a1", "55e3593", "46be80b"],
+  "additional_commit": "f1f2e22: dispatch section 9 errata and visibility-seam authorization",
+  "gates": [
+    {"path":"target/round52/final-gate.log","attempt":1,"bytes":140961,"sha256":"be54c5dbb5ac1bc2bc1759db3d456b7edb5e3af6a817106146a564ff6ac6d11c","exit":1,"head":"0d7b4a1c6070f662f3f53ef555f3a7a92a7c2330","meta":"target/round52/final-gate.meta.txt","start_utc":"2026-10-25T20:06:58Z","end_utc":"2026-10-25T20:10:39Z","declared_duration_s":220,"failure":"workspace monster_combat raw records 33 passed/1 failed (rng_is_reproducible_for_the_same_seed), not four failed tests; i18n 103/2"},
+    {"path":"target/round52/final-gate2.log","attempt":2,"bytes":192631,"sha256":"4da8ea80cc7a396e6690bac2ed68170a52a6ff824c7875577f4c9fd40d57bd42","exit":0,"head":"46be80bbd45e2eea18a73d1915b1258f7784c9b2","meta":"target/round52/final-gate2.meta.txt","start_utc":"2026-10-25T20:23:09Z","end_utc":"2026-10-25T20:27:15Z","duration_s":246,"passed_items":12}
+  ],
+  "encoding": "Keep mixed-encoding raw originals. final-gate2.utf8.log is a separate display derivative; final-gate.utf8.log is incomplete (505 lines), never a replacement for attempt1 raw.",
+  "evidence_directories": [
+    {"path":"target/round52/b3-fix3/","purpose":"Shock sentinel root cause, boundary regression, monster unit14/combat34, fmt/clippy"},
+    {"path":"target/round52/i18n/","purpose":"103/2 pre-fix and 66/0 final scans; archived baseline is historical"},
+    {"path":"target/round52/c/","purpose":"real process-internal wire2/2, five assertion mutations exit101, explicitly nonhistorical reconstruction"},
+    {"path":"target/round52/c-review/","purpose":"independent F1/F2 review, wire2/2 twice, R51wire2/2, production consumable save/reload1/1"},
+    {"path":"target/round52/b4-review/","purpose":"107 default records/sourceSHA, Frost/StormEscape, five summary/name corrections"},
+    {"path":"target/round52/b2/","purpose":"initial failures and b2b/b2c history, final PoisonCloud8/8"},
+    {"path":"target/round52/b3-review/","purpose":"Trap/Shock/specialAI/Show-ID/FireWall independent review and v3 result"},
+    {"path":"target/round52/b4/","purpose":"corrected regression8/8 and explicit default cooldown erratum/deviations"}
+  ],
+  "sample_fingerprints": [
+    {"path":"target/round52/b3-fix3/20-monster-combat.log","sha256":"30b439fadb54de94f89750a2f8ba674ed9d7e1fdab2b7dc4c13cc4db8f8fd8fc"},
+    {"path":"target/round52/i18n/10-with-test.log","sha256":"5034cf410262db921e3adbf22c4348f6e6cb66ecca84896d2381e678fa58102f"},
+    {"path":"target/round52/i18n/11-no-test.log","sha256":"84e0b4ee496d00f070dba969e74647e877e19dfb7dd969d14996674e8703d22f"},
+    {"path":"target/round52/c/02-test.log","sha256":"1b723be5e38156fda19fedd1d847f0f8c931abcf3e4e5f59d112f71ab99e5c04"},
+    {"path":"target/round52/c-review/review-v2.md","sha256":"c819d639e6844ea3f36657f19ff1257903d7ffce0f6bf2401699ccb3c3063c20"},
+    {"path":"target/round52/b4-review/review.md","sha256":"edb008bfccb4bd1f741dacd038d89f2f2c189308b008da2ad384a990110da2a3"},
+    {"path":"target/round52/b2/b2c-tests-1.log","sha256":"3191865445bc3cf8739dabd57ef7043e1d987add84b9946114ea80484487d1b3"},
+    {"path":"target/round52/b3-review/review-v3.md","sha256":"7d595851e51e7c705490fc7b7c81890b7ff94384dc34d2646cbad44145a6c22b"}
+  ],
+  "default_data": {"path":"game-assets/data/game.mnd","bytes":283257,"magic_records":107,"source":"cjlaaa","sha256":"fb67712fe65099e3b0d484e9fe6132ff3dca71ade75c86322ad5e7a8eea0a460","PoisonCloud_L2_ms":12000,"PoisonCloud_L3_ms":10000},
+  "excluded_candidates": [
+    {"path":"docs/testing/monster-native/player-resource-freeze-before.json","bytes":44844165,"reason":"historical untracked freeze; exclude"},
+    {"path":"docs/testing/monster-native/player-resource-freeze.json","bytes":45219533,"reason":"historical untracked freeze; exclude"}
+  ],
+  "hygiene": {"round52_added_over_1MiB":false,"target_or_env_tracked":false,"historical_large_tracked_file":"docs/testing/attack-variants/attack3-asset-plan.json (1228554 bytes; present before 6f975fa)"},
+  "partials": [
+    "125 ObjectProjectile has no server producer; C manual negative packet is not lifecycle proof",
+    "Process-internal wire only; real socket/network stack and native visuals/audio/dash unverified",
+    "D3 offline/cross-map safe clear differs from Crystal field/pending-action behavior",
+    "PvP Frost player target unavailable; injected PoisonState plus real attack checks combat side only",
+    "G1/G6 overall closure stays open in batch summaries; local PASS does not close every contract item",
+    "FireWall26 covered by server tests, not C lifecycle assertions; excluded from Trap/PoisonCloud visibility-diff chain",
+    "D2 peripheral clipping; legacy spell materials and guild/nested-slot attribute sources deferred",
+    "B4 cast then change_map drops pending StormEscape; change_map then cast resolves current map",
+    "C first lifecycle/fmt failure originals missing; counterfactual reconstruction is not historical evidence",
+    "B4 first fmt/clippy failures overwritten; summary discloses loss"
+  ],
+  "mandatory_fixes": [
+    "G7: synchronize README/roadmap/client/magic/backlog/round52 README/i18n to final evidence, retaining partials and historical conclusions; final count66/0, A historical67/0",
+    "Explicitly record PoisonCloud L3=10000 erratum in docs/process/round52-plan.md:47 and docs/process/round52-shangshu-dispatch.md:61; preserve corrected12000 history"
+  ],
+  "precision_notes": ["Crystal GetAmulet/GetPoison are HumanObject.cs:6859/6870; :5987 is Frozen duration", "46be80b also translates production debug_assert messages at magic.rs:1725/1762; no logic/numeric/assertion changes", "M1 fails Standing at test:1027 before SelfMotion check:1050; do not say both assertions executed", "B3 fix2 PoisonCloud metadata2153 lines is stale; actual2202, nonblocking"],
+  "independent_rechecks": {"with_test_hits":66,"with_test_limit":70,"no_test_hits":0,"no_test_limit":0,"textkeys":243,"zh":243,"en":243,"key_differences":0,"links":1401,"all_exits":0,"full_gate_rerun":false},
+  "reproduction_commands": ["git rev-parse HEAD origin/main", "git log --oneline -9", "git status --porcelain", "sha256sum target/round52/final-gate.log target/round52/final-gate2.log game-assets/data/game.mnd", "wc -c target/round52/final-gate.log target/round52/final-gate2.log game-assets/data/game.mnd", "git show 55e3593 -- crates/mir-server/src/monster.rs", "git show 46be80b", "py -3 tools/i18n/scan_hardcoded.py --player-visible --strict --fail-above 70", "py -3 tools/i18n/scan_hardcoded.py --no-test --player-visible --strict --fail-above 0", "py -3 tools/i18n/verify_text_keys.py", "py -3 tools/docs/check_links.py", "git diff --check", "cargo test -p mir-server --lib can_move_ignores_the_unset_shock_sentinel_at_clock_zero -- --nocapture", "cargo test -p mir-server --test monster_combat", "cargo test -p mir-server --test round52_regression -- --nocapture", "cargo test -p mir-client --test round52_spells_wire -- --nocapture", "pwsh -NoProfile -File tools/dev/ci.ps1"],
+  "commit_advice": "Explicitly add only the two audit docs; target summary remains ignored. Exclude both historical freezes. BLOCK is G7 documentation closure, not a product-test failure."
+}

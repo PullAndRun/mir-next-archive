@@ -1722,7 +1722,7 @@ impl World {
                 self.consume_spell_material(object_id, poison_slot, POISON_CLOUD_MATERIAL_COUNT);
             debug_assert!(
                 consumed_amulet && consumed_poison,
-                "find_spell_material 成功后 consume_spell_material 必须成功"
+                "consume_spell_material must succeed after find_spell_material succeeds"
             );
         }
 
@@ -1759,7 +1759,7 @@ impl World {
                 self.consume_spell_material(object_id, amulet_slot, TRAP_HEXAGON_AMULET_COUNT);
             debug_assert!(
                 consumed,
-                "find_spell_material 成功后 consume_spell_material 必须成功"
+                "consume_spell_material must succeed after find_spell_material succeeds"
             );
             // `LevelMagic(magic)`（`HumanObject.cs:4632`）：施法成功即训练一次；
             // 落地 `train = true` 再训练一次（`Map.cs:2356`）。
@@ -6275,7 +6275,7 @@ mod tests {
             assert!(player.magic.spell_time > spell_time, "SpellTime 保留");
             assert_eq!(
                 player.magic.casts, casts,
-                "cast = false 不写本技能 CastTime"
+                "cast = false must not write CastTime for this spell"
             );
         }
         assert!(world.pending_magic().is_empty(), "不排延迟效果");
@@ -7206,7 +7206,7 @@ mod tests {
         let actual: Vec<u32> = (0..8).map(|_| after.next_bounded(1_000)).collect();
         assert_eq!(
             actual, expected,
-            "Freezing=0 时 freeze_roll 不得消耗随机数（Crystal Random.Next(0)）"
+            "Freezing=0: freeze_roll must not consume RNG (Crystal Random.Next(0))"
         );
     }
 
@@ -7294,7 +7294,7 @@ mod tests {
         assert_eq!(
             world.caster_freezing(1),
             10,
-            "两槽：模板 3+1、附加 2+4（Crystal :1858 + :1859）"
+            "two slots: template 3+1, added 2+4 (Crystal :1858 + :1859)"
         );
         let mut saw_positive = false;
         for _ in 0..64 {
@@ -7306,7 +7306,7 @@ mod tests {
         let frozen = round51_cast_frost_until_frozen(&mut world, monster);
         assert!(
             (5..=14).contains(&frozen.duration),
-            "真实施法时长 = 5 + roll ∈ 5..=14，实际 {}",
+            "actual cast duration = 5 + roll in 5..=14, got {}",
             frozen.duration
         );
     }
@@ -7344,7 +7344,7 @@ mod tests {
         assert_eq!(
             world.caster_freezing(1),
             0,
-            "坏装备整件跳过：模板 7 与附加 5 都不计（Crystal :1836）"
+            "bad equipment skipped entirely: neither template 7 nor added 5 counts (Crystal :1836)"
         );
         let mut buff_stats = Stats::default();
         buff_stats.set(Stat::Freezing, 3);
@@ -7360,7 +7360,7 @@ mod tests {
         let frozen = round51_cast_frost_until_frozen(&mut world, monster);
         assert!(
             (5..=7).contains(&frozen.duration),
-            "坏装备+buff3 → 时长 ∈ 5..=7，实际 {}",
+            "bad equipment + buff3 -> duration in 5..=7, got {}",
             frozen.duration
         );
     }
@@ -7398,7 +7398,7 @@ mod tests {
         assert_eq!(
             world.caster_freezing(1),
             9,
-            "durability=0 → 不跳过；模板 5 + 附加 4 = 9"
+            "durability=0 -> not skipped; template 5 + added 4 = 9"
         );
         let mut saw_positive = false;
         for _ in 0..64 {
@@ -7410,7 +7410,7 @@ mod tests {
         let frozen = round51_cast_frost_until_frozen(&mut world, monster);
         assert!(
             (5..=13).contains(&frozen.duration),
-            "0 耐久+added4 → 时长 ∈ 5..=13，实际 {}",
+            "0 durability + added4 -> duration in 5..=13, got {}",
             frozen.duration
         );
     }
@@ -7467,7 +7467,7 @@ mod tests {
         assert_eq!(learned.level, 3, "真实施法升级应到 3 级");
         assert_eq!(
             learned.experience, 0,
-            "满级后修炼值清零（level_magic 满级分支，HumanObject.cs:6930-6950）"
+            "training points reset to zero at max level (level_magic max-level branch, HumanObject.cs:6930-6950)"
         );
         let packets = round51_packets(&mut caster_rx);
         let leveled = packets
@@ -7478,7 +7478,7 @@ mod tests {
             .count();
         assert!(
             leveled >= 3,
-            "0→1→2→3 应至少 3 次 MagicLeveled，实际 {leveled}"
+            "0->1->2->3 must emit at least 3 MagicLeveled, got {leveled}"
         );
         let delayed = packets
             .iter()
@@ -7517,11 +7517,11 @@ mod tests {
         assert_eq!(
             world.player(1).expect("玩家").position,
             Point::new(10, 13),
-            "3 级 Random.Next(4) > 3 不可能，必传送"
+            "level 3: Random.Next(4) > 3 impossible, must teleport"
         );
         assert!(
             world.buff_value(1, BuffKind::TemporalFlux).is_some(),
-            "成功传送加 TemporalFlux"
+            "successful teleport adds TemporalFlux"
         );
         let packets = round51_packets(&mut caster_rx);
         let effect_at = packets.iter().position(|packet| {
@@ -7534,7 +7534,7 @@ mod tests {
         let buff_at = buff_at.expect("本人必须收到 AddBuff(TemporalFlux)");
         assert!(
             effect_at < buff_at,
-            "本人顺序：ObjectEffect(StormEscape) → AddBuff(TemporalFlux)"
+            "self order: ObjectEffect(StormEscape) -> AddBuff(TemporalFlux)"
         );
         let packets = round51_packets(&mut observer_rx);
         let out_at = packets
@@ -7553,7 +7553,7 @@ mod tests {
             .expect("观察者必须收到 ObjectEffect{StormEscape}");
         assert!(
             out_at < in_at && in_at < effect_at,
-            "观察者顺序：ObjectTeleportOut → ObjectTeleportIn → ObjectEffect(StormEscape)"
+            "observer order: ObjectTeleportOut -> ObjectTeleportIn -> ObjectEffect(StormEscape)"
         );
 
         // 跨图：换图后施法，落图结算使用施法者当前图。
@@ -7613,20 +7613,20 @@ mod tests {
         }
         let error = world
             .attack(1, MirDirection::Right)
-            .expect_err("Frozen 必须拒绝真实攻击");
+            .expect_err("Frozen must reject real attack");
         assert!(
             matches!(error, crate::world::CombatError::Frozen { object_id: 1 }),
-            "应为 CombatError::Frozen，实际 {error:?}"
+            "expected CombatError::Frozen, got {error:?}"
         );
         assert_eq!(
             world.player(1).expect("玩家").action_time,
             0,
-            "拒攻不写 ActionTime"
+            "rejected attack must not write ActionTime"
         );
         assert_eq!(
             world.player(1).expect("玩家").attack_time,
             0,
-            "拒攻不写 AttackTime"
+            "rejected attack must not write AttackTime"
         );
 
         world.advance_clock(1_100);
@@ -7635,7 +7635,7 @@ mod tests {
         world.tick();
         assert!(
             !world.player(1).expect("玩家").is_frozen(),
-            "两跳后 Frozen 应移除"
+            "Frozen must be removed after two ticks"
         );
         {
             let player = world.player_mut(1).expect("玩家");
@@ -7647,7 +7647,7 @@ mod tests {
                 .attack(1, MirDirection::Right)
                 .expect("解冻后应能攻击")
                 .is_some(),
-            "解冻后应能真实命中"
+            "after unfreeze, real hits must land"
         );
     }
 }

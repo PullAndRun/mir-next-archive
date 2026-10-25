@@ -183,9 +183,9 @@ mod tests {
     fn test_world() -> World {
         let db = MirDb {
             items: vec![
-                item_template(AMULET, "护身符", 0, 300),
-                item_template(POISON_GREEN, "绿毒", 1, 200),
-                item_template(POISON_RED, "红毒", 2, 200),
+                item_template(AMULET, "Amulet", 0, 300),
+                item_template(POISON_GREEN, "Green Poison", 1, 200),
+                item_template(POISON_RED, "Red Poison", 2, 200),
             ],
             ..MirDb::default()
         };
@@ -211,7 +211,7 @@ mod tests {
                 object_id,
                 session_id: u64::from(object_id),
                 character_id: i64::from(object_id),
-                name: format!("玩家{object_id}"),
+                name: format!("player{object_id}"),
                 map: map.to_owned(),
                 position,
                 direction: MirDirection::Down,
@@ -357,12 +357,12 @@ mod tests {
         assert_eq!(
             world.find_spell_material(1, 5, 0),
             Some(6),
-            "按 `Info.Equipment` 递增扫描：槽 6 先于槽 9"
+            "scan by ascending `Info.Equipment`: slot 6 before slot 9"
         );
         assert_eq!(
             world.find_spell_material(1, 6, 0),
             None,
-            "单堆 5 张不够 6 张：不跨槽合并"
+            "single stack of 5 < 6: no cross-slot merge"
         );
 
         // --- 2) 部分扣数：槽保留、背包栏不动、只发一帧精确 Count 的 DeleteItem。
@@ -373,7 +373,7 @@ mod tests {
         assert_eq!(
             world.find_spell_material(1, 3, 0),
             Some(6),
-            "部分扣数后仍在槽 6"
+            "after partial deduction still in slot 6"
         );
 
         // --- 3) 耗尽摘槽：槽 6 清空，下一次 find 落到槽 9。
@@ -388,7 +388,7 @@ mod tests {
         assert!(!world.consume_spell_material(1, 9, 0), "0 扣数直接失败");
         assert!(
             !world.consume_spell_material(42, 9, 1),
-            "世界外的玩家扣不动"
+            "player outside world cannot be deducted"
         );
         let untouched = world.player(1).expect("玩家").equipment[9]
             .clone()
@@ -396,7 +396,7 @@ mod tests {
         assert_eq!(
             (untouched.unique_id, untouched.count),
             (900, 5),
-            "错误目标不动 UUID/数量"
+            "wrong target does not change UUID/count"
         );
         assert_eq!(count_at(&world, 1, 9), Some(5), "失败后物品未变");
         assert!(take_packets(&mut rx).is_empty(), "失败不发 DeleteItem");
@@ -409,7 +409,7 @@ mod tests {
         assert_eq!(
             world.find_spell_material(1, 5, 0),
             Some(9),
-            "0 耐久的护身符照样能找到"
+            "0-durability amulet still found"
         );
         assert!(world.consume_spell_material(1, 9, 5));
         assert!(world.player(1).expect("玩家").equipment[9].is_none());
@@ -424,7 +424,7 @@ mod tests {
         assert_eq!(
             world.find_spell_material(1, 5, 0),
             None,
-            "装备栏没有护身符：不补背包"
+            "no amulet in equipment slots: do not refill bag"
         );
         assert!(!world.consume_spell_material(1, 0, 1), "背包格不是装备槽");
         assert_eq!(
@@ -433,7 +433,7 @@ mod tests {
                 .expect("背包物品")
                 .count,
             10,
-            "背包物品没被动过"
+            "bag items untouched"
         );
 
         // --- 7) 形状精确匹配：绿毒 `Shape = 1`、红毒 `Shape = 2` 不互相顶替。
@@ -445,7 +445,7 @@ mod tests {
         assert_eq!(
             world.find_spell_material(1, 5, 3),
             None,
-            "没有 shape=3 的耗材"
+            "no consumable with shape=3"
         );
 
         // --- 8) 双材料原子：毒不足 → 整体预检失败 → 一张符都不扣。
@@ -456,7 +456,7 @@ mod tests {
         assert_eq!(
             precheck_poison_cloud(&world, 1, 5, 5),
             None,
-            "毒只有 3 张，整体预检失败"
+            "only 3 poison cards: whole precheck fails"
         );
         // 调用方模式：预检 None 时一项都不 consume，等价于 M02 的「任一不足都不扣」。
         assert_eq!(count_at(&world, 1, 9), Some(5));
@@ -476,7 +476,7 @@ mod tests {
         assert_eq!(
             delete_items(&take_packets(&mut rx)),
             vec![(900, 5), (801, 5)],
-            "每件只发一帧精确 Count 的 DeleteItem（先符后毒）"
+            "one exact-Count DeleteItem frame per item (amulet before poison)"
         );
     }
 

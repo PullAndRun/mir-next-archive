@@ -3240,7 +3240,7 @@ mod tests {
         assert_eq!(monster.shock_time, 0, "出生未中困魔咒");
         assert!(
             monster.can_move(0),
-            "未中 Shock 时 now==0 必须可以移动（R52 gate 回归）"
+            "without Shock, now==0 must allow movement (R52 gate regression)"
         );
 
         // 对照：真正中 Shock 时同一刻及之前不可移动，到期后一刻恢复；
@@ -3249,7 +3249,7 @@ mod tests {
         assert!(!monster.can_move(499), "Shock 期内不可移动");
         assert!(
             !monster.can_move(500),
-            "恰好到期当刻仍受 Shock（Crystal 严格大于）"
+            "still under Shock exactly at expiry instant (Crystal strict greater-than)"
         );
         assert!(monster.can_move(501), "Shock 到期后恢复移动");
     }

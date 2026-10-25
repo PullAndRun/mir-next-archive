@@ -94,6 +94,10 @@ EXTENSION_KEYS = (
     "spouse_recall_partner_ring",
     "reboot_countdown",
     "spouse_ring_given",
+    # 第 51 轮 R51-B2：ShoulderDash 一格未走时的系统聊天（Crystal
+    # `HumanObject.cs:5140-5143` 的 NoPushingInSafezone / NotEnoughPushingPower）。
+    "no_pushing_in_safezone",
+    "not_enough_pushing_power",
 )
 
 #: 允许带参数的扩展键（Crystal `ServerTextKeys.YouFound` 是 `You found {0}`）。

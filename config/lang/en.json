@@ -143,6 +143,8 @@
     "magic_firewall_limit": "The maximum number of Fire Walls has been reached. Please try again later.",
     "magic_summon_forbidden": "Pets cannot be summoned on this map.",
     "magic_teleport_forbidden": "Teleport cannot be used on this map.",
+    "no_pushing_in_safezone": "You cannot use Shoulder Dash inside a safe zone.",
+    "not_enough_pushing_power": "You do not have enough pushing power.",
     "mail_attachment_corrupted": "The mail attachment data is corrupted.",
     "mail_gameshop_body": "Thank you for your purchase from the shop.",
     "mail_gameshop_sender": "Shop",

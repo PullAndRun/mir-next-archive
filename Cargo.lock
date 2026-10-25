@@ -1399,6 +1399,7 @@ dependencies = [
  "anyhow",
  "mir-asset",
  "mir-core",
+ "mir-db",
  "mir-protocol",
  "mir-render",
  "mir-server",

@@ -31,6 +31,8 @@ winit = "0.30"
 [dev-dependencies]
 # 端到端联机测试在进程内起真实服务端（mir-server 依赖 tokio）。
 mir-server = { path = "../mir-server" }
+# 第 51 轮 P07：客户端解码链测试需要给真实服务端构造最小配表（MagicInfo/MapInfo）。
+mir-db = { path = "../mir-db" }
 tokio = { workspace = true }
 # live_world 证据清单（evidence-manifest.json）序列化。
 serde_json.workspace = true

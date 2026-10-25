@@ -404,9 +404,13 @@ pub struct Player {
 
 impl Player {
     /// 是否可以开始新动作（`CanMove`）。
+    ///
+    /// Crystal `HumanObject.CanMove`（`HumanObject.cs:117-147`）在这里就否决
+    /// `Frozen`/`Paralysis` 毒；本作的麻痹走 `BuffKind::Paralysis`（见 [`World::walk`]），
+    /// 冰冻走 [`Player::is_frozen`]。
     #[must_use]
     pub fn can_move(&self, now: i64) -> bool {
-        now >= self.action_time
+        !self.is_frozen() && now >= self.action_time
     }
 
     /// 是否允许跑（`CanRun`）：动作已结束且刚走过至少一步。
@@ -415,10 +419,37 @@ impl Player {
         self.can_move(now) && self.step_counter > 0
     }
 
-    /// 是否可以攻击：Crystal `HumanObject.CanAttack`（`HumanObject.cs:117-159`）去掉毒/坐骑条件。
+    /// 是否可以攻击：Crystal `HumanObject.CanAttack`（`HumanObject.cs:149-158`）。
     #[must_use]
     pub fn can_attack(&self, now: i64) -> bool {
-        !self.dead && now >= self.action_time && now >= self.attack_time
+        !self.dead && !self.is_frozen() && now >= self.action_time && now >= self.attack_time
+    }
+
+    /// 是否被冰咆哮冻住（Crystal `CanMove/CanAttack` 里的 `GetPoison(PoisonType.Frozen)`，
+    /// `HumanObject.cs:121`、`:155`）。
+    #[must_use]
+    pub fn is_frozen(&self) -> bool {
+        self.magic
+            .poisons
+            .iter()
+            .any(|poison| poison.kind == PoisonType::Frozen)
+    }
+
+    /// 是否中了冰咆哮的减速毒（Crystal `GetDelayTime` 里的 `GetPoison(PoisonType.Slow)`，
+    /// `HumanObject.cs:245-250`）。
+    #[must_use]
+    pub fn is_slowed(&self) -> bool {
+        self.magic
+            .poisons
+            .iter()
+            .any(|poison| poison.kind == PoisonType::Slow)
+    }
+
+    /// 动作间隔：中了 Slow 毒就 ×2（Crystal `GetDelayTime(baseDelay)`，
+    /// `HumanObject.cs:245-250`）。
+    #[must_use]
+    pub fn action_delay(&self, base: i64) -> i64 {
+        if self.is_slowed() { base * 2 } else { base }
     }
 
     /// 红毒造成的防御倍率（Crystal `ArmourRate`，`HumanObject.cs:714-715`）。
@@ -502,6 +533,13 @@ pub enum MoveError {
         /// 门索引。
         index: u8,
     },
+    /// 被冰咆哮冻住，不能移动（Crystal `CanMove` 里的 `GetPoison(Frozen)`，
+    /// `HumanObject.cs:121-127`）。
+    #[error("object {object_id} is frozen")]
+    Frozen {
+        /// 对象 ID。
+        object_id: u32,
+    },
 }
 
 /// 攻击失败原因。
@@ -521,6 +559,13 @@ pub enum CombatError {
     Busy {
         /// 可以攻击的最早时刻。
         until: i64,
+    },
+    /// 被冰咆哮冻住，不能攻击（Crystal `CanAttack` 里的 `GetPoison(Frozen)`，
+    /// `HumanObject.cs:149-157`）。
+    #[error("object {object_id} is frozen")]
+    Frozen {
+        /// 对象 ID。
+        object_id: u32,
     },
 }
 
@@ -2003,15 +2048,26 @@ impl World {
     pub fn walk(&mut self, object_id: u32, direction: MirDirection) -> Result<Point, MoveError> {
         let now = self.now();
         self.refresh_idle(object_id, now);
-        let (dead, can_move, action_time) = {
+        let (dead, frozen, can_move, action_time, action_delay) = {
             let Some(player) = self.players.get(&object_id) else {
                 return Err(MoveError::NotInWorld(object_id));
             };
-            (player.dead, player.can_move(now), player.action_time)
+            (
+                player.dead,
+                player.is_frozen(),
+                player.can_move(now),
+                player.action_time,
+                player.action_delay(MOVE_DELAY_MS),
+            )
         };
         if dead {
             self.send_move_rejection(object_id);
             return Err(MoveError::Dead { object_id });
+        }
+        // `GetPoison(PoisonType.Frozen)` → 不走（`HumanObject.cs:121-127`）。
+        if frozen {
+            self.send_move_rejection(object_id);
+            return Err(MoveError::Frozen { object_id });
         }
         if self.has_buff(object_id, crate::buffs::BuffKind::Paralysis) {
             return Err(MoveError::Busy { until: now + 1_000 });
@@ -2051,8 +2107,9 @@ impl World {
             player.direction = direction;
             player.step_counter += 1;
             player.cell_time = now + CELL_GRACE_MS;
-            // Crystal `BuffType.Slow`：移动间隔按百分比放大（values[0]）。
-            player.action_time = now + MOVE_DELAY_MS * (100 + i64::from(slow)) / 100;
+            // Crystal `BuffType.Slow`：移动间隔按百分比放大（values[0]）；
+            // 冰咆哮的 `PoisonType.Slow` 再让 `GetDelayTime` 整体 ×2（`HumanObject.cs:249`）。
+            player.action_time = now + action_delay * (100 + i64::from(slow)) / 100;
         }
         // Crystal `GetCell(CurrentLocation).Remove(this); … GetCell(CurrentLocation).Add(this);`
         // （`HumanObject.cs:2468-2474`）：AOI 网格随落格同步移动。
@@ -2084,20 +2141,27 @@ impl World {
     pub fn run(&mut self, object_id: u32, direction: MirDirection) -> Result<Point, MoveError> {
         let now = self.now();
         self.refresh_idle(object_id, now);
-        let (dead, can_move, action_time, can_run) = {
+        let (dead, frozen, can_move, action_time, can_run, action_delay) = {
             let Some(player) = self.players.get(&object_id) else {
                 return Err(MoveError::NotInWorld(object_id));
             };
             (
                 player.dead,
+                player.is_frozen(),
                 player.can_move(now),
                 player.action_time,
                 player.can_run(now),
+                player.action_delay(MOVE_DELAY_MS),
             )
         };
         if dead {
             self.send_move_rejection(object_id);
             return Err(MoveError::Dead { object_id });
+        }
+        // 冰冻同时否决 `CanMove`/`CanRun`（`HumanObject.cs:121-127`、`:170-176`）。
+        if frozen {
+            self.send_move_rejection(object_id);
+            return Err(MoveError::Frozen { object_id });
         }
         if !can_move {
             return Err(MoveError::Busy { until: action_time });
@@ -2136,7 +2200,8 @@ impl World {
             player.position = destination;
             player.direction = direction;
             player.cell_time = now + CELL_GRACE_MS;
-            player.action_time = now + MOVE_DELAY_MS;
+            // Crystal `GetDelayTime(MoveDelay)`：冰咆哮的 Slow 毒让动作间隔 ×2。
+            player.action_time = now + action_delay;
             player.run_counter += 1;
             if player.run_counter > RUN_COUNTER_LIMIT {
                 player.run_counter -= 8;
@@ -2205,6 +2270,11 @@ impl World {
         if self.has_buff(object_id, crate::buffs::BuffKind::Paralysis) {
             return Err(CombatError::Busy { until: now + 1_000 });
         }
+        // `GetPoison(PoisonType.Frozen)` → 不攻击（Crystal `HumanObject.CanAttack`，
+        // `HumanObject.cs:149-155`）。
+        if player.is_frozen() {
+            return Err(CombatError::Frozen { object_id });
+        }
         if !player.can_attack(now) {
             return Err(CombatError::Busy {
                 until: player.action_time.max(player.attack_time),
@@ -2214,6 +2284,10 @@ impl World {
         let position = player.position;
         let stats = player.stats;
         let level = player.level;
+        // Crystal `GetDelayTime(attackDelay)`：冰咆哮的 Slow 毒让攻击间隔 ×2
+        // （`HumanObject.cs:245-250`、`:1740`）。
+        let attack_delay =
+            player.action_delay(combat::player_attack_delay_ms(level, stats.attack_speed));
 
         // 1) `Enqueue(S.UserLocation)` + `Broadcast(S.ObjectAttack)`（`HumanObject.cs:2971-2972`）。
         self.send_to_player(
@@ -2235,9 +2309,9 @@ impl World {
         .encode_frame();
         self.broadcast(&map, position, Some(object_id), &packet, object_id);
 
-        // 2) `AttackTime = now + AttackSpeed`、`ActionTime = now + 550`、`RegenTime = now + RegenDelay`
-        //    （`HumanObject.cs:2974-2976`）——出手会把自然回复往后推一个完整周期。
-        let attack_delay = combat::player_attack_delay_ms(level, stats.attack_speed);
+        // 2) `AttackTime = now + GetDelayTime(AttackSpeed)`、`ActionTime = now + 550`、
+        //    `RegenTime = now + RegenDelay`（`HumanObject.cs:2974-2976`）——出手会把自然
+        //    回复往后推一个完整周期。
         if let Some(player) = self.players.get_mut(&object_id) {
             player.attack_time = now + attack_delay;
             player.action_time = now + PLAYER_ATTACK_ACTION_MS;

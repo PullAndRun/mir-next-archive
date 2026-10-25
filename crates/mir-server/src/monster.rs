@@ -1268,16 +1268,31 @@ impl Monster {
         }
     }
 
-    /// 怪物是否还能行动：Crystal `MonsterObject.CanMove`（`MonsterObject.cs:634-649`）去掉毒/宠物条件。
+    /// 怪物是否还能行动：Crystal `MonsterObject.CanMove`（`MonsterObject.cs:634-649`）
+    /// 去掉宠物条件。**Frozen 由 `GetPoison(PoisonType.Frozen)` 直接否决**（`:640`），
+    /// 所以被冰咆哮冻住的怪在毒时长内一步都走不了。
     #[must_use]
     pub fn can_move(&self, now: i64) -> bool {
-        !self.dead && now > self.move_time && now > self.action_time
+        !self.dead
+            && !self
+                .poisons
+                .iter()
+                .any(|poison| poison.kind.value() == PoisonType::Frozen.value())
+            && now > self.move_time
+            && now > self.action_time
     }
 
-    /// 怪物是否能攻击：Crystal `MonsterObject.CanAttack`（`MonsterObject.cs:650-665`）去掉毒/宠物条件。
+    /// 怪物是否能攻击：Crystal `MonsterObject.CanAttack`（`MonsterObject.cs:650-665`）
+    /// 去掉宠物条件。同样受 Frozen 否决（`:654`）。
     #[must_use]
     pub fn can_attack(&self, now: i64) -> bool {
-        !self.dead && now > self.attack_time && now > self.action_time
+        !self.dead
+            && !self
+                .poisons
+                .iter()
+                .any(|poison| poison.kind.value() == PoisonType::Frozen.value())
+            && now > self.attack_time
+            && now > self.action_time
     }
 
     /// 血量百分比（Crystal `MonsterObject.HealthPercent`，`MonsterObject.cs:559-565`）。

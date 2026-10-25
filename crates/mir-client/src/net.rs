@@ -4535,6 +4535,14 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
         ServerPacket::ObjectColourChanged(_) => "ObjectColourChanged",
         ServerPacket::ObjectName(_) => "ObjectName",
         ServerPacket::PlayerUpdate(_) => "PlayerUpdate",
+        // 第 51 轮冲撞包（与 `apply_packet_to` 的分支一一对应）。
+        ServerPacket::UserDash(_) => "UserDash",
+        ServerPacket::ObjectDash(_) => "ObjectDash",
+        ServerPacket::UserDashFail(_) => "UserDashFail",
+        ServerPacket::ObjectDashFail(_) => "ObjectDashFail",
+        ServerPacket::Pushed(_) => "Pushed",
+        ServerPacket::ObjectPushed(_) => "ObjectPushed",
+        ServerPacket::MagicCast(_) => "MagicCast",
         ServerPacket::Disconnect(_) => "Disconnect",
         _ => "Other",
     }
@@ -5145,6 +5153,25 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 entity.direction = fail.direction;
                 entity.set_action(ActorAction::Standing, now_ms);
             });
+        }
+        ServerPacket::Pushed(pushed) => {
+            // 自己被冲撞推开一格（Crystal `HumanObject.Pushed` 的 `S.Pushed`，
+            // `HumanObject.cs:2649-2724`）：服务端逐格发，每包一格，按走路插值。
+            snapshot.push_sound(SoundId::Walk, Spell::None, false);
+            apply_self_location(snapshot, pushed.location, pushed.direction, now_ms);
+        }
+        ServerPacket::ObjectPushed(pushed) => {
+            // 远端对象被冲撞推开一格（`MonsterObject.cs:1035-1091` 的
+            // `S.ObjectPushed`）：与 `ObjectDash` 一样按走路动作逐格插值。
+            snapshot.push_sound(SoundId::Walk, Spell::None, false);
+            apply_remote_step(
+                snapshot,
+                pushed.object_id,
+                pushed.location,
+                pushed.direction,
+                ActorAction::Walking,
+                now_ms,
+            );
         }
         ServerPacket::MagicCast(cast) => {
             // 冲撞收尾的 `S.MagicCast`（index 122）：只有施法音，没有落点/弹道。

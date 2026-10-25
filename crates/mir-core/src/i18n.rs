@@ -430,6 +430,12 @@ pub enum TextKey {
     MagicTeleportForbidden,
     /// 场景：`summon_pet 系统聊天`（`magic.rs:400`）；模板：`这张地图不能召唤宠物。`；参数：无。
     MagicSummonForbidden,
+    /// 场景：`cast_shoulder_dash 系统聊天`（冲撞一格未走且施法者站在安全区；
+    /// Crystal `HumanObject.cs:5140`）；模板：`安全区内无法冲撞。`；参数：无。
+    NoPushingInSafezone,
+    /// 场景：`cast_shoulder_dash 系统聊天`（冲撞一格未走；Crystal
+    /// `HumanObject.cs:5142`）；模板：`冲撞力量不足。`；参数：无。
+    NotEnoughPushingPower,
     /// 场景：`MailError::message`（`mail.rs:406`）；模板：`你不在游戏世界里。`；参数：无。
     MailNotInWorld,
     /// 场景：`MailError::message`（`mail.rs:407`）；模板：`邮件正文不能超过 {max} 字。`；参数：`{max}`。
@@ -807,6 +813,8 @@ impl TextKey {
         Self::MagicFirewallLimit,
         Self::MagicTeleportForbidden,
         Self::MagicSummonForbidden,
+        Self::NoPushingInSafezone,
+        Self::NotEnoughPushingPower,
         Self::MailNotInWorld,
         Self::MailTextTooLong,
         Self::MailRecipientMissing,
@@ -1054,6 +1062,8 @@ impl TextKey {
             Self::MagicFirewallLimit => "magic_firewall_limit",
             Self::MagicTeleportForbidden => "magic_teleport_forbidden",
             Self::MagicSummonForbidden => "magic_summon_forbidden",
+            Self::NoPushingInSafezone => "no_pushing_in_safezone",
+            Self::NotEnoughPushingPower => "not_enough_pushing_power",
             Self::MailNotInWorld => "mail_not_in_world",
             Self::MailTextTooLong => "mail_text_too_long",
             Self::MailRecipientMissing => "mail_recipient_missing",
@@ -1306,6 +1316,8 @@ impl TextKey {
             Self::MagicFirewallLimit => &[],
             Self::MagicTeleportForbidden => &[],
             Self::MagicSummonForbidden => &[],
+            Self::NoPushingInSafezone => &[],
+            Self::NotEnoughPushingPower => &[],
             Self::MailNotInWorld => &[],
             Self::MailTextTooLong => &["max"],
             Self::MailRecipientMissing => &[],
@@ -1697,6 +1709,8 @@ const fn text_zh(key: TextKey) -> &'static str {
         TextKey::MagicFirewallLimit => "火墙数量已达上限，请稍后再试。",
         TextKey::MagicTeleportForbidden => "这张地图不能使用瞬息移动。",
         TextKey::MagicSummonForbidden => "这张地图不能召唤宠物。",
+        TextKey::NoPushingInSafezone => "安全区内无法冲撞。",
+        TextKey::NotEnoughPushingPower => "冲撞力量不足。",
         TextKey::MailNotInWorld => "你不在游戏世界里。",
         TextKey::MailTextTooLong => "邮件正文不能超过 {max} 字。",
         TextKey::MailRecipientMissing => "找不到该玩家。",
@@ -2021,6 +2035,8 @@ const fn text_en(key: TextKey) -> &'static str {
         }
         TextKey::MagicTeleportForbidden => "Teleport cannot be used on this map.",
         TextKey::MagicSummonForbidden => "Pets cannot be summoned on this map.",
+        TextKey::NoPushingInSafezone => "You cannot use Shoulder Dash inside a safe zone.",
+        TextKey::NotEnoughPushingPower => "You do not have enough pushing power.",
         TextKey::MailNotInWorld => "You are not in the game world.",
         TextKey::MailTextTooLong => "The mail body cannot exceed {max} characters.",
         TextKey::MailRecipientMissing => "That player could not be found.",

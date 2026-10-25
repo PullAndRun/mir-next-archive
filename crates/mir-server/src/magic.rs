@@ -78,8 +78,8 @@ use mir_protocol::data::{ClientBuff, ClientMagic, Stats, UserItem};
 use mir_protocol::packets::server::{
     AddBuff, Magic, MagicCast, MagicDelay, MagicLeveled, NewMagic, ObjectDash, ObjectDashFail,
     ObjectEffect, ObjectHidden, ObjectMagic, ObjectPoisoned, ObjectPushed, ObjectRemove,
-    ObjectSpell, ObjectTeleportIn, ObjectTeleportOut, Poisoned, RemoveBuff, UseItem, UserDash,
-    UserDashFail,
+    ObjectSpell, ObjectTeleportIn, ObjectTeleportOut, Poisoned, Pushed, RemoveBuff, UseItem,
+    UserDash, UserDashFail,
 };
 use mir_protocol::{PacketReader, PacketWriter, ProtocolError, ServerPacket};
 
@@ -204,6 +204,22 @@ pub const POISON_DELAY_MS: i64 = 500;
 
 /// 中毒每跳间隔：`TickSpeed = 2000`（`HumanObject.cs:6058`、`:6068`）。
 pub const POISON_TICK_MS: i64 = 2_000;
+
+/// 冰咆哮两种毒的每跳间隔：`TickSpeed = 1000`
+/// （`HumanObject.cs:5974` 的 Slow、`:5986` 的 Frozen）。这是**独立于**
+/// [`POISON_TICK_MS`] 的口径，Crystal 里同一个 `Poison` 结构按种类带不同的 `TickSpeed`。
+pub const FROST_CRUNCH_POISON_TICK_MS: i64 = 1_000;
+
+/// 怪物被 `PoisonType.Slow` 每跳叠加的移动/攻击间隔：`MoveSpeed += 100`、
+/// `AttackSpeed += 100`（`MonsterObject.cs:1544-1553`）。
+pub const MONSTER_SLOW_STEP_MS: i64 = 100;
+
+/// 怪物被 Slow 叠成的速度上限：`if (MoveSpeed > 3500) MoveSpeed = 3500`
+/// （`MonsterObject.cs:1548-1552`）。
+pub const MONSTER_SLOW_MAX_MS: i64 = 3_500;
+
+/// 玩家被推一格后的 `ActionTime = Envir.Time + 500`（`HumanObject.cs:2687-2694`）。
+pub const PLAYER_PUSH_ACTION_MS: i64 = 500;
 
 /// 雷电术对不死系的伤害倍率：`damage * 1.5F`（`HumanObject.cs:4126`）。
 pub const UNDEAD_DAMAGE_PERCENT: i32 = 150;
@@ -432,9 +448,6 @@ pub struct MagicState {
     pub hidden: bool,
     /// 隐身到期时刻（Crystal `Buff.ExpireTime`，`BuffType.Hiding`）。
     pub hidden_until: i64,
-    /// 传送法力惩罚到期时刻（Crystal `BuffType.TemporalFlux`，
-    /// `HumanObject.cs:6106`；耗蓝公式见 `:3379-3385`）。
-    pub teleport_penalty_until: i64,
     /// 玩家身上的毒（Crystal `HumanObject.PoisonList`，`MapObject.cs:74`）。
     ///
     /// **与 buffs 分开**：毒有独立的 tick / 时长 / 施毒者，不参与 `Stats` 加成。
@@ -451,6 +464,8 @@ pub struct MagicState {
 /// * `value` → `Value`（绿毒每跳扣血；红毒为 0）；
 /// * `duration`/`ticks` → `Duration`/`Time`（**单位是跳数**，不是毫秒）；
 /// * `tick_at` → `TickTime`（本作存绝对时刻，Crystal 存下一次 tick 的时刻）；
+/// * `tick_speed_ms` → `TickSpeed`（Crystal 每条毒自带跳速：普通毒 2000ms、
+///   冰咆哮的 Slow/Frozen 1000ms，见 `HumanObject.cs:5974`、`:5986`）；
 /// * `owner_id` → `Owner`（毒主下线后整条毒移除，`MonsterObject.cs:1464-1474`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PoisonState {
@@ -464,12 +479,15 @@ pub struct PoisonState {
     pub ticks: u32,
     /// 下一次结算时刻。
     pub tick_at: i64,
+    /// 每跳间隔（Crystal `Poison.TickSpeed`）。
+    pub tick_speed_ms: i64,
     /// 施毒者对象 ID（0 = 无主）。
     pub owner_id: u32,
 }
 
 impl PoisonState {
-    /// 新建一条毒；第一跳在 `tick_at` 时刻结算（Crystal `TickTime` 初值 0 → 首跳立即）。
+    /// 新建一条毒；第一跳在 `tick_at` 时刻结算（Crystal `TickTime` 初值 0 → 首跳立即），
+    /// 跳速默认 [`POISON_TICK_MS`]（Crystal 普通毒的 `TickSpeed = 2000`）。
     #[must_use]
     pub const fn new(
         kind: PoisonType,
@@ -484,8 +502,16 @@ impl PoisonState {
             duration,
             ticks: 0,
             tick_at,
+            tick_speed_ms: POISON_TICK_MS,
             owner_id,
         }
+    }
+
+    /// 覆盖每跳间隔（Crystal `new Poison { TickSpeed = 1000 }`，`HumanObject.cs:5974`）。
+    #[must_use]
+    pub const fn with_tick_speed(mut self, tick_speed_ms: i64) -> Self {
+        self.tick_speed_ms = tick_speed_ms;
+        self
     }
 }
 
@@ -702,6 +728,10 @@ pub enum MagicEffect {
     },
     /// 雷暴（`Map.cs:1303-1341`）：以 `location` 为中心的 5×5 范围伤害。
     ThunderStorm {
+        /// **施法瞬间**施法者所在的地图。Crystal 把延迟动作挂在
+        /// `CurrentMap.ActionList` 上（`HumanObject.cs:4268-4269`、`:3530-3533`），
+        /// 结算发生在**施法地图**；施法后 500ms 内换图不能让旧坐标打到新图（P05）。
+        map: String,
         /// 中心格（`HumanObject.cs:4268`：施法瞬间人物所在格）。
         location: Point,
         /// 施法时抽好的伤害（非亡灵目标结算时再 `/10`，`Map.cs:1335`）。
@@ -1432,11 +1462,12 @@ impl World {
         // 先吃 `TeleportManaPenaltyPercent`（TemporalFlux，30%）→ 再吃
         // `ManaPenaltyPercent`（魔力增幅）。顺序与 Crystal 一致。
         let mana_penalty = self.players[&object_id].stats.mana_penalty_percent;
-        let teleport_penalty = if now < self.players[&object_id].magic.teleport_penalty_until {
-            TELEPORT_MANA_PENALTY_PERCENT
-        } else {
-            0
-        };
+        // `TeleportManaPenaltyPercent` 来自 `TemporalFlux` 增益（30%，`HumanObject.cs:6106`）。
+        // 第 51 轮返工 P06：改为读真实增益（`buff.values[0]`，见 `add_temporal_flux`），
+        // 增益到期自动失效（Crystal 同一 `Stats[Stat.TeleportManaPenaltyPercent]` 路径）。
+        let teleport_penalty = self
+            .buff_value(object_id, BuffKind::TemporalFlux)
+            .unwrap_or(0);
         let cost = magic.cost_with_penalties(&info, mana_penalty, teleport_penalty);
         let mp = self.players.get(&object_id).map_or(0, |player| player.mp);
         if cost > mp {
@@ -1655,6 +1686,7 @@ impl World {
                 effects.push((
                     now + THUNDER_STORM_DELAY_MS,
                     MagicEffect::ThunderStorm {
+                        map: map.clone(),
                         location: position,
                         damage: value,
                     },
@@ -1682,7 +1714,22 @@ impl World {
             SpellKind::ShoulderDash => {
                 // `ShoulderDash(magic)` 是**同步**执行的：没有延迟动作，逐格移动与
                 // 推送都在这里完成（`HumanObject.cs:4975-5157`）。
-                damage = self.cast_shoulder_dash(object_id, direction, magic.level, now);
+                // 前置失败（`!CanWalk`）时 Crystal 直接 `return;`，`Magic()` 也提前
+                // 返回：不补 `S.MagicCast`、不记冷却（蓝已在 cost 处扣掉）。
+                let Some(dealt) = self.cast_shoulder_dash(object_id, direction, magic.level, now)
+                else {
+                    return Ok(CastReport {
+                        spell,
+                        level: magic.level,
+                        target_id: 0,
+                        location: position,
+                        damage: None,
+                        heal: None,
+                        buff: None,
+                        cost,
+                    });
+                };
+                damage = (dealt > 0).then_some(dealt);
             }
             SpellKind::Teleport => {
                 // `case Spell.Teleport: ActionList.Add(DelayedAction(Magic, now + 200, magic, location))`
@@ -2169,12 +2216,18 @@ impl World {
                     self.level_magic(action.caster_id, action.spell);
                 }
             }
-            MagicEffect::ThunderStorm { location, damage } => {
+            MagicEffect::ThunderStorm {
+                map: cast_map,
+                location,
+                damage,
+            } => {
                 // `Map.cs:1303-1341` 的 `Map.ThunderStorm`：落点 ±2 的 5×5，逐个目标
                 // `value / 10`（非亡灵）；每次命中都 `LevelMagic`（`:1377`）。
+                // 结算用**施法瞬间的地图**（Crystal 把该动作挂在 `CurrentMap.ActionList`，
+                // `HumanObject.cs:4268-4269`），施法后换图也打不到新图（P05）。
                 if self.resolve_thunder_storm(
                     action.caster_id,
-                    &map,
+                    &cast_map,
                     location,
                     damage,
                     action.spell,
@@ -2183,16 +2236,20 @@ impl World {
                 }
             }
             MagicEffect::StormEscape { location } => {
-                // `HumanObject.cs:6079-6092`：NoTeleport 提示 → `Random.Next(4) >= Level+1`
-                // 直接无功而返 → 传送成功才广播 `S.ObjectEffect{StormEscape}` 并加惩罚。
+                // `HumanObject.cs:6080-6092`：NoTeleport 提示 → `Random.Next(4) >= Level+1`
+                // 直接无功而返 → 传送成功才广播 `S.ObjectEffect{StormEscape}`，
+                // 并严格按原作顺序：**先 AddBuff(TemporalFlux, 30s) 再 LevelMagic**。
                 if self.storm_escape_caster(action.caster_id, location) {
+                    self.add_temporal_flux(action.caster_id);
                     self.level_magic(action.caster_id, action.spell);
                 }
             }
             MagicEffect::Blink { location } => {
-                // `HumanObject.cs:6114-6128`：与 StormEscape 同构，效果码是 `Teleport`。
+                // `HumanObject.cs:6114-6131`：与 StormEscape 同构，效果码是 `Teleport`；
+                // 原作顺序是 **广播光效 → LevelMagic → AddBuff(TemporalFlux)**。
                 if self.blink_caster(action.caster_id, location) {
                     self.level_magic(action.caster_id, action.spell);
+                    self.add_temporal_flux(action.caster_id);
                 }
             }
             MagicEffect::FrostCrunch {
@@ -2214,7 +2271,11 @@ impl World {
                 }
             }
             MagicEffect::Teleport => {
+                // `HumanObject.cs:6097-6110`：`MagicTeleport` 成功 → **先 AddBuff(TemporalFlux)
+                // 再 LevelMagic**（只有 `Spell.Teleport` 走这个分支；Blink / StormEscape
+                // 在各自的分支里按规范顺序调用 `add_temporal_flux`）。
                 if self.teleport_caster(action.caster_id) {
+                    self.add_temporal_flux(action.caster_id);
                     self.level_magic(action.caster_id, action.spell);
                 }
             }
@@ -2831,7 +2892,6 @@ impl World {
         let Some(landing) = landing else {
             return false;
         };
-        let now = self.now();
         let out = ServerPacket::ObjectTeleportOut(ObjectTeleportOut {
             object_id: caster_id,
             type_: 0,
@@ -2850,9 +2910,6 @@ impl World {
         })
         .encode_frame();
         self.broadcast(&map, landing, Some(caster_id), &enter, caster_id);
-        if let Some(player) = self.players.get_mut(&caster_id) {
-            player.magic.teleport_penalty_until = now + TELEPORT_PENALTY_MS;
-        }
         true
     }
 
@@ -2934,15 +2991,14 @@ impl World {
         })
         .encode_frame();
         self.broadcast(&map, landing, Some(caster_id), &enter, caster_id);
-        let now = self.now();
-        if let Some(player) = self.players.get_mut(&caster_id) {
-            player.magic.teleport_penalty_until = now + TELEPORT_PENALTY_MS;
-        }
         true
     }
 
-    /// 广播一次法术光效（Crystal `CurrentMap.Broadcast(new S.ObjectEffect{...})`；
-    /// 广播默认不发给本人，`MapObject.cs:408-420`）。
+    /// 广播一次法术光效（Crystal `S.ObjectEffect`；`MapObject.cs:408-420`）。
+    ///
+    /// Crystal 的 `Map.Broadcast` 把包发给**视野内所有玩家，包括施法者本人**；
+    /// 本作 `World::broadcast` 默认跳过 `self_id`，因此这里先单独给本人发一份
+    /// （P06 审计点：之前漏发，客户端看不到自己身上的传送/雷击光效）。
     fn broadcast_spell_effect(
         &mut self,
         map: &str,
@@ -2958,7 +3014,36 @@ impl World {
             time: 0,
         })
         .encode_frame();
-        self.broadcast(map, position, Some(object_id), &packet, object_id);
+        self.send_to_player(object_id, &packet);
+        self.broadcast(map, position, Some(object_id), &packet, 0);
+    }
+
+    /// 传送后的 `TemporalFlux` 增益（Crystal `AddBuff(BuffType.TemporalFlux, 30s)`，
+    /// `HumanObject.cs:6106`、`:6127`、`:6135`）：30 秒内传送类技能多耗 30% 蓝
+    /// （`MagicCost`，`:3379-3385`）。增益到期由 [`crate::buffs::World::tick_buffs`]
+    /// 移除并同步 `RemoveBuff`，耗蓝随之恢复正常。
+    fn add_temporal_flux(&mut self, object_id: u32) {
+        if !self.add_buff(
+            object_id,
+            BuffKind::TemporalFlux,
+            TELEPORT_PENALTY_MS,
+            Stats::default(),
+            object_id,
+        ) {
+            return;
+        }
+        let Some(player) = self.players.get_mut(&object_id) else {
+            return;
+        };
+        // `Stat.TeleportManaPenaltyPercent` 的数值挂在增益上（`values[0]`），
+        // `MagicCost` 通过 `buff_value` 读取（见 `cast_magic` 的蓝量段）。
+        if let Some(buff) = player
+            .buffs
+            .iter_mut()
+            .find(|buff| buff.kind == BuffKind::TemporalFlux)
+        {
+            buff.values = vec![TELEPORT_MANA_PENALTY_PERCENT];
+        }
     }
 
     /// 闪现落地（Crystal `CompleteMagic` 的 `case Spell.Blink`，`HumanObject.cs:6114-6129`）：
@@ -3021,6 +3106,35 @@ impl World {
         true
     }
 
+    /// 施法者装备汇总的 `Stat.Freezing`（Crystal `Stats[Stat.Freezing]`，
+    /// 由 `HumanObject.RefreshStats` 把所有装备/状态的同名属性加起来）。
+    ///
+    /// 本作的 `CombatStats` 还没有 `freezing` 字段（`combat.rs` 不在本轮写范围），
+    /// 所以这里直接读 14 个装备槽的 `added_stats`；缺省 0，语义与 Crystal 一致
+    /// （`Random.Next(0)` 恒为 0 → 时长 5，`HumanObject.cs:5987`）。
+    fn caster_freezing(&self, caster_id: u32) -> i32 {
+        self.players.get(&caster_id).map_or(0, |player| {
+            player
+                .equipment
+                .iter()
+                .flatten()
+                .map(|item| item.added_stats.get(Stat::Freezing))
+                .sum()
+        })
+    }
+
+    /// 冰咆哮 Frozen 时长的额外随机：`Random.Next(Stats[Stat.Freezing])`
+    /// （`HumanObject.cs:5987`）。Crystal 的 `Random.Next(0)` 恒返回 0 且不消耗随机数，
+    /// 这里同样在 `freezing <= 0` 时不做抽取，保证 RNG 序列一致。
+    fn freeze_roll(&mut self, caster_id: u32) -> i32 {
+        let freezing = self.caster_freezing(caster_id);
+        if freezing > 0 {
+            self.rng.next_range(0, freezing - 1)
+        } else {
+            0
+        }
+    }
+
     /// 冰咆哮：伤害 + 等级概率的 Slow/Frozen 毒（Crystal `HumanObject.cs:5962-5995`）。
     ///
     /// 1. 目标必须仍可命中（同图/未死/在落点 ±2 内，`:5967` 的 `InRange(..., 2)`）；
@@ -3070,7 +3184,8 @@ impl World {
         if caster_level + if is_player { 2 } else { 10 } < target_level {
             return true;
         }
-        // Slow：`Random.Next(玩家 ? 100 : 20) <= magic.Level`，时长玩家 4 秒 / 怪 `5 + Random.Next(5)`。
+        // Slow：`Random.Next(玩家 ? 100 : 20) <= magic.Level`，时长玩家 4 秒 / 怪 `5 + Random.Next(5)`；
+        // `TickSpeed = 1000`（`:5974`），所以第一跳在 +1000ms。
         if self.rng.next_range(0, if is_player { 100 } else { 20 } - 1) <= magic_level {
             let duration = if is_player {
                 4
@@ -3081,34 +3196,48 @@ impl World {
                 PoisonType::Slow,
                 0,
                 u32::try_from(duration).unwrap_or(1),
-                now + SECOND_MS,
+                now + FROST_CRUNCH_POISON_TICK_MS,
                 caster_id,
-            );
+            )
+            .with_tick_speed(FROST_CRUNCH_POISON_TICK_MS);
             self.apply_frost_poison(target_id, poison);
         }
-        // Frozen：`Random.Next(玩家 ? 100 : 40) <= magic.Level`，时长玩家 2 秒 / 怪 `5 + Random.Next(Freezing)`。
-        // 本作的怪物没有 `Stat.Freezing`，按 Crystal 里该属性为 0 时取 `5`。
+        // Frozen：`Random.Next(玩家 ? 100 : 40) <= magic.Level`，时长玩家 2 秒 /
+        // 怪 `5 + Random.Next(施法者 Stats[Freezing])`（`:5987`，取施法者装备汇总，
+        // 见 [`Self::caster_freezing`]）；`TickSpeed = 1000`（`:5986`）。
         if self.rng.next_range(0, if is_player { 100 } else { 40 } - 1) <= magic_level {
-            let duration = if is_player { 2 } else { 5 };
+            let duration = if is_player {
+                2
+            } else {
+                5 + self.freeze_roll(caster_id)
+            };
             let poison = PoisonState::new(
                 PoisonType::Frozen,
                 0,
                 u32::try_from(duration).unwrap_or(1),
-                now + SECOND_MS,
+                now + FROST_CRUNCH_POISON_TICK_MS,
                 caster_id,
-            );
+            )
+            .with_tick_speed(FROST_CRUNCH_POISON_TICK_MS);
             self.apply_frost_poison(target_id, poison);
         }
         true
     }
 
-    /// 按目标类型落到怪毒/人毒（FrostCrunch 的目标可能是怪物）。
+    /// 按目标类型落到怪毒/人毒（FrostCrunch 的目标可能是怪物），并照 Crystal
+    /// `target.OperateTime = 0`（`:5975`、`:5987`）让中毒的怪立刻重新思考。
     fn apply_frost_poison(&mut self, target_id: u32, poison: PoisonState) {
-        let _ = if self.monster(target_id).is_some() {
+        let is_monster = self.monster(target_id).is_some();
+        let applied = if is_monster {
             self.apply_poison_to_monster(target_id, poison)
         } else {
             self.apply_poison_to_player(target_id, poison)
         };
+        if applied {
+            if let Some(monster) = self.monster_mut(target_id) {
+                monster.operate_time = 0;
+            }
+        }
     }
 
     /// 雷暴/狂风绝命的 5×5 范围伤害（Crystal `Map.cs:1303-1341` 的 `ThunderStorm` 分支）。
@@ -3133,7 +3262,9 @@ impl World {
         for dy in -THUNDER_STORM_RADIUS..=THUNDER_STORM_RADIUS {
             for dx in -THUNDER_STORM_RADIUS..=THUNDER_STORM_RADIUS {
                 let cell = Point::new(center.x + dx, center.y + dy);
-                if !self.in_bounds(map, cell) {
+                // Crystal 只处理 `cell.Valid` 的格子（`Map.cs:1315`、`:1325`），
+                // 本作的等价判定是 `walkable_on`（边界 + 地形可走，见 `World::walkable_on`）。
+                if !self.walkable_on(map, cell) {
                     continue;
                 }
                 for entry in self.aoi_in_cell(map, cell) {
@@ -3248,21 +3379,122 @@ impl World {
         true
     }
 
+    /// 推玩家一格（Crystal `HumanObject.Pushed`，`HumanObject.cs:2648-2745`）。
+    ///
+    /// 逐行对应：越界 → 停；目标格上任何 `Blocking` 对象 → 停；否则 `Remove/Add` 格、
+    /// `Direction = ReverseDirection(dir)`、给本人 `S.Pushed`、向周围广播 `S.ObjectPushed`，
+    /// 末 `ActionTime = now + 500`（`:2743`）。本作没有队伍与 `Concentration` 增益，
+    /// 因此省略 `GetPlayerLocation` 与 `UpdateConcentration` 两段。
+    fn push_player_once(&mut self, target_id: u32, direction: MirDirection) -> bool {
+        let Some(player) = self.players.get(&target_id) else {
+            return false;
+        };
+        let (map, position, dead) = (player.map.clone(), player.position, player.dead);
+        if dead {
+            return false;
+        }
+        let forward = position.moved(direction, 1);
+        if !self.walkable_on(&map, forward) {
+            return false;
+        }
+        let blocked = self
+            .aoi_in_cell(&map, forward)
+            .into_iter()
+            .any(|entry| match entry.kind {
+                AoiKind::Player => self
+                    .players
+                    .get(&entry.object_id)
+                    .is_some_and(|player| !player.dead),
+                AoiKind::Monster => self
+                    .monster(entry.object_id)
+                    .is_some_and(|monster| !monster.dead),
+                AoiKind::Npc | AoiKind::Item => false,
+            });
+        if blocked {
+            return false;
+        }
+        let now = self.now();
+        let reverse = rotate_direction(direction, 4);
+        self.aoi_move(&map, AoiKind::Player, target_id, forward);
+        if let Some(player) = self.players.get_mut(&target_id) {
+            player.position = forward;
+            player.direction = reverse;
+            // `ActionTime = Envir.Time + 500`（`HumanObject.cs:2743`）。
+            player.action_time = now + PUSH_MOVE_DELAY_MS;
+        }
+        let pushed = ServerPacket::Pushed(Pushed {
+            location: forward,
+            direction: reverse,
+        })
+        .encode_frame();
+        self.send_to_player(target_id, &pushed);
+        let broadcast = ServerPacket::ObjectPushed(ObjectPushed {
+            object_id: target_id,
+            location: forward,
+            direction: reverse,
+        })
+        .encode_frame();
+        self.broadcast(&map, forward, Some(target_id), &broadcast, target_id);
+        true
+    }
+
+    /// 冲撞走入一格后的火墙结算（Crystal `HumanObject.cs:5100-5121`）：对格上的
+    /// `SpellObject` 调 `ProcessSpell`，火墙 `Attacked(...MAC...) > 0` 就打断冲撞。
+    /// 返回是否被火墙打中（真 = 停止继续冲撞）。
+    fn fire_wall_on_cell(&mut self, map: &str, cell: Point, caster_id: u32, now: i64) -> bool {
+        let Some((wall_caster, wall_damage)) = self
+            .spell_fields
+            .iter()
+            .find(|field| {
+                field.spell == Spell::FireWall
+                    && field.map == map
+                    && field.center == cell
+                    && field.caster_id != caster_id
+                    && now < field.expire_at
+            })
+            .map(|field| (field.caster_id, field.damage))
+        else {
+            return false;
+        };
+        let Some(stats) = self.players.get(&wall_caster).map(|player| player.stats) else {
+            return false;
+        };
+        let before = self.players.get(&caster_id).map_or(0, |player| player.hp);
+        self.damage_player_from_player(
+            PendingHit {
+                at: now,
+                attacker_id: wall_caster,
+                target_id: caster_id,
+                damage: wall_damage,
+                defence: DefenceType::MAC,
+            },
+            &stats,
+        );
+        let after = self.players.get(&caster_id).map_or(0, |player| player.hp);
+        after < before
+    }
+
     /// 冲撞（Crystal `HumanObject.ShoulderDash`，`HumanObject.cs:4975-5157`）。
     ///
     /// **同步**执行（Crystal 在 `Magic` 里 `case ShoulderDash: ShoulderDash(magic); return;`）：
+    /// 0. 前置 `InTrapRock || !CanWalk` → 直接返回（本作没有陷阱系统，做 `CanWalk` 等价校验）；
     /// 1. `dist = Random.Next(2) + Level + 2`；`ActionTime = now + MoveDelay`；
-    /// 2. 逐格向前：出界/不可走/**安全区** → 停；第 0 格先找目标（可攻击且 `Level < 本等级`），
+    /// 2. 逐格向前：出界/不可走/**安全区** → 停；第 0 格先找目标
+    ///    （`Race==Player||Monster` 且 `IsAttackTarget(this)` 且 `Level < 本等级`），
     ///    没有目标时格上任何存活的玩家/怪物都算阻挡；
-    /// 3. 有目标时每格推它一格（`Pushed` 返回 0 视为阻挡并停）；每成功走一格发本人
-    ///    `S.UserDash`、广播 `S.ObjectDash`；
-    /// 4. 一格未走 → `S.UserDashFail` + `S.ObjectDashFail`（Crystal 另有
-    ///    `NoPushingInSafezone`/`NotEnoughPushingPower` 聊天，本作 i18n 缺这两个键，留待文本批次）；
-    /// 5. 走过路 → 对目标补一次 `magic.GetDamage(0)` 的 `DefenceType.None` 伤害 + `LevelMagic`；
-    ///    末 `CellTime = now + 500`、`_stepCounter = 0`。
+    /// 3. 有目标时每格推它一格（怪物走 `MonsterObject.Pushed`、玩家走
+    ///    `HumanObject.Pushed`；`Pushed` 返回 0 视为阻挡并停）；每成功走一格发本人
+    ///    `S.UserDash`、广播 `S.ObjectDash`；入格后结算火墙（`:5100-5121`），被打中即停；
+    /// 4. **无论走没走**都 `CellTime = now + 500`、`_stepCounter = 0`（`:5155-5156`）；
+    /// 5. 一格未走 → `S.UserDashFail` + `S.ObjectDashFail` + 系统聊天
+    ///    （`InSafeZone ? NoPushingInSafezone : NotEnoughPushingPower`，`:5128-5143`）；
+    /// 6. 走过路 → 对目标补一次 `magic.GetDamage(0)` 的 `DefenceType.None` 伤害
+    ///    （怪物走 `Attacked`、玩家走 `PLAYER_ATTACK` 路径）+ `LevelMagic`。
     ///
-    /// 简化：火墙打断（`:5100-5121`）未实现——本作的 `SpellField` 会话还没接到逐格打断。
-    /// 返回本次冲撞造成的伤害（无目标时为 `None`）。
+    /// 返回 `None` 表示前置失败（Crystal `ShoulderDash()` 开头直接 `return;`，
+    /// `Magic()` 随之提前返回：**不补** `S.MagicCast`、不记冷却，只留下已扣蓝）；
+    /// `Some(0)` 表示已跑到函数末尾但没伤到目标（含零步失败分支），
+    /// 其余 `Some(value)` 为对目标补的那次伤害。
     fn cast_shoulder_dash(
         &mut self,
         caster_id: u32,
@@ -3270,6 +3502,18 @@ impl World {
         magic_level: u8,
         now: i64,
     ) -> Option<i32> {
+        // 前置（`HumanObject.cs:4977`）：`if (InTrapRock || !CanWalk) return;`
+        // 本作没有陷阱（InTrapRock）系统 → 做 `CanWalk` 等价校验：存活、未冰冻、未麻痹、
+        // 动作时间与格子时间都允许移动（`HumanObject.CanWalk`，`HumanObject.cs:121-133`）。
+        let can_start = self.players.get(&caster_id).is_some_and(|player| {
+            !player.dead
+                && !player.is_frozen()
+                && now >= player.action_time
+                && now >= player.cell_time
+        });
+        if !can_start || self.has_buff(caster_id, BuffKind::Paralysis) {
+            return None;
+        }
         let (map, start, caster_level) = self
             .players
             .get(&caster_id)
@@ -3279,7 +3523,8 @@ impl World {
             player.action_time = now + MOVE_DELAY_MS;
         }
         let mut position = start;
-        let mut target: Option<u32> = None;
+        let mut target_monster: Option<u32> = None;
+        let mut target_player: Option<u32> = None;
         let mut blocking = false;
         let mut travelled = 0;
         for step in 0..distance {
@@ -3291,20 +3536,27 @@ impl World {
             if !self.walkable_on(&map, next) || self.safe_zone_at(&map, next) {
                 break;
             }
-            // 第 0 格先找目标（`:5008-5043`）。
-            if step == 0 && target.is_none() {
+            // 第 0 格先找目标（`:5008-5043`）：
+            // `(Race==Player||Monster) && IsAttackTarget(this) && Level < Level` 才推；
+            // 其余存活目标是阻挡。
+            if step == 0 && target_monster.is_none() && target_player.is_none() {
                 for entry in self.aoi_in_cell(&map, next) {
                     match entry.kind {
                         AoiKind::Player => {
-                            if self
-                                .players
-                                .get(&entry.object_id)
-                                .is_some_and(|player| !player.dead)
+                            let Some(target) = self.players.get(&entry.object_id) else {
+                                continue;
+                            };
+                            if target.dead {
+                                continue;
+                            }
+                            if i32::from(target.level) < caster_level
+                                && self.is_attack_target_player(caster_id, entry.object_id)
                             {
-                                // 玩家不可被推（`MapObject.Pushed` 基类返回 0）→ 阻挡。
-                                blocking = true;
+                                target_player = Some(entry.object_id);
                                 break;
                             }
+                            blocking = true;
+                            break;
                         }
                         AoiKind::Monster => {
                             let Some(monster) = self.monster(entry.object_id) else {
@@ -3317,7 +3569,7 @@ impl World {
                                 && self
                                     .monster_is_attack_target_of_player(caster_id, entry.object_id)
                             {
-                                target = Some(entry.object_id);
+                                target_monster = Some(entry.object_id);
                                 break;
                             }
                             blocking = true;
@@ -3330,9 +3582,12 @@ impl World {
                     break;
                 }
             }
-            // 有目标：推它；没目标：格上不能有别的 Blocking（`:5045-5087`）。
-            let can_dash = if let Some(target_id) = target {
+            // 有目标：推它一格（怪物 `MonsterObject.Pushed` `:1035`；玩家
+            // `HumanObject.Pushed` `:2648`）；没目标：格上不能有别的 Blocking（`:5045-5087`）。
+            let can_dash = if let Some(target_id) = target_monster {
                 self.push_monster_once(target_id, direction)
+            } else if let Some(target_id) = target_player {
+                self.push_player_once(target_id, direction)
             } else {
                 !self
                     .aoi_in_cell(&map, next)
@@ -3351,7 +3606,7 @@ impl World {
             if !can_dash {
                 break;
             }
-            // 走一格：本人 `S.UserDash`、周围 `S.ObjectDash`（`:5091-5098`）。
+            // 走一格：`S.UserDash` 只发本人、`S.ObjectDash` 广播周围（`:5091-5098`）。
             self.aoi_move(&map, AoiKind::Player, caster_id, next);
             if let Some(player) = self.players.get_mut(&caster_id) {
                 player.position = next;
@@ -3371,6 +3626,15 @@ impl World {
             self.broadcast(&map, next, Some(caster_id), &broadcast, caster_id);
             position = next;
             travelled += 1;
+            // 火墙打断（`:5100-5121`）：中招就不再继续往前冲。
+            if self.fire_wall_on_cell(&map, next, caster_id, now) {
+                blocking = true;
+            }
+        }
+        // `CellTime = now + 500; _stepCounter = 0;`（`:5155-5156`）——**走没走都执行**（P04）。
+        if let Some(player) = self.players.get_mut(&caster_id) {
+            player.cell_time = now + SHOULDER_DASH_CELL_TIME_MS;
+            player.step_counter = 0;
         }
         if travelled == 0 {
             // `S.UserDashFail` + `S.ObjectDashFail`（`:5128-5141`）。
@@ -3387,24 +3651,50 @@ impl World {
             })
             .encode_frame();
             self.broadcast(&map, position, Some(caster_id), &broadcast, caster_id);
-            return None;
-        }
-        // `CellTime = now + 500; _stepCounter = 0;`（`:5155-5156`）。
-        if let Some(player) = self.players.get_mut(&caster_id) {
-            player.cell_time = now + SHOULDER_DASH_CELL_TIME_MS;
-            player.step_counter = 0;
+            // 一格未走 → 系统聊天（`:5140-5143`）：
+            // `InSafeZone ? NoPushingInSafezone : NotEnoughPushingPower`。
+            let key = if self.safe_zone_at(&map, position) {
+                TextKey::NoPushingInSafezone
+            } else {
+                TextKey::NotEnoughPushingPower
+            };
+            let text = self.text(caster_id, key);
+            self.send_system_chat(caster_id, &text);
+            // 零步失败已走到 Crystal 的尾巴：`S.MagicCast` 由调用方补。
+            return Some(0);
         }
         // `_target?.Attacked(this, magic.GetDamage(0), DefenceType.None, false); LevelMagic(magic);`
         // （`:5144-5145`）——即使没有目标，只要走成了也 `LevelMagic`。
         let mut damage = None;
-        if let Some(target_id) = target {
-            if let (Some(magic), Some(info), Some(stats)) = (
-                self.player_magic(caster_id, Spell::ShoulderDash).copied(),
-                self.magic_info(Spell::ShoulderDash).cloned(),
-                self.players.get(&caster_id).map(|player| player.stats),
-            ) {
-                let value = magic.damage(&info, 0, &mut self.rng);
-                let dealt = self.damage_monster(
+        let caster_stats = self.players.get(&caster_id).map(|player| player.stats);
+        let magic_damage = if let (Some(magic), Some(info)) = (
+            self.player_magic(caster_id, Spell::ShoulderDash).copied(),
+            self.magic_info(Spell::ShoulderDash).cloned(),
+        ) {
+            Some(magic.damage(&info, 0, &mut self.rng))
+        } else {
+            None
+        };
+        if let (Some(target_id), Some(stats), Some(value)) =
+            (target_monster, caster_stats, magic_damage)
+        {
+            let dealt = self.damage_monster(
+                PendingHit {
+                    at: 0,
+                    attacker_id: caster_id,
+                    target_id,
+                    damage: value,
+                    defence: DefenceType::None,
+                },
+                &stats,
+            );
+            damage = Some(dealt);
+        } else if let (Some(target_id), Some(stats), Some(value)) =
+            (target_player, caster_stats, magic_damage)
+        {
+            if self.is_attack_target_player(caster_id, target_id) {
+                let before = self.players.get(&target_id).map_or(0, |player| player.hp);
+                self.damage_player_from_player(
                     PendingHit {
                         at: 0,
                         attacker_id: caster_id,
@@ -3414,11 +3704,12 @@ impl World {
                     },
                     &stats,
                 );
-                damage = Some(dealt);
+                let after = self.players.get(&target_id).map_or(0, |player| player.hp);
+                damage = Some((before - after).max(0));
             }
         }
         self.level_magic(caster_id, Spell::ShoulderDash);
-        damage
+        Some(damage.unwrap_or(0))
     }
 
     /// 进入隐身（Crystal `AddBuff(BuffType.Hiding, ...)` + `MapObject.Hidden` setter，
@@ -3813,7 +4104,9 @@ impl World {
             if now > poison.tick_at {
                 let mut poison = poison;
                 poison.ticks = poison.ticks.saturating_add(1);
-                poison.tick_at = now + POISON_TICK_MS;
+                // 每条毒自带跳速：普通毒 2000ms、冰咆哮 Slow/Frozen 1000ms
+                // （Crystal `Poison.TickSpeed`，`HumanObject.cs:6058`、`:5974`）。
+                poison.tick_at = now + poison.tick_speed_ms;
                 if let Some(player) = self.players.get_mut(&player_id) {
                     if let Some(slot) = player.magic.poisons.get_mut(index) {
                         *slot = poison;
@@ -3872,6 +4165,10 @@ impl World {
         while index < monster.poisons.len() {
             let poison = monster.poisons[index];
             if poison.owner_id != 0 && !self.players.contains_key(&poison.owner_id) {
+                // 毒主下线 → 整条毒移除；Slow 要恢复原速（`MonsterObject.cs:1464-1474`）。
+                if poison.kind == PoisonType::Slow {
+                    Self::restore_monster_speed(monster, now);
+                }
                 monster.poisons.remove(index);
                 changed = true;
                 continue;
@@ -3879,29 +4176,48 @@ impl World {
             if now > poison.tick_at {
                 let mut poison = poison;
                 poison.ticks = poison.ticks.saturating_add(1);
-                poison.tick_at = now + POISON_TICK_MS;
+                // 每条毒自带跳速（Crystal `Poison.TickSpeed`）：普通毒 2000ms、
+                // 冰咆哮 Slow/Frozen 1000ms（`HumanObject.cs:6058`、`:5974`、`:5986`）。
+                poison.tick_at = now + poison.tick_speed_ms;
                 if poison.ticks >= poison.duration {
+                    // 怪物口径：`Time >= Duration` 先移除、**最后一跳不结算**；
+                    // Slow 同时恢复 `Info.MoveSpeed/AttackSpeed`（`MonsterObject.cs:1476-1491`）。
+                    if poison.kind == PoisonType::Slow {
+                        Self::restore_monster_speed(monster, now);
+                    }
                     monster.poisons.remove(index);
                     changed = true;
                     continue;
                 }
                 monster.poisons[index] = poison;
-                if poison.kind == PoisonType::Green {
-                    if monster.expo_owner.is_none() && poison.owner_id != 0 {
-                        monster.expo_owner = Some(poison.owner_id);
+                match poison.kind {
+                    PoisonType::Green => {
+                        if monster.expo_owner.is_none() && poison.owner_id != 0 {
+                            monster.expo_owner = Some(poison.owner_id);
+                        }
+                        monster.hp = (monster.hp - poison.value).max(0);
+                        self.emit_damage_indicator(
+                            &map,
+                            position,
+                            object_id,
+                            -poison.value,
+                            DamageType::Hit,
+                        );
+                        if monster.hp == 0 {
+                            // 死亡由 `tick_monsters` 在回写后统一结算（避免覆盖世界里的副本）。
+                            break;
+                        }
                     }
-                    monster.hp = (monster.hp - poison.value).max(0);
-                    self.emit_damage_indicator(
-                        &map,
-                        position,
-                        object_id,
-                        -poison.value,
-                        DamageType::Hit,
-                    );
-                    if monster.hp == 0 {
-                        // 死亡由 `tick_monsters` 在回写后统一结算（避免覆盖世界里的副本）。
-                        break;
+                    // Slow 每跳再叠 100ms，封顶 3500（`MonsterObject.cs:1544-1553`）。
+                    PoisonType::Slow => {
+                        monster.move_speed_ms =
+                            (monster.move_speed_ms + MONSTER_SLOW_STEP_MS).min(MONSTER_SLOW_MAX_MS);
+                        monster.attack_speed_ms = (monster.attack_speed_ms + MONSTER_SLOW_STEP_MS)
+                            .min(MONSTER_SLOW_MAX_MS);
                     }
+                    // Frozen 由 `Monster::can_move/can_attack` 判定，无需改速度；
+                    // 其余毒种（红毒减防）本轮不在怪物侧实现，和改动前一致。
+                    _ => {}
                 }
             }
             index += 1;
@@ -3915,6 +4231,14 @@ impl World {
             .encode_frame();
             self.broadcast(&map, position, Some(object_id), &frame, object_id);
         }
+    }
+
+    /// Slow 毒结束/毒主消失时，把怪物的移动与攻击间隔恢复成模板值
+    /// （Crystal `MonsterObject.cs:1479-1490`、`:1550-1553`）。
+    fn restore_monster_speed(monster: &mut crate::monster::Monster, now: i64) {
+        monster.move_speed_ms = monster.kind.move_speed_ms;
+        monster.attack_speed_ms = monster.kind.attack_speed_ms;
+        monster.attack_time = now + monster.attack_speed_ms;
     }
 
     /// 目标格是否在地图边界内（**既有简化**，只给 `HellFire` 用）。
@@ -4478,16 +4802,35 @@ mod tests {
         );
         round51_resolve_after(&mut world, 1);
         let landed_at = world.now();
-        let player = world.player(1).expect("施法者");
         assert_eq!(
-            player.position,
+            world.player(1).expect("施法者").position,
             Point::new(15, 10),
             "after 200ms the caster lands on the client-supplied cell"
         );
+        // P06：真实 `TemporalFlux` 增益（30 秒 + 30% 传送耗蓝），不是内部计时器。
+        let buff = world
+            .buffs(1)
+            .iter()
+            .find(|buff| buff.kind == BuffKind::TemporalFlux)
+            .expect("落地后应加 TemporalFlux 增益");
         assert_eq!(
-            player.magic.teleport_penalty_until,
+            buff.expire_at,
             landed_at + TELEPORT_PENALTY_MS,
             "TemporalFlux: teleport mana cost +30% for 30 seconds"
+        );
+        assert_eq!(
+            buff.values,
+            vec![TELEPORT_MANA_PENALTY_PERCENT],
+            "Stat.TeleportManaPenaltyPercent = 30 挂在增益上（HumanObject.cs:6127）"
+        );
+        // P06：Crystal 的物体光效广播也发给本人（MapObject.cs:408-420）。
+        let caster_packets = round51_packets(&mut caster_rx);
+        assert!(
+            caster_packets.iter().any(|packet| matches!(
+                packet,
+                ServerPacket::ObjectEffect(effect) if effect.effect == SpellEffect::Teleport
+            )),
+            "the caster must also receive their own S.ObjectEffect{{Teleport}} (P06)"
         );
         let packets = round51_packets(&mut observer_rx);
         assert!(
@@ -4535,11 +4878,17 @@ mod tests {
             .cast_magic(1, Spell::Blink, MirDirection::Down, 0, Point::new(12, 10))
             .expect("施法本身成功，禁传在落地时判定");
         round51_resolve_after(&mut world, BLINK_DELAY_MS);
-        let player = world.player(1).expect("玩家");
-        assert_eq!(player.position, Point::new(10, 10), "禁传地图不落地");
         assert_eq!(
-            player.magic.teleport_penalty_until, 0,
-            "no landing means no TemporalFlux penalty"
+            world.player(1).expect("玩家").position,
+            Point::new(10, 10),
+            "禁传地图不落地"
+        );
+        assert!(
+            !world
+                .buffs(1)
+                .iter()
+                .any(|buff| buff.kind == BuffKind::TemporalFlux),
+            "no landing means no TemporalFlux buff"
         );
         let packets = round51_packets(&mut caster_rx);
         assert!(
@@ -4582,15 +4931,17 @@ mod tests {
             "the caster must not teleport during the strike phase"
         );
         round51_resolve_after(&mut world, 250);
-        let player = world.player(1).expect("施法者");
         assert_eq!(
-            player.position,
+            world.player(1).expect("施法者").position,
             Point::new(14, 10),
             "750ms later the caster teleports to the client-supplied cell"
         );
         assert!(
-            player.magic.teleport_penalty_until > 0,
-            "teleport applies the TemporalFlux penalty"
+            world
+                .buffs(1)
+                .iter()
+                .any(|buff| buff.kind == BuffKind::TemporalFlux),
+            "teleport applies the TemporalFlux buff (HumanObject.cs:6089)"
         );
     }
 
@@ -4630,7 +4981,11 @@ mod tests {
                 poison.kind == PoisonType::Slow || poison.kind == PoisonType::Frozen,
                 "FrostCrunch may only apply Slow/Frozen"
             );
-            assert_eq!(poison.tick_at, 600 + SECOND_MS, "TickSpeed = 1000ms");
+            assert_eq!(
+                poison.tick_at,
+                world.now() + SECOND_MS,
+                "TickSpeed = 1000ms"
+            );
         }
 
         // 目标等级 100 >> 施法者 20 + 10 → 概率门先失败，不叠任何毒。
@@ -4717,10 +5072,15 @@ mod tests {
             "Crystal dist = Next(2)+Level+2, level 3 should be 5..=6 cells, actual {travelled}"
         );
         assert_eq!(after.position.x, start.x, "只沿面向直冲");
-        assert_eq!(after.cell_time, SHOULDER_DASH_CELL_TIME_MS, "CellTime+500");
+        assert_eq!(
+            after.cell_time,
+            world.now() + SHOULDER_DASH_CELL_TIME_MS,
+            "CellTime+500"
+        );
         assert_eq!(after.step_counter, 0, "冲撞后 StepCounter 归零");
         assert_eq!(
-            after.action_time, MOVE_DELAY_MS,
+            after.action_time,
+            world.now() + MOVE_DELAY_MS,
             "ActionTime = now+MoveDelay"
         );
 
@@ -4784,9 +5144,15 @@ mod tests {
                 .any(|packet| matches!(packet, ServerPacket::UserDashFail(_))),
             "zero movement must send S.UserDashFail"
         );
-        // 本作 i18n 没有 `NotEnoughPushingPower` / `NoPushingInSafezone` 键
-        // （`crates/mir-core/src/i18n.rs` 不在本轮写范围），聊天提示留待文本批次；
-        // 这里只断言「失败包在前、结尾 MagicCast」的包序。
+        // 第 51 轮返工 P04：失败提示走真实 i18n 键（`HumanObject.cs:5141-5143`）。
+        let expected = world.text(1, TextKey::NotEnoughPushingPower);
+        assert!(
+            caster_packets.iter().any(|packet| matches!(
+                packet,
+                ServerPacket::Chat(chat) if chat.message.contains(&expected)
+            )),
+            "zero movement sends the NotEnoughPushingPower chat"
+        );
         assert!(
             matches!(caster_packets.last(), Some(ServerPacket::MagicCast(_))),
             "the failure flow still ends with S.MagicCast"
@@ -4912,5 +5278,510 @@ mod tests {
                 .magics
                 .retain(|magic| magic.spell != spell);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // 第 51 轮返工（R51-B2）：审计 P03–P06 的行为断言
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn frost_crunch_control_poisons_freeze_and_slow_monsters() {
+        let mut world = round51_default_world(vec![]);
+        let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        let monster =
+            round51_spawn_monster(&mut world, MonsterKind::skeleton(), Point::new(12, 10));
+        let now = world.now();
+        // Frozen（Crystal `HumanObject.cs:5986`：TickSpeed=1000、时长 2 跳）。
+        let frozen = PoisonState {
+            kind: PoisonType::Frozen,
+            value: 0,
+            duration: 2,
+            ticks: 0,
+            tick_at: now + FROST_CRUNCH_POISON_TICK_MS,
+            tick_speed_ms: FROST_CRUNCH_POISON_TICK_MS,
+            owner_id: 1,
+        };
+        assert!(world.apply_poison_to_monster(monster, frozen));
+        assert!(
+            !world.monster(monster).expect("怪物").can_move(now),
+            "Frozen blocks monster movement (MonsterObject.cs:640)"
+        );
+        assert!(
+            !world.monster(monster).expect("怪物").can_attack(now),
+            "Frozen blocks monster attacks (MonsterObject.cs:654)"
+        );
+
+        // Slow（Crystal `MonsterObject.cs:1544-1553`：每跳 MoveSpeed/AttackSpeed +100，封顶 3500）。
+        let base_move = world.monster(monster).expect("怪物").move_speed_ms;
+        let base_attack = world.monster(monster).expect("怪物").attack_speed_ms;
+        let slow = PoisonState {
+            kind: PoisonType::Slow,
+            value: 0,
+            duration: 3,
+            ticks: 0,
+            tick_at: now + FROST_CRUNCH_POISON_TICK_MS,
+            tick_speed_ms: FROST_CRUNCH_POISON_TICK_MS,
+            owner_id: 1,
+        };
+        assert!(world.apply_poison_to_monster(monster, slow));
+
+        world.advance_clock(FROST_CRUNCH_POISON_TICK_MS + 10);
+        let now = world.now();
+        let mut ticked = world.monster(monster).expect("怪物").clone();
+        world.tick_monster_poison(&mut ticked, now);
+        *world.monster_mut(monster).expect("怪物") = ticked;
+        let ticked = world.monster(monster).expect("怪物");
+        assert_eq!(
+            ticked.move_speed_ms,
+            base_move + MONSTER_SLOW_STEP_MS,
+            "Slow adds 100ms to move speed per tick"
+        );
+        assert_eq!(
+            ticked.attack_speed_ms,
+            base_attack + MONSTER_SLOW_STEP_MS,
+            "Slow adds 100ms to attack speed per tick"
+        );
+        assert!(
+            !ticked.can_move(world.now()),
+            "still frozen before the second tick, cannot move"
+        );
+
+        // 毒到期后恢复原始速度（`MonsterObject.cs:1551-1553`）。
+        for _ in 0..6 {
+            world.advance_clock(FROST_CRUNCH_POISON_TICK_MS);
+            let now = world.now();
+            let mut ticked = world.monster(monster).expect("怪物").clone();
+            world.tick_monster_poison(&mut ticked, now);
+            *world.monster_mut(monster).expect("怪物") = ticked;
+        }
+        let expired = world.monster(monster).expect("怪物");
+        assert_eq!(
+            expired.move_speed_ms, base_move,
+            "Slow 到期恢复 Info.MoveSpeed"
+        );
+        assert_eq!(
+            expired.attack_speed_ms, base_attack,
+            "Slow expiry restores Info.AttackSpeed"
+        );
+        assert!(expired.can_move(world.now()), "Frozen 到期后恢复移动");
+    }
+
+    #[test]
+    fn player_frozen_blocks_moves_and_slow_doubles_action_delay() {
+        let mut world = round51_default_world(vec![]);
+        let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        let now = world.now();
+        let frozen = PoisonState {
+            kind: PoisonType::Frozen,
+            value: 0,
+            duration: 2,
+            ticks: 0,
+            tick_at: now + FROST_CRUNCH_POISON_TICK_MS,
+            tick_speed_ms: FROST_CRUNCH_POISON_TICK_MS,
+            owner_id: 2,
+        };
+        assert!(world.apply_poison_to_player(1, frozen));
+        assert!(
+            world.walk(1, MirDirection::Down).is_err(),
+            "a frozen player cannot walk (HumanObject.cs:121-131)"
+        );
+        assert!(
+            world.run(1, MirDirection::Down).is_err(),
+            "a frozen player cannot run"
+        );
+
+        let slow = PoisonState {
+            kind: PoisonType::Slow,
+            value: 0,
+            duration: 2,
+            ticks: 0,
+            tick_at: now + FROST_CRUNCH_POISON_TICK_MS,
+            tick_speed_ms: FROST_CRUNCH_POISON_TICK_MS,
+            owner_id: 2,
+        };
+        assert!(world.apply_poison_to_player(1, slow));
+        let player = world.player(1).expect("玩家");
+        assert_eq!(
+            player.action_delay(MOVE_DELAY_MS),
+            MOVE_DELAY_MS * 2,
+            "Slow doubles the player GetDelayTime (HumanObject.cs:249)"
+        );
+    }
+
+    #[test]
+    fn shoulder_dash_zero_step_still_sets_cell_time_and_chats() {
+        let mut world = round51_default_world(vec![round51_magic(Spell::ShoulderDash, 0)]);
+        let mut caster_rx = round51_add_player(&mut world, 1, "0", Point::new(10, 29));
+        round51_learn(&mut world, 1, Spell::ShoulderDash, 3);
+        round51_packets(&mut caster_rx);
+        let now = world.now();
+
+        world
+            .cast_magic(
+                1,
+                Spell::ShoulderDash,
+                MirDirection::Down,
+                0,
+                Point::new(0, 0),
+            )
+            .expect("冲撞施法成功");
+        let caster = world.player(1).expect("玩家");
+        assert_eq!(caster.position, Point::new(10, 29), "地图边缘一格未走");
+        assert_eq!(
+            caster.cell_time,
+            now + SHOULDER_DASH_CELL_TIME_MS,
+            "zero-step failure still sets CellTime = now+500 (HumanObject.cs:5152)"
+        );
+        assert_eq!(caster.step_counter, 0, "StepCounter 归零");
+        let expected = world.text(1, TextKey::NotEnoughPushingPower);
+        let packets = round51_packets(&mut caster_rx);
+        assert!(
+            packets.iter().any(|packet| matches!(
+                packet,
+                ServerPacket::Chat(chat) if chat.message.contains(&expected)
+            )),
+            "zero-step failure sends the NotEnoughPushingPower chat (HumanObject.cs:5141-5143)"
+        );
+        assert!(
+            packets
+                .iter()
+                .any(|packet| matches!(packet, ServerPacket::UserDashFail(_))),
+            "still emits S.UserDashFail"
+        );
+    }
+
+    #[test]
+    fn shoulder_dash_failure_chat_uses_the_safezone_text() {
+        let mut city = round51_map_info("0", false);
+        city.safe_zones.push(mir_db::SafeZoneInfo {
+            location: Point::new(10, 29),
+            size: 3,
+            start_point: false,
+        });
+        let mut world = round51_world(vec![round51_magic(Spell::ShoulderDash, 0)], vec![city]);
+        let mut caster_rx = round51_add_player(&mut world, 1, "0", Point::new(10, 29));
+        round51_learn(&mut world, 1, Spell::ShoulderDash, 3);
+        round51_packets(&mut caster_rx);
+
+        world
+            .cast_magic(
+                1,
+                Spell::ShoulderDash,
+                MirDirection::Down,
+                0,
+                Point::new(0, 0),
+            )
+            .expect("冲撞施法成功");
+        let expected = world.text(1, TextKey::NoPushingInSafezone);
+        assert!(
+            round51_packets(&mut caster_rx)
+                .iter()
+                .any(|packet| matches!(
+                    packet,
+                    ServerPacket::Chat(chat) if chat.message.contains(&expected)
+                )),
+            "safe-zone failure sends the NoPushingInSafezone chat"
+        );
+    }
+
+    #[test]
+    fn shoulder_dash_pushes_lower_level_players() {
+        let mut world = round51_default_world(vec![round51_magic(Spell::ShoulderDash, 0)]);
+        let _caster_rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        let (mut target, mut target_rx) = test_player(2, "0", Point::new(10, 11), 1, false);
+        target.attack_mode = mir_core::enums::AttackMode::All;
+        world.enter(target);
+        world.player_mut(1).expect("施法者").attack_mode = mir_core::enums::AttackMode::All;
+        round51_learn(&mut world, 1, Spell::ShoulderDash, 3);
+        round51_packets(&mut target_rx);
+
+        world
+            .cast_magic(
+                1,
+                Spell::ShoulderDash,
+                MirDirection::Down,
+                0,
+                Point::new(0, 0),
+            )
+            .expect("冲撞施法成功");
+        let caster = world.player(1).expect("施法者").position;
+        let pushed = world.player(2).expect("目标").position;
+        assert!(caster.y > 10, "低等级玩家被推走后施法者跟进");
+        assert!(
+            pushed.y >= 12,
+            "low-level player is pushed cell by cell (HumanObject.Pushed), got {pushed:?}"
+        );
+        assert_eq!(pushed.x, 10, "只沿冲撞方向推");
+        let packets = round51_packets(&mut target_rx);
+        assert!(
+            packets
+                .iter()
+                .any(|packet| matches!(packet, ServerPacket::Pushed(_))),
+            "the pushed player receives S.Pushed (HumanObject.cs:2712)"
+        );
+    }
+
+    #[test]
+    fn shoulder_dash_is_blocked_by_same_level_players() {
+        let mut world = round51_default_world(vec![round51_magic(Spell::ShoulderDash, 0)]);
+        let _caster_rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        let _target_rx = round51_add_player(&mut world, 2, "0", Point::new(10, 11));
+        world.player_mut(1).expect("施法者").attack_mode = mir_core::enums::AttackMode::All;
+        world.player_mut(2).expect("目标").attack_mode = mir_core::enums::AttackMode::All;
+        round51_learn(&mut world, 1, Spell::ShoulderDash, 3);
+
+        world
+            .cast_magic(
+                1,
+                Spell::ShoulderDash,
+                MirDirection::Down,
+                0,
+                Point::new(0, 0),
+            )
+            .expect("冲撞施法成功");
+        assert_eq!(
+            world.player(1).expect("施法者").position,
+            Point::new(10, 10),
+            "target level < caster level is required, so the player blocks and dash travels zero cells"
+        );
+        assert_eq!(
+            world.player(2).expect("目标").position,
+            Point::new(10, 11),
+            "same-level player cannot be pushed"
+        );
+    }
+
+    #[test]
+    fn thunder_storm_resolves_against_the_map_it_was_cast_on() {
+        let mut world = round51_default_world(vec![round51_magic(Spell::ThunderStorm, 0)]);
+        let _caster_rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        let old_map_monster =
+            round51_spawn_monster(&mut world, MonsterKind::skeleton(), Point::new(11, 10));
+        let nt_monster = world.spawn_monster("nt", MonsterKind::skeleton(), Point::new(10, 10));
+        if let Some(monster) = world.monster_mut(nt_monster) {
+            monster.operate_time = i64::MAX;
+            monster.hp = 10_000;
+            monster.stats.hp = 10_000;
+        }
+        round51_learn(&mut world, 1, Spell::ThunderStorm, 3);
+
+        world
+            .cast_magic(
+                1,
+                Spell::ThunderStorm,
+                MirDirection::Down,
+                0,
+                Point::new(0, 0),
+            )
+            .expect("雷暴施法成功");
+        // 500ms 延迟动作期间玩家换图（Crystal 动作记录挂在施法时的 CurrentMap.ActionList）。
+        {
+            let caster = world.player_mut(1).expect("玩家");
+            caster.map = "nt".to_owned();
+            caster.position = Point::new(20, 20);
+        }
+        round51_resolve_after(&mut world, THUNDER_STORM_DELAY_MS);
+        assert!(
+            world.monster(old_map_monster).expect("怪物").hp < 10_000,
+            "lightning resolves on the map cast on (0), not the caster current map"
+        );
+        assert_eq!(
+            world.monster(nt_monster).expect("怪物").hp,
+            10_000,
+            "a monster at the same cell on another map is unaffected"
+        );
+    }
+
+    #[test]
+    fn storm_escape_keeps_lightning_damage_when_teleport_is_forbidden() {
+        let mut world = round51_default_world(vec![round51_magic(Spell::StormEscape, 9)]);
+        let _caster_rx = round51_add_player(&mut world, 1, "nt", Point::new(10, 10));
+        let monster = world.spawn_monster("nt", MonsterKind::skeleton(), Point::new(11, 10));
+        if let Some(monster) = world.monster_mut(monster) {
+            monster.operate_time = i64::MAX;
+            monster.hp = 10_000;
+            monster.stats.hp = 10_000;
+            monster.stats.min_mac = 0;
+            monster.stats.max_mac = 0;
+        }
+        round51_learn(&mut world, 1, Spell::StormEscape, 3);
+
+        world
+            .cast_magic(
+                1,
+                Spell::StormEscape,
+                MirDirection::Down,
+                0,
+                Point::new(14, 10),
+            )
+            .expect("狂风绝命施法成功");
+        round51_resolve_after(&mut world, THUNDER_STORM_DELAY_MS);
+        assert!(
+            world.monster(monster).expect("怪物").hp < 10_000,
+            "teleport failure keeps the lightning damage already dealt at 500ms"
+        );
+        round51_resolve_after(&mut world, STORM_ESCAPE_DELAY_MS - THUNDER_STORM_DELAY_MS);
+        assert_eq!(
+            world.player(1).expect("施法者").position,
+            Point::new(10, 10),
+            "on a no-teleport map the teleport fails and position is unchanged"
+        );
+        assert!(
+            !world
+                .buffs(1)
+                .iter()
+                .any(|buff| buff.kind == BuffKind::TemporalFlux),
+            "teleport failure does not apply TemporalFlux"
+        );
+    }
+
+    #[test]
+    fn teleport_penalty_is_a_real_temporal_flux_buff() {
+        let mut magic = round51_magic(Spell::Blink, 9);
+        magic.delay_base = 0;
+        let mut world = round51_default_world(vec![magic]);
+        let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        // `round51_add_player` 给 10_000 蓝，但 `change_player_mp` 会截到上限；
+        // 先回满，差值才等于真实消耗。
+        let max_mp = world.player(1).expect("玩家").stats.mp;
+        world.player_mut(1).expect("玩家").mp = max_mp;
+        round51_learn(&mut world, 1, Spell::Blink, 3);
+        let base_cost = 4; // BaseCost 1 + LevelCost 1 * Level 3
+        let penalty_cost = base_cost + base_cost * TELEPORT_MANA_PENALTY_PERCENT / 100;
+
+        let mp = world.player(1).expect("玩家").mp;
+        world
+            .cast_magic(1, Spell::Blink, MirDirection::Down, 0, Point::new(10, 13))
+            .expect("第一次瞬移");
+        assert_eq!(
+            mp - world.player(1).expect("玩家").mp,
+            base_cost,
+            "no penalty without TemporalFlux"
+        );
+        round51_resolve_after(&mut world, BLINK_DELAY_MS);
+        let buff = world
+            .buffs(1)
+            .iter()
+            .find(|buff| buff.kind == BuffKind::TemporalFlux)
+            .expect("落地后获得 30s TemporalFlux");
+        assert_eq!(
+            buff.expire_at,
+            world.now() + TELEPORT_PENALTY_MS,
+            "TemporalFlux 30s"
+        );
+
+        world.advance_clock(1_000);
+        // 第一次施法把 ActionTime/SpellTime 推到 now+1800；跳过法术硬直再测第二次耗蓝。
+        world.player_mut(1).expect("玩家").action_time = 0;
+        world.player_mut(1).expect("玩家").magic.spell_time = 0;
+        let mp = world.player(1).expect("玩家").mp;
+        world
+            .cast_magic(1, Spell::Blink, MirDirection::Down, 0, Point::new(10, 10))
+            .expect("第二次瞬移");
+        assert_eq!(
+            mp - world.player(1).expect("玩家").mp,
+            penalty_cost,
+            "blink costs 30% more mana while TemporalFlux is active"
+        );
+
+        world.advance_clock(TELEPORT_PENALTY_MS);
+        world.tick_buffs(world.now());
+        assert!(
+            !world
+                .buffs(1)
+                .iter()
+                .any(|buff| buff.kind == BuffKind::TemporalFlux),
+            "TemporalFlux expires after 30s"
+        );
+        let mp = world.player(1).expect("玩家").mp;
+        world
+            .cast_magic(1, Spell::Blink, MirDirection::Down, 0, Point::new(10, 13))
+            .expect("第三次瞬移");
+        assert_eq!(
+            mp - world.player(1).expect("玩家").mp,
+            base_cost,
+            "no penalty once the buff expires"
+        );
+    }
+
+    #[test]
+    fn frost_crunch_freezing_stat_extends_the_frozen_roll() {
+        let mut world = round51_default_world(vec![]);
+        let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        assert_eq!(world.caster_freezing(1), 0, "无 Freezing 装备时为 0");
+        let mut item = mir_protocol::data::UserItem::default();
+        item.added_stats.set(Stat::Freezing, 17);
+        world.player_mut(1).expect("玩家").equipment[0] = Some(item);
+        assert_eq!(world.caster_freezing(1), 17, "读取装备的 Freezing 属性");
+        for _ in 0..64 {
+            let bonus = world.freeze_roll(1);
+            assert!(
+                (0..=16).contains(&bonus),
+                "Freezing=17 → Random.Next(17) ∈ 0..=16（HumanObject.cs:5987）"
+            );
+        }
+        world.player_mut(1).expect("玩家").equipment[0] = None;
+        assert_eq!(world.freeze_roll(1), 0, "Freezing=0 时不抽取、额外时长 0");
+    }
+
+    #[test]
+    fn shoulder_dash_aborts_before_packets_when_the_caster_cannot_walk() {
+        let mut world = round51_default_world(vec![round51_magic(Spell::ShoulderDash, 0)]);
+        let mut rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        round51_learn(&mut world, 1, Spell::ShoulderDash, 3);
+        let now = world.now();
+        // `HumanObject.CanWalk` 含 Frozen（`HumanObject.cs:121-131`）；`ShoulderDash()`
+        // 开头 `if (InTrapRock || !CanWalk) return;`（`:4977-4979`）——`Magic()` 随之直接
+        // 返回：一个包都不发（连末尾的 `S.MagicCast` 都不补，也不记 CastTime）。
+        assert!(world.apply_poison_to_player(
+            1,
+            PoisonState {
+                kind: PoisonType::Frozen,
+                value: 0,
+                duration: 2,
+                ticks: 0,
+                tick_at: now + FROST_CRUNCH_POISON_TICK_MS,
+                tick_speed_ms: FROST_CRUNCH_POISON_TICK_MS,
+                owner_id: 1,
+            }
+        ));
+        let start = world.player(1).expect("施法者").position;
+        let _ = round51_packets(&mut rx);
+        // 玩家冻结后客户端照旧能发施法请求（`CanCast` 不拦 Frozen），但 ShoulderDash
+        // 的前置会立即返回。
+        let report = world
+            .cast_magic(
+                1,
+                Spell::ShoulderDash,
+                MirDirection::Down,
+                0,
+                Point::new(0, 0),
+            )
+            .expect("冻结时 Magic() 仍走完通用校验并返回 Ok");
+        assert!(report.damage.is_none(), "前置失败没有伤害");
+        let packets = round51_packets(&mut rx);
+        // 蓝在 cost 段已扣（`ChangeMP(-cost)`，`HumanObject.cs:3452`），客户端会收到
+        // `S.HealthChanged`；除此之外**一个技能包都没有**（`S.Magic`/`S.MagicCast`/
+        // `S.UserDash`/`S.ObjectDash`/`S.ObjectMagic` 全不发）。
+        assert!(
+            packets
+                .iter()
+                .all(|packet| matches!(packet, ServerPacket::HealthChanged(_))),
+            "a failed prerequisite only echoes the already-paid mana cost, got {packets:?}"
+        );
+        assert_eq!(
+            world.player(1).expect("施法者").position,
+            start,
+            "frozen caster does not dash"
+        );
+        assert!(
+            !world
+                .player(1)
+                .expect("施法者")
+                .magic
+                .casts
+                .contains_key(&Spell::ShoulderDash),
+            "a failed prerequisite does not set the cooldown (Crystal returns early)"
+        );
     }
 }

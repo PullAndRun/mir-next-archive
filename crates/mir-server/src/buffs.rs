@@ -84,6 +84,10 @@ pub enum BuffKind {
     Fury,
     /// 法师魔力增幅（`Spell.MagicBooster`）：`HumanObject.cs:6228-6240`。
     MagicBooster,
+    /// 传送后的法力惩罚（Crystal `BuffType.TemporalFlux`）：30 秒内传送类技能
+    /// （Teleport/Blink/StormEscape）多耗 30% 蓝（`HumanObject.cs:6089`、`:6105`、
+    /// `:6127`；耗蓝公式 `:3379-3385`，本作读取见 `magic::World::add_temporal_flux`）。
+    TemporalFlux,
     /// 药水：物理攻击（`BuffType.Impact`，`PlayerObject.cs:5853-5854`）。
     Impact,
     /// 药水：魔法攻击（`BuffType.Magic`，`:5856-5857`）。
@@ -125,6 +129,7 @@ impl BuffKind {
             Self::LightBody => BuffType::LightBody,
             Self::Fury => BuffType::Fury,
             Self::MagicBooster => BuffType::MagicBooster,
+            Self::TemporalFlux => BuffType::TemporalFlux,
             Self::Impact => BuffType::Impact,
             Self::Magic => BuffType::Magic,
             Self::Taoist => BuffType::Taoist,

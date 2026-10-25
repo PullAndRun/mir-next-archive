@@ -143,6 +143,8 @@
     "magic_firewall_limit": "火墙数量已达上限，请稍后再试。",
     "magic_summon_forbidden": "这张地图不能召唤宠物。",
     "magic_teleport_forbidden": "这张地图不能使用瞬息移动。",
+    "no_pushing_in_safezone": "安全区内无法冲撞。",
+    "not_enough_pushing_power": "冲撞力量不足。",
     "mail_attachment_corrupted": "邮件附件数据损坏。",
     "mail_gameshop_body": "感谢您购买商城商品。",
     "mail_gameshop_sender": "商城",

@@ -3108,13 +3108,14 @@ impl World {
 
     /// 施法者装备/增益汇总的 `Stat.Freezing`（Crystal `Stats[Stat.Freezing]`，
     /// 由 `HumanObject.RefreshStats` 把所有装备模板属性、装备附加属性与生效 buff
-    /// 的同名属性加起来，`:2332` 的 `RefreshBuffs` + `:1858`/`:1965` 的
-    /// `Stats.Add(realItem.Stats)` / `Stats.Add(temp.AddedStats)`）。
+    /// 的同名属性加起来：`HumanObject.cs:1858-1859` 的
+    /// `Stats.Add(realItem.Stats)` + `Stats.Add(temp.AddedStats)`（普通装备的模板 + 附加）、
+    /// `:1965-1966` 的 `RefreshSocketStats` 插槽模板 + 附加、以及 `:2332` 的 `RefreshBuffs`）。
     ///
     /// 本作的 `CombatStats` 还没有 `freezing` 字段（`combat.rs` 不在本轮写范围），
     /// 所以这里按 `RefreshStats` 的加法顺序直接汇总：
     /// ① 每件装备的模板属性 `ItemInfo.stats`（`:1858`）→ ② 其附加属性
-    /// `UserItem.added_stats`（`:1965`）→ ③ 玩家当前生效增益的 `ActiveBuff.stats`
+    /// `UserItem.added_stats`（同一 `:1859`）→ ③ 玩家当前生效增益的 `ActiveBuff.stats`
     /// （`:2332` RefreshBuffs）。缺省 0，语义与 Crystal 一致
     /// （`Random.Next(0)` 恒为 0 → 时长 5，`HumanObject.cs:5987`）。
     ///
@@ -3123,11 +3124,20 @@ impl World {
         self.players.get(&caster_id).map_or(0, |player| {
             let mut total = 0;
             for item in player.equipment.iter().flatten() {
+                let Some(info) = self.item_info(item.item_index) else {
+                    continue;
+                };
+                // 损坏装备不贡献任何属性：Crystal `HumanObject.cs:1836` 在叠
+                // `Stats.Add(realItem.Stats)`/`Stats.Add(temp.AddedStats)`（`:1858-1859`）
+                // **之前**就跳过 `CurrentDura == 0 && Info.Durability > 0` 的装备；
+                // 与 `items.rs:912-915 apply_equipment_stats` 同一语义。
+                if item.current_dura == 0 && info.durability > 0 {
+                    continue;
+                }
                 // ① 装备模板属性（Crystal `realItem.Stats`，`HumanObject.cs:1858`）。
-                total += self
-                    .item_info(item.item_index)
-                    .map_or(0, |info| info.stats.get(Stat::Freezing));
-                // ② 附加属性（Crystal `temp.AddedStats`，`HumanObject.cs:1965`）。
+                total += info.stats.get(Stat::Freezing);
+                // ② 附加属性（Crystal `temp.AddedStats`，`HumanObject.cs:1859`；
+                //    插槽属性在 `:1965-1966` 的 `RefreshSocketStats`，不在此列）。
                 total += item.added_stats.get(Stat::Freezing);
             }
             // ③ 生效增益属性（Crystal `RefreshBuffs`，`HumanObject.cs:2332`）。
@@ -4886,6 +4896,16 @@ mod tests {
                 ServerPacket::AddBuff(add) if add.buff.buff_type == BuffType::TemporalFlux
             )
         });
+        // 先断言四包存在，再比较顺序：`Option<usize>` 的 `None < Some(_)` 为真，
+        // 若缺包直接比较会假通过（B4-2）。
+        assert!(
+            effect_at.is_some(),
+            "must send S.ObjectEffect{{Teleport}} (None<Some would pass silently)"
+        );
+        assert!(
+            buff_at.is_some(),
+            "must send AddBuff(TemporalFlux) (None<Some would pass silently)"
+        );
         assert!(
             effect_at < buff_at,
             "本人包序必须是 ObjectEffect{{Teleport}} < AddBuff(TemporalFlux)，\
@@ -4919,6 +4939,18 @@ mod tests {
                 ServerPacket::ObjectEffect(effect) if effect.effect == SpellEffect::Teleport
             )
         });
+        assert!(
+            out_at.is_some(),
+            "observer must receive ObjectTeleportOut (None<Some would pass silently)"
+        );
+        assert!(
+            in_at.is_some(),
+            "observer must receive ObjectTeleportIn (None<Some would pass silently)"
+        );
+        assert!(
+            observer_effect_at.is_some(),
+            "observer must receive S.ObjectEffect{{Teleport}} (None<Some would pass silently)"
+        );
         assert!(
             out_at < in_at && in_at < observer_effect_at,
             "观察者包序必须是 TeleportOut < TeleportIn < ObjectEffect{{Teleport}}，\
@@ -5790,16 +5822,27 @@ mod tests {
         // 本用例**只覆盖附加属性来源**（`UserItem.added_stats`，Crystal
         // `HumanObject.cs:1965` 的 `Stats.Add(temp.AddedStats)`）；模板属性与 buff
         // 属性来源见 `caster_freezing_sums_template_added_and_buff_stats`。
-        let mut world = round51_default_world(vec![]);
+        // 用一个存在但 Freezing=0、无耐久的模板，确保测试点在附加属性而非模板查表。
+        let plain = mir_db::ItemInfo {
+            index: 1,
+            name: "PlainRing".to_owned(),
+            ..Default::default()
+        };
+        let mut world =
+            round51_world_with_items(vec![], vec![round51_map_info("0", false)], vec![plain]);
         let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
         assert_eq!(world.caster_freezing(1), 0, "无 Freezing 装备时为 0");
-        let mut item = mir_protocol::data::UserItem::default();
+        let mut item = mir_protocol::data::UserItem {
+            item_index: 1,
+            current_dura: 10_000,
+            ..Default::default()
+        };
         item.added_stats.set(Stat::Freezing, 17);
         world.player_mut(1).expect("玩家").equipment[0] = Some(item);
         assert_eq!(
             world.caster_freezing(1),
             17,
-            "读取装备附加属性的 Freezing（模板属性未配置）"
+            "读取装备附加属性的 Freezing（item_index 默认模板无 Freezing）"
         );
         for _ in 0..64 {
             let bonus = world.freeze_roll(1);
@@ -5937,6 +5980,252 @@ mod tests {
         let frozen = round51_cast_frost_until_frozen(&mut world, monster);
         assert_eq!(frozen.duration, 5, "无 Freezing 来源时 Frozen 固定 5 跳");
         assert_eq!(world.freeze_roll(1), 0, "Freezing=0 时额外时长恒 0");
+    }
+
+    #[test]
+    fn damaged_equipment_does_not_contribute_freezing() {
+        // B4-1（Lead 指定参数）：Crystal `HumanObject.cs:1836` 在叠
+        // `Stats.Add(realItem.Stats)` / `Stats.Add(temp.AddedStats)`（`:1858-1859`，
+        // 普通装备的模板 + 附加）**之前**就跳过 `CurrentDura == 0 && Info.Durability > 0`
+        // 的损坏装备；本作 `items.rs:912-915 apply_equipment_stats` 同款。
+        // 注：`:1965-1966` 是 `RefreshSocketStats` 的插槽模板/附加，不是普通 AddedStats，
+        // 这里只引 `:1858-1859`。
+        let template = mir_db::ItemInfo {
+            index: 1,
+            name: "FreezingRing".to_owned(),
+            durability: 10_000,
+            stats: {
+                let mut stats = Stats::default();
+                stats.set(Stat::Freezing, 7);
+                stats
+            },
+            ..Default::default()
+        };
+        let mut world = round51_world_with_items(
+            vec![round51_magic(Spell::FrostCrunch, 9)],
+            vec![round51_map_info("0", false)],
+            vec![template],
+        );
+        let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        round51_learn(&mut world, 1, Spell::FrostCrunch, 3);
+        let monster =
+            round51_spawn_monster(&mut world, MonsterKind::skeleton(), Point::new(12, 10));
+
+        // ① 损坏（current_dura == 0 且模板 durability > 0）：模板 7 + 附加 5 都不生效。
+        let mut damaged = mir_protocol::data::UserItem {
+            item_index: 1,
+            current_dura: 0,
+            ..Default::default()
+        };
+        damaged.added_stats.set(Stat::Freezing, 5);
+        world.player_mut(1).expect("玩家").equipment[0] = Some(damaged);
+        assert_eq!(
+            world.caster_freezing(1),
+            0,
+            "broken item template 7 + added 5 must not contribute Freezing (HumanObject.cs:1836)"
+        );
+        let frozen = round51_cast_frost_until_frozen(&mut world, monster);
+        assert_eq!(
+            frozen.duration, 5,
+            "broken item -> same as no source, Frozen lasts exactly 5 ticks"
+        );
+        assert_eq!(
+            world.freeze_roll(1),
+            0,
+            "broken item -> Freezing=0, consumes no rng"
+        );
+
+        // ② 修复（current_dura > 0）：模板 7 + 附加 5 = 12 生效（同一测试正反差）。
+        world.player_mut(1).expect("玩家").equipment[0]
+            .as_mut()
+            .expect("装备")
+            .current_dura = 10_000;
+        assert_eq!(
+            world.caster_freezing(1),
+            12,
+            "intact item template 7 + added 5 = 12 takes effect (HumanObject.cs:1858-1859)"
+        );
+        let mut saw_positive = false;
+        for _ in 0..64 {
+            let bonus = world.freeze_roll(1);
+            assert!(
+                (0..=11).contains(&bonus),
+                "Freezing=12 -> bonus duration in 0..=11"
+            );
+            saw_positive |= bonus > 0;
+        }
+        assert!(saw_positive, "Freezing=12 时应至少抽到一次 >0");
+    }
+
+    #[test]
+    fn no_durability_equipment_still_contributes_freezing() {
+        // B4 补充边界（Lead）：Crystal `HumanObject.cs:1836` 的跳过条件是
+        // `CurrentDura == 0 && Info.Durability > 0`；`Info.Durability == 0` 的模板
+        // **不**受该条件影响——与 `items.rs:908-925 apply_equipment_stats` 的
+        // `info.durability > 0` 判断一致。本用例证明损坏过滤没有过度过滤。
+        let template = mir_db::ItemInfo {
+            index: 1,
+            name: "NoDuraRing".to_owned(),
+            durability: 0,
+            stats: {
+                let mut stats = Stats::default();
+                stats.set(Stat::Freezing, 5);
+                stats
+            },
+            ..Default::default()
+        };
+        let mut world = round51_world_with_items(
+            vec![round51_magic(Spell::FrostCrunch, 9)],
+            vec![round51_map_info("0", false)],
+            vec![template],
+        );
+        let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        let item = mir_protocol::data::UserItem {
+            item_index: 1,
+            current_dura: 0,
+            ..Default::default()
+        };
+        world.player_mut(1).expect("玩家").equipment[0] = Some(item);
+        // 模板耐久为 0 → 即使 current_dura == 0 也照常贡献属性。
+        assert_eq!(
+            world.caster_freezing(1),
+            5,
+            "equipment with durability == 0 still contributes Freezing=5 (HumanObject.cs:1836 does not apply)"
+        );
+        let mut saw_positive = false;
+        for _ in 0..64 {
+            let bonus = world.freeze_roll(1);
+            assert!((0..=4).contains(&bonus), "Freezing=5 → 额外时长 ∈ 0..=4");
+            saw_positive |= bonus > 0;
+        }
+        assert!(saw_positive, "Freezing=5 时应至少抽到一次 >0");
+    }
+
+    #[test]
+    fn buff_freezing_alone_extends_the_frozen_roll() {
+        // B4 补充边界（Lead）：buff 是独立来源（`HumanObject.cs:2332` RefreshBuffs 的
+        // `Stats.Add(buff.Stats)`）。本用例不穿任何 Freezing 装备，只挂一个
+        // Freezing=3 的生效增益：`caster_freezing == 3`，roll 上限 = Freezing-1。
+        let mut world = round51_default_world(vec![round51_magic(Spell::FrostCrunch, 9)]);
+        let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+        round51_learn(&mut world, 1, Spell::FrostCrunch, 3);
+        let monster =
+            round51_spawn_monster(&mut world, MonsterKind::skeleton(), Point::new(12, 10));
+        assert_eq!(world.caster_freezing(1), 0, "无装备无 buff 时为 0");
+        let mut buff_stats = Stats::default();
+        buff_stats.set(Stat::Freezing, 3);
+        assert!(world.add_buff(1, BuffKind::TemporalFlux, 30_000, buff_stats.clone(), 1));
+        assert_eq!(
+            world.caster_freezing(1),
+            3,
+            "buff alone contributes Freezing=3 (HumanObject.cs:2332)"
+        );
+        let mut saw_positive = false;
+        for _ in 0..64 {
+            let bonus = world.freeze_roll(1);
+            assert!((0..=2).contains(&bonus), "Freezing=3 → 额外时长 ∈ 0..=2");
+            saw_positive |= bonus > 0;
+        }
+        assert!(saw_positive, "Freezing=3 时应至少抽到一次 >0");
+        // 真实施法：Frozen 时长 = 5 + roll ∈ 5..=7。
+        let frozen = round51_cast_frost_until_frozen(&mut world, monster);
+        assert!(
+            (5..=7).contains(&frozen.duration),
+            "buff-only Freezing=3 -> Frozen duration in 5..=7, actual {}",
+            frozen.duration
+        );
+
+        // B4-3 边界（Lead）：buff 移除后贡献归 0。
+        assert!(world.remove_buff(1, BuffKind::TemporalFlux));
+        assert_eq!(
+            world.caster_freezing(1),
+            0,
+            "Freezing contribution is 0 after the buff is removed (buffs.rs:387 remove_buff)"
+        );
+
+        // B4-3 边界（Lead）：buff 到期（tick_buffs 清理）后贡献归 0。
+        assert!(world.add_buff(1, BuffKind::TemporalFlux, 1_000, buff_stats.clone(), 1));
+        assert_eq!(world.caster_freezing(1), 3, "重新挂上 buff 后恢复 3");
+        world.advance_clock(1_000);
+        let now = world.now();
+        world.tick_buffs(now);
+        assert_eq!(
+            world.caster_freezing(1),
+            0,
+            "Freezing contribution is 0 after the buff expires (buffs.rs:454 tick_buffs)"
+        );
+    }
+
+    #[test]
+    fn frost_crunch_real_cast_uses_the_freezing_roll() {
+        // B4-4（Lead/T3 明确缺口）：既有施毒测试只断言 duration ∈ 5..19，恒写 5 也会绿。
+        // 本用例固定 rng 种子、让模板 Freezing=7，真实施法得到的 Frozen 毒时长必须
+        // 落在 5..=12 且**至少一个种子 > 5**——把“5 + roll”写死成 5 的实现会失败。
+        let mut rolled_above_five = Vec::new();
+        for seed in 0..=23u64 {
+            let template = mir_db::ItemInfo {
+                index: 1,
+                name: "FreezingRing".to_owned(),
+                durability: 0,
+                stats: {
+                    let mut stats = Stats::default();
+                    stats.set(Stat::Freezing, 7);
+                    stats
+                },
+                ..Default::default()
+            };
+            let mut world = round51_world_with_items(
+                vec![round51_magic(Spell::FrostCrunch, 9)],
+                vec![round51_map_info("0", false)],
+                vec![template],
+            );
+            world.seed_rng(seed);
+            let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+            round51_learn(&mut world, 1, Spell::FrostCrunch, 3);
+            let item = mir_protocol::data::UserItem {
+                item_index: 1,
+                current_dura: 10_000,
+                ..Default::default()
+            };
+            world.player_mut(1).expect("玩家").equipment[0] = Some(item);
+            let monster =
+                round51_spawn_monster(&mut world, MonsterKind::skeleton(), Point::new(12, 10));
+            let frozen = round51_cast_frost_until_frozen(&mut world, monster);
+            assert!(
+                (5..=12).contains(&frozen.duration),
+                "seed {seed}: template Freezing=7 -> Frozen duration in 5..=12, actual {}",
+                frozen.duration
+            );
+            if frozen.duration > 5 {
+                rolled_above_five.push((seed, frozen.duration));
+            }
+        }
+        // 若真实施法恒为 5，该断言失败；Freezing=7 时 roll ∈ 0..=6，24 个种子里
+        // 至少一个抽到 >0（固定种子序列完全确定，无随机不稳定）。
+        assert!(
+            !rolled_above_five.is_empty(),
+            "a real cast with Freezing=7 must produce a Frozen duration > 5 at least once; actual {rolled_above_five:?}"
+        );
+    }
+
+    #[test]
+    fn frost_crunch_without_freezing_always_lasts_five_ticks() {
+        // B4-4 边界（Lead）：Freezing=0 时真实施法恒 5 跳，与 rng 种子/状态无关
+        // （`HumanObject.cs:5987` 的 `Duration = 5 + Random.Next(Freezing)`，参数 0 →
+        // 不消耗随机数，恒 5）。
+        for seed in [0u64, 12_345] {
+            let mut world = round51_default_world(vec![round51_magic(Spell::FrostCrunch, 9)]);
+            world.seed_rng(seed);
+            let _rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
+            round51_learn(&mut world, 1, Spell::FrostCrunch, 3);
+            let monster =
+                round51_spawn_monster(&mut world, MonsterKind::skeleton(), Point::new(12, 10));
+            let frozen = round51_cast_frost_until_frozen(&mut world, monster);
+            assert_eq!(
+                frozen.duration, 5,
+                "seed {seed}: Frozen lasts exactly 5 ticks when Freezing=0"
+            );
+        }
     }
 
     #[test]

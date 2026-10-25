@@ -50,7 +50,7 @@
 //! | `S.GainedItem` | 并入背包（可堆叠物品先并堆）；系统聊天 |
 //! | `S.MoveItem` | 背包内交换（`grid = Inventory` 且 `success`） |
 //! | `S.EquipItem` / `S.RemoveItem` | 背包 ↔ 装备槽（按唯一编号搬运） |
-//! | `S.DeleteItem` | 按数量移除背包物品 |
+//! | `S.DeleteItem` | 按唯一编号从背包/装备移除物品（装备耗材按 UUID 部分扣数/摘槽） |
 //! | `S.RefreshItem` | 用新数据替换同 `unique_id` 的物品（Crystal 的 `ItemChanged`） |
 //! | `S.ItemRepaired` | 更新持久度 |
 //! | `S.AddBuff` / `S.RemoveBuff` | `buffs`：图标栏数据（`ExpireTime` 由 UI 本地倒计时） |
@@ -165,6 +165,11 @@ const DAMAGE_EVENT_LIMIT: usize = 32;
 const EFFECT_EVENT_LIMIT: usize = 16;
 /// 快照里保留的技能表现事件条数（火墙/雷电等短时表现）。
 const SPELL_EVENT_LIMIT: usize = 24;
+/// 快照里保留的「仍在场上的法术场」条数（`S.ObjectSpell` 登记、`S.ObjectRemove` 撤销）。
+///
+/// 超过上限时丢弃最早登记的一项（与 [`SPELL_EVENT_LIMIT`] 同样只服务于 UI，
+/// 不改变协议语义；毒雾 3×3 + 困魔咒 8 外围场远小于该上限）。
+const SPELL_FIELD_LIMIT: usize = 512;
 /// 快照里保留的音效事件条数：UI 每帧把「比上次多」的那些交给播放器。
 const SOUND_EVENT_LIMIT: usize = 32;
 /// 客户端版本哈希的占位值：Crystal 发的是客户端 exe 的 MD5（16 字节），
@@ -1514,6 +1519,36 @@ pub struct SpellEvent {
     pub started_ms: i64,
 }
 
+/// 一块「铺在地图上、仍在生效」的法术场（`S.ObjectSpell`(149) → `S.ObjectRemove`(26)）。
+///
+/// # 为什么需要它
+///
+/// [`SpellEvent`] 是**瞬态表现事件**（UI 播一次特效就够）；但服务端对毒雾/困魔咒
+/// 这类持续场有「视野差分」：玩家走进已有场的视野时，服务端会按对象 ID 补发
+/// `S.ObjectSpell(149)`（`world.rs` 的 `sync_player_spell_fields`），离场/到期/清场时
+/// 按同一个对象 ID 发 `S.ObjectRemove(26)`。客户端只按对象 ID 登记/撤销，才能在
+/// 「进场补发」和「别人施法时我在场」两条路径上得到同一份状态。
+///
+/// # 与 `SpellEvent::from_object_spell` 的分工
+///
+/// 149 既产生一条瞬态事件（画特效），也更新本表（持久状态）；撤销只凭 26 的
+/// `object_id`，**不**按技能类型或坐标猜（Crystal `SpellObject` 的移除同样以对象为准）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpellFieldView {
+    /// 场对象编号（`S.ObjectSpell.object_id`；撤销时与 `S.ObjectRemove.object_id` 相同）。
+    pub object_id: u32,
+    /// 场类型（毒雾/困魔咒/火墙…）。
+    pub spell: Spell,
+    /// 表现位置：毒雾取施法落点 `cast_location`，困魔咒/火墙取每格中心（服务端已算好）。
+    pub location: Point,
+    /// 朝向（服务端逐场下发，诊断用）。
+    pub direction: MirDirection,
+    /// `S.ObjectSpell.param`（服务端目前恒为 `false`，原样保留）。
+    pub param: bool,
+    /// 本地收到 149 的时刻（Unix 毫秒）。
+    pub started_ms: i64,
+}
+
 /// 一次音效事件：服务端包 → 「该响什么」。
 ///
 /// 事件只保存**语义**（[`SoundId`]），文件名映射与播放都在客户端：
@@ -2706,6 +2741,11 @@ pub struct WorldSnapshot {
     pub spell_events: Vec<SpellEvent>,
     /// 下一个技能表现事件编号。
     pub next_spell_id: u64,
+    /// 仍在场上的法术场（`S.ObjectSpell`(149) 登记，`S.ObjectRemove`(26) 撤销）。
+    ///
+    /// 与 [`Self::spell_events`] 的区别：这里是**当前仍存在**的场，撤销/离场/到期后
+    /// 随 26 移除；进场补发的 149 也走同一张表（按对象 ID 去重）。
+    pub spell_fields: Vec<SpellFieldView>,
     /// 最近的音效事件（尾部最新；播放器只消费新增的 `id`）。
     pub sound_events: Vec<SoundEvent>,
     /// 下一个音效事件编号。
@@ -2836,6 +2876,7 @@ impl Default for WorldSnapshot {
             next_effect_id: 0,
             spell_events: Vec::new(),
             next_spell_id: 0,
+            spell_fields: Vec::new(),
             sound_events: Vec::new(),
             next_sound_id: 1,
             wall_bump_id: 0,
@@ -3020,6 +3061,14 @@ impl WorldSnapshot {
             item.as_ref()
                 .is_some_and(|item| item.unique_id == unique_id)
         })
+    }
+
+    /// 按对象编号找仍在场上的法术场（`S.ObjectSpell`(149) 登记、26 撤销）。
+    #[must_use]
+    pub fn spell_field(&self, object_id: u32) -> Option<&SpellFieldView> {
+        self.spell_fields
+            .iter()
+            .find(|field| field.object_id == object_id)
     }
 
     /// 取仓库格；越界或空格返回 `None`。
@@ -4595,6 +4644,29 @@ fn apply_self_location(
     }
 }
 
+/// 应用 `S.UserDashFail`(152)：把自机钉回服务端权威格，并**清掉本地预测动作**。
+///
+/// 与 [`apply_self_location`] 的区别：那条路把「1~2 格直线」当成服务端确认的一次
+/// 走/跑，会重启动画；而 `UserDashFail` 的语义恰恰是「服务端拒绝了本地预测」，
+/// 必须无条件回到 Standing 并清掉旧动作计时，否则错误预测格会被画成一次新的移动
+/// （Crystal `GameScene.cs` 收到 `UserDashFail` 时直接回拉坐标并清 motion）。
+/// 同一格时也不计撞墙（撞墙由 `S.UserLocation` 同坐标回包负责）。
+fn apply_self_dash_fail(
+    snapshot: &mut WorldSnapshot,
+    location: Point,
+    direction: MirDirection,
+    now_ms: u64,
+) {
+    let Some(me) = &mut snapshot.self_player else {
+        return;
+    };
+    me.position = location;
+    me.direction = direction;
+    if !me.dead {
+        me.set_action(ActorAction::Standing, now_ms);
+    }
+}
+
 /// 应用一个远端玩家（非自机 Player）的 `S.ObjectWalk`/`S.ObjectRun`。
 ///
 /// 时间基准（R46）：动作与 [`RemoteMotion`] 都从**应用该包的 `now_ms`** 起算；
@@ -4874,6 +4946,9 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             snapshot.entities.clear();
             snapshot.remote_motions.clear();
             snapshot.monster_motions.clear();
+            // 旧地图的法术场对象编号在新地图不再有效（服务端离场时已发 26；
+            // 这里兜底防漏包，与 `entities` 一样整批清掉）。
+            snapshot.spell_fields.clear();
             // 换地图等于离开当前 NPC，UI 必须把对话/商店/仓库收起来。
             snapshot.npc_dialog = None;
             snapshot.npc_goods = None;
@@ -5086,6 +5161,12 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             snapshot.monster_motions.remove(&remove.object_id);
             snapshot.gold_piles.remove(&remove.object_id);
             snapshot.pet_masters.remove(&remove.object_id);
+            // 法术场撤销（26）：服务端对离场/到期/清场的场按同一对象 ID 发
+            // `S.ObjectRemove`（`world.rs` 的 `object_remove_frame`），客户端必须把
+            // 持久登记一起摘掉，否则进场补发的 149 会永远留在快照里。
+            snapshot
+                .spell_fields
+                .retain(|field| field.object_id != remove.object_id);
         }
         ServerPacket::ObjectTurn(turn) => {
             snapshot.remote_motions.remove(&turn.object_id);
@@ -5141,9 +5222,11 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             );
         }
         ServerPacket::UserDashFail(fail) => {
-            // 冲撞失败（零移动/安全区/被挡）：拉回服务端权威格；同坐标时
-            // `apply_self_location` 只计一次撞墙，不重启动画。
-            apply_self_location(snapshot, fail.location, fail.direction, now_ms);
+            // 冲撞失败（零移动/安全区/被挡）：服务端用这条包**撤销本地预测**，
+            // 所以不能复用 `apply_self_location` 的「1 格 = Walking」分支——
+            // 把错误预测格拉回权威格时若按走步重启动画，会画出一次并不存在的移动，
+            // 且旧的走/跑 motion 不会被清掉（R52-C 152 断言）。
+            apply_self_dash_fail(snapshot, fail.location, fail.direction, now_ms);
         }
         ServerPacket::ObjectDashFail(fail) => {
             snapshot.remote_motions.remove(&fail.object_id);
@@ -5370,6 +5453,17 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
                 true,
                 now_ms,
             );
+            // 同一包还要写进持久场表：玩家进入已有毒雾/困魔咒视野时，服务端会重发
+            // 149（`world.rs` 的 `sync_player_spell_fields`），撤销/到期则发 26。
+            register_spell_field(
+                snapshot,
+                spell.object_id,
+                spell.spell,
+                spell.location,
+                spell.direction,
+                spell.param,
+                now_ms,
+            );
         }
         ServerPacket::AddBuff(add) => {
             let buff = BuffView::from_client_buff(&add.buff);
@@ -5471,7 +5565,10 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
             }
         }
         ServerPacket::DeleteItem(deleted) => {
-            delete_inventory_item(snapshot, deleted.unique_id, deleted.count);
+            // 服务端 B1 的耗材消耗按**装备 UUID**下发 `DeleteItem`
+            // （`spell_consumables.rs`：部分扣数只减 count，整堆耗光摘槽），所以这里
+            // 必须同时命中背包与装备；只按唯一编号、不按模板，避免误扣背包里的同种物品。
+            delete_item(snapshot, deleted.unique_id, deleted.count);
         }
         ServerPacket::RefreshItem(refreshed) => {
             refresh_inventory_item(snapshot, &refreshed.item);
@@ -6935,20 +7032,33 @@ fn remove_inventory_item(snapshot: &mut WorldSnapshot, unique_id: u64) {
     }
 }
 
-/// 按数量移除背包物品（`S.DeleteItem`）。
-fn delete_inventory_item(snapshot: &mut WorldSnapshot, unique_id: u64, count: u16) {
-    let Some(slot) = snapshot.inventory_slot_of(unique_id) else {
-        return;
-    };
-    let Some(item) = snapshot.inventory.get_mut(slot).and_then(Option::as_mut) else {
-        return;
-    };
-    if count >= item.count || item.count <= 1 {
-        if let Some(slot) = snapshot.inventory.get_mut(slot) {
-            *slot = None;
+/// 按唯一编号、按数量移除物品（`S.DeleteItem`）。
+///
+/// 同时覆盖背包与装备槽：B1 的施法耗材原语对**装备 UUID** 发 `DeleteItem`
+/// （`spell_consumables.rs` 的 `consume_spell_material`），部分扣除只减 `count`、
+/// 整堆耗光则摘槽。原来只查背包，装备栏的护身符/毒药数量永不下降（R52-M01 致命链）。
+///
+/// 只按唯一编号命中：同一模板的其它物品（背包里的同种护身符等）不会被误扣。
+fn delete_item(snapshot: &mut WorldSnapshot, unique_id: u64, count: u16) {
+    for slots in [&mut snapshot.inventory, &mut snapshot.equipment] {
+        let Some(slot) = slots.iter().position(|item| {
+            item.as_ref()
+                .is_some_and(|item| item.unique_id == unique_id)
+        }) else {
+            continue;
+        };
+        let exhausted = slots
+            .get(slot)
+            .and_then(Option::as_ref)
+            .is_none_or(|item| count >= item.count);
+        if exhausted {
+            if let Some(cell) = slots.get_mut(slot) {
+                *cell = None;
+            }
+        } else if let Some(item) = slots.get_mut(slot).and_then(Option::as_mut) {
+            item.count -= count;
         }
-    } else {
-        item.count -= count;
+        return;
     }
 }
 
@@ -7113,6 +7223,44 @@ fn push_spell_event(
     });
     if snapshot.spell_events.len() > SPELL_EVENT_LIMIT {
         snapshot.spell_events.remove(0);
+    }
+}
+
+/// 登记/更新一块法术场（`S.ObjectSpell`(149)）。
+///
+/// 按对象 ID 去重：同一对象在「施法广播」和「进入视野补发」两条路径上都会出现，
+/// 客户端只保留一份，位置/参数以最后收到的包为准（服务端两次给的内容相同）。
+fn register_spell_field(
+    snapshot: &mut WorldSnapshot,
+    object_id: u32,
+    spell: Spell,
+    location: Point,
+    direction: MirDirection,
+    param: bool,
+    now_ms: u64,
+) {
+    if spell == Spell::None {
+        return;
+    }
+    let view = SpellFieldView {
+        object_id,
+        spell,
+        location,
+        direction,
+        param,
+        started_ms: i64::try_from(now_ms).unwrap_or(i64::MAX),
+    };
+    if let Some(existing) = snapshot
+        .spell_fields
+        .iter_mut()
+        .find(|field| field.object_id == object_id)
+    {
+        *existing = view;
+        return;
+    }
+    snapshot.spell_fields.push(view);
+    if snapshot.spell_fields.len() > SPELL_FIELD_LIMIT {
+        snapshot.spell_fields.remove(0);
     }
 }
 

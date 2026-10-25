@@ -43,6 +43,7 @@ pub mod quest_inventory;
 pub mod quests;
 pub mod server;
 pub mod session;
+pub mod spell_consumables;
 pub mod storage;
 pub mod store;
 pub mod trade;

@@ -2,7 +2,7 @@
 
 - 子单：`JJC-20261025-003-sub-82bdab8e`；执行角色 `libu / gpt-6.1-sol`。
 - 取证日期：2026-10-25，时区 `Asia/Shanghai`；cwd：`C:\Users\diana\Documents\github\mir-next`。
-- 基线：`HEAD = origin/main = 716db4292ad6d475e92bf8b6cbd4f230f307684f`；本批交付工作区差异，由 Lead 提交。
+- 历史取证基线：`HEAD = origin/main = 716db4292ad6d475e92bf8b6cbd4f230f307684f`；原 R51-A 工作区文档已由 Lead 提交为 `7802eb9`，功能批为 `13f7c78`；功能返工批及后续 HEAD 见后续审计。
 - 范围：[商城](../world/gameshop.md)、[客户端](../client.md)及本记录；无 crates 改动，无 cargo/ci 或 git 写操作。
 - 原始日志按执行者直接指令落 `target/round51/r51-a/`；此要求优先于[派发契约](round51-shangshu-dispatch.md)第22行“不额外写target”的一般约束。
 
@@ -41,4 +41,12 @@
 | PoisonCloud | 依派发契约固定 PARTIAL：必需耗材排除，不改为免耗施法 |
 | TrapHexagon | 依派发契约固定 PARTIAL：必需耗材排除，不改为免耗施法 |
 
-本批无新增功能完成宣称；文档当前口径已修正，历史 PARTIAL/Crystal 差异继续保留。Lead 可核对后独立提交本批三份文档；后续功能批及全量/终审由对应责任人执行。
+原 R51-A 无新增功能完成宣称；历史 PARTIAL/Crystal 差异继续保留。该批三份文档已纳入 `7802eb9`；后续功能批及全量/终审由对应责任人执行。
+
+## R51-A2：P09 文档时态返工
+
+- 子单：`JJC-20261025-003-sub-814e34ed`；礼部仅做文档修订，不提交/推送，不执行 CI。
+- P09 修正：[商城](../world/gameshop.md#L38)、[客户端](../client.md#L867)将 `716db42` 明确为历史取证基线，移除当前“尚未提交”断言；截至本批更新时已提交文档批 `7802eb9`、功能批 `13f7c78`，后续返工 HEAD 以新审计为准。
+- 当前审计为 [T1 BLOCK](../testing/round51/round51-final-audit.md#L3)，不能用原 12/12 门禁通过替代语义闭环：P01/P02 固定 PARTIAL 接受；P03 Frost 控制、P04 Dash 必需语义、P05 雷击地图冻结、P07 真实服务端至客户端状态链为 HIGH/BLOCK；P06 效果/buff、P08 动作/推移/视觉、P10 矩阵与断言证据为 MED/PARTIAL。
+- 功能返工在途：`13f7c78` 已被退回兵部，P06/P08/P10 矩阵措辞和功能证据由兵部同步；本次只修 P09 文档，不宣称其他问题闭环。修后须由 Lead 在新提交树取新门禁证据，再交刑部复审，保留 attempt1–3。
+- [审计索引](../testing/round51/README.md)引用 T1 与现存 manifest，后续复审更新独立证据；本批命令与 diff 证据目录为 `target/round51/r51-a2/`。`PYTHONIOENCODING=utf-8 py -3 tools/docs/check_links.py` 首轮实测 1030 条相对链接、2 篇 README 引用、exit0（926 为原历史基线；共享工作树新增审计与索引引用，最终计数以 `check-links.log` 为准）。首次 `git diff --check` 因本记录末尾多余空行 exit2，已去除；修后结果见证据目录，首次记录另存 `first-attempt/`。

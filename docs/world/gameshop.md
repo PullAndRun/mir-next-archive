@@ -38,8 +38,9 @@
 > **当前状态（R51-A 文档同步，2026-10-25）**：R50 已完成，终审与尚书验收为
 > **PASS-WITH-PARTIAL**，P01/P09/P11 已闭环，P02–P08/P10 及 P12 历史取证边界保留；见
 > [R50 验收](../process/round50-shangshu-acceptance.md)、[T2 复审](../testing/round50/round50-final-audit.md#L3)。
-> 当前取证 `HEAD = origin/main = 716db42`（完整值 `716db4292ad6d475e92bf8b6cbd4f230f307684f`），
-> 本批文档尚未提交，由 Lead 提交。历史三提交为 `4d4175a`（制度文档）、`2a7e77e`（A 批文档）、
+> 历史取证基线为 `HEAD = origin/main = 716db42`（完整值 `716db4292ad6d475e92bf8b6cbd4f230f307684f`）。
+> 截至本批文档更新时，文档批 `7802eb9`、功能批 `13f7c78` 已提交；R51 T1 终审为 **BLOCK**，
+> 功能返工批及后续 HEAD 见[后续审计索引](../testing/round51/README.md)。历史三提交为 `4d4175a`（制度文档）、`2a7e77e`（A 批文档）、
 > `b3be4af`（功能与证据）；后续 `2ef4285` 修复 P11，原始失败与返工证据继续保留。
 > 下文 `@2a7e77e3+R50` 等代码行号是提交前取证快照（2026-10-25），不是永久事实。
 >

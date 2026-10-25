@@ -1281,6 +1281,12 @@ impl Monster {
     /// 去掉宠物条件。**Frozen 由 `GetPoison(PoisonType.Frozen)` 直接否决**（`:640`），
     /// 所以被冰咆哮冻住的怪在毒时长内一步都走不了；困魔咒的 `ShockTime` 同样只卡移动
     /// （`:642`，`Envir.Time > ShockTime`）。
+    ///
+    /// `shock_time == 0` 是「未中困魔咒」的哨兵值（Crystal `MonsterObject.cs:604`，
+    /// 怪物出生即 0），不是「2038 年才解除」的绝对时刻。测试世界时钟可以从 `now == 0`
+    /// 起步，因此必须先判哨兵再看时刻：`now > 0` 单独不能代表未中 Shock。
+    /// 晚于 `shock_time` 的同一刻仍算受 Shock（与 Crystal `Envir.Time > ShockTime`
+    /// 的严格大于一致）。
     #[must_use]
     pub fn can_move(&self, now: i64) -> bool {
         !self.dead
@@ -1288,7 +1294,7 @@ impl Monster {
                 .poisons
                 .iter()
                 .any(|poison| poison.kind.value() == PoisonType::Frozen.value())
-            && now > self.shock_time
+            && (self.shock_time == 0 || now > self.shock_time)
             && now > self.move_time
             && now > self.action_time
     }
@@ -3213,5 +3219,38 @@ mod tests {
             "SkeletonWarrior"
         );
         assert_eq!(database_kind.display_name(Language::En), "SkeletonWarrior");
+    }
+
+    #[test]
+    fn can_move_ignores_the_unset_shock_sentinel_at_clock_zero() {
+        // R52-B3 回归：`shock_time == 0` 是「未中困魔咒」的哨兵值（出生即 0），
+        // 不是绝对时刻；测试世界时钟可以从 `now == 0` 起步，不能用 `now > 0`
+        // 判定未中——否则未中 Shock 的怪在 `now == 0` 也被 `can_move` 卡死。
+        let mut rng = MirRng::from_seed(2_610);
+        let mut monster = Monster::new(
+            1,
+            Arc::new(MonsterKind::skeleton()),
+            "0",
+            Point::new(10, 10),
+            0,
+            &mut rng,
+        );
+        monster.move_time = -1;
+        monster.action_time = -1;
+        assert_eq!(monster.shock_time, 0, "出生未中困魔咒");
+        assert!(
+            monster.can_move(0),
+            "未中 Shock 时 now==0 必须可以移动（R52 gate 回归）"
+        );
+
+        // 对照：真正中 Shock 时同一刻及之前不可移动，到期后一刻恢复；
+        // 「恰好到期当刻仍受 Shock」与 Crystal `Envir.Time > ShockTime` 一致。
+        monster.shock_time = 500;
+        assert!(!monster.can_move(499), "Shock 期内不可移动");
+        assert!(
+            !monster.can_move(500),
+            "恰好到期当刻仍受 Shock（Crystal 严格大于）"
+        );
+        assert!(monster.can_move(501), "Shock 到期后恢复移动");
     }
 }

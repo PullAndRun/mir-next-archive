@@ -589,4 +589,4 @@ Warrior `Fencing` 973。测试 `first_skill_book_ignores_level_for_a_level_one_n
 `TextKey::NewbieGuide`（`newbie_guide`）中英双语，与欢迎语合并成进游戏第一条系统 `S.Chat`
 （保持既有包序）；文本「新手提示：背包里已有出生装；到书店买技能书，双击阅读即可学会
 第一个技能。」。`login_flow` 断言欢迎语含「新手提示」。属于扩展键，见
-[`docs/i18n.md`](../i18n.md) §7.7（TextKey 现在 215）。
+[`docs/i18n.md`](../i18n.md) §7.7（TextKey 现在 243）。

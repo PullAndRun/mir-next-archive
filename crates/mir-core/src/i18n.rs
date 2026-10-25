@@ -2733,7 +2733,10 @@ mod tests {
         // 第 25 轮再追加 3 个玩家可见失败反馈键（`pickup_failed` / `buy_failed` /
         // `quest_finish_failed`），236 → 239；第 26 轮 TP-1 追加
         // `quest_navigation_go_to` / `quest_navigation_none`，239 → 241。
-        assert_eq!(TextKey::ALL.len(), 241, "新增/删除键时同步更新数量");
+        // 第 51 轮 R51-B 追加 2 个「野蛮冲撞失败」键（`no_pushing_in_safezone` /
+        // `not_enough_pushing_power`，对齐 Crystal `HumanObject.cs:5130-5143`），
+        // 241 → 243。
+        assert_eq!(TextKey::ALL.len(), 243, "新增/删除键时同步更新数量");
     }
 
     #[test]

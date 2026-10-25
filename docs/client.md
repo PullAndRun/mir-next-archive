@@ -864,6 +864,14 @@ Crystal 的点位公式有一处疑似的 bug：整图是**缩放绘制**的（`
 
 Crystal `GameshopDialog` 风格的**独立面板**，与 §5.16 的市场页签并存、互不替代：
 页签走 `S.NPCMarket` 列表，独立面板走 `S.GameShopInfo` 目录 + `S.GameShopStock` 库存。
+当前取证基线 `HEAD = origin/main = 716db42`（2026-10-25），R50 已完成且为 **PASS-WITH-PARTIAL**；
+本批文档尚未提交，由 Lead 提交。历史提交与残余保持 [R50 验收](process/round50-shangshu-acceptance.md)
+及 [T2](testing/round50/round50-final-audit.md#L66)口径，P02–P08/P10 与 P12 历史取证边界继续保留。
+`S.GameShopInfo`（Index 250）字段为 `Item: GameShopItem`（含 `ItemInfo`）、`StockLevel: i32`；
+`S.GameShopStock`（Index 251）字段为 `GIndex: i32`、`StockLevel: i32`，均按此顺序编码且不压缩。
+`GIndex` 是商品 Index，区别于物品模板 `ItemIndex` / `Info.Index`；详见
+[商城协议定义与包链](world/gameshop.md#L349)。登录在 `UserInformation` 与物品模板之后逐商品下发目录；
+购买的扣款/发货与事务提交成功后才发限量商品库存刷新，校验或事务失败均不发新的 Stock 包。
 实现：`crates/mir-client/src/ui/gameshop.rs`（2,256 行，2026-10-25 实测）、`ui/mod.rs`
 （`UiState::show_gameshop` / `toggle_gameshop` / `gameshop`）、`app.rs`（`K` 键 +
 `live_gameshop_hit` 鼠标分发）、`net.rs`（`GameShopState`）。
@@ -906,8 +914,11 @@ Crystal `GameshopDialog` 风格的**独立面板**，与 §5.16 的市场页签�
   `item.stock > 0 && stock_level > 0` → 显示剩余量；
   `item.stock > 0 && stock_level <= 0` → 售罄，保留条目并禁购。
   `i_stock` 仅选择个人/全服计数模式，不参与不限量判定。
-* **P11 / PARTIAL（R50-C2 返工中）**：`b3be4af` 的初始耗尽目录与面板无限库存判定
-  存在缺陷；以上为业务规则，修复及首次登录、耗尽后重登、重复目录更新边界需另行验证。
+* **P11 已闭环（R50-C2 → T2，修复提交 `2ef4285`）**：`b3be4af` 初版曾把初始耗尽目录
+  误判为无限库存；[C2 红绿证据](../target/round50/r50-c2/README.md#L71)记录 lib 15/15、面板 13/13、
+  exit 0，覆盖首次限量耗尽、真正不限量、重复目录刷新归零；[T2 复审](testing/round50/round50-final-audit.md#L38)
+  与 [R50 验收](process/round50-shangshu-acceptance.md#L44)确认修复成立。
+  非法负总量防御仍按源码 `<= 0`，保留其与正常商品 `== 0` 口径的差异。
 * 库存包 `S.GameShopStock`：`apply_stock` 按 `GIndex` 找到条目后写 `stock_level`，
   再按上述规则判定售罄；**找不到 `GIndex`** 时只推进版本号、
   **不凭空造条目**（防止库存包晚于目录包/错包导致幽灵商品）。

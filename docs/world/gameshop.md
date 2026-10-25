@@ -35,9 +35,12 @@
 > / `C.MarketPage` / `C.MarketBuy` / `S.NPCMarket` / `S.NPCMarketPage` / `S.MarketSuccess` /
 > `S.MarketFail`）在 market.md §2，这里只写商城特有的部分。
 >
-> **本轮（R50）状态口径**：本文所有「已实现/已通过」都附证据路径；没有证据或未实测的一律写
-> PARTIAL。R50 已通过三提交 `4d4175a`（制度文档）、`2a7e77e`（A 批文档）、
-> `b3be4af`（功能与证据）入库，当前 `HEAD = origin/main = b3be4af`。
+> **当前状态（R51-A 文档同步，2026-10-25）**：R50 已完成，终审与尚书验收为
+> **PASS-WITH-PARTIAL**，P01/P09/P11 已闭环，P02–P08/P10 及 P12 历史取证边界保留；见
+> [R50 验收](../process/round50-shangshu-acceptance.md)、[T2 复审](../testing/round50/round50-final-audit.md#L3)。
+> 当前取证 `HEAD = origin/main = 716db42`（完整值 `716db4292ad6d475e92bf8b6cbd4f230f307684f`），
+> 本批文档尚未提交，由 Lead 提交。历史三提交为 `4d4175a`（制度文档）、`2a7e77e`（A 批文档）、
+> `b3be4af`（功能与证据）；后续 `2ef4285` 修复 P11，原始失败与返工证据继续保留。
 > 下文 `@2a7e77e3+R50` 等代码行号是提交前取证快照（2026-10-25），不是永久事实。
 >
 > **行号漂移实测（2026-10-25 06:2x 复核）**：`app.rs` 的 R50-C 取证值已小幅漂移——
@@ -345,6 +348,17 @@ C.MarketBuy{AuctionID = GIndex, BidPrice}   // 74，商城页签打开时的兼�
 
 ### 7.3 独立商城面板：Crystal 包链对齐（R50 已实现）
 
+协议字段按线格式顺序如下；商品 `GIndex` 是商城商品 Index，区别于物品模板 `ItemIndex` / `Info.Index`：
+
+| 包 | Index | 字段（编码顺序） | 源证据 |
+|---|---|---|---|
+| `S.GameShopInfo` | 250 | `Item: GameShopItem`（含 `ItemInfo`，字段见 §2），`StockLevel: i32` | [手写定义与编解码](../../crates/mir-protocol/src/manual/server.rs#L1089) |
+| `S.GameShopStock` | 251 | `GIndex: i32`，`StockLevel: i32` | [生成定义与编解码](../../crates/mir-protocol/src/packets/server.rs#L5961) |
+
+两包均不压缩；库存刷新按商品 `GIndex` 定位，售罄与不限量由原始 `item.stock` 和剩余量共同判断，
+不能把 `StockLevel == 0` 单独解释为不限量。服务端登录与事务包链已交付，证据见
+[R50-B](../../target/round50/r50-b/README.md)及 [R50 验收](../process/round50-shangshu-acceptance.md#L27)。
+
 #### 7.3.1 服务端下发点（两条）
 
 | 时机 | 实现 | Crystal 对应 |
@@ -381,9 +395,11 @@ Stock == 0（不限量）:
 * `item.stock > 0 && stock_level <= 0` → 售罄，保留条目并禁止购买。
 
 `i_stock` 仅选择个人/全服已购计数模式，不参与不限量判定。目录包的剩余量为 0
-也可能表示限量商品已耗尽，不能按包来源把它当作不限量。**P11 / PARTIAL**：
-`b3be4af` 的初始目录 `upsert` 与面板判定存在错误，R50-C2 正在返工；
-上述是应遵循的业务语义，不以旧测试通过代替首次登录、耗尽后重登、重复目录更新的边界验证。
+也可能表示限量商品已耗尽，不能按包来源把它当作不限量。**P11 已闭环（R50-C2 → T2）**：
+`b3be4af` 初版曾在初始目录 `upsert` 与面板判定中误放限量耗尽商品；修复已随 `2ef4285` 入库。
+[C2 红绿证据](../../target/round50/r50-c2/README.md#L71)记录 lib 15/15、面板 13/13、exit 0，
+含首次限量耗尽、真正不限量、重复目录刷新归零三项帧链边界；[T2](../testing/round50/round50-final-audit.md#L38)
+确认 P11 消除。非法负总量的防御条件实际为 `<= 0`，与正常商品 `== 0` 口径的差异仍保留。
 
 #### 7.3.3 `GIndex` 口径：**本作有意偏离 Crystal**（T 核对点）
 
@@ -421,7 +437,7 @@ Crystal 的三处键不一致，必须先看清再谈「对齐」：
 | 搜索 | `TextField` 24 字符；空串 = 不筛 | 同上 |
 | 双币 | 元宝/金币两个按钮（`PAY_CREDIT=0` / `PAY_GOLD=1`）；工具栏显示两种余额 | 测试 `purchase_flow_gold_and_credit` |
 | 数量 | `1..=99`，客户端按「不超过 5 组」先夹一次（`pure_helpers_match_crystal_buy_and_quantity_rules`） | 同上 |
-| 库存显示（应遵循，P11 返工中） | `item.stock == 0` → `∞`；限量且剩余 `> 0` → 剩余量（`>= 99` 显示 `99+`）；限量且剩余 `<= 0` → 「售罄」灰字 + 禁购；`i_stock` 不决定不限量 | §7.3.2；R50-C2 待针对性验收 |
+| 库存显示（R50-C2 已验收） | `item.stock == 0` → `∞`；限量且剩余 `> 0` → 剩余量（`>= 99` 显示 `99+`）；限量且剩余 `<= 0` → 「售罄」灰字 + 禁购；`i_stock` 不决定不限量 | §7.3.2；[C2](../../target/round50/r50-c2/README.md)、[T2](../testing/round50/round50-final-audit.md#L38) |
 | 空态 | 目录为空 → 「商城暂无商品」 | `ui/gameshop.rs:284`；`gameshop-panel-empty.png` |
 | 断线 | 面板只在 `Mode::Live` 可开；断线时 `WorldSnapshot` 不再是 live，面板画「未连接」态 | 测试 `panel_draws_empty_disconnected_and_png_evidence`；`gameshop-panel-disconnected.png` |
 | 缺图标 | 见 §7.3.5 | 测试断言 `assets_partial` + 占位方块 |
@@ -463,8 +479,8 @@ Crystal：`GameScene.cs:6686-6696` 收到 `StockLevel == 0` 的 `S.GameShopStock
 `GameShopInfoList.Remove(...)`——卖完的商品**从列表消失**，客户端不区分
 「不限量」与「卖完」以外的状态，也**没有本地禁用购买**的逻辑（只有列表存在性）。
 
-本作应遵循的规则（`net.rs::GameShopState::upsert/apply_stock` 与面板共用，
-P11 的 R50-C2 返工中，验收状态见 §7.3.2）：
+本作已交付的规则（`net.rs::GameShopState::upsert/apply_stock` 与面板共用，
+P11 已由 R50-C2 修复并经 T2 验收，证据与非法负总量边界见 §7.3.2）：
 
 * `item.stock == 0` → `∞`，不限量；`i_stock` 不改变这个条件；
 * `item.stock > 0 && stock_level > 0` → 显示剩余量；

@@ -57,9 +57,14 @@
 //!   仍然「只登记、不生效」的少数技能见 [`REGISTERED_UNSUPPORTED`]。
 //! * 施法者死亡后已排入队列的延迟效果仍会结算（Crystal 只检查对象是否还在图上，
 //!   同样不检查 `Dead`）。
-//! * 护身符/毒药消耗未实现（`SoulFireBall`、`SoulShield`、`Hiding`、`Summon*`、`Poisoning`
-//!   在 Crystal 里都要消耗护身符/毒药，`HumanObject.cs:4382-4396`、`:4515`、`:4489-4498`、
-//!   `:4419-4426`、`:4369-4377`），原因是本作的护身符/毒药还没有接到技能上。
+//! * 护身符/毒药消耗：**只有毒雾（`PoisonCloud`）** 已接上（符 5 个 + 绿毒 5 个，走
+//!   [`crate::spell_consumables`] 的 `find_spell_material`/`consume_spell_material`，
+//!   `HumanObject.cs:4543-4567`）；`SoulFireBall`、`SoulShield`、`Hiding`、`Summon*`、
+//!   `Poisoning` 在 Crystal 里也要消耗（`HumanObject.cs:4382-4396`、`:4515`、`:4489-4498`、
+//!   `:4419-4426`、`:4369-4377`），本作仍未接。
+//! * 毒雾的 D3 偏差（PARTIAL）：施法者离线/换图时本作立刻清场并停伤；Crystal 的毒雾
+//!   会留在图上直到 `ExpireTime`（`Caster = null` 后 `IsAttackTarget` 拒绝而停伤），
+//!   异图强清只对火墙生效（`SpellObject.cs:47-51`、`:66`、`:78-86`）。
 //! * 第 2 轮新增的 7 个技能见 [`SpellKind`]：`FireWall`/`Lightning`/`Teleport`/`Hiding`/
 //!   `Summon`/`Poison`；逐条差异（无 bind 点的传送、绿→红的施毒策略、火墙的轻量场等）
 //!   都写在各自方法文档里。
@@ -209,6 +214,32 @@ pub const POISON_TICK_MS: i64 = 2_000;
 /// （`HumanObject.cs:5974` 的 Slow、`:5986` 的 Frozen）。这是**独立于**
 /// [`POISON_TICK_MS`] 的口径，Crystal 里同一个 `Poison` 结构按种类带不同的 `TickSpeed`。
 pub const FROST_CRUNCH_POISON_TICK_MS: i64 = 1_000;
+
+/// 毒雾（`PoisonCloud`）的落地延迟系数：`MaxDistance(CurrentLocation, location) * 50 + 500`
+/// （`HumanObject.cs:4546`，每格 50ms）。
+pub const POISON_CLOUD_STEP_MS: i64 = 50;
+
+/// 毒雾（`PoisonCloud`）的固定落地延迟：延迟公式里的 `+ 500`（`HumanObject.cs:4546`）。
+pub const POISON_CLOUD_BASE_DELAY_MS: i64 = 500;
+
+/// 毒雾的存在时长：`ExpireTime = Envir.Time + 6000`（`Server/MirEnvir/Map.cs:1450`）。
+pub const POISON_CLOUD_EXPIRE_MS: i64 = 6_000;
+
+/// 毒雾每跳间隔：`TickSpeed = 1000`（`Map.cs:1451`）。
+pub const POISON_CLOUD_TICK_MS: i64 = 1_000;
+
+/// 毒雾每次命中附上的绿毒跳数：`new Poison { Duration = 12, PType = PoisonType.Green }`
+/// （`Server/MirObjects/SpellObject.cs:166-174`）。
+pub const POISON_CLOUD_POISON_DURATION: u32 = 12;
+
+/// 毒雾的护身符形状：`GetAmulet(5)` 只认 `ItemType.Amulet`（`HumanObject.cs:6859`）。
+pub const POISON_CLOUD_AMULET_SHAPE: u16 = 0;
+
+/// 毒雾的毒药形状：`GetPoison(5, 1)` 的 `shape = 1`（绿毒，`HumanObject.cs:6873`）。
+pub const POISON_CLOUD_POISON_SHAPE: u16 = 1;
+
+/// 毒雾一次施法烧掉的护身符/毒药数量：`GetAmulet(5)` + `GetPoison(5, 1)`（`HumanObject.cs:4545-4549`）。
+pub const POISON_CLOUD_MATERIAL_COUNT: u32 = 5;
 
 /// 怪物被 `PoisonType.Slow` 每跳叠加的移动/攻击间隔：`MoveSpeed += 100`、
 /// `AttackSpeed += 100`（`MonsterObject.cs:1544-1553`）。
@@ -547,6 +578,13 @@ pub struct SpellField {
     /// 施法实例号（Crystal `CastInstanceId`，用于 `FireWallLimit` 按实例回收，
     /// `HumanObject.cs:4151-4175`、`:4183-4207`）。
     pub cast_id: u32,
+    /// 绿毒附伤（Crystal `SpellObject.BonusDmg`）：只有毒雾用，火墙恒 0。
+    pub bonus_damage: i32,
+    /// 施法落点（Crystal `SpellObject.CastLocation`）：只有毒雾的首个对象会广播它。
+    pub cast_location: Point,
+    /// 是否向客户端广播过（Crystal `SpellObject.Show`）：毒雾 9 格里只有
+    /// 首个实际生成的对象为 `true`（`Map.cs:1452-1460`）。
+    pub show: bool,
 }
 
 /// 技能类别：决定施法时走哪条效果分支。
@@ -591,6 +629,11 @@ pub enum SpellKind {
     FrostCrunch,
     /// 雷暴（`HumanObject.cs:4264-4270` + `Map.cs:1303-1341`）：自身脚下 5×5。
     ThunderStorm,
+    /// 毒雾（`PoisonCloud`）：落点 3×3 铺毒云、`POISON_CLOUD_EXPIRE_MS` 内每
+    /// `POISON_CLOUD_TICK_MS` 结算；命中先 `DefenceType.MAC` 伤害、目标存活再附
+    /// 12 跳绿毒（`HumanObject.cs:4543-4567` + `Map.cs:1434-1486` +
+    /// `SpellObject.cs:150-163`）。
+    PoisonCloud,
     /// 已登记、但本作没有效果（见 [`REGISTERED_UNSUPPORTED`]）。
     Unsupported,
 }
@@ -620,6 +663,7 @@ pub const fn spell_kind(spell: Spell) -> SpellKind {
         Spell::Hiding => SpellKind::Hiding,
         Spell::SummonSkeleton | Spell::SummonShinsu => SpellKind::Summon,
         Spell::Poisoning => SpellKind::Poison,
+        Spell::PoisonCloud => SpellKind::PoisonCloud,
         Spell::ShoulderDash => SpellKind::ShoulderDash,
         Spell::Blink => SpellKind::Blink,
         Spell::StormEscape => SpellKind::StormEscape,
@@ -762,6 +806,22 @@ pub enum MagicEffect {
         target_id: u32,
         /// `magic.GetDamage(GetAttackPower(MinSC, MaxSC))` 的结果。
         power: i32,
+    },
+    /// 毒雾落地（`Map.cs:1434-1486`）：在 `location` 的 3×3 逐格生成毒云；
+    /// 首个实际生成的对象广播 `S.ObjectSpell`（`SpellObject.cs:490-530` 的
+    /// `GetInfo` 只在 `Show = true` 时返回），其余只登记为服务端场。
+    PoisonCloud {
+        /// 施法时的地图（Crystal `Map.CompleteMagic` 里的 `this`，即 `CurrentMap`）。
+        map: String,
+        /// 施法落点（毒云 3×3 的中心；也是客户端看到的 `CastLocation`）。
+        location: Point,
+        /// 施法瞬间抽好的 `DefenceType.MAC` 伤害（`HumanObject.cs:4547`）。
+        damage: i32,
+        /// 施法瞬间抽好的绿毒附伤（`SpellObject.BonusDmg`）：来自
+        /// `Random.Next(Stats[Stat.PoisonAttack])`（`HumanObject.cs:4555`），由
+        /// [`World::caster_poison_attack`] 汇总装备模板属性/附加属性/生效增益。
+        /// `PoisonAttack <= 0` 时为 0 且不消耗随机数。
+        bonus_damage: i32,
     },
 }
 
@@ -1375,6 +1435,14 @@ impl World {
                 }
                 target_id = 0;
             }
+            SpellKind::PoisonCloud => {
+                // `PoisonCloud(magic, location)`（`HumanObject.cs:4543`）：落点直接取包里的
+                // `location`，没有目标（`targetID` 不被读取，`:3778` 回显 0）。
+                if target_location.x == 0 && target_location.y == 0 {
+                    target_location = position;
+                }
+                target_id = 0;
+            }
             SpellKind::Lightning => {
                 // `Lightning(magic)` 只用到方向（`HumanObject.cs:3568-3569`、`:4209-4215`）。
                 if target_location.x == 0 && target_location.y == 0 {
@@ -1489,6 +1557,76 @@ impl World {
             && let Some(player) = self.players.get_mut(&object_id)
         {
             player.magic.last_target = Some(target_id);
+        }
+
+        // --- 耗材（Crystal `PoisonCloud` 分支，`HumanObject.cs:4543-4567`） ----------
+        // D2 口径：耗材检查放在**公共检查之后**——`CanCast`/射程/冷却/扣蓝都已完成，
+        // 所以材料不足时这些计时器与 MP 都保留（Crystal 的 `return` 也回滚不了它们）。
+        // 失败时 `cast` 保持 `false`（分支入口就置 false，只有两项材料都拿到才置 true）：
+        //   * 不写本技能 `CastTime`（本作 `magic.casts`）、不排延迟效果；
+        //   * 仍然发 `S.Magic` 与 `S.ObjectMagic`，只是 `Cast = false`
+        //     （`HumanObject.cs:3773-3779`）。
+        // 顺序也照抄：先 `GetAmulet(5)`、再 `GetPoison(5, 1)`，任一为 `null` 立即 return，
+        // 所以「缺第二项」时第一项不会被先扣掉。
+        if kind == SpellKind::PoisonCloud {
+            let amulet = self.find_spell_material(
+                object_id,
+                POISON_CLOUD_MATERIAL_COUNT,
+                POISON_CLOUD_AMULET_SHAPE,
+            );
+            let poison = self.find_spell_material(
+                object_id,
+                POISON_CLOUD_MATERIAL_COUNT,
+                POISON_CLOUD_POISON_SHAPE,
+            );
+            let (Some(amulet_slot), Some(poison_slot)) = (amulet, poison) else {
+                self.send_to_player(
+                    object_id,
+                    &ServerPacket::Magic(Magic {
+                        spell,
+                        target_id,
+                        target: target_location,
+                        cast: false,
+                        level: magic.level,
+                        secondary_target_ids: Vec::new(),
+                    })
+                    .encode_frame(),
+                );
+                let packet = ServerPacket::ObjectMagic(ObjectMagic {
+                    object_id,
+                    location: position,
+                    direction,
+                    spell,
+                    target_id,
+                    target: target_location,
+                    cast: false,
+                    level: magic.level,
+                    self_broadcast: false,
+                    secondary_target_ids: Vec::new(),
+                })
+                .encode_frame();
+                self.broadcast(&map, position, Some(object_id), &packet, object_id);
+                return Ok(CastReport {
+                    spell,
+                    level: magic.level,
+                    target_id,
+                    location: target_location,
+                    damage: None,
+                    heal: None,
+                    buff: None,
+                    cost,
+                });
+            };
+            // 两项都通过预检才一起扣（B1 原语：`find` 只读 `&World`，`consume` 才拿
+            // `&mut World`；中间没有 await/重入，两个槽位不会失效）。
+            let consumed_amulet =
+                self.consume_spell_material(object_id, amulet_slot, POISON_CLOUD_MATERIAL_COUNT);
+            let consumed_poison =
+                self.consume_spell_material(object_id, poison_slot, POISON_CLOUD_MATERIAL_COUNT);
+            debug_assert!(
+                consumed_amulet && consumed_poison,
+                "find_spell_material 成功后 consume_spell_material 必须成功"
+            );
         }
 
         // --- 效果（`HumanObject.cs:3499-3771` + `Map.cs:856-`） ---------------------
@@ -1640,6 +1778,31 @@ impl World {
                         },
                     ));
                 }
+            }
+            SpellKind::PoisonCloud => {
+                // `PoisonCloud(magic, location)`（`HumanObject.cs:4543-4567`）：伤害
+                // `magic.GetDamage(GetAttackPower(MinSC, MaxSC))` 在这里抽好；延迟
+                // `MaxDistance(CurrentLocation, location) * 50 + 500`（`:4546`）；
+                // 附伤 `(byte)Envir.Random.Next(Stats[Stat.PoisonAttack])`（`:4555`），
+                // 抽签顺序在伤害之后（`DelayedAction(..., damage, location, bonus)`，
+                // `:4556-4558`）。`PoisonAttack <= 0` 时 Crystal 的 `Random.Next(0)`
+                // 返回 0 且**不消耗**随机数（见 [`Self::poison_attack_roll`]）。
+                let base = stats.attack_power(stats.min_sc, stats.max_sc, &mut self.rng);
+                let value = magic.damage(&info, base, &mut self.rng);
+                damage = Some(value);
+                let bonus_damage = self.poison_attack_roll(object_id);
+                let travel = i64::from(position.max_distance(target_location))
+                    * POISON_CLOUD_STEP_MS
+                    + POISON_CLOUD_BASE_DELAY_MS;
+                effects.push((
+                    now + travel,
+                    MagicEffect::PoisonCloud {
+                        map: map.clone(),
+                        location: target_location,
+                        damage: value,
+                        bonus_damage,
+                    },
+                ));
             }
             SpellKind::Lightning => {
                 // `Lightning(magic)`：`DelayedAction(..., now + 500, this, magic, damage,
@@ -2207,6 +2370,36 @@ impl World {
                 self.level_magic(action.caster_id, action.spell);
                 self.create_fire_wall(action.caster_id, &field_map, location, damage, cast_id, now);
             }
+            MagicEffect::PoisonCloud {
+                map: field_map,
+                location,
+                damage,
+                bonus_damage,
+            } => {
+                // `Map.cs:1434-1486`：`train = true`（落地即训练，不要求命中），逐格
+                // 生成后 `CompleteMagic` 末尾 `if (train) LevelMagic(magic)`（`:2356`）。
+                //
+                // D3 偏差：Crystal 的 `DelayedAction` 挂在施法时那张图上，落点对象
+                // 仍以 `Caster = player` 生成；玩家中途换图/下线时毒雾照常生成、留到
+                // `ExpireTime` 才消失（`SpellObject.cs:47-51`、`:66`）。本作在 pending
+                // 阶段就丢弃：施法者已离线（上游已 return）或已换图 → 什么都不做。
+                let caster_on_map = self
+                    .players
+                    .get(&action.caster_id)
+                    .is_some_and(|caster| caster.map == field_map);
+                if !caster_on_map {
+                    return;
+                }
+                self.level_magic(action.caster_id, action.spell);
+                self.create_poison_cloud(
+                    action.caster_id,
+                    &field_map,
+                    location,
+                    damage,
+                    bonus_damage,
+                    now,
+                );
+            }
             MagicEffect::Lightning {
                 origin,
                 direction,
@@ -2652,6 +2845,9 @@ impl World {
                 spell: Spell::FireWall,
                 direction: MirDirection::Up,
                 cast_id,
+                bonus_damage: 0,
+                cast_location: cell,
+                show: true,
             });
         }
     }
@@ -2691,6 +2887,12 @@ impl World {
 
     /// 每 tick 推进持续法术场：到期/施法者换图或下线就移除；到点用 AOI 结算伤害
     /// （Crystal `SpellObject.Process`，`SpellObject.cs:51-122`）。
+    ///
+    /// 毒雾（`PoisonCloud`）的 D3 偏差已登记：Crystal 里法师下线只会把 `Caster` 置
+    /// `null`（`SpellObject.cs:47-51`），毒雾**留在场上直到 `ExpireTime`**、只是
+    /// `IsAttackTarget(null)` 拒绝而停止伤害（`SpellObject.cs:150-163`）；换图强清也
+    /// 只对火墙生效（`SpellObject.cs:78-86`）。本作对两者统一「施法者离线/换图即清场」，
+    /// 这是 R52 安全化偏差（PARTIAL），与 Crystal 不完全等价。
     pub(crate) fn tick_spell_fields(&mut self, now: i64) {
         let mut index = 0;
         while index < self.spell_fields.len() {
@@ -2699,7 +2901,14 @@ impl World {
                 .players
                 .get(&field.caster_id)
                 .is_none_or(|caster| caster.map != field.map);
-            if now >= field.expire_at || caster_gone {
+            // Crystal 到期用严格 `Envir.Time > ExpireTime`（`SpellObject.cs:66`）：
+            // 毒雾 6000ms 那一跳仍然结算，6000 之后的下一个 world tick 才移除。
+            let expired = if field.spell == Spell::PoisonCloud {
+                now > field.expire_at
+            } else {
+                now >= field.expire_at
+            };
+            if expired || caster_gone {
                 let packet = ServerPacket::ObjectRemove(ObjectRemove {
                     object_id: field.object_id,
                 })
@@ -2710,7 +2919,10 @@ impl World {
             }
             if now >= field.next_tick {
                 self.spell_fields[index].next_tick = now + field.tick_ms;
-                self.apply_fire_wall_tick(&field);
+                match field.spell {
+                    Spell::PoisonCloud => self.apply_poison_cloud_tick(&field, now),
+                    _ => self.apply_fire_wall_tick(&field),
+                }
             }
             index += 1;
         }
@@ -2761,6 +2973,191 @@ impl World {
                     });
                     if hittable {
                         self.damage_magic_target(field.caster_id, target_id, field.damage);
+                    }
+                }
+                AoiKind::Npc | AoiKind::Item => {}
+            }
+        }
+    }
+
+    /// 毒雾落地（Crystal `Map.CompleteMagic` 的 `PoisonCloud` 区域，`Map.cs:1434-1486`）：
+    /// 以落点为中心的 3×3 逐格生成毒云，`6000ms` 内每 `1000ms` 一跳（这里用
+    /// [`POISON_CLOUD_EXPIRE_MS`] / [`POISON_CLOUD_TICK_MS`]）。同图同格已有同类
+    /// （`Spell.PoisonCloud`、半径 0）的对象则跳过、不叠加（`Map.cs:1455-1466`）。
+    ///
+    /// `Show` 语义（Crystal `SpellObject.GetInfo`，`SpellObject.cs:490-530`）：9 格里只有
+    /// **首个实际生成**的对象 `Show = true`，并且只有它广播一条 `S.ObjectSpell`
+    /// （客户端看到的是 `CastLocation` 落点）；其余对象只登记为服务端场、不发包。
+    fn create_poison_cloud(
+        &mut self,
+        caster_id: u32,
+        map: &str,
+        location: Point,
+        damage: i32,
+        bonus_damage: i32,
+        now: i64,
+    ) {
+        // Crystal 用外层 y、内层 x 的遍历（`Map.cs:1447-1477`），首个真正生成的对象
+        // 之后 `show` 立刻置 false（`:1461`），后续只创建不广播。
+        let mut show = true;
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let cell = Point::new(location.x + dx, location.y + dy);
+                // Crystal `if (!cell.Valid) continue;`（`Map.cs:1442-1444`），而
+                // `Valid => Attribute == CellAttribute.Walk`（`Map.cs:2480-2482`）：
+                // 不是单纯的坐标合法——**墙格不生成毒云**，首个有效格才 `Show = true`。
+                // 与 [`Self::walkable_on`] 的区别：后者额外挡攻城对象
+                // （`conquest_object_blocking`），那是 Crystal 的对象碰撞语义，
+                // 不参与 `cell.Valid`，所以这里单独用 [`Self::poison_cloud_cell_valid`]。
+                if !self.poison_cloud_cell_valid(map, cell) {
+                    continue;
+                }
+                let occupied = self.spell_fields.iter().any(|field| {
+                    field.map == map
+                        && field.spell == Spell::PoisonCloud
+                        && field.radius == 0
+                        && field.center == cell
+                });
+                if occupied {
+                    continue;
+                }
+                let object_id = self.allocate_object_id();
+                let first = show;
+                if first {
+                    let frame = ServerPacket::ObjectSpell(ObjectSpell {
+                        object_id,
+                        location,
+                        spell: Spell::PoisonCloud,
+                        direction: MirDirection::Up,
+                        param: false,
+                    })
+                    .encode_frame();
+                    self.broadcast(map, location, None, &frame, object_id);
+                    show = false;
+                }
+                self.spell_fields.push(SpellField {
+                    object_id,
+                    map: map.to_owned(),
+                    center: cell,
+                    radius: 0,
+                    damage,
+                    caster_id,
+                    expire_at: now + POISON_CLOUD_EXPIRE_MS,
+                    // Crystal 的 `TickTime` 初值 0 → 落场后第一次 `Process` 即首跳
+                    // （`SpellObject.cs:111-112`）。
+                    next_tick: now,
+                    tick_ms: POISON_CLOUD_TICK_MS,
+                    spell: Spell::PoisonCloud,
+                    direction: MirDirection::Up,
+                    cast_id: 0,
+                    bonus_damage,
+                    cast_location: location,
+                    show: first,
+                });
+            }
+        }
+        // `show` 字段落库时已逐个写好：首对象 true、其余 false（见上）。
+    }
+
+    /// Crystal `cell.Valid`（`Map.cs:2480-2482`）：坐标在界内且格属性为
+    /// `CellAttribute::Walk`。毒雾落地的有效格过滤（`Map.cs:1442-1444`）用的就是它。
+    ///
+    /// 没有地图数据时退化为边界判定（与 [`Self::in_bounds`] 一致），
+    /// 与 [`Self::walkable_on`] 的差异见 `create_poison_cloud` 的注释。
+    fn poison_cloud_cell_valid(&self, map: &str, cell: Point) -> bool {
+        if !self.in_bounds(map, cell) {
+            return false;
+        }
+        self.map_of(map)
+            .is_none_or(|data| data.walkable(cell.x, cell.y))
+    }
+
+    /// 毒雾一次 tick（Crystal `SpellObject.ProcessSpell` 的 `PoisonCloud` 分支，
+    /// `SpellObject.cs:150-163`）：
+    ///
+    /// 1. 中心格内玩家/怪物先吃 `DefenceType.MAC` 伤害（`Value`，施法时抽好的值）；
+    /// 2. 目标**存活**才再 `ApplyPoison` 绿毒，毒量 = `(当前 MinSC + MaxSC) / 2 + BonusDmg`
+    ///    （`SpellObject.cs:166-174`），跳数 [`POISON_CLOUD_POISON_DURATION`]、
+    ///    每跳间隔与毒云同（`TickSpeed`）。
+    ///
+    /// 玩家目标用 [`World::is_attack_target_player`]（PK/安全区/攻击模式），怪物目标用
+    /// [`World::monster_is_attack_target_of_player`]（Crystal `MonsterObject.IsAttackTarget`，
+    /// `MonsterObject.cs:2430-2463`）。施法者自己不会被自己的毒雾命中（Crystal 同格
+    /// `Race == Player` 分支先判 `ob != Caster`）。
+    fn apply_poison_cloud_tick(&mut self, field: &SpellField, now: i64) {
+        let Some(caster_stats) = self
+            .players
+            .get(&field.caster_id)
+            .map(|caster| caster.stats)
+        else {
+            return;
+        };
+        // Crystal `Value = (Caster.Stats[MinSC] + Caster.Stats[MaxSC]) / 2 + BonusDmg`
+        // （`SpellObject.cs:173`）；整数除法向零截断，SC 恒为正，无符号差异。
+        let poison_value = (caster_stats.min_sc + caster_stats.max_sc) / 2 + field.bonus_damage;
+        for entry in self.aoi_in_radius(&field.map, field.center, field.radius) {
+            match entry.kind {
+                AoiKind::Player => {
+                    let target_id = entry.object_id;
+                    if target_id == field.caster_id {
+                        continue;
+                    }
+                    let hittable = self.players.get(&target_id).is_some_and(|player| {
+                        !player.dead && player.map == field.map && player.position == field.center
+                    });
+                    if !hittable || !self.is_attack_target_player(field.caster_id, target_id) {
+                        continue;
+                    }
+                    self.damage_player_from_player(
+                        PendingHit {
+                            at: 0,
+                            attacker_id: field.caster_id,
+                            target_id,
+                            damage: field.damage,
+                            defence: DefenceType::MAC,
+                        },
+                        &caster_stats,
+                    );
+                    // `if (!ob.Dead) ob.ApplyPoison(...)`（`SpellObject.cs:165-174`）。
+                    let survived = self
+                        .players
+                        .get(&target_id)
+                        .is_some_and(|player| !player.dead);
+                    if survived {
+                        let poison = PoisonState::new(
+                            PoisonType::Green,
+                            poison_value,
+                            POISON_CLOUD_POISON_DURATION,
+                            now,
+                            field.caster_id,
+                        )
+                        .with_tick_speed(field.tick_ms);
+                        self.apply_poison_to_player(target_id, poison);
+                    }
+                }
+                AoiKind::Monster => {
+                    let target_id = entry.object_id;
+                    let hittable = self.monster(target_id).is_some_and(|monster| {
+                        !monster.dead
+                            && monster.map == field.map
+                            && monster.position == field.center
+                    }) && self
+                        .monster_is_attack_target_of_player(field.caster_id, target_id);
+                    if !hittable {
+                        continue;
+                    }
+                    self.damage_magic_target(field.caster_id, target_id, field.damage);
+                    let survived = self.monster(target_id).is_some_and(|monster| !monster.dead);
+                    if survived {
+                        let poison = PoisonState::new(
+                            PoisonType::Green,
+                            poison_value,
+                            POISON_CLOUD_POISON_DURATION,
+                            now,
+                            field.caster_id,
+                        )
+                        .with_tick_speed(field.tick_ms);
+                        self.apply_poison_to_monster(target_id, poison);
                     }
                 }
                 AoiKind::Npc | AoiKind::Item => {}
@@ -3157,6 +3554,53 @@ impl World {
         let freezing = self.caster_freezing(caster_id);
         if freezing > 0 {
             self.rng.next_range(0, freezing - 1)
+        } else {
+            0
+        }
+    }
+
+    /// 施法者装备/增益汇总的 `Stat.PoisonAttack`（Crystal `Stats[Stat.PoisonAttack]`，
+    /// 由 `HumanObject.RefreshStats` 在 `RefreshEquipmentStats`（`:1825-1915`）与
+    /// `RefreshBuffs`（`:2326-2333`）里把装备模板属性 + 附加属性 + 生效增益的同名属性
+    /// 累加得到）。
+    ///
+    /// 与 [`Self::caster_freezing`] 同构，原因相同：本作的 `CombatStats` 没有
+    /// `poison_attack` 字段（`combat.rs` 不在 B2b 写范围），所以按 `RefreshStats`
+    /// 的加法顺序就地汇总：① 每件装备的模板属性 `ItemInfo.stats`（`:1858`）→
+    /// ② 其附加属性 `UserItem.added_stats`（同一 `:1859`）→ ③ 玩家当前生效增益的
+    /// `ActiveBuff.stats`（`:2332`）。损坏装备（`CurrentDura == 0 && Info.Durability > 0`）
+    /// 不贡献属性（`:1836`，与 `items.rs:912-915` 同语义）。
+    fn caster_poison_attack(&self, caster_id: u32) -> i32 {
+        self.players.get(&caster_id).map_or(0, |player| {
+            let mut total = 0;
+            for item in player.equipment.iter().flatten() {
+                let Some(info) = self.item_info(item.item_index) else {
+                    continue;
+                };
+                if item.current_dura == 0 && info.durability > 0 {
+                    continue;
+                }
+                total += info.stats.get(Stat::PoisonAttack);
+                total += item.added_stats.get(Stat::PoisonAttack);
+            }
+            total += player
+                .buffs
+                .iter()
+                .map(|buff| buff.stats.get(Stat::PoisonAttack))
+                .sum::<i32>();
+            total
+        })
+    }
+
+    /// 毒雾附伤：`(byte)Envir.Random.Next(Stats[Stat.PoisonAttack])`（`HumanObject.cs:4555`）。
+    ///
+    /// Crystal 的 `Random.Next(0)` 返回 0 且**不推进随机数状态**，这里在
+    /// `poison_attack <= 0` 时同样不抽取（[`MirRng::next_bounded`]/[`MirRng::next_range`]
+    /// 的 `max <= min` 分支本来就不耗状态，但显式早退更清楚）。
+    fn poison_attack_roll(&mut self, caster_id: u32) -> i32 {
+        let poison_attack = self.caster_poison_attack(caster_id);
+        if poison_attack > 0 {
+            self.rng.next_range(0, poison_attack - 1)
         } else {
             0
         }
@@ -3923,7 +4367,9 @@ impl World {
     /// （`:6050-6070`）；本作没有毒药消耗品，改为「目标没有绿毒就施绿毒，已经有绿毒就施红毒」，
     /// 两段都能在测试里确定性复现。绿毒公式逐字照抄：
     /// `Duration = power * 2 + (Level + 1) * 7`、`Value = power / 15 + Level + 1`
-    /// （`PoisonAttack` 属性本作没有，省略该项）。
+    /// （Crystal 还有末项 `Random.Next(Stats[Stat.PoisonAttack])`，
+    /// `HumanObject.cs:6060`；本作 `CombatStats` 无该字段，Poisoning 仍按 R51 省去该项，
+    /// 只有毒雾走 [`World::poison_attack_roll`] 的真实 `PoisonAttack` 聚合）。
     fn apply_poisoning(
         &mut self,
         caster_id: u32,
@@ -4651,14 +5097,15 @@ mod tests {
         assert_eq!(spell_kind(Spell::FrostCrunch), SpellKind::FrostCrunch);
         assert_eq!(spell_kind(Spell::ThunderStorm), SpellKind::ThunderStorm);
         assert_eq!(spell_kind(Spell::ShoulderDash), SpellKind::ShoulderDash);
-        // 固定 PARTIAL：Crystal 强制消耗护身符/毒药，本轮不接耗材系统 → 仍然拒绝。
-        for spell in [Spell::PoisonCloud, Spell::TrapHexagon] {
-            assert_eq!(
-                spell_kind(spell),
-                SpellKind::Unsupported,
-                "{spell:?} 本轮仍是 PARTIAL"
-            );
-        }
+        // 固定 PARTIAL：`TrapHexagon` 仍拒绝（R52-B3 才接）。
+        assert_eq!(
+            spell_kind(Spell::TrapHexagon),
+            SpellKind::Unsupported,
+            "TrapHexagon 本轮仍是 PARTIAL"
+        );
+        // R52-B2：`PoisonCloud` 已接耗材（符 5 + 绿毒 5），不再是 `Unsupported`；
+        // 真实施法行为见 integration 测试 `tests/round52_poison_cloud.rs`。
+        assert_eq!(spell_kind(Spell::PoisonCloud), SpellKind::PoisonCloud);
         assert_eq!(spell_kind(Spell::Rage), SpellKind::Unsupported);
         // 增益技能不能和已实现的伤害/治疗技能重叠。
         assert!(!REGISTERED_UNSUPPORTED.contains(&Spell::MagicShield));
@@ -5360,7 +5807,11 @@ mod tests {
         );
     }
 
-    // --- 固定 PARTIAL：PoisonCloud / TrapHexagon --------------------------
+    // --- 固定 PARTIAL：TrapHexagon ---------------------------------------
+    //
+    // R52-B2 把 PoisonCloud 接成了真实技能（耗材 + 延迟落点 + 3×3 毒云 + 绿毒），
+    // 它的行为断言全部搬到 integration 测试 `crates/mir-server/tests/round52_poison_cloud.rs`；
+    // 这里只保留仍是 PARTIAL 的 TrapHexagon（R52-B3 接）。
 
     #[test]
     fn partial_poison_cloud_and_trap_hexagon_are_refused_without_mana() {
@@ -5369,25 +5820,26 @@ mod tests {
             round51_magic(Spell::TrapHexagon, 8),
         ]);
         let _caster_rx = round51_add_player(&mut world, 1, "0", Point::new(10, 10));
-        for spell in [Spell::PoisonCloud, Spell::TrapHexagon] {
-            assert_eq!(
-                spell_kind(spell),
-                SpellKind::Unsupported,
-                "{spell:?} is a fixed PARTIAL spell"
-            );
-            round51_learn(&mut world, 1, spell, 1);
-            let mp = world.player(1).expect("玩家").mp;
-            let error = world
-                .cast_magic(1, spell, MirDirection::Down, 0, Point::new(10, 10))
-                .expect_err("PARTIAL spells must be genuinely refused");
-            assert_eq!(error, MagicError::UnsupportedSpell(spell));
-            assert_eq!(world.player(1).expect("玩家").mp, mp, "拒绝时不扣蓝");
-            world
-                .player_mut(1)
-                .expect("玩家")
-                .magics
-                .retain(|magic| magic.spell != spell);
-        }
+        // PoisonCloud 不再是 PARTIAL（仍有独立测试覆盖真实行为）。
+        assert_eq!(spell_kind(Spell::PoisonCloud), SpellKind::PoisonCloud);
+        let spell = Spell::TrapHexagon;
+        assert_eq!(
+            spell_kind(spell),
+            SpellKind::Unsupported,
+            "{spell:?} is a fixed PARTIAL spell"
+        );
+        round51_learn(&mut world, 1, spell, 1);
+        let mp = world.player(1).expect("玩家").mp;
+        let error = world
+            .cast_magic(1, spell, MirDirection::Down, 0, Point::new(10, 10))
+            .expect_err("PARTIAL spells must be genuinely refused");
+        assert_eq!(error, MagicError::UnsupportedSpell(spell));
+        assert_eq!(world.player(1).expect("玩家").mp, mp, "拒绝时不扣蓝");
+        world
+            .player_mut(1)
+            .expect("玩家")
+            .magics
+            .retain(|magic| magic.spell != spell);
     }
 
     // -----------------------------------------------------------------------

@@ -33,10 +33,8 @@ use mir_protocol::packets::server::DeleteItem as DeleteItemPacket;
 use crate::items::EQUIPMENT_SLOTS;
 use crate::world::World;
 
-// B1 只落原语、不接线：真正使用它们的是 B2/B3 的 `magic.rs` 耗材改造，所以这里显式
-// 允许「暂未被生产代码调用」，否则 `-D warnings` 会把两个 `pub(crate)` 方法报成 dead_code。
-// B2 把 `PoisonCloud`/`TrapHexagon` 接上之后删掉这个 `allow` 即可。
-#[allow(dead_code)]
+// B1 只落原语；B2 起由 `magic.rs` 的 `PoisonCloud` 施法路径真实调用
+// （`TrapHexagon` 待 R52-B3 接入），因此不再需要 `#[allow(dead_code)]`。
 impl World {
     /// 在玩家的**根装备槽**里按槽号递增找一堆够数的施法耗材。
     ///
@@ -100,8 +98,9 @@ impl World {
         else {
             return false;
         };
-        // 扣之前再确认槽里仍是「护身符/毒药 + 够数」：`find` 与 `consume` 之间没有
-        // 别的代码能插进来（两个方法都要 `&mut World`），这里兜的是调用方传错槽号。
+        // 扣之前再确认槽里仍是「护身符/毒药 + 够数」：`find_spell_material` 只读
+        // `&World`、只有本方法才拿 `&mut World`，调用方在同一段同步代码里先 find 后
+        // consume，中间没有别的地图/玩家变更能插进来；这里兜的是调用方传错槽号。
         let is_amulet = self
             .item_info(item.item_index)
             .is_some_and(|info| info.item_type == ItemType::Amulet);

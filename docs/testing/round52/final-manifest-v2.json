@@ -1,0 +1,56 @@
+{
+  "schema": "round52-final-audit-v2",
+  "audit_status": "complete",
+  "verdict": "PASS-WITH-PARTIAL",
+  "head": "86936d8",
+  "head_full": "86936d8209eb14207b74efa0e02b26bd365e81a9",
+  "branch": "main",
+  "scope": "Five requested static checks only; no code/git mutation or full-gate rerun",
+  "commit_chain": ["6f975fa", "9a72d16", "f1f2e22", "4efe600", "6310329", "d06a916", "0d7b4a1", "55e3593", "46be80b", "dcbcca3", "86936d8"],
+  "commit_checks": {"dcbcca3_document_count": 10, "dcbcca3_crates_changed": false, "86936d8_only_two_original_audit_docs": true},
+  "gate_attempts": [
+    {"attempt": 1, "path": "target/round52/final-gate.log", "bytes": 140961, "sha256": "be54c5dbb5ac1bc2bc1759db3d456b7edb5e3af6a817106146a564ff6ac6d11c", "exit": 1, "head": "0d7b4a1", "meta": "target/round52/final-gate.meta.txt", "declared_duration_s": 220, "note": "Preserved failure history: monster_combat 33 passed/1 failed, i18n 103/2; declared 220s vs timestamp interval 221s retained"},
+    {"attempt": 2, "path": "target/round52/final-gate2.log", "bytes": 192631, "sha256": "4da8ea80cc7a396e6690bac2ed68170a52a6ff824c7875577f4c9fd40d57bd42", "exit": 0, "head": "46be80b", "meta": "target/round52/final-gate2.meta.txt", "duration_s": 246, "passed_items": 12},
+    {"attempt": 3, "path": "target/round52/final-gate3.log", "bytes": 192534, "sha256": "63f44e9ccd2a40ffe8aad35f2e01599ef691320632fe969efa9b42bbb7f4a538", "exit": 0, "head": "86936d8", "meta": "target/round52/final-gate3.meta.txt", "meta_sha256": "86b2e7885a953f7e4c464479d5b751a00f0e78946a4c124f875efda3bc579c51", "duration_s": 181, "start_utc": "2026-10-25T21:27:07Z", "end_utc": "2026-10-25T21:30:08Z", "passed_items": 12, "gbk_marker": "全部通过（12 项）", "gbk_marker_verified": true, "command": "pwsh -NoProfile -File tools/dev/ci.ps1", "rerun_by_this_auditor": false}
+  ],
+  "all_gate_sha_and_bytes_independently_recomputed": true,
+  "g7_files": ["README.md", "docs/roadmap.md", "docs/client.md", "docs/world/magic.md", "docs/client-experience-backlog.md", "docs/testing/round52/README.md", "docs/i18n.md", "docs/process/round52-plan.md", "docs/process/round52-shangshu-dispatch.md", "docs/process/round52-shangshu-docs-rework.md"],
+  "g7_checks": {"readme_line48_delivered_and_partial": true, "plan_line47_L3_ms": 10000, "dispatch_line61_L3_ms": 10000, "i18n_with_test": 66, "i18n_no_test": 0, "production_debug_assert_translation_disclosed": true, "A_B1_B2_B3_B4_C_index_and_historical_T_BLOCK_preserved": true},
+  "g7_closure_scope": "Current working tree includes two preexisting documentation corrections not in HEAD. Commit them with audit artifacts to match this verdict; do not claim 86936d8 contains these corrections.",
+  "repository_hygiene": {
+    "expected_four_item_status_matches": false,
+    "preexisting_modified": ["README.md", "docs/testing/round52/README.md"],
+    "modified_explanation": ["README R52 overview row still says planned at HEAD; current dirty line corrects it to delivered", "round52 README dirty line replaces nonexistent target/round52/t index with original audit report index"],
+    "historical_untracked_exclude": ["docs/testing/monster-native/player-resource-freeze-before.json", "docs/testing/monster-native/player-resource-freeze.json"],
+    "audit_untracked": ["docs/testing/round52/round52-final-audit-v2.md", "docs/testing/round52/final-manifest-v2.json"],
+    "round52_new_tracked_over_1MiB": false,
+    "preexisting_tracked_over_1MiB": [{"path": "docs/testing/attack-variants/attack3-asset-plan.json", "bytes": 1228554, "unchanged_blob_at_6f975fa_parent": "6aecbab99b0ba7b7bf94931d6cf75a5c95d2e6b8"}],
+    "target_or_env_tracked": false
+  },
+  "PARTIAL": [
+    "C first lifecycle/fmt failure originals missing; reconstructed-failure is explicitly counterfactual, not historical original; B4 first fmt/clippy failures overwritten",
+    "125 ObjectProjectile has no server producer; manual negative packet does not prove production lifecycle",
+    "World -> encode/decode -> snapshot is process-internal; real socket/native visuals/audio/dash and Walking borrowed frames remain unverified",
+    "PvP Frost does not truly hit player; injected PoisonState plus real attack proves rejection only",
+    "G1/G6 overall closure remains open despite verified subitems",
+    "D3 offline/cross-map field cleanup differs from Crystal; D2 clipping retained",
+    "FireWall26 is server evidence, not C lifecycle assertion",
+    "StormEscape cast then change_map drops pending; change_map then cast resolves current map",
+    "Guild/nested slots1965-1966 and legacy spell consumables deferred"
+  ],
+  "nonblocking_precision": "docs/i18n.md:910 current HEAD=46be80b is stale wording for H historical evidence timing",
+  "reproduction_commands": [
+    "git log --oneline -4",
+    "git show --stat dcbcca3",
+    "git show --stat 86936d8",
+    "git log --reverse --format=%h 6f975fa^..HEAD",
+    "git status --porcelain",
+    "git diff -- README.md docs/testing/round52/README.md",
+    "sha256sum target/round52/final-gate.log target/round52/final-gate2.log target/round52/final-gate3.log",
+    "wc -c target/round52/final-gate.log target/round52/final-gate2.log target/round52/final-gate3.log",
+    "py -3 -c \"from pathlib import Path; b=Path('target/round52/final-gate3.log').read_bytes(); assert '\\u5168\\u90e8\\u901a\\u8fc7\\uff0812 \\u9879\\uff09' in b.decode('gbk',errors='replace')\"",
+    "git ls-tree -r -l HEAD | awk '$4 > 1048576 {print}'"
+  ],
+  "commit_advice": "Gate/delivery base remains 86936d8. Audit artifacts after gate are allowed. Lead should explicitly include the two preexisting documentation corrections and v2 audit documents; keep summary ignored and exclude historical freezes. This auditor made no git writes.",
+  "artifacts": ["docs/testing/round52/round52-final-audit-v2.md", "docs/testing/round52/final-manifest-v2.json", "target/round52/final-gate3-summary.log"]
+}

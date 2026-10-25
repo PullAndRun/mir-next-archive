@@ -73,7 +73,7 @@
 | 素材索引（`mir2_dev`） | ✅ | `tools/asset-index/` 把 `resource/` 的 233 万文件登记进 PostgreSQL，按名字/扩展名/仓库查询 |
 | 第 49 轮（R49）收口（历史快照） | 🟡 | 怪物原生帧表 + 走/跑插值已收口（**限 118 个 used 怪物库、目标客户端路径**）；缺源 >800、4 个 v2、Blend 117/Reverse/Effect/Sorting、坐骑/攻击变招/Push-Jump-Dash 未完成或 PARTIAL；**当时独立商城未完成，移至 R50（现已交付）**；gate=12/12 PASS；日志 target/round49/final-gate.log，182,941 B，sha256 5d475f4f…，exit 0，commit d5707c6；R49 verdict=PASS-WITH-PARTIAL（P01–P08 未清）。证据索引见 [`docs/testing/round49/README.md`](docs/testing/round49/README.md) |
 | R50 / R51 终态 | 🟡 已收口，有界 | R50 商城已交付且 PASS-WITH-PARTIAL；**R51 Done / PASS-WITH-PARTIAL**，P03/P10 closed，其余范围以 [v4 终审](docs/testing/round51/round51-final-audit-v4.md)、[尚书验收](docs/process/round51-shangshu-acceptance.md)、[门下确认](docs/process/round51-menxia-confirm.md)为准，历史 BLOCK 与失败日志保留。 |
-| R52 | ⏳ 未实现 / 计划中 | 装备耗材、PoisonCloud/TrapHexagon、R51 定向补证与客户端真实 wire 闭环；G1–G7/十一项承接及顺延见 [路线图 §五](docs/roadmap.md)和 [R52 证据索引](docs/testing/round52/README.md)。A 文档检查不代表功能门禁通过。 |
+| R52 | 🟡 已交付，有界 | B1 护身符耗材原语、B2 PoisonCloud、B3 TrapHexagon、B4 R51 定向回归与 C 客户端真实 wire 已交付；attempt2 功能门禁 12/12 PASS（exit 0），日志 SHA-256 `4da8ea80cc7a396e6690bac2ed68170a52a6ff824c7875577f4c9fd40d57bd42`。125 无服务端生产者、真 socket、Frost 玩家目标、原生 dash、guild/嵌套槽及旧技能耗材仍 PARTIAL；T 的 G7 文档收口待复核，详见 [R52 证据索引](docs/testing/round52/README.md)。 |
 | i18n（R52 A 实测，2026-10-25） | ✅ 文档检查 | **243 TextKey = 200 清单键 + 11 旧键 + 32 扩展键**，中英语言包 server 各 243、差异 0；`--player-visible --strict --fail-above 70` **67** 处，`--no-test --player-visible --strict --fail-above 0` **0** 处，两扫描与键校验均 exit 0；历史 R50 60/0 和 R51 分批 61/67 等数字须按原时点解读，当前以 [i18n §7.9](docs/i18n.md)及 [A 原始日志/摘要](target/round52/a/00-summary.md)为准。 |
 
 ### 核心闭环验收（第 28/40/41/43 轮）

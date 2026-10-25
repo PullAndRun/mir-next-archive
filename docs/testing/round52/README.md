@@ -25,7 +25,7 @@ R51 [终审v4 §D](../round51/round51-final-audit-v4.md)、[尚书验收](../../
 - B4：[批次摘要](../../../target/round52/b4/00-summary.md) / [评审](../../../target/round52/b4-review/review.md)。
 - C：[批次摘要](../../../target/round52/c/00-summary.md) / [最终复审 v2](../../../target/round52/c-review/review-v2.md)。
 - attempt1 失败原件与 attempt2 PASS 原件分别为 `target/round52/final-gate.log`、`target/round52/final-gate2.log`（12/12，exit0，SHA 见终审）。
-- T：[独立终审原证据](../../../target/round52/t/)；[终审报告](round52-final-audit.md)当前 verdict=BLOCK，阻断仅为 G7 文档收口；本 H 批已补齐关联文档和 `target/round52/h/` 自检证据，待 T/尚书复核。
+- T：独立终审原件由[终审报告](round52-final-audit.md)索引，当前 verdict=BLOCK，阻断仅为 G7 文档收口；本 H 批已补齐关联文档和 `target/round52/h/` 自检证据，待 T/尚书复核。
 - 各证据单文件≤1MiB；保全原字节/全部失败、command/cwd/完整HEAD/功能与工具配置指纹/dirty/时区/start/end/raw exit/实际用例数。target保持ignored，manifest不替代原日志。
 
 i18n 收口：含测试 strict 当前 **66≤70**，no-test strict **0≤0**；R52 返工历史为 **96→103→66** 与 **2→0**。另需披露：`46be80b` 除测试字面量外，还翻译了 `crates/mir-server/src/magic.rs:1725`、`:1762` 两处生产 `debug_assert` 消息；逻辑未变。

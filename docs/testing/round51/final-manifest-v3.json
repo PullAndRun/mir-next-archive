@@ -1,0 +1,883 @@
+{
+  "schema_version": "round51-t3-final-audit-v3",
+  "task": "JJC-20261025-003",
+  "subtask": "JJC-20261025-003-sub-d0ea04bd",
+  "parent_agent": "session-69216c2a-1d69-421b-8867-a2db2a8a5c68",
+  "auditor": "刑部/御史台 independent read-only T3 (gpt-6.1-sol)",
+  "audit_started_local": "2026-10-25T11:41:18+08:00",
+  "repository": "C:/Users/diana/Documents/github/mir-next",
+  "branch": "main",
+  "head": "42a49e0879be4d00bccd43bd7ebce8c9e4276058",
+  "origin_main_verified": "42a49e0879be4d00bccd43bd7ebce8c9e4276058",
+  "commit_chain": [
+    {
+      "sha": "f500269974c92d32b3510aef902e1d8fd2e7c2c6",
+      "role": "TextKey 243 closure; attempt5 historical target"
+    },
+    {
+      "sha": "1fe36dd38e8199fc88bd8364203f974e901dfbb3",
+      "role": "B3 magic source aggregation and test strengthening; +225/-10"
+    },
+    {
+      "sha": "42a49e0879be4d00bccd43bd7ebce8c9e4276058",
+      "role": "T2 v2 audit/manifest, rework dispatch, round51 index"
+    }
+  ],
+  "verdict": "BLOCK",
+  "p_status": {
+    "P01": "PARTIAL",
+    "P02": "PARTIAL",
+    "P03": "open",
+    "P04": "PARTIAL",
+    "P05": "closed",
+    "P06": "closed",
+    "P07": "PARTIAL",
+    "P08": "PARTIAL",
+    "P09": "closed",
+    "P10": "open"
+  },
+  "blocking_findings": [
+    {
+      "id": "B-P03-1",
+      "path": "crates/mir-server/src/magic.rs:3125-3131",
+      "finding": "caster_freezing includes broken equipment. Crystal HumanObject.cs:1836 and existing Rust items.rs:913 reject current_dura==0 && info.durability>0 before both template and added stat sums.",
+      "counterexample": "template Freezing7 + added5, durability>0, current_dura0, no buff: actual12, valid aggregate0",
+      "method": "Read-only static proof; no source mutation run",
+      "required": "Apply existing valid-equipment rules; add broken/healthy source assertions and buff lifecycle/source coverage"
+    },
+    {
+      "id": "C-P10-1",
+      "path": "crates/mir-server/src/magic.rs:4910-4923",
+      "finding": "Observer packet-order assertion compares Option<usize>. None<Some is true; no independent Out presence assertion. Missing ObjectTeleportOut can pass.",
+      "counterexample": "out_at=None, in_at=Some(0), observer_effect_at=Some(1) makes both comparisons true",
+      "required": "expect each required packet index before integer order comparison; correct B3 strict-coverage claim"
+    }
+  ],
+  "gate6": {
+    "log_path": "target/round51/final-gate6.log",
+    "meta_path": "target/round51/final-gate6.meta.txt",
+    "attempt": 6,
+    "head": "42a49e0879be4d00bccd43bd7ebce8c9e4276058",
+    "branch": "main",
+    "bytes": 188643,
+    "sha256": "1e1ffa2f7a9cee641b4a1d9729722bd99158030c68b8630cfc062709ef4dacdb",
+    "independently_hashed": true,
+    "matches_meta": true,
+    "exit_code": 0,
+    "start_utc": "2026-10-25T03:37:05Z",
+    "end_utc": "2026-10-25T03:40:52Z",
+    "duration_s": 227,
+    "reported_item_seconds_sum": 225,
+    "time_difference_s": 2,
+    "items_count": 12,
+    "passed_count": 12,
+    "failed_count": 0,
+    "items": [
+      {
+        "name": "cargo fmt --all --check",
+        "status": "OK",
+        "seconds": 3
+      },
+      {
+        "name": "cargo clippy --workspace --all-targets -D warnings",
+        "status": "OK",
+        "seconds": 5
+      },
+      {
+        "name": "cargo test -p mir-server --test duo_smoke（串行）",
+        "status": "OK",
+        "seconds": 17
+      },
+      {
+        "name": "cargo test --workspace",
+        "status": "OK",
+        "seconds": 195
+      },
+      {
+        "name": "协议生成器 --check",
+        "status": "OK",
+        "seconds": 1
+      },
+      {
+        "name": "文档链接与包编号",
+        "status": "OK",
+        "seconds": 0
+      },
+      {
+        "name": "TextKey 完整性",
+        "status": "OK",
+        "seconds": 0
+      },
+      {
+        "name": "硬编码棘轮（player-visible，阈值 70）",
+        "status": "OK",
+        "seconds": 0
+      },
+      {
+        "name": "硬编码棘轮（no-test，阈值 0）",
+        "status": "OK",
+        "seconds": 0
+      },
+      {
+        "name": "运行时不引用老资源格式",
+        "status": "OK",
+        "seconds": 0
+      },
+      {
+        "name": "物品图标完整性",
+        "status": "OK",
+        "seconds": 1
+      },
+      {
+        "name": "PostgreSQL 集成测试（mir-store 串行）",
+        "status": "OK",
+        "seconds": 3
+      }
+    ],
+    "raw_numeric_item_exit_codes": null,
+    "status_note": "Original summary records OK/FAIL. ci.ps1:38-45 classifies real LASTEXITCODE. Per-item numeric codes not separately preserved; aggregate exit0 is explicit in meta.",
+    "encoding": "Original is mixed UTF-8 Rust output and GB18030 host Chinese; summary decoded as GB18030, hashes over unchanged original bytes",
+    "invocation_command_recorded": null,
+    "invocation_cwd_recorded": null,
+    "metadata_limitation": "Meta has no full invocation command/cwd, despite rework dispatch requirement. Do not infer unrecorded flags. Workspace, duo and PG steps actually appear in raw log.",
+    "summary_path": "target/round51/final-gate6-summary.log",
+    "summary_bytes": 1135,
+    "summary_sha256": "db53fc975da55104ed63245165119d9e8a9d91e39076eb3bac2819adbaafff86"
+  },
+  "historical_gate_attempts": [
+    {
+      "attempt": 1,
+      "log": "target/round51/final-gate.log",
+      "meta": "target/round51/final-gate.meta.txt",
+      "metadata": {
+        "attempt": "1",
+        "start_utc": "2026-10-25T01:17:31Z",
+        "end_utc": "2026-10-25T01:21:44Z",
+        "duration_s": "253",
+        "exit_code": "1",
+        "head": "7802eb9d3e7d4431b5454a7f8a0355c7057440e9",
+        "log_bytes": "188766",
+        "log_sha256": "81bb05e3d424799082b49d2b655461b318ae9479d906c921c93b3270de33568b",
+        "status_porcelain": "4"
+      },
+      "bytes": 188766,
+      "sha256": "81bb05e3d424799082b49d2b655461b318ae9479d906c921c93b3270de33568b",
+      "hash_size_match": true,
+      "items": [
+        {
+          "status": "OK",
+          "name": "cargo fmt --all --check",
+          "seconds": 2
+        },
+        {
+          "status": "OK",
+          "name": "cargo clippy --workspace --all-targets -D warnings",
+          "seconds": 6
+        },
+        {
+          "status": "OK",
+          "name": "cargo test -p mir-server --test duo_smoke（串行）",
+          "seconds": 27
+        },
+        {
+          "status": "OK",
+          "name": "cargo test --workspace",
+          "seconds": 208
+        },
+        {
+          "status": "OK",
+          "name": "协议生成器 --check",
+          "seconds": 2
+        },
+        {
+          "status": "OK",
+          "name": "文档链接与包编号",
+          "seconds": 1
+        },
+        {
+          "status": "OK",
+          "name": "TextKey 完整性",
+          "seconds": 0
+        },
+        {
+          "status": "FAIL",
+          "name": "硬编码棘轮（player-visible，阈值 70）",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "硬编码棘轮（no-test，阈值 0）",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "运行时不引用老资源格式",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "物品图标完整性",
+          "seconds": 1
+        },
+        {
+          "status": "OK",
+          "name": "PostgreSQL 集成测试（mir-store 串行）",
+          "seconds": 4
+        }
+      ],
+      "meta_bytes": 255,
+      "meta_sha256": "6901846e060fd5039357e96c4b611eb2d9dec764972bf8bd54486309bca4f5e7"
+    },
+    {
+      "attempt": 2,
+      "log": "target/round51/final-gate2.log",
+      "meta": "target/round51/final-gate2.meta.txt",
+      "metadata": {
+        "attempt": "2",
+        "start_utc": "2026-10-25T01:25:12Z",
+        "end_utc": "2026-10-25T01:28:55Z",
+        "duration_s": "223",
+        "exit_code": "0",
+        "head": "7802eb9d3e7d4431b5454a7f8a0355c7057440e9",
+        "log_bytes": "186895",
+        "log_sha256": "146577c4e64f944019caaacd9e8245a46d55372e68eed594b89a8293025f3398"
+      },
+      "bytes": 186895,
+      "sha256": "146577c4e64f944019caaacd9e8245a46d55372e68eed594b89a8293025f3398",
+      "hash_size_match": true,
+      "items": [
+        {
+          "status": "OK",
+          "name": "cargo fmt --all --check",
+          "seconds": 3
+        },
+        {
+          "status": "OK",
+          "name": "cargo clippy --workspace --all-targets -D warnings",
+          "seconds": 4
+        },
+        {
+          "status": "OK",
+          "name": "cargo test -p mir-server --test duo_smoke（串行）",
+          "seconds": 30
+        },
+        {
+          "status": "OK",
+          "name": "cargo test --workspace",
+          "seconds": 179
+        },
+        {
+          "status": "OK",
+          "name": "协议生成器 --check",
+          "seconds": 1
+        },
+        {
+          "status": "OK",
+          "name": "文档链接与包编号",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "TextKey 完整性",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "硬编码棘轮（player-visible，阈值 70）",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "硬编码棘轮（no-test，阈值 0）",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "运行时不引用老资源格式",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "物品图标完整性",
+          "seconds": 1
+        },
+        {
+          "status": "OK",
+          "name": "PostgreSQL 集成测试（mir-store 串行）",
+          "seconds": 2
+        }
+      ],
+      "meta_bytes": 236,
+      "meta_sha256": "f12f9edbfc4dad8dc917c0480755709aa997bbeff257f9a06b935cc998f00506"
+    },
+    {
+      "attempt": 3,
+      "log": "target/round51/final-gate3.log",
+      "meta": "target/round51/final-gate3.meta.txt",
+      "metadata": {
+        "attempt": "3",
+        "start_utc": "2026-10-25T01:29:49Z",
+        "end_utc": "2026-10-25T01:31:57Z",
+        "duration_s": "128",
+        "exit_code": "0",
+        "head": "13f7c7828c162f3f3c1c293a672af4b84f0fd5e4",
+        "log_bytes": "186888",
+        "log_sha256": "0539b82fb2eff360e4c0e6315e40c9a9a506a6ab11ac956ca7730c6fb530bd48"
+      },
+      "bytes": 186888,
+      "sha256": "0539b82fb2eff360e4c0e6315e40c9a9a506a6ab11ac956ca7730c6fb530bd48",
+      "hash_size_match": true,
+      "items": [
+        {
+          "status": "OK",
+          "name": "cargo fmt --all --check",
+          "seconds": 2
+        },
+        {
+          "status": "OK",
+          "name": "cargo clippy --workspace --all-targets -D warnings",
+          "seconds": 1
+        },
+        {
+          "status": "OK",
+          "name": "cargo test -p mir-server --test duo_smoke（串行）",
+          "seconds": 12
+        },
+        {
+          "status": "OK",
+          "name": "cargo test --workspace",
+          "seconds": 106
+        },
+        {
+          "status": "OK",
+          "name": "协议生成器 --check",
+          "seconds": 1
+        },
+        {
+          "status": "OK",
+          "name": "文档链接与包编号",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "TextKey 完整性",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "硬编码棘轮（player-visible，阈值 70）",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "硬编码棘轮（no-test，阈值 0）",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "运行时不引用老资源格式",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "物品图标完整性",
+          "seconds": 1
+        },
+        {
+          "status": "OK",
+          "name": "PostgreSQL 集成测试（mir-store 串行）",
+          "seconds": 2
+        }
+      ],
+      "meta_bytes": 236,
+      "meta_sha256": "744398b3502aec103dde738ec8d429283741d32dac2e70e81a1ed038143fdc07"
+    },
+    {
+      "attempt": 4,
+      "log": "target/round51/final-gate4.log",
+      "meta": "target/round51/final-gate4.meta.txt",
+      "metadata": {
+        "attempt": "4",
+        "head": "997eea4676201d15acfcefc68a9b9cd9a5395c98",
+        "branch": "main",
+        "command": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale",
+        "start_utc": "2026-10-25T02:48:42Z",
+        "end_utc": "2026-10-25T02:51:49Z",
+        "exit_code": "1",
+        "log": "target/round51/final-gate4.log",
+        "log_bytes": "63050",
+        "log_sha256": "05a7b193ddafe24ed6627aad1919fefeb29ca192864cf6c73cca8a93685b0f18"
+      },
+      "bytes": 63050,
+      "sha256": "05a7b193ddafe24ed6627aad1919fefeb29ca192864cf6c73cca8a93685b0f18",
+      "hash_size_match": true,
+      "items": [
+        {
+          "status": "OK",
+          "name": "cargo fmt --all --check",
+          "seconds": 3
+        },
+        {
+          "status": "OK",
+          "name": "cargo clippy --workspace --all-targets -D warnings",
+          "seconds": 1
+        },
+        {
+          "status": "OK",
+          "name": "cargo test -p mir-server --test duo_smoke（串行）",
+          "seconds": 45
+        },
+        {
+          "status": "FAIL",
+          "name": "cargo test --workspace",
+          "seconds": 128
+        },
+        {
+          "status": "OK",
+          "name": "协议生成器 --check",
+          "seconds": 1
+        },
+        {
+          "status": "OK",
+          "name": "文档链接与包编号",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "TextKey 完整性",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "硬编码棘轮（player-visible，阈值 70）",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "硬编码棘轮（no-test，阈值 0）",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "运行时不引用老资源格式",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "物品图标完整性",
+          "seconds": 1
+        },
+        {
+          "status": "OK",
+          "name": "PostgreSQL 集成测试（mir-store 串行）",
+          "seconds": 6
+        }
+      ],
+      "meta_bytes": 325,
+      "meta_sha256": "e74fe84fc4fbc4ff0b2d95c35877b50bcf9cdcda5ee892f30d2ad4631e43d9a8"
+    },
+    {
+      "attempt": 5,
+      "log": "target/round51/final-gate5.log",
+      "meta": "target/round51/final-gate5.meta.txt",
+      "metadata": {
+        "attempt": "5",
+        "head": "f500269974c92d32b3510aef902e1d8fd2e7c2c6",
+        "branch": "main",
+        "command": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale",
+        "start_utc": "2026-10-25T03:07:21Z",
+        "end_utc": "2026-10-25T03:11:33Z",
+        "exit_code": "0",
+        "log": "target/round51/final-gate5.log",
+        "log_bytes": "189824",
+        "log_sha256": "091e096410bdb4788487da7966517a0de5d73e0a5801591c3475a86818367d11"
+      },
+      "bytes": 189824,
+      "sha256": "091e096410bdb4788487da7966517a0de5d73e0a5801591c3475a86818367d11",
+      "hash_size_match": true,
+      "items": [
+        {
+          "status": "OK",
+          "name": "cargo fmt --all --check",
+          "seconds": 3
+        },
+        {
+          "status": "OK",
+          "name": "cargo clippy --workspace --all-targets -D warnings",
+          "seconds": 20
+        },
+        {
+          "status": "OK",
+          "name": "cargo test -p mir-server --test duo_smoke（串行）",
+          "seconds": 15
+        },
+        {
+          "status": "OK",
+          "name": "cargo test --workspace",
+          "seconds": 206
+        },
+        {
+          "status": "OK",
+          "name": "协议生成器 --check",
+          "seconds": 1
+        },
+        {
+          "status": "OK",
+          "name": "文档链接与包编号",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "TextKey 完整性",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "硬编码棘轮（player-visible，阈值 70）",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "硬编码棘轮（no-test，阈值 0）",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "运行时不引用老资源格式",
+          "seconds": 0
+        },
+        {
+          "status": "OK",
+          "name": "物品图标完整性",
+          "seconds": 1
+        },
+        {
+          "status": "OK",
+          "name": "PostgreSQL 集成测试（mir-store 串行）",
+          "seconds": 4
+        }
+      ],
+      "meta_bytes": 326,
+      "meta_sha256": "940f2911c5a8750dbb0fc598d0f156d62d65d09daf5453040535aeec716a6d2b"
+    }
+  ],
+  "evidence": [
+    {
+      "path": "crates/mir-server/src/magic.rs",
+      "bytes": 259559,
+      "sha256": "fc12bb108db55274426bf07a7c90f728c4dd220619bb4a2181a4a4c4933b895c",
+      "source": "git HEAD blob",
+      "working_tree_matches_head": false
+    },
+    {
+      "path": "crates/mir-server/src/items.rs",
+      "bytes": 154679,
+      "sha256": "c9462ae79e0e099ed0b76860eb58b2c450f0f8e40359d6747706cb856e003893",
+      "source": "git HEAD blob",
+      "working_tree_matches_head": true
+    },
+    {
+      "path": "crates/mir-server/src/buffs.rs",
+      "bytes": 25419,
+      "sha256": "cf1ecce7f14619ba51d301f637a2a16dc60ad5df62580cbce2130139aa3abeb1",
+      "source": "git HEAD blob",
+      "working_tree_matches_head": true
+    },
+    {
+      "path": "crates/mir-client/tests/round51_spells_wire.rs",
+      "bytes": 15436,
+      "sha256": "8f43146dd339d5296e5a259d94f12f16957ed0a7fce2ab362cf1a1751252370b",
+      "source": "git HEAD blob",
+      "working_tree_matches_head": true
+    },
+    {
+      "path": "crates/mir-client/src/net.rs",
+      "bytes": 350031,
+      "sha256": "e66fd4758f84be09482fb9e4b69e75afb247fe2966316a5a81b656127b7859b3",
+      "source": "git HEAD blob",
+      "working_tree_matches_head": false
+    },
+    {
+      "path": "github/Crystal/Server/MirObjects/HumanObject.cs",
+      "bytes": 353153,
+      "sha256": "da406ed3f9e2cbc79d9759871410cfaf08b9b17a1e507631e68f2679c105958c"
+    },
+    {
+      "path": "tools/dev/ci.ps1",
+      "bytes": 9846,
+      "sha256": "b64228d2eec5cd852ba27fa5f452342d38812ae31bf4264e8ba2b49a86d9d19c",
+      "source": "git HEAD blob",
+      "working_tree_matches_head": true
+    },
+    {
+      "path": "docs/testing/round51/round51-final-audit-v2.md",
+      "bytes": 19230,
+      "sha256": "d7e7ca18001061fa75b3c05fcdcf3ff0ccaffd0d5546055d6529fa7e1050b15d",
+      "source": "git HEAD blob",
+      "working_tree_matches_head": true
+    },
+    {
+      "path": "docs/testing/round51/final-manifest-v2.json",
+      "bytes": 11274,
+      "sha256": "4d8757d13bdd9c71b65f5aca00307f524da643743a009083ef2d7ac7b9c34be5",
+      "source": "git HEAD blob",
+      "working_tree_matches_head": true
+    },
+    {
+      "path": "docs/process/round51-shangshu-rework-dispatch.md",
+      "bytes": 8945,
+      "sha256": "322949bc513152e1949b4edfce022e5bd65c3ec003e416d80e4c8dcc25172e17",
+      "source": "git HEAD blob",
+      "working_tree_matches_head": true
+    },
+    {
+      "path": "docs/testing/round51/README.md",
+      "bytes": 763,
+      "sha256": "5effa6d288ed476f36225eba12318952771d99193d7cb2ef1a0d906a9ade1ff4",
+      "source": "git HEAD blob",
+      "working_tree_matches_head": true
+    },
+    {
+      "path": "target/round51/b3/00-summary.md",
+      "bytes": 6183,
+      "sha256": "c169797c10f1a9e1f461d260743297c6f68e342fcd98934761996f429bba9d00"
+    },
+    {
+      "path": "target/round51/b3/01-magic-tests.log",
+      "bytes": 3373,
+      "sha256": "1684bedfba3a55d3524c9c4ea38a42751f22634cf0deaf312999582a2a8f3dd8"
+    },
+    {
+      "path": "target/round51/b3/02-fmt-clippy.log",
+      "bytes": 646,
+      "sha256": "92285184add50a18076080e338005c5250888677ee3bf506219e1a8dcefa27a7"
+    },
+    {
+      "path": "target/round51/b3/03-summary.md",
+      "bytes": 3944,
+      "sha256": "63183be3c166ec22eae4032a9e64de0c590fd411f0f6ec0a9fee1d9503dc0253"
+    },
+    {
+      "path": "target/round51/b3/07-seven-row-matrix.md",
+      "bytes": 16575,
+      "sha256": "7839bb30110a4e69956b850b194c5518cb6bc388b5cc67fc1d1b36daad4a0de7"
+    },
+    {
+      "path": "target/round51/b2/00-summary.md",
+      "bytes": 9808,
+      "sha256": "3cb71eec68ffccf9a3e5cf0013946462ea20b2547085dcb85421c2a8080eeb51"
+    },
+    {
+      "path": "target/round51/b2/03-magic.log",
+      "bytes": 2786,
+      "sha256": "611d63bd8d58b92fbfb8a4657379487ddc522370e18bf5e1f0b1645ee7a965bc"
+    },
+    {
+      "path": "target/round51/b2/07-seven-row-matrix.md",
+      "bytes": 13884,
+      "sha256": "f7ac9737028626eeaf64773317ed4219510db6cdaca0f121ab5768bd1f1a5681"
+    },
+    {
+      "path": "target/round51/final-gate6.meta.txt",
+      "bytes": 275,
+      "sha256": "f302287fbae227515380bf0e285fe60cffd149f0588d8a0b74a479bdd63e2974"
+    }
+  ],
+  "audited_paths": [
+    "crates/mir-server/src/magic.rs",
+    "crates/mir-server/src/items.rs",
+    "crates/mir-server/src/buffs.rs",
+    "crates/mir-client/tests/round51_spells_wire.rs",
+    "crates/mir-client/src/net.rs",
+    "github/Crystal/Server/MirObjects/HumanObject.cs",
+    "tools/dev/ci.ps1",
+    "docs/testing/round51/round51-final-audit-v2.md",
+    "docs/testing/round51/final-manifest-v2.json",
+    "docs/process/round51-shangshu-rework-dispatch.md",
+    "docs/testing/round51/README.md"
+  ],
+  "b3_log_facts": {
+    "magic_command": "cargo test -p mir-server --lib magic",
+    "baseline_head": "f500269974c92d32b3510aef902e1d8fd2e7c2c6",
+    "head_is_precommit_baseline_with_magic_worktree_diff": true,
+    "cwd": "C:/Users/diana/Documents/github/mir-next",
+    "magic_start_local_original": "2026-10-25T11:32:54+08:00",
+    "magic_end_local_original": "2026-10-25T11:33:00+08:00",
+    "passed": 31,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 150,
+    "magic_exit": 0,
+    "fmt_command": "cargo fmt --all --check",
+    "fmt_exit": 0,
+    "clippy_command": "cargo clippy -p mir-server -p mir-client --all-targets -- -D warnings",
+    "clippy_exit": 0,
+    "new_test_count": 2,
+    "renamed_test_count": 1,
+    "previous_b2_magic_count": 29,
+    "all_closed_claim_explicitly_retracted": true,
+    "real_nonempty_frozen_cast_proven": true,
+    "real_nonempty_slow_proven": false,
+    "nonzero_step_counter_reset_proven": true,
+    "strict_observer_out_presence_proven": false,
+    "zero_rng_no_consumption_runtime_proven": false
+  },
+  "inconsistencies": [
+    "B3 implements StepCounter/true-Frozen/order tests explicitly deferred by dispatch:23; Lead disposition required",
+    "B3 subtask dispatch3b310e70 vs artifacts28585983; identity mapping needs explanation",
+    "B3 03-summary start11:31:19 vs raw magic log11:32:54; use raw",
+    "B3 says old28+new3; actual old29+new2, with one renamed test",
+    "Missing buff-only and buff removal/expiry source assertions required by dispatch",
+    "Zero RNG consumption only statically established; actual Frozen5..19 permits constant5",
+    "Observer strict-order claim has Option None presence gap",
+    "Crystal1965 is socket template stat addition; main equipment AddedStats is1859, socket AddedStats1966",
+    "B3 clippy scope server/client, narrower than dispatch workspace; gate6 workspace result remains separate",
+    "Gate6 meta lacks invocation command/cwd; ci header says13 but actual default summary12",
+    "Historical T2/B3 head and untracked snapshots are historical, not current-tree declarations"
+  ],
+  "reproduction": {
+    "environment": {
+      "TMP": "C:/Users/diana/Documents/github/mir-next/target/tmp",
+      "TEMP": "C:/Users/diana/Documents/github/mir-next/target/tmp",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "executed": [
+      {
+        "command": "cargo test -p mir-server --lib magic",
+        "cost": "L2",
+        "exit_code": 0,
+        "passed": 31,
+        "failed": 0,
+        "ignored": 0,
+        "cargo_build_s": 0.61,
+        "cargo_test_s": 0.0,
+        "external_wall_s": null,
+        "job_id": "bash-cb4111299d144809",
+        "job_output_collected": true
+      },
+      {
+        "command": "cargo test -p mir-client --test round51_spells_wire",
+        "cost": "L2",
+        "exit_code": 0,
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0,
+        "cargo_build_s": 3.15,
+        "cargo_test_s": 0.0,
+        "external_wall_s": null,
+        "job_id": "bash-c338795b45c64d86",
+        "job_output_collected": true
+      }
+    ],
+    "post_artifact_checks": [
+      {
+        "command": "py -3 tools/docs/check_links.py",
+        "exit_code": 0,
+        "relative_links": 1157,
+        "readmes_checked": 2
+      },
+      {
+        "command": "py -3 tools/docs/check_links.py",
+        "exit_code": 0,
+        "relative_links": 1160,
+        "readmes_checked": 2,
+        "phase": "final with concurrent B4"
+      }
+    ],
+    "read_only_git_commands": [
+      "git status --short --branch",
+      "git log -4 --format=%H",
+      "git rev-parse origin/main",
+      "git diff --check",
+      "git diff f500269..1fe36dd -- crates/mir-server/src/magic.rs",
+      "git diff 716db42..HEAD -- crates/mir-protocol tools/dev/ci.ps1",
+      "git ls-tree -rl HEAD"
+    ],
+    "not_run": [
+      "full ci.ps1",
+      "ignored tests",
+      "source mutation probes",
+      "visual tests",
+      "commit",
+      "push",
+      "Done delegate-result retry"
+    ],
+    "failed_probe": "First raw-log print failed UnicodeEncodeError under GBK stdout after successful bytes/SHA calculation; no files modified; subsequent UTF-8 stdout decode succeeded",
+    "option_order_probe": {
+      "command": "rustc --crate-type=lib -O --emit=llvm-ir -o - -",
+      "stdin": "#[unsafe(no_mangle)] pub fn absent_out_passes()->bool { let out_at:Option<usize>=None; let in_at=Some(0usize); let effect_at=Some(1usize); out_at<in_at && in_at<effect_at }",
+      "exit_code": 0,
+      "llvm_result": "ret i1 true",
+      "rustc_version": "1.99.1",
+      "writes_source_files": false
+    }
+  },
+  "hygiene": {
+    "changed_paths_against_716db42": 27,
+    "max_changed_blob_bytes": 350031,
+    "max_blob_path": "crates/mir-client/src/net.rs",
+    "magic_blob_bytes": 259559,
+    "changed_blobs_over_1mib": 0,
+    "added_lines_scanned_crates_config_tools": 3941,
+    "new_allow_matches": 0,
+    "private_key_header_matches": 0,
+    "common_token_marker_matches": 0,
+    "scan_limitation": "Bounded scan of added lines and changed paths, not a whole-history secret audit",
+    "protocol_and_ci_diff_against_716db42": "empty",
+    "packets_250_251_diff": "none",
+    "known_untracked_excluded": [
+      {
+        "path": "docs/testing/monster-native/player-resource-freeze-before.json",
+        "bytes": 44844165
+      },
+      {
+        "path": "docs/testing/monster-native/player-resource-freeze.json",
+        "bytes": 45219533
+      }
+    ],
+    "expected_new_untracked": [
+      "docs/testing/round51/round51-final-audit-v3.md",
+      "docs/testing/round51/final-manifest-v3.json"
+    ],
+    "new_summary_under_ignored_target": true,
+    "final_postconditions": {
+      "head": "42a49e0879be4d00bccd43bd7ebce8c9e4276058",
+      "external_changes": "11:50:35 magic.rs modified and B4 dispatch added by concurrent writer; audit hashes fixed to HEAD; not T3 edits",
+      "commit_or_push_performed": false,
+      "head_at_final": "42a49e0879be4d00bccd43bd7ebce8c9e4276058"
+    }
+  },
+  "r52_required": [
+    "Real MagicInfo mana and cooldown including2500ms",
+    "Frost real nonempty Slow and both probability sides for Slow/Frozen",
+    "StormEscape strict packet order",
+    "152/153 wrong predicted position and active motion snapback/Standing/queue clear",
+    "Player Frozen actual attack rejection",
+    "StormEscape independent cross-map case",
+    "Firewall per-object semantics",
+    "InTrapRock",
+    "Frost player targeting",
+    "P01/P02 reagents",
+    "Native dash animation/audio/visual timing",
+    "Guild Freezing source mapping",
+    "Real socket end-to-end"
+  ],
+  "artifacts": {
+    "audit": {
+      "path": "docs/testing/round51/round51-final-audit-v3.md",
+      "bytes": 14139,
+      "sha256": "1b3bc97c06bc6c6537edeee7f32ccbaff9631f2dd0d84b0a0c898a8f15048bbf"
+    },
+    "manifest": {
+      "path": "docs/testing/round51/final-manifest-v3.json",
+      "self_hash_policy": "Final size/SHA delivered externally to Lead; not embedded to avoid self-reference"
+    },
+    "summary": {
+      "path": "target/round51/final-gate6-summary.log",
+      "bytes": 1135,
+      "sha256": "db53fc975da55104ed63245165119d9e8a9d91e39076eb3bac2819adbaafff86"
+    }
+  },
+  "lead_disposition": "Keep BLOCK. Repair valid-equipment aggregation and required-packet presence assertions; correct evidence claims; submit new tree and preserve all historical attempts before independent re-review. PASS-WITH-PARTIAL only after blockers close and authorized residual acceptance.",
+  "audit_finished_local": "2026-10-25T11:51:47.783777+08:00"
+}

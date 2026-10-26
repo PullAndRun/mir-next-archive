@@ -54,7 +54,7 @@ SKIP ≠ PASS。
 | 编号 | 项 | 说明（与 Crystal 的差） | 归属 |
 |---|---|---|---|
 | **D-R59-1** | 无落点即不生成 | Crystal `GameScene.cs:4699` **无条件** `CreateProjectile`（落点可用 `TargetPoint` 兜底，`:4701` 只门控命中）；125 只带 `source`/`destination` 两个 ID，`destination` 不在快照里 → 本作**不生成投射物、不生成命中、不播 `+2`**，不伪造坐标。**诚实降级但非对齐** | D1 已实现；文档登记 |
-| P-2 | 事件无 ID | `ProjectileEvent` 无时间戳/序号（`net.rs:1503-1511`）；队列容量 16、超限丢最旧（`net.rs:7246-7260`），满队列后「丢最旧+追加」在 `len` 上不可观测，可能漏事件 | 残留风险，R60 承接 |
+| P-2 | 事件无 ID | `ProjectileEvent` 无时间戳/序号（`net.rs:1503-1511`）；队列容量 16、超限丢最旧（`net.rs:7246-7260`），满队列后「丢最旧+追加」在 `len` 上不可观测，可能漏事件 | **已由 R60 修复**（见 [R60 索引](../round60/README.md)）：新增 `WorldSnapshot.projectile_events_total` 绝对序号，第 17+ 事件不再被游标吞掉。**但「丢失」未全消**——ring 16 仍丢最旧（R4a 已知不修） |
 | P-3 | 冻结时长 | 本作 `duration`/`count` 在 spawn 时冻结（`projectile.rs:465-497`）；Crystal `Effect.cs:172-191` `Process` 内每帧重算，目标移动会改变总时长 | 已知简化 |
 | P-4 | Draw offset | `draw_effect` 不叠加 `magic.wzl` 每帧 `ImageInfo.offset`（Crystal `MLibrary` `offSet=true` 路径）；属 `mir-render` 既有绘制缺口，本轮未改 | 已知缺口 |
 | P-5 | 音效素材/可听性 | `M34-1/-2` **素材已导入**：由 `resource/community/gqf2008-crystal/Sound/M34-{1,2}.wav` 经 `mir-tools audio import`（本机 ffmpeg）产出，落 `game-assets/audio/sfx/M34-{1,2}.mna`（该目录现 105 个文件）；`audio verify --input game-assets/audio` → `files=106 bytes=4.25MB`、exit 0（`target/round59/d4/attempt-1/08-audio-verify.log`）。**但真实可听仍 PARTIAL**：`take_sound_cues()` 未被 `app.rs` 音频通道 drain（UI 只持 `&WorldSnapshot`），D4 只证 cue 字面量/顺序/每投射物一次；`game-assets/` 不入库，`.mna` 证据仅存 `target/` | PARTIAL（可听性）；素材已落盘 |
@@ -63,12 +63,12 @@ SKIP ≠ PASS。
 
 ## 4. R60 承接
 
-1. **事件 ID/序列号**：在 `net.rs` 给 `ProjectileEvent` 编号或带 `started_ms`，消除游标/丢最旧歧义（P-2）。
-2. **每帧重算 Duration/Count**：对齐 Crystal `Effect.cs:172-191`（P-3），需先定「目标移动改变总时长」的表现口径。
-3. **wzl 逐帧 `ImageInfo.offset`**：`mir-render` 绘制层补 offset 通路（P-4），会同时影响其它 `FxKind`。
-4. **命中生命周期**：目标 `dead`/消失与 `Complete` 回调的完整状态机（含 `+2` 门控）落到 socket 级用例。
-5. **素材与音效收口**：把 `M34-1/-2.mna` 与 106 帧 PNG 的生成纳入可复跑脚本（当前 `game-assets/` 不入库，P-5）。
-6. **Hero 实例**、**真 socket**：R59 不做，仍为后续轮次前置。
+1. **事件 ID/序列号**：在 `net.rs` 给 `ProjectileEvent` 编号或带 `started_ms`，消除游标/丢最旧歧义（P-2）。→ **R60 已交付（绝对序号，未改结构/协议）**，见 [R60 索引](../round60/README.md)；`started_ms` 仍未做，转 R61。
+2. **每帧重算 Duration/Count**：对齐 Crystal `Effect.cs:172-191`（P-3），需先定「目标移动改变总时长」的表现口径。→ R61
+3. **wzl 逐帧 `ImageInfo.offset`**：`mir-render` 绘制层补 offset 通路（P-4），会同时影响其它 `FxKind`。→ R61
+4. **命中生命周期**：目标 `dead`/消失与 `Complete` 回调的完整状态机（含 `+2` 门控）落到 socket 级用例。→ R61
+5. **素材与音效收口**：把 `M34-1/-2.mna` 与 106 帧 PNG 的生成纳入可复跑脚本（当前 `game-assets/` 不入库，P-5）。→ **R60 已接音频通道**（`app.rs` 同帧 drain，见 [R60 索引](../round60/README.md)），生成入脚本仍转 R61；可听性仍 PARTIAL
+6. **Hero 实例**、**真 socket**：R59 不做，仍为后续轮次前置。→ R61
 
 ## 5. 复跑命令
 

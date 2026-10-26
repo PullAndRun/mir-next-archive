@@ -1276,6 +1276,63 @@ UI：`draw_ui` 在顶部画提示横幅「连接已断开，正在重连（N/3�
 5. **无 Hero 实例、无真 socket**：本轮证据是进程内 encode/decode/快照链，不等于 socket 端到端；
    125 不回显施法者（`World::broadcast` 不含本人）仍由服务端语义决定，客户端不补偿。
 
+### 5.27 125 音效真实通道与事件去重（R60）
+
+> R60 交付代码 HEAD `bb53321`；门禁 attempt-1 在同一 HEAD 上 12/12、exit 0
+> （日志 `target/round60/gate/attempt-1.log`，205,317 B，sha256 `193b6fe4…78dd`）。
+> 本轮**只**打通「cue → 解码 → 混音器」并修掉第 17+ 事件被游标吞掉的缺陷；
+> **不**等于「125 音频完整」「无重复」「真实可听已证」，边界见 D 段。
+
+#### A. 接线位置（G1：cue 队列有了生产消费者）
+
+- 取件口：`crates/mir-client/src/ui/mod.rs:1275` `pub fn take_projectile_sound_cues(&mut self) -> Vec<&'static str>`
+  —— 仅转调 `UiState.projectiles.take_sound_cues()`（`crates/mir-client/src/ui/projectile.rs:421`），不复制、不清源队列。
+- 同帧 drain：`crates/mir-client/src/app.rs:2753` `live.ui.sync(&live.snapshot)` 之后紧接
+  `crates/mir-client/src/app.rs:2757` `let projectile_cues = live.ui.take_projectile_sound_cues();`、
+  `:2759` `play_projectile_cues(&mut live.sound, projectile_cues, now)`。
+- 播放自由函数：`crates/mir-client/src/app.rs:201` `fn play_projectile_cues(sound: &mut SoundPlayer, cues: Vec<&'static str>, now_ms: u64) -> usize`
+  转调可注入核心 `crates/mir-client/src/app.rs:209` `fn play_projectile_cues_with(cues, play: impl FnMut(&'static str) -> bool) -> usize`
+  （单测不碰真实声卡）。**返回 `true` 才计入「已播」**，被频控/静音/无设备吞掉的不计。
+- 播放底层仍是 R59 基座 `crates/mir-client/src/audio.rs:592` `SoundPlayer::play`（开关/增益 → `!has_output()` → 100 ms 频控 →
+  `resolve` 出 `.mna` → `mir_asset::AudioClip::open` + rodio `Decoder` → `mixer.add(amplify(gain))`），本轮**零改动**。
+
+#### B. cue 语义（与 §5.26 E 一致，未新增音源）
+
+- 出生 = `M34-1.wav`（`20341`）、命中 = `M34-2.wav`（`20342`），由
+  `crates/mir-render/src/sound.rs:276` `projectile_sound(spell, phase)` 产出；基准是 `GreatFireBall=34`，不是 `FireBounce=154`。
+- 无投射物即无出生音（D-R59-1 未变）；目标 `dead`/不存在不播命中音（`round59_projectile_render` 已锁 16 passed）。
+- 同文件 100 ms 频控沿用：**同一帧多 cue 只响一次**，与 Crystal「每发都响」有差（偏差台账 P-6/R-5）。
+
+#### C. 去重改用绝对序号游标（G2；F6 更正）
+
+- 计数器：`crates/mir-client/src/net.rs:2772` `pub projectile_events_total: u64`（文档见 `:2767`）；
+  每次接受 push 自增 `crates/mir-client/src/net.rs:7265` `saturating_add(1)`；快照重建归零
+  `crates/mir-client/src/net.rs:2911`（`impl Default for WorldSnapshot` 同口径）。
+  `ProjectileEvent` 结构、协议线格式、`EFFECT_EVENT_LIMIT=16` **零改动**。
+- 消费结算：`crates/mir-client/src/ui/projectile.rs:461` `fn consume(...)` 改为
+  `dropped = total.saturating_sub(len)`、`cursor = max(consumed, dropped)`、`index = cursor - dropped`；
+  **真重建**才归零游标（`:479` `self.consumed = 0`）——条件是 `len == 0 && consumed > 0` 或
+  `consumed > len && dropped == 0`，**ring 满后 `consumed == total > len` 不再复位**（否则第 18 事件会把旧 view 全量重放）。
+  收尾 `:495` 把被 ring 丢弃但未消费的事件一并计入游标。
+- **F6 更正**：旧诊断「ring 截断 → 整表重放」**作废**。真实缺陷是
+  「第 17 个及之后的 125 事件被永久静默丢弃」（`consumed` 停在 16、`views` 不再增长）。
+  本轮修的是**不再吞掉**第 17+ 事件；**不是**「不丢事件」。
+- 红→绿：`len=16,total=17,consumed=16` 时旧实现新增 **0** 个 view（红）、新实现新增 **1** 个且 payload 唯一等于第 17 事件（绿）；
+  证据 `target/round60/d2/attempt-1/04-red-before.log`（exit 101）与 `05-green-after.log`（exit 0）。
+
+#### D. PARTIAL / 已知限制（不得写成 PASS）
+
+| 编号 | 项 | 边界 |
+|---|---|---|
+| P-1 | **可听性 PARTIAL** | headless 本机无音频设备，只证 cue→解码→混音器路径与降级不 panic；`take_projectile_sound_cues` 的调用点在 `apply_snapshot`，**无 Live 窗口级集成测试**（依赖真实窗口）→ 真实可听未证 |
+| P-2 | `from_repo_root` 找不到 M34 素材 | 既有 `audio.rs`/`main.rs` 根路径行为（CWD 相对 `default_roots()` 才生效）；本轮未改代码，换机/改 CWD 时按 `SKIP: missing M34-*.mna` 记非 PASS |
+| P-3 | ring 16 仍丢最旧 | R4a 已知不修：**已消费**事件不重放、**第 17+ 事件**不再被吞；但卡顿 >16 事件时更早于 ring 的历史事件仍会丢 |
+| P-4 | 同文件 100 ms 频控 | 多 cue 同帧只响一次，≠ Crystal 每发都响（批准保留的降噪设计） |
+| P-5 | 素材来源 | `game-assets/audio/sfx/M34-{1,2}.mna` 由 R59 从 `resource/community/gqf2008-crystal/Sound/M34-{1,2}.wav` 导入；`game-assets/`、`resource/` 均被 `.gitignore:27` 忽略，证据只存 `target/` |
+
+测试与复跑见 [R60 索引](testing/round60/README.md)（D1 5 例：`--bin mir-client` 21 passed、`--lib audio` 19 passed；
+D2 6 例：`ui::projectile` 12 passed、`net::` 30 passed；回归 `round59_projectile_render` 16、`round58_projectile_wire` 7、`mir-render sound` 9）。
+
 ## 6. 素材加载与渲染
 
 ### 6.0 真实素材渲染（第 6 轮）

@@ -1,0 +1,23 @@
+# R60 提交树哈希清单（M-7）：TAB 分隔 role<TAB>path<TAB>bytes<TAB>sha256
+# 说明：清单自身 sha256 不写入本清单（只由 D4 的 final-manifest.json 记录），破自哈希循环。
+# head=bb53321
+# gate_head=bb53321
+# gate_log_sha256=193b6fe4f8a0a46397a0026c2e8a2d66f0e041c9fa33f0ad6ca3a17d1f3678dd
+# gate_log_bytes=205317
+# gate_log_path=target/round60/gate/attempt-1.log
+# gen=bash docs/testing/round60/gen-tree-hashes.sh  # 等价：wc -c <路径> + sha256sum 路径
+# scope=提交①（bb53321）的 crates/** 4 文件 + 本轮 docs/** 候选（D3 交付 5 件 + 3 份 process 文件）
+# verify=crates 4 文件与 bb53321 逐字节一致：git diff bb53321 -- <4 路径> 为空（见 target/round60/d3/attempt-1/06-tree-hashes.log）
+crates	crates/mir-client/src/app.rs	153666	e16740ef6e131b06afb1e597bd81d2b739bbd70a6f7f90ca83eddeebde4ffe9e
+crates	crates/mir-client/src/ui/mod.rs	220620	3769f6b7b8070157b5d073d07e70d73aef8313587d5c93082bd47ff6a91d023a
+crates	crates/mir-client/src/net.rs	364094	60436d5998d4d8b7ac365aab0da703fcb9221b78c34b16f5632bf4c5f9484ac3
+crates	crates/mir-client/src/ui/projectile.rs	48100	95087857bac7292ff4916e674d2d8d4c2d67462b462d5a1ed074b720a10d5c21
+docs-d3	docs/client.md	168265	92503f05f6eac899c8705cf87cd8ec251d2fd073e83d5946a909310c7ff1d195
+docs-d3	docs/roadmap.md	28002	5f025bceab1b60c3b58d1c7647bc0c7132ec074a9f23178bf19efd137f499287
+docs-d3	docs/testing/round59/README.md	13996	2944a1aff1569a1cc496c9328bd31cfbe1f37d835ea1faa124ddffbaa93750b8
+docs-d3	docs/testing/round60/README.md	9585	d87c5c9d7b4883676291a3a894194501361d33145a778aa10332c98022f68d71
+docs-d3	docs/testing/round60/run-checks.sh	12608	6fc3385f790fb73195ce6fa66c8c5b14e5ebedbfbf8c1bf74cb79dec6ba99566
+docs-d3	docs/testing/round60/gen-tree-hashes.sh	2230	3f9e90fa44e10a67ee13d852836d24e6c371d716434b7132f34d0632c309e233
+docs-process	docs/process/round60-plan.md	19345	e8e3f29a7c791c61794603a8d5b2f9374687c13c985fcf61c96f279c670b8139
+docs-process	docs/process/round60-menxia-review.md	14627	c923b90f7d8f1f73cbb8b3fb29c09fde8ed1f0652a89a4c5e51486e968e4b74b
+docs-process	docs/process/round60-shangshu-dispatch.md	12686	bb289ce0e252801c662f65669892d7bfc982f66f3d38ef11d0800b53b2681e7d

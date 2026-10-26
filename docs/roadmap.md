@@ -173,3 +173,28 @@ R50 独立商城已交付；R51 已 **Done / PASS-WITH-PARTIAL**，已交付 Bli
 offset；音效真实可听 PARTIAL（`M34-1/-2` 素材已由 `audio import` 产出、`audio verify files=106`，但
 `take_sound_cues()` 未接 `app.rs`；`game-assets/` 不入库）；无 Hero、无真 socket。台账见
 [R59 索引 §3](testing/round59/README.md)。
+
+**R60 承接**：P-2「事件无 ID / 可能漏事件」已由 R60 修复（绝对序号游标，第 17+ 事件不再被吞；ring 16 仍丢最旧）；
+P-5「音效通道未接」已由 R60 接通（`app.rs` 同帧 drain），可听性仍 PARTIAL；P-3/P-4 与生成入脚本转 R61。
+
+## 九、第 60 轮（R60）状态（🟡 已落盘待终审；门禁 attempt-1 已跑）
+
+本轮只做两件事：**125 音效真实通道**（G1）与 **投射物事件去重**（G2），外加文档/脚本/树哈希收口（G3）与唯一门禁（G4）。
+口径：**通道打通 + 去重 + PARTIAL 诚实登记**；不写「125 音频完整」「无重复」「真实可听已证」。
+
+- 代码提交① `bb53321`「feat(client): R60 125 音效真实通道与投射物事件去重」，4 文件 +593/−12，已 push `origin/main`。
+- 唯一全量门禁 attempt-1（在 `bb53321` HEAD 上）：`pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale` →
+  **EXIT=0、12/12 全 OK（末行「全部通过（12 项）」）**；日志 `target/round60/gate/attempt-1.log`
+  （205,317 B，sha256 `193b6fe4f8a0a46397a0026c2e8a2d66f0e041c9fa33f0ad6ca3a17d1f3678dd`，UTC 10:29:53–10:32:26Z）。
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| G1 125 音效真实通道 | 🟡 已落盘（可听性 PARTIAL） | `ui/mod.rs:1275` `take_projectile_sound_cues` → `app.rs:2757` 同帧 drain → `app.rs:201` `play_projectile_cues` → `audio.rs:592` `play`；`--bin mir-client` 21 passed、`--lib audio` 19 passed；M34-1/2 真 `.mna` 解码成功（无 SKIP）。**只证路径，不证可听** |
+| G2 125 事件去重（绝对序号游标） | 🟡 已落盘 | `net.rs:2772` `projectile_events_total` + `:7265` 自增；`ui/projectile.rs:461` `consume` 改绝对游标；**F6 更正**：真实缺陷＝第 17+ 事件永久丢失（非 ring 重放）；`ui::projectile` 12 passed、`net::` 30 passed、`round59_projectile_render` 16、`round58_projectile_wire` 7、`mir-render sound` 9 |
+| G3 文档/脚本/树哈希 | 🟡 已落盘待终审 | [R60 索引](testing/round60/README.md)、[run-checks.sh](testing/round60/run-checks.sh)（11 项）、`commit-tree-hashes.txt`、[client.md](client.md) §5.27；R59 P-2 状态已回填 |
+| G4 唯一门禁不回归 | ✅ attempt-1 exit 0 / 12 项 | 证据 `target/round60/gate/attempt-1.log`；**终审由 D4 复核，不在此预写结论** |
+
+**已知 PARTIAL**：可听性（headless 无音频设备 + `apply_snapshot` 无 Live 窗口级集成测试）；
+`from_repo_root` 找不到 M34 素材（既有根路径行为，未改代码）；ring 16 仍丢最旧（R4a 不修）；
+同文件 100 ms 频控 → 同帧多 cue 只响一次（≠ Crystal 每发都响）。台账见
+[R60 索引 §3](testing/round60/README.md)。

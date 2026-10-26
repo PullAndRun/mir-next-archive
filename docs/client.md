@@ -1175,6 +1175,107 @@ UI：`draw_ui` 在顶部画提示横幅「连接已断开，正在重连（N/3�
 
 
 
+### 5.26 125 ObjectProjectile 客户端渲染（R59：FireBounce 最小闭环）
+
+> **口径**：R59 只做 Crystal `GameScene.cs:4687-4715` 的客户端**表现链最小闭环**（事件消费 → 飞行插值 →
+> 命中闪光 → 音效）；不建 `Missile`/`Effect` 类体系，**只按最小闭环 + 已知偏离表述**。已知偏离见 §F，
+> 其中 **D-R59-1** 是正式登记偏离。实现：`crates/mir-client/src/ui/projectile.rs`（D1/D2），接线
+> `ui/mod.rs:1562-1564`（每帧 `sync`）与 `ui/mod.rs:4278-4279`（绘制）。
+
+#### A. 事件来源（服务端 → 客户端快照）
+
+- 包：`S.ObjectProjectile`(125) → `net.rs:5385-5401`；数据结构 `ProjectileEvent{spell, source, destination}`
+  （`net.rs:1503-1511`），**无时间戳、无落点坐标**。
+- **入队条件**：`spell == Spell::FireBounce && snapshot.object_position(source).is_some()`
+  （`net.rs:5391-5393`）——即 **FireBounce 白名单 + source 必须已知**；其它 spell 与未知 source 在入队处
+  直接丢弃（对齐 Crystal `GameScene.cs:4691` 的 `if (source == null) return;` 与 `:4693` 只 `switch
+  (Spell.FireBounce)`、无 default）。
+- 队列：`WorldSnapshot::projectile_events`（`net.rs:2763`）；容量沿用 `EFFECT_EVENT_LIMIT = 16`（`net.rs:166`），
+  超限 `remove(0)` 丢最旧（`net.rs:7246-7260`，与 `effects` 同一策略，R59 **未改常量**）。
+- `destination` **允许未知**：`net.rs:1508-1509` 明示 unknown destination 不得 panic、不得在入队处丢事件
+  （Crystal 侧只有 `:4701` 的命中挂接受 `missile.Target != null` 门控）。
+
+#### B. 消费语义（`Projectiles::sync`，`projectile.rs:240-301`）
+
+- 每帧 `UiState::update` 调 `self.projectiles.sync(snapshot, self.time_millis)`（`ui/mod.rs:1562-1564`）。
+- **不是 `mem::take`**：快照整体克隆、`projectile_events` 在会话侧累计且从不 drain，而绘制路径只持
+  `&WorldSnapshot`，因此用**位置游标** `Projectiles::consumed` 去重（`projectile.rs:5-8/208-209/250-261`）；
+  快照事件表长度回退（重连/换快照）时游标归零重新消费。**未 clone 快照绕过 `&mut`。**
+- 一个事件最多生成 1 个 `ProjectileView`；同帧多事件按到达顺序生成；同一快照重复 `sync` 不重复生成。
+- `source` 解析不到坐标 → 丢弃（入队层已拦，此处双保险）；`destination` 解析不到坐标 → **不生成实体**
+  （见 §F D-R59-1）。
+
+#### C. 飞行插值（公式按 Crystal 移植，参数取自 `GameScene.cs:4699`）
+
+`CreateProjectile(410, Libraries.Magic, true, 6, 30, 4, targetID: p.Destination)` → `count=6` 帧/向、
+`interval=30` ms、`skip=4`（方向步长 `4+6=10`）。
+
+| 量 | 本作（`projectile.rs`） | Crystal |
+|---|---|---|
+| `duration` | `max_distance(source, dest_at_spawn) * 50` ms（`duration_ms`，`CELL_FLIGHT_MS=50`） | `PlayerObject.cs:3546-3547` `MaxDistance(CurrentLocation, targetPoint) * 50` |
+| `count` | `max(1, duration / 30)`（`frame_count`） | `Effect.cs:174-181` `Duration/Interval`，`0 → 1` |
+| 当前帧 | `frame = elapsed_ms / 30`（`frame_at`，`now_ms` 由 `UiState.time_millis` 提供） | `Effect.cs` 每 `Interval` 加 1 帧 |
+| `dir16` | `direction16()`：`GameScene.cs:12044-12065` 移植（夹角 `+11.25°`、`/22.5` 取整、`destination.X < c.X` 走 `360° - angle` 镜像；0=上、4=右、8=下、12=左） | 同 |
+| `index` | `410 + frame % 6 + dir16 * 10`（`sprite_index`，恒在 `410..=565`） | `Effect.cs:196` `BaseIndex + CurrentFrame % FrameCount + Direction * (Skip + FrameCount)` |
+| 位置 | `(dest - source) * (48, 32) * frame / count`（`draw_offset`；`frame=0` 源格、`frame=count` 目标格，整数向零截断） | `Effect.cs:206-212` `(x * CurrentFrame / Count, y * CurrentFrame / Count)` |
+| 绘制 | `draw_effect(frame, FxKind::Magic, index, x+dx, y+dy)`；`draw_effect` 实为 `image(magic.wzl, index + kind.start_frame())`，`Magic` 的 `start_frame = 0`（`entities.rs:518-523`），故 index 直落 `magic.wzl[index]` | `MLibrary` 410 基座 |
+
+- **帧段**：16 向 × 6 帧 = `410-415/420-425/…/560-565`，另加命中 `570-579`；`416-419`、`566-569` 是
+  0×0 **空帧**，本式不会取到。
+- 目标位置每帧重取 `snapshot.object_position(destination_id)`；目标消失则停在最后已知位置。
+- 示例：水平 5 格 → `duration=250`、`count=8`、`t=0` 源格、`t=250ms` 目标格；`dir16=4` → `index=410+0+40=450`。
+
+#### D. 命中 570（D2 已落盘）
+
+- 到达帧（`frame >= frame_count` 即将删除）时，若 `destination_id` 仍解析出对象且该对象 `dead == false`，
+  在其格播 `magic.wzl[570..=579]` × 60ms = **600ms**（`FxKind::Magic`），对齐
+  `GameScene.cs:4708` `new Effect(Libraries.Magic, 570, 10, 600, sender.Target)`。
+- 目标未知或已 `dead` → **不播命中**，对齐 `:4701`（仅 `missile.Target != null` 才挂 `Complete`）与
+  `:4707`（`CurrentAction == Dead` 直接 return；此时 `+2` 命中音效同样不播）。
+- 状态（D5b 同步）：命中 570 状态机已落盘——`HIT_EFFECT_BASE_INDEX=570`、`HIT_EFFECT_FRAME_COUNT=10`、
+  `HIT_EFFECT_DURATION_MS=600`（`projectile.rs:79-85`），删除点见 `advance`（`:505-537`）；D4
+  `cargo test -p mir-client --test round59_projectile_render` → **16 passed / exit 0**，覆盖目标存活/已死/无目标
+  分支（`target/round59/d4/attempt-1/02-render.log`）。证据：`target/round59/d2/attempt-1/`、
+  `target/round59/d4/attempt-1/`，索引见 [R59 测试索引](testing/round59/README.md)。
+
+#### E. 音效（基准是 GreatFireBall=34，不是 FireBounce=154）
+
+- 出生：`GameScene.cs:4697` `SoundManager.PlaySound(20000 + (ushort)Spell.GreatFireBall * 10 + 1)` =
+  `20000 + 34*10 + 1 = 20341` → **`M34-1.wav`**；命中 `:4709` 的 `+2` = `20342` → **`M34-2.wav`**。
+- `GreatFireBall = 34`（`Shared/Enums.cs:1168`）、`FireBounce = 154`（`:1264`）；既有
+  `mir-render/src/sound.rs:220` 的 `spell_sound` 产 `M{spell}-0.wav`（FireBounce → `M154-0.wav`），
+  **与投射物音效不同源**。D2 另增 `PROJECTILE_SOUND_BASE = 34`、`PROJECTILE_SOUND_SPAWN_INDEX = 20341`、
+  `PROJECTILE_SOUND_HIT_INDEX = 20342`、`ProjectileSoundPhase{Spawn,Hit}` 与
+  `pub const fn projectile_sound(spell, phase) -> Option<&'static str>`（`sound.rs:234-281`）：
+  `FireBounce` → `Spawn="M34-1.wav"`、`Hit="M34-2.wav"`，其它 spell 返回 `None`；单测
+  `cargo test -p mir-render --lib sound` → **9 passed / exit 0**。
+- 出生音效**随投射物生成**：无投射物（D-R59-1）则无声，不单独播。
+- 素材（D5b 同步）：`game-assets/audio/sfx` 现 105 个文件，含 `M34-0/-1/-2.mna`；`M34-1/-2` 已由
+  `resource/community/gqf2008-crystal/Sound/M34-{1,2}.wav` 经 `mir-tools audio import`（本机 ffmpeg）产出，
+  `audio verify --input game-assets/audio` → `files=106 bytes=4.25MB`、exit 0
+  （`target/round59/d4/attempt-1/08-audio-verify.log`）。`game-assets/` 不入库，重生命令见
+  [R59 索引](testing/round59/README.md) §5。
+- **真实可听仍为 PARTIAL**：生产路径 `sync` 把 cue 记进 `RecordingSoundSink`（`projectile.rs:303-339`），
+  `take_sound_cues()`（`:413`）等 `mir-client` 音频通道每帧 drain；但 UI 只持 `&WorldSnapshot`，`app.rs`
+  接线不在 R59 写范围 → `M34-1/-2` 尚未经真实音频设备播放。D4 只断言 cue 的字面量、顺序与「每投射物各一次」
+  （`spawn_and_hit_sounds_use_m34_once_each`、`production_sound_cues_are_drained_once_per_projectile`）。
+
+#### F. 已知偏差（不得当作与 Crystal 完全等同）
+
+1. **本作 frame 在生成时冻结**：`duration`/`frame_count` 只在 spawn 时算一次（`projectile.rs:273-284`）；
+   Crystal `Effect.cs:174-181` 在 `Process` 里**每帧重算** `Duration = MaxDistance(Source, Destination) * 50`
+   与 `Count = Duration / Interval`，目标移动会改变总时长。本作目标当前位置只用于插值落点。
+2. **Draw offset 不含 wzl 逐帧 offset**：Crystal `MLibrary` 的 `offSet=true` 路径会叠加每帧
+   `ImageInfo.offset`，`mir-render` 绘制层未实现该偏移；属既有绘制缺口，R59 未改 `mir-render`。
+3. **D-R59-1（无落点即不生成）**：Crystal `GameScene.cs:4699` **无条件** `CreateProjectile`（落点可在
+   `CreateProjectile` 内用 `TargetPoint` 兜底，`:4701` 才按 `missile.Target` 门控命中）；125 只带
+   `source`/`destination` 两个对象 ID，`destination` 不在快照里就没有落点坐标 → 本作**不生成投射物、不生成
+   命中、不播 `+2`**，也不伪造坐标。这是诚实降级，**与 Crystal 有差**，不得写作「对齐」。
+4. **事件无 ID**：`ProjectileEvent` 无时间戳/序号，队列累计、按位置游标消费；队列满 16 条后
+   「丢最旧 + 追加」在 `len` 上不可观测，可能漏掉新事件（残留风险；修复需在 `net.rs` 给事件编号）。
+5. **无 Hero 实例、无真 socket**：本轮证据是进程内 encode/decode/快照链，不等于 socket 端到端；
+   125 不回显施法者（`World::broadcast` 不含本人）仍由服务端语义决定，客户端不补偿。
+
 ## 6. 素材加载与渲染
 
 ### 6.0 真实素材渲染（第 6 轮）

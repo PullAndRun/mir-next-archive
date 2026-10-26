@@ -109,7 +109,7 @@ Crystal 的 `MapLibs` 编号 → 我们的 tileset 名（小写）：
 | 翅膀 | 盔甲 `Effect` | >0 才画；块 `(effect-1)%2`，只收 288/600 帧 | `items.rs:1321`、`net.rs:953` |
 | 物品图标 | `ItemInfo.Image` | 直接作为 `items.wzl` 的 0 基下标 | `mir-client/src/ui/*`、`net.rs` |
 | 小/大地图 | `MapInfo.MiniMap` / `BigMap` | 非 0 帧；`mmap.wzl` | `mir-render/src/minimap.rs` |
-| 特效 | 代码固定帧段 | `effect.wzl[0..2]`、`magic.wzl[0..9]`、`magic2.wzl[0..2] + [20..29]` | `entities.rs` `FxKind`、`ui/spellfx.rs` |
+| 特效 | 代码固定帧段 | `effect.wzl[0..2]`、`magic.wzl` **106 帧显式段**（16 向 × 6 帧 `410-415/420-425/…/560-565` + 命中 `570-579`；`416-419`、`566-569` 是 0×0 空帧，**显式排除、不产 PNG**）、`magic2.wzl[0..2] + [20..29]` | `entities.rs` `FxKind`、`ui/spellfx.rs`、`ui/projectile.rs`；常量 `tools/assets/analyze_usage.py:324-327`（R59 D3） |
 | 音频 | `sound.rs` + 施法音 + BGM | 事件音 15 个 + 107 个技能的 `M{spell}-0.wav` + 30001/30002；按三处音效目录顺序解析 | `mir-render/src/sound.rs`、`mir-client/src/audio.rs` |
 | 字体 | `resource/fonts/*` | 全部保留（当前 1 个 Noto Sans SC） | `mir-render/src/text.rs` |
 

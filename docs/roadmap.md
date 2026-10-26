@@ -150,4 +150,26 @@ R50 独立商城已交付；R51 已 **Done / PASS-WITH-PARTIAL**，已交付 Bli
 |---|---|---|
 | FireBounce 服务端生产者 | 代码批在途 | G1/G2 由 A 批实现，证据 `target/round57/firebounce/attempt-N/`；未过门禁前不作判定 |
 | 文档承接（R56 遗留） | 已落盘，待 T 抽核 | 支持矩阵、aoi 接线时点、R56 证据路径勘误、R52 行口径、R56 受测 HEAD 双标注；见 [R57 索引](testing/round57/README.md) |
-| 客户端 125 渲染 | PARTIAL | 服务端生产者不等于客户端闭环；125 弹射的 410/570 原生表现未做，不得表述为闭环 |
+| 客户端 125 渲染 | PARTIAL | 服务端生产者不等于客户端闭环；R59 起客户端为**最小闭环 + PARTIAL**（`magic.wzl` 410–565 飞行 + 570–579 命中 + `M34-1/-2`；无落点即不生成 D-R59-1），见 §八，不得表述为闭环 |
+
+---
+
+## 八、第 59 轮（R59）状态（已落盘待 T/门禁抽核）
+
+本轮只做客户端 125（`S.ObjectProjectile` / `FireBounce`）**表现链最小闭环 + PARTIAL**；不建 `Missile`/`Effect`
+类体系，只按最小闭环 + PARTIAL 表述，也不预写门禁/终审结论。D2–D4 已落盘（代码、16+6 测试、`run-checks.sh`
+9 项）；**门禁与 T 终审未跑，不写整体通过结论**；音效真实可听仍 PARTIAL（素材已导入、通道未接）。
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| 客户端 125 投射物飞行（G1/G2） | 🟡 已落盘待 T 抽核 | `crates/mir-client/src/ui/projectile.rs`（游标消费 + `duration/count/index/offset/dir16` 按 Crystal 公式）；接线 `ui/mod.rs:1562-1564/4278-4279`；`round59_projectile_render` 16 passed / exit 0；证据 `target/round59/d1/attempt-1/`、`target/round59/d4/attempt-1/` |
+| 命中 570 与音效（G3/G4） | 🟡 已落盘待 T 抽核（音效可听 PARTIAL） | 目标存在且未 `dead` → `magic.wzl[570..=579]`×60ms=600ms（`projectile.rs:79-85/505-537`）；音效基准 `GreatFireBall=34` → `M34-1.wav`/`M34-2.wav`（`sound.rs:234-281`，`mir-render sound` 单测 9 passed）；`round59_projectile_render` 16 passed（含已死目标不播命中/`+2`、每投射物各一次）；素材已导入（`audio verify files=106`），但 `take_sound_cues()` 未接 `app.rs` → **真实可听 PARTIAL**；证据 `target/round59/d2/attempt-1/`、`target/round59/d4/attempt-1/` |
+| 素材包扩展（G5） | 🟡 已落盘待 T 抽核 | `tools/assets/analyze_usage.py:324-327` 显式 106 帧段；`round59_projectile_assets` 6 passed / exit 0；本地 106 PNG、`missing=[]`、`skipped_empty=0`；全计划 `used_frames` 186,294→186,390；证据 `target/round59/d3/attempt-1/`、`target/round59/d4/attempt-1/` |
+| 测试与门禁脚本（G1–G4 证据） | 🟡 已落盘待 T/门禁抽核 | `round59_projectile_render.rs`（621 行/16 测试）、`round59_projectile_assets.rs`（585 行/6 测试）、`docs/testing/round59/run-checks.sh`（420 行/9 项）；Lead 复跑 9/9 条 exit 0、总 EXIT=0（脚本自报，`target/round59/lead-verify/10-run-checks.log`）；**T/CI 门禁未跑** |
+| 文档入树（G6） | 🟡 已落盘待 T 抽核 | [client.md](client.md) §5.26、[magic.md](world/magic.md) FireBounce 行、[R58 索引](testing/round58/README.md):3 HEAD 更正、[asset-pipeline.md](assets/asset-pipeline.md):112、[R59 索引](testing/round59/README.md)；D5b 已按 D2–D4 落盘事实回填 |
+
+**已知偏离**：**D-R59-1**（125 无落点坐标 → 不生成投射物/命中/`+2`，Crystal `GameScene.cs:4699` 为无条件生成）；
+事件无 ID；`duration/count` 生成时冻结（Crystal `Effect.cs:174-181` 每帧重算）；draw offset 不含 wzl 逐帧
+offset；音效真实可听 PARTIAL（`M34-1/-2` 素材已由 `audio import` 产出、`audio verify files=106`，但
+`take_sound_cues()` 未接 `app.rs`；`game-assets/` 不入库）；无 Hero、无真 socket。台账见
+[R59 索引 §3](testing/round59/README.md)。

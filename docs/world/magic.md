@@ -36,7 +36,7 @@
 - **`S.MagicDelay` 只在技能升级时发一次**（`HumanObject.cs:6972-6976`），**不是每次施法都发**；
   每次施法里客户端靠 `S.Magic` + `ClientMagic.Delay` 自己算冷却。
 - R51 已 **Done / PASS-WITH-PARTIAL**，另外交付 `Blink`、`StormEscape`、`FrostCrunch`、`ThunderStorm`、`ShoulderDash` 五技能；[尚书验收](../process/round51-shangshu-acceptance.md)、[门下确认](../process/round51-menxia-confirm.md)与[终审 v4](../testing/round51/round51-final-audit-v4.md)共同限定范围。
-  **R52 已交付**护身符耗材原语 B1、`PoisonCloud` B2、`TrapHexagon` B3、R51 定向回归 B4 与客户端 wire C；attempt2 门禁 12/12 PASS（exit0）。两技能不再是 `UnsupportedSpell`；Frost 玩家目标、火墙逐对象/InTrapRock、125 客户端渲染未接（R57 起 FireBounce 为服务端 125 生产者，PARTIAL）、真 socket、guild/嵌套槽及 Walking/Walk 借帧仍为 PARTIAL，152/153 敏感回纠已有 C 证据。整体终审仍保留 T 的 G7 BLOCK，H 文档收口待复核，不称七技能完整；十一项逐条承接见[路线图 §五](../roadmap.md#五下一步优先级r52-a2026-10-25)与[R52 索引](../testing/round52/README.md)。
+  **R52 已交付**护身符耗材原语 B1、`PoisonCloud` B2、`TrapHexagon` B3、R51 定向回归 B4 与客户端 wire C；attempt2 门禁 12/12 PASS（exit0）。两技能不再是 `UnsupportedSpell`；Frost 玩家目标、火墙逐对象/InTrapRock、125 客户端渲染为 R59 最小闭环（含 D-R59-1 偏离，PARTIAL）、真 socket、guild/嵌套槽及 Walking/Walk 借帧仍为 PARTIAL，152/153 敏感回纠已有 C 证据。整体终审仍保留 T 的 G7 BLOCK，H 文档收口待复核，不称七技能完整；十一项逐条承接见[路线图 §五](../roadmap.md#五下一步优先级r52-a2026-10-25)与[R52 索引](../testing/round52/README.md)。
 - 本作原有 **15 个伤害/治疗/位移/召唤/中毒技能**与 **9 个增益技能**：
   - 伤害/治疗：`FireBall`、`GreatFireBall`、`ThunderBolt`（含不死系 ×1.5）、`SoulFireBall`、
     `HellFire`、`FireBang`、`Healing`、`MassHealing`；
@@ -682,9 +682,9 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 | FrostCrunch | 41 | 减速/冰冻 | R51 已交付 / PARTIAL | P03 closed 为历史结论；玩家目标 PvP、真实非空 Slow/概率两侧与 Frozen 实际拒攻仍待 R52/G5 |
 | ThunderStorm | 42 | 区域雷击 | R51 已交付 | 施法图冻结已闭合；不等同于地图持续场系统全部完成 |
 | ShoulderDash | 5 | 冲撞位移 | R51 已交付 / PARTIAL | StepCounter 3→0 已补；火墙逐对象 ProcessSpell/InTrapRock、原生 dash 与 152/153 敏感回纠保留 |
-| **PoisonCloud** | 83 | 3×3 毒雾场 | **R52 B2 已交付 / PARTIAL** | 施法前耗材 5 毒 + 5 符，按递增装备索引找单堆且不看耐久；有效 3×3、6 秒/1 秒 tick，149 生成/26 撤销与生命周期有证据；125 客户端渲染未接（R57 起 FireBounce 为服务端 125 生产者，PARTIAL）、真 socket 与原生表现未覆盖（§11） |
+| **PoisonCloud** | 83 | 3×3 毒雾场 | **R52 B2 已交付 / PARTIAL** | 施法前耗材 5 毒 + 5 符，按递增装备索引找单堆且不看耐久；有效 3×3、6 秒/1 秒 tick，149 生成/26 撤销与生命周期有证据；125 客户端渲染为 R59 最小闭环（含 D-R59-1 偏离，PARTIAL）、真 socket 与原生表现未覆盖（§11） |
 | **TrapHexagon** | 73 | 陷阱控制 | **R52 B3 已交付 / PARTIAL** | 耗符 1；预检 3×2、落地重检 3×3；独立 Shock 时钟限移动并由受击解除；八外围场、149/26 与入视野有证据；玩家不受拘束，真 socket/原生表现仍有边界（§11） |
-| **FireBounce** | 154 | 连跳弹射（125） | 服务端 125 生产者已实现；客户端 125 仅解码登记，投射物渲染 PARTIAL 待 R59（R57 门禁/终审见 `docs/testing/round57/round57-final-audit-v2.md`） | 125 不回显施法者（`World::broadcast` 不含本人）；客户端只存事件、不绘制（见 `docs/testing/round58/README.md` §4.6） |
+| **FireBounce** | 154 | 连跳弹射（125） | 服务端 125 生产者已实现；客户端 125 **渲染最小闭环 + PARTIAL**（R59：`crates/mir-client/src/ui/projectile.rs` 按 Crystal `Effect.cs:196/206-212` 取 `magic.wzl` 410–565 飞行帧、命中 570–579 × 60ms、`M34-1/-2` 音效；事件消费见 `net.rs:5385-5401`）。**PARTIAL 边界**：无真实落点坐标（`destination` 未知即不生成，**D-R59-1**，Crystal `GameScene.cs:4699` 为无条件生成）、事件无 ID（队列 16 条丢最旧）、无 `Missile`/`Effect` 类体系、frame 在生成时冻结（Crystal `Effect.cs:174-181` 每帧重算）、draw offset 不含 wzl 逐帧 offset；R57 门禁/终审见 `docs/testing/round57/round57-final-audit-v2.md` | 125 不回显施法者（`World::broadcast` 不含本人）；R58 只存事件不绘制，R59 起按游标消费生成实体（见 `docs/client.md` §5.26 与 `docs/testing/round59/README.md`） |
 | 其余（`SummonHolyDeva`、`IceStorm`、`BackStep` 等） | — | — | ❌ 未实现 | 模板能查到时施法返回 `UnsupportedSpell`；若模板缺失则 `UnknownSpell` |
 
 「✅ 已实现」的 9 个增益技能走 `SpellKind::Buff`：施法照常扣蓝、写冷却、发
@@ -771,7 +771,7 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 
 ## 11. 未做与 PARTIAL（R52 H 当前口径）
 
-- **R52 主交付已实现但有界**：PoisonCloud 真实毒雾场 + 符5/shape1绿毒5、TrapHexagon 陷阱 + 符1 已由 B1/B2/B3 交付；耗材按合法装备根槽递增索引找单堆，不跨堆、不补背包、不按耐久过滤，双材料原子预检，精确 Count/UUID/耗尽摘槽并有生产存档/客户端证据。PoisonCloud 3×3、6 秒/1 秒 tick；Trap 3×2 预检/3×3 落地重检、独立 Shock 与八外围场。125 客户端渲染未接（R57 起 FireBounce 为服务端 125 生产者，PARTIAL）、真 socket、原生视觉/音频/dash 与嵌套槽仍未覆盖，整体保留 PARTIAL。
+- **R52 主交付已实现但有界**：PoisonCloud 真实毒雾场 + 符5/shape1绿毒5、TrapHexagon 陷阱 + 符1 已由 B1/B2/B3 交付；耗材按合法装备根槽递增索引找单堆，不跨堆、不补背包、不按耐久过滤，双材料原子预检，精确 Count/UUID/耗尽摘槽并有生产存档/客户端证据。PoisonCloud 3×3、6 秒/1 秒 tick；Trap 3×2 预检/3×3 落地重检、独立 Shock 与八外围场。125 客户端渲染为 R59 最小闭环（含 D-R59-1 偏离，PARTIAL）、真 socket、原生视觉/音频/dash 与嵌套槽仍未覆盖，整体保留 PARTIAL。
 - 已落实 D2：公共扣蓝后材料失败仍扣 MP、保留动作/SpellTime，cast=false、不写本技能 CastTime、不排延迟效果；Trap 3×2 预检/3×3 落地、外围合法坐标安全剪裁，独立 Shock 不能用 Frozen 替代，专属 AI 漏控属核心返工。D3 离线/异图已实现安全清场并完成实证，但与 Crystal 留场停伤/保留 ActionList 不等价，仍单列 PARTIAL；不声称 Crystal 所有场均清场或必然空指针。
 - **R51 已交付五技能的定向回归（B4 已完成，仍有 PARTIAL）**：默认七记录共 107 条，逐技能 MP/冷却（ShoulderDash2500ms、PoisonCloud L2=12000ms/L3=10000ms）、真实 Slow/Frozen/玩家目标边界及 Frozen 拒攻、StormEscape 真实升级五位置严格包序/跨图、多根槽/附加/有效 buff、零 RNG 后续状态均有记录；PvP Frost 真实命中、嵌套插槽1965/1966与其它未覆盖边界仍 PARTIAL。
 - **明确顺延**：火墙逐对象 ProcessSpell/InTrapRock（P04）、原生 dash 帧/视觉/声音/时序（P08）、guild Freezing/PoisonAttack 来源、1965/1966 嵌套插槽及真 socket。当前 Walking/Walk 借用与 World→编解码→快照不扩大为原生 dash 或 socket 全等价。十一项完整映射见 [路线图 §五](../roadmap.md#五下一步优先级r52-a2026-10-25)。
@@ -809,7 +809,7 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 | 批次 | 入口 / named tests | 当前断言与边界 |
 |---|---|---|
 | B1 耗材 | `spell_consumables::tests::round52_consumables_equipment_order_atomic_and_exhaustion`、`round52_consumables_save_reload_equipment_count` | 合法装备根槽递增索引、单堆原子扣除、Count/UUID/耗尽摘槽、生产存档重登；B1 原语不单独宣称完整技能闭环 |
-| B2 PoisonCloud | `round52_poison_cloud_consumes_both_after_common_cast_checks`、`round52_poison_cloud_grid_tick_poison_and_expiry`、`round52_poison_cloud_does_not_stack_on_same_cells` | 5 毒 + 5 符、3×3、6 秒/1 秒 tick、场不叠加、149/26 生命周期；125 客户端渲染仍为 PARTIAL（R57 起 FireBounce 为服务端 125 生产者） |
+| B2 PoisonCloud | `round52_poison_cloud_consumes_both_after_common_cast_checks`、`round52_poison_cloud_grid_tick_poison_and_expiry`、`round52_poison_cloud_does_not_stack_on_same_cells` | 5 毒 + 5 符、3×3、6 秒/1 秒 tick、场不叠加、149/26 生命周期；125 客户端渲染为 R59 最小闭环（D-R59-1 偏离，PARTIAL） |
 | B3 TrapHexagon | `round52_trap_hexagon_precheck_3x2_resolve_3x3`、`round52_trap_hexagon_shock_ai_release_and_eight_fields`、`round52_trap_hexagon_level_edges_and_recast` | 1 符、3×2 预检/3×3 落地、独立 Shock、受击释放、八外围场与边界/重施法；玩家不受拘束，专属表现仍有界 |
 | B4 默认/回归 | `round52_regression_default_magic_records_and_cost`、`round52_regression_default_magic_info_cost_cooldown`、`round52_regression_freezing_sources_and_rng_state`、`round52_regression_stormescape_order_cross_map` | 默认技能资料 107 条；MP/冷却、Slow/Frozen、来源/RNG、StormEscape 包序/跨图等定向回归；PvP Frost 真实命中仍不冒称已覆盖 |
 | C 客户端 wire | `round52_wire_equipped_material_count_and_field_lifecycle`、`round52_dash_fail_wrong_prediction_with_existing_motion` | DeleteItem(UUID 装备扣数/耗尽)、149/125/26/152/153 与 `spell_fields` 视图消费；进程内 encode/decode/快照链不等于真 socket |

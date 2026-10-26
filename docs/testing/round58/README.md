@@ -2,7 +2,7 @@
 
 **本轮范围**（主单 `JJC-20261026-005`，S4 文档批 G4；HEAD `1a9aeb3`=`origin/main`）：G1 FireBounce 终局 RNG 对齐（S1）、G2 客户端 125 解码接线（S2，不渲染）、G3 校验脚本入树（S3）、G4 R57 承接 10 项清理（S4）、门禁（S5/Lead）。本索引只登记已落盘文档、约定与证据线索，不预写门禁/终审结论。
 
-**口径**：状态列只允许「已落盘」「在途」「约定」「PARTIAL」「MINOR」；不写「全绿/已闭环」类未证结论。
+**口径**：状态列只允许「已落盘」「约定」「PARTIAL」「MINOR」；不写「全绿/已闭环」类未证结论。（S1–S3 均已交付并合入，原提交前状态词已无使用者，故从允许值中移除。）
 
 > **125 口径（M5 同文）**：服务端 125 生产者已实现；客户端 125 仅解码登记，投射物渲染 PARTIAL 待 R59
 
@@ -16,7 +16,7 @@
 | ④ | `dvance_clock` 错字 | `crates/mir-server/src/world.rs:1378` 注释补 `a`（纯注释 1 行） | 已落盘 |
 | ⑤ | `can_fly` 双实现差异固化 | [magic.md](../../world/magic.md) §11 新增条 + 本文件 §3（**不合并**） | 已落盘 |
 | ⑥ | 默认 DB 路径 | 本文件 §4.4（`MIR2_DEV_DB_PATH` 是 Server.MirDB 文件路径） | 已落盘 |
-| ⑦ | 次级随机序影响面 | 本文件 §4.5（同种子后续随机流改变，C1 已授权） | 在途（S1） |
+| ⑦ | 次级随机序影响面 | 本文件 §4.5（同种子后续随机流改变，C1 已授权） | 已落盘（S1） |
 | ⑧ | 125 不回显 + 客户端只存事件不绘制 | 本文件 §4.6 + [magic.md](../../world/magic.md) FireBounce 行 | 已落盘 |
 | ⑨ | Hero 无实例 | 本文件 §4.7（登记 PARTIAL） | PARTIAL |
 | ⑩ | 客户端 125 渲染 | 本文件 §4.8 + [magic.md](../../world/magic.md) FireBounce 行 + [round57 索引](../round57/README.md) §4 | PARTIAL（R59） |
@@ -25,13 +25,13 @@
 
 | R57 项 | R58 处置 | 状态 |
 |---|---|---|
-| 1 脚本路径错 | S3 入树 `docs/testing/round58/run-checks.sh`，过滤串改 `packets::{client,server}::roundtrip::…` | 在途（S3） |
+| 1 脚本路径错 | S3 入树 `docs/testing/round58/run-checks.sh`，过滤串改 `packets::{client,server}::roundtrip::…` | 已落盘（S3） |
 | 2 clippy 二轮原始日志 | §4.1 独立登记，不覆盖后写 note | 已落盘 |
 | 3 A0 探针入树 | §4.2 脱敏 | 已落盘 |
 | 4 门禁捕获编码 | §4.3 双件成对 | 约定 |
 | 5 `dvance_clock` | `world.rs:1378` | 已落盘 |
 | 6 `can_fly` 双实现 | §3 + magic.md，不合并；`:1536` 偏差单列 R59 | 已落盘 |
-| 7 M2 终局 RNG | S1 改序；同种子后续流改变已授权 | 在途（S1） |
+| 7 M2 终局 RNG | S1 改序；同种子后续流改变已授权 | 已落盘（S1） |
 | 8 默认 DB 缺 FireBounce 学习/掉落 | §4.4：A0 证明 MagicInfo 存在；学书/掉落生产路径仍未证 | PARTIAL |
 | 9 次级目标随机序列 | §4.5 登记 MINOR（集合等价、非逐次同序） | MINOR |
 | 10 125 不回显施法者 | §4.6（`World::broadcast` 不含本人） | PARTIAL |
@@ -73,7 +73,7 @@ R58 门禁（Lead/S5）对同一命令同时留存 **GBK 原件**与 **UTF-8 转
 
 - G1 把「先判 `remaining==0` 再抽签」改为「候选非空先抽签、再判 0」，使 level=0 的终局也推进 1 次 `MirRng`，与 Crystal `HumanObject.cs:5949-5956` 对齐。
 - 影响面：**同一 `MirRng` 种子下的后续随机流会改变**（同 tick 之后的伤害/掉落抽签序列），属 C1 已授权的预期影响面，**不是缺陷**；任何既有用例若因期望值红，须按 plan §一 预置退路记录用例名与红因，不得静默改期望。
-- 不变的硬断言：125 条数仍恒为 `level+1`、命中数仍恒为 `level+2`、FireBounce 全程不发 126/149；S1 用例 `crates/mir-server/tests/round58_rng_order.rs` 在途。
+- 不变的硬断言：125 条数仍恒为 `level+1`、命中数仍恒为 `level+2`、FireBounce 全程不发 126/149；S1 用例 `crates/mir-server/tests/round58_rng_order.rs` 已落盘（证据 `target/round58/s1/attempt-1/`，`target/` 不入库）。
 
 ### 4.6 125 不回显 + 客户端只存事件不绘制
 
@@ -88,14 +88,21 @@ Crystal `FindAllNearby` 会把 Hero 收进连跳候选，本作 Hero 无实例�
 
 R58 只做解码登记；410 投射物飞行插值/帧动画、命中 `Effect 570`（`10,600`）、音效 `20000+GreatFireBall*10+1/+2` 全部留 R59。R57 已核参数（`GameScene.cs:4687-4713`、`MapObject.cs:339`）但仍无 Missile 基座，不在本轮伪造实现。
 
+### 4.9 事件 ring 语义（P7，已知限制）
+
+- `ProjectileEvent`（`S.ObjectProjectile`(125) 的解码产物）复用既有 `EFFECT_EVENT_LIMIT = 16`（`crates/mir-client/src/net.rs:166`）；超过 16 条即丢最旧（`net.rs:7257-7259` 的 `remove(0)`），不自造新常量。
+- 后果：高频 FireBounce 连跳若在同一帧内到账，早期事件可能被新事件顶掉 —— 客户端只保证「最近 16 条」，属 UI 侧环形缓冲策略，不是协议缺失。
+- 消费方约定：R59 渲染须接受该「可能丢最旧」语义，或届时评估扩容；改动该常量必须同步 `projectile_ring_reuses_measured_effect_event_limit` 的 16 长度与首尾 destination 断言。
+- 证据：`target/round58/s2/attempt-1/00-summary.md §8.2`（`target/` 不入库，此处只留可复查摘要）；测试 `crates/mir-client/tests/round58_projectile_wire.rs:250-270`。
+
 ## 5. 证据与脚本约定
 
 | 项 | 路径 | 状态 |
 |---|---|---|
 | S4 证据 | `target/round58/s4/attempt-1/{00-summary.md,01-diff.patch,02-links.log,03-redline.log,04-meta.txt}` | 已落盘（本批） |
 | 文档校验 | `py -3 tools/docs/check_links.py`、`git diff --check` | 本批已跑，见 S4 证据 |
-| S1/S2/S3 证据 | `target/round58/{s1,s2,s3}/attempt-*/` | 由各 owner 落；本文件只登记约定 |
-| 脚本 | `docs/testing/round58/run-checks.sh` | 在途（S3） |
+| S1/S2/S3 证据 | `target/round58/{s1,s2,s3}/attempt-1/` | 已落盘（`target/` 不入库，本文件只登记路径与结论） |
+| 脚本 | `docs/testing/round58/run-checks.sh` | 已落盘（S3） |
 
 ## 6. 边界
 

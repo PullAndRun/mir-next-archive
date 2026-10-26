@@ -1109,6 +1109,24 @@ fn aoi_acceptance_recycle_all_kinds() {
     world.enter(player_object);
     drain(&mut player_rx);
 
+    // [M1→A] Freeze the server clock before scheduling either ground item.
+    //
+    // `spawn_ground_item` stamps `expire_time = now() + item_expire_ms` from the
+    // live wall clock on every call (`crates/mir-server/src/items.rs:1536/1544`).
+    // When the two spawns straddle a real millisecond they get ExpireTime one
+    // apart. The boundary walk below is derived from the first item only, so the
+    // coin pile is still 1ms short after `advance_clock(1)` and the strict
+    // `now > expire_time` recycle (`crates/mir-server/src/items.rs:1629`) never
+    // removes it -> the test goes red at "the expired coin pile must be removed".
+    // Freezing here makes the two spawns share one `now()`.
+    //
+    // Self-proof that this cannot silently regress: without this call the
+    // explicit equality assertion below fails as soon as the two spawns observe
+    // different wall-clock milliseconds. Reproduce deterministically by
+    // commenting this line out and inserting a 2ms sleep between the two spawns
+    // -> the run must be red at that equality assertion.
+    world.advance_clock(0);
+
     // Normal item (Some(UserItem)) must be the item proof; the coin pile is a
     // separate ObjectGold subitem and must never stand in for it.
     let normal_item = world.spawn_ground_item(
@@ -1122,6 +1140,21 @@ fn aoi_acceptance_recycle_all_kinds() {
         None,
     );
     let coin_pile = world.spawn_ground_item(AOI_MAP_A, Point::new(23, 20), None, 500, None);
+    // [M1→A] Both ground items must carry the same ExpireTime: that is what the
+    // clock freeze above buys, and it is what keeps the strict boundary walk
+    // deterministic. Deleting the freeze must fail this assertion.
+    let normal_expire_time = world
+        .ground_item(normal_item)
+        .expect("the normal item must exist")
+        .expire_time;
+    let coin_expire_time = world
+        .ground_item(coin_pile)
+        .expect("the coin pile must exist")
+        .expire_time;
+    assert!(
+        normal_expire_time == coin_expire_time,
+        "both ground items must share the same expire_time when the clock is frozen before spawning"
+    );
     {
         let item_ground = world
             .ground_item(normal_item)
@@ -1285,6 +1318,112 @@ fn aoi_acceptance_recycle_all_kinds() {
     assert!(
         object_remove_ids(&drain(&mut player_rx)).is_empty(),
         "a second tick must not emit duplicate corpse removals"
+    );
+}
+
+/// [M2→A] Deterministic millisecond-boundary regression for ground-item expiry.
+///
+/// `spawn_ground_item` stamps `expire_time = now() + item_expire_ms`
+/// (`crates/mir-server/src/items.rs:1536/1544`) and the recycle predicate is the
+/// strict `now > expire_time` (`crates/mir-server/src/items.rs:1629`). This test
+/// freezes the clock, spawns one item, advances exactly 1ms, then spawns a second
+/// item, so their `ExpireTime` differs by exactly 1 regardless of machine speed or
+/// scheduler jitter. The test then walks three ticks: both items survive their
+/// exact boundary, the first item is removed one millisecond past its boundary
+/// while the second survives at its own boundary, and the second is removed one
+/// millisecond past its boundary.
+#[test]
+fn ground_item_expiry_strict_ms_boundary() {
+    let mut world = World::new(999);
+    world.set_item_expire_ms(1_000);
+    let (viewer, mut viewer_rx) = player(700, "expiry-viewer", AOI_MAP_A, Point::new(20, 20));
+    world.enter(viewer);
+    drain(&mut viewer_rx);
+
+    // Freeze the clock first: from here on `now()` only moves when the test says so.
+    world.advance_clock(0);
+    let item_a = world.spawn_ground_item(
+        AOI_MAP_A,
+        Point::new(22, 20),
+        Some(UserItem {
+            item_index: 100,
+            ..UserItem::default()
+        }),
+        0,
+        None,
+    );
+    // Exactly one millisecond later the second spawn must be stamped one later.
+    world.advance_clock(1);
+    let item_b = world.spawn_ground_item(
+        AOI_MAP_A,
+        Point::new(23, 20),
+        Some(UserItem {
+            item_index: 101,
+            ..UserItem::default()
+        }),
+        0,
+        None,
+    );
+    drain(&mut viewer_rx);
+
+    let expire_a = world.ground_item(item_a).expect("item a").expire_time;
+    let expire_b = world.ground_item(item_b).expect("item b").expire_time;
+    assert!(
+        expire_b - expire_a == 1,
+        "the two spawns must be exactly 1ms apart in ExpireTime"
+    );
+
+    // Moment 1: now == expire_a. Strict `now > expire_time` keeps both.
+    world.advance_clock(expire_a - world.now());
+    world.tick();
+    assert!(
+        world.ground_item(item_a).is_some(),
+        "item a must stay at now == its ExpireTime (strict Time > ExpireTime)"
+    );
+    assert!(
+        world.ground_item(item_b).is_some(),
+        "item b must stay before its ExpireTime"
+    );
+    assert!(
+        object_remove_ids(&drain(&mut viewer_rx)).is_empty(),
+        "no ObjectRemove may be sent at the exact ExpireTime boundary"
+    );
+
+    // Moment 2: now == expire_a + 1 == expire_b. Only item a is due.
+    world.advance_clock(1);
+    world.tick();
+    assert!(
+        world.ground_item(item_a).is_none(),
+        "item a must be removed one millisecond past its ExpireTime"
+    );
+    assert!(
+        world.ground_item(item_b).is_some(),
+        "item b must stay at now == its ExpireTime (strict Time > ExpireTime)"
+    );
+    assert_eq!(
+        object_remove_ids(&drain(&mut viewer_rx)),
+        vec![item_a],
+        "the first expiry tick must broadcast exactly one ObjectRemove for item a"
+    );
+
+    // Moment 3: now == expire_b + 1. Only item b is due.
+    world.advance_clock(1);
+    world.tick();
+    assert!(
+        world.ground_item(item_b).is_none(),
+        "item b must be removed one millisecond past its ExpireTime"
+    );
+    assert_eq!(
+        object_remove_ids(&drain(&mut viewer_rx)),
+        vec![item_b],
+        "the second expiry tick must broadcast exactly one ObjectRemove for item b"
+    );
+
+    // A follow-up tick must not replay removals.
+    world.tick();
+    assert!(
+        object_remove_ids(&drain(&mut viewer_rx)).is_empty(),
+        "a tick after both removals must not emit duplicate ObjectRemove frames"
     );
 }
 

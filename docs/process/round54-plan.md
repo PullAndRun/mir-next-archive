@@ -41,7 +41,7 @@
 
 - [ ] 先在 `crates/mir-server/tests/aoi.rs` 写具名测试；需访问私有seen/网格时只在 `crates/mir-server/src/world.rs` 既有 `#[cfg(test)]` 模块追加测试，不新增生产getter/测试开关。
 - [ ] 命名固定为下表前缀；分别运行 `cargo test -p mir-server --test aoi <前缀> -- --list` 与 `cargo test -p mir-server --lib <前缀> -- --list`；两处合计必须发现≥1例。
-- [ ] 对发现用例的目标运行下表命令；若仅库中存在，将 `--test aoi` 换 `--lib`，清单记录实际完整命令和全部匹配例名，不把另一目标0 tests计通过。
+- [ ] 对**所列每个**发现用例的目标**逐个**运行下表命令；若仅库中存在，将 `--test aoi` 换 `--lib`，清单记录实际完整命令和全部匹配例名，不把另一目标0 tests计通过。 > 原文（R54）：对发现用例的目标运行下表命令；若仅库中存在，将 `--test aoi` 换 `--lib`，清单记录实际完整命令和全部匹配例名，不把另一目标0 tests计通过。
 
 | 路由/前缀 | 验收命令（默认集成目标） | 必须能失败的断言/期望 |
 |---|---|---|
@@ -100,7 +100,7 @@
 
 ## 五、风险与 PARTIAL 边界
 
-- 审查重点：自身/异图误接收、重复leave/remove、切图旧NPC残留、金币冒充普通物品、+2被错误收紧或Group/Guild混淆；分别由A1/A2/A4/A5/A6/B具名断言覆盖。
+- 审查重点：自身/异图误接收、重复leave/remove、切图旧NPC残留、金币冒充普通物品、+2被错误收紧或Group/Guild混淆；分别由 aoi_acceptance_{enter_snapshot,leave_cleanup,change_map_sets,recycle_all_kinds,broadcast_identity_order} + B 具名断言覆盖。 > 原文（R54）：…分别由 A1/A2/A4/A5/A6 与 B 具名断言覆盖。
 - NPC若无生产回收入口，仅登记缺口与源码依据，不发明接口/手删数据造绿；资源四例无样本继续PARTIAL。A为五路由“补证交付”，不是全量关闭承诺。
 - 测试需私有状态时只写既有cfg(test)块；不能新增生产debug入口；无法合法观测即PARTIAL，先报尚书/门下，不擅扩写范围。
 - 测试发现生产失败，保留失败原件、定位与影响说明，交gpt裁决是否另轮；本轮不改生产逻辑修绿。预算不足优先保全已经实现的证据，不追加D研究。

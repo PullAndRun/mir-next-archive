@@ -139,3 +139,5 @@ R50 独立商城已交付；R51 已 **Done / PASS-WITH-PARTIAL**，已交付 Bli
 > untracked 展开）、4 个证据目录、两份 44/45 MB 大 JSON 只登记不入库）见
 > [`docs/testing/round49/wip-freeze.json`](testing/round49/wip-freeze.json)；刑部审计
 > 结论与 BLOCK 项见 [`docs/testing/round49/round49-xingbu-wip-audit.md`](testing/round49/round49-xingbu-wip-audit.md)。
+
+> 第 55 轮（R55）maps 基线脚注：`cargo test -p mir-server --test maps` 共 **20 例**，其中 **16 例有效**、**4 例需 `MIR2_DEV_DB_PATH`**（`real_database_*`，缺省路径早退 skip，不计 PASS）；该脚注只登记现状，判定以刑部 T 签发为准。

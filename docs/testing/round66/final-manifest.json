@@ -1,0 +1,154 @@
+{
+ "generated_by": "libu-r66-d (gpt-6.1-sol)",
+ "stage": "pre-audit",
+ "generated_utc": "2026-10-26T21:57:36.058885+00:00",
+ "gate": {
+  "head": "b99874211c906cfe9d0a75f03dabd5050863547e",
+  "baseline": "f14a81dc4a1f141dd37d7229d3f623a07e9a0df5",
+  "exit": 0,
+  "items": {
+   "total": 12,
+   "ok": 12,
+   "fail": 0
+  },
+  "utc_start": "2026-10-26T21:48:08Z",
+  "utc_end": "2026-10-26T21:51:46Z",
+  "command": "tools/dev/ci.ps1 -KillStale",
+  "operator": "lead",
+  "log": {
+   "path": "target/round66/gate/attempt-1.log",
+   "bytes": 213139,
+   "sha256": "1d04184a0de71f36f454229177a237847912507a34d3ac9b8bdab7a94891d524"
+  },
+  "meta": {
+   "path": "target/round66/gate/attempt-1.meta.txt",
+   "sha256": "6bcd9d4f4aff097e6cb8c94eedf68f9d896f434827bbc18f5e36c69ecc93024e"
+  },
+  "post_gate_crates_diff": "none"
+ },
+ "artifact_tracking_head": "b99874211c906cfe9d0a75f03dabd5050863547e",
+ "artifacts": [
+  {
+   "path": "docs/testing/round66/README.md",
+   "lines": 140,
+   "bytes": 7402,
+   "sha256": "45181b51fc96373ddbc7974e9c3d8c5f964eecd1a9a8a79780d1c8179f0593b1",
+   "tracked": false,
+   "source": "untracked at gate HEAD; working-tree bytes"
+  },
+  {
+   "path": "docs/testing/round66/round66-watermark.md",
+   "lines": 60,
+   "bytes": 3422,
+   "sha256": "eec8edd6f06f69111707cf07114ec218fbf01e1986afbeb6ff6feb9046572bc8",
+   "tracked": false,
+   "source": "untracked at gate HEAD; working-tree bytes"
+  },
+  {
+   "path": "docs/testing/round66/round66-c-evidence.md",
+   "lines": 61,
+   "bytes": 8786,
+   "sha256": "36f1665ccedaa6a0e9cddf18de5ad9b2fe5b0c6be765d06eb5f3cd0b333705dc",
+   "tracked": false,
+   "source": "untracked at gate HEAD; working-tree bytes"
+  },
+  {
+   "path": "target/round66/gate/attempt-1.log",
+   "lines": 3549,
+   "bytes": 213139,
+   "sha256": "1d04184a0de71f36f454229177a237847912507a34d3ac9b8bdab7a94891d524",
+   "tracked": false,
+   "source": "untracked at gate HEAD; working-tree bytes"
+  },
+  {
+   "path": "target/round66/gate/attempt-1.meta.txt",
+   "lines": 15,
+   "bytes": 454,
+   "sha256": "6bcd9d4f4aff097e6cb8c94eedf68f9d896f434827bbc18f5e36c69ecc93024e",
+   "tracked": false,
+   "source": "untracked at gate HEAD; working-tree bytes"
+  },
+  {
+   "path": "crates/mir-client/tests/support/round66_watermark.rs",
+   "lines": 75,
+   "bytes": 3811,
+   "sha256": "cdf0f3331252427d309b4e367a66c9fd35b87812ecb8afbbdd3ca293c72689d8",
+   "tracked": true,
+   "git_blob": "1be85e2aa175a120bf8a76b3c088e397adefe19b",
+   "source": "git show gate.head:path"
+  },
+  {
+   "path": "crates/mir-client/tests/round66_watermark_contract.rs",
+   "lines": 555,
+   "bytes": 21480,
+   "sha256": "62f36a3923d682bc01dcd8a53446c09add97d68e588e7654bbb796b66acd54eb",
+   "tracked": true,
+   "git_blob": "4b7357b2dd737919e7bf28b3bc2d3ed32660039c",
+   "source": "git show gate.head:path"
+  },
+  {
+   "path": "crates/mir-client/tests/round66_consumer_boundary.rs",
+   "lines": 501,
+   "bytes": 20922,
+   "sha256": "727d25f5a0dac0c475c6de9fd09f9bd32a5419707fdd57bace9ffabdefe76d52",
+   "tracked": true,
+   "git_blob": "718d5ae486bcb1119b6dc0488bf4ca91a895c7fb",
+   "source": "git show gate.head:path"
+  },
+  {
+   "path": "crates/mir-client/src/net.rs",
+   "lines": 9917,
+   "bytes": 404857,
+   "sha256": "927178e2a557d17cebfbf73e65dc6815a14d5325ae2889975b0c3c942670aa32",
+   "tracked": true,
+   "git_blob": "186c5e9111f2025af0ba1bb086216d90cd8d1a94",
+   "source": "git show gate.head:path"
+  },
+  {
+   "path": "target/round66/b/attempt-1/sha256.txt",
+   "lines": 37,
+   "bytes": 3097,
+   "sha256": "86d29f051e1fa739f69dbf41fafcdda64f0736adb4f77b6bc004e0f8069d282f",
+   "tracked": false,
+   "source": "untracked at gate HEAD; working-tree bytes"
+  },
+  {
+   "path": "target/round66/b/attempt-1/sha256.txt.selfsha",
+   "lines": 1,
+   "bytes": 104,
+   "sha256": "6ac489c8590aba8b3e3f96d846c1dafc99dcd93dd4503e66661ada9e119aded1",
+   "tracked": false,
+   "source": "untracked at gate HEAD; working-tree bytes"
+  },
+  {
+   "path": "target/round66/c/attempt-3/runs.json",
+   "lines": 48,
+   "bytes": 1562,
+   "sha256": "c5158380e08d9d917b84d7e3eb84225adfbcd31b8d6257681c1ea5f695d3bf26",
+   "tracked": false,
+   "source": "untracked at gate HEAD; working-tree bytes"
+  },
+  {
+   "path": "target/round66/a/attempt-1/README.md",
+   "lines": 85,
+   "bytes": 9162,
+   "sha256": "feed8cdfac4a8a8d1aaa00bb7d4683fbffa99222c3a181d789f36787da4bccd4",
+   "tracked": false,
+   "source": "untracked at gate HEAD; working-tree bytes"
+  },
+  {
+   "path": "target/round66/b/attempt-1/README.md",
+   "lines": 39,
+   "bytes": 3783,
+   "sha256": "b3ae10886e19e67bf20476ebdd58b954052930037816c86588b13b0ec667c2e3",
+   "tracked": false,
+   "source": "untracked at gate HEAD; working-tree bytes"
+  }
+ ],
+ "self_hash": "Excluded to avoid recursion; see D receipt.json",
+ "deviations": [
+  "Direct instruction chooses round66-watermark.md; old plan names contract.",
+  "A reports overwrite of v1 patches; preservation deviation awaits audit.",
+  "B reports shared-target stale mutant binary; clean rebuilt final evidence."
+ ]
+}

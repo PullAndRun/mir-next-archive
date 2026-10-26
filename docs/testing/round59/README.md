@@ -18,7 +18,7 @@
 
 | # | 目标 | 状态 | 依据 |
 |---|---|---|---|
-| G1 | 事件消费：每帧按位置游标消费 `WorldSnapshot::projectile_events`，一事件一 `ProjectileView`，同快照重复 `sync` 不重复生成 | 已落盘 + 已实跑 | `ui/projectile.rs:240-301`；`cargo test -p mir-client --test round59_projectile_render` → **16 passed / exit 0**（`target/round59/d4/attempt-1/02-render.log`）；D1 证据 `target/round59/d1/attempt-1/` |
+| G1 | 事件消费：每帧按位置游标消费 `WorldSnapshot::projectile_events`，一事件一 `ProjectileView`，同快照重复 `sync` 不重复生成 | 已落盘 + 已实跑 | `ui/projectile.rs:422-439`（`sync`）、`:446-462`（`consume`）、`:207-246`（`ProjectileView`）；`cargo test -p mir-client --test round59_projectile_render` → **16 passed / exit 0**（`target/round59/d4/attempt-1/02-render.log`）；D1 证据 `target/round59/d1/attempt-1/` |
 | G2 | 飞行插值：`duration=MaxDistance*50`、`count=max(1,d/30)`、`index=410+f%6+dir16*10`、`offset=Δ*(48,32)*f/count`、`dir16` 按 `GameScene.cs:12044-12065` | 已落盘 + 已实跑 | 同上（16 passed / exit 0）；段值断言 410..=565 且避开空帧 `416-419/566-569` |
 | G3 | 命中 570：到达帧且目标存在、`dead==false` → `magic.wzl[570..=579]`×60ms=600ms；目标未知/已死 → 不播（含不播 `+2`） | 已落盘 + 已实跑 | `ui/projectile.rs:79-85`（`HIT_EFFECT_BASE_INDEX=570`/`FRAME_COUNT=10`/`DURATION_MS=600`）与删除点 `:505-537`；`round59_projectile_render` 16 passed（含 `dead_target_skips_impact_and_hit_sound`、`hit_effect_plays_all_ten_magic_frames_when_the_target_survives`）；证据 `target/round59/d2/attempt-1/`、`target/round59/d4/attempt-1/` |
 | G4 | 音效：出生 `M34-1.wav`(20341)、命中 `M34-2.wav`(20342)，基准 `GreatFireBall=34`（非 FireBounce=154） | 逻辑落盘；真实可听 PARTIAL | `mir-render/src/sound.rs:234-281`：`PROJECTILE_SOUND_BASE=34`、`PROJECTILE_SOUND_SPAWN_INDEX=20341`、`PROJECTILE_SOUND_HIT_INDEX=20342`、`ProjectileSoundPhase{Spawn,Hit}`、`projectile_sound(spell, phase) -> Option<&'static str>` → `M34-1.wav`/`M34-2.wav`；`cargo test -p mir-render --lib sound` → **9 passed / exit 0**（`target/round59/d2/attempt-1/04-tests.log`）；`round59_projectile_render` 16 passed 含 `spawn_and_hit_sounds_use_m34_once_each`、`production_sound_cues_are_drained_once_per_projectile`。**PARTIAL**：UI 只持 `&WorldSnapshot`，`take_sound_cues()`（`ui/projectile.rs:413`）尚未被 `app.rs` 音频通道 drain → 真实可听未证 |
@@ -55,7 +55,7 @@ SKIP ≠ PASS。
 |---|---|---|---|
 | **D-R59-1** | 无落点即不生成 | Crystal `GameScene.cs:4699` **无条件** `CreateProjectile`（落点可用 `TargetPoint` 兜底，`:4701` 只门控命中）；125 只带 `source`/`destination` 两个 ID，`destination` 不在快照里 → 本作**不生成投射物、不生成命中、不播 `+2`**，不伪造坐标。**诚实降级但非对齐** | D1 已实现；文档登记 |
 | P-2 | 事件无 ID | `ProjectileEvent` 无时间戳/序号（`net.rs:1503-1511`）；队列容量 16、超限丢最旧（`net.rs:7246-7260`），满队列后「丢最旧+追加」在 `len` 上不可观测，可能漏事件 | 残留风险，R60 承接 |
-| P-3 | 冻结时长 | 本作 `duration`/`count` 在 spawn 时冻结（`projectile.rs:273-284`）；Crystal `Effect.cs:174-181` `Process` 内每帧重算，目标移动会改变总时长 | 已知简化 |
+| P-3 | 冻结时长 | 本作 `duration`/`count` 在 spawn 时冻结（`projectile.rs:465-497`）；Crystal `Effect.cs:172-191` `Process` 内每帧重算，目标移动会改变总时长 | 已知简化 |
 | P-4 | Draw offset | `draw_effect` 不叠加 `magic.wzl` 每帧 `ImageInfo.offset`（Crystal `MLibrary` `offSet=true` 路径）；属 `mir-render` 既有绘制缺口，本轮未改 | 已知缺口 |
 | P-5 | 音效素材/可听性 | `M34-1/-2` **素材已导入**：由 `resource/community/gqf2008-crystal/Sound/M34-{1,2}.wav` 经 `mir-tools audio import`（本机 ffmpeg）产出，落 `game-assets/audio/sfx/M34-{1,2}.mna`（该目录现 105 个文件）；`audio verify --input game-assets/audio` → `files=106 bytes=4.25MB`、exit 0（`target/round59/d4/attempt-1/08-audio-verify.log`）。**但真实可听仍 PARTIAL**：`take_sound_cues()` 未被 `app.rs` 音频通道 drain（UI 只持 `&WorldSnapshot`），D4 只证 cue 字面量/顺序/每投射物一次；`game-assets/` 不入库，`.mna` 证据仅存 `target/` | PARTIAL（可听性）；素材已落盘 |
 | P-6 | 无类体系 | 未实现 `Missile`/`Effect` 类、光照（`Light=6`/`lightDistance`）、`Skip=4` 之外的图库语义；不得写作「Effect/Missile 体系已移植」 | 明确不做 |
@@ -64,7 +64,7 @@ SKIP ≠ PASS。
 ## 4. R60 承接
 
 1. **事件 ID/序列号**：在 `net.rs` 给 `ProjectileEvent` 编号或带 `started_ms`，消除游标/丢最旧歧义（P-2）。
-2. **每帧重算 Duration/Count**：对齐 Crystal `Effect.cs:174-181`（P-3），需先定「目标移动改变总时长」的表现口径。
+2. **每帧重算 Duration/Count**：对齐 Crystal `Effect.cs:172-191`（P-3），需先定「目标移动改变总时长」的表现口径。
 3. **wzl 逐帧 `ImageInfo.offset`**：`mir-render` 绘制层补 offset 通路（P-4），会同时影响其它 `FxKind`。
 4. **命中生命周期**：目标 `dead`/消失与 `Complete` 回调的完整状态机（含 `+2` 门控）落到 socket 级用例。
 5. **素材与音效收口**：把 `M34-1/-2.mna` 与 106 帧 PNG 的生成纳入可复跑脚本（当前 `game-assets/` 不入库，P-5）。

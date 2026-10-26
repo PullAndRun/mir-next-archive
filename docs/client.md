@@ -1195,11 +1195,11 @@ UI：`draw_ui` 在顶部画提示横幅「连接已断开，正在重连（N/3�
 - `destination` **允许未知**：`net.rs:1508-1509` 明示 unknown destination 不得 panic、不得在入队处丢事件
   （Crystal 侧只有 `:4701` 的命中挂接受 `missile.Target != null` 门控）。
 
-#### B. 消费语义（`Projectiles::sync`，`projectile.rs:240-301`）
+#### B. 消费语义（`Projectiles::sync`，`projectile.rs:422-439`）
 
 - 每帧 `UiState::update` 调 `self.projectiles.sync(snapshot, self.time_millis)`（`ui/mod.rs:1562-1564`）。
 - **不是 `mem::take`**：快照整体克隆、`projectile_events` 在会话侧累计且从不 drain，而绘制路径只持
-  `&WorldSnapshot`，因此用**位置游标** `Projectiles::consumed` 去重（`projectile.rs:5-8/208-209/250-261`）；
+  `&WorldSnapshot`，因此用**位置游标** `Projectiles::consumed` 去重（`projectile.rs:369/446-462`）；
   快照事件表长度回退（重连/换快照）时游标归零重新消费。**未 clone 快照绕过 `&mut`。**
 - 一个事件最多生成 1 个 `ProjectileView`；同帧多事件按到达顺序生成；同一快照重复 `sync` 不重复生成。
 - `source` 解析不到坐标 → 丢弃（入队层已拦，此处双保险）；`destination` 解析不到坐标 → **不生成实体**
@@ -1212,12 +1212,12 @@ UI：`draw_ui` 在顶部画提示横幅「连接已断开，正在重连（N/3�
 
 | 量 | 本作（`projectile.rs`） | Crystal |
 |---|---|---|
-| `duration` | `max_distance(source, dest_at_spawn) * 50` ms（`duration_ms`，`CELL_FLIGHT_MS=50`） | `PlayerObject.cs:3546-3547` `MaxDistance(CurrentLocation, targetPoint) * 50` |
-| `count` | `max(1, duration / 30)`（`frame_count`） | `Effect.cs:174-181` `Duration/Interval`，`0 → 1` |
+| `duration` | `max_distance(source, dest_at_spawn) * 50` ms（`duration_ms`，`CELL_FLIGHT_MS=50`） | `PlayerObject.cs:3552` `MaxDistance(CurrentLocation, targetPoint) * 50` |
+| `count` | `max(1, duration / 30)`（`frame_count`） | `Effect.cs:172-191` `Duration/Interval`，`0 → 1` |
 | 当前帧 | `frame = elapsed_ms / 30`（`frame_at`，`now_ms` 由 `UiState.time_millis` 提供） | `Effect.cs` 每 `Interval` 加 1 帧 |
 | `dir16` | `direction16()`：`GameScene.cs:12044-12065` 移植（夹角 `+11.25°`、`/22.5` 取整、`destination.X < c.X` 走 `360° - angle` 镜像；0=上、4=右、8=下、12=左） | 同 |
-| `index` | `410 + frame % 6 + dir16 * 10`（`sprite_index`，恒在 `410..=565`） | `Effect.cs:196` `BaseIndex + CurrentFrame % FrameCount + Direction * (Skip + FrameCount)` |
-| 位置 | `(dest - source) * (48, 32) * frame / count`（`draw_offset`；`frame=0` 源格、`frame=count` 目标格，整数向零截断） | `Effect.cs:206-212` `(x * CurrentFrame / Count, y * CurrentFrame / Count)` |
+| `index` | `410 + frame % 6 + dir16 * 10`（`sprite_index`，恒在 `410..=565`） | `Effect.cs:201` `BaseIndex + CurrentFrame % FrameCount + Direction * (Skip + FrameCount)` |
+| 位置 | `(dest - source) * (48, 32) * frame / count`（`draw_offset`；`frame=0` 源格、`frame=count` 目标格，整数向零截断） | `Effect.cs:211` `(x * CurrentFrame / Count, y * CurrentFrame / Count)` |
 | 绘制 | `draw_effect(frame, FxKind::Magic, index, x+dx, y+dy)`；`draw_effect` 实为 `image(magic.wzl, index + kind.start_frame())`，`Magic` 的 `start_frame = 0`（`entities.rs:518-523`），故 index 直落 `magic.wzl[index]` | `MLibrary` 410 基座 |
 
 - **帧段**：16 向 × 6 帧 = `410-415/420-425/…/560-565`，另加命中 `570-579`；`416-419`、`566-569` 是
@@ -1262,8 +1262,8 @@ UI：`draw_ui` 在顶部画提示横幅「连接已断开，正在重连（N/3�
 
 #### F. 已知偏差（不得当作与 Crystal 完全等同）
 
-1. **本作 frame 在生成时冻结**：`duration`/`frame_count` 只在 spawn 时算一次（`projectile.rs:273-284`）；
-   Crystal `Effect.cs:174-181` 在 `Process` 里**每帧重算** `Duration = MaxDistance(Source, Destination) * 50`
+1. **本作 frame 在生成时冻结**：`duration`/`frame_count` 只在 spawn 时算一次（`projectile.rs:465-497`）；
+   Crystal `Effect.cs:172-191` 在 `Process` 里**每帧重算** `Duration = MaxDistance(Source, Destination) * 50`
    与 `Count = Duration / Interval`，目标移动会改变总时长。本作目标当前位置只用于插值落点。
 2. **Draw offset 不含 wzl 逐帧 offset**：Crystal `MLibrary` 的 `offSet=true` 路径会叠加每帧
    `ImageInfo.offset`，`mir-render` 绘制层未实现该偏移；属既有绘制缺口，R59 未改 `mir-render`。

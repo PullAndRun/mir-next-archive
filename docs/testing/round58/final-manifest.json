@@ -1,0 +1,597 @@
+{
+  "schema_version": 1,
+  "round": "R58",
+  "ticket": "JJC-20261026-005",
+  "sub_ticket": "JJC-20261026-005-sub-fa652fa3",
+  "title": "第58轮：FireBounce 终局 RNG 对齐与 125 客户端接线",
+  "auditor": "xingbu / gpt-6.1-sol（只读终审）",
+  "mode": "read-only：未改 crates、未 commit、未跑全量门禁或 ignored 测试；仅复跑单条只读测试/静态检查/sha 校验",
+  "generated_at": "2026-10-26T15:53:33+08:00",
+  "verdict": "PASS-WITH-PARTIAL",
+  "head": {
+    "commit": "d404ed11c612dae29293f84e4090eca24276c01a",
+    "short": "d404ed1",
+    "branch": "main",
+    "origin_main": "d404ed11c612dae29293f84e4090eca24276c01a",
+    "equals_origin_main": true
+  },
+  "boundary": {
+    "parent": "1a9aeb316c288150b32bb19859fc35905c510272",
+    "short": "1a9aeb3",
+    "worktree_untracked_at_audit_start": [
+      "docs/testing/monster-native/player-resource-freeze-before.json（44MB 历史冻结件，未入库）",
+      "docs/testing/monster-native/player-resource-freeze.json（45MB 历史冻结件，未入库）"
+    ]
+  },
+  "commits": [
+    {
+      "commit": "f119a20297dccbb275cf0c161813d21b9044ef6c",
+      "short": "f119a20",
+      "kind": "功能批",
+      "subject": "feat(server,client): R58 FireBounce终局RNG改序与125客户端接线（第58轮服务端对齐+客户端接线）",
+      "files": [
+        {
+          "path": "crates/mir-server/src/magic.rs",
+          "status": "M",
+          "stat": "+13/-7"
+        },
+        {
+          "path": "crates/mir-server/tests/round58_rng_order.rs",
+          "status": "A",
+          "stat": "+565"
+        },
+        {
+          "path": "crates/mir-client/src/net.rs",
+          "status": "M",
+          "stat": "+65"
+        },
+        {
+          "path": "crates/mir-client/tests/round58_projectile_wire.rs",
+          "status": "A",
+          "stat": "+278"
+        },
+        {
+          "path": "docs/testing/round58/run-checks.sh",
+          "status": "A",
+          "stat": "+253"
+        }
+      ],
+      "total_stat": "5 files changed, 1174 insertions(+), 7 deletions(-)"
+    },
+    {
+      "commit": "d404ed11c612dae29293f84e4090eca24276c01a",
+      "short": "d404ed1",
+      "kind": "文档批",
+      "subject": "docs(round58): R58 方案/评审/派发、G4承接清理与125口径同步（第58轮文档批）",
+      "files": [
+        {
+          "path": "crates/mir-server/src/world.rs",
+          "status": "M",
+          "stat": "+1/-1（:1378 纯注释 dvance_clock→advance_clock）"
+        },
+        {
+          "path": "docs/process/round58-plan.md",
+          "status": "A",
+          "stat": "+141"
+        },
+        {
+          "path": "docs/process/round58-menxia-review.md",
+          "status": "A",
+          "stat": "+64"
+        },
+        {
+          "path": "docs/process/round58-shangshu-dispatch.md",
+          "status": "A",
+          "stat": "+80"
+        },
+        {
+          "path": "docs/testing/round57/README.md",
+          "status": "M",
+          "stat": "+2"
+        },
+        {
+          "path": "docs/testing/round58/README.md",
+          "status": "A",
+          "stat": "+104"
+        },
+        {
+          "path": "docs/world/magic.md",
+          "status": "M",
+          "stat": "+7/-1"
+        }
+      ],
+      "total_stat": "7 files changed, 399 insertions(+), 2 deletions(-)"
+    }
+  ],
+  "commit_hygiene": {
+    "boundary_overlap": "无：f119a20 与 d404ed1 变更路径集合交集为空",
+    "contains_target_dir": false,
+    "contains_env_file": false,
+    "contains_freeze_json_44_45mb": false,
+    "largest_new_file": "crates/mir-server/tests/round58_rng_order.rs（565 行，远小于 1MiB）",
+    "allowed_paths_only": true,
+    "commit_granularity_note": "派单建议 fix/feat/docs 三个粒度；实际 f119a20 合并 S1+S2+S3 为单提交（diff 内容与提交说明逐项可追溯），属过程观察，不影响内容判定"
+  },
+  "gate": {
+    "log": {
+      "path": "target/round58/gate/attempt-1.log",
+      "bytes": 201795,
+      "sha256": "114891f01851107bfd2b5c51c705088fd50f13221c6905b6b7cffecb3ab7e7a1"
+    },
+    "meta": {
+      "path": "target/round58/gate/attempt-1.meta.txt",
+      "bytes": 638,
+      "sha256": "1cd9c5689d1ccb0ee64f9ed83624183f41343cc0f302ecf3b3caebc3daad8686",
+      "fields": {
+        "attempt": 1,
+        "head": "d404ed11c612dae29293f84e4090eca24276c01a",
+        "head_short": "d404ed1",
+        "branch": "main",
+        "origin_main": "d404ed11c612dae29293f84e4090eca24276c01a",
+        "start_utc": "2026-10-26T07:45:16Z",
+        "end_utc": "2026-10-26T07:48:43Z",
+        "duration_s": 207,
+        "exit_code": 0,
+        "capture": "full(*>)",
+        "log_bytes": 201795,
+        "log_sha256": "114891f01851107bfd2b5c51c705088fd50f13221c6905b6b7cffecb3ab7e7a1",
+        "gate_summary_line": "==> 全部通过（12 项）",
+        "soak_lock": "absent",
+        "residual_processes": "none",
+        "command": "pwsh -NoProfile -Command \"& ./tools/dev/ci.ps1 -KillStale *> target/round58/gate/attempt-1.log\""
+      },
+      "meta_matches_log": true
+    },
+    "check_items": 12,
+    "summary_ok_lines": 12,
+    "banner_lines": 13,
+    "banner_note": "13 个 '==>' 行 = 12 个检查横幅 + 1 个汇总行；'^OK ' 共 13 行 = 12 个汇总项 + 1 条检查内文（'OK 所有保留物品模板都有图标'），不构成多算",
+    "r58_tests_in_log": {
+      "round58_rng_order": "running 3 tests / 3 passed; 0 failed",
+      "round58_projectile_wire": "running 7 tests / 7 passed; 0 failed"
+    },
+    "failures_in_log": 0,
+    "warnings_in_log": 0,
+    "attempt_count": "仅 attempt-1（无 attempt-2，无旧日志复用）",
+    "encoding": {
+      "raw_is_utf8": true,
+      "line_endings": "CRLF",
+      "utf8_pair_path": "target/round58/gate/attempt-1.utf8.log",
+      "utf8_pair_sha256": "114891f01851107bfd2b5c51c705088fd50f13221c6905b6b7cffecb3ab7e7a1",
+      "byte_identical_to_raw": true,
+      "gbk_original_needed": false,
+      "gbk_original_present": false,
+      "reason": "源日志本身已是 UTF-8（iconv 全文件校验通过），故无 GBK 原件；转换件与原件逐字节相同，C4 双件要求在本例退化为「原件 + 同字节 UTF-8 副本」",
+      "encoding_log": {
+        "path": "target/round58/gate/encoding.log",
+        "bytes": 218,
+        "sha256": "fe9a8fdc9ed4d2d5a96fd0067e43ca0e133e6da5e7d92fe64bb3dc1719bde19f",
+        "content": "detected utf-8 raw_bytes 201795 utf8_bytes 201795 diff_chars 183432；raw_sha == utf8_sha",
+        "note": "diff_chars=183432 与 raw/utf8 同 sha 不一致，疑为字符总数被误标为差异数；字节级同 sha 已足以证明转换件与原件一致（见审计观察 O-1）"
+      }
+    }
+  },
+  "candidate_files": [
+    {
+      "path": "crates/mir-client/src/net.rs",
+      "sha256": "a98d754da254376697f5656888b903e27fa56ae07244ec4610b5390510ec3f6e",
+      "match_d404ed1": true
+    },
+    {
+      "path": "crates/mir-server/src/magic.rs",
+      "sha256": "602a251466c2a2086f7ef09ae6e5a5a7d69d5b7729c93fd7687a53b5061e40fc",
+      "match_d404ed1": true
+    },
+    {
+      "path": "crates/mir-client/tests/round58_projectile_wire.rs",
+      "sha256": "69ec66bce7d48f58312e4800f3fff3df62e13af9914902baab262df52a125226",
+      "match_d404ed1": true
+    },
+    {
+      "path": "crates/mir-server/tests/round58_rng_order.rs",
+      "sha256": "fe11655f44a043f7d23728eea0f61160d605a183c0822469c6ddcdd9ff923df8",
+      "match_d404ed1": true
+    },
+    {
+      "path": "docs/testing/round58/run-checks.sh",
+      "sha256": "1ee97c251391539d24de063fcf6cf13f78794ccebb63f7829b2e59b9c6cf4fb3",
+      "match_d404ed1": true
+    },
+    {
+      "path": "docs/world/magic.md",
+      "sha256": "4ea0f2184865c1f33b3add97a25d904e5a9909a1f77d3222142fdf2d22cf29f4",
+      "match_d404ed1": true
+    },
+    {
+      "path": "docs/testing/round57/README.md",
+      "sha256": "edf27bb367ab38fa18a681b517dff7ab133f7d9f5d5f39850a38eba227428045",
+      "match_d404ed1": true
+    },
+    {
+      "path": "docs/testing/round58/README.md",
+      "sha256": "b198e1e424babfac81e708af51e494f831e3a1ed7e85ea206c34fa633a862f4a",
+      "match_d404ed1": true
+    },
+    {
+      "path": "docs/process/round58-plan.md",
+      "sha256": "7af10dac1c99daffb875fd6b0ab473b3cc012868697b296c1cf9fd117d621726",
+      "match_d404ed1": true
+    },
+    {
+      "path": "docs/process/round58-menxia-review.md",
+      "sha256": "9bd9ac0510cd6dfe09edf3a511c6d3a752b594dece9bf5d147b9de093d2988fe",
+      "match_d404ed1": true
+    },
+    {
+      "path": "docs/process/round58-shangshu-dispatch.md",
+      "sha256": "6f67ce75630154b8bae34b993d49422300e9fc6933dfe6bb5aa7b19e0628292c",
+      "match_d404ed1": true
+    },
+    {
+      "path": "crates/mir-server/src/world.rs",
+      "sha256": "c9501247234178cac9685acc35bf991327bf679ca465c008a6f54b3d78c9d076",
+      "match_d404ed1": true
+    }
+  ],
+  "candidate_match_count": "12/12",
+  "evidence_index": {
+    "s1": {
+      "root": "target/round58/s1/attempt-1",
+      "files": [
+        {
+          "path": "00-summary.md",
+          "bytes": 9959,
+          "sha256": "d64f720b40a985f0ea0acdf4c268bf0159b54caf051bc4abcebc3be05d156fa6"
+        },
+        {
+          "path": "02-rng-order-red.log",
+          "bytes": 1198,
+          "sha256": "8f2e97fa403a0ea08c5ba5ca7306cc85cb7c6c76b5ca791c1b5751ce76476125",
+          "note": "旧序红证据：round58_rng_order.rs:419:5 assert_ne! 失败；10-meta 记原始 exit=101"
+        },
+        {
+          "path": "02-rng-order.log",
+          "bytes": 595,
+          "sha256": "0d9818b9dba3a11f9ff0e204a4db87337d9dcacc8a96d71ea855a126c3845aa3",
+          "note": "新序绿：3 passed; 0 failed"
+        },
+        {
+          "path": "10-meta.txt",
+          "bytes": 1217,
+          "sha256": "b87c3313f808bacecd51ab21c093b24cd2de1c0421b95a7948d992b746862833",
+          "note": "02r 记 exit 101；03/04/05/06/07/08 全 exit 0"
+        }
+      ],
+      "regressions": {
+        "magic_lib": "43 passed / 0 failed",
+        "round53_frost_pvp": "7 passed / 0 failed",
+        "round52_regression": "8 passed / 0 failed",
+        "round57_firebounce": "6 passed / 0 failed"
+      }
+    },
+    "s2": {
+      "root": "target/round58/s2/attempt-1",
+      "files": [
+        {
+          "path": "00-summary.md",
+          "bytes": 8969,
+          "sha256": "0231b85d8cd5cabfd4ddaaa5748050323a743be4d0fe59046109424a0bfccc35"
+        },
+        {
+          "path": "01-probe.log",
+          "bytes": 1866,
+          "sha256": "74459fb88959466da34c7e543692040c7bed4dc87fe0a4b4ccc1ab837ca81ab8",
+          "note": "M1 探针：HEAD=1a9aeb3 时 EFFECT_EVENT_LIMIT 定义在 net.rs:165；提交后因模块文档 +1 行移至 :166，值仍为 16"
+        },
+        {
+          "path": "03-wire.log",
+          "bytes": 817,
+          "sha256": "7675d019d402eba09214b64fc3aee3ff555498056259be1c0dcd7f9cc33c5640",
+          "note": "7 passed; 0 failed；EXIT=0"
+        },
+        {
+          "path": "09-meta.txt",
+          "bytes": 3010,
+          "sha256": "614fb833d99149001828090da54b548963efa3d8ba63ebebc0e2bfabcb924f7b"
+        }
+      ]
+    },
+    "s3": {
+      "root": "target/round58/s3/attempt-1",
+      "files": [
+        {
+          "path": "00-summary.md",
+          "bytes": 8297,
+          "sha256": "5cae86030ddab1eb62817b520f3a59e0e75a23cb0967b2b5a3ca00a19d4efa08"
+        },
+        {
+          "path": "02-run.log",
+          "bytes": 1287,
+          "sha256": "ac80e63b05f76a1fd19e2be209a17851004567ab0302bf0479fac97b721d9239",
+          "note": "PASS=9 FAIL=0 SKIP=0；SCRIPT_EXIT=0；逐条原始日志在 logs/"
+        },
+        {
+          "path": "03-exit-summary.tsv",
+          "bytes": 930,
+          "sha256": "97be7f44865d95619d4519f5c8fef9f0dcb73b9cff880124df0f416564eff022"
+        }
+      ]
+    },
+    "s4": {
+      "root": "target/round58/s4/attempt-1",
+      "files": [
+        {
+          "path": "00-summary.md",
+          "bytes": 5067,
+          "sha256": "f3be22a6d003ab7c7afef9670cc5e392175dd3274e42fd800a3e5817c31d9302"
+        },
+        {
+          "path": "01-diff.patch",
+          "bytes": 30986,
+          "sha256": "2480b5fd38d036ea45760de1f7a36e3956a411c5eb40e3669b3a17675239c1d1"
+        },
+        {
+          "path": "02-links.log",
+          "bytes": 92,
+          "sha256": "bb44dc16047e1d17ff134c9bdec7faa3eb11a09bbec2b9923cf972b7bf82f7b6",
+          "note": "check_links exit 0；1716 相对链接一致"
+        },
+        {
+          "path": "03-redline.log",
+          "bytes": 2979,
+          "sha256": "41d23f97af2bd12e5a5906730980b0b06c81307d326799ccde5298d535f0db06"
+        },
+        {
+          "path": "04-meta.txt",
+          "bytes": 2309,
+          "sha256": "03f3809f2451b18fc7e22ad0988417188f9a45ee666532493c49ce2e23780e27"
+        }
+      ]
+    },
+    "lead_verify": {
+      "root": "target/round58/lead-verify",
+      "files": [
+        {
+          "path": "run-checks.log",
+          "bytes": 1272,
+          "sha256": "9b1136a4a278295bd1e1c490bcc92ef7de4e21690a81ff5a22281d614585cab6",
+          "note": "Lead 独立复跑 9/9 PASS / 总 EXIT=0；HEAD=1a9aeb3"
+        }
+      ]
+    },
+    "gate": {
+      "root": "target/round58/gate",
+      "files": [
+        {
+          "path": "attempt-1.log",
+          "bytes": 201795,
+          "sha256": "114891f01851107bfd2b5c51c705088fd50f13221c6905b6b7cffecb3ab7e7a1"
+        },
+        {
+          "path": "attempt-1.meta.txt",
+          "bytes": 638,
+          "sha256": "1cd9c5689d1ccb0ee64f9ed83624183f41343cc0f302ecf3b3caebc3daad8686"
+        },
+        {
+          "path": "attempt-1.utf8.log",
+          "bytes": 201795,
+          "sha256": "114891f01851107bfd2b5c51c705088fd50f13221c6905b6b7cffecb3ab7e7a1"
+        },
+        {
+          "path": "encoding.log",
+          "bytes": 218,
+          "sha256": "fe9a8fdc9ed4d2d5a96fd0067e43ca0e133e6da5e7d92fe64bb3dc1719bde19f"
+        }
+      ]
+    },
+    "commit_verify": {
+      "path": "target/round58/commit-verify/01-tree-hashes.txt",
+      "bytes": 1205,
+      "sha256": "dfbe6d84b8ccd3a1640a0a1baae11e0beb4cbd136e0bb5e39632d047358903f7",
+      "note": "12 条候选路径哈希；本审计逐条 git show d404ed1:<path>|sha256sum 复核 12/12 MATCH"
+    },
+    "in_tree_script": {
+      "path": "docs/testing/round58/run-checks.sh",
+      "bytes": 9835,
+      "lines": 253,
+      "sha256": "1ee97c251391539d24de063fcf6cf13f78794ccebb63f7829b2e59b9c6cf4fb3",
+      "bash_n": "exit 0",
+      "list_mode": "9 条固定命令，含 packets::server/client::roundtrip 两条真实路径",
+      "false_green_guard": "exit=0 但 running 0 tests/0 passed 判 FAIL；用例文件缺失判 SKIP；注入自测 PASS=7 FAIL=1 SKIP=1 证明防护有效"
+    },
+    "audit": {
+      "root": "target/round58/audit",
+      "files": [
+        {
+          "path": "summary.log",
+          "note": "本审计关键命令与 sha 原始输出摘要"
+        },
+        {
+          "path": "check_links.rerun.log",
+          "note": "本次复跑 check_links.py 输出（exit 0）"
+        }
+      ]
+    }
+  },
+  "crystal_anchors": [
+    {
+      "anchor": "github/Crystal/Server/MirObjects/HumanObject.cs:5811-5833",
+      "verified": true,
+      "facts": [
+        "函数顶 :5813 守卫：target==null || !IsAttackTarget || !source.CanFly || bounce==0 → return false",
+        ":5826 广播 S.ObjectProjectile（Source=source.ObjectID, Destination=target.ObjectID）",
+        ":5829 才把 DelayedAction 排队；delay = MaxDistance*50，bounce==-1 时额外 +500"
+      ]
+    },
+    {
+      "anchor": "github/Crystal/Server/MirObjects/HumanObject.cs:5947-5956",
+      "verified": true,
+      "facts": [
+        ":5949 targets = FindAllNearby(3).Where(x != target && IsAttackTarget && target.CanFly).ToList()",
+        ":5951 if (targets.Count > 0) 才抽签",
+        ":5953 nextTarget = targets[Envir.Random.Next(targets.Count)] 先抽签",
+        ":5955 FireBounce(nextTarget, magic, target, --bounce) 后递减；故终局跳也消耗 1 次随机，抽中即废"
+      ]
+    },
+    {
+      "anchor": "github/Crystal/Client/MirScenes/GameScene.cs:4687-4716",
+      "verified": true,
+      "facts": [
+        ":4691 source == null 立即 return（未知 Source 丢弃）",
+        ":4693 switch (p.Spell) 仅 case Spell.FireBounce，无 default（非 FireBounce 丢弃）",
+        ":4697 CreateProjectile(410, Libraries.Magic, true, 6, 30, 4, targetID: p.Destination)",
+        ":4703 命中效果 Effect(Libraries.Magic, 570, 10, 600, target)；:4706 Dead 早退",
+        ":4699/:4708 两段音效 20000+GreatFireBall*10+1/+2（R58 未实现，PARTIAL→R59）"
+      ]
+    },
+    {
+      "anchor": "crates/mir-protocol/src/packets/server.rs:3903-3929",
+      "verified": true,
+      "facts": [
+        "pub struct ObjectProjectile { spell: Spell, source: u32, destination: u32 }",
+        "INDEX = 125；COMPRESSED = false；decode/encode 均为 spell(u8)+source(u32)+destination(u32)"
+      ]
+    },
+    {
+      "anchor": "crates/mir-server/src/magic.rs 与 Crystal 的偏差锚点",
+      "verified": true,
+      "facts": [
+        "magic.rs:4029 can_fly 走 walkable_on（含 conquest_object_blocking）",
+        "magic.rs:4047 can_fly_cell_valid 仅 Cell.Valid（与 Crystal CanFly 同语义）",
+        "magic.rs:1536 FireBall/GreatFireBall/FrostCrunch 用 can_fly；:1555 FireBounce 用 can_fly_cell_valid → 不合并，:1536 偏差单列 R59"
+      ]
+    }
+  ],
+  "partials": [
+    {
+      "id": "P1",
+      "item": "客户端 125 渲染（Missile 410 飞行插值/帧动画、命中 Effect 570(10,600)、音效 20000+GreatFireBall*10+1/+2）",
+      "status": "PARTIAL → R59",
+      "source": "docs/testing/round58/README.md §4.8、docs/world/magic.md:687、docs/testing/round57/README.md:51"
+    },
+    {
+      "id": "P2",
+      "item": "Hero 无实例（Crystal FindAllNearby 收 Hero；本作 S.HeroInformation.magics 恒空，候选池按 Monster/Player 构造）",
+      "status": "PARTIAL",
+      "source": "docs/testing/round58/README.md §4.7"
+    },
+    {
+      "id": "P3",
+      "item": "默认 DB 的 FireBounce 学习书/掉落生产获得路径未证（A0 仅证 MagicInfo 154 记录存在）",
+      "status": "PARTIAL",
+      "source": "docs/testing/round58/README.md §4.2/§2 第8项"
+    },
+    {
+      "id": "P4",
+      "item": ":1536 FireBall/GreatFireBall/FrostCrunch 攻城期 can_fly 偏差（含阻挡版 vs Crystal Cell.Valid）",
+      "status": "已登记 → R59 单列；R59 动 :1536 前必须自带「攻城期阻挡格上的 FireBall 目标判定」回归用例",
+      "source": "docs/testing/round58/README.md §3、docs/world/magic.md:791-796"
+    },
+    {
+      "id": "P5",
+      "item": "125 不回显施法者（服务端 World::broadcast 不含本人；Crystal Map.Broadcast 含本人）",
+      "status": "PARTIAL / 已知偏差",
+      "source": "docs/testing/round58/README.md §4.6、docs/world/magic.md:687"
+    },
+    {
+      "id": "P6",
+      "item": "次级目标随机序列（对象 ID 升序稳定排序后取模；集合等价、非逐次同序）",
+      "status": "MINOR",
+      "source": "docs/testing/round58/README.md §4.5/§2 第9项"
+    },
+    {
+      "id": "P7",
+      "item": "投射物事件 ring 语义（复用 EFFECT_EVENT_LIMIT=16，超限 remove(0) 丢最旧；高频 FireBounce 一帧内可能顶掉事件，R59 消费方须接受可能丢最旧）",
+      "status": "已实现并测试；台账仅见 target/round58/s2/attempt-1/00-summary.md §8.2 与测试注释，未入 docs/testing/round58/README.md 的 PARTIAL 表 → 审计必改 M-2",
+      "source": "crates/mir-client/src/net.rs:166/7237-7260、crates/mir-client/tests/round58_projectile_wire.rs:250-270、target/round58/s2/attempt-1/00-summary.md §8.2"
+    }
+  ],
+  "closed_items": [
+    "M2 终局 RNG 差 1 次抽签：已按 Crystal :5949-5956 改序闭合（S1 + M4 可失败断言 + 旧序红 101/新序绿）",
+    "can_fly 双实现：按 C3 不合并，差异已在 magic.md:791-796 与 round58 README §3 固化",
+    "dvance_clock 错字：crates/mir-server/src/world.rs:1378 纯注释修正，残留 0",
+    "run-checks.sh 协议路径错：改为 packets::{server,client}::roundtrip::…，0 命中假绿防护生效，脚本入树 253 行",
+    "门禁捕获编码：源已是 UTF-8，转换件字节相同，无 GBK 乱码",
+    "M1 封顶常量：实测 EFFECT_EVENT_LIMIT=16，push_projectile_event 复用同一常量，无自造",
+    "M2 非 FireBounce 白名单：non_firebounce_spell_is_dropped 负例在案且绿",
+    "M4 断言：固定种子确定性断言（candidate_draws[0]==control_draws[1]、整段尾部错位 1 次）+ 125=level+1、命中=level+2、无 126/149"
+  ],
+  "must_fix": [
+    {
+      "id": "M-1",
+      "severity": "MINOR（文档一致性，不阻断功能判定）",
+      "location": "docs/testing/round58/README.md:19、:28、:34、:76、:98",
+      "issue": "S1/S3 在 d404ed1 提交前已完成，但 README 状态列仍写「在途（S1）」「在途（S3）」；与已落盘实现/脚本及门禁结论不一致（H 项）",
+      "required": "把上述 5 处状态改为「已落盘」，或在同一行注明「截至 d404ed1 已落盘」；不改代码、不改本轮判定"
+    },
+    {
+      "id": "M-2",
+      "severity": "MINOR（PARTIAL 台账完整性）",
+      "location": "docs/testing/round58/README.md:78-89（§4.6/§4.8 一带）",
+      "issue": "事件 ring 语义（EFFECT_EVENT_LIMIT=16、超限丢最旧、高频可能一帧内丢事件）只在 target/ 的 S2 证据摘要与测试注释中，未进入入库 PARTIAL 台账；G 项「B4 事件 ring 语义」不完整",
+      "required": "在 README §4.6/§4.8 补 1 行「事件表容量复用 EFFECT_EVENT_LIMIT=16，超限丢最旧；R59 消费方须接受可能丢最旧（或届时评估扩容）」并纳入 PARTIAL/已知限制表"
+    }
+  ],
+  "observations": [
+    {
+      "id": "O-1",
+      "location": "target/round58/gate/encoding.log:4",
+      "issue": "diff_chars=183432 与 raw_sha==utf8_sha 矛盾；字节级同 sha 已证明转换件与原件一致，疑为把字符总数误标为差异数",
+      "suggest": "改为 diff_bytes=0 / 或输出字符总数并改名；不影响 C4 结论"
+    },
+    {
+      "id": "O-2",
+      "location": "target/round58/s1/attempt-1/02-rng-order-red.log",
+      "issue": "红日志内含 FAILED 与 error: test failed，但无显式 EXIT=101 行；exit 101 由 10-meta.txt 的「02r … exit 101」承载",
+      "suggest": "以后单条测试日志也在末尾记原始 exit，减少跨文件拼接"
+    },
+    {
+      "id": "O-3",
+      "location": "target/round58/s4/attempt-1/03-redline.log §2",
+      "issue": "S4 自检称 added_125_chain=0，但独立复核 git diff 1a9aeb3..d404ed1 的新增行含「125 全链」共 4 处（均在「不写/禁」禁止性语境：plan §7.1、menxia M5、dispatch §三/§六），无一处宣称已全链；判据与计数口径需修正",
+      "suggest": "把判据改为「新增行中的宣称性表述=0」并附 4 条语境；不影响 H 项结论"
+    },
+    {
+      "id": "O-4",
+      "location": "docs/world/magic.md:687 / docs/testing/round57/README.md:51 / docs/testing/round58/README.md:7",
+      "issue": "M5 核心句逐字一致（grep -F 各 1 处），但三行不是行级完全相同：magic.md 有表格前缀并在 R59 后追加「（R57 门禁/终审见 …）」；另两处为列表/引用前缀",
+      "suggest": "若验收要求「整行逐字」，需统一前缀/后缀；按「核心句逐字」口径本轮满足"
+    },
+    {
+      "id": "O-5",
+      "location": "f119a20",
+      "issue": "派单建议 fix/feat/docs 三个提交粒度，实际把 S1+S2+S3 合并为一个提交；提交说明逐项列明，diff 仍可分离",
+      "suggest": "下轮按派单粒度拆分提交，便于二分定位"
+    },
+    {
+      "id": "O-6",
+      "location": "crates/mir-client/src/net.rs:166 与 tests/round58_projectile_wire.rs:255",
+      "issue": "S2 探针在 HEAD=1a9aeb3 记录 EFFECT_EVENT_LIMIT 在 :165；S2 自己新增的模块文档行把常量顺移到 :166，测试注释仍写 :165",
+      "suggest": "把注释改为「基线 :165 / 提交后 :166」或只写常量值，避免行号漂移误读"
+    }
+  ],
+  "reproduce_commands": [
+    "git rev-parse HEAD origin/main",
+    "git log --oneline -3 --decorate",
+    "sha256sum target/round58/gate/attempt-1.log target/round58/gate/attempt-1.meta.txt target/round58/gate/attempt-1.utf8.log target/round58/gate/encoding.log",
+    "cat target/round58/gate/attempt-1.meta.txt",
+    "grep -n '^==> ' target/round58/gate/attempt-1.log",
+    "grep -c '^OK ' target/round58/gate/attempt-1.log",
+    "while read -r h p; do p=${p#\\*}; git show d404ed1:\"$p\" | sha256sum; done < target/round58/commit-verify/01-tree-hashes.txt",
+    "cargo test -p mir-server --test round58_rng_order",
+    "cargo test -p mir-client --test round58_projectile_wire",
+    "bash -n docs/testing/round58/run-checks.sh",
+    "bash docs/testing/round58/run-checks.sh --list",
+    "grep -c 'packets::tests' docs/testing/round58/run-checks.sh",
+    "py -3 tools/docs/check_links.py",
+    "grep -F '服务端 125 生产者已实现；客户端 125 仅解码登记，投射物渲染 PARTIAL 待 R59' docs/world/magic.md docs/testing/round57/README.md docs/testing/round58/README.md",
+    "grep -rn 'dvance_clock' crates/ | grep -v advance_clock",
+    "pwsh -NoProfile -Command \"& ./tools/dev/ci.ps1 -KillStale\"（Lead 唯一门禁，本审计未复跑）"
+  ],
+  "not_rerun": [
+    "全量门禁 ci.ps1（只读审计禁止；引用 Lead 的 attempt-1 原始日志与 meta）",
+    "ignored 测试（按指令禁止）",
+    "未修改任何 crates/ 文件与测试；未 commit/push"
+  ],
+  "final_note": "功能/门禁证据 PASS；客户端渲染、Hero、:1536 偏差、125 不回显、DB 学习/掉落路径等按 C2/C3 为声明式 PARTIAL（R59 承接）。仅 M-1/M-2 两处文档/台账行级必改，不改代码与判定。不得据此宣称「125 全链」或「R58 完整」。"
+}

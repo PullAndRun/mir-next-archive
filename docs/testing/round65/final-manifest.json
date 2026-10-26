@@ -1,0 +1,122 @@
+{
+  "schema": "round65-final-manifest/v1",
+  "round": "R65",
+  "topic": "单 UI 消费生命周期与克隆快照契约（G1 本地补证；G2 整项移出）",
+  "generated_at_utc": "2026-10-26T20:01:18Z",
+  "generated_by": "lead (D 子单 gpt subagent 超时未写出 manifest；Lead 按 D 白名单机械补齐，见 target/round65/d/)",
+  "gate_head": "3730e2be7983b1cbbef704103b05a804bfb02489",
+  "functional_commit": "3730e2b",
+  "gate": {
+    "log_path": "target/round65/gate/attempt-1.log",
+    "log_bytes": 206593,
+    "log_sha256": "3c9f40fcf0b889bb51291ca9ba88125b80ca894ed0fefc65082e25300c64bfb3",
+    "meta_path": "target/round65/gate/attempt-1.meta.txt",
+    "gate_head": "3730e2be7983b1cbbef704103b05a804bfb02489",
+    "exit_code": 0,
+    "items_ok": 12,
+    "items_fail": 0,
+    "utc_start": "2026-10-26T19:49:35Z",
+    "utc_end": "2026-10-26T19:53:18Z",
+    "operator": "lead (唯一门禁执行者)"
+  },
+  "c_evidence": {
+    "path": "docs/testing/round65/round65-c-evidence.md",
+    "bytes": 10269,
+    "lines": 74,
+    "sha256": "8cf5d5848e829411eb6aa5ce193558acebc35ba9d05b65b06a13a2a4384d530a",
+    "verdict": "PASS-WITH-PARTIAL",
+    "must_fix_count": 0
+  },
+  "artifacts": [
+    {
+      "path": "docs/testing/round65/README.md",
+      "bytes": 6380,
+      "lines": 37,
+      "sha256": "ca55fa90c900d443275f0c92729064b44656db85cb6873a6d409977adcf56331",
+      "git_blob_sha256": "ca55fa90c900d443275f0c92729064b44656db85cb6873a6d409977adcf56331",
+      "git_blob_sha256_note": "working-tree",
+      "tracked": false
+    },
+    {
+      "path": "docs/testing/round65/round65-contract.md",
+      "bytes": 4468,
+      "lines": 37,
+      "sha256": "2a1fe773e389a7dd4c85b7d84d1174fdcc824ce14b341ef8ec578d007ae0d777",
+      "git_blob_sha256": "2a1fe773e389a7dd4c85b7d84d1174fdcc824ce14b341ef8ec578d007ae0d777",
+      "git_blob_sha256_note": "working-tree",
+      "tracked": false
+    },
+    {
+      "path": "docs/testing/round65/round65-c-evidence.md",
+      "bytes": 10269,
+      "lines": 74,
+      "sha256": "8cf5d5848e829411eb6aa5ce193558acebc35ba9d05b65b06a13a2a4384d530a",
+      "git_blob_sha256": "8cf5d5848e829411eb6aa5ce193558acebc35ba9d05b65b06a13a2a4384d530a",
+      "git_blob_sha256_note": "working-tree",
+      "tracked": false
+    },
+    {
+      "path": "target/round65/gate/attempt-1.log",
+      "bytes": 206593,
+      "lines": 3538,
+      "sha256": "3c9f40fcf0b889bb51291ca9ba88125b80ca894ed0fefc65082e25300c64bfb3",
+      "git_blob_sha256": "3c9f40fcf0b889bb51291ca9ba88125b80ca894ed0fefc65082e25300c64bfb3",
+      "git_blob_sha256_note": "working-tree",
+      "tracked": false
+    },
+    {
+      "path": "target/round65/gate/attempt-1.meta.txt",
+      "bytes": 346,
+      "lines": 11,
+      "sha256": "25ff19d60f4255c21c05832d38f51de03ff4e5d472398fcbb698da13c5da00c0",
+      "git_blob_sha256": "25ff19d60f4255c21c05832d38f51de03ff4e5d472398fcbb698da13c5da00c0",
+      "git_blob_sha256_note": "working-tree",
+      "tracked": false
+    },
+    {
+      "path": "crates/mir-client/src/net.rs",
+      "bytes": 398910,
+      "lines": 9779,
+      "sha256": "e25640508c6e2495cb95d0a3eb771cfe346346403a8ea94ce0fd9a8e867d8e94",
+      "git_blob_sha256": "e25640508c6e2495cb95d0a3eb771cfe346346403a8ea94ce0fd9a8e867d8e94",
+      "tracked": true
+    },
+    {
+      "path": "crates/mir-client/src/app.rs",
+      "bytes": 180794,
+      "lines": 4435,
+      "sha256": "b180d516e27379a8937072fdb40057518f3feb74c6dfc8a82bf0c95793d442e4",
+      "git_blob_sha256": "b180d516e27379a8937072fdb40057518f3feb74c6dfc8a82bf0c95793d442e4",
+      "tracked": true
+    },
+    {
+      "path": "crates/mir-client/tests/round65_projectile_lifecycle.rs",
+      "bytes": 28113,
+      "lines": 649,
+      "sha256": "dfef7383843f9e72c97f6999c058281c0d61ddf5f00b64d878d001c9667333e2",
+      "git_blob_sha256": "dfef7383843f9e72c97f6999c058281c0d61ddf5f00b64d878d001c9667333e2",
+      "tracked": true
+    }
+  ],
+  "stage": {
+    "gate": "PASS(attempt-1)",
+    "independent_c": "PASS-WITH-PARTIAL(must-fix 0)",
+    "shangshu_acceptance": "NOT_YET",
+    "menxia_confirm": "NOT_YET",
+    "board_done": false
+  },
+  "partial_carried": {
+    "r65": [
+      "G1.2 多消费者/并发未证",
+      "G2 known_positions/事件表容量政策整项移出",
+      "total 饱和为构造边界",
+      "无全局最低水位"
+    ],
+    "r61_r64": "R61 P01–P12、R62 四项、R63 P1–P7、R64 六项原编号承接（内容见 README §PARTIAL 台账）"
+  },
+  "notes": [
+    "manifest 不列入自身",
+    "tracked=false 项为 target 证据，git_blob_sha256 记工作树值",
+    "D 子单产出 README/contract；manifest 为 Lead 机械补齐"
+  ]
+}

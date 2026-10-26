@@ -2,8 +2,8 @@
   "schema": "round65-final-manifest/v1",
   "round": "R65",
   "topic": "单 UI 消费生命周期与克隆快照契约（G1 本地补证；G2 整项移出）",
-  "generated_at_utc": "2026-10-26T20:01:18Z",
-  "generated_by": "lead (D 子单 gpt subagent 超时未写出 manifest；Lead 按 D 白名单机械补齐，见 target/round65/d/)",
+  "generated_at_utc": "2026-10-26T20:14:11Z",
+  "generated_by": "lead (D 子单 gpt subagent 超时未写出 manifest；Lead 按 D 白名单机械补齐，见 target/round65/d/); final-audit refresh: xingbu / gpt-6.1-sol (target/round65/t/attempt-1/refresh_manifest.py)",
   "gate_head": "3730e2be7983b1cbbef704103b05a804bfb02489",
   "functional_commit": "3730e2b",
   "gate": {
@@ -34,8 +34,8 @@
       "lines": 37,
       "sha256": "ca55fa90c900d443275f0c92729064b44656db85cb6873a6d409977adcf56331",
       "git_blob_sha256": "ca55fa90c900d443275f0c92729064b44656db85cb6873a6d409977adcf56331",
-      "git_blob_sha256_note": "working-tree",
-      "tracked": false
+      "git_blob_sha256_note": "git show ffed7a9:docs/testing/round65/README.md",
+      "tracked": true
     },
     {
       "path": "docs/testing/round65/round65-contract.md",
@@ -43,8 +43,8 @@
       "lines": 37,
       "sha256": "2a1fe773e389a7dd4c85b7d84d1174fdcc824ce14b341ef8ec578d007ae0d777",
       "git_blob_sha256": "2a1fe773e389a7dd4c85b7d84d1174fdcc824ce14b341ef8ec578d007ae0d777",
-      "git_blob_sha256_note": "working-tree",
-      "tracked": false
+      "git_blob_sha256_note": "git show ffed7a9:docs/testing/round65/round65-contract.md",
+      "tracked": true
     },
     {
       "path": "docs/testing/round65/round65-c-evidence.md",
@@ -52,8 +52,8 @@
       "lines": 74,
       "sha256": "8cf5d5848e829411eb6aa5ce193558acebc35ba9d05b65b06a13a2a4384d530a",
       "git_blob_sha256": "8cf5d5848e829411eb6aa5ce193558acebc35ba9d05b65b06a13a2a4384d530a",
-      "git_blob_sha256_note": "working-tree",
-      "tracked": false
+      "git_blob_sha256_note": "git show ffed7a9:docs/testing/round65/round65-c-evidence.md",
+      "tracked": true
     },
     {
       "path": "target/round65/gate/attempt-1.log",
@@ -79,7 +79,8 @@
       "lines": 9779,
       "sha256": "e25640508c6e2495cb95d0a3eb771cfe346346403a8ea94ce0fd9a8e867d8e94",
       "git_blob_sha256": "e25640508c6e2495cb95d0a3eb771cfe346346403a8ea94ce0fd9a8e867d8e94",
-      "tracked": true
+      "tracked": true,
+      "git_blob_sha256_note": "git show 3730e2b:crates/mir-client/src/net.rs"
     },
     {
       "path": "crates/mir-client/src/app.rs",
@@ -87,7 +88,8 @@
       "lines": 4435,
       "sha256": "b180d516e27379a8937072fdb40057518f3feb74c6dfc8a82bf0c95793d442e4",
       "git_blob_sha256": "b180d516e27379a8937072fdb40057518f3feb74c6dfc8a82bf0c95793d442e4",
-      "tracked": true
+      "tracked": true,
+      "git_blob_sha256_note": "git show 3730e2b:crates/mir-client/src/app.rs"
     },
     {
       "path": "crates/mir-client/tests/round65_projectile_lifecycle.rs",
@@ -95,7 +97,18 @@
       "lines": 649,
       "sha256": "dfef7383843f9e72c97f6999c058281c0d61ddf5f00b64d878d001c9667333e2",
       "git_blob_sha256": "dfef7383843f9e72c97f6999c058281c0d61ddf5f00b64d878d001c9667333e2",
-      "tracked": true
+      "tracked": true,
+      "git_blob_sha256_note": "git show 3730e2b:crates/mir-client/tests/round65_projectile_lifecycle.rs"
+    },
+    {
+      "path": "docs/testing/round65/round65-final-audit.md",
+      "bytes": 6494,
+      "lines": 39,
+      "sha256": "cc7167928554b4ded7f4fdfd35717704b5f7bd0bf097a12dc6460c0325be096e",
+      "git_blob_sha256": "cc7167928554b4ded7f4fdfd35717704b5f7bd0bf097a12dc6460c0325be096e",
+      "git_blob_sha256_note": "working-tree; absent at 3730e2b/ffed7a9; tracked=true declares required deliverable to be tracked by Lead, not existing git blob",
+      "tracked": true,
+      "git_ls_files_at_audit": false
     }
   ],
   "stage": {
@@ -103,7 +116,10 @@
     "independent_c": "PASS-WITH-PARTIAL(must-fix 0)",
     "shangshu_acceptance": "NOT_YET",
     "menxia_confirm": "NOT_YET",
-    "board_done": false
+    "board_done": false,
+    "final_audit": "BLOCK",
+    "audited_functional_head": "3730e2b",
+    "docs_head": "ffed7a9"
   },
   "partial_carried": {
     "r65": [
@@ -116,7 +132,9 @@
   },
   "notes": [
     "manifest 不列入自身",
-    "tracked=false 项为 target 证据，git_blob_sha256 记工作树值",
-    "D 子单产出 README/contract；manifest 为 Lead 机械补齐"
+    "D 子单产出 README/contract；manifest 为 Lead 机械补齐",
+    "tracked=false entries are target evidence; original docs tracked metadata refreshed at ffed7a9 without changing original eight hashes",
+    "Audit artifact is working-tree pending Lead tracking; no git blob claimed for 3730e2b",
+    "Literal zero-Chinese-assert requirement is BLOCK pending acceptance-criterion clarification; Chinese diagnostic strings are not Chinese UI-text equality assertions"
   ]
 }

@@ -17,6 +17,12 @@
 //! catch-up after a big jump) and resets exactly once on the first non-empty batch of a
 //! new `WorldSnapshot::session_generation`. The six gates rewritten in round 62 keep their
 //! R59 names; the pure `frame_at` formula stays covered below as the historical reference.
+//!
+//! R63 G1 supersede: the impact clock is now the same strict `NextFrame` clock. The old
+//! R59 elapsed assertions (`hit_effect_index(elapsed)`, "removed at exactly 600 ms") are no
+//! longer semantically valid — equality does not advance a frame and `Remove` happens only
+//! after crossing the 600 ms boundary. The impact gate below was rewritten accordingly and
+//! keeps its R59 name plus the full `magic.wzl[570..=579]` coverage.
 //! * G3 impact: when the destination object is still alive at arrival, removing the view
 //!   produces the `magic.wzl[570..=579]` ten-frame sequence (60 ms per frame, 600 ms);
 //!   a dead destination produces no impact and no hit sound;
@@ -32,8 +38,7 @@ use mir_client::ui::UiState;
 use mir_client::ui::projectile::{
     BASE_INDEX, DIRECTIONS, FRAME_COUNT, HIT_EFFECT_BASE_INDEX, HIT_EFFECT_DURATION_MS,
     HIT_EFFECT_FRAME_COUNT, HIT_EFFECT_FRAME_MS, ProjectileSoundSink, direction16, draw_offset,
-    duration_ms, frame_at, frame_count, frame_interval_ms, hit_effect_index, max_distance,
-    sprite_index,
+    duration_ms, frame_at, frame_count, frame_interval_ms, max_distance, sprite_index,
 };
 use mir_core::Language;
 use mir_core::Point;
@@ -554,21 +559,35 @@ fn hit_effect_plays_all_ten_magic_frames_when_the_target_survives() {
     assert_eq!(effects[0].position, target);
     assert_eq!(effects[0].started_ms, arrival);
 
+    // R63 G1 supersede：elapsed → 严格 `NextFrame`。等号不进帧、一帧一次 `Process`、
+    // `Remove` 只发生在越过第 10 个边界（Start+600）之后；旧 R59 的 elapsed 帧号断言
+    // （`hit_effect_index(elapsed)`、满 600 ms 删除）不再语义有效。逐边界 tick 采样，
+    // 保留测试名与 570..=579 全覆盖。
     let frame_ms = i64::try_from(HIT_EFFECT_FRAME_MS).expect("hit frame duration fits i64");
     let mut observed = Vec::new();
-    for step in 0..HIT_EFFECT_FRAME_COUNT {
-        let now = arrival + i64::from(step) * frame_ms;
+    // 第 0 帧：Start 时刻即 570。
+    sync_at(&mut ui, &snapshot, arrival);
+    assert_eq!(
+        ui.projectiles().hit_effects()[0].sprite_index(arrival),
+        HIT_EFFECT_BASE_INDEX,
+        "Start instant must draw 570"
+    );
+    observed.push(HIT_EFFECT_BASE_INDEX);
+    for frame in 1..HIT_EFFECT_FRAME_COUNT {
+        // 越过第 frame 个边界的第一个 tick（等号不进，所以 +1）。
+        let now = arrival + i64::from(frame) * frame_ms + 1;
         sync_at(&mut ui, &snapshot, now);
         let effects = ui.projectiles().hit_effects();
         assert_eq!(
             effects.len(),
             1,
-            "impact must stay alive during frame {step}"
+            "impact must stay alive during frame {frame}"
         );
         let index = effects[0].sprite_index(now);
         assert_eq!(
             index,
-            hit_effect_index(u64::from(step) * HIT_EFFECT_FRAME_MS)
+            HIT_EFFECT_BASE_INDEX + frame,
+            "frame {frame} must be 570 + {frame} after crossing its boundary"
         );
         observed.push(index);
     }
@@ -577,15 +596,23 @@ fn hit_effect_plays_all_ten_magic_frames_when_the_target_survives() {
     assert_eq!(observed.first().copied(), Some(570));
     assert_eq!(observed.last().copied(), Some(579));
 
-    // `Effect.Process` removes the impact once the full 600 ms elapsed.
-    sync_at(
-        &mut ui,
-        &snapshot,
-        arrival + i64::try_from(HIT_EFFECT_DURATION_MS).unwrap(),
+    // R63 G1：最后一个边界等号不进（仍画 579），越过 +1 ms 才 `Remove`。
+    let last_boundary = arrival + i64::try_from(HIT_EFFECT_DURATION_MS).unwrap();
+    sync_at(&mut ui, &snapshot, last_boundary);
+    assert_eq!(
+        ui.projectiles().hit_effects().len(),
+        1,
+        "elapsed == {HIT_EFFECT_DURATION_MS} ms must not remove the impact"
     );
+    assert_eq!(
+        ui.projectiles().hit_effects()[0].sprite_index(last_boundary),
+        HIT_EFFECT_BASE_INDEX + HIT_EFFECT_FRAME_COUNT - 1,
+        "elapsed == 600 ms still draws the last impact frame (579)"
+    );
+    sync_at(&mut ui, &snapshot, last_boundary + 1);
     assert!(
         ui.projectiles().hit_effects().is_empty(),
-        "impact must be removed after {HIT_EFFECT_DURATION_MS} ms"
+        "impact must be removed only after crossing {HIT_EFFECT_DURATION_MS} ms"
     );
 }
 

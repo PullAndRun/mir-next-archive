@@ -226,31 +226,39 @@ fn real_125_spawns_once_flies_hits_and_keeps_the_impact_ghost() {
     move_monster(&mut snapshot, DEST_ID, moved, false);
     sync_at(&mut ui, &snapshot, arrival + 10);
     assert_eq!(ui.projectiles().hit_effects()[0].position, moved);
-    for step in 0..HIT_EFFECT_FRAME_COUNT {
-        let now = arrival
-            + i64::try_from(u64::from(step) * HIT_EFFECT_FRAME_MS).expect("frame offset fits i64");
+    // R63 G1 supersede：elapsed → 严格 `NextFrame`（Crystal `Effect.cs:38-48,81-96`）。
+    // 旧 R62 断言「elapsed 等号进帧 / 满 600 ms 删除」在严格时钟下不再语义有效：
+    // `now == NextFrame` 不进帧，一帧一次 `Process`，`Remove` 只发生在越过第 10 个
+    // 边界（Start+600）之后。这里逐边界 tick 采样，保留 570..=579 的覆盖。
+    let frame_ms = i64::try_from(HIT_EFFECT_FRAME_MS).expect("60 ms fits i64");
+    for frame in 1..HIT_EFFECT_FRAME_COUNT {
+        let now = arrival + i64::from(frame) * frame_ms + 1;
         sync_at(&mut ui, &snapshot, now);
         let index = ui.projectiles().hit_effects()[0].sprite_index(now);
         assert_eq!(
             index,
-            HIT_EFFECT_BASE_INDEX + step,
-            "impact frame {step} must be 570 + {step}"
+            HIT_EFFECT_BASE_INDEX + frame,
+            "impact frame {frame} must be 570 + {frame} after crossing its boundary"
         );
     }
-    sync_at(&mut ui, &snapshot, arrival + 599);
+    // 最后一个边界等号不进：elapsed 600 ms 仍画最后一帧 579，不得删除。
+    let last_boundary = arrival + i64::try_from(HIT_EFFECT_DURATION_MS).expect("600 ms fits i64");
+    sync_at(&mut ui, &snapshot, last_boundary);
     assert_eq!(
         ui.projectiles().hit_effects().len(),
         1,
-        "the ghost is still visible one millisecond before 600 ms"
+        "elapsed == {HIT_EFFECT_DURATION_MS} ms must not remove the ghost"
     );
-    sync_at(
-        &mut ui,
-        &snapshot,
-        arrival + i64::try_from(HIT_EFFECT_DURATION_MS).expect("600 ms fits i64"),
+    assert_eq!(
+        ui.projectiles().hit_effects()[0].sprite_index(last_boundary),
+        HIT_EFFECT_BASE_INDEX + HIT_EFFECT_FRAME_COUNT - 1,
+        "elapsed == 600 ms still draws the last impact frame (579)"
     );
+    // 越过最后一个边界 +1 ms 才 Remove。
+    sync_at(&mut ui, &snapshot, last_boundary + 1);
     assert!(
         ui.projectiles().hit_effects().is_empty(),
-        "the 570 ghost must be removed at exactly {HIT_EFFECT_DURATION_MS} ms"
+        "the 570 ghost is removed only after crossing the {HIT_EFFECT_DURATION_MS} ms boundary"
     );
 }
 
@@ -518,12 +526,31 @@ fn each_projectile_plays_its_spawn_and_hit_cue_exactly_once() {
     );
     assert_eq!(ui.projectiles().hit_effects().len(), 2);
 
-    // 残影到期后只剩音效证据，不重复生成。
-    sync_at(
-        &mut ui,
-        &snapshot,
-        START_MS + 249 + i64::try_from(HIT_EFFECT_DURATION_MS).expect("600 ms fits i64"),
+    // R63 G1 supersede：严格 `NextFrame` 下每次 sync 至多推进一帧，大跳不追补。
+    // 先把十个命中帧逐边界走完（等号不进，所以越过边界取 +1 ms），最后边界
+    // elapsed 600 ms 仍是等号、不删除；越过它 +1 ms 才 Remove。
+    let arrival = START_MS + 249;
+    let frame_ms = i64::try_from(HIT_EFFECT_FRAME_MS).expect("60 ms fits i64");
+    for frame in 1..HIT_EFFECT_FRAME_COUNT {
+        sync_at(
+            &mut ui,
+            &snapshot,
+            arrival + i64::from(frame) * frame_ms + 1,
+        );
+    }
+    let last_boundary = arrival + i64::try_from(HIT_EFFECT_DURATION_MS).expect("600 ms fits i64");
+    sync_at(&mut ui, &snapshot, last_boundary);
+    assert_eq!(
+        ui.projectiles().hit_effects().len(),
+        2,
+        "elapsed == {HIT_EFFECT_DURATION_MS} ms must not remove the ghosts"
     );
+    assert_eq!(
+        ui.projectiles().hit_effects()[0].sprite_index(last_boundary),
+        HIT_EFFECT_BASE_INDEX + HIT_EFFECT_FRAME_COUNT - 1,
+        "elapsed == 600 ms still draws the last impact frame (579)"
+    );
+    sync_at(&mut ui, &snapshot, last_boundary + 1);
     assert!(ui.projectiles().hit_effects().is_empty());
     assert!(ui.take_projectile_sound_cues().is_empty());
 }

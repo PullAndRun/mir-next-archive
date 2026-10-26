@@ -77,8 +77,9 @@
 //!   测试里可显式赋值。
 //!
 //! * 命中 570 特效缺素材时由 `scene.draw_effect` 静默跳过（返回 `false`，不 panic、
-//!   不画占位块）；「逻辑错」与「缺素材」的区分：帧号/时序由 [`hit_effect_index`]
-//!   的单测钉死，素材是否齐备由 D4 的素材用例单独判定（`game-assets/` 不入库）。
+//!   不画占位块）；「逻辑错」与「缺素材」的区分：帧号/时序由
+//!   [`HitEffectView::advance_clock`] 的严格时钟固定预期表单测钉死（R63 G1），素材
+//!   是否齐备由 D4 的素材用例单独判定（`game-assets/` 不入库）。
 //! * G4 只做到「何时播什么文件」的纯数据层：文件名映射在 `mir_render::sound`，
 //!   播放端由 [`ProjectileSoundSink`] 注入。生产路径把 cue 记进 [`RecordingSoundSink`]
 //!   （[`Projectiles::take_sound_cues`]）；接 `app.rs` 的真实播放不在 R59 D2 写范围，
@@ -219,13 +220,16 @@ pub fn sprite_index(frame: u32, dir16: u8) -> u32 {
     BASE_INDEX + (frame % FRAME_COUNT) + u32::from(dir16.min(DIRECTIONS - 1)) * DIRECTION_STRIDE
 }
 
-/// 命中特效在 `magic.wzl` 的帧号：`570 + (elapsed_ms / 60) % 10`。
+/// 命中特效在 `magic.wzl` 的帧号（R59 elapsed 公式）：`570 + (elapsed_ms / 60) % 10`。
 ///
 /// Crystal `Effect.cs:53` 每帧 `Duration / Count = 600 / 10 = 60ms` 把 `CurrentFrame`
 /// 加一，`Effect.cs:128`（基类 `Draw`）直接画 `BaseIndex + CurrentFrame`，所以 10 帧
-/// 依次是 `570..=579`。`Effect.Process` 在 `CurrentFrame >= Count` 时删除，
-/// 调用方应先过滤 [`HitEffectView::finished`]；这里的取模只为让公式本身对超时值
-/// 仍落在 `570..=579`。
+/// 依次是 `570..=579`。
+///
+/// **历史兼容**：R63 G1 起 [`HitEffectView`] 用严格 `NextFrame` 状态时钟
+/// （[`HitEffectView::advance_clock`]）推进 `frame`，生产路径**不再**用 elapsed 反推
+/// 帧号或删除时机；本函数仅作离线历史 helper（旧证据/公式测试）保留，不得用于决定
+/// `HitEffectView` 的帧号或生命周期。
 #[must_use]
 pub fn hit_effect_index(elapsed_ms: u64) -> u32 {
     HIT_EFFECT_BASE_INDEX
@@ -363,9 +367,10 @@ impl ProjectileView {
 /// 一个正在播放的命中特效（Crystal `Effect` 的 `Owner` 形态子集）。
 ///
 /// `GameScene.cs:4708` 的 `new Effect(Libraries.Magic, 570, 10, 600, sender.Target)`
-/// 走 `Effect.cs:81-88` 的 `owner` 构造函数：`Owner = Target`、`Source = Owner.CurrentLocation`，
-/// 基类 `Draw` 在 `Owner != null` 时每帧取 `Owner.DrawLocation`（`Effect.cs:117-119`），
-/// 所以本结构每帧重取目标当前位置。
+/// 走 `Effect.cs:38-48,81-96` 的 `owner` 构造函数：`Owner = Target`、
+/// `Source = Owner.CurrentLocation`，基类 `Draw` 在 `Owner != null` 时每帧取
+/// `Owner.DrawLocation`（`Effect.cs:117-119`），所以本结构每帧重取目标当前位置。
+/// 帧号走严格 `NextFrame` 状态时钟（R63 G1），不再由 elapsed 反推。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HitEffectView {
     /// 目标对象 ID（每帧用它重取当前位置）。
@@ -374,26 +379,87 @@ pub struct HitEffectView {
     pub position: Point,
     /// 起始时刻（Unix 毫秒）= 投射物删除（到达）时刻（Crystal `Effect.Start`）。
     pub started_ms: i64,
+    /// 当前帧号（0..[`HIT_EFFECT_FRAME_COUNT`]；`Effect.cs:128` 画 `BaseIndex + CurrentFrame`）。
+    pub frame: u32,
+    /// 下一个帧边界（Unix 毫秒；Crystal `Effect.NextFrame`，`Effect.cs:46`/`:96`）。
+    ///
+    /// 帧号**只由这个状态机推进**：`now <= next_frame_ms` 保持旧帧，越过才前进一步。
+    pub next_frame_ms: i64,
+    /// 上一次时钟步进的时刻（同刻重复 `sync` 不重复推进；Crystal 每循环只 `Process` 一次）。
+    pub last_tick_ms: i64,
+    /// `Owner.SkipFrames` 等价位（Crystal `Effect.cs:83`）：到期时额外前进一帧。
+    ///
+    /// 生产路径经 [`owner_skip_frames`] 固定取 `false`；测试可注入 `true`。
+    pub skip_frames: bool,
 }
 
 impl HitEffectView {
-    /// 已播放的毫秒数（时钟回退/负差值按 0）。
+    /// 生成一个 570 命中特效视图（Crystal `Effect.cs:38-48,81-96`）。
+    ///
+    /// `Duration = 600`、`Count = 10` → 每帧 60ms，
+    /// `NextFrame = Start + (Duration/Count) * (CurrentFrame + 1) = Start + 60`。
+    #[must_use]
+    pub fn new(target_id: u32, position: Point, started_ms: i64) -> Self {
+        Self {
+            target_id,
+            position,
+            started_ms,
+            frame: 0,
+            next_frame_ms: next_frame_after(started_ms, HIT_EFFECT_FRAME_MS, 0),
+            last_tick_ms: started_ms,
+            skip_frames: false,
+        }
+    }
+
+    /// 已播放的毫秒数（离线诊断用；**不参与**帧号/删除判定）。
     #[must_use]
     pub fn elapsed_ms(&self, now_ms: i64) -> u64 {
         u64::try_from(now_ms.saturating_sub(self.started_ms).max(0)).unwrap_or(u64::MAX)
     }
 
-    /// 当前 `magic.wzl` 帧号（`570..=579`）。
+    /// 当前 `magic.wzl` 帧号：`570 + frame`（`Effect.cs:128` 的 `BaseIndex + CurrentFrame`）。
+    ///
+    /// 参数只为兼容旧签名保留，**已不参与帧号计算**；绘制查询是纯读，不推进时钟。
     #[must_use]
-    pub fn sprite_index(&self, now_ms: i64) -> u32 {
-        hit_effect_index(self.elapsed_ms(now_ms))
+    pub fn sprite_index(&self, _now_ms: i64) -> u32 {
+        HIT_EFFECT_BASE_INDEX.saturating_add(self.frame)
     }
 
     /// 是否播完（`Effect.Process` 在 `CurrentFrame >= Count` 时 `Remove`，
     /// `Effect.cs:91-106`）。
+    ///
+    /// 参数只为兼容旧签名保留，**已不参与删除判定**。
     #[must_use]
-    pub fn finished(&self, now_ms: i64) -> bool {
-        self.elapsed_ms(now_ms) >= HIT_EFFECT_DURATION_MS
+    pub fn finished(&self, _now_ms: i64) -> bool {
+        self.frame >= HIT_EFFECT_FRAME_COUNT
+    }
+
+    /// 一次严格 `NextFrame` 时钟步进（Crystal `Effect.Process`，`Effect.cs:81-96`）。
+    ///
+    /// * `now <= next_frame_ms` 时保持旧帧（等号不进，`:81`）；
+    /// * 到期先按 `skip_frames` 额外 +1（`:83`），再普通 +1（`:85`）；
+    /// * 前进后 `frame >= 10` 返回 `true`（Crystal `Remove()`，由调用方删除）；
+    /// * 否则按新帧号重算 `next_frame_ms`（`:96`）；
+    /// * 同一时刻重复调用不推进（`last_tick_ms` 守卫：Crystal 每帧只 `Process` 一次）；
+    /// * 时钟回退（`now < last_tick_ms`）不推进；早于 `started_ms` 由 `now <= next` 挡住。
+    ///
+    /// 大时间跳跃**不逐帧追补**：一次步进至多前进一帧（`skip_frames` 时至多两帧）。
+    pub fn advance_clock(&mut self, now_ms: i64) -> bool {
+        if now_ms <= self.next_frame_ms || now_ms <= self.last_tick_ms {
+            return false;
+        }
+        self.last_tick_ms = now_ms;
+        let mut frame = self.frame;
+        if self.skip_frames {
+            frame = frame.saturating_add(1);
+        }
+        frame = frame.saturating_add(1);
+        if frame >= HIT_EFFECT_FRAME_COUNT {
+            return true;
+        }
+        self.frame = frame;
+        self.next_frame_ms = next_frame_after(self.started_ms, HIT_EFFECT_FRAME_MS, frame);
+        false
     }
 }
 
@@ -624,21 +690,21 @@ impl Projectiles {
     ) {
         let events = &snapshot.projectile_events;
         let len = events.len();
-        // 每帧刷新可信位置缓存（C2）：快照里出现的对象以本帧位置为准，消失后保留
-        // 最后一次见到的位置，供后续 125 兜底（Crystal `TargetPoint` 同类语义）。
-        for entity in snapshot.entities.values() {
-            self.known_positions
-                .insert(entity.object_id, entity.position);
-        }
         let generation = snapshot.session_generation;
         if generation != self.generation {
             if len == 0 && snapshot.projectile_events_total == 0 {
                 // 新会话还没有事件（重连后的首个空快照）：等首批载荷再复位，
-                // 避免同一代被空快照反复复位。
+                // 避免同一代被空快照反复复位；但本帧可见位置仍可进缓存（R63 G2）。
+                self.cache_visible_entities(snapshot);
                 return;
             }
+            // 跨代复位必须先于本帧缓存填充（R63 G2）：否则 reset 会把新代首批
+            // 可见但未被 spawn 引用的对象位置清掉，后续同代 125 丢事件。
             self.reset_for_new_generation(generation);
         }
+        // 每帧刷新可信位置缓存（C2）：快照里出现的对象以本帧位置为准，消失后保留
+        // 最后一次见到的位置，供后续 125 兜底（Crystal `TargetPoint` 同类语义）。
+        self.cache_visible_entities(snapshot);
         let dropped = snapshot
             .projectile_events_total
             .saturating_sub(u64::try_from(len).unwrap_or(u64::MAX));
@@ -663,6 +729,14 @@ impl Projectiles {
         }
         // 被丢弃但未消费的事件同样计入游标，避免下次按旧下标重复结算。
         self.consumed = usize::try_from(cursor).unwrap_or(usize::MAX);
+    }
+
+    /// 用本帧快照里可见的实体刷新可信位置缓存（C2）。
+    fn cache_visible_entities(&mut self, snapshot: &WorldSnapshot) {
+        for entity in snapshot.entities.values() {
+            self.known_positions
+                .insert(entity.object_id, entity.position);
+        }
     }
 
     /// 新会话复位（R62 C4）：清在飞实体、命中特效、目标位置缓存并把游标归零。
@@ -770,11 +844,11 @@ impl Projectiles {
             // 生成 570 命中特效 + 命中音效；死目标/未知目标零命中（C2）。
             if let Some(position) = hit_target_position(snapshot, view.destination_id) {
                 self.known_positions.insert(view.destination_id, position);
-                self.hit_effects.push(HitEffectView {
-                    target_id: view.destination_id,
-                    position,
-                    started_ms: now_ms,
-                });
+                let mut effect = HitEffectView::new(view.destination_id, position, now_ms);
+                // Crystal `Effect.cs:83` 的 `Owner.SkipFrames`：命中特效的 Owner 是目标。
+                // 生产路径固定 false（PARTIAL 登记见 `owner_skip_frames`）。
+                effect.skip_frames = owner_skip_frames(snapshot, view.destination_id);
+                self.hit_effects.push(effect);
                 if let Some(file) = projectile_sound(view.spell, ProjectileSoundPhase::Hit) {
                     // Crystal `GameScene.cs:4709`：命中音与 570 特效同一时机。
                     sink.play(file);
@@ -784,7 +858,9 @@ impl Projectiles {
     }
 
     /// 推进命中特效：位置跟目标（Crystal `Effect.Draw` 用 `Owner.DrawLocation`），
-    /// 播满 [`HIT_EFFECT_DURATION_MS`] 后删除（`Effect.Process` 的 `Remove`）。
+    /// 帧号走严格 `NextFrame` 状态机，播满 10 帧后删除（`Effect.Process` 的 `Remove`）。
+    ///
+    /// 绘制查询（[`HitEffectView::sprite_index`]）是纯读，不参与推进。
     fn advance_hit_effects(&mut self, snapshot: &WorldSnapshot, now_ms: i64) {
         let mut cache_updates: Vec<(u32, Point)> = Vec::new();
         for effect in &mut self.hit_effects {
@@ -796,7 +872,10 @@ impl Projectiles {
         for (id, position) in cache_updates {
             self.known_positions.insert(id, position);
         }
-        self.hit_effects.retain(|effect| !effect.finished(now_ms));
+        // 严格状态时钟（R63 G1）：每次 `sync` 至多推进一帧（skip 时至多两帧），
+        // 同刻幂等；越过第 10 帧即 Remove。
+        self.hit_effects
+            .retain_mut(|effect| !effect.advance_clock(now_ms));
     }
 
     /// 画在飞投射物与命中特效：`FxKind::Magic` + `draw_effect`（缺素材时静默跳过）。
@@ -1163,14 +1242,28 @@ mod tests {
         assert_eq!(hit[0].target_id, 2);
         assert_eq!(hit[0].position, Point::new(15, 11));
         assert_eq!(hit[0].started_ms, arrival);
+        // 严格时钟（R63 G1）：帧号只由 `NextFrame` 状态机推进，绘制查询是纯读。
+        assert_eq!(hit[0].frame, 0);
         assert_eq!(hit[0].sprite_index(arrival), 570);
-        assert_eq!(hit[0].sprite_index(arrival + 60), 571);
-        assert_eq!(hit[0].sprite_index(arrival + 540), 579);
-        // 不到 600ms 不删除，满 600ms 删除。
+        assert_eq!(
+            hit[0].sprite_index(arrival + 540),
+            570,
+            "绘制查询不得推进时钟"
+        );
+        assert!(!hit[0].finished(arrival + 600));
+        // 大跳 599ms 只前进一步（不按 elapsed 追补），特效仍在。
         projectiles.sync(&snapshot, arrival + 599);
         assert_eq!(projectiles.hit_effects().len(), 1);
-        projectiles.sync(&snapshot, arrival + 600);
-        assert!(projectiles.hit_effects().is_empty());
+        assert_eq!(projectiles.hit_effects()[0].frame, 1);
+        // 严格时钟下逐边界推进，第 10 次越过帧边界才删除。
+        let mut now = arrival + 660;
+        let mut ticks = 0;
+        while !projectiles.hit_effects().is_empty() && ticks < 20 {
+            projectiles.sync(&snapshot, now);
+            now += 60;
+            ticks += 1;
+        }
+        assert!(projectiles.hit_effects().is_empty(), "10 帧播完即删除");
         assert_eq!(
             projectiles.sound_cues(),
             ["M34-1.wav", "M34-2.wav"].as_slice()
@@ -1672,5 +1765,211 @@ mod tests {
             1,
             "at most one frame per tick"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // R63 A (G1/G2)
+    // -----------------------------------------------------------------------
+
+    /// 红探针（R63 A）：现实现用 elapsed 反推帧号，一次 600ms 的 `sync` 会把 570 特效
+    /// 直接删掉；严格状态时钟下大跳至多前进一帧，特效必须仍在。
+    #[test]
+    fn round63_hit_elapsed_catch_up_is_gone_probe() {
+        // 零距离投射物：duration 0 / count 1，spawn 后下一个毫秒结算并挂命中特效。
+        let mut snapshot = snapshot_with(Point::new(10, 10), Point::new(10, 10));
+        snapshot.projectile_events.push(fire_bounce(1, 2));
+        let mut projectiles = Projectiles::default();
+        projectiles.sync(&snapshot, 1_000);
+        assert_eq!(projectiles.len(), 1);
+        projectiles.sync(&snapshot, 1_001);
+        assert_eq!(projectiles.hit_effects().len(), 1);
+        let started = projectiles.hit_effects()[0].started_ms;
+        assert_eq!(started, 1_001);
+        // 大跳 600ms：严格时钟只允许一次 `Process`（至多一帧），不得按 elapsed 删除。
+        projectiles.sync(&snapshot, started + 600);
+        assert_eq!(
+            projectiles.hit_effects().len(),
+            1,
+            "严格时钟：大跳不追补，不按 elapsed 删除命中特效"
+        );
+    }
+
+    /// R63 G1 固定预期表（Crystal `Effect.cs:38-48,81-96`）：`NextFrame = Start + 60*(Frame+1)`，
+    /// 等号不进、超出才 +1、第 10 次越过边界才 Remove。
+    #[test]
+    fn round63_hit_clock_strict_boundary_and_completion() {
+        let mut effect = HitEffectView::new(2, Point::new(15, 10), 1_000);
+        assert_eq!((effect.frame, effect.next_frame_ms), (0, 1_060));
+        assert!(!effect.advance_clock(1_060), "now <= NextFrame 保持旧帧");
+        assert_eq!((effect.frame, effect.sprite_index(1_060)), (0, 570));
+        assert!(!effect.advance_clock(1_061));
+        assert_eq!((effect.frame, effect.sprite_index(1_061)), (1, 571));
+        assert!(!effect.advance_clock(1_061), "同刻重复不推进");
+        assert_eq!(
+            (effect.frame, effect.next_frame_ms),
+            (1, 1_120),
+            "NextFrame = Start + 60*(Frame+1)"
+        );
+        assert!(!effect.advance_clock(1_120), "等号不进");
+        assert_eq!((effect.frame, effect.sprite_index(1_120)), (1, 571));
+        assert!(!effect.advance_clock(1_121));
+        assert_eq!((effect.frame, effect.sprite_index(1_121)), (2, 572));
+        // 逐边界推进到最后一帧 9（579），下一个边界 1600。
+        let mut now = 1_121;
+        while effect.frame < 9 {
+            now += 60;
+            assert!(!effect.advance_clock(now), "frame {now} 仍在播");
+        }
+        assert_eq!((now, effect.frame, effect.next_frame_ms), (1_541, 9, 1_600));
+        assert_eq!(effect.sprite_index(1_541), 579);
+        assert!(!effect.advance_clock(1_600), "1600 等号不进");
+        assert_eq!((effect.frame, effect.sprite_index(1_600)), (9, 579));
+        assert!(!effect.finished(1_600));
+        assert!(effect.advance_clock(1_601), "1601 越过最后边界 → Remove");
+        assert!(!effect.advance_clock(1_601), "同刻只删除一次");
+        assert_eq!(effect.frame, 9, "删除前不写入越界帧号");
+        assert!(
+            !effect.finished(1_601),
+            "未写入越界帧号，生命周期由 advance_clock 返回决定"
+        );
+    }
+
+    /// R63 G1：大跳只前进一帧、不追补 elapsed；同刻重复 sync 不再进；绘制查询纯读。
+    #[test]
+    fn round63_hit_large_jump_advances_once_and_draw_is_pure() {
+        let mut effect = HitEffectView::new(2, Point::new(15, 10), 1_000);
+        assert!(!effect.advance_clock(11_000), "大跳只前进一帧");
+        assert_eq!((effect.frame, effect.next_frame_ms), (1, 1_120));
+        // 同刻重复 sync：不再推进。
+        assert!(!effect.advance_clock(11_000));
+        assert_eq!(effect.frame, 1);
+        // 连续绘制查询是纯读：不推进时钟、不改变帧号。
+        for _ in 0..5 {
+            assert_eq!(effect.sprite_index(11_000), 571);
+            assert_eq!(effect.sprite_index(200_000), 571);
+            assert!(!effect.finished(200_000));
+        }
+        assert_eq!(
+            (effect.frame, effect.next_frame_ms, effect.last_tick_ms),
+            (1, 1_120, 11_000)
+        );
+        // 下一毫秒（> last_tick 且 > next）再进一帧，仍不补其它边界。
+        assert!(!effect.advance_clock(11_001));
+        assert_eq!((effect.frame, effect.next_frame_ms), (2, 1_180));
+    }
+
+    /// R63 G1：`SkipFrames` 到期先额外 +1 再普通 +1（Effect.cs:83-85）；到/越过 10 恰移除。
+    #[test]
+    fn round63_hit_skip_adds_one_extra_frame() {
+        let mut skip = HitEffectView::new(2, Point::new(15, 10), 1_000);
+        skip.skip_frames = true;
+        assert!(!skip.advance_clock(1_060), "未到边界不推进");
+        assert_eq!(skip.frame, 0);
+        assert!(!skip.advance_clock(1_061));
+        assert_eq!((skip.frame, skip.next_frame_ms), (2, 1_180));
+        assert!(!skip.advance_clock(1_061), "同刻不再进");
+        assert_eq!(skip.frame, 2);
+        // 非 skip 同一时刻只 +1（对照）。
+        let mut plain = HitEffectView::new(2, Point::new(15, 10), 1_000);
+        assert!(!plain.advance_clock(1_061));
+        assert_eq!((plain.frame, plain.next_frame_ms), (1, 1_120));
+        // skip 逐边界 2 → 4 → 6 → 8，下一次越过 +2 >= 10 恰好移除一次。
+        for now in [1_181_i64, 1_301, 1_421] {
+            assert!(!skip.advance_clock(now), "frame 4/6/8 仍在播");
+        }
+        assert_eq!((skip.frame, skip.next_frame_ms), (8, 1_540));
+        assert!(skip.advance_clock(1_541), "8 + 2 >= 10 → Remove");
+        assert!(!skip.advance_clock(1_541), "同刻只移除一次");
+        assert_eq!(skip.frame, 8, "删除前不写入越界帧号");
+    }
+
+    /// R63 G1：时钟回退/同刻为 no-op（不推进），之后有效 tick 可继续。
+    #[test]
+    fn round63_hit_clock_rollback_is_noop() {
+        let mut effect = HitEffectView::new(2, Point::new(15, 10), 1_000);
+        assert!(!effect.advance_clock(900), "早于 started：不推进");
+        assert_eq!((effect.frame, effect.last_tick_ms), (0, 1_000));
+        assert!(!effect.advance_clock(1_061));
+        assert_eq!((effect.frame, effect.last_tick_ms), (1, 1_061));
+        // 回退与同刻都不进。
+        assert!(!effect.advance_clock(1_100));
+        assert!(!effect.advance_clock(1_061));
+        assert_eq!(
+            (effect.frame, effect.next_frame_ms, effect.last_tick_ms),
+            (1, 1_120, 1_061)
+        );
+        // 之后的有效 tick 可以继续。
+        assert!(!effect.advance_clock(1_121));
+        assert_eq!((effect.frame, effect.next_frame_ms), (2, 1_180));
+    }
+
+    fn test_entity(id: u32, position: Point) -> WorldEntity {
+        WorldEntity::new(
+            id,
+            EntityKind::Monster,
+            format!("object-{id}"),
+            position,
+            MirDirection::Right,
+            0,
+        )
+    }
+
+    /// R63 G2：新代号首批载荷里「可见但未被 spawn 引用」的对象位置必须留在缓存里，
+    /// 供后续同代 125 在对象缺席时兜底；复位必须清旧代号缓存（不复活 99）。
+    #[test]
+    fn round63_first_payload_positions_survive_generation_reset() {
+        let mut projectiles = Projectiles::default();
+        let mut sink = FakeSink::default();
+        // 旧代号（0）：只把 99 的位置写进缓存，没有事件。
+        let mut old = WorldSnapshot::default();
+        old.entities.insert(99, test_entity(99, Point::new(5, 5)));
+        projectiles.sync_with_sink(&old, 1_000, &mut sink);
+        assert!(projectiles.is_empty());
+        // 新代号首批非空载荷：7/8/9 可见，125 只打 8（9 未被 spawn 引用）。
+        let mut first = WorldSnapshot {
+            session_generation: 1,
+            ..WorldSnapshot::default()
+        };
+        first.entities.insert(7, test_entity(7, Point::new(10, 10)));
+        first.entities.insert(8, test_entity(8, Point::new(20, 20)));
+        first.entities.insert(9, test_entity(9, Point::new(30, 30)));
+        first.projectile_events.push(fire_bounce(7, 8));
+        first.projectile_events_total = 1;
+        projectiles.sync_with_sink(&first, 1_100, &mut sink);
+        assert_eq!(projectiles.views().len(), 1);
+        assert_eq!(projectiles.views()[0].destination, Point::new(20, 20));
+        // 下一同代快照：9 已不在可见集合，新 125 打 9 → 必须用首批缓存位置生成。
+        let mut second = WorldSnapshot {
+            session_generation: 1,
+            ..WorldSnapshot::default()
+        };
+        second
+            .entities
+            .insert(7, test_entity(7, Point::new(10, 10)));
+        second
+            .entities
+            .insert(8, test_entity(8, Point::new(20, 20)));
+        second.projectile_events.push(fire_bounce(7, 8));
+        second.projectile_events.push(fire_bounce(8, 9));
+        second.projectile_events_total = 2;
+        projectiles.sync_with_sink(&second, 1_200, &mut sink);
+        assert_eq!(
+            projectiles.views().len(),
+            2,
+            "首批可见但未被 spawn 引用的 9 必须保留位置缓存"
+        );
+        let hit9 = projectiles.views()[1];
+        assert_eq!(hit9.destination_id, 9);
+        assert_eq!(hit9.destination, Point::new(30, 30));
+        // 复位清掉旧代号缓存：旧代见过的 99 不复活（否则会多生成一个 view）。
+        second.projectile_events.push(fire_bounce(8, 99));
+        second.projectile_events_total = 3;
+        projectiles.sync_with_sink(&second, 1_300, &mut sink);
+        assert_eq!(
+            projectiles.views().len(),
+            2,
+            "旧代号缓存必须在 reset 中清掉，99 不得复活"
+        );
+        assert_eq!(projectiles.events_consumed(), 3, "未生成的事件仍计入游标");
     }
 }

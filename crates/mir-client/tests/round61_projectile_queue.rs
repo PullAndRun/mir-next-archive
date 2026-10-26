@@ -42,7 +42,10 @@
 
 use mir_client::net::{ProjectileEvent, WorldSnapshot};
 use mir_client::ui::UiState;
-use mir_client::ui::projectile::{HIT_EFFECT_DURATION_MS, duration_ms, frame_count};
+use mir_client::ui::projectile::{
+    HIT_EFFECT_BASE_INDEX, HIT_EFFECT_DURATION_MS, HIT_EFFECT_FRAME_COUNT, HIT_EFFECT_FRAME_MS,
+    duration_ms, frame_count,
+};
 use mir_core::Language;
 use mir_core::Point;
 use mir_core::enums::{MirDirection, Monster, Spell};
@@ -325,12 +328,28 @@ fn run_projectile_backlog_gate(n: usize, mode: BacklogMode) {
         "a repeated arrival sync must not spawn a second impact"
     );
 
-    // The impact walks 600 ms (`GameScene.cs:4708`) and then disappears.
+    // R63 G1 supersede：严格 `NextFrame` 下每次 sync 至多推进一帧，大跳不追补；
+    // 先把十个命中帧逐边界走完，elapsed 600 ms 是最后一个边界等号、不删除，
+    // 越过它 +1 ms 才 `Remove`（旧「满 600 ms 删除」断言不再语义有效）。
+    let frame_ms = i64::try_from(HIT_EFFECT_FRAME_MS).expect("60 ms fits i64");
+    for frame in 1..HIT_EFFECT_FRAME_COUNT {
+        sync_at(
+            &mut ui,
+            &snapshot,
+            arrival + i64::from(frame) * frame_ms + 1,
+        );
+    }
     let impact_end = arrival + i64::try_from(HIT_EFFECT_DURATION_MS).expect("600 ms fits i64");
     sync_at(&mut ui, &snapshot, impact_end);
+    assert_eq!(
+        ui.projectiles().hit_effects().len(),
+        n,
+        "elapsed == {HIT_EFFECT_DURATION_MS} ms must not expire the impacts"
+    );
+    sync_at(&mut ui, &snapshot, impact_end + 1);
     assert!(
         ui.projectiles().hit_effects().is_empty(),
-        "impacts must expire after {HIT_EFFECT_DURATION_MS} ms"
+        "impacts must expire only after crossing {HIT_EFFECT_DURATION_MS} ms"
     );
 }
 
@@ -683,7 +702,28 @@ fn arrival_settles_exactly_once_across_repeated_syncs() {
     assert!(ui.take_projectile_sound_cues().is_empty());
     assert_eq!(ui.projectiles().hit_effects().len(), 1);
 
+    // R63 G1 supersede：严格 `NextFrame` 每 tick 至多一帧，大跳不追补——先把命中序列
+    // 逐边界走完；elapsed 600 ms 等号不进、不删除；越过 +1 ms 才 `Remove`。
+    let frame_ms = i64::try_from(HIT_EFFECT_FRAME_MS).expect("60 ms fits i64");
+    for frame in 1..HIT_EFFECT_FRAME_COUNT {
+        sync_at(
+            &mut ui,
+            &snapshot,
+            arrival + i64::from(frame) * frame_ms + 1,
+        );
+    }
     sync_at(&mut ui, &snapshot, arrival + 600);
+    assert_eq!(
+        ui.projectiles().hit_effects().len(),
+        1,
+        "elapsed == 600 ms must keep the last impact frame"
+    );
+    assert_eq!(
+        ui.projectiles().hit_effects()[0].sprite_index(arrival + 600),
+        HIT_EFFECT_BASE_INDEX + HIT_EFFECT_FRAME_COUNT - 1,
+        "elapsed == 600 ms still draws the last impact frame (579)"
+    );
+    sync_at(&mut ui, &snapshot, arrival + 601);
     assert!(ui.projectiles().hit_effects().is_empty());
     assert!(ui.take_projectile_sound_cues().is_empty());
 }

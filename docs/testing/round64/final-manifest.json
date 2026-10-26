@@ -1,0 +1,151 @@
+{
+  "schema": 1,
+  "gate_head": "063c6f6",
+  "stage": "门禁通过；独立复跑绿；终审待刑部/尚书/门下，未 PASS",
+  "gate": {
+    "head": "063c6f609e2ee61fc4d3cd8c5d322dcc32c49ce2",
+    "exit": 0,
+    "log_bytes": 205352,
+    "log_sha256": "3e228cef3ce730eac76ce936679b8557308d8d4f20ed1d766dbfb7a0b92b2604",
+    "utc_start": "2026-10-26T17:31:43Z",
+    "utc_end": "2026-10-26T17:35:16Z"
+  },
+  "artifacts": [
+    {
+      "path": "docs/testing/round64/README.md",
+      "size": 5331,
+      "lines": 58,
+      "sha256": "b0c22f6f685d80411b7fbd66c376af07849d641a973fe881c254096ddfe06bd5",
+      "git_blob_sha256": null,
+      "tracked": false
+    },
+    {
+      "path": "docs/testing/round64/run-checks.sh",
+      "size": 7651,
+      "lines": 76,
+      "sha256": "fd50e85f2ce331cc66d367b143fb3ee985e0a7a494fc1167504a6b8a95c601a5",
+      "git_blob_sha256": null,
+      "tracked": false
+    },
+    {
+      "path": "docs/testing/round64/gen-tree-hashes.sh",
+      "size": 899,
+      "lines": 18,
+      "sha256": "e895a36a56e73641df58e8110c6ee17f9949da4875976ecc950902e0e7b54dcf",
+      "git_blob_sha256": null,
+      "tracked": false
+    },
+    {
+      "path": "docs/testing/round64/commit-tree-hashes.txt",
+      "size": 729,
+      "lines": 8,
+      "sha256": "802a11ec2d5e8f28ea729fec85a837f3366e229f637a2495f8b9fb02711710e1",
+      "git_blob_sha256": null,
+      "tracked": false
+    },
+    {
+      "path": "docs/testing/round64/round64-c-evidence.md",
+      "size": 8780,
+      "lines": 85,
+      "sha256": "30d08ae3c6457417b08c788e4102a6bf2b4d474325e7cefbef7abdcabbc9f416",
+      "git_blob_sha256": null,
+      "tracked": false
+    },
+    {
+      "path": "target/round64/gate/attempt-1.log",
+      "size": 205352,
+      "lines": 3520,
+      "sha256": "3e228cef3ce730eac76ce936679b8557308d8d4f20ed1d766dbfb7a0b92b2604",
+      "git_blob_sha256": null,
+      "tracked": false
+    },
+    {
+      "path": "target/round64/gate/attempt-1.meta.txt",
+      "size": 404,
+      "lines": 12,
+      "sha256": "3a128b0c87c82fef755bf268630cb203032c72929d78694d0e67f02d4ef74abb",
+      "git_blob_sha256": null,
+      "tracked": false
+    },
+    {
+      "path": "crates/mir-client/src/net.rs",
+      "size": 382061,
+      "lines": 9366,
+      "sha256": "3f8046bdb5fa1d179d8d111a05f311d16dada9c239951f32e7583456e2277825",
+      "git_blob_sha256": "3f8046bdb5fa1d179d8d111a05f311d16dada9c239951f32e7583456e2277825",
+      "tracked": true
+    },
+    {
+      "path": "crates/mir-client/src/app.rs",
+      "size": 175217,
+      "lines": 4306,
+      "sha256": "a0c746e989cfa39e8479b5c0f27906caff30e225da78faa0c059542f059edf8f",
+      "git_blob_sha256": "a0c746e989cfa39e8479b5c0f27906caff30e225da78faa0c059542f059edf8f",
+      "tracked": true
+    },
+    {
+      "path": "crates/mir-client/src/ui/projectile.rs",
+      "size": 98976,
+      "lines": 2080,
+      "sha256": "b82950a5ef521c75f82a5348e26a18d95b78b09c5624bb7645a041f46df5f9ce",
+      "git_blob_sha256": "b82950a5ef521c75f82a5348e26a18d95b78b09c5624bb7645a041f46df5f9ce",
+      "tracked": true
+    },
+    {
+      "path": "crates/mir-client/tests/round64_event_reclaim.rs",
+      "size": 4967,
+      "lines": 126,
+      "sha256": "9a3e831409c8fead15df4932a3af0d746af4daebfc2b871b0d3d8c8b8c889d05",
+      "git_blob_sha256": "9a3e831409c8fead15df4932a3af0d746af4daebfc2b871b0d3d8c8b8c889d05",
+      "tracked": true
+    },
+    {
+      "path": "crates/mir-client/tests/round64_projectile_ack.rs",
+      "size": 9152,
+      "lines": 231,
+      "sha256": "b57c6318f4bdc78940d2502847ac24cb8787259bfb8d05710a75b05da3b7d5dd",
+      "git_blob_sha256": "b57c6318f4bdc78940d2502847ac24cb8787259bfb8d05710a75b05da3b7d5dd",
+      "tracked": true
+    },
+    {
+      "path": "docs/client.md",
+      "size": 175986,
+      "lines": 2224,
+      "sha256": "10d84d4b2c3b46add9c19b4448bcea87c36d1d3580777c410dbb248fdb614624",
+      "git_blob_sha256": "68cf2a8a86797d026cbe97be414d017ed2051b831664eec4ad57ac2c93036a4d",
+      "tracked": true
+    },
+    {
+      "path": "docs/roadmap.md",
+      "size": 34184,
+      "lines": 251,
+      "sha256": "8dcce9064966a5f3a601520d659aa869e06f271f1d61fa9f4ab613aa6f12ed85",
+      "git_blob_sha256": "4a1984d2df4e7330d71205c5a5d27126f784d60484d88dd1e34548175e15f2bf",
+      "tracked": true
+    },
+    {
+      "path": "docs/process/round64-plan.md",
+      "size": 11305,
+      "lines": 99,
+      "sha256": "ca4ba4aae7b8c06909478ede091e4e9b0f9130d0c120b6e36074154c6a3e454c",
+      "git_blob_sha256": null,
+      "tracked": false
+    },
+    {
+      "path": "docs/process/round64-menxia-review.md",
+      "size": 7437,
+      "lines": 59,
+      "sha256": "67b0922ab31b4066b50cf6f77357a481ab2ad088045642addd29e7d5ea8faed1",
+      "git_blob_sha256": null,
+      "tracked": false
+    },
+    {
+      "path": "docs/process/round64-shangshu-dispatch.md",
+      "size": 6340,
+      "lines": 43,
+      "sha256": "d6b87a69d58e20241cbb01a4325c72a7e44a7fe23fead1a56958ca746de85d7a",
+      "git_blob_sha256": null,
+      "tracked": false
+    }
+  ]
+}

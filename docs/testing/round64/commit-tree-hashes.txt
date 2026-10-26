@@ -1,0 +1,8 @@
+3f8046bdb5fa1d179d8d111a05f311d16dada9c239951f32e7583456e2277825  crates/mir-client/src/net.rs
+a0c746e989cfa39e8479b5c0f27906caff30e225da78faa0c059542f059edf8f  crates/mir-client/src/app.rs
+b82950a5ef521c75f82a5348e26a18d95b78b09c5624bb7645a041f46df5f9ce  crates/mir-client/src/ui/projectile.rs
+9a3e831409c8fead15df4932a3af0d746af4daebfc2b871b0d3d8c8b8c889d05  crates/mir-client/tests/round64_event_reclaim.rs
+b57c6318f4bdc78940d2502847ac24cb8787259bfb8d05710a75b05da3b7d5dd  crates/mir-client/tests/round64_projectile_ack.rs
+68cf2a8a86797d026cbe97be414d017ed2051b831664eec4ad57ac2c93036a4d  docs/client.md
+4a1984d2df4e7330d71205c5a5d27126f784d60484d88dd1e34548175e15f2bf  docs/roadmap.md
+MISSING  docs/testing/round64/README.md

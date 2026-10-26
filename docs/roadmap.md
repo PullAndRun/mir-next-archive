@@ -233,13 +233,19 @@ R61 12 项 PARTIAL 按原编号承接，已证子项仅作进展，不整项清�
 
 本轮完成（限定交付）：G1 570 命中特效严格 NextFrame 时钟（对照 Crystal `Effect.cs:38-48,81-96`）；G2 `consume` 顺序 reset→cache→spawn，跨代首批 payload 位置先进缓存再 spawn。功能提交 `1fcf4fc`（5 文件 +874/−66），Lead 门禁 attempt-1 EXIT=0（12 项 OK / 0 FAIL，日志 `target/round63/gate/attempt-1.log`，sha256 `15adfa30…ac1656`）。新增 wire 测试 3 例，R59/R61/R62 的 elapsed 断言同步 supersede 为严格 NextFrame；红绿同一测试文件 SHA `6438cce…`（基线 `f80724e` exit 101：`round63_projectile_wire.rs:182` 571≠570、`:290` 1≠2），功能树 lib 24 / wire 3 / R59 16 / R61 11 / R62 5 与 clippy/fmt 全绿，C 独立复跑一致。PARTIAL 继续承接：生产 `SkipFrames`/ActionFeed 来源、命中后物理回收与事件表减容、`known_positions` 容量/LRU、570 素材（`game-assets/` 不入库）。刑部终审已完成（PASS-WITH-PARTIAL，报告 `docs/testing/round63/round63-final-audit.md`）；尚书验收进行中（S1 证据一致性已修正待复验）；门下确认尚未完成。本状态只指限定交付，不代替父任务独立结论；push 待 Lead 统一处理。详见 [R63 索引](testing/round63/README.md)。
 
-## 十三、第 64 轮（R64）候选
+## 十三、第 64 轮（R64）限定交付：门禁通过，终审未完成
 
-R63 已证子项只作进展，不整项清零（P01–P12 按原编号承接）。R64 候选按优先级：
+功能提交 `063c6f6`（5 文件 +905/−34）已提交并推送：投射物事件表本地确认水位与安全前缀裁剪。`AckProjectileEvents` 是进程内契约，wire 零改动，仅 app.rs 单消费者；水位按已确认条数计，0-based 下标到 1-based 事件序号的换算见 [client §5.31](client.md#531-投射物事件表本地确认水位与安全前缀裁剪r64)。
 
-1. **生产 `SkipFrames`/ActionFeed 接入**：把 Crystal `PlayerObject.cs:750,966-967` / `MonsterObject.cs:346,528-529` 的 ActionFeed 来源接到 `owner_skip_frames`，替换恒 false；随后补 570 严格时钟的生产来源测试。
-2. **命中后物理回收/事件表减容**：先定服务端回收协议与安全裁剪契约，再动 append-only 事件表；含 `known_positions` 容量上限/LRU。
-3. **550 场景**：下一批 get_effect 场景（承接 R60/R62 场景清单），仍按「素材不入库、边界记 PARTIAL」。
-4. **索敌切换**：目标切换时 TargetPoint/缓存与飞行参数更新的语义对齐。
-5. **掉落表 1..22 / 24-26 / 36-40**：按 Crystal 掉落配置逐表核对；event_add_type 与护身符 4/13/14/17 一并排期。
-6. **R63 收口**：刑部终审已完成（PASS-WITH-PARTIAL）；尚书 S1 证据一致性修正后复验定稿；门下确认与 push 由 Lead 统一收口。
+Lead 唯一门禁 attempt-1 在 `063c6f609e2ee61fc4d3cd8c5d322dcc32c49ce2` 上 EXIT=0、12/12 OK；C 独立复跑绿。阶段：**门禁通过；独立复跑绿；终审待刑部/尚书/门下，未 PASS**。F1/F3 CLOSED-with-comment-only，F2 证据补录，F4 由文档统一；交付、哈希和复跑见 [R64 索引](testing/round64/README.md)。本阶段不替代父任务独立终审。
+
+PARTIAL：多消费者/克隆快照全局最低水位未实现；事件表未限容、未确认 backlog 可增长；known_positions 容量/LRU 仅契约；服务端回收协议未做；定向绿不替代 Lead 全量门禁；R61/R62/R63 PARTIAL 按原编号承接，不整项清零。
+
+## 十四、第 65 轮（R65）候选
+
+1. 多消费者/克隆快照全局最低水位与消费生命周期契约。
+2. 事件表限容策略与未确认积压处理；known_positions 容量/LRU 另取依据，不发明 Crystal 常数。
+3. 服务端回收协议独立设计、评审与兼容验证。
+4. 生产 SkipFrames/ActionFeed 来源、570/550 动作与特效、目标切换及飞行参数更新。
+5. 掉落表 1..22 / 24-26 / 36-40、event_add_type 与护身符 4/13/14/17。
+6. 继续承接设备/Live 可听、素材与 R61 P01–P12 历史边界；各轮终审由对应责任链收口。

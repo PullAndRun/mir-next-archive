@@ -1367,6 +1367,17 @@ R63 功能提交 `1fcf4fc`（第 62 轮后首提交，父 `f80724e`；5 文件 +
 - **wire 测试**：新增 `crates/mir-client/tests/round63_projectile_wire.rs`（3 tests）。红→绿证据 `round63_projectile_wire.rs:182` 左 571/右 570（等号不进）、`:290` 左 1/右 2；红绿同一测试文件 SHA `6438cce…`，基线 `f80724e` 真红 exit 101，功能树 lib projectile 24、wire 3、R59 16、R61 11、R62 5、clippy 0、fmt 0 全绿。
 - **PARTIAL**：生产 `SkipFrames` 仍恒 false（Crystal `PlayerObject.cs:750,966-967` / `MonsterObject.cs:346,528-529` 的 ActionFeed 来源未接）；命中后物理回收/事件表减容未做；`known_positions` 无容量上限/LRU；570 素材属 `game-assets/`（被 `.gitignore` 忽略）**不入库**，素材与真实可听边界继续 PARTIAL。R63 整体只记 570 时钟与本条缓存顺序，不推导渲染/效果/音频完整。
 
+### 5.31 投射物事件表本地确认水位与安全前缀裁剪（R64）
+
+功能提交 `063c6f6`（5 文件 +905/−34）限定交付：`NetCommand::AckProjectileEvents{generation,through}` 是**本地确认水位（进程内，非 wire ack）**，`crates/mir-protocol` 零 diff。阶段为**门禁通过；独立复跑绿；终审待刑部/尚书/门下，未 PASS**；见 [R64 证据索引](testing/round64/README.md)。
+
+- **Crystal 对照**：`github/Crystal/Client/MirScenes/GameScene.cs:4687-4715` 与 `github/Crystal/Shared/ServerPackets.cs:3560-3578` 说明 125 投射物处理与包字段；本地水位是 Rust 生命周期契约，不能据此发明服务端确认或容量常数。
+- **Rust 锚点**：`crates/mir-client/src/net.rs:707/3030/3046/3070/4592` 分别覆盖命令、`reclaimed()`、前缀裁剪、代号校验与命令处理；`crates/mir-client/src/ui/projectile.rs:602` 的 `consumed_abs_seq()` 与 `watermark_generation()` 配对；`crates/mir-client/src/app.rs:210` 的 `next_projectile_ack` 只上报严格前进的非零水位，生产在 `poll_network` 收到快照后调用（`:2807`），没有独立定时器。
+- **F4 统一口径**：API 注释的 `reclaimed()+i` 是 `events[i]` 的 **0-based 绝对下标**；`through` / `consumed_abs_seq` 是 **1-based 已确认条数（水位）**。若把事件序号也按 1-based 计，`events[i].abs_seq = reclaimed()+i+1`（数学记号，非字段）。仅回收该序号 `<= through` 的前缀，即 0-based 下标 `< through`；例：`reclaimed=2, through=3` 只删下标 2 的一条。`total` 累计数不减，`total == len + reclaimed`；重复/滞后确认不回退，超尾夹取。
+- **隔代与无包**：generation 不等忽略；ack 分支在 `send` 前 `return`，stream 写入 0 字节；现有会话循环不改。
+
+PARTIAL 分列承接：①多消费者/克隆快照全局最低水位未实现，仅 app.rs 单消费者；②事件表未限容，未确认 backlog 仍可增长；③`known_positions` 容量/LRU 仅契约，Crystal 无容量依据；④服务端回收协议未做；⑤本地定向绿不等于全量门禁，门禁仅 Lead 执行；⑥R61/R62/R63 PARTIAL 原编号继续交接，动作/特效、设备可听与素材边界不清零。
+
 ### 6.0 真实素材渲染（第 6 轮）
 
 **数据目录**

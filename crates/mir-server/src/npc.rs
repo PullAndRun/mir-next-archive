@@ -11,6 +11,7 @@
 //! | [`World::repair_item`] | `PlayerObject.RepairItem`（`:8092-8160`） | 修 |
 //! | [`item_price`] / [`repair_price`] | `UserItem.Price` / `UserItem.RepairPrice`（`Shared/Data/ItemData.cs:516-563`） | 定价公式 |
 //! | [`World::map_entry_info`] | `PlayerObject.CheckMapInfo`（`:1009-1056`） | 进图时下发 `S.NewMapInfo`（含 `NPCs` 与 `Movements`） |
+//! | [`World::despawn_npc`] | `Map.RemoveObject`（`Server/MirEnvir/Map.cs:2375-2383`） | 运行期摘除 NPC + 关系清理（当前无生产调用者，见函数文档） |
 //!
 //! 脚本语法与条件/动作支持矩阵见 `docs/world/npc.md`；解析器本身在
 //! [`mir_db::npc_script`]（纯数据、无服务端依赖）。
@@ -671,6 +672,16 @@ impl World {
         self.npcs.iter().filter(|npc| npc.map == map).collect()
     }
 
+    /// 某张地图上、某个坐标附近 AOI 网格里的 NPC 对象 ID（测试/运维观察用）。
+    ///
+    /// 与 [`World::npcs_on`] 的区别：这里查的是 AOI 网格本身，用来验证 NPC
+    /// 刷出/回收后网格里有没有残留（等价 Crystal 逐格扫描 `Cell.Objects`）。
+    /// 当前无生产调用者，只给集成测试断言用。
+    #[must_use]
+    pub fn npc_ids_near(&self, map: &str, center: Point, radius: i32) -> Vec<u32> {
+        self.aoi_ids_in_radius(map, center, radius, crate::aoi::AoiKind::Npc)
+    }
+
     /// 按 `Server.MirDB` 的 NPC 表刷出某张地图的 NPC，返回新分配的对象 ID。
     ///
     /// 移植 `MapInfo.CreateMap`（`Server/MirDatabase/MapInfo.cs:197-215`）里
@@ -770,6 +781,61 @@ impl World {
         // AOI：NPC 是静态对象，刷出后不再移动（Crystal `Map.Load` 后只随地图销毁）。
         self.aoi_insert(map_file, object_id, crate::aoi::AoiKind::Npc, info.location);
         Some(object_id)
+    }
+
+    /// 把一个 NPC 从世界里摘掉并返回它；对象 ID 不在 [`World::npcs`] 里时返回 `None`。
+    ///
+    /// 逐句镜像 Crystal `Map.RemoveObject`（`Server/MirEnvir/Map.cs:2375-2383`）的
+    /// Merchant 分支：`:2378` 的 `NPCs.Remove((NPCObject)ob)` 对应容器摘除，
+    /// `:2382` 的 `GetCell(ob.CurrentLocation).Remove(ob)` 对应 AOI 网格摘除
+    /// （本作用 `World::aoi_remove` 代替 Crystal 的逐格 `Cell.Objects`）。
+    ///
+    /// 广播顺序照抄本作的两个同类模板：[`World::leave`]（`world.rs:1961-1980`，
+    /// 先 `S.ObjectRemove`、再 `aoi_remove`）与 `World::despawn_pets`
+    /// （`world.rs:4999-5010` → `forget_monster`，容器 `retain` 后再刷索引）。
+    /// 收包人取落点视野半径内的玩家，与 Crystal `MapObject.Despawn` 的
+    /// `Broadcast(S.ObjectRemove)`（`MapObject.cs:358-363` → `Map.Broadcast`，
+    /// `Map.cs:2437-2448`：发给 `DataRange` 内的**所有**玩家）一致，不按「看见过」过滤。
+    ///
+    /// 关系清理：把该对象 ID 从所有玩家的「已看见 NPC」集合
+    /// （`Player.visible_npcs`）里摘掉；正在和它对话的玩家退出对话
+    /// （[`NpcState::close`]），避免留下悬空的 `npc_object_id`。
+    ///
+    /// # 当前无生产调用者
+    ///
+    /// Crystal 服务端没有运行期回收 NPC 的调用点：`Map.RemoveObject` 里虽然有
+    /// `NPCs.Remove`，但所有调用者传的都是玩家/怪物/技能对象，没有一处是
+    /// `NPCObject`；`Envir.Remove(NPCInfo)` 只改数据库、没有服务端调用者。
+    /// 本函数是给后续「NPC 运行期回收」接线准备的原语，当前唯一调用者是
+    /// `crates/mir-server/tests/round55_npc_recycle.rs`。
+    pub fn despawn_npc(&mut self, object_id: u32) -> Option<Npc> {
+        let npc = self
+            .npcs
+            .iter()
+            .find(|npc| npc.object_id == object_id)?
+            .clone();
+        let removal = crate::world::object_remove_frame(object_id);
+        for player_id in self.aoi_ids_in_radius(
+            &npc.map,
+            npc.position,
+            crate::world::VIEW_RANGE,
+            crate::aoi::AoiKind::Player,
+        ) {
+            if let Some(player) = self.players.get(&player_id) {
+                let _ = player.sender.send(removal.clone());
+            }
+        }
+        self.aoi_remove(&npc.map, crate::aoi::AoiKind::Npc, object_id);
+        self.npcs.retain(|npc| npc.object_id != object_id);
+        // 关系清理：本作没有 Crystal 的 `Player.NPC` 字段，运行期只有两处引用
+        // （「已看见」集合与对话状态）。
+        for player in self.players.values_mut() {
+            player.visible_npcs.remove(&object_id);
+            if player.npc.npc_object_id == object_id {
+                player.npc.close();
+            }
+        }
+        Some(npc)
     }
 
     /// 把 NPC 脚本 `[Quests]` 里的**发布**任务并进 `Npc::quest_indexes`

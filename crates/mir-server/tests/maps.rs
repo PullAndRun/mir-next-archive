@@ -5,7 +5,8 @@
 //! * 时间用 [`World::advance_clock`] 快进（不 sleep）；
 //! * 地形是内存里合成的 60×60 空地图（[`MapCell::default`] 可走），
 //!   传送点/刷怪点/`MapInfo` 都在内存数据库里构造；
-//! * 只有最后的 `real_database_*` 用例读 `resource/` 里的真实数据，缺失时跳过。
+//! * 只有最后的 4 个真实数据用例读 `resource/` 里的真实数据，缺失时跳过；
+//!   设置 `MIR2_DEV_DB_PATH` 时改从该路径 `GameData::load`（见 `load_real_game_data`，R55-B）。
 //!
 //! 每个断言尽量对应 Crystal 的一处行为，注释里写了出处（`文件.cs:行号`）。
 
@@ -17,7 +18,7 @@ use mir_core::Point;
 use mir_core::enums::{
     LightSetting, MirClass, MirDirection, MirGender, Monster as MonsterImage, Stat, WeatherSetting,
 };
-use mir_db::{MapInfo, MirDb, MonsterInfo, MovementInfo, NpcInfo, RespawnInfo};
+use mir_db::{MapInfo, MirDb, MirDbError, MonsterInfo, MovementInfo, NpcInfo, RespawnInfo};
 use mir_protocol::ServerPacket;
 use mir_protocol::data::Stats;
 use mir_server::combat;
@@ -35,6 +36,46 @@ const MAP_B: &str = "1";
 const INDEX_A: i32 = 10;
 /// 地图 B 的数据库主键。
 const INDEX_B: i32 = 20;
+
+// ---------------------------------------------------------------------------
+// 真实数据库加载入口（R55-B）：`MIR2_DEV_DB_PATH` 优先，未设时回退 `discover()`
+// ---------------------------------------------------------------------------
+
+/// 真实 `Server.MirDB` 的加载入口：`MIR2_DEV_DB_PATH` 优先，未设时回退 [`GameData::discover`]。
+///
+/// 环境变量的读法照抄 `ServerConfig::default` 读 `MIR2_DB_PATH` 的口径
+/// （`crates/mir-server/src/config.rs:230-233`）：**空串/纯空白视为未设**。
+///
+/// * **未设** → 直接透传 `GameData::discover()` 的结果：行为与 R54 及以前**逐字节相同**，
+///   4 个真实数据用例里的「`eprintln!` + `return`」跳过路径原样保留。
+/// * **命中** → [`GameData::load`]（`crates/mir-server/src/gamedata.rs:223`，本来就是
+///   `pub fn`；零生产改动，不碰 `gamedata.rs` / `discover()` / `DB_CANDIDATES`）。
+///
+/// 相对路径先按**仓库根**解析（`cargo test` 的 cwd 是 crate 目录，而验收命令给的是仓库根
+/// 相对路径；顺序与 `gamedata::candidate_paths()` 一致：先仓库根、再按原样），绝对路径
+/// 原样使用。
+fn load_real_game_data() -> Result<GameData, MirDbError> {
+    let dev_path = std::env::var("MIR2_DEV_DB_PATH")
+        .ok()
+        .filter(|raw| !raw.trim().is_empty());
+    let Some(raw) = dev_path else {
+        return GameData::discover();
+    };
+    let from_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join(&raw);
+    let resolved = if from_root.is_file() {
+        from_root
+    } else {
+        PathBuf::from(&raw)
+    };
+    eprintln!(
+        "真实数据：MIR2_DEV_DB_PATH={raw} → {}（GameData::load）",
+        resolved.display()
+    );
+    GameData::load(resolved)
+}
 
 // ---------------------------------------------------------------------------
 // 脚手架
@@ -976,7 +1017,7 @@ fn map_changed_packet_carries_the_full_map_info() {
 
 #[test]
 fn real_database_has_movement_points_that_resolve_to_maps() {
-    let Ok(data) = GameData::discover() else {
+    let Ok(data) = load_real_game_data() else {
         eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
         return;
     };
@@ -1037,7 +1078,7 @@ fn real_database_has_movement_points_that_resolve_to_maps() {
 /// 落点校正对真实地形有效、`S.MapChanged` 的 `FileName` 正确。
 #[test]
 fn real_map_files_load_and_change_map_moves_between_them() {
-    let Ok(data) = GameData::discover() else {
+    let Ok(data) = load_real_game_data() else {
         eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
         return;
     };
@@ -1171,7 +1212,7 @@ fn walkable_movements_of_bichon(
 /// 数据侧：比奇的传送点表来自真实 `Server.MirDB`，且**广场附近就有**可用的。
 #[test]
 fn bichon_has_a_walkable_movement_point_near_the_plaza() {
-    let Ok(data) = GameData::discover() else {
+    let Ok(data) = load_real_game_data() else {
         eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
         return;
     };
@@ -1232,7 +1273,7 @@ fn bichon_has_a_walkable_movement_point_near_the_plaza() {
 /// 断言「踩上传送点 → `world.tick()` 结算 → 地图/坐标变成传送点的目的地」。
 #[test]
 fn player_can_walk_from_the_plaza_into_a_natural_teleport_point() {
-    let Ok(data) = GameData::discover() else {
+    let Ok(data) = load_real_game_data() else {
         eprintln!("跳过：resource/ 里没有 Server.MirDB 样本");
         return;
     };

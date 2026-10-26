@@ -11,7 +11,7 @@
 | 门禁 attempt-1 | `pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale`，**EXIT=0，12/12 OK** |
 | 原始日志 | [attempt-1.log](../../../target/round63/gate/attempt-1.log)，190,207 B，SHA256 `15adfa307592ef1ab3ea4cec4df248a852c62c814974c8d5043c8f52e2ac1656` |
 | UTC 起止 | `2026-10-26T15:40:38Z`–`15:44:34Z`；meta 见 [attempt-1.meta.txt](../../../target/round63/gate/attempt-1.meta.txt) |
-| 发布 | 未 commit 文档、未 push；push 待 Lead 终审后统一执行 |
+| 发布 | 文档批已提交 `5abdcd3`（本 README/manifest 为提交前快照，见勘误 E1）；push 待 Lead 统一执行 |
 ## 子单与角色映射
 
 | 子单 | 角色 | 交付 |
@@ -60,6 +60,13 @@
 ## G3 容量/回收契约（仅文档）
 
 Crystal 无全局位置缓存 LRU、125 无回收 ack 字段，故不发明协议：只保护仍被活跃引用/本代次需要的位置，仅淘汰无引用历史项；miss 不造坐标、不补播，并披露可能少生成。容量数值、LRU 更新时机、换图/ID 复用失效、保护项超额策略待后续实证；物理裁剪须先定义同代绝对序号区间、所有消费者最低确认水位、慢消费者/克隆/重连/total 饱和语义，当前维持 append-only/PARTIAL。
+
+## 勘误（终审后修订）
+
+- **E1 提交状态**：文档批已提交 `5abdcd3`；本 README/manifest 写于提交前，属快照描述，此处以勘误为准（`commit-tree-hashes.txt` 中 README/run-checks/gen 三项为 pending 快照 sha）。
+- **E2 ObjectMonster 种子路径**：ObjectProjectile(125) 与 ObjectRemove 经真实 `encode_frame → decode_server_packet → snapshot → UiState::sync`；测试中 ObjectMonster 种子直接调用 `apply_packet_at`，不经 wire。测试文件头原措辞偏宽，断言与覆盖未变，本勘误为准（由刑部终审 M2 提出）。
+- **E3 门禁元数据**：`attempt-1.meta.txt` 仅 UTC 起止，无 EXIT/HEAD；exit=0 与 HEAD=1fcf4fc 由 Lead 运行器 stdout 佐证（`target/round63/gate/attempt-1.exit.txt`，事后补充附件），原 log 末尾 12 OK 可独立复核；不倒填 meta（M3）。
+- **E4 manifest 基准**：功能提交基准文书（`tracked=false`）的 `git_blob` 以 `git show 1fcf4fc:<path>` 计算，与当前工作树 sha 可能不同（M4）。
 
 ## 偏离登记 D1–D4
 

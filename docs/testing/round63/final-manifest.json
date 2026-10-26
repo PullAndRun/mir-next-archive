@@ -8,7 +8,10 @@
   "commit_utc": "2026-10-26T15:40:38Z",
   "commit_message": "fix(client): 570命中特效严格NextFrame时钟与跨代首批缓存顺序（第63轮）",
   "verdict": "PASS-WITH-PARTIAL",
-  "scope": ["G1: 570 hit effect strict NextFrame clock (Crystal Effect.cs:38-48,81-96)", "G2: cross-generation first-payload position cache ordering (reset->cache->spawn)"],
+  "scope": [
+    "G1: 570 hit effect strict NextFrame clock (Crystal Effect.cs:38-48,81-96)",
+    "G2: cross-generation first-payload position cache ordering (reset->cache->spawn)"
+  ],
   "commit_stats": {
     "files": 5,
     "insertions": 874,
@@ -18,7 +21,7 @@
     "tests_insertions": 541,
     "tests_deletions": 32
   },
-  "publication": "docs batch not committed; push pending Lead final review",
+  "publication": "docs batch committed as 5abdcd3 (README/manifest are pre-commit snapshots); functional HEAD 1fcf4fc gated; push pending Lead final governance close",
   "gate": {
     "attempt": 1,
     "head": "1fcf4fc",
@@ -33,7 +36,8 @@
     "items": 12,
     "ok": 12,
     "fail": 0,
-    "rerun_by_D": false
+    "rerun_by_D": false,
+    "meta_limitation": "attempt-1.meta.txt only records UTC start/end; no EXIT/HEAD fields. exit=0 evidenced by Lead wrapper stdout, see target/round63/gate/attempt-1.exit.txt (supplementary, not backfilled meta); log tail 12 OK independently verifiable."
   },
   "hash_basis": {
     "size_sha256": "tool-measured bytes (os.path.getsize / hashlib.sha256); one file per artifact",
@@ -45,23 +49,167 @@
   "artifact_count": 17,
   "artifact_count_note": "任务书正文写 15；按其枚举逐项为 16（A/B 合并）或 17（A/B 分列）。本清单按单文件可校验粒度分列 A/B，共 17 项。",
   "artifacts": [
-    {"role":"plan","path":"docs/process/round63-plan.md","size":13148,"sha256":"cbd122e19df4fc1673904c9d84ca84a098b8718a43f9c53a2094405dfa4a1181","tracked":false,"git_blob":null,"source":"worktree"},
-    {"role":"menxia-review","path":"docs/process/round63-menxia-review.md","size":7244,"sha256":"5b12715e31ede349f077d4fe5f638ebd7d82c6ede598b29ba1aed7f241bcd386","tracked":false,"git_blob":null,"source":"worktree"},
-    {"role":"shangshu-dispatch","path":"docs/process/round63-shangshu-dispatch.md","size":9664,"sha256":"819314a9c3a5a13030e2de3f16fcfb004dcf35843449f3a59b535bfc51d86ec3","tracked":false,"git_blob":null,"source":"worktree"},
-    {"role":"implementation","path":"crates/mir-client/src/ui/projectile.rs","size":93290,"sha256":"8c062cb408e0041498a05458518f45adc61e20d6434ffd223f178e29ef23e58d","tracked":true,"git_blob":"8c062cb408e0041498a05458518f45adc61e20d6434ffd223f178e29ef23e58d","source":"git-show","lines":1975},
-    {"role":"test-new-wire","path":"crates/mir-client/tests/round63_projectile_wire.rs","size":16848,"sha256":"6438cce5f43358e5ede1195ae357c9041b2645662bc49df1b05b307ccf1c0ded","tracked":true,"git_blob":"6438cce5f43358e5ede1195ae357c9041b2645662bc49df1b05b307ccf1c0ded","source":"git-show","lines":415},
-    {"role":"test-rewritten-r59","path":"crates/mir-client/tests/round59_projectile_render.rs","size":31192,"sha256":"e737dda88331a3e9595d2e15b4361926ec04ac172ccbebd80cc2ea1529f15613","tracked":true,"git_blob":"e737dda88331a3e9595d2e15b4361926ec04ac172ccbebd80cc2ea1529f15613","source":"git-show","lines":788},
-    {"role":"test-rewritten-r61","path":"crates/mir-client/tests/round61_projectile_queue.rs","size":31701,"sha256":"255076ab32b7e1f0e2e9fd2e682e8d71cdf321548a295c76ef3c60a99b6cacb0","tracked":true,"git_blob":"255076ab32b7e1f0e2e9fd2e682e8d71cdf321548a295c76ef3c60a99b6cacb0","source":"git-show","lines":762},
-    {"role":"test-rewritten-r62","path":"crates/mir-client/tests/round62_projectile_wire.rs","size":23624,"sha256":"a71028579648595df2e8a0b283dc81fd559f533ed6a40734cebf2715c1a2e7bd","tracked":true,"git_blob":"a71028579648595df2e8a0b283dc81fd559f533ed6a40734cebf2715c1a2e7bd","source":"git-show","lines":556},
-    {"role":"gate-log","path":"target/round63/gate/attempt-1.log","size":190207,"sha256":"15adfa307592ef1ab3ea4cec4df248a852c62c814974c8d5043c8f52e2ac1656","tracked":false,"git_blob":null,"source":"worktree"},
-    {"role":"gate-meta","path":"target/round63/gate/attempt-1.meta.txt","size":60,"sha256":"99608f397b4cae5afbc9707ed086deb8c672d4e4606ff7e8a0075b6b64b4a7ff","tracked":false,"git_blob":null,"source":"worktree"},
-    {"role":"c-evidence","path":"target/round63/c/round63-c-evidence.md","size":8315,"sha256":"5efba4c7d17e962e1ecc31a0374b28993f037c4b8e0b43da16b35973011c611f","tracked":false,"git_blob":null,"source":"worktree"},
-    {"role":"a-evidence-summary","path":"target/round63/a/attempt-1/summary.md","size":8458,"sha256":"5a968f1de08f8537e3adcc054d7d54d2c0605a9a362c2efc13479ecd0c7d0a68","tracked":false,"git_blob":null,"source":"worktree"},
-    {"role":"b-evidence-summary","path":"target/round63/b/attempt-1/summary.md","size":8421,"sha256":"3d83e4d0bf8b4c8b3e68cf890c536a22aa3562a59bad01348d68a07e5b1fb0ef","tracked":false,"git_blob":null,"source":"worktree"},
-    {"role":"readme","path":"docs/testing/round63/README.md","size":6648,"sha256":"74f2c2f07c8e2feda5b79cd40f0f923d94d12ffedc2003f69c65f2fbb6a82358","tracked":false,"git_blob":null,"source":"worktree","lines":80},
-    {"role":"run-checks","path":"docs/testing/round63/run-checks.sh","size":4245,"sha256":"313f36563acc17ca66f5f192831ebc4b066383a98ebda993734faa5dbfc14c84","tracked":false,"git_blob":null,"source":"worktree"},
-    {"role":"gen-tree-hashes","path":"docs/testing/round63/gen-tree-hashes.sh","size":2049,"sha256":"501eb0a80d15a281b2ee77b7523e079f08f2117292dc09af74049126a0120354","tracked":false,"git_blob":null,"source":"worktree","lines":32},
-    {"role":"commit-tree-hashes","path":"docs/testing/round63/commit-tree-hashes.txt","size":1311,"sha256":"f1a7b7f9b35a2428c4fc9e8af3d93b0dc39cc2675bbd8c2b5642379fc91c9de7","tracked":false,"git_blob":null,"source":"worktree","lines":13}
+    {
+      "role": "plan",
+      "path": "docs/process/round63-plan.md",
+      "size": 13148,
+      "sha256": "cbd122e19df4fc1673904c9d84ca84a098b8718a43f9c53a2094405dfa4a1181",
+      "tracked": false,
+      "git_blob": null,
+      "source": "worktree"
+    },
+    {
+      "role": "menxia-review",
+      "path": "docs/process/round63-menxia-review.md",
+      "size": 7244,
+      "sha256": "5b12715e31ede349f077d4fe5f638ebd7d82c6ede598b29ba1aed7f241bcd386",
+      "tracked": false,
+      "git_blob": null,
+      "source": "worktree"
+    },
+    {
+      "role": "shangshu-dispatch",
+      "path": "docs/process/round63-shangshu-dispatch.md",
+      "size": 9664,
+      "sha256": "819314a9c3a5a13030e2de3f16fcfb004dcf35843449f3a59b535bfc51d86ec3",
+      "tracked": false,
+      "git_blob": null,
+      "source": "worktree"
+    },
+    {
+      "role": "implementation",
+      "path": "crates/mir-client/src/ui/projectile.rs",
+      "size": 93290,
+      "sha256": "8c062cb408e0041498a05458518f45adc61e20d6434ffd223f178e29ef23e58d",
+      "tracked": true,
+      "git_blob": "8c062cb408e0041498a05458518f45adc61e20d6434ffd223f178e29ef23e58d",
+      "source": "git-show",
+      "lines": 1975
+    },
+    {
+      "role": "test-new-wire",
+      "path": "crates/mir-client/tests/round63_projectile_wire.rs",
+      "size": 16848,
+      "sha256": "6438cce5f43358e5ede1195ae357c9041b2645662bc49df1b05b307ccf1c0ded",
+      "tracked": true,
+      "git_blob": "6438cce5f43358e5ede1195ae357c9041b2645662bc49df1b05b307ccf1c0ded",
+      "source": "git-show",
+      "lines": 415
+    },
+    {
+      "role": "test-rewritten-r59",
+      "path": "crates/mir-client/tests/round59_projectile_render.rs",
+      "size": 31192,
+      "sha256": "e737dda88331a3e9595d2e15b4361926ec04ac172ccbebd80cc2ea1529f15613",
+      "tracked": true,
+      "git_blob": "e737dda88331a3e9595d2e15b4361926ec04ac172ccbebd80cc2ea1529f15613",
+      "source": "git-show",
+      "lines": 788
+    },
+    {
+      "role": "test-rewritten-r61",
+      "path": "crates/mir-client/tests/round61_projectile_queue.rs",
+      "size": 31701,
+      "sha256": "255076ab32b7e1f0e2e9fd2e682e8d71cdf321548a295c76ef3c60a99b6cacb0",
+      "tracked": true,
+      "git_blob": "255076ab32b7e1f0e2e9fd2e682e8d71cdf321548a295c76ef3c60a99b6cacb0",
+      "source": "git-show",
+      "lines": 762
+    },
+    {
+      "role": "test-rewritten-r62",
+      "path": "crates/mir-client/tests/round62_projectile_wire.rs",
+      "size": 23624,
+      "sha256": "a71028579648595df2e8a0b283dc81fd559f533ed6a40734cebf2715c1a2e7bd",
+      "tracked": true,
+      "git_blob": "a71028579648595df2e8a0b283dc81fd559f533ed6a40734cebf2715c1a2e7bd",
+      "source": "git-show",
+      "lines": 556
+    },
+    {
+      "role": "gate-log",
+      "path": "target/round63/gate/attempt-1.log",
+      "size": 190207,
+      "sha256": "15adfa307592ef1ab3ea4cec4df248a852c62c814974c8d5043c8f52e2ac1656",
+      "tracked": false,
+      "git_blob": null,
+      "source": "worktree"
+    },
+    {
+      "role": "gate-meta",
+      "path": "target/round63/gate/attempt-1.meta.txt",
+      "size": 60,
+      "sha256": "99608f397b4cae5afbc9707ed086deb8c672d4e4606ff7e8a0075b6b64b4a7ff",
+      "tracked": false,
+      "git_blob": null,
+      "source": "worktree"
+    },
+    {
+      "role": "c-evidence",
+      "path": "target/round63/c/round63-c-evidence.md",
+      "size": 8315,
+      "sha256": "5efba4c7d17e962e1ecc31a0374b28993f037c4b8e0b43da16b35973011c611f",
+      "tracked": false,
+      "git_blob": null,
+      "source": "worktree"
+    },
+    {
+      "role": "a-evidence-summary",
+      "path": "target/round63/a/attempt-1/summary.md",
+      "size": 8458,
+      "sha256": "5a968f1de08f8537e3adcc054d7d54d2c0605a9a362c2efc13479ecd0c7d0a68",
+      "tracked": false,
+      "git_blob": null,
+      "source": "worktree"
+    },
+    {
+      "role": "b-evidence-summary",
+      "path": "target/round63/b/attempt-1/summary.md",
+      "size": 8421,
+      "sha256": "3d83e4d0bf8b4c8b3e68cf890c536a22aa3562a59bad01348d68a07e5b1fb0ef",
+      "tracked": false,
+      "git_blob": null,
+      "source": "worktree"
+    },
+    {
+      "role": "readme",
+      "path": "docs/testing/round63/README.md",
+      "size": 6648,
+      "sha256": "74f2c2f07c8e2feda5b79cd40f0f923d94d12ffedc2003f69c65f2fbb6a82358",
+      "tracked": false,
+      "git_blob": null,
+      "source": "worktree",
+      "lines": 80
+    },
+    {
+      "role": "run-checks",
+      "path": "docs/testing/round63/run-checks.sh",
+      "size": 4245,
+      "sha256": "313f36563acc17ca66f5f192831ebc4b066383a98ebda993734faa5dbfc14c84",
+      "tracked": false,
+      "git_blob": null,
+      "source": "worktree"
+    },
+    {
+      "role": "gen-tree-hashes",
+      "path": "docs/testing/round63/gen-tree-hashes.sh",
+      "size": 2049,
+      "sha256": "501eb0a80d15a281b2ee77b7523e079f08f2117292dc09af74049126a0120354",
+      "tracked": false,
+      "git_blob": null,
+      "source": "worktree",
+      "lines": 32
+    },
+    {
+      "role": "commit-tree-hashes",
+      "path": "docs/testing/round63/commit-tree-hashes.txt",
+      "size": 1311,
+      "sha256": "f1a7b7f9b35a2428c4fc9e8af3d93b0dc39cc2675bbd8c2b5642379fc91c9de7",
+      "tracked": false,
+      "git_blob": null,
+      "source": "worktree",
+      "lines": 13
+    }
   ],
   "tests": {
     "lib_projectile": {
@@ -94,7 +242,15 @@
     },
     "new_ignore_or_allow": 0,
     "existing_ignored_count": 7,
-    "existing_ignored_locations": ["crates/mir-client/tests/attack_variant.rs:528", "crates/mir-client/tests/attack_variant_live.rs:817", "crates/mir-client/tests/cli_monster_frames.rs:133", "crates/mir-client/tests/cli_monster_frames.rs:336", "crates/mir-client/tests/monster_motion.rs:274", "crates/mir-client/tests/remote_motion.rs:907", "crates/mir-client/tests/remote_motion_live.rs:337"]
+    "existing_ignored_locations": [
+      "crates/mir-client/tests/attack_variant.rs:528",
+      "crates/mir-client/tests/attack_variant_live.rs:817",
+      "crates/mir-client/tests/cli_monster_frames.rs:133",
+      "crates/mir-client/tests/cli_monster_frames.rs:336",
+      "crates/mir-client/tests/monster_motion.rs:274",
+      "crates/mir-client/tests/remote_motion.rs:907",
+      "crates/mir-client/tests/remote_motion_live.rs:337"
+    ]
   },
   "evidence": [
     {
@@ -106,7 +262,10 @@
       "role": "B",
       "report": "target/round63/b/attempt-1/summary.md",
       "logs": "target/round63/b/attempt-1/",
-      "key_logs": ["baseline-red-final.log", "test-files.final.sha256"]
+      "key_logs": [
+        "baseline-red-final.log",
+        "test-files.final.sha256"
+      ]
     },
     {
       "role": "C",
@@ -234,6 +393,36 @@
       "detail": "C 为复现执行 cargo clean -p mir-client，移除 93520 files / 45.8 GiB 可再生成产物；随后 clean 重建全绿，源码/证据无影响"
     }
   ],
-  "pending": ["final independent review after C D4 (刑部终审)", "shangshu acceptance (尚书验收)", "menxia confirmation (门下确认)", "Lead push decision; docs batch not committed"],
-  "created_utc": "2026-10-26T15:55:23Z"
+  "pending": [
+    "shangshu acceptance (尚书验收)",
+    "menxia confirmation (门下确认)",
+    "Lead push decision (governance commit after acceptance+confirmation)"
+  ],
+  "created_utc": "2026-10-26T15:55:23Z",
+  "audit": {
+    "path": "docs/testing/round63/round63-final-audit.md",
+    "lines": 48,
+    "bytes": 4709,
+    "sha256": "bd7863a0043668f1f259bb78f8d8fade22d8d5edd0d2e0e607bd7bf3915762b3",
+    "verdict": "PASS-WITH-PARTIAL (scope G1+G2 only)",
+    "head_at_audit": "5abdcd3371aa3dab1919fa79c5387ad1be68ca1e"
+  },
+  "errata": [
+    {
+      "id": "E1",
+      "text": "Publication state: docs batch is committed as 5abdcd3; README/manifest were written before that commit and are pre-commit snapshots. Earlier \"docs batch not committed\" wording is superseded by this errata."
+    },
+    {
+      "id": "E2",
+      "text": "Wire scope: ObjectProjectile(125) and ObjectRemove are driven through real encode_frame -> decode_server_packet -> snapshot -> UiState::sync; ObjectMonster seeding in tests/round63_projectile_wire.rs directly calls apply_packet_at and is not claimed to pass through wire. Test header wording was broader; assertions and coverage unchanged. This errata is authoritative."
+    },
+    {
+      "id": "E3",
+      "text": "Gate metadata: attempt-1.meta.txt contains only UTC start/end, no EXIT/HEAD; exit=0 and HEAD=1fcf4fc come from Lead wrapper stdout (target/round63/gate/attempt-1.exit.txt, supplementary) and log tail twelve OK. No backfilled meta."
+    },
+    {
+      "id": "E4",
+      "text": "tracked=false / git_blob for functional-commit baseline: blob sha computed via git show 1fcf4fc:<path> and may differ from current worktree sha for pre-commit snapshots; both are listed separately."
+    }
+  ]
 }

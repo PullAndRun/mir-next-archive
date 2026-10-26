@@ -210,7 +210,7 @@ R61 目标为 125 积压不丢、动态飞行参数与逐 cue 离线混音。已
 
 本轮限定交付完成：严格 NextFrame 飞行时钟、目标缓存兜底、运动 offset 一次叠加、会话代号与恰一次复位。代码 `a7362fc`（6 文件 +1502/−248），Lead 门禁 attempt-1 EXIT=0、12/12 OK；C 独立核验 C1–C5 PASS，44 targets / 558 passed / 0 failed / 7 既有 ignored。文档登记六 SHA 与 R59/R61 改写测试 supersede，保留历史冻结证据。push 待 Lead 终审后统一处理。详见 [R62 索引](testing/round62/README.md)。此状态只指限定交付，不代替父任务独立终审。
 
-## 十二、第 63 轮（R63）候选与承接
+## 十二、第 63 轮（R63）完成：PASS-WITH-PARTIAL（限定 G1+G2+首批缓存顺序）
 
 R62 P3 四项候选：事件表物理回收无服务端协议；known_positions 无容量上限/LRU；owner_skip_frames 生产固定 false（Crystal PlayerObject.cs:750/MonsterObject.cs:346 ActionFeed 来源未接）；570 残影仍 elapsed 公式。R62 P1 ignored 已按 7 更正，P2 六 SHA/supersede 已登记待终审。
 
@@ -230,3 +230,16 @@ R61 12 项 PARTIAL 按原编号承接，已证子项仅作进展，不整项清�
 | P10 会话代号歧义 | 本地统一发号/首批非空恰复位已证；未来新代 len=0 且 total>0 边界与物理回收协议继续跟踪 |
 | P11 缺素材 early-return | SKIP 仍按 PARTIAL，不能计 PASS；复查脚本对 SKIP 总体失败 |
 | P12 R60 P-1..P-6 | 原台账不自动清零，不由局部时钟/队列测试推导渲染、效果或音频完整 |
+
+本轮完成（限定交付）：G1 570 命中特效严格 NextFrame 时钟（对照 Crystal `Effect.cs:38-48,81-96`）；G2 `consume` 顺序 reset→cache→spawn，跨代首批 payload 位置先进缓存再 spawn。功能提交 `1fcf4fc`（5 文件 +874/−66），Lead 门禁 attempt-1 EXIT=0（12 项 OK / 0 FAIL，日志 `target/round63/gate/attempt-1.log`，sha256 `15adfa30…ac1656`）。新增 wire 测试 3 例，R59/R61/R62 的 elapsed 断言同步 supersede 为严格 NextFrame；红绿同一测试文件 SHA `6438cce…`（基线 `f80724e` exit 101：`round63_projectile_wire.rs:182` 571≠570、`:290` 1≠2），功能树 lib 24 / wire 3 / R59 16 / R61 11 / R62 5 与 clippy/fmt 全绿，C 独立复跑一致。PARTIAL 继续承接：生产 `SkipFrames`/ActionFeed 来源、命中后物理回收与事件表减容、`known_positions` 容量/LRU、570 素材（`game-assets/` 不入库）。终审（刑部 D4 之后）、尚书验收与门下确认**尚未进行**，本状态只指限定交付，不代替父任务独立结论。push 待 Lead 终审后统一处理。详见 [R63 索引](testing/round63/README.md)。
+
+## 十三、第 64 轮（R64）候选
+
+R63 已证子项只作进展，不整项清零（P01–P12 按原编号承接）。R64 候选按优先级：
+
+1. **生产 `SkipFrames`/ActionFeed 接入**：把 Crystal `PlayerObject.cs:750,966-967` / `MonsterObject.cs:346,528-529` 的 ActionFeed 来源接到 `owner_skip_frames`，替换恒 false；随后补 570 严格时钟的生产来源测试。
+2. **命中后物理回收/事件表减容**：先定服务端回收协议与安全裁剪契约，再动 append-only 事件表；含 `known_positions` 容量上限/LRU。
+3. **550 场景**：下一批 get_effect 场景（承接 R60/R62 场景清单），仍按「素材不入库、边界记 PARTIAL」。
+4. **索敌切换**：目标切换时 TargetPoint/缓存与飞行参数更新的语义对齐。
+5. **掉落表 1..22 / 24-26 / 36-40**：按 Crystal 掉落配置逐表核对；event_add_type 与护身符 4/13/14/17 一并排期。
+6. **R63 文档/门禁收尾**：终审（D4 后）、尚书验收、门下确认与 push 决策。

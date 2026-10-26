@@ -1358,6 +1358,15 @@ R62 功能提交 `a7362fc`，限定结论 **PASS-WITH-PARTIAL**。证据与复�
 - **C4 会话代号/回收/复位**：本地非 wire `session_generation` 经 `WorldSnapshot::new_session()` 与真实连接初始化统一发号；同代号裁剪空表保留游标，新代号空首批等待、首批非空恰一次清旧 view/570/cache/cursor/cue。绝对游标处理 dropped，不重放已消费事件；服务端物理回收协议仍 PARTIAL。
 - **边界**：570 残影保留 elapsed 公式、10 帧/600ms；出生/存活命中 cue 恰一次的测试证明队列行为，未增加真实设备可听或 Live 证据。R61 音频、削波、105 sfx、HiddenSpanSource、CWD/素材及 R60 遗留继续承接。
 
+### 5.30 570 命中特效严格时钟与跨代首批缓存顺序（R63）
+
+R63 功能提交 `1fcf4fc`（第 62 轮后首提交，父 `f80724e`；5 文件 +874/−66），限定结论 **PASS-WITH-PARTIAL**，范围仅 G1+G2。证据与复跑入口见 [R63 索引](testing/round63/README.md)。
+
+- **G1 570 命中特效严格 NextFrame 时钟**：`crates/mir-client/src/ui/projectile.rs` 的 570 残影由 elapsed 公式改为严格 `now <= NextFrame` 不推进；到期边界先处理 skip 额外 +1、再普通 +1；同为「等号不进」。对照 Crystal `github/Crystal/Client/MirObjects/Effect.cs:38-48,81-96` 与 `MirScenes/GameScene.cs:4701-4710`。既有 `round59_projectile_render`（16）、`round61_projectile_queue`（11）、`round62_projectile_wire`（5）的 elapsed 断言同步改写为严格 NextFrame（「R63 G1 supersede」，行为以严格时钟为准）。
+- **G2 跨代首批缓存顺序**：`consume` 顺序固定为 reset→cache→spawn；新会话代号空首批等待，首批 payload 的位置先进 `known_positions` 再 spawn，保证「相对该 125 前恰新增 1 个」而非 2 个（9 的首批位置必须活过 reset）。
+- **wire 测试**：新增 `crates/mir-client/tests/round63_projectile_wire.rs`（3 tests）。红→绿证据 `round63_projectile_wire.rs:182` 左 571/右 570（等号不进）、`:290` 左 1/右 2；红绿同一测试文件 SHA `6438cce…`，基线 `f80724e` 真红 exit 101，功能树 lib projectile 24、wire 3、R59 16、R61 11、R62 5、clippy 0、fmt 0 全绿。
+- **PARTIAL**：生产 `SkipFrames` 仍恒 false（Crystal `PlayerObject.cs:750,966-967` / `MonsterObject.cs:346,528-529` 的 ActionFeed 来源未接）；命中后物理回收/事件表减容未做；`known_positions` 无容量上限/LRU；570 素材属 `game-assets/`（被 `.gitignore` 忽略）**不入库**，素材与真实可听边界继续 PARTIAL。R63 整体只记 570 时钟与本条缓存顺序，不推导渲染/效果/音频完整。
+
 ### 6.0 真实素材渲染（第 6 轮）
 
 **数据目录**

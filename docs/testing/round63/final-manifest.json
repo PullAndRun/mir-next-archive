@@ -1,0 +1,239 @@
+{
+  "round": "R63",
+  "ticket": "JJC-20261026-010 / docs sub-5d0de186 (礼部 D)",
+  "head": "1fcf4fc",
+  "head_full": "1fcf4fccaf4177475af971dc50db69ffc3a3d1d9",
+  "head_tree_sha": "9678a913d830658e4cd1f33ecdacf33180e9d10d",
+  "parent": "f80724e",
+  "commit_utc": "2026-10-26T15:40:38Z",
+  "commit_message": "fix(client): 570命中特效严格NextFrame时钟与跨代首批缓存顺序（第63轮）",
+  "verdict": "PASS-WITH-PARTIAL",
+  "scope": ["G1: 570 hit effect strict NextFrame clock (Crystal Effect.cs:38-48,81-96)", "G2: cross-generation first-payload position cache ordering (reset->cache->spawn)"],
+  "commit_stats": {
+    "files": 5,
+    "insertions": 874,
+    "deletions": 66,
+    "projectile_insertions": 333,
+    "projectile_deletions": 34,
+    "tests_insertions": 541,
+    "tests_deletions": 32
+  },
+  "publication": "docs batch not committed; push pending Lead final review",
+  "gate": {
+    "attempt": 1,
+    "head": "1fcf4fc",
+    "command": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale",
+    "log": "target/round63/gate/attempt-1.log",
+    "bytes": 190207,
+    "sha256": "15adfa307592ef1ab3ea4cec4df248a852c62c814974c8d5043c8f52e2ac1656",
+    "meta": "target/round63/gate/attempt-1.meta.txt",
+    "utc_start": "2026-10-26T15:40:38Z",
+    "utc_end": "2026-10-26T15:44:34Z",
+    "exit": 0,
+    "items": 12,
+    "ok": 12,
+    "fail": 0,
+    "rerun_by_D": false
+  },
+  "hash_basis": {
+    "size_sha256": "tool-measured bytes (os.path.getsize / hashlib.sha256); one file per artifact",
+    "git_blob": "sha256 of `git show 1fcf4fc:<path>` exact committed bytes; tracked=false => null",
+    "worktree_sha256": "raw working-tree bytes; equals committed bytes for the 5 tracked files",
+    "manifest_self": "not hashed here; commit-tree-hashes.txt excludes the manifest to avoid self-reference",
+    "gate_log_check": "sha256 re-verified by docs/testing/round63/run-checks.sh item 9"
+  },
+  "artifact_count": 17,
+  "artifact_count_note": "任务书正文写 15；按其枚举逐项为 16（A/B 合并）或 17（A/B 分列）。本清单按单文件可校验粒度分列 A/B，共 17 项。",
+  "artifacts": [
+    {"role":"plan","path":"docs/process/round63-plan.md","size":13148,"sha256":"cbd122e19df4fc1673904c9d84ca84a098b8718a43f9c53a2094405dfa4a1181","tracked":false,"git_blob":null,"source":"worktree"},
+    {"role":"menxia-review","path":"docs/process/round63-menxia-review.md","size":7244,"sha256":"5b12715e31ede349f077d4fe5f638ebd7d82c6ede598b29ba1aed7f241bcd386","tracked":false,"git_blob":null,"source":"worktree"},
+    {"role":"shangshu-dispatch","path":"docs/process/round63-shangshu-dispatch.md","size":9664,"sha256":"819314a9c3a5a13030e2de3f16fcfb004dcf35843449f3a59b535bfc51d86ec3","tracked":false,"git_blob":null,"source":"worktree"},
+    {"role":"implementation","path":"crates/mir-client/src/ui/projectile.rs","size":93290,"sha256":"8c062cb408e0041498a05458518f45adc61e20d6434ffd223f178e29ef23e58d","tracked":true,"git_blob":"8c062cb408e0041498a05458518f45adc61e20d6434ffd223f178e29ef23e58d","source":"git-show","lines":1975},
+    {"role":"test-new-wire","path":"crates/mir-client/tests/round63_projectile_wire.rs","size":16848,"sha256":"6438cce5f43358e5ede1195ae357c9041b2645662bc49df1b05b307ccf1c0ded","tracked":true,"git_blob":"6438cce5f43358e5ede1195ae357c9041b2645662bc49df1b05b307ccf1c0ded","source":"git-show","lines":415},
+    {"role":"test-rewritten-r59","path":"crates/mir-client/tests/round59_projectile_render.rs","size":31192,"sha256":"e737dda88331a3e9595d2e15b4361926ec04ac172ccbebd80cc2ea1529f15613","tracked":true,"git_blob":"e737dda88331a3e9595d2e15b4361926ec04ac172ccbebd80cc2ea1529f15613","source":"git-show","lines":788},
+    {"role":"test-rewritten-r61","path":"crates/mir-client/tests/round61_projectile_queue.rs","size":31701,"sha256":"255076ab32b7e1f0e2e9fd2e682e8d71cdf321548a295c76ef3c60a99b6cacb0","tracked":true,"git_blob":"255076ab32b7e1f0e2e9fd2e682e8d71cdf321548a295c76ef3c60a99b6cacb0","source":"git-show","lines":762},
+    {"role":"test-rewritten-r62","path":"crates/mir-client/tests/round62_projectile_wire.rs","size":23624,"sha256":"a71028579648595df2e8a0b283dc81fd559f533ed6a40734cebf2715c1a2e7bd","tracked":true,"git_blob":"a71028579648595df2e8a0b283dc81fd559f533ed6a40734cebf2715c1a2e7bd","source":"git-show","lines":556},
+    {"role":"gate-log","path":"target/round63/gate/attempt-1.log","size":190207,"sha256":"15adfa307592ef1ab3ea4cec4df248a852c62c814974c8d5043c8f52e2ac1656","tracked":false,"git_blob":null,"source":"worktree"},
+    {"role":"gate-meta","path":"target/round63/gate/attempt-1.meta.txt","size":60,"sha256":"99608f397b4cae5afbc9707ed086deb8c672d4e4606ff7e8a0075b6b64b4a7ff","tracked":false,"git_blob":null,"source":"worktree"},
+    {"role":"c-evidence","path":"target/round63/c/round63-c-evidence.md","size":8315,"sha256":"5efba4c7d17e962e1ecc31a0374b28993f037c4b8e0b43da16b35973011c611f","tracked":false,"git_blob":null,"source":"worktree"},
+    {"role":"a-evidence-summary","path":"target/round63/a/attempt-1/summary.md","size":8458,"sha256":"5a968f1de08f8537e3adcc054d7d54d2c0605a9a362c2efc13479ecd0c7d0a68","tracked":false,"git_blob":null,"source":"worktree"},
+    {"role":"b-evidence-summary","path":"target/round63/b/attempt-1/summary.md","size":8421,"sha256":"3d83e4d0bf8b4c8b3e68cf890c536a22aa3562a59bad01348d68a07e5b1fb0ef","tracked":false,"git_blob":null,"source":"worktree"},
+    {"role":"readme","path":"docs/testing/round63/README.md","size":6648,"sha256":"74f2c2f07c8e2feda5b79cd40f0f923d94d12ffedc2003f69c65f2fbb6a82358","tracked":false,"git_blob":null,"source":"worktree","lines":80},
+    {"role":"run-checks","path":"docs/testing/round63/run-checks.sh","size":4245,"sha256":"313f36563acc17ca66f5f192831ebc4b066383a98ebda993734faa5dbfc14c84","tracked":false,"git_blob":null,"source":"worktree"},
+    {"role":"gen-tree-hashes","path":"docs/testing/round63/gen-tree-hashes.sh","size":2049,"sha256":"501eb0a80d15a281b2ee77b7523e079f08f2117292dc09af74049126a0120354","tracked":false,"git_blob":null,"source":"worktree","lines":32},
+    {"role":"commit-tree-hashes","path":"docs/testing/round63/commit-tree-hashes.txt","size":1311,"sha256":"f1a7b7f9b35a2428c4fc9e8af3d93b0dc39cc2675bbd8c2b5642379fc91c9de7","tracked":false,"git_blob":null,"source":"worktree","lines":13}
+  ],
+  "tests": {
+    "lib_projectile": {
+      "passed": 24,
+      "failed": 0
+    },
+    "round63_projectile_wire": {
+      "passed": 3,
+      "failed": 0
+    },
+    "round59": {
+      "passed": 16,
+      "failed": 0
+    },
+    "round61": {
+      "passed": 11,
+      "failed": 0
+    },
+    "round62": {
+      "passed": 5,
+      "failed": 0
+    },
+    "clippy": {
+      "exit": 0,
+      "diagnostics": 0
+    },
+    "fmt": {
+      "exit": 0,
+      "diff_bytes": 0
+    },
+    "new_ignore_or_allow": 0,
+    "existing_ignored_count": 7,
+    "existing_ignored_locations": ["crates/mir-client/tests/attack_variant.rs:528", "crates/mir-client/tests/attack_variant_live.rs:817", "crates/mir-client/tests/cli_monster_frames.rs:133", "crates/mir-client/tests/cli_monster_frames.rs:336", "crates/mir-client/tests/monster_motion.rs:274", "crates/mir-client/tests/remote_motion.rs:907", "crates/mir-client/tests/remote_motion_live.rs:337"]
+  },
+  "evidence": [
+    {
+      "role": "A",
+      "report": "target/round63/a/attempt-1/summary.md",
+      "logs": "target/round63/a/attempt-1/"
+    },
+    {
+      "role": "B",
+      "report": "target/round63/b/attempt-1/summary.md",
+      "logs": "target/round63/b/attempt-1/",
+      "key_logs": ["baseline-red-final.log", "test-files.final.sha256"]
+    },
+    {
+      "role": "C",
+      "report": "docs/testing/round63/round63-c-evidence.md",
+      "source": "target/round63/c/round63-c-evidence.md"
+    },
+    {
+      "role": "D",
+      "report": "docs/testing/round63/README.md",
+      "logs": "target/round63/d/attempt-1/"
+    }
+  ],
+  "red_green": {
+    "test_file_sha256_red_green": "6438cce5f43358e5ede1195ae357c9041b2645662bc49df1b05b307ccf1c0ded",
+    "red": {
+      "baseline": "f80724e",
+      "log": "target/round63/b/attempt-1/baseline-red-final.log",
+      "exit": 101,
+      "passed": 1,
+      "failed": 2,
+      "assertions": [
+        {
+          "location": "crates/mir-client/tests/round63_projectile_wire.rs:182",
+          "left": 571,
+          "right": 570,
+          "message": "now == NextFrame：保持 570（等号不进）"
+        },
+        {
+          "location": "crates/mir-client/tests/round63_projectile_wire.rs:290",
+          "left": 1,
+          "right": 2,
+          "message": "相对该 125 前恰新增 1 个投射物（9 的首批位置必须活过 reset）"
+        }
+      ]
+    },
+    "green": {
+      "log": "target/round63/b/attempt-1/round63_projectile_wire.final.log",
+      "passed": 3,
+      "failed": 0,
+      "exit": 0
+    },
+    "a_lib_red": {
+      "log": "target/round63/a/attempt-1/red-round63-tests.log",
+      "exit": 101,
+      "passed": 0,
+      "failed": 2
+    },
+    "a_lib_green": {
+      "log": "target/round63/a/attempt-1/green-projectile-tests.log",
+      "passed": 24,
+      "failed": 0
+    }
+  },
+  "supersede": [
+    {
+      "path": "crates/mir-client/tests/round59_projectile_render.rs",
+      "change": "elapsed frame-index assertions -> strict NextFrame per-boundary ticks",
+      "tests": 16,
+      "tests_after": 16
+    },
+    {
+      "path": "crates/mir-client/tests/round61_projectile_queue.rs",
+      "change": "elapsed jump-to-600 deletion -> strict NextFrame per-boundary ticks",
+      "tests": 11,
+      "tests_after": 11
+    },
+    {
+      "path": "crates/mir-client/tests/round62_projectile_wire.rs",
+      "change": "elapsed frame loop -> strict NextFrame per-boundary ticks",
+      "tests": 5,
+      "tests_after": 5
+    }
+  ],
+  "partials": [
+    {
+      "id": "P1",
+      "status": "PARTIAL",
+      "detail": "生产 SkipFrames/ActionFeed 未接；owner_skip_frames 恒 false；Crystal PlayerObject.cs:750,966-967 / MonsterObject.cs:346,528-529 来源缺失"
+    },
+    {
+      "id": "P2",
+      "status": "PARTIAL",
+      "detail": "命中后物理回收/事件表减容未做；无服务端回收协议，append-only 维持"
+    },
+    {
+      "id": "P3",
+      "status": "PARTIAL",
+      "detail": "known_positions 无容量上限/LRU；G3 只交契约，未写常数、未宣称已限容"
+    },
+    {
+      "id": "P4",
+      "status": "PARTIAL",
+      "detail": "570 素材属 game-assets/ 不入库；音效/渲染素材边界继续 PARTIAL"
+    },
+    {
+      "id": "P5",
+      "status": "PARTIAL",
+      "detail": "严格 NextFrame 仅本模块 570；R61 12 项 PARTIAL 按原编号承接，不由此推导全链"
+    },
+    {
+      "id": "P6",
+      "status": "PARTIAL",
+      "detail": "R63 整体 PARTIAL；终审（D4 后）、尚书验收、门下确认未进行，禁写正面合格结论"
+    }
+  ],
+  "deviations": [
+    {
+      "id": "D1",
+      "level": "MINOR",
+      "detail": "A summary.md 头部 projectile.rs SHA 013c475… 为 stale；canonical 8c062cb4…（工作树=提交 blob）"
+    },
+    {
+      "id": "D2",
+      "level": "MINOR",
+      "detail": "B round63_test.sha256 为中间稿；canonical test-files.final.sha256 = 6438cce…（红绿同 SHA）"
+    },
+    {
+      "id": "D3",
+      "level": "methodology",
+      "detail": "共享 CARGO_TARGET_DIR 跨 workspace 复用陈旧集成测试二进制（假绿/假红）；门禁复跑须 cargo clean -p mir-client 或隔离 target"
+    },
+    {
+      "id": "D4",
+      "level": "disclosed-side-effect",
+      "detail": "C 为复现执行 cargo clean -p mir-client，移除 93520 files / 45.8 GiB 可再生成产物；随后 clean 重建全绿，源码/证据无影响"
+    }
+  ],
+  "pending": ["final independent review after C D4 (刑部终审)", "shangshu acceptance (尚书验收)", "menxia confirmation (门下确认)", "Lead push decision; docs batch not committed"],
+  "created_utc": "2026-10-26T15:55:23Z"
+}

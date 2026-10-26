@@ -1301,7 +1301,7 @@ UI：`draw_ui` 在顶部画提示横幅「连接已断开，正在重连（N/3�
 - 出生 = `M34-1.wav`（`20341`）、命中 = `M34-2.wav`（`20342`），由
   `crates/mir-render/src/sound.rs:276` `projectile_sound(spell, phase)` 产出；基准是 `GreatFireBall=34`，不是 `FireBounce=154`。
 - 无投射物即无出生音（D-R59-1 未变）；目标 `dead`/不存在不播命中音（`round59_projectile_render` 已锁 16 passed）。
-- 同文件 100 ms 频控沿用：**同一帧多 cue 只响一次**，与 Crystal「每发都响」有差（偏差台账 P-6/R-5）。
+- 同文件 100 ms 频控沿用：**同一帧多 cue 只响一次**，与 Crystal「每发都响」有差（偏差台账 P-4/R-5）。
 
 #### C. 去重改用绝对序号游标（G2；F6 更正）
 
@@ -1333,7 +1333,18 @@ UI：`draw_ui` 在顶部画提示横幅「连接已断开，正在重连（N/3�
 测试与复跑见 [R60 索引](testing/round60/README.md)（D1 5 例：`--bin mir-client` 21 passed、`--lib audio` 19 passed；
 D2 6 例：`ui::projectile` 12 passed、`net::` 30 passed；回归 `round59_projectile_render` 16、`round58_projectile_wire` 7、`mir-render sound` 9）。
 
-## 6. 素材加载与渲染
+
+### 5.28 125 积压、动态飞行参数与逐 cue 混音（R61）
+
+> R61 代码提交① `ef317b0`；本节记录已落盘语义，不把参数修正写成完整 Crystal 时钟移植。
+
+- **积压消费**：125 投射物事件与出生/命中 cue 改为 append-only 双层全量消费，移除原 16 事件与 32 cue 的丢最旧策略；绝对游标、空表重建与 `total=0` 旧快照兼容仍保留。17/33/257 压力矩阵均验证输入、保存、view、出生 cue 与存活命中 cue 数相等，重复 `sync`/`drain` 不重播。
+- **动态参数**：每帧先更新目标位置，再在 finished 判定前重算 `duration`/`count`；`Source`、`started_ms`、`dir16` 保持生成时语义。6→9 格为 450/15，移至 3 格为 150/5，重合为 0/1；严格 `Time > NextFrame` 边界保留 1 格 50ms 与 5 格 31ms 的反例。
+- **125 音频入口**：`play_projectile_cue`/`play_projectile_cues` 对每个 cue 走共享 resolve→decoder→amplify→mixer 路径，但不读写普通 100ms 频控；`play`、`play_event`、`play_spell` 的普通频控契约不变，不按 M34 文件名全局豁免。
+- **`.mna` 解码修复**：`HiddenSpanSource` 规避 rodio 0.22.2 `VorbisDecoder::current_span_len()` 首包 `Some(0)` 导致的 `Take(0)` 静音；本轮只覆盖本 crate `decoder_for` 路径。
+- **PARTIAL**：append-only 历史无回收，snapshot clone/长期内存增长待后续确认游标、安全裁剪与会话复位契约；完整 `NextFrame`/`SkipFrames`、`TargetPoint`、像素偏移增量仍未实现；真实设备可听与 Live 未验证；33 同刻叠加不归一化（peak 22.844788，可能削波）；105 个 sfx 未逐一验证。不得称「125 全链」「渲染完整」「真实可听已证」或「R61 完整」。
+
+
 
 ### 6.0 真实素材渲染（第 6 轮）
 

@@ -1,0 +1,20 @@
+# R61 commit tree hashes
+# head=ef317b040fdb6ef78a478b1fa247ae3cee775e20
+# gate_head=ef317b040fdb6ef78a478b1fa247ae3cee775e20
+# gate_log=target/round61/gate/attempt-1.log
+# gate_log_bytes=207593
+# gate_log_sha256=6ff5f68dd112020e20d42ddf8d6f835be7099dab999e1a411d1b9b4cff77ad96
+# code: sha256(git show <head>:<path>); docs: sha256(current candidate bytes)
+# commit-1 code paths: 8; commit-2 candidate docs: 4 (this list excludes itself)
+74ce1be11f157523f72478018866674219b5d14ac30184d3884239fd21105770  crates/mir-client/src/net.rs  [commit-1 code; git show ef317b040fdb6ef78a478b1fa247ae3cee775e20:crates/mir-client/src/net.rs]
+c83279b14545aad672e4f2b8c7857122d26e13566847ab59828d399768e6b041  crates/mir-client/src/ui/projectile.rs  [commit-1 code; git show ef317b040fdb6ef78a478b1fa247ae3cee775e20:crates/mir-client/src/ui/projectile.rs]
+e00797c0c1b6f6b44e14e86dbbd75662b641aa1f071f5ab7770434099a947848  crates/mir-client/src/audio.rs  [commit-1 code; git show ef317b040fdb6ef78a478b1fa247ae3cee775e20:crates/mir-client/src/audio.rs]
+80cb19ede93c701816111e99a9440a4b42d7a125b215aa1d5d13d4a5088d7033  crates/mir-client/src/app.rs  [commit-1 code; git show ef317b040fdb6ef78a478b1fa247ae3cee775e20:crates/mir-client/src/app.rs]
+91389124d4dee7c08a5d18144c571c0decbf23967c78fd14f3bbbca4be289e1d  crates/mir-client/tests/round61_projectile_queue.rs  [commit-1 code; git show ef317b040fdb6ef78a478b1fa247ae3cee775e20:crates/mir-client/tests/round61_projectile_queue.rs]
+6972288e172b665866f97493645acfb57183ff2b404a20fb879290342fe8b510  crates/mir-client/tests/round61_projectile_sound.rs  [commit-1 code; git show ef317b040fdb6ef78a478b1fa247ae3cee775e20:crates/mir-client/tests/round61_projectile_sound.rs]
+95238febe88238279d7431d5dfb429307cca8fca5a0c91b47ab7b8f59811c095  crates/mir-client/tests/round58_projectile_wire.rs  [commit-1 code; git show ef317b040fdb6ef78a478b1fa247ae3cee775e20:crates/mir-client/tests/round58_projectile_wire.rs]
+99889b63e3e68d84e15311cfa42753d2e1b880cef597c97271a798dd806b3bbf  crates/mir-client/tests/round59_projectile_render.rs  [commit-1 code; git show ef317b040fdb6ef78a478b1fa247ae3cee775e20:crates/mir-client/tests/round59_projectile_render.rs]
+ee9667072be7df6acf476300137f0de77c84a1cf1e6dc46ef127e1698166eda5  docs/testing/round61/README.md  [commit-2 candidate; generated 2026-10-26T12:14:35Z]
+a93210c7e88ee3da00ad72d27a3ffaa2490be10111ab5649c07d76e6ba0411ea  docs/testing/round61/run-checks.sh  [commit-2 candidate; generated 2026-10-26T12:14:35Z]
+033367e0a101e9f0fe8d8f9cd6484df42a8dd79bc84ec558a135bdf851b58d4c  docs/testing/round61/gen-tree-hashes.sh  [commit-2 candidate; generated 2026-10-26T12:14:35Z]
+# commit-tree-hashes.txt self-hash intentionally omitted; final-manifest records it.

@@ -1,6 +1,6 @@
 # 第 60 轮（R60）验收索引：125 音效真实通道 + 投射物事件去重
 
-> 基线 HEAD `3a9a104`（＝本轮起点 `origin/main`）→ 交付代码 HEAD `bb53321`
+> 基线 HEAD `3a9a104`（＝本轮起点 `origin/main`）→ 交付代码 HEAD `2f3ab9f`（MF-2 关联）
 > 「feat(client): R60 125 音效真实通道与投射物事件去重」（4 文件 +593/−12；`app.rs`、`ui/mod.rs`、`net.rs`、`ui/projectile.rs`）。
 > 口径：**通道打通 + 去重 + PARTIAL 诚实登记**。本文**不**宣称「125 音频完整」「无重复」「真实可听已证」。
 
@@ -98,5 +98,8 @@ git diff --check                                             # exit 0
 bash docs/testing/round60/gen-tree-hashes.sh    # 重生成 docs/testing/round60/commit-tree-hashes.txt
 ```
 
-**说明**：`run-checks.sh` 的 01/02 项依赖系统临时目录；若 `TMP` 不可写，脚本已自动改指 `target/tmp`（见 P-6）。
-`--list` 不写盘、不编译；出现 `SKIP:`/`PARTIAL:` 行一律判非 PASS 并使整体 exit 非 0。
+
+
+## 8. R61 后续
+
+R61 在代码提交① `ef317b0` 上继续处理 125 事件与 cue 的 append-only 全量消费、动态 duration/count、125 专用逐 cue 入口及真实离线 rodio mixer 采样；长期回收、完整 Crystal 时钟、真实设备可听与 Live 仍为 PARTIAL。R61 证据索引见 [`docs/testing/round61/README.md`](../round61/README.md)。本节不预写 R61 PASS。

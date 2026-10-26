@@ -168,7 +168,9 @@ R50 独立商城已交付；R51 已 **Done / PASS-WITH-PARTIAL**，已交付 Bli
 | 测试与门禁脚本（G1–G4 证据） | 🟡 已落盘待 T/门禁抽核 | `round59_projectile_render.rs`（621 行/16 测试）、`round59_projectile_assets.rs`（585 行/6 测试）、`docs/testing/round59/run-checks.sh`（420 行/9 项）；Lead 复跑 9/9 条 exit 0、总 EXIT=0（脚本自报，`target/round59/lead-verify/10-run-checks.log`）；**T/CI 门禁未跑** |
 | 文档入树（G6） | 🟡 已落盘待 T 抽核 | [client.md](client.md) §5.26、[magic.md](world/magic.md) FireBounce 行、[R58 索引](testing/round58/README.md):3 HEAD 更正、[asset-pipeline.md](assets/asset-pipeline.md):112、[R59 索引](testing/round59/README.md)；D5b 已按 D2–D4 落盘事实回填 |
 
-**已知偏离**：**D-R59-1**（125 无落点坐标 → 不生成投射物/命中/`+2`，Crystal `GameScene.cs:4699` 为无条件生成）；
+| R61 后续状态 | 🟡 已落盘待终审 | 125 append-only 双层消费、动态 duration/count、逐 cue 离线混音已由代码提交① `ef317b0` 落盘；长期回收、完整时钟、真实设备可听与 Live 仍 PARTIAL。见 [R61 索引](testing/round61/README.md)，不得预写 PASS。 |
+
+
 事件无 ID；`duration/count` 生成时冻结（Crystal `Effect.cs:174-181` 每帧重算）；draw offset 不含 wzl 逐帧
 offset；音效真实可听 PARTIAL（`M34-1/-2` 素材已由 `audio import` 产出、`audio verify files=106`，但
 `take_sound_cues()` 未接 `app.rs`；`game-assets/` 不入库）；无 Hero、无真 socket。台账见
@@ -197,4 +199,9 @@ P-5「音效通道未接」已由 R60 接通（`app.rs` 同帧 drain），可听
 **已知 PARTIAL**：可听性（headless 无音频设备 + `apply_snapshot` 无 Live 窗口级集成测试）；
 `from_repo_root` 找不到 M34 素材（既有根路径行为，未改代码）；ring 16 仍丢最旧（R4a 不修）；
 同文件 100 ms 频控 → 同帧多 cue 只响一次（≠ Crystal 每发都响）。台账见
-[R60 索引 §3](testing/round60/README.md)。
+
+| R61 状态 | 🟡 已落盘待终审 | 代码提交① `ef317b0`、门禁 attempt-1 EXIT=0/12 项、D1/D2 定向证据已落盘；D3 文档/脚本证据待 D4、尚书与独立门下抽核。不得预写整体 PASS。 |
+
+## 十、第 61 轮（R61）承接
+
+R61 目标为 125 积压不丢、动态飞行参数与逐 cue 离线混音。已证范围是测试与离线 mixer 样本；append-only 无回收、完整 NextFrame/SkipFrames、TargetPoint、像素偏移增量、真实设备可听/Live、33 叠加削波、105 个 sfx 未逐一及 `HiddenSpanSource` 覆盖面仍是 PARTIAL。详见 [R61 索引](testing/round61/README.md)。

@@ -108,6 +108,7 @@ use std::collections::BTreeMap;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -2774,6 +2775,15 @@ pub struct WorldSnapshot {
     /// meaningful for manually built tables (`total == 0`) and for the legacy
     /// truncation guard of the UI cursor (see `ui::projectile::Projectiles::consume`).
     pub projectile_events_total: u64,
+    /// 会话代号（R62 C4，**客户端本地字段，不是 wire 字段**）。
+    ///
+    /// `WorldSnapshot::projectile_events` 是 append-only 的，UI 用绝对游标
+    /// `projectile_events_total` 去重；但快照重建（重连/换会话）后计数器归零，
+    /// 「同会话裁剪空表」与「新会话从头开始」无法只靠 `total`/`len` 区分（R61 P10）。
+    /// 这里给每份新建的会话快照一个单调递增的代号（[`next_session_generation`]），
+    /// 让 UI 在**新代号的首批非空事件**上恰好复位一次，见
+    /// `ui::projectile::Projectiles::consume`。手工构造快照默认 0。
+    pub session_generation: u64,
     /// 最近的技能表现事件（`S.Magic`/`S.ObjectMagic`/`S.ObjectSpell`，尾部最新）。
     pub spell_events: Vec<SpellEvent>,
     /// 下一个技能表现事件编号。
@@ -2913,6 +2923,7 @@ impl Default for WorldSnapshot {
             next_effect_id: 0,
             projectile_events: Vec::new(),
             projectile_events_total: 0,
+            session_generation: 0,
             spell_events: Vec::new(),
             next_spell_id: 0,
             spell_fields: Vec::new(),
@@ -2970,6 +2981,19 @@ impl Default for WorldSnapshot {
 }
 
 impl WorldSnapshot {
+    /// 新建一份「新会话」快照：会话代号由 [`next_session_generation`] 发号（R62 C4）。
+    ///
+    /// 连接线程的 [`initial_world_snapshot`] 与端到端测试都走这里，保证
+    /// `session_generation` 只来自真实发号器、既不是 wire 字段也不是手填常量；
+    /// 手写的 [`WorldSnapshot::default`] 代号为 0，仍保留 R60 手工表的兼容路径。
+    #[must_use]
+    pub fn new_session() -> Self {
+        WorldSnapshot {
+            session_generation: next_session_generation(),
+            ..WorldSnapshot::default()
+        }
+    }
+
     /// 当前是否已经进入世界且拿到了自己的 `UserInformation`。
     #[must_use]
     pub fn is_ready(&self) -> bool {
@@ -3843,12 +3867,21 @@ fn monster_motion_params_from_frames(
 /// t44 R49-X1-03：每怪 motion 参数必须在这里就带入会话，而不是等 UI 收到快照后
 /// 再补；这样第一条 `ObjectWalk` 到达时 `apply_monster_step` 已能用真实
 /// `Count/Interval` 建 motion。
+/// 会话代号发号器（R62 C4）：每次新建会话快照 +1，用于区分「新会话」与「同会话裁剪」。
+static SESSION_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// 取下一个会话代号（只在新建会话快照时调用一次；进程内单调递增）。
+fn next_session_generation() -> u64 {
+    SESSION_GENERATION.fetch_add(1, Ordering::Relaxed) + 1
+}
+
 fn initial_world_snapshot(options: &ConnectOptions) -> WorldSnapshot {
     WorldSnapshot {
         status: NetStatus::Verifying,
         monster_frames: options.monster_frames.clone(),
         monster_motion_params: monster_motion_params_from_frames(&options.monster_frames),
-        ..WorldSnapshot::default()
+        // R62 C4：首份快照必须带会话代号；与测试快照共用同一个发号器。
+        ..WorldSnapshot::new_session()
     }
 }
 
@@ -7418,6 +7451,34 @@ mod tests {
             count,
             ..UserItem::default()
         }
+    }
+
+    #[test]
+    fn world_snapshot_session_generation_is_issued_by_the_real_path() {
+        // R62 C4：会话代号不是 wire 字段，只能由新建会话的路径发号；测试快照与连接
+        // 线程的首份快照共用 `next_session_generation`。
+        let first = WorldSnapshot::new_session();
+        assert_ne!(
+            first.session_generation, 0,
+            "a session snapshot must carry an issued generation, not the manual default 0"
+        );
+        let second = WorldSnapshot::new_session();
+        assert!(
+            second.session_generation > first.session_generation,
+            "every new session snapshot must get a fresh generation ({} -> {})",
+            first.session_generation,
+            second.session_generation
+        );
+
+        let options = ConnectOptions::default();
+        let initial = initial_world_snapshot(&options);
+        assert_ne!(initial.session_generation, 0);
+        assert!(
+            initial.session_generation > second.session_generation,
+            "the connected session snapshot takes its number from the same issuer"
+        );
+        let after = initial_world_snapshot(&options);
+        assert!(after.session_generation > initial.session_generation);
     }
 
     fn test_item_info(index: i32, name: &str, price: u32, stack_size: u16) -> ItemInfo {

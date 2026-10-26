@@ -3691,9 +3691,13 @@ mod tests {
         assert_eq!(replay_played, 0);
         assert_eq!(played, vec!["M34-1.wav"]);
 
-        // Impact frame (+100 ms for a two-tile flight, R61 M2 Crystal timing): one M34-2 cue.
-        ui.set_time(PROJECTILE_START_MS + 100);
-        ui.sync(&snapshot);
+        // R62 supersedes R61 elapsed semantics（见 round62 manifest）: a two-grid flight is
+        // three strict `NextFrame` ticks (+34/+67/+100 on the 33 ms boundary); one +100 jump
+        // only advances one frame, so the arrival tick is driven explicitly.
+        for elapsed in [34_i64, 67, 100] {
+            ui.set_time(PROJECTILE_START_MS + elapsed);
+            ui.sync(&snapshot);
+        }
         let hit_played = play_projectile_cues_with(ui.take_projectile_sound_cues(), |file| {
             played.push(file);
             true
@@ -4113,9 +4117,12 @@ mod tests {
         let spawn_base = pull_all(&mut base_source);
         assert_stacked(&spawn_mixed, &spawn_base, 2.0, "two real spawn cues");
 
-        // Impact frame (+100 ms two-grid flight, R61 M2): two M34-2 cues.
-        ui.set_time(PROJECTILE_START_MS + 100);
-        ui.sync(&snapshot);
+        // R62 supersedes R61 elapsed semantics（见 round62 manifest）: impact needs the three
+        // strict `NextFrame` ticks of the two-grid flight (+34/+67/+100), not one +100 jump.
+        for elapsed in [34_i64, 67, 100] {
+            ui.set_time(PROJECTILE_START_MS + elapsed);
+            ui.sync(&snapshot);
+        }
         let hit_cues = ui.take_projectile_sound_cues();
         assert_eq!(
             hit_cues,

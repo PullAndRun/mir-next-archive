@@ -11,6 +11,12 @@
 //!   `frame_at` boundaries, `sprite_index = 410 + frame % 6 + dir16 * 10` inside
 //!   `magic.wzl[410..=565]`, `Direction16` sampled against Crystal
 //!   `GameScene.cs:12044-12065`, `draw_offset` lerp from source to destination;
+//!
+//! R62 supersedes the R59 elapsed semantics: the real snapshot path now walks strict
+//! `NextFrame` boundaries (`advance_clock`: one frame per tick, equality returns, no
+//! catch-up after a big jump) and resets exactly once on the first non-empty batch of a
+//! new `WorldSnapshot::session_generation`. The six gates rewritten in round 62 keep their
+//! R59 names; the pure `frame_at` formula stays covered below as the historical reference.
 //! * G3 impact: when the destination object is still alive at arrival, removing the view
 //!   produces the `magic.wzl[570..=579]` ten-frame sequence (60 ms per frame, 600 ms);
 //!   a dead destination produces no impact and no hit sound;
@@ -33,7 +39,7 @@ use mir_core::Language;
 use mir_core::Point;
 use mir_core::enums::{MirDirection, Monster, Spell};
 use mir_protocol::ServerPacket;
-use mir_protocol::packets::server::ObjectMonster;
+use mir_protocol::packets::server::{ObjectMonster, ObjectProjectile};
 use mir_render::sound::{
     PROJECTILE_SOUND_BASE, PROJECTILE_SOUND_HIT_INDEX, PROJECTILE_SOUND_SPAWN_INDEX,
     ProjectileSoundPhase, projectile_sound,
@@ -113,6 +119,16 @@ fn fire_bounce(source: u32, destination: u32) -> ProjectileEvent {
 fn sync_at(ui: &mut UiState, snapshot: &WorldSnapshot, now_ms: i64) {
     ui.time_millis = now_ms;
     ui.sync(snapshot);
+}
+
+/// R62 C1: walk a two-cell flight (duration 100 ms / count 3 / interval 33 ms) through the
+/// strict `NextFrame` clock. Each sync passes one boundary, and the last one lands exactly
+/// on `START_MS + 100` (the R59 elapsed arrival instant), so the old arrival assertions
+/// stay meaningful.
+fn settle_two_cell_flight(ui: &mut UiState, snapshot: &WorldSnapshot) {
+    for elapsed in [34_i64, 67, 100] {
+        sync_at(ui, snapshot, START_MS + elapsed);
+    }
 }
 
 /// Fake sink injected through `Projectiles::sync_with_sink`; records literal file names.
@@ -222,33 +238,100 @@ fn unknown_destination_event_is_consumed_without_spawning_a_view() {
     );
 }
 
+// R62 supersedes R59 elapsed semantics（见 round62 manifest）.
 #[test]
 fn cursor_resets_when_the_snapshot_event_table_is_replaced() {
     let mut first = seeded_snapshot(Point::new(10, 10), Point::new(15, 10));
-    first
-        .projectile_events
-        .push(fire_bounce(SOURCE_ID, DEST_ID));
+    // Real 125 push path: `projectile_events_total` and the table grow together (R61 M1).
+    first.apply_packet_at(
+        &ServerPacket::ObjectProjectile(ObjectProjectile {
+            spell: Spell::FireBounce,
+            source: SOURCE_ID,
+            destination: DEST_ID,
+        }),
+        0,
+    );
     let mut ui = ui_state();
     sync_at(&mut ui, &first, START_MS);
     assert_eq!(ui.projectiles().events_consumed(), 1);
+    assert_eq!(ui.projectiles().len(), 1);
 
-    // A rebuilt snapshot starts with an empty event table: the cursor rewinds to zero.
-    let mut second = seeded_snapshot(Point::new(10, 10), Point::new(15, 10));
-    sync_at(&mut ui, &second, START_MS + 10);
-    assert_eq!(ui.projectiles().events_consumed(), 0);
+    // R62 C4: a same-generation trimmed empty table is NOT a new session. The cursor and
+    // the in-flight views must survive; only a generation change may reset them.
+    first.projectile_events.clear();
+    sync_at(&mut ui, &first, START_MS + 10);
+    assert_eq!(
+        ui.projectiles().events_consumed(),
+        1,
+        "a trimmed empty table of the same generation must not rewind the cursor"
+    );
+    assert_eq!(
+        ui.projectiles().len(),
+        1,
+        "a trimmed empty table must not reset the in-flight views"
+    );
 
+    // The same generation grows again (trim followed by a real 125 push): the absolute
+    // counter keeps the trimmed event, so the new event is consumed after the old cursor
+    // and the old view is not replayed.
+    first.apply_packet_at(
+        &ServerPacket::ObjectProjectile(ObjectProjectile {
+            spell: Spell::FireBounce,
+            source: SOURCE_ID,
+            destination: DEST_ID,
+        }),
+        0,
+    );
+    assert_eq!(first.projectile_events_total, 2, "trimmed total is kept");
+    sync_at(&mut ui, &first, START_MS + 20);
+    assert_eq!(ui.projectiles().events_consumed(), 2);
+    assert_eq!(ui.projectiles().len(), 2);
+
+    // R62 C4: a new session (real issued generation) whose first snapshot is still empty
+    // defers the reset until its first non-empty batch.
+    let mut second = WorldSnapshot::new_session();
+    seed_monster(&mut second, SOURCE_ID, Point::new(10, 10), false);
+    seed_monster(&mut second, DEST_ID, Point::new(15, 10), false);
+    sync_at(&mut ui, &second, START_MS + 30);
+    assert_eq!(
+        ui.projectiles().events_consumed(),
+        2,
+        "the first empty snapshot of a new generation must not rewind the cursor yet"
+    );
+    assert_eq!(
+        ui.projectiles().len(),
+        2,
+        "a generation change with no events must not clear the views yet"
+    );
+
+    // First non-empty batch of the new generation: reset exactly once, then consume from
+    // zero (not appended on top of the old session's two events).
     second
         .projectile_events
         .push(fire_bounce(SOURCE_ID, DEST_ID));
-    sync_at(&mut ui, &second, START_MS + 20);
+    sync_at(&mut ui, &second, START_MS + 40);
+    assert_eq!(
+        ui.projectiles().events_consumed(),
+        1,
+        "the first non-empty batch of a new generation resets the cursor exactly once"
+    );
+    assert_eq!(
+        ui.projectiles().len(),
+        1,
+        "the new generation clears old views instead of appending to them"
+    );
+
+    // The reset happens once: later syncs of the same generation neither reset nor replay.
+    sync_at(&mut ui, &second, START_MS + 50);
     assert_eq!(ui.projectiles().events_consumed(), 1);
-    assert_eq!(ui.projectiles().len(), 2);
+    assert_eq!(ui.projectiles().len(), 1);
 }
 
 // ---------------------------------------------------------------------------
 // G2: interpolation formulas and direction sampling
 // ---------------------------------------------------------------------------
 
+// R62 supersedes R59 elapsed semantics（见 round62 manifest）.
 #[test]
 fn flight_duration_count_and_frame_boundaries_match_effect_cs() {
     let source = Point::new(10, 10);
@@ -258,8 +341,10 @@ fn flight_duration_count_and_frame_boundaries_match_effect_cs() {
     assert_eq!(frame_count(250), 8);
     assert_eq!(frame_count(0), 1);
 
-    // R61 M2: strict `CMain.Time <= NextFrame` (Effect.cs:91) with the integer frame
-    // interval `Duration / Count`, so the k-th boundary passes only once elapsed > k * 31.
+    // Historical pure formula (`frame_at`, R59/R61 elapsed semantics) stays covered as the
+    // reference table. R62 C1 no longer feeds it from the production path: the snapshot path
+    // walks strict `NextFrame` boundaries, one frame per tick (asserted below with the same
+    // 5-grid / interval-31 numbers).
     assert_eq!(frame_interval_ms(250, 8), 31);
     assert_eq!(frame_at(0, 250, 8), 0);
     assert_eq!(frame_at(31, 250, 8), 0, "equality at a boundary returns");
@@ -274,7 +359,8 @@ fn flight_duration_count_and_frame_boundaries_match_effect_cs() {
     assert_eq!(frame_at(1, 0, 1), 1);
 
     // The real snapshot path spawns with the initial destination and recomputes the
-    // dynamic parameters on every sync (R61 M2).
+    // dynamic parameters on every sync (R61 M2); the frame only advances once per tick
+    // when the strict `NextFrame` boundary is passed (R62 C1).
     let mut snapshot = seeded_snapshot(source, target);
     snapshot
         .projectile_events
@@ -284,16 +370,44 @@ fn flight_duration_count_and_frame_boundaries_match_effect_cs() {
     let view = ui.projectiles().views()[0];
     assert_eq!(view.duration_ms, duration_ms(source, target));
     assert_eq!(view.frame_count, frame_count(view.duration_ms));
+    assert_eq!(view.next_frame_ms, START_MS + 31);
+    assert_eq!(ui.projectiles().views()[0].frame, 0);
 
+    // Equality at the first boundary returns (`Time <= NextFrame`).
+    sync_at(&mut ui, &snapshot, START_MS + 31);
+    assert_eq!(ui.projectiles().views()[0].frame, 0, "equality returns");
+
+    // One tick advances at most one frame: a single jump to +150 ms (the old elapsed
+    // formula's frame 4) now leaves the view at frame 1, no catch-up.
     sync_at(&mut ui, &snapshot, START_MS + 150);
-    let view = ui.projectiles().views()[0];
-    assert_eq!(view.frame, 4);
-    assert_eq!(view.sprite_index(), BASE_INDEX + 4 + 4 * 10);
+    assert_eq!(
+        ui.projectiles().views()[0].frame,
+        1,
+        "R62 C1: one tick advances at most one frame"
+    );
+    // Then one tick per frame reaches the old frame-4 sprite (the clock never goes back).
+    sync_at(&mut ui, &snapshot, START_MS + 151);
+    sync_at(&mut ui, &snapshot, START_MS + 152);
+    sync_at(&mut ui, &snapshot, START_MS + 153);
+    assert_eq!(ui.projectiles().views()[0].frame, 4);
+    assert_eq!(
+        ui.projectiles().views()[0].sprite_index(),
+        BASE_INDEX + 4 + 4 * 10
+    );
 
-    // Arrival deletes the view (frame == count) after the last strict boundary at +249 ms.
-    sync_at(&mut ui, &snapshot, START_MS + 248);
-    assert_eq!(ui.projectiles().len(), 1, "frame 7 < count 8: still flying");
-    sync_at(&mut ui, &snapshot, START_MS + 249);
+    // Another big jump still advances exactly one frame; the last boundary is then passed
+    // one tick at a time, and the view is removed only after frame 8 >= count 8.
+    sync_at(&mut ui, &snapshot, START_MS + 2_000);
+    assert_eq!(
+        ui.projectiles().views()[0].frame,
+        5,
+        "a 1 s jump must not catch up the remaining frames"
+    );
+    assert_eq!(ui.projectiles().len(), 1, "frame 5 < count 8: still flying");
+    sync_at(&mut ui, &snapshot, START_MS + 2_001);
+    sync_at(&mut ui, &snapshot, START_MS + 2_002);
+    assert_eq!(ui.projectiles().views()[0].frame, 7);
+    sync_at(&mut ui, &snapshot, START_MS + 2_003);
     assert!(
         ui.projectiles().is_empty(),
         "arrived projectile must be removed"
@@ -409,11 +523,13 @@ fn views_follow_the_target_current_location_with_dynamic_parameters() {
 // G3: impact 570..=579
 // ---------------------------------------------------------------------------
 
+// R62 supersedes R59 elapsed semantics（见 round62 manifest）.
 #[test]
 fn hit_effect_plays_all_ten_magic_frames_when_the_target_survives() {
     // Six extra frames are never used by the flight, so the distance is kept at two cells
-    // (duration 100 ms, count 3, strict arrival at +100 ms) to make the hit instant easy
-    // to pin.
+    // (duration 100 ms, count 3, interval 33 ms) to make the hit instant easy to pin.
+    // R62 C1 drives the arrival through three strict `NextFrame` ticks (see
+    // `settle_two_cell_flight`), keeping the hit instant at `START_MS + 100`.
     let source = Point::new(10, 10);
     let target = Point::new(12, 10);
     let mut snapshot = seeded_snapshot(source, target);
@@ -425,7 +541,9 @@ fn hit_effect_plays_all_ten_magic_frames_when_the_target_survives() {
     assert_eq!(ui.projectiles().len(), 1);
 
     let arrival = START_MS + 100;
-    sync_at(&mut ui, &snapshot, arrival);
+    // R62 C1: strict `NextFrame` needs three ticks for the two-cell flight; the last tick
+    // still lands on the old elapsed arrival instant.
+    settle_two_cell_flight(&mut ui, &snapshot);
     assert!(
         ui.projectiles().is_empty(),
         "arrived projectile must be removed"
@@ -471,6 +589,7 @@ fn hit_effect_plays_all_ten_magic_frames_when_the_target_survives() {
     );
 }
 
+// R62 supersedes R59 elapsed semantics（见 round62 manifest）.
 #[test]
 fn hit_effect_follows_the_surviving_target() {
     let mut snapshot = seeded_snapshot(Point::new(10, 10), Point::new(12, 10));
@@ -479,7 +598,7 @@ fn hit_effect_follows_the_surviving_target() {
         .push(fire_bounce(SOURCE_ID, DEST_ID));
     let mut ui = ui_state();
     sync_at(&mut ui, &snapshot, START_MS);
-    sync_at(&mut ui, &snapshot, START_MS + 100);
+    settle_two_cell_flight(&mut ui, &snapshot);
     assert_eq!(
         ui.projectiles().hit_effects()[0].position,
         Point::new(12, 10)
@@ -530,6 +649,7 @@ fn dead_target_skips_impact_and_hit_sound() {
 // G4: sound mapping
 // ---------------------------------------------------------------------------
 
+// R62 supersedes R59 elapsed semantics（见 round62 manifest）.
 #[test]
 fn spawn_and_hit_sounds_use_m34_once_each() {
     let mut snapshot = seeded_snapshot(Point::new(10, 10), Point::new(12, 10));
@@ -547,8 +667,12 @@ fn spawn_and_hit_sounds_use_m34_once_each() {
         "spawn cue must be M34-1.wav"
     );
 
-    ui.projectiles
-        .sync_with_sink(&snapshot, START_MS + 100, &mut sink);
+    // R62 C1: walk the strict `NextFrame` boundaries one tick at a time; the last tick
+    // still lands on the old elapsed arrival instant.
+    for elapsed in [34_i64, 67, 100] {
+        ui.projectiles
+            .sync_with_sink(&snapshot, START_MS + elapsed, &mut sink);
+    }
     assert_eq!(
         sink.played,
         vec!["M34-1.wav", "M34-2.wav"],
@@ -611,6 +735,7 @@ fn projectile_sound_uses_the_great_fire_ball_base_m34() {
     );
 }
 
+// R62 supersedes R59 elapsed semantics（见 round62 manifest）.
 #[test]
 fn production_sound_cues_are_drained_once_per_projectile() {
     let mut snapshot = seeded_snapshot(Point::new(10, 10), Point::new(12, 10));
@@ -628,7 +753,8 @@ fn production_sound_cues_are_drained_once_per_projectile() {
         "draining the cue queue must empty it"
     );
 
-    sync_at(&mut ui, &snapshot, START_MS + 100);
+    // R62 C1: the hit cue appears on the strict `NextFrame` arrival tick.
+    settle_two_cell_flight(&mut ui, &snapshot);
     assert_eq!(ui.projectiles().sound_cues(), ["M34-2.wav"]);
     assert_eq!(ui.projectiles.take_sound_cues(), ["M34-2.wav"]);
     assert!(ui.projectiles().sound_cues().is_empty());

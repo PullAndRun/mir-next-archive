@@ -33,6 +33,12 @@
 //!
 //! The tests intentionally use the production `RecordingSoundSink` (no fake sink): the
 //! cue queue handed to the audio channel is part of the G1 contract, not just a test hook.
+//!
+//! R62 supersedes the R61 elapsed semantics: the production path now walks strict
+//! `NextFrame` boundaries (`advance_clock`: one frame per tick, equality returns, no
+//! catch-up after a jump) and resets the cursor exactly once on the first non-empty batch of
+//! a new `WorldSnapshot::session_generation`. The seven gates rewritten in round 62 keep
+//! their R61 names and every original assertion; only the clock driving changed.
 
 use mir_client::net::{ProjectileEvent, WorldSnapshot};
 use mir_client::ui::UiState;
@@ -136,6 +142,24 @@ fn sync_at(ui: &mut UiState, snapshot: &WorldSnapshot, now_ms: i64) {
     ui.sync(snapshot);
 }
 
+/// R62 C1: strict `NextFrame` clock, one frame per `sync`. Five cells (duration 250 ms /
+/// count 8 / interval 31 ms) needs eight ticks: each tick passes exactly one boundary and
+/// the eighth removes the view. The last tick still lands on `START_MS + 249` (the old
+/// elapsed arrival instant), so the impact-window assertions below keep their numbers.
+fn settle_five_cell_flight(ui: &mut UiState, snapshot: &WorldSnapshot) {
+    for elapsed in [32_i64, 63, 94, 125, 156, 187, 218, 249] {
+        sync_at(ui, snapshot, START_MS + elapsed);
+    }
+}
+
+/// R62 C1: two cells (duration 100 ms / count 3 / interval 33 ms) needs three ticks; the
+/// last tick still lands on `START_MS + 100`.
+fn settle_two_cell_flight(ui: &mut UiState, snapshot: &WorldSnapshot) {
+    for elapsed in [34_i64, 67, 100] {
+        sync_at(ui, snapshot, START_MS + elapsed);
+    }
+}
+
 /// How the event backlog reaches the UI cursor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BacklogMode {
@@ -147,6 +171,9 @@ enum BacklogMode {
 
 /// M1 gate for one `n` and one arrival mode: every event becomes exactly one view and one
 /// spawn cue, later every live arrival settles exactly one hit and one impact cue.
+///
+/// R62 C1: the arrival is driven by strict `NextFrame` ticks (`settle_five_cell_flight`),
+/// not by one elapsed jump.
 fn run_projectile_backlog_gate(n: usize, mode: BacklogMode) {
     let source = Point::new(10, 10);
     // Five cells right: duration 250 ms, count 8, next-frame interval 31 ms
@@ -268,10 +295,12 @@ fn run_projectile_backlog_gate(n: usize, mode: BacklogMode) {
         "a repeated sync must not replay cues"
     );
 
-    // Arrival: five cells is duration 250 ms / count 8 / interval 31 ms, and
-    // `Effect.cs:91` requires `Time > NextFrame`, so the last boundary is passed at 249 ms.
+    // Arrival (R62 C1): five cells is duration 250 ms / count 8 / interval 31 ms, and
+    // `Effect.cs:91` requires `Time > NextFrame`; one `sync` advances at most one frame, so
+    // the eight strict boundaries are walked one tick at a time. The last tick still lands on
+    // `START_MS + 249`, so the old arrival instant and the impact window are unchanged.
     let arrival = START_MS + 249;
-    sync_at(&mut ui, &snapshot, arrival);
+    settle_five_cell_flight(&mut ui, &snapshot);
     assert!(
         ui.projectiles().is_empty(),
         "every projectile must finish at the recomputed arrival instant"
@@ -305,6 +334,7 @@ fn run_projectile_backlog_gate(n: usize, mode: BacklogMode) {
     );
 }
 
+// R62 supersedes R61 semantics（见 round62 manifest）.
 #[test]
 fn backlog_then_consume_keeps_every_projectile_event() {
     for n in [17usize, 33, 257] {
@@ -312,6 +342,7 @@ fn backlog_then_consume_keeps_every_projectile_event() {
     }
 }
 
+// R62 supersedes R61 semantics（见 round62 manifest）.
 #[test]
 fn consume_then_burst_keeps_every_projectile_event() {
     for n in [17usize, 33, 257] {
@@ -348,10 +379,12 @@ fn manually_built_event_table_with_zero_total_is_consumed() {
     assert!(ui.take_projectile_sound_cues().is_empty());
 }
 
+// R62 supersedes R61 semantics（见 round62 manifest）：空表首批只推迟复位，
+// 首批非空事件才复位并从头消费；reset 恰好发生一次。
 #[test]
 fn empty_rebuilt_snapshot_resets_the_cursor_without_replay() {
     let source = Point::new(10, 10);
-    // Two cells right: duration 100 ms, count 3, interval 33 ms, arrival at elapsed 100 ms.
+    // Two cells right: duration 100 ms, count 3, interval 33 ms.
     let target = Point::new(12, 10);
     let mut snapshot = seeded_snapshot(source, target);
     push_projectile(&mut snapshot, SOURCE_ID, DEST_ID, 0);
@@ -360,19 +393,25 @@ fn empty_rebuilt_snapshot_resets_the_cursor_without_replay() {
     sync_at(&mut ui, &snapshot, START_MS);
     assert_eq!(ui.projectiles().events_consumed(), 1);
     assert_eq!(ui.take_projectile_sound_cues(), vec![SPAWN_CUE]);
-    let arrival = START_MS + 100;
-    sync_at(&mut ui, &snapshot, arrival);
+    settle_two_cell_flight(&mut ui, &snapshot);
     assert!(ui.projectiles().is_empty());
     assert_eq!(ui.take_projectile_sound_cues(), vec![HIT_CUE]);
 
-    // Reconnect: a brand-new snapshot has an empty event table and its own absolute count.
-    let mut rebuilt = seeded_snapshot(source, target);
+    // Reconnect: a brand-new snapshot gets its own issued session generation (R62 C4) and
+    // an empty event table. The first empty batch must NOT rewind the cursor.
+    let mut rebuilt = WorldSnapshot::new_session();
+    seed_monster(&mut rebuilt, SOURCE_ID, source, false);
+    seed_monster(&mut rebuilt, DEST_ID, target, false);
     assert_eq!(rebuilt.projectile_events_total, 0);
-    sync_at(&mut ui, &rebuilt, arrival + 1_000);
+    assert_ne!(
+        rebuilt.session_generation, snapshot.session_generation,
+        "the rebuilt snapshot must carry a new session generation"
+    );
+    sync_at(&mut ui, &rebuilt, START_MS + 1_000);
     assert_eq!(
         ui.projectiles().events_consumed(),
-        0,
-        "an empty rebuilt snapshot must reset the cursor"
+        1,
+        "the first empty snapshot of a new generation must not reset the cursor yet"
     );
     assert!(ui.projectiles().is_empty());
     assert!(
@@ -380,13 +419,18 @@ fn empty_rebuilt_snapshot_resets_the_cursor_without_replay() {
         "the rebuild must not replay the old cues"
     );
 
-    // The first event of the rebuilt snapshot is consumed exactly once, not replayed.
+    // The first non-empty batch of the new generation resets exactly once, then its first
+    // event is consumed exactly once (not replayed).
     push_projectile(&mut rebuilt, SOURCE_ID, DEST_ID, 0);
-    sync_at(&mut ui, &rebuilt, arrival + 1_000);
-    assert_eq!(ui.projectiles().events_consumed(), 1);
+    sync_at(&mut ui, &rebuilt, START_MS + 1_000);
+    assert_eq!(
+        ui.projectiles().events_consumed(),
+        1,
+        "the first non-empty batch resets the cursor and consumes its first event"
+    );
     assert_eq!(ui.projectiles().len(), 1);
     assert_eq!(ui.take_projectile_sound_cues(), vec![SPAWN_CUE]);
-    sync_at(&mut ui, &rebuilt, arrival + 1_000);
+    sync_at(&mut ui, &rebuilt, START_MS + 1_000);
     assert_eq!(ui.projectiles().events_consumed(), 1);
     assert!(ui.take_projectile_sound_cues().is_empty());
 }
@@ -433,6 +477,7 @@ fn shorter_manual_table_keeps_the_guarded_rebuild() {
 // G2: dynamic flight parameters (`Missile.Process`, Effect.cs:174-190)
 // ---------------------------------------------------------------------------
 
+// R62 supersedes R61 semantics（见 round62 manifest）.
 #[test]
 fn dynamic_flight_parameters_follow_the_target_until_finished() {
     let source = Point::new(10, 10);
@@ -448,7 +493,12 @@ fn dynamic_flight_parameters_follow_the_target_until_finished() {
     assert_eq!(view.dir16, 4, "spawn samples direction 4 (right)");
     assert_eq!(ui.take_projectile_sound_cues(), vec![SPAWN_CUE]);
 
-    // Frame 6 has been reached after 200 ms (`(200 - 1) / 30 = 6`).
+    // R62 C1: the strict `NextFrame` clock (interval 30 ms) needs one tick per boundary.
+    // Six ticks reach frame 6 at +181 ms; the sync at the old +200 ms instant no longer
+    // advances (the next boundary is 1210 ms), so the old assertion time/value still hold.
+    for elapsed in [31_i64, 61, 91, 121, 151, 181] {
+        sync_at(&mut ui, &snapshot, START_MS + elapsed);
+    }
     sync_at(&mut ui, &snapshot, START_MS + 200);
     let view = ui.projectiles().views()[0];
     assert_eq!(view.frame, 6);
@@ -468,7 +518,12 @@ fn dynamic_flight_parameters_follow_the_target_until_finished() {
     assert_eq!(view.dir16, 4, "direction keeps the spawn-time sample");
     assert!(!view.finished(), "the far move extends the flight");
 
-    // The frozen-parameter deadline (300 ms) is no longer an arrival.
+    // The frozen-parameter deadline (300 ms) is no longer an arrival: one tick per
+    // boundary reaches frame 13 at +391 ms, and the sync at the old +400 ms instant stays
+    // on frame 13 (its next boundary is 1420 ms).
+    for elapsed in [211_i64, 241, 271, 301, 331, 361, 391] {
+        sync_at(&mut ui, &snapshot, START_MS + elapsed);
+    }
     sync_at(&mut ui, &snapshot, START_MS + 400);
     let view = ui.projectiles().views()[0];
     assert_eq!(
@@ -481,10 +536,17 @@ fn dynamic_flight_parameters_follow_the_target_until_finished() {
     );
     assert!(ui.take_projectile_sound_cues().is_empty());
 
-    // Target walks near: three cells gives duration 150 ms / count 5. At the same instant
-    // the recomputed frame is already past the last frame, so it settles exactly once.
+    // Target walks near: three cells gives duration 150 ms / count 5. R62 C1 keeps the view
+    // until the next tick passes the still-armed NextFrame (1420 ms), then it settles.
     move_monster(&mut snapshot, DEST_ID, Point::new(13, 10), false);
     sync_at(&mut ui, &snapshot, START_MS + 400);
+    assert_eq!(
+        ui.projectiles().len(),
+        1,
+        "the shrink is settled by the next tick, not by the same-instant sync"
+    );
+    assert!(ui.projectiles().views()[0].finished());
+    sync_at(&mut ui, &snapshot, START_MS + 421);
     assert!(ui.projectiles().is_empty());
     assert_eq!(ui.take_projectile_sound_cues(), vec![HIT_CUE]);
     let effects = ui.projectiles().hit_effects();
@@ -493,7 +555,7 @@ fn dynamic_flight_parameters_follow_the_target_until_finished() {
     assert_eq!(effects[0].position, Point::new(13, 10));
 
     // No second settlement on a repeated sync at the same instant.
-    sync_at(&mut ui, &snapshot, START_MS + 400);
+    sync_at(&mut ui, &snapshot, START_MS + 421);
     assert!(ui.take_projectile_sound_cues().is_empty());
     assert_eq!(ui.projectiles().hit_effects().len(), 1);
 }
@@ -546,10 +608,13 @@ fn one_grid_flight_uses_a_fifty_millisecond_step() {
     assert_eq!(ui.take_projectile_sound_cues(), vec![HIT_CUE]);
 }
 
+// R62 supersedes R61 semantics（见 round62 manifest）：严格 NextFrame 每 tick 至多一帧，
+// 31 ms 间隔的 8 个边界必须逐个 tick 走完，不能在 +155 ms 一次跳到 frame 4。
 #[test]
 fn five_grid_frame_boundaries_match_strict_next_frame() {
     // Five cells: duration 250 ms, count 8, interval `250 / 8 = 31` (C# integer division),
-    // so the first `NextFrame` offset is 31 ms and arrival happens at 31 * 8 + 1 = 249 ms.
+    // so the k-th boundary is `31 * (k + 1)` ms; equality returns and arrival happens only
+    // after the last boundary (249 ms).
     let mut snapshot = seeded_snapshot(Point::new(10, 10), Point::new(15, 10));
     push_projectile(&mut snapshot, SOURCE_ID, DEST_ID, 0);
 
@@ -562,12 +627,23 @@ fn five_grid_frame_boundaries_match_strict_next_frame() {
 
     sync_at(&mut ui, &snapshot, START_MS + 31);
     assert_eq!(ui.projectiles().views()[0].frame, 0, "equality returns");
-    sync_at(&mut ui, &snapshot, START_MS + 32);
-    assert_eq!(ui.projectiles().views()[0].frame, 1);
-    sync_at(&mut ui, &snapshot, START_MS + 155);
-    assert_eq!(ui.projectiles().views()[0].frame, 4);
-    sync_at(&mut ui, &snapshot, START_MS + 156);
-    assert_eq!(ui.projectiles().views()[0].frame, 5);
+    for (elapsed, frame) in [
+        (32_i64, 1_u32),
+        (63, 2),
+        (94, 3),
+        (125, 4),
+        (156, 5),
+        (187, 6),
+        (218, 7),
+    ] {
+        sync_at(&mut ui, &snapshot, START_MS + elapsed);
+        assert_eq!(
+            ui.projectiles().views()[0].frame,
+            frame,
+            "the +{elapsed} ms tick crosses exactly one boundary"
+        );
+    }
+    // NextFrame is 1248 ms: equality does not finish, arrival is only after it.
     sync_at(&mut ui, &snapshot, START_MS + 248);
     assert_eq!(ui.projectiles().views()[0].frame, 7);
     assert!(!ui.projectiles().views()[0].finished());
@@ -581,6 +657,7 @@ fn five_grid_frame_boundaries_match_strict_next_frame() {
     assert_eq!(ui.projectiles().hit_effects().len(), 1);
 }
 
+// R62 supersedes R61 semantics（见 round62 manifest）.
 #[test]
 fn arrival_settles_exactly_once_across_repeated_syncs() {
     // Two cells: duration 100 ms, count 3, interval 33 ms, arrival at elapsed 100 ms.
@@ -592,7 +669,7 @@ fn arrival_settles_exactly_once_across_repeated_syncs() {
     assert_eq!(ui.take_projectile_sound_cues(), vec![SPAWN_CUE]);
 
     let arrival = START_MS + 100;
-    sync_at(&mut ui, &snapshot, arrival);
+    settle_two_cell_flight(&mut ui, &snapshot);
     assert!(ui.projectiles().is_empty());
     assert_eq!(ui.take_projectile_sound_cues(), vec![HIT_CUE]);
     assert_eq!(ui.projectiles().hit_effects().len(), 1);
@@ -611,6 +688,7 @@ fn arrival_settles_exactly_once_across_repeated_syncs() {
     assert!(ui.take_projectile_sound_cues().is_empty());
 }
 
+// R62 supersedes R61 semantics（见 round62 manifest）.
 #[test]
 fn dead_or_missing_targets_finish_without_impact_or_hit_cue() {
     // Dead target: `GameScene.cs:4707` returns before the 570 effect and the hit cue.
@@ -623,7 +701,7 @@ fn dead_or_missing_targets_finish_without_impact_or_hit_cue() {
     assert_eq!(ui.projectiles().len(), 1, "a dead target still gets a view");
     assert_eq!(ui.take_projectile_sound_cues(), vec![SPAWN_CUE]);
 
-    sync_at(&mut ui, &snapshot, START_MS + 100);
+    settle_two_cell_flight(&mut ui, &snapshot);
     assert!(ui.projectiles().is_empty());
     assert!(ui.projectiles().hit_effects().is_empty());
     assert!(
@@ -637,7 +715,7 @@ fn dead_or_missing_targets_finish_without_impact_or_hit_cue() {
     let mut ui = ui_state();
     sync_at(&mut ui, &snapshot, START_MS);
     snapshot.entities.remove(&DEST_ID);
-    sync_at(&mut ui, &snapshot, START_MS + 100);
+    settle_two_cell_flight(&mut ui, &snapshot);
     assert!(ui.projectiles().is_empty());
     assert!(ui.projectiles().hit_effects().is_empty());
     assert_eq!(ui.take_projectile_sound_cues(), vec![SPAWN_CUE]);

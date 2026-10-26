@@ -260,6 +260,38 @@ struct DoorRuntime {
    全局对象序列、同格多对象顺序两者都不保证一致。客户端只应依赖「四类各自完整、类型内对象
    不重复」，不要据此推断 Crystal 的格子插入序。
 
+## 8.9 NPC 回收原语与生产接线状态
+
+> 本节只记录 R56 的只读核查：**原语已存在，生产路径没有调用者**。原始命令与输出见
+> `target/round56/docs/attempt-1/00-evidence-greps.log`（HEAD `e3b365f`）。
+
+1. **① 容器原语存在**：`World::despawn_npc`（`crates/mir-server/src/npc.rs:804-811`；doc 段从
+   `:804` 起写明「当前无生产调用者」，函数签名在 `:811`）一次完成四要素：容器移除
+   （`:829` `self.npcs.retain(|npc| npc.object_id != object_id)`）、AOI 桶移除
+   （`:828` `self.aoi_remove(&npc.map, AoiKind::Npc, object_id)`）、半径内广播
+   `S.ObjectRemove`（`:817` `object_remove_frame`）、关系清理（`:833` `visible_npcs.remove`、
+   `:835` `npc.close()`）。四要素与 Crystal `Server/MirEnvir/Map.cs:2375-2383` 对齐：
+   `:2378` `NPCs.Remove((NPCObject)ob)`（容器）、`:2382` `GetCell(ob.CurrentLocation).Remove(ob)`
+   （格子索引）；本作用 AOI 桶代替逐格 `Cell.Objects`。
+2. **② Crystal 运行期不调用**：`github/Crystal/Server` 全仓库 `RemoveObject(` 共 **26** 处，
+   其中实参传 `NPCObject` 的 **0** 处（调用者只有玩家/怪物/英雄/宠物/技能/物品/征服物）；
+   `Envir.Remove(NPCInfo)`（`Server/MirEnvir/Envir.cs:4367-4371`）只做
+   `NPCInfoList.Remove(info)`，仅定义、无服务端调用者。
+3. **③ 本作无地图卸载生命周期**：`grep -rn "fn unload\|fn remove_map\|fn despawn_npc" crates/mir-server/src/`
+   只命中 `npc.rs:811` 的 `despawn_npc` 定义；`initialize_map` 以 `initialized_maps` 幂等早退
+   （`crates/mir-server/src/maps.rs:410-412`，判据在 `:411`），重复进图不会重建或回收 NPC。
+4. **④ 淘汰路径排除有 NPC 的图**：`evict_maps`（`crates/mir-server/src/maps.rs:871-900`）的
+   busy 集合在 `:881` 显式含 `self.npcs.iter().map(|npc| npc.map.as_str())`；有 NPC 的图不进入
+   淘汰候选，找不到 victim 时在 `:889-895` `break`，不会留下悬空 NPC。
+5. **⑤ 动态刷出只在测试/GM 路径**：`grep -rn "\.spawn_npc(" crates/` 只命中测试
+   `crates/mir-server/tests/conquest_e2e.rs:628` 与 `crates/mir-server/tests/market_persistence.rs:118`；
+   生产刷出只发生在启动/首次进图的 `spawn_npcs`（`maps.rs:434` 由 `initialize_map` 调用），
+   没有「运行期新增 NPC」可与回收配对。
+
+结论：**AOI-5 整体维持 PARTIAL；仅子项“无回收原语”已 CLOSED；生产零调用者接线待 R56**。
+`despawn_npc` 原语保留，唯一调用者是 `crates/mir-server/tests/round55_npc_recycle.rs`
+（`:141`、`:198`、`:208`、`:222`、`:230`），生产代码 0 调用。
+
 ## 9. 测试清单
 
 `crates/mir-server/src/aoi.rs` 内 7 个单元测试：

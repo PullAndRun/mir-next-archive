@@ -21,7 +21,7 @@
     "tests_insertions": 541,
     "tests_deletions": 32
   },
-  "publication": "docs batch committed as 5abdcd3 (README/manifest are pre-commit snapshots); functional HEAD 1fcf4fc gated; push pending Lead final governance close",
+  "publication": "functional HEAD 1fcf4fc (gated 12/12); docs commits 5abdcd3/0a44ace; S1 evidence-consistency fix applied; shangshu re-verification pending; push pending final governance close",
   "gate": {
     "attempt": 1,
     "head": "1fcf4fc",
@@ -174,12 +174,13 @@
     {
       "role": "readme",
       "path": "docs/testing/round63/README.md",
-      "size": 6648,
-      "sha256": "74f2c2f07c8e2feda5b79cd40f0f923d94d12ffedc2003f69c65f2fbb6a82358",
+      "size": 7900,
+      "sha256": "223e3e2f5b18494c37435ff647aa0b984510a1770fc6f8b4e4a24abe04eaa977",
       "tracked": false,
       "git_blob": null,
       "source": "worktree",
-      "lines": 80
+      "lines": 87,
+      "hash_basis": "current worktree snapshot after S1 fix"
     },
     {
       "role": "run-checks",
@@ -424,5 +425,15 @@
       "id": "E4",
       "text": "tracked=false / git_blob for functional-commit baseline: blob sha computed via git show 1fcf4fc:<path> and may differ from current worktree sha for pre-commit snapshots; both are listed separately."
     }
-  ]
+  ],
+  "verification": {
+    "final_audit": {
+      "verdict": "PASS-WITH-PARTIAL",
+      "path": "docs/testing/round63/round63-final-audit.md"
+    },
+    "shangshu_acceptance": {
+      "status": "attempt-1 BLOCK (S1 evidence-consistency), fixed and pending re-verification"
+    },
+    "menxia_confirmation": "not started"
+  }
 }

@@ -231,7 +231,7 @@ R61 12 项 PARTIAL 按原编号承接，已证子项仅作进展，不整项清�
 | P11 缺素材 early-return | SKIP 仍按 PARTIAL，不能计 PASS；复查脚本对 SKIP 总体失败 |
 | P12 R60 P-1..P-6 | 原台账不自动清零，不由局部时钟/队列测试推导渲染、效果或音频完整 |
 
-本轮完成（限定交付）：G1 570 命中特效严格 NextFrame 时钟（对照 Crystal `Effect.cs:38-48,81-96`）；G2 `consume` 顺序 reset→cache→spawn，跨代首批 payload 位置先进缓存再 spawn。功能提交 `1fcf4fc`（5 文件 +874/−66），Lead 门禁 attempt-1 EXIT=0（12 项 OK / 0 FAIL，日志 `target/round63/gate/attempt-1.log`，sha256 `15adfa30…ac1656`）。新增 wire 测试 3 例，R59/R61/R62 的 elapsed 断言同步 supersede 为严格 NextFrame；红绿同一测试文件 SHA `6438cce…`（基线 `f80724e` exit 101：`round63_projectile_wire.rs:182` 571≠570、`:290` 1≠2），功能树 lib 24 / wire 3 / R59 16 / R61 11 / R62 5 与 clippy/fmt 全绿，C 独立复跑一致。PARTIAL 继续承接：生产 `SkipFrames`/ActionFeed 来源、命中后物理回收与事件表减容、`known_positions` 容量/LRU、570 素材（`game-assets/` 不入库）。终审（刑部 D4 之后）、尚书验收与门下确认**尚未进行**，本状态只指限定交付，不代替父任务独立结论。push 待 Lead 终审后统一处理。详见 [R63 索引](testing/round63/README.md)。
+本轮完成（限定交付）：G1 570 命中特效严格 NextFrame 时钟（对照 Crystal `Effect.cs:38-48,81-96`）；G2 `consume` 顺序 reset→cache→spawn，跨代首批 payload 位置先进缓存再 spawn。功能提交 `1fcf4fc`（5 文件 +874/−66），Lead 门禁 attempt-1 EXIT=0（12 项 OK / 0 FAIL，日志 `target/round63/gate/attempt-1.log`，sha256 `15adfa30…ac1656`）。新增 wire 测试 3 例，R59/R61/R62 的 elapsed 断言同步 supersede 为严格 NextFrame；红绿同一测试文件 SHA `6438cce…`（基线 `f80724e` exit 101：`round63_projectile_wire.rs:182` 571≠570、`:290` 1≠2），功能树 lib 24 / wire 3 / R59 16 / R61 11 / R62 5 与 clippy/fmt 全绿，C 独立复跑一致。PARTIAL 继续承接：生产 `SkipFrames`/ActionFeed 来源、命中后物理回收与事件表减容、`known_positions` 容量/LRU、570 素材（`game-assets/` 不入库）。刑部终审已完成（PASS-WITH-PARTIAL，报告 `docs/testing/round63/round63-final-audit.md`）；尚书验收进行中（S1 证据一致性已修正待复验）；门下确认尚未完成。本状态只指限定交付，不代替父任务独立结论；push 待 Lead 统一处理。详见 [R63 索引](testing/round63/README.md)。
 
 ## 十三、第 64 轮（R64）候选
 

@@ -1,6 +1,6 @@
 # R63 570 严格时钟与跨代缓存顺序
 
-结论：**PASS-WITH-PARTIAL，范围仅限 G1+G2**。本轮完成 570 命中特效严格 NextFrame 状态时钟（G1）与跨代首批位置缓存刷新顺序（G2）；生产 `SkipFrames`/ActionFeed、命中后物理回收、570 素材等仍为 PARTIAL，R63 整体不因本文档写成完整合格。终审（刑部 D4 之后）、尚书验收与门下确认**尚未进行**，也不代替父任务结论。
+结论：**PASS-WITH-PARTIAL，范围仅限 G1+G2**。本轮完成 570 命中特效严格 NextFrame 状态时钟（G1）与跨代首批位置缓存刷新顺序（G2）；生产 `SkipFrames`/ActionFeed、命中后物理回收、570 素材等仍为 PARTIAL，R63 整体不因本文档写成完整合格。刑部终审已完成（**PASS-WITH-PARTIAL**，见 [round63-final-audit.md](round63-final-audit.md)）；尚书验收 attempt-1 提出 S1 证据一致性必改，已修正并以复验结论为准；门下确认**尚未进行**，本索引不代替父任务结论。
 
 ## 提交与门禁
 

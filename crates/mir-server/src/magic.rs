@@ -2768,13 +2768,15 @@ impl World {
                 else {
                     return;
                 };
-                // `this.FireBounce(nextTarget, magic, target, --bounce)`（`:5953`）：
-                // 先递减，再交给 `FireBounce`；`bounce == 0` 时函数顶部直接返回
-                // （`:5813`：不广播 125、不排伤害）。
-                let remaining = bounce.saturating_sub(1);
-                if remaining == 0 {
-                    return;
-                }
+                // R58 S1: Crystal `HumanObject.cs:5947-5956` selects the next target
+                // **before** spending the hop budget: `nextTarget = targets[
+                // Random.Next(targets.Count)]` then `FireBounce(nextTarget, magic,
+                // target, --bounce)`. The callee's guard at `:5813` bails out when the
+                // decremented `bounce == 0`, so the draw still happens on the final hop
+                // and the drawn target is simply discarded (no 125, no damage).
+                // `fire_bounce_next_target` consumes exactly one RNG draw, and only when
+                // the candidate list is non-empty (an empty list returns `None` without
+                // drawing), matching Crystal's `if (targets.Count > 0)` guard.
                 let Some(next_id) = self.fire_bounce_next_target(
                     action.caster_id,
                     &map,
@@ -2783,6 +2785,10 @@ impl World {
                 ) else {
                     return;
                 };
+                let remaining = bounce.saturating_sub(1);
+                if remaining == 0 {
+                    return;
+                }
                 let Some(next_position) = self
                     .monster(next_id)
                     .map(|monster| monster.position)

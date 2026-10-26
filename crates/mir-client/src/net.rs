@@ -56,6 +56,7 @@
 //! | `S.AddBuff` / `S.RemoveBuff` | `buffs`：图标栏数据（`ExpireTime` 由 UI 本地倒计时） |
 //! | `S.ObjectStruck` / `S.DamageIndicator` | `damage_events`：世界飘字（`ui::worldtext`） |
 //! | `S.ObjectEffect` | `effects`：魔法盾/元素结界等短光效 |
+//! | `S.ObjectProjectile` | `projectile_events`: `FireBounce` trajectory semantics (R58 wires the event only; rendering is deferred to R59) |
 //! | `S.NPCResponse` | `npc_dialog`：原文行 + 版本号 + 最近 NPC 的 `object_id` |
 //! | `S.NPCGoods` | `npc_goods`：货架 + 价格倍率（物品名/价格来自 `item_infos`） |
 //! | `S.GameShopInfo` / `S.GameShopStock` | `gameshop`：独立商城目录 + 购买后的库存刷新（`GIndex` 幂等） |
@@ -1491,6 +1492,24 @@ pub struct EffectEvent {
     pub time: u32,
 }
 
+/// One projectile event (`S.ObjectProjectile`, index 125).
+///
+/// The snapshot only keeps the semantic shot description; no rendering or flight
+/// state is created here (round 58 wires the packet, the visual is deferred to
+/// round 59). Crystal parity: `GameScene.ObjectProjectile` (`GameScene.cs:4687-4716`)
+/// returns immediately when `MapControl.GetObject(p.Source)` finds no source object,
+/// and its switch only plays `Spell.FireBounce`; every other spell is a no-op.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProjectileEvent {
+    /// Spell carried by the packet (`FireBounce` is the only accepted one today).
+    pub spell: Spell,
+    /// Source object id. Always a known snapshot object; unknown sources are dropped.
+    pub source: u32,
+    /// Destination object id. May be unknown: Crystal only skips the impact effect when
+    /// `missile.Target == null`, so an unknown destination must not panic or drop the event.
+    pub destination: u32,
+}
+
 /// 一次技能表现事件（`S.Magic` / `S.ObjectMagic` / `S.ObjectSpell`）。
 ///
 /// 与 [`EffectEvent`] 的区别：光效挂在**对象**身上（魔法盾/治疗），技能表现挂在
@@ -2737,6 +2756,11 @@ pub struct WorldSnapshot {
     pub effects: Vec<EffectEvent>,
     /// 下一个光效事件编号。
     pub next_effect_id: u64,
+    /// Recent projectile events (`S.ObjectProjectile`(125), newest last).
+    ///
+    /// Round 58 only wires the packet into the snapshot; the UI/render side does not
+    /// consume these events yet (deferred to round 59, C2 PARTIAL).
+    pub projectile_events: Vec<ProjectileEvent>,
     /// 最近的技能表现事件（`S.Magic`/`S.ObjectMagic`/`S.ObjectSpell`，尾部最新）。
     pub spell_events: Vec<SpellEvent>,
     /// 下一个技能表现事件编号。
@@ -2874,6 +2898,7 @@ impl Default for WorldSnapshot {
             next_damage_id: 0,
             effects: Vec::new(),
             next_effect_id: 0,
+            projectile_events: Vec::new(),
             spell_events: Vec::new(),
             next_spell_id: 0,
             spell_fields: Vec::new(),
@@ -4493,6 +4518,7 @@ fn packet_name(packet: &ServerPacket) -> &'static str {
         ServerPacket::ObjectStruck(_) => "ObjectStruck",
         ServerPacket::DamageIndicator(_) => "DamageIndicator",
         ServerPacket::ObjectEffect(_) => "ObjectEffect",
+        ServerPacket::ObjectProjectile(_) => "ObjectProjectile",
         ServerPacket::ObjectHidden(_) => "ObjectHidden",
         ServerPacket::Magic(_) => "Magic",
         ServerPacket::ObjectMagic(_) => "ObjectMagic",
@@ -5355,6 +5381,23 @@ fn apply_packet_to(snapshot: &mut WorldSnapshot, packet: &ServerPacket, now_ms: 
         }
         ServerPacket::ObjectEffect(effect) => {
             push_effect_event(snapshot, effect.object_id, effect.effect, effect.time);
+        }
+        ServerPacket::ObjectProjectile(projectile) => {
+            // Crystal `GameScene.ObjectProjectile` (`GameScene.cs:4687-4716`): the source
+            // object must already exist, otherwise the packet is dropped; the switch only
+            // plays `Spell.FireBounce` and every other spell falls through as a no-op.
+            // Round 58 only wires the semantic event (C2 PARTIAL): no render entity or
+            // flight state is created here, and the destination is allowed to be unknown.
+            if projectile.spell == Spell::FireBounce
+                && snapshot.object_position(projectile.source).is_some()
+            {
+                push_projectile_event(
+                    snapshot,
+                    projectile.spell,
+                    projectile.source,
+                    projectile.destination,
+                );
+            }
         }
         ServerPacket::ObjectHidden(hidden) => {
             // 隐身/显形（Crystal `GameScene.ObjectHidden`，`GameScene.cs:5780-5790`）。
@@ -7191,6 +7234,28 @@ fn push_effect_event(snapshot: &mut WorldSnapshot, object_id: u32, effect: Spell
     });
     if snapshot.effects.len() > EFFECT_EVENT_LIMIT {
         snapshot.effects.remove(0);
+    }
+}
+
+/// Append one projectile event (`S.ObjectProjectile`(125)).
+///
+/// Reuses the existing ring policy of [`push_effect_event`]: keep at most
+/// `EFFECT_EVENT_LIMIT` items and drop the oldest when the cap is exceeded. The cap
+/// constant is the measured one from `net.rs:165`; no new limit is invented here
+/// (the round 58 probe `01-probe.log` records that measurement).
+fn push_projectile_event(
+    snapshot: &mut WorldSnapshot,
+    spell: Spell,
+    source: u32,
+    destination: u32,
+) {
+    snapshot.projectile_events.push(ProjectileEvent {
+        spell,
+        source,
+        destination,
+    });
+    if snapshot.projectile_events.len() > EFFECT_EVENT_LIMIT {
+        snapshot.projectile_events.remove(0);
     }
 }
 

@@ -3189,18 +3189,21 @@ impl World {
     /// 棕名（`:7199-7200`）：**受害者**既不是棕名也没有红名、且双方不在战争中时，
     /// 攻方 `BrownTime = now + Settings.Minute`。注意判定用的是受害者的
     /// `BrownTime` / `PKPoints`，不是攻方的。
+    /// 返回实际伤害 `damage - armour`（Crystal `HumanObject.Attacked(HumanObject)` 的返回值，
+    /// `HumanObject.cs:7219` 的 `return damage - armour`）；未命中/目标不在世界/已死亡返回 0。
+    /// 魔法结算（如冰咆哮）用这个返回值判断 `> 0` 才挂毒/涨技能经验（`:5929`、`:5956`）。
     pub(crate) fn damage_player_from_player(
         &mut self,
         hit: PendingHit,
         attacker_stats: &CombatStats,
-    ) {
+    ) -> i32 {
         let now = self.now();
         let Some((stats, map, dead, position, direction)) = self.player_snapshot(hit.target_id)
         else {
-            return;
+            return 0;
         };
         if dead {
-            return;
+            return 0;
         }
         let pvp = combat::resolve_player_vs_player(
             attacker_stats,
@@ -3211,7 +3214,7 @@ impl World {
         );
         if pvp.result.miss {
             self.emit_damage_indicator(&map, position, hit.target_id, 0, DamageType::Miss);
-            return;
+            return 0;
         }
         self.damage_armour(hit.target_id);
 
@@ -3304,8 +3307,9 @@ impl World {
             DamageType::Hit,
         );
 
-        // `ChangeHP(armour - damage)`（`:7219`）。
+        // `ChangeHP(armour - damage)`（`:7219`），返回值也照 `:7219` 的 `return damage - armour`。
         self.change_player_hp(hit.target_id, -pvp.result.damage);
+        dealt
     }
 
     /// 玩家死亡：Crystal `PlayerObject.Die`（`PlayerObject.cs:578-667`）。

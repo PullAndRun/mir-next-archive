@@ -50,8 +50,10 @@
 //!
 //! * `spell_target_lock`（`C.Magic.SpellTargetLock`）未实现：落点始终取包里的 `location`。
 //! * `CanFly`（目标格是否允许飞行道具）未实现——地图层没有飞行属性，只按距离判定。
-//! * PK：`Bolt` 一族仍只认怪物（既有简化）；`FireWall`/`Lightning`/`Poisoning`
-//!   用 [`World::is_attack_target_player`] 判定玩家目标，与物理攻击的 PK 规则一致。
+//! * PK：`Bolt` 一族与 `FireWall`/`Lightning`/`Poisoning` 一样，怪物目标走
+//!   [`World::monster_is_attack_target_of_player`]、玩家目标走
+//!   [`World::is_attack_target_player`]（Crystal `IsAttackTarget`），与物理攻击的 PK 规则一致。
+//!   单体魔法在**落地时**重新判定（安全区/换图/死亡/落点/攻击模式变化都会拒绝）。
 //! * 目标合法性在扣蓝之前严格校验（Crystal 是扣蓝后才发现目标无效，仍算一次施法）。
 //! * 增益类技能由 [`SpellKind::Buff`] 实现（9 个），效果、时长与包序见 [`crate::buffs`]；
 //!   仍然「只登记、不生效」的少数技能见 [`REGISTERED_UNSUPPORTED`]。
@@ -2410,7 +2412,7 @@ impl World {
                 location,
                 damage,
             } => {
-                if self.magic_target_hittable(&map, target_id, location) {
+                if self.magic_target_hittable(action.caster_id, &map, target_id, location) {
                     let dealt = self.damage_magic_target(action.caster_id, target_id, damage);
                     if dealt > 0 {
                         self.level_magic(action.caster_id, action.spell);
@@ -2668,10 +2670,23 @@ impl World {
 
     /// 目标是否还能吃这一发单体魔法：同图、未死亡、且还在施法落点 ±2 格内
     /// （`HumanObject.cs:5928`）。
-    fn magic_target_hittable(&self, map: &str, target_id: u32, location: Point) -> bool {
-        // 只查落点 ±MAGIC_HIT_TOLERANCE 内的怪物（Crystal `HumanObject.cs:5928`），
+    ///
+    /// 目标可以是怪物（Crystal `MonsterObject.IsAttackTarget(HumanObject)`，
+    /// `MonsterObject.cs:2430-2463`）或玩家（`PlayerObject.IsAttackTarget(HumanObject)`，
+    /// `PlayerObject.cs:4650-4674`）。玩家目标在**落地时**按当下的 PK 状态重新判定：
+    /// 施法后进入安全区、换图、死亡、离开落点或攻击模式/组队变化都会在这里被拒绝；
+    /// 判定复用现有 [`World::is_attack_target_player`]，不另造规则。
+    fn magic_target_hittable(
+        &self,
+        caster_id: u32,
+        map: &str,
+        target_id: u32,
+        location: Point,
+    ) -> bool {
+        // 只查落点 ±MAGIC_HIT_TOLERANCE 内的对象（Crystal `HumanObject.cs:5928`），
         // 用 AOI 网格代替遍历全部怪物。
-        self.aoi_ids_in_radius(map, location, MAGIC_HIT_TOLERANCE, AoiKind::Monster)
+        if self
+            .aoi_ids_in_radius(map, location, MAGIC_HIT_TOLERANCE, AoiKind::Monster)
             .into_iter()
             .any(|object_id| {
                 object_id == target_id
@@ -2679,13 +2694,32 @@ impl World {
                         .monster(object_id)
                         .is_some_and(|monster| !monster.dead && monster.map == map)
             })
+        {
+            return true;
+        }
+        // 玩家目标：同图存活 + 落点 ±2 内 + PK 谓词（安全区/攻击模式/组队/同会等）。
+        self.aoi_ids_in_radius(map, location, MAGIC_HIT_TOLERANCE, AoiKind::Player)
+            .into_iter()
+            .any(|object_id| {
+                object_id == target_id
+                    && self.players.get(&object_id).is_some_and(|player| {
+                        !player.dead
+                            && player.map == map
+                            && player.position.in_range(location, MAGIC_HIT_TOLERANCE)
+                    })
+                    && self.is_attack_target_player(caster_id, object_id)
+            })
     }
 
-    /// 对一只怪结算一次魔法伤害，返回实际扣血值。
+    /// 对魔法目标结算一次伤害，返回实际扣血值。
     ///
-    /// 走 `DefenceType::MAC`（Crystal `target.Attacked(this, value, DefenceType.MAC, false)`，
-    /// `HumanObject.cs:5929`），因此魔法闪避（`Stat.MagicResist`）与魔法防御
-    /// （`MinMAC/MaxMAC`）参与判定，暴击仍按攻方属性抽签（`MonsterObject.cs:2594-2599`）。
+    /// 怪物走 [`World::damage_monster`]（`MonsterObject.Attacked(HumanObject)`），玩家走
+    /// [`World::damage_player_from_player`]（`HumanObject.Attacked(HumanObject)`，
+    /// `HumanObject.cs:7092-7221`）。两者都用 `DefenceType::MAC`
+    /// （Crystal `target.Attacked(this, value, DefenceType.MAC, false)`，`:5929`），因此魔法闪避
+    /// （`Stat.MagicResist`）与魔法防御（`MinMAC/MaxMAC`）参与判定，暴击仍按攻方属性抽签。
+    /// 返回值是 `damage - armour` 的实际伤害（Crystal `Attacked` 的返回值），
+    /// 调用方用它判断 `> 0` 后才挂毒/涨技能经验（`:5929`、`:5956`）。
     fn damage_magic_target(&mut self, caster_id: u32, target_id: u32, damage: i32) -> i32 {
         let Some(stats) = self.players.get(&caster_id).map(|player| player.stats) else {
             return 0;
@@ -2697,7 +2731,11 @@ impl World {
             damage,
             defence: DefenceType::MAC,
         };
-        self.damage_monster(hit, &stats)
+        if self.monster(target_id).is_some() {
+            self.damage_monster(hit, &stats)
+        } else {
+            self.damage_player_from_player(hit, &stats)
+        }
     }
 
     /// 3×3 区域里的怪物（`Map.cs:956-987`：外层 y、内层 x，逐格取对象）。
@@ -4057,7 +4095,7 @@ impl World {
         damage: i32,
         now: i64,
     ) -> bool {
-        if !self.magic_target_hittable(map, target_id, location) {
+        if !self.magic_target_hittable(caster_id, map, target_id, location) {
             return false;
         }
         if self.damage_magic_target(caster_id, target_id, damage) <= 0 {

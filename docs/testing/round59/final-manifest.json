@@ -1,0 +1,332 @@
+{
+  "schema": "r59-final-manifest/v1",
+  "round": "R59",
+  "sub_ticket": "JJC-20261026-006-sub-d4af3456",
+  "auditor": "xingbu",
+  "verdict": "PASS-WITH-PARTIAL",
+  "generated_utc": "2026-10-26T09:35:10Z",
+  "repo": "C:\\Users\\diana\\Documents\\github\\mir-next",
+  "head": "edaa5cdf54d659cac4484ba250feb83478184485",
+  "origin_main": "edaa5cdf54d659cac4484ba250feb83478184485",
+  "baseline": "3cb1df1",
+  "commits": [
+    {
+      "sha": "7939133",
+      "kind": "code",
+      "subject": "feat(client): R59 125 ObjectProjectile 客户端渲染最小闭环（第59轮）",
+      "diffstat": "10 files changed, 2840 insertions(+), 2 deletions(-)",
+      "time_local": "2026-10-26T17:20:21+08:00"
+    },
+    {
+      "sha": "edaa5cd",
+      "kind": "docs",
+      "subject": "docs(round59): R59 客户端 125 渲染文档与 125 口径同步（第59轮文档批）",
+      "diffstat": "6 files changed, 246 insertions(+), 8 deletions(-)",
+      "time_local": "2026-10-26T17:24:07+08:00"
+    }
+  ],
+  "files": [
+    {
+      "path": "crates/mir-client/src/ui/mod.rs",
+      "bytes": 220172,
+      "sha256": "60139daa4624b03497abf402e3bb09a00b9a655f099597a459320ca81200522e",
+      "sha256_source": "git show HEAD:<path>"
+    },
+    {
+      "path": "crates/mir-client/src/ui/projectile.rs",
+      "bytes": 37167,
+      "sha256": "556f48edbc2946e88fb2b78f5ef4031feee0cecdf0724268779ec116531892aa",
+      "sha256_source": "git show HEAD:<path>"
+    },
+    {
+      "path": "crates/mir-client/tests/round59_projectile_assets.rs",
+      "bytes": 19447,
+      "sha256": "2cfff50ce46a967e742b29ead5a7e794655287fa279b316335b54e290d089f34",
+      "sha256_source": "git show HEAD:<path>"
+    },
+    {
+      "path": "crates/mir-client/tests/round59_projectile_render.rs",
+      "bytes": 22769,
+      "sha256": "9235a6336d7d34fb759a0d9a7b4a4f0773713392948de525001e50e894d40a27",
+      "sha256_source": "git show HEAD:<path>"
+    },
+    {
+      "path": "crates/mir-render/src/sound.rs",
+      "bytes": 26439,
+      "sha256": "eafbdf23de2b5c86fc53f4ca69305b649460b72217ba3b6f8a734ccb80e1bb89",
+      "sha256_source": "git show HEAD:<path>"
+    },
+    {
+      "path": "docs/assets/asset-pipeline.md",
+      "bytes": 31376,
+      "sha256": "1d67d675fa42bf80c234943ae3de29d5a97e14dd3d7ef5718ddf17051866074d",
+      "sha256_source": "git show HEAD:<path>"
+    },
+    {
+      "path": "docs/client.md",
+      "bytes": 163030,
+      "sha256": "f69eeabd9cf011a79788e4a6c0415410b7f0b78539de8ea12c3a4ae629800200",
+      "sha256_source": "git show HEAD:<path>"
+    },
+    {
+      "path": "docs/process/round59-menxia-review.md",
+      "bytes": 10257,
+      "sha256": "7fce80fae5e0a413254ce0a227dc80c2f6cf6ee92aa0c2ef4e8cfafdb6fec585",
+      "sha256_source": "git show HEAD:<path>"
+    },
+    {
+      "path": "docs/process/round59-plan.md",
+      "bytes": 13225,
+      "sha256": "5a233b58cb4ae5f178e691cc0217ae3bebfc2ee7137d0a6bf46abb0789a78111",
+      "sha256_source": "git show HEAD:<path>"
+    },
+    {
+      "path": "docs/process/round59-shangshu-dispatch.md",
+      "bytes": 7857,
+      "sha256": "99965f888190558c65b9361a9c90d3ec5797ddc935bf36240c2b19fc7137133c",
+      "sha256_source": "git show HEAD:<path>"
+    },
+    {
+      "path": "docs/roadmap.md",
+      "bytes": 25250,
+      "sha256": "b91be2ffab0a49a021a6397b2e69a21d315954cfb25ae26a00b1d094665511c6",
+      "sha256_source": "git show HEAD:<path>"
+    },
+    {
+      "path": "docs/testing/round58/README.md",
+      "bytes": 10429,
+      "sha256": "e12cd2c22272b2ca35ed89fed852063f3700852eb3bfd7d1ffab3545427a5176",
+      "sha256_source": "git show HEAD:<path>"
+    },
+    {
+      "path": "docs/testing/round59/README.md",
+      "bytes": 13385,
+      "sha256": "c7d9f0d5ade7a8b1004ee94633a1215b57284e7a03504115169d3e481175a8b6",
+      "sha256_source": "git show HEAD:<path>"
+    },
+    {
+      "path": "docs/testing/round59/run-checks.sh",
+      "bytes": 15647,
+      "sha256": "c639f3b0407fad5495b14c4f89fbce5506925ae257c20d1aca429e1de3d3f164",
+      "sha256_source": "git show HEAD:<path>"
+    },
+    {
+      "path": "docs/world/magic.md",
+      "bytes": 67859,
+      "sha256": "30f8eb721ce84138e40fedc3e1c0d1788d69034883289b3495e93b3f94d2c158",
+      "sha256_source": "git show HEAD:<path>"
+    },
+    {
+      "path": "tools/assets/analyze_usage.py",
+      "bytes": 66809,
+      "sha256": "8c6c8cae0742173552b8e1c4754e7912f620335a426b741c43761cc1e361317e",
+      "sha256_source": "git show HEAD:<path>"
+    }
+  ],
+  "gate": {
+    "attempt": 1,
+    "head": "edaa5cdf54d659cac4484ba250feb83478184485",
+    "branch": "main",
+    "start_utc": "2026-10-26T09:24:22Z",
+    "end_utc": "2026-10-26T09:27:11Z",
+    "exit": 0,
+    "log_path": "target/round59/gate/attempt-1.log",
+    "log_bytes": 204916,
+    "log_sha256": "0d96e0610a7a9ec34d42523cf38ffeaa9bb7742093d9e6e2f544966069ab9721",
+    "command": "pwsh -NoProfile -Command \"& ./tools/dev/ci.ps1 -KillStale *> target/round59/gate/attempt-1.log\"",
+    "capture": "full(*>)",
+    "summary": "==> 全部通过（12 项）",
+    "items": [
+      "cargo fmt --all --check",
+      "cargo clippy --workspace --all-targets -D warnings",
+      "cargo test -p mir-server --test duo_smoke（串行）",
+      "cargo test --workspace",
+      "协议生成器 --check",
+      "文档链接与包编号",
+      "TextKey 完整性",
+      "硬编码棘轮（player-visible，阈值 70）",
+      "硬编码棘轮（no-test，阈值 0）",
+      "运行时不引用老资源格式",
+      "物品图标完整性",
+      "PostgreSQL 集成测试（mir-store 串行）"
+    ],
+    "items_ok": 12,
+    "items_fail": 0,
+    "r59_tests": {
+      "round59_projectile_render": 16,
+      "round59_projectile_assets": 6
+    },
+    "db_redaction": "postgres://postgres:***@nas:3001/mir2_test（密码已打码，全日志仅此 1 条连接串）",
+    "notes": [
+      "日志不打印 HEAD sha；HEAD 由 meta 绑定",
+      "^OK=13（含 3333 行无关项），12 项汇总在 3397-3408"
+    ]
+  },
+  "evidence": {
+    "d1": {
+      "dir": "target/round59/d1/attempt-1",
+      "files": 6,
+      "summary": "G1 游标消费 + G2 插值；04-tests 相关测试通过",
+      "entries": 6
+    },
+    "d2": {
+      "dir": "target/round59/d2/attempt-1",
+      "files": 8,
+      "summary": "G3 命中 570 + G4 M34；04-tests mir-render sound 9 passed；06-mir-render-tests 128 passed/4 failed（临时目录 PermissionDenied）",
+      "entries": 8
+    },
+    "d3": {
+      "dir": "target/round59/d3/attempt-1",
+      "files": 13,
+      "summary": "G5 106 帧；frame_check PASS、wzx_vs_png PASS、两个 negative control 预期 exit 1",
+      "entries": 15
+    },
+    "d4": {
+      "dir": "target/round59/d4/attempt-1",
+      "files": 12,
+      "script_run": "target/round59/d4/attempt-1/script-run",
+      "summary": "render 16/assets 6/sound 9/wire 7/magic 43/lib projectile 8/lib sound 8；run-checks 9/9 PASS；fmt+clippy exit 0；client_fx 3 passed",
+      "entries": 13
+    },
+    "d5": {
+      "dir": "target/round59/d5/attempt-1",
+      "files": 6,
+      "summary": "文档自检：check-links/diff-check/redline-grep/diff-stat",
+      "entries": 6
+    },
+    "d5b": {
+      "dir": "target/round59/d5b/attempt-1",
+      "files": 6,
+      "summary": "D2-D4 落盘后的文档事实同步自检",
+      "entries": 6
+    },
+    "lead_verify": {
+      "dir": "target/round59/lead-verify",
+      "files": 8,
+      "summary": "01-lib-projectile 8 passed；02-lib-sound 首跑 7/1（环境 PermissionDenied）、retry 8 passed；03-render 16 passed；04-assets 6 passed；10-run-checks 9/9 PASS；12-i18n 66/0（阈值 70）",
+      "entries": 8
+    },
+    "run_checks": {
+      "script": "docs/testing/round59/run-checks.sh",
+      "lines": 420,
+      "items": 9,
+      "pass": 9,
+      "fail": 0,
+      "log": "target/round59/d4/attempt-1/04-script-run.log",
+      "exit": 0
+    }
+  },
+  "tests": {
+    "round59_projectile_render": 16,
+    "round59_projectile_assets": 6,
+    "mir_render_lib_sound": 9,
+    "round58_projectile_wire": 7,
+    "mir_server_lib_magic": 43,
+    "mir_client_lib_projectile": 8,
+    "mir_client_lib_sound": 8,
+    "client_fx": 3,
+    "run_checks": "9/9 PASS",
+    "gate_items": "12/12 OK",
+    "i18n_hardcoded": 66,
+    "i18n_threshold": 70,
+    "i18n_files_scanned": 33
+  },
+  "partials": [
+    {
+      "id": "G4-audible",
+      "status": "PARTIAL",
+      "detail": "M34-1/-2 cue 字面量/次数已证；take_sound_cues() 未接 app.rs 音频通道，真实可听未证；README G4/P-5、client.md §E 已如实标注"
+    },
+    {
+      "id": "D-R59-1",
+      "status": "PARTIAL/偏离",
+      "detail": "125 无落点坐标时不生成投射物/命中/+2；Crystal GameScene.cs:4699 无条件生成并在 :4701 门控命中；不伪造坐标"
+    },
+    {
+      "id": "P-2",
+      "status": "残留风险",
+      "detail": "ProjectileEvent 无事件 ID/序号；EFFECT_EVENT_LIMIT=16，满队列丢最旧在 len 上不可观测"
+    },
+    {
+      "id": "P-3",
+      "status": "已知简化",
+      "detail": "duration/count 在 spawn 冻结；Crystal Effect.Process 每帧重算"
+    },
+    {
+      "id": "P-4",
+      "status": "已知缺口",
+      "detail": "draw_effect 不叠加 magic.wzl 逐帧 ImageInfo.offset"
+    },
+    {
+      "id": "P-6",
+      "status": "明确不做",
+      "detail": "未实现 Missile/Effect 类、光照、Skip=4 之外图库语义"
+    },
+    {
+      "id": "P-7",
+      "status": "明确不做",
+      "detail": "无 Hero 实例/真 socket；证据限于进程内 encode/decode/快照链"
+    }
+  ],
+  "findings": {
+    "required": [
+      {
+        "id": "M-1",
+        "severity": "MINOR",
+        "area": "docs",
+        "blocking": false,
+        "summary": "文档/Crystal 行号引用漂移（非公式错误）",
+        "sites": [
+          "docs/testing/round59/README.md:21（projectile.rs:240-301；实际 sync 422-439 / consume 446-462）",
+          "docs/testing/round59/README.md:58（projectile.rs:273-284；实际 ProjectileView 207-246 / spawn 465-497）",
+          "docs/client.md:1198/1202/1265（同上）",
+          "Crystal clone 0e315fe3：Effect.cs:174-181→Process 172-191（Duration/Count 185-186）；196→201；206-212→211；PlayerObject.cs:3546-3547→3552"
+        ]
+      }
+    ],
+    "non_blocking": [
+      {
+        "id": "N-1",
+        "summary": "gate 日志不打印 HEAD sha，HEAD 仅由 meta 绑定；建议 ci.ps1 日志头打印 git rev-parse HEAD"
+      },
+      {
+        "id": "N-2",
+        "summary": "D4 无先红后绿变异运行；负例+16 项白盒断言可证伪主要假绿路径"
+      },
+      {
+        "id": "N-3",
+        "summary": "Lead 02-lib-sound 首跑 7/1，失败为 settings.rs:335 临时目录 PermissionDenied（Os code 5），retry 8 passed；环境问题"
+      },
+      {
+        "id": "N-4",
+        "summary": "01-tree-hashes.txt 审计期间更新（mtime 17:29:27）；当前 16/16，自身 sha 3ba2fff…；建议冻结自身哈希"
+      },
+      {
+        "id": "N-5",
+        "summary": "R58 README 第 3 行 HEAD 指针 1a9aeb3→2f3ab9f（1 行事实更正，已声明）"
+      }
+    ]
+  },
+  "repro": [
+    "git rev-parse HEAD  # edaa5cdf54d659cac4484ba250feb83478184485",
+    "for p in $(git diff --name-only 3cb1df1..HEAD); do printf '%s %s %s\\n' \"$(git cat-file -s HEAD:$p)\" \"$(git show HEAD:$p | sha256sum | cut -d' ' -f1)\" \"$p\"; done  # 16/16",
+    "sha256sum target/round59/gate/attempt-1.log  # 0d96e061…9721",
+    "sha256sum target/round59/commit-verify/01-tree-hashes.txt  # 3ba2fff…e78e",
+    "bash docs/testing/round59/run-checks.sh  # 9/9 PASS，EXIT=0",
+    "cargo test -p mir-client --test round59_projectile_render  # 16 passed",
+    "cargo test -p mir-client --test round59_projectile_assets  # 6 passed",
+    "cargo test -p mir-render --lib sound  # 9 passed",
+    "cargo test -p mir-client --lib projectile  # 8 passed",
+    "py -3 tools/assets/analyze_usage.py  # MAGIC_FRAMES=106",
+    "cargo run -q -p mir-tools --bin mir-tools -- audio verify --input game-assets/audio  # files=106 bytes=4.25MB"
+  ],
+  "non_claims": [
+    "不得宣称 125 全链/全链路闭环",
+    "不得宣称渲染完整或 R59 完整",
+    "不得宣称 G1-G7 全绿",
+    "不得宣称与 Crystal 逐字一致（P-3/D-R59-1 仍偏离）",
+    "不得宣称 M34 音效真实可听已证（PARTIAL）",
+    "不得宣称 Effect/Missile 类体系或 Hero/真 socket 已移植"
+  ],
+  "audit_method": "read-only；未跑 cargo/ci.ps1/ignored 测试，未 commit；依据提交树、门禁/D1-D5b/Lead 日志与源码+Crystal 源码对照"
+}

@@ -40,6 +40,12 @@ attempt-1 HEAD=`063c6f609e2ee61fc4d3cd8c5d322dcc32c49ce2`，EXIT=0，12/12 OK。
 日志 `target/round64/gate/attempt-1.log`：205352B，SHA256 `3e228cef3ce730eac76ce936679b8557308d8d4f20ed1d766dbfb7a0b92b2604`。
 UTC `2026-10-26T17:31:43Z`–`2026-10-26T17:35:16Z`；meta `target/round64/gate/attempt-1.meta.txt`，含 EXIT/HEAD/UTC/字节/SHA/operator。
 
+## 审计后修复（Lead 维护，A-M1/A-M2/A-M3）
+
+- A-M1（阻塞）CLOSED：`run-checks.sh` 白名单由 17 项扩为 18 项（`:14` paths、`:18` artifact count、`:28` 负控循环与提示文案），纳入 `round64-final-audit.md`；`--verify manifest`/`--verify negative` 在 18 项下重跑通过。
+- A-M2（披露）CLOSED：C6 三项实值补录——首次 ack 后 `reclaimed=2`、未确认 `len=0`、`total=2`；再 push 未确认态 `2/1/3`；再 ack 到 3 `3/0/3`（来源 `crates/mir-client/tests/round64_projectile_ack.rs:91-95,101-110,112-116`，审计独立复跑同值；本 README 与 C 证据 §9 同步）。
+- A-M3（轻微补证）PARTIAL：半消费→半 ack→再 push 的 UI 组合场景未新增自动化测试（未实跑，不称已覆盖）；如需补测按规则改测试并重跑门禁，承接 R65。
+
 ## PARTIAL（六项分别保留）
 
 1. 多消费者/克隆快照全局最低水位未实现，当前仅 app.rs 单消费者。
@@ -51,8 +57,8 @@ UTC `2026-10-26T17:31:43Z`–`2026-10-26T17:35:16Z`；meta `target/round64/gate/
 
 ## 交付与复跑
 
-[run-checks.sh](run-checks.sh)（`--list`，20 项）；[gen-tree-hashes.sh](gen-tree-hashes.sh)；[commit-tree-hashes.txt](commit-tree-hashes.txt)；[final-manifest.json](final-manifest.json)（17 artifacts，自身不列入）；[客户端 §5.31](../../client.md)、[路线图 R64/R65](../../roadmap.md)。
+[run-checks.sh](run-checks.sh)（`--list`，20 项）；[gen-tree-hashes.sh](gen-tree-hashes.sh)；[commit-tree-hashes.txt](commit-tree-hashes.txt)；[final-manifest.json](final-manifest.json)（18 artifacts，自身不列入；含 [round64-final-audit.md](round64-final-audit.md)）；[客户端 §5.31](../../client.md)、[路线图 R64/R65](../../roadmap.md)。
 提交树清单冻结 5 功能源码/测试 + client/roadmap/本 README 共 8 路径；按 `git show 063c6f6:<path>` 重算。README 在该提交不存在，记 `MISSING`；其余 7 项为 blob 内容 SHA256，不与工作树文档 SHA 混用。
 树清单 SHA256：`802a11ec2d5e8f28ea729fec85a837f3366e229f637a2495f8b9fb02711710e1`（8 行）；manifest 保存清单自身 SHA，避免自引用。manifest 同列工作树字节/行数/SHA、HEAD blob 内容 SHA256（缺失为 null）与 tracked 状态。
 证据 `target/round64/d/attempt-1/` 保存命令、UTC、stdout/stderr、exit、逐项秒数与完整输出；检查含非零测试计数、错误输入拒绝、链接/镜像索引、diff、树哈希、gate/meta、manifest、禁称正面声明与新增 ignore/allow。
-执行成本：L0 文档/哈希检查与 L2 定向 cargo；默认共享 target，未新增全量门禁。首轮 2026-10-26T17:40:03Z–17:40:27Z，`SUMMARY PASS=20 FAIL=0 SKIP=0 TOTAL=20 seconds=24`，exit=0；原始记录见 `summary.tsv`，文档定稿后另存 `final-recheck/` 复查。
+执行成本：L0 文档/哈希检查与 L2 定向 cargo；默认共享 target，未新增全量门禁。首轮 2026-10-26T17:40:03Z–17:40:27Z，`SUMMARY PASS=20 FAIL=0 SKIP=0 TOTAL=20 seconds=24`，exit=0；原始记录见 `summary.tsv`，文档定稿后另存 `final-recheck/` 复查。修复后（18 项脚本，A-M1/A-M2 修复提交前）2026-10-26T17:59:36Z–18:00:11Z 复跑 `SUMMARY PASS=20 FAIL=0 SKIP=0 TOTAL=20 seconds=35`，exit=0，日志 `target/round64/fix/attempt-1/`。

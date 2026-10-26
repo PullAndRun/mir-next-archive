@@ -13,43 +13,43 @@
   "artifacts": [
     {
       "path": "docs/testing/round64/README.md",
-      "size": 5331,
-      "lines": 58,
-      "sha256": "b0c22f6f685d80411b7fbd66c376af07849d641a973fe881c254096ddfe06bd5",
-      "git_blob_sha256": null,
-      "tracked": false
+      "size": 6427,
+      "lines": 64,
+      "sha256": "64afe5dc3ff8116d2e8b35b8b3f49575aec2d2e9ea822d323ecfe8a68be2e560",
+      "git_blob_sha256": "b0c22f6f685d80411b7fbd66c376af07849d641a973fe881c254096ddfe06bd5",
+      "tracked": true
     },
     {
       "path": "docs/testing/round64/run-checks.sh",
-      "size": 7651,
+      "size": 7681,
       "lines": 76,
-      "sha256": "fd50e85f2ce331cc66d367b143fb3ee985e0a7a494fc1167504a6b8a95c601a5",
-      "git_blob_sha256": null,
-      "tracked": false
+      "sha256": "7ee22d17d93344d3d0dbc6c0054dbb4998cd8690dae0673ce084d55890b08b44",
+      "git_blob_sha256": "fd50e85f2ce331cc66d367b143fb3ee985e0a7a494fc1167504a6b8a95c601a5",
+      "tracked": true
     },
     {
       "path": "docs/testing/round64/gen-tree-hashes.sh",
       "size": 899,
       "lines": 18,
       "sha256": "e895a36a56e73641df58e8110c6ee17f9949da4875976ecc950902e0e7b54dcf",
-      "git_blob_sha256": null,
-      "tracked": false
+      "git_blob_sha256": "e895a36a56e73641df58e8110c6ee17f9949da4875976ecc950902e0e7b54dcf",
+      "tracked": true
     },
     {
       "path": "docs/testing/round64/commit-tree-hashes.txt",
       "size": 729,
       "lines": 8,
       "sha256": "802a11ec2d5e8f28ea729fec85a837f3366e229f637a2495f8b9fb02711710e1",
-      "git_blob_sha256": null,
-      "tracked": false
+      "git_blob_sha256": "802a11ec2d5e8f28ea729fec85a837f3366e229f637a2495f8b9fb02711710e1",
+      "tracked": true
     },
     {
       "path": "docs/testing/round64/round64-c-evidence.md",
-      "size": 8780,
-      "lines": 85,
-      "sha256": "30d08ae3c6457417b08c788e4102a6bf2b4d474325e7cefbef7abdcabbc9f416",
-      "git_blob_sha256": null,
-      "tracked": false
+      "size": 9389,
+      "lines": 93,
+      "sha256": "77e4b11b6b29726f7533ef2abbc8d014670b45823790d07fab1dff3813bcaa14",
+      "git_blob_sha256": "30d08ae3c6457417b08c788e4102a6bf2b4d474325e7cefbef7abdcabbc9f416",
+      "tracked": true
     },
     {
       "path": "target/round64/gate/attempt-1.log",
@@ -112,7 +112,7 @@
       "size": 175986,
       "lines": 2224,
       "sha256": "10d84d4b2c3b46add9c19b4448bcea87c36d1d3580777c410dbb248fdb614624",
-      "git_blob_sha256": "68cf2a8a86797d026cbe97be414d017ed2051b831664eec4ad57ac2c93036a4d",
+      "git_blob_sha256": "10d84d4b2c3b46add9c19b4448bcea87c36d1d3580777c410dbb248fdb614624",
       "tracked": true
     },
     {
@@ -120,7 +120,7 @@
       "size": 34184,
       "lines": 251,
       "sha256": "8dcce9064966a5f3a601520d659aa869e06f271f1d61fa9f4ab613aa6f12ed85",
-      "git_blob_sha256": "4a1984d2df4e7330d71205c5a5d27126f784d60484d88dd1e34548175e15f2bf",
+      "git_blob_sha256": "8dcce9064966a5f3a601520d659aa869e06f271f1d61fa9f4ab613aa6f12ed85",
       "tracked": true
     },
     {
@@ -128,22 +128,30 @@
       "size": 11305,
       "lines": 99,
       "sha256": "ca4ba4aae7b8c06909478ede091e4e9b0f9130d0c120b6e36074154c6a3e454c",
-      "git_blob_sha256": null,
-      "tracked": false
+      "git_blob_sha256": "ca4ba4aae7b8c06909478ede091e4e9b0f9130d0c120b6e36074154c6a3e454c",
+      "tracked": true
     },
     {
       "path": "docs/process/round64-menxia-review.md",
       "size": 7437,
       "lines": 59,
       "sha256": "67b0922ab31b4066b50cf6f77357a481ab2ad088045642addd29e7d5ea8faed1",
-      "git_blob_sha256": null,
-      "tracked": false
+      "git_blob_sha256": "67b0922ab31b4066b50cf6f77357a481ab2ad088045642addd29e7d5ea8faed1",
+      "tracked": true
     },
     {
       "path": "docs/process/round64-shangshu-dispatch.md",
       "size": 6340,
       "lines": 43,
       "sha256": "d6b87a69d58e20241cbb01a4325c72a7e44a7fe23fead1a56958ca746de85d7a",
+      "git_blob_sha256": "d6b87a69d58e20241cbb01a4325c72a7e44a7fe23fead1a56958ca746de85d7a",
+      "tracked": true
+    },
+    {
+      "path": "docs/testing/round64/round64-final-audit.md",
+      "size": 6868,
+      "lines": 46,
+      "sha256": "9245b0663140f15454d0bcc9f62ad7fe0f586b576777a66347c02e4ae631e7be",
       "git_blob_sha256": null,
       "tracked": false
     }

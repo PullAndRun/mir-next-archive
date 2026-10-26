@@ -83,3 +83,11 @@
 客户端单消费者前缀回收：定向测试绿＋真红成立＋零 wire；服务端回收未做、多消费者/全局最低水位未证、事件表未限容、known_positions 仅契约、ack 触发＝快照到达。本地绿只称定向绿，门禁由 Lead 唯一在功能 HEAD 执行。
 
 边界：本单仅新增本文件与 `target/round64/c/**`；其余只读；未改实现/测试、未 commit/push、未跑 `ci.ps1`。
+
+## 9. A-M2 审计披露补录（Lead 转录，2026-10-26 刑部终审 A-M2）
+
+- 首次 ack 后：`reclaimed=2`、未确认 `len=0`、`total=2`。
+- 再 push 未确认事件后：`reclaimed=2`、未确认 `len=1`、`total=3`（即 2/1/3）。
+- 再 ack 到 3 后：`reclaimed=3`、`len=0`、`total=3`（即 3/0/3）。
+- 来源：`crates/mir-client/tests/round64_projectile_ack.rs:91-95,101-110,112-116`（B 集成断言）；刑部独立复跑同值（见 `round64-final-audit.md` C6 行与 `target/round64/t/attempt-1/`）。
+- 本节由 Lead 按 A-M2 补录，非 C 首轮测量；C 首轮结论不变。

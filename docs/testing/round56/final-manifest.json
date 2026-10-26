@@ -1,0 +1,247 @@
+{
+  "schema": "round56-final-manifest/v1",
+  "round": "R56",
+  "task": "JJC-20261026-003-sub-280260aa",
+  "parent_task": "JJC-20261026-003",
+  "auditor": "xingbu/T (gpt-6.1-sol, read-only)",
+  "audited_at_local": "2026-10-26T13:30:00+08:00",
+  "verdict": "PASS-WITH-PARTIAL",
+  "head": {
+    "commit": "b5369d799a46143b823580ce9c355ea268207fd0",
+    "is_origin_main": true,
+    "origin_main": "b5369d799a46143b823580ce9c355ea268207fd0",
+    "code_base": "e3b365f"
+  },
+  "commits": [
+    {
+      "sha": "d7a23e3d5b4b5266e29404dac3d3810ba0821330",
+      "short": "d7a23e3",
+      "subject": "test(server): R56-A AOI 毫秒边界冻结时钟去 flake（第56轮）",
+      "stat": "1 file changed, 139 insertions(+)",
+      "files": ["crates/mir-server/tests/aoi.rs"]
+    },
+    {
+      "sha": "b5369d799a46143b823580ce9c355ea268207fd0",
+      "short": "b5369d7",
+      "subject": "docs(round56): R56-B AOI-5 接线状态与 R56 过程材料（第56轮文档批）",
+      "stat": "5 files changed, 336 insertions(+)",
+      "files": [
+        "docs/world/aoi.md",
+        "docs/testing/round56/README.md",
+        "docs/process/round56-plan.md",
+        "docs/process/round56-menxia-review.md",
+        "docs/process/round56-shangshu-dispatch.md"
+      ]
+    }
+  ],
+  "gate": {
+    "attempt": 1,
+    "attempts_on_disk": 1,
+    "path": "target/round56/gate/attempt-1.log",
+    "bytes": 194543,
+    "sha256": "0ad14a35694be86724b7621d4606436b54e8ba4925b50f0614eeb19c4dfe0ef8",
+    "meta_path": "target/round56/gate/attempt-1.meta.txt",
+    "meta_bytes": 316,
+    "meta_sha256": "861616fa45019f01dad478c51b1609bf1314deed338df872d2f8b4bb837d5117",
+    "meta_head": "b5369d799a46143b823580ce9c355ea268207fd0",
+    "meta_head_matches_head": true,
+    "exit": 0,
+    "start_utc": "2026-10-26T05:05:11Z",
+    "end_utc": "2026-10-26T05:07:29Z",
+    "command": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale",
+    "encoding": "GB18030 (GB936); UTF-8 decoding garbles CJK",
+    "ok_items": 12,
+    "summary_line": "==> 全部通过（12 项）",
+    "ok_items_named": [
+      "cargo fmt --all --check",
+      "cargo clippy --workspace --all-targets -D warnings",
+      "cargo test -p mir-server --test duo_smoke（串行）",
+      "cargo test --workspace",
+      "协议生成器 --check",
+      "文档链接与包编号",
+      "TextKey 完整性",
+      "硬编码棘轮（player-visible，阈值 70）",
+      "硬编码棘轮（no-test，阈值 0）",
+      "运行时不引用老资源格式",
+      "物品图标完整性",
+      "PostgreSQL 集成测试（mir-store 串行）"
+    ],
+    "r56_test_names_in_log": {
+      "ground_item_expiry_strict_ms_boundary": 1,
+      "aoi_acceptance_recycle_all_kinds": 2,
+      "aoi_acceptance_* prefix total": 10
+    },
+    "aoi_in_gate": {
+      "running_14_tests_at_lines": [1673, 2920],
+      "14_passed_at_lines": [1689, 2936]
+    },
+    "attempt_2_or_declared_first_red_absent": true,
+    "first_red_declared_elsewhere": "A 00-summary.md §5 已申报 clippy 首红 EXIT=101（doc_markdown，已修）与 07/08/09 误跑批次（superseded/），非隐瞒"
+  },
+  "files": [
+    {
+      "path": "crates/mir-server/tests/aoi.rs",
+      "bytes": 58553,
+      "sha256": "605d1f9eabaddaaf76f6cc1d86950bc92de5920c1fedf40e0036f0535a0eb7e1",
+      "source": "git show d7a23e3:crates/mir-server/tests/aoi.rs",
+      "matches_commit_verify": true
+    },
+    {
+      "path": "docs/world/aoi.md",
+      "bytes": 25511,
+      "sha256": "653c8f00f0de1d227077f3fe7273d42af9804a65efafab66c372026bb0989da9",
+      "source": "git show b5369d7:docs/world/aoi.md",
+      "matches_commit_verify": true
+    },
+    {
+      "path": "docs/testing/round56/README.md",
+      "bytes": 3201,
+      "sha256": "10b36817fb299f08f82ebc4044b74c681f08b072ac28195a239ab72babbd117d",
+      "source": "git show b5369d7:docs/testing/round56/README.md",
+      "matches_commit_verify": true
+    },
+    {
+      "path": "docs/process/round56-plan.md",
+      "bytes": 14446,
+      "sha256": "a4473c9f2994b65dbaabd569e7251328b9d71fc9d3483dc2cbe73ec5637d769d",
+      "source": "git show b5369d7:docs/process/round56-plan.md",
+      "matches_commit_verify": true
+    },
+    {
+      "path": "docs/process/round56-menxia-review.md",
+      "bytes": 9919,
+      "sha256": "611868cd088382493812a315182599c56bc803f2becfcd814118a30be65c2f21",
+      "source": "git show b5369d7:docs/process/round56-menxia-review.md",
+      "matches_commit_verify": true
+    },
+    {
+      "path": "docs/process/round56-shangshu-dispatch.md",
+      "bytes": 8929,
+      "sha256": "8c581ce126ec807718996c3d10d6c5404256330b6521e225a17487f4d3e86ec6",
+      "source": "git show b5369d7:docs/process/round56-shangshu-dispatch.md",
+      "matches_commit_verify": true
+    }
+  ],
+  "commit_verify": {
+    "path": "target/round56/commit-verify/01-tree-hashes.txt",
+    "bytes": 612,
+    "sha256": "37451f3f411723498908b6f7a690dedf444e79633f17f4d2487273808269cf51",
+    "match": "6/6 MATCH"
+  },
+  "evidence": {
+    "A_dir": "target/round56/aoi/attempt-1/",
+    "A": [
+      {"file": "00-summary.md", "bytes": 9514, "sha256": "204bb167fd5069e8fafb8b6920bd873b7cc3194fdb345e0b0869739bd47af09d"},
+      {"file": "04-oldtree-sleep-red.log", "bytes": 766, "sha256": "cae1a152a6889c34b0c4e028f35515deb80da37eb15afeda9a4828070ef12aaf", "content": "head+sleep -> EXIT=101, panic aoi.rs:1203 the expired coin pile must be removed by the World tick"},
+      {"file": "05-fixedtree-sleep-green.log", "bytes": 401, "sha256": "9ff9a80486ffd27134c78481f52fd25cc7771cfcbb8449fbe4798f9a8fd12869", "content": "fixed+sleep -> 1 passed, EXIT=0"},
+      {"file": "06-fixedtree-nofreeze-sleep-red.log", "bytes": 802, "sha256": "841fd9f0c410e7ebf3551c3647d3485a7c60266a09b7afbba4e8a0adafabbf94", "content": "freeze removed -> panic aoi.rs:1156 M1 equality assertion, EXIT=101"},
+      {"file": "07-nofreeze-100-runs.log", "bytes": 11428, "sha256": "12323b9f3964751f2b8a9af0a0af69f8c5fdee0d85b6a9850e139b5db315efa3", "content": "negative result honestly recorded: RUNS=100 FAILS=0 PASSES=100 (no sleep => straddle too rare)"},
+      {"file": "08-nofreeze-sleep-100-runs.log", "bytes": 62012, "sha256": "c9b87aa742aea5ee4a20d975114756cadb7e1a5f63be266dde35e506938a4242", "content": "RUNS=100 FAILS=100 PASSES=0"},
+      {"file": "09-fixed-clean-100-runs.log", "bytes": 11428, "sha256": "f4133a5cd4f76c59566b34250f09ceed3c3b6a104560f2dec3f466645096d99f", "content": "RUNS=100 FAILS=0 PASSES=100"},
+      {"file": "10-final-list.log", "bytes": 937, "sha256": "cd4566ad6ff0eedfe7c8dccd138822bdd11ffdff7f22868e7c3a28e0799e506c", "content": "14 tests, 0 benchmarks; EXIT=0"},
+      {"file": "11-final-single-recycle.log", "bytes": 309, "sha256": "75940a0a1f58a0dcf22ba1383a2e13e8f948fdb82aed7ced0abf584d6c6b08e1", "content": "1 passed; 13 filtered out; EXIT=0"},
+      {"file": "12-final-single-boundary.log", "bytes": 314, "sha256": "2626795ab7f495689adc46bc45bff13c1b9b299e1d1493315628a026d197f1a4", "content": "1 passed; 13 filtered out; EXIT=0"},
+      {"file": "13-final-whole-file.log", "bytes": 1020, "sha256": "eb9cfd43617ec276a0a3803020d2c445d7e6fc199f81dafd28252c49243ab163", "content": "14 passed; 0 failed; EXIT=0"},
+      {"file": "14-npc-recycle.log", "bytes": 354, "sha256": "fb5e2c253f6262d885c27c2846f74249a62cadb0090e13892465efdd10a2af25"},
+      {"file": "15-fmt.log", "bytes": 7, "sha256": "418a5c17f33c70e99b0cc0a07fce69191489cfedc94164bfa903785777c5bd4b", "content": "EXIT=0"},
+      {"file": "16-grep-m1.log", "bytes": 374, "sha256": "0d73695ddac61a5a11ac9e5240a1bf283ed131bd718ceb5b4d7ffe8236fbcacd"},
+      {"file": "19-clippy.log", "bytes": 171, "sha256": "53570ce1268b1bd11835013242e382ff83300a46c19379be83eff2753292022e", "content": "EXIT=0"},
+      {"file": "22-sha-bind.log", "bytes": 532, "sha256": "ec958e4e09d3cea16fad64bbbb25f45d32e7cfbaad0cf1bb8fa73e75b7372d1d", "content": "HEAD original e6b4ffc3...; final 605d1f9e...; status M aoi.rs only"},
+      {"file": "23-variant-sha256.log", "bytes": 516, "sha256": "e511703977cd96ca7cabb6c07fbccaba59a4108dcd012264c0ab1eeac08612de"},
+      {"file": "fixed-aoi.rs.sha256", "bytes": 209, "sha256": "a93f150a6ce253550c53bf59f743000a9db35768709ad7ff786a32036590b045"},
+      {"file": "head-aoi.rs.sha256", "bytes": 97, "sha256": "f9f12dd39cc9939b2adbc9170553388fabb5b17c0a2f09c910f350e59a6b29d0"}
+    ],
+    "B_dir": "target/round56/docs/attempt-1/",
+    "B": [
+      {"file": "00-evidence-greps.log", "bytes": 4358, "sha256": "d5226ffb314bfe9e1c19eea97f1d95c04b275d13f963749c2b3325e30cd2b2fd"},
+      {"file": "01-check-links-before.log", "bytes": 71, "sha256": "85b197cfc2f55f6fbcc4c13dd23dc2c50f65bb5148dca759c7aacb2017fe5291", "content": "[OK] ... EXIT=0"},
+      {"file": "02-check-links-after.log", "bytes": 71, "sha256": "85b197cfc2f55f6fbcc4c13dd23dc2c50f65bb5148dca759c7aacb2017fe5291", "content": "[OK] ... EXIT=0"},
+      {"file": "03-git-checks.log", "bytes": 543, "sha256": "d117e8d248e5e4f68b18f5aa8017ac733664f28e38b7641fdee8069c39a591aa"},
+      {"file": "04-grep-redline.log", "bytes": 239, "sha256": "8f6cde04c580751a33ff6fe0e7ad46ddc27985844962e2d5218b7031605d03e2", "content": "new section 263-294 = 0 hits; README = 0 hits; whole-file aoi.md = 7 pre-existing hits (informational)"},
+      {"file": "05-hashes.log", "bytes": 497, "sha256": "018c022aba5440f7257fa4308fbdbbe6337a80cf31a59567a2cccddd686aba9c"}
+    ]
+  },
+  "selfproof": {
+    "old_tree_sleep_red": "04: EXIT=101, panic crates/mir-server/tests/aoi.rs:1203 'the expired coin pile must be removed by the World tick'",
+    "fixed_tree_sleep_green": "05: EXIT=0, 1 passed",
+    "freeze_removed_equals_assertion_red": "06: EXIT=101, panic aoi.rs:1156 'both ground items must share the same expire_time when the clock is frozen before spawning'",
+    "negative_result_07": "RUNS=100 FAILS=0 PASSES=100, disclosed as negative/honest (no sleep does not reproduce)",
+    "must_red_08": "RUNS=100 FAILS=100 PASSES=0",
+    "clean_100": "RUNS=100 FAILS=0 PASSES=100",
+    "no_double_position_filter": true
+  },
+  "partials": [
+    {
+      "id": "P1",
+      "item": "AOI-5 整体",
+      "status": "PARTIAL (not CLOSED)",
+      "reason": "G2: despawn_npc 原语存在但生产零调用者；无地图卸载生命周期、evict_maps 排除有 NPC 的图、动态刷出仅测试/GM，判定‘无真实接线点’，维持 PARTIAL；原语保留待 R57+"
+    },
+    {
+      "id": "P2",
+      "item": "world.rs:1378 0x07(BEL) 注释污染",
+      "status": "登记 R57",
+      "reason": "本轮禁改 src/；README :44-45 与审计件已登记；实测 sed/od 确认 0x07 字节在 'advance_clock' 首字母处"
+    },
+    {
+      "id": "P3",
+      "item": "M4 字面口径（整文件 grep 0）",
+      "status": "非阻断偏差，已披露",
+      "reason": "docs/world/aoi.md 整文件仍有 7 处既有 PASS 字样（:349/:353-355/:357/:359/:365，属 R54/R55 状态表）；R56 新增节 263-294 与 README 均 0 命中；B 在 04 日志与 README 中显式限定范围，未冒充整文件 0。建议 R57 清理或修订口径为‘新增行范围’"
+    },
+    {
+      "id": "P4",
+      "item": "门禁 meta 无候选文件 sha 字段",
+      "status": "非阻断，绑定改由提交对象完成",
+      "reason": "attempt-1.meta.txt 仅含 head/log bytes/sha；M5 字面‘meta 内含文件 sha’不可满足。T 改用 git show + commit object 绑定：6/6 MATCH，强度不低于字段级绑定；建议 R57 门禁 meta 增列文件 sha"
+    },
+    {
+      "id": "P5",
+      "item": "meta 文件名与文档口径不一致",
+      "status": "非阻断",
+      "reason": "menxia-review.md:32 与 dispatch:36 写 meta.json，实际为 attempt-1.meta.txt；派发件 §2-T 产物名与本审计件 manifest 名（final-manifest.json vs README 索引 round56-final-manifest.json）亦不一致；建议 R57 统一定名或加别名提交"
+    },
+    {
+      "id": "P6",
+      "item": "README 受测 HEAD 标记",
+      "status": "非阻断",
+      "reason": "README:5 写‘受测 HEAD e3b365f’（代码基线），门禁 HEAD 为 b5369d7（+5 文档）；二者不矛盾但易误读；manifest 同时登记 code_base 与 head。建议 R57 改写为‘代码基线 e3b365f / 门禁 HEAD b5369d7’"
+    }
+  ],
+  "findings": {
+    "must_fix_blocking": 0,
+    "non_blocking": ["P3", "P4", "P5", "P6"],
+    "blocking_rationale": "A–H 全部满足任务书口径：门禁原件真实（bytes/sha/meta/12 项/末行/含 R56 独有测试名）、6/6 提交树绑定、M1/M2/M3 落实、M4 红线与 R57 脚注到位、G 卫生项 0、H 诚实性维持 PARTIAL，无假绿证据"
+  },
+  "not_done": [
+    "D=125（S.ObjectProjectile）真生产者：Crystal 唯一生产者是 FireBounce 二次弹跳（HumanObject.cs:5818-5827），本作无 bounce 机制，顺延 R57",
+    "原生 dash 帧/视觉/音频/时序：顺延 R57",
+    "真 socket / 真实客户端窗口：无 harness，顺延",
+    "NPC 生产接线：无真实接线点，不发明生命周期",
+    "docs/roadmap.md 修改：脚注差异留待 R57 统一",
+    "world.rs:1378 BEL 修复：R57",
+    "AOI-5 整体关闭：不做，维持 PARTIAL"
+  ],
+  "reproduce": [
+    "cd C:/Users/diana/Documents/github/mir-next",
+    "git rev-parse HEAD  # b5369d799a46143b823580ce9c355ea268207fd0; git rev-parse origin/main same",
+    "sha256sum target/round56/gate/attempt-1.log target/round56/gate/attempt-1.meta.txt  # 0ad14a35... / 861616fa...",
+    "pwsh -Command \"[Text.Encoding]::GetEncoding(936).GetString([IO.File]::ReadAllBytes('target/round56/gate/attempt-1.log'))\"  # last line ==> 全部通过（12 项）",
+    "git show d7a23e3:crates/mir-server/tests/aoi.rs | sha256sum  # 605d1f9e...",
+    "git show b5369d7:docs/world/aoi.md | sha256sum  # 653c8f00...",
+    "git show b5369d7:docs/testing/round56/README.md | sha256sum  # 10b36817...",
+    "git show b5369d7:docs/process/round56-plan.md | sha256sum  # a4473c9f...",
+    "git show b5369d7:docs/process/round56-menxia-review.md | sha256sum  # 611868cd...",
+    "git show b5369d7:docs/process/round56-shangshu-dispatch.md | sha256sum  # 8c581ce1...",
+    "git diff e3b365f..d7a23e3 --stat  # only tests/aoi.rs +139",
+    "git diff e3b365f..b5369d7 -- crates/mir-server/src  # empty",
+    "py -3 tools/i18n/scan_hardcoded.py --player-visible --no-test --strict --fail-above 0  # exit 0, 0 hits",
+    "git status --porcelain  # only 2 untracked historical freeze JSONs (44.8MB / 45.2MB, not committed)"
+  ],
+  "artifacts": {
+    "manifest": "docs/testing/round56/final-manifest.json",
+    "audit": "docs/testing/round56/round56-final-audit.md",
+    "summary": "target/round56/audit/summary.log"
+  },
+  "read_only_note": "本审计只新增 3 件产物；未改候选源/文档、未跑 cargo 全量、未跑 ci.ps1、未做任何 git 写操作"
+}

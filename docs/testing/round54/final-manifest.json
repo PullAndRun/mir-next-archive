@@ -1,0 +1,232 @@
+{
+  "schema": "mir-next/round-final-manifest@1",
+  "round": "R54",
+  "auditor": "xingbu/gpt-6.1-sol (independent final audit)",
+  "generated_at": "2026-10-26T11:35:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "verdict": "PASS-WITH-PARTIAL",
+  "must_fix": 0,
+  "blocking": 0,
+  "a_to_h": {
+    "A_gate_authenticity": "PASS",
+    "B_commit_tree_binding": "PASS",
+    "C_M1_frost_group_guild": "PASS",
+    "D_M2_M3_discovered_npc_maps": "PASS",
+    "E_M4_item_strict_gt_batching": "PASS",
+    "F_fake_green": "PASS-WITH-2-TEXT-NITS",
+    "G_docs_and_M5": "PASS",
+    "H_hygiene_and_partial_honesty": "PASS"
+  },
+  "repository": {
+    "root": "C:/Users/diana/Documents/github/mir-next",
+    "branch": "main",
+    "head": "69b1931c4b8fa62ccc4b4116def31b80b5f65cd1",
+    "origin_main": "69b1931c4b8fa62ccc4b4116def31b80b5f65cd1",
+    "head_equals_origin_main": true,
+    "pushed": true
+  },
+  "commits": [
+    {
+      "sha": "c007691",
+      "role": "process",
+      "subject": "docs(process): R54 方案、门下评审与尚书派发（第54轮）",
+      "files": 3,
+      "insertions": 257,
+      "deletions": 0
+    },
+    {
+      "sha": "69b1931c4b8fa62ccc4b4116def31b80b5f65cd1",
+      "role": "candidate",
+      "subject": "feat(test): R54 AOI 五路由补证与 Frost 正侧/同队同会护栏（第54轮）",
+      "files": 9,
+      "insertions": 3639,
+      "deletions": 11
+    }
+  ],
+  "gate": {
+    "attempt": 1,
+    "command": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale",
+    "cwd": "C:/Users/diana/Documents/github/mir-next",
+    "head": "69b1931c4b8fa62ccc4b4116def31b80b5f65cd1",
+    "branch": "main",
+    "start_utc": "2026-10-26T03:18:17Z",
+    "end_utc": "2026-10-26T03:22:33Z",
+    "duration_seconds": 256,
+    "exit_code": 0,
+    "log": "target/round54/gate/attempt-1.log",
+    "log_bytes": 194319,
+    "log_sha256": "7c18f3cfe55acef1ac59e8c82838f940f6af6068bf15d53f49169c05fcab43ff",
+    "meta": "target/round54/gate/attempt-1.meta.txt",
+    "meta_bytes": 374,
+    "meta_sha256": "fee03b17b7f1768287f736b4e133b4bab179313288611a80b4c1c6613891d5f4",
+    "items_total": 12,
+    "items_ok": 12,
+    "items_fail": 0,
+    "table_line_range": "target/round54/gate/attempt-1.log:3316-3327",
+    "last_line": "==> 全部通过（12 项）",
+    "items": [
+      "cargo fmt --all --check",
+      "cargo clippy --workspace --all-targets -D warnings",
+      "cargo test -p mir-server --test duo_smoke(--nocapture)",
+      "cargo test --workspace",
+      "协议检查 --check",
+      "文档链接检查",
+      "TextKey 键校验",
+      "硬编码检查(player-visible，阈值 70)",
+      "硬编码检查(no-test，阈值 0)",
+      "运行时新资源方式",
+      "物品图标完整性",
+      "PostgreSQL 集成测试（mir-store 内置）"
+    ],
+    "not_old_round_evidence": "日志内含 R54 独有测试名 14 处（aoi_acceptance_* 10 个含 _private、round54_frost_edges），时间戳 2026-10-26T03:21:47Z 落在窗口内",
+    "secrets": "日志内 DB URL 已脱敏为 postgres://postgres:***@nas:3001/mir2_test"
+  },
+  "commit_tree_files": {
+    "count": 9,
+    "total_bytes": 575108,
+    "max_bytes": 351925,
+    "all_under_1mib": true,
+    "hash_source": "target/round54/commit-verify/01-tree-hashes.txt",
+    "verification": "git show 69b1931:<path> | sha256sum == recorded；9/9 MATCH",
+    "files": [
+      {
+        "path": "crates/mir-server/src/world.rs",
+        "bytes": 351925,
+        "sha256": "cb18f27f5f0262213c2d0a7a193910bc598a53e4ea7d90725f01c22f8438a892",
+        "git_blob": "cd1de53123e3022141ab308e60d71ce4193df205",
+        "kind": "code",
+        "note": "only hunk @@ -7174,0 +7175,922 @@ mod tests; #[cfg(test)] from :5906 to EOF; 0 #[allow] in new hunk"
+      },
+      {
+        "path": "crates/mir-server/tests/aoi.rs",
+        "bytes": 52992,
+        "sha256": "e6b4ffc3374843e686d314766b78c40ebd6f20dda5c0e3190b9eda5cca3480f3",
+        "git_blob": "87512613a5fcc14eb033d6c3d9a66a2de7ce5f5a",
+        "kind": "code",
+        "note": "5 acceptance cases + 5 routes; strict '>' at :1172-1221; batching :1353/:1404"
+      },
+      {
+        "path": "crates/mir-server/tests/round54_frost_edges.rs",
+        "bytes": 42403,
+        "sha256": "727718288c8c6380f98d87c6ad276049d68a69926c7f00c829165638b9a4d09b",
+        "git_blob": "901fb9dd642c956ee534b86ac7b282e30a00f5ba",
+        "kind": "code",
+        "note": "3 named tests: exact_plus_two_probability / party_real_cast_guard / guild_real_cast_guard; 0 #[allow]"
+      },
+      {
+        "path": "docs/world/aoi.md",
+        "bytes": 22815,
+        "sha256": "ee0d029f2ec838083a232d45e5fd5265461fbacb20313b665dd1caafd5fd6a4b",
+        "git_blob": "8b6f8be13a3467e599db6d81b11c93cda7a23486",
+        "kind": "doc",
+        "note": "§11 验收状态 4 PASS / 1 PARTIAL / 0 FAIL；明写全量验收不可关闭"
+      },
+      {
+        "path": "docs/testing/round54/README.md",
+        "bytes": 11729,
+        "sha256": "5af41fcb1c7a7e5fbd16394fff0c4e2271db8c7af07c41de006b4ba13190e563",
+        "git_blob": "0bf33b566e333c3002c11c8648ebc61136225b04",
+        "kind": "doc",
+        "note": "证据索引；§8 列 PARTIAL；§128-136 PARTIAL 清单"
+      },
+      {
+        "path": "docs/testing/round54/round54-aoi-acceptance.md",
+        "bytes": 14028,
+        "sha256": "b5a79ef774519d88a0cee3755859b4f5ff26eea687fd8e63cf166619f1b790c4",
+        "git_blob": "c0b3db975d90715b59ff382f1d7656fbfab669fd",
+        "kind": "doc",
+        "note": "F1 fixed: regression-lib-aoi-grid.log; §7 :151 batching; 4P/1PARTIAL/0F"
+      },
+      {
+        "path": "docs/testing/round54/round54-carryover.md",
+        "bytes": 15195,
+        "sha256": "e3b936587ffe0734f14497180c1baec2136ca607f8b1edf45bdbbbf4dc4367f7",
+        "git_blob": "c7df29a805651a040c65abf4d1534d76dfb38c85",
+        "kind": "doc",
+        "note": ":7 6 closed(13/14/15/17/18/19) + 13 carried; 19 table rows; source round53-shangshu-acceptance.md:29-47"
+      },
+      {
+        "path": "README.md",
+        "bytes": 43067,
+        "sha256": "5db721ed098b0e280662eacd9c3f77749205f40a42231a51d52a4609281abb5c",
+        "git_blob": "e0e9afa8b073d2b263d25795dcb669419d8a6bdf",
+        "kind": "doc",
+        "note": "line 78 R54 row: 4P/1PARTIAL/0F, AOI 全量不可关闭, gate not run at commit time (stale, F1)"
+      },
+      {
+        "path": "docs/roadmap.md",
+        "bytes": 21119,
+        "sha256": "2adcba84dc65674060bc7803bad1c99ec776222f7f90739c9243adc24fb3a22a",
+        "git_blob": "23eb143e07962334d45b7b1cb2a0655d09158e5f",
+        "kind": "doc",
+        "note": "line 26 视野与广播 🟡 R54 五路由 4P/1PARTIAL 不可全量关闭"
+      }
+    ]
+  },
+  "evidence_index": [
+    { "path": "target/round54/gate/attempt-1.meta.txt", "role": "gate meta (all fields above)" },
+    { "path": "target/round54/gate/attempt-1.log", "role": "gate raw log, 12/12 OK, exit 0" },
+    { "path": "target/round54/aoi/attempt-1/", "role": "A: m2-matrix.log, m2-summary.txt(10/10), m2-discovered.txt, mutation/, regression-*.log" },
+    { "path": "target/round54/frost/attempt-1/", "role": "B: 00-summary.md, 03-run.log, selfchecks, fix/ post-format recheck" },
+    { "path": "target/round54/c/", "role": "C: files.json, 00-summary.md, diff-check, links" },
+    { "path": "target/round54/commit-verify/01-tree-hashes.txt", "role": "9 file tree hash list (9/9 re-verified)" },
+    { "path": "target/round54/lead-verify2/", "role": "Lead targeted re-runs, 12-summary.log OVERALL_FAIL=0, timeline.txt" },
+    { "path": "target/round54/candidate-review/review.md", "role": "candidate review PASS-WITH-CHANGES; F1/F2 fixed pre-commit; F4 redirect recorded in audit §G" }
+  ],
+  "toolchain": {
+    "rust_toolchain": "1.99.1 (rust-toolchain.toml pinned; rustfmt + clippy)",
+    "cargo": "1.99.1 (5f94df478 2026-08-27)",
+    "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+    "python": "3.14.7",
+    "os": "Windows x86_64",
+    "gate_runner": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale"
+  },
+  "partial": [
+    { "id": "P1", "item": "NPC 回收无生产移除/回收入口（AOI 回收路由 NPC 子项）", "evidence": "src/world.rs:7761,7774 private test shows container retained, no ObjectRemove; test does not hand-delete", "status": "PARTIAL" },
+    { "id": "P2", "item": "maps 20 passed 中 4 例缺 resource/Server.MirDB 提前 return，有效 16", "evidence": "tests/maps.rs:980,1041,1175,1236", "status": "PARTIAL" },
+    { "id": "P3", "item": "私有测耦合：5 个 *_private 用例位于 world.rs 内部 mod tests", "evidence": "tests/aoi.rs list vs world.rs:7277,7455,7587,7753,7944", "status": "PARTIAL" },
+    { "id": "P4", "item": "batching 仅单 tick 两帧压力边界", "evidence": "docs/testing/round54/README.md §8; acceptance :151", "status": "PARTIAL" },
+    { "id": "P5", "item": "A 组集成首跑日志缺失", "evidence": "docs/testing/round54/README.md §8", "status": "PARTIAL" },
+    { "id": "P6", "item": "R52/R53 承接 13 项未在本轮验证", "evidence": "docs/testing/round54/round54-carryover.md:1-19; source docs/process/round53-shangshu-acceptance.md:29-47", "status": "CARRIED" }
+  ],
+  "partial_count": 6,
+  "carryover": { "total": 19, "closed": 6, "carried": 13 },
+  "findings": [
+    { "id": "F1", "level": "text", "where": "README.md:78, round54-aoi-acceptance.md:12,209, round54/README.md:4-5,135", "what": "docs written pre-gate say full gate not run; gate attempt-1 later passed 12/12 on same head", "action": "next-round doc sync; non-blocking" },
+    { "id": "F2", "level": "text", "where": "docs/process/round54-plan.md:71, round54-shangshu-dispatch.md:32", "what": "docs path docs/process/round54-{carryover,aoi-acceptance}.md vs actual docs/testing/round54/", "action": "redirect recorded in audit §G; not a scope violation" },
+    { "id": "F3", "level": "low-pre-existing", "where": "docs/testing/attack-variants/attack3-asset-plan.json", "what": "1,228,554 B > 1 MiB, added R47 bfa9a09, not in this round's 9 files", "action": "future slimming; not blocking" },
+    { "id": "F4", "level": "closed", "where": "target/round54/commit-verify/01-tree-hashes.txt", "what": "candidate review F5 commit-tree re-hash", "action": "9/9 MATCH, bound in this manifest" },
+    { "id": "F5", "level": "info", "where": "docs/testing/round54/README.md:42-44", "what": "README records pre-commit hashes, no commit sha", "action": "manifest carries commit sha; next-round doc may cite it" },
+    { "id": "F6", "level": "info", "where": "target/round54/aoi/attempt-1/", "what": "A integration first run left no raw log", "action": "kept as PARTIAL, not backfilled" }
+  ],
+  "worktree": {
+    "tracked_clean": true,
+    "untracked_count": 2,
+    "untracked": [
+      { "path": "docs/testing/monster-native/player-resource-freeze-before.json", "bytes": 44844165 },
+      { "path": "docs/testing/monster-native/player-resource-freeze.json", "bytes": 45219533 }
+    ],
+    "untracked_in_commit": false
+  },
+  "hygiene": {
+    "no_target_in_tree": true,
+    "no_env_or_secret_in_tree": true,
+    "max_committed_file_bytes": 1228554,
+    "max_committed_file_note": "pre-existing R47 docs/testing/attack-variants/attack3-asset-plan.json, not this round",
+    "this_round_max_bytes": 351925
+  },
+  "artifacts": [
+    { "path": "docs/testing/round54/round54-final-audit.md", "role": "final audit (verdict + A–H + findings + PARTIAL + repro)" },
+    { "path": "docs/testing/round54/final-manifest.json", "role": "this machine-readable manifest" },
+    { "path": "target/round54/audit/summary.log", "role": "≤8KB plain summary" }
+  ],
+  "self": {
+    "note": "本清单不登记自身 sha256；可对 final-manifest.json 单独 sha256sum 复核。",
+    "size_limit": "≤1 MiB",
+    "written_files_only": 3
+  },
+  "claims_forbidden": [
+    "AOI 全量验收通过",
+    "R54 完整/全部完成"
+  ]
+}

@@ -2761,6 +2761,15 @@ pub struct WorldSnapshot {
     /// Round 58 only wires the packet into the snapshot; the UI/render side does not
     /// consume these events yet (deferred to round 59, C2 PARTIAL).
     pub projectile_events: Vec<ProjectileEvent>,
+    /// Absolute projectile-event sequence number (R60 G2): +1 per accepted push.
+    ///
+    /// [`Self::projectile_events`] keeps at most `EFFECT_EVENT_LIMIT` (16) events, so
+    /// `projectile_events_total - projectile_events.len()` is the number of oldest
+    /// events already dropped by the ring. The UI resolves its cursor from this
+    /// absolute counter, which is what stops the 17th and later events from being
+    /// silently swallowed by a positional cursor (R60 F6 correction). The wire format
+    /// and [`ProjectileEvent`] are unchanged; a rebuilt snapshot starts over at zero.
+    pub projectile_events_total: u64,
     /// 最近的技能表现事件（`S.Magic`/`S.ObjectMagic`/`S.ObjectSpell`，尾部最新）。
     pub spell_events: Vec<SpellEvent>,
     /// 下一个技能表现事件编号。
@@ -2899,6 +2908,7 @@ impl Default for WorldSnapshot {
             effects: Vec::new(),
             next_effect_id: 0,
             projectile_events: Vec::new(),
+            projectile_events_total: 0,
             spell_events: Vec::new(),
             next_spell_id: 0,
             spell_fields: Vec::new(),
@@ -7249,6 +7259,10 @@ fn push_projectile_event(
     source: u32,
     destination: u32,
 ) {
+    // R60 G2: absolute sequence number, refreshed on every accepted push even when the
+    // ring below drops the oldest event. `saturating_add` mirrors the `next_spell_id`
+    // pattern (`net.rs:2913`/`:7291`) and keeps the counter monotonic for UI cursors.
+    snapshot.projectile_events_total = snapshot.projectile_events_total.saturating_add(1);
     snapshot.projectile_events.push(ProjectileEvent {
         spell,
         source,
@@ -8930,5 +8944,67 @@ mod tests {
             snapshot.monster_motion_params[&5],
             snapshot.monster_motion_params[&184]
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // R60 G2 (D2): absolute projectile-event sequence.
+    // -----------------------------------------------------------------------
+
+    /// Every accepted push advances `projectile_events_total`, including the pushes whose
+    /// event is immediately dropped by the 16-entry ring; the ring constant stays 16.
+    #[test]
+    fn r60_d2_projectile_events_total_counts_every_pushed_event() {
+        assert_eq!(EFFECT_EVENT_LIMIT, 16, "R60 must not resize the event ring");
+        let mut snapshot = WorldSnapshot::default();
+        assert_eq!(
+            snapshot.projectile_events_total, 0,
+            "a fresh snapshot starts the absolute sequence at zero"
+        );
+        for destination in 1..=17u32 {
+            push_projectile_event(&mut snapshot, Spell::FireBounce, 1, destination);
+        }
+        assert_eq!(
+            snapshot.projectile_events_total, 17,
+            "the total counts events whose payload was already dropped by the ring"
+        );
+        assert_eq!(snapshot.projectile_events.len(), EFFECT_EVENT_LIMIT);
+        assert_eq!(
+            snapshot.projectile_events[0].destination, 2,
+            "the ring dropped the oldest event, keeping destinations 2..=17"
+        );
+        assert_eq!(snapshot.projectile_events[15].destination, 17);
+        // `ProjectileEvent` gained no field: this literal stops compiling otherwise.
+        let unchanged = ProjectileEvent {
+            spell: Spell::FireBounce,
+            source: 1,
+            destination: 2,
+        };
+        assert_eq!(
+            snapshot.projectile_events[0], unchanged,
+            "R60 must not change the ProjectileEvent shape"
+        );
+    }
+
+    /// A rebuilt snapshot (reconnect path) zeroes both the ring and its absolute counter,
+    /// so the UI cursor reset stays anchored to a real snapshot rebuild.
+    #[test]
+    fn r60_d2_projectile_events_total_resets_with_rebuilt_snapshot() {
+        let mut snapshot = WorldSnapshot::default();
+        for destination in 1..=3u32 {
+            push_projectile_event(&mut snapshot, Spell::FireBounce, 1, destination);
+        }
+        assert_eq!(snapshot.projectile_events_total, 3);
+        let rebuilt = WorldSnapshot::default();
+        assert_eq!(
+            rebuilt.projectile_events_total, 0,
+            "WorldSnapshot::default() must restart the projectile event sequence"
+        );
+        assert!(rebuilt.projectile_events.is_empty());
+        let rebuilt = initial_world_snapshot(&ConnectOptions::default());
+        assert_eq!(
+            rebuilt.projectile_events_total, 0,
+            "the connect path builds its snapshot from Default and starts at zero"
+        );
+        assert!(rebuilt.projectile_events.is_empty());
     }
 }

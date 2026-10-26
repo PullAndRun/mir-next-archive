@@ -41,10 +41,18 @@
 //!
 //! # 已知限制
 //!
-//! `WorldSnapshot::projectile_events` 在会话侧是累计队列（`net.rs:7246-7260`，上限 16
-//! 条后丢最旧），每个快照克隆都带着历史事件。只持 `&WorldSnapshot` 的绘制路径没有事件
-//! ID 可用，只能按位置游标去重；队列满 16 条后「丢最旧 + 追加」从 `len` 上不可观测，
-//! 可能漏掉新事件。彻底修复要在 `net.rs` 给事件编号，超出 D1 写范围，登记为残留风险。
+//! `WorldSnapshot::projectile_events` 在会话侧是累计队列（`net.rs:7256-7278`，上限
+//! 16 条后丢最旧），只持 `&WorldSnapshot` 的绘制路径不能 `mem::take`。R60 G2 起快照
+//! 同时维护 `WorldSnapshot::projectile_events_total`（事件绝对序号，每次 push +1、快照
+//! 重建归零），[`Projectiles`] 用「已消费绝对序号 − ring 丢弃数」换算事件表下标，
+//! 队列满 16 条后不再漏掉新事件（R60 F6 更正：旧位置游标会永久静默丢弃第 17 个及之后
+//! 的事件）。仍有两项残留风险：
+//!
+//! * 事件在被消费前就被 ring 丢掉（同一帧 >16 个 125 事件或客户端卡顿）时只能跳过，
+//!   不重放旧事件——「不重复」优先于「不丢失」。
+//! * 快照被整体重建、且新表在 UI 首次同步前已累计超过旧游标时无法区分新旧事件；
+//!   正常重连会先出现空表（`WorldSnapshot::default()`），由 [`Projectiles::consume`]
+//!   的重建判定归零。
 //!
 //! * 命中 570 特效缺素材时由 `scene.draw_effect` 静默跳过（返回 `false`，不 panic、
 //!   不画占位块）；「逻辑错」与「缺素材」的区分：帧号/时序由 [`hit_effect_index`]
@@ -440,9 +448,16 @@ impl Projectiles {
 
     /// 只消费 `WorldSnapshot::projectile_events` 里的新事件。
     ///
-    /// 快照是整体克隆的（`net.rs:4477-4480`），事件表在会话侧累计且从不 drain
-    /// （`net.rs:7246-7260`），所以这里用位置游标去重；绘制路径只持 `&WorldSnapshot`，
-    /// 不能 `mem::take`，更不能 clone 整个 vec。
+    /// 游标是**已消费事件的绝对序号**，不是 `projectile_events` 的下标：会话侧事件表
+    /// 累计到 `EFFECT_EVENT_LIMIT`(16) 条后丢最旧（`net.rs:2763-2772`/`net.rs:7256-7278`），
+    /// 满表后「丢最旧 + 追加」在 `len` 上不可观测，纯位置游标会让第 17 个及之后的事件
+    /// 被永久静默丢弃（R60 F6 更正）。快照用 `WorldSnapshot::projectile_events_total`
+    /// 记录自创建以来 push 过的总条数，`total - len` 即当前表里已被丢弃的最旧事件数
+    /// `dropped`，于是 `events[i]` 的绝对序号是 `dropped + i`，游标换算成下标即可。
+    ///
+    /// 重建语义（旧「事件表重置 → 游标归零」）收紧为**空表**或「旧游标比新表长且没有
+    /// 事件被 ring 丢弃」：ring 满后 `consumed == total > len` 是正常态，若按旧
+    /// `len < consumed` 归零会把已消费的旧事件整表重放（R60 D2 契约 §二）。
     fn consume(
         &mut self,
         snapshot: &WorldSnapshot,
@@ -450,15 +465,34 @@ impl Projectiles {
         sink: &mut dyn ProjectileSoundSink,
     ) {
         let events = &snapshot.projectile_events;
-        if events.len() < self.consumed {
-            // 事件表被重置（重连/换快照）：从头再消费。
+        let len = events.len();
+        let dropped = snapshot
+            .projectile_events_total
+            .saturating_sub(u64::try_from(len).unwrap_or(u64::MAX));
+        let rebuilt = if len == 0 {
+            self.consumed > 0
+        } else {
+            self.consumed > len && dropped == 0
+        };
+        if rebuilt {
+            // 真重建（重连/换快照）：从头再消费。
             self.consumed = 0;
         }
-        while self.consumed < events.len() {
-            let event = events[self.consumed];
-            self.consumed += 1;
+        // 未消费的事件已被 ring 丢弃：跳过它们（不重放），游标直接推到丢弃边界。
+        let mut cursor = u64::try_from(self.consumed).unwrap_or(u64::MAX);
+        if dropped > cursor {
+            cursor = dropped;
+        }
+        // 起点下标 = 绝对游标 - 丢弃数；`dropped` 超过 `len` 时 saturating 到底。
+        let mut index = usize::try_from(cursor.saturating_sub(dropped)).unwrap_or(usize::MAX);
+        while index < len {
+            let event = events[index];
+            index += 1;
+            cursor = cursor.saturating_add(1);
             self.spawn(event, snapshot, now_ms, sink);
         }
+        // 被 ring 丢弃但未消费的事件同样计入游标，避免下次按旧下标重复结算。
+        self.consumed = usize::try_from(cursor).unwrap_or(usize::MAX);
     }
 
     /// 一个事件生成一个实体；`source`/`destination` 解析不到坐标就丢弃（见 D-R59-1）。
@@ -855,5 +889,204 @@ mod tests {
         projectiles.sync_with_sink(&snapshot, 1_100, &mut sink);
         assert!(sink.played.is_empty());
         assert_eq!(projectiles.events_consumed(), 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // R60 G2 (D2): ring overflow must not silently drop events 17+.
+    // -----------------------------------------------------------------------
+
+    /// Mirror of `net.rs` `EFFECT_EVENT_LIMIT` (asserted as 16 by
+    /// `net::tests::r60_d2_projectile_events_total_counts_every_pushed_event`; the constant
+    /// itself is private to `net`).
+    const RING_LIMIT: usize = 16;
+
+    /// Snapshot with entities `1..=19` on distinct tiles (`1` = caster, `2..=19` targets),
+    /// so a view's `(destination_id, destination)` payload identifies exactly one event.
+    fn ring_overflow_snapshot() -> WorldSnapshot {
+        let mut snapshot = WorldSnapshot::default();
+        for id in 1..=19u32 {
+            let x = i32::try_from(id).expect("test object id fits in i32") + 10;
+            snapshot.entities.insert(
+                id,
+                WorldEntity::new(
+                    id,
+                    EntityKind::Monster,
+                    format!("object-{id}"),
+                    Point::new(x, 10),
+                    MirDirection::Right,
+                    0,
+                ),
+            );
+        }
+        snapshot
+    }
+
+    /// Mirror the real session ring (`net.rs:7271-7274`): append, drop the oldest event
+    /// past the cap, and advance the absolute sequence number on every push.
+    fn push_ring_event(snapshot: &mut WorldSnapshot, destination: u32) {
+        // Mirror the real session ring (`net.rs:7256-7278`): append, drop the oldest event
+        // past the cap, and advance the absolute sequence number on every push.
+        snapshot.projectile_events.push(fire_bounce(1, destination));
+        if snapshot.projectile_events.len() > RING_LIMIT {
+            snapshot.projectile_events.remove(0);
+        }
+        snapshot.projectile_events_total = snapshot.projectile_events_total.saturating_add(1);
+    }
+
+    /// Sixteen events fill the ring (`total == len == 16`); destinations are `2..=17`.
+    fn fill_ring(snapshot: &mut WorldSnapshot) {
+        for destination in 2..=17u32 {
+            push_ring_event(snapshot, destination);
+        }
+    }
+
+    #[test]
+    fn r60_d2_dropped_events_are_not_replayed() {
+        let mut snapshot = ring_overflow_snapshot();
+        fill_ring(&mut snapshot);
+        let mut projectiles = Projectiles::default();
+        let mut sink = FakeSink::default();
+        projectiles.sync_with_sink(&snapshot, 1_000, &mut sink);
+        assert_eq!(projectiles.events_consumed(), RING_LIMIT);
+        assert_eq!(projectiles.views().len(), RING_LIMIT);
+        // Let every pre-overflow view finish: the assertions below only see new views.
+        projectiles.sync_with_sink(&snapshot, 3_000, &mut sink);
+        assert!(projectiles.views().is_empty());
+
+        // 17th event: ring drops #1, keeps #2..#17, len stays 16, total grows to 17.
+        push_ring_event(&mut snapshot, 18);
+        assert_eq!(snapshot.projectile_events_total, 17);
+        assert_eq!(snapshot.projectile_events.len(), RING_LIMIT);
+        assert_eq!(snapshot.projectile_events[0].destination, 3);
+
+        projectiles.sync_with_sink(&snapshot, 5_000, &mut sink);
+        assert_eq!(
+            projectiles.events_consumed(),
+            17,
+            "the 17th event must be consumed even though it sits at ring index 15"
+        );
+        let views = projectiles.views();
+        assert_eq!(views.len(), 1, "exactly one new view for the 17th event");
+        assert_eq!(views[0].destination_id, 18);
+        assert_eq!(views[0].destination, Point::new(28, 10));
+        assert_eq!(views[0].started_ms, 5_000);
+        // No replay of #1..#16: none of their payloads may show up in the new view.
+        for event in 1..=16u32 {
+            assert_ne!(
+                views[0].destination_id,
+                event + 1,
+                "view of event #{event} must not be replayed"
+            );
+        }
+    }
+
+    #[test]
+    fn r60_d2_second_ring_full_event_is_consumed_once() {
+        let mut snapshot = ring_overflow_snapshot();
+        fill_ring(&mut snapshot);
+        let mut projectiles = Projectiles::default();
+        let mut sink = FakeSink::default();
+        projectiles.sync_with_sink(&snapshot, 1_000, &mut sink);
+        assert_eq!(projectiles.events_consumed(), RING_LIMIT);
+        projectiles.sync_with_sink(&snapshot, 3_000, &mut sink);
+        assert!(projectiles.views().is_empty());
+
+        // #17 arrives: consumed == total == 17 while len is still 16 (the normal full-ring
+        // state) and must not be mistaken for a snapshot rebuild.
+        push_ring_event(&mut snapshot, 18);
+        projectiles.sync_with_sink(&snapshot, 5_000, &mut sink);
+        assert_eq!(projectiles.events_consumed(), 17);
+        assert_eq!(projectiles.views().len(), 1);
+        assert_eq!(projectiles.views()[0].destination_id, 18);
+
+        // #18 arrives: exactly one more view, no replayed #17 view.
+        push_ring_event(&mut snapshot, 19);
+        assert_eq!(snapshot.projectile_events_total, 18);
+        projectiles.sync_with_sink(&snapshot, 7_000, &mut sink);
+        assert_eq!(
+            projectiles.events_consumed(),
+            RING_LIMIT + 2,
+            "cursor counts events by absolute sequence number"
+        );
+        let views = projectiles.views();
+        assert_eq!(views.len(), 1, "exactly one new view for the 18th event");
+        assert_eq!(views[0].destination_id, 19);
+        assert_eq!(views[0].destination, Point::new(29, 10));
+        assert_ne!(
+            views[0].destination_id, 18,
+            "the 17th event must not be replayed for the 18th"
+        );
+    }
+
+    #[test]
+    fn r60_d2_snapshot_rebuild_resets_cursor_without_replay() {
+        let mut snapshot = ring_overflow_snapshot();
+        push_ring_event(&mut snapshot, 2);
+        let mut projectiles = Projectiles::default();
+        let mut sink = FakeSink::default();
+        projectiles.sync_with_sink(&snapshot, 1_000, &mut sink);
+        assert_eq!(projectiles.events_consumed(), 1);
+        assert_eq!(projectiles.views().len(), 1);
+        projectiles.sync_with_sink(&snapshot, 2_000, &mut sink);
+        assert!(projectiles.views().is_empty(), "the one view has finished");
+
+        // Reconnect/rebuilt snapshot: empty table and total back to zero.
+        let rebuilt = ring_overflow_snapshot();
+        projectiles.sync_with_sink(&rebuilt, 3_000, &mut sink);
+        assert_eq!(
+            projectiles.events_consumed(),
+            0,
+            "a rebuilt empty snapshot must reset the consumed cursor"
+        );
+        assert!(projectiles.views().is_empty());
+        assert_eq!(
+            rebuilt.projectile_events_total, 0,
+            "the rebuilt snapshot starts a new absolute sequence"
+        );
+
+        // The rebuilt snapshot's first event is consumed once, not 17 times.
+        let mut rebuilt = rebuilt;
+        push_ring_event(&mut rebuilt, 2);
+        projectiles.sync_with_sink(&rebuilt, 3_000, &mut sink);
+        assert_eq!(projectiles.events_consumed(), 1);
+        assert_eq!(projectiles.views().len(), 1);
+        assert_eq!(projectiles.views()[0].destination_id, 2);
+    }
+
+    #[test]
+    fn r60_d2_consecutive_consumes_do_not_duplicate_payloads() {
+        let mut snapshot = ring_overflow_snapshot();
+        for destination in 2..=4u32 {
+            push_ring_event(&mut snapshot, destination);
+        }
+        let mut projectiles = Projectiles::default();
+        let mut sink = FakeSink::default();
+        projectiles.sync_with_sink(&snapshot, 1_000, &mut sink);
+        // Below one frame interval: every view is still in flight (`frame == 0`).
+        projectiles.sync_with_sink(&snapshot, 1_010, &mut sink);
+        assert_eq!(projectiles.events_consumed(), 3);
+        let payloads: Vec<(u32, Point)> = projectiles
+            .views()
+            .iter()
+            .map(|view| (view.destination_id, view.destination))
+            .collect();
+        assert_eq!(
+            payloads,
+            vec![
+                (2, Point::new(12, 10)),
+                (3, Point::new(13, 10)),
+                (4, Point::new(14, 10)),
+            ],
+            "consecutive consumes keep arrival order and add no duplicate payload"
+        );
+        let mut ids: Vec<u32> = payloads.iter().map(|(id, _)| *id).collect();
+        ids.sort_unstable();
+        let mut unique = ids.clone();
+        unique.dedup();
+        assert_eq!(unique, ids, "no payload may appear twice");
+        // A further sync without new events is a no-op.
+        projectiles.sync_with_sink(&snapshot, 1_015, &mut sink);
+        assert_eq!(projectiles.events_consumed(), 3);
+        assert_eq!(projectiles.views().len(), 3);
     }
 }

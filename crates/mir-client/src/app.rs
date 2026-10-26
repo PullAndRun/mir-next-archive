@@ -191,6 +191,34 @@ impl LiveState {
     }
 }
 
+/// 播放本帧从 [`UiState::take_projectile_sound_cues`] 取走的投射物音效 cue。
+///
+/// Crystal 在投射物出生/命中时直接 `PlaySound`（`GameScene.cs:4697`/`:4709`），
+/// 这里把 R59 已采集的 cue 交给真实音频通道：每个文件名走一遍 [`SoundPlayer::play`]
+/// （共享 100 ms 频控与无设备/静音降级）。`now_ms` 由调用方传入，便于测试注入时刻。
+///
+/// 返回真正送进混音器的条数；频控吞掉的不算「已播」（派发件 R5）。
+fn play_projectile_cues(sound: &mut SoundPlayer, cues: Vec<&'static str>, now_ms: u64) -> usize {
+    play_projectile_cues_with(cues, |file| sound.play(file, now_ms))
+}
+
+/// [`play_projectile_cues`] 的注入式核心：`play` 返回 `true` 才计入已播条数。
+///
+/// 生产路径固定传入 [`SoundPlayer::play`]；测试用计数闭包替代音频设备，
+/// 断言「一帧内每个 cue 只播一次、重复 drain 不重播」。
+fn play_projectile_cues_with(
+    cues: Vec<&'static str>,
+    mut play: impl FnMut(&'static str) -> bool,
+) -> usize {
+    let mut played = 0;
+    for file in cues {
+        if play(file) {
+            played += 1;
+        }
+    }
+    played
+}
+
 /// 启动离线地图窗口。
 ///
 /// 没有图形环境（`EventLoop::new` 失败、窗口/表面创建失败）时打印原因并返回，
@@ -2723,6 +2751,15 @@ impl ClientApp {
                 live.motion = None;
             }
             live.ui.sync(&live.snapshot);
+            // 投射物出生/命中音（R59 采集 `M34-1/2.wav`，`GameScene.cs:4697`/`:4709`）：
+            // 同步完 UI 后同帧 drain 并走真实音频通道；无音频设备/静音时 play 返回
+            // `false`，只是丢弃，不阻塞也不 panic。
+            let projectile_cues = live.ui.take_projectile_sound_cues();
+            let drained = projectile_cues.len();
+            let played = play_projectile_cues(&mut live.sound, projectile_cues, now);
+            if drained > 0 {
+                tracing::debug!(drained, played, "投射物音效");
+            }
             // 市场窗口刚打开：按当前页签补一次 `C.MarketSearch`（服务端打开时只发
             // 第一页，`GetMarket` 的 Min/MaxShapes 还是 0；Crystal `TMerchantDialog(type)`
             // 打开页签时也会发一次搜索，`TrustMerchantDialog.cs:1160-1166`）。
@@ -3370,6 +3407,12 @@ fn next_screenshot_path() -> PathBuf {
 mod tests {
     use super::*;
 
+    // R60 D1: projectile sound cue gates (see the `projectile_sound_cues_*` tests at the end).
+    use mir_client::net::ProjectileEvent;
+    use mir_core::enums::Monster;
+    use mir_protocol::ServerPacket;
+    use mir_protocol::packets::server::ObjectMonster;
+
     #[test]
     fn screenshots_are_numbered_sequentially() {
         let path = next_screenshot_path();
@@ -3571,5 +3614,225 @@ mod tests {
         assert_eq!(scene.map.file_name, "D2083", "地形已换成新地图");
         assert!(scene.map.width > 0 && scene.map.height > 0);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // -----------------------------------------------------------------
+    // R60 D1: projectile sound cues -> real audio channel
+    // -----------------------------------------------------------------
+
+    /// Object id of the projectile caster in the synthetic snapshot.
+    const PROJECTILE_SOURCE_ID: u32 = 7;
+    /// Object id of the projectile target in the synthetic snapshot.
+    const PROJECTILE_DEST_ID: u32 = 8;
+    /// Wall-clock millisecond the projectile spawns at.
+    const PROJECTILE_START_MS: i64 = 1_000;
+
+    /// Seed one monster through the real `ObjectMonster` packet path.
+    fn seed_projectile_monster(snapshot: &mut WorldSnapshot, object_id: u32, location: Point) {
+        snapshot.apply_packet_at(
+            &ServerPacket::ObjectMonster(ObjectMonster {
+                object_id,
+                name: format!("monster-{object_id}"),
+                location,
+                image: Monster::Skeleton,
+                direction: MirDirection::Down,
+                ..ObjectMonster::default()
+            }),
+            0,
+        );
+        assert!(
+            snapshot.object_position(object_id).is_some(),
+            "seed failed: monster {object_id} is not a known snapshot object"
+        );
+    }
+
+    /// Snapshot with caster at (10, 10), live target at (12, 10) and one `FireBounce` event.
+    ///
+    /// A two-tile flight arrives after 90 ms (see the round 59 projectile gates).
+    fn projectile_snapshot() -> WorldSnapshot {
+        let mut snapshot = WorldSnapshot::default();
+        seed_projectile_monster(&mut snapshot, PROJECTILE_SOURCE_ID, Point::new(10, 10));
+        seed_projectile_monster(&mut snapshot, PROJECTILE_DEST_ID, Point::new(12, 10));
+        snapshot.projectile_events.push(ProjectileEvent {
+            spell: Spell::FireBounce,
+            source: PROJECTILE_SOURCE_ID,
+            destination: PROJECTILE_DEST_ID,
+        });
+        snapshot
+    }
+
+    #[test]
+    fn projectile_sound_cues_are_drained_and_played_once_each() {
+        let snapshot = projectile_snapshot();
+        let mut ui = UiState::new(Language::ZhCn);
+        ui.set_time(PROJECTILE_START_MS);
+        ui.sync(&snapshot);
+
+        // Spawn frame: one cue, and the injectable sink receives it exactly once.
+        let mut played: Vec<&'static str> = Vec::new();
+        let spawn_played = play_projectile_cues_with(ui.take_projectile_sound_cues(), |file| {
+            played.push(file);
+            true
+        });
+        assert_eq!(spawn_played, 1, "the spawn cue must be played once");
+        assert_eq!(played, vec!["M34-1.wav"]);
+
+        // Same snapshot at the same instant: nothing left to drain, nothing replayed.
+        let replay_played = play_projectile_cues_with(ui.take_projectile_sound_cues(), |file| {
+            played.push(file);
+            true
+        });
+        assert_eq!(replay_played, 0);
+        assert_eq!(played, vec!["M34-1.wav"]);
+
+        // Impact frame (+90 ms for a two-tile flight): one M34-2 cue.
+        ui.set_time(PROJECTILE_START_MS + 90);
+        ui.sync(&snapshot);
+        let hit_played = play_projectile_cues_with(ui.take_projectile_sound_cues(), |file| {
+            played.push(file);
+            true
+        });
+        assert_eq!(hit_played, 1, "the impact cue must be played once");
+        assert_eq!(played, vec!["M34-1.wav", "M34-2.wav"]);
+        assert_eq!(
+            played.iter().filter(|file| **file == "M34-1.wav").count(),
+            1,
+            "the spawn cue plays exactly once"
+        );
+        assert_eq!(
+            played.iter().filter(|file| **file == "M34-2.wav").count(),
+            1,
+            "the impact cue plays exactly once"
+        );
+    }
+
+    #[test]
+    fn no_projectile_events_drain_no_sound_cues() {
+        let mut ui = UiState::new(Language::ZhCn);
+        ui.set_time(PROJECTILE_START_MS);
+        ui.sync(&WorldSnapshot::default());
+
+        let mut attempts = 0;
+        let played = play_projectile_cues_with(ui.take_projectile_sound_cues(), |_| {
+            attempts += 1;
+            true
+        });
+        assert_eq!(played, 0);
+        assert_eq!(
+            attempts, 0,
+            "an empty cue queue must not reach the sound channel"
+        );
+        assert!(ui.take_projectile_sound_cues().is_empty());
+    }
+
+    #[test]
+    fn projectile_sound_cues_are_drained_only_once() {
+        let snapshot = projectile_snapshot();
+        let mut ui = UiState::new(Language::ZhCn);
+        ui.set_time(PROJECTILE_START_MS);
+        ui.sync(&snapshot);
+
+        assert_eq!(ui.take_projectile_sound_cues(), vec!["M34-1.wav"]);
+        assert!(
+            ui.take_projectile_sound_cues().is_empty(),
+            "draining a cue must empty the queue"
+        );
+        // The cursor based sync must not replay the cue for the same snapshot.
+        ui.sync(&snapshot);
+        assert!(
+            ui.take_projectile_sound_cues().is_empty(),
+            "syncing the same snapshot again must not replay the cue"
+        );
+    }
+
+    #[test]
+    fn disabled_or_zero_volume_sound_player_skips_projectile_cues_without_panic() {
+        let cues = ["M34-1.wav", "M34-2.wav"];
+
+        // `enabled = false`: deterministic no-op even on a machine with an audio device.
+        let mut player =
+            SoundPlayer::without_device(SoundLibrary::with_roots(Vec::new()), false, 1.0);
+        assert!(!player.is_active());
+        assert_eq!(player.effective_sound_volume(), 0.0);
+        assert_eq!(play_projectile_cues(&mut player, cues.to_vec(), 1_000), 0);
+
+        // Sound volume 0 (gain = 0): skipped before touching the decoder or the device.
+        let mut player =
+            SoundPlayer::without_device(SoundLibrary::with_roots(Vec::new()), true, 0.0);
+        assert_eq!(player.effective_sound_volume(), 0.0);
+        assert_eq!(play_projectile_cues(&mut player, cues.to_vec(), 1_000), 0);
+
+        // Master volume 0 with a non-zero sound volume: gain is still 0.
+        let mut player =
+            SoundPlayer::without_device(SoundLibrary::with_roots(Vec::new()), true, 1.0);
+        player.set_master_volume(0.0);
+        assert_eq!(player.effective_sound_volume(), 0.0);
+        assert_eq!(play_projectile_cues(&mut player, cues.to_vec(), 1_000), 0);
+
+        // Runtime toggle off: same deterministic skip.
+        let mut player =
+            SoundPlayer::without_device(SoundLibrary::with_roots(Vec::new()), true, 1.0);
+        player.set_enabled(false);
+        assert_eq!(play_projectile_cues(&mut player, cues.to_vec(), 1_000), 0);
+
+        // Even when muted, draining still empties the queue instead of backing up.
+        let snapshot = projectile_snapshot();
+        let mut ui = UiState::new(Language::ZhCn);
+        ui.set_time(PROJECTILE_START_MS);
+        ui.sync(&snapshot);
+        let mut player =
+            SoundPlayer::without_device(SoundLibrary::with_roots(Vec::new()), false, 0.0);
+        assert_eq!(
+            play_projectile_cues(&mut player, ui.take_projectile_sound_cues(), 1_000),
+            0
+        );
+        assert!(ui.take_projectile_sound_cues().is_empty());
+    }
+
+    /// M-4: `M34-1.wav` / `M34-2.wav` must exist as owned `.mna` clips that rodio decodes.
+    ///
+    /// A missing asset prints `SKIP: missing M34-1.mna` and returns (never `#[ignore]`, never
+    /// a substituted `M34-0`): the acceptance run records SKIP instead of a silent pass.
+    #[test]
+    fn projectile_sound_assets_are_real_mna_clips() {
+        use std::io::Cursor;
+
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        // `SoundLibrary::default_roots()` uses CWD-relative `game-assets/audio*` paths; tests
+        // run from `crates/mir-client`, so anchor the same roots at the repo root and stack
+        // them on `from_repo_root` exactly like `main.rs:675-676` (around_data_dir + push_back).
+        let mut library = SoundLibrary::from_repo_root(&repo);
+        library.push_back(&SoundLibrary::with_roots(vec![
+            repo.join("game-assets/audio"),
+            repo.join("game-assets/audio/sfx"),
+        ]));
+
+        for file in ["M34-1.wav", "M34-2.wav"] {
+            let Some(path) = library.resolve(file) else {
+                let stem = file.trim_end_matches(".wav");
+                eprintln!("SKIP: missing {stem}.mna (searched {:?})", library.roots());
+                return;
+            };
+            assert_eq!(
+                path.extension().and_then(std::ffi::OsStr::to_str),
+                Some("mna"),
+                "{file} must resolve to the owned .mna format"
+            );
+            let clip = mir_asset::AudioClip::open(&path)
+                .unwrap_or_else(|error| panic!("failed to open {}: {error}", path.display()));
+            assert!(
+                !clip.data.is_empty(),
+                "{} must carry a compressed audio stream",
+                path.display()
+            );
+            let mut decoder = rodio::Decoder::new(Cursor::new(clip.data))
+                .unwrap_or_else(|error| panic!("failed to decode {}: {error}", path.display()));
+            assert!(
+                decoder.next().is_some(),
+                "{} must decode to at least one sample",
+                path.display()
+            );
+            eprintln!("OK: {file} -> {} (decoded mna clip)", path.display());
+        }
     }
 }

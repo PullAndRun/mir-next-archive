@@ -1267,6 +1267,15 @@ impl UiState {
         &self.projectiles
     }
 
+    /// 取走本帧新产生的投射物音效 cue（R60 D1 音频通道的 drain 入口）。
+    ///
+    /// cue 由 [`projectile`] 在出生/命中时记录（`M34-1.wav` / `M34-2.wav`，见
+    /// `GameScene.cs:4697`/`:4709`）；取走语义保证同一 cue 只被播放一次，
+    /// 队列清空后再取为空。
+    pub fn take_projectile_sound_cues(&mut self) -> Vec<&'static str> {
+        self.projectiles.take_sound_cues()
+    }
+
     /// 跟随快照更新对话/商店/选中项，并消费新的伤害/光效事件。
     pub fn sync(&mut self, snapshot: &WorldSnapshot) {
         match &snapshot.npc_dialog {

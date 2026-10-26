@@ -49,7 +49,13 @@
 //! 每条都在调用点标了 `// 简化：`。
 //!
 //! * `spell_target_lock`（`C.Magic.SpellTargetLock`）未实现：落点始终取包里的 `location`。
-//! * `CanFly`（目标格是否允许飞行道具）未实现——地图层没有飞行属性，只按距离判定。
+//! * `CanFly`（弹道逐格是否可飞）：`FireBounce` 已按 Crystal 语义逐格检查
+//!   `Cell.Valid`（`MapObject.cs:321-337`、`Map.cs:2480-2482`）；其余技能仍只按距离判定
+//!   （`FrostCrunch` 的 `can_fly` 走的是含攻城区阻挡的 `walkable_on`，见 [`Self::can_fly`]）。
+//! * `FireBounce`（R57）的 `S.ObjectProjectile` 125 广播沿用本作 [`World::broadcast`]
+//!   惯例：**不回显给施法者本人**；Crystal `Map.Broadcast` 会发给范围内全部玩家
+//!   （`Map.cs:2437-2448`，施法者本人也在范围内）。这是已知偏差；客户端 125 渲染本轮
+//!   未接（D3 PARTIAL），服务端生产者语义按上方 `FireBounce` 说明实现。
 //! * PK：`Bolt` 一族与 `FireWall`/`Lightning`/`Poisoning` 一样，怪物目标走
 //!   [`World::monster_is_attack_target_of_player`]、玩家目标走
 //!   [`World::is_attack_target_player`]（Crystal `IsAttackTarget`），与物理攻击的 PK 规则一致。
@@ -84,9 +90,9 @@ use mir_db::MagicInfo;
 use mir_protocol::data::{ClientBuff, ClientMagic, Stats, UserItem};
 use mir_protocol::packets::server::{
     AddBuff, Magic, MagicCast, MagicDelay, MagicLeveled, NewMagic, ObjectDash, ObjectDashFail,
-    ObjectEffect, ObjectHidden, ObjectMagic, ObjectPoisoned, ObjectPushed, ObjectRemove,
-    ObjectSpell, ObjectTeleportIn, ObjectTeleportOut, Poisoned, Pushed, RemoveBuff, UseItem,
-    UserDash, UserDashFail,
+    ObjectEffect, ObjectHidden, ObjectMagic, ObjectPoisoned, ObjectProjectile, ObjectPushed,
+    ObjectRemove, ObjectSpell, ObjectTeleportIn, ObjectTeleportOut, Poisoned, Pushed, RemoveBuff,
+    UseItem, UserDash, UserDashFail,
 };
 use mir_protocol::{PacketReader, PacketWriter, ProtocolError, ServerPacket};
 
@@ -189,6 +195,18 @@ pub const FROST_CRUNCH_STEP_MS: i64 = 50;
 /// 冰咆哮的固定延迟：`MaxDistance * 50 + 500` 里的 500ms
 /// （`HumanObject.cs:3945` 的 `Fireball` 延迟公式）。
 pub const FROST_CRUNCH_BASE_DELAY_MS: i64 = 500;
+
+/// 火焰弹射（`FireBounce`）的每格飞行延迟：`MaxDistance(source, target) * 50`
+/// （`HumanObject.cs:5817` 的注释「50 MS per Step」，首跳与后续弹跳共用）。
+pub const FIRE_BOUNCE_STEP_MS: i64 = 50;
+
+/// 火焰弹射首跳的固定延迟：`bounce == -1` 时 `delay += 500`
+/// （`HumanObject.cs:5819-5825`）。
+pub const FIRE_BOUNCE_CAST_DELAY_MS: i64 = 500;
+
+/// 火焰弹射后续弹跳的候选半径：`FindAllNearby(3, target.CurrentLocation)`
+/// （`HumanObject.cs:5951`）。
+pub const FIRE_BOUNCE_RADIUS: i32 = 3;
 
 /// 冲撞结束时写的 `CellTime = Envir.Time + 500`（`HumanObject.cs:5143`）。
 pub const SHOULDER_DASH_CELL_TIME_MS: i64 = 500;
@@ -693,6 +711,11 @@ pub enum SpellKind {
     /// `ShockTime`，再在落点周围生成 8 个绑定中心怪的场对象
     /// （`HumanObject.cs:4596-4644` + `Map.cs:1752-1832` + `SpellObject.cs:51-70`）。
     TrapHexagon,
+    /// 火焰弹射（`FireBounce`）：首跳单体伤害（无 125），此后仅当受害者是怪物时，
+    /// 在其半径 3 内按 `IsAttackTarget`/`CanFly` 选下一个目标、先广播
+    /// `S.ObjectProjectile` 125 再排 `dist * 50` ms 伤害；总命中上限 `Level + 2`、
+    /// 125 条数 `Level + 1`（`HumanObject.cs:5811-5836` + `:5934-5957`）。
+    FireBounce,
     /// 已登记、但本作没有效果（见 [`REGISTERED_UNSUPPORTED`]）。
     Unsupported,
 }
@@ -729,6 +752,7 @@ pub const fn spell_kind(spell: Spell) -> SpellKind {
         Spell::StormEscape => SpellKind::StormEscape,
         Spell::FrostCrunch => SpellKind::FrostCrunch,
         Spell::ThunderStorm => SpellKind::ThunderStorm,
+        Spell::FireBounce => SpellKind::FireBounce,
         _ => SpellKind::Unsupported,
     }
 }
@@ -849,6 +873,20 @@ pub enum MagicEffect {
         location: Point,
         /// 施法时抽好的伤害。
         damage: i32,
+    },
+    /// 火焰弹射（`HumanObject.cs:5811-5836` + `:5934-5957`）：本跳命中结算后，若受害者
+    /// 仍是怪物且还有剩余弹跳，就选下一个目标、广播 125、排下一跳伤害。
+    FireBounce {
+        /// 本跳目标对象 ID。
+        target_id: u32,
+        /// 本跳排期时的目标位置（结算时目标必须仍在 ±2 格内，`:5940`）。
+        location: Point,
+        /// 本跳已经抽好的 `DefenceType.MAC` 伤害（`FireBounce` 每次调用都重新
+        /// `magic.GetDamage(GetAttackPower(MinMC, MaxMC))`，`:5815`）。
+        damage: i32,
+        /// 剩余可用弹跳次数：首跳为 `magic.Level + 2`（`:5819`），每续跳 `--bounce`。
+        /// 该值为 0 时 Crystal 的 `FireBounce` 顶部直接返回（`:5813`），不广播、不排伤害。
+        bounce: u8,
     },
     /// 隐身（`HumanObject.cs:6133-6145`）。
     Hiding {
@@ -1504,6 +1542,25 @@ impl World {
                     target_id = 0;
                 }
             }
+            SpellKind::FireBounce => {
+                // `case Spell.FireBounce: if (!FireBounce(target, magic, this)) targetID = 0;`
+                // （`HumanObject.cs:3765-3766`）。`FireBounce` 要求目标可攻击且
+                // `source.CanFly(target.CurrentLocation)`（`:5813`）；失败**不报错**，
+                // 只是没有目标（照常施法/扣蓝），与上一条 `FrostCrunch` 同构。
+                if target_id == 0 || target_id == object_id {
+                    target_id = 0;
+                } else if let Some(target_position) =
+                    self.magic_attack_position(&map, object_id, target_id)
+                {
+                    if self.can_fly_cell_valid(&map, position, target_position) {
+                        target_location = target_position;
+                    } else {
+                        target_id = 0;
+                    }
+                } else {
+                    target_id = 0;
+                }
+            }
             SpellKind::Blink | SpellKind::StormEscape | SpellKind::ThunderStorm => {
                 // Blink/StormEscape 用包里的落点；ThunderStorm 只以人物脚下为中心
                 // （`HumanObject.cs:4268` 的 `CurrentLocation`）。
@@ -1988,6 +2045,30 @@ impl World {
                             target_id,
                             location: target_location,
                             damage: value,
+                        },
+                    ));
+                }
+            }
+            SpellKind::FireBounce => {
+                // `FireBounce(target, magic, this)`（`HumanObject.cs:5811-5836`）：
+                // 伤害 = `magic.GetDamage(GetAttackPower(MinMC, MaxMC))`（`:5815`），
+                // 首跳延迟 = `MaxDistance(CurrentLocation, target.CurrentLocation) * 50 + 500`
+                // （`:5817`、`:5821-5822`），`bounce = magic.Level + 2`（`:5819`）。
+                // 首跳**不发** `S.ObjectProjectile`（那是 `bounce != -1` 的续跳分支，`:5824-5827`）。
+                if target_id != 0 {
+                    let base = stats.attack_power(stats.min_mc, stats.max_mc, &mut self.rng);
+                    let value = magic.damage(&info, base, &mut self.rng);
+                    damage = Some(value);
+                    let travel = i64::from(position.max_distance(target_location))
+                        * FIRE_BOUNCE_STEP_MS
+                        + FIRE_BOUNCE_CAST_DELAY_MS;
+                    effects.push((
+                        now + travel,
+                        MagicEffect::FireBounce {
+                            target_id,
+                            location: target_location,
+                            damage: value,
+                            bounce: magic.level.saturating_add(2),
                         },
                     ));
                 }
@@ -2665,6 +2746,92 @@ impl World {
                     self.level_magic(action.caster_id, action.spell);
                 }
             }
+            MagicEffect::FireBounce {
+                target_id,
+                location,
+                damage,
+                bounce,
+            } => {
+                // `HumanObject.cs:5934-5957`（`CompleteMagic` 的 `case Spell.FireBounce`）：
+                // 重校验目标 → `Attacked(this, value, DefenceType.MAC, false)` →
+                // `> 0` 才 `LevelMagic` → 仅当受害者是怪物时继续弹跳。
+                if !self.magic_target_hittable(action.caster_id, &map, target_id, location) {
+                    return;
+                }
+                let dealt = self.damage_magic_target(action.caster_id, target_id, damage);
+                if dealt > 0 {
+                    self.level_magic(action.caster_id, action.spell);
+                }
+                // `if (target.Race == ObjectType.Monster)`（`:5947`）：玩家/英雄受害者不续跳。
+                // 注意死者仍是 `Monster`（Crystal 检查的是 `Race` 而不是 `Dead`）。
+                let Some(victim_position) = self.monster(target_id).map(|monster| monster.position)
+                else {
+                    return;
+                };
+                // `this.FireBounce(nextTarget, magic, target, --bounce)`（`:5953`）：
+                // 先递减，再交给 `FireBounce`；`bounce == 0` 时函数顶部直接返回
+                // （`:5813`：不广播 125、不排伤害）。
+                let remaining = bounce.saturating_sub(1);
+                if remaining == 0 {
+                    return;
+                }
+                let Some(next_id) = self.fire_bounce_next_target(
+                    action.caster_id,
+                    &map,
+                    target_id,
+                    victim_position,
+                ) else {
+                    return;
+                };
+                let Some(next_position) = self
+                    .monster(next_id)
+                    .map(|monster| monster.position)
+                    .or_else(|| self.players.get(&next_id).map(|player| player.position))
+                else {
+                    return;
+                };
+                // `CurrentMap.Broadcast(new S.ObjectProjectile { Spell = magic.Info.Spell,
+                // Source = source.ObjectID, Destination = target.ObjectID },
+                // source.CurrentLocation)`（`:5824-5827`）：`Source` 是**本跳的受害者**，
+                // `Destination` 是下一跳目标；125 必须早于下一跳伤害排期发出。
+                let projectile = ServerPacket::ObjectProjectile(ObjectProjectile {
+                    spell: action.spell,
+                    source: target_id,
+                    destination: next_id,
+                })
+                .encode_frame();
+                self.broadcast(&map, victim_position, None, &projectile, action.caster_id);
+                // 下一跳 `delay = MaxDistance(source, target) * 50`（`:5817`），
+                // 伤害在 `FireBounce` 里重新抽（`:5815`）。
+                let Some(magic) = self.player_magic(action.caster_id, action.spell).copied() else {
+                    return;
+                };
+                let Some(info) = self.magic_info(action.spell).cloned() else {
+                    return;
+                };
+                let Some(stats) = self
+                    .players
+                    .get(&action.caster_id)
+                    .map(|player| player.stats)
+                else {
+                    return;
+                };
+                let base = stats.attack_power(stats.min_mc, stats.max_mc, &mut self.rng);
+                let next_damage = magic.damage(&info, base, &mut self.rng);
+                let delay =
+                    i64::from(victim_position.max_distance(next_position)) * FIRE_BOUNCE_STEP_MS;
+                self.pending_magic.push(PendingMagic {
+                    at: now + delay,
+                    caster_id: action.caster_id,
+                    spell: action.spell,
+                    effect: MagicEffect::FireBounce {
+                        target_id: next_id,
+                        location: next_position,
+                        damage: next_damage,
+                        bounce: remaining,
+                    },
+                });
+            }
         }
     }
 
@@ -2762,6 +2929,78 @@ impl World {
                     .is_some_and(|monster| !monster.dead && monster.position == cell)
             })
             .collect()
+    }
+
+    /// 火焰弹射的下一跳目标：Crystal `CompleteMagic` 的 `case Spell.FireBounce`
+    /// （`HumanObject.cs:5947-5954`）。
+    ///
+    /// ```csharp
+    /// var targets = ((MonsterObject)target).FindAllNearby(3, target.CurrentLocation)
+    ///     .Where(x => x != target && x.IsAttackTarget(this) && target.CanFly(x.CurrentLocation))
+    ///     .ToList();
+    /// if (targets.Count > 0) {
+    ///     var nextTarget = targets[Envir.Random.Next(targets.Count)];
+    ///     this.FireBounce(nextTarget, magic, target, --bounce);
+    /// }
+    /// ```
+    ///
+    /// * `FindAllNearby(3, ...)`（`MonsterObject.cs:2347-2384`）逐格收
+    ///   `Race ∈ {Monster, Player, Hero}`；本作 AOI 的 `AoiKind` 没有 `Hero`，服务器也不生成
+    ///   Hero 对象（无实例类型），因此候选池=怪物+玩家（M2-c 的种族口径，Hero 无实例登记）。
+    /// * 逐格有效性 `cell.Valid` 用 [`Self::poison_cloud_cell_valid`]（= `Cell.Valid`）。
+    /// * 候选顺序按对象 ID 升序稳定排序后取 `MirRng` 模（禁用线程随机源；与 Crystal 的
+    ///   集合/分布等价，仅不保证逐次同序）。
+    fn fire_bounce_next_target(
+        &mut self,
+        caster_id: u32,
+        map: &str,
+        victim_id: u32,
+        center: Point,
+    ) -> Option<u32> {
+        let mut candidates: Vec<u32> = Vec::new();
+        for dy in -FIRE_BOUNCE_RADIUS..=FIRE_BOUNCE_RADIUS {
+            for dx in -FIRE_BOUNCE_RADIUS..=FIRE_BOUNCE_RADIUS {
+                let cell = Point::new(center.x + dx, center.y + dy);
+                if !self.poison_cloud_cell_valid(map, cell) {
+                    continue;
+                }
+                // 怪物候选：同格、存活、按 `MonsterObject.IsAttackTarget(HumanObject)` 可攻击。
+                for monster_id in self.monsters_on_cell(map, cell) {
+                    if monster_id != victim_id
+                        && self.monster_is_attack_target_of_player(caster_id, monster_id)
+                        && self.can_fly_cell_valid(map, center, cell)
+                    {
+                        candidates.push(monster_id);
+                    }
+                }
+                // 玩家候选：同格、存活、按 `PlayerObject.IsAttackTarget(HumanObject)` 可攻击。
+                let players = self.aoi_ids_in_cell(map, cell, AoiKind::Player);
+                for player_id in players {
+                    if player_id == victim_id {
+                        continue;
+                    }
+                    let Some(player) = self.players.get(&player_id) else {
+                        continue;
+                    };
+                    if !player.dead
+                        && player.map == map
+                        && player.position == cell
+                        && self.is_attack_target_player(caster_id, player_id)
+                        && self.can_fly_cell_valid(map, center, player.position)
+                    {
+                        candidates.push(player_id);
+                    }
+                }
+            }
+        }
+        if candidates.is_empty() {
+            return None;
+        }
+        // Crystal 用集合的生成顺序 + `Random.Next(Count)`；本作按对象 ID 稳定排序后取模，
+        // 保证同种子可复现（D2）。
+        candidates.sort_unstable();
+        let index = (self.rng.next_u32() as usize) % candidates.len();
+        candidates.get(index).copied()
     }
 
     /// 群体增益（`MagicEffect::AreaBuff`）的作用目标：同图、未死亡、在落点
@@ -3792,6 +4031,24 @@ impl World {
         while location != target {
             location = location.moved(location.direction_to(target), 1);
             if !self.walkable_on(map, location) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// 严格版 `CanFly`（Crystal `MapObject.CanFly`，`MapObject.cs:321-337`）：逐格只要求
+    /// `cell.Valid`（`Map.cs:2480-2482` 的 `Attribute == CellAttribute.Walk`）。
+    ///
+    /// 与 [`Self::can_fly`] 的唯一区别：`walkable_on` 还排除攻城期阻挡格
+    /// （`conquest_object_blocking`），Crystal 的 `Cell.Valid` 不含这一层。R57 的
+    /// `FireBounce` 按 Crystal 用严格版（首跳 `source.CanFly(target.CurrentLocation)`、
+    /// 续跳候选 `target.CanFly(x.CurrentLocation)`）；既有 `can_fly` 行为不动。
+    fn can_fly_cell_valid(&self, map: &str, origin: Point, target: Point) -> bool {
+        let mut location = origin;
+        while location != target {
+            location = location.moved(location.direction_to(target), 1);
+            if !self.poison_cloud_cell_valid(map, location) {
                 return false;
             }
         }
@@ -5575,6 +5832,10 @@ mod tests {
         // R52-B2：`PoisonCloud` 已接耗材（符 5 + 绿毒 5），不再是 `Unsupported`；
         // 真实施法行为见 integration 测试 `tests/round52_poison_cloud.rs`。
         assert_eq!(spell_kind(Spell::PoisonCloud), SpellKind::PoisonCloud);
+        // R57-G1：`FireBounce` 已接真实 125 生产者（首跳单体伤害 + 怪物受害者续跳），
+        // 不再是 `Unsupported`；行为断言见 integration 测试
+        // `tests/round57_firebounce.rs`。
+        assert_eq!(spell_kind(Spell::FireBounce), SpellKind::FireBounce);
         assert_eq!(spell_kind(Spell::Rage), SpellKind::Unsupported);
         // 增益技能不能和已实现的伤害/治疗技能重叠。
         assert!(!REGISTERED_UNSUPPORTED.contains(&Spell::MagicShield));

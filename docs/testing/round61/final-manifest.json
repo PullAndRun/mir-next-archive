@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "verdict": "PASS-WITH-PARTIAL",
+  "scope": "R61 D4 independent read-only final audit; historical gate inspected, not rerun",
+  "head": "1e6cfca4d9b14b67f71f2cfd36a72006af7f5377",
+  "origin_main": "1e6cfca4d9b14b67f71f2cfd36a72006af7f5377",
+  "commits": [
+    {"id": "ef317b040fdb6ef78a478b1fa247ae3cee775e20", "role": "code", "files": 8, "insertions": 2216, "deletions": 232},
+    {"id": "1e6cfca4d9b14b67f71f2cfd36a72006af7f5377", "role": "docs", "files": 11, "insertions": 458, "deletions": 8, "crates_diff_empty": true}
+  ],
+  "gate": {
+    "path": "target/round61/gate/attempt-1.log",
+    "meta": "target/round61/gate/attempt-1.meta.txt",
+    "bytes": 207593,
+    "sha256": "6ff5f68dd112020e20d42ddf8d6f835be7099dab999e1a411d1b9b4cff77ad96",
+    "exit": 0,
+    "head": "ef317b040fdb6ef78a478b1fa247ae3cee775e20",
+    "window": {"start_utc": "2026-10-26T12:06:56Z", "end_utc": "2026-10-26T12:09:29Z"},
+    "meta_fields": {"attempt": 1, "branch": "main", "capture": "full(stderr+stdout via *>)"},
+    "last_line": "==> 全部通过（12 项）",
+    "round_markers": {"round61_projectile_queue": 11, "round61_projectile_sound": 8},
+    "ratchet": {"all": 66, "no_test": 0},
+    "provenance": "All ten meta fields checked against original log, repository and supplied acceptance window; timing/head/exit provenance is the retained sidecar, not a fresh execution attestation. One retained gate attempt; D4 did not run ci.ps1."
+  },
+  "tree_hashes": [
+    {"path": "crates/mir-client/src/net.rs", "sha256": "74ce1be11f157523f72478018866674219b5d14ac30184d3884239fd21105770", "source": "git show ef317b040fdb6ef78a478b1fa247ae3cee775e20:crates/mir-client/src/net.rs", "match": true},
+    {"path": "crates/mir-client/src/ui/projectile.rs", "sha256": "c83279b14545aad672e4f2b8c7857122d26e13566847ab59828d399768e6b041", "source": "git show ef317b040fdb6ef78a478b1fa247ae3cee775e20:crates/mir-client/src/ui/projectile.rs", "match": true},
+    {"path": "crates/mir-client/src/audio.rs", "sha256": "e00797c0c1b6f6b44e14e86dbbd75662b641aa1f071f5ab7770434099a947848", "source": "git show ef317b040fdb6ef78a478b1fa247ae3cee775e20:crates/mir-client/src/audio.rs", "match": true},
+    {"path": "crates/mir-client/src/app.rs", "sha256": "80cb19ede93c701816111e99a9440a4b42d7a125b215aa1d5d13d4a5088d7033", "source": "git show ef317b040fdb6ef78a478b1fa247ae3cee775e20:crates/mir-client/src/app.rs", "match": true},
+    {"path": "crates/mir-client/tests/round61_projectile_queue.rs", "sha256": "91389124d4dee7c08a5d18144c571c0decbf23967c78fd14f3bbbca4be289e1d", "source": "git show ef317b040fdb6ef78a478b1fa247ae3cee775e20:crates/mir-client/tests/round61_projectile_queue.rs", "match": true},
+    {"path": "crates/mir-client/tests/round61_projectile_sound.rs", "sha256": "6972288e172b665866f97493645acfb57183ff2b404a20fb879290342fe8b510", "source": "git show ef317b040fdb6ef78a478b1fa247ae3cee775e20:crates/mir-client/tests/round61_projectile_sound.rs", "match": true},
+    {"path": "crates/mir-client/tests/round58_projectile_wire.rs", "sha256": "95238febe88238279d7431d5dfb429307cca8fca5a0c91b47ab7b8f59811c095", "source": "git show ef317b040fdb6ef78a478b1fa247ae3cee775e20:crates/mir-client/tests/round58_projectile_wire.rs", "match": true},
+    {"path": "crates/mir-client/tests/round59_projectile_render.rs", "sha256": "99889b63e3e68d84e15311cfa42753d2e1b880cef597c97271a798dd806b3bbf", "source": "git show ef317b040fdb6ef78a478b1fa247ae3cee775e20:crates/mir-client/tests/round59_projectile_render.rs", "match": true},
+    {"path": "docs/testing/round61/commit-tree-hashes.txt", "sha256": "21d66744086f5ef45c6e529c1cc340efb3a04d1643e372dcba7c782386415289", "source": "sha256sum original retained list bytes; self-entry absent", "match": true}
+  ],
+  "checks": [
+    {"cmd": "git rev-parse HEAD origin/main", "exit": 0, "result": "both equal audited head"},
+    {"cmd": "git show --stat --oneline ef317b0; git show --stat --oneline 1e6cfca", "exit": 0, "result": "8 code files +2216/-232; 11 docs files +458/-8"},
+    {"cmd": "git diff ef317b0..1e6cfca -- crates/", "exit": 0, "result": "empty"},
+    {"cmd": "git show ef317b0:<path> | sha256sum (each of eight listed code paths)", "exit": 0, "result": "8/8 MATCH"},
+    {"cmd": "sha256sum target/round61/gate/attempt-1.log docs/testing/round61/commit-tree-hashes.txt; wc -c target/round61/gate/attempt-1.log", "exit": 0, "result": "gate bytes/hash and list hash MATCH"},
+    {"cmd": "git diff ef317b0^..HEAD --check; git diff --check", "exit": 0, "result": "clean"},
+    {"cmd": "git ls-files target resource game-assets .env", "exit": 0, "result": "empty"},
+    {"cmd": "git diff --name-only ef317b0^ HEAD | while IFS= read -r p; do git ls-tree -l HEAD -- \"$p\"; done", "exit": 0, "result": "all 19 changed blobs below 1 MiB; largest 365507 bytes"},
+    {"cmd": "git diff --unified=0 ef317b0^ ef317b0 -- crates/ | node (added-line bypass attribute scan)", "exit": 0, "result": "zero added allow/ignore/cfg(feature) attributes"},
+    {"cmd": "git diff --unified=0 ef317b0^ ef317b0 -- crates/ | node (added non-comment Chinese string inspection)", "exit": 0, "result": "only three expect messages for temporary directory/bad fixture; no added Chinese assertion messages"},
+    {"cmd": "git status --short", "exit": 0, "result": "only two historical frozen JSONs and two authorized audit docs untracked; target audit ignored"}
+  ],
+  "review": {
+    "G1": "Read push_projectile_event, consume and RecordingSoundSink: append-only event table, monotonic total, absolute cursor and unbounded pending cue push; read all 11 queue cases covering 17/33/257, ordered payloads, sync/drain idempotence, empty rebuild and total=0.",
+    "G2": "Read Crystal Effect.cs and Rust frame_interval_ms/frame_at/advance plus tests: destination updated before duration/count, integer duration/count, strict elapsed>boundary via saturating_sub(1); full NextFrame state machine remains PARTIAL.",
+    "G3_G4": "Read app production wiring, play_projectile_cue/cues, shared submit_file, decoder_for, HiddenSpanSource and 8 integration cases. Dedicated cue entry bypasses normal cooldown and uses real decoder/amplify/mixer. Read local rodio 0.22.2 uniform.rs Take(Some(0)) path; wrapper returns None span.",
+    "M1_M6": "Read README, client section 5.28, code and retained D1/D2 evidence. M34-1/2 mixed samples 175126/125528; gain RMS/energy ratios 0.25/0.0625, triple ratios 3/9; 33-cue peak 22.844788 retained. MF comment and historical P-4 correction checked.",
+    "false_green": "run-checks.sh lines 33-44 reject discovery 0/below-min, running 0 tests, 0 passed, SKIP/PARTIAL and nonzero exits. Static inspection only; runner not executed by D4.",
+    "claims": "No positive new 125-full-chain/render-complete/device-audible/R61-complete assertions found; prohibited terms in README are explicit prohibitions. Historical R59/R60 language not promoted to new proof."
+  },
+  "partials": [
+    {"id": "P01", "detail": "Append-only event backlog has no reclamation/acknowledgment contract; snapshot cloning and retained capacity grow with history."},
+    {"id": "P02", "detail": "Complete stateful NextFrame/SkipFrames equivalence is not implemented; strict arithmetic boundary is narrower evidence."},
+    {"id": "P03", "detail": "Crystal TargetPoint semantics remain incomplete."},
+    {"id": "P04", "detail": "Pixel offset incremental motion remains incomplete."},
+    {"id": "P05", "detail": "Real device audibility and Live session playback were not verified; offline mixer output only."},
+    {"id": "P06", "detail": "33 simultaneous cues produce peak 22.844788; unnormalized sums can clip on a real output device."},
+    {"id": "P07", "detail": "105 sfx assets were not individually verified; measured evidence concerns M34-1/2."},
+    {"id": "P08", "detail": "HiddenSpanSource covers only this crate's decoder_for path; no rodio-wide fix claimed."},
+    {"id": "P09", "detail": "Working-directory and asset-source resolution boundaries remain."},
+    {"id": "P10", "detail": "No session identifier: rebuilt nonempty snapshot already beyond old cursor may be ambiguous; empty rebuild path is tested."},
+    {"id": "P11", "detail": "Missing-asset early returns remain possible in resource-dependent tests; SKIP must remain PARTIAL and run-checks rejects it."},
+    {"id": "P12", "detail": "Historical R60 P-1..P-6 are not automatically cleared by R61; no full renderer/effect implementation claim."}
+  ],
+  "must_fix": [],
+  "non_claims": [
+    "No overall PASS verdict: this is PASS-WITH-PARTIAL within the reviewed R61 scope.",
+    "No fresh ci.ps1 execution, hardware listening proof, Live proof or 105-asset exhaustive proof.",
+    "No complete Crystal NextFrame/SkipFrames/TargetPoint/pixel-motion equivalence.",
+    "No bounded-memory or unlimited safe backlog claim; 257 is a test size, not a production cap.",
+    "No source changes, retained evidence edits, frozen JSON edits, commit or push performed by D4."
+  ],
+  "manifest_self_sha256_rule": "SHA256 of UTF-8 JSON.stringify(parsed manifest with manifest_self_sha256 set to null), no trailing newline; insertion order retained, no key sorting. File byte SHA256 is reported externally to avoid a self-referential fixed point.",
+  "manifest_self_sha256": "ebf16e7efadb455d042cdf8ee88425694c7fee811bc8455df2a6cb218c609356"
+}

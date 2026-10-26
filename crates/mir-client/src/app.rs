@@ -84,6 +84,11 @@ struct LiveState {
     sound: SoundPlayer,
     /// 已消费到哪一条音效事件（快照整体克隆，用递增 ID 去重）。
     last_sound_id: u64,
+    /// R64 B：上一次已上报的投射物本地确认水位（会话代号, 已消费绝对序号）。
+    ///
+    /// 只在同一代内水位**严格前进**时向网络线程发 `AckProjectileEvents`
+    /// （进程内命令、不发包），避免每个快照重复 ack；跨代旧水位不会被采纳。
+    last_projectile_ack: Option<(u64, u64)>,
     /// 已消费到哪一条撞墙/回拉事件（本地提示去重；不发包）。
     last_wall_bump_id: u64,
     /// 聊天输入框；`Some` 表示正在输入。
@@ -189,6 +194,39 @@ impl LiveState {
             tracing::debug!(?event.sound, played, "音效事件");
         }
     }
+}
+
+/// R64 B：决定是否把 UI 消费水位上报给网络线程（**本地确认水位**，进程内
+/// [`NetCommand::AckProjectileEvents`]；不编码、不发包，非 wire ack）。
+///
+/// `watermark` 必须是 **UI 自己的**（会话代号, 已消费绝对序号）对，不能拿网络快照的
+/// 代号去配 UI 的游标：重连后 UI 首帧仍持有旧代游标（新代空快照不会提前复位），
+/// 若套上新代号会误裁新代事件。跨代时旧水位天然不被采纳（A 侧
+/// `WorldSnapshot::apply_projectile_ack` 按代号忽略），只有新代水位严格前进才上报。
+///
+/// 只在**同一代内水位严格前进**时返回命令：空表/零消费（`through == 0`）不发，
+/// 重复同步同一水位不重发（生产热点 `app.rs:apply_snapshot` 每个快照都会调用）。
+/// 事件表**未限容**（慢消费者 backlog 仍可增长），多消费者/全局最低水位为 PARTIAL。
+fn next_projectile_ack(
+    last_acked: &mut Option<(u64, u64)>,
+    watermark: (u64, u64),
+) -> Option<NetCommand> {
+    let (generation, through) = watermark;
+    // 空表 / 零消费：没有可回收的前缀，不发 no-op ack。
+    if through == 0 {
+        return None;
+    }
+    // 同一代内水位未严格前进：不重复发（每个快照都会走到这里，禁每帧 ack）。
+    if let Some((last_generation, last_through)) = *last_acked {
+        if last_generation == generation && through <= last_through {
+            return None;
+        }
+    }
+    *last_acked = Some(watermark);
+    Some(NetCommand::AckProjectileEvents {
+        generation,
+        through,
+    })
 }
 
 /// 播放本帧从 [`UiState::take_projectile_sound_cues`] 取走的投射物音效 cue。
@@ -307,6 +345,7 @@ pub fn run_live(
         snapshot,
         sound,
         last_sound_id: 0,
+        last_projectile_ack: None,
         last_wall_bump_id: 0,
         chat_input: None,
         shift: false,
@@ -2052,6 +2091,7 @@ impl ClientApp {
             snapshot,
             sound,
             last_sound_id: 0,
+            last_projectile_ack: None,
             last_wall_bump_id: 0,
             chat_input: None,
             shift: false,
@@ -2754,6 +2794,19 @@ impl ClientApp {
                 live.motion = None;
             }
             live.ui.sync(&live.snapshot);
+            // R64 B：UI 消费水位推进后向网络线程上报**本地确认水位**（进程内
+            // `NetCommand::AckProjectileEvents`；不编码、不发任何客户端包、不改会话
+            // 循环）。必须用 UI 自己的（代号, 绝对序号）配对：重连后首个空快照 UI 仍
+            // 持旧代游标，套上新代号会误裁新代事件。多消费者/全局最低水位未实现
+            // （PARTIAL，仅 app.rs 单消费者）；发送失败沿用既有模式打印、不 panic，
+            // 也不据此宣称回收成功。
+            let watermark = (
+                live.ui.projectiles().watermark_generation(),
+                live.ui.projectiles().consumed_abs_seq(),
+            );
+            if let Some(command) = next_projectile_ack(&mut live.last_projectile_ack, watermark) {
+                live.send(command);
+            }
             // 投射物出生/命中音（R59 采集 `M34-1/2.wav`，`GameScene.cs:4697`/`:4709`）：
             // 同步完 UI 后同帧 drain 并走真实音频通道；无音频设备/静音时 play 返回
             // `false`，只是丢弃，不阻塞也不 panic。
@@ -3733,6 +3786,94 @@ mod tests {
             "an empty cue queue must not reach the sound channel"
         );
         assert!(ui.take_projectile_sound_cues().is_empty());
+    }
+
+    // -----------------------------------------------------------------
+    // R64 B: UI local ack watermark (in-process NetCommand, not wire ack)
+    // -----------------------------------------------------------------
+
+    /// Append one 125 event the same way the receive path does: table append + total +1.
+    fn push_r64_projectile(snapshot: &mut WorldSnapshot, destination: u32) {
+        snapshot.projectile_events.push(ProjectileEvent {
+            spell: Spell::FireBounce,
+            source: PROJECTILE_SOURCE_ID,
+            destination,
+        });
+        snapshot.projectile_events_total = snapshot.projectile_events_total.saturating_add(1);
+    }
+
+    /// The UI's own (generation, consumed absolute seq) pair; never mix snapshot gen with it.
+    fn ui_projectile_watermark(ui: &UiState) -> (u64, u64) {
+        (
+            ui.projectiles().watermark_generation(),
+            ui.projectiles().consumed_abs_seq(),
+        )
+    }
+
+    /// C1/C4（R64 B，M5 app 宿主）：只有 UI 水位在同一代内**严格前进**才发 ack；
+    /// 空表/零消费不发，重复同步同一水位不重发。through 用绝对序号而非相对下标。
+    #[test]
+    fn r64_ack_sent_only_when_watermark_advances() {
+        let mut ui = UiState::new(Language::ZhCn);
+        ui.set_time(PROJECTILE_START_MS);
+        let mut last_acked: Option<(u64, u64)> = None;
+
+        // 空表 / 零消费：不推进、不上报（no-op 也不发）。
+        ui.sync(&WorldSnapshot::default());
+        assert_eq!(ui_projectile_watermark(&ui), (0, 0));
+        assert!(
+            next_projectile_ack(&mut last_acked, ui_projectile_watermark(&ui)).is_none(),
+            "空表且零消费不得上报本地确认水位"
+        );
+        assert_eq!(last_acked, None, "未发 ack 不得污染 last_acked");
+
+        // 首条事件被消费：恰好发一次，携带 UI 自己的代号与绝对序号。
+        let mut snapshot = projectile_snapshot();
+        snapshot.projectile_events_total = snapshot
+            .projectile_events_total
+            .saturating_add(u64::try_from(snapshot.projectile_events.len()).expect("事件数"));
+        ui.sync(&snapshot);
+        let watermark = ui_projectile_watermark(&ui);
+        assert_eq!(watermark, (0, 1));
+        let first = next_projectile_ack(&mut last_acked, watermark)
+            .expect("水位前进必须发 ack（红阶段桩返回 None）");
+        match first {
+            NetCommand::AckProjectileEvents {
+                generation,
+                through,
+            } => {
+                assert_eq!(generation, 0);
+                assert_eq!(through, 1, "through 是绝对序号上界");
+            }
+            other => panic!("必须是 AckProjectileEvents，实际 {other:?}"),
+        }
+        assert_eq!(last_acked, Some((0, 1)));
+
+        // 同一快照再次同步：水位未推进，不重复发（禁止每帧 ack）。
+        ui.sync(&snapshot);
+        assert_eq!(ui_projectile_watermark(&ui), (0, 1));
+        assert!(
+            next_projectile_ack(&mut last_acked, ui_projectile_watermark(&ui)).is_none(),
+            "水位未推进不得重复 ack"
+        );
+
+        // 再入一条事件：水位严格前进，恰好再发一次且 through 为新绝对序号。
+        push_r64_projectile(&mut snapshot, PROJECTILE_DEST_ID);
+        ui.sync(&snapshot);
+        assert_eq!(ui_projectile_watermark(&ui), (0, 2));
+        match next_projectile_ack(&mut last_acked, ui_projectile_watermark(&ui))
+            .expect("水位前进必须再发 ack")
+        {
+            NetCommand::AckProjectileEvents {
+                generation,
+                through,
+            } => {
+                assert_eq!(generation, 0);
+                assert_eq!(through, 2);
+            }
+            other => panic!("必须是 AckProjectileEvents，实际 {other:?}"),
+        }
+        assert_eq!(last_acked, Some((0, 2)));
     }
 
     #[test]

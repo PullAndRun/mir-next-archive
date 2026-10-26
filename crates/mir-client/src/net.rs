@@ -689,6 +689,27 @@ pub enum NetCommand {
         /// 性别。
         gender: MirGender,
     },
+    /// 本地确认水位（R64 A）：消费者已消费到绝对序号 `through`，网络线程据此回收
+    /// 投射物事件表的安全前缀。
+    ///
+    /// **进程内 `NetCommand`，不是 wire ack**：Crystal 服务端的 125 包
+    /// （`Shared/ServerPackets.cs:3560-3578`）只有 Spell/Source/Destination，没有
+    /// ack/序号字段；本命令不编码、不发送任何客户端包（`handle_command` 里直接返回，
+    /// 对 stream 写出 0 字节）。
+    ///
+    /// `generation` 用来丢弃跨会话的过期确认：旧代 ack 不得删除新代事件
+    /// （快照重建后 `total`/`len`/`reclaimed` 归零并换代号）。
+    ///
+    /// 生产方约束（R64 A，M4）：投射物事件**当前仅 `app.rs` 单一消费者**（UI 通过
+    /// `ui::projectile::Projectiles` 消费），所以「消费者已确认水位」就是单流水位；
+    /// **多消费者/全局最低水位、以及跨 tick 的发送节奏均未实现（PARTIAL）**，
+    /// 不得据此外推为通用 ack 协议。
+    AckProjectileEvents {
+        /// 确认方看到的会话代号（`WorldSnapshot::session_generation`）。
+        generation: u64,
+        /// 已消费的绝对序号上界（含）；只应 ≤ 消费者的 `consumed`。
+        through: u64,
+    },
     /// 关闭连接。
     Quit,
 }
@@ -2759,21 +2780,27 @@ pub struct WorldSnapshot {
     pub next_effect_id: u64,
     /// Recent projectile events (`S.ObjectProjectile`(125), newest last).
     ///
-    /// Round 61 (M1): this table is append-only and drops nothing. Crystal's client
-    /// creates one projectile for every accepted 125 (`MirScenes/GameScene.cs:4687-4715`,
-    /// no client-side cap or dedup), so a ring here would silently lose projectiles
-    /// whenever a backlog exceeds the ring. The table is emptied only by a whole-snapshot
-    /// rebuild; the UI consumes it through the absolute cursor of
-    /// [`Self::projectile_events_total`].
+    /// Round 61 removed the drop-oldest ring: a *packet* backlog must not lose
+    /// projectiles. Round 64 A added the only sanctioned removal path — a **local**
+    /// consumer watermark (`NetCommand::AckProjectileEvents` /
+    /// [`Self::trim_projectile_events_through`]) reclaims the already-consumed
+    /// prefix, strictly `abs_seq <= through`; the table is otherwise append-only and
+    /// whole-snapshot rebuild or that trim are the only things that remove entries.
+    /// `projectile_events.len()` therefore equals `total - reclaimed()`: the table may
+    /// be shorter than the cumulative count after a trim (this is not a dropped/lost
+    /// packet count; the trim only removes events the local consumer already saw).
     pub projectile_events: Vec<ProjectileEvent>,
     /// Absolute projectile-event sequence number (R60 G2): +1 per accepted push.
     ///
     /// Monotonic within one snapshot and restarted at zero by a rebuilt snapshot (the
-    /// reconnect path installs [`Self::default`]). Since round 61 the event table keeps
-    /// every pushed event, so `projectile_events_total == projectile_events.len()` for
-    /// every snapshot built by this module; `projectile_events_total - len` only remains
-    /// meaningful for manually built tables (`total == 0`) and for the legacy
-    /// truncation guard of the UI cursor (see `ui::projectile::Projectiles::consume`).
+    /// reconnect path installs [`Self::default`]). This is the **cumulative received**
+    /// count, not the table length: round 64 A's local consumer watermark may reclaim
+    /// an already-consumed prefix, so after a trim
+    /// `projectile_events_total == projectile_events.len() + reclaimed()` and the absolute
+    /// sequence of `events[i]` is `total_received_before_trim - len + i` == `reclaimed() + i`.
+    /// Before any trim the two are equal for snapshots built by this module; manually
+    /// built tables with `total == 0` are handled as "append-only, no trim" by the UI
+    /// cursor (`ui::projectile::Projectiles::consume`).
     pub projectile_events_total: u64,
     /// 会话代号（R62 C4，**客户端本地字段，不是 wire 字段**）。
     ///
@@ -2992,6 +3019,59 @@ impl WorldSnapshot {
             session_generation: next_session_generation(),
             ..WorldSnapshot::default()
         }
+    }
+
+    /// 已被按确认水位回收的投射物事件条数（R64 A，**进程内簿记**）。
+    ///
+    /// 不变量（R64 A 实现后）：`reclaimed() == projectile_events_total - len`（饱和减）。
+    /// 这不是「丢失数」：UI 侧 `ui::projectile::Projectiles::consume` 的
+    /// `dropped`（`total - len`）与之同口径；未回收的手工/旧形态快照恒为 0。
+    #[must_use]
+    pub fn reclaimed(&self) -> u64 {
+        self.projectile_events_total
+            .saturating_sub(u64::try_from(self.projectile_events.len()).unwrap_or(u64::MAX))
+    }
+
+    /// 安全前缀回收（R64 A，进程内）：删除绝对序号 ≤ `through` 的投射物事件。
+    ///
+    /// - 只删前缀；`projectile_events_total`（累计收到数）**不减少**，回收后不变量为
+    ///   `total == reclaimed() + len`，`events[i]` 的绝对序号 = `reclaimed() + i`。
+    /// - `through < reclaimed()` 时无操作：滞后/重复确认不会误裁未确认事件。
+    /// - `through >= total` 时夹取到表尾（裁空但不 panic；`total` 仍不减）。
+    /// - 调用方只应对**已消费**水位发确认（`through <= consumed`）；本方法无法自证
+    ///   消费者已消费，越界信任由 `apply_projectile_ack` 的 generation 校验与
+    ///   「当前仅 app.rs 单消费者」约束兜底（多消费者/全局最低水位为 PARTIAL，未证）。
+    ///
+    /// 返回实际移除的条数（夹取后的前缀长度）。
+    pub fn trim_projectile_events_through(&mut self, through: u64) -> usize {
+        let already = self.reclaimed();
+        // `through <= already`：滞后/重复确认，无操作（也不回滚水位）。
+        if through <= already {
+            return 0;
+        }
+        let available = u64::try_from(self.projectile_events.len()).unwrap_or(u64::MAX);
+        let removable = through.saturating_sub(already).min(available);
+        let remove = usize::try_from(removable).unwrap_or(usize::MAX);
+        if remove == 0 {
+            return 0;
+        }
+        // 前缀回收：一次 O(剩余) 搬移；`total` 是累计收到数，不减少，
+        // 因此回收后 `reclaimed() == total - len` 仍成立、`events[i]` 绝对序号为
+        // `reclaimed() + i`（与 UI 消费方 `dropped`/cursor 同口径）。
+        self.projectile_events.drain(..remove);
+        remove
+    }
+
+    /// 应用一条本地确认水位（R64 A；`NetCommand::AckProjectileEvents` 的网络侧落点）。
+    ///
+    /// `generation` 与当前 [`Self::session_generation`] 不同则忽略（旧代 ack 不得
+    /// 裁掉新代事件）；相同才调用 [`Self::trim_projectile_events_through`]。
+    /// 返回实际移除的条数。
+    pub fn apply_projectile_ack(&mut self, generation: u64, through: u64) -> usize {
+        if generation != self.session_generation {
+            return 0;
+        }
+        self.trim_projectile_events_through(through)
     }
 
     /// 当前是否已经进入世界且拿到了自己的 `UserInformation`。
@@ -4505,6 +4585,17 @@ fn handle_command(
             quantity,
             p_type,
         }),
+        // R64 A：本地确认水位（进程内命令，不是 wire ack）。本分支位于上方
+        // `snapshot.status != NetStatus::InGame` gate **之后**：非 InGame 时与其它命令
+        // 一样静默丢弃（此时事件表为空/会话未建立）；在 InGame 下就地裁快照，
+        // 不产生 `ClientPacket`，因此下面的 `send` 不会被调用（对 stream 0 字节）。
+        NetCommand::AckProjectileEvents {
+            generation,
+            through,
+        } => {
+            snapshot.apply_projectile_ack(generation, through);
+            return Ok(());
+        }
         // 选角/建角由会话循环在处理命令前拦截（只在角色选择阶段生效）。
         NetCommand::SelectCharacter { .. } | NetCommand::NewCharacter { .. } | NetCommand::Quit => {
             return Ok(());
@@ -7286,13 +7377,17 @@ fn push_effect_event(snapshot: &mut WorldSnapshot, object_id: u32, effect: Spell
 
 /// Append one projectile event (`S.ObjectProjectile`(125)).
 ///
-/// Round 61 (M1): no cap and no drop-oldest. Crystal's client creates one projectile for
-/// every accepted 125 (`MirScenes/GameScene.cs:4687-4715`), so a bounded ring would turn a
-/// packet backlog into lost projectiles; the absolute cursor built on
-/// [`WorldSnapshot::projectile_events_total`] is what makes the drop unnecessary (R60 F6).
-/// Only a whole-snapshot rebuild clears the table. Long-running growth and lagging-consumer
-/// reclaim are a round 61 PARTIAL (`docs/process/round61-plan.md` §五 R-1); the unrelated
-/// effect/sound rings keep their measured caps.
+/// Round 61 (M1): no cap and no drop-oldest on the receive path. Crystal's client
+/// creates one projectile for every accepted 125 (`MirScenes/GameScene.cs:4687-4715`),
+/// so a bounded ring would turn a packet backlog into lost projectiles; the absolute
+/// cursor built on [`WorldSnapshot::projectile_events_total`] is what makes the drop
+/// unnecessary (R60 F6). Round 64 A added the only removal path: a local consumer
+/// watermark (`trim_projectile_events_through`) reclaims the already-consumed prefix,
+/// which keeps `reclaimed() == projectile_events_total - projectile_events.len()`.
+/// Removal therefore never loses a not-yet-consumed event, and `projectile_events_total`
+/// (cumulative received) is never decremented. Long-running growth of an *unconsumed*
+/// backlog / multi-consumer global watermark is still a PARTIAL
+/// (`docs/process/round64-plan.md`, R64 A; earlier `docs/process/round61-plan.md` §五 R-1).
 fn push_projectile_event(
     snapshot: &mut WorldSnapshot,
     spell: Spell,
@@ -9094,5 +9189,178 @@ mod tests {
             "the connect path builds its snapshot from Default and starts at zero"
         );
         assert!(rebuilt.projectile_events.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // R64 A: 本地确认水位 + 安全前缀回收（仅进程内簿记；**不是 wire ack**，不改协议）。
+    //
+    // 覆盖门下 C2/C3/C5：ack 对 stream 写出 0 字节、只裁绝对序号 ≤ through 的前缀、
+    // total（累计收到数）不减、generation 跨代不裁、越界夹取不 panic、空表 no-op、
+    // 裁后再 push 的游标算术与 `reclaimed()+i` 一致。
+    //
+    // 红→绿：桩（`trim`/`reclaimed`/`apply` 返回 0 不删）下这些断言必须真实失败，
+    // 见 `target/round64/a/attempt-1/red-final-lib.log`（首次未 fmt 版为
+    // `red-lib.log`，同为 exit 101 真实失败）；本测试代码字节在红绿之间不变。
+    // -----------------------------------------------------------------------
+
+    fn r64_snapshot_with_projectiles(count: u32) -> WorldSnapshot {
+        let mut snapshot = WorldSnapshot::new_session();
+        for destination in 1..=count {
+            push_projectile_event(&mut snapshot, Spell::FireBounce, 1, destination);
+        }
+        snapshot
+    }
+
+    #[test]
+    fn r64_trim_acked_prefix_keeps_absolute_total() {
+        let mut snapshot = r64_snapshot_with_projectiles(5);
+        assert_eq!(snapshot.projectile_events_total, 5);
+        assert_eq!(snapshot.reclaimed(), 0, "未回收时 reclaimed 为 0");
+        let removed = snapshot.trim_projectile_events_through(3);
+        assert_eq!(removed, 3, "只移除绝对序号 ≤ through 的已确认前缀");
+        assert_eq!(snapshot.projectile_events.len(), 2, "未确认后缀必须保留");
+        assert_eq!(
+            snapshot.projectile_events_total, 5,
+            "total 是累计收到数，回收后仍不减少"
+        );
+        assert_eq!(snapshot.reclaimed(), 3);
+        assert_eq!(
+            snapshot.reclaimed() + u64::try_from(snapshot.projectile_events.len()).expect("长度"),
+            snapshot.projectile_events_total,
+            "不变量：reclaimed == total - len"
+        );
+        assert_eq!(
+            snapshot.projectile_events[0].destination, 4,
+            "events[i] 的绝对序号 = reclaimed()+i（首条剩余是第 4 条 push）"
+        );
+        assert_eq!(snapshot.projectile_events[1].destination, 5);
+    }
+
+    #[test]
+    fn r64_trim_noop_below_base_and_clamps_above_total() {
+        let mut snapshot = r64_snapshot_with_projectiles(4);
+        assert_eq!(snapshot.trim_projectile_events_through(2), 2);
+        assert_eq!(snapshot.projectile_events.len(), 2);
+        assert_eq!(
+            snapshot.trim_projectile_events_through(1),
+            0,
+            "through < reclaimed 必须 no-op（滞后/重复确认不误裁）"
+        );
+        assert_eq!(snapshot.projectile_events.len(), 2);
+        assert_eq!(
+            snapshot.trim_projectile_events_through(u64::MAX),
+            2,
+            "through ≥ total 夹取到表尾（不 panic）"
+        );
+        assert_eq!(snapshot.projectile_events.len(), 0);
+        assert_eq!(
+            snapshot.projectile_events_total, 4,
+            "越界夹取后 total 仍不减"
+        );
+        assert_eq!(snapshot.reclaimed(), 4);
+        // 空表：`total == 0 → reclaimed == 0`，ack 是 no-op，不 panic。
+        let mut empty = WorldSnapshot::default();
+        assert_eq!(empty.reclaimed(), 0);
+        assert_eq!(empty.trim_projectile_events_through(9), 0);
+        assert_eq!(empty.projectile_events_total, 0);
+    }
+
+    #[test]
+    fn r64_stale_generation_ack_is_ignored() {
+        let mut snapshot = r64_snapshot_with_projectiles(3);
+        let generation = snapshot.session_generation;
+        let stale = generation.wrapping_add(1);
+        assert_eq!(
+            snapshot.apply_projectile_ack(stale, 2),
+            0,
+            "旧代/陌生代 ack 必须被忽略：不得裁掉当前代事件"
+        );
+        assert_eq!(snapshot.projectile_events.len(), 3);
+        assert_eq!(snapshot.projectile_events_total, 3);
+        assert_eq!(snapshot.reclaimed(), 0);
+        assert_eq!(
+            snapshot.apply_projectile_ack(generation, 2),
+            2,
+            "同代 ack 才回收已确认前缀"
+        );
+        assert_eq!(snapshot.projectile_events.len(), 1);
+        assert_eq!(snapshot.projectile_events_total, 3);
+        assert_eq!(snapshot.reclaimed(), 2);
+    }
+
+    #[test]
+    fn r64_ack_command_emits_no_client_packet() {
+        // C2：确认水位是进程内命令，对 stream 写出 0 字节；同时就地裁网络线程快照。
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("绑定测试端口");
+        let address = listener.local_addr().expect("测试端口地址");
+        let mut client = TcpStream::connect(address).expect("连接测试端口");
+        let (mut server, _) = listener.accept().expect("接受测试连接");
+        server
+            .set_nonblocking(true)
+            .expect("测试 stream 设为非阻塞");
+
+        let mut snapshot = r64_snapshot_with_projectiles(3);
+        snapshot.status = NetStatus::InGame;
+        let generation = snapshot.session_generation;
+        handle_command(
+            &mut client,
+            &mut snapshot,
+            NetCommand::AckProjectileEvents {
+                generation,
+                through: 2,
+            },
+        )
+        .expect("ack 命令不得报错");
+        // 先断言就地裁了前缀（桩下在这里红），再断言零写。
+        assert_eq!(
+            snapshot.reclaimed(),
+            2,
+            "ack 必须在网络线程快照里就地推进确认水位"
+        );
+        assert_eq!(
+            snapshot.projectile_events.len(),
+            1,
+            "只裁已确认前缀，未确认事件保留"
+        );
+        assert_eq!(
+            snapshot.projectile_events_total, 3,
+            "total 是累计收到数，回收不减少"
+        );
+        let mut buffer = [0u8; 64];
+        match server.read(&mut buffer) {
+            Err(error) if error.kind() == ErrorKind::WouldBlock => {}
+            Ok(0) => {}
+            other => panic!("ack 不得写任何 wire 字节，实际读到 {other:?}"),
+        }
+        // 正对照：同一 seam 上的普通命令确实写字节，证明上面的 0 字节断言有鉴别力。
+        handle_command(
+            &mut client,
+            &mut snapshot,
+            NetCommand::Turn(MirDirection::Down),
+        )
+        .expect("转身命令不得报错");
+        match server.read(&mut buffer) {
+            Ok(written) => assert!(written > 0, "普通命令必须写出 wire 字节（正对照）"),
+            Err(error) => panic!("普通命令应写字节，实际读失败: {error}"),
+        }
+    }
+
+    #[test]
+    fn r64_push_after_trim_keeps_cursor_arithmetic() {
+        let mut snapshot = r64_snapshot_with_projectiles(3);
+        assert_eq!(snapshot.trim_projectile_events_through(2), 2);
+        push_projectile_event(&mut snapshot, Spell::FireBounce, 1, 4);
+        push_projectile_event(&mut snapshot, Spell::FireBounce, 1, 5);
+        assert_eq!(snapshot.projectile_events_total, 5);
+        assert_eq!(snapshot.projectile_events.len(), 3);
+        assert_eq!(snapshot.reclaimed(), 2);
+        for (index, event) in snapshot.projectile_events.iter().enumerate() {
+            let abs_seq = snapshot.reclaimed() + u64::try_from(index).expect("事件下标");
+            assert_eq!(
+                event.destination,
+                u32::try_from(abs_seq + 1).expect("绝对序号"),
+                "events[i] 的绝对序号必须是 reclaimed()+i（消费方 dropped/cursor 同口径）"
+            );
+        }
     }
 }

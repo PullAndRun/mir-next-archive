@@ -48,24 +48,31 @@
 //! * **R62 C4 会话代号/回收**：`WorldSnapshot::session_generation`（客户端本地字段，非 wire）
 //!   给每份会话快照一个单调代号；[`Projectiles::consume`] 只用绝对序号 + 代号判定：
 //!   同代号空表**不复位**（真裁剪不丢未确认、不重放已确认），新代号首批非空恰复位一次并
-//!   清旧 view/hit/cue。仍不新增服务端回收接口，事件表只增不减的物理回收归后续轮次。
+//!   清旧 view/hit/cue。仍不新增服务端回收接口；R64 A 起事件表可被**客户端单消费者
+//!   已确认前缀的本地回收**（`WorldSnapshot::trim_projectile_events_through`，进程内
+//!   trim、非 wire，`total` 累计数不减），未确认 backlog 仍可增长（不称有界/限容）。
 //! * `draw_effect` 不叠加 wzl 每帧的 `ImageInfo.offset`（Crystal `MLibrary.cs:658-673`
 //!   的 `offSet=true`），属 mir-render 绘制层缺口，D1 不改 `mir-render`；C3 的 offset
 //!   指**运动量**（飞行进度），不是 `ImageInfo` offset 缺口修复。
 //!
 //! # 已知限制
 //!
-//! `WorldSnapshot::projectile_events` 在会话侧是**只追加**队列（`net.rs` 的
+//! `WorldSnapshot::projectile_events` 在接收路径上是**只追加**队列（`net.rs` 的
 //! `push_projectile_event` 不设上限、不丢最旧；Crystal 客户端每收到一个 125 就生成
-//! 投射物，没有丢帧语义），只持 `&WorldSnapshot` 的绘制路径不能 `mem::take`。R60 G2
-//! 起快照同时维护 `WorldSnapshot::projectile_events_total`（事件绝对序号，每次 push
-//! +1、快照重建归零），[`Projectiles`] 以「已消费绝对序号」为游标；R61 M1 去掉 16 条
-//! 事件上限与 32 条 cue 上限后，积压只会多不会丢（`dropped` 只服务手工构造快照与
-//! 旧截断形态的兼容路径）。残留风险：
+//! 投射物，没有丢帧语义），只持 `&WorldSnapshot` 的绘制路径不能 `mem::take`。
+//! R64 A 起唯一的移除路径是**本地确认水位回收**
+//! （`WorldSnapshot::trim_projectile_events_through`：进程内、非 wire，只裁客户端
+//! **单消费者已确认**的绝对序号前缀，`total` 累计收到数不减），未确认 backlog 仍可
+//! 增长（不称有界/限容）。R60 G2 起快照同时维护
+//! `WorldSnapshot::projectile_events_total`（事件绝对序号，每次 push +1、快照重建归零），
+//! [`Projectiles`] 以「已消费绝对序号」为游标；R61 M1 去掉 16 条事件上限与 32 条 cue
+//! 上限后，接收路径不会丢最旧（`dropped`/`reclaimed` 只服务本地已确认前缀、手工构造
+//! 快照与旧截断形态的兼容路径）。残留风险：
 //!
-//! * 事件表与 cue 队列只增不减：R62 C4 已加会话代号 + 绝对序号的**逻辑**回收判定
-//!   （同代号裁剪空表不复位、不丢最旧冒充回收、不重放已确认），但没有服务端快照/
-//!   事件表物理裁剪协议，长期运行的内存回收仍记 **PARTIAL**；本轮不新增强制回收接口。
+//! * 未确认的投射物事件与 cue 队列**仍可增长**：R62 C4 有会话代号 + 绝对序号的**逻辑**
+//!   回收判定（同代号裁剪空表不复位、不丢最旧冒充回收、不重放已确认），R64 A 有客户端
+//!   单消费者已确认前缀的**本地** trim（进程内、非 wire；无服务端事件表裁剪协议，多消费者/
+//!   全局最低水位未实现），长期运行内存上界仍未证 —— 记 **PARTIAL**（不称有界/限容）。
 //! * `SkipFrames` 的**生产来源**：Crystal 取 `Owner.SkipFrames`
 //!   （`PlayerObject.cs:750` 的 `ActionFeed.Count > 0`、`MonsterObject.cs:346` 的
 //!   `ActionFeed.Count > 1`）；本作客户端没有 `ActionFeed` 的等价数据（`WorldEntity`/
@@ -585,6 +592,26 @@ impl Projectiles {
         self.consumed
     }
 
+    /// R64 B：已消费事件的绝对序号上界（**本地确认水位**，含本条；进程内，非 wire ack）。
+    ///
+    /// 与 [`Self::events_consumed`] 同源：`consumed` 本身就是绝对序号，不是
+    /// `projectile_events` 下标；快照按确认水位回收后 `events[i]` 的绝对序号是
+    /// `reclaimed() + i`，游标不因回收回退。必须与 [`Self::watermark_generation`]
+    /// 成对使用；禁止用相对下标或 `views.len()` 冒充绝对水位。
+    #[must_use]
+    pub fn consumed_abs_seq(&self) -> u64 {
+        u64::try_from(self.consumed).unwrap_or(u64::MAX)
+    }
+
+    /// R64 B：`consumed_abs_seq` 所属的会话代号（R62 C4），与游标严格配对。
+    ///
+    /// 重连后快照换代但 UI 可能还没消费新代首批事件；此时配对仍是旧代号，
+    /// 调用方不得把旧代游标套到新代上（A 侧 `apply_projectile_ack` 会按代号忽略）。
+    #[must_use]
+    pub fn watermark_generation(&self) -> u64 {
+        self.generation
+    }
+
     /// 当前在飞实体（按生成顺序）。
     #[must_use]
     pub fn views(&self) -> &[ProjectileView] {
@@ -667,11 +694,14 @@ impl Projectiles {
 
     /// 只消费 `WorldSnapshot::projectile_events` 里的新事件。
     ///
-    /// 游标是**已消费事件的绝对序号**，不是 `projectile_events` 的下标：R61 M1 起事件表
-    /// 只追加（`net.rs` 的 `push_projectile_event` 不设上限、不丢最旧），正常快照下
-    /// `projectile_events_total == len`、`dropped == 0`，`events[i]` 的绝对序号就是 `i`，
-    /// 游标直接当下标用。R60 F6 的绝对序号机制保留，用于手工构造的快照（`total == 0`）
-    /// 与旧截断形态的兼容路径。
+    /// 游标是**已消费事件的绝对序号**，不是 `projectile_events` 的下标：R61 M1 起接收
+    /// 路径只追加（`net.rs` 的 `push_projectile_event` 不设上限、不丢最旧）。R64 A 起
+    /// 唯一允许的移除是**本地确认水位回收**（`WorldSnapshot::trim_projectile_events_through`）：
+    /// 只回收绝对序号 ≤ 本地 `consumed` 的已消费前缀，`total` 仍是累计收到数，所以回收后
+    /// `total == len + reclaimed`、`events[i]` 的绝对序号是 `reclaimed + i`；未回收时
+    /// `dropped == 0`、绝对序号就是 `i`。本函数的 `dropped = total - len` 在 R64 语义下
+    /// 等于快照的 `reclaimed()`（已回收前缀，**不是丢包数**），既兼容 R60 F6 的旧截断
+    /// 形态，也不会把已回收事件当成新事件重放。
     ///
     /// 重建语义（旧「事件表重置 → 游标归零」）收紧为**空表**或「旧游标比新表长且没有
     /// 事件被丢弃」：若仍按旧 `len < consumed` 归零，会把重建快照里已消费的事件整表
@@ -1492,7 +1522,82 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // R61 M1 (D1): the projectile event table is append-only, no 16-entry ring.
+    // R64 B: UI 消费水位的绝对序号口径（本地确认水位；不是相对下标/len）。
+    // -----------------------------------------------------------------------
+
+    /// C4/C5（R64 B）：回收已消费前缀后游标仍是**绝对序号**；新事件绝对序号 =
+    /// `reclaimed() + i`，不重放、不回退。必须与代号成对使用。
+    #[test]
+    fn r64_consumed_abs_seq_is_absolute_after_trim() {
+        let mut snapshot = multi_target_snapshot();
+        for destination in 2..=4u32 {
+            push_event(&mut snapshot, destination);
+        }
+        assert_eq!(snapshot.projectile_events_total, 3);
+        let mut projectiles = Projectiles::default();
+        let mut sink = FakeSink::default();
+        projectiles.sync_with_sink(&snapshot, 1_000, &mut sink);
+        assert_eq!(
+            projectiles.consumed_abs_seq(),
+            3,
+            "水位是已消费事件的绝对序号（不是 len/下标）"
+        );
+        assert_eq!(projectiles.watermark_generation(), 0);
+
+        // 模拟网络线程按 UI 水位回收已消费前缀：total 不减、len 归零。
+        assert_eq!(snapshot.trim_projectile_events_through(3), 3);
+        assert_eq!(snapshot.projectile_events.len(), 0);
+        assert_eq!(snapshot.projectile_events_total, 3);
+        assert_eq!(snapshot.reclaimed(), 3);
+
+        // 回收后再同步：游标不得回退，也不得按相对下标归零。
+        projectiles.sync_with_sink(&snapshot, 1_010, &mut sink);
+        assert_eq!(projectiles.consumed_abs_seq(), 3, "回收不得回退绝对水位");
+        assert_eq!(projectiles.events_consumed(), 3);
+
+        // 回收后新到达的事件：绝对序号 = reclaimed + i（第 4 条），继续前进。
+        push_event(&mut snapshot, 5);
+        projectiles.sync_with_sink(&snapshot, 1_020, &mut sink);
+        assert_eq!(
+            projectiles.consumed_abs_seq(),
+            4,
+            "回收后新事件从 reclaimed()+i 继续，绝对水位单调"
+        );
+        assert_eq!(projectiles.events_consumed(), 4);
+        assert_eq!(projectiles.len(), 4, "只新增一条视图，已回收前缀不重放");
+    }
+
+    /// C5（R64 B）：水位代号与游标严格配对；换代复位后成对归零再前进，
+    /// 不得把旧代游标 1 套到新代上。
+    #[test]
+    fn r64_watermark_generation_is_paired_with_cursor() {
+        let mut snapshot = multi_target_snapshot();
+        push_event(&mut snapshot, 2);
+        snapshot.session_generation = 7;
+        let mut projectiles = Projectiles::default();
+        let mut sink = FakeSink::default();
+        projectiles.sync_with_sink(&snapshot, 1_000, &mut sink);
+        assert_eq!(projectiles.watermark_generation(), 7);
+        assert_eq!(projectiles.consumed_abs_seq(), 1);
+
+        let mut fresh = multi_target_snapshot();
+        fresh.session_generation = 8;
+        push_event(&mut fresh, 3);
+        push_event(&mut fresh, 4);
+        projectiles.sync_with_sink(&fresh, 2_000, &mut sink);
+        assert_eq!(projectiles.watermark_generation(), 8, "换代后水位代号跟随");
+        assert_eq!(
+            projectiles.consumed_abs_seq(),
+            2,
+            "新代游标从 0 重新计，绝对序号恰为 2"
+        );
+        assert_eq!(projectiles.events_consumed(), 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // R61 M1 (D1): the projectile event table has no 16-entry ring; it is
+    // append-only on the receive path. R64 A adds only a local consumer-watermark
+    // prefix trim (`WorldSnapshot::trim_projectile_events_through`), still no ring.
     // -----------------------------------------------------------------------
 
     /// Snapshot with entities `1..=20` on distinct tiles (`1` = caster, `2..=20` targets),

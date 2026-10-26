@@ -684,7 +684,7 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 | ShoulderDash | 5 | 冲撞位移 | R51 已交付 / PARTIAL | StepCounter 3→0 已补；火墙逐对象 ProcessSpell/InTrapRock、原生 dash 与 152/153 敏感回纠保留 |
 | **PoisonCloud** | 83 | 3×3 毒雾场 | **R52 B2 已交付 / PARTIAL** | 施法前耗材 5 毒 + 5 符，按递增装备索引找单堆且不看耐久；有效 3×3、6 秒/1 秒 tick，149 生成/26 撤销与生命周期有证据；125 客户端渲染未接（R57 起 FireBounce 为服务端 125 生产者，PARTIAL）、真 socket 与原生表现未覆盖（§11） |
 | **TrapHexagon** | 73 | 陷阱控制 | **R52 B3 已交付 / PARTIAL** | 耗符 1；预检 3×2、落地重检 3×3；独立 Shock 时钟限移动并由受击解除；八外围场、149/26 与入视野有证据；玩家不受拘束，真 socket/原生表现仍有边界（§11） |
-| **FireBounce** | 154 | 连跳弹射（125） | ✅ 服务端生产者（R57，门禁与终审判定见 `docs/testing/round57/round57-final-audit.md`）；客户端 125 渲染 PARTIAL | 服务端 125 生产者已落盘；客户端 125 渲染未接；125 不回显施法者为 `magic.rs` 模块文档明示的已知偏差 |
+| **FireBounce** | 154 | 连跳弹射（125） | ✅ 服务端生产者（R57，门禁与终审判定见 `docs/testing/round57/round57-final-audit-v2.md`）；客户端 125 渲染 PARTIAL | 服务端 125 生产者已落盘；客户端 125 渲染未接；125 不回显施法者为 `magic.rs` 模块文档明示的已知偏差 |
 | 其余（`SummonHolyDeva`、`IceStorm`、`BackStep` 等） | — | — | ❌ 未实现 | 模板能查到时施法返回 `UnsupportedSpell`；若模板缺失则 `UnknownSpell` |
 
 「✅ 已实现」的 9 个增益技能走 `SpellKind::Buff`：施法照常扣蓝、写冷却、发

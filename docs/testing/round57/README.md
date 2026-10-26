@@ -20,9 +20,9 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| A 批（`crates/mir-server/...`） | 代码批在途 | FireBounce 生产者与 6 个测试；证据 `target/round57/firebounce/attempt-N/` |
-| Lead 全量门禁 | 未运行 | `target/round57/gate/attempt-N*`；12 项 exit 与 meta 由 Lead 落盘 |
-| T 终审 | 待 T 抽核 | `round57-final-audit.md`、`final-manifest.json` 为 T 实物名；**T 产物走第三次提交（文档/审计批，post-gate），不纳入门禁候选 sha** |
+| A 批（`crates/mir-server/...`） | 已落盘（提交 `025564c`） | FireBounce 生产者与 6 个测试；证据 `target/round57/firebounce/attempt-1/` |
+| Lead 全量门禁 | 已运行（attempt-2，exit0 12/12） | `target/round57/gate/attempt-2.log` + `.meta.txt`；attempt-1 仅收 success 流，保留为历史 |
+| T 终审 | 已复审（v2，PASS-WITH-PARTIAL） | `round57-final-audit-v2.md`、`final-manifest-v2.json`；T1 原件 `round57-final-audit.md`/`final-manifest.json` 并存；**T 产物走第三次提交（文档/审计批，post-gate），不纳入门禁候选 sha** |
 
 ## 3. B 批证据索引（`target/round57/docs/attempt-1/`）
 
@@ -37,10 +37,11 @@
 ## 4. 承接与边界
 
 - R56 承接：P2 `crates/mir-server/src/world.rs:1378` BEL 注释改派 A；P3 `aoi.md` 既有 7 处旧结论行保留（非本轮新增）；P4 门禁 meta 增候选文件 sha；P5 命名统一；P6 本索引与 `round56/README.md` 已修正。
-- PARTIAL（按 R57 终审 §二/§四 L6 补全索引；证据见 `docs/testing/round57/round57-final-audit.md`）：
+- PARTIAL（按 R57 终审 §二/§四 L6 补全索引；证据见 `docs/testing/round57/round57-final-audit-v2.md`）：
   - 125 沿用 `World::broadcast`，不回显施法者本人（已知偏差；`crates/mir-server/src/magic.rs` 模块「简化与差异」节，终审 §二 C5/P1）。
   - 客户端 125 渲染未接（D3 PARTIAL；原生渲染与 410/570 特效亦未覆盖；`crates/mir-server/src/magic.rs` 模块「简化与差异」节）。
   - Hero 种族无实例，候选过滤以 Monster/Player 构造（`magic.rs` `fire_bounce_next_target` 注释；终审 §二 C4）。
+  - `can_fly` 存在双实现登记：`crates/mir-server/src/magic.rs:4029`（通用）与 `:4047`（FireBounce 落点专用）；两处语义分别维护，本轮未合并（T2 D=PARTIAL 登记，R58 评估）。
   - 一般场景仅保证命中次数 ≤ level+2；受控场景才锁 level+2 且 125 数 = level+1（`magic.rs:2071` 与 `crates/mir-server/tests/round57_firebounce.rs`）。
   - 终局弹跳 `remaining==0` 的 RNG 抽签顺序与 Crystal 有 1 次 `MirRng` 差异（M2 未登记→本轮登记，待 R58 评估；`magic.rs:2774`）。
   - 默认 DB 缺 FireBounce 记录时的生产学习路径（以 A0 实测为准）。

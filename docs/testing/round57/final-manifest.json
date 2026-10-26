@@ -1,0 +1,218 @@
+{
+  "schema": "mir-next.round57.final-manifest/v1",
+  "generated_at": "2026-10-26T14:34:03+08:00",
+  "generated_by": "JJC-20261026-004-sub-e9251ec2 (刑部终审 T, gpt-6.1-sol, 只读)",
+  "round": "R57",
+  "head": "858147bc2e5118c64a09084d03ee7c008294adc9",
+  "branch": "main",
+  "origin_main": "858147bc2e5118c64a09084d03ee7c008294adc9",
+  "commits": {
+    "code": {
+      "sha": "025564c272f9ede43a33918a04f22619fe137540",
+      "committed_at": "2026-10-26T14:20:38+08:00",
+      "files": [
+        "crates/mir-server/src/magic.rs",
+        "crates/mir-server/src/world.rs",
+        "crates/mir-server/tests/round57_firebounce.rs"
+      ],
+      "stat": "3 files changed, 1044 insertions(+), 5 deletions(-)"
+    },
+    "docs": {
+      "sha": "858147bc2e5118c64a09084d03ee7c008294adc9",
+      "committed_at": "2026-10-26T14:20:56+08:00",
+      "files": [
+        "README.md",
+        "docs/process/round56-plan.md",
+        "docs/process/round57-menxia-review.md",
+        "docs/process/round57-plan.md",
+        "docs/process/round57-shangshu-dispatch.md",
+        "docs/roadmap.md",
+        "docs/testing/round56/README.md",
+        "docs/testing/round57/README.md",
+        "docs/world/aoi.md",
+        "docs/world/magic.md"
+      ],
+      "stat": "10 files changed"
+    }
+  },
+  "worktree": {
+    "clean_except": [
+      "docs/testing/monster-native/player-resource-freeze-before.json",
+      "docs/testing/monster-native/player-resource-freeze.json"
+    ],
+    "note": "两者为历史冻结 JSON，未跟踪，非本轮产物"
+  },
+  "gate": {
+    "attempt": 1,
+    "log": "target/round57/gate/attempt-1.log",
+    "log_bytes": 199054,
+    "log_sha256": "73f823e839083256fbe49bb9aa96659e60f4a21132eaeac2442b475e9bcc8eb6",
+    "meta": "target/round57/gate/attempt-1.meta.txt",
+    "meta_fields": {
+      "HEAD": "858147bc2e5118c64a09084d03ee7c008294adc9",
+      "BRANCH": "main",
+      "START_UTC": "2026-10-26T06:21:16Z",
+      "END_UTC": "2026-10-26T06:25:15Z",
+      "DURATION_S": 237.8,
+      "EXIT_CODE": 0,
+      "ATTEMPT": 1,
+      "LOG_BYTES": 199054,
+      "LOG_SHA256": "73f823e839083256fbe49bb9aa96659e60f4a21132eaeac2442b475e9bcc8eb6",
+      "GIT_DIFF_SHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "verification": {
+      "bytes_sha_match": true,
+      "head_clean_tree": true,
+      "r57_suite_in_log": "attempt-1.log:2696-2707，6 named 全 ok，6 passed; 0 failed; 0 ignored",
+      "gates_visible": [
+        "clippy (1-3)",
+        "duo_smoke (5-20)",
+        "workspace (多段 test result)",
+        "protocol-gen (3119: packets: 432, files changed: 0)",
+        "check_links (3120: [OK] 1706)",
+        "TextKey",
+        "scan70 (3223: 66)",
+        "scan0 (3226: 0)",
+        "legacy",
+        "icons (3230-3231: kept=1346, 违规=0)",
+        "mir-store (3261-3288)"
+      ],
+      "fmt_gate_visible": false,
+      "summary_line_present": false,
+      "summary_line_expected": "tools/dev/ci.ps1:165-176 的 `== 汇总 ==` / `==> 全部通过（12 项）` / exit",
+      "capture_note": "全日志无 `==>` / `== 汇总 ==` / `EXIT`；与 PowerShell 仅重定向 success 流（`>`）丢失 Write-Host 信息流的特征一致。不据此判假绿，但 12/12 与 fmt 无法从日志直接取证。",
+      "soak": "grep soak 0 命中；无 soak.lock 记录"
+    }
+  },
+  "candidate_files": [
+    {"path": "crates/mir-server/src/magic.rs", "bytes": 352051, "sha256": "0f2a0da5e5b94033696c1d458d15095c63db07c4183b26c6f4176d8e546f36e0"},
+    {"path": "crates/mir-server/src/world.rs", "bytes": 351924, "sha256": "069599629b10a099ba121da2705a8198fdee3a1150cbe193b1960086fb734409"},
+    {"path": "crates/mir-server/tests/round57_firebounce.rs", "bytes": 29268, "sha256": "c5ce11b2f9f30dcfc46df7bdab1cc710571b014ad353043ca3ffdae3dfee1b2b"},
+    {"path": "docs/world/magic.md", "bytes": 66339, "sha256": "5da5a83a04e5b0f7ac4a79fba5b2f6358fb485a29fac44ff9399a7cb3278a320"},
+    {"path": "docs/world/aoi.md", "bytes": 25512, "sha256": "b6a61d682984fbdfe9fd3001e70cc4e6f4e309b3da3e4543f8ae421a59bb0a0c"},
+    {"path": "docs/process/round56-plan.md", "bytes": 14574, "sha256": "00dd6c258a0631876df1d0370379bd1d83a967f923006c6ebd482c3991e7a358"},
+    {"path": "README.md", "bytes": 43177, "sha256": "db6bf6d5b09b52a10a4b834f878722eca77c55e2fbfa93438b2ef8b86e31cd29"},
+    {"path": "docs/roadmap.md", "bytes": 22067, "sha256": "8e4d31f712fce134c4102209312ddc8a7dc088d462ac530c79103742c3b952fc"},
+    {"path": "docs/testing/round56/README.md", "bytes": 3226, "sha256": "6eb2aa33b3dea4918f88cef0355bffdc305a0dcd7bc0d2ba754a58ae484892b7"},
+    {"path": "docs/testing/round57/README.md", "bytes": 3218, "sha256": "9db73709ecd87bac1451d629ab3b9744261d42418e37fb0559d377c29af9d3af"},
+    {"path": "docs/process/round57-plan.md", "bytes": 15833, "sha256": "f5e91513135a1fbd70927f26998504c8a15b3fbdf9274d4234f8c109cf348e0a"},
+    {"path": "docs/process/round57-menxia-review.md", "bytes": 13702, "sha256": "8f351ece8f13c65ec3f181e1965a3506ee82ba6f0c4982a4074637d5119a8f2d"},
+    {"path": "docs/process/round57-shangshu-dispatch.md", "bytes": 12076, "sha256": "56f82678e76274d8852e467e568a6f7393ec8087904a3132182b1dbbf0737269"}
+  ],
+  "candidate_hash_verification": {
+    "method": "git show 858147b:<path> | sha256sum",
+    "matched": 13,
+    "total": 13,
+    "source": "target/round57/commit-verify/01-tree-hashes.txt",
+    "result": "13/13 MATCH"
+  },
+  "evidence_index": {
+    "gate": [
+      "target/round57/gate/attempt-1.log",
+      "target/round57/gate/attempt-1.meta.txt",
+      "target/round57/commit-verify/01-tree-hashes.txt"
+    ],
+    "a_batch": [
+      "target/round57/firebounce/attempt-1/00-db-firebounce.log",
+      "target/round57/firebounce/attempt-1/00-baseline.log",
+      "target/round57/firebounce/attempt-1/03-list.log",
+      "target/round57/firebounce/attempt-1/04-suite.log",
+      "target/round57/firebounce/attempt-1/05-exact-case3.log",
+      "target/round57/firebounce/attempt-1/06-magic-lib.log",
+      "target/round57/firebounce/attempt-1/07-round53-frost-pvp.log",
+      "target/round57/firebounce/attempt-1/08-round52-regression.log",
+      "target/round57/firebounce/attempt-1/09-round55-npc-recycle.log",
+      "target/round57/firebounce/attempt-1/10-clippy-first-fail.log",
+      "target/round57/firebounce/attempt-1/10-clippy.log",
+      "target/round57/firebounce/attempt-1/11-world-bel-before.log",
+      "target/round57/firebounce/attempt-1/12-world-bel-after.log",
+      "target/round57/firebounce/attempt-1/13-test-magic.log",
+      "target/round57/firebounce/attempt-1/14-round52-poison-cloud.log",
+      "target/round57/firebounce/attempt-1/15-protocol-roundtrip.log",
+      "target/round57/firebounce/attempt-1/15b-protocol-roundtrip-path-note.log",
+      "target/round57/firebounce/attempt-1/16-client-round52-spells-wire.log",
+      "target/round57/firebounce/attempt-1/17-git-and-greps.log",
+      "target/round57/firebounce/attempt-1/18-exit-summary.log",
+      "target/round57/firebounce/attempt-1/19-compliance.log",
+      "target/round57/firebounce/attempt-1/run-checks.sh"
+    ],
+    "b_batch": [
+      "target/round57/docs/attempt-1/meta.json",
+      "target/round57/docs/attempt-1/00-diff-u0.patch",
+      "target/round57/docs/attempt-1/00-added-lines.txt",
+      "target/round57/docs/attempt-1/01-check-links.log",
+      "target/round57/docs/attempt-1/02-git-diff-check.log",
+      "target/round57/docs/attempt-1/03-grep-redline.log",
+      "target/round57/docs/attempt-1/04-status.md"
+    ],
+    "crystal": [
+      "github/Crystal/Server/MirObjects/HumanObject.cs:5811-5836",
+      "github/Crystal/Server/MirObjects/HumanObject.cs:5934-5957",
+      "github/Crystal/Server/MirObjects/MapObject.cs:321-337",
+      "github/Crystal/Server/Map/Map.cs:2437-2448",
+      "github/Crystal/Server/Map/Map.cs:2477-2482",
+      "github/Crystal/Server/MirObjects/MonsterObject.cs:2347-2384"
+    ],
+    "docs": [
+      "docs/process/round57-plan.md",
+      "docs/process/round57-menxia-review.md",
+      "docs/process/round57-shangshu-dispatch.md",
+      "docs/testing/round57/README.md",
+      "docs/world/magic.md",
+      "docs/world/aoi.md",
+      "README.md"
+    ]
+  },
+  "verdict": {
+    "result": "PASS-WITH-PARTIAL",
+    "allow_shangshu_acceptance": "conditional",
+    "blocking_before_shangshu_sign": [
+      "H1: 门禁原始汇总/exit 与 fmt 门禁证据缺失，须重跑并用 `*>`（或 `2>&1 | Tee-Object`）完整捕获，或由 Lead 出具可验证的 12/12 摘要",
+      "M1: docs/world/magic.md:39/:685/:774/:806 仍称「125 无服务端生产者」，:687 仍「代码批在途」，与 R57 已提交事实矛盾，须同步"
+    ],
+    "non_blocking": [
+      "M2: 终局 RNG 抽签差异（Crystal 先抽候选再以 bounce=0 返回；本作 remaining==0 提前 return），无包差异但共享 RNG 多/少走一格，未登记",
+      "M3: dispatch:37 / menxia-review:61 / run-checks.sh:33 协议命令路径 `packets::server::tests::...` 笔误；真实路径 `packets::server::roundtrip::default_packets_roundtrip`（15 日志 1 passed），已由 15b 记录，属非阻断偏差",
+      "L1: B meta.json 的 magic.md sha（05760679，工作树 CRLF）≠ git blob/01-tree-hashes（5da5a83a，LF）",
+      "L2: A0 探针 `a0_default_data_fire_bounce_probe` 未进提交树（HEAD 仅 6 个 named），证据不可从 HEAD 直接复跑",
+      "L3: clippy 第二轮红（:288 doc_markdown + :542 type_complexity）只有 10b 文字 note，无独立原始日志",
+      "L4: 18-exit-summary.log 中 00-db 的 EXIT 为空；12-bel-after 末条无 EXIT；run-checks.sh 不覆盖 00/10-first/11/12/15b/19 手工件",
+      "L5: gate log:143 GBK 乱码（`鐪熷疄绱犳潗`），捕获编码问题",
+      "L6: round57 README §4 PARTIAL 仅 3 项，未登记 125 不回显施法者、Hero 无实例、can_fly 双实现（代码注释已登记）、一般场景 ≤ level+2"
+    ]
+  },
+  "partials": [
+    {"id": "P1", "item": "125 不回显施法者本人", "detail": "Crystal Map.Broadcast (Map.cs:2437-2448) 含施法者；本作 World::broadcast 沿用不回显惯例，已在测试模块文档 :15-16 明示", "status": "documented"},
+    {"id": "P2", "item": "客户端 125 渲染", "detail": "R57 只交付服务端生产者；410/570 原生表现未做，README/roadmap 均为 PARTIAL", "status": "documented"},
+    {"id": "P3", "item": "Hero 候选无实例", "detail": "服务器不生成 Hero 对象、AoiKind 无 Hero；以 Player 候选证明种族口径", "status": "documented"},
+    {"id": "P4", "item": "默认数据集缺 FireBounce 记录时的生产学习路径", "detail": "仅 A0 探针验证默认 DB 存在 FireBounce(154)；缺记录时无独立证据", "status": "documented"},
+    {"id": "P5", "item": "次级目标随机序列", "detail": "候选按对象 ID 排序 + MirRng 取模，与 Crystal 集合等价但非同一顺序（D2）", "status": "documented"},
+    {"id": "P6", "item": "一般场景命中上限", "detail": "只保证 ≤ level+2；= level+2 仅在受控 LOCK 场景（候选充足且均 Monster）", "status": "documented"},
+    {"id": "P7", "item": "can_fly 双实现", "detail": "can_fly (magic.rs:4029) 额外排除攻城阻挡；can_fly_cell_valid (:4047) 按 Crystal Cell.Valid；代码注释已登记，索引未列", "status": "code-documented-only"},
+    {"id": "P8", "item": "协议命令路径笔误", "detail": "dispatch:37、menxia-review:61、run-checks.sh:33；A 的 15 日志使用真实路径", "status": "non-blocking-deviation"},
+    {"id": "P9", "item": "初始目标非法仍扣蓝", "detail": "本作「先校验后扣蓝」为全系统继承差异（round57-plan.md:97），R57 未改公共流程", "status": "documented-in-plan"},
+    {"id": "P10", "item": "门禁捕获缺汇总", "detail": "fmt 无输出、无 12/12 汇总行；EXIT=0 仅由 meta 记录", "status": "evidence-gap"}
+  ],
+  "reproduction_commands": [
+    "sha256sum target/round57/gate/attempt-1.log  # 期望 73f823e8… / 199054 B",
+    "git show 858147b:<path> | sha256sum  # 13/13 与 01-tree-hashes.txt 比对",
+    "git show 025564c --stat  # 3 files 仅代码+测试",
+    "sed -n '2696,2707p' target/round57/gate/attempt-1.log  # R57 6 named 全 ok",
+    "grep -nE '== 汇总 ==|全部通过|EXIT' target/round57/gate/attempt-1.log  # 当前 0 命中（H1）",
+    "cargo test -p mir-server --test round57_firebounce -- --list  # 期望 6 tests（只读审计未跑）",
+    "cargo test -p mir-protocol --lib packets::server::roundtrip::default_packets_roundtrip -- --exact  # 1 passed（真实路径）",
+    "git show 025564c -- crates/mir-server/src/world.rs  # 仅 1 行 BEL 控制字符移除"
+  ],
+  "constraints_honored": {
+    "read_only": true,
+    "forbidden_commands_run": false,
+    "existing_files_modified": false,
+    "commits": false,
+    "pushes": false,
+    "artifacts_written": [
+      "docs/testing/round57/final-manifest.json",
+      "docs/testing/round57/round57-final-audit.md",
+      "target/round57/audit/summary.log"
+    ]
+  }
+}

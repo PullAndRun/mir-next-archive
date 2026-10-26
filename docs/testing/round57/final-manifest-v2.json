@@ -1,0 +1,235 @@
+{
+  "schema": "mir-next.round57.final-manifest/v2",
+  "generated_at": "2026-10-26T14:51:35+08:00",
+  "generated_by": "JJC-20261026-004-sub-e9251ec2 (刑部复审 T2, gpt-6.1-sol, 只读)",
+  "round": "R57",
+  "supersedes": {
+    "path": "docs/testing/round57/final-manifest.json",
+    "sha256": "588baafffbb763be044bf405225791723eafad98657b092ea4d0db040d8de466",
+    "note": "v1 原件保留不动"
+  },
+  "head": "38f3afe8261837529a563482131d89436a6178c1",
+  "branch": "main",
+  "commits": {
+    "code": {
+      "sha": "025564c272f9ede43a33918a04f22619fe137540",
+      "files": [
+        "crates/mir-server/src/magic.rs",
+        "crates/mir-server/src/world.rs",
+        "crates/mir-server/tests/round57_firebounce.rs"
+      ],
+      "stat": "3 files changed, 1044 insertions(+), 5 deletions(-)"
+    },
+    "docs": {
+      "sha": "858147bc2e5118c64a09084d03ee7c008294adc9",
+      "files": [
+        "README.md",
+        "docs/process/round56-plan.md",
+        "docs/process/round57-menxia-review.md",
+        "docs/process/round57-plan.md",
+        "docs/process/round57-shangshu-dispatch.md",
+        "docs/roadmap.md",
+        "docs/testing/round56/README.md",
+        "docs/testing/round57/README.md",
+        "docs/world/aoi.md",
+        "docs/world/magic.md"
+      ],
+      "stat": "10 files changed, 345 insertions(+), 6 deletions(-)"
+    },
+    "m1": {
+      "sha": "38f3afe8261837529a563482131d89436a6178c1",
+      "files": [
+        "docs/testing/round57/README.md",
+        "docs/world/magic.md"
+      ],
+      "stat": "2 files changed, 13 insertions(+), 6 deletions(-)",
+      "purpose": "M1 终审必改：magic.md 125 口径同步 + README §4 PARTIAL 索引补全"
+    }
+  },
+  "candidate_files": {
+    "count": 13,
+    "composition": "3 code + 10 docs（38f3afe 只修改其中 2 个已在 10 文件内的文档）",
+    "hash_source": "git blob: git show HEAD:<path> | sha256sum",
+    "matched": 13,
+    "total": 13,
+    "note": "docs/world/magic.md 磁盘为 CRLF 67617 B，git blob 为 LF 66733 B；meta 与本次核对均按 git blob 记账（T1 L1 建议口径），git status 干净由 autocrlf 归一化保证，无内容漂移",
+    "files": [
+      {"path": "crates/mir-server/src/magic.rs", "bytes": 352051, "sha256": "0f2a0da5e5b94033696c1d458d15095c63db07c4183b26c6f4176d8e546f36e0"},
+      {"path": "crates/mir-server/src/world.rs", "bytes": 351924, "sha256": "069599629b10a099ba121da2705a8198fdee3a1150cbe193b1960086fb734409"},
+      {"path": "crates/mir-server/tests/round57_firebounce.rs", "bytes": 29268, "sha256": "c5ce11b2f9f30dcfc46df7bdab1cc710571b014ad353043ca3ffdae3dfee1b2b"},
+      {"path": "docs/world/magic.md", "bytes": 66733, "sha256": "91e58b4d56e22286d7dfb80de55fa9fb050f9d6f7a7a7149ef41aa90259daa22", "disk_bytes_crlf": 67617},
+      {"path": "docs/world/aoi.md", "bytes": 25512, "sha256": "b6a61d682984fbdfe9fd3001e70cc4e6f4e309b3da3e4543f8ae421a59bb0a0c"},
+      {"path": "docs/process/round56-plan.md", "bytes": 14574, "sha256": "00dd6c258a0631876df1d0370379bd1d83a967f923006c6ebd482c3991e7a358"},
+      {"path": "README.md", "bytes": 43177, "sha256": "db6bf6d5b09b52a10a4b834f878722eca77c55e2fbfa93438b2ef8b86e31cd29"},
+      {"path": "docs/roadmap.md", "bytes": 22067, "sha256": "8e4d31f712fce134c4102209312ddc8a7dc088d462ac530c79103742c3b952fc"},
+      {"path": "docs/testing/round56/README.md", "bytes": 3226, "sha256": "6eb2aa33b3dea4918f88cef0355bffdc305a0dcd7bc0d2ba754a58ae484892b7"},
+      {"path": "docs/testing/round57/README.md", "bytes": 4090, "sha256": "2c6bb135e3dd0da0806710b5be1968b10bf01a061e6242293fea2b2aa7da44d2"},
+      {"path": "docs/process/round57-plan.md", "bytes": 15833, "sha256": "f5e91513135a1fbd70927f26998504c8a15b3fbdf9274d4234f8c109cf348e0a"},
+      {"path": "docs/process/round57-menxia-review.md", "bytes": 13702, "sha256": "8f351ece8f13c65ec3f181e1965a3506ee82ba6f0c4982a4074637d5119a8f2d"},
+      {"path": "docs/process/round57-shangshu-dispatch.md", "bytes": 12076, "sha256": "56f82678e76274d8852e467e568a6f7393ec8087904a3132182b1dbbf0737269"}
+    ]
+  },
+  "gate": {
+    "attempt": 2,
+    "head": "38f3afe8261837529a563482131d89436a6178c1",
+    "log": "target/round57/gate/attempt-2.log",
+    "log_bytes": 200569,
+    "log_sha256": "c47cef85e79ce655cc78ddaf834b90a37f59cdc3b26c56501882f06548e4e41e",
+    "log_lines": 3338,
+    "meta": "target/round57/gate/attempt-2.meta.txt",
+    "meta_sha256": "acad9d8c1ca7f1505e3f4199f18d57293350ef3758b4db0edac40623b66e3039",
+    "meta_fields": {
+      "HEAD": "38f3afe8261837529a563482131d89436a6178c1",
+      "BRANCH": "main",
+      "START_UTC": "2026-10-26T06:44:02Z",
+      "END_UTC": "2026-10-26T06:46:15Z",
+      "DURATION_S": 133,
+      "EXIT_CODE": 0,
+      "ATTEMPT": 2,
+      "CAPTURE": "full(*> all streams)",
+      "LOG_BYTES": 200569,
+      "LOG_SHA256": "c47cef85e79ce655cc78ddaf834b90a37f59cdc3b26c56501882f06548e4e41e",
+      "GIT_DIFF_SHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "verification": {
+      "bytes_sha_match": true,
+      "head_matches_git": true,
+      "end_utc_matches_log_mtime": "14:46:15.775+08:00 == 06:46:15.775Z",
+      "duration_consistent": "06:46:15 - 06:44:02 = 133s",
+      "summary_ok_lines": 12,
+      "summary_line_range": "3325-3337",
+      "all_pass_line": 3338,
+      "summary_durations_sum_s": 132,
+      "fmt_visible": true,
+      "fmt_lines": "4-5, 3326",
+      "r57_suite_lines": "2706-2716",
+      "r57_suite_result": "6 passed; 0 failed; 0 ignored",
+      "failed_test_results": 0,
+      "panicked": 0,
+      "zero_test_note": "running 0 tests 共 9 处均为 main.rs/无单测 crate/空 doctests；workspace 内 duo_smoke 的 7 filtered out 是 tools/dev/ci.ps1:118 的 --skip duo_ --skip fault_pg（:110-117 注释说明覆盖率由串行 duo_smoke 项与第 5 步 PG 门禁兜住）",
+      "git_diff_sha256_is_empty_string": true,
+      "git_diff_scope": "tracked only；未跟踪件见 worktree.untracked"
+    },
+    "attempt_1_history": {
+      "retained": true,
+      "log": "target/round57/gate/attempt-1.log",
+      "log_bytes": 199054,
+      "log_sha256": "73f823e839083256fbe49bb9aa96659e60f4a21132eaeac2442b475e9bcc8eb6",
+      "meta_sha256": "40ab5bd8facd37e8d28ae123413548b874993eaed0e91e46eeb4588becd56951",
+      "defects_reproduced": ["无 == 汇总 ==", "无 cargo fmt 横幅/输出", "无 ==> 全部通过（12 项）"],
+      "note_present_in_attempt_2_meta": "attempt-1 exists but captured only pipeline success stream (missing summary/exit/fmt) - retained for history"
+    }
+  },
+  "worktree": {
+    "tracked_clean": true,
+    "untracked": [
+      "docs/testing/monster-native/player-resource-freeze-before.json",
+      "docs/testing/monster-native/player-resource-freeze.json",
+      "docs/testing/round57/final-manifest.json",
+      "docs/testing/round57/round57-final-audit.md"
+    ],
+    "note": "前两者为历史冻结 JSON；后两者为 T1 审计产物。本次 T2 新增 3 产物后，未跟踪件为其超集。target/ 由 .gitignore:4 忽略"
+  },
+  "evidence_index": {
+    "gate": [
+      "target/round57/gate/attempt-2.log:4-5",
+      "target/round57/gate/attempt-2.log:11-27",
+      "target/round57/gate/attempt-2.log:29-3130",
+      "target/round57/gate/attempt-2.log:3131-3323",
+      "target/round57/gate/attempt-2.log:3325-3338",
+      "target/round57/gate/attempt-2.log:2706-2716",
+      "target/round57/gate/attempt-2.meta.txt",
+      "target/round57/gate/attempt-1.log",
+      "target/round57/gate/attempt-1.meta.txt"
+    ],
+    "m1": {
+      "docs/world/magic.md:39": "旧口径已改",
+      "docs/world/magic.md:685": "旧口径已改",
+      "docs/world/magic.md:687": "FireBounce 行=服务端生产者（R57）+ 客户端 125 渲染 PARTIAL",
+      "docs/world/magic.md:774": "旧口径已改",
+      "docs/world/magic.md:806": "旧口径已改",
+      "git show 38f3afe": "2 文件 +13/−6",
+      "target/round57/gate/attempt-2.meta.txt:13 行": "候选 blob sha"
+    },
+    "d_index": [
+      "docs/testing/round57/README.md:41",
+      "docs/testing/round57/README.md:43",
+      "docs/testing/round57/README.md:44",
+      "docs/testing/round57/README.md:45"
+    ],
+    "false_green": [
+      "target/round57/gate/attempt-2.log:2706-2716",
+      "target/round57/gate/attempt-2.log:3338",
+      "tools/dev/ci.ps1:110-118"
+    ],
+    "docs": [
+      "docs/testing/round57/round57-final-audit.md",
+      "docs/testing/round57/final-manifest.json",
+      "target/round57/audit/summary.log"
+    ]
+  },
+  "verdict": {
+    "result": "PASS-WITH-PARTIAL",
+    "allow_shangshu_12_12": "conditional",
+    "checks": {
+      "A_h1_closure": "PASS",
+      "B_m1_closure": "PASS",
+      "C_commit_boundary": "PASS",
+      "D_m2_and_partial_index": "PARTIAL",
+      "E_false_green": "PASS"
+    },
+    "sign_conditions": [
+      "第三次（文档/审计）提交须包含 round57-final-audit{,-v2}.md 与 final-manifest{,-v2}.json，使 magic.md:687 / README.md:40 的引用在提交树内可解析；建议引用改指 v2（v1 结论已被 attempt-2 取代）",
+      "docs/testing/round57/README.md:40-47 补 1 行 can_fly 双实现（magic.rs:4029 vs :4047），闭合 T1 L6",
+      "签发表述沿用 T1 限定：服务端 125 生产者=已实现；客户端 125 渲染=PARTIAL；125 不回显施法者=已知偏差；不得称 125 全链或 R57 完整验收"
+    ],
+    "non_blocking": [
+      "M3: run-checks.sh:33 协议命令路径笔误未修（用户已定非阻断，R58）",
+      "L1: attempt-2 meta 已统一 git blob 记账；仅 magic.md 磁盘 CRLF 未统一（无损）",
+      "L2: A0 探针未进提交树（数据集已交叉核对，R58）",
+      "L3: clippy 第二轮红无独立日志（R58）",
+      "L4: attempt-1 历史件按设计保留；attempt-2 meta 已含 EXIT/耗时（R58）",
+      "L5: attempt-2 仍 10 行 GBK 乱码（152-157/763/3030-3032，均为 ignored 说明，不影响断言）",
+      "L6: PARTIAL 索引 3/4 闭合，缺 can_fly 双实现",
+      "L7: world.rs:1378 注释仍 dvance_clock（纯注释，R58）",
+      "O1: magic.md:687/README.md:40 引用未跟踪 v1 审计件，第三次提交须收口",
+      "O2: workspace 内 duo_smoke 0 tests 为 ci.ps1:118 明示跳过，独立串行项覆盖（非假绿）"
+    ]
+  },
+  "partials": [
+    {"id": "P1", "item": "125 不回显施法者本人", "status": "documented", "where": "docs/testing/round57/README.md:41"},
+    {"id": "P2", "item": "客户端 125 渲染未接", "status": "documented", "where": "docs/testing/round57/README.md:42"},
+    {"id": "P3", "item": "Hero 种族无实例", "status": "documented", "where": "docs/testing/round57/README.md:43"},
+    {"id": "P4", "item": "一般场景命中上限 ≤ level+2", "status": "documented", "where": "docs/testing/round57/README.md:44"},
+    {"id": "P5", "item": "终局 remaining==0 RNG 抽签差 1 次 MirRng（M2）", "status": "documented-待R58", "where": "docs/testing/round57/README.md:45"},
+    {"id": "P6", "item": "默认 DB 缺 FireBounce 记录时的生产学习路径", "status": "documented", "where": "docs/testing/round57/README.md:46"},
+    {"id": "P7", "item": "次级目标随机序列（集合等价）", "status": "documented", "where": "docs/testing/round57/README.md:47"},
+    {"id": "P8", "item": "can_fly 双实现（can_fly 额外排除攻城阻挡 vs can_fly_cell_valid 按 Crystal Cell.Valid）", "status": "code-documented-only-索引未列", "where": "crates/mir-server/src/magic.rs:4029/:4047；README §4 缺"},
+    {"id": "P9", "item": "协议命令路径笔误（M3）", "status": "open-R58", "where": "target/round57/firebounce/attempt-1/run-checks.sh:33"},
+    {"id": "P10", "item": "门禁捕获缺汇总/fmt（H1）", "status": "closed-by-attempt-2", "where": "target/round57/gate/attempt-2.log:4-5,3325-3338"}
+  ],
+  "reproduction_commands": [
+    "sha256sum target/round57/gate/attempt-2.log  # 期望 c47cef85… / 200569 B / 3338 行",
+    "sed -n '3325,3338p' target/round57/gate/attempt-2.log  # 12 项 OK + 全部通过（12 项）",
+    "sed -n '4,5p;2706,2716p' target/round57/gate/attempt-2.log  # fmt 项 + R57 6 named 全 ok",
+    "git show --stat 025564c && git show --stat 858147b && git show --stat 38f3afe  # 3 / 10 / 2 文件",
+    "for f in $(grep -oP '(?<=  )[^ ]+$' target/round57/gate/attempt-2.meta.txt | head -13); do git show HEAD:$f | sha256sum; done  # 13/13 与 meta 附加行比对",
+    "grep -n '无服务端生产者\\|服务端无生产者\\|代码批在途' docs/world/magic.md  # 0 命中",
+    "grep -n 'can_fly\\|MirRng\\|125 不回显\\|Hero' docs/testing/round57/README.md  # can_fly 缺失",
+    "git status --porcelain -uall  # 仅历史冻结 JSON + 审计产物未跟踪",
+    "sed -n '110,118p' tools/dev/ci.ps1  # workspace 跳过 duo_/fault_pg 的明示理由"
+  ],
+  "constraints_honored": {
+    "read_only": true,
+    "forbidden_commands_run": false,
+    "existing_files_modified": false,
+    "t1_artifacts_untouched": true,
+    "commits": false,
+    "pushes": false,
+    "artifacts_written": [
+      "docs/testing/round57/round57-final-audit-v2.md",
+      "docs/testing/round57/final-manifest-v2.json",
+      "target/round57/audit/summary-v2.log"
+    ]
+  }
+}

@@ -1346,6 +1346,18 @@ D2 6 例：`ui::projectile` 12 passed、`net::` 30 passed；回归 `round59_proj
 
 
 
+R62 更新见 §5.29。
+
+### 5.29 飞行时钟、TargetPoint 缓存与会话代号（R62）
+
+R62 功能提交 `a7362fc`，限定结论 **PASS-WITH-PARTIAL**。证据与复跑入口见 [R62 索引](testing/round62/README.md)；本节更新 §5.28 的历史实现边界。
+
+- **C1 严格飞行时钟**：`now <= NextFrame` 不推进，同刻重复调用幂等；到期时先处理 skip 额外 +1，再普通 +1；普通 tick 至多一帧，大跳不追补。每帧先刷新目标位置、重算 duration/count，再判时钟；参数收缩也需越过下一边界后结算。对照 Crystal `Effect.cs:81/83/85/96/176/185–189`。`owner_skip_frames` 生产来源仍固定 false，完整 ActionFeed 来源 PARTIAL。
+- **C2 TargetPoint 缓存兜底**：目标对象当前位置优先，其次 `known_positions` 最后可信位置；都不存在则不生成投射物、不播出生音、不改 wire。125 仍只有 Spell/Source/Destination 三字段。缓存容量/LRU 尚未实现。
+- **C3 offset 一次**：绘制 origin 只叠加一次运动 offset，重复 draw 不累积；不扩大为 `ImageInfo.offset` 已修复。
+- **C4 会话代号/回收/复位**：本地非 wire `session_generation` 经 `WorldSnapshot::new_session()` 与真实连接初始化统一发号；同代号裁剪空表保留游标，新代号空首批等待、首批非空恰一次清旧 view/570/cache/cursor/cue。绝对游标处理 dropped，不重放已消费事件；服务端物理回收协议仍 PARTIAL。
+- **边界**：570 残影保留 elapsed 公式、10 帧/600ms；出生/存活命中 cue 恰一次的测试证明队列行为，未增加真实设备可听或 Live 证据。R61 音频、削波、105 sfx、HiddenSpanSource、CWD/素材及 R60 遗留继续承接。
+
 ### 6.0 真实素材渲染（第 6 轮）
 
 **数据目录**

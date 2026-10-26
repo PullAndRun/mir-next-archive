@@ -1,0 +1,14 @@
+# head=a7362fc
+# gate_log_sha256=81e8ef05131460635adaee4bf02066d4e2187a2a852573a8ae7191a23adfd9ab
+# source=git-show: exact committed blob bytes; docs=worktree: pending documentation bytes
+# kind	bytes	sha256	lines	path
+git-show	168292	b06b48c3797f6233b99d6fff7407032f76e5c299784a745e23ef6c987774484b	4165	crates/mir-client/src/app.rs
+git-show	368622	9bf15a268b1619d40149f9dcdc627189c53df9b117263b7c6575d15bc35a0ac8	9098	crates/mir-client/src/net.rs
+git-show	78253	ca8e4a47fe485eb92f5ac18e069a1ffc5f46ea9e98a707c55c6cc2ac373eb8d1	1676	crates/mir-client/src/ui/projectile.rs
+git-show	29504	dd555c1fa0f29a40bda0fac7d45730ada9afbca8c4e9c6e1807724c0e21fc31c	761	crates/mir-client/tests/round59_projectile_render.rs
+git-show	30046	9ed77bfbd29eacbba2ff8c48059d24f2120166fa7ec1213591cbcb61a26203b6	722	crates/mir-client/tests/round61_projectile_queue.rs
+git-show	21821	adc92a535bc344643b7ebcb10504b060d58a1f68969563d1d52f9832c66a397b	529	crates/mir-client/tests/round62_projectile_wire.rs
+worktree	7125	26dc8be3257b9314a4f1e247ff03e9cfb4b9c98f6be81bdda31de9951dc654cc	71	docs/testing/round62/README.md
+worktree	8110	df70ce05fa4e2e7110cf6c46f2a7f782ce15cc97756fdb9da1822a2281029308	232	docs/testing/round62/final-manifest.json
+worktree	2082	8139e0fdb30caf79715a2964c62e00fbf8f04fd6d60ce7ae903e9626b54cbef6	45	docs/testing/round62/run-checks.sh
+worktree	1621	3788bc4ac1f8da239138faf9b55a10f97ec3c0c1d937f8ff1f04b4cb157b15be	27	docs/testing/round62/gen-tree-hashes.sh

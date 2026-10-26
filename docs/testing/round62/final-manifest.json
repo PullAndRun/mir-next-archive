@@ -1,0 +1,232 @@
+{
+  "head": "a7362fc",
+  "head_full": "a7362fc7f93b50bfd0027dca5383e5eadd6c29bb",
+  "verdict": "PASS-WITH-PARTIAL",
+  "commit_stats": {
+    "files": 6,
+    "insertions": 1502,
+    "deletions": 248,
+    "projectile_insertions_corrected": 637,
+    "projectile_deletions": 184
+  },
+  "publication": "push pending Lead final review",
+  "gate": {
+    "attempt": 1,
+    "head": "a7362fc",
+    "command": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale",
+    "log": "target/round62/gate/attempt-1.log",
+    "bytes": 209193,
+    "sha256": "81e8ef05131460635adaee4bf02066d4e2187a2a852573a8ae7191a23adfd9ab",
+    "utc_start": "2026-10-26T14:08:59Z",
+    "utc_end": "2026-10-26T14:12:54Z",
+    "exit": 0,
+    "items": 12,
+    "ok": 12,
+    "rerun_by_D": false
+  },
+  "hash_basis": {
+    "git_blob_sha256": "git show a7362fc:<path> | sha256sum; exact committed bytes, not Git object id",
+    "worktree_sha256": "SHA256 of raw working-tree bytes; may differ due to line endings",
+    "manifest_self_hash": "Only in commit-tree-hashes.txt; no self-hash field"
+  },
+  "files": [
+    {
+      "path": "crates/mir-client/src/app.rs",
+      "git_blob_sha256": "b06b48c3797f6233b99d6fff7407032f76e5c299784a745e23ef6c987774484b",
+      "git_blob_bytes": 168292,
+      "git_blob_lines": 4165,
+      "worktree_sha256": "b06b48c3797f6233b99d6fff7407032f76e5c299784a745e23ef6c987774484b",
+      "worktree_bytes": 168292,
+      "lines": 4165,
+      "supersedes_r61_manifest_entry": false
+    },
+    {
+      "path": "crates/mir-client/src/net.rs",
+      "git_blob_sha256": "9bf15a268b1619d40149f9dcdc627189c53df9b117263b7c6575d15bc35a0ac8",
+      "git_blob_bytes": 368622,
+      "git_blob_lines": 9098,
+      "worktree_sha256": "9bf15a268b1619d40149f9dcdc627189c53df9b117263b7c6575d15bc35a0ac8",
+      "worktree_bytes": 368622,
+      "lines": 9098,
+      "supersedes_r61_manifest_entry": false
+    },
+    {
+      "path": "crates/mir-client/src/ui/projectile.rs",
+      "git_blob_sha256": "ca8e4a47fe485eb92f5ac18e069a1ffc5f46ea9e98a707c55c6cc2ac373eb8d1",
+      "git_blob_bytes": 78253,
+      "git_blob_lines": 1676,
+      "worktree_sha256": "ca8e4a47fe485eb92f5ac18e069a1ffc5f46ea9e98a707c55c6cc2ac373eb8d1",
+      "worktree_bytes": 78253,
+      "lines": 1676,
+      "supersedes_r61_manifest_entry": false
+    },
+    {
+      "path": "crates/mir-client/tests/round59_projectile_render.rs",
+      "git_blob_sha256": "dd555c1fa0f29a40bda0fac7d45730ada9afbca8c4e9c6e1807724c0e21fc31c",
+      "git_blob_bytes": 29504,
+      "git_blob_lines": 761,
+      "worktree_sha256": "dd555c1fa0f29a40bda0fac7d45730ada9afbca8c4e9c6e1807724c0e21fc31c",
+      "worktree_bytes": 29504,
+      "lines": 761,
+      "supersedes_r61_manifest_entry": true,
+      "old_sha256": "99889b63e3e68d84e15311cfa42753d2e1b880cef597c97271a798dd806b3bbf",
+      "old_sha_basis": "R61 committed blob / B and C verified historical value",
+      "supersedes": {
+        "manifest": "docs/testing/round61/final-manifest.json",
+        "entry_path": "crates/mir-client/tests/round59_projectile_render.rs",
+        "reason": "R62 C1 strict NextFrame tick stepping and C4 session-generation reset supersede elapsed catch-up / empty-table-reset semantics; historical evidence preserved"
+      }
+    },
+    {
+      "path": "crates/mir-client/tests/round61_projectile_queue.rs",
+      "git_blob_sha256": "9ed77bfbd29eacbba2ff8c48059d24f2120166fa7ec1213591cbcb61a26203b6",
+      "git_blob_bytes": 30046,
+      "git_blob_lines": 722,
+      "worktree_sha256": "9ed77bfbd29eacbba2ff8c48059d24f2120166fa7ec1213591cbcb61a26203b6",
+      "worktree_bytes": 30046,
+      "lines": 722,
+      "supersedes_r61_manifest_entry": true,
+      "old_sha256": "91389124d4dee7c08a5d18144c571c0decbf23967c78fd14f3bbbca4be289e1d",
+      "old_sha_basis": "R61 committed blob / B and C verified historical value",
+      "supersedes": {
+        "manifest": "docs/testing/round61/final-manifest.json",
+        "entry_path": "crates/mir-client/tests/round61_projectile_queue.rs",
+        "reason": "R62 C1 strict NextFrame tick stepping and C4 session-generation reset supersede elapsed catch-up / empty-table-reset semantics; historical evidence preserved"
+      }
+    },
+    {
+      "path": "crates/mir-client/tests/round62_projectile_wire.rs",
+      "git_blob_sha256": "adc92a535bc344643b7ebcb10504b060d58a1f68969563d1d52f9832c66a397b",
+      "git_blob_bytes": 21821,
+      "git_blob_lines": 529,
+      "worktree_sha256": "adc92a535bc344643b7ebcb10504b060d58a1f68969563d1d52f9832c66a397b",
+      "worktree_bytes": 21821,
+      "lines": 529,
+      "supersedes_r61_manifest_entry": false
+    }
+  ],
+  "tests": {
+    "independent_source": "docs/testing/round62/round62-c-evidence.md",
+    "all_tests": {
+      "targets": 44,
+      "passed": 558,
+      "failed": 0,
+      "ignored": 7
+    },
+    "lib": {
+      "passed": 313,
+      "failed": 0
+    },
+    "bin": {
+      "passed": 23,
+      "failed": 0
+    },
+    "projectile_lib": {
+      "passed": 18,
+      "failed": 0
+    },
+    "round59": {
+      "passed": 16,
+      "failed": 0
+    },
+    "round61": {
+      "passed": 11,
+      "failed": 0
+    },
+    "round62": {
+      "passed": 5,
+      "failed": 0
+    },
+    "clippy": {
+      "exit": 0,
+      "diagnostics": 0
+    },
+    "fmt": {
+      "exit": 0,
+      "output_bytes": 0
+    },
+    "A_green_lib_historical": 312,
+    "ignored_existing_locations": [
+      "crates/mir-client/tests/attack_variant.rs:528",
+      "crates/mir-client/tests/attack_variant_live.rs:817",
+      "crates/mir-client/tests/cli_monster_frames.rs:133",
+      "crates/mir-client/tests/cli_monster_frames.rs:336",
+      "crates/mir-client/tests/monster_motion.rs:274",
+      "crates/mir-client/tests/remote_motion.rs:907",
+      "crates/mir-client/tests/remote_motion_live.rs:337"
+    ]
+  },
+  "evidence": [
+    {
+      "role": "A",
+      "report": "target/round62/r62-a/report.md",
+      "logs": "target/round62/r62-a/attempt-1/"
+    },
+    {
+      "role": "B",
+      "report": "target/round62/r62-b/report.md",
+      "logs": "target/round62/r62-b/attempt-1/"
+    },
+    {
+      "role": "C",
+      "report": "docs/testing/round62/round62-c-evidence.md",
+      "logs": "target/round62/r62-c/attempt-1/"
+    },
+    {
+      "role": "D",
+      "report": "target/round62/r62-d/report.md",
+      "logs": "target/round62/r62-d/attempt-1/"
+    }
+  ],
+  "red_green": {
+    "red": {
+      "log": "target/round62/r62-a/attempt-1/red-baseline.log",
+      "exit": 101,
+      "assertion": "one tick after a 29 s jump must still be in flight"
+    },
+    "green": {
+      "log": "target/round62/r62-a/attempt-1/green-unit.log",
+      "passed": 18,
+      "failed": 0,
+      "assertion_location": "crates/mir-client/src/ui/projectile.rs:1668"
+    },
+    "superseded_elapsed_red": {
+      "log": "target/round62/r62-a/attempt-1/red-r59-elapsed-evidence-superseded.log",
+      "exit": 101,
+      "passed": 10,
+      "failed": 6
+    }
+  },
+  "partials": [
+    {
+      "id": "P1",
+      "status": "corrected-in-R62-docs",
+      "detail": "B historical ignored count 2 corrected to 7; none newly ignored"
+    },
+    {
+      "id": "P2",
+      "status": "registered-pending-final-review",
+      "detail": "Six new SHA values and R59/R61 supersede entries registered; R61 evidence unchanged"
+    },
+    {
+      "id": "P3",
+      "status": "PARTIAL",
+      "next_round": "R63",
+      "items": [
+        "Event table physical recycling has no server protocol",
+        "known_positions has no capacity limit or LRU",
+        "owner_skip_frames production source fixed false; Crystal PlayerObject.cs:750 / MonsterObject.cs:346 ActionFeed missing",
+        "570 impact ghost retains elapsed formula, 10 frames / 600 ms; C1 does not cover it"
+      ]
+    },
+    {
+      "id": "R61-carryover",
+      "status": "PARTIAL",
+      "count": 12,
+      "source": "docs/testing/round61/round61-final-audit.md",
+      "mapping": "docs/roadmap.md R63 table",
+      "detail": "No blanket closure: device/Live audio, clipping peak 22.844788, 105 sfx, HiddenSpanSource, CWD/assets, SKIP semantics and R60 P-1..P-6 remain"
+    }
+  ],
+  "created_utc": "2026-10-26T14:22:08Z"
+}

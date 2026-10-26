@@ -205,3 +205,28 @@ P-5「音效通道未接」已由 R60 接通（`app.rs` 同帧 drain），可听
 ## 十、第 61 轮（R61）承接
 
 R61 目标为 125 积压不丢、动态飞行参数与逐 cue 离线混音。已证范围是测试与离线 mixer 样本；append-only 无回收、完整 NextFrame/SkipFrames、TargetPoint、像素偏移增量、真实设备可听/Live、33 叠加削波、105 个 sfx 未逐一及 `HiddenSpanSource` 覆盖面仍是 PARTIAL。详见 [R61 索引](testing/round61/README.md)。
+
+## 十一、第 62 轮（R62）完成：PASS-WITH-PARTIAL
+
+本轮限定交付完成：严格 NextFrame 飞行时钟、目标缓存兜底、运动 offset 一次叠加、会话代号与恰一次复位。代码 `a7362fc`（6 文件 +1502/−248），Lead 门禁 attempt-1 EXIT=0、12/12 OK；C 独立核验 C1–C5 PASS，44 targets / 558 passed / 0 failed / 7 既有 ignored。文档登记六 SHA 与 R59/R61 改写测试 supersede，保留历史冻结证据。push 待 Lead 终审后统一处理。详见 [R62 索引](testing/round62/README.md)。此状态只指限定交付，不代替父任务独立终审。
+
+## 十二、第 63 轮（R63）候选与承接
+
+R62 P3 四项候选：事件表物理回收无服务端协议；known_positions 无容量上限/LRU；owner_skip_frames 生产固定 false（Crystal PlayerObject.cs:750/MonsterObject.cs:346 ActionFeed 来源未接）；570 残影仍 elapsed 公式。R62 P1 ignored 已按 7 更正，P2 六 SHA/supersede 已登记待终审。
+
+R61 12 项 PARTIAL 按原编号承接，已证子项仅作进展，不整项清零（来源：[R61 独立台账](testing/round61/round61-final-audit.md#L43)）：
+
+| 原项 | R63 承接与 R62 进展 |
+|---|---|
+| P01 append-only 回收/clone/容量 | 消费游标与代号契约已有测试；服务端确认、安全裁剪、物理回收与长期容量仍待办 |
+| P02 NextFrame/SkipFrames | 严格 NextFrame 已证；生产 SkipFrames/ActionFeed 来源继续 PARTIAL |
+| P03 TargetPoint | 当前位置优先与最后可信缓存兜底已证；缓存容量/LRU 继续 PARTIAL |
+| P04 像素偏移 | 运动 offset 一次叠加已证；ImageInfo.offset 不在本轮修复范围 |
+| P05 设备/Live 可听 | 未新增真实声卡或 Live 窗口证据 |
+| P06 33 路削波 | peak=22.844788 的真实输出削波风险仍在 |
+| P07 105 sfx | 未逐一验证；既有样本集中 M34-1/2 |
+| P08 HiddenSpanSource | 仅本 crate decoder_for 路径，未全局化 |
+| P09 CWD/素材来源 | 根路径与素材解析边界继续保留 |
+| P10 会话代号歧义 | 本地统一发号/首批非空恰复位已证；未来新代 len=0 且 total>0 边界与物理回收协议继续跟踪 |
+| P11 缺素材 early-return | SKIP 仍按 PARTIAL，不能计 PASS；复查脚本对 SKIP 总体失败 |
+| P12 R60 P-1..P-6 | 原台账不自动清零，不由局部时钟/队列测试推导渲染、效果或音频完整 |

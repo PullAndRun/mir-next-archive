@@ -1,6 +1,6 @@
 {
  "generated_by": "libu-r66-d (gpt-6.1-sol)",
- "stage": "pre-audit",
+ "stage": "post-audit",
  "generated_utc": "2026-10-26T21:57:36.058885+00:00",
  "gate": {
   "head": "b99874211c906cfe9d0a75f03dabd5050863547e",
@@ -33,24 +33,27 @@
    "lines": 140,
    "bytes": 7402,
    "sha256": "45181b51fc96373ddbc7974e9c3d8c5f964eecd1a9a8a79780d1c8179f0593b1",
-   "tracked": false,
-   "source": "untracked at gate HEAD; working-tree bytes"
+   "tracked": true,
+   "source": "git show 02ca88bb89cf74744c3268cb51fc2d99735f66d3:path; original SHA unchanged; untracked at gate HEAD",
+   "git_blob": "877d4dfceccbbea2bb68460ea8de9f4619e950cc"
   },
   {
    "path": "docs/testing/round66/round66-watermark.md",
    "lines": 60,
    "bytes": 3422,
    "sha256": "eec8edd6f06f69111707cf07114ec218fbf01e1986afbeb6ff6feb9046572bc8",
-   "tracked": false,
-   "source": "untracked at gate HEAD; working-tree bytes"
+   "tracked": true,
+   "source": "git show 02ca88bb89cf74744c3268cb51fc2d99735f66d3:path; original SHA unchanged; untracked at gate HEAD",
+   "git_blob": "4d7fedeabe3d2f81ca18aee350b0d846ef5bafc4"
   },
   {
    "path": "docs/testing/round66/round66-c-evidence.md",
    "lines": 61,
    "bytes": 8786,
    "sha256": "36f1665ccedaa6a0e9cddf18de5ad9b2fe5b0c6be765d06eb5f3cd0b333705dc",
-   "tracked": false,
-   "source": "untracked at gate HEAD; working-tree bytes"
+   "tracked": true,
+   "source": "git show 02ca88bb89cf74744c3268cb51fc2d99735f66d3:path; original SHA unchanged; untracked at gate HEAD",
+   "git_blob": "305bc99142755e5f32a864cb715b07c0a48faf3b"
   },
   {
    "path": "target/round66/gate/attempt-1.log",
@@ -143,6 +146,16 @@
    "sha256": "b3ae10886e19e67bf20476ebdd58b954052930037816c86588b13b0ec667c2e3",
    "tracked": false,
    "source": "untracked at gate HEAD; working-tree bytes"
+  },
+  {
+   "path": "docs/testing/round66/round66-final-audit.md",
+   "lines": 46,
+   "bytes": 6537,
+   "sha256": "55cc0c233f8971e7db56b6dab1495867af5fcc11740ad6eaba8d25eeef6fc253",
+   "tracked": true,
+   "source": "post-02ca88b working-tree audit; not present in documentation commit",
+   "git_blob": "e6345158c3a1ed7463f84b981eaffcdd94c4c6d7",
+   "basel": "02ca88b"
   }
  ],
  "self_hash": "Excluded to avoid recursion; see D receipt.json",
@@ -150,5 +163,16 @@
   "Direct instruction chooses round66-watermark.md; old plan names contract.",
   "A reports overwrite of v1 patches; preservation deviation awaits audit.",
   "B reports shared-target stale mutant binary; clean rebuilt final evidence."
- ]
+ ],
+ "artifact_tracking_head_final": "02ca88bb89cf74744c3268cb51fc2d99735f66d3",
+ "generated_by_final": "xingbu-r66-t (gpt-6.1-sol): independent post-audit supplement; original D generated_by/gate and all 14 artifact hashes retained",
+ "basel": "Original artifact_tracking_head b998742 records gate-time tracking; docs tracking advanced to 02ca88b without byte/SHA changes. Audit exists only in post-02ca88b working tree.",
+ "audit_verdict": "PASS-WITH-PARTIAL",
+ "audit_deviations_final": [
+  "A v1/m1-m3 first-failure preservation violation: disclosed, non-blocking because independent C attempt-2/3 and final same-test-SHA red originals remain verifiable; future attempts must be append-only.",
+  "B shared-target stale mutant binary: disclosed and eliminated by clean rebuild; T fresh isolated target passes r65_/r66_ regressions.",
+  "watermark versus old contract filename: disclosed direct-instruction deviation, non-blocking; roadmap remains frozen. Original deviations array is D pre-audit history."
+ ],
+ "audit_required_fixes": [],
+ "audit_commit": "dde1af7"
 }

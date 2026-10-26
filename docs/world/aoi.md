@@ -152,8 +152,15 @@ insert，跨图也安全）；正常玩家走/跑走 `aoi_move`，切图走 `cha
 | 占格判定 | 遍历全部玩家/怪物/NPC | `check_cell` → `aoi_in_cell(map, cell)` |
 | 地面物品拾取 | 遍历全部物品 | `aoi_in_cell` / `aoi_ids_in_radius` |
 
-`broadcast` 的接收者仍按对象 ID 稳定排序，`target` 本人是否排除由 `except` 参数控制
-（例如走/跑要把 `ObjectWalk` 发给别人，`UserLocation` 单独回本人）。
+`broadcast` 的接收者来自 `aoi_ids_in_radius(..., AoiKind::Player)`：AOI 半径查询本身按
+`(y, x, 对象 ID)` 排序（`aoi.rs:267`），再按调用方传入的 `exclude` 与发起者 `actor` 过滤
+（`world.rs:5568-5570`）。**「空间序」不是「对象 ID 序」**：同一格有多个对象时，两者可能不同；
+也不能把这里的顺序说成 Crystal 的 `Cell.Objects` 插入序。发起者本人是否收到由 `except`/`actor`
+控制（例如走/跑要把 `ObjectWalk` 发给别人，`UserLocation` 单独回本人）。
+开启 `broadcast_batching` 时，每个接收者收到的包按 `append` 顺序拼进同一缓冲
+（`world.rs:5577-5582`），再由 `flush_broadcast_batch`（`world.rs:5652`）在 tick 内统一 flush。
+因此「某接收者收到的完整序列」以该缓冲的解码序为准，**不能以跨 channel 取包的时刻推断全局发送序**；
+Crystal 的 `Map.Broadcast` 对 `Players` 逆序直发（`Map.cs:2437-2448`），没有这一批次层。
 
 ---
 
@@ -172,8 +179,12 @@ Crystal 在玩家移动时只处理「新旧 33×33 视窗的条带」：`Remove
 初始进图 `enter` 不走差分：先给新玩家下发视野内全部对象，再把自己的外观发给半径内玩家
 （Crystal `MapObject.Add` → `GetInfo()`，`MapObject.cs:286-308`）。
 
-> **顺序契约**：先移除、后新增；同一批内按 `(y, x, id)` 排序。这样客户端不会先看到
-> 「新对象」再收到「旧对象还在」的错误中间态。
+> **顺序契约（玩家差分）**：先移除、后新增；同一批内的顺序是**对象 ID 升序**——`previous` 与
+> `visible` 都是 `BTreeSet`，用 `difference` 做集合差（`world.rs:5287-5293`），所以同一批
+> `ObjectRemove`/外观包按 ID 升序发出，**不按 `(y, x, id)` 空间序**。空间序只用于 AOI 半径
+> 查询的结果（`gather_view`、广播、怪物/NPC/物品视野），两者不要混写。初始进图不走差分，
+> 首帧按「玩家 → 怪物 → NPC → 物品」分组下发，见 §8 第 8 条。这样客户端不会先看到「新对象」
+> 再收到「旧对象还在」的错误中间态。
 
 ---
 
@@ -241,6 +252,13 @@ struct DoorRuntime {
    在「同格多对象」时可能不同，但本作保证确定性可回放。
 7. **门状态不落盘**：两者一致，但本作把它写在 `World` 字段里，地图缓存淘汰时整表清掉；
    Crystal 的地图对象销毁时同样丢失。
+8. **首帧类型分组**：玩家首次进图时按 **玩家 → 怪物 → NPC → 物品** 四组依次下发完整首帧
+   （发送点 `world.rs:1882-1893`，收集自 `maps.rs:609` 的 `gather_view`）；组内玩家/怪物/物品
+   按 AOI 查询的 `(y, x, id)` 序，NPC 组单独按 NPC 对象 ID 升序（`npc.rs:921-929`）。
+   Crystal 的 `GetObjects` 是 `for y { for x { Cell.Objects } }` 逐格追加
+   （`PlayerObject.cs:1741-1768`），同格多对象依赖 `Cell.Objects` 的插入序；因此跨类型的
+   全局对象序列、同格多对象顺序两者都不保证一致。客户端只应依赖「四类各自完整、类型内对象
+   不重复」，不要据此推断 Crystal 的格子插入序。
 
 ## 9. 测试清单
 
@@ -256,18 +274,27 @@ struct DoorRuntime {
 | 6 | `negative_coordinates_bucket_correctly` | 负坐标分桶 |
 | 7 | `random_operations_match_bruteforce_scan` | 200 对象 × 1000 步随机增删移动，与暴力扫描逐步对拍 |
 
-`crates/mir-server/tests/aoi.rs`（本轮新增，世界级端到端 6 个）：
+`crates/mir-server/tests/aoi.rs`（世界级端到端 **13** 个：8 个既有 + 5 个 R54 五路由验收例）：
 
 | # | 用例 | 覆盖点 |
 |---|---|---|
 | 1 | `view_radius_is_crystal_data_range_sixteen` | 距离 16 的怪物可见、17 不可见（`Globals.cs:37`） |
 | 2 | `broadcast_uses_grid_and_follows_placement` | 聊天广播随 `place_player` 改坐标立即生效：40 格→1 人、16 格→2 人、17 格→1 人 |
 | 3 | `player_enter_and_leave_view_is_diffed_both_ways` | 甲走开/走回时双方各恰好一条 `ObjectRemove` / `ObjectPlayer` |
-| 4 | `melee_target_is_found_through_the_grid_after_placement` | `place_player` 后近战目标经网格找到并延迟结算 |
-| 5 | `monster_walk_updates_the_grid_and_player_view` | 怪物移动同步索引并经 AOI 广播 `ObjectWalk` |
-| 6 | `door_state_machine_blocks_opens_and_auto_closes_with_wire_packets` | 关门阻挡 `DoorClosed` → 开门双方收 `Opendoor{false}` → 通过 → 5001ms 后 `Opendoor{true}` 并再次阻挡；未登记门号视为可通行 |
+| 4 | `run_out_of_view_diffs_player_sets_both_ways` | 跑步离开视野：双方 `visible_players` 集合与包一致 |
+| 5 | `run_into_view_diffs_player_sets_both_ways` | 跑步进入视野：双向 add、无幽灵条目 |
+| 6 | `melee_target_is_found_through_the_grid_after_placement` | `place_player` 后近战目标经网格找到并延迟结算 |
+| 7 | `monster_walk_updates_the_grid_and_player_view` | 怪物移动同步索引并经 AOI 广播 `ObjectWalk` |
+| 8 | `door_state_machine_blocks_opens_and_auto_closes_with_wire_packets` | 关门阻挡 `DoorClosed` → 开门双方收 `Opendoor{false}` → 通过 → 5001ms 后 `Opendoor{true}` 并再次阻挡；未登记门号视为可通行 |
+| 9 | `aoi_acceptance_enter_snapshot` | R54 进图：真实 `enter`，四类首帧精确 ID 集、自身排除、无重复、类型分组与组内 AOI 序（私有侧例 `..._private` 在 `world.rs`） |
+| 10 | `aoi_acceptance_leave_cleanup` | R54 离图：双向 seen/索引清除、离图者恰好一条 remove、二次 leave 无新 remove、后续广播不可达 |
+| 11 | `aoi_acceptance_change_map_sets` | R54 切图：三方 `visible_players` 精确集、旧 NPC 清空、`MapChanged` 后新首帧、旧图广播隔离 |
+| 12 | `aoi_acceptance_recycle_all_kinds` | R54 回收：普通物品严格 `>` 边界/恰好一条 remove/二次 tick 零重复、金币对照、怪物尸体回收；**NPC 子项 PARTIAL**（无生产回收入口，见 §11） |
+| 13 | `aoi_acceptance_broadcast_identity_order` | R54 广播：近/远/异图精确身份集、每接收者完整包序、batching 逐接收者 append 序、空间序 `[4,1,3,2]` vs ID 序 `[1,2,3,4]` |
 
-> 全部用 `advance_clock` 注入时间，不 `sleep`；测试名以 `crates/mir-server/tests/aoi.rs` 为准。
+> 全部用 `advance_clock` 注入时间，不 `sleep`；行号为当前工作树（2026-10-26）实测，格式化后
+> 可能位移，以函数名 `grep` 为准。R54 五例的逐路由命令、exit 与断言见
+> [`docs/testing/round54/round54-aoi-acceptance.md`](../testing/round54/round54-aoi-acceptance.md)。
 
 ---
 
@@ -281,3 +308,28 @@ struct DoorRuntime {
 * **门的状态同步给新进图玩家**：Crystal 新玩家进图不会收到当前已开门的 `S.Opendoor`；
   本作一致（客户端以地图文件的门格为准，服务端只发变化）。
 * **门的图形/碰撞按门型区分**：只按 `door_index` 的开/关判定，不区分门占几格。
+
+---
+
+## 11. 验收状态（R54，2026-10-26）
+
+R54 以 **A 组五路由补证** 为本节提供逐路由证据；A 组只补测试、**生产代码 0 改动**，因此下面
+的 PASS 仅限列出的断言范围。
+
+| 路由 | 测试（集成 / 私有） | 结论 | 关键断言 |
+|---|---|---|---|
+| 进图 | `aoi_acceptance_enter_snapshot` / `..._private` | **PASS** | 真实 `enter`；四类首帧精确 ID 集、自身排除、无重复、类型分组与组内 AOI 序 |
+| 离图 | `aoi_acceptance_leave_cleanup` / `..._private` | **PASS** | observer/leaver/far 的 `visible_players` 与索引精确清理；leaver 恰好一条 `ObjectRemove`；二次 `leave` 返回 `None` 且无新包；之后 chat/walk/刷怪不可达 |
+| 切图 | `aoi_acceptance_change_map_sets` / `..._private` | **PASS** | mover/旧图观察者/新图观察者精确集合；旧 NPC 清空、新 NPC 可见；`MapChanged` 为首包；旧图 chat 负例、新图 chat 正例 |
+| 回收 | `aoi_acceptance_recycle_all_kinds` / `..._private` | **PARTIAL** | 普通物品（`Some(UserItem)`）严格 `now > expire_time`：等值保持、+1ms 恰好一条 remove、再 tick 零重复；金币对照（`None`）+ `ObjectGold`；真实怪物死亡→尸体→tick 回收恰好一次。**NPC 无生产回收/移除入口**：生产只有 `spawn_npcs`（`npc.rs:687`），长时推进后 NPC 与其 AOI 项仍在、无 `ObjectRemove`；未手删容器冒充 |
+| 广播 | `aoi_acceptance_broadcast_identity_order` / `..._private` | **PASS** | 近(16)/远(17)/异图同坐标精确接收者身份、每接收者完整包向量；actor/exclude 经真实 `open_door`；batching 时 tick flush 前无包、flush 后每接收者一条拼接缓冲按 append 序解码（不以跨 channel 时刻证全局序） |
+
+结果：**4 PASS / 1 PARTIAL / 0 FAIL**。因此：
+
+* **AOI 全量验收仍不可关闭**：回收路由的 NPC 子项没有生产入口，属产品缺口而非测试缺口；
+  本轮明确未用「手删容器」制造回收路径。
+* 回归：`cargo test -p mir-server --test aoi` 13 passed / `--lib aoi::tests` 7 passed（194 filtered）
+  / `--test maps` 20 passed（缺 `Server.MirDB` 样本的 4 例提前 return，**有效 16**）；均 exit 0。
+* 门禁：**R54 全量门禁尚未运行**，第 54 轮状态为 PARTIAL；不得以本表 PASS 冒充全量门禁结果。
+
+证据：[R54 证据索引](../testing/round54/README.md) · [五路由验收](../testing/round54/round54-aoi-acceptance.md) · [承接台账](../testing/round54/round54-carryover.md)。

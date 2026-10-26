@@ -75,6 +75,7 @@
 | R50 / R51 终态 | 🟡 已收口，有界 | R50 商城已交付且 PASS-WITH-PARTIAL；**R51 Done / PASS-WITH-PARTIAL**，P03/P10 closed，其余范围以 [v4 终审](docs/testing/round51/round51-final-audit-v4.md)、[尚书验收](docs/process/round51-shangshu-acceptance.md)、[门下确认](docs/process/round51-menxia-confirm.md)为准，历史 BLOCK 与失败日志保留。 |
 | R52 | 🟡 已交付，有界 | B1 护身符耗材原语、B2 PoisonCloud、B3 TrapHexagon、B4 R51 定向回归与 C 客户端真实 wire 已交付；attempt2 功能门禁 12/12 PASS（exit 0），日志 SHA-256 `4da8ea80cc7a396e6690bac2ed68170a52a6ff824c7875577f4c9fd40d57bd42`。125 无服务端生产者、真 socket、Frost 玩家目标、原生 dash、guild/嵌套槽及旧技能耗材仍 PARTIAL；T 的 G7 文档收口待复核，详见 [R52 证据索引](docs/testing/round52/README.md)。 |
 | i18n（R52 A 实测，2026-10-25） | ✅ 文档检查 | **243 TextKey = 200 清单键 + 11 旧键 + 32 扩展键**，中英语言包 server 各 243、差异 0；`--player-visible --strict --fail-above 70` **67** 处，`--no-test --player-visible --strict --fail-above 0` **0** 处，两扫描与键校验均 exit 0；历史 R50 60/0 和 R51 分批 61/67 等数字须按原时点解读，当前以 [i18n §7.9](docs/i18n.md)及 [A 原始日志/摘要](target/round52/a/00-summary.md)为准。 |
+| R54 | 🟡 进行中，有界 | AOI 五路由补证 **4 PASS / 1 PARTIAL / 0 FAIL**：进图/离图/切图/广播 PASS，回收的 **NPC 子项 PARTIAL**（生产无 NPC 回收/移除入口，未手删容器冒充）。Frost 精确 +2 正侧（1200 次真实 cast：Slow 43、Frozen 58，E=48，区间 [24,72]）与 Group/Guild 真实护栏已补。**AOI 全量验收仍不可关闭**；Lead 预检 fmt/clippy/i18n 66/0 exit 0，但 `tools/dev/ci.ps1` 全量门禁**未运行**，本轮状态记 **PARTIAL**。证据见 [R54 索引](docs/testing/round54/README.md)。 |
 
 ### 核心闭环验收（第 28/40/41/43 轮）
 
@@ -323,6 +324,7 @@ pwsh -NoProfile -File tools/dev/release-smoke.ps1
 | [`docs/testing/remote-motion/README.md`](docs/testing/remote-motion/README.md) | 第 46 轮他者玩家 Walk/Run 插值证据索引：96 组合独立期望、双客户端 live、D2 冻结哈希、真实 baseline 性能与覆盖边界 |
 | [`docs/testing/native-player-layout/README.md`](docs/testing/native-player-layout/README.md) | 第 48 轮原生玩家选库/选招证据：A/AR/C 域与 altAnim、Crystal 选招、200 帧 / 144 唯一 PNG 哈希、默认 auto→dev 路径、Attack4/DoubleSlash 限制 |
 | [`docs/testing/round49/README.md`](docs/testing/round49/README.md) | 第 49 轮证据索引：冻结清单/刑部审计/四项文档检查、怪物原生帧表与 i18n 收口边界（gate=PARTIAL，不宣称 12/12） |
+| [`docs/testing/round54/README.md`](docs/testing/round54/README.md) | 第 54 轮证据索引：AOI 五路由 4 PASS/1 PARTIAL（NPC 回收缺口）、Frost 精确 +2 与 Group/Guild 护栏、候选哈希、M5 十九项承接矩阵；全量门禁未跑，状态 PARTIAL |
 | [`docs/client-experience-backlog.md`](docs/client-experience-backlog.md) | 第 45 轮登记的后续体验清单：攻击变招/他者插值/怪物帧表/光照/天气/UI/音效/按键（含 Crystal 出处与验收） |
 | [`docs/client.md`](docs/client.md) | 客户端：协议流程、按键/鼠标、面板与字体 |
 | [`docs/assets/index.md`](docs/assets/index.md) | 素材索引：目录约定、表结构、查询方式 |

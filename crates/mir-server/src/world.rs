@@ -7172,4 +7172,926 @@ mod tests {
             "Shinsu"
         );
     }
+
+    // ---------------------------------------------------------------------
+    // R54-A AOI acceptance: private observations.
+    //
+    // The integration target (`crates/mir-server/tests/aoi.rs`) proves the wire
+    // vectors through the public API. These tests inspect the production state
+    // that `enter` / `leave` / `change_map` / recycling write into the AOI grid
+    // and the per-player visibility sets, plus the two broadcast paths
+    // (direct send and tick batching), without adding any production getter.
+    // ---------------------------------------------------------------------
+
+    fn r54_aoi_data() -> Arc<GameData> {
+        let db = mir_db::MirDb {
+            maps: vec![
+                mir_db::MapInfo {
+                    index: 1,
+                    file_name: "0".to_owned(),
+                    title: "aoi-private-a".to_owned(),
+                    ..mir_db::MapInfo::default()
+                },
+                mir_db::MapInfo {
+                    index: 2,
+                    file_name: "1".to_owned(),
+                    title: "aoi-private-b".to_owned(),
+                    ..mir_db::MapInfo::default()
+                },
+            ],
+            npcs: vec![
+                mir_db::NpcInfo {
+                    index: 10,
+                    map_index: 1,
+                    name: "aoi-private-npc-0".to_owned(),
+                    file_name: "aoi-private-0.txt".to_owned(),
+                    location: Point::new(14, 10),
+                    ..mir_db::NpcInfo::default()
+                },
+                mir_db::NpcInfo {
+                    index: 11,
+                    map_index: 1,
+                    name: "aoi-private-npc-far".to_owned(),
+                    file_name: "aoi-private-1.txt".to_owned(),
+                    location: Point::new(28, 28),
+                    ..mir_db::NpcInfo::default()
+                },
+                mir_db::NpcInfo {
+                    index: 20,
+                    map_index: 2,
+                    name: "aoi-private-npc-b".to_owned(),
+                    file_name: "aoi-private-2.txt".to_owned(),
+                    location: Point::new(14, 10),
+                    ..mir_db::NpcInfo::default()
+                },
+            ],
+            ..mir_db::MirDb::default()
+        };
+        Arc::new(GameData::from_db(db, None))
+    }
+
+    fn r54_remove_ids(packets: &[ServerPacket]) -> Vec<u32> {
+        packets
+            .iter()
+            .filter_map(|packet| match packet {
+                ServerPacket::ObjectRemove(remove) => Some(remove.object_id),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn r54_drain_raw(receiver: &mut mpsc::UnboundedReceiver<Vec<u8>>) -> Vec<Vec<u8>> {
+        let mut messages = Vec::new();
+        while let Ok(message) = receiver.try_recv() {
+            messages.push(message);
+        }
+        messages
+    }
+
+    fn r54_decode_batch(buf: &[u8]) -> Vec<ServerPacket> {
+        let mut packets = Vec::new();
+        let mut position = 0;
+        while position < buf.len() {
+            let total = usize::from(u16::from_le_bytes([buf[position], buf[position + 1]]));
+            assert!(total >= 4, "a frame must carry at least its 4-byte header");
+            assert!(
+                position + total <= buf.len(),
+                "a batched frame must not overrun the channel buffer"
+            );
+            let index = i16::from_le_bytes([buf[position + 2], buf[position + 3]]);
+            packets.push(
+                ServerPacket::decode(index, &buf[position + 4..position + total])
+                    .expect("decode a batched frame"),
+            );
+            position += total;
+        }
+        assert_eq!(
+            position,
+            buf.len(),
+            "the entire batched channel buffer must be consumed"
+        );
+        packets
+    }
+
+    #[test]
+    fn aoi_acceptance_enter_snapshot_private() {
+        let mut world = World::new(999);
+        world.seed_rng(1);
+        world.set_game_data(r54_aoi_data());
+        world.insert_map("0", test_map("0"));
+
+        // The observer enters first, so its production `initialize_map` call runs
+        // `spawn_npcs`: the two map-0 NPCs must exist before the snapshot player.
+        let (observer, mut observer_rx) = player(101, "observer", Point::new(12, 10), "0");
+        world.enter(observer);
+        let npc_ids: Vec<u32> = world.npcs_on("0").iter().map(|npc| npc.object_id).collect();
+        assert_eq!(
+            npc_ids,
+            vec![1, 2],
+            "production spawn_npcs must create exactly the two map-0 NPCs"
+        );
+        assert_eq!(
+            world.npc(1).expect("npc 1").position,
+            Point::new(14, 10),
+            "the near NPC must keep its database position"
+        );
+        assert_eq!(
+            world.npc(2).expect("npc 2").position,
+            Point::new(28, 28),
+            "the far NPC must keep its database position"
+        );
+        drain(&mut observer_rx);
+
+        let monster_a = world.spawn_monster("0", MonsterKind::skeleton(), Point::new(13, 10));
+        let monster_b = world.spawn_monster("0", MonsterKind::skeleton(), Point::new(9, 12));
+        let monster_far = world.spawn_monster("0", MonsterKind::skeleton(), Point::new(28, 5));
+        assert_eq!(
+            (monster_a, monster_b, monster_far),
+            (102, 103, 104),
+            "monster object IDs must be sequential after the NPC IDs"
+        );
+        let item_a = world.spawn_ground_item(
+            "0",
+            Point::new(11, 10),
+            Some(mir_protocol::data::UserItem {
+                item_index: 100,
+                ..Default::default()
+            }),
+            0,
+            None,
+        );
+        let item_b = world.spawn_ground_item(
+            "0",
+            Point::new(8, 11),
+            Some(mir_protocol::data::UserItem {
+                item_index: 100,
+                ..Default::default()
+            }),
+            0,
+            None,
+        );
+        let item_far = world.spawn_ground_item("0", Point::new(27, 8), None, 500, None);
+        assert_eq!(
+            (item_a, item_b, item_far),
+            (105, 106, 107),
+            "ground item object IDs must be sequential after the monsters"
+        );
+
+        let (far, mut far_rx) = player(200, "far", Point::new(28, 27), "0");
+        world.enter(far);
+        drain(&mut far_rx);
+        let (main, mut main_rx) = player(100, "main", Point::new(10, 10), "0");
+        world.enter(main);
+        drain(&mut main_rx);
+
+        let view = world.gather_view(world.player(100).expect("main player"));
+        assert_eq!(
+            view.player_ids(),
+            BTreeSet::from([101]),
+            "the snapshot must contain exactly the in-range player"
+        );
+        assert_eq!(
+            view.monster_ids(),
+            BTreeSet::from([monster_a, monster_b]),
+            "the snapshot must contain exactly the in-range monsters"
+        );
+        assert_eq!(
+            view.npc_ids(),
+            BTreeSet::from([1]),
+            "the snapshot must contain exactly the visible production NPC"
+        );
+        assert_eq!(
+            view.item_ids(),
+            BTreeSet::from([item_a, item_b]),
+            "the snapshot must contain exactly the in-range items"
+        );
+        assert_eq!(view.players.len(), view.player_ids().len());
+        assert_eq!(view.monsters.len(), view.monster_ids().len());
+        assert_eq!(view.npcs.len(), view.npc_ids().len());
+        assert_eq!(view.items.len(), view.item_ids().len());
+        assert!(
+            !view.monster_ids().contains(&monster_far),
+            "an out-of-range monster must not enter the snapshot"
+        );
+        assert!(
+            !view.item_ids().contains(&item_far),
+            "an out-of-range item must not enter the snapshot"
+        );
+        assert!(
+            !view.player_ids().contains(&100),
+            "the entering player must exclude itself from the snapshot"
+        );
+
+        let entries = world.aoi_in_radius("0", Point::new(10, 10), VIEW_RANGE);
+        let ids_of = |kind: AoiKind| -> Vec<u32> {
+            entries
+                .iter()
+                .filter(|entry| entry.kind == kind)
+                .map(|entry| entry.object_id)
+                .collect()
+        };
+        assert_eq!(
+            ids_of(AoiKind::Player),
+            vec![100, 101],
+            "the AOI grid indexes the player itself too; order must be (y, x, id)"
+        );
+        assert_eq!(
+            ids_of(AoiKind::Monster),
+            vec![monster_a, monster_b],
+            "monster AOI order must be (y, x, id)"
+        );
+        assert_eq!(
+            ids_of(AoiKind::Npc),
+            vec![1],
+            "the production NPC must be indexed in the AOI grid"
+        );
+        assert_eq!(
+            ids_of(AoiKind::Item),
+            vec![item_a, item_b],
+            "item AOI order must be (y, x, id)"
+        );
+        assert_eq!(
+            world.aoi_ids_in_radius("0", Point::new(10, 10), VIEW_RANGE, AoiKind::Player),
+            vec![100, 101],
+            "the sorted AOI helper must expose both the player itself and the observer"
+        );
+
+        assert_eq!(
+            world.visible_players.get(&100),
+            Some(&BTreeSet::from([101])),
+            "enter must write the exact visible player set"
+        );
+        let main_player = world.player(100).expect("main player");
+        assert_eq!(
+            main_player.visible_monsters,
+            BTreeSet::from([monster_a, monster_b]),
+            "enter must write the exact visible monster set"
+        );
+        assert_eq!(
+            main_player.visible_npcs,
+            BTreeSet::from([1]),
+            "enter must write the exact visible NPC set"
+        );
+        assert_eq!(
+            main_player.visible_items,
+            BTreeSet::from([item_a, item_b]),
+            "enter must write the exact visible item set"
+        );
+        assert!(
+            !world
+                .visible_players
+                .get(&100)
+                .expect("visible players")
+                .contains(&100),
+            "a player must never see itself in the visibility set"
+        );
+    }
+
+    #[test]
+    fn aoi_acceptance_leave_cleanup_private() {
+        let mut world = World::new(999);
+        world.seed_rng(3);
+        let (observer, mut observer_rx) = player(100, "observer", Point::new(20, 20), "0");
+        world.enter(observer);
+        let (leaver, mut leaver_rx) = player(200, "leaver", Point::new(24, 20), "0");
+        world.enter(leaver);
+        let (far, mut far_rx) = player(300, "far", Point::new(60, 60), "0");
+        world.enter(far);
+        drain(&mut observer_rx);
+        drain(&mut leaver_rx);
+        drain(&mut far_rx);
+
+        assert_eq!(
+            world.visible_players.get(&100),
+            Some(&BTreeSet::from([200])),
+            "the observer must see exactly the leaver before leave"
+        );
+        assert_eq!(
+            world.visible_players.get(&200),
+            Some(&BTreeSet::from([100])),
+            "the leaver must see exactly the observer before leave"
+        );
+
+        let removed = world
+            .leave(200)
+            .expect("leave must return the removed player");
+        assert_eq!(
+            removed.object_id, 200,
+            "leave must return the requested player"
+        );
+        assert_eq!(removed.map, "0", "leave must return the player's last map");
+        assert_eq!(
+            removed.position,
+            Point::new(24, 20),
+            "leave must return the player's last position"
+        );
+        assert_eq!(
+            world.players.len(),
+            2,
+            "only the two living players must remain in the player map"
+        );
+        assert!(
+            !world.players.contains_key(&200),
+            "the leaver must be removed from the player map"
+        );
+        assert_eq!(
+            world.visible_players.get(&100),
+            Some(&BTreeSet::new()),
+            "leave must clear the observer's visible player set exactly"
+        );
+        assert!(
+            !world.visible_players.contains_key(&200),
+            "leave must drop the leaver's own visible player set"
+        );
+        assert_eq!(
+            world.aoi_ids_in_radius("0", Point::new(20, 20), VIEW_RANGE, AoiKind::Player),
+            vec![100],
+            "the AOI player index must drop the leaver and keep the observer"
+        );
+        assert!(
+            world
+                .aoi_ids_in_radius("0", Point::new(24, 20), 0, AoiKind::Player)
+                .is_empty(),
+            "no AOI player entry may remain at the leaver's old cell"
+        );
+        let observer_packets = drain(&mut observer_rx);
+        assert_eq!(
+            r54_remove_ids(&observer_packets),
+            vec![200],
+            "the observer must receive exactly one ObjectRemove for the leaver"
+        );
+        assert!(
+            drain(&mut leaver_rx).is_empty(),
+            "leave must not send anything to the leaving player's channel"
+        );
+        assert!(
+            drain(&mut far_rx).is_empty(),
+            "leave must not touch a player that never saw the leaver"
+        );
+
+        assert!(
+            world.leave(200).is_none(),
+            "a second leave must return None"
+        );
+        assert!(
+            drain(&mut observer_rx).is_empty(),
+            "a second leave must not emit another ObjectRemove"
+        );
+        assert_eq!(
+            world.players.len(),
+            2,
+            "a second leave must not remove any other player"
+        );
+        assert_eq!(
+            world.visible_players.get(&100),
+            Some(&BTreeSet::new()),
+            "a second leave must not rewrite the observer's visible set"
+        );
+
+        assert_eq!(
+            world.chat(100, "after-leave").expect("chat"),
+            1,
+            "after leave only the chat author may be a receiver"
+        );
+        let chat_packets = drain(&mut observer_rx);
+        assert_eq!(chat_packets.len(), 1, "the observer must get its own chat");
+        assert!(
+            matches!(&chat_packets[0], ServerPacket::ObjectChat(chat) if chat.object_id == 100 && chat.text == "after-leave"),
+            "the later chat must reach only the living observer"
+        );
+        assert!(
+            drain(&mut leaver_rx).is_empty(),
+            "a later chat must not reach the removed player"
+        );
+        assert_eq!(
+            world.walk(200, MirDirection::Right),
+            Err(MoveError::NotInWorld(200)),
+            "a removed player must not be able to move"
+        );
+
+        let monster = world.spawn_monster("0", MonsterKind::scarecrow(), Point::new(24, 20));
+        let monster_packets = drain(&mut observer_rx);
+        assert!(
+            monster_packets.iter().any(|packet| matches!(
+                packet,
+                ServerPacket::ObjectMonster(frame) if frame.object_id == monster
+            )),
+            "later spawns next to the old cell must reach the observer"
+        );
+        assert!(
+            drain(&mut leaver_rx).is_empty(),
+            "later spawns must not reach the removed player's channel"
+        );
+    }
+
+    #[test]
+    fn aoi_acceptance_change_map_sets_private() {
+        let mut world = World::new(999);
+        world.seed_rng(5);
+        world.set_game_data(r54_aoi_data());
+        world.insert_map("0", test_map("0"));
+        world.insert_map("1", test_map("1"));
+
+        let (old_watcher, mut old_watcher_rx) = player(500, "old-watcher", Point::new(8, 5), "0");
+        world.enter(old_watcher);
+        let (mover, mut mover_rx) = player(100, "mover", Point::new(5, 5), "0");
+        world.enter(mover);
+        let (far_old, mut far_old_rx) = player(600, "far-old", Point::new(28, 27), "0");
+        world.enter(far_old);
+        let (new_watcher, mut new_watcher_rx) = player(700, "new-watcher", Point::new(8, 5), "1");
+        world.enter(new_watcher);
+        let (far_new, mut far_new_rx) = player(800, "far-new", Point::new(28, 27), "1");
+        world.enter(far_new);
+        drain(&mut old_watcher_rx);
+        drain(&mut mover_rx);
+        drain(&mut far_old_rx);
+        drain(&mut new_watcher_rx);
+        drain(&mut far_new_rx);
+
+        assert_eq!(
+            world.visible_players.get(&100),
+            Some(&BTreeSet::from([500])),
+            "before the change the mover must see exactly the old-map watcher"
+        );
+        assert_eq!(
+            world.player(100).expect("mover").visible_npcs,
+            BTreeSet::from([1]),
+            "before the change the mover must see the old-map NPC"
+        );
+
+        let report = world
+            .change_map(100, "1", Point::new(5, 5), MirDirection::Right)
+            .expect("change_map");
+        assert_eq!(report.to_map, "1", "the report must name the new map");
+        assert_eq!(
+            world.player(100).expect("mover").map,
+            "1",
+            "the player record must switch to the new map"
+        );
+        assert_eq!(
+            world.visible_players.get(&100),
+            Some(&BTreeSet::from([700])),
+            "the mover must see exactly the new-map watcher after the change"
+        );
+        assert_eq!(
+            world.visible_players.get(&500),
+            Some(&BTreeSet::new()),
+            "the old-map watcher must lose the mover from its visible set"
+        );
+        assert_eq!(
+            world.visible_players.get(&600),
+            Some(&BTreeSet::new()),
+            "the far old-map watcher must keep an empty visible set"
+        );
+        assert_eq!(
+            world.visible_players.get(&700),
+            Some(&BTreeSet::from([100])),
+            "the new-map watcher must gain exactly the mover"
+        );
+        assert_eq!(
+            world.visible_players.get(&800),
+            Some(&BTreeSet::new()),
+            "the far new-map watcher must keep an empty visible set"
+        );
+        assert_eq!(
+            world.player(100).expect("mover").visible_npcs,
+            BTreeSet::from([601]),
+            "the old NPC set must be cleared and the new map NPC set written"
+        );
+
+        let mover_view = world.gather_view(world.player(100).expect("mover"));
+        assert_eq!(
+            mover_view.player_ids(),
+            BTreeSet::from([700]),
+            "the post-change first view must contain exactly the new-map watcher"
+        );
+        assert_eq!(
+            mover_view.npc_ids(),
+            BTreeSet::from([601]),
+            "the post-change first view must contain exactly the new-map NPC"
+        );
+        assert!(
+            mover_view.monster_ids().is_empty(),
+            "the new map has no monsters"
+        );
+        assert!(
+            mover_view.item_ids().is_empty(),
+            "the new map has no ground items"
+        );
+
+        assert_eq!(
+            world.aoi_ids_in_radius("1", Point::new(5, 5), VIEW_RANGE, AoiKind::Player),
+            vec![100, 700],
+            "the AOI player index of the new map must contain mover and watcher"
+        );
+        assert_eq!(
+            world.aoi_ids_in_radius("0", Point::new(5, 5), VIEW_RANGE, AoiKind::Player),
+            vec![500],
+            "the old map AOI index must contain only the old watcher"
+        );
+        assert_eq!(
+            world.aoi_ids_in_cell("0", Point::new(14, 10), AoiKind::Npc),
+            vec![1],
+            "the old map must keep its own NPC entry"
+        );
+        assert_eq!(
+            world.aoi_ids_in_cell("1", Point::new(14, 10), AoiKind::Npc),
+            vec![601],
+            "the new map must have its own NPC entry"
+        );
+
+        let mover_packets = drain(&mut mover_rx);
+        assert_eq!(
+            mover_packets.len(),
+            3,
+            "the mover must get exactly MapChanged plus two first frames"
+        );
+        assert!(
+            matches!(
+                &mover_packets[0],
+                ServerPacket::MapChanged(changed)
+                    if changed.file_name == "1" && changed.location == Point::new(5, 5)
+            ),
+            "MapChanged must be the first packet on the mover channel: {mover_packets:?}"
+        );
+        assert!(
+            matches!(&mover_packets[1], ServerPacket::ObjectPlayer(frame) if frame.object_id == 700),
+            "the new-map watcher appearance must follow MapChanged"
+        );
+        assert!(
+            matches!(&mover_packets[2], ServerPacket::ObjectNPC(frame) if frame.object_id == 601),
+            "the new-map NPC frame must follow MapChanged"
+        );
+        let old_packets = drain(&mut old_watcher_rx);
+        assert_eq!(
+            r54_remove_ids(&old_packets),
+            vec![100],
+            "the old-map watcher must get exactly one ObjectRemove for the mover"
+        );
+        let new_packets = drain(&mut new_watcher_rx);
+        assert_eq!(
+            new_packets.len(),
+            1,
+            "the new-map watcher must get exactly one appearance frame"
+        );
+        assert!(
+            matches!(&new_packets[0], ServerPacket::ObjectPlayer(frame) if frame.object_id == 100),
+            "the new-map watcher appearance must describe the mover"
+        );
+        assert!(
+            drain(&mut far_old_rx).is_empty(),
+            "the far old-map watcher must not get change-map packets"
+        );
+        assert!(
+            drain(&mut far_new_rx).is_empty(),
+            "the far new-map watcher must not get change-map packets"
+        );
+    }
+
+    #[test]
+    fn aoi_acceptance_recycle_all_kinds_private() {
+        let mut world = World::new(999);
+        world.seed_rng(9);
+        world.set_game_data(r54_aoi_data());
+        world.insert_map("0", test_map("0"));
+        let (recycler, mut recycler_rx) = player(100, "recycler", Point::new(12, 10), "0");
+        world.enter(recycler);
+        drain(&mut recycler_rx);
+        assert_eq!(
+            world.npcs_on("0").len(),
+            2,
+            "the fixture map must start with its two production NPCs"
+        );
+
+        // NPC subitem (PARTIAL): production exposes no NPC recycle path, so the
+        // NPC must stay present and observable after the clock passes the item
+        // and corpse delays. This is evidence of the gap, not a green check.
+        world.advance_clock(1_000_000);
+        world.tick();
+        world.tick();
+        world.tick();
+        assert_eq!(
+            world.npcs_on("0").len(),
+            2,
+            "no production path recycles NPCs, so both NPCs must still exist"
+        );
+        assert!(
+            world.npc(1).is_some(),
+            "the production NPC must not disappear after a long clock advance"
+        );
+        assert_eq!(
+            world.aoi_ids_in_cell("0", Point::new(14, 10), AoiKind::Npc),
+            vec![1],
+            "the NPC must stay indexed in the AOI grid"
+        );
+        let npc_packets = drain(&mut recycler_rx);
+        assert!(
+            !r54_remove_ids(&npc_packets).contains(&1),
+            "no NPC ObjectRemove may be emitted while no recycle path exists"
+        );
+
+        // Normal item: strict Crystal semantics `now > expire_time`.
+        world.set_item_expire_ms(500);
+        let item = world.spawn_ground_item(
+            "0",
+            Point::new(12, 12),
+            Some(mir_protocol::data::UserItem {
+                item_index: 100,
+                ..Default::default()
+            }),
+            0,
+            None,
+        );
+        let ground = world.ground_item(item).expect("spawned ground item");
+        assert!(
+            ground.item.is_some(),
+            "the recycle probe must use a real item, not gold"
+        );
+        assert!(
+            !ground.is_gold(),
+            "the normal item must not be classified as gold"
+        );
+        assert_eq!(
+            world.aoi_ids_in_radius("0", Point::new(12, 12), 0, AoiKind::Item),
+            vec![item],
+            "the normal item must be indexed in the AOI grid"
+        );
+        let delta = world.ground_item(item).expect("ground item").expire_time - world.now();
+        assert_eq!(
+            delta, 500,
+            "spawn_ground_item must use the configured item expiry"
+        );
+        drain(&mut recycler_rx);
+        world.advance_clock(delta);
+        world.tick();
+        assert!(
+            world.ground_item(item).is_some(),
+            "at now == expire_time the item must still exist (strict `now > expire_time`)"
+        );
+        assert_eq!(
+            world.aoi_ids_in_radius("0", Point::new(12, 12), 0, AoiKind::Item),
+            vec![item],
+            "the item must stay indexed while not yet expired"
+        );
+        assert!(
+            r54_remove_ids(&drain(&mut recycler_rx)).is_empty(),
+            "no ObjectRemove may be sent before the expiry boundary"
+        );
+        world.advance_clock(1);
+        world.tick();
+        assert!(
+            world.ground_item(item).is_none(),
+            "the item must be removed after the strict expiry boundary"
+        );
+        assert!(
+            world
+                .aoi_ids_in_radius("0", Point::new(12, 12), 0, AoiKind::Item)
+                .is_empty(),
+            "the expired item must leave the AOI grid"
+        );
+        assert!(
+            world.player(100).expect("player").visible_items.is_empty(),
+            "the expired item must leave the player's visible item set"
+        );
+        assert_eq!(
+            r54_remove_ids(&drain(&mut recycler_rx)),
+            vec![item],
+            "the item expiry must send exactly one ObjectRemove"
+        );
+        world.tick();
+        assert!(
+            r54_remove_ids(&drain(&mut recycler_rx)).is_empty(),
+            "a second tick after item expiry must not send duplicate removes"
+        );
+
+        // Monster corpse: real death then the corpse delay recycles it.
+        let monster = world.spawn_monster("0", MonsterKind::scarecrow(), Point::new(13, 10));
+        {
+            let player = world.player_mut(100).expect("player");
+            player.stats.min_dc = 100;
+            player.stats.max_dc = 100;
+            player.stats.accuracy = 100;
+        }
+        drain(&mut recycler_rx);
+        let attack = world
+            .attack(100, MirDirection::Right)
+            .expect("attack must be accepted")
+            .expect("attack must find the adjacent monster");
+        assert_eq!(
+            attack.target, monster,
+            "the melee hit must target the spawned monster"
+        );
+        world.advance_clock(300);
+        world.tick();
+        drain(&mut recycler_rx);
+        let dead_monster = world
+            .monster(monster)
+            .expect("monster must still be a corpse");
+        assert!(
+            dead_monster.dead,
+            "the monster must be dead before recycling"
+        );
+        let dead_time = dead_monster.dead_time;
+        let corpse_delta = dead_time - world.now();
+        assert!(
+            corpse_delta > 0,
+            "the corpse delay must be positive before the recycle boundary"
+        );
+        assert_eq!(
+            world.aoi_ids_in_radius("0", Point::new(13, 10), 0, AoiKind::Monster),
+            vec![monster],
+            "the corpse must stay indexed in the AOI grid before recycle"
+        );
+        world.advance_clock(corpse_delta - 1);
+        world.tick();
+        assert!(
+            world.monster(monster).is_some(),
+            "one millisecond before the corpse delay the body must remain"
+        );
+        assert!(
+            r54_remove_ids(&drain(&mut recycler_rx)).is_empty(),
+            "no ObjectRemove may be sent before the corpse boundary"
+        );
+        world.advance_clock(1);
+        world.tick();
+        assert!(
+            world.monster(monster).is_none(),
+            "the corpse must be recycled at the corpse-delay boundary"
+        );
+        assert!(
+            world
+                .aoi_ids_in_radius("0", Point::new(13, 10), 0, AoiKind::Monster)
+                .is_empty(),
+            "the recycled corpse must leave the AOI grid"
+        );
+        assert!(
+            !world
+                .player(100)
+                .expect("player")
+                .visible_monsters
+                .contains(&monster),
+            "the recycled corpse must leave the player's visible monster set"
+        );
+        assert_eq!(
+            r54_remove_ids(&drain(&mut recycler_rx)),
+            vec![monster],
+            "the corpse recycle must send exactly one ObjectRemove"
+        );
+        world.tick();
+        assert!(
+            r54_remove_ids(&drain(&mut recycler_rx)).is_empty(),
+            "a second tick after corpse recycle must not send duplicate removes"
+        );
+    }
+
+    #[test]
+    fn aoi_acceptance_broadcast_identity_order_private() {
+        let mut world = World::new(999);
+        world.seed_rng(11);
+        let (p1, mut rx1) = player(1, "p1", Point::new(10, 10), "0");
+        world.enter(p1);
+        let (p2, mut rx2) = player(2, "p2", Point::new(10, 12), "0");
+        world.enter(p2);
+        let (p3, mut rx3) = player(3, "p3", Point::new(11, 10), "0");
+        world.enter(p3);
+        let (p4, mut rx4) = player(4, "p4", Point::new(9, 10), "0");
+        world.enter(p4);
+        let (p5, mut rx5) = player(5, "p5", Point::new(50, 50), "0");
+        world.enter(p5);
+        let (p6, mut rx6) = player(6, "p6", Point::new(10, 10), "1");
+        world.enter(p6);
+        drain(&mut rx1);
+        drain(&mut rx2);
+        drain(&mut rx3);
+        drain(&mut rx4);
+        drain(&mut rx5);
+        drain(&mut rx6);
+
+        let entries = world.aoi_in_radius("0", Point::new(10, 10), VIEW_RANGE);
+        let spatial: Vec<u32> = entries
+            .iter()
+            .filter(|entry| entry.kind == AoiKind::Player)
+            .map(|entry| entry.object_id)
+            .collect();
+        assert_eq!(
+            spatial,
+            vec![4, 1, 3, 2],
+            "AOI radius queries must order players by (y, x, id)"
+        );
+        assert_eq!(
+            world.aoi_ids_in_radius_spatial("0", Point::new(10, 10), VIEW_RANGE, AoiKind::Player),
+            vec![4, 1, 3, 2],
+            "the spatial helper must preserve the AOI order"
+        );
+        assert_eq!(
+            world.aoi_ids_in_radius("0", Point::new(10, 10), VIEW_RANGE, AoiKind::Player),
+            vec![1, 2, 3, 4],
+            "the sorted helper must not pretend to be the spatial order"
+        );
+
+        // Default path: direct per-recipient send.
+        let frame_remove_7 = object_remove_frame(7);
+        let sent = world.broadcast("0", Point::new(10, 10), None, &frame_remove_7, 1);
+        assert_eq!(
+            sent, 3,
+            "broadcast must target exactly the three in-range players other than actor 1"
+        );
+        for receiver in [&mut rx2, &mut rx3, &mut rx4] {
+            let packets = drain(receiver);
+            assert_eq!(
+                packets.len(),
+                1,
+                "each in-range non-actor receiver must get the frame exactly once"
+            );
+            assert!(
+                matches!(&packets[0], ServerPacket::ObjectRemove(remove) if remove.object_id == 7),
+                "each receiver must get the crafted ObjectRemove"
+            );
+        }
+        assert!(
+            drain(&mut rx1).is_empty(),
+            "the actor must be excluded from its own broadcast"
+        );
+        assert!(
+            drain(&mut rx5).is_empty(),
+            "an out-of-range player must not receive the broadcast"
+        );
+        assert!(
+            drain(&mut rx6).is_empty(),
+            "a cross-map player at the same coordinates must not receive the broadcast"
+        );
+
+        // exclude: exactly one identity is filtered out.
+        let sent = world.broadcast("0", Point::new(10, 10), Some(2), &frame_remove_7, 1);
+        assert_eq!(sent, 2, "exclude must remove exactly one recipient");
+        for receiver in [&mut rx3, &mut rx4] {
+            let packets = drain(receiver);
+            assert_eq!(
+                packets.len(),
+                1,
+                "exclude must not change the remaining recipients"
+            );
+            assert!(
+                matches!(&packets[0], ServerPacket::ObjectRemove(remove) if remove.object_id == 7)
+            );
+        }
+        assert!(
+            drain(&mut rx2).is_empty(),
+            "the explicitly excluded player must not receive the frame"
+        );
+
+        // Batching path: broadcasts append to one per-receiver buffer that the
+        // real tick flush writes as a single channel message, in append order.
+        world.set_broadcast_batching(true);
+        drain(&mut rx1);
+        drain(&mut rx2);
+        drain(&mut rx3);
+        drain(&mut rx4);
+        drain(&mut rx5);
+        drain(&mut rx6);
+        let frame_remove_8 = object_remove_frame(8);
+        let frame_remove_9 = object_remove_frame(9);
+        let sent_a = world.broadcast("0", Point::new(10, 10), None, &frame_remove_8, 1);
+        let sent_b = world.broadcast("0", Point::new(10, 10), None, &frame_remove_9, 1);
+        assert_eq!(sent_a, 3, "batched broadcast must count its recipients");
+        assert_eq!(sent_b, 3, "batched broadcast must count its recipients");
+        for receiver in [&mut rx2, &mut rx3, &mut rx4] {
+            assert!(
+                r54_drain_raw(receiver).is_empty(),
+                "with batching enabled no per-broadcast message may be sent"
+            );
+        }
+        world.flush_broadcast_batch();
+        for receiver in [&mut rx2, &mut rx3, &mut rx4] {
+            let messages = r54_drain_raw(receiver);
+            assert_eq!(
+                messages.len(),
+                1,
+                "the tick flush must write exactly one combined message per receiver"
+            );
+            let packets = r54_decode_batch(&messages[0]);
+            assert_eq!(
+                r54_remove_ids(&packets),
+                vec![8, 9],
+                "the combined message must preserve the per-receiver append order"
+            );
+        }
+        assert!(
+            r54_drain_raw(&mut rx1).is_empty(),
+            "the actor must not be part of the batched recipients"
+        );
+        assert!(
+            r54_drain_raw(&mut rx5).is_empty(),
+            "out-of-range players must not be part of the batched recipients"
+        );
+        assert!(
+            r54_drain_raw(&mut rx6).is_empty(),
+            "cross-map players must not be part of the batched recipients"
+        );
+        world.flush_broadcast_batch();
+        assert!(
+            r54_drain_raw(&mut rx2).is_empty(),
+            "a second flush must send nothing"
+        );
+    }
 }

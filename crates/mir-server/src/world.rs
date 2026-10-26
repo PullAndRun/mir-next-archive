@@ -1375,7 +1375,7 @@ impl World {
     #[must_use]
     pub fn now(&self) -> i64 {
         if self.clock_frozen {
-            // 冻结时钟：dvance_clock 之后时间只由偏移决定，读到的时间才是可复现的。
+            // 冻结时钟：advance_clock 之后时间只由偏移决定，读到的时间才是可复现的。
             self.clock_offset
         } else {
             self.started.elapsed().as_millis() as i64 + self.clock_offset

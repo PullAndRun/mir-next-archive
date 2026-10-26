@@ -684,7 +684,7 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 | ShoulderDash | 5 | 冲撞位移 | R51 已交付 / PARTIAL | StepCounter 3→0 已补；火墙逐对象 ProcessSpell/InTrapRock、原生 dash 与 152/153 敏感回纠保留 |
 | **PoisonCloud** | 83 | 3×3 毒雾场 | **R52 B2 已交付 / PARTIAL** | 施法前耗材 5 毒 + 5 符，按递增装备索引找单堆且不看耐久；有效 3×3、6 秒/1 秒 tick，149 生成/26 撤销与生命周期有证据；125 客户端渲染未接（R57 起 FireBounce 为服务端 125 生产者，PARTIAL）、真 socket 与原生表现未覆盖（§11） |
 | **TrapHexagon** | 73 | 陷阱控制 | **R52 B3 已交付 / PARTIAL** | 耗符 1；预检 3×2、落地重检 3×3；独立 Shock 时钟限移动并由受击解除；八外围场、149/26 与入视野有证据；玩家不受拘束，真 socket/原生表现仍有边界（§11） |
-| **FireBounce** | 154 | 连跳弹射（125） | ✅ 服务端生产者（R57，门禁与终审判定见 `docs/testing/round57/round57-final-audit-v2.md`）；客户端 125 渲染 PARTIAL | 服务端 125 生产者已落盘；客户端 125 渲染未接；125 不回显施法者为 `magic.rs` 模块文档明示的已知偏差 |
+| **FireBounce** | 154 | 连跳弹射（125） | 服务端 125 生产者已实现；客户端 125 仅解码登记，投射物渲染 PARTIAL 待 R59（R57 门禁/终审见 `docs/testing/round57/round57-final-audit-v2.md`） | 125 不回显施法者（`World::broadcast` 不含本人）；客户端只存事件、不绘制（见 `docs/testing/round58/README.md` §4.6） |
 | 其余（`SummonHolyDeva`、`IceStorm`、`BackStep` 等） | — | — | ❌ 未实现 | 模板能查到时施法返回 `UnsupportedSpell`；若模板缺失则 `UnknownSpell` |
 
 「✅ 已实现」的 9 个增益技能走 `SpellKind::Buff`：施法照常扣蓝、写冷却、发
@@ -788,6 +788,12 @@ if (HP == Stats[HP]) { HealAmount = 0; }                                        
 - 英雄（`HeroObject`）技能：`S.HeroInformation.magics` 仍恒为空。
 - 技能冷却的客户端下发：本作发 `ClientMagic.CastTime = 0`（Crystal 发的是
   `int.MinValue - Envir.Time` 的巨负值，语义等价）。
+- **`can_fly` 双实现差异（R58 G4 固化，不合并）**：`magic.rs:4029` 的 `can_fly` 走
+  `walkable_on`（含攻城阻挡 `conquest_object_blocking`），`magic.rs:4047` 的
+  `can_fly_cell_valid` 仅判 `Cell.Valid`（与 Crystal `CanFly` 同语义）；`:1536`
+  （FireBall/GreatFireBall/FrostCrunch 共用臂）用前者、`:1555`（FireBounce）用后者。
+  合并即改行为，R58 只登记：`:1536` 在攻城期的阻挡判定偏差**单列 R59 修复项**
+  （须自带「攻城期阻挡格上的 FireBall 目标判定」回归）。
 
 ---
 

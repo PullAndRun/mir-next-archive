@@ -288,7 +288,7 @@ struct DoorRuntime {
    生产刷出只发生在启动/首次进图的 `spawn_npcs`（`maps.rs:434` 由 `initialize_map` 调用），
    没有「运行期新增 NPC」可与回收配对。
 
-结论：**AOI-5 整体维持 PARTIAL；仅子项“无回收原语”已 CLOSED；生产零调用者接线待 R56**。
+结论：**AOI-5 整体维持 PARTIAL；仅子项“无回收原语”已 CLOSED；生产零调用者接线待 R57+**。
 `despawn_npc` 原语保留，唯一调用者是 `crates/mir-server/tests/round55_npc_recycle.rs`
 （`:141`、`:198`、`:208`、`:222`、`:230`），生产代码 0 调用。
 

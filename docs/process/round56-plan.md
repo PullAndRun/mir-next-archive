@@ -42,7 +42,7 @@
   1. `grep -rn "\.despawn_npc(" crates/` → 仅 `tests/round55_npc_recycle.rs`，生产 0 命中。
   2. `grep -rn "fn unload\|fn remove_map\|fn despawn_npc" crates/mir-server/src/` → 无 `unload`/`remove_map`，`despawn_npc` 仅定义。
   3. `grep -rn "RemoveObject(" github/Crystal/Server | grep -c NPCObject` → **0**；总数记录为 26（不写 10）。
-- 证据：`target/round56/aoi/attempt-1/10-wiring-greps.log`；文档落点见 G3。
+- 证据：`target/round56/docs/attempt-1/00-evidence-greps.log`（原文（R56）：`target/round56/aoi/attempt-1/10-wiring-greps.log`；原路径未落盘，按实际证据路径勘误）；文档落点见 G3。
 - 失败判定：出现生产调用点或地图卸载路径 → G2 FAIL，方案退回。
 
 ### G3（文档同步，不预判）

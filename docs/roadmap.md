@@ -140,4 +140,14 @@ R50 独立商城已交付；R51 已 **Done / PASS-WITH-PARTIAL**，已交付 Bli
 > [`docs/testing/round49/wip-freeze.json`](testing/round49/wip-freeze.json)；刑部审计
 > 结论与 BLOCK 项见 [`docs/testing/round49/round49-xingbu-wip-audit.md`](testing/round49/round49-xingbu-wip-audit.md)。
 
-> 第 55 轮（R55）maps 基线脚注：`cargo test -p mir-server --test maps` 共 **20 例**，其中 **16 例有效**、**4 例需 `MIR2_DEV_DB_PATH`**（`real_database_*`，缺省路径早退 skip，不计 PASS）；该脚注只登记现状，判定以刑部 T 签发为准。
+> 第 55 轮（R55）maps 基线脚注：`cargo test -p mir-server --test maps` 共 **20 例**，其中 **16 例有效**、**4 例需 `MIR2_DEV_DB_PATH`**（`real_database_*`，缺省路径早退 skip，不计入有效数）；**口径：条件 PASS（需 `MIR2_DEV_DB_PATH`）**；该脚注只登记现状，判定以刑部 T 签发为准。
+
+---
+
+## 七、第 57 轮（R57）状态（在途）
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| FireBounce 服务端生产者 | 代码批在途 | G1/G2 由 A 批实现，证据 `target/round57/firebounce/attempt-N/`；未过门禁前不作判定 |
+| 文档承接（R56 遗留） | 已落盘，待 T 抽核 | 支持矩阵、aoi 接线时点、R56 证据路径勘误、R52 行口径、R56 受测 HEAD 双标注；见 [R57 索引](testing/round57/README.md) |
+| 客户端 125 渲染 | PARTIAL | 服务端生产者不等于客户端闭环；125 弹射的 410/570 原生表现未做，不得表述为闭环 |

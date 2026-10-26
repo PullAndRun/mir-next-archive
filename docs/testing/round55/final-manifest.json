@@ -1,0 +1,345 @@
+{
+  "round": "R55",
+  "kind": "final-manifest",
+  "auditor": "xingbu-independent-final (gpt-6.1-sol, read-only)",
+  "sub_order": "JJC-20261025-005-sub-1ea152c0",
+  "audited_at": "2026-10-26T12:16:00+08:00/2026-10-26T12:34:00+08:00",
+  "verdict": "PASS-WITH-PARTIAL",
+  "sub_verdicts": {
+    "gate_authenticity": "PASS",
+    "commit_tree_binding": "PASS",
+    "G1_docs_errata": "PASS",
+    "G2_maps_realdata": "CONDITIONAL_PASS",
+    "G3_npc_recycle": "SUBITEM_CLOSED_AOI5_OVERALL_PARTIAL",
+    "caliber_consistency": "PASS",
+    "false_green_hygiene": "PASS",
+    "blocking_must_fix": 0
+  },
+  "head": {
+    "sha": "d9ea92e1cab2e830389a82fe1f83faf4e846102e",
+    "equals_origin_main": true,
+    "pushed": true,
+    "worktree_dirty": [
+      "docs/testing/monster-native/player-resource-freeze-before.json",
+      "docs/testing/monster-native/player-resource-freeze.json"
+    ],
+    "worktree_dirty_note": "两份历史大冻结 JSON 仍未跟踪（排除项），未入库：git ls-tree -r HEAD 中 0 命中"
+  },
+  "commits": [
+    {
+      "sha": "4d672cc",
+      "subject": "docs(process): R55 方案、门下评审与尚书派发（第55轮）",
+      "files": [
+        "docs/process/round55-menxia-review.md",
+        "docs/process/round55-plan.md",
+        "docs/process/round55-shangshu-dispatch.md"
+      ],
+      "diffstat": "3 files changed, 227 insertions(+)"
+    },
+    {
+      "sha": "6e1771c",
+      "subject": "feat(server): R55-B/C maps 真实数据用例与 NPC 回收原语（第55轮）",
+      "files": [
+        "crates/mir-server/src/npc.rs",
+        "crates/mir-server/tests/maps.rs",
+        "crates/mir-server/tests/round55_npc_recycle.rs"
+      ],
+      "diffstat": "3 files changed, 354 insertions(+), 6 deletions(-)"
+    },
+    {
+      "sha": "d9ea92e",
+      "subject": "docs: R55-A R54 勘误与第55轮证据索引（第55轮）",
+      "files": [
+        "docs/process/round54-plan.md",
+        "docs/roadmap.md",
+        "docs/testing/round55/README.md"
+      ],
+      "diffstat": "3 files changed, 54 insertions(+), 2 deletions(-)"
+    }
+  ],
+  "commit_boundaries_disjoint": true,
+  "gate": {
+    "attempt": 1,
+    "executor": "Lead (single execution)",
+    "command": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale",
+    "head": "d9ea92e1cab2e830389a82fe1f83faf4e846102e",
+    "raw_exit_code": 0,
+    "items_total": 12,
+    "items_passed": 12,
+    "last_line": "==> 全部通过（12 项）",
+    "log_path": "target/round55/gate/attempt-1.log",
+    "log_bytes": 194592,
+    "log_sha256": "43e7baaddab322275293ca2963f848c8969a42bdd2cb82aa0babdde25c2bdb9b",
+    "meta_path": "target/round55/gate/attempt-1.meta.txt",
+    "meta_bytes": 194,
+    "start_utc": "2026-10-26T04:06:40Z (derived: sum of per-item durations 280 s before meta finish)",
+    "start_note": "log 无起始戳；meta 仅 2026-10-26T04:11:20Z（完成），起始为反推值，已标注推算",
+    "finish_utc": "2026-10-26T04:11:20Z",
+    "round55_unique_markers_in_log": {
+      "round55_npc_recycle": 1,
+      "aoi_acceptance_lines": 10,
+      "maps_real_cases": [
+        "real_database_has_movement_points_that_resolve_to_maps",
+        "real_map_files_load_and_change_map_moves_between_them",
+        "bichon_has_a_walkable_movement_point_near_the_plaza",
+        "player_can_walk_from_the_plaza_into_a_natural_teleport_point"
+      ]
+    },
+    "db_url_masked": true,
+    "db_url_form": "postgres://postgres:***@nas:3001/mir[2_test]",
+    "not_a_stale_or_first_red_log": true
+  },
+  "tree_hashes_verified": {
+    "expected": 9,
+    "matched": 9,
+    "method": "git show d9ea92e:<path> | sha256sum vs target/round55/commit-verify/01-tree-hashes.txt",
+    "files": [
+      {"path": "docs/process/round55-plan.md", "bytes": 12597, "sha256": "07dd7d75d12a3f0ba77b0c74aadf9d3bbe56340e3eacbeb4d785a26ab52419be", "match": true},
+      {"path": "docs/process/round55-menxia-review.md", "bytes": 8788, "sha256": "2baa3886268601cd8a05fff092662aa7ed9d24f6b5a5a447f3ee26a0914b692e", "match": true},
+      {"path": "docs/process/round55-shangshu-dispatch.md", "bytes": 10697, "sha256": "535a9adb72685b3dc9af0480db901f87332970143baf4e08eb85e3046300046a", "match": true},
+      {"path": "docs/process/round54-plan.md", "bytes": 16400, "sha256": "1b781cf1ffb11139a34f667d64c6214c3b7eeaa9f0db0fc57a6442504135d8ac", "match": true},
+      {"path": "docs/roadmap.md", "bytes": 21401, "sha256": "e4dd57747816674938d36fe52f89addf2cd26bce6bfbfd74851b3da80d996e3f", "match": true},
+      {"path": "docs/testing/round55/README.md", "bytes": 4195, "sha256": "292932697523321c338fdc859f710d0b26397bf2de882cbfd8272b5a9d4f1df0", "match": true},
+      {"path": "crates/mir-server/tests/maps.rs", "bytes": 51986, "sha256": "9f86a8cc36ba5bd216e7f3761a5a909a4590a0088e5f4f3e1bcb4da150214366", "match": true},
+      {"path": "crates/mir-server/src/npc.rs", "bytes": 129013, "sha256": "f4ee16fe99a61020b059f6d9d1e57c1c1ed2e32087d8c46aa967eb4095d849be", "match": true},
+      {"path": "crates/mir-server/tests/round55_npc_recycle.rs", "bytes": 8057, "sha256": "758379fc7e240c682b6c7d76213fcf3ba9a5892415edc88289630fa80030e088", "match": true}
+    ],
+    "tree_hygiene": {
+      "target/ entries in HEAD": 0,
+      "player-resource-freeze json in HEAD": 0,
+      "git diff --check": "exit 0"
+    }
+  },
+  "g1_docs_errata": {
+    "verdict": "PASS",
+    "round54_plan": {
+      "path": "docs/process/round54-plan.md",
+      "same_line_errata_at": [44, 103],
+      "prefix": "> 原文（R54）：",
+      "grep_occurrences": 2,
+      "grep1_lines": 1,
+      "grep2_hits_after_excluding_原文": 0
+    },
+    "round55_readme": {
+      "path": "docs/testing/round55/README.md",
+      "lines": 50,
+      "bytes": 4195,
+      "sha256": "292932697523321c338fdc859f710d0b26397bf2de882cbfd8272b5a9d4f1df0",
+      "prewrites_G2_G3": false,
+      "M1_same_text_at_line": 35,
+      "positive_claims_absent": ["AOI-5 已关闭", "R55 完整", "AOI 全量"]
+    },
+    "check_links": {"lines": 1705, "exit": 0, "log": "target/round55/docs/attempt-1/05-check-links.raw.log"}
+  },
+  "g2_maps": {
+    "verdict": "CONDITIONAL_PASS",
+    "changed_file": "crates/mir-server/tests/maps.rs",
+    "diffstat": "+47/-6",
+    "change_surface": [
+      "helper load_real_game_data() at crates/mir-server/tests/maps.rs:43-75",
+      "import MirDbError",
+      "4 call sites: GameData::discover() -> load_real_game_data()"
+    ],
+    "skip_early_returns_untouched": 4,
+    "list": {"tests": 20, "benchmarks": 0, "exit": 0},
+    "with_env": {
+      "env_name": "MIR2_DEV_DB_PATH",
+      "env_value": "resource/community/suprcode-crystal-database/cjlaaa/Server.MirDB",
+      "exact_4_names": {"passed": 4, "failed": 0, "filtered_out": 16, "skip_lines": 0, "exit": 0},
+      "contract_filter_real_database_note": "契约命令 real_database_ 只匹配 4 名中第 1 名；B 已登记并在 [B] 段用 4 名 multi-filter 补跑"
+    },
+    "without_env": {"passed": 20, "failed": 0, "skip_lines": 4, "exit": 0},
+    "ci_default_boundary": "CI 默认（无 env）仍为 20 例中 16 例有效 + 4 例 skip，不得当成 CI 已覆盖真实数据",
+    "thresholds_unchanged": true,
+    "observed_values": {"camap_3_movements": 74, "bichon_movements": 70, "bichon_walk_cells": 18, "walk_steps": 36}
+  },
+  "g3_npc": {
+    "verdict": "SUBITEM_CLOSED_AOI5_OVERALL_PARTIAL",
+    "despawn_npc": {
+      "path": "crates/mir-server/src/npc.rs:811",
+      "signature": "pub fn despawn_npc(&mut self, object_id: u32) -> Option<Npc>",
+      "crystal_mirror": "github/Crystal/Server/MirEnvir/Map.cs:2375-2383",
+      "elements": {
+        "container_remove": "self.npcs.retain(|npc| npc.object_id != object_id) <- Map.cs:2378 NPCs.Remove((NPCObject)ob)",
+        "aoi_remove": "self.aoi_remove(&npc.map, AoiKind::Npc, object_id) <- Map.cs:2382 GetCell(ob.CurrentLocation).Remove(ob)",
+        "broadcast": "object_remove_frame(id) to all players in VIEW_RANGE of npc.position (Map.cs:2437-2448 Broadcast, no seen-filter)",
+        "relation_cleanup": "player.visible_npcs.remove(&object_id); player.npc.close() when npc_object_id == id"
+      },
+      "order_difference": "Crystal 容器(:2378) 先于格(:2382)；本作 aoi_remove 先、retain 后（相反），两容器互不依赖且包在两者前已发 -> 无可观测差异，不要求改",
+      "production_callers": 0,
+      "test_callers": ["crates/mir-server/tests/round55_npc_recycle.rs"]
+    },
+    "new_test": {
+      "path": "crates/mir-server/tests/round55_npc_recycle.rs",
+      "lines": 241,
+      "bytes": 8057,
+      "sha256": "758379fc7e240c682b6c7d76213fcf3ba9a5892415edc88289630fa80030e088",
+      "test_fns": ["despawn_npc_recycles_once_and_clears_relations"],
+      "assert_sites": 27,
+      "assertion_groups": 6,
+      "real_assertions_only": true,
+      "production_spawn_path": "World::spawn_npcs",
+      "manual_container_delete": false,
+      "new_allow_attributes": 0
+    },
+    "registered_test_only_entry": {
+      "path": "crates/mir-server/src/npc.rs:675-683",
+      "signature_at_line": 681,
+      "signature": "pub fn npc_ids_near(&self, map: &str, center: Point, radius: i32) -> Vec<u32>",
+      "status": "R55 新增测试观测入口、生产零调用",
+      "only_user": "crates/mir-server/tests/round55_npc_recycle.rs",
+      "candidate_review_must_fix": 3,
+      "followup_hint": "可考虑 #[doc(hidden)] / #[cfg(test)] 收敛，R55 不改"
+    },
+    "crystal_runtime_callers": {
+      "grep": "grep -rn \"RemoveObject(\" github/Crystal/Server",
+      "hits_total": 26,
+      "hits_passing_NPCObject": 0,
+      "envir_remove_npcinfo_callers": 0,
+      "conclusion": "Crystal 运行时 NPC 回收无调用者 -> AOI-5 整体 PARTIAL，生产接线待 R56"
+    },
+    "world_rs_diff": "empty"
+  },
+  "evidence_index": {
+    "A_docs": {
+      "dir": "target/round55/docs/attempt-1/",
+      "files": ["00-summary.md", "01-check-links.log", "02-git-diff-check.log", "03-grep-raw.log", "04-grep-no-original.log", "05-check-links.raw.log", "05-readme-status.log", "05-run.sh", "files.json"],
+      "files_json_head": "67c618cbb589f353e0fba5b2220dae45712fb4da"
+    },
+    "B_maps": {
+      "dir": "target/round55/maps/attempt-1/",
+      "files": ["00-summary.md", "evidence.json", "lint.log", "list.log", "meta.json", "with-env.log", "without-env.log"],
+      "meta_head": "67c618cbb589f353e0fba5b2220dae45712fb4da"
+    },
+    "C_npc": {
+      "dir": "target/round55/npc/attempt-1/",
+      "files": ["00-summary.md", "01-list.log", "02-run.log", "03-aoi.log", "03b-aoi-rerun.log", "04-aoi-lib.log", "05-fmt-clippy.log", "06b-aoi-single-runs.log", "files.json", "meta.json"],
+      "meta_head": "67c618cbb589f353e0fba5b2220dae45712fb4da"
+    },
+    "candidate_review": {
+      "path": "target/round55/candidate-review/review.md",
+      "verify_log": "target/round55/candidate-review/verify.log",
+      "verdict": "PASS-WITH-CHANGES",
+      "blocking": 0,
+      "must_fix_nonblocking": [
+        {"id": 1, "item": "docs/testing/round55/README.md:14-15 状态列", "status": "FIXED_BY_A", "evidence": "target/round55/docs/attempt-1/05-readme-status.log"},
+        {"id": 2, "item": "提交卫生（逐文件 staging、排除 45MB JSON 与 target/）", "status": "ACHIEVED", "evidence": "git ls-tree -r HEAD"},
+        {"id": 3, "item": "npc.rs:675-683 npc_ids_near 登记", "status": "DONE_IN_THIS_AUDIT", "evidence": "docs/testing/round55/round55-final-audit.md#E.5"}
+      ]
+    },
+    "lead_aoi_flake": {
+      "dir": "target/round55/lead-aoi-flake/",
+      "file": "repeated-runs.log",
+      "runs": 5,
+      "all": "13 passed; 0 failed"
+    },
+    "commit_verify": {
+      "path": "target/round55/commit-verify/01-tree-hashes.txt",
+      "entries": 9
+    },
+    "sha_spot_checks": 18
+  },
+  "known_flaky": {
+    "test": "aoi_acceptance_recycle_all_kinds",
+    "location": "crates/mir-server/tests/aoi.rs:1201",
+    "first_run_red": "target/round55/npc/attempt-1/03-aoi.log (12 passed; 1 failed)",
+    "lead_5_runs": "13/13 x5 green",
+    "candidate_reviewer_independent": "13/13 green",
+    "c_npc_single_test_5_runs": "1 passed x5",
+    "classification": "preexisting flaky, no causal link to R55 changes",
+    "handled": "recorded honestly, assertions not relaxed/modified"
+  },
+  "partials": [
+    {"id": "P1", "item": "G2 maps 条件 PASS：CI 默认仍 16 有效 / 4 需 MIR2_DEV_DB_PATH", "carry_to": "R56"},
+    {"id": "P2", "item": "AOI-5 整体 PARTIAL（仅子项「无回收原语」CLOSED）", "carry_to": "R56"},
+    {"id": "P3", "item": "despawn_npc 生产零调用者，接线待 R56", "carry_to": "R56"},
+    {"id": "P4", "item": "aoi_acceptance_recycle_all_kinds 既有 flaky", "carry_to": "pre-existing test surface"},
+    {"id": "P5", "item": "R52 承接：R52-1 125 ObjectProjectile 无生产者 / R52-2 真 socket+客户端窗口 / R52-3 原生 dash+Walking 借帧", "carry_to": "R56（D 顺延）"},
+    {"id": "P6", "item": "R53 十九项：R54 关闭 6、承接 13（docs/testing/round54/round54-carryover.md）", "carry_to": "rolling"}
+  ],
+  "partial_count": 6,
+  "not_doing_list": [
+    "D（125 真生产者 / 原生 dash 帧）顺延 R56"
+  ],
+  "non_blocking_anomalies": [
+    {
+      "id": "N1",
+      "title": "派发件报称值 vs 提交值不一致（已解释，内容完整性成立）",
+      "reported": {"bytes": 10787, "sha256": "9bafcf7e4576aab90301a2d7c3c1522b0b5b3b634a209514f78a69135c402da4", "view": "working tree (CRLF)"},
+      "committed": {"bytes": 10697, "sha256": "535a9adb72685b3dc9af0480db901f87332970143baf4e08eb85e3046300046a", "view": "git blob (LF)"},
+      "delta_bytes": 90,
+      "explanation": "core.autocrlf=true：90 行 × 1 B CRLF。sed 's/\\r$//' | sha256sum == 提交 sha；git diff --quiet d9ea92e -- <file> 为空",
+      "content_integrity": "90 行 / M1 三处同文 完整",
+      "impact": "不据此否定派发"
+    },
+    {
+      "id": "N2",
+      "title": "A 证据 check_links 1701 vs 当前树 1705",
+      "explanation": "A 写完 README 后新增 4 条链接，时序正常",
+      "impact": "以当前树 1705 exit 0 为准"
+    },
+    {
+      "id": "N3",
+      "title": "门禁 meta 仅 1 个时间戳（无起始戳）",
+      "explanation": "起始按 12 项耗时合计 280 s 反推 ≈04:06:40Z",
+      "impact": "推算值已在报告中标注"
+    },
+    {
+      "id": "N4",
+      "title": "M2 实测更正：计划事实 10 声称 10 命中，实际 26",
+      "explanation": "grep -rn \"RemoveObject(\" github/Crystal/Server = 26；传 NPCObject 的 = 0，结论方向不变",
+      "impact": "数字按 26 记"
+    }
+  ],
+  "caliber": {
+    "M1_same_text_three_places": [
+      "docs/process/round55-shangshu-dispatch.md:21/:60/:72",
+      "docs/testing/round55/README.md:35",
+      "docs/testing/round55/round55-final-audit.md §0/§E"
+    ],
+    "m1_text": "AOI-5 整体 PARTIAL、仅子项「无回收原语」CLOSED、生产零调用者接线待 R56",
+    "positive_claims_present": false,
+    "forbidden_phrases": ["AOI-5 已关闭", "R55 完整", "AOI 全量"]
+  },
+  "hygiene": {
+    "i18n_hardcoded": {"cmd": "py -3 tools/i18n/scan_hardcoded.py --no-test --player-visible --strict --fail-above 0", "hits": 0, "files_scanned": 33, "exit": 0},
+    "i18n_text_keys": {"cmd": "py -3 tools/i18n/verify_text_keys.py", "text_keys": 243, "missing": 0, "orphans": 0, "exit": 0},
+    "assertions_english": true,
+    "new_allow_attributes": 0,
+    "zero_test_pass_impostor": false,
+    "skip_as_pass": false,
+    "git_diff_check": "exit 0"
+  },
+  "reproduce_commands": [
+    "wc -c target/round55/gate/attempt-1.log && sha256sum target/round55/gate/attempt-1.log",
+    "cat target/round55/gate/attempt-1.meta.txt",
+    "while read -r p sz sha; do a=$(git show d9ea92e:\"$p\" | sha256sum | cut -d' ' -f1); [ \"$a\" = \"$sha\" ] && echo \"MATCH $p\" || echo \"MISMATCH $p\"; done < target/round55/commit-verify/01-tree-hashes.txt",
+    "git ls-tree -r HEAD --name-only | grep -c '^target/'",
+    "git diff --check",
+    "grep -n \"原文（R54）\" docs/process/round54-plan.md",
+    "py -3 tools/docs/check_links.py",
+    "cargo test -p mir-server --test maps -- --list",
+    "MIR2_DEV_DB_PATH='resource/community/suprcode-crystal-database/cjlaaa/Server.MirDB' cargo test -p mir-server --test maps real_database_has_movement_points_that_resolve_to_maps bichon_has_a_walkable_movement_point_near_the_plaza real_map_files_load_and_change_map_moves_between_them player_can_walk_from_the_plaza_into_a_natural_teleport_point -- --nocapture",
+    "cargo test -p mir-server --test maps -- --nocapture",
+    "cargo test -p mir-server --test round55_npc_recycle -- --nocapture",
+    "sed -n '2375,2383p' github/Crystal/Server/MirEnvir/Map.cs",
+    "grep -rn \"RemoveObject(\" github/Crystal/Server | wc -l",
+    "grep -rn \"RemoveObject(\" github/Crystal/Server | grep -c NPCObject",
+    "grep -rn \"npc_ids_near\" crates/ | wc -l",
+    "py -3 tools/i18n/scan_hardcoded.py --no-test --player-visible --strict --fail-above 0",
+    "py -3 tools/i18n/verify_text_keys.py"
+  ],
+  "products": {
+    "manifest": "docs/testing/round55/final-manifest.json",
+    "audit_report": "docs/testing/round55/round55-final-audit.md",
+    "summary_log": "target/round55/audit/summary.log"
+  },
+  "constraints_respected": {
+    "read_only": true,
+    "ran_ci_ps1": false,
+    "committed": false,
+    "pushed": false,
+    "modified_code_or_docs": false,
+    "wrote_only_three_products": true
+  }
+}

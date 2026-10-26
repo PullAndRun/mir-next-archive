@@ -21,7 +21,7 @@
     "tests_insertions": 541,
     "tests_deletions": 32
   },
-  "publication": "functional HEAD 1fcf4fc (gated 12/12); docs commits 5abdcd3/0a44ace; S1 evidence-consistency fix applied; shangshu re-verification pending; push pending final governance close",
+  "publication": "functional HEAD 1fcf4fc (gated 12/12); docs commits 5abdcd3/0a44ace/9453e32; S1 evidence-consistency (tree-hashes + manifest snapshot) and S2 stage wording fixed; shangshu re-verification pending; push pending final governance close",
   "gate": {
     "attempt": 1,
     "head": "1fcf4fc",
@@ -174,13 +174,13 @@
     {
       "role": "readme",
       "path": "docs/testing/round63/README.md",
-      "size": 7900,
-      "sha256": "223e3e2f5b18494c37435ff647aa0b984510a1770fc6f8b4e4a24abe04eaa977",
+      "size": 8060,
+      "sha256": "cae217cadcd0d9518bdfb36d72b8f013a3f8246ce265117034d41340f82dd426",
       "tracked": false,
       "git_blob": null,
       "source": "worktree",
       "lines": 87,
-      "hash_basis": "current worktree snapshot after S1 fix"
+      "hash_basis": "current worktree snapshot after S1/S2 fixes"
     },
     {
       "role": "run-checks",
@@ -205,7 +205,7 @@
       "role": "commit-tree-hashes",
       "path": "docs/testing/round63/commit-tree-hashes.txt",
       "size": 1311,
-      "sha256": "f1a7b7f9b35a2428c4fc9e8af3d93b0dc39cc2675bbd8c2b5642379fc91c9de7",
+      "sha256": "86f6c559df6c305579da31713269b080947f4bb29ab67bebaebaed24000067cf",
       "tracked": false,
       "git_blob": null,
       "source": "worktree",
@@ -369,7 +369,7 @@
     {
       "id": "P6",
       "status": "PARTIAL",
-      "detail": "R63 整体 PARTIAL；终审（D4 后）、尚书验收、门下确认未进行，禁写正面合格结论"
+      "detail": "R63 整体 PARTIAL；刑部终审已完成 PASS-WITH-PARTIAL；尚书验收 attempt-1 BLOCK 后 S1 已修正待复验；门下确认未完成，禁写正面合格结论"
     }
   ],
   "deviations": [

@@ -84,4 +84,4 @@ py -3 -c "import json;json.load(open('docs/testing/round63/final-manifest.json',
 bash docs/testing/round63/gen-tree-hashes.sh
 ```
 
-- D 脚本实跑记录：`target/round63/d/attempt-1/summary.tsv`（16 项，计数见该清单）。待办：① 终审（刑部 D4 之后）；② 尚书验收；③ 门下确认；④ Lead 决定 push。以上未完成前不得预写整体结论。
+- D 脚本实跑记录：`target/round63/d/attempt-1/summary.tsv`（16 项，计数见该清单）。当前阶段：① 刑部终审已完成 PASS-WITH-PARTIAL（[round63-final-audit.md](round63-final-audit.md)）；② 尚书验收 attempt-1 曾 BLOCK（S1 证据一致性），S1 已修正、待复验定稿；③ 门下确认待办；④ Lead push 待收口。复验通过前不得预写整体合格结论。

@@ -55,6 +55,7 @@ pub mod market;
 pub mod minimap;
 pub mod newbie;
 pub mod notice;
+pub mod projectile;
 pub mod quest_nav;
 pub mod quests;
 pub mod reconnect;
@@ -1109,6 +1110,8 @@ pub struct UiState {
     pub damage_numbers: Vec<worldtext::DamageNumber>,
     /// 正在播放的短光效（`S.ObjectEffect`）。
     pub effects: Vec<buffs::ActiveEffect>,
+    /// 正在飞的投射物（`S.ObjectProjectile`(125) 的 `FireBounce`，见 [`projectile`]）。
+    pub projectiles: projectile::Projectiles,
     /// 已消费到的伤害事件编号。
     pub last_damage_id: u64,
     /// 已消费到的光效事件编号。
@@ -1233,6 +1236,7 @@ impl UiState {
             time_millis: 0,
             damage_numbers: Vec::new(),
             effects: Vec::new(),
+            projectiles: projectile::Projectiles::default(),
             last_damage_id: 0,
             last_effect_id: 0,
             icons: HashMap::new(),
@@ -1255,6 +1259,12 @@ impl UiState {
     /// 写入客户端时钟（窗口模式每帧调用；测试可直接写任意时刻）。
     pub fn set_time(&mut self, now_millis: i64) {
         self.time_millis = now_millis;
+    }
+
+    /// 正在飞的投射物（G1/G2 只读断言入口：`events_consumed`/`views`/`len`）。
+    #[must_use]
+    pub fn projectiles(&self) -> &projectile::Projectiles {
+        &self.projectiles
     }
 
     /// 跟随快照更新对话/商店/选中项，并消费新的伤害/光效事件。
@@ -1549,6 +1559,9 @@ impl UiState {
             self.approach = None;
         }
         self.collect_world_events(snapshot);
+        // 投射物（`S.ObjectProjectile`(125)）：按游标消费新增事件并推进飞行帧号。
+        // 快照会整体克隆且事件表累计，所以不能 `mem::take`/clone（见 [`projectile`]）。
+        self.projectiles.sync(snapshot, self.time_millis);
         self.prune_world_events();
         self.clamp_shop_scroll(snapshot);
     }
@@ -4262,6 +4275,11 @@ pub fn draw(
         center,
         state.time_millis,
     );
+    // 投射物飞行与命中：`S.ObjectProjectile`(125) 的 FireBounce，`magic.wzl`
+    // 410..=565 飞行帧 + 到达后 570..=579 命中帧（Crystal `GameScene.cs:4699/4708`）。
+    state
+        .projectiles
+        .draw(frame, scene, center, state.time_millis);
     let context = PanelContext {
         snapshot,
         text,

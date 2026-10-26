@@ -5,7 +5,8 @@
 //! 1. 定义客户端会用到的音效事件（[`SoundId`]）；
 //! 2. 把事件翻译成 Crystal 真实使用的 WAV 文件名（[`sound_for_event`]）；
 //! 3. 把技能号翻译成 Crystal 的施法音文件名（[`spell_sound`]）；
-//! 4. 把服务器 `MapInfo.Music` 编号/地图名翻译成背景音乐文件
+//! 4. 把投射物技能翻译成出生/命中音文件名（[`projectile_sound`]，见下）；
+//! 5. 把服务器 `MapInfo.Music` 编号/地图名翻译成背景音乐文件
 //!    （[`music_for_index`] / [`music_for_map`]，见下）。
 //!
 //! # 文件名是怎么来的
@@ -224,6 +225,61 @@ pub fn spell_sound(spell: Spell) -> Option<String> {
     Some(format!("M{index}-0.wav"))
 }
 
+/// 投射物音效的基准技能号：`Spell.GreatFireBall = 34`（`Shared/Enums.cs:1168`）。
+///
+/// 125 包（`S.ObjectProjectile`）的 `Spell` 字段是 **154 的 `FireBounce`**
+/// （`Shared/Enums.cs:1264`），但 Crystal `GameScene.cs:4697` 播的出生音写的是
+/// `20000 + (ushort)Spell.GreatFireBall * 10 + 1`——**用 34 当基准**，所以文件名是
+/// `M34-1.wav`（出生）与 `M34-2.wav`（命中，`:4709` 的 `+ 2`），不是 `M154-…`。
+pub const PROJECTILE_SOUND_BASE: u32 = 34;
+/// 投射物出生音效编号：`20000 + 34 × 10 + 1 = 20341`（`GameScene.cs:4697`）。
+pub const PROJECTILE_SOUND_SPAWN_INDEX: u32 = 20_000 + PROJECTILE_SOUND_BASE * 10 + 1;
+/// 投射物命中音效编号：`20000 + 34 × 10 + 2 = 20342`（`GameScene.cs:4709` 的 `+ 2`）。
+pub const PROJECTILE_SOUND_HIT_INDEX: u32 = 20_000 + PROJECTILE_SOUND_BASE * 10 + 2;
+
+/// 投射物音效的播放时机。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ProjectileSoundPhase {
+    /// 出生：`GameScene.cs:4697` 的 `+ 1`（`M34-1.wav`）。
+    Spawn,
+    /// 命中：`GameScene.cs:4709` 的 `+ 2`（`M34-2.wav`）。
+    Hit,
+}
+
+impl ProjectileSoundPhase {
+    /// 该时机的音效编号（20341 / 20342，见 [`PROJECTILE_SOUND_SPAWN_INDEX`]）。
+    #[must_use]
+    pub const fn index(self) -> u32 {
+        match self {
+            Self::Spawn => PROJECTILE_SOUND_SPAWN_INDEX,
+            Self::Hit => PROJECTILE_SOUND_HIT_INDEX,
+        }
+    }
+
+    /// 该时机的文件名：出生 `M34-1.wav`、命中 `M34-2.wav`（`GameScene.cs:4697/4709`）。
+    #[must_use]
+    pub const fn file(self) -> &'static str {
+        match self {
+            Self::Spawn => "M34-1.wav",
+            Self::Hit => "M34-2.wav",
+        }
+    }
+}
+
+/// 投射物技能 → 出生/命中音文件名。
+///
+/// Crystal 的投射物表现目前只有 `Spell.FireBounce` 一档（`GameScene.cs:4693` 的
+/// `switch` 无 `default`）：它的出生/命中音按 [`PROJECTILE_SOUND_BASE`] 的
+/// `GreatFireBall = 34` 算，所以 `FireBounce(154)` 映射到 `M34-1.wav` / `M34-2.wav`。
+/// 其它技能没有投射物音效，返回 `None`。
+#[must_use]
+pub const fn projectile_sound(spell: Spell, phase: ProjectileSoundPhase) -> Option<&'static str> {
+    match spell {
+        Spell::FireBounce => Some(phase.file()),
+        _ => None,
+    }
+}
+
 /// 背景音乐编号 → 文件名表。
 ///
 /// Crystal 的 `SoundList.lst` 在 `;Music` 段（`resource/community/gqf2008-crystal/Sound/SoundList.lst:583`）
@@ -407,6 +463,53 @@ mod tests {
                 Some(index_to_fallback_name(index).as_str())
             );
         }
+    }
+
+    #[test]
+    fn projectile_sound_uses_great_fire_ball_base_m34() {
+        // 基准是 GreatFireBall = 34（Shared/Enums.cs:1168），不是 FireBounce = 154
+        // （:1264）；GameScene.cs:4697 / :4709 的 +1 / +2 拼出 M34-1 / M34-2。
+        assert_eq!(PROJECTILE_SOUND_BASE, 34);
+        assert_eq!(Spell::GreatFireBall as u32, PROJECTILE_SOUND_BASE);
+        assert_eq!(Spell::FireBounce as u32, 154);
+        assert_eq!(
+            projectile_sound(Spell::FireBounce, ProjectileSoundPhase::Spawn),
+            Some("M34-1.wav")
+        );
+        assert_eq!(
+            projectile_sound(Spell::FireBounce, ProjectileSoundPhase::Hit),
+            Some("M34-2.wav")
+        );
+        assert_eq!(ProjectileSoundPhase::Spawn.file(), "M34-1.wav");
+        assert_eq!(ProjectileSoundPhase::Hit.file(), "M34-2.wav");
+        // 编号必须是 20000 + 34 * 10 + 1 / + 2，且与 SoundManager 的兜底公式一致。
+        assert_eq!(PROJECTILE_SOUND_SPAWN_INDEX, 20_341);
+        assert_eq!(PROJECTILE_SOUND_HIT_INDEX, 20_342);
+        assert_eq!(ProjectileSoundPhase::Spawn.index(), 20_341);
+        assert_eq!(ProjectileSoundPhase::Hit.index(), 20_342);
+        assert_eq!(
+            index_to_fallback_name(PROJECTILE_SOUND_SPAWN_INDEX),
+            "M34-1.wav"
+        );
+        assert_eq!(
+            index_to_fallback_name(PROJECTILE_SOUND_HIT_INDEX),
+            "M34-2.wav"
+        );
+        // 不得用 FireBounce = 154 直接拼音效编号（那会得到 M154-1/M154-2）。
+        assert_eq!(index_to_fallback_name(20_000 + 154 * 10 + 1), "M154-1.wav");
+        assert_ne!(
+            projectile_sound(Spell::FireBounce, ProjectileSoundPhase::Spawn),
+            Some("M154-1.wav")
+        );
+        // 其它技能没有投射物音效。
+        assert_eq!(
+            projectile_sound(Spell::FireBall, ProjectileSoundPhase::Hit),
+            None
+        );
+        assert_eq!(
+            projectile_sound(Spell::None, ProjectileSoundPhase::Spawn),
+            None
+        );
     }
 
     #[test]

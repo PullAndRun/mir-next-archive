@@ -321,7 +321,10 @@ MOUNT_FRAMES = union_sequences(
 )
 # 特效帧段（`crates/mir-render/src/entities.rs` FxKind + `mir-client/src/ui/spellfx.rs`）。
 EFFECT_FRAMES = list(range(0, 3))          # effect.wzl：挥砍 3 帧
-MAGIC_FRAMES = list(range(0, 10))          # magic.wzl：技能命中 10 帧
+# magic.wzl：Crystal `Effect.cs:196` 的 `index = 410 + f % 6 + dir * 10` —— 16 方向 × 6 帧
+# （410-415 / 420-425 / … / 560-565），加固定段 570-579。**不能写成 `range(410, 566)`**：
+# 416-419、566-569 是 0×0 空帧（wzx 指向 wzl 偏移 48 的全零记录），带进来会拆出 0×0 PNG 并误计 missing。
+MAGIC_FRAMES = [i for d in range(16) for i in range(410 + d * 10, 416 + d * 10)] + list(range(570, 580))
 MAGIC2_FRAMES = list(range(0, 3)) + list(range(20, 30))  # magic2.wzl：挥砍 3 + 雷电束 10
 
 

@@ -26,6 +26,16 @@
 //! `mir-server/src/world.rs:2428-2449` 的 `broadcast` 注释），如果哪天服务器改成
 //! 回发，两次调用相隔几毫秒，第二次会被冷却挡掉。
 //!
+//! # 125 投射物音效（绕过频控）
+//!
+//! 投射物出生/命中音（`M34-1.wav`/`M34-2.wav`）走 [`SoundPlayer::play_projectile_cue`]：
+//! **每次 cue 都提交**，不看也不写 [`SoundPlayer::play`] 的 100 ms 频控表。依据是
+//! Crystal `Client/MirSounds/SoundManager.cs:94-105` 的 `PlaySound` 对每次播放都新建
+//! `OneShotProvider` 塞进 mixer，同一文件在同一时刻播 2 次就真的叠 2 条 source，没有
+//! 同文件 100 ms 限流；125 的同一帧也可能出现同一文件的多个投射物。普通音效
+//! （`play`/`play_event`/`play_spell`）继续保留本作自己的 100 ms 频控，两套策略互不
+//! 污染（125 不刷新普通冷却，普通冷却也不会吞掉 125）。
+//!
 //! # 素材目录
 //!
 //! [`SoundLibrary`] 按顺序在多个目录里找同名文件：
@@ -236,6 +246,52 @@ impl SoundLibrary {
     }
 }
 
+/// 一层 `Source` 包装：对混音器隐藏解码器的 `current_span_len`。
+///
+/// rodio 0.22.2 的 lewton `VorbisDecoder::current_span_len()` 在 OGG/.mna 流刚打开时可能
+/// 返回 `Some(0)`（头部包没有音频样本）；`rodio::mixer` 的 `UniformSourceIterator` 会把
+/// 它包成 `Take { n: Some(0) }`，于是这条 source **在混音器里一个样本都取不出来**，
+/// 声音被静音（直接 `next()` 解码器则正常，所以离线/设备播放都会踩到）。`.mna` 是本作
+/// 发布音效格式（vorbis），因此这里把 span 长度对外隐藏成 `None`（`Source` 的默认值），
+/// 混音器改为逐样本做声道/采样率转换；音质、循环与叠加语义不变。
+struct HiddenSpanSource<S> {
+    inner: S,
+}
+
+impl<S: Source<Item = f32>> Iterator for HiddenSpanSource<S> {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        self.inner.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<S: Source<Item = f32>> Source for HiddenSpanSource<S> {
+    fn current_span_len(&self) -> Option<usize> {
+        None
+    }
+
+    fn channels(&self) -> rodio::ChannelCount {
+        self.inner.channels()
+    }
+
+    fn sample_rate(&self) -> rodio::SampleRate {
+        self.inner.sample_rate()
+    }
+
+    fn total_duration(&self) -> Option<std::time::Duration> {
+        self.inner.total_duration()
+    }
+
+    fn try_seek(&mut self, pos: std::time::Duration) -> Result<(), rodio::source::SeekError> {
+        self.inner.try_seek(pos)
+    }
+}
+
 /// 打开音频文件成解码器：`.mna` 取内嵌压缩流，其它交给 rodio 按扩展名猜。
 fn decoder_for(path: &Path) -> Result<Box<dyn Source<Item = f32> + Send>, String> {
     let is_mna = path
@@ -245,11 +301,11 @@ fn decoder_for(path: &Path) -> Result<Box<dyn Source<Item = f32> + Send>, String
         let clip = mir_asset::AudioClip::open(path).map_err(|error| error.to_string())?;
         let decoder =
             Decoder::new(std::io::Cursor::new(clip.data)).map_err(|error| error.to_string())?;
-        return Ok(Box::new(decoder));
+        return Ok(Box::new(HiddenSpanSource { inner: decoder }));
     }
     let handle = File::open(path).map_err(|error| error.to_string())?;
     let decoder = Decoder::try_from(handle).map_err(|error| error.to_string())?;
-    Ok(Box::new(decoder))
+    Ok(Box::new(HiddenSpanSource { inner: decoder }))
 }
 
 /// 已打开的音频输出。
@@ -283,6 +339,12 @@ pub struct SoundPlayer {
     music_path: Option<PathBuf>,
     /// 音频后端；`None` 表示没有声音（关掉了或设备打不开）。
     backend: Option<Backend>,
+    /// 调用方提供的离线混音器（[`Self::with_offline_mixer`]）。
+    ///
+    /// 无音频设备的离线/嵌入场景与 M4 证据链用它替代设备输出：仍是**真实**的
+    /// `rodio` 混音器（真实解码、真实 `amplify`、真实采样），生产 `main.rs` 的
+    /// [`Self::new`]/[`Self::new_with_music`] 不会设置它。
+    offline_mixer: Option<Mixer>,
     /// 已经警告过的文件（避免同一个坏文件刷屏）。
     warned: HashSet<String>,
     /// 测试注入的假混音器：记录「真正送进混音器」的音效次数。
@@ -305,6 +367,7 @@ impl std::fmt::Debug for SoundPlayer {
             .field("music_enabled", &self.music_enabled)
             .field("music", &self.music_path)
             .field("backend", &self.backend.is_some())
+            .field("offline_mixer", &self.offline_mixer.is_some())
             .field("throttle", &self.throttle.len())
             .field("warned", &self.warned.len());
         #[cfg(test)]
@@ -373,10 +436,30 @@ impl SoundPlayer {
             music: None,
             music_path: None,
             backend: None,
+            offline_mixer: None,
             warned: HashSet::new(),
             #[cfg(test)]
             test_sink: None,
         }
+    }
+
+    /// 建一个把音效提交到**调用方提供的** `rodio::Mixer` 的播放器（不打开设备）。
+    ///
+    /// 用于无音频设备的离线混音/嵌入场景与 R61 M4 证据链：输出端是真实的
+    /// `rodio` 混音器（真实解码、真实 `amplify`、真实采样），不是测试计数器。
+    /// 生产 `main.rs` 只用 [`Self::new`]/[`Self::new_with_music`]，不会走这个入口；
+    /// [`Self::is_active`] 仍为 `false`（这不是真实设备），但 [`Self::play`] 会真的
+    /// 把音效送进这个混音器。
+    #[must_use]
+    pub fn with_offline_mixer(
+        library: SoundLibrary,
+        enabled: bool,
+        volume: f32,
+        mixer: Mixer,
+    ) -> Self {
+        let mut player = Self::without_device(library, enabled, volume);
+        player.offline_mixer = Some(mixer);
+        player
     }
 
     /// 测试注入假混音器：`play` 成功解码后会把它计数加一（不依赖真实音频设备）。
@@ -385,9 +468,9 @@ impl SoundPlayer {
         self.test_sink = Some(counter);
     }
 
-    /// 是否有可用的输出端（真实设备或测试假混音器）。
+    /// 是否有可用的输出端（真实设备、离线混音器或测试假混音器）。
     fn has_output(&self) -> bool {
-        if self.backend.is_some() {
+        if self.backend.is_some() || self.offline_mixer.is_some() {
             return true;
         }
         #[cfg(test)]
@@ -597,6 +680,44 @@ impl SoundPlayer {
         if !self.throttle.allow(file, now_ms) {
             return false;
         }
+        self.submit_file(file, gain)
+    }
+
+    /// 提交一条 125 投射物音效 cue：**不经过 100 ms 频控**，每次调用都尝试提交。
+    ///
+    /// Crystal `SoundManager.PlaySound`（`Client/MirSounds/SoundManager.cs:94-105`）对每次
+    /// 播放都新建 `OneShotProvider` 送进 mixer，没有同文件 100 ms 限流；125 的出生/命中
+    /// 音必须按事件逐条提交（同一时刻同文件 2 次、33 次都要各自入混音器）。这里既不查
+    /// 也不写 [`SoundThrottle`]，因此 125 流量不会污染普通音效的频控，普通频控也不会
+    /// 吞掉 125。返回是否真的送进了混音器（关闭/静音/无输出/缺素材/解码失败为 `false`，
+    /// 属正常跳过，不是错误）。
+    pub fn play_projectile_cue(&mut self, file: &'static str) -> bool {
+        let gain = self.volume * self.master_volume;
+        if !self.enabled || gain <= 0.0 || !self.has_output() {
+            return false;
+        }
+        self.submit_file(file, gain)
+    }
+
+    /// 批量提交 125 投射物音效 cue；返回真正送进混音器的条数。
+    ///
+    /// 生产路径把 [`crate::ui::UiState::take_projectile_sound_cues`] 的结果逐个交给
+    /// [`Self::play_projectile_cue`]，因此同一帧同文件的多个 cue 全部提交。
+    pub fn play_projectile_cues(&mut self, cues: impl IntoIterator<Item = &'static str>) -> usize {
+        let mut submitted = 0;
+        for file in cues {
+            if self.play_projectile_cue(file) {
+                submitted += 1;
+            }
+        }
+        submitted
+    }
+
+    /// 共享提交链：查素材 → 解码 → `amplify(gain)` → 送进输出端（设备/离线混音器/测试注入）。
+    ///
+    /// [`Self::play`] 与 [`Self::play_projectile_cue`] 都走这里，保证 125 专用策略与普通
+    /// 音效共享同一条 decoder/amplify 路径（R61 M4）。
+    fn submit_file(&mut self, file: &str, gain: f32) -> bool {
         let Some(path) = self.library.resolve(file) else {
             if self.warned.insert(file.to_owned()) {
                 tracing::debug!(file, "音效素材缺失，跳过");
@@ -612,16 +733,20 @@ impl SoundPlayer {
                 return false;
             }
         };
-        let Some(backend) = self.backend.as_ref() else {
-            #[cfg(test)]
-            if let Some(counter) = &self.test_sink {
-                counter.set(counter.get().saturating_add(1));
-                return true;
-            }
-            return false;
-        };
-        backend.mixer.add(source);
-        true
+        if let Some(backend) = self.backend.as_ref() {
+            backend.mixer.add(source);
+            return true;
+        }
+        if let Some(mixer) = self.offline_mixer.as_ref() {
+            mixer.add(source);
+            return true;
+        }
+        #[cfg(test)]
+        if let Some(counter) = &self.test_sink {
+            counter.set(counter.get().saturating_add(1));
+            return true;
+        }
+        false
     }
 
     /// 播放一个事件（男女两档音效按 `female` 选，见 `mir_render::sound::sound_for_sex`）。
@@ -997,5 +1122,130 @@ mod tests {
         assert!(!player.play_event(SoundId::Hit, false, 0));
         assert!(!player.is_active(), "没有设备/后端时 is_active=false");
         let _ = std::fs::remove_dir_all(&empty);
+    }
+
+    /// R61 D2 M3: 125 cues bypass the 100 ms cooldown and never touch the shared throttle.
+    #[test]
+    fn projectile_cue_entry_skips_the_cooldown_and_leaves_normal_throttle_untouched() {
+        let dir = std::env::temp_dir().join(format!(
+            "mir2-audio-125-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        write_silent_wav(&dir.join("fx.wav"));
+        write_silent_wav(&dir.join("fx2.wav"));
+        let library = SoundLibrary::with_roots(vec![dir.clone()]).with_legacy_wav(true);
+        let counter = std::rc::Rc::new(std::cell::Cell::new(0usize));
+        let mut player = SoundPlayer::without_device(library, true, 1.0);
+        player.set_test_sink(counter.clone());
+
+        // The 125 entry submits every copy at the same instant and writes no cooldown.
+        assert!(player.play_projectile_cue("fx.wav"));
+        assert!(player.play_projectile_cue("fx.wav"));
+        assert_eq!(counter.get(), 2);
+        assert!(player.throttle().is_empty());
+        assert_eq!(player.play_projectile_cues(vec!["fx.wav"; 33]), 33);
+        assert_eq!(counter.get(), 35);
+        assert!(player.throttle().is_empty());
+
+        // The normal entry keeps its own cooldown; 125 traffic neither satisfies nor pollutes it.
+        assert!(player.play("fx2.wav", 1_000));
+        assert!(!player.play("fx2.wav", 1_000), "same instant is throttled");
+        assert_eq!(counter.get(), 36);
+        assert_eq!(player.throttle().len(), 1);
+        assert!(player.play_projectile_cue("fx2.wav"));
+        assert_eq!(counter.get(), 37);
+        assert!(
+            !player.play("fx2.wav", 1_050),
+            "125 cue must not refresh the normal cooldown"
+        );
+        assert_eq!(counter.get(), 37);
+        assert!(player.play("fx2.wav", 1_100), "exactly 100 ms is allowed");
+        assert_eq!(counter.get(), 38);
+
+        // Unsubmitted paths return false, do not count and do not record a cooldown.
+        player.set_enabled(false);
+        assert!(!player.play_projectile_cue("fx.wav"));
+        assert_eq!(counter.get(), 38);
+        player.set_enabled(true);
+        player.set_volume(0.0);
+        assert!(!player.play_projectile_cue("fx.wav"));
+        assert_eq!(counter.get(), 38);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// R61 D2 M4: [`SoundPlayer::with_offline_mixer`] drives a real `rodio` mixer
+    /// (real samples, no device and no test counter).
+    #[test]
+    fn offline_mixer_submits_real_cues_without_an_audio_device() {
+        use rodio::Source as _;
+
+        let sfx =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../game-assets/audio/sfx");
+        let library = SoundLibrary::with_roots(vec![sfx.clone()]);
+        if library.resolve("M34-1.wav").is_none() {
+            eprintln!(
+                "SKIP: missing {} (asset evidence is PARTIAL)",
+                sfx.join("M34-1.mna").display()
+            );
+            return;
+        }
+        let channels = rodio::ChannelCount::new(2).expect("mixer channels");
+        let sample_rate = rodio::SampleRate::new(48_000).expect("mixer rate");
+        let (mixer, mut source) = rodio::mixer::mixer(channels, sample_rate);
+        let mut player = SoundPlayer::with_offline_mixer(library, true, 1.0, mixer);
+
+        assert!(
+            player.has_output(),
+            "an injected offline mixer is a real output"
+        );
+        assert!(!player.is_active(), "an offline mixer is not a device");
+        assert!(player.play_projectile_cue("M34-1.wav"));
+        assert_eq!(source.channels().get(), 2);
+        assert_eq!(source.sample_rate().get(), 48_000);
+        let samples: Vec<f32> = source.by_ref().take(4_096).collect();
+        assert!(
+            !samples.is_empty(),
+            "the offline mixer must yield real samples"
+        );
+        assert!(samples.iter().all(|sample| sample.is_finite()));
+        assert!(samples.iter().any(|sample| sample.abs() > 0.0));
+    }
+
+    /// R61 D2 M3: failed 125 submissions are quiet `false` results, not panics.
+    #[test]
+    fn projectile_cue_missing_and_undecodable_assets_are_silent() {
+        let counter = std::rc::Rc::new(std::cell::Cell::new(0usize));
+        let mut player =
+            SoundPlayer::without_device(SoundLibrary::with_roots(Vec::new()), true, 1.0);
+        player.set_test_sink(counter.clone());
+        assert!(!player.play_projectile_cue("missing.wav"));
+        assert_eq!(counter.get(), 0);
+        assert!(
+            player.throttle().is_empty(),
+            "a failed cue never records a cooldown"
+        );
+        assert_eq!(player.play_projectile_cues(Vec::<&'static str>::new()), 0);
+
+        let dir = std::env::temp_dir().join(format!(
+            "mir2-audio-bad-125-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        std::fs::write(dir.join("bad.mna"), b"not audio").expect("写坏 mna");
+        let mut broken =
+            SoundPlayer::without_device(SoundLibrary::with_roots(vec![dir.clone()]), true, 1.0);
+        broken.set_test_sink(counter);
+        assert!(!broken.play_projectile_cue("bad.wav"));
+        assert!(broken.throttle().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

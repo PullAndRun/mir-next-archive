@@ -26,7 +26,8 @@ use mir_client::ui::UiState;
 use mir_client::ui::projectile::{
     BASE_INDEX, DIRECTIONS, FRAME_COUNT, HIT_EFFECT_BASE_INDEX, HIT_EFFECT_DURATION_MS,
     HIT_EFFECT_FRAME_COUNT, HIT_EFFECT_FRAME_MS, ProjectileSoundSink, direction16, draw_offset,
-    duration_ms, frame_at, frame_count, hit_effect_index, max_distance, sprite_index,
+    duration_ms, frame_at, frame_count, frame_interval_ms, hit_effect_index, max_distance,
+    sprite_index,
 };
 use mir_core::Language;
 use mir_core::Point;
@@ -257,16 +258,23 @@ fn flight_duration_count_and_frame_boundaries_match_effect_cs() {
     assert_eq!(frame_count(250), 8);
     assert_eq!(frame_count(0), 1);
 
-    assert_eq!(frame_at(0), 0);
-    assert_eq!(frame_at(1), 0);
-    assert_eq!(frame_at(29), 0);
-    assert_eq!(frame_at(30), 1);
-    assert_eq!(frame_at(149), 4);
-    assert_eq!(frame_at(150), 5);
-    assert_eq!(frame_at(240), 8);
-    assert_eq!(frame_at(30_000), 1_000);
+    // R61 M2: strict `CMain.Time <= NextFrame` (Effect.cs:91) with the integer frame
+    // interval `Duration / Count`, so the k-th boundary passes only once elapsed > k * 31.
+    assert_eq!(frame_interval_ms(250, 8), 31);
+    assert_eq!(frame_at(0, 250, 8), 0);
+    assert_eq!(frame_at(31, 250, 8), 0, "equality at a boundary returns");
+    assert_eq!(frame_at(32, 250, 8), 1);
+    assert_eq!(frame_at(150, 250, 8), 4, "(150 - 1) / 31");
+    assert_eq!(frame_at(248, 250, 8), 7);
+    assert_eq!(frame_at(249, 250, 8), 8, "arrival after the last boundary");
+    assert_eq!(frame_at(30_000, 250, 8), 8, "frame clamps to count");
+    // Zero distance: `Count == 0 -> 1` (Effect.cs:178-181), interval 0, first tick.
+    assert_eq!(frame_interval_ms(0, 1), 0);
+    assert_eq!(frame_at(0, 0, 1), 0);
+    assert_eq!(frame_at(1, 0, 1), 1);
 
-    // The real snapshot path freezes these parameters at spawn time.
+    // The real snapshot path spawns with the initial destination and recomputes the
+    // dynamic parameters on every sync (R61 M2).
     let mut snapshot = seeded_snapshot(source, target);
     snapshot
         .projectile_events
@@ -279,11 +287,13 @@ fn flight_duration_count_and_frame_boundaries_match_effect_cs() {
 
     sync_at(&mut ui, &snapshot, START_MS + 150);
     let view = ui.projectiles().views()[0];
-    assert_eq!(view.frame, 5);
-    assert_eq!(view.sprite_index(), BASE_INDEX + 5 + 4 * 10);
+    assert_eq!(view.frame, 4);
+    assert_eq!(view.sprite_index(), BASE_INDEX + 4 + 4 * 10);
 
-    // Arrival deletes the view (frame == count), so the next sync keeps no flying view.
-    sync_at(&mut ui, &snapshot, START_MS + 240);
+    // Arrival deletes the view (frame == count) after the last strict boundary at +249 ms.
+    sync_at(&mut ui, &snapshot, START_MS + 248);
+    assert_eq!(ui.projectiles().len(), 1, "frame 7 < count 8: still flying");
+    sync_at(&mut ui, &snapshot, START_MS + 249);
     assert!(
         ui.projectiles().is_empty(),
         "arrived projectile must be removed"
@@ -360,13 +370,13 @@ fn draw_offset_interpolates_from_source_to_destination() {
     assert_eq!(ui.projectiles().views()[0].offset(), (0, 0));
     sync_at(&mut ui, &snapshot, START_MS + 60);
     let view = ui.projectiles().views()[0];
-    assert_eq!(view.frame, 2);
-    assert_eq!(view.offset(), draw_offset(source, target, 2, 6));
-    assert_eq!(view.offset(), (0, 128 * 2 / 6));
+    assert_eq!(view.frame, 1, "4-grid interval is 200 / 6 = 33");
+    assert_eq!(view.offset(), draw_offset(source, target, 1, 6));
+    assert_eq!(view.offset(), (0, 128 / 6));
 }
 
 #[test]
-fn views_follow_the_target_current_location_but_keep_the_frozen_duration() {
+fn views_follow_the_target_current_location_with_dynamic_parameters() {
     let source = Point::new(10, 10);
     let initial = Point::new(12, 10);
     let mut snapshot = seeded_snapshot(source, initial);
@@ -380,16 +390,19 @@ fn views_follow_the_target_current_location_but_keep_the_frozen_duration() {
     assert_eq!(view.dir16, 4);
     assert_eq!(view.duration_ms, 100);
 
-    // The target walks down: the landing point follows it every sync, while the frozen
-    // duration/direction registered as a deviation stay at their spawn values.
+    // 目标向下走：每次同步先更新落点，再按新距离重算动态参数（Crystal Effect.cs:185-187）。
     move_monster(&mut snapshot, DEST_ID, Point::new(10, 14), false);
     sync_at(&mut ui, &snapshot, START_MS + 30);
     let view = ui.projectiles().views()[0];
     assert_eq!(view.destination, Point::new(10, 14));
-    assert_eq!(view.dir16, 4, "direction stays frozen at spawn time");
-    assert_eq!(view.duration_ms, 100, "duration stays frozen at spawn time");
-    assert_eq!(view.frame, 1);
-    assert_eq!(view.offset(), (0, 4 * 32 / 3));
+    assert_eq!(view.dir16, 4, "direction stays a spawn-time property");
+    assert_eq!(view.duration_ms, 200, "4-grid duration is recomputed");
+    assert_eq!(view.frame_count, 6);
+    assert_eq!(
+        view.frame, 0,
+        "29 < 33: the first boundary is not crossed yet"
+    );
+    assert_eq!(view.offset(), (0, 0));
 }
 
 // ---------------------------------------------------------------------------
@@ -399,7 +412,8 @@ fn views_follow_the_target_current_location_but_keep_the_frozen_duration() {
 #[test]
 fn hit_effect_plays_all_ten_magic_frames_when_the_target_survives() {
     // Six extra frames are never used by the flight, so the distance is kept at two cells
-    // (duration 100 ms, count 3, arrival at +90 ms) to make the hit instant easy to pin.
+    // (duration 100 ms, count 3, strict arrival at +100 ms) to make the hit instant easy
+    // to pin.
     let source = Point::new(10, 10);
     let target = Point::new(12, 10);
     let mut snapshot = seeded_snapshot(source, target);
@@ -410,7 +424,7 @@ fn hit_effect_plays_all_ten_magic_frames_when_the_target_survives() {
     sync_at(&mut ui, &snapshot, START_MS);
     assert_eq!(ui.projectiles().len(), 1);
 
-    let arrival = START_MS + 90;
+    let arrival = START_MS + 100;
     sync_at(&mut ui, &snapshot, arrival);
     assert!(
         ui.projectiles().is_empty(),
@@ -465,14 +479,14 @@ fn hit_effect_follows_the_surviving_target() {
         .push(fire_bounce(SOURCE_ID, DEST_ID));
     let mut ui = ui_state();
     sync_at(&mut ui, &snapshot, START_MS);
-    sync_at(&mut ui, &snapshot, START_MS + 90);
+    sync_at(&mut ui, &snapshot, START_MS + 100);
     assert_eq!(
         ui.projectiles().hit_effects()[0].position,
         Point::new(12, 10)
     );
 
     move_monster(&mut snapshot, DEST_ID, Point::new(13, 12), false);
-    sync_at(&mut ui, &snapshot, START_MS + 90 + 60);
+    sync_at(&mut ui, &snapshot, START_MS + 100 + 60);
     assert_eq!(
         ui.projectiles().hit_effects()[0].position,
         Point::new(13, 12),
@@ -500,7 +514,7 @@ fn dead_target_skips_impact_and_hit_sound() {
     assert_eq!(sink.played, vec!["M34-1.wav"]);
 
     ui.projectiles
-        .sync_with_sink(&snapshot, START_MS + 90, &mut sink);
+        .sync_with_sink(&snapshot, START_MS + 100, &mut sink);
     assert!(
         ui.projectiles().hit_effects().is_empty(),
         "dead target (GameScene.cs:4707) must not start the 570 impact"
@@ -534,7 +548,7 @@ fn spawn_and_hit_sounds_use_m34_once_each() {
     );
 
     ui.projectiles
-        .sync_with_sink(&snapshot, START_MS + 90, &mut sink);
+        .sync_with_sink(&snapshot, START_MS + 100, &mut sink);
     assert_eq!(
         sink.played,
         vec!["M34-1.wav", "M34-2.wav"],
@@ -543,7 +557,7 @@ fn spawn_and_hit_sounds_use_m34_once_each() {
 
     // Neither the snapshot replay nor the impact lifetime may replay a cue.
     ui.projectiles
-        .sync_with_sink(&snapshot, START_MS + 90, &mut sink);
+        .sync_with_sink(&snapshot, START_MS + 100, &mut sink);
     assert_eq!(sink.played.len(), 2);
     let spawn_count = sink
         .played
@@ -614,7 +628,7 @@ fn production_sound_cues_are_drained_once_per_projectile() {
         "draining the cue queue must empty it"
     );
 
-    sync_at(&mut ui, &snapshot, START_MS + 90);
+    sync_at(&mut ui, &snapshot, START_MS + 100);
     assert_eq!(ui.projectiles().sound_cues(), ["M34-2.wav"]);
     assert_eq!(ui.projectiles.take_sound_cues(), ["M34-2.wav"]);
     assert!(ui.projectiles().sound_cues().is_empty());

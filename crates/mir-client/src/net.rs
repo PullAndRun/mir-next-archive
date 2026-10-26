@@ -2758,17 +2758,21 @@ pub struct WorldSnapshot {
     pub next_effect_id: u64,
     /// Recent projectile events (`S.ObjectProjectile`(125), newest last).
     ///
-    /// Round 58 only wires the packet into the snapshot; the UI/render side does not
-    /// consume these events yet (deferred to round 59, C2 PARTIAL).
+    /// Round 61 (M1): this table is append-only and drops nothing. Crystal's client
+    /// creates one projectile for every accepted 125 (`MirScenes/GameScene.cs:4687-4715`,
+    /// no client-side cap or dedup), so a ring here would silently lose projectiles
+    /// whenever a backlog exceeds the ring. The table is emptied only by a whole-snapshot
+    /// rebuild; the UI consumes it through the absolute cursor of
+    /// [`Self::projectile_events_total`].
     pub projectile_events: Vec<ProjectileEvent>,
     /// Absolute projectile-event sequence number (R60 G2): +1 per accepted push.
     ///
-    /// [`Self::projectile_events`] keeps at most `EFFECT_EVENT_LIMIT` (16) events, so
-    /// `projectile_events_total - projectile_events.len()` is the number of oldest
-    /// events already dropped by the ring. The UI resolves its cursor from this
-    /// absolute counter, which is what stops the 17th and later events from being
-    /// silently swallowed by a positional cursor (R60 F6 correction). The wire format
-    /// and [`ProjectileEvent`] are unchanged; a rebuilt snapshot starts over at zero.
+    /// Monotonic within one snapshot and restarted at zero by a rebuilt snapshot (the
+    /// reconnect path installs [`Self::default`]). Since round 61 the event table keeps
+    /// every pushed event, so `projectile_events_total == projectile_events.len()` for
+    /// every snapshot built by this module; `projectile_events_total - len` only remains
+    /// meaningful for manually built tables (`total == 0`) and for the legacy
+    /// truncation guard of the UI cursor (see `ui::projectile::Projectiles::consume`).
     pub projectile_events_total: u64,
     /// 最近的技能表现事件（`S.Magic`/`S.ObjectMagic`/`S.ObjectSpell`，尾部最新）。
     pub spell_events: Vec<SpellEvent>,
@@ -7249,28 +7253,29 @@ fn push_effect_event(snapshot: &mut WorldSnapshot, object_id: u32, effect: Spell
 
 /// Append one projectile event (`S.ObjectProjectile`(125)).
 ///
-/// Reuses the existing ring policy of [`push_effect_event`]: keep at most
-/// `EFFECT_EVENT_LIMIT` items and drop the oldest when the cap is exceeded. The cap
-/// constant is the measured one from `net.rs:165`; no new limit is invented here
-/// (the round 58 probe `01-probe.log` records that measurement).
+/// Round 61 (M1): no cap and no drop-oldest. Crystal's client creates one projectile for
+/// every accepted 125 (`MirScenes/GameScene.cs:4687-4715`), so a bounded ring would turn a
+/// packet backlog into lost projectiles; the absolute cursor built on
+/// [`WorldSnapshot::projectile_events_total`] is what makes the drop unnecessary (R60 F6).
+/// Only a whole-snapshot rebuild clears the table. Long-running growth and lagging-consumer
+/// reclaim are a round 61 PARTIAL (`docs/process/round61-plan.md` §五 R-1); the unrelated
+/// effect/sound rings keep their measured caps.
 fn push_projectile_event(
     snapshot: &mut WorldSnapshot,
     spell: Spell,
     source: u32,
     destination: u32,
 ) {
-    // R60 G2: absolute sequence number, refreshed on every accepted push even when the
-    // ring below drops the oldest event. `saturating_add` mirrors the `next_spell_id`
-    // pattern (`net.rs:2913`/`:7291`) and keeps the counter monotonic for UI cursors.
+    // R60 G2: absolute sequence number, refreshed on every accepted push. `saturating_add`
+    // mirrors the `next_spell_id` pattern (`net.rs:2913`/`:7291`) and keeps the counter
+    // monotonic for UI cursors. Round 61 removed the ring below, so the total and the
+    // table length grow together for every snapshot built by this module.
     snapshot.projectile_events_total = snapshot.projectile_events_total.saturating_add(1);
     snapshot.projectile_events.push(ProjectileEvent {
         spell,
         source,
         destination,
     });
-    if snapshot.projectile_events.len() > EFFECT_EVENT_LIMIT {
-        snapshot.projectile_events.remove(0);
-    }
 }
 
 /// 追加一条技能表现事件（`S.Magic` / `S.ObjectMagic` / `S.ObjectSpell`）。
@@ -8950,11 +8955,15 @@ mod tests {
     // R60 G2 (D2): absolute projectile-event sequence.
     // -----------------------------------------------------------------------
 
-    /// Every accepted push advances `projectile_events_total`, including the pushes whose
-    /// event is immediately dropped by the 16-entry ring; the ring constant stays 16.
+    /// Round 61 M1: every accepted push stays in the snapshot table (no 16-entry ring),
+    /// while the R60 absolute counter keeps counting one to one. The unrelated effect ring
+    /// keeps its measured 16-entry cap.
     #[test]
     fn r60_d2_projectile_events_total_counts_every_pushed_event() {
-        assert_eq!(EFFECT_EVENT_LIMIT, 16, "R60 must not resize the event ring");
+        assert_eq!(
+            EFFECT_EVENT_LIMIT, 16,
+            "R61 must not resize the effect event ring"
+        );
         let mut snapshot = WorldSnapshot::default();
         assert_eq!(
             snapshot.projectile_events_total, 0,
@@ -8965,19 +8974,23 @@ mod tests {
         }
         assert_eq!(
             snapshot.projectile_events_total, 17,
-            "the total counts events whose payload was already dropped by the ring"
+            "the total counts every accepted push"
         );
-        assert_eq!(snapshot.projectile_events.len(), EFFECT_EVENT_LIMIT);
         assert_eq!(
-            snapshot.projectile_events[0].destination, 2,
-            "the ring dropped the oldest event, keeping destinations 2..=17"
+            snapshot.projectile_events.len(),
+            17,
+            "R61 stores every accepted push instead of dropping the oldest"
         );
-        assert_eq!(snapshot.projectile_events[15].destination, 17);
+        assert_eq!(
+            snapshot.projectile_events[0].destination, 1,
+            "the oldest event is no longer dropped, destinations stay 1..=17"
+        );
+        assert_eq!(snapshot.projectile_events[16].destination, 17);
         // `ProjectileEvent` gained no field: this literal stops compiling otherwise.
         let unchanged = ProjectileEvent {
             spell: Spell::FireBounce,
             source: 1,
-            destination: 2,
+            destination: 1,
         };
         assert_eq!(
             snapshot.projectile_events[0], unchanged,
@@ -8985,8 +8998,22 @@ mod tests {
         );
     }
 
-    /// A rebuilt snapshot (reconnect path) zeroes both the ring and its absolute counter,
-    /// so the UI cursor reset stays anchored to a real snapshot rebuild.
+    /// Round 61 M1: a 257-event backlog (the dispatch matrix probe, not a production cap)
+    /// is stored in full, so the table length and the absolute counter stay in lockstep.
+    #[test]
+    fn r61_projectile_event_backlog_is_never_truncated() {
+        let mut snapshot = WorldSnapshot::default();
+        for destination in 1..=257u32 {
+            push_projectile_event(&mut snapshot, Spell::FireBounce, 1, destination);
+        }
+        assert_eq!(snapshot.projectile_events.len(), 257);
+        assert_eq!(snapshot.projectile_events_total, 257);
+        assert_eq!(snapshot.projectile_events[0].destination, 1);
+        assert_eq!(snapshot.projectile_events[256].destination, 257);
+    }
+
+    /// A rebuilt snapshot (reconnect path) zeroes both the event table and its absolute
+    /// counter, so the UI cursor reset stays anchored to a real snapshot rebuild.
     #[test]
     fn r60_d2_projectile_events_total_resets_with_rebuilt_snapshot() {
         let mut snapshot = WorldSnapshot::default();

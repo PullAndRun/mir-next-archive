@@ -193,18 +193,21 @@ impl LiveState {
 
 /// 播放本帧从 [`UiState::take_projectile_sound_cues`] 取走的投射物音效 cue。
 ///
-/// Crystal 在投射物出生/命中时直接 `PlaySound`（`GameScene.cs:4697`/`:4709`），
-/// 这里把 R59 已采集的 cue 交给真实音频通道：每个文件名走一遍 [`SoundPlayer::play`]
-/// （共享 100 ms 频控与无设备/静音降级）。`now_ms` 由调用方传入，便于测试注入时刻。
+/// R61 M3（门下评审 high）：Crystal `SoundManager.PlaySound`（`Client/MirSounds/
+/// SoundManager.cs:94-105`）对每次播放都新建 `OneShotProvider` 直接送进 mixer，没有同文件
+/// 100 ms 限流。125 的出生/命中音因此走 [`SoundPlayer::play_projectile_cue`]：**每个 cue
+/// 都提交**（同一时刻同文件 2 次/33 次也不合并），不经过 `play` 的 100 ms 频控；普通
+/// 音效（脚步/攻击/施法/登录音）仍走 [`SoundPlayer::play`] 的频控，两套策略互不污染。
 ///
-/// 返回真正送进混音器的条数；频控吞掉的不算「已播」（派发件 R5）。
-fn play_projectile_cues(sound: &mut SoundPlayer, cues: Vec<&'static str>, now_ms: u64) -> usize {
-    play_projectile_cues_with(cues, |file| sound.play(file, now_ms))
+/// `_now_ms` 是调用方的帧时间戳（保留在签名里，便于将来 125 若需时间语义时接线）；
+/// 125 专用策略本身不依赖时钟。返回真正送进混音器的条数（未提交的跳过不算失败）。
+fn play_projectile_cues(sound: &mut SoundPlayer, cues: Vec<&'static str>, _now_ms: u64) -> usize {
+    play_projectile_cues_with(cues, |file| sound.play_projectile_cue(file))
 }
 
 /// [`play_projectile_cues`] 的注入式核心：`play` 返回 `true` 才计入已播条数。
 ///
-/// 生产路径固定传入 [`SoundPlayer::play`]；测试用计数闭包替代音频设备，
+/// 生产路径固定传入 [`SoundPlayer::play_projectile_cue`]；测试用计数闭包替代音频设备，
 /// 断言「一帧内每个 cue 只播一次、重复 drain 不重播」。
 fn play_projectile_cues_with(
     cues: Vec<&'static str>,
@@ -3412,6 +3415,8 @@ mod tests {
     use mir_core::enums::Monster;
     use mir_protocol::ServerPacket;
     use mir_protocol::packets::server::ObjectMonster;
+    // R61 D2: `channels()`/`sample_rate()` on the offline `MixerSource` come from `Source`.
+    use rodio::Source as _;
 
     #[test]
     fn screenshots_are_numbered_sequentially() {
@@ -3648,7 +3653,8 @@ mod tests {
 
     /// Snapshot with caster at (10, 10), live target at (12, 10) and one `FireBounce` event.
     ///
-    /// A two-tile flight arrives after 90 ms (see the round 59 projectile gates).
+    /// R61 M2 rework of the Crystal `CMain.Time <= NextFrame` semantics: a two-grid flight
+    /// arrives after 100 ms (was 90 ms under the old `elapsed / 30` frame math).
     fn projectile_snapshot() -> WorldSnapshot {
         let mut snapshot = WorldSnapshot::default();
         seed_projectile_monster(&mut snapshot, PROJECTILE_SOURCE_ID, Point::new(10, 10));
@@ -3685,8 +3691,8 @@ mod tests {
         assert_eq!(replay_played, 0);
         assert_eq!(played, vec!["M34-1.wav"]);
 
-        // Impact frame (+90 ms for a two-tile flight): one M34-2 cue.
-        ui.set_time(PROJECTILE_START_MS + 90);
+        // Impact frame (+100 ms for a two-tile flight, R61 M2 Crystal timing): one M34-2 cue.
+        ui.set_time(PROJECTILE_START_MS + 100);
         ui.sync(&snapshot);
         let hit_played = play_projectile_cues_with(ui.take_projectile_sound_cues(), |file| {
             played.push(file);
@@ -3791,8 +3797,10 @@ mod tests {
 
     /// M-4: `M34-1.wav` / `M34-2.wav` must exist as owned `.mna` clips that rodio decodes.
     ///
-    /// A missing asset prints `SKIP: missing M34-1.mna` and returns (never `#[ignore]`, never
-    /// a substituted `M34-0`): the acceptance run records SKIP instead of a silent pass.
+    /// This test is compiled into the normal suite and is **not marked as ignored**; it runs
+    /// on every `cargo test`. A missing asset prints `SKIP: missing M34-1.mna` and returns
+    /// (never a substituted `M34-0`): the acceptance run records SKIP instead of a silent
+    /// pass, and the evidence summary marks the asset gates PARTIAL.
     #[test]
     fn projectile_sound_assets_are_real_mna_clips() {
         use std::io::Cursor;
@@ -3834,5 +3842,317 @@ mod tests {
             );
             eprintln!("OK: {file} -> {} (decoded mna clip)", path.display());
         }
+    }
+
+    // -----------------------------------------------------------------
+    // R61 D2: 125 projectile cue policy + real offline rodio mixer evidence
+    // -----------------------------------------------------------------
+
+    /// Offline evidence mixer channel count (same layout as a typical device stream).
+    const OFFLINE_CHANNELS: u16 = 2;
+    /// Offline evidence mixer sample rate.
+    const OFFLINE_SAMPLE_RATE: u32 = 48_000;
+    /// Safety cap for a full clip drain (a source that never ends must fail, not hang).
+    const MAX_OFFLINE_SAMPLES: usize = 2_000_000;
+
+    /// Build a `SoundPlayer` whose output is a caller-owned real `rodio` mixer (no device).
+    ///
+    /// This is the same submission chain as production (`SoundLibrary::resolve` -> decoder ->
+    /// shared `amplify` -> `Mixer::add`); only the output sink is an offline mixer so the
+    /// evidence test can sample it without an audio device.
+    fn offline_sound(
+        library: SoundLibrary,
+        enabled: bool,
+        volume: f32,
+    ) -> (SoundPlayer, rodio::mixer::MixerSource) {
+        let channels = rodio::ChannelCount::new(OFFLINE_CHANNELS).expect("mixer channel count");
+        let sample_rate = rodio::SampleRate::new(OFFLINE_SAMPLE_RATE).expect("mixer rate");
+        let (mixer, source) = rodio::mixer::mixer(channels, sample_rate);
+        (
+            SoundPlayer::with_offline_mixer(library, enabled, volume, mixer),
+            source,
+        )
+    }
+
+    /// Repo-root anchored library (same construction as `main.rs`): both M34 clips must
+    /// resolve; a missing asset prints `SKIP` and returns `None` (R-4, no M34-0 substitute).
+    fn repo_m34_library() -> Option<SoundLibrary> {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut library = SoundLibrary::from_repo_root(&repo);
+        library.push_back(&SoundLibrary::with_roots(vec![
+            repo.join("game-assets/audio"),
+            repo.join("game-assets/audio/sfx"),
+        ]));
+        for file in ["M34-1.wav", "M34-2.wav"] {
+            if library.resolve(file).is_none() {
+                eprintln!("SKIP: missing {} (searched {:?})", file, library.roots());
+                return None;
+            }
+        }
+        Some(library)
+    }
+
+    /// Drain a mixed clip from the offline mixer, bounded so a runaway source fails instead
+    /// of hanging the test.
+    fn pull_all(source: &mut rodio::mixer::MixerSource) -> Vec<f32> {
+        let mut samples = Vec::new();
+        for sample in source.by_ref() {
+            samples.push(sample);
+            assert!(
+                samples.len() <= MAX_OFFLINE_SAMPLES,
+                "offline mixer source must terminate: more than {MAX_OFFLINE_SAMPLES} samples"
+            );
+        }
+        samples
+    }
+
+    fn peak(samples: &[f32]) -> f32 {
+        samples
+            .iter()
+            .fold(0.0f32, |peak, sample| peak.max(sample.abs()))
+    }
+
+    fn energy(samples: &[f32]) -> f64 {
+        samples
+            .iter()
+            .map(|sample| f64::from(*sample).powi(2))
+            .sum()
+    }
+
+    /// The mixed clip is real, audible signal (not silence, not a runaway gain).
+    fn assert_playable(label: &str, samples: &[f32]) {
+        assert!(
+            !samples.is_empty(),
+            "{label}: offline mixer produced no samples"
+        );
+        assert!(
+            samples.iter().all(|sample| sample.is_finite()),
+            "{label}: every mixed sample must be finite"
+        );
+        assert!(
+            samples.iter().any(|sample| sample.abs() > 1e-4),
+            "{label}: mixed samples must not be digital silence"
+        );
+        let peak = peak(samples);
+        assert!(
+            peak > 1e-3,
+            "{label}: peak {peak} is too quiet for a decoded Crystal SFX"
+        );
+        // Overlapping cues deliberately sum without normalization, so 33 copies of a ~0.73
+        // peak clip legitimately reach ~24; far beyond that would be a runaway gain.
+        assert!(peak < 64.0, "{label}: peak {peak} suggests a runaway gain");
+    }
+
+    /// `mixed` is exactly `count` phase-aligned copies of `single`: no dedupe, no
+    /// normalization/clipping in the mixer (G4 linear-overlap requirement).
+    fn assert_stacked(mixed: &[f32], single: &[f32], count: f32, label: &str) {
+        assert_eq!(
+            mixed.len(),
+            single.len(),
+            "{label}: mixing must not change the clip length"
+        );
+        assert!(
+            !single.is_empty(),
+            "{label}: baseline clip must not be empty"
+        );
+        for (index, (mixed, single)) in mixed.iter().zip(single).enumerate() {
+            let expected = f64::from(*single) * f64::from(count);
+            let tolerance = expected.abs() * 1e-4 + 1e-6;
+            assert!(
+                (f64::from(*mixed) - expected).abs() <= tolerance,
+                "{label}: sample {index} is {mixed}, expected {count} x {single} = {expected}"
+            );
+        }
+        let expected_energy = f64::from(count) * f64::from(count);
+        let energy_ratio = energy(mixed) / energy(single);
+        assert!(
+            (energy_ratio - expected_energy).abs() <= expected_energy * 1e-3,
+            "{label}: summed-square energy ratio {energy_ratio} must be ~{expected_energy}"
+        );
+    }
+
+    /// Snapshot with two `FireBounce` projectiles: 7 -> 8 and 9 -> 10. Both are two-grid
+    /// flights, so under R61 M2 timing both spawn at the same frame and both arrive at 100 ms.
+    fn two_projectile_snapshot() -> WorldSnapshot {
+        let mut snapshot = WorldSnapshot::default();
+        seed_projectile_monster(&mut snapshot, PROJECTILE_SOURCE_ID, Point::new(10, 10));
+        seed_projectile_monster(&mut snapshot, PROJECTILE_DEST_ID, Point::new(12, 10));
+        seed_projectile_monster(&mut snapshot, 9, Point::new(10, 11));
+        seed_projectile_monster(&mut snapshot, 10, Point::new(12, 11));
+        for (source, destination) in [(PROJECTILE_SOURCE_ID, PROJECTILE_DEST_ID), (9, 10)] {
+            snapshot.projectile_events.push(ProjectileEvent {
+                spell: Spell::FireBounce,
+                source,
+                destination,
+            });
+        }
+        snapshot
+    }
+
+    /// R61 M3 wiring: the production projectile path submits every cue at the same instant
+    /// (no 100 ms cooldown), while the normal sound entry keeps its cooldown and neither
+    /// policy pollutes the other.
+    #[test]
+    fn projectile_cue_policy_bypasses_the_normal_cooldown() {
+        let Some(library) = repo_m34_library() else {
+            return;
+        };
+
+        // Two identical 125 cues at the same instant: both must be submitted (old: 1).
+        let (mut player, mut source) = offline_sound(library.clone(), true, 1.0);
+        assert_eq!(
+            play_projectile_cues(&mut player, vec!["M34-1.wav", "M34-1.wav"], 1_000),
+            2,
+            "the 125 policy must submit both same-instant cues"
+        );
+        assert!(
+            player.throttle().is_empty(),
+            "the 125 policy must not write the normal 100 ms throttle"
+        );
+        let pair = pull_all(&mut source);
+        assert_playable("two same-instant 125 cues", &pair);
+
+        // A single-cue baseline from the same library proves the mixer really stacked 2x.
+        let (mut single_player, mut single_source) = offline_sound(library.clone(), true, 1.0);
+        assert_eq!(
+            play_projectile_cues(&mut single_player, vec!["M34-1.wav"], 1_000),
+            1
+        );
+        let single = pull_all(&mut single_source);
+        assert_stacked(&pair, &single, 2.0, "two same-instant 125 cues");
+
+        // 33 identical cues at once: all must be submitted (no dedupe, no 32-cue cap).
+        let (mut crowded_player, mut crowded_source) = offline_sound(library.clone(), true, 1.0);
+        assert_eq!(
+            play_projectile_cues(&mut crowded_player, vec!["M34-1.wav"; 33], 1_000),
+            33,
+            "all 33 same-instant 125 cues must be submitted"
+        );
+        assert!(crowded_player.throttle().is_empty());
+        let crowded = pull_all(&mut crowded_source);
+        assert_playable("33 same-instant 125 cues", &crowded);
+        assert_stacked(&crowded, &single, 33.0, "33 same-instant 125 cues");
+
+        // The normal entry is untouched: 0/99/100 ms boundaries and no cross-pollution.
+        let (mut normal_player, _normal_source) = offline_sound(library, true, 1.0);
+        assert!(normal_player.play("M34-1.wav", 1_000));
+        assert!(
+            !normal_player.play("M34-1.wav", 1_000),
+            "0 ms later: still cooling down"
+        );
+        assert!(
+            !normal_player.play("M34-1.wav", 1_099),
+            "99 ms later: still cooling down"
+        );
+        assert!(
+            normal_player.play("M34-1.wav", 1_100),
+            "exactly 100 ms later: allowed again"
+        );
+        assert!(
+            normal_player.play_projectile_cue("M34-1.wav"),
+            "the 125 cue must not be swallowed by the normal cooldown"
+        );
+        assert!(
+            !normal_player.play("M34-1.wav", 1_150),
+            "the 125 cue must not refresh the normal cooldown"
+        );
+        assert!(
+            normal_player.play("M34-1.wav", 1_200),
+            "the normal entry is allowed exactly 100 ms after its own play"
+        );
+        assert_eq!(normal_player.throttle().len(), 1);
+
+        eprintln!(
+            "EVIDENCE m3 production_policy submitted=2,33 mixer_samples={}/{} peak={:.6}/{:.6} \
+             normal_cooldown_boundaries=0/99/100",
+            pair.len(),
+            crowded.len(),
+            peak(&pair),
+            peak(&crowded)
+        );
+    }
+
+    /// R61 M4 evidence chain: two real `Projectiles` spawn/impact cues ->
+    /// [`UiState::take_projectile_sound_cues`] -> production 125 policy -> shared decoder /
+    /// `amplify` path -> samples from a real offline `rodio` mixer (no fake counter).
+    #[test]
+    fn real_projectile_spawn_and_hit_cues_mix_offline() {
+        let Some(library) = repo_m34_library() else {
+            return;
+        };
+        let snapshot = two_projectile_snapshot();
+        let mut ui = UiState::new(Language::ZhCn);
+
+        // Spawn frame: two real projectiles hand two M34-1 cues to the production policy.
+        let start = u64::try_from(PROJECTILE_START_MS).expect("positive start time");
+        ui.set_time(PROJECTILE_START_MS);
+        ui.sync(&snapshot);
+        let spawn_cues = ui.take_projectile_sound_cues();
+        assert_eq!(
+            spawn_cues,
+            vec!["M34-1.wav", "M34-1.wav"],
+            "each projectile spawn owns one cue"
+        );
+        let (mut player, mut source) = offline_sound(library.clone(), true, 1.0);
+        assert_eq!(
+            play_projectile_cues(&mut player, spawn_cues, start),
+            2,
+            "both real spawn cues must reach the mixer"
+        );
+        assert_eq!(source.channels().get(), OFFLINE_CHANNELS);
+        assert_eq!(source.sample_rate().get(), OFFLINE_SAMPLE_RATE);
+        let spawn_mixed = pull_all(&mut source);
+        assert_playable("real spawn cues", &spawn_mixed);
+
+        // Same library, one cue: the 2-cue mix must be exactly two stacked copies.
+        let (mut base_player, mut base_source) = offline_sound(library.clone(), true, 1.0);
+        assert_eq!(
+            play_projectile_cues(&mut base_player, vec!["M34-1.wav"], start),
+            1
+        );
+        let spawn_base = pull_all(&mut base_source);
+        assert_stacked(&spawn_mixed, &spawn_base, 2.0, "two real spawn cues");
+
+        // Impact frame (+100 ms two-grid flight, R61 M2): two M34-2 cues.
+        ui.set_time(PROJECTILE_START_MS + 100);
+        ui.sync(&snapshot);
+        let hit_cues = ui.take_projectile_sound_cues();
+        assert_eq!(
+            hit_cues,
+            vec!["M34-2.wav", "M34-2.wav"],
+            "each projectile impact owns one cue"
+        );
+        let impact = u64::try_from(PROJECTILE_START_MS + 100).expect("positive impact time");
+        let (mut player, mut source) = offline_sound(library.clone(), true, 1.0);
+        assert_eq!(play_projectile_cues(&mut player, hit_cues, impact), 2);
+        assert_eq!(source.channels().get(), OFFLINE_CHANNELS);
+        assert_eq!(source.sample_rate().get(), OFFLINE_SAMPLE_RATE);
+        let hit_mixed = pull_all(&mut source);
+        assert_playable("real impact cues", &hit_mixed);
+
+        let (mut base_player, mut base_source) = offline_sound(library, true, 1.0);
+        assert_eq!(
+            play_projectile_cues(&mut base_player, vec!["M34-2.wav"], impact),
+            1
+        );
+        let hit_base = pull_all(&mut base_source);
+        assert_stacked(&hit_mixed, &hit_base, 2.0, "two real impact cues");
+
+        assert_ne!(
+            spawn_mixed, hit_mixed,
+            "spawn and impact clips must be different sounds"
+        );
+        eprintln!(
+            "EVIDENCE m4 chain=Projectiles->take_sound_cues->production_policy->decoder->amplify\
+             ->rodio_mixer spawn_samples={} spawn_peak={:.6} spawn_energy={:.6} \
+             hit_samples={} hit_peak={:.6} hit_energy={:.6} mixer_channels={OFFLINE_CHANNELS} \
+             mixer_rate={OFFLINE_SAMPLE_RATE}",
+            spawn_mixed.len(),
+            peak(&spawn_mixed),
+            energy(&spawn_mixed),
+            hit_mixed.len(),
+            peak(&hit_mixed),
+            energy(&hit_mixed)
+        );
     }
 }

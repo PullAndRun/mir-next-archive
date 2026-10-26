@@ -34,22 +34,25 @@
 //!   `CreateProjectile` 里可用 `TargetPoint` 兜底，`:4701` 才用 `missile.Target` 挂命中）。
 //!   125 包只带 `source`/`destination` 两个对象 ID，`destination` 不在快照里就没有落点
 //!   坐标，本作**不生成**实体（不崩溃、不伪造坐标）。
-//! * Crystal `Effect.cs:174-181` 每帧重算 `Duration`/`Count`（目标移动会改变总时长）；
-//!   本作在生成时冻结，目标当前位置只用于插值落点。
+//! * Crystal `Effect.cs:174-181` 每帧重算 `Duration`/`Count`，`Draw` 用当前帧号；
+//!   本作同样每帧按目标当前位置重算（R61 M2），但帧号由 `elapsed` 直接换算而非维护
+//!   `NextFrame` 状态机，`SkipFrames`/`CMain.Time` 的时钟等价仍记 **PARTIAL**
+//!   （R61 计划 §五 R-2）。
 //! * `draw_effect` 不叠加 wzl 每帧的 `ImageInfo.offset`（Crystal `MLibrary.cs:658-673`
 //!   的 `offSet=true`），属 mir-render 绘制层缺口，D1 不改 `mir-render`。
 //!
 //! # 已知限制
 //!
-//! `WorldSnapshot::projectile_events` 在会话侧是累计队列（`net.rs:7256-7278`，上限
-//! 16 条后丢最旧），只持 `&WorldSnapshot` 的绘制路径不能 `mem::take`。R60 G2 起快照
-//! 同时维护 `WorldSnapshot::projectile_events_total`（事件绝对序号，每次 push +1、快照
-//! 重建归零），[`Projectiles`] 用「已消费绝对序号 − ring 丢弃数」换算事件表下标，
-//! 队列满 16 条后不再漏掉新事件（R60 F6 更正：旧位置游标会永久静默丢弃第 17 个及之后
-//! 的事件）。仍有两项残留风险：
+//! `WorldSnapshot::projectile_events` 在会话侧是**只追加**队列（`net.rs` 的
+//! `push_projectile_event` 不设上限、不丢最旧；Crystal 客户端每收到一个 125 就生成
+//! 投射物，没有丢帧语义），只持 `&WorldSnapshot` 的绘制路径不能 `mem::take`。R60 G2
+//! 起快照同时维护 `WorldSnapshot::projectile_events_total`（事件绝对序号，每次 push
+//! +1、快照重建归零），[`Projectiles`] 以「已消费绝对序号」为游标；R61 M1 去掉 16 条
+//! 事件上限与 32 条 cue 上限后，积压只会多不会丢（`dropped` 只服务手工构造快照与
+//! 旧截断形态的兼容路径）。残留风险：
 //!
-//! * 事件在被消费前就被 ring 丢掉（同一帧 >16 个 125 事件或客户端卡顿）时只能跳过，
-//!   不重放旧事件——「不重复」优先于「不丢失」。
+//! * 事件表与 cue 队列只增不减：长期运行 / 消费端跟不上时的回收契约（游标确认、
+//!   安全裁剪、会话重置）归 R61 PARTIAL R-1（D3 文档），本轮不新增强制回收接口。
 //! * 快照被整体重建、且新表在 UI 首次同步前已累计超过旧游标时无法区分新旧事件；
 //!   正常重连会先出现空表（`WorldSnapshot::default()`），由 [`Projectiles::consume`]
 //!   的重建判定归零。
@@ -91,9 +94,6 @@ pub const HIT_EFFECT_FRAME_COUNT: u32 = 10;
 pub const HIT_EFFECT_DURATION_MS: u64 = 600;
 /// 命中特效每帧时长 = `600 / 10 = 60`（Crystal `Effect.cs:53` 的 `Duration / Count`）。
 pub const HIT_EFFECT_FRAME_MS: u64 = HIT_EFFECT_DURATION_MS / HIT_EFFECT_FRAME_COUNT as u64;
-/// 音效 cue 队列上限（超出丢最旧；与 `net.rs` 的 `SOUND_EVENT_LIMIT` 同法，
-/// 防止生产路径无人 drain 时无限增长）。
-pub const SOUND_CUE_LIMIT: usize = 32;
 
 /// 两点间的切比雪夫距离（Crystal `Functions.cs:312` 的 `MaxDistance`）。
 #[must_use]
@@ -115,10 +115,28 @@ pub fn frame_count(duration: u64) -> u32 {
         .max(1)
 }
 
-/// 已飞行 `elapsed_ms` 毫秒时的帧号（向下取整）。
+/// 每帧时长 = `duration / count`（Crystal `Effect.cs:55-60` 的 `Duration / Count`，
+/// C# 整数除法；`count >= 1`）。
 #[must_use]
-pub fn frame_at(elapsed_ms: u64) -> u32 {
-    u32::try_from(elapsed_ms / FRAME_INTERVAL_MS).unwrap_or(u32::MAX)
+pub fn frame_interval_ms(duration_ms: u64, count: u32) -> u64 {
+    duration_ms / u64::from(count.max(1))
+}
+
+/// 已飞行 `elapsed_ms` 毫秒时的帧号（Crystal `Effect.cs:91` 的严格大于语义）。
+///
+/// Crystal 在 `CMain.Time <= NextFrame` 时直接 return，`NextFrame` 从
+/// `Start + (Duration / Count)` 起逐帧递增（`Effect.cs:55-60`/`:97-100`），所以第 `k`
+/// 帧要等 `elapsed > k * 间隔` 才出现：`frame = (elapsed - 1) / 间隔`。间隔为 0
+/// （零距离、`Count == 1`）时在出生时刻保持 0，之后任何正时刻直接到达。
+#[must_use]
+pub fn frame_at(elapsed_ms: u64, duration_ms: u64, count: u32) -> u32 {
+    let count = count.max(1);
+    let interval = frame_interval_ms(duration_ms, count);
+    if interval == 0 {
+        return if elapsed_ms == 0 { 0 } else { count };
+    }
+    let frame = elapsed_ms.saturating_sub(1) / interval;
+    u32::try_from(frame).unwrap_or(u32::MAX).min(count)
 }
 
 /// Crystal `GameScene.Direction16`（`GameScene.cs:12044-12065`）的移植。
@@ -223,9 +241,9 @@ pub struct ProjectileView {
     pub destination: Point,
     /// 出生时刻（Unix 毫秒）。
     pub started_ms: i64,
-    /// 飞行总时长（生成时冻结，见模块文档的偏离）。
+    /// 最近一帧重算的飞行总时长（R61 M2：每帧按目标当前位置重算，不再冻结）。
     pub duration_ms: u64,
-    /// 飞行帧数（`max(1, duration / 30)`）。
+    /// 最近一帧重算的飞行帧数（`max(1, duration / 30)`）。
     pub frame_count: u32,
     /// 16 向方向号（0..=15）。
     pub dir16: u8,
@@ -306,7 +324,8 @@ pub trait ProjectileSoundSink {
 ///   [`Projectiles::take_sound_cues`] 供 `mir-client` 的音频通道每帧 drain；
 /// * 没有音频后端（无头模式）时它不影响逻辑。
 ///
-/// 超出 [`SOUND_CUE_LIMIT`] 时丢最旧一条（生产路径可能长时间无人 drain）。
+/// 队列不设上限：Crystal 客户端每收到一个 125 就生成投射物（没有丢帧语义），
+/// 丢 cue 等价于丢投射物，所以这里只按顺序记录，由消费端每帧 drain（R61 M1）。
 #[derive(Debug, Default, Clone)]
 pub struct RecordingSoundSink {
     /// 已记录、尚未取走的文件名（按播放顺序）。
@@ -326,6 +345,12 @@ impl RecordingSoundSink {
         self.played.len()
     }
 
+    /// 内部 `Vec` 的容量（R61 M1 内存口径证据用，不参与生产逻辑）。
+    #[must_use]
+    pub fn capacity(&self) -> usize {
+        self.played.capacity()
+    }
+
     /// 没有待播内容。
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -341,9 +366,6 @@ impl RecordingSoundSink {
 
 impl ProjectileSoundSink for RecordingSoundSink {
     fn play(&mut self, file: &'static str) {
-        if self.played.len() >= SOUND_CUE_LIMIT {
-            self.played.remove(0);
-        }
         self.played.push(file);
     }
 }
@@ -422,6 +444,18 @@ impl Projectiles {
         self.sounds.take()
     }
 
+    /// 音效 cue 队列内部 `Vec` 的容量（R61 M1 内存口径证据用，不参与生产逻辑）。
+    #[must_use]
+    pub fn sound_cue_capacity(&self) -> usize {
+        self.sounds.capacity()
+    }
+
+    /// 在飞实体 `Vec` 的容量（R61 M1 内存口径证据用，不参与生产逻辑）。
+    #[must_use]
+    pub fn views_capacity(&self) -> usize {
+        self.views.capacity()
+    }
+
     /// 每帧同步：先消费新事件，再按 `now_ms` 推进帧/落点并删除到达的实体。
     ///
     /// 幂等：同一快照、同一时刻重复调用不会重复生成，也不会多推进帧。
@@ -448,16 +482,15 @@ impl Projectiles {
 
     /// 只消费 `WorldSnapshot::projectile_events` 里的新事件。
     ///
-    /// 游标是**已消费事件的绝对序号**，不是 `projectile_events` 的下标：会话侧事件表
-    /// 累计到 `EFFECT_EVENT_LIMIT`(16) 条后丢最旧（`net.rs:2763-2772`/`net.rs:7256-7278`），
-    /// 满表后「丢最旧 + 追加」在 `len` 上不可观测，纯位置游标会让第 17 个及之后的事件
-    /// 被永久静默丢弃（R60 F6 更正）。快照用 `WorldSnapshot::projectile_events_total`
-    /// 记录自创建以来 push 过的总条数，`total - len` 即当前表里已被丢弃的最旧事件数
-    /// `dropped`，于是 `events[i]` 的绝对序号是 `dropped + i`，游标换算成下标即可。
+    /// 游标是**已消费事件的绝对序号**，不是 `projectile_events` 的下标：R61 M1 起事件表
+    /// 只追加（`net.rs` 的 `push_projectile_event` 不设上限、不丢最旧），正常快照下
+    /// `projectile_events_total == len`、`dropped == 0`，`events[i]` 的绝对序号就是 `i`，
+    /// 游标直接当下标用。R60 F6 的绝对序号机制保留，用于手工构造的快照（`total == 0`）
+    /// 与旧截断形态的兼容路径。
     ///
     /// 重建语义（旧「事件表重置 → 游标归零」）收紧为**空表**或「旧游标比新表长且没有
-    /// 事件被 ring 丢弃」：ring 满后 `consumed == total > len` 是正常态，若按旧
-    /// `len < consumed` 归零会把已消费的旧事件整表重放（R60 D2 契约 §二）。
+    /// 事件被丢弃」：若仍按旧 `len < consumed` 归零，会把重建快照里已消费的事件整表
+    /// 重放（R60 D2 契约 §二）。
     fn consume(
         &mut self,
         snapshot: &WorldSnapshot,
@@ -478,7 +511,8 @@ impl Projectiles {
             // 真重建（重连/换快照）：从头再消费。
             self.consumed = 0;
         }
-        // 未消费的事件已被 ring 丢弃：跳过它们（不重放），游标直接推到丢弃边界。
+        // 兼容路径：手工构造/旧形态快照可能声明丢弃数，跳过这些事件（不重放），
+        // 游标直接推到丢弃边界。
         let mut cursor = u64::try_from(self.consumed).unwrap_or(u64::MAX);
         if dropped > cursor {
             cursor = dropped;
@@ -491,7 +525,7 @@ impl Projectiles {
             cursor = cursor.saturating_add(1);
             self.spawn(event, snapshot, now_ms, sink);
         }
-        // 被 ring 丢弃但未消费的事件同样计入游标，避免下次按旧下标重复结算。
+        // 被丢弃但未消费的事件同样计入游标，避免下次按旧下标重复结算。
         self.consumed = usize::try_from(cursor).unwrap_or(usize::MAX);
     }
 
@@ -530,12 +564,17 @@ impl Projectiles {
         });
     }
 
-    /// 推进帧号与落点；到达（`frame >= frame_count`）即删除并生成命中表现。
+    /// 先重取落点、再重算参数、最后推进帧号；到达（`frame >= frame_count`）即删除并
+    /// 生成命中表现。
     ///
-    /// 目标当前位置每帧重取（Crystal `Effect.cs:174-181` 的
-    /// `Destination = Target.CurrentLocation`）；目标消失就停在最后已知位置。
-    /// 删除点对应 Crystal `Missile.Complete`（`GameScene.cs:4701-4710`）：
-    /// 目标存在且未死亡才加 570 命中特效 + 命中音效（`:4708` / `:4709`）。
+    /// Crystal `Missile.Process`（`Effect.cs:174-181`）每帧先
+    /// `Destination = Target.CurrentLocation`，再重算
+    /// `Duration = MaxDistance(Source, Destination) * 50` 与
+    /// `Count = max(1, Duration / Interval)`；本函数按同样顺序执行（R61 M2）。参数不再
+    /// 冻结：目标走远会拉长飞行、走近会缩短，`finished` 用重算后的参数判定。目标消失
+    /// 就停在最后已知位置。删除点对应 Crystal `Missile.Complete`
+    /// （`GameScene.cs:4701-4710`）：目标存在且未死亡才加 570 命中特效 + 命中音效
+    /// （`:4708` / `:4709`）。
     fn advance(
         &mut self,
         snapshot: &WorldSnapshot,
@@ -546,8 +585,14 @@ impl Projectiles {
             if let Some(position) = snapshot.object_position(view.destination_id) {
                 view.destination = position;
             }
+            view.duration_ms = duration_ms(view.source, view.destination);
+            view.frame_count = frame_count(view.duration_ms);
             let elapsed = now_ms.saturating_sub(view.started_ms).max(0);
-            view.frame = frame_at(u64::try_from(elapsed).unwrap_or(u64::MAX));
+            view.frame = frame_at(
+                u64::try_from(elapsed).unwrap_or(u64::MAX),
+                view.duration_ms,
+                view.frame_count,
+            );
         }
         let mut hit_effects = Vec::new();
         self.views.retain(|view| {
@@ -686,8 +731,28 @@ mod tests {
         assert_eq!(duration_ms(source, target), 250);
         assert_eq!(frame_count(250), 8);
         assert_eq!(frame_count(0), 1);
-        assert_eq!(frame_at(0), 0);
-        assert_eq!(frame_at(150), 5);
+        assert_eq!(frame_interval_ms(250, 8), 31, "C# integer division 250 / 8");
+        // 严格 `CMain.Time <= NextFrame` 语义（Effect.cs:91）：第 k 个边界只在
+        // elapsed > k * interval 时越过。
+        assert_eq!(frame_at(0, 250, 8), 0);
+        assert_eq!(
+            frame_at(31, 250, 8),
+            0,
+            "equality at the first boundary returns"
+        );
+        assert_eq!(frame_at(32, 250, 8), 1);
+        assert_eq!(frame_at(150, 250, 8), 4, "(150 - 1) / 31");
+        assert_eq!(frame_at(248, 250, 8), 7);
+        assert_eq!(frame_at(249, 250, 8), 8, "arrival after the last boundary");
+        assert_eq!(frame_at(30_000, 250, 8), 8, "frame clamps to count");
+        // 零距离：Count == 0 -> 1（Effect.cs:178-181），间隔 0，第一个 tick 到达。
+        assert_eq!(frame_interval_ms(0, 1), 0);
+        assert_eq!(frame_at(0, 0, 1), 0);
+        assert_eq!(frame_at(1, 0, 1), 1);
+        // 两格：100 / 3 = 33，到达在 100（旧 elapsed / 30 公式认为 90）。
+        assert_eq!(frame_interval_ms(100, 3), 33);
+        assert_eq!(frame_at(99, 100, 3), 2, "(99 - 1) / 33");
+        assert_eq!(frame_at(100, 100, 3), 3);
         for dir16 in 0..DIRECTIONS {
             assert_eq!(
                 sprite_index(0, dir16),
@@ -732,13 +797,17 @@ mod tests {
         projectiles.sync(&snapshot, 1_000);
         assert_eq!(projectiles.events_consumed(), 1);
         assert_eq!(projectiles.len(), 1);
-        // 目标移动后按当前位置重取落点。
+        // 目标移动后按当前位置重取落点，并按落点重算动态参数（R61 M2）。
         snapshot.entities.get_mut(&2).expect("target").position = Point::new(15, 12);
         projectiles.sync(&snapshot, 1_150);
         assert_eq!(projectiles.views()[0].destination, Point::new(15, 12));
-        assert_eq!(projectiles.views()[0].frame, 5);
-        // 到达/超时删除。
+        assert_eq!(projectiles.views()[0].duration_ms, 250);
+        assert_eq!(projectiles.views()[0].frame, 4);
+        // 到达/超时删除：严格边界下 249ms 才越过最后一个 NextFrame。
         projectiles.sync(&snapshot, 1_240);
+        assert_eq!(projectiles.len(), 1);
+        assert_eq!(projectiles.views()[0].frame, 7);
+        projectiles.sync(&snapshot, 1_250);
         assert_eq!(projectiles.len(), 0);
         // 落点未知（125 没有落点坐标）不生成实体，但仍算已消费（D-R59-1）。
         snapshot.projectile_events.push(fire_bounce(1, 999));
@@ -892,19 +961,14 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // R60 G2 (D2): ring overflow must not silently drop events 17+.
+    // R61 M1 (D1): the projectile event table is append-only, no 16-entry ring.
     // -----------------------------------------------------------------------
 
-    /// Mirror of `net.rs` `EFFECT_EVENT_LIMIT` (asserted as 16 by
-    /// `net::tests::r60_d2_projectile_events_total_counts_every_pushed_event`; the constant
-    /// itself is private to `net`).
-    const RING_LIMIT: usize = 16;
-
-    /// Snapshot with entities `1..=19` on distinct tiles (`1` = caster, `2..=19` targets),
+    /// Snapshot with entities `1..=20` on distinct tiles (`1` = caster, `2..=20` targets),
     /// so a view's `(destination_id, destination)` payload identifies exactly one event.
-    fn ring_overflow_snapshot() -> WorldSnapshot {
+    fn multi_target_snapshot() -> WorldSnapshot {
         let mut snapshot = WorldSnapshot::default();
-        for id in 1..=19u32 {
+        for id in 1..=20u32 {
             let x = i32::try_from(id).expect("test object id fits in i32") + 10;
             snapshot.entities.insert(
                 id,
@@ -921,107 +985,129 @@ mod tests {
         snapshot
     }
 
-    /// Mirror the real session ring (`net.rs:7271-7274`): append, drop the oldest event
-    /// past the cap, and advance the absolute sequence number on every push.
-    fn push_ring_event(snapshot: &mut WorldSnapshot, destination: u32) {
-        // Mirror the real session ring (`net.rs:7256-7278`): append, drop the oldest event
-        // past the cap, and advance the absolute sequence number on every push.
+    /// Append one event exactly like the real session path (`net.rs::push_projectile_event`):
+    /// no cap, no drop-oldest, and the absolute sequence advances on every push.
+    fn push_event(snapshot: &mut WorldSnapshot, destination: u32) {
         snapshot.projectile_events.push(fire_bounce(1, destination));
-        if snapshot.projectile_events.len() > RING_LIMIT {
-            snapshot.projectile_events.remove(0);
-        }
         snapshot.projectile_events_total = snapshot.projectile_events_total.saturating_add(1);
     }
 
-    /// Sixteen events fill the ring (`total == len == 16`); destinations are `2..=17`.
-    fn fill_ring(snapshot: &mut WorldSnapshot) {
-        for destination in 2..=17u32 {
-            push_ring_event(snapshot, destination);
-        }
-    }
-
     #[test]
-    fn r60_d2_dropped_events_are_not_replayed() {
-        let mut snapshot = ring_overflow_snapshot();
-        fill_ring(&mut snapshot);
-        let mut projectiles = Projectiles::default();
-        let mut sink = FakeSink::default();
-        projectiles.sync_with_sink(&snapshot, 1_000, &mut sink);
-        assert_eq!(projectiles.events_consumed(), RING_LIMIT);
-        assert_eq!(projectiles.views().len(), RING_LIMIT);
-        // Let every pre-overflow view finish: the assertions below only see new views.
-        projectiles.sync_with_sink(&snapshot, 3_000, &mut sink);
-        assert!(projectiles.views().is_empty());
-
-        // 17th event: ring drops #1, keeps #2..#17, len stays 16, total grows to 17.
-        push_ring_event(&mut snapshot, 18);
-        assert_eq!(snapshot.projectile_events_total, 17);
-        assert_eq!(snapshot.projectile_events.len(), RING_LIMIT);
-        assert_eq!(snapshot.projectile_events[0].destination, 3);
-
-        projectiles.sync_with_sink(&snapshot, 5_000, &mut sink);
+    fn r61_backlog_is_consumed_without_loss() {
+        let mut snapshot = multi_target_snapshot();
+        for destination in 2..=18u32 {
+            push_event(&mut snapshot, destination);
+        }
         assert_eq!(
-            projectiles.events_consumed(),
-            17,
-            "the 17th event must be consumed even though it sits at ring index 15"
+            snapshot.projectile_events_total, 17,
+            "every accepted push must advance the absolute counter"
         );
-        let views = projectiles.views();
-        assert_eq!(views.len(), 1, "exactly one new view for the 17th event");
-        assert_eq!(views[0].destination_id, 18);
-        assert_eq!(views[0].destination, Point::new(28, 10));
-        assert_eq!(views[0].started_ms, 5_000);
-        // No replay of #1..#16: none of their payloads may show up in the new view.
-        for event in 1..=16u32 {
-            assert_ne!(
-                views[0].destination_id,
-                event + 1,
-                "view of event #{event} must not be replayed"
-            );
-        }
-    }
+        assert_eq!(snapshot.projectile_events.len(), 17);
 
-    #[test]
-    fn r60_d2_second_ring_full_event_is_consumed_once() {
-        let mut snapshot = ring_overflow_snapshot();
-        fill_ring(&mut snapshot);
         let mut projectiles = Projectiles::default();
         let mut sink = FakeSink::default();
         projectiles.sync_with_sink(&snapshot, 1_000, &mut sink);
-        assert_eq!(projectiles.events_consumed(), RING_LIMIT);
-        projectiles.sync_with_sink(&snapshot, 3_000, &mut sink);
-        assert!(projectiles.views().is_empty());
-
-        // #17 arrives: consumed == total == 17 while len is still 16 (the normal full-ring
-        // state) and must not be mistaken for a snapshot rebuild.
-        push_ring_event(&mut snapshot, 18);
-        projectiles.sync_with_sink(&snapshot, 5_000, &mut sink);
         assert_eq!(projectiles.events_consumed(), 17);
-        assert_eq!(projectiles.views().len(), 1);
-        assert_eq!(projectiles.views()[0].destination_id, 18);
-
-        // #18 arrives: exactly one more view, no replayed #17 view.
-        push_ring_event(&mut snapshot, 19);
-        assert_eq!(snapshot.projectile_events_total, 18);
-        projectiles.sync_with_sink(&snapshot, 7_000, &mut sink);
+        assert_eq!(projectiles.views().len(), 17);
+        let payloads: Vec<u32> = projectiles
+            .views()
+            .iter()
+            .map(|view| view.destination_id)
+            .collect();
         assert_eq!(
-            projectiles.events_consumed(),
-            RING_LIMIT + 2,
-            "cursor counts events by absolute sequence number"
+            payloads,
+            (2..=18u32).collect::<Vec<u32>>(),
+            "arrival order preserved with no gap and no duplicate"
         );
-        let views = projectiles.views();
-        assert_eq!(views.len(), 1, "exactly one new view for the 18th event");
-        assert_eq!(views[0].destination_id, 19);
-        assert_eq!(views[0].destination, Point::new(29, 10));
-        assert_ne!(
-            views[0].destination_id, 18,
-            "the 17th event must not be replayed for the 18th"
-        );
+        assert_eq!(sink.played, vec!["M34-1.wav"; 17]);
+
+        // 同一快照同一时刻再次同步：不重放、不重复出 cue。
+        projectiles.sync_with_sink(&snapshot, 1_000, &mut sink);
+        assert_eq!(projectiles.events_consumed(), 17);
+        assert_eq!(projectiles.views().len(), 17);
+        assert_eq!(sink.played.len(), 17);
+
+        // 每个视图恰好结算一次，包括最老的一个（R60 的 ring 在 UI 消费前就丢弃了它）。
+        projectiles.sync_with_sink(&snapshot, 3_000, &mut sink);
+        assert!(projectiles.views().is_empty());
+        assert_eq!(projectiles.hit_effects().len(), 17);
+        let spawns = sink
+            .played
+            .iter()
+            .filter(|cue| **cue == "M34-1.wav")
+            .count();
+        let hits = sink
+            .played
+            .iter()
+            .filter(|cue| **cue == "M34-2.wav")
+            .count();
+        assert_eq!((spawns, hits), (17, 17));
+
+        // 再次同步既不重新结算也不重播命中 cue。
+        projectiles.sync_with_sink(&snapshot, 3_000, &mut sink);
+        assert_eq!(projectiles.hit_effects().len(), 17);
+        let hits = sink
+            .played
+            .iter()
+            .filter(|cue| **cue == "M34-2.wav")
+            .count();
+        assert_eq!(hits, 17);
     }
 
     #[test]
-    fn r60_d2_snapshot_rebuild_resets_cursor_without_replay() {
-        let mut snapshot = ring_overflow_snapshot();
-        push_ring_event(&mut snapshot, 2);
+    fn r61_appending_while_consuming_keeps_each_event_once() {
+        let mut snapshot = multi_target_snapshot();
+        for destination in 2..=18u32 {
+            push_event(&mut snapshot, destination);
+        }
+        let mut projectiles = Projectiles::default();
+        let mut sink = FakeSink::default();
+        projectiles.sync_with_sink(&snapshot, 1_000, &mut sink);
+        assert_eq!(projectiles.events_consumed(), 17);
+
+        // 新事件在游标已经消费第一批之后到达：append-only 表同时保留两批，
+        // 游标继续前进即可（不再需要 R60 ring 的位移补偿）。
+        for destination in 19..=20u32 {
+            push_event(&mut snapshot, destination);
+        }
+        assert_eq!(snapshot.projectile_events_total, 19);
+        assert_eq!(snapshot.projectile_events.len(), 19);
+        projectiles.sync_with_sink(&snapshot, 1_900, &mut sink);
+        assert_eq!(projectiles.events_consumed(), 19);
+        let payloads: Vec<u32> = projectiles
+            .views()
+            .iter()
+            .map(|view| view.destination_id)
+            .collect();
+        assert_eq!(
+            payloads,
+            vec![19, 20],
+            "only the new events spawn new views"
+        );
+        // 第一批在两次同步之间到达，并且只结算一次。
+        assert_eq!(projectiles.hit_effects().len(), 17);
+        let spawns = sink
+            .played
+            .iter()
+            .filter(|cue| **cue == "M34-1.wav")
+            .count();
+        let hits = sink
+            .played
+            .iter()
+            .filter(|cue| **cue == "M34-2.wav")
+            .count();
+        assert_eq!((spawns, hits), (19, 17));
+
+        projectiles.sync_with_sink(&snapshot, 1_900, &mut sink);
+        assert_eq!(projectiles.events_consumed(), 19);
+        assert_eq!(projectiles.views().len(), 2);
+        assert_eq!(projectiles.hit_effects().len(), 17);
+    }
+
+    #[test]
+    fn r61_rebuilt_snapshot_resets_cursor_without_replay() {
+        let mut snapshot = multi_target_snapshot();
+        push_event(&mut snapshot, 2);
         let mut projectiles = Projectiles::default();
         let mut sink = FakeSink::default();
         projectiles.sync_with_sink(&snapshot, 1_000, &mut sink);
@@ -1031,7 +1117,7 @@ mod tests {
         assert!(projectiles.views().is_empty(), "the one view has finished");
 
         // Reconnect/rebuilt snapshot: empty table and total back to zero.
-        let rebuilt = ring_overflow_snapshot();
+        let mut rebuilt = multi_target_snapshot();
         projectiles.sync_with_sink(&rebuilt, 3_000, &mut sink);
         assert_eq!(
             projectiles.events_consumed(),
@@ -1044,20 +1130,19 @@ mod tests {
             "the rebuilt snapshot starts a new absolute sequence"
         );
 
-        // The rebuilt snapshot's first event is consumed once, not 17 times.
-        let mut rebuilt = rebuilt;
-        push_ring_event(&mut rebuilt, 2);
+        // 重建后的第一条事件只消费一次，不会按旧表长度重放。
+        push_event(&mut rebuilt, 3);
         projectiles.sync_with_sink(&rebuilt, 3_000, &mut sink);
         assert_eq!(projectiles.events_consumed(), 1);
         assert_eq!(projectiles.views().len(), 1);
-        assert_eq!(projectiles.views()[0].destination_id, 2);
+        assert_eq!(projectiles.views()[0].destination_id, 3);
     }
 
     #[test]
-    fn r60_d2_consecutive_consumes_do_not_duplicate_payloads() {
-        let mut snapshot = ring_overflow_snapshot();
+    fn r61_consecutive_consumes_do_not_duplicate_payloads() {
+        let mut snapshot = multi_target_snapshot();
         for destination in 2..=4u32 {
-            push_ring_event(&mut snapshot, destination);
+            push_event(&mut snapshot, destination);
         }
         let mut projectiles = Projectiles::default();
         let mut sink = FakeSink::default();
@@ -1088,5 +1173,51 @@ mod tests {
         projectiles.sync_with_sink(&snapshot, 1_015, &mut sink);
         assert_eq!(projectiles.events_consumed(), 3);
         assert_eq!(projectiles.views().len(), 3);
+    }
+
+    #[test]
+    fn r61_dynamic_flight_parameters_follow_the_target() {
+        // 6 格：300ms / count 10（interval 30）；同一时刻远移 9 格（450/15）仍飞，
+        // 近移 3 格（150/5）立即到达（Crystal Effect.cs:185-187）。
+        let mut snapshot = snapshot_with(Point::new(10, 10), Point::new(16, 10));
+        push_event(&mut snapshot, 2);
+        let mut projectiles = Projectiles::default();
+        let mut sink = FakeSink::default();
+        projectiles.sync_with_sink(&snapshot, 1_000, &mut sink);
+        assert_eq!(projectiles.views().len(), 1);
+        projectiles.sync_with_sink(&snapshot, 1_200, &mut sink);
+        let view = projectiles.views()[0];
+        assert_eq!(
+            (view.duration_ms, view.frame_count, view.frame),
+            (300, 10, 6)
+        );
+
+        snapshot.entities.get_mut(&2).expect("target").position = Point::new(19, 16);
+        projectiles.sync_with_sink(&snapshot, 1_200, &mut sink);
+        let view = projectiles.views()[0];
+        assert_eq!(view.destination, Point::new(19, 16));
+        assert_eq!((view.duration_ms, view.frame_count), (450, 15));
+        assert_eq!(view.frame, 6);
+        assert_eq!(view.dir16, 4, "direction stays a spawn-time property");
+
+        projectiles.sync_with_sink(&snapshot, 1_400, &mut sink);
+        assert_eq!(projectiles.views().len(), 1, "13 < 15 frames: still flying");
+        assert_eq!(projectiles.views()[0].frame, 13);
+
+        snapshot.entities.get_mut(&2).expect("target").position = Point::new(13, 10);
+        projectiles.sync_with_sink(&snapshot, 1_400, &mut sink);
+        assert_eq!(
+            projectiles.views().len(),
+            0,
+            "frame 13 >= count 5: settles at the same instant"
+        );
+        assert_eq!(projectiles.hit_effects().len(), 1);
+        assert_eq!(projectiles.hit_effects()[0].position, Point::new(13, 10));
+        assert_eq!(sink.played, vec!["M34-1.wav", "M34-2.wav"]);
+
+        // 同一时刻重复同步不会二次结算。
+        projectiles.sync_with_sink(&snapshot, 1_400, &mut sink);
+        assert_eq!(projectiles.hit_effects().len(), 1);
+        assert_eq!(sink.played.len(), 2);
     }
 }

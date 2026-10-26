@@ -242,7 +242,7 @@ fn consecutive_projectiles_keep_wire_order() {
 }
 
 #[test]
-fn projectile_ring_reuses_measured_effect_event_limit() {
+fn projectile_event_table_keeps_every_event_after_the_r61_policy() {
     let mut snapshot = WorldSnapshot::default();
     seed_self(&mut snapshot);
     seed_monster(&mut snapshot, SOURCE_ID, Point::new(21, 20));
@@ -251,21 +251,21 @@ fn projectile_ring_reuses_measured_effect_event_limit() {
         snapshot.apply_packet_at(&firebounce(SOURCE_ID, 100 + offset), 1_000);
     }
 
-    // Probe result recorded in target/round58/s2/attempt-1/01-probe.log:
-    // EFFECT_EVENT_LIMIT = 16 (crates/mir-client/src/net.rs:165), reused by the
-    // projectile event ring instead of inventing a new cap.
+    // R61 M1: the 16-entry drop-oldest ring was removed for projectile events (Crystal's
+    // client creates a projectile for every 125 packet). The table is append-only; the
+    // absolute counter is what lets the UI consume without replaying.
     assert_eq!(
         snapshot.projectile_events.len(),
-        16,
-        "projectile ring cap must be the measured EFFECT_EVENT_LIMIT"
+        20,
+        "no projectile event may be dropped"
     );
     assert_eq!(
         snapshot
             .projectile_events
             .first()
             .map(|event| event.destination),
-        Some(104),
-        "oldest four events dropped"
+        Some(100),
+        "the first event is still at index 0 after twenty pushes"
     );
     assert_eq!(
         snapshot
@@ -274,5 +274,9 @@ fn projectile_ring_reuses_measured_effect_event_limit() {
             .map(|event| event.destination),
         Some(119),
         "newest event is last"
+    );
+    assert_eq!(
+        snapshot.projectile_events_total, 20,
+        "the absolute sequence counts every accepted event"
     );
 }

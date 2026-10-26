@@ -9363,4 +9363,417 @@ mod tests {
             );
         }
     }
+
+    // -----------------------------------------------------------------------
+    // R65 A: 半消费前缀回收的 1-based 水位契约（G1.1/G1.3）与 ack 命令零字节（G1.4）。
+    //
+    // 语义边界（不在本测试扩范围）：权威事件表的绝对序号从 1 开始、含本条，
+    // 因此 0-based `events[i]` 的水位 = `reclaimed() + i + 1`；`total` 是累计收到数，
+    // 回收后不减少。本模块只验证进程内簿记/命令路径，**不是 wire ack**、不改协议，
+    // 也不证明 server 侧或容量有界（见门下 C5 禁区）。
+    //
+    // 红→绿：隔离副本（`target/round65/a/red-copy/`）把 `trim_projectile_events_through`
+    // 改成 no-op 后这些断言必须真实失败（非 panic），见
+    // `target/round65/a/attempt-1/red/red-lib-trim-noop.log`；本测试代码字节在红绿之间
+    // 不变（完整块 SHA 见 `target/round65/a/attempt-1/sha256-manifest.json`）。
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn r65_half_consumed_prefix_tracks_one_based_watermark() {
+        // G1.1/C1：网络线程已发布 S2(total=2,len=2)，UI 只消费前 2 条；
+        // 权威随后在同一代续发 e3/e4 得 S4(total=4,len=4)。UI 的 ack 以 1-based
+        // 绝对序号 2（含第 2 条）交给权威，只能回收 e1/e2。
+        let mut s2 = WorldSnapshot::new_session();
+        for destination in 1..=2u32 {
+            push_projectile_event(&mut s2, Spell::FireBounce, 1, destination);
+        }
+        let s2_state = (
+            s2.reclaimed(),
+            s2.projectile_events.len(),
+            s2.projectile_events_total,
+        );
+        assert_eq!(
+            s2_state,
+            (0, 2, 2),
+            "S2：已发布前缀 (reclaimed,len,total)=(0,2,2)"
+        );
+
+        // 同代续发：clone 保留代号（不是新会话，也不是第二个消费者注册）。
+        let mut s4 = s2.clone();
+        for destination in 3..=4u32 {
+            push_projectile_event(&mut s4, Spell::FireBounce, 1, destination);
+        }
+        assert_eq!(
+            s2.session_generation, s4.session_generation,
+            "S4 与 S2 必须是同一会话代号"
+        );
+        let s4_state = (
+            s4.reclaimed(),
+            s4.projectile_events.len(),
+            s4.projectile_events_total,
+        );
+        assert_eq!(
+            s4_state,
+            (0, 4, 4),
+            "S4：续发后 (reclaimed,len,total)=(0,4,4)"
+        );
+
+        // UI 水位 2（1-based，含本条）→ 权威只裁掉前缀 e1/e2。
+        s4.apply_projectile_ack(s4.session_generation, 2);
+        let half = (
+            s4.reclaimed(),
+            s4.projectile_events.len(),
+            s4.projectile_events_total,
+        );
+        assert_eq!(
+            half,
+            (2, 2, 4),
+            "半消费后必须是 (reclaimed,len,total)=(2,2,4)"
+        );
+        assert_eq!(
+            s4.projectile_events_total,
+            s4.reclaimed() + u64::try_from(s4.projectile_events.len()).expect("事件数"),
+            "不变量：total == len + reclaimed"
+        );
+        // 0-based 索引 i ↔ 1-based 水位的换算：events[i] 的序号 = reclaimed()+i+1。
+        for (index, event) in s4.projectile_events.iter().enumerate() {
+            let one_based = s4.reclaimed() + u64::try_from(index).expect("下标") + 1;
+            assert_eq!(
+                event.destination,
+                u32::try_from(one_based).expect("水位"),
+                "events[i] 的 1-based 水位必须是 reclaimed()+i+1（保留下来的首条是第 3 条）"
+            );
+        }
+
+        // 权威再 push e5 → (2,3,5)：push 与回收共用同一绝对序号口径。
+        push_projectile_event(&mut s4, Spell::FireBounce, 1, 5);
+        let after_push = (
+            s4.reclaimed(),
+            s4.projectile_events.len(),
+            s4.projectile_events_total,
+        );
+        assert_eq!(
+            after_push,
+            (2, 3, 5),
+            "push e5 后必须是 (reclaimed,len,total)=(2,3,5)"
+        );
+        assert_eq!(
+            s4.projectile_events_total,
+            s4.reclaimed() + u64::try_from(s4.projectile_events.len()).expect("事件数"),
+            "push 后不变量仍成立"
+        );
+
+        // UI 消费完剩余 3 条后 ack 5（1-based，含本条）→ 裁空、total 仍是 5。
+        let removed = s4.apply_projectile_ack(s4.session_generation, 5);
+        assert_eq!(removed, 3, "ack 水位 5 只能移除剩余 3 条（e3/e4/e5）");
+        let drained = (
+            s4.reclaimed(),
+            s4.projectile_events.len(),
+            s4.projectile_events_total,
+        );
+        assert_eq!(
+            drained,
+            (5, 0, 5),
+            "ack 5 后必须是 (reclaimed,len,total)=(5,0,5)"
+        );
+    }
+
+    #[test]
+    fn r65_lifecycle_repeat_backward_clamp_and_generation() {
+        // G1.3：重复/后退 ack no-op、越尾夹取、total 不减、旧代 ack 不裁新代、
+        // 空表与空首批语义。复用 R64 的同代 4 条快照 helper，不复制大段构造。
+        let mut snapshot = r64_snapshot_with_projectiles(4);
+        let generation = snapshot.session_generation;
+        let initial = (
+            snapshot.reclaimed(),
+            snapshot.projectile_events.len(),
+            snapshot.projectile_events_total,
+        );
+        assert_eq!(initial, (0, 4, 4), "初始 (reclaimed,len,total)=(0,4,4)");
+
+        assert_eq!(
+            snapshot.apply_projectile_ack(generation, 2),
+            2,
+            "首次 ack 2 回收 e1/e2"
+        );
+        let half = (
+            snapshot.reclaimed(),
+            snapshot.projectile_events.len(),
+            snapshot.projectile_events_total,
+        );
+        assert_eq!(half, (2, 2, 4), "半消费后 (reclaimed,len,total)=(2,2,4)");
+
+        // 重复 ack 与后退 ack 都必须是 no-op：不误裁、不减少 total。
+        assert_eq!(
+            snapshot.apply_projectile_ack(generation, 2),
+            0,
+            "重复 ack 同一水位必须 no-op"
+        );
+        assert_eq!(
+            snapshot.apply_projectile_ack(generation, 1),
+            0,
+            "后退 ack 水位必须 no-op"
+        );
+        let after_noop = (
+            snapshot.reclaimed(),
+            snapshot.projectile_events.len(),
+            snapshot.projectile_events_total,
+        );
+        assert_eq!(after_noop, (2, 2, 4), "no-op ack 不得改变 (2,2,4)");
+
+        // 越尾 ack 夹取到表尾：只删现有 2 条，total 永不减。
+        assert_eq!(
+            snapshot.apply_projectile_ack(generation, u64::MAX),
+            2,
+            "越尾 ack 必须夹取到表尾（不 panic、不多删）"
+        );
+        let clamped = (
+            snapshot.reclaimed(),
+            snapshot.projectile_events.len(),
+            snapshot.projectile_events_total,
+        );
+        assert_eq!(clamped, (4, 0, 4), "夹取后 (reclaimed,len,total)=(4,0,4)");
+        assert_eq!(snapshot.projectile_events_total, 4, "夹取后 total 不减");
+
+        // 旧代 ack 不裁新代：新会话用旧 generation 的 ack 必须被忽略。
+        let mut new_session = r64_snapshot_with_projectiles(2);
+        assert_ne!(
+            new_session.session_generation, generation,
+            "new_session 必须换新代号"
+        );
+        assert_eq!(
+            new_session.apply_projectile_ack(generation, 1),
+            0,
+            "旧代 ack 不得裁新代事件"
+        );
+        let untouched = (
+            new_session.reclaimed(),
+            new_session.projectile_events.len(),
+            new_session.projectile_events_total,
+        );
+        assert_eq!(untouched, (0, 2, 2), "旧代 ack 后新代表仍是 (0,2,2)");
+        assert_eq!(
+            new_session.apply_projectile_ack(new_session.session_generation, 1),
+            1,
+            "新代自己的 ack 才生效"
+        );
+
+        // 空表/空首批：空会话 ack no-op；首批非空后水位从 1 开始，ack 1 删 1 条。
+        let mut empty = WorldSnapshot::new_session();
+        let empty_state = (
+            empty.reclaimed(),
+            empty.projectile_events.len(),
+            empty.projectile_events_total,
+        );
+        assert_eq!(
+            empty_state,
+            (0, 0, 0),
+            "空会话 (reclaimed,len,total)=(0,0,0)"
+        );
+        assert_eq!(
+            empty.apply_projectile_ack(empty.session_generation, 1),
+            0,
+            "空表 ack 必须 no-op（不 panic）"
+        );
+        push_projectile_event(&mut empty, Spell::FireBounce, 1, 1);
+        let first = (
+            empty.reclaimed(),
+            empty.projectile_events.len(),
+            empty.projectile_events_total,
+        );
+        assert_eq!(
+            first,
+            (0, 1, 1),
+            "空首批后第一条 (reclaimed,len,total)=(0,1,1)"
+        );
+        assert_eq!(
+            empty.projectile_events[0].destination, 1,
+            "首批第 1 条的 1-based 水位是 1"
+        );
+        assert_eq!(
+            empty.projectile_events_total,
+            empty.reclaimed() + u64::try_from(empty.projectile_events.len()).expect("事件数"),
+            "不变量：total == len + reclaimed"
+        );
+        assert_eq!(
+            empty.apply_projectile_ack(empty.session_generation, 1),
+            1,
+            "新代首批 ack 1 删 1 条"
+        );
+        let reclaimed_first = (
+            empty.reclaimed(),
+            empty.projectile_events.len(),
+            empty.projectile_events_total,
+        );
+        assert_eq!(
+            reclaimed_first,
+            (1, 0, 1),
+            "首批回收后 (reclaimed,len,total)=(1,0,1)"
+        );
+    }
+
+    #[test]
+    fn r65_ack_command_is_in_game_gated_and_writes_zero_bytes() {
+        // G1.4/C4：ack 是进程内命令。非 InGame 时先被 gate 静默丢弃（不裁快照）；
+        // InGame 时在 send 之前就地裁前缀，且对 stream 写 0 字节。wire 零字节用
+        // 真实 TCP 观察；Turn 正对照证明同一 seam 确实会写字节（同 R64
+        // `r64_ack_command_emits_no_client_packet`，此处补 gate 次序断言）。
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("绑定测试端口");
+        let address = listener.local_addr().expect("测试端口地址");
+        let mut client = TcpStream::connect(address).expect("连接测试端口");
+        let (mut server, _) = listener.accept().expect("接受测试连接");
+        server
+            .set_nonblocking(true)
+            .expect("测试 stream 设为非阻塞");
+
+        let mut snapshot = r64_snapshot_with_projectiles(2);
+        let generation = snapshot.session_generation;
+        // 先确认不是 InGame，再发 ack：gate 在 match 之前，必须不裁快照。
+        assert_ne!(
+            snapshot.status,
+            NetStatus::InGame,
+            "新建快照默认不得是 InGame（gate 断言前提）"
+        );
+        handle_command(
+            &mut client,
+            &mut snapshot,
+            NetCommand::AckProjectileEvents {
+                generation,
+                through: 2,
+            },
+        )
+        .expect("非 InGame 的 ack 命令不得报错");
+        assert_eq!(
+            snapshot.reclaimed(),
+            0,
+            "非 InGame 时 gate 先行，ack 不得改快照"
+        );
+        assert_eq!(snapshot.projectile_events.len(), 2);
+        let mut buffer = [0u8; 64];
+        match server.read(&mut buffer) {
+            Err(error) if error.kind() == ErrorKind::WouldBlock => {}
+            Ok(0) => {}
+            other => panic!("非 InGame 的 ack 不得写任何 wire 字节，实际读到 {other:?}"),
+        }
+
+        // InGame：ack 在 gate 之后就地裁前缀（证明 gate 后、send 前返回），仍零写。
+        snapshot.status = NetStatus::InGame;
+        handle_command(
+            &mut client,
+            &mut snapshot,
+            NetCommand::AckProjectileEvents {
+                generation,
+                through: 1,
+            },
+        )
+        .expect("InGame 的 ack 命令不得报错");
+        assert_eq!(
+            snapshot.reclaimed(),
+            1,
+            "InGame 下 ack 必须在 send 之前就地裁已确认前缀"
+        );
+        assert_eq!(snapshot.projectile_events.len(), 1, "未确认后缀必须保留");
+        assert_eq!(
+            snapshot.projectile_events_total, 2,
+            "total 是累计收到数，不减少"
+        );
+        match server.read(&mut buffer) {
+            Err(error) if error.kind() == ErrorKind::WouldBlock => {}
+            Ok(0) => {}
+            other => panic!("InGame 的 ack 不得写任何 wire 字节，实际读到 {other:?}"),
+        }
+
+        // 正对照：同一 seam 上的普通命令确实写字节，证明上面的 0 字节断言有鉴别力。
+        handle_command(
+            &mut client,
+            &mut snapshot,
+            NetCommand::Turn(MirDirection::Down),
+        )
+        .expect("转身命令不得报错");
+        match server.read(&mut buffer) {
+            Ok(written) => assert!(written > 0, "普通命令必须写出 wire 字节（正对照）"),
+            Err(error) => panic!("普通命令应写字节，实际读失败: {error}"),
+        }
+    }
+
+    #[test]
+    fn r65_wait_for_snapshot_waits_for_predicate_and_never_acks() {
+        // C4 单列：`wait_for_snapshot`（crates/mir-client/src/net.rs:3881）和 app
+        // 消费的是同一个 Receiver；predicate 不满足必须继续等，满足才返回；返回快照
+        // 只代表观测，不能顺手写回 ack，也不能变成"全局最低水位成员"。
+        let (command_tx, command_rx) = mpsc::channel::<NetCommand>();
+        let (event_tx, event_rx) = mpsc::channel::<NetEvent>();
+        let mut early = WorldSnapshot::new_session();
+        push_projectile_event(&mut early, Spell::FireBounce, 1, 1);
+        let mut ready = early.clone();
+        push_projectile_event(&mut ready, Spell::FireBounce, 1, 2);
+        let early_generation = early.session_generation;
+        event_tx
+            .send(NetEvent::Snapshot(Box::new(early)))
+            .expect("测试通道不得提前关闭");
+        event_tx
+            .send(NetEvent::Snapshot(Box::new(ready)))
+            .expect("测试通道不得提前关闭");
+        let client = NetClient {
+            commands: command_tx,
+            events: event_rx,
+            thread: None,
+        };
+        let snapshot = client
+            .wait_for_snapshot(
+                |snapshot| snapshot.projectile_events_total >= 2,
+                Duration::from_secs(2),
+            )
+            .expect("第二条快照满足 predicate，必须返回而不是继续等到超时");
+        assert_eq!(
+            snapshot.projectile_events_total, 2,
+            "返回的必须是满足 predicate 的那份快照"
+        );
+        assert_eq!(
+            snapshot.projectile_events.len(),
+            2,
+            "predicate 不满足的首条快照必须继续等，不能提前返回"
+        );
+        assert_eq!(
+            snapshot.session_generation, early_generation,
+            "等待器只读同一 Receiver，不改变快照的会话代号"
+        );
+        assert!(
+            matches!(command_rx.try_recv(), Err(mpsc::TryRecvError::Empty)),
+            "wait_for_snapshot 返回快照不等于确认消费：不得自动发 ack 或任何命令"
+        );
+    }
+
+    #[test]
+    fn r65_total_saturates_without_overflow_and_never_decreases() {
+        // C7/G1.3：total 是累计收到数；饱和只证明"不溢出"，不证明恢复能力/唯一序号/
+        // 全局安全（历史 PARTIAL 不清零）。
+        let mut snapshot = WorldSnapshot {
+            projectile_events_total: u64::MAX,
+            ..WorldSnapshot::default()
+        };
+        push_projectile_event(&mut snapshot, Spell::FireBounce, 1, 1);
+        assert_eq!(
+            snapshot.projectile_events_total,
+            u64::MAX,
+            "total 达到 u64::MAX 后只能饱和，不得回绕"
+        );
+        assert_eq!(
+            snapshot.projectile_events.len(),
+            1,
+            "已发布表仍收到这条事件"
+        );
+        assert_eq!(
+            snapshot.reclaimed(),
+            u64::MAX - 1,
+            "reclaimed 用饱和减法，不能借饱和回绕"
+        );
+        assert_eq!(
+            snapshot.trim_projectile_events_through(1),
+            0,
+            "through 落在已回收区间内必须是 no-op"
+        );
+        assert_eq!(snapshot.projectile_events_total, u64::MAX, "total 永不减少");
+        assert_eq!(snapshot.projectile_events.len(), 1, "no-op 不裁剪已发布表");
+    }
 }

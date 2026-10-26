@@ -3876,6 +3876,135 @@ mod tests {
         assert_eq!(last_acked, Some((0, 2)));
     }
 
+    // -----------------------------------------------------------------
+    // R65 A: `next_projectile_ack` 宿主 seam（G1.1/G1.3 的 app 侧，app.rs:210）
+    //
+    // 只验证 app 宿主对 UI 水位的策略：through==0、重复、后退、同水位都不发；
+    // 同代严格前进与跨代首批非空才发。档位/协议不在本测试范围（C5 禁区）。
+    // 红→绿：`target/round65/a/red-copy/` 副本把 `next_projectile_ack` 改为返回
+    // None 后，本测试的 Some 断言必须真实失败（非 panic），见
+    // `target/round65/a/attempt-1/red/red-bin-ack-none.log`。
+    // -----------------------------------------------------------------
+
+    /// 指定会话代号与事件条数的宿主快照；事件按接收路径口径累计 `total`。
+    fn r65_projectile_snapshot(generation: u64, events: usize) -> WorldSnapshot {
+        let mut snapshot = WorldSnapshot::default();
+        seed_projectile_monster(&mut snapshot, PROJECTILE_SOURCE_ID, Point::new(10, 10));
+        seed_projectile_monster(&mut snapshot, PROJECTILE_DEST_ID, Point::new(12, 10));
+        snapshot.session_generation = generation;
+        for _ in 0..events {
+            push_r64_projectile(&mut snapshot, PROJECTILE_DEST_ID);
+        }
+        snapshot
+    }
+
+    #[test]
+    fn r65_next_projectile_ack_requires_strict_nonzero_watermark_advance() {
+        // C4/G1.3：只有 UI 水位在同一代内严格前进且 through != 0 才发 ack；
+        // 空表/重复/后退/同水位不发；跨代不能拿旧代水位比较。
+        const GEN_A: u64 = 41;
+        const GEN_B: u64 = 42;
+        let mut ui = UiState::new(Language::ZhCn);
+        ui.set_time(PROJECTILE_START_MS);
+        let mut last_acked: Option<(u64, u64)> = None;
+
+        // 1) 空表零消费：无 ack，也不污染 last_acked。
+        ui.sync(&WorldSnapshot::default());
+        assert_eq!(ui_projectile_watermark(&ui), (0, 0), "空表水位是 (0,0)");
+        assert_eq!(
+            next_projectile_ack(&mut last_acked, ui_projectile_watermark(&ui)),
+            None,
+            "空表且零消费不得上报本地确认水位"
+        );
+        assert_eq!(last_acked, None, "未发 ack 不得污染 last_acked");
+
+        // 2) 同代首批 2 条：水位 (GEN_A,2)，严格前进 → Some(through=2)。
+        let snapshot_a2 = r65_projectile_snapshot(GEN_A, 2);
+        ui.sync(&snapshot_a2);
+        assert_eq!(
+            ui_projectile_watermark(&ui),
+            (GEN_A, 2),
+            "首批非空必须消费到 1-based 水位 2"
+        );
+        assert_eq!(
+            next_projectile_ack(&mut last_acked, (GEN_A, 2)),
+            Some(NetCommand::AckProjectileEvents {
+                generation: GEN_A,
+                through: 2,
+            }),
+            "同代水位严格前进必须发 ack"
+        );
+        assert_eq!(last_acked, Some((GEN_A, 2)));
+
+        // 3) 重复同步同一快照：水位不变 → 不重发（禁止每帧 ack）。
+        ui.sync(&snapshot_a2);
+        assert_eq!(ui_projectile_watermark(&ui), (GEN_A, 2));
+        assert_eq!(
+            next_projectile_ack(&mut last_acked, (GEN_A, 2)),
+            None,
+            "同水位不得重复 ack"
+        );
+        assert_eq!(last_acked, Some((GEN_A, 2)));
+
+        // 4) 后退水位与 through==0：都不发，且不得覆盖已前进的 last_acked。
+        assert_eq!(
+            next_projectile_ack(&mut last_acked, (GEN_A, 1)),
+            None,
+            "后退水位不得 ack"
+        );
+        assert_eq!(
+            next_projectile_ack(&mut last_acked, (GEN_A, 0)),
+            None,
+            "through==0 不得 ack"
+        );
+        assert_eq!(last_acked, Some((GEN_A, 2)), "被拒水位不得污染 last_acked");
+
+        // 5) 同代新增第 3 条：严格前进 → 恰好再发一次，through=3。
+        let snapshot_a3 = r65_projectile_snapshot(GEN_A, 3);
+        ui.sync(&snapshot_a3);
+        assert_eq!(ui_projectile_watermark(&ui), (GEN_A, 3));
+        assert_eq!(
+            next_projectile_ack(&mut last_acked, (GEN_A, 3)),
+            Some(NetCommand::AckProjectileEvents {
+                generation: GEN_A,
+                through: 3,
+            }),
+            "同代新增事件后水位严格前进必须再发 ack"
+        );
+        assert_eq!(last_acked, Some((GEN_A, 3)));
+
+        // 6) 新代空首批：UI 延迟复位（游标仍停在旧代 (GEN_A,3)，见 G1.3/C3）；
+        //    用旧水位比较必须 no-op，不得跨代乱发。
+        ui.sync(&r65_projectile_snapshot(GEN_B, 0));
+        assert_eq!(
+            ui_projectile_watermark(&ui),
+            (GEN_A, 3),
+            "新代空首批不得提前复位游标"
+        );
+        assert_eq!(
+            next_projectile_ack(&mut last_acked, (GEN_A, 3)),
+            None,
+            "旧代水位在新代首批到达前必须 no-op"
+        );
+
+        // 7) 新代首批非空：复位一次并消费首批 → (GEN_B,1)，跨代严格前进必须发新代 ack。
+        ui.sync(&r65_projectile_snapshot(GEN_B, 1));
+        assert_eq!(
+            ui_projectile_watermark(&ui),
+            (GEN_B, 1),
+            "新代首批非空复位后水位是新代 1"
+        );
+        assert_eq!(
+            next_projectile_ack(&mut last_acked, (GEN_B, 1)),
+            Some(NetCommand::AckProjectileEvents {
+                generation: GEN_B,
+                through: 1,
+            }),
+            "跨代首批非空水位必须发新代 ack"
+        );
+        assert_eq!(last_acked, Some((GEN_B, 1)));
+    }
+
     #[test]
     fn projectile_sound_cues_are_drained_only_once() {
         let snapshot = projectile_snapshot();

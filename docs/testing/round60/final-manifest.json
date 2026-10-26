@@ -1,0 +1,131 @@
+{
+  "round": "R60",
+  "role": "D4b 刑部终审（gpt-6.1-sol，只读独立复核）",
+  "repo": "C:/Users/diana/Documents/github/mir-next",
+  "branch": "main",
+  "head": "e053905be38c57863b6f1a554e0cab111c1bd8e7",
+  "origin_main": "e053905be38c57863b6f1a554e0cab111c1bd8e7",
+  "verdict": "PASS-WITH-PARTIAL",
+  "audit_artifacts": {
+    "manifest": "docs/testing/round60/final-manifest.json",
+    "report": "docs/testing/round60/round60-final-audit.md",
+    "summary_log": "target/round60/audit/summary.log"
+  },
+  "commits": [
+    {
+      "hash": "bb53321c54be01bcad091ea8c1b197f17d6d9a17",
+      "short": "bb53321",
+      "subject": "feat(client): R60 125 音效真实通道与投射物事件去重（第60轮）",
+      "stat": "4 files changed, 593 insertions(+), 12 deletions(-)",
+      "files": [
+        {"path": "crates/mir-client/src/app.rs", "changes": 263},
+        {"path": "crates/mir-client/src/net.rs", "changes": 76},
+        {"path": "crates/mir-client/src/ui/mod.rs", "changes": 9},
+        {"path": "crates/mir-client/src/ui/projectile.rs", "changes": 257}
+      ],
+      "role": "gate_head"
+    },
+    {
+      "hash": "e053905be38c57863b6f1a554e0cab111c1bd8e7",
+      "short": "e053905",
+      "subject": "docs(round60): R60 文档批、run-checks 脚本与提交树哈希（第60轮文档批）",
+      "stat": "10 files changed, 925 insertions(+), 7 deletions(-)",
+      "scope": "docs/** only",
+      "boundary_check": "git diff bb53321..e053905 --stat -- crates => empty (exit 0)"
+    }
+  ],
+  "gate": {
+    "path": "target/round60/gate/attempt-1.log",
+    "bytes": 205317,
+    "sha256": "193b6fe4f8a0a46397a0026c2e8a2d66f0e041c9fa33f0ad6ca3a17d1f3678dd",
+    "exit": 0,
+    "head": "bb53321",
+    "items_ok": 12,
+    "items_total": 12,
+    "ok_line_grep_count": 13,
+    "ok_line_note": "13 = 12 汇总项 + 第 3340 行程序输出 'OK 所有保留物品模板都有图标'（非第 13 项门禁）",
+    "meta_path": "target/round60/gate/attempt-1.meta.txt",
+    "meta_start": "2026-10-26T10:29:53Z",
+    "meta_end": "2026-10-26T10:32:26Z",
+    "meta_bytes": 205317,
+    "meta_sha": "193b6fe4f8a0a46397a0026c2e8a2d66f0e041c9fa33f0ad6ca3a17d1f3678dd",
+    "r60_refs_in_log": 6,
+    "r60_refs_detail": "net::tests::r60_d2_projectile_events_total_{counts_every_pushed_event,resets_with_rebuilt_snapshot} + ui::projectile::tests::r60_d2_{consecutive_consumes_do_not_duplicate_payloads,dropped_events_are_not_replayed,second_ring_full_event_is_consumed_once,snapshot_rebuild_resets_cursor_without_replay}（均 ... ok）"
+  },
+  "tree_hashes": {
+    "path": "docs/testing/round60/commit-tree-hashes.txt",
+    "bytes": 2209,
+    "sha256": "520379f025184edc5ca127e4db70b84d3d0ceebb6edd676622e7d27766abf450",
+    "entries_ok": 13,
+    "entries_total": 13,
+    "verification": "逐条 wc -c + sha256sum 复算，13/13 一致（非抽查）",
+    "header_fields": ["head=bb53321", "gate_head=bb53321", "gate_log_sha256", "gate_log_bytes=205317", "gate_log_path", "gen"],
+    "self_hash_rule": "清单自身 sha256 不写入本清单（M-7），由本 manifest 的 tree_hashes.sha256 记录"
+  },
+  "self_sha256": "704274ed3a55fab47ad4d4da1961ff00db4d683bea7b5d5ea99df6f9f69deb31",
+  "self_sha256_scope": "sha256 of this file with the self_sha256 value replaced by the empty string（写入时先置空再取哈希，避免自指循环）",
+  "checks": [
+    {"id": "A1", "cmd": "wc -c target/round60/gate/attempt-1.log", "exit": 0, "expect": "205317", "actual": "205317", "result": "OK"},
+    {"id": "A2", "cmd": "sha256sum target/round60/gate/attempt-1.log", "exit": 0, "actual": "193b6fe4f8a0a46397a0026c2e8a2d66f0e041c9fa33f0ad6ca3a17d1f3678dd", "result": "OK"},
+    {"id": "A3", "cmd": "tail -20 target/round60/gate/attempt-1.log", "exit": 0, "actual": "12 条 OK 汇总 + '==> 全部通过（12 项）'", "result": "OK"},
+    {"id": "A4", "cmd": "grep -c \"^OK \" target/round60/gate/attempt-1.log", "exit": 0, "actual": "13（12 汇总 + 1 行程序输出，非门禁项）", "result": "OK"},
+    {"id": "A5", "cmd": "cat target/round60/gate/attempt-1.meta.txt", "exit": 0, "actual": "START/END/BYTES/SHA 与日志一致", "result": "OK"},
+    {"id": "A6", "cmd": "grep -rn \"round60|r60_\" target/round60/gate/attempt-1.log | head", "exit": 0, "actual": "6 条 r60_d2 用例全部 ok", "result": "OK"},
+    {"id": "B1", "cmd": "git show --stat bb53321 e053905", "exit": 0, "actual": "bb53321 4 files +593/-12；e053905 10 files +925/-7（仅 docs）", "result": "OK"},
+    {"id": "B2", "cmd": "git diff bb53321..e053905 --stat -- crates", "exit": 0, "actual": "空输出", "result": "OK"},
+    {"id": "B3", "cmd": "git status --short", "exit": 0, "actual": "仅 2 个历史未跟踪大冻结 JSON", "result": "OK"},
+    {"id": "B4", "cmd": "逐条 wc -c + sha256sum docs/testing/round60/commit-tree-hashes.txt 的 13 条", "exit": 0, "actual": "entries_ok=13 entries_bad=0", "result": "OK"},
+    {"id": "B5", "cmd": "sha256sum docs/testing/round60/commit-tree-hashes.txt", "exit": 0, "actual": "520379f025184edc5ca127e4db70b84d3d0ceebb6edd676622e7d27766abf450（2209 B）", "result": "OK"},
+    {"id": "C1", "cmd": "阅读 crates/mir-client/src/app.rs:194-221（play_projectile_cues / _with）", "exit": 0, "actual": "签名与注入式核心一致；生产调用 2757/2759 同帧 drain", "result": "OK"},
+    {"id": "C2", "cmd": "TMP=TEMP=target/tmp cargo test -p mir-client --bin mir-client 2>&1 | tail -3", "exit": 0, "actual": "21 passed; 0 failed; 0 ignored", "result": "OK"},
+    {"id": "D1", "cmd": "阅读 crates/mir-client/src/ui/projectile.rs:461-497 consume（dropped/cursor/第17事件）", "exit": 0, "actual": "绝对游标 + dropped 跳过 + 重建收紧，与断言一致", "result": "OK"},
+    {"id": "D2", "cmd": "阅读 crates/mir-client/src/net.rs:166/2767/2772/2911/7265", "exit": 0, "actual": "EFFECT_EVENT_LIMIT=16；projectile_events_total 字段 + saturating_add", "result": "OK"},
+    {"id": "D3", "cmd": "cargo test -p mir-client --lib ui::projectile 2>&1 | tail -2", "exit": 0, "actual": "12 passed; 0 failed; 0 ignored", "result": "OK"},
+    {"id": "D4", "cmd": "cargo test -p mir-client --lib net:: 2>&1 | tail -2", "exit": 0, "actual": "30 passed; 0 failed; 0 ignored", "result": "OK"},
+    {"id": "D5", "cmd": "git diff 3a9a104..HEAD -- crates/mir-protocol", "exit": 0, "actual": "0 行（ProjectileEvent 未变）", "result": "OK"},
+    {"id": "E1", "cmd": "阅读 target/round60/d1/attempt-1/00-summary.md", "exit": 0, "actual": "DONE；6 条验收 exit 0；M34 真实解码、无 SKIP；自述不可断言可听", "result": "OK"},
+    {"id": "E2", "cmd": "阅读 target/round60/d2/attempt-1/{03,04,05}*.log", "exit": 0, "actual": "red exit=101（新增 0）→ green exit=0（新增 1）；含还原证据", "result": "OK"},
+    {"id": "E3", "cmd": "bash docs/testing/round60/run-checks.sh 2>&1 | tail -5", "exit": 0, "actual": "共 11 项：PASS=11 FAIL=0 SKIP=0；EXIT=0", "result": "OK"},
+    {"id": "F1", "cmd": "抽核 M-1 README §4（F6 更正）", "exit": 0, "actual": "docs/testing/round60/README.md:60-63 在位", "result": "OK"},
+    {"id": "F2", "cmd": "抽核 M-2 确定红→绿（plan:38 + d2 证据）", "exit": 0, "actual": "断言改为新增 1；101→0", "result": "OK"},
+    {"id": "F3", "cmd": "抽核 M-3 app.rs:209 _with + client.md §5.27", "exit": 0, "actual": "注入式核心 + 降级说明在位", "result": "OK"},
+    {"id": "F4", "cmd": "抽核 M-5 net.rs:2772/7265 + 复位语义", "exit": 0, "actual": "字段+自增+重建归零测试全过", "result": "OK"},
+    {"id": "F5", "cmd": "抽核 M-6 run-checks.sh:53-63/293/315 双检与计数守卫", "exit": 0, "actual": "期望计数 + miss==0 守卫 + SKIP 非 PASS", "result": "OK"},
+    {"id": "F6", "cmd": "抽核 M-7 commit-tree-hashes.txt 头字段", "exit": 0, "actual": "head/gate_head/gate_log_sha256/gate_log_bytes/gate_log_path + 自哈希排除说明", "result": "OK"},
+    {"id": "G1", "cmd": "git diff 3a9a104..HEAD | grep -E '^\\+.*(125 全链|R60 是否|R60 完整|音频完整|无重复|真实可听已证)'", "exit": 0, "actual": "12 处命中，全部否定语境（不等于/禁写/禁称/不宣称/口径）", "result": "OK"},
+    {"id": "G2", "cmd": "git diff 3a9a104..HEAD -- crates | grep -c '#\\[ignore\\]'", "exit": 0, "actual": "1；但为 app.rs 测试文档注释字面量，新增 ignore 属性 0 个（三组 cargo test 均 0 ignored）", "result": "OK-WITH-NOTE（非红线，必改 1）"},
+    {"id": "G3", "cmd": "grep -n 'const EFFECT_EVENT_LIMIT' -A2 crates/mir-client/src/net.rs", "exit": 0, "actual": "= 16（未变）", "result": "OK"},
+    {"id": "G4", "cmd": "PYTHONIOENCODING=utf-8 py -3 tools/i18n/scan_hardcoded.py --player-visible --strict --fail-above 70", "exit": 0, "actual": "66 处 / 上限 70 / [OK]", "result": "OK"},
+    {"id": "G5", "cmd": "PYTHONIOENCODING=utf-8 py -3 tools/i18n/scan_hardcoded.py --no-test --player-visible --strict --fail-above 0（= ci.ps1:136 门禁同款）", "exit": 0, "actual": "0 处 / 上限 0 / [OK]", "result": "OK（门禁口径复现通过）"},
+    {"id": "G6", "cmd": "PYTHONIOENCODING=utf-8 py -3 tools/i18n/scan_hardcoded.py --no-test --strict --fail-above 0（任务书原样，缺 --player-visible）", "exit": 1, "actual": "356 处（含日志类非玩家可见行）；门禁实际命令带 --player-visible", "result": "EXIT-1（命令口径问题，非仓库回归）"},
+    {"id": "H1", "cmd": "ls -l 三份产物", "exit": 0, "actual": "均 < 1 MiB", "result": "OK"},
+    {"id": "H2", "cmd": "git ls-files | grep -E '(^|/)(target|resource|game-assets)/|\\.env$'", "exit": 1, "actual": "无输出（exit 1 = 无匹配，符合预期）", "result": "OK"},
+    {"id": "H3", "cmd": "py -3 tools/docs/check_links.py", "exit": 0, "actual": "[OK] 1746 处引用全部一致", "result": "OK"},
+    {"id": "H4", "cmd": "git diff --check", "exit": 0, "actual": "无输出", "result": "OK"}
+  ],
+  "partials": [
+    {"id": "P-1", "title": "可听性 PARTIAL", "detail": "headless 本机无音频设备：只证 cue→解码→混音器路径与降级不 panic；take_projectile_sound_cues 集成点在 apply_snapshot，无 Live 窗口级集成测试，未真人手听", "status": "承认，未证"},
+    {"id": "P-2", "title": "from_repo_root 找不到 M34 素材", "detail": "既有 audio.rs/main.rs 根路径行为（CWD 相对 default_roots() 才生效）；本轮未改代码，换机/改 CWD 按 SKIP: missing M34-*.mna 记非 PASS", "status": "承认，未修"},
+    {"id": "P-3", "title": "ring 16 仍丢最旧（R4a 不修）", "detail": "已消费事件不重放、第 17+ 不再被吞；但卡顿 >16 事件时更早于 ring 的历史事件仍会丢", "status": "承认，按设计"},
+    {"id": "P-4", "title": "同文件 100 ms 频控", "detail": "同帧多 cue 只响一次，≠ Crystal 每发都响（批准保留的降噪设计）；drain 数 vs played 数已分开计数", "status": "承认，按设计"},
+    {"id": "P-5", "title": "素材来源", "detail": "game-assets/audio/sfx/M34-{1,2}.mna 由 R59 从 resource/community/gqf2008-crystal/Sound/M34-{1,2}.wav 导入；game-assets/、resource/ 均 .gitignore，证据只在 target/", "status": "承认，已核未入库"},
+    {"id": "P-6", "title": "本次脚本运行环境", "detail": "attempt-1 首跑 01/02 因系统 TEMP 不可写 FAIL（PermissionDenied）；改指 target/tmp 后 11/11 PASS；首跑日志保留不删不盖", "status": "承认，D4b 复跑已带 TMP/TEMP 且 11/11 PASS"}
+  ],
+  "must_fix": [
+    {"id": "MF-1", "severity": "low", "blocking": false, "path": "crates/mir-client/src/app.rs:249", "issue": "新增测试文档注释含字面量 #[ignore]，使『新增 ignore=0』朴素 grep 变 1；实际新增属性 0 个、0 ignored", "fix": "改写注释措辞避免字面量，保持棘轮 grep 长期为 0"},
+    {"id": "MF-2", "severity": "low", "blocking": false, "path": "docs/client.md:1304", "issue": "100 ms 频控的偏差台账交叉引用写成 P-6/R-5，但同页 P-4 才是频控（P-6=脚本运行环境）", "fix": "改为 P-4/R-5"}
+  ],
+  "non_claims": [
+    "不主张「125 全链」",
+    "不主张「R60 完整」",
+    "不主张「音频完整」",
+    "不主张「无重复」",
+    "不主张「真实可听已证」",
+    "不主张「G1–G4 全绿」",
+    "不主张可听性已验证、不主张 ring 16 丢失已消除、不主张存在 Live 窗口级集成测试",
+    "不主张 P-2 根路径问题已修、不主张跨机可复现门禁（TMP 依赖见 P-6）",
+    "不主张门禁可重跑得到相同 sha，仅主张本次记录与仓库状态自洽",
+    "不评价 M-4 素材数量完整性（本轮只核 M-1/2/3/5/6/7）"
+  ],
+  "conclusion": "通道打通 + 去重 + PARTIAL 诚实登记；门禁真实、边界干净、树哈希全量复算一致、M-1..M-7 在位、无红线宣称。"
+}

@@ -9776,4 +9776,142 @@ mod tests {
         assert_eq!(snapshot.projectile_events_total, u64::MAX, "total 永不减少");
         assert_eq!(snapshot.projectile_events.len(), 1, "no-op 不裁剪已发布表");
     }
+
+    /// G1.5 夹具：真实 wire 往返（`encode_frame` → `decode_server_packet` →
+    /// `apply_packet_at`），与 R65 fixture 同口径；不填私有缓存。
+    fn r66_apply_wire(snapshot: &mut WorldSnapshot, packet: &ServerPacket) -> ServerPacket {
+        use mir_protocol::packets::server::decode_server_packet;
+
+        let frame = packet.encode_frame();
+        assert!(frame.len() > 4, "encoded frame must carry a payload");
+        let index = i16::from_le_bytes([frame[2], frame[3]]);
+        let decoded = decode_server_packet(index, &frame[4..]).expect("server frame must decode");
+        snapshot.apply_packet_at(&decoded, 0);
+        decoded
+    }
+
+    /// G1.5 夹具：同一真实会话里用 71 种入施法者 7（(10,10)）与目标 1..=2（(30,10)）。
+    fn r66_waiter_seed() -> WorldSnapshot {
+        let mut snapshot = WorldSnapshot::new_session();
+        for object_id in [7u32, 1, 2] {
+            let location = Point::new(if object_id == 7 { 10 } else { 30 }, 10);
+            let decoded = r66_apply_wire(
+                &mut snapshot,
+                &ServerPacket::ObjectMonster(ObjectMonster {
+                    object_id,
+                    name: format!("monster-{object_id}"),
+                    location,
+                    image: MonsterImage::Skeleton,
+                    direction: MirDirection::Down,
+                    ..ObjectMonster::default()
+                }),
+            );
+            assert!(
+                matches!(decoded, ServerPacket::ObjectMonster(_)),
+                "71 must decode into ServerPacket::ObjectMonster"
+            );
+            assert_eq!(
+                snapshot.object_position(object_id),
+                Some(location),
+                "seed failed: monster {object_id} is not a known snapshot object"
+            );
+        }
+        snapshot
+    }
+
+    /// G1.5 夹具：沿同一真实 125 流推入下一条事件（destination = total+1），返回其身份。
+    fn r66_waiter_push(snapshot: &mut WorldSnapshot) -> u32 {
+        use mir_protocol::packets::server::ObjectProjectile;
+
+        let destination =
+            u32::try_from(snapshot.projectile_events_total).expect("fixture 只有个位数事件") + 1;
+        let total_before = snapshot.projectile_events_total;
+        let decoded = r66_apply_wire(
+            snapshot,
+            &ServerPacket::ObjectProjectile(ObjectProjectile {
+                spell: Spell::FireBounce,
+                source: 7,
+                destination,
+            }),
+        );
+        let ServerPacket::ObjectProjectile(decoded) = decoded else {
+            panic!("125 must decode into ServerPacket::ObjectProjectile");
+        };
+        assert_eq!(decoded.destination, destination, "wire 必须保留事件身份");
+        assert_eq!(
+            snapshot.projectile_events_total,
+            total_before + 1,
+            "真实 125 接收路径必须接受该事件（+1 累计）"
+        );
+        destination
+    }
+
+    #[test]
+    fn r66_waiter_uses_shared_receiver_without_ack() {
+        // C5：等待器不是第二消费者，也不发 ack。S1（1 条）先入同一 Receiver，S2（2 条）
+        // 命中 predicate 后返回；返回后 `try_recv` 必须为 None（S1/S2 均被同一 Receiver
+        // 取走、没有留下第二个消费者副本），`command_rx` 必须 Empty（等待器没有顺手本地 ack）。
+        // 同一真实会话：种入 7/1/2 → 推 e1 → 保存 S1 → 再推 e2 → 保存 S2。
+        let mut authority = r66_waiter_seed();
+        assert_eq!(r66_waiter_push(&mut authority), 1);
+        let s1 = authority.clone();
+        assert_eq!(r66_waiter_push(&mut authority), 2);
+        let s2 = authority.clone();
+        let generation = s1.session_generation;
+        assert_eq!(
+            s2.session_generation, generation,
+            "同一会话的两份快照必须同代"
+        );
+        assert_eq!(
+            (s1.projectile_events_total, s2.projectile_events_total),
+            (1, 2),
+            "S1 只有 e1，S2 有 e1/e2（真实 125 接收路径累计）"
+        );
+        let (command_tx, command_rx) = mpsc::channel::<NetCommand>();
+        let (event_tx, event_rx) = mpsc::channel::<NetEvent>();
+        event_tx
+            .send(NetEvent::Snapshot(Box::new(s1)))
+            .expect("测试通道不得提前关闭");
+        event_tx
+            .send(NetEvent::Snapshot(Box::new(s2)))
+            .expect("测试通道不得提前关闭");
+        let client = NetClient {
+            commands: command_tx,
+            events: event_rx,
+            thread: None,
+        };
+        // 复用 R65 的 predicate 正对照：total>=2 只有 S2 满足。
+        let snapshot = client
+            .wait_for_snapshot(
+                |snapshot| snapshot.projectile_events_total >= 2,
+                Duration::from_secs(2),
+            )
+            .expect("S2 满足 predicate，必须返回而不是继续等到超时");
+        assert_eq!(
+            snapshot.projectile_events_total, 2,
+            "返回的必须是命中的 S2，而不是早期 S1"
+        );
+        assert_eq!(
+            snapshot
+                .projectile_events
+                .iter()
+                .map(|event| event.destination)
+                .collect::<Vec<_>>(),
+            vec![1, 2],
+            "命中快照的事件身份顺序必须是 e1→e2"
+        );
+        assert_eq!(
+            snapshot.reclaimed(),
+            0,
+            "等待器只观测、不 ack：返回的快照不得被裁剪"
+        );
+        assert!(
+            client.try_recv().is_none(),
+            "早期 S1 与命中 S2 都已被同一 Receiver 取走：返回后不得还有残留事件"
+        );
+        assert!(
+            matches!(command_rx.try_recv(), Err(mpsc::TryRecvError::Empty)),
+            "wait_for_snapshot 不得注入本地 ack 或任何命令（等待器不是消费者）"
+        );
+    }
 }

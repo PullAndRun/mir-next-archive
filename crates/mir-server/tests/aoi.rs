@@ -224,6 +224,167 @@ fn player_enter_and_leave_view_is_diffed_both_ways() {
 }
 
 #[test]
+fn run_out_of_view_diffs_player_sets_both_ways() {
+    // 甲 (20,20)、乙 (36,20)：距离 16，进场后互相可见。
+    let (mut world, mut first_rx, mut second_rx) =
+        two_players("0", Point::new(20, 20), Point::new(36, 20));
+    drain(&mut first_rx);
+    drain(&mut second_rx);
+
+    // 先走一步积累 `StepCounter`（`CanRun` 要求刚走过一步），再向远处跑 2 格：21 → 19。
+    world
+        .walk(1, MirDirection::Right)
+        .expect("walk one cell to arm the run counter");
+    drain(&mut first_rx);
+    drain(&mut second_rx);
+    // 动作锁 600ms 已过，但要在 `cell_time + IDLE_RESET_MS`（500 + 700）前起跑，否则 `step_counter` 会被清零。
+    world.advance_clock(900);
+    assert_eq!(
+        world.run(1, MirDirection::Left),
+        Ok(Point::new(19, 20)),
+        "real World::run must move two cells away from the observer"
+    );
+
+    let first_packets = drain(&mut first_rx);
+    let second_packets = drain(&mut second_rx);
+    let removed_by_first = first_packets
+        .iter()
+        .filter(
+            |packet| matches!(packet, ServerPacket::ObjectRemove(remove) if remove.object_id == 2),
+        )
+        .count();
+    let removed_by_second = second_packets
+        .iter()
+        .filter(
+            |packet| matches!(packet, ServerPacket::ObjectRemove(remove) if remove.object_id == 1),
+        )
+        .count();
+    assert_eq!(
+        removed_by_first, 1,
+        "running out of view must send the runner exactly one ObjectRemove for the observer"
+    );
+    assert_eq!(
+        removed_by_second, 1,
+        "running out of view must send the observer exactly one ObjectRemove for the runner"
+    );
+    let ghosts_by_first = first_packets
+        .iter()
+        .filter(
+            |packet| matches!(packet, ServerPacket::ObjectPlayer(object) if object.object_id == 2),
+        )
+        .count();
+    let ghosts_by_second = second_packets
+        .iter()
+        .filter(
+            |packet| matches!(packet, ServerPacket::ObjectPlayer(object) if object.object_id == 1),
+        )
+        .count();
+    assert_eq!(
+        ghosts_by_first, 0,
+        "a player leaving view must not be re-attached as a ghost ObjectPlayer to the runner"
+    );
+    assert_eq!(
+        ghosts_by_second, 0,
+        "a player leaving view must not be re-attached as a ghost ObjectPlayer to the observer"
+    );
+
+    // 距离 17：双方可见玩家集合都应与 AOI 一致（为空），且双向对称。
+    assert_eq!(
+        world.visible_players_of(1).cloned().unwrap_or_default(),
+        BTreeSet::new(),
+        "runner visible player set must match the AOI after running out of range"
+    );
+    assert_eq!(
+        world.visible_players_of(2).cloned().unwrap_or_default(),
+        BTreeSet::new(),
+        "observer visible player set must match the AOI after the runner leaves range"
+    );
+}
+
+#[test]
+fn run_into_view_diffs_player_sets_both_ways() {
+    // 甲 (18,20) 在乙 (36,20) 的 16 格视野外；先走到 19（仍 17 格），再向乙跑 2 格到 21（15 格内）。
+    let (mut world, mut first_rx, mut second_rx) =
+        two_players("0", Point::new(18, 20), Point::new(36, 20));
+    drain(&mut first_rx);
+    drain(&mut second_rx);
+    assert_eq!(
+        world.visible_players_of(1).cloned().unwrap_or_default(),
+        BTreeSet::new(),
+        "players 18 cells apart must not see each other before the run"
+    );
+
+    // 先走一步积累 `StepCounter`（`CanRun` 要求刚走过一步），再向观察者跑 2 格：19 → 21。
+    world
+        .walk(1, MirDirection::Right)
+        .expect("walk one cell to arm the run counter");
+    drain(&mut first_rx);
+    drain(&mut second_rx);
+    // 动作锁 600ms 已过，但要在 `cell_time + IDLE_RESET_MS`（500 + 700）前起跑，否则 `step_counter` 会被清零。
+    world.advance_clock(900);
+    assert_eq!(
+        world.run(1, MirDirection::Right),
+        Ok(Point::new(21, 20)),
+        "real World::run must move two cells toward the observer"
+    );
+
+    let first_packets = drain(&mut first_rx);
+    let second_packets = drain(&mut second_rx);
+    let added_by_first = first_packets
+        .iter()
+        .filter(
+            |packet| matches!(packet, ServerPacket::ObjectPlayer(object) if object.object_id == 2),
+        )
+        .count();
+    let added_by_second = second_packets
+        .iter()
+        .filter(
+            |packet| matches!(packet, ServerPacket::ObjectPlayer(object) if object.object_id == 1),
+        )
+        .count();
+    assert_eq!(
+        added_by_first, 1,
+        "running into view must send the runner exactly one ObjectPlayer first frame for the observer"
+    );
+    assert_eq!(
+        added_by_second, 1,
+        "running into view must send the observer exactly one ObjectPlayer first frame for the runner"
+    );
+    let removals_by_first = first_packets
+        .iter()
+        .filter(
+            |packet| matches!(packet, ServerPacket::ObjectRemove(remove) if remove.object_id == 2),
+        )
+        .count();
+    let removals_by_second = second_packets
+        .iter()
+        .filter(
+            |packet| matches!(packet, ServerPacket::ObjectRemove(remove) if remove.object_id == 1),
+        )
+        .count();
+    assert_eq!(
+        removals_by_first, 0,
+        "entering view must not remove the observer from the runner"
+    );
+    assert_eq!(
+        removals_by_second, 0,
+        "entering view must not remove the runner from the observer"
+    );
+
+    // 距离 15：双方可见玩家集合都应与 AOI 一致，且双向对称。
+    assert_eq!(
+        world.visible_players_of(1).cloned().unwrap_or_default(),
+        BTreeSet::from([2]),
+        "runner visible player set must match the AOI after running into range"
+    );
+    assert_eq!(
+        world.visible_players_of(2).cloned().unwrap_or_default(),
+        BTreeSet::from([1]),
+        "observer visible player set must match the AOI after the runner enters range"
+    );
+}
+
+#[test]
 fn melee_target_is_found_through_the_grid_after_placement() {
     let mut world = World::new(999);
     world.seed_rng(1);

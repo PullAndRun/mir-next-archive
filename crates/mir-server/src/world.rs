@@ -2236,6 +2236,9 @@ impl World {
         .encode_frame();
         self.broadcast(&map, destination, Some(object_id), &packet, object_id);
         self.send_user_location(object_id);
+        // 跑完同样刷新自己的玩家视野（Crystal `RemoveObjects/AddObjects`，
+        // `HumanObject.cs:2596-2602`）；顺序与走一致：玩家 → 怪物 → 法术场 → 地面物品。
+        self.sync_player_players(object_id);
         self.sync_player_monsters(object_id);
         self.sync_player_spell_fields(object_id);
         self.sync_player_ground_items(object_id);

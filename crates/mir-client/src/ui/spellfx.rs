@@ -241,6 +241,18 @@ pub const FIRE_WALL_FRAME_COUNT: i64 = 6;
 /// `FireWall` 每帧时长（Crystal `SpellObject.cs:49` 的 `FrameInterval = 120` 毫秒）。
 pub const FIRE_WALL_FRAME_MS: i64 = 120;
 
+/// 149 `S.ObjectSpell` 来源 `PoisonCloud` 的起始帧（Crystal `SpellObject.cs:57-64`：
+/// `Libraries.Magic2`、`DrawFrame = 1650`、`FrameCount = 20`、`FrameInterval = 120`）。
+///
+/// 有限切片：只迁移二十帧 elapsed 循环 + 格锚点 + 当帧 signed offset 一次；Crystal 的
+/// `DrawBlend(..., true, 0.8F)` 调光（`src * 0.8 * alpha`）、`Light3`、`DrawColour`、
+/// 严格 `NextMotion`（`SpellObject.cs:288-302`）与对象寿命均未迁移。
+pub const POISON_CLOUD_BASE_INDEX: u32 = 1_650;
+/// `PoisonCloud` 帧数（Crystal `SpellObject.cs:57-64` 的 `FrameCount = 20`）。
+pub const POISON_CLOUD_FRAME_COUNT: i64 = 20;
+/// `PoisonCloud` 每帧时长（Crystal `SpellObject.cs:57-64` 的 `FrameInterval = 120` 毫秒）。
+pub const POISON_CLOUD_FRAME_MS: i64 = 120;
+
 /// 画技能命中闪光（`magic.wzl` 精灵）。
 ///
 /// 与 [`draw`] 的色块叠加并存：色块给出范围/路径，精灵给出「打中了」的反馈。
@@ -249,6 +261,10 @@ pub const FIRE_WALL_FRAME_MS: i64 = 120;
 /// 149 `S.ObjectSpell` 来源的 `FireWall` 是例外：走 Crystal `SpellObject.cs:49` 的有限
 /// 切片（`magic.wzl[1630..=1635]`、120 ms/帧、六帧 elapsed 循环），落点为格锚点并在
 /// `draw_effect_blend` 里消费当帧 i16 signed offset 一次；其余技能/来源仍走通用闪光路径。
+///
+/// 149 `S.ObjectSpell` 来源的 `PoisonCloud` 同理走 Crystal `SpellObject.cs:57-64` 的有限
+/// 切片（`Magic2[1650..=1669]`、120 ms/帧、二十帧 elapsed 循环），复用 `FxKind::Swing`
+/// 的零起点寻址与当帧 signed offset；非 149 来源保持通用路径（其他 26 技能映射 GAP-5）。
 pub fn draw_sprites(
     frame: &mut Frame,
     events: &[SpellEvent],
@@ -274,6 +290,28 @@ pub fn draw_sprites(
             let index = FIRE_WALL_BASE_INDEX + u32::try_from(phase).unwrap_or(0);
             let (x, y) = scene.world_to_screen(center, event.location);
             scene.draw_effect_blend(frame, mir_render::FxKind::Magic, index, x, y, true);
+            continue;
+        }
+        // 149 `S.ObjectSpell` 来源的 PoisonCloud：Crystal `SpellObject.cs:57-64` 的有限
+        // 切片——`Magic2` 帧 `1650..=1669`、`FrameInterval = 120`、`FrameCount = 20` 的
+        // elapsed 循环（`phase = (age / 120) % 20`、`index = 1650 + phase`）。落点是格
+        // 锚点（`SpellObject.cs:323-339`：`DrawLocation` 为格坐标 + 显示偏移
+        // `GlobalDisplayLocationOffset`/`User.OffSetMove`），当帧 i16 signed offset 由
+        // `draw_effect_blend` 按 `MLibrary.cs:692-709` 的「先 offset 后裁剪、恰好一次」
+        // 消费（Add 混合 = `DrawBlend(true, 0.8F)` 的 CPU 子集）。`FxKind::Swing` 仅作为
+        // `Magic2` + `start_frame() = 0` 的零起点帧号寻址复用，**仅限本 149 毒云分支**，
+        // 不改变 `Swing` 的公共语义。
+        // PARTIAL（未实施）：`SpellObject.cs:288-302` 的严格 `NextMotion`
+        // （`NextMotion = CMain.Time + FrameInterval`、初始 100ms 取整、每个 `Process`
+        // 至多一步）与对象寿命；`DrawBlend(true, 0.8F)` 的 `rate = 0.8`、
+        // `src * 0.8 * alpha` 调光、`Light3`、`DrawColour`。`AREA_MS = 4000` 是产品瞬态
+        // 窗（`duration_ms`），不是 Crystal 对象寿命。其他 26 技能映射仍 GAP-5；非 149
+        // 来源/其他 `ObjectSpell` 与 FireWall（R71）行为不变，通用路径不改。
+        if event.spell == Spell::PoisonCloud && event.from_object_spell {
+            let phase = (age / POISON_CLOUD_FRAME_MS) % POISON_CLOUD_FRAME_COUNT;
+            let index = POISON_CLOUD_BASE_INDEX + u32::try_from(phase).unwrap_or(0);
+            let (x, y) = scene.world_to_screen(center, event.location);
+            scene.draw_effect_blend(frame, mir_render::FxKind::Swing, index, x, y, true);
             continue;
         }
         let frame_index = (age / MAGIC_FX_FRAME_MS).clamp(0, MAGIC_FX_FRAMES - 1);

@@ -1424,6 +1424,18 @@ R69 的真实视觉、全 UI、spellfx 与混合/阴影/mask 目标留待独立�
 - spellfx/UI调用点未迁移；非wire/server变更，不改magic映射/时序。完整DrawBlend/rate/INVLIGHT、shadow/mask、GameScene条件、公共API全面收敛与真实素材/设备视觉签核仍PARTIAL。
 - ThunderBolt/Bolt/FireWall映射差异、混合动效全矩阵、全UI与R49–R68历史遗留继续承接；R69条件5历史保全永久PARTIAL。
 
+### 5.36 R71：149 FireWall 逐格精灵映射与锚点
+
+功能提交 `cedf903`（2文件+1621）；本批pre-audit，**待独立终审，不代表 R71 全量通过或 Crystal 生产等价**；[R71索引](testing/round71/README.md)、[契约](testing/round71/round71-firewall-contract.md)。
+
+- 仅149来源ObjectSpell FireWall：Magic1630–1635，phase=(age/120)%6，0≤age<4000；格原点+当前帧signed offset一次后裁剪，一条149一图，复用R70 rate=1 Add。
+- 非149旧居中/Over、其他技能/wire/net/server/渲染算法未改，1620起手不迁；缺目标帧不回退、不吞后续事件。
+- A同测试SHA红2/6 EXIT101→绿8/0 EXIT0；B/C五变异均编译0→断言红101→恢复8/8；C共28次独立Cargo。合成WZL/WZX+真实协议链，不构成真实素材视觉签核。
+- C原BLOCK证据E1经勘误/Lead及门下裁决/C2闭合；C2 PASS-WITH-PARTIAL、必改0，C7历史缺口永久PARTIAL。C2字面无feature命令0/8/0 EXIT101，加 `--features mir-render/legacy` 后8/0/0 EXIT0。
+- 提交链cedf903→16644d2（C初稿PASS、门禁HEAD）→adf63c1（BLOCK/勘误/裁定/C2门禁后文档）；唯一gate attempt-1 EXIT0、12/12，crates/tools相对cedf903无差异。
+- PARTIAL原号承接：GAP-5/R70-C1非149/其他调用点/真实视觉；R70-C3全局尺寸高度居中；GAP-1/2/R70-C2 rate0.8（近似也未实施）/DrawColour/INVLIGHT/完整DrawBlend；GAP-3/4/6 mask/tint/shadow/场景offset/Light3。
+- 严格NextMotion/初始100ms取整/每Process一步/149对象存续与26移除未迁；4000ms仅事件窗口；R69条件5、R49–R70历史项继续PARTIAL。
+
 ### 6.0 真实素材渲染（第 6 轮）
 
 **数据目录**

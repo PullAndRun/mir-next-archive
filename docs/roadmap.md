@@ -306,3 +306,18 @@ R49–R68历史PARTIAL按原编号承接；125/570已做偏移消费不扩大为
 - R70-C2/GAP-1/2：仅rate=1 Add定位子集；公共单API全面收敛、完整DrawBlend/rate/INVLIGHT/场景状态仍PARTIAL。
 - GAP-3/4：mask/tint/shadow绘制未做；shadow保持解析不消费。真实素材视觉/GPU设备、混合动效全矩阵、全UI仍PARTIAL。
 - R68与R49–R67按原编号承接；R69条件5原红/隔离/日志不可恢复，历史保全永久PARTIAL；两历史freeze保持原状。
+
+## 十九、R71：149 FireWall 六帧映射与格锚点
+
+功能提交 `cedf903`；本批pre-audit，**待独立终审，不代表 R71 全量通过或 Crystal 生产等价**。见[R71索引](testing/round71/README.md)、[契约](testing/round71/round71-firewall-contract.md)与[client §5.36](client.md#536-r71149-firewall-逐格精灵映射与锚点)。
+
+- 已接线：仅149 ObjectSpell FireWall，Magic1630–1635、6×120ms elapsed循环/720回卷，格原点+当帧signed offset一次，复用R70 rate=1 Add；每事件一图、缺帧跳过且继续后续事件。
+- 已验证：A最终同SHA红2/6 EXIT101→绿8/0 EXIT0；B独立副本8/8、五变异前绿→编译0→断言红101→恢复8/8，C同SHA独立复现，28次Cargo；合成夹具不背书真实视觉。
+- 证据处置：C原BLOCK必改E1，经A勘误、Lead/门下裁决及C2 PASS-WITH-PARTIAL闭合补救；实现/测试/证据必改0，C7中间日志不可恢复、永久PARTIAL，原清单与BLOCK历史保留。
+- C2字面无feature命令EXIT101、0/8/0，夹具要求legacy；加 `--features mir-render/legacy` 后EXIT0、8/0/0，不把夹具失败当功能红。
+- 提交链cedf903→16644d2（C初稿PASS、门禁HEAD）→adf63c1（BLOCK/勘误/裁定/C2后置文档）；唯一attempt-1 EXIT0、12/12，门禁后crates/tools无差异。
+- GAP-5/R70-C1：仅目标149子项接线；非149旧行为、1620起手/其他调用点/真实素材设备视觉仍PARTIAL。R70-C3全局尺寸高度居中未收敛。
+- GAP-1/2/R70-C2：实际rate=1；rate0.8及src×0.8×alpha近似未实施；DrawColour/INVLIGHT/完整DrawBlend/API收敛仍PARTIAL。
+- GAP-3/4/6：mask/tint/shadow绘制（shadow只解析不消费）、场景条件offset/Light3未闭合。
+- 严格NextMotion、初始100ms取整、每Process一步、149持久场/26移除仍PARTIAL；4000ms只是瞬态事件窗口。
+- R68/R69条件5（a77永久缺口）、R49–R67/R61–R67与R70历史原号承接；全UI/设备/跨后端未验收，两历史freeze保持原状。

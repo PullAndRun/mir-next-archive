@@ -1,0 +1,246 @@
+{
+  "round": "R71",
+  "stage": "pre-audit",
+  "status": "documentation-ready-awaiting-independent-final-audit",
+  "head_snapshot": "adf63c1cdd42636b51eeb3d5ee5717edc2487638",
+  "feature_commit": "cedf903ef7aaccdf1c220854d9ae7c100f1e791e",
+  "commit_chain": [
+    "cedf903ef7aaccdf1c220854d9ae7c100f1e791e",
+    "16644d28df142a0b99264c9700674ff701fdea97",
+    "adf63c1cdd42636b51eeb3d5ee5717edc2487638"
+  ],
+  "content_policy": "No self-reference: this manifest and its external SHA file are excluded from artifacts. git_blob identifies exact content where available; null denotes local untracked or modified worktree bytes.",
+  "gate": {
+    "head": "16644d2",
+    "head_full": "16644d28df142a0b99264c9700674ff701fdea97",
+    "exit": 0,
+    "items_ok": 12,
+    "log_bytes": 212193,
+    "log_sha256": "d1fcbf77dfe7751eefeaf03b5a6f8af70e564eacf94a8fc15b10789d2b2c8173",
+    "meta_bytes": 476,
+    "meta_sha256": "0d5478e7423655777957576b9b5f0c5d8d5ea3af2a44e31329e175ffe3972cfd",
+    "meta_fields_measured": 12
+  },
+  "disclosures": [
+    "pre-audit：待独立终审，不代表R71全量通过或Crystal生产等价。",
+    "16644d2门禁HEAD只包含C初稿PASS；最终C BLOCK为后置版本，原历史保留。",
+    "adf63c1为门禁后文档提交，含C BLOCK、A勘误、Lead裁定、门下证据裁决及C2；crates/tools相对cedf903 diff均空。",
+    "C2 literal cargo test -p mir-client --test round71_firewall_mapping：无legacy feature为0/8/0 EXIT101夹具拒绝；增加--features mir-render/legacy后8/0/0 EXIT0。",
+    "E1补救CLOSED；C7中间c5c7d8两日志不可恢复、永久PARTIAL，最终复算不能追认缺失历史。",
+    "A原清单64/76只可与A勘误及门下裁决并列读取；保留错误历史，禁止裸引完整保全声称。",
+    "实际复用rate=1 Add；rate0.8及src*0.8*alpha近似未实施；DrawColour/INVLIGHT/完整DrawBlend仍PARTIAL。",
+    "仅149 FireWall 6*120ms elapsed循环/格锚点/offset一次；非149旧行为与1620起手未迁、严格NextMotion/初始100ms取整/每Process一步/对象存续未迁。",
+    "真实素材视觉、shadow/mask/tint/Light3/全局尺寸高度居中、全UI/设备/跨后端及R49–R70历史原号承接；R69条件5永久PARTIAL。",
+    "gate meta实测12字段/476B，输入称13字段有偏差；原件未改。",
+    "README与contract在head_snapshot未跟踪；client/roadmap为本批工作树修改；D未commit/push/运行Cargo或ci.ps1。"
+  ],
+  "preserved_freeze_sha256": {
+    "docs/testing/monster-native/player-resource-freeze-before.json": "70845aefd4dd689a55ab0618b36bbf692a4b33ebb5ee2f3a662dedc17a3dc9de",
+    "docs/testing/monster-native/player-resource-freeze.json": "c7d896e7f5eee4706b943912c0c564d10d61c98d163143f051c2d632daecde32"
+  },
+  "artifact_count": 21,
+  "artifacts": [
+    {
+      "path": "crates/mir-client/src/ui/spellfx.rs",
+      "bytes": 14779,
+      "sha256": "d7f86c29150f51aa865c2d668786bde45c1d7eb06c0172dc06e8d2d3a82343a6",
+      "kind": "production",
+      "tracked": true,
+      "git_blob": "0c0830128fbf0519d8e759059a93a2be567d01cd",
+      "content_source": "git:cedf903ef7aaccdf1c220854d9ae7c100f1e791e"
+    },
+    {
+      "path": "crates/mir-client/tests/round71_firewall_mapping.rs",
+      "bytes": 59751,
+      "sha256": "64ff3f597e2530ce0d32abb21eb09b36638083384f27638a0b29177ac262b422",
+      "kind": "test",
+      "tracked": true,
+      "git_blob": "468a5192ddf8b68f9e514fa6a9b7f30d1ac6dab4",
+      "content_source": "git:cedf903ef7aaccdf1c220854d9ae7c100f1e791e"
+    },
+    {
+      "path": "docs/process/round71-plan.md",
+      "bytes": 15935,
+      "sha256": "725f6520e6a39cb15fd94033f0fbb83c5b37bbb6cfcf26ebd4118948b6ca66ec",
+      "kind": "process-plan",
+      "tracked": true,
+      "git_blob": "f75e28d8a847d0a57472a915be32657ef3ea8ab1",
+      "content_source": "git:adf63c1cdd42636b51eeb3d5ee5717edc2487638"
+    },
+    {
+      "path": "docs/process/round71-menxia-review.md",
+      "bytes": 4373,
+      "sha256": "b47185ed040363d6302ff0eeee0e65638914f92bb73436f7a3479c8334c988ec",
+      "kind": "process-review",
+      "tracked": true,
+      "git_blob": "5b2c3033f0a1849a0a67f0572f45098a52ec6ebb",
+      "content_source": "git:adf63c1cdd42636b51eeb3d5ee5717edc2487638"
+    },
+    {
+      "path": "docs/process/round71-shangshu-dispatch.md",
+      "bytes": 4471,
+      "sha256": "d90f37b3a4c2849a035ec0e1482f8d59ad922faf21043ad0245e1c3bbbfddad4",
+      "kind": "process-dispatch",
+      "tracked": true,
+      "git_blob": "dcd348731b432a8b2cdb4366f642002edb4a1c17",
+      "content_source": "git:adf63c1cdd42636b51eeb3d5ee5717edc2487638"
+    },
+    {
+      "path": "docs/process/round71-lead-ruling.md",
+      "bytes": 1583,
+      "sha256": "f3a4adaa0a87b245293a74e5060faa1b5782258612345f45d0bedad490f756df",
+      "kind": "evidence-ruling",
+      "tracked": true,
+      "git_blob": "8d63bdc02c48ad10ecd6391f287357ff1cc3ba0b",
+      "content_source": "git:adf63c1cdd42636b51eeb3d5ee5717edc2487638"
+    },
+    {
+      "path": "docs/process/round71-menxia-evidence-ruling.md",
+      "bytes": 6780,
+      "sha256": "0ccfa6c8e131bfe102f71a90cbcf5903805f97655f553f148ba886cecd13733f",
+      "kind": "independent-evidence-ruling",
+      "tracked": true,
+      "git_blob": "404fd20962c612f8578d6a016e20b891f1245745",
+      "content_source": "git:adf63c1cdd42636b51eeb3d5ee5717edc2487638"
+    },
+    {
+      "path": "docs/testing/round71/round71-c-evidence.md",
+      "bytes": 8655,
+      "sha256": "e41c1edb4483b13a64c1cf90f07a59188c7d4e091a6d4d51b4c9dd2a72df6629",
+      "kind": "audit-block",
+      "tracked": true,
+      "git_blob": "2c5864d783d4ff7ec4b86b8ab141daec9fdd9cf8",
+      "content_source": "git:adf63c1cdd42636b51eeb3d5ee5717edc2487638"
+    },
+    {
+      "path": "docs/testing/round71/round71-c-addendum.md",
+      "bytes": 4389,
+      "sha256": "e9bdb5fc2324a5a8ffc3cfe74327a99040170c4755395b87db98ed7336ac0bbe",
+      "kind": "audit-c2",
+      "tracked": true,
+      "git_blob": "0a0ad7bf19e8d31a4f008619809e7e8e93e55e5f",
+      "content_source": "git:adf63c1cdd42636b51eeb3d5ee5717edc2487638"
+    },
+    {
+      "path": "docs/testing/round71/round71-a-erratum.md",
+      "bytes": 1735,
+      "sha256": "18861622c61a60d78d46f471c43a4c973e6740c64134ff69f3864468c9d83e53",
+      "kind": "evidence-erratum",
+      "tracked": true,
+      "git_blob": "61d7da951deeb36606d429afbf608e81b5e72808",
+      "content_source": "git:adf63c1cdd42636b51eeb3d5ee5717edc2487638"
+    },
+    {
+      "path": "target/round71/gate/attempt-1.log",
+      "bytes": 212193,
+      "sha256": "d1fcbf77dfe7751eefeaf03b5a6f8af70e564eacf94a8fc15b10789d2b2c8173",
+      "kind": "gate-log",
+      "tracked": false,
+      "git_blob": null,
+      "content_source": "worktree",
+      "tracking_disclosure": "untracked/ignored local evidence or new documentation at head_snapshot; hash covers current bytes"
+    },
+    {
+      "path": "target/round71/gate/attempt-1.meta.txt",
+      "bytes": 476,
+      "sha256": "0d5478e7423655777957576b9b5f0c5d8d5ea3af2a44e31329e175ffe3972cfd",
+      "kind": "gate-meta",
+      "tracked": false,
+      "git_blob": null,
+      "content_source": "worktree",
+      "tracking_disclosure": "untracked/ignored local evidence or new documentation at head_snapshot; hash covers current bytes"
+    },
+    {
+      "path": "target/round71/a/attempt-1/manifest.md",
+      "bytes": 7939,
+      "sha256": "58276d581d681e0fd032418530584bf0254fc7276bd90d2f6996db1790af34f9",
+      "kind": "historical-erroneous-index-read-with-erratum-and-ruling",
+      "tracked": false,
+      "git_blob": null,
+      "content_source": "worktree",
+      "tracking_disclosure": "untracked/ignored local evidence or new documentation at head_snapshot; hash covers current bytes",
+      "must_read_with": [
+        "docs/testing/round71/round71-a-erratum.md",
+        "docs/process/round71-menxia-evidence-ruling.md"
+      ]
+    },
+    {
+      "path": "target/round71/a/attempt-1/red-final2.log",
+      "bytes": 3193,
+      "sha256": "a8f42e9ac3f8081f935c0c94d706932e6f3e0b82e74938b4d025aa07a3c11288",
+      "kind": "final-frozen-red",
+      "tracked": false,
+      "git_blob": null,
+      "content_source": "worktree",
+      "tracking_disclosure": "untracked/ignored local evidence or new documentation at head_snapshot; hash covers current bytes"
+    },
+    {
+      "path": "target/round71/a/attempt-1/green-final2.log",
+      "bytes": 686,
+      "sha256": "181dd72dff2392cc5434197aac43860b501fe23bffbd706ed9507de0066ddf41",
+      "kind": "final-frozen-green",
+      "tracked": false,
+      "git_blob": null,
+      "content_source": "worktree",
+      "tracking_disclosure": "untracked/ignored local evidence or new documentation at head_snapshot; hash covers current bytes"
+    },
+    {
+      "path": "target/round71/b/attempt-1/manifest.json",
+      "bytes": 60895,
+      "sha256": "61cd6b341fda298cbfd1abbe84b9d9a65489d6facb8f13deaf320b7c1e226f04",
+      "kind": "independent-b-evidence",
+      "tracked": false,
+      "git_blob": null,
+      "content_source": "worktree",
+      "tracking_disclosure": "untracked/ignored local evidence or new documentation at head_snapshot; hash covers current bytes"
+    },
+    {
+      "path": "target/round71/c/attempt-1/comparison.json",
+      "bytes": 7960,
+      "sha256": "7d819c328db62d50305f4708f1ed8c540d4c41542d4116cefd26f3038ee52aca",
+      "kind": "independent-b-c-comparison",
+      "tracked": false,
+      "git_blob": null,
+      "content_source": "worktree",
+      "tracking_disclosure": "untracked/ignored local evidence or new documentation at head_snapshot; hash covers current bytes"
+    },
+    {
+      "path": "docs/testing/round71/README.md",
+      "bytes": 6082,
+      "sha256": "e1a3b7e255f50e5d16c52c10e3b4e5d3ad89201f295819fd89f606f2319f58f4",
+      "kind": "pre-audit-index",
+      "tracked": false,
+      "git_blob": null,
+      "content_source": "worktree",
+      "tracking_disclosure": "untracked/ignored local evidence or new documentation at head_snapshot; hash covers current bytes"
+    },
+    {
+      "path": "docs/testing/round71/round71-firewall-contract.md",
+      "bytes": 4602,
+      "sha256": "d54848f44716a404918d23aa29f7c0c0ef089b1a3b86e299d0b5513372b688d5",
+      "kind": "contract",
+      "tracked": false,
+      "git_blob": null,
+      "content_source": "worktree",
+      "tracking_disclosure": "untracked/ignored local evidence or new documentation at head_snapshot; hash covers current bytes"
+    },
+    {
+      "path": "docs/client.md",
+      "bytes": 183895,
+      "sha256": "fa15e3741b510e72b319c9aad418cf724a4d9ea61fd47b84b33d9c44758d57cd",
+      "kind": "client-documentation",
+      "tracked": true,
+      "git_blob": null,
+      "content_source": "worktree"
+    },
+    {
+      "path": "docs/roadmap.md",
+      "bytes": 43459,
+      "sha256": "ddea459f39f4ceefb000eba5edf12bb9a5df1cf10fc649cc8bc1f6e39f8ee63d",
+      "kind": "roadmap-documentation",
+      "tracked": true,
+      "git_blob": null,
+      "content_source": "worktree"
+    }
+  ]
+}

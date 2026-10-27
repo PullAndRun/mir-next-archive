@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "round": 72,
- "status": "pre-audit",
+ "status": "independent audit complete (BLOCK T-DOC-1, closed by documentation fix); shangshu acceptance pending",
  "scope": "149 PoisonCloud finite mapping slice; PASS-WITH-PARTIAL; pending independent final audit",
  "feature_head": "2a31554bfe31a05bb828119f3fb96d8a6544fba3",
  "feature_subject": "feat(client): R72 149 PoisonCloud 逐格精灵映射与锚点迁移（第72轮）",
@@ -158,17 +158,36 @@
   {
    "path": "docs/testing/round72/README.md",
    "tracked": true,
-   "git_blob": "de0289cbff9391fd07b15489bad9e08d92e4fb3a",
-   "bytes": 4284,
-   "sha256": "8f9d1fbac3885db1f37c299431b37ca45605a8c10ca2173bfad00407557d2568"
+   "git_blob": "26982d13d417a056ffa709197837e8c918309922",
+   "bytes": 4451,
+   "sha256": "313e43837999f2ba2a33cdc58c33b5c44f4c21b4ffc3df8d436037d3aa970793"
   },
   {
    "path": "docs/testing/round72/round72-poison-contract.md",
    "tracked": true,
-   "git_blob": "4dcc303e0ac4d6aec4cc2cbaee667319c4713155",
-   "bytes": 3148,
-   "sha256": "d99c4a95db900d60c4510f44e0b149e619fb39c4060873870651e6132d5c1ab8"
+   "git_blob": "10654c56b4878db0a821b10be2609e3b3d83e29c",
+   "bytes": 3238,
+   "sha256": "25f5b7e5a1bea00f508ed8b9c5d92b935c53c0b39bf09cfa4ad13b05bbc50d42"
+  },
+  {
+   "path": "docs/testing/round72/round72-final-audit.md",
+   "tracked": true,
+   "git_blob": "43f46d0866c4e8cb2e446922ea325552d0b49d21",
+   "bytes": 5068,
+   "sha256": "55695ff605c7e324372e3f15a61eb315d7992e9adf3a01e0a81a09f688e04b16",
+   "note": "independent T audit report committed in the documentation-fix commit"
   }
  ],
- "delivery_head": "d8b6157d4c794010cb050884a504d57093be4ad8"
+ "delivery_head": "87ffee399a3731119bb833ba17cfbe0297b32aa3",
+ "stage": "post-audit",
+ "audit": {
+  "verdict": "BLOCK",
+  "must_fix_count": 1,
+  "must_fix": "T-DOC-1 documentation consistency (README/contract stale state and tracked-blob anchor)",
+  "must_fix_status": "closed by documentation fix in 87ffee399a3731119bb833ba17cfbe0297b32aa3",
+  "report": "docs/testing/round72/round72-final-audit.md",
+  "report_bytes": 5068,
+  "report_sha256": "55695ff605c7e324372e3f15a61eb315d7992e9adf3a01e0a81a09f688e04b16",
+  "independent_rerun": "R72 9/0/0 + R71 8/0/0 + R70 9/0/0 + R63 3/0/0, fmt EXIT0"
+ }
 }

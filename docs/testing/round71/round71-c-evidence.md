@@ -1,6 +1,6 @@
 # R71-C 刑部独立核验
 
-- **verdict：PASS-WITH-PARTIAL；必改 0。** 仅认可149 FireWall有限切片，Lead可推进D及唯一全量；不代表全量或真实视觉通过。
+- **verdict：BLOCK；实现/测试必改 0，证据必改 1。** 五变异及最终冻结红绿独立复现成立；A中间阶段原日志缺失触及C7，Lead须先闭合证据问题或取得门下对该缺口的明确裁决，再推进收口。
 - 子单 `JJC-20261027-008-sub-3cd9c7fd`；独立核验者 gpt-6.1-sol；冻结 HEAD `cedf903ef7aaccdf1c220854d9ae7c100f1e791e`。
 - 核验UTC：2026-10-27 09:40–09:51；原命令、精确起止UTC/cwd/EXIT/日志SHA见[主运行账](../../../target/round71/c/attempt-1/runs.json)、[M3补跑账](../../../target/round71/c/attempt-1/m3-equivalent-runs.json)、[A红复算账](../../../target/round71/c/attempt-1/a-red-replay-runs.json)。
 - 证据根：[C attempt-1](../../../target/round71/c/attempt-1/)；[逐文件bytes/SHA清单](../../../target/round71/c/attempt-1/manifest.json)与[外置摘要](../../../target/round71/c/attempt-1/manifest.sha256)。
@@ -18,7 +18,7 @@
 |G4 Add/逐格|PASS|读取scene→entities→blit_add调用链及frame公式；RGB=min(255,dst+(src×alpha+127)/255)，五格与饱和断言有效。|
 |G5兼容/缺帧|PASS|缺目标帧返回false，分支continue仅跳当前事件，不panic、不退0；后续仍绘；非149与其他技能保持原通用Over/居中。|
 |B五变异/真红|PASS|五项均独立build0且出现Compiling、8测试RED101、恢复SHA、后绿8/8；失败集合/断言行/首败与B一致。|
-|原件保全|PASS|A 85份、B 145份审计文件前后无缺失/改字节；B m1..m5前绿/build/red/后绿与patch并存，见comparison.json。|
+|原件保全|FAIL（历史缺口）|C观察期间A 85份、B 145份现存文件均未改；但A manifest:64/76引用的两份c5c7d8中间日志不存在，C7失败attempt全保留尚不能确认。B m1..m5全部并存。|
 |A回归R1–R7|PASS（审计）|最终日志分别9/2/2/4/133 passed及clippy/fmt EXIT0；本C未重跑R1–R7，不借此代Lead全量。|
 |完整Crystal等价|PARTIAL|rate/DrawColour/Light、严格NextMotion、对象生命周期、真实素材及其它调用点继续承接，详见下文。|
 
@@ -52,4 +52,5 @@ PARTIAL承接：实际复用R70无调光rate=1 Add；本轮未新增rate API，`
 偏差披露：M3首轮误用格内居中`+(CELL-size)/2`，仍真红但不作为B精确复现；后续独立新增m3-equivalent执行器、patch、四日志，原件全部保留。首轮执行器启动后曾改M3表达式，已载入进程不受影响；保留按实际patch重建的verify-executed-snapshot.py，补跑执行器全程固定，测试字节始终未改。
 A既有夹具对齐、错误expected、clippy/fmt迭代及HEAD漂移披露已核读；本C未掩盖或覆盖原日志。C自身原始日志与补跑原件不覆盖；累计JSON为实时流水账，最终清单锁定字节。
 freeze-before SHA `70845aefd4dd689a55ab0618b36bbf692a4b33ebb5ee2f3a662dedc17a3dc9de`；freeze SHA `c7d896e7f5eee4706b943912c0c564d10d61c98d163143f051c2d632daecde32`，前后相同。
-未发现需修实现/测试的缺陷；最小可失败复现即上表单点patch+T71。流程回填命令与EXIT见[CLI回执](../../../target/round71/c/attempt-1/edict-result.json)；Lead仍须完成唯一全量及后续独立验收。
+流程偏差：收口主树HEAD已由外部推进至`16644d28df142a0b99264c9700674ff701fdea97`，C未提交；全部Cargo仍用冻结cedf903副本，源/测试SHA复核不变。delegate-result实际EXIT0并留原回执；随后Python打印✅遇GBK UnicodeEncodeError，仅清单收尾中断，以新脚本续做，不重复成功CLI。
+实现/测试未发现必改缺陷。证据必改E1：A manifest:64/76引用red-c5c7d8.log、green-c5c7d8.log均不存在；`py -3 target/round71/c/attempt-1/missing-index.py` EXIT0复现exists=false，详见[缺失记录](../../../target/round71/c/attempt-1/missing-index.json)。须追加勘误并追回真实原件；如无法追回，保留缺口并交门下明确裁决C7，不得伪造补历史日志或称全历史已核验。流程回填与EXIT见[CLI回执](../../../target/round71/c/attempt-1/edict-result.json)。

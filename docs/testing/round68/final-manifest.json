@@ -3,8 +3,8 @@
   "task": "JJC-20261027-005",
   "subtask": "JJC-20261027-005-sub-61532b37",
   "title": "第68轮：125与570逐帧图像偏移",
-  "status": "PASS-WITH-PARTIAL 候选",
-  "stage": "D 文档批 + 待独立终审",
+  "status": "PASS-WITH-PARTIAL（post-audit；尚书验收待办）",
+  "stage": "post-audit（独立终审 PASS-WITH-PARTIAL，必改 0；尚书验收待办）",
   "feature_commit": "c9e94c4bf78386028e45b54f1056df6abacee1e8",
   "head": "6ba5d459091ec4a5e18b457a3304926b2441a4c3",
   "artifact_policy": "tracked crates 使用指定 head 的 git_blob 原始内容 SHA256；tracked=false 使用工作树原始字节 SHA256。artifacts 不含本清单；自身 SHA 由 manifest.sha256 外置。",
@@ -44,9 +44,21 @@
     }
   ],
   "review_history": [
-    {"path":"docs/testing/round68/round68-c-evidence.md","verdict":"BLOCK","required_changes":"1/2/3退B；实现缺陷0"},
-    {"path":"docs/testing/round68/round68-c-addendum.md","verdict":"BLOCK","required_changes":"2/3 CLOSED；1 PARTIAL"},
-    {"path":"docs/testing/round68/round68-c-final.md","verdict":"PASS-WITH-PARTIAL","required_changes":"1/2/3全CLOSED；剩余必改0；不代整轮终审"}
+    {
+      "path": "docs/testing/round68/round68-c-evidence.md",
+      "verdict": "BLOCK",
+      "required_changes": "1/2/3退B；实现缺陷0"
+    },
+    {
+      "path": "docs/testing/round68/round68-c-addendum.md",
+      "verdict": "BLOCK",
+      "required_changes": "2/3 CLOSED；1 PARTIAL"
+    },
+    {
+      "path": "docs/testing/round68/round68-c-final.md",
+      "verdict": "PASS-WITH-PARTIAL",
+      "required_changes": "1/2/3全CLOSED；剩余必改0；不代整轮终审"
+    }
   ],
   "red_green_evidence": {
     "a_final": "target/round68/a/attempt-3/manifest.json",
@@ -55,7 +67,15 @@
     "b_result": "helper直接比较pixels RGBA字节；最终SHA绿12。R1/R2/R3隔离红在attempt-3，其live为中间19cf4cce SHA，不冒充最终live三变异复跑。",
     "b_mutations": "target/round68/b/attempt-3/manifest.json",
     "c_final": "docs/testing/round68/round68-c-final.md",
-    "c_counts": {"r68_wire":2,"r68_live":2,"r62_wire":5,"r63_wire":3,"passed":12,"failed":0,"ignored":0},
+    "c_counts": {
+      "r68_wire": 2,
+      "r68_live": 2,
+      "r62_wire": 5,
+      "r63_wire": 3,
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0
+    },
     "boundary": "测试名real指真实协议/调用链；素材是合成WZL/WZX，真实素材/设备视觉签核未做。"
   },
   "partial": [
@@ -73,24 +93,203 @@
     "B共享isolated旧原日志曾被替换；历史首败引用C留存摘录及旧日志SHA。",
     "A旧manifest:394真实资源字节措辞不精确，正式历史勘误仍PARTIAL；本清单明确合成夹具。"
   ],
-  "artifact_count": 17,
+  "artifact_count": 18,
   "artifacts": [
-    {"path":"crates/mir-render/src/entities.rs","tracked":true,"source":"git_blob","head":"6ba5d459091ec4a5e18b457a3304926b2441a4c3","lines":3415,"bytes":142361,"sha256":"965197467c5392c713e01926cdd1ecc7a5392242aa0aa6d8f4963667c328d8ef"},
-    {"path":"crates/mir-render/src/scene.rs","tracked":true,"source":"git_blob","head":"6ba5d459091ec4a5e18b457a3304926b2441a4c3","lines":1281,"bytes":48880,"sha256":"8a44a5a9764c731391ab1acd6b588b667889d765b5c212679b40165a960f6f93"},
-    {"path":"crates/mir-client/src/ui/projectile.rs","tracked":true,"source":"git_blob","head":"6ba5d459091ec4a5e18b457a3304926b2441a4c3","lines":2086,"bytes":99433,"sha256":"3528a4ee0252a1bc0af5235dace5e92f437b79075300828fabcdc1ed409acdea"},
-    {"path":"crates/mir-client/tests/round68_image_offset_wire.rs","tracked":true,"source":"git_blob","head":"6ba5d459091ec4a5e18b457a3304926b2441a4c3","lines":569,"bytes":23355,"sha256":"c330a4b628749184461b595fe0681fbf161f042b578586ebd02483e390908c73"},
-    {"path":"crates/mir-client/tests/round68_effect_offset_live.rs","tracked":true,"source":"git_blob","head":"6ba5d459091ec4a5e18b457a3304926b2441a4c3","lines":751,"bytes":30666,"sha256":"39a032c74d71b52f23f06be653e31cbb81c96967691cea384064bd5965116038"},
-    {"path":"docs/testing/round68/README.md","tracked":false,"source":"worktree","lines":76,"bytes":7659,"sha256":"825ca1fe524f35b46488b7eb699e17e99986226abd0fde4965539a904424f768"},
-    {"path":"docs/testing/round68/round68-offset.md","tracked":false,"source":"worktree","lines":42,"bytes":3784,"sha256":"70aaee54e3a565ef487056a4db950599ffbc4a93f2f1a3df34378309f5d14600"},
-    {"path":"docs/process/round68-plan.md","tracked":false,"source":"worktree","lines":83,"bytes":10243,"sha256":"ba4d7149c997617a952e844119da3255d2a3f7e90797f9a59b5890b969afd294"},
-    {"path":"docs/process/round68-menxia-review.md","tracked":false,"source":"worktree","lines":42,"bytes":6181,"sha256":"95c408148438d9c0748f6caa8d75305c972e1bb67ff3db3dce0e0fc5ee5a9f96"},
-    {"path":"docs/process/round68-shangshu-dispatch.md","tracked":false,"source":"worktree","lines":40,"bytes":6599,"sha256":"f3da0c77f57c87b578afdf042d88464ee50e18909d2d75d27f219a7dea2cb6c8"},
-    {"path":"docs/testing/round68/round68-c-evidence.md","tracked":false,"source":"worktree","lines":60,"bytes":6816,"sha256":"e8898e2c7b4ff3f3af89527fc5c6ac5cb73ac14c2eecbe5242e5cac8344a8d24"},
-    {"path":"docs/testing/round68/round68-c-addendum.md","tracked":false,"source":"worktree","lines":36,"bytes":6198,"sha256":"5f83587196e81922fcdec92196d68f10917cecb2350b4ec884a31f5bbf57f7ff"},
-    {"path":"docs/testing/round68/round68-c-final.md","tracked":false,"source":"worktree","lines":26,"bytes":4021,"sha256":"0152aaad1be48b5616cffbcc8890469f51cc8c401f02ef94cddf54550a466411"},
-    {"path":"target/round68/gate/attempt-2.log","tracked":false,"source":"worktree","lines":3632,"bytes":210789,"sha256":"54cc09020c6b724ffa606a22a1634cac4429d1130c73e853e55c2d9f79da3f38"},
-    {"path":"target/round68/gate/attempt-2.meta.txt","tracked":false,"source":"worktree","lines":13,"bytes":687,"sha256":"413dade505b63a5312d9b905b3661233b2312e4b11de0b22b85d43f3034e13b5"},
-    {"path":"target/round68/gate/attempt-1.log","tracked":false,"source":"worktree","role":"failed_attempt_disclosure","lines":1271,"bytes":70912,"sha256":"54716e56907a07ea9e84ba05cf4b2a1167d0c3cddd3c4773767d0c90061906eb"},
-    {"path":"target/round68/gate/attempt-1.meta.txt","tracked":false,"source":"worktree","role":"failed_attempt_disclosure","lines":4,"bytes":118,"sha256":"90c74c32582a6f42c9d600b9a0ecb4e9e3b5e5998da1ac68389a49f85017ef50"}
-  ]
+    {
+      "path": "crates/mir-render/src/entities.rs",
+      "tracked": true,
+      "source": "git_blob",
+      "head": "6ba5d459091ec4a5e18b457a3304926b2441a4c3",
+      "lines": 3415,
+      "bytes": 142361,
+      "sha256": "965197467c5392c713e01926cdd1ecc7a5392242aa0aa6d8f4963667c328d8ef",
+      "git_blob": "250b719882ee8a750486d9765946b4b7c59243c2",
+      "tracked_source": "6ba5d45"
+    },
+    {
+      "path": "crates/mir-render/src/scene.rs",
+      "tracked": true,
+      "source": "git_blob",
+      "head": "6ba5d459091ec4a5e18b457a3304926b2441a4c3",
+      "lines": 1281,
+      "bytes": 48880,
+      "sha256": "8a44a5a9764c731391ab1acd6b588b667889d765b5c212679b40165a960f6f93",
+      "git_blob": "3c0feec6054af6ec1cec849f7b1c24d60562736a",
+      "tracked_source": "6ba5d45"
+    },
+    {
+      "path": "crates/mir-client/src/ui/projectile.rs",
+      "tracked": true,
+      "source": "git_blob",
+      "head": "6ba5d459091ec4a5e18b457a3304926b2441a4c3",
+      "lines": 2086,
+      "bytes": 99433,
+      "sha256": "3528a4ee0252a1bc0af5235dace5e92f437b79075300828fabcdc1ed409acdea",
+      "git_blob": "29e81fbdac02e17cccd4e78762b503c6fe2bf30b",
+      "tracked_source": "6ba5d45"
+    },
+    {
+      "path": "crates/mir-client/tests/round68_image_offset_wire.rs",
+      "tracked": true,
+      "source": "git_blob",
+      "head": "6ba5d459091ec4a5e18b457a3304926b2441a4c3",
+      "lines": 569,
+      "bytes": 23355,
+      "sha256": "c330a4b628749184461b595fe0681fbf161f042b578586ebd02483e390908c73",
+      "git_blob": "0163a981e0cc9359b4106afd111c20b580c0a5b1",
+      "tracked_source": "6ba5d45"
+    },
+    {
+      "path": "crates/mir-client/tests/round68_effect_offset_live.rs",
+      "tracked": true,
+      "source": "git_blob",
+      "head": "6ba5d459091ec4a5e18b457a3304926b2441a4c3",
+      "lines": 751,
+      "bytes": 30666,
+      "sha256": "39a032c74d71b52f23f06be653e31cbb81c96967691cea384064bd5965116038",
+      "git_blob": "64ea6763834a05011da86a48742327f464354964",
+      "tracked_source": "6ba5d45"
+    },
+    {
+      "path": "docs/testing/round68/README.md",
+      "tracked": true,
+      "source": "worktree",
+      "lines": 76,
+      "bytes": 7659,
+      "sha256": "825ca1fe524f35b46488b7eb699e17e99986226abd0fde4965539a904424f768",
+      "git_blob": "ff594de4540db6efb8cee6c19ac8523a94eb7edc",
+      "tracked_source": "cb7bc76"
+    },
+    {
+      "path": "docs/testing/round68/round68-offset.md",
+      "tracked": true,
+      "source": "worktree",
+      "lines": 42,
+      "bytes": 3784,
+      "sha256": "70aaee54e3a565ef487056a4db950599ffbc4a93f2f1a3df34378309f5d14600",
+      "git_blob": "f09f7a85a5ff9cedddebbe2577bff7bea17664dc",
+      "tracked_source": "cb7bc76"
+    },
+    {
+      "path": "docs/process/round68-plan.md",
+      "tracked": true,
+      "source": "worktree",
+      "lines": 83,
+      "bytes": 10243,
+      "sha256": "ba4d7149c997617a952e844119da3255d2a3f7e90797f9a59b5890b969afd294",
+      "git_blob": "cd337709ee310e7b0d4db2fb2584529817e2fc7b",
+      "tracked_source": "cb7bc76"
+    },
+    {
+      "path": "docs/process/round68-menxia-review.md",
+      "tracked": true,
+      "source": "worktree",
+      "lines": 42,
+      "bytes": 6181,
+      "sha256": "95c408148438d9c0748f6caa8d75305c972e1bb67ff3db3dce0e0fc5ee5a9f96",
+      "git_blob": "337ce348b740eb22a7622d4d553db932d81c883a",
+      "tracked_source": "cb7bc76"
+    },
+    {
+      "path": "docs/process/round68-shangshu-dispatch.md",
+      "tracked": true,
+      "source": "worktree",
+      "lines": 40,
+      "bytes": 6599,
+      "sha256": "f3da0c77f57c87b578afdf042d88464ee50e18909d2d75d27f219a7dea2cb6c8",
+      "git_blob": "0387fc7f15e8d0e582f13b078a449750a51a4119",
+      "tracked_source": "cb7bc76"
+    },
+    {
+      "path": "docs/testing/round68/round68-c-evidence.md",
+      "tracked": true,
+      "source": "worktree",
+      "lines": 60,
+      "bytes": 6816,
+      "sha256": "e8898e2c7b4ff3f3af89527fc5c6ac5cb73ac14c2eecbe5242e5cac8344a8d24",
+      "git_blob": "4af85a118b4742d82f7d33512cc24dc464ff8977",
+      "tracked_source": "cb7bc76"
+    },
+    {
+      "path": "docs/testing/round68/round68-c-addendum.md",
+      "tracked": true,
+      "source": "worktree",
+      "lines": 36,
+      "bytes": 6198,
+      "sha256": "5f83587196e81922fcdec92196d68f10917cecb2350b4ec884a31f5bbf57f7ff",
+      "git_blob": "e8a0bcc6e66224b6846dec843666b9c61ed4ac54",
+      "tracked_source": "cb7bc76"
+    },
+    {
+      "path": "docs/testing/round68/round68-c-final.md",
+      "tracked": true,
+      "source": "worktree",
+      "lines": 26,
+      "bytes": 4021,
+      "sha256": "0152aaad1be48b5616cffbcc8890469f51cc8c401f02ef94cddf54550a466411",
+      "git_blob": "416092cc98487288d79fda8d5a3bef0ac70ce60d",
+      "tracked_source": "cb7bc76"
+    },
+    {
+      "path": "target/round68/gate/attempt-2.log",
+      "tracked": false,
+      "source": "worktree",
+      "lines": 3632,
+      "bytes": 210789,
+      "sha256": "54cc09020c6b724ffa606a22a1634cac4429d1130c73e853e55c2d9f79da3f38"
+    },
+    {
+      "path": "target/round68/gate/attempt-2.meta.txt",
+      "tracked": false,
+      "source": "worktree",
+      "lines": 13,
+      "bytes": 687,
+      "sha256": "413dade505b63a5312d9b905b3661233b2312e4b11de0b22b85d43f3034e13b5"
+    },
+    {
+      "path": "target/round68/gate/attempt-1.log",
+      "tracked": false,
+      "source": "worktree",
+      "role": "failed_attempt_disclosure",
+      "lines": 1271,
+      "bytes": 70912,
+      "sha256": "54716e56907a07ea9e84ba05cf4b2a1167d0c3cddd3c4773767d0c90061906eb"
+    },
+    {
+      "path": "target/round68/gate/attempt-1.meta.txt",
+      "tracked": false,
+      "source": "worktree",
+      "role": "failed_attempt_disclosure",
+      "lines": 4,
+      "bytes": 118,
+      "sha256": "90c74c32582a6f42c9d600b9a0ecb4e9e3b5e5998da1ac68389a49f85017ef50"
+    },
+    {
+      "path": "docs/testing/round68/round68-final-audit.md",
+      "kind": "audit-report",
+      "tracked": true,
+      "git_blob": "b03b82d393b583451c19606d4bbc20706a0dec49",
+      "tracked_source": "48fb28c2feb89f5f8316c766ec5b402a54b5f7e7",
+      "lines": 35,
+      "bytes": 5065,
+      "sha256": "566c23cf796d3e7882912893402d8bdf0633e44e9cf1445a2e61334f5609feb2"
+    }
+  ],
+  "audit": {
+    "report": "docs/testing/round68/round68-final-audit.md",
+    "sha256": "566c23cf796d3e7882912893402d8bdf0633e44e9cf1445a2e61334f5609feb2",
+    "bytes": 5065,
+    "lines": 35,
+    "verdict": "PASS-WITH-PARTIAL",
+    "must_fix": 0,
+    "baseline_head": "cb7bc764ac90418192cd176170b93e47337a2611",
+    "commit": "48fb28c2feb89f5f8316c766ec5b402a54b5f7e7",
+    "notes": [
+      "独立 12 passed/0 failed/0 ignored",
+      "manifest 17 项独立复算 mismatch=0",
+      "门禁 attempt-2 原字节与 meta 相符",
+      "七项 PARTIAL 原样承接",
+      "偏差披露：文档批实为 12 文件；ci.ps1 workspace 命令实际 :120；额外 legacy clippy 探针有既有告警不计入通过范围"
+    ]
+  }
 }

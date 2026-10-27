@@ -9,8 +9,8 @@
   "feature_head": "6183394",
   "asset_fix_head": "3378303",
   "head_snapshot": "3378303",
-  "delivery_head": null,
-  "delivery_head_note": "Six D documents are uncommitted worktree pre-audit artifacts; head_snapshot is the feature/assets snapshot, not a claimed documentation commit.",
+  "delivery_head": "55f61c424a1ba731903135fc3c837a811de2bd20",
+  "delivery_head_note": "D 文档批已提交为 55f61c424a1ba731903135fc3c837a811de2bd20；本清单为该 pre-audit 快照的 delivery_head 刷新（manifest 自身随后以第二提交固化，post-audit 由 Lead 机械刷新）。",
   "dag": [
     "A兵部",
     "B工部",
@@ -103,7 +103,10 @@
       "blob_oid": "fe1bf85645f7397697e56b98627269009aeb0d51",
       "bytes": 21862,
       "sha256": "e0bcaef0ff6a6103079e5cdb3d31f16e2a2db918b3ae390babd7290d00d3fc1b",
-      "note": "Content introduced by 6183394; unchanged at 3378303; bytes/SHA computed from 3378303 blob, not checkout newline conversion."
+      "note": "Content introduced by 6183394; unchanged at 3378303; bytes/SHA computed from 3378303 blob, not checkout newline conversion.",
+      "tracked": true,
+      "git_blob": "fe1bf85645f7397697e56b98627269009aeb0d51",
+      "head_sha256": "e0bcaef0ff6a6103079e5cdb3d31f16e2a2db918b3ae390babd7290d00d3fc1b"
     },
     {
       "path": "crates/mir-client/tests/round73_thunderbolt_hit_mapping.rs",
@@ -112,43 +115,64 @@
       "blob_oid": "dd75c148db7d1cd17da747987c03bbd67185523d",
       "bytes": 84910,
       "sha256": "1ec3f6dbbf7368e7dbd82c78529f1e6605908b04c11164ba860ab28b42513c5e",
-      "note": "Content introduced by 6183394; unchanged at 3378303; bytes/SHA computed from 3378303 blob, not checkout newline conversion."
+      "note": "Content introduced by 6183394; unchanged at 3378303; bytes/SHA computed from 3378303 blob, not checkout newline conversion.",
+      "tracked": true,
+      "git_blob": "dd75c148db7d1cd17da747987c03bbd67185523d",
+      "head_sha256": "1ec3f6dbbf7368e7dbd82c78529f1e6605908b04c11164ba860ab28b42513c5e"
     },
     {
       "path": "docs/process/round73-plan.md",
       "source": "worktree",
       "bytes": 18697,
-      "sha256": "7b9be54c4ae3d953123337a77e2ae21e173e77db6bc98145474b675ce597596e"
+      "sha256": "7b9be54c4ae3d953123337a77e2ae21e173e77db6bc98145474b675ce597596e",
+      "tracked": true,
+      "git_blob": "281f6b148f08e473858b5a2cf678f1037df3db9f",
+      "head_sha256": "7b9be54c4ae3d953123337a77e2ae21e173e77db6bc98145474b675ce597596e"
     },
     {
       "path": "docs/process/round73-menxia-review.md",
       "source": "worktree",
       "bytes": 6239,
-      "sha256": "563b7f045849e86b8e34e94098e886439916c896ac0f66d2183d71a07f85eb95"
+      "sha256": "563b7f045849e86b8e34e94098e886439916c896ac0f66d2183d71a07f85eb95",
+      "tracked": true,
+      "git_blob": "ea226b5375730892cb86b08205833d5b153db51c",
+      "head_sha256": "563b7f045849e86b8e34e94098e886439916c896ac0f66d2183d71a07f85eb95"
     },
     {
       "path": "docs/process/round73-shangshu-dispatch.md",
       "source": "worktree",
       "bytes": 4902,
-      "sha256": "d24e3ba5b5b5251d881a9b0825855fd9328ae3bef909eb805af6b34775589977"
+      "sha256": "d24e3ba5b5b5251d881a9b0825855fd9328ae3bef909eb805af6b34775589977",
+      "tracked": true,
+      "git_blob": "83ce18e80c699a83c1bd7cefb9bffbe20436c234",
+      "head_sha256": "d24e3ba5b5b5251d881a9b0825855fd9328ae3bef909eb805af6b34775589977"
     },
     {
       "path": "docs/process/round73-lead-ruling.md",
       "source": "worktree",
       "bytes": 5098,
-      "sha256": "311d306761f978dc840f88878cb2e09a317535e2e6b12e9b5e205cac3db6b7a0"
+      "sha256": "311d306761f978dc840f88878cb2e09a317535e2e6b12e9b5e205cac3db6b7a0",
+      "tracked": true,
+      "git_blob": "120a5ecd06e796ed6a97338f772dcdd57e017336",
+      "head_sha256": "311d306761f978dc840f88878cb2e09a317535e2e6b12e9b5e205cac3db6b7a0"
     },
     {
       "path": "docs/testing/round73/round73-c-evidence.md",
       "source": "worktree",
       "bytes": 9677,
-      "sha256": "6d8973378ead49d85241e656819db7b4561f46273484c404b0f59f6b17ea11df"
+      "sha256": "6d8973378ead49d85241e656819db7b4561f46273484c404b0f59f6b17ea11df",
+      "tracked": true,
+      "git_blob": "26bd6eb069e5da10b76315513f6ca8ebf48b9a2a",
+      "head_sha256": "6d8973378ead49d85241e656819db7b4561f46273484c404b0f59f6b17ea11df"
     },
     {
       "path": "docs/testing/round73/round73-c-addendum.md",
       "source": "worktree",
       "bytes": 2907,
-      "sha256": "ae6b715edca8418af79c2b9c1b191fa45d1a2fb1287ec0b899bfe3a18a903601"
+      "sha256": "ae6b715edca8418af79c2b9c1b191fa45d1a2fb1287ec0b899bfe3a18a903601",
+      "tracked": true,
+      "git_blob": "2d431d53e1df925fd04814a0851135b8dc528787",
+      "head_sha256": "ae6b715edca8418af79c2b9c1b191fa45d1a2fb1287ec0b899bfe3a18a903601"
     },
     {
       "path": "target/round73/a/attempt-1/manifest.json",
@@ -232,7 +256,10 @@
       "path": "tools/assets/analyze_usage.py",
       "source": "worktree",
       "bytes": 68769,
-      "sha256": "86d53716ea2e8e6c4b425ef61f2c7b7ce66222ca0db66d255c74e34eacbd521e"
+      "sha256": "86d53716ea2e8e6c4b425ef61f2c7b7ce66222ca0db66d255c74e34eacbd521e",
+      "tracked": true,
+      "git_blob": "b1da9074c17e26bfc4264289e2df381d8c952477",
+      "head_sha256": "86d53716ea2e8e6c4b425ef61f2c7b7ce66222ca0db66d255c74e34eacbd521e"
     },
     {
       "path": "target/used-assets.json",
@@ -280,25 +307,37 @@
       "path": "docs/testing/round73/README.md",
       "source": "worktree",
       "bytes": 7160,
-      "sha256": "6a9805a5ba85700a5e9d7c8bafe6271584714761b008d9ffc21628146dd03e8c"
+      "sha256": "6a9805a5ba85700a5e9d7c8bafe6271584714761b008d9ffc21628146dd03e8c",
+      "tracked": true,
+      "git_blob": "f2fdd11dc943d1d9e2b4860e1ddb81dce1223ee5",
+      "head_sha256": "6a9805a5ba85700a5e9d7c8bafe6271584714761b008d9ffc21628146dd03e8c"
     },
     {
       "path": "docs/testing/round73/round73-thunder-contract.md",
       "source": "worktree",
       "bytes": 4073,
-      "sha256": "5baa4f6f0a95cd613f290b1ed4bff1694e531836a2e53ce08962464fc7e6ea04"
+      "sha256": "5baa4f6f0a95cd613f290b1ed4bff1694e531836a2e53ce08962464fc7e6ea04",
+      "tracked": true,
+      "git_blob": "de7253009017d9a00893848d4c59badfe7b6f330",
+      "head_sha256": "5baa4f6f0a95cd613f290b1ed4bff1694e531836a2e53ce08962464fc7e6ea04"
     },
     {
       "path": "docs/client.md",
       "source": "worktree",
       "bytes": 186824,
-      "sha256": "6bdf1a751d34c665e3b2e9a85c850edcf6952ab6b1c5a4991b5f9b79d1ada26c"
+      "sha256": "6bdf1a751d34c665e3b2e9a85c850edcf6952ab6b1c5a4991b5f9b79d1ada26c",
+      "tracked": true,
+      "git_blob": "292e00ba2b43c9a13652f063e565c546de2ed6fa",
+      "head_sha256": "6bdf1a751d34c665e3b2e9a85c850edcf6952ab6b1c5a4991b5f9b79d1ada26c"
     },
     {
       "path": "docs/roadmap.md",
       "source": "worktree",
       "bytes": 46976,
-      "sha256": "1e60045854f659e5769ccc01f2ad28bed996948bcd16770cc01ab27a3500043d"
+      "sha256": "1e60045854f659e5769ccc01f2ad28bed996948bcd16770cc01ab27a3500043d",
+      "tracked": true,
+      "git_blob": "f2628c3ba0c876fd36e998c2e2315ed2415dcedd",
+      "head_sha256": "1e60045854f659e5769ccc01f2ad28bed996948bcd16770cc01ab27a3500043d"
     }
   ]
 }

@@ -5,8 +5,8 @@
   "stage": "post-audit",
   "basel": "52d95b1",
   "head": "78a8613b1b90ac2c66ce76b7c058311e514d9f27",
-  "generated_at_utc": "2026-10-27T00:10:03.000Z",
-  "generated_by": "T 终审 c20a132d 超时无产物后，改由 T2 精简终审（gpt-6.1-sol）执行复核；本清单由 Lead 依 T2 复核结果机械刷新 post-audit（留痕 t2/attempt-1/）",
+  "generated_at_utc": "2026-10-27T00:10:39.000Z",
+  "generated_by": "Lead 机械刷新：audit 项 tracked 指向审计提交",
   "note": "清单不含自身；自身 sha256 外置 manifest.sha256。tracked=false 项为写清单时尚未提交；docs 在文档批提交后由 T 终审刷新为 tracked。target 与历史 freeze 不入库。",
   "gate": {
     "head": "78a8613b1b90ac2c66ce76b7c058311e514d9f27",
@@ -127,12 +127,12 @@
     },
     {
       "path": "docs/testing/round67/round67-final-audit.md",
-      "tracked": false,
-      "git_blob": null,
+      "tracked": true,
+      "git_blob": "41f3b9c3a2af10b1c8d51dcaa42007c7726744b1",
       "worktree_sha256": "bc59922bc48b7406ca3493ca7203acd1a9f3d9f222942b2e07daec0b779b0014",
       "worktree_bytes": 3155,
-      "note": "R67 独立终审报告（PASS-WITH-PARTIAL，必改 0）；调查性审计产物，待 Lead 提交后转 tracked"
+      "note": "R67 独立终审报告（PASS-WITH-PARTIAL，必改 0）；随 Lead 审计提交入库"
     }
   ],
-  "audit_commit": null
+  "audit_commit": "b146dcb406e5c3fea590a22d9493204629c996b7"
 }

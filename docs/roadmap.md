@@ -259,3 +259,23 @@ R67 功能提交 `78a8613` 已推送，仅3个新增测试文件、+723行：四
 R68候选须独立规划/审核后实施：①多消费者注册/退出/租约/补发/fan-out与全局最低水位生产侧；②自动保护集与map epoch/同代ID复用；③容量实际接线与保护超额/未知未来引用策略；④服务端回收协议；⑤素材/音频（设备/Live、105 sfx、HiddenSpanSource、削波等）。本轮未实现上述项目。
 
 PARTIAL按原编号承接：R49–R60/R60 P-1–P-6；R61 P01–P12（含生产SkipFrames/ActionFeed、全局TargetPoint、ImageInfo.offset、u64::MAX、缺素材SKIP）；R62①–④；R63 P1–P7（含旧门禁meta缺EXIT/HEAD）；R64①–⑥；R65 G1.2仅clone值独立/G2未做；R66生产生命周期与全局水位。事件表/位置容量、长期内存、服务端回收、素材设备Live均不清零，详细对照见[R67原编号台账](testing/round67/README.md#partial-原编号台账与-r68-候选)。
+
+## 十六、第 69 轮候选（计划）
+
+### 16.x 第 68 轮（逐帧图像偏移，PASS-WITH-PARTIAL 候选）
+
+任务 JJC-20261027-005；功能提交 `c9e94c4`（5 文件 +1394/−8），新增显式逐帧偏移入口、MapScene 转发与 125 飞行/570 命中两处接线，旧入口及 spellfx 居中保持原状。范围为 R61 P04 的 125/570 图像偏移消费子项；全 UI 与历史遗留不据此清零。见 [R68 索引](testing/round68/README.md)、[契约](testing/round68/round68-offset.md)及 [client §5.33](client.md#533-r68125570-逐帧图像偏移)。
+
+C 首轮 BLOCK 三项，追加核验 2/3 CLOSED、1 PARTIAL，最终三项全 CLOSED、剩余必改 0、PASS-WITH-PARTIAL。Lead 门禁 attempt-1 因 workspace 未启用 legacy 而 EXIT1；`6ba5d45` 补启 `mir-render/legacy` 后，attempt-2 在该 HEAD EXIT0、12/12 OK。当前阶段为 **D 文档批 + 待独立终审**，不代替父任务终审与责任链收口。
+
+PARTIAL 承接：A 旧 manifest:394 措辞勘误、B 共享 isolated 旧日志归档限制、真实素材/设备视觉签核、全 UI offset、spellfx 居中迁移、DrawBlend/shadow/mask、R49–R67 历史遗留。夹具为合成 WZL + 真实协议/渲染链；真实素材视觉尚未签核。
+历史原编号继续承接 R49–R60/R60 P-1–P-6、R61 其余 P01–P12、R62①–④、R63 P1–P7、R64①–⑥、R65 G1.2/G2、R66 生命周期/全局水位、R67 容量/保护/map epoch/同代 ID 复用；125 无点坐标语义不变。
+
+### 16.1 R69 候选范围（待规划）
+
+- 真实素材/设备视觉签核：按素材来源、逐帧锚点和设备结果取证。
+- 全 UI offset：先盘点各调用方坐标契约，再决定迁移范围。
+- spellfx 居中迁移：独立处理尺寸居中与帧锚点的关系。
+- DrawBlend/shadow/mask：独立规划混合、阴影和遮罩验证。
+
+以上为候选，R69 目标、依赖与验收留待独立规划/评审，不预记实现或结论。

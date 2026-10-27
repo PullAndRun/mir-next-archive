@@ -1388,6 +1388,21 @@ PARTIAL 分列承接：①多消费者/克隆快照全局最低水位未实现�
 
 失效边界：map epoch/同代ID复用、自动保护集、多消费者/全局最低水位生产侧、容量实际接线均未做。唯一Lead门禁在该HEAD EXIT0、12/12 OK；C追加PASS-WITH-PARTIAL、原三项BLOCK全CLOSED。**门禁 PASS 与 C addendum PASS 不代表最终验收/收口**，主单仍Doing，历史PARTIAL继续承接。
 
+### 5.33 R68：125/570 逐帧图像偏移
+
+功能提交 `c9e94c4`（5 文件 +1394/−8）；门禁基线 `6ba5d45`。本节为 D 文档批 + 待独立终审，状态为 PASS-WITH-PARTIAL 候选；证据见 [R68 索引](testing/round68/README.md)与[偏移契约](testing/round68/round68-offset.md)。
+
+- `EntityRenderer::draw_effect_with_offset` 读取当前帧 signed `ImageInfo.offset_x/offset_y`，分别 saturating_add 后 blit；缺帧 false，有图完全屏外 true。
+- MapScene 转发；125 飞行与 570 命中两处使用新入口。运动量与图像偏移各加一次，重复 draw 不累积。
+- 旧 `draw_effect` 保持绝对左上角；spellfx 继续尺寸居中并走旧入口。生产 wire/server 零改动。
+- G1/G2 两例覆盖逐帧 signed offset、裁剪/缺帧/极值与旧入口；G3/G4 两例经真实 71/125 协议→UI→渲染，验证飞行/命中整帧 RGBA、center 与严格 NextFrame。
+- C 首轮 BLOCK 三项；追加核验关闭 2/3、1 仍 PARTIAL；最终直接 pixels 字节比较后，三项全 CLOSED、剩余必改 0，签发 PASS-WITH-PARTIAL。
+- Lead attempt-1 EXIT1：workspace 测试未启用 legacy，合成 magic.wzl 不可读；`6ba5d45` 为 workspace 测试补 `--features mir-render/legacy` 后，attempt-2 EXIT0、12/12 OK。
+
+仅登记 R61 P04 的 125/570 图像偏移消费子项；夹具是合成 WZL + 真实协议/渲染链，不构成真实素材/设备视觉签核。
+PARTIAL 承接：A 旧 manifest:394 措辞勘误、B 共享 isolated 旧日志归档限制、真实素材/设备视觉签核、全 UI offset、spellfx 居中迁移、DrawBlend/shadow/mask、R49–R67 历史遗留。
+R69 的真实视觉、全 UI、spellfx 与混合/阴影/mask 目标留待独立规划；125 无点坐标语义不变。
+
 ### 6.0 真实素材渲染（第 6 轮）
 
 **数据目录**

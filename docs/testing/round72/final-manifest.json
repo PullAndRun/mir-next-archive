@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "round": 72,
- "status": "independent audit complete (BLOCK T-DOC-1, closed by documentation fix); shangshu acceptance pending",
+ "status": "T2 audit closed T-DOC-1 residuals by documentation fix at 7f01b18 (pending independent re-verification); shangshu acceptance pending",
  "scope": "149 PoisonCloud finite mapping slice; PASS-WITH-PARTIAL; pending independent final audit",
  "feature_head": "2a31554bfe31a05bb828119f3fb96d8a6544fba3",
  "feature_subject": "feat(client): R72 149 PoisonCloud 逐格精灵映射与锚点迁移（第72轮）",
@@ -158,9 +158,9 @@
   {
    "path": "docs/testing/round72/README.md",
    "tracked": true,
-   "git_blob": "26982d13d417a056ffa709197837e8c918309922",
-   "bytes": 4451,
-   "sha256": "313e43837999f2ba2a33cdc58c33b5c44f4c21b4ffc3df8d436037d3aa970793"
+   "git_blob": "4b5331f6e4e5cf5fb7307dd8e97113a77389b6b8",
+   "bytes": 4698,
+   "sha256": "18f1f0717f515299d08f268de7ef3ab7df80eac498d14a38563c84795f1ad5d2"
   },
   {
    "path": "docs/testing/round72/round72-poison-contract.md",
@@ -176,18 +176,27 @@
    "bytes": 5068,
    "sha256": "55695ff605c7e324372e3f15a61eb315d7992e9adf3a01e0a81a09f688e04b16",
    "note": "independent T audit report committed in the documentation-fix commit"
+  },
+  {
+   "path": "docs/testing/round72/round72-final-audit-addendum.md",
+   "tracked": false,
+   "bytes": 3124,
+   "sha256": "b55da738fbbd8eedecfa2f5926b8646d780fa263796e71de02e08e57b2aeac93",
+   "note": "T2 report; draft BLOCK version preserved at target/round72/t2/attempt-1/block-draft-addendum.md; superseded version will be committed and re-registered as tracked by a subsequent manifest-only refresh"
   }
  ],
- "delivery_head": "87ffee399a3731119bb833ba17cfbe0297b32aa3",
+ "delivery_head": "7f01b1854a09dc6fd4d2a98baa57066fb931c539",
  "stage": "post-audit",
  "audit": {
-  "verdict": "BLOCK",
+  "verdict": "BLOCK (first round) → residuals fixed; T2 re-verification pending",
   "must_fix_count": 1,
-  "must_fix": "T-DOC-1 documentation consistency (README/contract stale state and tracked-blob anchor)",
-  "must_fix_status": "closed by documentation fix in 87ffee399a3731119bb833ba17cfbe0297b32aa3",
+  "must_fix": "T-DOC-1 documentation consistency",
+  "must_fix_status": "closed by documentation commits 87ffee3 + 7f01b18",
   "report": "docs/testing/round72/round72-final-audit.md",
   "report_bytes": 5068,
   "report_sha256": "55695ff605c7e324372e3f15a61eb315d7992e9adf3a01e0a81a09f688e04b16",
-  "independent_rerun": "R72 9/0/0 + R71 8/0/0 + R70 9/0/0 + R63 3/0/0, fmt EXIT0"
+  "independent_rerun": "R72 9/0/0 + R71 8/0/0 + R70 9/0/0 + R63 3/0/0, fmt EXIT0",
+  "first_report": "docs/testing/round72/round72-final-audit.md",
+  "t2_report": "docs/testing/round72/round72-final-audit-addendum.md"
  }
 }

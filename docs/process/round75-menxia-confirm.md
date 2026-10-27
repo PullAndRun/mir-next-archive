@@ -1,0 +1,26 @@
+# R75 门下省确认
+- verdict：**PASS-WITH-PARTIAL；收口成立；必改 0**。主单 `JJC-20261028-002` 已实读 Done；只确认当前差异合同及证据。
+- 核验 UTC 2026-10-27T21:22Z–21:25Z；执行者 gpt-6.1-sol（门下独立确认）；逐命令 UTC/原始 EXIT/stdout/stderr 见 [runs](../../target/round75/menxia/attempt-1/runs.json) 与同根 logs。
+- 看板：入场父单 Review、todos=[]；list 后逐读 A=a9d799da/B=5d3090ba/C=195ef58c/D=db4a1027，四子单均 Done、delegation_result 非空、todos 全 completed 或空；PendingConfirm 实读 confirm_by=menxia。
+- 抽核①尚书：37行/5,577B/SHA256 `88140e2a3cb031e9e5555d46f57631af08dfbb0c475fd9cf47d37ede3bcd336a`；ACCEPT-WITH-PARTIAL/必改0，原字节一致。
+- 抽核②清单：39/39 artifacts 逐项 bytes/SHA 复算一致，tracked 另读 git cat-file blob；21,043B/SHA256 `f046ebb9d58319f1bd2a9bc45817743b34a93a0d4d89640ed220d5a304c47fce`；post-audit；外置87B，内容摘要一致。
+- A/B manifest 两份、C/C2/C3三份报告均匹配清单原字节；C FAIL/必改2→C2 BLOCK/必改1→基线勘误→C3 PASS/必改0历史保留，未以新结论回写历史。
+- 抽核③门禁：log 214,417B/SHA256 `e6eec12095ea80b042dde250f4f1fd55d3d4b76aa5708a94d2da15df2aa38342`；meta 481B/SHA256 `4483324991985472bc1bbb7e4a023fdb5d1d53b37e88564512858edd7c8a1fba`。
+- 门禁 GB18030 原日志最终行首 OK/行尾秒数复算12 OK/0 FAIL；meta EXIT0，UTC20:44:09Z–20:47:52Z，gate_head=30246bce34c357e941874628e2697b80a0ff42d0，为HEAD祖先；门禁后 crates/tools diff 空。
+- 抽核④T报告：32行/5,658B/SHA256 `acdafa7e90ce0e60a9e136524f91d571747178a034dbd3b2ebff066724f605e4`，原字节一致；历史38项口径不回写。
+- 抽核⑤提交：git rev-parse/log -8 实读 HEAD=`f43c4244c8d823d6e933f27cc3f4900224904271`（尚书验收）；96e46cc→a6e77ef→30246bc→baf71d2→6b6e4bc→a74cfbcf→5a10d72→f43c424，逐段 ancestry EXIT0。
+- 相对96e46cc，server/protocol/tools diff 空；crates仅新增R75测试56,403B/1454行/SHA256 `ecff550dfa0bcd671d32723bd18fbcd444c93c4d173c1562bfbc0f8ad185a05c`；无新增ignore/allow；全文diff措辞命中均为否定/限定，无正面扩称。
+- 抽核⑥freeze-before：44,844,165B/SHA256 `70845aefd4dd689a55ab0618b36bbf692a4b33ebb5ee2f3a662dedc17a3dc9de`；freeze：45,219,533B/SHA256 `c7d896e7f5eee4706b943912c0c564d10d61c98d163143f051c2d632daecde32`；均原字节一致、未跟踪。
+- 可选隔离抽证：archive HEAD EXIT0；tar解包 EXIT128，stderr=`tar: Cannot connect to C: resolve failed`（Windows盘符被当远端）；未重试、未运行cargo，本次新测试计数0；改用亲核唯一门禁原日志与已校验的T/尚书隔离证据，不冒充新跑7绿。
+- CLI① `node C:/Users/diana/.dsh/skills/edict/scripts/edict.mjs state JJC-20261028-002 Done --as menxia`：UTC 2026-10-27T21:24:24.328Z–21:24:24.396Z，原始EXIT=0，stdout进入PendingConfirm。
+- CLI② `node C:/Users/diana/.dsh/skills/edict/scripts/edict.mjs confirm JJC-20261028-002 approve --as menxia`：UTC 2026-10-27T21:24:50.064Z–21:24:50.131Z，原始EXIT=0，stdout批准→Done。
+- CLI③ `node C:/Users/diana/.dsh/skills/edict/scripts/edict.mjs validate --as menxia`：UTC 2026-10-27T21:25:00.191Z–21:25:00.243Z，原始EXIT=0，252任务符合schema v3.1。
+- CLI④ `node C:/Users/diana/.dsh/skills/edict/scripts/edict.mjs show JJC-20261028-002`：UTC 2026-10-27T21:25:05.789Z–21:25:05.842Z，原始EXIT=0，最终状态Done（achieved）。
+- PARTIAL① GAP-1/2、R70-C2：完整DrawBlend/rate/Mode/DrawColour、src×0.8×alpha未实施。
+- PARTIAL② GAP-5/R70-C1、R70-C3、GAP-3/4/6：其余149/1620/起手/调用点、尺寸居中、mask/tint/shadow/Light/AnimationOffset。
+- PARTIAL③ R71时钟/对象、R73-T1：NextMotion/Repeat/26完整生产寿命；历史反向注释子项修正不扩大关闭。
+- PARTIAL④ R72 B plan-M4/legacy lint、R71-C7永久PARTIAL、历史E1仅补救CLOSED、R69条件5永久缺口。
+- PARTIAL⑤ R68/R49–R70/R61–R67全部原号；R61 P01–P12、R62①–④、R63 P1–P7、R64①–⑥、R65 G1.2/G2、R66生命周期/水位、R67容量/保护/map epoch；R74 artifacts=34。
+- PARTIAL⑥ R75-E1/C-M1 CLOSED-AS-PARTIAL：B aborted原字节不可恢复，未伪造有效红绿；PARTIAL⑦ R75-E2/C-M2声明级PARTIAL：A首次actual stdout缺失，旁证不替代stdout，C3仅关闭基线身份冲突。
+- 非阻断历史偏差照承：README旧lines=53/现54物理行；外置SHA实际87B；C3时间标注瑕疵不作可信运行时间。真实素材/GPU/设备/全UI/跨后端/Live音频未覆盖。
+- 范围：仅新增本报告及 `target/round75/menxia/attempt-1/**`；不改交付物、不commit/push、不重跑全量门禁；七项PARTIAL原号承接，不将Done扩大为生产完整寿命或严格等价结论。

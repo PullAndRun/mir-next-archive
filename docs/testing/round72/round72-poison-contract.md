@@ -1,6 +1,6 @@
 # R72 149 PoisonCloud 有限映射契约（pre-audit）
 
-依据[获批计划](../../process/round72-plan.md)、[门下条件](../../process/round72-menxia-review.md)及[实现](../../../crates/mir-client/src/ui/spellfx.rs#L295-L315)；功能HEAD `2a31554`，D后置文档未提交，待终审。
+依据[获批计划](../../process/round72-plan.md)、[门下条件](../../process/round72-menxia-review.md)及[实现](../../../crates/mir-client/src/ui/spellfx.rs#L295-L315)；功能HEAD `2a31554`；D文档已提交（`d8b6157`），清单固化（`90a7516`），待独立终审后验收。
 
 | 项 | 本轮语义/映射 | 边界 |
 | --- | --- | --- |

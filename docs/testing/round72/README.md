@@ -3,7 +3,7 @@
 仅有限毒云切片交付；待尚书/门下终审，不代表整轮或 Crystal 等价验收。
 
 ## 功能与契约
-- 功能 HEAD `2a31554`：feat(client): R72 149 PoisonCloud 逐格精灵映射与锚点迁移（第72轮）；2 文件 +1698，已提交并推送；D 文档为该 HEAD 后置未提交工作树。
+- 功能 HEAD `2a31554`：feat(client): R72 149 PoisonCloud 逐格精灵映射与锚点迁移（第72轮）；2 文件 +1698，已提交并推送；D 文档已于 `d8b6157` 提交，manifest-only 清单固化于 `90a7516`，当前 HEAD 为清单提交后状态。
 - [实现](../../../crates/mir-client/src/ui/spellfx.rs) M：386 行/17,755B，SHA256 `df572677d7b013c3c09dab9c764afbda2095cacec820f3292bfc7abca2f78be6`。
 - [新增测试](../../../crates/mir-client/tests/round72_poison_cloud_mapping.rs)：1,660 行/65,322B，SHA256 `58f64ab2d30b69f3aea5c07a8975e988ca842bce45972499a6f93e120958baea`。
 - [契约与映射](round72-poison-contract.md)：仅 `spell == Spell::PoisonCloud && event.from_object_spell` → Magic2 `1650+phase`，`phase=(age/120)%20`，格锚点+当帧 signed offset 一次；rate1 CPU Add，4000ms 是 AREA_MS 产品瞬态窗。
@@ -29,6 +29,6 @@
 - R70-C3全局尺寸居中、B plan-M4精确写法残余、legacy clippy既有债、真实素材/GPU视觉签核未做；R71-C7与更早历史原号不清零。
 
 ## 清单与快照差异
-- [pre-audit清单](final-manifest.json) 不收自身或外置摘要；[外置SHA256](manifest.sha256) 校验清单；tracked项用 `git rev-parse 2a31554:<path>` 标识blob，工作树证据记SHA256/bytes/tracked:false。
+- [pre-audit清单](final-manifest.json) 不收自身或外置摘要；[外置SHA256](manifest.sha256) 校验清单；tracked项用 `git rev-parse <delivery_head>:<path>` 标识blob（`delivery_head=d8b6157`；crates 文件在其与功能 HEAD `2a31554` 的 blob 相同），工作树证据记SHA256/bytes/tracked:false。
 - C2实际SHA为 `f7315ce0ffa8045ebdcf1b8903842c75af4b15cce7268b2ca2c6ebe1aaa716f8`，不是交接缩写7f3ad7a4…；C2记载Lead裁定旧快照e0fbe…/3767B，当前裁定a5758e…/3766B（测试SHA缩写已订正），不回写历史。
 - D仅写六个授权文档，不改实现/测试/过程文书、不触碰两份monster-native freeze JSON、不commit/push、不跑cargo或CI；文档静态自检另由回执记录。

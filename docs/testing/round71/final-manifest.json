@@ -1,13 +1,14 @@
 {
   "round": "R71",
-  "stage": "pre-audit",
-  "status": "documentation-ready-awaiting-independent-final-audit",
+  "stage": "post-audit",
+  "status": "awaiting-shangshu-acceptance",
   "head_snapshot": "adf63c1cdd42636b51eeb3d5ee5717edc2487638",
   "feature_commit": "cedf903ef7aaccdf1c220854d9ae7c100f1e791e",
   "commit_chain": [
     "cedf903ef7aaccdf1c220854d9ae7c100f1e791e",
     "16644d28df142a0b99264c9700674ff701fdea97",
-    "adf63c1cdd42636b51eeb3d5ee5717edc2487638"
+    "adf63c1cdd42636b51eeb3d5ee5717edc2487638",
+    "ddc637ccc04985c6efba6bcc9d23bdaafc37ac38"
   ],
   "content_policy": "No self-reference: this manifest and its external SHA file are excluded from artifacts. git_blob identifies exact content where available; null denotes local untracked or modified worktree bytes.",
   "gate": {
@@ -38,7 +39,7 @@
     "docs/testing/monster-native/player-resource-freeze-before.json": "70845aefd4dd689a55ab0618b36bbf692a4b33ebb5ee2f3a662dedc17a3dc9de",
     "docs/testing/monster-native/player-resource-freeze.json": "c7d896e7f5eee4706b943912c0c564d10d61c98d163143f051c2d632daecde32"
   },
-  "artifact_count": 21,
+  "artifact_count": 22,
   "artifacts": [
     {
       "path": "crates/mir-client/src/ui/spellfx.rs",
@@ -209,9 +210,9 @@
       "bytes": 6082,
       "sha256": "e1a3b7e255f50e5d16c52c10e3b4e5d3ad89201f295819fd89f606f2319f58f4",
       "kind": "pre-audit-index",
-      "tracked": false,
-      "git_blob": null,
-      "content_source": "worktree",
+      "tracked": true,
+      "git_blob": "f9a6b42716563448183e5651fa8755ed4480e777",
+      "content_source": "git:ddc637ccc04985c6efba6bcc9d23bdaafc37ac38",
       "tracking_disclosure": "untracked/ignored local evidence or new documentation at head_snapshot; hash covers current bytes"
     },
     {
@@ -219,9 +220,9 @@
       "bytes": 4602,
       "sha256": "d54848f44716a404918d23aa29f7c0c0ef089b1a3b86e299d0b5513372b688d5",
       "kind": "contract",
-      "tracked": false,
-      "git_blob": null,
-      "content_source": "worktree",
+      "tracked": true,
+      "git_blob": "687b05901b5893f41d397f69dac5b7ab2fbd3dfb",
+      "content_source": "git:ddc637ccc04985c6efba6bcc9d23bdaafc37ac38",
       "tracking_disclosure": "untracked/ignored local evidence or new documentation at head_snapshot; hash covers current bytes"
     },
     {
@@ -230,8 +231,8 @@
       "sha256": "fa15e3741b510e72b319c9aad418cf724a4d9ea61fd47b84b33d9c44758d57cd",
       "kind": "client-documentation",
       "tracked": true,
-      "git_blob": null,
-      "content_source": "worktree"
+      "git_blob": "c95ae18044bcd0eebf479b96a8e8da3aa52485f8",
+      "content_source": "git:ddc637ccc04985c6efba6bcc9d23bdaafc37ac38"
     },
     {
       "path": "docs/roadmap.md",
@@ -239,8 +240,29 @@
       "sha256": "ddea459f39f4ceefb000eba5edf12bb9a5df1cf10fc649cc8bc1f6e39f8ee63d",
       "kind": "roadmap-documentation",
       "tracked": true,
-      "git_blob": null,
-      "content_source": "worktree"
+      "git_blob": "09df668fd750e26d6edf762a558e1797af05cd6f",
+      "content_source": "git:ddc637ccc04985c6efba6bcc9d23bdaafc37ac38"
+    },
+    {
+      "path": "docs/testing/round71/round71-final-audit.md",
+      "bytes": 6317,
+      "sha256": "18d94c43fe1e3a9f1116f1bbc508e1a25d54a1616c82d8dab297bbf7d87a13e0",
+      "kind": "final-audit",
+      "tracked": true,
+      "git_blob": "1d7a5fac9e5c9bc708d13a75b02a6388d90b39bd",
+      "content_source": "git:ddc637ccc04985c6efba6bcc9d23bdaafc37ac38"
     }
-  ]
+  ],
+  "head_snapshot_post_audit": "ddc637ccc04985c6efba6bcc9d23bdaafc37ac38",
+  "audit_commit": "ddc637ccc04985c6efba6bcc9d23bdaafc37ac38",
+  "audit": {
+    "verdict": "PASS-WITH-PARTIAL",
+    "must_fix": 0,
+    "baseline_gate_head": "16644d28df142a0b99264c9700674ff701fdea97",
+    "report": "docs/testing/round71/round71-final-audit.md",
+    "e1": "CLOSED-remedied",
+    "c7": "permanent-PARTIAL",
+    "auditor": "R71-T 御史台独立终审",
+    "audit_commit": "ddc637ccc04985c6efba6bcc9d23bdaafc37ac38"
+  }
 }

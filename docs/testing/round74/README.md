@@ -1,9 +1,9 @@
 # R74 普通混合跨图库测试锁
 
-- 阶段：**D 文档批、待独立终审**；`pre-audit`，**PASS-WITH-PARTIAL 候选**；子单 `JJC-20261028-001-sub-05088f98`。
+- 阶段：**独立终审 PASS-WITH-PARTIAL（R74 证据必改 E1 已独立闭合，剩余必改 0）**；`post-audit`；尚书验收与门下确认待办；子单 `JJC-20261028-001-sub-05088f98`。
 - 范围：普通 NORMAL/rate1 CPU Add 跨 Magic/Magic2 测试锁 + rate/Mode 差异合同；生产仅 `spellfx.rs:309` 一行注释修正，零可执行差异。
 - DAG：A → B → C → Lead（提交与唯一全量门禁）→ D → 独立终审 → 尚书验收 → 门下确认。
-- 提交链：`c80ef2a`（process）→ `c1d0c76`（独立注释）→ `7095808`（测试）→ `c222fe6`（C 报告与 Lead 裁定）→ HEAD（D 未提交）。
+- 提交链：`c80ef2a`（process）→ `c1d0c76`（独立注释）→ `7095808`（测试）→ `c222fe6`（C 报告与 Lead 裁定）→ `4567ba8`（D 文档批）→ `8df57ef`（清单 delivery_head 固化）→ `69e8a06`（T 终审 BLOCK 报告 + C-M3 精确负控补证）→ 本提交（T2 复审 PASS-WITH-PARTIAL；E1 CLOSED；README 刷新）。
 - HEAD 快照：`c222fe65b92b629299c007cf23c60481e2fb53b2`；D 纯文档不重跑 cargo/CI。
 
 ## 门禁与证据索引
@@ -16,7 +16,7 @@
 - [C 报告](round74-c-evidence.md)：PASS-WITH-PARTIAL、必改0；独立archive复跑5/0/0与38/0/0、clippy/fmt EXIT0、五负控复现；独立Node oracle仅4个G1整帧。
 - [Lead 裁定](../../process/round74-lead-ruling.md)：C2注释独立提交、G5措辞非阻塞披露、范围边界。
 - [计划](../../process/round74-plan.md) / [门下审议](../../process/round74-menxia-review.md) / [派发](../../process/round74-shangshu-dispatch.md)。
-- [差异合同](round74-normal-blend-lock.md) / [pre-audit清单](final-manifest.json) / [外置摘要](manifest.sha256) / [D自检证据](../../../target/round74/d/attempt-1/)。
+- [差异合同](round74-normal-blend-lock.md) / [终审清单](final-manifest.json) / [外置摘要](manifest.sha256) / [独立终审](round74-final-audit.md) / [终审复审](round74-final-audit-addendum.md) / [C-M3补证](round74-c-addendum.md) / [D自检证据](../../../target/round74/d/attempt-1/)。
 - [client §5.39](../../client.md#539-r74-普通混合跨图库测试锁) / [roadmap §二十二](../../roadmap.md#二十二第74轮-普通混合跨库锁切片)。
 
 ## 披露与 PARTIAL 台账

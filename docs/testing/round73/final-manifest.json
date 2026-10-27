@@ -2,15 +2,15 @@
   "schema_version": 1,
   "round": 73,
   "ticket": "JJC-20261027-010",
-  "stage": "pre-audit",
-  "status": "PASS-WITH-PARTIAL candidate; pending independent final audit",
+  "stage": "post-audit",
+  "status": "PASS-WITH-PARTIAL（限定 149 雷电命中切片；首轮 BLOCK T-D1 已修复并经 T2 复审 CLOSED、必改 0）；尚书验收待办",
   "phase": "D 文档批、待独立终审",
   "baseline": "93e1140",
   "feature_head": "6183394",
   "asset_fix_head": "3378303",
   "head_snapshot": "3378303",
-  "delivery_head": "55f61c424a1ba731903135fc3c837a811de2bd20",
-  "delivery_head_note": "D 文档批已提交为 55f61c424a1ba731903135fc3c837a811de2bd20；本清单为该 pre-audit 快照的 delivery_head 刷新（manifest 自身随后以第二提交固化，post-audit 由 Lead 机械刷新）。",
+  "delivery_head": "3ee24e73ddd28dff089a4768347b2269ec91bbdf",
+  "delivery_head_note": "post-audit 清单固化：交付/T2 复审提交为 3ee24e73ddd28dff089a4768347b2269ec91bbdf；audit 段记录首轮 BLOCK（T-D1）与 T2 CLOSED 终局；尚书验收待办。",
   "dag": [
     "A兵部",
     "B工部",
@@ -94,7 +94,7 @@
       "remaining": "Real assets/GPU/device visual, full UI/cross-backend/Live audio and earlier original IDs retained."
     }
   ],
-  "artifact_count": 33,
+  "artifact_count": 35,
   "artifacts": [
     {
       "path": "crates/mir-client/src/ui/spellfx.rs",
@@ -308,12 +308,14 @@
     },
     {
       "path": "docs/testing/round73/README.md",
-      "source": "worktree",
-      "bytes": 7160,
-      "sha256": "6a9805a5ba85700a5e9d7c8bafe6271584714761b008d9ffc21628146dd03e8c",
+      "source": "git_blob",
+      "bytes": 7636,
+      "sha256": "78138d8a7dda5094b84f0d87b7784bff66aa05ab99da475e7e517ca74826eb10",
       "tracked": true,
       "git_blob": "f2fdd11dc943d1d9e2b4860e1ddb81dce1223ee5",
-      "head_sha256": "6a9805a5ba85700a5e9d7c8bafe6271584714761b008d9ffc21628146dd03e8c"
+      "head_sha256": "78138d8a7dda5094b84f0d87b7784bff66aa05ab99da475e7e517ca74826eb10",
+      "revision": "3ee24e73ddd28dff089a4768347b2269ec91bbdf",
+      "blob_oid": "7c0c1c1e0fe66eadfcd1998a006c0c248f9d4b54"
     },
     {
       "path": "docs/testing/round73/round73-thunder-contract.md",
@@ -341,6 +343,42 @@
       "tracked": true,
       "git_blob": "f2628c3ba0c876fd36e998c2e2315ed2415dcedd",
       "head_sha256": "1e60045854f659e5769ccc01f2ad28bed996948bcd16770cc01ab27a3500043d"
+    },
+    {
+      "path": "docs/testing/round73/round73-final-audit.md",
+      "source": "git_blob",
+      "revision": "3ee24e73ddd28dff089a4768347b2269ec91bbdf",
+      "blob_oid": "4472e81acbfe1a0f1ee8c088a29d0188edcfcc68",
+      "bytes": 6218,
+      "sha256": "1e23f41865582907ea0ad39d77c701d5d0b473ba9e689d5fb1bdb8ce4c80022a",
+      "tracked": true,
+      "git_blob": "4472e81acbfe1a0f1ee8c088a29d0188edcfcc68",
+      "head_sha256": "1e23f41865582907ea0ad39d77c701d5d0b473ba9e689d5fb1bdb8ce4c80022a",
+      "note": "首轮独立终审报告（BLOCK，T-D1）；post-audit 由 Lead 机械登记。"
+    },
+    {
+      "path": "docs/testing/round73/round73-final-audit-addendum.md",
+      "source": "git_blob",
+      "revision": "3ee24e73ddd28dff089a4768347b2269ec91bbdf",
+      "blob_oid": "89061d6462a9d03e89074a77feca7885042c9e8a",
+      "bytes": 2446,
+      "sha256": "b64cca1f1726632bbd51c79fae71d0d4455010bb81613b3b6f298bdcdeb907fd",
+      "tracked": true,
+      "git_blob": "89061d6462a9d03e89074a77feca7885042c9e8a",
+      "head_sha256": "b64cca1f1726632bbd51c79fae71d0d4455010bb81613b3b6f298bdcdeb907fd",
+      "note": "T2 复审附录（PASS-WITH-PARTIAL、T-D1 CLOSED）；post-audit 由 Lead 机械登记。"
     }
-  ]
+  ],
+  "audit": {
+    "first_report": "docs/testing/round73/round73-final-audit.md",
+    "first_verdict": "BLOCK",
+    "must_fix": [
+      "T-D1"
+    ],
+    "addendum": "docs/testing/round73/round73-final-audit-addendum.md",
+    "final_verdict": "PASS-WITH-PARTIAL",
+    "must_fix_status": "T-D1 CLOSED",
+    "audit_head": "3ee24e73ddd28dff089a4768347b2269ec91bbdf",
+    "post_audit_manifest_by": "lead"
+  }
 }

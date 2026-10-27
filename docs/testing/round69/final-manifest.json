@@ -3,11 +3,23 @@
   "round": 69,
   "task": "JJC-20261027-006",
   "subtask": "JJC-20261027-006-sub-6326a5ec",
-  "stage": "pre-audit",
-  "status": "契约工具轮 PASS；生产接线未做",
+  "stage": "post-audit（独立终审复审 PASS-WITH-PARTIAL，必改 0；尚书验收待办）",
+  "status": "contract-tool-round-complete-scope-limited",
   "audit": {
-    "status": "pending",
-    "note": "独立终审待办；本清单不替代刑部/尚书/门下最终验收"
+    "first_round": {
+      "verdict": "BLOCK",
+      "must_fix": 1,
+      "report_commit": "8385e93",
+      "report_sha256": "d96215cdba0e4da4874b69d513f81d6746c9cf07a399c27497dac21525e29586",
+      "note": "t9 判据把交付后治理提交误判为生产改动"
+    },
+    "re_audit": {
+      "verdict": "PASS-WITH-PARTIAL",
+      "must_fix": 0,
+      "addendum_commit": "ee023e62008945b5611d92320902a515c1503d71",
+      "addendum_sha256": "22f1e883a18c76ef01e0a5d2be08d6b8315de441e5585211ba2be81f014a8af4",
+      "note": "必改1 CLOSED，独立 15/15/0/0 EXIT0；条件5 永久 PARTIAL"
+    }
   },
   "snapshot_head": "5297dea440f2f52f57f931562b3fa2c220cfa6bb",
   "artifact_policy": "清单不列自身及manifest.sha256，避免自引用/循环；自身SHA单行写入manifest.sha256。tracked文件记录snapshot HEAD blob及工作树sha256/bytes；未跟踪证据按工作树实测，不声称HEAD blob。",
@@ -273,6 +285,24 @@
       "head_blob": "766e5b8645a9bce3b48601ee0d9a150c1ec2943a",
       "head_blob_sha256": "2759406e5e98af47a448e98dd3925e4e514b55e3017acc505690566cee6ae661",
       "worktree_matches_head_blob": true
+    },
+    {
+      "path": "docs/testing/round69/round69-final-audit.md",
+      "bytes": 6372,
+      "sha256": "d96215cdba0e4da4874b69d513f81d6746c9cf07a399c27497dac21525e29586",
+      "tracked": true,
+      "head_blob": "883499031490867a9a43783e6579e39c487f35ce",
+      "head_blob_sha256": "d96215cdba0e4da4874b69d513f81d6746c9cf07a399c27497dac21525e29586",
+      "worktree_matches_head_blob": true
+    },
+    {
+      "path": "docs/testing/round69/round69-final-audit-addendum.md",
+      "bytes": 2689,
+      "sha256": "22f1e883a18c76ef01e0a5d2be08d6b8315de441e5585211ba2be81f014a8af4",
+      "tracked": true,
+      "head_blob": "271c7ecb5fe3922ec3387ded3e2acecbf9f77fc6",
+      "head_blob_sha256": "22f1e883a18c76ef01e0a5d2be08d6b8315de441e5585211ba2be81f014a8af4",
+      "worktree_matches_head_blob": true
     }
   ],
   "B_manifest_summary": {
@@ -451,10 +481,15 @@
     },
     "isolation_method": "per run: explicit --work-root target/round69/b/attempt-3/<run>; per variant: physical shutil.copyfile copies (no hardlink/symlink/reparse), all nlink=1, file IDs differ from source, independent TMP/TEMP/TMPDIR and out dir"
   },
-  "delivery_head": "8385e9352c17f97c8b9fed9c8030b89fa6f83949",
+  "delivery_head": "ee023e62008945b5611d92320902a515c1503d71",
   "pre_audit_refresh": {
     "at": "2026-10-27T05:37:47Z",
     "delivery_head": "8385e9352c17f97c8b9fed9c8030b89fa6f83949",
     "note": "t9 兼容性修复提交后、终审复审前的清单刷新；tracked/head_blob 按交割 HEAD 重取；门禁仍锚定 492b20c"
+  },
+  "post_audit_refresh": {
+    "at": "2026-10-27T05:43:22Z",
+    "delivery_head": "ee023e62008945b5611d92320902a515c1503d71",
+    "note": "终审复审后追加两份审计报告为 tracked artifact；门禁仍锚定 492b20c"
   }
 }

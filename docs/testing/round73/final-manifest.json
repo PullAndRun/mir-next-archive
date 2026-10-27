@@ -254,12 +254,15 @@
     },
     {
       "path": "tools/assets/analyze_usage.py",
-      "source": "worktree",
-      "bytes": 68769,
-      "sha256": "86d53716ea2e8e6c4b425ef61f2c7b7ce66222ca0db66d255c74e34eacbd521e",
+      "source": "git_blob",
+      "bytes": 67171,
+      "sha256": "e2d9f327f43b52e96a203a75ee3fb8f730db990e8e28ef40460162e98f9a40c1",
       "tracked": true,
       "git_blob": "b1da9074c17e26bfc4264289e2df381d8c952477",
-      "head_sha256": "86d53716ea2e8e6c4b425ef61f2c7b7ce66222ca0db66d255c74e34eacbd521e"
+      "head_sha256": "e2d9f327f43b52e96a203a75ee3fb8f730db990e8e28ef40460162e98f9a40c1",
+      "revision": "55f61c424a1ba731903135fc3c837a811de2bd20",
+      "blob_oid": "b1da9074c17e26bfc4264289e2df381d8c952477",
+      "note": "raw Git blob @ delivery_head 55f61c4：67,171B / e2d9f327…（LF 归一内容）；工作树因 autocrlf 为 CRLF 68,769B / 86d53716…，两者换行归一后逐字节相同；T-D1 修复：head_sha256 改为 raw blob 摘要并显式披露工作树差异。"
     },
     {
       "path": "target/used-assets.json",

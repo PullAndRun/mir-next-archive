@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "round": 72,
- "status": "T2 audit closed T-DOC-1 residuals by documentation fix at 7f01b18 (pending independent re-verification); shangshu acceptance pending",
+ "status": "independent audit PASS-WITH-PARTIAL (T-DOC-1 CLOSED, must-fix 0); shangshu acceptance pending",
  "scope": "149 PoisonCloud finite mapping slice; PASS-WITH-PARTIAL; pending independent final audit",
  "feature_head": "2a31554bfe31a05bb828119f3fb96d8a6544fba3",
  "feature_subject": "feat(client): R72 149 PoisonCloud 逐格精灵映射与锚点迁移（第72轮）",
@@ -179,24 +179,21 @@
   },
   {
    "path": "docs/testing/round72/round72-final-audit-addendum.md",
-   "tracked": false,
-   "bytes": 3124,
-   "sha256": "b55da738fbbd8eedecfa2f5926b8646d780fa263796e71de02e08e57b2aeac93",
-   "note": "T2 report; draft BLOCK version preserved at target/round72/t2/attempt-1/block-draft-addendum.md; superseded version will be committed and re-registered as tracked by a subsequent manifest-only refresh"
+   "tracked": true,
+   "bytes": 2898,
+   "sha256": "86d71a8fb67f50f74fc20ea0fcb321421e56d4cb400fa7bece3ddd0efd7b0d17",
+   "note": "final T2 addendum (PASS-WITH-PARTIAL, T-DOC-1 CLOSED); earlier BLOCK draft preserved under target/round72/t2/attempt-1/block-draft-addendum.md",
+   "git_blob": "59e3d89fb90d9ddb643667061f22957f819f4c72"
   }
  ],
- "delivery_head": "7f01b1854a09dc6fd4d2a98baa57066fb931c539",
+ "delivery_head": "9586d468ab62868235e81155b47ccf56bc0903a5",
  "stage": "post-audit",
  "audit": {
-  "verdict": "BLOCK (first round) → residuals fixed; T2 re-verification pending",
-  "must_fix_count": 1,
-  "must_fix": "T-DOC-1 documentation consistency",
-  "must_fix_status": "closed by documentation commits 87ffee3 + 7f01b18",
-  "report": "docs/testing/round72/round72-final-audit.md",
-  "report_bytes": 5068,
-  "report_sha256": "55695ff605c7e324372e3f15a61eb315d7992e9adf3a01e0a81a09f688e04b16",
-  "independent_rerun": "R72 9/0/0 + R71 8/0/0 + R70 9/0/0 + R63 3/0/0, fmt EXIT0",
+  "verdict": "PASS-WITH-PARTIAL (first-round BLOCK resolved)",
+  "must_fix_count": 0,
+  "must_fix": "T-DOC-1 documentation consistency (closed by documentation commits 87ffee3 + 7f01b18)",
   "first_report": "docs/testing/round72/round72-final-audit.md",
-  "t2_report": "docs/testing/round72/round72-final-audit-addendum.md"
+  "t2_report": "docs/testing/round72/round72-final-audit-addendum.md",
+  "t2_verdict": "PASS-WITH-PARTIAL, T-DOC-1 CLOSED, must-fix 0"
  }
 }

@@ -1,6 +1,6 @@
-# R72：149 PoisonCloud 逐格映射（pre-audit）
+# R72：149 PoisonCloud 逐格映射（post-audit）
 
-仅有限毒云切片交付；待尚书/门下终审，不代表整轮或 Crystal 等价验收。
+仅有限毒云切片交付；独立终审 BLOCK(T-DOC-1)→文档修复→T2 复审，待尚书/门下验收；不代表整轮或 Crystal 等价验收。
 
 ## 功能与契约
 - 功能 HEAD `2a31554`：feat(client): R72 149 PoisonCloud 逐格精灵映射与锚点迁移（第72轮）；2 文件 +1698，已提交并推送；D 文档已于 `d8b6157` 提交，manifest-only 清单固化于 `90a7516`，当前 HEAD 为清单提交后状态。
@@ -15,6 +15,7 @@
 - [B attempt-2](../../../target/round72/b/attempt-2/link.md) 补 plan-M2/M7并撤回 attempt-1「一一对应」；plan-M4精确居中仍为B近似残余，C独立七语义已覆盖。
 - plan-M2 Bolt 红首败 `:939:5`，(384,256) actual `[48,136,176,255]` vs expected `[0,0,0,255]`；plan-M7去来源红 `:1491:5`，(381,229) actual `[248,4,0,255]` vs expected `[0,0,0,255]`。
 - [Lead裁定](../../process/round72-lead-ruling.md)：两项必改 CLOSED（补证/勘误、既有lint债登记后续清理），非实现已补齐全部差异。
+- [T 首轮终审](round72-final-audit.md)：BLOCK，必改1=T-DOC-1 文档一致性（功能必改0）；[T2 复审](round72-final-audit-addendum.md)：见清单与复审文件。
 - [C2追加核验](round72-c-addendum.md)：20行，PASS-WITH-PARTIAL、必改0；[checks](../../../target/round72/c2/attempt-1/checks.json) 保留当时快照。
 
 ## 唯一门禁（Lead实跑，D未复跑）
@@ -29,6 +30,6 @@
 - R70-C3全局尺寸居中、B plan-M4精确写法残余、legacy clippy既有债、真实素材/GPU视觉签核未做；R71-C7与更早历史原号不清零。
 
 ## 清单与快照差异
-- [pre-audit清单](final-manifest.json) 不收自身或外置摘要；[外置SHA256](manifest.sha256) 校验清单；tracked项用 `git rev-parse <delivery_head>:<path>` 标识blob（`delivery_head=d8b6157`；crates 文件在其与功能 HEAD `2a31554` 的 blob 相同），工作树证据记SHA256/bytes/tracked:false。
+- [post-audit清单](final-manifest.json) 不收自身或外置摘要；[外置SHA256](manifest.sha256) 校验清单；tracked项用清单自身 `delivery_head` 字段解析 `git rev-parse <delivery_head>:<path>` 标识blob（crates 文件 blob 与功能 HEAD `2a31554` 相同），工作树证据记SHA256/bytes/tracked:false。
 - C2实际SHA为 `f7315ce0ffa8045ebdcf1b8903842c75af4b15cce7268b2ca2c6ebe1aaa716f8`，不是交接缩写7f3ad7a4…；C2记载Lead裁定旧快照e0fbe…/3767B，当前裁定a5758e…/3766B（测试SHA缩写已订正），不回写历史。
 - D仅写六个授权文档，不改实现/测试/过程文书、不触碰两份monster-native freeze JSON、不commit/push、不跑cargo或CI；文档静态自检另由回执记录。

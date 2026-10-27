@@ -334,3 +334,16 @@ R49–R68历史PARTIAL按原编号承接；125/570已做偏移消费不扩大为
 - GAP-1/2/R70-C2：rate0.8与 `src*0.8*alpha` 未实施，当前rate1 CPU近似；DrawColour/INVLIGHT仍PARTIAL。
 - GAP-3/4/6：Light3、mask/tint/shadow、场景条件offset/AnimationOffset未闭合；GAP-5/R70-C1其他26技能/起手/其他调用点继续PARTIAL。
 - R70-C3全局尺寸居中、B plan-M4精确居中残余、legacy clippy既有债、真实素材/GPU视觉签核未做；R71-C7及历史原号不清零，两份freeze未触碰。
+
+## 二十一、第73轮（非149雷电命中切片）
+
+功能提交 `6183394` → 素材修复 `3378303`；D文档pre-audit，**PASS-WITH-PARTIAL 候选、待独立终审**。见[R73索引](testing/round73/README.md)、[契约](testing/round73/round73-thunder-contract.md)与[client §5.38](client.md#538-r73非149雷电术命中五帧映射)。
+
+- 限定完成：非149、ThunderBolt、Cast=true/param=true、非ObjectSpell；Magic2[10..14]，五帧×80ms、400ms截止，目标格快照+当帧offset一次、rate1 CPU Add。
+- 素材修复：MAGIC2_FRAMES补10–14；仅重拆magic2，旧0–2/20–29逐项一致；game-assets本地生成且不入库，未作人工设备视觉签核。
+- Lead门禁历史：attempt-1 HEAD6183394素材缺帧失败；attempt-2 HEAD3378303外部PostgreSQL池超时失败；attempt-3同HEAD同命令EXIT0、12/12 OK，UTC2026-10-27T15:28:00–15:30:18Z，原日志/meta保留。
+- C主报告及补记收敛PASS-WITH-PARTIAL、必改0；M3/M5以C精确实跑为权威，B扩展为辅助；15诱饵偏差、实际120/123/149矩阵及allow收口均披露。
+- R71时钟/对象偏差、R73-T1严格等号/跳帧/ActionFeed/回执起算/owner跟随/Light6/声音仍PARTIAL；elapsed80ms/400ms为产品窗近似，持久149/26移除/寿命/4000ms窗未清零。
+- GAP-1/2/R70-C2：rate0.8与 `src*0.8*alpha` 近似未实施；GAP-3/4/6：Light3/DrawColour/AnimationOffset/mask/tint/shadow仍未闭合。
+- GAP-5/R70-C1其余26技能/1620/起手/其他调用点、R70-C3、R72 B plan-M4/legacy lint、R71-C7/E1/R69条件5与R68/R49–R70/R61–R67原号承接；真实素材/GPU/设备/全UI/跨后端/Live音频未验收。
+- R74候选：`spellfx.rs:309` 注释改为Time>NextFrame才推进；严格Crystal时钟与寿命、rate0.8、149域其余26技能映射、真实素材设备视觉签核；按下一轮独立范围立项。

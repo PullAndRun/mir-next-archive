@@ -2290,3 +2290,14 @@ cargo fmt --all -- --check
 - GAP-1/2/R70-C2：rate0.8与 `src*0.8*alpha` 未实施；GAP-3/4/6：Light3、DrawColour/AnimationOffset等未闭合；GAP-5其他26技能未迁，真实素材视觉签核未做。
 - C原BLOCK两项经[B补证勘误](../target/round72/b/attempt-2/link.md)与[Lead裁定](process/round72-lead-ruling.md)CLOSED；[C2](testing/round72/round72-c-addendum.md) PASS-WITH-PARTIAL/必改0；B plan-M4精确居中残余及legacy clippy既有债保留。
 - Lead唯一门禁attempt-1 HEAD `2a31554` EXIT0、12OK/0FAIL，官方clippy不带legacy；合成测试及门禁不构成整体或视觉等价验收。
+
+## 5.38 R73：非149雷电术命中五帧映射
+
+- 功能 `6183394` → 素材修复/HEAD `3378303`；D文档pre-audit，PASS-WITH-PARTIAL 候选、待独立终审；见[R73索引](testing/round73/README.md)与[契约](testing/round73/round73-thunder-contract.md)。
+- 仅ThunderBolt且 `!from_object_spell && param`（120/123 Cast=true，排除149）；Magic2 `10+(age/80).min(4)`，5×80ms，`age>=400ms` 隐藏；Lightning/失败施法维持原路径。
+- 格锚点 `world_to_screen(center,event.location)`，Swing/start0寻址、当帧signed offset一次、rate1 CPU Add；Crystal `PlayerObject.cs:2956–2963`、`Effect.cs:38–61/81–96/113–130`、`MLibrary.cs:692–709`、`DXManager.cs:353–384`。
+- `3378303`将MAGIC2_FRAMES扩至 `[0..2]+[10..14]+[20..29]`；仅重拆magic2，旧帧一致；game-assets被gitignore排除、仅本地落地，素材证据见索引。
+- Lead门禁attempt-1缺10–14帧失败；attempt-2外部PostgreSQL池超时失败；同命令attempt-3 HEAD3378303 EXIT0、12/12 OK（UTC15:28:00–15:30:18Z）；D不重跑门禁。
+- C经Lead裁定收敛PASS-WITH-PARTIAL、必改0；M3/M5以C精确实跑为权威，B扩展仅辅助；148不存在，实际120/123/149。
+- R71时钟/对象偏差与R73-T1：严格NextMotion、初始100ms取整、每Process一步、寿命、owner跟随/ActionFeed仍PARTIAL；elapsed为产品近似，源码:309注释勘误交R74。
+- GAP-1/2/R70-C2 rate0.8及 `src*0.8*alpha` 近似未实施；GAP-3/4/6 Light3/Light6、DrawColour/AnimationOffset等未迁；GAP-5/R70-C1其余26技能、R70-C3及历史原号承接，真实素材/设备视觉未签核。

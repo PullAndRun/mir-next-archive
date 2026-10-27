@@ -20,7 +20,7 @@
 |---|---|
 |A 兵部|[manifest](../../../target/round70/a/attempt-1/manifest.json)：生产入口/薄转发；R70 9、R68 2+2、clippy/fmt EXIT0；A原lib132，B补半透明后最终133。|
 |B 工部|[manifest](../../../target/round70/b/attempt-1/manifest.json)：最终R70 9/0、R68 2/0+2/0、render lib133/0、clippy/fmt EXIT0；四物理隔离变异均0→101→0。|
-|C 首轮|[报告](round70-c-evidence.md)：PASS-WITH-PARTIAL；ring v0.17.14/MSVC D8050 阻断5条Cargo命令，未运行tests，不冒充执行；fmt EXIT0。|
+|C 首轮|[报告](round70-c-evidence.md) + [勘误](round70-c-erratum.md)：PASS-WITH-PARTIAL；准确分类=4 条 Cargo 命令被 ring/MSVC D8050 编译阻断（01/02/03/05，未运行 tests） + 1 条 `mir-render --lib` 编译成功实际运行 133 例（129/4，四败均临时目录 PermissionDenied code5）；不得概括为“5 条/未运行 tests”；fmt EXIT0。|
 |C2 补充|[报告](round70-c-addendum.md)：PASS-WITH-PARTIAL；独立执行 PARTIAL CLOSED（C-P2/C-P3），R70 9/0、R68 2/0+2/0、render lib133/0、clippy/fmt EXIT0。|
 
 C2 使用全新 target 与 `CARGO_PROFILE_DEV_DEBUG=0` 绕行 D8050，UTC 06:45:57Z–06:49:55Z；副本四文件前后 SHA一致、st_nlink=1，未改主树。

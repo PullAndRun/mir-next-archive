@@ -1378,6 +1378,16 @@ R63 功能提交 `1fcf4fc`（第 62 轮后首提交，父 `f80724e`；5 文件 +
 
 PARTIAL 分列承接：①多消费者/克隆快照全局最低水位未实现，仅 app.rs 单消费者；②事件表未限容，未确认 backlog 仍可增长；③`known_positions` 容量/LRU 仅契约，Crystal 无容量依据；④服务端回收协议未做；⑤本地定向绿不等于全量门禁，门禁仅 Lead 执行；⑥R61/R62/R63 PARTIAL 原编号继续交接，动作/特效、设备可听与素材边界不清零。
 
+### 5.32 位置缓存容量与保护引用契约（R67）
+
+功能提交 `78a8613`（3 个新增测试文件，+723 行）仅补测试契约：生产 `known_positions` 仍是无界 HashMap、无淘汰。§5.31 的位置容量 PARTIAL 继续保留；[R67 索引](testing/round67/README.md)与[测试私有提案契约](testing/round67/round67-contract.md)列出四测试、红绿证据及五行矩阵。
+
+测试私有 `plan_evictions` 对重复 id fail-closed；未保护候选按 `(tick,id)` 升序删最少前缀，保护项可超预算。预算/tick/保护集为显式测试输入，不设生产默认容量，不归因 Crystal；`Client/MirObjects/PlayerObject.cs:3546–3566` 只支持当前位置优先/TargetPoint与Missile落点，没有容量/LRU依据。
+
+真实71/125编解码→apply→UI的历史预热差分：完整历史目标[1,2,3,4]、四坐标/cue4，对候选[1]/(11,10)/cue1，两支消费5条、重复新增0；同代0 default、历史筛选为测试模拟。可见11更新19→隐藏后125回退19，新generation清旧缓存→view/cue0、游标1；本代13→cue1。隐藏实体及代号赋值为非wire夹具，125仍无点坐标；cue不证明设备可听。
+
+失效边界：map epoch/同代ID复用、自动保护集、多消费者/全局最低水位生产侧、容量实际接线均未做。唯一Lead门禁在该HEAD EXIT0、12/12 OK；C追加PASS-WITH-PARTIAL、原三项BLOCK全CLOSED。**门禁 PASS 与 C addendum PASS 不代表最终验收/收口**，主单仍Doing，历史PARTIAL继续承接。
+
 ### 6.0 真实素材渲染（第 6 轮）
 
 **数据目录**

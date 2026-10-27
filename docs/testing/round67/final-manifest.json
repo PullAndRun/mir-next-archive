@@ -1,0 +1,138 @@
+{
+  "round": "R67",
+  "task": "JJC-20261027-004",
+  "subtitle": "第67轮：位置缓存容量与保护引用契约",
+  "stage": "pre-audit",
+  "basel": "52d95b1",
+  "head": "78a8613b1b90ac2c66ce76b7c058311e514d9f27",
+  "generated_at_utc": "2026-10-27T00:01:50.144Z",
+  "generated_by": "libu D (gpt-6.1-sol) 起草清单口径；D 中途失败后由 Lead 机械补齐（README/contract/client/roadmap 为 D 产物，manifest 与自检为 Lead 补齐，留痕本文件与 checks.json）",
+  "note": "清单不含自身；自身 sha256 外置 manifest.sha256。tracked=false 项为写清单时尚未提交；docs 在文档批提交后由 T 终审刷新为 tracked。target 与历史 freeze 不入库。",
+  "gate": {
+    "head": "78a8613b1b90ac2c66ce76b7c058311e514d9f27",
+    "exit": 0,
+    "items_ok": 12,
+    "items_fail": 0,
+    "utc_start": "2026-10-26T23:43:26Z",
+    "utc_end": "2026-10-26T23:47:08Z",
+    "log_path": "target/round67/gate/attempt-1.log",
+    "log_bytes": 207862,
+    "log_sha256": "056255b32147ac506f52c42522b73d7f68b6641231b581d77f6a30e4ca54bc82",
+    "meta_path": "target/round67/gate/attempt-1.meta.txt",
+    "meta_bytes": 285,
+    "meta_sha256": "75d0bf415cffce0869f257a08fe6547942f2da333fe41f13d6ead6307fe655aa",
+    "operator": "lead",
+    "post_gate_crates_diff_lines": 0
+  },
+  "items": [
+    {
+      "path": "crates/mir-client/tests/support/round67_positions.rs",
+      "tracked": true,
+      "git_blob": "34a4f013b36296850c8683d269a978342790fc39",
+      "worktree_sha256": "80b88e624bd823fe046e7627386f526ab61e49822f7a7220bb7a21b2a927ab49",
+      "worktree_bytes": 4127
+    },
+    {
+      "path": "crates/mir-client/tests/round67_position_policy.rs",
+      "tracked": true,
+      "git_blob": "0f1d37aae3a1a0e42ba69eaca7d88879c911aad3",
+      "worktree_sha256": "5f8b7b25d31bc2f24e734f7416bf96e677448274db5f2abeed60ebb72722c2d7",
+      "worktree_bytes": 7279
+    },
+    {
+      "path": "crates/mir-client/tests/round67_position_boundary.rs",
+      "tracked": true,
+      "git_blob": "8c3b4e24a49040c2af3af75199bb5963d556c910",
+      "worktree_sha256": "5cbc4f02cff421c0c16d074e3ab260f87fa45d75e47f69bccb86228484f6b705",
+      "worktree_bytes": 18373
+    },
+    {
+      "path": "docs/testing/round67/README.md",
+      "tracked": false,
+      "git_blob": null,
+      "worktree_sha256": "dbff6a5a009a9ae99c1d0d99ab28b1e469d9c1544d391d72fddd1e09c6087eb8",
+      "worktree_bytes": 8461,
+      "note": "将在 R67 文档批提交后转为 tracked（T 终审刷新）"
+    },
+    {
+      "path": "docs/testing/round67/round67-contract.md",
+      "tracked": false,
+      "git_blob": null,
+      "worktree_sha256": "ab78cffb54ad5aff2e427428c020e664edd268f0a2d45a9e8d446ce0add44ec2",
+      "worktree_bytes": 5090,
+      "note": "将在 R67 文档批提交后转为 tracked（T 终审刷新）"
+    },
+    {
+      "path": "docs/testing/round67/round67-c-evidence.md",
+      "tracked": false,
+      "git_blob": null,
+      "worktree_sha256": "219835cf26c99084b7c704140143fb39c2f585e3cc5123184d2ee00f2d182a81",
+      "worktree_bytes": 8709,
+      "note": "将在 R67 文档批提交后转为 tracked（T 终审刷新）"
+    },
+    {
+      "path": "docs/testing/round67/round67-c-addendum.md",
+      "tracked": false,
+      "git_blob": null,
+      "worktree_sha256": "223139172e800b4af4193e43461224c5b6e52bab1e799fa5d32f2839fcf7d23b",
+      "worktree_bytes": 4804,
+      "note": "将在 R67 文档批提交后转为 tracked（T 终审刷新）"
+    },
+    {
+      "path": "docs/process/round67-plan.md",
+      "tracked": false,
+      "git_blob": null,
+      "worktree_sha256": "3a7972ba2072e2b7f74d9350e58699e5410ec9947cf0a8ad64f6a6b7ad2ffece",
+      "worktree_bytes": 15737,
+      "note": "将在 R67 文档批提交后转为 tracked（T 终审刷新）"
+    },
+    {
+      "path": "docs/process/round67-menxia-review.md",
+      "tracked": false,
+      "git_blob": null,
+      "worktree_sha256": "970eeebdfce032f0f95c9ec932dec39b23e2e56bb0b69b3b39542ef057e448cd",
+      "worktree_bytes": 6961,
+      "note": "将在 R67 文档批提交后转为 tracked（T 终审刷新）"
+    },
+    {
+      "path": "docs/process/round67-shangshu-dispatch.md",
+      "tracked": false,
+      "git_blob": null,
+      "worktree_sha256": "4e0bc50e966ec9d1f1cd62be383c4726072b19b657a0bd41dcaa35f931b712d4",
+      "worktree_bytes": 6102,
+      "note": "将在 R67 文档批提交后转为 tracked（T 终审刷新）"
+    },
+    {
+      "path": "docs/client.md",
+      "tracked": false,
+      "git_blob": null,
+      "worktree_sha256": "87d119c8c56f74736bad8ef7602fbae881075963a1b7d52a14dfb6adf1017f93",
+      "worktree_bytes": 177518,
+      "note": "将在 R67 文档批提交后转为 tracked（T 终审刷新）"
+    },
+    {
+      "path": "docs/roadmap.md",
+      "tracked": false,
+      "git_blob": null,
+      "worktree_sha256": "a306ade5214df6f1a82bc4bf3df980ecfd652bcbaa2feb5058ed4dc4789c82b9",
+      "worktree_bytes": 36135,
+      "note": "将在 R67 文档批提交后转为 tracked（T 终审刷新）"
+    },
+    {
+      "path": "target/round67/gate/attempt-1.log",
+      "tracked": false,
+      "git_blob": null,
+      "worktree_sha256": "056255b32147ac506f52c42522b73d7f68b6641231b581d77f6a30e4ca54bc82",
+      "worktree_bytes": 207862,
+      "note": "门禁原始日志，禁止入库"
+    },
+    {
+      "path": "target/round67/gate/attempt-1.meta.txt",
+      "tracked": false,
+      "git_blob": null,
+      "worktree_sha256": "75d0bf415cffce0869f257a08fe6547942f2da333fe41f13d6ead6307fe655aa",
+      "worktree_bytes": 285,
+      "note": "门禁元数据，禁止入库"
+    }
+  ]
+}

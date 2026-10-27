@@ -249,3 +249,13 @@ PARTIAL：多消费者/克隆快照全局最低水位未实现；事件表未限
 4. 生产 SkipFrames/ActionFeed 来源、570/550 动作与特效、目标切换及飞行参数更新。
 5. 掉落表 1..22 / 24-26 / 36-40、event_add_type 与护身符 4/13/14/17。
 6. 继续承接设备/Live 可听、素材与 R61 P01–P12 历史边界；各轮终审由对应责任链收口。
+
+## 十五、第 67 轮（R67）限定交付记录与第 68 轮候选
+
+R67 功能提交 `78a8613` 已推送，仅3个新增测试文件、+723行：四测试固定测试私有淘汰候选/保护超额契约，以及真实71/125历史预热UI差分与可见刷新/换代清缓存边界。生产 known_positions 仍无界无淘汰。候选历史筛选和同代0预热为测试模拟，隐藏实体非wire；125仍无点坐标。参见 [client §5.32](client.md#532-位置缓存容量与保护引用契约r67)、[本轮证据与五行矩阵](testing/round67/README.md)。
+
+唯一 Lead 门禁 attempt-1：HEAD=78a8613，EXIT0、12/12 OK，UTC 2026-10-26T23:43:26–23:47:08Z。C历史BLOCK（A lint4/B lint1/B manifest自引用）经owner rev2修复，[追加核验](testing/round67/round67-c-addendum.md) PASS-WITH-PARTIAL、三项全CLOSED、新必改0；R67定向2+2、clippy/fmt与R66 consumer2/R65 lifecycle5独立绿。限定交付材料已形成，主单仍Doing、尚未最终验收；**门禁 PASS 与 C addendum PASS 不代表最终验收/收口**。
+
+R68候选须独立规划/审核后实施：①多消费者注册/退出/租约/补发/fan-out与全局最低水位生产侧；②自动保护集与map epoch/同代ID复用；③容量实际接线与保护超额/未知未来引用策略；④服务端回收协议；⑤素材/音频（设备/Live、105 sfx、HiddenSpanSource、削波等）。本轮未实现上述项目。
+
+PARTIAL按原编号承接：R49–R60/R60 P-1–P-6；R61 P01–P12（含生产SkipFrames/ActionFeed、全局TargetPoint、ImageInfo.offset、u64::MAX、缺素材SKIP）；R62①–④；R63 P1–P7（含旧门禁meta缺EXIT/HEAD）；R64①–⑥；R65 G1.2仅clone值独立/G2未做；R66生产生命周期与全局水位。事件表/位置容量、长期内存、服务端回收、素材设备Live均不清零，详细对照见[R67原编号台账](testing/round67/README.md#partial-原编号台账与-r68-候选)。

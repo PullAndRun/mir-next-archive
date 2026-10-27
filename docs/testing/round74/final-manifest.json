@@ -2,8 +2,8 @@
   "round": "R74",
   "subtask": "JJC-20261028-001-sub-05088f98",
   "head_snapshot": "c222fe65b92b629299c007cf23c60481e2fb53b2",
-  "stage": "pre-audit",
-  "status": "PASS-WITH-PARTIAL-candidate-pending-final-audit",
+  "stage": "post-audit",
+  "status": "PASS-WITH-PARTIAL (final-audit + addendum; remaining must-fix 0; shangshu acceptance pending)",
   "status_qualifier": "候选；D 文档批、待独立终审",
   "generated_at_utc": "2026-10-27T17:59:24.663084+00:00",
   "commit_chain": [
@@ -35,7 +35,7 @@
       "path": "crates/mir-client/tests/round74_normal_blend_lock.rs",
       "tracked": true,
       "source": "git-blob",
-      "revision": "4567ba8",
+      "revision": "ec49369b0228aa6aace9d99efa8e1ad2687cda53",
       "git_blob": "8ee93a992007cfcb86d977d13a7d2d4eb9a18cc3",
       "bytes": 49849,
       "sha256": "a2b329ce88a3640ad3609c804a2e589a4177a7de8c0e1e6df19c6d5c40013cc1"
@@ -44,7 +44,7 @@
       "path": "crates/mir-client/src/ui/spellfx.rs",
       "tracked": true,
       "source": "git-blob",
-      "revision": "4567ba8",
+      "revision": "ec49369b0228aa6aace9d99efa8e1ad2687cda53",
       "git_blob": "5de5dd2c0e9e6ae4052a11791f83dd3f1bb67fa3",
       "bytes": 21902,
       "sha256": "6c30c41f851555264fc035cf869493b8db4e8c0ce7b28e7d0694762e3f656a7e"
@@ -53,7 +53,7 @@
       "path": "docs/client.md",
       "tracked": true,
       "source": "git-blob",
-      "revision": "4567ba8",
+      "revision": "ec49369b0228aa6aace9d99efa8e1ad2687cda53",
       "git_blob": "da59d29ccad6da2ced3ac070eda43dec28ba2341",
       "bytes": 187829,
       "sha256": "29c5e4edfe5fb73bb1875fa03054967c0b2f3714a1259e801a35e98b2cad76a5"
@@ -62,7 +62,7 @@
       "path": "docs/roadmap.md",
       "tracked": true,
       "source": "git-blob",
-      "revision": "4567ba8",
+      "revision": "ec49369b0228aa6aace9d99efa8e1ad2687cda53",
       "git_blob": "6478cad763bf364540d37cdaa025b26f3061e5a0",
       "bytes": 48240,
       "sha256": "fea7160b4443f9c2f65a9776d7887290ebe6db6e3ab2e9596b61b2121382f033"
@@ -71,16 +71,16 @@
       "path": "docs/testing/round74/README.md",
       "tracked": true,
       "source": "git-blob",
-      "revision": "4567ba8",
-      "git_blob": "b7375df2143fad3cf9229671464e928403a7bc09",
-      "bytes": 3687,
-      "sha256": "d690945bce461fb2bc75b6591dac7ccbee88b129f124dcb322899c94e770159c"
+      "revision": "ec49369b0228aa6aace9d99efa8e1ad2687cda53",
+      "git_blob": "002e57827567837d97a5b44961e19348b2dfee19",
+      "bytes": 4069,
+      "sha256": "344b3bc5ab206f4f06f220860c58b12eeed997f6087f7dc1c7bf7d9d5500a438"
     },
     {
       "path": "docs/testing/round74/round74-normal-blend-lock.md",
       "tracked": true,
       "source": "git-blob",
-      "revision": "4567ba8",
+      "revision": "ec49369b0228aa6aace9d99efa8e1ad2687cda53",
       "git_blob": "6100b9ea260b83b1ac69292a510a894997e2a4aa",
       "bytes": 3744,
       "sha256": "ec6444549eda3aa4c87c5a194141144a48a8660f31a3477a0efcb309f43acdf1"
@@ -89,16 +89,43 @@
       "path": "docs/testing/round74/round74-c-evidence.md",
       "tracked": true,
       "source": "git-blob",
-      "revision": "4567ba8",
+      "revision": "ec49369b0228aa6aace9d99efa8e1ad2687cda53",
       "git_blob": "8a76687f0b15e35be1e709cf0eae56e596a3a9f9",
       "bytes": 7353,
       "sha256": "ab7f9904a92e5670b6f9bd6e2c797bf7444cfeba649936341f4d11ac7e33c7d6"
     },
     {
+      "path": "docs/testing/round74/round74-c-addendum.md",
+      "tracked": true,
+      "source": "git-blob",
+      "revision": "ec49369b0228aa6aace9d99efa8e1ad2687cda53",
+      "git_blob": "607bf825565cf8a9d255fe0c2dc6cbb6087abaad",
+      "bytes": 4008,
+      "sha256": "0c480d44c919fec19360b0248be7d1703fd9cc684e48d00ea965028769786fd6"
+    },
+    {
+      "path": "docs/testing/round74/round74-final-audit.md",
+      "tracked": true,
+      "source": "git-blob",
+      "revision": "ec49369b0228aa6aace9d99efa8e1ad2687cda53",
+      "git_blob": "0e03dd591d4401851bd8ee92b801e335447d1e0b",
+      "bytes": 4571,
+      "sha256": "60797b827750385bf1a45f223f1b50e416ca11467b246a2a7fcc5f2b69b7f3f3"
+    },
+    {
+      "path": "docs/testing/round74/round74-final-audit-addendum.md",
+      "tracked": true,
+      "source": "git-blob",
+      "revision": "ec49369b0228aa6aace9d99efa8e1ad2687cda53",
+      "git_blob": "590ff3e03f04599f1acd18ced1edd77739f55252",
+      "bytes": 2922,
+      "sha256": "f984587aea0c677a027bcd8258b9de38947bba041d0a8edd5ebb87e86568412d"
+    },
+    {
       "path": "docs/process/round74-plan.md",
       "tracked": true,
       "source": "git-blob",
-      "revision": "4567ba8",
+      "revision": "ec49369b0228aa6aace9d99efa8e1ad2687cda53",
       "git_blob": "6ee763ad2625fcec7f0f42f90b6c6ccfa35356f5",
       "bytes": 10663,
       "sha256": "c4c2066ea4231d93af783133809c63d9309d23bc1d3049877d2c22c51add7b93"
@@ -107,7 +134,7 @@
       "path": "docs/process/round74-menxia-review.md",
       "tracked": true,
       "source": "git-blob",
-      "revision": "4567ba8",
+      "revision": "ec49369b0228aa6aace9d99efa8e1ad2687cda53",
       "git_blob": "0c70ab8e86e69918b9326c2c5d4c4818935e02f0",
       "bytes": 5294,
       "sha256": "db21da6b1ccc08f4f26e79463ec5cfe1aa76bc4c93d3ffc5bb2b4c689d20aab8"
@@ -116,7 +143,7 @@
       "path": "docs/process/round74-shangshu-dispatch.md",
       "tracked": true,
       "source": "git-blob",
-      "revision": "4567ba8",
+      "revision": "ec49369b0228aa6aace9d99efa8e1ad2687cda53",
       "git_blob": "e7ae670068879097fbabfa7d3a8f4bfc7c55ae1f",
       "bytes": 4255,
       "sha256": "16ea9c47c5d69b52fc81a0efbd3ba131b25f12de691844f5ea299943c87eb47a"
@@ -125,7 +152,7 @@
       "path": "docs/process/round74-lead-ruling.md",
       "tracked": true,
       "source": "git-blob",
-      "revision": "4567ba8",
+      "revision": "ec49369b0228aa6aace9d99efa8e1ad2687cda53",
       "git_blob": "0750d99862d106dbbcc5bc3e2ca48edfcdf73b3f",
       "bytes": 2845,
       "sha256": "d65d2f8a7f70341a5daa2bd3eb011bbc23971e4435e5815b32b4ca93d7f5cd95"
@@ -164,6 +191,48 @@
       "source": "working-tree",
       "bytes": 971,
       "sha256": "d73cb863ecc817123bb1c2907cd6203c5ed559167bdc585fc06f726af859ac80"
+    },
+    {
+      "path": "target/round74/c/addendum-1/runs.json",
+      "tracked": false,
+      "source": "working-tree",
+      "bytes": 13820,
+      "sha256": "ceb46a38561d35136b558a39cc6f234e04ec7c9fe12033654b8982d4bcf8a53f"
+    },
+    {
+      "path": "target/round74/t/attempt-1/runs.json",
+      "tracked": false,
+      "source": "working-tree",
+      "bytes": 19663,
+      "sha256": "7bf71a42f518390bb9ecbe5300667d89df64df5d1ee7f9ead13ac918526751e1"
+    },
+    {
+      "path": "target/round74/t/attempt-1/checks.json",
+      "tracked": false,
+      "source": "working-tree",
+      "bytes": 84907,
+      "sha256": "8023420397eade29bff9e1cf6807e9d1a84d7631b00fc13b5ee48d90e7610505"
+    },
+    {
+      "path": "target/round74/t2/attempt-1/runs.json",
+      "tracked": false,
+      "source": "working-tree",
+      "bytes": 7472,
+      "sha256": "ef4545830197429e842141f6a781a837b80f45d48a31b3176ac6f71524cc57f0"
+    },
+    {
+      "path": "target/round74/t2/attempt-1/static-audit.json",
+      "tracked": false,
+      "source": "working-tree",
+      "bytes": 4662,
+      "sha256": "91fcc8d4828160d7c718a172e9ab2a736d6855cb859c93f6e8e76d5a38c0ab83"
+    },
+    {
+      "path": "target/round74/t2/attempt-1/final-verification.json",
+      "tracked": false,
+      "source": "working-tree",
+      "bytes": 1238,
+      "sha256": "a36eb7e3322966c363d7418f65ca51f2ae7916d43984acba65e1677824cfcf73"
     },
     {
       "path": "target/round74/gate/attempt-1.log",
@@ -243,7 +312,9 @@
     "本次明确授权使用round74-normal-blend-lock.md；旧plan/review/dispatch提及contract.md名称，未修改这些历史文件。",
     "初始glob超时/目录不存在与两次edit匹配不唯一均未写；首次write空justification校验拒绝，未产生文件。",
     "清单 refresh（Lead）：delivery_head=4567ba8，tracked 项按 4567ba8 blob 逐项重算；gate 仍锚定 c222fe6；README/contract 由工作树项改为 tracked 项，client.md/roadmap.md 去重为单一 tracked 项。",
-    "Lead 题面 Crystal 锚点笔误已纠正：DXManager 实在 MirGraphics，Oracle.cs 不存在，Light/INVLIGHT 以 Effect.cs:20 与 DXManager.cs:372-375 实读为据（见 round74-lead-ruling.md 裁定 4）。"
+    "Lead 题面 Crystal 锚点笔误已纠正：DXManager 实在 MirGraphics，Oracle.cs 不存在，Light/INVLIGHT 以 Effect.cs:20 与 DXManager.cs:372-375 实读为据（见 round74-lead-ruling.md 裁定 4）。",
+    "终审历史：T 初判 BLOCK（唯一证据必改 E1：C-M3 原变异为 x/y 各 add 两次而非计划指定的 offset_x add→sub），C 补证后 T2 独立复现 PASS-WITH-PARTIAL、E1 CLOSED、剩余必改 0；原 C 报告/原 patch/T 报告均保留原文未改。",
+    "post-audit 清单：delivery_head=ec49369，tracked 项按交付头 blob 重算，新增 T/T2/C-M3 三份审计文档；gate 仍锚定 c222fe6。"
   ],
   "partial_ledger": {
     "reference": "docs/process/round74-plan.md:107-117; docs/testing/round74/round74-c-evidence.md:42; docs/testing/round74/README.md",
@@ -272,6 +343,32 @@
       "真实素材/GPU/设备视觉/全UI/跨后端/Live音频"
     ]
   },
-  "delivery_head": "4567ba8",
-  "delivery_head_note": "docs batch commit; gate remains anchored at head_snapshot c222fe6"
+  "delivery_head": "ec49369b0228aa6aace9d99efa8e1ad2687cda53",
+  "delivery_head_note": "docs batch commit; gate remains anchored at head_snapshot c222fe6",
+  "audit": {
+    "t_initial": {
+      "report": "docs/testing/round74/round74-final-audit.md",
+      "verdict": "BLOCK",
+      "must_fix": "E1: C-M3 negative control was double-offset (x/y each add twice) instead of specified x offset_x add->sub",
+      "sha256": "60797b827750385bf1a45f223f1b50e416ca11467b246a2a7fcc5f2b69b7f3f3",
+      "bytes": 4571,
+      "lines": 30
+    },
+    "c_erratum": {
+      "report": "docs/testing/round74/round74-c-addendum.md",
+      "sha256": "0c480d44c919fec19360b0248be7d1703fd9cc684e48d00ea965028769786fd6",
+      "bytes": 4008,
+      "lines": 18,
+      "note": "precise M3 on crates/mir-render/src/entities.rs:1916 x.saturating_add(offset_x)->saturating_sub; y stays add"
+    },
+    "t2_addendum": {
+      "report": "docs/testing/round74/round74-final-audit-addendum.md",
+      "verdict": "PASS-WITH-PARTIAL",
+      "e1_status": "CLOSED",
+      "must_fix_remaining": 0,
+      "sha256": "f984587aea0c677a027bcd8258b9de38947bba041d0a8edd5ebb87e86568412d",
+      "bytes": 2922,
+      "lines": 13
+    }
+  }
 }

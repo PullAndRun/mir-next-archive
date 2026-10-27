@@ -1830,6 +1830,45 @@ impl EntityRenderer {
         true
     }
 
+    /// 把特效画到帧上，并叠加该帧 `ImageInfo` 的图像锚点偏移（零拷贝）。
+    ///
+    /// 与 [`Self::draw_effect`] 的分工：后者的 `(x, y)` 是**绝对左上角**（旧语义，
+    /// 供 `ui::spellfx` 等已自行居中的调用方使用，行为不变）；本入口把 `(x, y)` 视为
+    /// 落点锚点，先取**当前帧**的 `offset_x/offset_y`（`i16`，可为负；
+    /// Crystal `MLibrary.cs:658-670` 的 `offSet=true` 路径先 `point.Offset(mi.X, mi.Y)`
+    /// 再屏幕裁剪）分别 `saturating_add` 到 x/y，再交 [`Frame::blit`] 做负坐标裁剪。
+    ///
+    /// M5 调用约定：飞行/命中的**运动偏移**由调用方叠加且只叠加一次（例如
+    /// `Projectiles::draw` 经 `draw_location`），**图像锚点偏移**只由本入口叠加一次，
+    /// 两者互不重复；本入口不改写缓存 `meta`/调用者坐标，也不跨帧累积。
+    ///
+    /// 返回值为「该帧是否存在」：缺帧 `false`（不画占位方块）；有图但完全屏外仍
+    /// `true`（是否落屏由 [`Frame::blit`] 的裁剪决定）。
+    pub fn draw_effect_with_offset(
+        &mut self,
+        frame: &mut Frame,
+        kind: FxKind,
+        index: u32,
+        x: i32,
+        y: i32,
+    ) -> bool {
+        let library = kind.library();
+        let frame_index = index + kind.start_frame();
+        if !self.ensure_image(library, frame_index) {
+            return false;
+        }
+        let Some(info) = self.cached_info(library, frame_index) else {
+            return false;
+        };
+        // 锚点偏移取**当帧**（不是首帧）：帧间 `X/Y` 不同，逐帧叠加才能与 Crystal
+        // 一致（`MLibrary.cs:658-670`：先 `point.Offset(mi.X, mi.Y)`，再按屏幕裁剪）。
+        // 越界坐标用 `saturating_add` 收口，交给 [`Frame::blit`] 的 i64 裁剪处理。
+        let x = x.saturating_add(i32::from(info.offset_x));
+        let y = y.saturating_add(i32::from(info.offset_y));
+        self.blit_cached(frame, library, frame_index, x, y);
+        true
+    }
+
     /// 取一张实体图（带缓存与纯黑透明处理）。
     fn image(&mut self, library: SpriteLibrary, index: u32) -> Option<Image> {
         let key = (library, index);

@@ -908,22 +908,28 @@ impl Projectiles {
             .retain_mut(|effect| !effect.advance_clock(now_ms));
     }
 
-    /// 画在飞投射物与命中特效：`FxKind::Magic` + `draw_effect`（缺素材时静默跳过）。
+    /// 画在飞投射物与命中特效：`FxKind::Magic` + `draw_effect_with_offset`
+    /// （缺素材时静默跳过）。
     ///
-    /// Crystal 的 `DrawLocation` 是「出生格屏幕坐标 + 该帧偏移」
-    /// （`Effect.cs:206-212`），`world_to_screen` 对应它前面的摄像机换算；偏移经
-    /// [`ProjectileView::draw_location`] **只叠加一次**（R62 C3）。命中特效则直接画在
-    /// 目标格（`Effect.cs:117-119` 的 `Owner.DrawLocation`）。
+    /// Crystal 的 `DrawLocation` 是「出生格屏幕坐标 + 该帧运动偏移」
+    /// （`Effect.cs:206-212`），`world_to_screen` 对应它前面的摄像机换算；**运动偏移**
+    /// 经 [`ProjectileView::draw_location`] **只叠加一次**（R62 C3）。命中特效则直接画在
+    /// 目标格（`Effect.cs:117-119` 的 `Owner.DrawLocation`），本身无运动偏移。
+    ///
+    /// **图像锚点偏移**（`ImageInfo.offset_x/offset_y`）两路都只由
+    /// [`MapScene::draw_effect_with_offset`] 按当帧帧头叠加一次（Crystal
+    /// `MLibrary.cs:658-670` 的 `offSet=true`；R68）。因此同一像素上的总位移 =
+    /// 投影 + 运动偏移（仅飞行）+ 图像偏移，三项各一次、互不重复（M5）。
     pub fn draw(&self, frame: &mut Frame, scene: &mut MapScene, center: Point, now_ms: i64) {
         for view in &self.views {
             let origin = scene.world_to_screen(center, view.source);
             let (x, y) = view.draw_location(origin);
-            scene.draw_effect(frame, FxKind::Magic, view.sprite_index(), x, y);
+            scene.draw_effect_with_offset(frame, FxKind::Magic, view.sprite_index(), x, y);
         }
         for effect in &self.hit_effects {
             let (x, y) = scene.world_to_screen(center, effect.position);
             let index = effect.sprite_index(now_ms);
-            if !scene.draw_effect(frame, FxKind::Magic, index, x, y) {
+            if !scene.draw_effect_with_offset(frame, FxKind::Magic, index, x, y) {
                 // 缺素材（`magic.wzl[570..=579]` 未导出）时静默跳过，不画占位块；
                 // 「逻辑错」由 `hit_effect_index` 的单测钉死，两者不要混为一谈。
                 tracing::debug!(index = index, "命中特效素材缺失，跳过绘制");

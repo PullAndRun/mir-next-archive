@@ -409,7 +409,11 @@ impl MapScene {
         self.entities.effect_image(kind, index)
     }
 
-    /// 直接把特效画到帧上（零拷贝；返回宽高供调用方居中）。
+    /// 直接把特效画到帧上（零拷贝）。
+    ///
+    /// 旧语义：`(x, y)` 是**绝对左上角**，不消费 `ImageInfo.offset_x/offset_y`；
+    /// `ui::spellfx` 等已自行居中的调用方继续走本入口，行为保持不变。
+    /// 返回值是该帧是否存在（有图即 `true`，与是否落屏无关）。
     pub fn draw_effect(
         &mut self,
         frame: &mut Frame,
@@ -419,6 +423,23 @@ impl MapScene {
         y: i32,
     ) -> bool {
         self.entities.draw_effect(frame, kind, index, x, y)
+    }
+
+    /// 把特效画到帧上（零拷贝），并把当帧 `ImageInfo` 的有符号图像锚点偏移叠加一次。
+    ///
+    /// 与 [`Self::draw_effect`] 的区别只在是否消费帧头 `offset_x/offset_y`；运动偏移
+    /// 由调用方叠加且只叠加一次，图像偏移由本入口叠加且只叠加一次（M5）。
+    /// 返回值是该帧是否存在（缺帧 `false`；有效图像完全屏外仍 `true`）。
+    pub fn draw_effect_with_offset(
+        &mut self,
+        frame: &mut Frame,
+        kind: crate::entities::FxKind,
+        index: u32,
+        x: i32,
+        y: i32,
+    ) -> bool {
+        self.entities
+            .draw_effect_with_offset(frame, kind, index, x, y)
     }
 
     /// 特效帧尺寸（不克隆像素）。

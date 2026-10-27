@@ -2,7 +2,7 @@
 
 - 范围：更正 `docs/testing/round70/round70-c-evidence.md` 与 `target/round70/c/attempt-1/runs.json` 对首轮独立执行的概括；**原件保留不覆盖**，本文件为追加勘误，同样是证据。
 - 作者/时间：Lead 按终审 R70-T1 转录；C 首轮执行者为 gpt `fd4a61e6`（已终态）。UTC 2026-10-27（终审复核：`target/round70/t/attempt-1/runs.json`、`static-audit.json`）。
-- 依据：原始日志 `target/round70/c/attempt-1/logs/04-render.log` L21–27（Compiling/Finished 12.70s）、L159–180（四失败 trace）、L180（`129 passed; 4 failed`）；`01-round70.log`、`02-wire.log`、`03-live.log`、`05-clippy.log` 有 `cl : Command line error D8050` 编译失败。
+- 依据：原始日志 `target/round70/c/attempt-1/logs/04-render.log` L21–27（Compiling/Finished 12.70s）、L159–180（四失败 trace）、L189（`129 passed; 4 failed` 汇总行）；`01-round70.log`、`02-wire.log`、`03-live.log`、`05-clippy.log` 有 `cl : Command line error D8050` 编译失败。
 
 ## 事实更正
 

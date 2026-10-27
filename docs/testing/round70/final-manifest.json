@@ -1,7 +1,7 @@
 {
   "round": "R70",
-  "stage": "D 文档批、待独立终审",
-  "status": "PRE-AUDIT / PASS-WITH-PARTIAL candidate",
+  "stage": "post-audit（终审 BLOCK→勘误→T2 复审 PASS-WITH-PARTIAL，必改 0；尚书验收待办）",
+  "status": "POST-AUDIT / PASS-WITH-PARTIAL",
   "head": "89daaaa3b12073c092a9229d7fe065f621d27a3d",
   "scope": "CPU Add rate=1 与当帧可选 offset；不宣称 R70 完整/全链通过",
   "git_blob_sources": {
@@ -64,7 +64,7 @@
     },
     "artifact_recompute": {
       "exit": 0,
-      "count": 13,
+      "count": 15,
       "bytes_and_sha256_match": true
     },
     "external_manifest_sha": {
@@ -167,8 +167,8 @@
     },
     {
       "path": "docs/testing/round70/README.md",
-      "bytes": 6860,
-      "sha256": "bac8cf2d13d1c9cd110e97564967fc9b7dcfaabface9a2dbb0252e0fbe54215b",
+      "bytes": 6904,
+      "sha256": "e31ca895fcf9070e95db0b749b9741c7fc6c77352a916bc20c28c4680a323f81",
       "tracked": false,
       "git_blob": null
     },
@@ -181,11 +181,29 @@
     },
     {
       "path": "docs/testing/round70/round70-c-erratum.md",
-      "bytes": 2602,
-      "sha256": "d4cc9fe6c92ef17126690da4a9f7ad3b7c7ad30c726e7dfcaea6a816e2a0eadc",
+      "bytes": 2612,
+      "sha256": "1a20775c6fdb1cb135ac6cfc17827ff640dd6ee252978758cd83311a4512d98f",
       "tracked": false,
       "git_blob": null,
       "role": "R70-T1 证据历史勘误（Lead 转录，原件保留）"
+    },
+    {
+      "path": "docs/testing/round70/round70-final-audit-addendum.md",
+      "bytes": 3368,
+      "sha256": "69ed78db4b568a747e6eee0cdcec029dc177f8631f1d66842b8b924f27a7d997",
+      "tracked": false,
+      "git_blob": null,
+      "role": "R70-T2 复审报告（R70-T1 CLOSED）"
     }
-  ]
+  ],
+  "checkes": null,
+  "audit": {
+    "verdict": "PASS-WITH-PARTIAL",
+    "must_fix": 0,
+    "baseline_head": "6a08c65",
+    "gate_head": "6a08c65",
+    "final_audit_commit": "4d3d84b",
+    "t2_addendum_commit": null,
+    "notes": "T1 首轮 BLOCK（R70-T1 证据历史）已由 4d3d84b 勘误闭合；T2 复审 CLOSED 于 HEAD 4d3d84b。本清单 post-audit 项由 Lead 机械固化，addendum 提交后 tracked 状态亦如实为工作树实测。"
+  }
 }

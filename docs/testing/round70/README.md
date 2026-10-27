@@ -72,4 +72,4 @@ UTC `2026-10-27T06:54:11Z–06:58:15Z`；[log](../../../target/round70/gate/atte
 - `git status --porcelain --untracked-files=all`：仅本批六文件（client/roadmap M，四testing ??）+两份既有历史freeze ??；无越界最终差异，freeze未写入。
 - `git diff --check` EXIT0；仅Git提示client/roadmap未来检出CRLF，当前文档UTF-8无BOM/LF；`git diff 6a08c65 -- crates tools/dev/ci.ps1`为空。
 - `py -3 tools/docs/check_links.py` EXIT0：checked=1755，skipped_target=626；2篇README引用与市场包编号一致。target证据链接被全局工具跳过，D已另核本页引用原件存在与SHA。
-- Python JSON parse EXIT0、13/13项bytes/SHA复算一致、外置manifest SHA匹配；更新本页与清单后再次复核最终字节。清单不自引用，stage为“D 文档批、待独立终审”。
+- Python JSON parse EXIT0、14/14 项 bytes/SHA 复算一致（13 交付 + 1 勘误）、外置 manifest SHA 匹配；T 终审 BLOCK→勘误→T2 复审后由 Lead post-audit 固化清单（15 artifacts=14+T2 复审报告），清单不自引用。

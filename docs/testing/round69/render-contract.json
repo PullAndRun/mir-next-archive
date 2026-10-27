@@ -1,0 +1,962 @@
+{
+  "schema_version": 1,
+  "round": 69,
+  "task": "JJC-20261027-006",
+  "subtask": "JJC-20261027-006-sub-4757d48a",
+  "title": "R69-A G1-G5 渲染契约 expected 矩阵（人工冻结）",
+  "kind": "expected-matrix",
+  "phase": "R69-A 契约层（不实现生产渲染）",
+  "baseline_head": "9e8d9e828742f866f8b3a42f4bf352c21ce9667c",
+  "freeze": {
+    "frozen_by": "bingbu-contract-a (deepseek)",
+    "frozen_at_utc": "2026-10-27T03:35:12Z",
+    "repo_head": "9e8d9e828742f866f8b3a42f4bf352c21ce9667c",
+    "procedure": [
+      "1) 逐段实读 Crystal 源码（MLibrary.cs 636-945、DXManager.cs 350-394、Effect.cs 100-239、SpellObject.cs 320-375、GameScene.cs 10920-10940/11078-11091/11256-11277）以及 Rust 现状（entities.rs/frame.rs/scene.rs/spellfx.rs/projectile.rs/image.rs），人工抄录事实并人工写出本文件 expected 语义值；",
+      "2) 本文件（expected）先于审计工具实现写入并记录来源 SHA；随后工具只产 observed，逐字段与本文件比较；",
+      "3) 工具不得把 observed 回填 expected。若首次对比失败，先判定是工具缺陷还是人工读数错误：工具缺陷修工具；读数错误更新本文件，并在 target/round69/a/attempt-1/expected-freeze.json 与 notes.md 记录更正依据（人工重读来源行），不得用 observed 反向生成 expected。"
+    ],
+    "expected_origin": "人工冻结（先于工具实现）；observed 只用于对比，不回填 expected",
+    "source_scope": [
+      "github/Crystal/Client/**/*.cs（97 文件，3062559 字节）",
+      "crates/mir-render/src/entities.rs",
+      "crates/mir-render/src/frame.rs",
+      "crates/mir-render/src/scene.rs",
+      "crates/mir-client/src/ui/spellfx.rs",
+      "crates/mir-client/src/ui/projectile.rs",
+      "crates/mir-asset/src/image.rs"
+    ],
+    "source_files": [
+      {
+        "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+        "sha256": "afda6ebb7a163d745d6398ea5c92ce80524daa6fb85c6167a09514867cf6f8c8",
+        "lines": 1093,
+        "bytes": 39444,
+        "role": "G1/G2/G4/G5 Crystal anchor"
+      },
+      {
+        "path": "github/Crystal/Client/MirGraphics/DXManager.cs",
+        "sha256": "8be0a26cbf3a0112d4602bbd864a5a5af12c2238a0ba4549fb05787bcd428484",
+        "lines": 590,
+        "bytes": 21204,
+        "role": "G3 blend state anchor"
+      },
+      {
+        "path": "github/Crystal/Client/MirObjects/Effect.cs",
+        "sha256": "dd5eafd71993a0ae51cf75a74550f157ba17cb66ae4aeaa835ace3d030e6aa58",
+        "lines": 504,
+        "bytes": 15823,
+        "role": "G1/G2 consumer anchor"
+      },
+      {
+        "path": "github/Crystal/Client/MirObjects/SpellObject.cs",
+        "sha256": "6c04fde07bb675f554417562e29003b1edf4670f9a56eb3d56c82e762de68229",
+        "lines": 375,
+        "bytes": 15669,
+        "role": "G1/G2 consumer anchor"
+      },
+      {
+        "path": "github/Crystal/Client/MirScenes/GameScene.cs",
+        "sha256": "935d1ca35ddf4800bccdac4cd1675fcb59a269560a57bf98c2b952a459ffb504",
+        "lines": 12517,
+        "bytes": 529111,
+        "role": "G2 conditional offset / G3 scene lighting boundary / G5 scan"
+      },
+      {
+        "path": "crates/mir-render/src/entities.rs",
+        "sha256": "965197467c5392c713e01926cdd1ecc7a5392242aa0aa6d8f4963667c328d8ef",
+        "lines": 3415,
+        "bytes": 142361,
+        "role": "Rust 渲染消费点：draw_effect / draw_effect_with_offset / blit_cached"
+      },
+      {
+        "path": "crates/mir-render/src/frame.rs",
+        "sha256": "240fc765bb13d4ab6f7f7691ebc12f7ea0ccc5d6f9bd402ac781f44d41ba9b23",
+        "lines": 668,
+        "bytes": 26987,
+        "role": "Rust 混合：BlendMode Over/Add、blit/blit_add"
+      },
+      {
+        "path": "crates/mir-render/src/scene.rs",
+        "sha256": "8a44a5a9764c731391ab1acd6b588b667889d765b5c212679b40165a960f6f93",
+        "lines": 1281,
+        "bytes": 48880,
+        "role": "Rust scene 包装：draw_effect / draw_effect_with_offset"
+      },
+      {
+        "path": "crates/mir-client/src/ui/spellfx.rs",
+        "sha256": "39c7870310cfd6180c7fcd092068a075eb9952899b018da37920d73c4f906a5f",
+        "lines": 317,
+        "bytes": 12639,
+        "role": "Rust 旧居中入口（未消费 offset）"
+      },
+      {
+        "path": "crates/mir-client/src/ui/projectile.rs",
+        "sha256": "3528a4ee0252a1bc0af5235dace5e92f437b79075300828fabcdc1ed409acdea",
+        "lines": 2086,
+        "bytes": 99433,
+        "role": "Rust R68 已消费 offset（125 飞行/570 命中）"
+      },
+      {
+        "path": "crates/mir-asset/src/image.rs",
+        "sha256": "c29000c397a364128a6c9a9d387c8644bc37e19674907fcf275fc9ed83184300",
+        "lines": 359,
+        "bytes": 14256,
+        "role": "Rust ImageInfo：offset/shadow/has_mask 元数据解析"
+      },
+      {
+        "path": "docs/process/round69-plan.md",
+        "sha256": "d24b3df5a53696b29766bec40d7ddc419c8986fd4e183c7b77eb47f606efdd8c",
+        "lines": 78,
+        "bytes": 11633,
+        "role": "任务计划来源"
+      },
+      {
+        "path": "docs/process/round69-menxia-review.md",
+        "sha256": "becc40bd618f4e3bf2a05a29b3e36406486e5c7d2fac11180f9b5c47a6be01e7",
+        "lines": 56,
+        "bytes": 7905,
+        "role": "门下强制条件来源"
+      }
+    ]
+  },
+  "checks": [
+    {
+      "id": "G1",
+      "title": "基础 Draw：offSet 默认 false、偏移在裁剪前、整数重载不自动偏移",
+      "crystal_facts": [
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "658",
+          "quote": "public void Draw(int index, Point point, Color colour, bool offSet = false)"
+        },
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "665",
+          "quote": "if (offSet) point.Offset(mi.X, mi.Y);"
+        },
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "667",
+          "quote": "if (point.X >= Settings.ScreenWidth || point.Y >= Settings.ScreenHeight || point.X + mi.Width < 0 || point.Y + mi.Height < 0) return;"
+        },
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "670",
+          "quote": "DXManager.Draw(mi.Image, new Rectangle(0, 0, mi.Width, mi.Height), new Vector3((float)point.X, (float)point.Y, 0.0F), colour);"
+        },
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "640-657",
+          "quote": "public void Draw(int index, int x, int y) 整数重载：无 offSet 参数、无 point.Offset，DXManager.Draw 直接用 (float)x,(float)y 绝对坐标；裁剪条件为 x/y 两段式（642-643、650-651）而非 point 四条件。"
+        }
+      ],
+      "rust_consumption": [
+        {
+          "path": "crates/mir-render/src/entities.rs",
+          "lines": "1816-1831",
+          "status": "无 offset 语义",
+          "fact": "draw_effect(kind, index, x, y) 把 (x, y) 当绝对左上角传给 blit_cached，不接受帧 offset，也无裁剪/越界判断（由 frame.blit 边界裁剪）。"
+        },
+        {
+          "path": "crates/mir-render/src/entities.rs",
+          "lines": "1833-1870",
+          "status": "部分等价",
+          "fact": "draw_effect_with_offset 在渲染层按帧元数据 offset_x/offset_y 做 i16 saturating_add 后再 blit，等价于 Crystal offSet=true 的『先偏移』；R68 仅由 projectile.rs:927/932 的 125/570 路径消费。"
+        },
+        {
+          "path": "crates/mir-render/src/entities.rs",
+          "lines": "1923-1927",
+          "status": "消费点",
+          "fact": "blit_cached 直接 frame.blit(image, x, y)，Over 混合、无裁剪语义、无 tint/mask。"
+        }
+      ],
+      "unimplemented": [
+        "mir-render 没有与 Crystal Point+offSet 等价的条件偏移绘制 API（现有 draw_effect_with_offset 为固定应用帧 offset，不是调用方点坐标语义）。",
+        "spellfx 等 UI 路径仍以居中/绝对坐标调用，未消费 per-frame signed offset。"
+      ],
+      "minimal_fix": {
+        "path": "crates/mir-render/src/entities.rs（或 scene.rs 包装层）",
+        "action": "渲染层提供『Point 坐标 + 可选帧 offset，先偏移后裁剪/绘制』的单一落点；仅渲染层逐帧 signed offset 消费，不动 spellfx magic 映射/时序/wire。",
+        "constraints": "offset 恰好应用一次；正负 offset 都参与；越界早退语义与 Crystal 667 的四条件集合对齐。"
+      },
+      "fail_acceptance": [
+        "合成 ImageInfo offset=(+8,-8)：绘制像素位置断言为 (x+8, y-8)，且偏移发生在裁剪/离屏判断之前（负坐标不被误裁剪）。",
+        "offSet=false 等价的路径断言不偏移（合成图位置 = 传入坐标）。",
+        "整数重载等价路径断言不自动偏移（绝对坐标）。"
+      ],
+      "priority": "P1",
+      "owner": "契约：兵部(R69-A)；生产：R70 兵部+工部",
+      "expected": {
+        "method": {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "signature": "public void Draw(int index, Point point, Color colour, bool offSet = false)"
+        },
+        "default_offSet": false,
+        "offset_calls": 1,
+        "offset_guard_condition": "offSet",
+        "offset_call": "point.Offset(mi.X, mi.Y)",
+        "offset_before_crop": true,
+        "crop_before_draw": true,
+        "crop_conditions": [
+          "point.X >= Settings.ScreenWidth",
+          "point.Y >= Settings.ScreenHeight",
+          "point.X + mi.Width < 0",
+          "point.Y + mi.Height < 0"
+        ],
+        "draw_call": {
+          "callee": "DXManager.Draw",
+          "image": "mi.Image",
+          "rect": "new Rectangle(0, 0, mi.Width, mi.Height)",
+          "position": "new Vector3((float)point.X, (float)point.Y, 0.0F)"
+        },
+        "integer_overload": {
+          "signature": "public void Draw(int index, int x, int y)",
+          "has_off_set_param": false,
+          "offset_calls": 0
+        },
+        "overloads": [
+          {
+            "signature": "public void Draw(int index, int x, int y)",
+            "has_off_set_param": false,
+            "default_offSet": null,
+            "offset_calls": 0
+          },
+          {
+            "signature": "public void Draw(int index, Point point, Color colour, bool offSet, float opacity)",
+            "has_off_set_param": true,
+            "default_offSet": null,
+            "offset_calls": 1
+          },
+          {
+            "signature": "public void Draw(int index, Rectangle section, Point point, Color colour, bool offSet)",
+            "has_off_set_param": true,
+            "default_offSet": null,
+            "offset_calls": 1
+          },
+          {
+            "signature": "public void Draw(int index, Rectangle section, Point point, Color colour, float opacity)",
+            "has_off_set_param": false,
+            "default_offSet": null,
+            "offset_calls": 0
+          },
+          {
+            "signature": "public void Draw(int index, Point point, Size size, Color colour)",
+            "has_off_set_param": false,
+            "default_offSet": null,
+            "offset_calls": 0
+          }
+        ],
+        "consumers": [
+          {
+            "path": "github/Crystal/Client/MirObjects/Effect.cs",
+            "call": "Library.Draw(BaseIndex + CurrentFrame, DrawLocation, Color.White, true)"
+          },
+          {
+            "path": "github/Crystal/Client/MirObjects/Effect.cs",
+            "call": "Library.Draw(index, DrawLocation, Color.White, true)"
+          },
+          {
+            "path": "github/Crystal/Client/MirObjects/SpellObject.cs",
+            "call": "BodyLibrary.Draw(DrawFrame + FrameIndex, AnimationOffset == default ? DrawLocation : GetDrawWithOffset(), DrawColour, true)"
+          }
+        ]
+      }
+    },
+    {
+      "id": "G2",
+      "title": "DrawBlend：offSet 默认 false、偏移先于裁剪、混合设置/恢复包围绘制、rate 透传",
+      "crystal_facts": [
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "692",
+          "quote": "public void DrawBlend(int index, Point point, Color colour, bool offSet = false, float rate = 1)"
+        },
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "699-701",
+          "quote": "if (offSet) point.Offset(mi.X, mi.Y); … if (point.X >= Settings.ScreenWidth || point.Y >= Settings.ScreenHeight || point.X + mi.Width < 0 || point.Y + mi.Height < 0) return;"
+        },
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "704-709",
+          "quote": "bool oldBlend = DXManager.Blending; DXManager.SetBlend(true, rate); DXManager.Draw(...); DXManager.SetBlend(oldBlend);"
+        },
+        {
+          "path": "github/Crystal/Client/MirScenes/GameScene.cs",
+          "lines": "10923-10928",
+          "quote": "if (fileIndex == 14 || fileIndex == 27 || (fileIndex > 99 & fileIndex < 199)) … DrawBlend(index, new Point(drawX, drawY - (3 * CellHeight)), Color.White, true); else … DrawBlend(index, new Point(drawX, drawY - s.Height), Color.White, (index >= 2723 && index <= 2732));"
+        },
+        {
+          "path": "github/Crystal/Client/MirObjects/Effect.cs",
+          "lines": "130,132,214,216",
+          "quote": "Library.DrawBlend(..., true, Rate) / Library.Draw(..., true)：消费点全部显式传 offSet=true。"
+        }
+      ],
+      "rust_consumption": [
+        {
+          "path": "crates/mir-client/src/ui/spellfx.rs",
+          "lines": "226-265",
+          "status": "无（旧居中入口）",
+          "fact": "draw_sprites 计算 frame_index 与居中坐标（x+(CELL_WIDTH-width)/2, y+(CELL_HEIGHT-height)/2），随后 scene.draw_effect（绝对坐标、Over），未消费帧 offset。"
+        },
+        {
+          "path": "crates/mir-render/src/frame.rs",
+          "lines": "418-471",
+          "status": "部分",
+          "fact": "只有 BlendMode::Over（blit）与 BlendMode::Add（blit_add）两条路径；无 DrawBlend 的 rate 参数、无 INVLIGHT、无全局混合状态保存/恢复。"
+        },
+        {
+          "path": "crates/mir-client/src/ui/projectile.rs",
+          "lines": "923-938",
+          "status": "已有 offset 消费",
+          "fact": "R68 的 125/570 路径已用 draw_effect_with_offset；证明渲染层已具备逐帧 offset 能力，但仅此一路消费。"
+        }
+      ],
+      "unimplemented": [
+        "DrawBlend 未实现：无 rate→BlendFactor 的 alpha 缩放，无 INVLIGHT（BlendFactor/InverseSourceColor）模式，混合以每像素函数参数区分而非状态。",
+        "GameScene 条件 offset 语义（fileIndex 14/27/100-199 强制 +3*CellHeight；index 2723-2732 条件 offSet）无 Rust 对应。"
+      ],
+      "minimal_fix": {
+        "path": "crates/mir-client/src/ui/spellfx.rs + crates/mir-render/src/{scene,entities}.rs",
+        "action": "绘制入口改为消费帧 offset（先偏移后绘制/裁剪）；混合状态作为显式参数（rate/mode），不做全局状态恢复。",
+        "constraints": "offset 单次应用且先于裁剪；不动 spellfx 帧序号/magic 映射/时序/wire；不实现 mask/shadow。"
+      },
+      "fail_acceptance": [
+        "spellfx 单路径 offset 正负各一次：合成 RGBA 断言位置与 Over 结果。",
+        "GameScene 条件表达式（index>=2723 && index<=2732）在 UI 层保留，渲染层只消费 Bool/offset 结果。",
+        "混合 rate=0/1 时 alpha 断言；未实现 INVLIGHT 前不得声称等值。"
+      ],
+      "priority": "P1",
+      "owner": "契约：兵部(R69-A)；生产：R70 兵部+工部",
+      "expected": {
+        "method": {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "signature": "public void DrawBlend(int index, Point point, Color colour, bool offSet = false, float rate = 1)"
+        },
+        "default_offSet": false,
+        "default_rate": "1",
+        "offset_calls": 1,
+        "offset_guard_condition": "offSet",
+        "offset_call": "point.Offset(mi.X, mi.Y)",
+        "offset_before_crop": true,
+        "crop_before_set_blend": true,
+        "set_blend_before_draw": true,
+        "draw_before_restore": true,
+        "set_blend_args": [
+          "true",
+          "rate"
+        ],
+        "restore_args": [
+          "oldBlend"
+        ],
+        "draw_call": {
+          "callee": "DXManager.Draw",
+          "image": "mi.Image",
+          "rect": "new Rectangle(0, 0, mi.Width, mi.Height)",
+          "position": "new Vector3((float)point.X, (float)point.Y, 0.0F)"
+        },
+        "consumers": [
+          {
+            "path": "github/Crystal/Client/MirObjects/Effect.cs",
+            "call": "Library.DrawBlend(BaseIndex + CurrentFrame, DrawLocation, Color.White, true, Rate)"
+          },
+          {
+            "path": "github/Crystal/Client/MirObjects/Effect.cs",
+            "call": "Library.DrawBlend(index, DrawLocation, Color.White, true, Rate)"
+          },
+          {
+            "path": "github/Crystal/Client/MirObjects/SpellObject.cs",
+            "call": "BodyLibrary.DrawBlend(DrawFrame + FrameIndex, AnimationOffset == default ? DrawLocation : GetDrawWithOffset(), DrawColour, true, 0.8F)"
+          }
+        ],
+        "game_scene_conditional_offset": {
+          "call": "Libraries.MapLibs[fileIndex].DrawBlend(index, new Point(drawX, drawY - s.Height), Color.White, (index >= 2723 && index <= 2732))",
+          "off_set_arg": "(index >= 2723 && index <= 2732)"
+        }
+      }
+    },
+    {
+      "id": "G3",
+      "title": "混合状态恢复：只保存/恢复 bool Blending，SetBlend 默认 rate=1F/mode=NORMAL，NORMAL/INVLIGHT 精确因子",
+      "crystal_facts": [
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "704",
+          "quote": "bool oldBlend = DXManager.Blending;"
+        },
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "709",
+          "quote": "DXManager.SetBlend(oldBlend);   // 仅恢复 bool，未保存 BlendingRate/BlendingMode"
+        },
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "832-837",
+          "quote": "DrawUpBlend 同一缺陷：bool oldBlend = DXManager.Blending; … DXManager.SetBlend(oldBlend);"
+        },
+        {
+          "path": "github/Crystal/Client/MirGraphics/DXManager.cs",
+          "lines": "353-389",
+          "quote": "public static void SetBlend(bool value, float rate = 1F, BlendMode mode = BlendMode.NORMAL) … case BlendMode.INVLIGHT: BlendOperation.Add / SourceBlend Blend.BlendFactor / DestinationBlend Blend.InverseSourceColor; default: SourceBlend Blend.SourceAlpha / DestinationBlend Blend.One; BlendFactor = 255*rate。"
+        },
+        {
+          "path": "github/Crystal/Client/MirScenes/GameScene.cs",
+          "lines": "11085-11087,11264-11273",
+          "quote": "DXManager.SetBlend(true); 后跟 raw SourceBlend=SourceAlpha/DestinationBlend=One；DXManager.SetBlend(false); SetSurface(oldSurface); raw SourceBlend=Zero/DestinationBlend=SourceColor；Sprite.End(); Sprite.Begin(AlphaBlend)。"
+        }
+      ],
+      "rust_consumption": [
+        {
+          "path": "crates/mir-render/src/frame.rs",
+          "lines": "418-471",
+          "status": "无状态概念",
+          "fact": "混合以 BlendMode 枚举参数（Over/Add）逐像素实现，无 rate、无 Shader/Blend 状态寄存器、无 INVLIGHT；不存在恢复语义。"
+        },
+        {
+          "path": "crates/mir-render/src/frame.rs",
+          "lines": "222-234,309",
+          "status": "部分",
+          "fact": "blit=Over、blit_add=Add；blit_add 注释声称对应 DrawBlend 默认 DestBlend One，但 Crystal DrawBlend 走 SetBlend NORMAL（SourceAlpha/One），与 blit_add 的 One/One 并非精确等价。"
+        },
+        {
+          "path": "crates/mir-render/src/entities.rs",
+          "lines": "1923-1927",
+          "status": "单一 Over",
+          "fact": "所有精灵绘制走 blit_cached→frame.blit（Over），无 DrawBlend 等价入口。"
+        }
+      ],
+      "unimplemented": [
+        "rate→BlendFactor 的 alpha 缩放、INVLIGHT 模式、BlendOperation Add 的场景级状态语义均未实现。",
+        "Rust 无全局混合状态，因此也不存在『只恢复 bool 会丢 rate/mode』这一 Crystal 缺陷的等价物；移植时不得发明全局状态恢复，应以显式参数替代。"
+      ],
+      "minimal_fix": {
+        "path": "crates/mir-render/src/frame.rs",
+        "action": "新增 DrawBlend 等价混合（NORMAL: SourceAlpha/One 叠加 rate alpha；INVLIGHT: 反相光照公式），以显式参数传 rate/mode，避免全局状态恢复问题。",
+        "constraints": "G3 只断言 DrawBlend 内部保存/恢复形状，不泛化为场景完整状态恢复；场景 raw render state（GameScene 11085-11087、11264-11273）超出 DrawBlend 边界，需单独设计。"
+      },
+      "fail_acceptance": [
+        "rate=0/0.5/1 的单像素 Over 合成断言（rate 只缩放 source alpha）。",
+        "INVLIGHT 公式断言（source 与 dest 反相相乘）。",
+        "嵌套绘制后外层状态不泄漏（显式参数路径天然满足，可作为反向断言）。"
+      ],
+      "priority": "P2",
+      "owner": "契约：兵部(R69-A)；生产：R70 兵部+工部（或 R71）",
+      "expected": {
+        "drawblend_save": {
+          "symbol": "oldBlend",
+          "type": "bool",
+          "source": "DXManager.Blending"
+        },
+        "restore_call": {
+          "callee": "DXManager.SetBlend",
+          "argc": 1,
+          "args": [
+            "oldBlend"
+          ]
+        },
+        "restore_uses_saved_bool_only": true,
+        "mlibrary_saves_blending_rate_or_mode": false,
+        "setblend": {
+          "path": "github/Crystal/Client/MirGraphics/DXManager.cs",
+          "signature": "public static void SetBlend(bool value, float rate = 1F, BlendMode mode = BlendMode.NORMAL)",
+          "default_rate": "1F",
+          "default_mode": "BlendMode.NORMAL"
+        },
+        "normal_state": {
+          "source_blend": "Blend.SourceAlpha",
+          "destination_blend": "Blend.One"
+        },
+        "invlight_state": {
+          "blend_operation": "BlendOperation.Add",
+          "source_blend": "Blend.BlendFactor",
+          "destination_blend": "Blend.InverseSourceColor"
+        },
+        "game_scene_lighting": {
+          "enable_raw_blend": {
+            "source_blend": "Blend.SourceAlpha",
+            "destination_blend": "Blend.One"
+          },
+          "restore_raw_blend": {
+            "source_blend": "Blend.Zero",
+            "destination_blend": "Blend.SourceColor"
+          }
+        }
+      }
+    },
+    {
+      "id": "G4",
+      "title": "DrawTinted/mask：主体与 mask 共用 point/宽高、MaskX/Y 有读无绘制消费、mask 纹理用 Width/Height 且数据取 Length",
+      "crystal_facts": [
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "778",
+          "quote": "public void DrawTinted(int index, Point point, Color colour, Color Tint, bool offSet = false)"
+        },
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "790,792-794",
+          "quote": "DXManager.Draw(mi.Image, new Rectangle(0, 0, mi.Width, mi.Height), new Vector3((float)point.X, (float)point.Y, 0.0F), colour); if (mi.HasMask) DXManager.Draw(mi.MaskImage, new Rectangle(0, 0, mi.Width, mi.Height), new Vector3((float)point.X, (float)point.Y, 0.0F), Tint);"
+        },
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "862,869",
+          "quote": "public short Width, Height, X, Y, ShadowX, ShadowY; … public short MaskWidth, MaskHeight, MaskX, MaskY;"
+        },
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "887-900",
+          "quote": "ShadowX/ShadowY/MaskWidth/MaskHeight/MaskX/MaskY 依次 reader.ReadInt16() 读取；HasMask = ((Shadow >> 7) == 1) ? true : false;"
+        },
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "919-928",
+          "quote": "if (HasMask) { reader.ReadBytes(12); w = Width; h = Height; MaskImage = new Texture(..., w, h, ...); DecompressImage(reader.ReadBytes(Length), stream.Data); }  // 数据长度用 Length（主体长度）而非 MaskLength"
+        }
+      ],
+      "rust_consumption": [
+        {
+          "path": "crates/mir-asset/src/image.rs",
+          "lines": "35-66",
+          "status": "仅解析",
+          "fact": "ImageInfo 含 has_mask、shadow_x/shadow_y、data_offset/data_len 等字段，但 mir-render/mir-client 中 has_mask/shadow_x/shadow_y 无任何渲染消费（仅测试合成构造）。"
+        },
+        {
+          "path": "crates/mir-render/src/frame.rs",
+          "lines": "222-234",
+          "status": "无 tint/mask",
+          "fact": "blit 只做逐像素 Over；无 tint 颜色参数、无第二层 mask 纹理绘制。"
+        },
+        {
+          "path": "crates/mir-render/src/entities.rs",
+          "lines": "1816-1870",
+          "status": "无 mask 绘制",
+          "fact": "draw_effect/draw_effect_with_offset 只绘制单张 effect_image；无 MaskImage 概念。"
+        }
+      ],
+      "unimplemented": [
+        "mask 第二层纹理未加载/未绘制；DrawTinted 等价 API 不存在。",
+        "MaskX/MaskY 在 Crystal 中有读无绘制消费——Rust 必须保持『解析但不消费』（不得发明 MaskX/Y 偏移）。",
+        "mask 纹理尺寸取 Width/Height、数据段长度取 Length 的怪癖未在 Rust 元数据中体现（ImageInfo 无 mask 纹理尺寸/数据段字段）。"
+      ],
+      "minimal_fix": {
+        "path": "crates/mir-asset/src/image.rs + crates/mir-render/src/entities.rs",
+        "action": "先补 mask 元数据（mask 纹理尺寸=Width/Height、mask 数据 offset/len 语义注意 Length），渲染层新增 draw_tinted（主体后 mask，同 point/宽高）；MaskX/Y 保持不消费。",
+        "constraints": "mask 与主体点/宽高必须同源；不得把 MaskX/Y 用作偏移；不得声称 shadow 已绘制。"
+      },
+      "fail_acceptance": [
+        "has_mask=true 时同一位置绘制两遍（主体+mask），drawn 计数=2；has_mask=false 仅 1 遍。",
+        "mask 纹理尺寸断言=Width/Height；读取流 skip 12 字节断言。",
+        "变异测试（R3）：mask 绘制点加入 MaskX/MaskY 偏移 → 本契约 G4 必须变红。"
+      ],
+      "priority": "P1",
+      "owner": "契约：兵部(R69-A)；生产：R70 兵部+工部（mask 可后置）",
+      "expected": {
+        "method": {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "signature": "public void DrawTinted(int index, Point point, Color colour, Color Tint, bool offSet = false)"
+        },
+        "default_offSet": false,
+        "offset_calls": 1,
+        "offset_before_crop": true,
+        "crop_before_draw": true,
+        "main_draw": {
+          "image": "mi.Image",
+          "rect": "new Rectangle(0, 0, mi.Width, mi.Height)",
+          "position": "new Vector3((float)point.X, (float)point.Y, 0.0F)"
+        },
+        "mask_guard_condition": "mi.HasMask",
+        "mask_draw": {
+          "image": "mi.MaskImage",
+          "rect": "new Rectangle(0, 0, mi.Width, mi.Height)",
+          "position": "new Vector3((float)point.X, (float)point.Y, 0.0F)",
+          "colour": "Tint"
+        },
+        "mask_point_equals_main": true,
+        "mask_rect_equals_main": true,
+        "mask_identifiers_in_body": [],
+        "mimage_mask_reads": [
+          "MaskWidth",
+          "MaskHeight",
+          "MaskX",
+          "MaskY"
+        ],
+        "has_mask_derivation": "((Shadow >> 7) == 1) ? true : false",
+        "mask_texture": {
+          "signature": "public unsafe void CreateTexture(BinaryReader reader)",
+          "skip_bytes": "12",
+          "width_from": "Width",
+          "height_from": "Height",
+          "data_bytes_from": "Length"
+        }
+      }
+    },
+    {
+      "id": "G5",
+      "title": "shadow/mask 标识符全量扫描：仅 MLibrary 声明+反序列化读取，无其它生效读取（尤其无 shadow 绘制消费）",
+      "crystal_facts": [
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "862",
+          "quote": "public short Width, Height, X, Y, ShadowX, ShadowY;"
+        },
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "869",
+          "quote": "public short MaskWidth, MaskHeight, MaskX, MaskY;"
+        },
+        {
+          "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+          "lines": "887-900",
+          "quote": "ShadowX = reader.ReadInt16(); ShadowY = reader.ReadInt16(); … MaskX = reader.ReadInt16(); MaskY = reader.ReadInt16();"
+        },
+        {
+          "path": "github/Crystal/Client/**/*.cs",
+          "lines": "全树",
+          "quote": "97 个 Client C# 文件中遮蔽注释/字符串后，ShadowX/ShadowY/MaskX/MaskY 仅 6 行命中：2 行声明 + 4 行反序列化读取；其它读取=0。"
+        }
+      ],
+      "rust_consumption": [
+        {
+          "path": "crates/mir-asset/src/image.rs",
+          "lines": "35-66",
+          "status": "仅解析",
+          "fact": "ImageInfo 解析 shadow_x/shadow_y/has_mask 元数据；无渲染消费、无 shadow 绘制。"
+        },
+        {
+          "path": "crates/mir-render/src/entities.rs",
+          "lines": "1923-1927",
+          "status": "无",
+          "fact": "blit_cached/frame.blit 只消费 image 数据；shadow/mask 不参与。"
+        }
+      ],
+      "unimplemented": [
+        "shadow 渲染本身 Crystal 也未实现（元数据仅解析不绘制）；Rust 应保持同一结论并防回归（不得新增生效消费）。",
+        "mask 第二层轮廓与 mask 纹理绘制未实现（见 G4）。"
+      ],
+      "minimal_fix": {
+        "path": "契约层（本轮）",
+        "action": "以全树扫描 + 分类计数固定『解析但不消费』事实；R70 不得新增 ShadowX/Y/MaskX/Y 的导出/偏移消费，除非另立矩阵条目与验收。",
+        "constraints": "注释/字符串中的标识符不计入语义命中；新增生效读取必须让 G5 变红。"
+      },
+      "fail_acceptance": [
+        "在 Client 树任意文件新增一处生效 ShadowX/ShadowY 读取（非注释/字符串）→ G5 命中分类 other_read>0、hits 变化 → 必须变红。",
+        "只加注释/字符串提及 → G5 保持不变（遮蔽后不计入）。",
+        "文件集 SHA 记录与计数（97 文件）在 evidence JSON 中可复核。"
+      ],
+      "priority": "P3",
+      "owner": "契约：兵部(R69-A)；防回归：R70+ 所有轮次",
+      "expected": {
+        "scope": "github/Crystal/Client/**/*.cs",
+        "files_scanned": 97,
+        "identifiers": [
+          "MaskX",
+          "MaskY",
+          "ShadowX",
+          "ShadowY"
+        ],
+        "hit_lines": 6,
+        "identifier_hits": 8,
+        "classification_counts": {
+          "declaration": 2,
+          "deserialize_read": 4,
+          "other_read": 0,
+          "write": 0
+        },
+        "hits": [
+          {
+            "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+            "classification": "declaration",
+            "identifiers": [
+              "MaskX",
+              "MaskY"
+            ]
+          },
+          {
+            "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+            "classification": "declaration",
+            "identifiers": [
+              "ShadowX",
+              "ShadowY"
+            ]
+          },
+          {
+            "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+            "classification": "deserialize_read",
+            "identifiers": [
+              "MaskX"
+            ]
+          },
+          {
+            "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+            "classification": "deserialize_read",
+            "identifiers": [
+              "MaskY"
+            ]
+          },
+          {
+            "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+            "classification": "deserialize_read",
+            "identifiers": [
+              "ShadowX"
+            ]
+          },
+          {
+            "path": "github/Crystal/Client/MirGraphics/MLibrary.cs",
+            "classification": "deserialize_read",
+            "identifiers": [
+              "ShadowY"
+            ]
+          }
+        ],
+        "shadow_metadata_reads": [
+          "ShadowX",
+          "ShadowY"
+        ]
+      }
+    }
+  ],
+  "draw_overloads": [
+    {
+      "signature": "public void Draw(int index, int x, int y)",
+      "lines": "640-657",
+      "off_set_param": false,
+      "default_offSet": null,
+      "offset_calls": 0,
+      "note": "整数重载：无 offSet 参数、无 point.Offset；DXManager.Draw 直接用 (float)x,(float)y，等价『绝对坐标』语义。"
+    },
+    {
+      "signature": "public void Draw(int index, Point point, Color colour, bool offSet = false)",
+      "lines": "658-673",
+      "off_set_param": true,
+      "default_offSet": false,
+      "offset_calls": 1,
+      "note": "G1 主体：先 point.Offset(mi.X, mi.Y)（条件 offSet），后四条件裁剪，再 DXManager.Draw。"
+    },
+    {
+      "signature": "public void Draw(int index, Point point, Color colour, bool offSet, float opacity)",
+      "lines": "675-690",
+      "off_set_param": true,
+      "default_offSet": null,
+      "offset_calls": 1,
+      "note": "opacity 变体走 DXManager.DrawOpaque；offSet 无默认值，调用方必须显式给。"
+    },
+    {
+      "signature": "public void Draw(int index, Rectangle section, Point point, Color colour, bool offSet)",
+      "lines": "712-734",
+      "off_set_param": true,
+      "default_offSet": null,
+      "offset_calls": 1,
+      "note": "区域变体：offset/裁剪后仍有 section 越界收缩（725-729）。"
+    },
+    {
+      "signature": "public void Draw(int index, Rectangle section, Point point, Color colour, float opacity)",
+      "lines": "735-755",
+      "off_set_param": false,
+      "default_offSet": null,
+      "offset_calls": 0,
+      "note": "区域+opacity 变体无 offSet 参数、不偏移；走 DrawOpaque。"
+    },
+    {
+      "signature": "public void Draw(int index, Point point, Size size, Color colour)",
+      "lines": "756-776",
+      "off_set_param": false,
+      "default_offSet": null,
+      "offset_calls": 0,
+      "note": "缩放变体无 offSet；用 Sprite.Transform 缩放，位置 (point.X/scaleX, point.Y/scaleY)。"
+    }
+  ],
+  "game_scene_boundaries": {
+    "conditional_offset": {
+      "path": "github/Crystal/Client/MirScenes/GameScene.cs",
+      "lines": "10921-10928",
+      "quote": "if (fileIndex == 14 || fileIndex == 27 || (fileIndex > 99 & fileIndex < 199)) Libraries.MapLibs[fileIndex].DrawBlend(index, new Point(drawX, drawY - (3 * CellHeight)), Color.White, true); else Libraries.MapLibs[fileIndex].DrawBlend(index, new Point(drawX, drawY - s.Height), Color.White, (index >= 2723 && index <= 2732));",
+      "meaning": "同一 DrawBlend 调用点既有固定 offSet=true，也有把 offSet 参数写成条件表达式；批渲染路径的条件偏移判据属于 UI 调用方语义，移植时保留判据、渲染层只消费结果。"
+    },
+    "integer_overload_call": {
+      "path": "github/Crystal/Client/MirScenes/GameScene.cs",
+      "lines": "10932-10935",
+      "quote": "if (fileIndex == 28 && Libraries.MapLibs[fileIndex].GetOffSet(index) != Point.Empty) Libraries.MapLibs[fileIndex].Draw(index, new Point(drawX, drawY - CellHeight), Color.White, true); else Libraries.MapLibs[fileIndex].Draw(index, drawX, drawY - s.Height);",
+      "meaning": "非混合分支：条件满足时走 Point+offSet 重载（偏移语义），否则走整数重载（绝对坐标、不偏移）；Rust 需要能表达『本次不偏移』。"
+    },
+    "bitwise_and_note": {
+      "path": "github/Crystal/Client/MirScenes/GameScene.cs",
+      "lines": "10923",
+      "quote": "(fileIndex > 99 & fileIndex < 199)",
+      "meaning": "Crystal 源码用位与 & 连接两个 bool 比较（非短路与，语义等价 &&）；移植判据时保持等价语义，不要改成范围/魔数表。"
+    },
+    "lighting_state": {
+      "enable": {
+        "path": "github/Crystal/Client/MirScenes/GameScene.cs",
+        "lines": "11085-11087",
+        "quote": "DXManager.SetBlend(true); DXManager.Device.SetRenderState(RenderState.SourceBlend, Blend.SourceAlpha); DXManager.Device.SetRenderState(RenderState.DestinationBlend, Blend.One);"
+      },
+      "restore": {
+        "path": "github/Crystal/Client/MirScenes/GameScene.cs",
+        "lines": "11264-11273",
+        "quote": "DXManager.SetBlend(false); DXManager.SetSurface(oldSurface); DXManager.Device.SetRenderState(RenderState.SourceBlend, Blend.Zero); DXManager.Device.SetRenderState(RenderState.DestinationBlend, Blend.SourceColor); … DXManager.Sprite.End(); DXManager.Sprite.Begin(SpriteFlags.AlphaBlend);"
+      },
+      "meaning": "场景照明阶段在 DrawBlend 的 bool 恢复边界之外直接操作 raw render state 并恢复；G3 只断言 DrawBlend 内部保存/恢复形状，不把『场景完整状态恢复』作为契约，也不得据此声称 Rust 已实现场景渲染。"
+    }
+  },
+  "gaps": [
+    {
+      "id": "GAP-1",
+      "title": "DrawBlend 未实现（仅 Over/Add，无 rate/INVLIGHT/状态语义）",
+      "priority": "P1",
+      "owner": "兵部(契约 R69-A) + 工部(R70 生产)",
+      "crystal_fact": "MLibrary.cs:692-711 DrawBlend 保存 bool oldBlend → SetBlend(true, rate) → Draw → SetBlend(oldBlend)；DXManager.cs:353-389 NORMAL=SourceAlpha/One、INVLIGHT=BlendFactor/InverseSourceColor、BlendFactor=255*rate。",
+      "rust_consumption": "crates/mir-render/src/frame.rs:418-471 只有 BlendMode::Over（blit）与 BlendMode::Add（blit_add）；entities.rs:1923-1927 全部走 Over；无 rate/mode 参数。",
+      "unimplemented": "rate→BlendFactor alpha 缩放、INVLIGHT 模式、BlendOperation Add 语义、DrawBlend 入口。",
+      "minimal_fix": "frame.rs 增加显式 (rate, mode) 混合函数；entities 增加 blend 绘制入口；不动 wire/时序/魔数。",
+      "fail_acceptance": "rate=0/0.5/1 合成断言；INVLIGHT 公式断言；DrawBlend 调用点（Effect/SpellObject 等价物）传 true+rate 的消费断言。"
+    },
+    {
+      "id": "GAP-2",
+      "title": "混合状态恢复仅 bool（Crystal 自身缺陷，不可泛化）",
+      "priority": "P2",
+      "owner": "兵部(契约) + 工部(R70 或 R71)",
+      "crystal_fact": "MLibrary.cs:704-709 只保存 DXManager.Blending（bool），SetBlend(oldBlend) 恢复时 rate 回到默认 1F、mode 回到 NORMAL；DrawUpBlend:832-837 同病。",
+      "rust_consumption": "Rust 无全局混合状态（frame.rs 以参数表达），不存在同款恢复缺陷；但也没有 rate/mode 的保存恢复机制。",
+      "unimplemented": "以显式参数替代全局状态（正确方向）；场景级 raw state（GameScene 11085-11087、11264-11273）无对应概念。",
+      "minimal_fix": "保持函数式显式参数；禁止为对齐 Crystal 缺陷而发明全局状态；场景状态另立设计。",
+      "fail_acceptance": "嵌套/连续 blend 绘制后外层结果不变（无状态泄漏）；rate 默认值语义断言。"
+    },
+    {
+      "id": "GAP-3",
+      "title": "mask 纹理/MaskX/MaskY 未消费（有读无绘制）",
+      "priority": "P1",
+      "owner": "兵部(契约) + 工部(R70 后置)",
+      "crystal_fact": "MLibrary.cs:792-794 DrawTinted 在 HasMask 时用 mi.MaskImage + 同 point/width/height 再 Draw 一次（Tint 颜色）；MaskX/MaskY 只在 869 声明与 899-900 反序列化读取，绘制不消费。",
+      "rust_consumption": "crates/mir-asset/src/image.rs:35-66 ImageInfo.has_mask 有字段；mir-render/mir-client 无 mask 纹理绘制、无 tint 绘制入口；MaskX/MaskY 在 Rust 侧连元数据字段都没有。",
+      "unimplemented": "mask 第二层纹理加载（Width/Height 尺寸、skip 12 字节、数据长度怪癖用 Length）与 tint 绘制；MaskX/Y 语义保持『不消费』。",
+      "minimal_fix": "image.rs 补 mask 元数据；entities.rs 增加 draw_tinted（主体后 mask、同坐标）；禁止 MaskX/Y 偏移。",
+      "fail_acceptance": "has_mask=true 两遍绘制/同坐标断言；mask 纹理尺寸与字节偏移断言；R3 变异（mask 点加 MaskX/Y）必须变红。"
+    },
+    {
+      "id": "GAP-4",
+      "title": "shadow 元数据无绘制消费（Crystal 亦然，需防回归）",
+      "priority": "P3",
+      "owner": "兵部(契约/防回归)",
+      "crystal_fact": "MLibrary.cs:862 ShadowX/ShadowY 声明、887-888 反序列化读取；Client 全树遮蔽注释/字符串后无其它生效读取（G5：hit_lines=6、other_read=0），即 Crystal 不绘制 shadow。",
+      "rust_consumption": "crates/mir-asset/src/image.rs:35-66 解析 shadow_x/shadow_y 入 ImageInfo；mir-render/mir-client 无消费（仅测试合成构造）。",
+      "unimplemented": "shadow 渲染（Crystal 也没有）；本轮不实现，只锁定『解析但不消费』。",
+      "minimal_fix": "不改渲染；在契约中标注 PARTIAL/不适用；未来若用 shadow 元数据需新增矩阵条目与验收。",
+      "fail_acceptance": "G5 全树扫描回归：新增生效 ShadowX/Y 读取 → other_read>0 → 变红；仅在注释/字符串提及 → 保持绿。"
+    },
+    {
+      "id": "GAP-5",
+      "title": "spellfx 旧居中入口未消费逐帧 signed offset",
+      "priority": "P1",
+      "owner": "兵部(契约) + 工部(R70 主候选)",
+      "crystal_fact": "Effect.cs:129-132/213-216 所有消费点显式传 offSet=true；MLibrary.cs:665 先 Offset(mi.X, mi.Y) 再 667 裁剪；GameScene 10926/10928 条件 offset。",
+      "rust_consumption": "crates/mir-client/src/ui/spellfx.rs:248-265 先算 frame_index 再居中（x+(CELL_WIDTH-width)/2, y+(CELL_HEIGHT-height)/2），随后 scene.draw_effect（entities.rs:1816-1831 绝对坐标、Over）；R68 offset 只在 projectile.rs:927/932 的 125/570 路径使用。",
+      "unimplemented": "spellfx 路径未消费帧 offset；居中与 Crystal offSet=true 语义不等价（居中量 + 未减去帧 offset）。",
+      "minimal_fix": "spellfx.rs:257-265 改用 draw_effect_with_offset（scene.rs:433-443 → entities.rs:1833-1870），offset 来自帧元数据；保持 kind/frame_index/时序/wire 不变。",
+      "fail_acceptance": "正/负 offset 合成 RGBA 位置断言；单帧单路径 offset 只应用一次；跨帧不累积；离屏不 panic；R68 125/570 回归不红。"
+    },
+    {
+      "id": "GAP-6",
+      "title": "GameScene 条件 offset 判据未移植",
+      "priority": "P2",
+      "owner": "兵部(契约) + 工部(R70/R71 UI 层)",
+      "crystal_fact": "GameScene.cs:10921-10928 blend 分支：fileIndex 14/27/100-199 → offSet=true 且 y 额外减 3*CellHeight；否则 offSet=(index>=2723 && index<=2732)。10932-10935 非 blend 分支：fileIndex==28 且 GetOffSet(index)!=Point.Empty → Point+true；否则整数重载（不偏移）。10923 用位与 &。",
+      "rust_consumption": "Rust 无对应条件偏移判据/API（mir-render 无『条件 offSet』参数，spellfx 也不走该路径）。",
+      "unimplemented": "fileIndex/index 条件偏移矩阵与『本次不偏移』表达。",
+      "minimal_fix": "渲染层只提供 offset 可选（Some/None 或 bool+offset）消费点；条件判据保留在 UI 调用方，不复制魔法 index 到渲染层。",
+      "fail_acceptance": "Some(offset) → 恰好一次且先裁剪；None → 不偏移；条件表达式在 UI 层断言保留；R1 变异（偏移改到裁剪后）必须让 G2 变红。"
+    }
+  ],
+  "r70_candidates": [
+    {
+      "id": "R70-C1",
+      "title": "spellfx 单路径逐帧 signed offset 消费（主候选）",
+      "kind": "A-局部生产落点（仅渲染层消费，不动 magic 映射/时序/wire）",
+      "priority": "P1",
+      "owner": "工部执行，兵部验契约",
+      "landing": {
+        "path": "crates/mir-client/src/ui/spellfx.rs",
+        "lines": "257-265",
+        "change": "把 scene.draw_effect(frame, kind, frame_index, x, y)（居中入口）替换为 scene.draw_effect_with_offset(...)（scene.rs:433-443 → entities.rs:1833-1870），坐标不再手工居中；offset 来自帧元数据（ImageInfo.offset_x/offset_y）。"
+      },
+      "criteria": [
+        "单帧单路径 offset 恰好应用一次，且发生在裁剪/离屏判断之前（等价 Crystal MLibrary 665→667 顺序）。",
+        "合成 ImageInfo offset=(+8,-8) 与 (-8,+8) 各断言 RGBA 位置/像素；跨帧不累积（每帧从帧元数据重新取）。",
+        "离屏/负坐标不 panic；不可见帧返回 false/skip 语义保持。",
+        "spellfx 帧序号与 timing（226-229 MAGIC_FX_FRAMES=10、MAGIC_FX_FRAME_MS=60）不变；ThunderBolt/Lightning kind 映射（252-256）不变；不新增 wire 字段。",
+        "R68 已有 125 飞行/570 命中 offset 路径回归不红；变异测试：把 offset 移到裁剪后 → 契约/测试必须失败。"
+      ],
+      "non_goals": [
+        "不实现 DrawBlend/rate/INVLIGHT。",
+        "不实现 mask/shadow 绘制。",
+        "不移植 GameScene 条件 offset 判据（留 R70/R71 UI 层）。"
+      ]
+    },
+    {
+      "id": "R70-C2",
+      "title": "渲染层通用『绝对坐标 + 可选 signed offset』单一 API 收敛",
+      "kind": "A-局部生产落点（仅渲染层消费）",
+      "priority": "P2",
+      "owner": "工部执行，兵部验契约",
+      "landing": {
+        "path": "crates/mir-render/src/entities.rs",
+        "lines": "1833-1870（draw_effect_with_offset 既有）",
+        "change": "在渲染层收敛一个统一入口（offset 可选、先偏移后绘制/裁剪），供 spellfx/其他 UI 复用；避免每个调用方各自居中或各自加 offset。"
+      },
+      "criteria": [
+        "同一帧两路径（draw_effect_with_offset 与统一入口）结果一致（像素级）。",
+        "offset 来源唯一（ImageInfo.offset_x/offset_y），不接受调用方随意叠加；None 语义=不偏移。",
+        "越界早退/裁剪语义与 Crystal 667 四条件集合对齐（截图坐标断言：像素中心在屏内/外边界）。",
+        "性能不退化（无每帧分配；不引入全局状态）。"
+      ],
+      "non_goals": [
+        "不动 spellfx 帧序号/时序。",
+        "不动 magic 映射与 wire。",
+        "不实现混合状态机。"
+      ]
+    },
+    {
+      "id": "R70-C3",
+      "title": "spellfx 帧尺寸/高度基准收敛（CELL_HEIGHT→帧元数据）",
+      "kind": "A-局部生产落点（仅渲染层相关，改坐标系而非魔数）",
+      "priority": "P3",
+      "owner": "工部执行，兵部验契约",
+      "landing": {
+        "path": "crates/mir-client/src/ui/spellfx.rs",
+        "lines": "257-265",
+        "change": "居中/高度计算改用帧元数据（ImageInfo.height/offset_y）而非 CELL_HEIGHT 假设，配合 C1 后不再出现『居中后再叠 offset』的双重修正。"
+      },
+      "criteria": [
+        "帧 height ≠ CELL_HEIGHT 的合成样本断言 y 不重复减 CELL_HEIGHT；offset_y 已含在元数据时不再二次减去。",
+        "跨帧尺寸变化（大帧/小帧）稳定，无逐帧抖动漂移。",
+        "与 C1 兼容：offset 仍在裁剪前、只应用一次。"
+      ],
+      "non_goals": [
+        "不改 magic 映射与帧数。",
+        "不实现 mask/shadow/混合。"
+      ]
+    }
+  ],
+  "boundaries": {
+    "not_claimed": [
+      "生产渲染一致（未实现 DrawBlend/mask/shadow/tinted；本次只做契约与审计工具）。",
+      "像素一致 / GPU 一致 / 真实素材验证 / 设备验证。",
+      "全 UI 覆盖（本轮只锚定 spellfx 旧居中入口与 R68 offset 路径）。",
+      "不声称 GameScene 条件 offset / 场景照明状态已移植。"
+    ],
+    "partial": [
+      "DrawBlend/shadow/mask 生产实现：PARTIAL（解析/元数据层面，无绘制实现）。",
+      "spellfx：PARTIAL（旧居中入口存在，offset 未消费）。",
+      "全 UI、真实素材、真实设备：PARTIAL/未覆盖。"
+    ],
+    "r69_scope": [
+      "R69-A 只交付：审计工具 tools/testing/round69_render_contract.py、本 expected 矩阵、target/round69/a 证据。",
+      "不改 crates/、不改测试、不改其他 docs、不 commit/push、不跑 ci.ps1/cargo。"
+    ],
+    "tool_limits": [
+      "审计工具是静态源码文本契约，不是运行时/GPU 验证；不模拟 D3D 像素、不加载真实素材。",
+      "G5 以遮蔽注释/字符串后的真实 token 为准；注释/字符串中的标识符不计入语义命中（比 plan 的『区分注释』更严格，避免无效消费误报）。",
+      "crop 只验证顺序与条件集合，不验证 DXManager 内部像素裁剪。"
+    ]
+  }
+}

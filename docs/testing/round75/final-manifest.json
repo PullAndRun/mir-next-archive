@@ -9,7 +9,8 @@
   "commit_chain": [
     "96e46cc",
     "a6e77ef",
-    "30246bc"
+    "30246bc",
+    "baf71d26a049eaaf55fdad29d86752a5e5cfed0c"
   ],
   "gate": {
     "head": "30246bc",
@@ -498,8 +499,9 @@
     {
       "path": "docs/testing/round75/README.md",
       "source": {
-        "kind": "working-tree",
-        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+        "kind": "tracked-blob",
+        "commit": "baf71d26a049eaaf55fdad29d86752a5e5cfed0c",
+        "object": "207bc5b6854d9f2c853f883d38d7a15a6737fcdb"
       },
       "bytes": 6803,
       "lines": 53,
@@ -508,8 +510,9 @@
     {
       "path": "docs/testing/round75/round75-lifecycle-contract.md",
       "source": {
-        "kind": "working-tree",
-        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+        "kind": "tracked-blob",
+        "commit": "baf71d26a049eaaf55fdad29d86752a5e5cfed0c",
+        "object": "f33d92ce700d5f42798b78e3b927e2d89d10c66e"
       },
       "bytes": 4810,
       "lines": 40,
@@ -518,8 +521,9 @@
     {
       "path": "docs/client.md",
       "source": {
-        "kind": "working-tree",
-        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+        "kind": "tracked-blob",
+        "commit": "baf71d26a049eaaf55fdad29d86752a5e5cfed0c",
+        "object": "1379db5911584fe4af008d1548b9f718564da116"
       },
       "bytes": 189342,
       "lines": 2324,
@@ -528,8 +532,9 @@
     {
       "path": "docs/roadmap.md",
       "source": {
-        "kind": "working-tree",
-        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+        "kind": "tracked-blob",
+        "commit": "baf71d26a049eaaf55fdad29d86752a5e5cfed0c",
+        "object": "9e3ec9322b4e728d3ca892c594317193d9414089"
       },
       "bytes": 50352,
       "lines": 373,
@@ -577,5 +582,7 @@
     }
   ],
   "self_reference_policy": "artifacts排除final-manifest.json及manifest.sha256；外置manifest.sha256仅摘要final-manifest.json",
-  "generated_utc": "2026-10-27T20:53:33.987900+00:00"
+  "generated_utc": "2026-10-28T04:56:00Z",
+  "delivery_head": "baf71d26a049eaaf55fdad29d86752a5e5cfed0c",
+  "delivery_head_note": "C1 文档批提交 baf71d2（六文件）；本清单位于该提交内，artifacts 不收录 final-manifest.json/manifest.sha256 自身。"
 }

@@ -1,0 +1,29 @@
+# R73 尚书省独立验收
+
+- **verdict：BLOCK；必改 2（S-D1、S-K1）；本次限定抽证未发现实现功能失败。** 主单 JJC-20261027-010；验收快照 HEAD/origin/main=`6407bf1a1f34ee8ae504e07149662c1ae070ab7d`。
+- 范围：仅非149/非ObjectSpell、ThunderBolt、param=true 的 Magic2[10..14] 静态目标格命中切片；elapsed 80ms/400ms 为产品近似，保留失败施法/Lightning/149旧路径。
+- **S-D1（Lead/post-audit 清单）**：[清单](../testing/round73/final-manifest.json) README 项 `git_blob=f2fdd11dc943d1d9e2b4860e1ddb81dce1223ee5`（:315），实际 delivery_head=3ee24e7 为 `7c0c1c1e0fe66eadfcd1998a006c0c248f9d4b54`；该项 blob_oid、bytes/SHA正确，tracked OID 字段陈旧。
+- S-D1 最小复现：`git rev-parse 3ee24e7:docs/testing/round73/README.md`（EXIT0，输出7c0c1c1…）对照清单:315；责任方更新该字段及外置摘要，独立重算后再验。尚书未代修清单。
+- **S-K1（礼部D/Lead协调）**：UTC15:58:13 `show JJC-20261027-010-sub-19c6a581 --json` 实值 Doing、delegation_result缺失；A/B/C为Done且有结果，父单Doing；父/四子todos均空。与“四子单Done”交接不符，readiness未齐。
+- S-K1 最小复现：`node C:/Users/diana/.dsh/skills/edict/scripts/edict.mjs show JJC-20261027-010-sub-19c6a581 --json`（EXIT0）；D真实承接者核验后提交delegate-result，再读父子单复核，不由尚书冒签。
+- 提交链/stat已逐项复核：93e1140→6183394（两文件+2318）→3378303（素材脚本/说明/裁定）→55f61c4→34d5e17→95e7807→3ee24e7→6407bf1；后五次仅文档/清单。
+- `git diff 3378303 -- crates`：EXIT0、0B；受限crates/tools/client/roadmap差异仅client §5.38 +11行与roadmap §二十一 +13行，未改实现/测试/协议。
+- 初始工作树仅两份monster-native freeze未跟踪；原字节44,844,165B/70845aef…、45,219,533B/c7d896e7…均匹配，未触碰。
+- 门禁只读原字节复算：attempt-1 49,146B/d1cbb67e22f2d4e2f6d15266f72e9fbf3d2099e2010397a2deca4583e8f328f3；attempt-2 182,653B/fec31da6a4e2500af17fef54c6ed4fd0e025de593577f0ec11a966ebcfb966b2。
+- attempt-3 213,076B/676b9d4f36a9a5ef59c47365eac890d42463d195c80532a6d12944ef49beddac；三次末段独立计数11OK/1FAIL、11OK/1FAIL、12OK/0FAIL；前两失败分别client_fx真实素材缺帧、PostgreSQL pool timed out。
+- attempt-3 meta实际14字段全部与gate段一致，HEAD3378303、EXIT0、UTC15:28:00–15:30:18Z、operator/attempt_history完整；UTC/身份来自meta，原log未独立内嵌这些事实；门禁后crates零差异。
+- 清单：35/35 path/bytes/SHA原字节匹配；git_blob项按各revision执行git show，tracked项对delivery_head原始blob OID/head_sha256复算；仅S-D1一字段不一致，无自引用。
+- 外置SHA=`d2e19276db251af265ddf1aadd312a1c86dc1166e374a0296ae7d821714f5348`匹配；stage=post-audit、delivery_head=3ee24e7；复算脚本`py -3 target/round73/shangshu/attempt-1/acceptance_verify.py`原始EXIT1，未将其记为通过。
+- 审计段与两报告一致：首轮BLOCK/T-D1→95e7807修复→T2 PASS-WITH-PARTIAL/T-D1 CLOSED；报告31行/6,218B/1e23f418…、附录13行/2,446B/b64cca1f…均独立匹配。T2核验的是较早33项快照，不替代本次35项核验。
+- 独立环境：CARGO_TARGET_DIR=`target/round73/shangshu/attempt-1/cargo-target`，TEMP=TMP=TMPDIR=`target/round73/shangshu/attempt-1/tmp`（实际绝对路径），CARGO_PROFILE_DEV_DEBUG=0；五组均带`--features mir-render/legacy`。
+- R73 round73_thunderbolt_hit_mapping：UTC15:58:15.837–15:58:46.451Z，9/0/0、EXIT0。
+- R71 round71_firewall_mapping：UTC15:58:46.451–15:58:48.458Z，8/0/0、EXIT0；R70 round70_effect_blend_offset：15:58:48.458–15:58:49.786Z，9/0/0、EXIT0。
+- R63 round63_projectile_wire：UTC15:58:49.786–15:58:51.159Z，3/0/0、EXIT0；`--lib ui::spellfx`：15:58:51.159–15:58:56.652Z，4/0/0（328 filtered）、EXIT0；合计33/0/0。
+- `cargo fmt --all -- --check`：UTC15:58:56.652–15:58:58.988Z EXIT0；`py -3 tools/docs/check_links.py`：15:58:58.989–15:58:59.763Z EXIT0；`git diff --check`：15:58:59.764–15:58:59.799Z EXIT0。本次未重跑R72、clippy、变异或全量门禁。
+- 文档披露核验：README/契约/client/roadmap无整轮通过、严格Crystal等价或设备视觉已签核扩称；素材仅本地扩帧且未入库、attempt-1/2失败、C BLOCK历史及T-D1修复均保留。
+- C主证据63行/9,677B/6d897337…、补记21行/2,907B/ae6b715e…匹配；M3仅删截止且clamp4保留、400ms泄漏frame14，M5仅技能条件，以C精确红证据为权威，B扩展仅辅助；148不存在，实际120/123/149；源码:309注释勘误依Lead裁定交R74。
+- PARTIAL原号承接：GAP-5/R70-C1（其余26技能/1620/起手20/3/300ms/其他调用点）、R70-C3、R71时钟/对象（严格NextMotion/100ms取整/每Process一步/149持久场/26移除/寿命/4000窗）、R73-T1（等号/跳帧/ActionFeed/回执起算/owner/Light6/声音）。
+- GAP-1/2/R70-C2（rate0.8与src×0.8×alpha未实施、DrawColour/INVLIGHT/完整DrawBlend/API）、GAP-3/4/6、R72 B plan-M4/legacy lint、R71-C7/E1/R69条件5（仅E1补救CLOSED）、R68/R49–R70/R61–R67历史设备/GPU/全UI/跨后端/Live音频缺口继续PARTIAL。
+- CLI：因BLOCK未执行done，EXIT=N/A；父单未转Review。独立只读`validate --as shangshu`：UTC15:59:42.218–15:59:42.269Z，原始EXIT0；字段校验不消除S-D1/S-K1。
+- 证据：[runs.json](../../target/round73/shangshu/attempt-1/runs.json)、[checks.json](../../target/round73/shangshu/attempt-1/checks.json)、[logs](../../target/round73/shangshu/attempt-1/logs/)；命令/UTC/EXIT/原字节摘要可复查。
+- 权限声明：仅写本验收文档与target/round73/shangshu/attempt-1/**，未改交付物/清单/实现/测试，未commit/push，未运行tools/dev/ci.ps1，未写冻结JSON。

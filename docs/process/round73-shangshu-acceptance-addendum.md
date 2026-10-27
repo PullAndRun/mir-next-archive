@@ -1,0 +1,24 @@
+# R73 尚书省 attempt-2 复验附录
+
+- **verdict：PASS-WITH-PARTIAL；S-D1 CLOSED、S-K1 CLOSED；必改 0。** 主单 JJC-20261027-010；HEAD=origin/main=`57010fffb012680dff47292cf1e4fbd7d0bbf978`。
+- attempt-1 BLOCK 两项历史保全：[首次验收](round73-shangshu-acceptance.md)保持原字节；本附录关闭 README OID 陈旧及 D 子单未收口，不改写历史结论。
+- S-D1：57010ff 将 README git_blob 对齐 `7c0c1c1e0fe66eadfcd1998a006c0c248f9d4b54`；逐 revision 的 git show/git rev-parse 均吻合；外置 SHA=`9aec18547fddc6f487419aacacb6ac77d741bb34ae6da1716876e6da1f1a1133` 匹配。
+- 清单独立复算：`py -3 target/round73/shangshu/attempt-2/check_manifest.py` 最终原始 EXIT0；35/35 path/bytes/SHA256、所有 tracked OID/head_sha256 一致，无清单或外置摘要自引用；audit=PASS-WITH-PARTIAL/T-D1 CLOSED，当前必改0。
+- 复算器初次 EXIT1：把既有未跟踪首次验收报告误归入两freeze；修正分类后 EXIT0，initial-check.json/initial-runs.json 保留初次失败，不改交付物消除失败。
+- `git log --oneline 3378303..57010ff` 六次提交均为文档/清单；`git diff 3378303 -- crates` 初末均 EXIT0、0B。6407bf1→57010ff 仅 README OID/修复说明及外置摘要，无实现/测试内容差异。
+- 初始 `git status --porcelain` 实值三项：两份 monster-native freeze JSON，加未跟踪首次验收报告；与预期仅两项的差异如实披露。两freeze仍为44,844,165B/70845aef…、45,219,533B/c7d896e7…原字节，未写入。
+- S-K1：实测父单 Doing；A sub-41587dae、B sub-86bd7fae、C sub-cb519bdf、D sub-19c6a581 全部 Done 且 delegation_result 非空；父/子 todos 均空，list --all 证实恰四子、无孙单。D闭环与16:08:23Z礼部留痕一致。
+- 门禁原字节：attempt-3 213,076B / `676b9d4f36a9a5ef59c47365eac890d42463d195c80532a6d12944ef49beddac`；meta实际14字段逐项匹配gate，HEAD3378303、EXIT0、12OK/0FAIL；UTC/身份来自meta，未重跑全量。
+- T报告31行/6,218B/1e23f418…、T2附录13行/2,446B/b64cca1f…；C报告63行/9,677B/6d897337…、补记21行/2,907B/ae6b715e…原字节均匹配；T首轮BLOCK→T2 CLOSED历史保留，T2较早33项不代替本次35项。
+- 范围抽查：README/契约/client§5.38/roadmap§二十一无整轮、全部雷电、严格Crystal等价或设备视觉签核扩称；M3仅删截止且clamp4保留/400ms泄漏frame14、M5仅技能条件，以C精确证据为权威；B扩展只辅助，148不存在，实际120/123/149。
+- 沿用 attempt-1 五组33/0/0（R73 9、R71 8、R70 9、R63 3、lib4）及原始EXIT0，逐日志bytes/SHA复核；HEAD差分仅清单字段，未将沿用写成本次重跑33组。
+- 本次另复跑 `cargo test -p mir-client --features mir-render/legacy --test round73_thunderbolt_hit_mapping`：UTC16:14:01.812352–16:14:33.119998Z，9/0/0、原始EXIT0，实测31.308秒（L2，静态检查不能代替运行时结果）。
+- 本次环境：CARGO_PROFILE_DEV_DEBUG=0；CARGO_TARGET_DIR=`target/round73/shangshu/attempt-2/cargo-target`，TEMP=TMP=TMPDIR=`target/round73/shangshu/attempt-2/tmp`，实际绝对路径及日志摘要见runs.json。
+- `validate --as shangshu` 前/后原始EXIT均0；后验UTC16:15:44.120459–16:15:44.171720Z，241条任务符合schema v3.1；字段校验不替代独立验收。
+- 已执行 `node C:/Users/diana/.dsh/skills/edict/scripts/edict.mjs done JJC-20261027-010 --as shangshu`：UTC16:15:10.464141–16:15:10.532784Z，**原始EXIT0**；后续show确认主单Review，未代门下确认或冒称主单Done。
+- done包装器在保存原始EXIT0后，打印✅触发GBK UnicodeEncodeError、包装器EXIT1；保留错误事实，未重复done；UTF-8包装器另行validate/show均EXIT0。
+- PARTIAL原号承接：GAP-5/R70-C1（其余26技能/1620/起手20/3/300ms/其他调用点）、R70-C3、R71时钟/对象（strict NextMotion/100ms/每Process一步/149持久场/26移除/寿命/4000窗）、R73-T1（等号/跳帧/ActionFeed/回执/owner/Light6/声音）。
+- GAP-1/2/R70-C2（rate0.8及src×0.8×alpha未实施/DrawColour/INVLIGHT/完整DrawBlend/API）、GAP-3/4/6、R72 B plan-M4/legacy lint、R71-C7/E1/R69条件5（仅E1补救CLOSED）、R68/R49–R70/R61–R67历史设备/GPU/全UI/跨后端/Live音频继续PARTIAL；源码:309勘误交R74。
+- 验收范围仅非149/非ObjectSpell且param=true的ThunderBolt静态目标格Magic2[10..14]，elapsed80/400ms产品近似、rate1 CPU Add；素材本地扩帧与两次失败历史保留。
+- 证据：[check_manifest.py](../../target/round73/shangshu/attempt-2/check_manifest.py)、[check.json](../../target/round73/shangshu/attempt-2/check.json)、[runs.json](../../target/round73/shangshu/attempt-2/runs.json)、[logs](../../target/round73/shangshu/attempt-2/logs/)；完整命令、UTC、原始EXIT及原字节摘要可复查。
+- 写入仅本附录与target/round73/shangshu/attempt-2/**（含隔离target/TEMP）；首次验收报告保全，未改交付物/清单/实现/测试/冻结JSON，未commit/push，未运行tools/dev/ci.ps1。

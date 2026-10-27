@@ -115,7 +115,9 @@ if (-not $SkipTests) {
     # `fault_pg` 是「真 PG 故障注入」套件：并行跑会与其它 PG 用例抢连接/被 terminate 干扰
     # （实测 workspace 并行时 `transient_terminate_is_transparent_*` 偶发红；单独跑 0.44s 通过）。
     # 这里跳过并行版本，改由第 5 步的**串行** PG 门禁跑（覆盖率不变）。
-    Invoke-Gate "cargo test --workspace" "cargo test --workspace -- --skip duo_ --skip fault_pg"
+    # R68 起：真实 125/570 逐帧偏移集成用例依赖 mir-render 的 legacy WZL 读取路径，
+    # workspace 测试必须显式启用该特性，否则 live 用例会因「合成图库不可读」而假红/跳过。
+    Invoke-Gate "cargo test --workspace" "cargo test --workspace --features mir-render/legacy -- --skip duo_ --skip fault_pg"
 }
 
 # 2) 协议生成器自检（需要 github/Crystal）

@@ -1,8 +1,8 @@
 {
   "schema": "round75-final-manifest-v1",
   "round": "R75",
-  "stage": "pre-audit",
-  "status": "D 文档批、待独立终审",
+  "stage": "post-audit",
+  "status": "post-audit：独立终审 PASS-WITH-PARTIAL、必改 0；尚书验收/门下确认待办",
   "subtask": "JJC-20261028-002-sub-db4a1027",
   "head_snapshot": "30246bc",
   "head_snapshot_full": "30246bce34c357e941874628e2697b80a0ff42d0",
@@ -10,7 +10,10 @@
     "96e46cc",
     "a6e77ef",
     "30246bc",
-    "baf71d26a049eaaf55fdad29d86752a5e5cfed0c"
+    "baf71d26a049eaaf55fdad29d86752a5e5cfed0c",
+    "baf71d2",
+    "6b6e4bc",
+    "a74cfbcf3a7bc253e44b42f7a258a9cd51aecfbf"
   ],
   "gate": {
     "head": "30246bc",
@@ -84,7 +87,8 @@
     "G编号以已提交测试与plan为准：G1量化、G2稀疏、G3回卷、G4窗口、G5移除留事件、G6重入纯查询、G7非Repeat隐藏；任务摘要错位不改变测试。",
     "本次授权round75-lifecycle-contract.md替代旧plan中的round75-lifetime-contract.md；旧计划原件不改。",
     "七项PARTIAL与历史原号保留；R74 artifacts=34；两freeze未跟踪、原字节SHA不变；不称生产寿命修复/Crystal严格等价/Blizzard生产迁移。",
-    "C3已披露基线勘误04:31Z标注瑕疵，本清单不把它当可信运行时间；对象与Effect推进规则不同不禁止共用底层时间来源。"
+    "C3已披露基线勘误04:31Z标注瑕疵，本清单不把它当可信运行时间；对象与Effect推进规则不同不禁止共用底层时间来源。",
+    "R75-T 独立终审于 6b6e4bc 执行，PASS-WITH-PARTIAL 必改 0；README 计数勘误在 C3=a74cfbcf 修正，外置 SHA 87B(CRLF) 事实以 T 报告为准。"
   ],
   "partial_ledger": [
     {
@@ -184,7 +188,7 @@
       "sha256": "c7d896e7f5eee4706b943912c0c564d10d61c98d163143f051c2d632daecde32"
     }
   ],
-  "artifact_count": 38,
+  "artifact_count": 39,
   "artifacts": [
     {
       "path": "crates/mir-client/tests/round75_spell_lifetime_contract.rs",
@@ -500,12 +504,12 @@
       "path": "docs/testing/round75/README.md",
       "source": {
         "kind": "tracked-blob",
-        "commit": "baf71d26a049eaaf55fdad29d86752a5e5cfed0c",
-        "object": "207bc5b6854d9f2c853f883d38d7a15a6737fcdb"
+        "commit": "a74cfbcf3a7bc253e44b42f7a258a9cd51aecfbf",
+        "object": "4fae469c9b17f03649cb10261f4adc85a99ebd85"
       },
-      "bytes": 6803,
+      "bytes": 7235,
       "lines": 53,
-      "sha256": "29a0531f5c08cee282601187134ce36a19bf13a4b52f39166ecb9d1e4fd612c0"
+      "sha256": "89704fd2b452a9e86c9ec80a72fee8faada7cc621dc8456bd3c30a9bc3f57a4f"
     },
     {
       "path": "docs/testing/round75/round75-lifecycle-contract.md",
@@ -579,10 +583,34 @@
       "bytes": 6728,
       "lines": 0,
       "sha256": "60debbaa28d44c19226d5c075fd0237f00f372001f8baac2aaba6d268ae0794a"
+    },
+    {
+      "path": "docs/testing/round75/round75-final-audit.md",
+      "bytes": 5658,
+      "sha256": "acdafa7e90ce0e60a9e136524f91d571747178a034dbd3b2ebff066724f605e4",
+      "source": {
+        "kind": "tracked-blob",
+        "commit": "a74cfbcf3a7bc253e44b42f7a258a9cd51aecfbf",
+        "object": "291f553361ab263ed4e32138b194dce6c3360753"
+      }
     }
   ],
   "self_reference_policy": "artifacts排除final-manifest.json及manifest.sha256；外置manifest.sha256仅摘要final-manifest.json",
-  "generated_utc": "2026-10-28T04:56:00Z",
-  "delivery_head": "baf71d26a049eaaf55fdad29d86752a5e5cfed0c",
-  "delivery_head_note": "C1 文档批提交 baf71d2（六文件）；本清单位于该提交内，artifacts 不收录 final-manifest.json/manifest.sha256 自身。"
+  "generated_utc": "2026-10-28T05:12:00Z",
+  "delivery_head": "a74cfbcf3a7bc253e44b42f7a258a9cd51aecfbf",
+  "delivery_head_note": "C3 终审提交 a74cfbcf（README 计数勘误+T 报告）；本清单在 post-audit 刷新提交内，artifacts 不收录 final-manifest.json/manifest.sha256 自身。",
+  "audit": {
+    "verdict": "PASS-WITH-PARTIAL",
+    "must_fix": 0,
+    "report": "docs/testing/round75/round75-final-audit.md",
+    "report_bytes": 5658,
+    "report_sha256": "acdafa7e90ce0e60a9e136524f91d571747178a034dbd3b2ebff066724f605e4",
+    "head": "6b6e4bc",
+    "commit": "a74cfbcf3a7bc253e44b42f7a258a9cd51aecfbf",
+    "errata": [
+      "README 回归计数 9/9/5→5/9/9（已更正）",
+      "外置 SHA 文件实为 87B CRLF（摘要正确，未改）"
+    ],
+    "scope": "R75 149 生命周期差异合同测试锁（生产零改）"
+  }
 }

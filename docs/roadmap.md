@@ -321,3 +321,16 @@ R49–R68历史PARTIAL按原编号承接；125/570已做偏移消费不扩大为
 - GAP-3/4/6：mask/tint/shadow绘制（shadow只解析不消费）、场景条件offset/Light3未闭合。
 - 严格NextMotion、初始100ms取整、每Process一步、149持久场/26移除仍PARTIAL；4000ms只是瞬态事件窗口。
 - R68/R69条件5（a77永久缺口）、R49–R67/R61–R67与R70历史原号承接；全UI/设备/跨后端未验收，两历史freeze保持原状。
+
+## 二十、第72轮（毒云映射切片）
+
+功能提交 `2a31554`（2文件+1698，已推送）；本批文档pre-audit/未提交，待终审，见[R72索引](testing/round72/README.md)、[契约](testing/round72/round72-poison-contract.md)与[client §5.37](client.md#537-毒云逐格映射r72)。
+
+- 🟡 仅149 PoisonCloud：`spell == Spell::PoisonCloud && event.from_object_spell`；Magic2 `1650+phase`、`phase=(age/120)%20`，20×120ms elapsed循环。
+- 格锚点 `world_to_screen`，`draw_effect_blend(FxKind::Swing, …, true)`零起点寻址，signed offset当帧一次；非149/1620/R71路径不变。
+- [C首轮](testing/round72/round72-c-evidence.md)BLOCK两项，经[B attempt-2补证](../target/round72/b/attempt-2/link.md)撤回旧「一一对应」及[Lead裁定](process/round72-lead-ruling.md)CLOSED；[C2](testing/round72/round72-c-addendum.md) PASS-WITH-PARTIAL/必改0。
+- Lead唯一attempt-1 HEAD `2a31554` EXIT0、12OK/0FAIL；官方clippy不带legacy。UTC终点交接12:41:34Z/meta12:41:53Z差异见索引，D未重跑门禁。
+- R71时钟/对象：严格NextMotion/初始100ms/每Process一步/持久场/26移除/对象寿命继续PARTIAL；AREA_MS=4000ms仅产品瞬态窗。
+- GAP-1/2/R70-C2：rate0.8与 `src*0.8*alpha` 未实施，当前rate1 CPU近似；DrawColour/INVLIGHT仍PARTIAL。
+- GAP-3/4/6：Light3、mask/tint/shadow、场景条件offset/AnimationOffset未闭合；GAP-5/R70-C1其他26技能/起手/其他调用点继续PARTIAL。
+- R70-C3全局尺寸居中、B plan-M4精确居中残余、legacy clippy既有债、真实素材/GPU视觉签核未做；R71-C7及历史原号不清零，两份freeze未触碰。

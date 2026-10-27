@@ -1,0 +1,140 @@
+{
+ "schema_version": 1,
+ "round": 72,
+ "status": "pre-audit",
+ "scope": "149 PoisonCloud finite mapping slice; PASS-WITH-PARTIAL; pending independent final audit",
+ "feature_head": "2a31554bfe31a05bb828119f3fb96d8a6544fba3",
+ "feature_subject": "feat(client): R72 149 PoisonCloud 逐格精灵映射与锚点迁移（第72轮）",
+ "feature_diff": {
+  "files": 2,
+  "insertions": 1698,
+  "test_lines": 1660
+ },
+ "documentation_state": "documentation batch committed in this commit; manifest-only refresh (delivery_head + tracked documentation blobs) follows as the next manifest-only commit",
+ "artifact_policy": "Paths are repository-relative; tracked:true identifies the blob from git rev-parse <commit>:<path>; sha256/bytes identify captured file bytes; tracked:false denotes untracked/ignored working-tree evidence at the pre-commit snapshot.",
+ "gate": {
+  "attempt": 1,
+  "head": "2a31554bfe31a05bb828119f3fb96d8a6544fba3",
+  "exit_code": 0,
+  "items_ok": 12,
+  "items_fail": 0,
+  "utc_start": "2026-10-27T12:36:59Z",
+  "operator": "lead",
+  "clippy_legacy_feature": false,
+  "rerun_by_D": false,
+  "utc_end": "2026-10-27T12:41:04Z",
+  "utc_end_method": "log file final-write mtime (UTC); handoff 12:41:34Z and intermediate meta 12:41:53Z withdrawn"
+ },
+ "review": {
+  "C_initial": "BLOCK; 2 required dispositions",
+  "lead_required_1": "CLOSED: B plan-M2/M7 supplemental evidence and correction; B plan-M4 exact centering remains approximate",
+  "lead_required_2": "CLOSED as PARTIAL: pre-existing legacy clippy lint debt; official gate without legacy EXIT0; future cleanup",
+  "C2": "PASS-WITH-PARTIAL; required changes 0"
+ },
+ "discrepancies": [
+  "C2 actual SHA256 is f7315ce0ffa8045ebdcf1b8903842c75af4b15cce7268b2ca2c6ebe1aaa716f8, not handoff abbreviation 7f3ad7a4...",
+  "C2 checks and addendum capture prior Lead ruling e0fbe58c49d32b800154eb9aa41f1b994daba1351405ca80d2a45bf3e045efcf / 3767 bytes; current ruling is a5758e574ebeb718d0c025c43dcca0d9f9492f2167c6379e24e3c51a17873727 / 3766 bytes after abbreviated test SHA correction; historical evidence is not rewritten",
+  "Gate utc_end reconciled by Lead before commit: final value 2026-10-27T12:41:04Z from gate log mtime; handoff 12:41:34Z and intermediate meta 12:41:53Z withdrawn (log bytes/sha unchanged)"
+ ],
+ "partial_carry_forward": [
+  "R71 clock/object: strict NextMotion, initial 100ms rounding, one step per Process, persistent field / removal 26 and object lifetime; AREA_MS 4000ms is a product transient window",
+  "GAP-1/2 / R70-C2: rate0.8 and src*0.8*alpha not implemented; current rate1 CPU approximation, DrawColour, INVLIGHT and complete DrawBlend remain PARTIAL",
+  "GAP-3/4/6: Light3, mask/tint/shadow, scene conditional offset and AnimationOffset",
+  "GAP-5 / R70-C1: other 26 skills, non149, 1620 startup and other call sites",
+  "R70-C3 global centering; B plan-M4 exact centering residual; existing legacy clippy debt; real asset/GPU visual signoff not performed",
+  "R71-C7 and all earlier historical numbered residuals remain open"
+ ],
+ "artifacts": [
+  {
+   "path": "crates/mir-client/src/ui/spellfx.rs",
+   "tracked": true,
+   "blob": "be69c6050e4a9e3558a6f958cda5297904a4bc04",
+   "sha256": "df572677d7b013c3c09dab9c764afbda2095cacec820f3292bfc7abca2f78be6",
+   "bytes": 17755,
+   "lines": 386
+  },
+  {
+   "path": "crates/mir-client/tests/round72_poison_cloud_mapping.rs",
+   "tracked": true,
+   "blob": "27d7dcab03ace8ab5a51b6692732ab8ed2b33fab",
+   "sha256": "58f64ab2d30b69f3aea5c07a8975e988ca842bce45972499a6f93e120958baea",
+   "bytes": 65322,
+   "lines": 1660
+  },
+  {
+   "path": "docs/process/round72-plan.md",
+   "tracked": true,
+   "blob": "82d2783a6ad3d8e7793d42a8c049681ad95b76e5",
+   "sha256": "7261b2d29b48c786b40124b29c9180abbe6d2a653bffaccd73c72c2d723e64ce",
+   "bytes": 16013,
+   "lines": 161
+  },
+  {
+   "path": "docs/process/round72-menxia-review.md",
+   "tracked": true,
+   "blob": "caff7840e16cebb8f2215de70a872f99a750a995",
+   "sha256": "e1f46afbe7fee919b871ca885b90de8772877413ed2cce19c0f866c49948a446",
+   "bytes": 3523,
+   "lines": 35
+  },
+  {
+   "path": "docs/process/round72-shangshu-dispatch.md",
+   "tracked": true,
+   "blob": "143ed18738d1ba2cf9f66bbcda4b0505e110a482",
+   "sha256": "2d1109711c495996b3b374346f038ef6f56b9fb9b906da4c768fdf5322781e83",
+   "bytes": 4517,
+   "lines": 39
+  },
+  {
+   "path": "docs/testing/round72/round72-c-evidence.md",
+   "tracked": false,
+   "sha256": "5f6addd04b331f5341f0b6032332e768d76fb0e7585571e6f7d1fea630f7ed6a",
+   "bytes": 6291,
+   "lines": 42,
+   "note": "untracked working-tree evidence at pre-commit snapshot; committed with documentation batch"
+  },
+  {
+   "path": "docs/testing/round72/round72-c-addendum.md",
+   "tracked": false,
+   "sha256": "f7315ce0ffa8045ebdcf1b8903842c75af4b15cce7268b2ca2c6ebe1aaa716f8",
+   "bytes": 2654,
+   "lines": 20,
+   "note": "untracked working-tree evidence at pre-commit snapshot; committed with documentation batch"
+  },
+  {
+   "path": "docs/process/round72-lead-ruling.md",
+   "tracked": false,
+   "sha256": "a5758e574ebeb718d0c025c43dcca0d9f9492f2167c6379e24e3c51a17873727",
+   "bytes": 3766,
+   "lines": 30,
+   "note": "untracked working-tree evidence at pre-commit snapshot; committed with documentation batch"
+  },
+  {
+   "path": "target/round72/b/attempt-2/link.md",
+   "tracked": false,
+   "sha256": "6e91372b62348a9cdf2155d826cc1c963672bcd92e86dd17c16dcec92a42816e",
+   "bytes": 11550,
+   "lines": 98
+  },
+  {
+   "path": "target/round72/gate/attempt-1.log",
+   "tracked": false,
+   "sha256": "6fe99c93ee0bfaed2ede492071d5c2822415e453df37a3ec6025436410b43a3c",
+   "bytes": 212729
+  },
+  {
+   "path": "target/round72/gate/attempt-1.meta.txt",
+   "tracked": false,
+   "sha256": "67a0a84816b8e9260203f86fcd5ff29a0a68d35d006c6644d52ad70a6f656b3e",
+   "bytes": 605,
+   "lines": 12
+  },
+  {
+   "path": "target/round72/c2/attempt-1/checks.json",
+   "tracked": false,
+   "sha256": "3a3961b75b8e337b05c033b8921bf39e7d5f9534ab6f36ef16ef6bcca9b8d06e",
+   "bytes": 3354,
+   "lines": 56
+  }
+ ]
+}

@@ -2280,3 +2280,13 @@ cargo fmt --all -- --check
     `PathFinder.cs:274-294`）；本作要求对角两侧正交格都可走，宁可绕路也不穿墙。
     另外 Crystal 的 `MaxNodes` 是路径点数上限（`:210-214`），本作拆成
     「搜索节点上限」与「路径步数上限」两个参数。
+
+## 5.37 毒云逐格映射（R72）
+
+- 功能HEAD `2a31554`，2文件+1698；本节为后置pre-audit工作树文档，待终审，见[R72索引](testing/round72/README.md)与[契约](testing/round72/round72-poison-contract.md)。
+- 仅 `spell == Spell::PoisonCloud && event.from_object_spell`（149来源）→ Magic2 `1650+phase`，`phase=(age/120)%20`；20×120ms elapsed循环。
+- `world_to_screen`格锚点，`draw_effect_blend(FxKind::Swing, …, true)`复用Magic2/start0，signed offset当帧一次；rate1 CPU Add，不居中；非149/1620/R71路径不变。
+- AREA_MS=4000ms为产品瞬态窗，非Crystal寿命；严格NextMotion/初始100ms/每Process一步/对象寿命继续R71 PARTIAL。
+- GAP-1/2/R70-C2：rate0.8与 `src*0.8*alpha` 未实施；GAP-3/4/6：Light3、DrawColour/AnimationOffset等未闭合；GAP-5其他26技能未迁，真实素材视觉签核未做。
+- C原BLOCK两项经[B补证勘误](../target/round72/b/attempt-2/link.md)与[Lead裁定](process/round72-lead-ruling.md)CLOSED；[C2](testing/round72/round72-c-addendum.md) PASS-WITH-PARTIAL/必改0；B plan-M4精确居中残余及legacy clippy既有债保留。
+- Lead唯一门禁attempt-1 HEAD `2a31554` EXIT0、12OK/0FAIL，官方clippy不带legacy；合成测试及门禁不构成整体或视觉等价验收。

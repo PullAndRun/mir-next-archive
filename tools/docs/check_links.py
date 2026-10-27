@@ -58,8 +58,21 @@ def iter_markdown_files() -> list[Path]:
     return [path for path in files if path.is_file()]
 
 
-def check_relative_links(errors: list[str]) -> int:
+TARGET_DIR = (ROOT / "target").resolve()
+
+
+def _points_into_target(resolved: Path) -> bool:
+    """target/ 是被 gitignore 的构建/证据目录，可随时清理，不是文档资产。
+
+    文档里指向 target/ 的链接只作可选追溯，不作为可交付链路；清理构建产物
+    （例如按用户要求清理 ~300GB target 目录）不应把门禁的链接检查拖红。
+    """
+    return resolved == TARGET_DIR or TARGET_DIR in resolved.parents
+
+
+def check_relative_links(errors: list[str]) -> tuple[int, int]:
     checked = 0
+    skipped_target = 0
     for path in iter_markdown_files():
         text = strip_code(path.read_text(encoding="utf-8"))
         for match in LINK_RE.finditer(text):
@@ -70,11 +83,14 @@ def check_relative_links(errors: list[str]) -> int:
             if not target or target.startswith(SKIP_PREFIXES):
                 continue
             resolved = (path.parent / target).resolve()
+            if _points_into_target(resolved):
+                skipped_target += 1
+                continue
             checked += 1
             if not resolved.exists():
                 rel = path.relative_to(ROOT)
                 errors.append(f"断链：{rel} -> {raw}")
-    return checked
+    return checked, skipped_target
 
 
 def check_readme_docs(required: list[str], errors: list[str]) -> None:
@@ -157,17 +173,23 @@ def main() -> int:
     required = [item.strip() for item in args.require.split(",") if item.strip()]
 
     errors: list[str] = []
-    checked = check_relative_links(errors)
+    checked, skipped_target = check_relative_links(errors)
     check_readme_docs(required, errors)
     if (ROOT / "docs/world/market.md").is_file():
         check_market_packets(errors)
 
     if errors:
-        print(f"[FAIL] {len(errors)} 个问题（已检查 {checked} 条相对链接）")
+        print(
+            f"[FAIL] {len(errors)} 个问题（已检查 {checked} 条相对链接，"
+            f"跳过 {skipped_target} 条 target/ 构建证据链接）"
+        )
         for item in errors:
             print(f"  - {item}")
         return 1
-    print(f"[OK] {checked} 条相对链接、{len(required)} 篇 README 文档引用、市场包编号全部一致")
+    print(
+        f"[OK] {checked} 条相对链接、{len(required)} 篇 README 文档引用、"
+        f"市场包编号全部一致（另跳过 {skipped_target} 条 target/ 构建证据链接）"
+    )
     return 0
 
 

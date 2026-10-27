@@ -1,8 +1,8 @@
 # R75 149 事件→精灵生命周期差异合同
 
-- 阶段：**D 文档批、待独立终审**；`stage=pre-audit`；子单 `JJC-20261028-002-sub-db4a1027`。
+- 阶段：**post-audit（独立终审 PASS-WITH-PARTIAL、必改 0；尚书/门下待办）**；`stage=post-audit`；子单 `JJC-20261028-002-sub-db4a1027`。
 - 范围：仅新增 [7 项测试锁](../../../crates/mir-client/tests/round75_spell_lifetime_contract.rs)，生产 `crates/**/src/**` 相对 `96e46cc` 零差异；不是生产寿命修复。
-- 提交链：`96e46cc`（规划/门下/派发）→`a6e77ef`（证据/裁定/勘误）→`30246bc`（测试文件）；HEAD 快照 `30246bc`。
+- 提交链：`96e46cc`（规划/门下/派发）→`a6e77ef`（证据/裁定/勘误）→`30246bc`（测试文件）→`baf71d2`（文档批）→`6b6e4bc`（清单固化）；T 终审被审 HEAD 快照 `6b6e4bc`。
 - [计划](../../process/round75-plan.md) / [门下 C1–C6](../../process/round75-menxia-review.md#L25) / [派发](../../process/round75-shangshu-dispatch.md) / [差异合同](round75-lifecycle-contract.md) / [清单](final-manifest.json) / [外置 SHA](manifest.sha256)。
 - 本次授权合同名为 `round75-lifecycle-contract.md`，替代旧计划中的 `round75-lifetime-contract.md`；G 编号以已提交测试及计划为准。
 
@@ -26,7 +26,7 @@
 - M1 `>=`→`>` 指定 G1 红；M2 `next=now+interval`→`next+=interval` 指定 G2 红；M3 回卷额外 removed=true 指定 G3 红，均为测试私有模型变异。
 - M4 隔离生产 AREA_MS 4000→2000 指定 G4 红；M5 隔离生产26额外删events 指定 G5 红；后者仅证伪现状合同，不评价未来修复设计。
 - A/B/C 五变异均有编译 EXIT0→指定断言红101→恢复七绿；M1–M3 变体测试 SHA 不同，恢复为基线；固定断言/expected/fixture不改。
-- [A manifest](../../../target/round75/a/attempt-1/manifest.json) / [负控汇总](../../../target/round75/a/attempt-1/negctrl/logs/negctrl-summary.json)；A/B 回归 R74/R73/R72 为9/9/5；新增 ignore/allow=0。
+- [A manifest](../../../target/round75/a/attempt-1/manifest.json) / [负控汇总](../../../target/round75/a/attempt-1/negctrl/logs/negctrl-summary.json)；A/B 回归 R74/R73/R72 为 5/9/9（合计23，T 终审独立复算口径）；新增 ignore/allow=0。
 - [B manifest](../../../target/round75/b/attempt-1/manifest.json)：独立 oracle 82/82 agree，声明12个frame samples；[C oracle](../../../target/round75/c/attempt-1/oracle/oracle-output.json)：13个整帧case、63个模型轨迹采样，125 agree/0 mismatch；计数不互换。G3/G7不计生产覆盖。
 
 ## 门禁与证据复核链
@@ -50,4 +50,5 @@
 7. R75-E2/C-M2：A首次actual原stdout缺失，冻结早于首次actual仅声明级 PARTIAL；C3只关闭身份基线冲突。
 
 - 不称生产寿命修复、Crystal严格等价或Blizzard生产迁移；模型与产品各自固定预期。真实素材/GPU/设备视觉/全UI/跨后端/Live音频未覆盖；未来替换现状合同须显式supersede并新增生产验收。
-- 两历史freeze未跟踪且SHA不变；[D静态自检](../../../target/round75/d/attempt-1/)记录逐项bytes/SHA、链接、JSON、差异与生产零改；本批等待独立终审。
+- 两历史freeze未跟踪且SHA不变；[D静态自检](../../../target/round75/d/attempt-1/)记录逐项bytes/SHA、链接、JSON、差异与生产零改；本批已独立终审、待尚书/门下。
+- [T 独立终审](round75-final-audit.md)：PASS-WITH-PARTIAL、必改 0；记两条非阻断勘误——逐套回归计数应为 5/9/9、外置 SHA 文件实为 87B（CRLF）而摘要正确；本页已按前者更正，后者以 T 报告为准。

@@ -253,6 +253,21 @@ pub const POISON_CLOUD_FRAME_COUNT: i64 = 20;
 /// `PoisonCloud` 每帧时长（Crystal `SpellObject.cs:57-64` 的 `FrameInterval = 120` 毫秒）。
 pub const POISON_CLOUD_FRAME_MS: i64 = 120;
 
+/// 非 149 来源、成功施法的 `ThunderBolt` 命中帧起始号（Crystal `PlayerObject.cs:2956-2963`：
+/// `new Effect(Libraries.Magic2, 10, 5, 400, TargetPoint / ob)` 的 `BaseIndex = 10`）。
+///
+/// 有限切片：只迁移「`Magic2[10..=14]`、`Duration / Count = 400 / 5 = 80 ms/帧` 的 elapsed
+/// 帧窗 + 格锚点 + 当帧 signed offset 一次」。`Duration = 400` 是 Crystal 事实；本实现的
+/// 「80 ms elapsed + 恰好 400 ms 截止」是**产品精灵窗近似**，不是 Crystal 的严格
+/// `NextMotion` 时钟（`Effect.cs:38-61`、`Effect.cs:81-96` 未迁移）。
+pub const THUNDER_BOLT_HIT_BASE_INDEX: u32 = 10;
+/// `ThunderBolt` 命中帧数（Crystal `PlayerObject.cs:2956-2963` 的 `Count = 5`）。
+pub const THUNDER_BOLT_HIT_FRAME_COUNT: i64 = 5;
+/// `ThunderBolt` 命中每帧时长（Crystal `Duration / Count = 400 / 5 = 80` 毫秒）。
+pub const THUNDER_BOLT_HIT_FRAME_MS: i64 = 80;
+/// `ThunderBolt` 命中精灵窗时长（Crystal `Duration = 400` 毫秒；产品精灵窗截止）。
+pub const THUNDER_BOLT_HIT_DURATION_MS: i64 = 400;
+
 /// 画技能命中闪光（`magic.wzl` 精灵）。
 ///
 /// 与 [`draw`] 的色块叠加并存：色块给出范围/路径，精灵给出「打中了」的反馈。
@@ -265,6 +280,10 @@ pub const POISON_CLOUD_FRAME_MS: i64 = 120;
 /// 149 `S.ObjectSpell` 来源的 `PoisonCloud` 同理走 Crystal `SpellObject.cs:57-64` 的有限
 /// 切片（`Magic2[1650..=1669]`、120 ms/帧、二十帧 elapsed 循环），复用 `FxKind::Swing`
 /// 的零起点寻址与当帧 signed offset；非 149 来源保持通用路径（其他 26 技能映射 GAP-5）。
+///
+/// 非 149 来源、成功施法（`S.Magic`(120) / `S.ObjectMagic`(123) 的 `cast = true`）的
+/// `ThunderBolt` 走 Crystal `PlayerObject.cs:2956-2963` 的命中精灵
+/// `Magic2[10..=14]`（400 ms / 5 帧 = 80 ms/帧）；施法失败或 149 来源仍走通用路径。
 pub fn draw_sprites(
     frame: &mut Frame,
     events: &[SpellEvent],
@@ -276,6 +295,41 @@ pub fn draw_sprites(
         let duration = duration_ms(event.spell);
         let age = now_ms.saturating_sub(event.started_ms);
         if age < 0 || age >= duration {
+            continue;
+        }
+        // 非 149 来源、成功施法（`S.Magic`(120) / `S.ObjectMagic`(123) 的 `cast = true`，
+        // 即 `SpellEvent::param = true` 且 `from_object_spell = false`）的 ThunderBolt：
+        // Crystal `PlayerObject.cs:2956-2963` 的命中特效
+        // `Effect(Libraries.Magic2, BaseIndex = 10, Count = 5, Duration = 400, TargetPoint/ob)`。
+        // 帧号 = `10 + min(age / 80, 4)`（`Effect.cs:38-61`
+        // `NextFrame = Start + (Duration / Count) * (CurrentFrame + 1)`，即 80 ms/帧）。
+        //
+        // * `Duration = 400` 是 Crystal 事实；本实现的「80 ms elapsed + 恰好 400 ms 截止」
+        //   是**产品精灵窗近似**，不是 Crystal 的严格 `NextMotion` 时钟（`Effect.cs:81-96`
+        //   的 `CMain.Time <= NextFrame` 才推一帧、每轮 `Process` 至多一步、
+        //   `Owner.SkipFrames` 额外加帧；`PlayerObject.cs:2819-2835` 的 `Cast` 帧循环与
+        //   `ActionFeed` 起算也未迁移 → PARTIAL）。
+        // * 落点：Crystal 有 `ob` 时随 `Owner.DrawLocation`（`Effect.cs:113-130`）；本作
+        //   **无 owner**，改用包内 `TargetPoint` 的快照位置（`SpellEvent::location`），
+        //   **不能**取施法者位置（无 owner 分支的语义）。
+        // * 其它 PARTIAL（承 R71/R72 原号）：`Light = 6` 的 `LightColour` 光照（`Effect.cs:21`）、
+        //   施法音 `SoundManager.PlaySound(20000 + (ushort)Spell * 10)`、严格 `NextMotion`
+        //   与对象寿命均未迁移；`DrawBlend(..., true, Rate = 1F)`（`MLibrary.cs:692-709`
+        //   的当帧 i16 signed offset 先叠后裁）由
+        //   `draw_effect_blend(..., apply_offset = true)` 消费一次，Add 混合
+        //   （`DXManager.cs:353-384` 的 `SourceAlpha/One`）即 `Frame::blit_add`。
+        // * 精灵窗结束后（`age >= 400`）不再画精灵，但 [`draw`] 的 700 ms 文字/色块窗
+        //   （`CAST_MS`）与通用 Cast = false 闪光路径都保持原样。
+        // * 非 ThunderBolt / 149 来源 / 施法失败（`param = false`）→ 下落到旧通用路径
+        //   （Lightning 旧行为不变）。
+        if matches!(event.spell, Spell::ThunderBolt) && !event.from_object_spell && event.param {
+            if age >= THUNDER_BOLT_HIT_DURATION_MS {
+                continue;
+            }
+            let phase = (age / THUNDER_BOLT_HIT_FRAME_MS).min(THUNDER_BOLT_HIT_FRAME_COUNT - 1);
+            let index = THUNDER_BOLT_HIT_BASE_INDEX + u32::try_from(phase).unwrap_or(0);
+            let (x, y) = scene.world_to_screen(center, event.location);
+            scene.draw_effect_blend(frame, mir_render::FxKind::Swing, index, x, y, true);
             continue;
         }
         // 149 `S.ObjectSpell` 来源的 FireWall：Crystal `SpellObject.cs:49` 的有限切片——

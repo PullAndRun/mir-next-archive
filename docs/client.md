@@ -2310,3 +2310,15 @@ cargo fmt --all -- --check
 - 提交链c80ef2a→c1d0c76→7095808→c222fe6；生产仅spellfx:309注释，零可执行差异；G5注释措辞按Lead裁定非阻塞披露。
 - Lead唯一门禁attempt-1 HEAD c222fe6 EXIT0、12/12 OK、0 FAIL；D纯文档不重跑cargo/CI；C独算4帧，B独算18帧。
 - 完整DrawBlend/BlendMode/DXManager、NORMAL rate/INVLIGHT设备状态、严格NextMotion/寿命、其他技能及历史PARTIAL原号见索引；game-assets未入库，真实素材/设备视觉未签核。
+
+## 5.40 R75：149 精灵生命周期差异合同
+
+- 阶段：D 文档批、待独立终审，`pre-audit`；见[R75索引](testing/round75/README.md)与[差异合同](testing/round75/round75-lifecycle-contract.md)。
+- 提交链96e46cc→a6e77ef→30246bc；仅新增56,403B/1454行七G测试锁，生产src零改；G1/2/4/5/6生产实画，G3/7纯模型。
+- Crystal SpellObject初始100ms向下取整、>=、每Process一步；Effect严格>；产品FireWall/PoisonCloud AREA_MS=4000，2000仅采样。
+- 149同写fields/events；26只删fields保留[id1,id2]事件；149同ID重入追加三op，draw是纯查询；这些为现状差异合同。
+- M1–M3模型、M4–M5生产副本五负控红101后恢复七绿；B oracle82/82、12个frame samples，C13整帧case/63模型采样、125 agree。
+- C首核FAIL/必改2→C2 BLOCK/必改1（任务书误引3,216B旧快照）→基线勘误→C3 PASS-WITH-PARTIAL/必改0、基线冲突CLOSED；E1流程/E2声明级PARTIAL保留，A/B补录只增。
+- Lead唯一门禁attempt-1 HEAD30246bc、EXIT0、12/12 OK；log214,417B，SHA e6eec120…；D仅静态自检，不重跑cargo/CI。
+- 七项PARTIAL及历史原号见索引：GAP-1/2/R70-C2、GAP-5/R70-C1/R70-C3/GAP-3/4/6、R71时钟/对象/R73-T1、R72 B plan-M4/legacy lint、R71-C7/历史E1/R69条件5、R68/R49–R70/R61–R67及R75-E1/E2；R74 artifacts=34照承。
+- 不称生产寿命修复、Crystal严格等价或Blizzard生产迁移；真实素材/GPU/设备视觉/全UI/跨后端/Live音频未覆盖。

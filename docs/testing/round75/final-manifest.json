@@ -1,0 +1,581 @@
+{
+  "schema": "round75-final-manifest-v1",
+  "round": "R75",
+  "stage": "pre-audit",
+  "status": "D 文档批、待独立终审",
+  "subtask": "JJC-20261028-002-sub-db4a1027",
+  "head_snapshot": "30246bc",
+  "head_snapshot_full": "30246bce34c357e941874628e2697b80a0ff42d0",
+  "commit_chain": [
+    "96e46cc",
+    "a6e77ef",
+    "30246bc"
+  ],
+  "gate": {
+    "head": "30246bc",
+    "head_full": "30246bce34c357e941874628e2697b80a0ff42d0",
+    "attempt": 1,
+    "exit": 0,
+    "items_ok": 12,
+    "items_fail": 0,
+    "utc_start": "2026-10-27T20:44:09Z",
+    "utc_end": "2026-10-27T20:47:52Z",
+    "command": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale",
+    "operator": "lead",
+    "log": "target/round75/gate/attempt-1.log",
+    "log_bytes": 214417,
+    "log_sha256": "e6eec12095ea80b042dde250f4f1fd55d3d4b76aa5708a94d2da15df2aa38342",
+    "meta": "target/round75/gate/attempt-1.meta.txt",
+    "meta_bytes": 481,
+    "meta_sha256": "4483324991985472bc1bbb7e4a023fdb5d1d53b37e88564512858edd7c8a1fba",
+    "unique_full_gate": true
+  },
+  "coverage": {
+    "tests": 7,
+    "production_draw_groups": [
+      "G1",
+      "G2",
+      "G4",
+      "G5",
+      "G6"
+    ],
+    "model_only_groups": [
+      "G3",
+      "G7"
+    ],
+    "mutations": [
+      "M1",
+      "M2",
+      "M3",
+      "M4",
+      "M5"
+    ],
+    "a_b_regression": [
+      9,
+      9,
+      5
+    ],
+    "b_oracle": {
+      "agree": 82,
+      "mismatch": 0,
+      "declared_frame_samples": 12
+    },
+    "c_oracle": {
+      "agree": 125,
+      "mismatch": 0,
+      "frame_cases": 13,
+      "model_samples": 63
+    },
+    "c3_static": {
+      "pass_count": 55,
+      "fail_count": 0
+    }
+  },
+  "disclosures": [
+    "C首核FAIL/退补证：技术PASS、证据必改2，C-M1 B失败attempt日志覆盖、C-M2 A首次actual原stdout缺失。",
+    "Lead裁定与证据勘误只增不改；E1流程CLOSED-AS-PARTIAL，E2首次actual时间序声明级PARTIAL。",
+    "C2 BLOCK/必改1：任务书误引3216B/600460581f3ca1eba26227bf0f903862a1ba43b299a6e341addc3b5b4f8de8b6中间快照；实物3210B/26eaf4faa657661f2dea8aeaf27e9d0165973d7d5defd743358f68f410046224。",
+    "C→C2→基线勘误→C3三次复核链；C3 PASS-WITH-PARTIAL、必改0、基线冲突CLOSED；不回改C/C2历史原文。",
+    "B aborted attempt：WindowsApps python EXIT49；注入/红/恢复/绿未运行，无有效红绿证据产生；被覆盖原字节不可恢复，只增补录不伪造。",
+    "A expected generated_utc=2026-10-27T19:31:57Z；首次actual19:35:21Z仅声明；现存日志19:42:01Z起；19:35:43Z夹具为旁证不替代stdout；补录定稿3210B。",
+    "唯一全量门禁由Lead在30246bc执行attempt-1；D仅L0静态自检，不重跑cargo/ci.ps1/矩阵、不commit/push。",
+    "生产crates/**/src/**相对96e46cc零改；唯一新增测试56403B/1454行；新增ignore/allow=0。",
+    "G编号以已提交测试与plan为准：G1量化、G2稀疏、G3回卷、G4窗口、G5移除留事件、G6重入纯查询、G7非Repeat隐藏；任务摘要错位不改变测试。",
+    "本次授权round75-lifecycle-contract.md替代旧plan中的round75-lifetime-contract.md；旧计划原件不改。",
+    "七项PARTIAL与历史原号保留；R74 artifacts=34；两freeze未跟踪、原字节SHA不变；不称生产寿命修复/Crystal严格等价/Blizzard生产迁移。",
+    "C3已披露基线勘误04:31Z标注瑕疵，本清单不把它当可信运行时间；对象与Effect推进规则不同不禁止共用底层时间来源。"
+  ],
+  "partial_ledger": [
+    {
+      "item": 1,
+      "ids": [
+        "GAP-1/2",
+        "R70-C2"
+      ],
+      "scope": "完整DrawBlend/rate/Mode/DrawColour；src×0.8×alpha未实施"
+    },
+    {
+      "item": 2,
+      "ids": [
+        "GAP-5/R70-C1",
+        "R70-C3",
+        "GAP-3/4/6"
+      ],
+      "scope": "其余149/1620/起手/调用点；尺寸居中；mask/tint/shadow/Light/AnimationOffset"
+    },
+    {
+      "item": 3,
+      "ids": [
+        "R71时钟/对象",
+        "R73-T1"
+      ],
+      "scope": "完整生产NextMotion/Repeat/26寿命；历史反向注释子项已修不扩称"
+    },
+    {
+      "item": 4,
+      "ids": [
+        "R72 B plan-M4",
+        "legacy lint",
+        "R71-C7",
+        "历史E1",
+        "R69条件5"
+      ],
+      "scope": "C7永久PARTIAL、历史E1仅补救CLOSED、条件5永久缺口"
+    },
+    {
+      "item": 5,
+      "ids": [
+        "R68",
+        "R49–R70",
+        "R61–R67",
+        "R61 P01–P12",
+        "R62①–④",
+        "R63 P1–P7",
+        "R64①–⑥",
+        "R65 G1.2/G2",
+        "R66生命周期/全局水位",
+        "R67容量/保护/map epoch"
+      ],
+      "scope": "全部原号照承，R74 artifacts=34"
+    },
+    {
+      "item": 6,
+      "ids": [
+        "R75-E1",
+        "C-M1"
+      ],
+      "scope": "B aborted-attempt字节不可恢复，流程CLOSED-AS-PARTIAL"
+    },
+    {
+      "item": 7,
+      "ids": [
+        "R75-E2",
+        "C-M2"
+      ],
+      "scope": "A首次actual stdout缺失，声明级PARTIAL；基线冲突由C3 CLOSED"
+    }
+  ],
+  "boundaries": [
+    "真实素材",
+    "GPU",
+    "设备视觉",
+    "全UI",
+    "跨后端",
+    "Live音频"
+  ],
+  "preserved_untracked_freezes": [
+    {
+      "path": "docs/testing/monster-native/player-resource-freeze-before.json",
+      "source": {
+        "kind": "untracked-preserved"
+      },
+      "bytes": 44844165,
+      "lines": 373005,
+      "sha256": "70845aefd4dd689a55ab0618b36bbf692a4b33ebb5ee2f3a662dedc17a3dc9de"
+    },
+    {
+      "path": "docs/testing/monster-native/player-resource-freeze.json",
+      "source": {
+        "kind": "untracked-preserved"
+      },
+      "bytes": 45219533,
+      "lines": 373060,
+      "sha256": "c7d896e7f5eee4706b943912c0c564d10d61c98d163143f051c2d632daecde32"
+    }
+  ],
+  "artifact_count": 38,
+  "artifacts": [
+    {
+      "path": "crates/mir-client/tests/round75_spell_lifetime_contract.rs",
+      "source": {
+        "kind": "tracked-blob",
+        "commit": "30246bc",
+        "object": "592b9943353afb34c1f91c014245c2dbc9155ca9"
+      },
+      "bytes": 56403,
+      "lines": 1454,
+      "sha256": "ecff550dfa0bcd671d32723bd18fbcd444c93c4d173c1562bfbc0f8ad185a05c"
+    },
+    {
+      "path": "docs/process/round75-plan.md",
+      "source": {
+        "kind": "tracked-blob",
+        "commit": "96e46cc",
+        "object": "6980f3fcb1f2f607412412f16ed80bdcc6907746"
+      },
+      "bytes": 16247,
+      "lines": 136,
+      "sha256": "0975b0c4c80b31e9a5e8975bff62e6e43b1ae333aadbfcff5eea922a9e3f9011"
+    },
+    {
+      "path": "docs/process/round75-menxia-review.md",
+      "source": {
+        "kind": "tracked-blob",
+        "commit": "96e46cc",
+        "object": "a1382478e7fd8a9d5343bbdb87dcf40b63a9b10f"
+      },
+      "bytes": 5506,
+      "lines": 35,
+      "sha256": "40d1a3e08ddac063d4dc50a7ada09162f7ee4cbc9567098f52d3837ac1e0e7ad"
+    },
+    {
+      "path": "docs/process/round75-shangshu-dispatch.md",
+      "source": {
+        "kind": "tracked-blob",
+        "commit": "96e46cc",
+        "object": "bd3fd064430c51dac27821c16a8f6cdbc48a1922"
+      },
+      "bytes": 4103,
+      "lines": 28,
+      "sha256": "1c281928c6992f720df34eda46cbb265121a15433a62c086c6bc6d644499a49b"
+    },
+    {
+      "path": "docs/process/round75-lead-ruling.md",
+      "source": {
+        "kind": "tracked-blob",
+        "commit": "a6e77ef",
+        "object": "47993c66a364f482a503f2337155c0b5f2221101"
+      },
+      "bytes": 3328,
+      "lines": 22,
+      "sha256": "6a1e4601b46b1cdfc067adcc440f6957a8c5857a1becd24bfe5aa5848f1eaaa1"
+    },
+    {
+      "path": "docs/testing/round75/round75-c-evidence.md",
+      "source": {
+        "kind": "tracked-blob",
+        "commit": "a6e77ef",
+        "object": "95103b598d28b44808d5eb07bdd355060bbce4d3"
+      },
+      "bytes": 5365,
+      "lines": 39,
+      "sha256": "8d9bb8fcc97057b844f6ed02c530d180804440a4c32a8179e4817ed338fbb529"
+    },
+    {
+      "path": "docs/testing/round75/round75-c-addendum.md",
+      "source": {
+        "kind": "tracked-blob",
+        "commit": "a6e77ef",
+        "object": "ed13fd385dd820ac9b31a0ba55723fe894928860"
+      },
+      "bytes": 3207,
+      "lines": 18,
+      "sha256": "f14bc7fb22eb6d264ed55a68dfa0a81ec7509bf60cf8c5a20d6403ba32f63fc1"
+    },
+    {
+      "path": "docs/testing/round75/round75-evidence-erratum.md",
+      "source": {
+        "kind": "tracked-blob",
+        "commit": "a6e77ef",
+        "object": "1b9fd5b6cb685730f91739d70f870e660ba3416b"
+      },
+      "bytes": 2983,
+      "lines": 28,
+      "sha256": "3d007410b47902d69bb3cb24ddc7bb9842a21c1d99225bc34fa12bab2619bc37"
+    },
+    {
+      "path": "docs/testing/round75/round75-baseline-erratum.md",
+      "source": {
+        "kind": "tracked-blob",
+        "commit": "a6e77ef",
+        "object": "10cd86f6fc3e1a3c6514109ae4cf290d2c5c03ff"
+      },
+      "bytes": 1560,
+      "lines": 7,
+      "sha256": "82cf8b52355e2731dd3286f61a3aa0a61b1ebb851ca18148c75086a085e5f32a"
+    },
+    {
+      "path": "docs/testing/round75/round75-c-baseline-addendum.md",
+      "source": {
+        "kind": "tracked-blob",
+        "commit": "a6e77ef",
+        "object": "62646ee912cc20ec0c1aed14821926bee951132b"
+      },
+      "bytes": 2201,
+      "lines": 12,
+      "sha256": "ab5841e6686050ce13c53ac925800f02b9673161f1ccff0fe5ba652f676a9d90"
+    },
+    {
+      "path": "target/round75/gate/attempt-1.log",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 214417,
+      "lines": 3717,
+      "sha256": "e6eec12095ea80b042dde250f4f1fd55d3d4b76aa5708a94d2da15df2aa38342"
+    },
+    {
+      "path": "target/round75/gate/attempt-1.meta.txt",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 481,
+      "lines": 13,
+      "sha256": "4483324991985472bc1bbb7e4a023fdb5d1d53b37e88564512858edd7c8a1fba"
+    },
+    {
+      "path": "target/round75/a/attempt-1/manifest.json",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 27075,
+      "lines": 437,
+      "sha256": "c10a84fe46c5233c9530f73dbae126d2949e0996576ee5cec76fa87ea4b73520"
+    },
+    {
+      "path": "target/round75/a/attempt-1/README.md",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 4682,
+      "lines": 63,
+      "sha256": "f0d4233e68f3cbfab7561b793971bbf370ebe22c89119f96ffae5ba028569047"
+    },
+    {
+      "path": "target/round75/a/attempt-1/negctrl/logs/negctrl-summary.json",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 21773,
+      "lines": 218,
+      "sha256": "5fae262e091af4a6965e2f5217cd11510a9d59d3a67be6a3bcbcdee7ec7399b4"
+    },
+    {
+      "path": "target/round75/a/attempt-1/frozen/expected.json",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 12630,
+      "lines": 697,
+      "sha256": "e9fb241ce4b5922caa765b61f66769b8fb937da9475d2ba1007e65a88ce8458a"
+    },
+    {
+      "path": "target/round75/a/attempt-1/first-actual-claim-amendment.md",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 3210,
+      "lines": 32,
+      "sha256": "26eaf4faa657661f2dea8aeaf27e9d0165973d7d5defd743358f68f410046224"
+    },
+    {
+      "path": "target/round75/a/attempt-1/first-actual-claim-amendment.sha256",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 125,
+      "lines": 1,
+      "sha256": "1851f73c051817b0526bc6855bd06d24b43332cc34acd11d23a2d2ac972a07a8"
+    },
+    {
+      "path": "target/round75/a/attempt-1/first-actual-artifacts/PROVENANCE.txt",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 420,
+      "lines": 5,
+      "sha256": "ca1328d501a5914ea740d8ed250ca7cc8be6b003aeb0077c04ed77cf950362dd"
+    },
+    {
+      "path": "target/round75/a/attempt-1/first-actual-artifacts/SHA256SUMS",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 558,
+      "lines": 8,
+      "sha256": "8b8748aa31875ae7650493c69ef7d7f1820daa2b5fcde095609ddbde10ffeac7"
+    },
+    {
+      "path": "target/round75/b/attempt-1/manifest.json",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 10461,
+      "lines": 101,
+      "sha256": "a881667d7f2ac76fc345fb0c93ba7f3feef1503343c61378f70679c3f3e42dc1"
+    },
+    {
+      "path": "target/round75/b/attempt-1/README.md",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 4037,
+      "lines": 43,
+      "sha256": "d7e62e6008b078eeaa6ba3ed2918270340978c2275f11e0dff17212d2943c9ea"
+    },
+    {
+      "path": "target/round75/b/attempt-1/aborted-attempt-record.md",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 3134,
+      "lines": 27,
+      "sha256": "cb2cc30ba149a4ffdaccc4de665b5023cb46f50d844ecdb8e1f76a4c3f3f7765"
+    },
+    {
+      "path": "target/round75/b/attempt-1/aborted-attempt-record.sha256",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 92,
+      "lines": 1,
+      "sha256": "d93dd089c62bf4cd3d13b9f44d9aad3b810ef831a8ce802775be73306d78d519"
+    },
+    {
+      "path": "target/round75/b/attempt-1/attempt-log-amendment.md",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 1243,
+      "lines": 12,
+      "sha256": "80f9966daf91d011f9a79fcc9a6caa4b05b3cfd9c526e9ffceeae1d323a4a233"
+    },
+    {
+      "path": "target/round75/b/attempt-1/oracle/oracle-output.json",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 29119,
+      "lines": 1249,
+      "sha256": "6e732695c39e9015f48b7e4a67b862fb5e7622023622af6e9fa9e2d96b35c515"
+    },
+    {
+      "path": "target/round75/c/attempt-1/runs.json",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 32145,
+      "lines": 965,
+      "sha256": "b92866482fcadecb4e076bb2a038c329fa1aa39cdd81a2ed708e3728ef89ed46"
+    },
+    {
+      "path": "target/round75/c/attempt-1/oracle/oracle-output.json",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 42125,
+      "lines": 2153,
+      "sha256": "44894c51bcb136e1d3aea0cc7ed338633d768622bb57e50ac202f04789268aed"
+    },
+    {
+      "path": "target/round75/c2/attempt-1/checks.json",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 29280,
+      "lines": 647,
+      "sha256": "8b7f8cec7ca6d94d92fc536a0dd41d6e7a5fdfdf140e14c17a22b689c84bbbde"
+    },
+    {
+      "path": "target/round75/c3/attempt-1/checks.json",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 29212,
+      "lines": 809,
+      "sha256": "4feaf5b4d51f0d67f6ca3a10c8cc1392ad471e384973b4d1c17141f2408ced0a"
+    },
+    {
+      "path": "docs/testing/round75/README.md",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 6803,
+      "lines": 53,
+      "sha256": "29a0531f5c08cee282601187134ce36a19bf13a4b52f39166ecb9d1e4fd612c0"
+    },
+    {
+      "path": "docs/testing/round75/round75-lifecycle-contract.md",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 4810,
+      "lines": 40,
+      "sha256": "667a44066babcccdf294da32e358a912b05cf13af999d2d6d61d75d2657635c0"
+    },
+    {
+      "path": "docs/client.md",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 189342,
+      "lines": 2324,
+      "sha256": "ad1b450858b56318f5ff4b9c9357fa3292154b01db9dd8fa28083a6c38b0d77b"
+    },
+    {
+      "path": "docs/roadmap.md",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 50352,
+      "lines": 373,
+      "sha256": "5369846c362dc077da08e5337392943b1e0d8102e1fbfa3741749c9e2f09089c"
+    },
+    {
+      "path": "target/round75/a/attempt-1/first-actual-artifacts/magic.wzl",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 274,
+      "lines": 0,
+      "sha256": "f678a3485ac907c547b5f071cc10bc8135513ecb264b409b7ca4b74c790f4820"
+    },
+    {
+      "path": "target/round75/a/attempt-1/first-actual-artifacts/magic.wzx",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 6592,
+      "lines": 0,
+      "sha256": "91f6e863ac7aaa5f27919546a090105a2faf485dcbdcae941be08834f05c29a3"
+    },
+    {
+      "path": "target/round75/a/attempt-1/first-actual-artifacts/magic2.wzl",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 748,
+      "lines": 0,
+      "sha256": "f2ccbe57336be8a516e48ea7706cf13805b5007279f6ab62b909f615aa968e3d"
+    },
+    {
+      "path": "target/round75/a/attempt-1/first-actual-artifacts/magic2.wzx",
+      "source": {
+        "kind": "working-tree",
+        "snapshot_head": "30246bce34c357e941874628e2697b80a0ff42d0"
+      },
+      "bytes": 6728,
+      "lines": 0,
+      "sha256": "60debbaa28d44c19226d5c075fd0237f00f372001f8baac2aaba6d268ae0794a"
+    }
+  ],
+  "self_reference_policy": "artifacts排除final-manifest.json及manifest.sha256；外置manifest.sha256仅摘要final-manifest.json",
+  "generated_utc": "2026-10-27T20:53:33.987900+00:00"
+}

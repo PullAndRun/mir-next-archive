@@ -357,3 +357,17 @@ R49–R68历史PARTIAL按原编号承接；125/570已做偏移消费不扩大为
 - 未做：完整DrawBlend/BlendMode/DXManager、NORMAL rate0.8/INVLIGHT设备状态、严格NextMotion/对象寿命、其他技能及真实素材/GPU/设备视觉签核；game-assets未入库。
 - PARTIAL：GAP-1/2、R70-C2及GAP-5/R70-C1双记、R70-C3、R71时钟/对象、R72 B plan-M4、R73-T1、GAP-3/4/6；R71-C7永久、E1仅补救CLOSED，R69条件5及R68/R49–R70/R61–R67照承，全UI/跨后端/Live音频未闭合。
 - 下一步候选：独立终审本批文档；另轮立项补NORMAL rate/Mode设备证据、严格时钟/寿命或其他技能映射，不扩大本切片结论。
+
+## 二十三 第75轮：149 生命周期差异合同
+
+- 阶段：D 文档批、待独立终审，pre-audit；[R75索引](testing/round75/README.md)、[差异合同](testing/round75/round75-lifecycle-contract.md)、[清单](testing/round75/final-manifest.json)。
+- 提交链96e46cc（规划/门下/派发）→a6e77ef（证据/裁定/勘误）→30246bc（唯一新增七G测试文件）；生产零改，无生产寿命修复。
+- G1量化/等号、G2稀疏一步、G3模型Repeat回卷、G4产品4000ms窗、G5真实26保留事件、G6真实149重入三op/纯查询、G7模型nonrepeat隐藏；149→26→149的对象ID与事件ID分别锁定。
+- M1/M2/M3仅模型比较/排期/回卷；M4/M5仅隔离生产窗/26删事件；五项红101→恢复七绿；A/B回归9/9/5。
+- B oracle82/82 agree、12个frame samples；C独立13整帧case+63模型采样、125 agree/0 mismatch；G3/G7不算生产覆盖。
+- C首核FAIL/必改2；Lead裁定及证据勘误后，C2因任务书误引3,216B/60046058…中间快照BLOCK/必改1；实物3,210B/26eaf4fa…，基线勘误+C3确认冲突CLOSED、PASS-WITH-PARTIAL/必改0。
+- A首次actual stdout缺失，冻结先于首次actual仅声明级PARTIAL；B失败attempt字节不可恢复、无有效红绿被毁，流程CLOSED-AS-PARTIAL；只增补录，不回改C/C2或A/B历史。
+- Lead唯一全量attempt-1 HEAD30246bc、EXIT0、12/12 OK、UTC20:44:09Z–20:47:52Z（2026-10-27）；log214,417B/SHA e6eec120…；D不重跑cargo/CI/矩阵。
+- 七项PARTIAL与原号照承：GAP-1/2/R70-C2；GAP-5/R70-C1/R70-C3/GAP-3/4/6；R71时钟对象/R73-T1；R72 B plan-M4/legacy lint、R71-C7永久/历史E1仅补救CLOSED/R69条件5；R68/R49–R70/R61–R67；R75-E1；R75-E2，细项见索引。
+- R74 artifacts实数34；两freeze原字节/未跟踪状态保全。完整DrawBlend/rate/Mode、严格寿命及其他技能未清零，不称Crystal严格等价或Blizzard生产迁移。
+- 后续：本批独立终审→尚书验收→门下确认；未来生产修复须显式supersede现状合同，真实素材/GPU/设备视觉/全UI/跨后端/Live音频另立证据。

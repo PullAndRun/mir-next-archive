@@ -1,7 +1,7 @@
 # R73：非149雷电术命中五帧映射
 
 - 主单 `JJC-20261027-010`；基线 `93e1140`；DAG：A兵部 → B工部 → C刑部 → Lead提交/门禁 → D礼部。
-- 阶段：**D 文档批、待独立终审**；`stage=pre-audit`，PASS-WITH-PARTIAL 候选；本页不代替终审或整轮验收。
+- 阶段：**独立终审完成：PASS-WITH-PARTIAL（首轮 BLOCK→T-D1 清单字段修复→T2 复审 CLOSED，必改 0）**；`stage=post-audit`；尚书验收/附录门禁结论见终审两份报告；本页不代替整轮验收或尚书验收。
 - 提交链：`6183394`（feat(client): R73 非149雷电术命中五帧逐格映射（第73轮），2文件 +2318）→ `3378303`（fix(assets): magic2 拆包补雷电命中 10..14，修复 R73 门禁真实素材缺帧）。
 - HEAD快照 `3378303`；D只写六份授权文档及 `target/round73/d/attempt-1/**` 自检证据，不提交、不推送、不重跑全量门禁。
 
@@ -49,5 +49,6 @@
 
 ## 清单与D自检
 
-- [final-manifest.json](final-manifest.json)为pre-audit；生产/测试使用 `3378303` git blob（与 `6183394` 同内容），其余逐工作树bytes/SHA冻结；[外置摘要](manifest.sha256)不作自引用。
+- [final-manifest.json](final-manifest.json)为post-audit（35 artifacts：33 交付+终审报告+复审附录）；生产/测试使用 `3378303` git blob（与 `6183394` 同内容），其余逐工作树/受限提交 blob bytes/SHA冻结；[外置摘要](manifest.sha256)不作自引用。
+- 终审证据：[终审报告](round73-final-audit.md)（首轮 BLOCK，T-D1 已修复）、[复审附录](round73-final-audit-addendum.md)（PASS-WITH-PARTIAL、T-D1 CLOSED）；证据根 `target/round73/{t,t2}/attempt-1/`。
 - D证据目录：[attempt-1](../../../target/round73/d/attempt-1/)；执行链接检查、diff空白检查、JSON解析/外置SHA/逐项bytes和SHA复算、`git diff 3378303 -- crates`空检查；以该目录实际EXIT和结果为准。

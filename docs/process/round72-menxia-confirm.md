@@ -16,5 +16,5 @@
 - 历史原号：R71-E1补救CLOSED仅指补救，R71-C7两份c5c7d8中间日志不可恢复、R69条件5 a77历史红/隔离/日志缺口均永久PARTIAL；旧BLOCK保留，新证据不冒充历史原件。
 - PARTIAL承接：严格NextMotion/初始100ms取整/每Process一步/149持久场/26移除/对象寿命；4000ms仅产品瞬态窗；GAP-1/2、R70-C2 rate0.8/src×0.8×alpha/DrawColour/INVLIGHT/完整DrawBlend；GAP-3/4/6 Light3/mask/tint/shadow/场景offset/AnimationOffset。
 - PARTIAL承接：GAP-5/R70-C1其余26技能/1620/其他调用点、R70-C3居中及B plan-M4精确写法残余、legacy lint债；R68/R49–R70/R61–R67原号不清零，全UI/真实素材/像素/GPU/设备/跨后端/Live音频未签核。
-- 范围：仅149 PoisonCloud逐格精灵映射有限切片；本次只读抽核现有测试与变异留存链，未重跑全量门禁；确认报告留工作树，未commit/push。
-- 偏差：本轮初次脚本默认GBK读取UTF-8 meta EXIT1，次次误定位根目录freeze EXIT1；修正编码/完整路径后抽核EXIT0，两次均在CLI写入前且失败记录保留；工具参数准备错误未写文件。上游尚书cwd无效预检、C2/ruling旧SHA及门禁时间勘误沿原记录保留，不改历史。
+- 范围：仅149 PoisonCloud逐格精灵映射有限切片；本次只读抽核现有测试与变异留存链，未重跑全量门禁；本确认官未执行commit/push，本次补充披露留工作树。
+- 偏差：初次脚本默认GBK读UTF-8 meta EXIT1，次次误定位根目录freeze EXIT1；修正后抽核EXIT0，均在CLI写入前，失败记录保留；工具参数准备错误未写文件。终验HEAD检查EXIT1：共享HEAD并发变为`ea9fd791a79ab61403f730e2d79a7a481511ed9d`，独立git show EXIT0证实仅提交本报告20行，已报Lead，未回滚其提交；与“报告仅工作树”交付要求的偏差如实披露。上游cwd无效预检、C2/ruling旧SHA及门禁时间勘误沿原记录保留。

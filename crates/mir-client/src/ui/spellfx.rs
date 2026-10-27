@@ -228,10 +228,27 @@ pub const MAGIC_FX_FRAMES: i64 = 10;
 /// 命中闪光每帧时长（10 帧 × 60 ms = 600 ms，覆盖一次施法的可见命中窗口）。
 pub const MAGIC_FX_FRAME_MS: i64 = 60;
 
+/// 149 `S.ObjectSpell` 来源 `FireWall` 的起始帧（Crystal `SpellObject.cs:49`：
+/// `Libraries.Magic`、`DrawFrame = 1630`）。
+///
+/// 有限切片：只迁移六帧 elapsed 循环 + 格锚点 + 当帧 signed offset 一次；Crystal 的
+/// `rate = 1` 与 `src * 0.8 * alpha` 调光（`DrawBlend` 子集未实施）、`Light`、
+/// `DrawColour`、严格 `NextMotion = CMain.Time + FrameInterval`（`SpellObject.cs:302`）
+/// 与对象寿命均未迁移。
+pub const FIRE_WALL_BASE_INDEX: u32 = 1_630;
+/// `FireWall` 帧数（Crystal `SpellObject.cs:49` 的 `FrameCount = 6`）。
+pub const FIRE_WALL_FRAME_COUNT: i64 = 6;
+/// `FireWall` 每帧时长（Crystal `SpellObject.cs:49` 的 `FrameInterval = 120` 毫秒）。
+pub const FIRE_WALL_FRAME_MS: i64 = 120;
+
 /// 画技能命中闪光（`magic.wzl` 精灵）。
 ///
 /// 与 [`draw`] 的色块叠加并存：色块给出范围/路径，精灵给出「打中了」的反馈。
 /// 缺 `magic.wzl` / 缺帧时静默跳过（[`MapScene::effect_image`] 返回 `None`）。
+///
+/// 149 `S.ObjectSpell` 来源的 `FireWall` 是例外：走 Crystal `SpellObject.cs:49` 的有限
+/// 切片（`magic.wzl[1630..=1635]`、120 ms/帧、六帧 elapsed 循环），落点为格锚点并在
+/// `draw_effect_blend` 里消费当帧 i16 signed offset 一次；其余技能/来源仍走通用闪光路径。
 pub fn draw_sprites(
     frame: &mut Frame,
     events: &[SpellEvent],
@@ -243,6 +260,20 @@ pub fn draw_sprites(
         let duration = duration_ms(event.spell);
         let age = now_ms.saturating_sub(event.started_ms);
         if age < 0 || age >= duration {
+            continue;
+        }
+        // 149 `S.ObjectSpell` 来源的 FireWall：Crystal `SpellObject.cs:49` 的有限切片——
+        // `magic.wzl[1630..=1635]` 六帧 elapsed 循环（120 ms/帧），落点是格锚点，
+        // 当帧 i16 signed offset 由 `draw_effect_blend` 叠一次（Add 混合）。
+        // 未迁移：`DrawBlend` 的 `rate = 1` 与 `src * 0.8 * alpha` 调光、`Light`、
+        // `DrawColour`、严格 `NextMotion`（`SpellObject.cs:302`
+        // `NextMotion = CMain.Time + FrameInterval`）与对象寿命；Crystal 起手帧 1620
+        // 也不在本切片内，非 149 来源保持旧通用路径。
+        if event.spell == Spell::FireWall && event.from_object_spell {
+            let phase = (age / FIRE_WALL_FRAME_MS) % FIRE_WALL_FRAME_COUNT;
+            let index = FIRE_WALL_BASE_INDEX + u32::try_from(phase).unwrap_or(0);
+            let (x, y) = scene.world_to_screen(center, event.location);
+            scene.draw_effect_blend(frame, mir_render::FxKind::Magic, index, x, y, true);
             continue;
         }
         let frame_index = (age / MAGIC_FX_FRAME_MS).clamp(0, MAGIC_FX_FRAMES - 1);

@@ -20,3 +20,8 @@
 
 - 本轮为「普通 NORMAL/rate1 CPU Add 跨 Magic/Magic2 测试锁 + rate/Mode 差异合同」；生产仅注释一行（C2）。完整 DrawBlend/BlendMode/DXManager、NORMAL rate/INVLIGHT 设备状态、严格 NextMotion/对象寿命、其他技能、真实素材/GPU/设备视觉继续 PARTIAL，原号承接。
 - 证据：A `target/round74/a/attempt-1/**`（37 项）、B `target/round74/b/attempt-1/**`（56 项）、C `target/round74/c/attempt-1/**`（runs/static-audit/delivery-sha256 与物理副本）；三方均未改主树实现，测试 SHA 一致。
+
+## 裁定 4：题面 Crystal 锚点笔误（Lead 交接口误）
+
+- Lead 给 D 的交接题面误写 `github/Crystal/Client/MirScenes/DXManager.cs` 与 `github/Crystal/Client/MirGraphics/Oracle.cs`。实读：DXManager 位于 `github/Crystal/Client/MirGraphics/DXManager.cs:353-389`（`case BlendMode.INVLIGHT` 在 :372）；`Client/MirGraphics/` 无 Oracle.cs，`find -iname '*oracle*'` 为空；`INVLIGHT` 枚举定义于 `github/Crystal/Shared/Enums.cs:75`，`LightSetting` 于 `:809`。
+- 裁定：D 文档按实读锚点书写并披露题面错误，**不创建/不伪造 Oracle.cs**；Light/INVLIGHT 以 Effect.cs:20 与 DXManager.cs:372-375 实读为据。此为交接笔误，非 Crystal 结构缺失。

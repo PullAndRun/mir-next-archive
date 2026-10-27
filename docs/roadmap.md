@@ -347,3 +347,13 @@ R49–R68历史PARTIAL按原编号承接；125/570已做偏移消费不扩大为
 - GAP-1/2/R70-C2：rate0.8与 `src*0.8*alpha` 近似未实施；GAP-3/4/6：Light3/DrawColour/AnimationOffset/mask/tint/shadow仍未闭合。
 - GAP-5/R70-C1其余26技能/1620/起手/其他调用点、R70-C3、R72 B plan-M4/legacy lint、R71-C7/E1/R69条件5与R68/R49–R70/R61–R67原号承接；真实素材/GPU/设备/全UI/跨后端/Live音频未验收。
 - R74候选：`spellfx.rs:309` 注释改为Time>NextFrame才推进；严格Crystal时钟与寿命、rate0.8、149域其余26技能映射、真实素材设备视觉签核；按下一轮独立范围立项。
+
+## 二十二、第74轮 普通混合跨库锁切片
+
+- D文档批pre-audit，PASS-WITH-PARTIAL 候选、待独立终审；见[R74索引](testing/round74/README.md)及[差异合同](testing/round74/round74-normal-blend-lock.md)。
+- 限定交付：普通NORMAL/rate1 CPU Add跨Magic/Magic2的G1–G5测试锁，rate/Mode差异合同；生产仅一行注释修正，零可执行差异。
+- 提交链c80ef2a→c1d0c76→7095808→c222fe6→HEAD（D未提交）；Lead唯一attempt-1门禁HEAD c222fe6 EXIT0、12/12 OK，D不重跑。
+- A/B/C基线5/0/0、历史回归38/0/0、五负控RED101后恢复；B独算18整帧，C独算4个G1整帧；G5注释非阻塞披露。
+- 未做：完整DrawBlend/BlendMode/DXManager、NORMAL rate0.8/INVLIGHT设备状态、严格NextMotion/对象寿命、其他技能及真实素材/GPU/设备视觉签核；game-assets未入库。
+- PARTIAL：GAP-1/2、R70-C2及GAP-5/R70-C1双记、R70-C3、R71时钟/对象、R72 B plan-M4、R73-T1、GAP-3/4/6；R71-C7永久、E1仅补救CLOSED，R69条件5及R68/R49–R70/R61–R67照承，全UI/跨后端/Live音频未闭合。
+- 下一步候选：独立终审本批文档；另轮立项补NORMAL rate/Mode设备证据、严格时钟/寿命或其他技能映射，不扩大本切片结论。

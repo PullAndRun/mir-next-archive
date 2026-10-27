@@ -2301,3 +2301,12 @@ cargo fmt --all -- --check
 - C经Lead裁定收敛PASS-WITH-PARTIAL、必改0；M3/M5以C精确实跑为权威，B扩展仅辅助；148不存在，实际120/123/149。
 - R71时钟/对象偏差与R73-T1：严格NextMotion、初始100ms取整、每Process一步、寿命、owner跟随/ActionFeed仍PARTIAL；elapsed为产品近似，源码:309注释勘误交R74。
 - GAP-1/2/R70-C2 rate0.8及 `src*0.8*alpha` 近似未实施；GAP-3/4/6 Light3/Light6、DrawColour/AnimationOffset等未迁；GAP-5/R70-C1其余26技能、R70-C3及历史原号承接，真实素材/设备视觉未签核。
+
+## 5.39 R74 普通混合跨图库测试锁
+
+- 状态pre-audit，PASS-WITH-PARTIAL 候选；D 文档批、待独立终审，见[R74索引](testing/round74/README.md)与[差异合同](testing/round74/round74-normal-blend-lock.md)。
+- 普通NORMAL/rate1 CPU Add跨Magic/Magic2测试锁及rate/Mode差异合同；Magic/Swing/Bolt起点0/0/20，signed offset一次、逐步Add/Over、缓存隔离、缺帧续画。
+- G4直接RGBA a=128锁CPU取整[61,47,34]；RGB565合成链不证明真实半透明素材或设备行为。
+- 提交链c80ef2a→c1d0c76→7095808→c222fe6；生产仅spellfx:309注释，零可执行差异；G5注释措辞按Lead裁定非阻塞披露。
+- Lead唯一门禁attempt-1 HEAD c222fe6 EXIT0、12/12 OK、0 FAIL；D纯文档不重跑cargo/CI；C独算4帧，B独算18帧。
+- 完整DrawBlend/BlendMode/DXManager、NORMAL rate/INVLIGHT设备状态、严格NextMotion/寿命、其他技能及历史PARTIAL原号见索引；game-assets未入库，真实素材/设备视觉未签核。

@@ -10,8 +10,8 @@
   "insertions": 1698,
   "test_lines": 1660
  },
- "documentation_state": "documentation batch committed in this commit; manifest-only refresh (delivery_head + tracked documentation blobs) follows as the next manifest-only commit",
- "artifact_policy": "Paths are repository-relative; tracked:true identifies the blob from git rev-parse <commit>:<path>; sha256/bytes identify captured file bytes; tracked:false denotes untracked/ignored working-tree evidence at the pre-commit snapshot.",
+ "documentation_state": "documentation batch committed as d8b6157; this manifest-only commit refreshes delivery_head and tracked documentation blobs; gate remains anchored at feature head 2a31554",
+ "artifact_policy": "Paths are repository-relative; tracked:true identifies the blob from git rev-parse <delivery_head>:<path>; sha256/bytes identify captured file bytes; tracked:false denotes untracked/ignored working-tree evidence.",
  "gate": {
   "attempt": 1,
   "head": "2a31554bfe31a05bb828119f3fb96d8a6544fba3",
@@ -51,7 +51,8 @@
    "blob": "be69c6050e4a9e3558a6f958cda5297904a4bc04",
    "sha256": "df572677d7b013c3c09dab9c764afbda2095cacec820f3292bfc7abca2f78be6",
    "bytes": 17755,
-   "lines": 386
+   "lines": 386,
+   "git_blob": "be69c6050e4a9e3558a6f958cda5297904a4bc04"
   },
   {
    "path": "crates/mir-client/tests/round72_poison_cloud_mapping.rs",
@@ -59,7 +60,8 @@
    "blob": "27d7dcab03ace8ab5a51b6692732ab8ed2b33fab",
    "sha256": "58f64ab2d30b69f3aea5c07a8975e988ca842bce45972499a6f93e120958baea",
    "bytes": 65322,
-   "lines": 1660
+   "lines": 1660,
+   "git_blob": "27d7dcab03ace8ab5a51b6692732ab8ed2b33fab"
   },
   {
    "path": "docs/process/round72-plan.md",
@@ -67,7 +69,8 @@
    "blob": "82d2783a6ad3d8e7793d42a8c049681ad95b76e5",
    "sha256": "7261b2d29b48c786b40124b29c9180abbe6d2a653bffaccd73c72c2d723e64ce",
    "bytes": 16013,
-   "lines": 161
+   "lines": 161,
+   "git_blob": "82d2783a6ad3d8e7793d42a8c049681ad95b76e5"
   },
   {
    "path": "docs/process/round72-menxia-review.md",
@@ -75,7 +78,8 @@
    "blob": "caff7840e16cebb8f2215de70a872f99a750a995",
    "sha256": "e1f46afbe7fee919b871ca885b90de8772877413ed2cce19c0f866c49948a446",
    "bytes": 3523,
-   "lines": 35
+   "lines": 35,
+   "git_blob": "caff7840e16cebb8f2215de70a872f99a750a995"
   },
   {
    "path": "docs/process/round72-shangshu-dispatch.md",
@@ -83,31 +87,32 @@
    "blob": "143ed18738d1ba2cf9f66bbcda4b0505e110a482",
    "sha256": "2d1109711c495996b3b374346f038ef6f56b9fb9b906da4c768fdf5322781e83",
    "bytes": 4517,
-   "lines": 39
+   "lines": 39,
+   "git_blob": "143ed18738d1ba2cf9f66bbcda4b0505e110a482"
   },
   {
    "path": "docs/testing/round72/round72-c-evidence.md",
-   "tracked": false,
+   "tracked": true,
    "sha256": "5f6addd04b331f5341f0b6032332e768d76fb0e7585571e6f7d1fea630f7ed6a",
    "bytes": 6291,
    "lines": 42,
-   "note": "untracked working-tree evidence at pre-commit snapshot; committed with documentation batch"
+   "git_blob": "4cb0d4f55c3652a5065dd69f4c94151f88858711"
   },
   {
    "path": "docs/testing/round72/round72-c-addendum.md",
-   "tracked": false,
+   "tracked": true,
    "sha256": "f7315ce0ffa8045ebdcf1b8903842c75af4b15cce7268b2ca2c6ebe1aaa716f8",
    "bytes": 2654,
    "lines": 20,
-   "note": "untracked working-tree evidence at pre-commit snapshot; committed with documentation batch"
+   "git_blob": "4d6cb3b0c35125b06bb0f40cd99c8dd873cf1419"
   },
   {
    "path": "docs/process/round72-lead-ruling.md",
-   "tracked": false,
+   "tracked": true,
    "sha256": "a5758e574ebeb718d0c025c43dcca0d9f9492f2167c6379e24e3c51a17873727",
    "bytes": 3766,
    "lines": 30,
-   "note": "untracked working-tree evidence at pre-commit snapshot; committed with documentation batch"
+   "git_blob": "73e5b119fcf377cd07a984f8af178bbce86795bb"
   },
   {
    "path": "target/round72/b/attempt-2/link.md",
@@ -135,6 +140,35 @@
    "sha256": "3a3961b75b8e337b05c033b8921bf39e7d5f9534ab6f36ef16ef6bcca9b8d06e",
    "bytes": 3354,
    "lines": 56
+  },
+  {
+   "path": "docs/client.md",
+   "tracked": true,
+   "git_blob": "811208e6b3b17c824996d2dba4e99b157a9f9ca3",
+   "bytes": 185198,
+   "sha256": "f8c8731593d24f5b069efd7f54ecb0e145e5f33a78d780c0af4755bac61e414f"
+  },
+  {
+   "path": "docs/roadmap.md",
+   "tracked": true,
+   "git_blob": "ec82755dacb00245bf2979e479da91f27562a5d4",
+   "bytes": 45116,
+   "sha256": "e0fb3693ad46da9463002b943debe2e8b948fff0d0e9d353416275a2ced495f1"
+  },
+  {
+   "path": "docs/testing/round72/README.md",
+   "tracked": true,
+   "git_blob": "de0289cbff9391fd07b15489bad9e08d92e4fb3a",
+   "bytes": 4284,
+   "sha256": "8f9d1fbac3885db1f37c299431b37ca45605a8c10ca2173bfad00407557d2568"
+  },
+  {
+   "path": "docs/testing/round72/round72-poison-contract.md",
+   "tracked": true,
+   "git_blob": "4dcc303e0ac4d6aec4cc2cbaee667319c4713155",
+   "bytes": 3148,
+   "sha256": "d99c4a95db900d60c4510f44e0b149e619fb39c4060873870651e6132d5c1ab8"
   }
- ]
+ ],
+ "delivery_head": "d8b6157d4c794010cb050884a504d57093be4ad8"
 }

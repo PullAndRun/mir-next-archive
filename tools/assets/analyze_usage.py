@@ -325,7 +325,10 @@ EFFECT_FRAMES = list(range(0, 3))          # effect.wzl：挥砍 3 帧
 # （410-415 / 420-425 / … / 560-565），加固定段 570-579。**不能写成 `range(410, 566)`**：
 # 416-419、566-569 是 0×0 空帧（wzx 指向 wzl 偏移 48 的全零记录），带进来会拆出 0×0 PNG 并误计 missing。
 MAGIC_FRAMES = [i for d in range(16) for i in range(410 + d * 10, 416 + d * 10)] + list(range(570, 580))
-MAGIC2_FRAMES = list(range(0, 3)) + list(range(20, 30))  # magic2.wzl：挥砍 3 + 雷电束 10
+# magic2.wzl：挥砍 3（0-2）+ 雷电术命中 5（10-14，Crystal `SpellObject.cs:57-64`：非149命中
+# 播 `Magic2[10..14]`，R73 起消费）+ 雷电束 10（20-29）。10-14 必须进拆包计划，
+# 否则真实素材缺帧会让 `client_fx` 等真实素材回归在门禁里拿不到可解码特效（R73 门禁修复）。
+MAGIC2_FRAMES = list(range(0, 3)) + list(range(10, 15)) + list(range(20, 30))
 
 
 def human_category(lib: str) -> str | None:
@@ -927,7 +930,7 @@ def collect_db_refs(db: dict, book: RefBook, include_reserved: bool, notes: list
     # ---- 固定特效帧段 ----
     book.add_many("effect.wzl", EFFECT_FRAMES, "挥砍光效（FxKind::Swing）")
     book.add_many("magic.wzl", MAGIC_FRAMES, "技能命中闪光（FxKind::Magic）")
-    book.add_many("magic2.wzl", MAGIC2_FRAMES, "挥砍 + 雷电束（FxKind::Swing/Bolt）")
+    book.add_many("magic2.wzl", MAGIC2_FRAMES, "挥砍 + 雷电命中 + 雷电束（FxKind::Swing/Bolt，R73 雷电术命中 10..14）")
     # ---- 坐骑：渲染层恒定必需（`PlayerLayer::Mount`，stem `horse_x`），与 DB 是否发骑乘无关 ----
     # 渲染层按「块号 × 640 + 动作表偏移」取帧（`entities.rs::mount_frames`），所以按块落盘，
     # 每块目录里是块内绝对索引；块号 `mount-1..mount-3` 与 `library-map.json` 的 dirs 顺序一致。

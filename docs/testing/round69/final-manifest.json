@@ -242,33 +242,37 @@
       "path": "docs/testing/round69/README.md",
       "bytes": 6036,
       "sha256": "84a94831bc9ef7778bf0bc5bc6cf922cad0e32fc95f8a3110a7149b8bd782db9",
-      "tracked": false,
-      "head_blob": null
+      "tracked": true,
+      "head_blob": "cff52ffc71bd93c2d9c2a7dbb8ebb4362ac21033",
+      "head_blob_sha256": "84a94831bc9ef7778bf0bc5bc6cf922cad0e32fc95f8a3110a7149b8bd782db9",
+      "worktree_matches_head_blob": true
     },
     {
       "path": "docs/testing/round69/round69-contract.md",
       "bytes": 12835,
       "sha256": "c40eeae36be35002d5a256afc6428fdbdcf07abebf097b954de87ef76239a70d",
-      "tracked": false,
-      "head_blob": null
+      "tracked": true,
+      "head_blob": "a4f7ae6f0ae9b6a70c9ff7e4cd56767936993eef",
+      "head_blob_sha256": "c40eeae36be35002d5a256afc6428fdbdcf07abebf097b954de87ef76239a70d",
+      "worktree_matches_head_blob": true
     },
     {
       "path": "docs/client.md",
       "bytes": 180876,
       "sha256": "d76ca48ab8dcb1877a9df73551b32bf851e8593a27627495fd66a350bddd4c84",
       "tracked": true,
-      "head_blob": "576fd4fd96a652d8a3987521f5f59c00f1f01e35",
-      "head_blob_sha256": "325a55ffae67da10985b932651dc3238958b21991d020d8693b09ec0fc57e189",
-      "worktree_matches_head_blob": false
+      "head_blob": "85d5f9f7b85e76e4f6f646ee9914d4257d9f8bd1",
+      "head_blob_sha256": "d76ca48ab8dcb1877a9df73551b32bf851e8593a27627495fd66a350bddd4c84",
+      "worktree_matches_head_blob": true
     },
     {
       "path": "docs/roadmap.md",
       "bytes": 39956,
       "sha256": "2759406e5e98af47a448e98dd3925e4e514b55e3017acc505690566cee6ae661",
       "tracked": true,
-      "head_blob": "ee82a636ca280ee9e834382dc4f4efef7f3b23ff",
-      "head_blob_sha256": "7fd42c9fee6e839fae26d1e4b183d8076316d7ee29e9c6b9b096564970dc3ee7",
-      "worktree_matches_head_blob": false
+      "head_blob": "766e5b8645a9bce3b48601ee0d9a150c1ec2943a",
+      "head_blob_sha256": "2759406e5e98af47a448e98dd3925e4e514b55e3017acc505690566cee6ae661",
+      "worktree_matches_head_blob": true
     }
   ],
   "B_manifest_summary": {
@@ -446,5 +450,11 @@
       }
     },
     "isolation_method": "per run: explicit --work-root target/round69/b/attempt-3/<run>; per variant: physical shutil.copyfile copies (no hardlink/symlink/reparse), all nlink=1, file IDs differ from source, independent TMP/TEMP/TMPDIR and out dir"
+  },
+  "delivery_head": "74d1608c65758a17b22cb88d4e1211bf9b69fc3a",
+  "pre_audit_refresh": {
+    "at": "2026-10-27T05:13:41Z",
+    "delivery_head": "74d1608c65758a17b22cb88d4e1211bf9b69fc3a",
+    "note": "交付文档批提交后、独立终审前的清单刷新：tracked 字段/head_blob 按交割 HEAD 重新取；门禁仍锚定 492b20c；audit 项待终审后追加"
   }
 }

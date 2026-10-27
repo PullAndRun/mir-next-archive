@@ -3,7 +3,7 @@
   "subtask": "JJC-20261028-001-sub-05088f98",
   "head_snapshot": "c222fe65b92b629299c007cf23c60481e2fb53b2",
   "stage": "pre-audit",
-  "status": "PASS-WITH-PARTIAL",
+  "status": "PASS-WITH-PARTIAL-candidate-pending-final-audit",
   "status_qualifier": "候选；D 文档批、待独立终审",
   "generated_at_utc": "2026-10-27T17:59:24.663084+00:00",
   "commit_chain": [
@@ -35,7 +35,7 @@
       "path": "crates/mir-client/tests/round74_normal_blend_lock.rs",
       "tracked": true,
       "source": "git-blob",
-      "revision": "c222fe65b92b629299c007cf23c60481e2fb53b2",
+      "revision": "4567ba8",
       "git_blob": "8ee93a992007cfcb86d977d13a7d2d4eb9a18cc3",
       "bytes": 49849,
       "sha256": "a2b329ce88a3640ad3609c804a2e589a4177a7de8c0e1e6df19c6d5c40013cc1"
@@ -44,7 +44,7 @@
       "path": "crates/mir-client/src/ui/spellfx.rs",
       "tracked": true,
       "source": "git-blob",
-      "revision": "c222fe65b92b629299c007cf23c60481e2fb53b2",
+      "revision": "4567ba8",
       "git_blob": "5de5dd2c0e9e6ae4052a11791f83dd3f1bb67fa3",
       "bytes": 21902,
       "sha256": "6c30c41f851555264fc035cf869493b8db4e8c0ce7b28e7d0694762e3f656a7e"
@@ -53,43 +53,52 @@
       "path": "docs/client.md",
       "tracked": true,
       "source": "git-blob",
-      "revision": "c222fe65b92b629299c007cf23c60481e2fb53b2",
-      "git_blob": "292e00ba2b43c9a13652f063e565c546de2ed6fa",
-      "bytes": 186824,
-      "sha256": "6bdf1a751d34c665e3b2e9a85c850edcf6952ab6b1c5a4991b5f9b79d1ada26c"
+      "revision": "4567ba8",
+      "git_blob": "da59d29ccad6da2ced3ac070eda43dec28ba2341",
+      "bytes": 187829,
+      "sha256": "29c5e4edfe5fb73bb1875fa03054967c0b2f3714a1259e801a35e98b2cad76a5"
     },
     {
       "path": "docs/roadmap.md",
       "tracked": true,
       "source": "git-blob",
-      "revision": "c222fe65b92b629299c007cf23c60481e2fb53b2",
-      "git_blob": "f2628c3ba0c876fd36e998c2e2315ed2415dcedd",
-      "bytes": 46976,
-      "sha256": "1e60045854f659e5769ccc01f2ad28bed996948bcd16770cc01ab27a3500043d"
+      "revision": "4567ba8",
+      "git_blob": "6478cad763bf364540d37cdaa025b26f3061e5a0",
+      "bytes": 48240,
+      "sha256": "fea7160b4443f9c2f65a9776d7887290ebe6db6e3ab2e9596b61b2121382f033"
+    },
+    {
+      "path": "docs/testing/round74/README.md",
+      "tracked": true,
+      "source": "git-blob",
+      "revision": "4567ba8",
+      "git_blob": "b7375df2143fad3cf9229671464e928403a7bc09",
+      "bytes": 3687,
+      "sha256": "d690945bce461fb2bc75b6591dac7ccbee88b129f124dcb322899c94e770159c"
+    },
+    {
+      "path": "docs/testing/round74/round74-normal-blend-lock.md",
+      "tracked": true,
+      "source": "git-blob",
+      "revision": "4567ba8",
+      "git_blob": "6100b9ea260b83b1ac69292a510a894997e2a4aa",
+      "bytes": 3744,
+      "sha256": "ec6444549eda3aa4c87c5a194141144a48a8660f31a3477a0efcb309f43acdf1"
     },
     {
       "path": "docs/testing/round74/round74-c-evidence.md",
       "tracked": true,
       "source": "git-blob",
-      "revision": "c222fe65b92b629299c007cf23c60481e2fb53b2",
+      "revision": "4567ba8",
       "git_blob": "8a76687f0b15e35be1e709cf0eae56e596a3a9f9",
       "bytes": 7353,
       "sha256": "ab7f9904a92e5670b6f9bd6e2c797bf7444cfeba649936341f4d11ac7e33c7d6"
     },
     {
-      "path": "docs/process/round74-lead-ruling.md",
-      "tracked": true,
-      "source": "git-blob",
-      "revision": "c222fe65b92b629299c007cf23c60481e2fb53b2",
-      "git_blob": "21ae857d5163cb0747dec26fbb555eca70c0ac0e",
-      "bytes": 2132,
-      "sha256": "f337af91380e9897b657abeae216d874f5b46c1f514387bfb43c11913a84b770"
-    },
-    {
       "path": "docs/process/round74-plan.md",
       "tracked": true,
       "source": "git-blob",
-      "revision": "c222fe65b92b629299c007cf23c60481e2fb53b2",
+      "revision": "4567ba8",
       "git_blob": "6ee763ad2625fcec7f0f42f90b6c6ccfa35356f5",
       "bytes": 10663,
       "sha256": "c4c2066ea4231d93af783133809c63d9309d23bc1d3049877d2c22c51add7b93"
@@ -98,7 +107,7 @@
       "path": "docs/process/round74-menxia-review.md",
       "tracked": true,
       "source": "git-blob",
-      "revision": "c222fe65b92b629299c007cf23c60481e2fb53b2",
+      "revision": "4567ba8",
       "git_blob": "0c70ab8e86e69918b9326c2c5d4c4818935e02f0",
       "bytes": 5294,
       "sha256": "db21da6b1ccc08f4f26e79463ec5cfe1aa76bc4c93d3ffc5bb2b4c689d20aab8"
@@ -107,38 +116,19 @@
       "path": "docs/process/round74-shangshu-dispatch.md",
       "tracked": true,
       "source": "git-blob",
-      "revision": "c222fe65b92b629299c007cf23c60481e2fb53b2",
+      "revision": "4567ba8",
       "git_blob": "e7ae670068879097fbabfa7d3a8f4bfc7c55ae1f",
       "bytes": 4255,
       "sha256": "16ea9c47c5d69b52fc81a0efbd3ba131b25f12de691844f5ea299943c87eb47a"
     },
     {
-      "path": "docs/testing/round74/README.md",
-      "tracked": false,
-      "source": "working-tree",
-      "bytes": 3687,
-      "sha256": "d690945bce461fb2bc75b6591dac7ccbee88b129f124dcb322899c94e770159c"
-    },
-    {
-      "path": "docs/testing/round74/round74-normal-blend-lock.md",
-      "tracked": false,
-      "source": "working-tree",
-      "bytes": 3744,
-      "sha256": "ec6444549eda3aa4c87c5a194141144a48a8660f31a3477a0efcb309f43acdf1"
-    },
-    {
-      "path": "docs/client.md",
+      "path": "docs/process/round74-lead-ruling.md",
       "tracked": true,
-      "source": "working-tree",
-      "bytes": 187829,
-      "sha256": "29c5e4edfe5fb73bb1875fa03054967c0b2f3714a1259e801a35e98b2cad76a5"
-    },
-    {
-      "path": "docs/roadmap.md",
-      "tracked": true,
-      "source": "working-tree",
-      "bytes": 48240,
-      "sha256": "fea7160b4443f9c2f65a9776d7887290ebe6db6e3ab2e9596b61b2121382f033"
+      "source": "git-blob",
+      "revision": "4567ba8",
+      "git_blob": "0750d99862d106dbbcc5bc3e2ca48edfcdf73b3f",
+      "bytes": 2845,
+      "sha256": "d65d2f8a7f70341a5daa2bd3eb011bbc23971e4435e5815b32b4ca93d7f5cd95"
     },
     {
       "path": "target/round74/b/attempt-1/manifest.json",
@@ -190,242 +180,6 @@
       "sha256": "4e622efe3f95b2094731790dae45b107d4c3499ac8c36ea88cccd430482a8c75"
     },
     {
-      "path": "target/round74/a/attempt-1/",
-      "tracked": false,
-      "source": "working-tree-directory",
-      "hash_scope": "UTF-8 canonical JSON of sorted members; keys sorted, separators comma/colon, no newline",
-      "bytes": 64773,
-      "sha256": "520ccd093ece4170e31562499ff37895656cb75109546fecae335c19bad7ccf7",
-      "sha256_kind": "canonical-member-inventory",
-      "file_count": 32,
-      "members": [
-        {
-          "path": "target/round74/a/attempt-1/logs/baseline-meta.txt",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 162,
-          "sha256": "00d33f57f82fdb5a70dc9e7b87b70084ebd9469e607e470b13c688bbc8f1f93c"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/baseline-test.log",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 722,
-          "sha256": "cc2ad846fd6580e224bcffc8d50e79b6ff4c7d979184d2698b87ebe727fcb71b"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/clippy.log",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 210,
-          "sha256": "5036d56817e520a43b6bfd8eeeb67a2acb641e80eb3ded8bb70851ec4c841740"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/delivery.txt",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 431,
-          "sha256": "27a612f2fe2d51a158d26ce830dbeca1081c09a81f8ea99b96a0495fc86169bd"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/fmt.log",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 40,
-          "sha256": "8101f5510c750c83e556e2d5d0b39066cb14189ffaa9e9a07222f08cf245e49f"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/frozen-fixture-probe.log",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 1941,
-          "sha256": "dc6f4a1988f010e733e32ed3b279df34fb50dd1922236482aebb65e81283c929"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/frozen-fixtures-sha.txt",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 382,
-          "sha256": "9d02ea5d3d60b690371dfa0ea77ab290f85214480a0488b20cb9e46d2ed03919"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/M1-mutated.json",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 225,
-          "sha256": "ae3615c6e0d710f734693e8b376db8f267bb7c3082e39dc85b6c56e4311e5f24"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/M1-red.log",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 2599,
-          "sha256": "289504713554ce5724a7e2064a72483fcfc106a13aff6b8e485cf30fcb020990"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/M1-restored-sha.txt",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 231,
-          "sha256": "05d766d8e10d8ba071300c0d7eedf39d2daa678b864d572914fc97c69ab41778"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/M2-mutated.json",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 230,
-          "sha256": "37b1503b22369747a1dffbbfedc2418a47a8361ab4516b4f5714f354a65d7c55"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/M2-red.log",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 1893,
-          "sha256": "3c751208be35f487c8cd2fbd71603de62011802eab6176503dfa4310fc7fe2ce"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/M2-restored-sha.txt",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 231,
-          "sha256": "05d766d8e10d8ba071300c0d7eedf39d2daa678b864d572914fc97c69ab41778"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/M3-mutated.json",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 231,
-          "sha256": "5853c407e33e65b252826b7857e501be41990e10381765a38edc99c12b68356b"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/M3-red.log",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 2734,
-          "sha256": "e5aad887932b21582ff64b1f591c0171d898b92e72dd115c0aaf0f4583be41e4"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/M3-restored-sha.txt",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 231,
-          "sha256": "05d766d8e10d8ba071300c0d7eedf39d2daa678b864d572914fc97c69ab41778"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/M4-mutated.json",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 303,
-          "sha256": "49bfed4da6422e218c5d93e4bad828d7ce163d36c92888505c547ed70ce4620d"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/M4-red.log",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 7855,
-          "sha256": "7ea294db0240ce75beeb8b7a9cc728390556e0f109a94f141f85047cd6246479"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/M4-restored-green.log",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 895,
-          "sha256": "c023c32a1391e0221f933d2d7e5e2f11e364d4c2ac85b5a81290ffa0d2e69ec9"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/M4-restored-sha.txt",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 197,
-          "sha256": "87654be6492fdb7df72b2d8bc08c9c0079311815ebb265985672132ba0a8b979"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/M5-mutated.json",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 226,
-          "sha256": "f2db2dcc6905cc02474c1487e473e5e5ec387188d11e22b8cf58cf43ab9dec5d"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/M5-red.log",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 1493,
-          "sha256": "48802ac8796d5d851009f64b61da900f9fa181d5363050e9bc92568cb0050ee3"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/M5-restored-sha.txt",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 552,
-          "sha256": "337ba09a48b9b984d96a09fc15f6900d617d37f6734af78673cba75360f1ed49"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/negctl-entities-orig.sha",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 100,
-          "sha256": "5b3e72bb4591ceb6327d28010c62e592dac9ef7c55994c16808a99debed214ca"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/negctl-final-green.log",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 909,
-          "sha256": "1fe3002fb5e6a860f2f3d2d9db70aee35242fee3ccfc20f8fce71ebce00b1baa"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/negctl-integrity.txt",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 421,
-          "sha256": "19c8be8dc45c89d97cdc94124fbf533c8f69e1878119cb9e05293e8b9bb46259"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/negctl-orig-meta.json",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 421,
-          "sha256": "d4abf3d173d5545e5de142f6f2252d91056ec916e4e142e47e446af019a812e9"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/negctl-warm.log",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 4232,
-          "sha256": "d897abc270e6c9df5456c1f0f223cbabe65ee53edffb52f877a32f0b1abf93f1"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/regression.log",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 3089,
-          "sha256": "4419fa7bfdbc0c67f1ec2a56ecb6677479fdd0d91cb00a561c4492199287ec15"
-        },
-        {
-          "path": "target/round74/a/attempt-1/logs/workspace-git-state.txt",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 850,
-          "sha256": "8ac6409408a821da64a646aaceb57dfe6413ebccdd2c47d9d3d7a5ca3fdce418"
-        },
-        {
-          "path": "target/round74/a/attempt-1/manifest.json",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 21114,
-          "sha256": "34257bef385837aaa87241e4e23fa665a02746bcb7fda9b9cc23572912fb607a"
-        },
-        {
-          "path": "target/round74/a/attempt-1/manifest.md",
-          "tracked": false,
-          "source": "working-tree",
-          "bytes": 9623,
-          "sha256": "7631e1de3b6e5ef4e337b92af19940c77a0681357e096f6305607ffb29456565"
-        }
-      ]
-    },
-    {
       "path": "target/round74/a/frozen/expected-freeze.json",
       "tracked": false,
       "source": "working-tree",
@@ -466,6 +220,15 @@
       "source": "working-tree",
       "bytes": 160,
       "sha256": "e7f93d7fdc1ed9f2a59ee86653ce7368c8f310467115e784442e6d44ea61a5dd"
+    },
+    {
+      "path": "target/round74/a/attempt-1/",
+      "tracked": false,
+      "source": "working-tree-directory",
+      "bytes": 64773,
+      "sha256": "8f07549daa3d3692702d0c4913b4e1728fbc7991b7b6bc431e83ffa4ed75a641",
+      "members": 32,
+      "inventory_convention": "sha256 of sorted 'path:bytes' lines (UTF-8, LF)"
     }
   ],
   "disclosures": [
@@ -478,7 +241,9 @@
     "expected冻结17:05:48Z早于首actual17:05:49Z，仅据保全日志UTC，无外部可信时间戳。",
     "题面MirScenes/DXManager.cs不存在，实读MirGraphics/DXManager.cs:353-384；Oracle.cs:7-40不存在，Light/INVLIGHT分别据Effect.cs:20与DXManager.cs:372-375，来源缺口披露。",
     "本次明确授权使用round74-normal-blend-lock.md；旧plan/review/dispatch提及contract.md名称，未修改这些历史文件。",
-    "初始glob超时/目录不存在与两次edit匹配不唯一均未写；首次write空justification校验拒绝，未产生文件。"
+    "初始glob超时/目录不存在与两次edit匹配不唯一均未写；首次write空justification校验拒绝，未产生文件。",
+    "清单 refresh（Lead）：delivery_head=4567ba8，tracked 项按 4567ba8 blob 逐项重算；gate 仍锚定 c222fe6；README/contract 由工作树项改为 tracked 项，client.md/roadmap.md 去重为单一 tracked 项。",
+    "Lead 题面 Crystal 锚点笔误已纠正：DXManager 实在 MirGraphics，Oracle.cs 不存在，Light/INVLIGHT 以 Effect.cs:20 与 DXManager.cs:372-375 实读为据（见 round74-lead-ruling.md 裁定 4）。"
   ],
   "partial_ledger": {
     "reference": "docs/process/round74-plan.md:107-117; docs/testing/round74/round74-c-evidence.md:42; docs/testing/round74/README.md",
@@ -506,5 +271,7 @@
       "其他技能",
       "真实素材/GPU/设备视觉/全UI/跨后端/Live音频"
     ]
-  }
+  },
+  "delivery_head": "4567ba8",
+  "delivery_head_note": "docs batch commit; gate remains anchored at head_snapshot c222fe6"
 }

@@ -294,3 +294,15 @@ C首轮BLOCK仅溯源，追加PASS-WITH-PARTIAL；必改1以披露+重做闭合�
 5. DrawBlend/rate/INVLIGHT、mask、GameScene条件offset/照明、全UI与真实素材设备仍待规划；shadow保持解析不消费，新增行为须独立契约。
 
 R49–R68历史PARTIAL按原编号承接；125/570已做偏移消费不扩大为生产渲染全链一致，条件5原件缺失永久保留记录。
+
+## 十八、R70 混合偏移生产入口
+
+**功能已提交+门禁通过；独立终审待办**；本批D文档/pre-audit，不宣称R70完整/全链通过。证据见 [R70索引](testing/round70/README.md)、[契约](testing/round70/round70-blend.md)。
+- 已完成：`6a08c65` 新增EntityRenderer/MapScene Add生产入口，当前帧signed offset可选、saturating_add一次且先于裁剪；旧Over入口保留，Frame算法未改。
+- 已验证：B/C2 R70 9、R68 2+2、render lib133、clippy/fmt EXIT0；四有效变异编译成功/运行9例/断言红101后恢复9 passed；Lead唯一attempt-1 EXIT0、12/12 OK。
+- 披露：C首轮ring/MSVC D8050环境阻断；C2新target+无debug绕行后独立执行PARTIAL CLOSED。初始M2误用字段为方法/E0599不算有效red，原件保留，M2-corrected闭合。
+- 未做：spellfx/UI/事件消费者迁移；magic映射/时序/wire/server未改，ThunderBolt/Bolt/FireWall映射差异另案。
+- R70-C1/C3、GAP-5/6：spellfx居中、图库/帧/坐标准入、尺寸/高度基准、GameScene条件/照明仍PARTIAL。
+- R70-C2/GAP-1/2：仅rate=1 Add定位子集；公共单API全面收敛、完整DrawBlend/rate/INVLIGHT/场景状态仍PARTIAL。
+- GAP-3/4：mask/tint/shadow绘制未做；shadow保持解析不消费。真实素材视觉/GPU设备、混合动效全矩阵、全UI仍PARTIAL。
+- R68与R49–R67按原编号承接；R69条件5原红/隔离/日志不可恢复，历史保全永久PARTIAL；两历史freeze保持原状。

@@ -1,0 +1,55 @@
+{
+  "round": "R70",
+  "stage": "D 文档批、待独立终审",
+  "status": "PRE-AUDIT / PASS-WITH-PARTIAL candidate",
+  "head": "89daaaa3b12073c092a9229d7fe065f621d27a3d",
+  "scope": "CPU Add rate=1 与当帧可选 offset；不宣称 R70 完整/全链通过",
+  "git_blob_sources": {"functional": "6a08c65", "process": "b11deac", "c_reports": "89daaaa"},
+  "gate": {
+    "attempt": 1,
+    "head": "6a08c652df794a9b19a8324a180d589bcce33d24",
+    "command": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale",
+    "operator": "lead",
+    "exit": 0,
+    "items_ok": 12,
+    "items_fail": 0,
+    "log_bytes": 211886,
+    "log_sha256": "6acfc87fb6602dd510e94c72a212455f3a571c29d18957dcc103c85c0f390e28",
+    "utc_start": "2026-10-27T06:54:11Z",
+    "utc_end": "2026-10-27T06:58:15Z",
+    "meta_bytes": 465,
+    "meta_sha256": "4cbb0ee8b2db1edd7b8b27c268279704cd55633c4d0e2396c3c0dbd0e66efe86",
+    "note": "D核原字节，不重跑门禁；门禁后 crates 零差异"
+  },
+  "checks": {
+    "json_parse": {"exit": 0, "result": "PASS; final bytes rechecked after update"},
+    "git_diff_check": {"command": "git diff --check", "exit": 0, "result": "PASS; only future LF-to-CRLF Git warnings for client/roadmap"},
+    "check_links": {"command": "py -3 tools/docs/check_links.py", "exit": 0, "checked": 1755, "skipped_target": 626, "readme_required_docs": 2},
+    "worktree_scope": {"command": "git status --porcelain --untracked-files=all", "exit": 0, "result": "six authorized files plus two pre-existing untracked freeze JSON only", "paths": ["docs/client.md", "docs/roadmap.md", "docs/testing/round70/README.md", "docs/testing/round70/round70-blend.md", "docs/testing/round70/final-manifest.json", "docs/testing/round70/manifest.sha256", "docs/testing/monster-native/player-resource-freeze-before.json", "docs/testing/monster-native/player-resource-freeze.json"]},
+    "post_gate_production_diff": {"command": "git diff 6a08c65 -- crates tools/dev/ci.ps1", "exit": 0, "result": "empty"},
+    "artifact_recompute": {"exit": 0, "count": 13, "bytes_and_sha256_match": true},
+    "external_manifest_sha": {"exit": 0, "match": true, "file": "docs/testing/round70/manifest.sha256", "note": "manifest excluded from artifacts; final external checksum verified after update"},
+    "encoding": {"result": "six deliverables UTF-8, no BOM, LF", "readme_lines": 75, "blend_lines": 33, "client_section_lines": 9, "roadmap_section_lines": 11}
+  },
+  "disclosures": [
+    "C首轮 ring v0.17.14/MSVC D8050 阻断，未运行tests；C2以全新target及CARGO_PROFILE_DEV_DEBUG=0绕行，独立执行C-P2/C-P3 CLOSED",
+    "初始M2注入器把Frame.width/height字段误作方法，E0599/EXIT101未运行tests，不计有效red；原patch/log保留，M2-corrected获得目标断言红",
+    "完整DrawBlend/rate/INVLIGHT、公共API全面收敛、UI/spellfx迁移、magic映射、真实素材视觉/GPU设备、混合动效全矩阵仍PARTIAL",
+    "R69条件5历史保全永久PARTIAL；R68、R49–R67历史遗留沿原编号承接"
+  ],
+  "artifacts": [
+    {"path":"crates/mir-render/src/entities.rs","bytes":145434,"sha256":"f8dff727ee970fbe2dc4c8d55f06c7a2587cf84df134c7c4e08a670bc8a7afc6","tracked":true,"git_blob":"bbb0bcc204a4157d835f0eb56fffd6087df99bda"},
+    {"path":"crates/mir-render/src/scene.rs","bytes":49735,"sha256":"d570258f7139a7adaf2cb26f245e68bbdc56248d787d7a95b612f68f3125db98","tracked":true,"git_blob":"7ee23c1f672118b9fc600e5976d9cd3a510d2043"},
+    {"path":"crates/mir-render/src/frame.rs","bytes":28651,"sha256":"b2b186430fd706d7a9e6655a42e6ad5484d1b4e237b77a001650db2dbce29aee","tracked":true,"git_blob":"0db868d0984b9c9301af648977e379729b45696a"},
+    {"path":"crates/mir-client/tests/round70_effect_blend_offset.rs","bytes":45215,"sha256":"b188febc6a67e26ee14a815672db0d597bcc7e054423a5c103d9b41bddc1df84","tracked":true,"git_blob":"b5d2a409e1f9ffb782f35224677f9037d74110f8"},
+    {"path":"docs/process/round70-plan.md","bytes":12765,"sha256":"27a6e38875fdd5c73e0b47a7251c994896f66831351afcb718bbf1af34566194","tracked":true,"git_blob":"98258bb8ccf9486d18ea8ec0ab90e732a1b4c696"},
+    {"path":"docs/process/round70-menxia-review.md","bytes":6578,"sha256":"90fba6fd1f743fe7fe7945a4bce1d1aa026a2da4434842237ebdb993a0906322","tracked":true,"git_blob":"704167795482b91aba71dff2f3c1d6831be50527"},
+    {"path":"docs/process/round70-shangshu-dispatch.md","bytes":6509,"sha256":"173acca5bf264a077e737540ebe7de2d4c5e0eb5e1e156cb990c3d5ffcb26091","tracked":true,"git_blob":"cff93d4a6956c8362c9ebd2e96771c8823f0feac"},
+    {"path":"docs/testing/round70/round70-c-evidence.md","bytes":3106,"sha256":"c85dea84234f7bbb8634c114ddc7854ed56c973c52fedab2221b89d64495c66f","tracked":true,"git_blob":"df15439456b03818d7f49d14744903e1541663ba"},
+    {"path":"docs/testing/round70/round70-c-addendum.md","bytes":5629,"sha256":"024ba3875445192a7eb9b7d018f8a5915fed87c4a7f44535eb6bab0a08eb8c28","tracked":true,"git_blob":"b7f4718702671ad456888f89f0769327a288abf3"},
+    {"path":"target/round70/gate/attempt-1.log","bytes":211886,"sha256":"6acfc87fb6602dd510e94c72a212455f3a571c29d18957dcc103c85c0f390e28","tracked":false,"git_blob":null},
+    {"path":"target/round70/gate/attempt-1.meta.txt","bytes":465,"sha256":"4cbb0ee8b2db1edd7b8b27c268279704cd55633c4d0e2396c3c0dbd0e66efe86","tracked":false,"git_blob":null},
+    {"path":"docs/testing/round70/README.md","bytes":6647,"sha256":"fc4bed5438878d64a739f624cc72c66913f9f396c00d81d7f4a43263d3da1c7b","tracked":false,"git_blob":null},
+    {"path":"docs/testing/round70/round70-blend.md","bytes":2959,"sha256":"09582d1a4e3fab318d44bd844e286ab0085875b520cdd422f86ca81d4ef0f65c","tracked":false,"git_blob":null}
+  ]
+}

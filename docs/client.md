@@ -1414,6 +1414,16 @@ R69 的真实视觉、全 UI、spellfx 与混合/阴影/mask 目标留待独立�
 - 门禁 attempt-1 EXIT1 仅历史 target 链接失效；用户要求清理 target 后，`492b20c` 跳过构建证据链接，attempt-2 EXIT0、12/12 OK；生产 crates 相对该提交无 diff。
 - C 首轮 BLOCK 仅历史保全；追加 PASS-WITH-PARTIAL，必改1关闭为“披露+重做闭合”。Lead 默认重跑覆盖 a77 原件且无备份，最终 SHA 改用 attempt-3 权威证据；条件5历史保全永久 PARTIAL，证据目录此后只增不改。
 
+### 5.35 R70 混合特效偏移与 Add 混合入口
+
+功能提交 `6a08c65`；**功能已提交+门禁通过；独立终审待办**，本批 pre-audit，不宣称 R70 完整/全链通过。见 [R70索引](testing/round70/README.md)与[契约](testing/round70/round70-blend.md)。
+- `EntityRenderer/MapScene::draw_effect_blend(frame,kind,index,x,y,apply_offset)` 新增 Add 入口；true从当前帧元数据取signed offset，分别saturating_add一次后裁剪；false保持绝对坐标。
+- 与旧 `draw_effect_with_offset` 共用私有实现，旧入口保持Over；Add使用既有 `Frame::blit_add`、rate固定1；缺图false、有图屏外true，缓存无克隆/新增逐帧分配。
+- B/C2：R70 9、R68 2+2、render lib133、clippy/fmt全绿；四有效变异编译成功后断言红101并恢复9 passed；唯一Lead gate attempt-1 EXIT0、12/12 OK。
+- C首轮D8050阻断由C2新target+`CARGO_PROFILE_DEV_DEBUG=0`绕行，独立执行PARTIAL CLOSED；初始M2注入器E0599不计有效红，原件保留，M2-corrected有效。
+- spellfx/UI调用点未迁移；非wire/server变更，不改magic映射/时序。完整DrawBlend/rate/INVLIGHT、shadow/mask、GameScene条件、公共API全面收敛与真实素材/设备视觉签核仍PARTIAL。
+- ThunderBolt/Bolt/FireWall映射差异、混合动效全矩阵、全UI与R49–R68历史遗留继续承接；R69条件5历史保全永久PARTIAL。
+
 ### 6.0 真实素材渲染（第 6 轮）
 
 **数据目录**

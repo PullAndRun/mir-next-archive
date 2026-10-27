@@ -442,6 +442,26 @@ impl MapScene {
             .draw_effect_with_offset(frame, kind, index, x, y)
     }
 
+    /// 把特效画到帧上（零拷贝），可选叠加当帧图像锚点偏移，并走加法混合。
+    ///
+    /// `apply_offset = true` 时偏移语义与 [`Self::draw_effect_with_offset`] 相同（当帧
+    /// `offset_x/offset_y` 只叠加一次）；`false` 时 `(x, y)` 是绝对左上角，与
+    /// [`Self::draw_effect`] 相同。混合走 [`Frame::blit_add`]
+    /// （`out = min(255, dst + round(src * alpha / 255))`）。
+    /// 返回值是该帧是否存在（缺帧 `false`；有效图像完全屏外仍 `true`）。
+    pub fn draw_effect_blend(
+        &mut self,
+        frame: &mut Frame,
+        kind: crate::entities::FxKind,
+        index: u32,
+        x: i32,
+        y: i32,
+        apply_offset: bool,
+    ) -> bool {
+        self.entities
+            .draw_effect_blend(frame, kind, index, x, y, apply_offset)
+    }
+
     /// 特效帧尺寸（不克隆像素）。
     pub fn effect_size(&mut self, kind: crate::entities::FxKind, index: u32) -> Option<(u32, u32)> {
         self.entities.effect_size(kind, index)

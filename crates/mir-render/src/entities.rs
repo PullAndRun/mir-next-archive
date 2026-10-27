@@ -1813,6 +1813,12 @@ impl EntityRenderer {
     }
 
     /// 直接把特效画到帧上（零拷贝）。
+    ///
+    /// 旧语义：`(x, y)` 是**绝对左上角**，不消费 `ImageInfo` 的图像锚点偏移；混合方式
+    /// 是 source-over（[`Frame::blit`]）。等价于 [`Self::draw_effect_blend`] 传
+    /// `apply_offset = false`，行为与像素输出保持不变。
+    ///
+    /// 返回值为「该帧是否存在」：缺帧 `false`；有图但完全屏外仍 `true`。
     pub fn draw_effect(
         &mut self,
         frame: &mut Frame,
@@ -1821,13 +1827,7 @@ impl EntityRenderer {
         x: i32,
         y: i32,
     ) -> bool {
-        let library = kind.library();
-        let frame_index = index + kind.start_frame();
-        if !self.ensure_image(library, frame_index) {
-            return false;
-        }
-        self.blit_cached(frame, library, frame_index, x, y);
-        true
+        self.draw_effect_impl(frame, kind, index, x, y, false, false)
     }
 
     /// 把特效画到帧上，并叠加该帧 `ImageInfo` 的图像锚点偏移（零拷贝）。
@@ -1844,6 +1844,8 @@ impl EntityRenderer {
     ///
     /// 返回值为「该帧是否存在」：缺帧 `false`（不画占位方块）；有图但完全屏外仍
     /// `true`（是否落屏由 [`Frame::blit`] 的裁剪决定）。
+    ///
+    /// 等价于 [`Self::draw_effect_blend`] 传 `apply_offset = true`（混合仍为 source-over）。
     pub fn draw_effect_with_offset(
         &mut self,
         frame: &mut Frame,
@@ -1852,20 +1854,76 @@ impl EntityRenderer {
         x: i32,
         y: i32,
     ) -> bool {
+        self.draw_effect_impl(frame, kind, index, x, y, true, false)
+    }
+
+    /// 把特效画到帧上，可选叠加当帧图像锚点偏移，并按加法混合（零拷贝）。
+    ///
+    /// * `apply_offset = true`：先取**当帧** `ImageInfo` 的 `offset_x/offset_y`
+    ///   （`i16`，可为负）各 `saturating_add` 到 `(x, y)` **一次**，与
+    ///   [`Self::draw_effect_with_offset`] 的偏移语义完全相同；`false` 时 `(x, y)` 是
+    ///   绝对左上角，与 [`Self::draw_effect`] 相同。
+    /// * 混合走 [`Frame::blit_add`]（`out = min(255, dst + round(src * a / 255))`，
+    ///   `frame.rs` 的既有实现）；直接借用解码缓存绘制，不克隆 `Image`、不新增逐帧
+    ///   分配、不改写缓存 `metadata`。半透明 alpha 行为沿用 `blit_add`，不新增 rate 参数。
+    ///
+    /// 这是 Crystal `DrawBlend` 的 CPU 子集（`DXManager.cs:353-384` 的默认
+    /// `SourceAlpha/One`），**不等价于**完整 D3D `DrawBlend`（`INVLIGHT`/rate 未实现）。
+    ///
+    /// 返回值为「该帧是否存在」：缺帧 `false`；有图但完全屏外仍 `true`。
+    pub fn draw_effect_blend(
+        &mut self,
+        frame: &mut Frame,
+        kind: FxKind,
+        index: u32,
+        x: i32,
+        y: i32,
+        apply_offset: bool,
+    ) -> bool {
+        self.draw_effect_impl(frame, kind, index, x, y, apply_offset, true)
+    }
+
+    /// 特效绘制的唯一实现：确保缓存 → 取当帧 metadata → 可选叠加一次锚点偏移 → 裁剪绘制。
+    ///
+    /// 三个公开入口只是参数组合：[`Self::draw_effect`] = `(false, false)`、
+    /// [`Self::draw_effect_with_offset`] = `(true, false)`、
+    /// [`Self::draw_effect_blend`] = `(参数, true)`。
+    // C1 契约固定这 8 个入参；拆结构体反而会掩盖「偏移/混合」两个正交开关。
+    #[allow(clippy::too_many_arguments)]
+    fn draw_effect_impl(
+        &mut self,
+        frame: &mut Frame,
+        kind: FxKind,
+        index: u32,
+        x: i32,
+        y: i32,
+        apply_offset: bool,
+        additive: bool,
+    ) -> bool {
         let library = kind.library();
         let frame_index = index + kind.start_frame();
         if !self.ensure_image(library, frame_index) {
             return false;
         }
-        let Some(info) = self.cached_info(library, frame_index) else {
-            return false;
+        let (x, y) = if apply_offset {
+            let Some(info) = self.cached_info(library, frame_index) else {
+                return false;
+            };
+            // 锚点偏移取**当帧**（不是首帧）：帧间 `X/Y` 不同，逐帧叠加才能与 Crystal
+            // 一致（`MLibrary.cs:658-670`：先 `point.Offset(mi.X, mi.Y)`，再按屏幕裁剪）。
+            // 越界坐标用 `saturating_add` 收口，交给 [`Frame::blit`] 的 i64 裁剪处理。
+            (
+                x.saturating_add(i32::from(info.offset_x)),
+                y.saturating_add(i32::from(info.offset_y)),
+            )
+        } else {
+            (x, y)
         };
-        // 锚点偏移取**当帧**（不是首帧）：帧间 `X/Y` 不同，逐帧叠加才能与 Crystal
-        // 一致（`MLibrary.cs:658-670`：先 `point.Offset(mi.X, mi.Y)`，再按屏幕裁剪）。
-        // 越界坐标用 `saturating_add` 收口，交给 [`Frame::blit`] 的 i64 裁剪处理。
-        let x = x.saturating_add(i32::from(info.offset_x));
-        let y = y.saturating_add(i32::from(info.offset_y));
-        self.blit_cached(frame, library, frame_index, x, y);
+        if additive {
+            self.blit_cached_add(frame, library, frame_index, x, y);
+        } else {
+            self.blit_cached(frame, library, frame_index, x, y);
+        }
         true
     }
 
@@ -1923,6 +1981,20 @@ impl EntityRenderer {
     fn blit_cached(&self, frame: &mut Frame, library: SpriteLibrary, index: u32, x: i32, y: i32) {
         if let Some(Some(image)) = self.cache.get(&(library, index)) {
             frame.blit(image, x, y);
+        }
+    }
+
+    /// 把缓存里的图以加法混合直接贴到帧上（零拷贝）。
+    fn blit_cached_add(
+        &self,
+        frame: &mut Frame,
+        library: SpriteLibrary,
+        index: u32,
+        x: i32,
+        y: i32,
+    ) {
+        if let Some(Some(image)) = self.cache.get(&(library, index)) {
+            frame.blit_add(image, x, y);
         }
     }
 

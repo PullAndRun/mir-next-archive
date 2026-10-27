@@ -659,6 +659,42 @@ mod tests {
         assert_eq!(untouched.pixels, image.pixels);
     }
 
+    /// R70 B 补测：Add 的半透明 alpha 行为锁定（WZL 的 RGB565 只有 0/255 alpha，
+    /// 128 只能在这里用 RGBA32 图像表达）。
+    ///
+    /// 公式：`out = min(255, dst + round(src * alpha / 255))`，逐通道；
+    /// `alpha=0` 整点跳过，`alpha=255` 直接相加；目标 alpha 恒写回 255。
+    #[test]
+    fn additive_blending_uses_semi_transparent_source_alpha() {
+        // alpha=0：整点跳过（RGB 与目标 alpha 都不变）。
+        let image = test_image(1, 1, vec![200, 100, 50, 0]);
+        let mut frame = Frame::new(1, 1);
+        frame.clear([30, 40, 50, 255]);
+        frame.blit_add(&image, 0, 0);
+        assert_eq!(frame.pixel(0, 0), Some([30, 40, 50, 255]));
+
+        // alpha=128：round(200*128/255)=100、round(100*128/255)=50、round(50*128/255)=25。
+        let image = test_image(1, 1, vec![200, 100, 50, 128]);
+        frame.blit_add(&image, 0, 0);
+        assert_eq!(frame.pixel(0, 0), Some([130, 90, 75, 255]));
+
+        // alpha=255：直接相加并饱和到 255。
+        let image = test_image(1, 1, vec![255, 255, 255, 255]);
+        frame.blit_add(&image, 0, 0);
+        assert_eq!(frame.pixel(0, 0), Some([255, 255, 255, 255]));
+
+        // 半透明相加不得改动目标 alpha（帧缓冲是不透明画布）。
+        let mut frame = Frame::new(1, 1);
+        frame.clear([10, 10, 10, 255]);
+        let image = test_image(1, 1, vec![100, 0, 0, 128]);
+        frame.blit_add(&image, 0, 0);
+        assert_eq!(
+            frame.pixel(0, 0),
+            Some([60, 10, 10, 255]),
+            "Add：10 + round(100*128/255) = 60，目标 alpha 仍是 255"
+        );
+    }
+
     #[test]
     fn fill_rect_always_writes_opaque_pixels() {
         let mut frame = Frame::new(1, 1);

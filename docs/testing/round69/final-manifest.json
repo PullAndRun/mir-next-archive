@@ -135,11 +135,11 @@
     },
     {
       "path": "docs/testing/round69/contract-tests.py",
-      "bytes": 84962,
-      "sha256": "1f3bb16927ff877da2e8c33b53c9f238e2caf37e95c6f24f5a13e5117a65c315",
+      "bytes": 85836,
+      "sha256": "d468813350318372b3f2b6b5ec47bce8407fb9ca7809e068a81bf0b96776531b",
       "tracked": true,
-      "head_blob": "a00e4f8103e5a96a9ed53b1cb1a311333bdc8ac9",
-      "head_blob_sha256": "1f3bb16927ff877da2e8c33b53c9f238e2caf37e95c6f24f5a13e5117a65c315",
+      "head_blob": "b7b61722f5da733d01adf732c45cfca2122215f3",
+      "head_blob_sha256": "d468813350318372b3f2b6b5ec47bce8407fb9ca7809e068a81bf0b96776531b",
       "worktree_matches_head_blob": true
     },
     {
@@ -451,10 +451,10 @@
     },
     "isolation_method": "per run: explicit --work-root target/round69/b/attempt-3/<run>; per variant: physical shutil.copyfile copies (no hardlink/symlink/reparse), all nlink=1, file IDs differ from source, independent TMP/TEMP/TMPDIR and out dir"
   },
-  "delivery_head": "74d1608c65758a17b22cb88d4e1211bf9b69fc3a",
+  "delivery_head": "8385e9352c17f97c8b9fed9c8030b89fa6f83949",
   "pre_audit_refresh": {
-    "at": "2026-10-27T05:13:41Z",
-    "delivery_head": "74d1608c65758a17b22cb88d4e1211bf9b69fc3a",
-    "note": "交付文档批提交后、独立终审前的清单刷新：tracked 字段/head_blob 按交割 HEAD 重新取；门禁仍锚定 492b20c；audit 项待终审后追加"
+    "at": "2026-10-27T05:37:47Z",
+    "delivery_head": "8385e9352c17f97c8b9fed9c8030b89fa6f83949",
+    "note": "t9 兼容性修复提交后、终审复审前的清单刷新；tracked/head_blob 按交割 HEAD 重取；门禁仍锚定 492b20c"
   }
 }

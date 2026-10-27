@@ -1,0 +1,450 @@
+{
+  "schema_version": 1,
+  "round": 69,
+  "task": "JJC-20261027-006",
+  "subtask": "JJC-20261027-006-sub-6326a5ec",
+  "stage": "pre-audit",
+  "status": "契约工具轮 PASS；生产接线未做",
+  "audit": {
+    "status": "pending",
+    "note": "独立终审待办；本清单不替代刑部/尚书/门下最终验收"
+  },
+  "snapshot_head": "5297dea440f2f52f57f931562b3fa2c220cfa6bb",
+  "artifact_policy": "清单不列自身及manifest.sha256，避免自引用/循环；自身SHA单行写入manifest.sha256。tracked文件记录snapshot HEAD blob及工作树sha256/bytes；未跟踪证据按工作树实测，不声称HEAD blob。",
+  "gate": {
+    "operator": "lead",
+    "rerun_by_D": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "gate_head": "8fbb71b90e1e1d7fd4b9757c18697b69789208d1",
+        "exit_code": 1,
+        "utc_start": "2026-10-27T04:50:46Z",
+        "utc_end": "2026-10-27T04:57:57Z",
+        "command": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale (contract round: extra contract-tool/test items run separately)",
+        "log": "target/round69/gate/attempt-1.log",
+        "meta": "target/round69/gate/attempt-1.meta.txt",
+        "failure": "仅文档链接检查；用户要求清理target约340GB→2.75GB，删除R49–R68 target证据后历史链接断裂，非功能缺陷"
+      },
+      {
+        "attempt": 2,
+        "gate_head": "492b20c53c40c5d103bd8115f692397efc4eb080",
+        "exit_code": 0,
+        "items_ok": 12,
+        "items_fail": 0,
+        "utc_start": "2026-10-27T04:59:06Z",
+        "utc_end": "2026-10-27T05:01:36Z",
+        "command": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale",
+        "log": "target/round69/gate/attempt-2.log",
+        "meta": "target/round69/gate/attempt-2.meta.txt",
+        "remediation": "492b20c：check_links跳过target构建证据链接；1660检查+564跳过"
+      }
+    ]
+  },
+  "delivery": {
+    "auditor_checks": "5/5",
+    "B_selfcheck": "11/11",
+    "contract_tests": {
+      "total": 15,
+      "passed": 15,
+      "skipped": 0
+    },
+    "scope": "静态源码契约工具轮，未改生产渲染/协议/wire/服务端及历史freeze JSON；生产接线待R70"
+  },
+  "history": {
+    "first_C_verdict": "BLOCK：必改1仅溯源，功能/测试PASS",
+    "addendum_C_verdict": "PASS-WITH-PARTIAL；必改1关闭为披露+重做闭合",
+    "condition_5": "永久PARTIAL：a77 attempt-1原始红/隔离/日志被Lead要求的默认重跑覆盖，无备份不可恢复",
+    "authority": "target/round69/b/attempt-3：最终测试SHA权威首败证据；不冒充a77历史原件",
+    "policy": "此后证据目录只增不改；新attempt或新work-root重跑",
+    "deviations": [
+      "PROVENANCE:46 R2笔误；G2首败restore_args，G3才是restore_call.argc；C addendum披露",
+      "HEAD并发变化；冻结三文件SHA未变，不据此归因B越界"
+    ]
+  },
+  "self_checks": [
+    {
+      "command": "python tools/testing/round69_render_contract.py --audit --check-observed",
+      "exit_code": 49,
+      "result": "本机python命令未启动审计，无输出；不记契约红"
+    },
+    {
+      "command": "py -3 tools/testing/round69_render_contract.py --audit --check-observed",
+      "exit_code": 2,
+      "result": "unrecognized arguments: --audit --check-observed；冻结工具不支持这两个参数，不修改冻结工具"
+    },
+    {
+      "command": "py -3 tools/testing/round69_render_contract.py --root .",
+      "exit_code": 0,
+      "result": "PASS checks=5/5 missing_required=0 missing_optional=0；只读，无--out"
+    },
+    {
+      "command": "py -3 tools/docs/check_links.py",
+      "exit_code": 0,
+      "result": "1686 checked; 571 target evidence links skipped; historical gate count was 1660/564"
+    },
+    {
+      "command": "git diff --check (first)",
+      "exit_code": 2,
+      "result": "docs/roadmap.md:297: new blank line at EOF; fixed"
+    },
+    {
+      "command": "git diff --check (after fix)",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "JSON parse and exact matrix object comparison",
+      "exit_code": 0,
+      "result": "final-manifest/render-contract parse; 6 gaps + 3 candidates exact; line limits PASS"
+    },
+    {
+      "command": "B manifest artifacts SHA256+bytes recomputation",
+      "exit_code": 0,
+      "result": "46/46 PASS"
+    },
+    {
+      "command": "git diff 492b20c -- crates",
+      "exit_code": 0,
+      "result": "empty"
+    },
+    {
+      "command": "Final manifest artifacts SHA256+bytes recomputation",
+      "exit_code": 0,
+      "result": "19/19 PASS; independently re-read after manifest finalized"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "tools/testing/round69_render_contract.py",
+      "bytes": 49902,
+      "sha256": "1fdf4069a7841c507c931a3b74d4f03fbf549373522d146019bd135cc1f5e729",
+      "tracked": true,
+      "head_blob": "75a67f5865b527f1c6779cb72fa4138013c843c8",
+      "head_blob_sha256": "1fdf4069a7841c507c931a3b74d4f03fbf549373522d146019bd135cc1f5e729",
+      "worktree_matches_head_blob": true
+    },
+    {
+      "path": "docs/testing/round69/render-contract.json",
+      "bytes": 49442,
+      "sha256": "e513550fffdf91c9809218a52a601270741b84622e6dc4cd89796063387b0416",
+      "tracked": true,
+      "head_blob": "865c4deed9cc8ad229222f376833045f209d8032",
+      "head_blob_sha256": "e513550fffdf91c9809218a52a601270741b84622e6dc4cd89796063387b0416",
+      "worktree_matches_head_blob": true
+    },
+    {
+      "path": "docs/testing/round69/contract-tests.py",
+      "bytes": 84962,
+      "sha256": "1f3bb16927ff877da2e8c33b53c9f238e2caf37e95c6f24f5a13e5117a65c315",
+      "tracked": true,
+      "head_blob": "a00e4f8103e5a96a9ed53b1cb1a311333bdc8ac9",
+      "head_blob_sha256": "1f3bb16927ff877da2e8c33b53c9f238e2caf37e95c6f24f5a13e5117a65c315",
+      "worktree_matches_head_blob": true
+    },
+    {
+      "path": "docs/testing/round69/round69-c-evidence.md",
+      "bytes": 6970,
+      "sha256": "903b8b7f40acd264e3e255b1a0c7fecc7a6b9aadc864e737486413b3f51736bc",
+      "tracked": true,
+      "head_blob": "df753d212534f4f5bd9d8ced6d555da36022cb4c",
+      "head_blob_sha256": "903b8b7f40acd264e3e255b1a0c7fecc7a6b9aadc864e737486413b3f51736bc",
+      "worktree_matches_head_blob": true
+    },
+    {
+      "path": "docs/testing/round69/round69-c-addendum.md",
+      "bytes": 3382,
+      "sha256": "6de3a2c711c275666db8f4493c9ec3e17f4639e8dce74d29d3f79816727c73a6",
+      "tracked": true,
+      "head_blob": "ffe585e35338daea6fc1c61af4eb135292a40513",
+      "head_blob_sha256": "6de3a2c711c275666db8f4493c9ec3e17f4639e8dce74d29d3f79816727c73a6",
+      "worktree_matches_head_blob": true
+    },
+    {
+      "path": "docs/process/round69-lead-ruling.md",
+      "bytes": 2461,
+      "sha256": "6aaa828082ae7eed63cf1926c6dcf9652e8235650da683b4acc3467eddd58993",
+      "tracked": true,
+      "head_blob": "46e8c0d47937f3fc36739ccfa8f329598567f647",
+      "head_blob_sha256": "6aaa828082ae7eed63cf1926c6dcf9652e8235650da683b4acc3467eddd58993",
+      "worktree_matches_head_blob": true
+    },
+    {
+      "path": "docs/process/round69-plan.md",
+      "bytes": 11633,
+      "sha256": "d24b3df5a53696b29766bec40d7ddc419c8986fd4e183c7b77eb47f606efdd8c",
+      "tracked": true,
+      "head_blob": "ca3c373d01c93b548501750ae4e52e898b5e7d29",
+      "head_blob_sha256": "d24b3df5a53696b29766bec40d7ddc419c8986fd4e183c7b77eb47f606efdd8c",
+      "worktree_matches_head_blob": true
+    },
+    {
+      "path": "docs/process/round69-menxia-review.md",
+      "bytes": 7905,
+      "sha256": "becc40bd618f4e3bf2a05a29b3e36406486e5c7d2fac11180f9b5c47a6be01e7",
+      "tracked": true,
+      "head_blob": "314decf21087467978412aa6b1e63244b00ebe90",
+      "head_blob_sha256": "becc40bd618f4e3bf2a05a29b3e36406486e5c7d2fac11180f9b5c47a6be01e7",
+      "worktree_matches_head_blob": true
+    },
+    {
+      "path": "docs/process/round69-shangshu-dispatch.md",
+      "bytes": 6157,
+      "sha256": "bc6940a0ba8c8f6293149ac1ce1496063761010997a40c9254b13d951d54935f",
+      "tracked": true,
+      "head_blob": "b60936efd1b0afba97644d590776f98b1536def4",
+      "head_blob_sha256": "bc6940a0ba8c8f6293149ac1ce1496063761010997a40c9254b13d951d54935f",
+      "worktree_matches_head_blob": true
+    },
+    {
+      "path": "target/round69/gate/attempt-1.log",
+      "bytes": 269825,
+      "sha256": "fb453575f2216b1cb562c42c0f525a2cfd365b4c1cd03d14711ffc2664374fde",
+      "tracked": false,
+      "head_blob": null
+    },
+    {
+      "path": "target/round69/gate/attempt-1.meta.txt",
+      "bytes": 245,
+      "sha256": "f964fd80f31953549b1f22306c5df536c7b29647bd456e6fac3a4c4b8e7a225c",
+      "tracked": false,
+      "head_blob": null
+    },
+    {
+      "path": "target/round69/gate/attempt-2.log",
+      "bytes": 210828,
+      "sha256": "ced721954f9b9e446c4f663cd1efff723be583a41f773fd2e728b76b4633d084",
+      "tracked": false,
+      "head_blob": null
+    },
+    {
+      "path": "target/round69/gate/attempt-2.meta.txt",
+      "bytes": 741,
+      "sha256": "0ba8cd38dad86120f632cc8a4edeb548ca872fa7c3bd9ad7a7f79ea1f85b0e0f",
+      "tracked": false,
+      "head_blob": null
+    },
+    {
+      "path": "target/round69/b/attempt-3/PROVENANCE.md",
+      "bytes": 6603,
+      "sha256": "28cb9be4f68611601e0e99bf1010d99ef7aa0152c3de2e4402bb5ad5a25f7075",
+      "tracked": false,
+      "head_blob": null
+    },
+    {
+      "path": "target/round69/b/attempt-3/manifest.json",
+      "bytes": 17707,
+      "sha256": "96c85e321a9df36874380644b1ff647703cab07170d563ee514cb8cad8738c0e",
+      "tracked": false,
+      "head_blob": null
+    },
+    {
+      "path": "docs/testing/round69/README.md",
+      "bytes": 6036,
+      "sha256": "84a94831bc9ef7778bf0bc5bc6cf922cad0e32fc95f8a3110a7149b8bd782db9",
+      "tracked": false,
+      "head_blob": null
+    },
+    {
+      "path": "docs/testing/round69/round69-contract.md",
+      "bytes": 12835,
+      "sha256": "c40eeae36be35002d5a256afc6428fdbdcf07abebf097b954de87ef76239a70d",
+      "tracked": false,
+      "head_blob": null
+    },
+    {
+      "path": "docs/client.md",
+      "bytes": 180876,
+      "sha256": "d76ca48ab8dcb1877a9df73551b32bf851e8593a27627495fd66a350bddd4c84",
+      "tracked": true,
+      "head_blob": "576fd4fd96a652d8a3987521f5f59c00f1f01e35",
+      "head_blob_sha256": "325a55ffae67da10985b932651dc3238958b21991d020d8693b09ec0fc57e189",
+      "worktree_matches_head_blob": false
+    },
+    {
+      "path": "docs/roadmap.md",
+      "bytes": 39956,
+      "sha256": "2759406e5e98af47a448e98dd3925e4e514b55e3017acc505690566cee6ae661",
+      "tracked": true,
+      "head_blob": "ee82a636ca280ee9e834382dc4f4efef7f3b23ff",
+      "head_blob_sha256": "7fd42c9fee6e839fae26d1e4b183d8076316d7ee29e9c6b9b096564970dc3ee7",
+      "worktree_matches_head_blob": false
+    }
+  ],
+  "B_manifest_summary": {
+    "path": "target\\round69\\b\\attempt-3\\manifest.json",
+    "artifacts_verified": 46,
+    "green_baseline": {
+      "argv": [
+        "py",
+        "-3",
+        "docs/testing/round69/contract-tests.py",
+        "--root",
+        ".",
+        "--work-root",
+        "target/round69/b/attempt-3/green",
+        "--out",
+        "target/round69/b/attempt-3/green/test-results.json"
+      ],
+      "console_last_line": "wrote: C:/Users/diana/Documents/github/mir-next/target/round69/b/attempt-3/green/test-results.json",
+      "counts": {
+        "failed": 0,
+        "passed": 15,
+        "skipped": 0,
+        "total": 15
+      },
+      "exit": 0,
+      "result": "PASS",
+      "test_results_sha256": "10828eca074e2936d139b593514ca166bf24164f4f4dfcc9f1ab6b8fe5c74d6d",
+      "work_root": "target/round69/b/attempt-3/green"
+    },
+    "red_green_matrix": {
+      "R1": {
+        "expected_red_checks": [
+          "G2"
+        ],
+        "failed_checks_mutated": [
+          "G2"
+        ],
+        "first_failed_check": "G2",
+        "first_failure_assertion": {
+          "expected": true,
+          "observed": false,
+          "path": "offset_before_crop"
+        },
+        "first_failure_report": "target/round69/b/attempt-3/mutations/R1/report-mutated.json",
+        "first_failure_report_line": 300,
+        "mutated_exit": 1,
+        "mutated_verdict": "FAIL",
+        "patch_abs": "C:/Users/diana/Documents/github/mir-next/target/round69/b/attempt-3/R1/attempt-1/mutations/R1/patch.diff",
+        "patch_sha256": "102daeb1af115a40042985e7a9f80f8a426f63b75b758da1b385ab1c7cff53a8",
+        "restored_checks_passed": 5,
+        "restored_exit": 0,
+        "restored_verdict": "PASS",
+        "source_file_sha256_after": "5dde769384890253ad89bd5467730fd6768f39c36b8057532c7281b9167f2d89",
+        "source_file_sha256_before": "afda6ebb7a163d745d6398ea5c92ce80524daa6fb85c6167a09514867cf6f8c8",
+        "source_file_sha256_restored": "afda6ebb7a163d745d6398ea5c92ce80524daa6fb85c6167a09514867cf6f8c8",
+        "target_check": "G2"
+      },
+      "R2": {
+        "expected_red_checks": [
+          "G2",
+          "G3"
+        ],
+        "failed_checks_mutated": [
+          "G2",
+          "G3"
+        ],
+        "first_failed_check": "G2",
+        "first_failure_assertion": {
+          "expected": [
+            "oldBlend"
+          ],
+          "observed": [
+            "oldBlend",
+            "rate"
+          ],
+          "path": "restore_args",
+          "reason": "list length 1 != 2"
+        },
+        "first_failure_report": "target/round69/b/attempt-3/mutations/R2/report-mutated.json",
+        "first_failure_report_line": 436,
+        "mutated_exit": 1,
+        "mutated_verdict": "FAIL",
+        "patch_abs": "C:/Users/diana/Documents/github/mir-next/target/round69/b/attempt-3/R2/attempt-1/mutations/R2/patch.diff",
+        "patch_sha256": "b2db4d1ba1d189541488534b75fa679f1597b775655da1dba07ea32aefb45609",
+        "restored_checks_passed": 5,
+        "restored_exit": 0,
+        "restored_verdict": "PASS",
+        "source_file_sha256_after": "d666211f3177a318b0f52efa7dbf714ef882444504f24c15e64ea268c62e06eb",
+        "source_file_sha256_before": "afda6ebb7a163d745d6398ea5c92ce80524daa6fb85c6167a09514867cf6f8c8",
+        "source_file_sha256_restored": "afda6ebb7a163d745d6398ea5c92ce80524daa6fb85c6167a09514867cf6f8c8",
+        "target_check": "G3"
+      },
+      "R3": {
+        "expected_red_checks": [
+          "G4",
+          "G5"
+        ],
+        "failed_checks_mutated": [
+          "G4",
+          "G5"
+        ],
+        "first_failed_check": "G4",
+        "first_failure_assertion": {
+          "expected": "new Vector3((float)point.X, (float)point.Y, 0.0F)",
+          "observed": "new Vector3((float)(point.X + mi.MaskX), (float)(point.Y + mi.MaskY), 0.0F)",
+          "path": "mask_draw.position"
+        },
+        "first_failure_report": "target/round69/b/attempt-3/mutations/R3/report-mutated.json",
+        "first_failure_report_line": 482,
+        "mutated_exit": 1,
+        "mutated_verdict": "FAIL",
+        "patch_abs": "C:/Users/diana/Documents/github/mir-next/target/round69/b/attempt-3/R3/attempt-1/mutations/R3/patch.diff",
+        "patch_sha256": "32ddda96d2a6301bc1256d17b807b8d695f71c01d94a0bb49adcdf9429d2ca6b",
+        "restored_checks_passed": 5,
+        "restored_exit": 0,
+        "restored_verdict": "PASS",
+        "source_file_sha256_after": "3a79e029e2038f659ca695c3bbd8b3c1ccab1aef37cad9dd605173525fb4a609",
+        "source_file_sha256_before": "afda6ebb7a163d745d6398ea5c92ce80524daa6fb85c6167a09514867cf6f8c8",
+        "source_file_sha256_restored": "afda6ebb7a163d745d6398ea5c92ce80524daa6fb85c6167a09514867cf6f8c8",
+        "target_check": "G4"
+      },
+      "R4": {
+        "expected_red_checks": [
+          "G5"
+        ],
+        "failed_checks_mutated": [
+          "G5"
+        ],
+        "first_failed_check": "G5",
+        "first_failure_assertion": {
+          "expected": 0,
+          "observed": 1,
+          "path": "classification_counts.other_read"
+        },
+        "first_failure_report": "target/round69/b/attempt-3/mutations/R4/report-mutated.json",
+        "first_failure_report_line": 731,
+        "mutated_exit": 1,
+        "mutated_verdict": "FAIL",
+        "patch_abs": "C:/Users/diana/Documents/github/mir-next/target/round69/b/attempt-3/R4/attempt-1/mutations/R4/patch.diff",
+        "patch_sha256": "0f7d86a9c3b686a79aaef574b8d5f72c865b51a63a97ea21249f54b70d0d6919",
+        "restored_checks_passed": 5,
+        "restored_exit": 0,
+        "restored_verdict": "PASS",
+        "source_file_sha256_after": "76c8c8ef7636c6c06c7fd380d9f9035d96a3f74d0a2e4943e2897dbf07b9efa5",
+        "source_file_sha256_before": "afda6ebb7a163d745d6398ea5c92ce80524daa6fb85c6167a09514867cf6f8c8",
+        "source_file_sha256_restored": "afda6ebb7a163d745d6398ea5c92ce80524daa6fb85c6167a09514867cf6f8c8",
+        "target_check": "G5"
+      },
+      "R4b": {
+        "expected_red_checks": [
+          "G5"
+        ],
+        "failed_checks_mutated": [
+          "G5"
+        ],
+        "first_failed_check": "G5",
+        "first_failure_assertion": {
+          "expected": 4,
+          "observed": 3,
+          "path": "classification_counts.deserialize_read"
+        },
+        "first_failure_report": "target/round69/b/attempt-3/mutations/R4b/report-mutated.json",
+        "first_failure_report_line": 647,
+        "mutated_exit": 1,
+        "mutated_verdict": "FAIL",
+        "patch_abs": "C:/Users/diana/Documents/github/mir-next/target/round69/b/attempt-3/R4b/attempt-1/mutations/R4b/patch.diff",
+        "patch_sha256": "aa91835b4fe7bf542799fcb25f60bb07991c350d3fbee84548e8bd3b5393902c",
+        "restored_checks_passed": 5,
+        "restored_exit": 0,
+        "restored_verdict": "PASS",
+        "source_file_sha256_after": "cf9b99bbe1b2057f2a0b511eab850965f0c9f0f4314b652d0ef7922b73cacd9a",
+        "source_file_sha256_before": "afda6ebb7a163d745d6398ea5c92ce80524daa6fb85c6167a09514867cf6f8c8",
+        "source_file_sha256_restored": "afda6ebb7a163d745d6398ea5c92ce80524daa6fb85c6167a09514867cf6f8c8",
+        "target_check": "G5"
+      }
+    },
+    "isolation_method": "per run: explicit --work-root target/round69/b/attempt-3/<run>; per variant: physical shutil.copyfile copies (no hardlink/symlink/reparse), all nlink=1, file IDs differ from source, independent TMP/TEMP/TMPDIR and out dir"
+  }
+}

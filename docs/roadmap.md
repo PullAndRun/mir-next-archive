@@ -279,3 +279,18 @@ PARTIAL 承接：A 旧 manifest:394 措辞勘误、B 共享 isolated 旧日志�
 - DrawBlend/shadow/mask：独立规划混合、阴影和遮罩验证。
 
 以上为候选，R69 目标、依赖与验收留待独立规划/评审，不预记实现或结论。
+
+## 十七、R69 契约工具轮完成与 R70 候选
+
+**R69：契约工具轮 PASS；生产接线未做，待 R70。** 本批 pre-audit，独立终审待办；承接上节历史计划，实际交付见 [R69 索引](testing/round69/README.md)、[矩阵契约](testing/round69/round69-contract.md)与 [client §5.34](client.md#534-r69渲染契约矩阵与生产缺口)。
+人工冻结 G1–G5、只读审计5/5、selfcheck11/11、契约15 tests/0 skip；四变异含R4b最终同SHA各0→1→0。提交 `8fbb71b` 为工具/矩阵/测试，`492b20c` 为链接检查整改。
+Lead gate attempt-1 EXIT1：用户要求清理 target（约340GB→2.75GB）导致R49–R68历史证据链接断裂；跳过target构建证据链接后attempt-2 EXIT0、12/12 OK，非生产功能修复。
+C首轮BLOCK仅溯源，追加PASS-WITH-PARTIAL；必改1以披露+重做闭合，attempt-3为最终SHA权威证据；a77原始红/隔离/日志不可恢复，**条件5历史保全永久PARTIAL**，今后证据目录只增不改。
+
+1. R70-C1：spellfx 单路径逐帧 signed offset 消费；FireWall候选须先证明图库/帧/坐标准入，正负/跨帧/离屏像素与失效变异验收后接线。
+2. R70-C2：渲染层统一绝对坐标+可选offset API，单次应用且先裁剪，保留None不偏移。
+3. R70-C3：帧尺寸/高度基准收敛，避免居中后叠offset的双重修正。
+4. spellfx magic映射精确化另行规划：Crystal Magic1630/6×120ms/blend0.8 与Rust Magic0/10×60ms/Over存在差异，offset局部候选不得偷改mapping/time/wire。
+5. DrawBlend/rate/INVLIGHT、mask、GameScene条件offset/照明、全UI与真实素材设备仍待规划；shadow保持解析不消费，新增行为须独立契约。
+
+R49–R68历史PARTIAL按原编号承接；125/570已做偏移消费不扩大为生产渲染全链一致，条件5原件缺失永久保留记录。

@@ -1403,6 +1403,17 @@ PARTIAL 分列承接：①多消费者/克隆快照全局最低水位未实现�
 PARTIAL 承接：A 旧 manifest:394 措辞勘误、B 共享 isolated 旧日志归档限制、真实素材/设备视觉签核、全 UI offset、spellfx 居中迁移、DrawBlend/shadow/mask、R49–R67 历史遗留。
 R69 的真实视觉、全 UI、spellfx 与混合/阴影/mask 目标留待独立规划；125 无点坐标语义不变。
 
+### 5.34 R69：渲染契约矩阵与生产缺口
+
+**契约工具轮 PASS；生产接线未做，待 R70。** 本批 pre-audit，独立终审待办；见 [R69 索引](testing/round69/README.md)与[契约](testing/round69/round69-contract.md)。
+
+- R68 已完成 125 飞行/570 命中逐帧 signed offset 消费；渲染层读取当前帧 offset，运动量与图像偏移各一次，旧绝对坐标入口仍保留。
+- R69 人工冻结 G1–G5：Point 默认不偏移、true 时先偏移后裁剪；DrawBlend rate 与 bool 恢复；mask 同点/尺寸；shadow/mask 元数据生效读取扫描。工具只产 observed，测试 15/15、0 skip，最终五变体各 0→1→0。
+- 生产 DrawBlend/rate/INVLIGHT、shadow/mask 未接；spellfx 仍居中并走旧入口。静态契约不背书像素/GPU、真实素材设备或全 UI 一致性。
+- R70 单一路径候选：FireWall，spellfx.rs:257–265 → entities.rs:1847–1868；先证图库/帧/坐标契约，再做 offset 一次且先裁剪的生产接线。Crystal Magic1630/6×120ms/blend0.8 与 Rust Magic0/10×60ms/Over 尚不等价；magic 精确映射另行规划。
+- 门禁 attempt-1 EXIT1 仅历史 target 链接失效；用户要求清理 target 后，`492b20c` 跳过构建证据链接，attempt-2 EXIT0、12/12 OK；生产 crates 相对该提交无 diff。
+- C 首轮 BLOCK 仅历史保全；追加 PASS-WITH-PARTIAL，必改1关闭为“披露+重做闭合”。Lead 默认重跑覆盖 a77 原件且无备份，最终 SHA 改用 attempt-3 权威证据；条件5历史保全永久 PARTIAL，证据目录此后只增不改。
+
 ### 6.0 真实素材渲染（第 6 轮）
 
 **数据目录**

@@ -1,0 +1,41 @@
+# R69 G1–G5 矩阵契约摘要
+
+阶段：契约工具轮 PASS；生产接线未做。expected 以[人工冻结矩阵](render-contract.json)为唯一来源；先冻结后工具实现，工具只产 observed，禁止用 observed 回填 expected。
+本页 G1–G5 为摘要；下方 6 gaps 与 3 r70_candidates 按矩阵原字段/原值逐项引用，生产验收仍待实施。
+
+| 项 | Crystal 事实 | Rust 消费/缺口 | 最小修复落点 | 失败验收 | 优先级/责任 |
+|---|---|---|---|---|---|
+| G1 | MLibrary 640–673：Point默认false，true时单次offset先裁剪；整数重载不偏移 | entities 1816–1870：绝对入口与固定offset入口；R68仅125/570消费；缺条件API | entities/scene：可选signed offset单一入口 | (+8,-8)、false/整数不偏移、屏外裁剪顺序 | P1；契约兵部R69-A，生产R70兵部+工部 |
+| G2 | MLibrary 692–710：默认false/rate1，先偏移/裁剪，再设置混合→绘制→恢复；Effect/SpellObject显式true+rate；GameScene条件offset | spellfx 226–265旧居中/Over；frame仅Over/Add，无rate/INVLIGHT；条件判据未移植 | spellfx+scene/entities：消费offset并显式传rate/mode | 正负offset RGBA、rate0/1、UI保留2723–2732判据；R1必须红 | P1；契约兵部R69-A，生产R70兵部+工部 |
+| G3 | MLibrary 704–709只恢复bool；DXManager 353–389默认1F/NORMAL，NORMAL=SourceAlpha/One、INVLIGHT=BlendFactor/InverseSourceColor | frame 418–471无全局状态、无rate/INVLIGHT；Add One/One不精确等价 | frame：显式rate/mode；场景raw state另立设计 | rate0/0.5/1、INVLIGHT公式、嵌套无状态泄漏；R2必须红 | P2；契约兵部，生产R70兵部+工部或R71 |
+| G4 | MLibrary 778–797主体/mask同point/Width/Height；880–901读元数据；919–928 mask跳12字节、尺寸Width/Height、数据Length | image仅has_mask解析；frame/entities无第二纹理/tint；MaskX/Y不消费 | image补mask元数据，entities draw_tinted主体后mask | true绘2次/false1次，同点同宽高；R3加MaskX/Y必须红 | P1；契约兵部，生产R70兵部+工部，mask可后置 |
+| G5 | MLibrary 862–900；97个Client C#中6命中行/8标识符，2声明+4反序列化、other_read0；只证明冻结全集 | image解析shadow，entities/frame不消费；不得发明shadow绘制 | 契约全树扫描；新消费另立矩阵 | 生效读取other_read>0必须红，注释/字符串提及不红 | P3；契约兵部，R70+所有轮次防回归 |
+
+## 语义变异与隔离
+
+- R1 把 DrawBlend offset 移到裁剪后→G2；R2 恢复多传rate→G2+G3；R3 mask位置加MaskX/Y→G4+G5；R4新增有效shadow读取/R4b减少反序列化读取→G5。
+- 每变体基线0→变异1→恢复0；真实C#语义改变，EXIT2输入拒绝不算红；目标check与附带check均如实列出。
+- 同最终测试 SHA、可信冻结工具/矩阵；逐文件物理复制，无硬链接/符号链接/reparse，独立绝对root/out/tmp，首败原文/patch/前后恢复SHA全保全。
+- 最终权威为[B attempt-3](../../../target/round69/b/attempt-3/manifest.json)，历史a77原件不可恢复；[C追加](round69-c-addendum.md)核46/46，条件5永久PARTIAL。PROVENANCE:46 R2字段笔误以实际G2 restore_args/G3 restore_call.argc为准。
+- G3不泛化为GameScene完整状态恢复；G5不外推全集以外。静态契约不证明像素/GPU或生产已接线。
+
+## 6 gaps 原样引用
+
+以下每行 JSON 对象保留源字段与字符串原值（仅压缩排版）。
+
+```json
+{"id":"GAP-1","title":"DrawBlend 未实现（仅 Over/Add，无 rate/INVLIGHT/状态语义）","priority":"P1","owner":"兵部(契约 R69-A) + 工部(R70 生产)","crystal_fact":"MLibrary.cs:692-711 DrawBlend 保存 bool oldBlend → SetBlend(true, rate) → Draw → SetBlend(oldBlend)；DXManager.cs:353-389 NORMAL=SourceAlpha/One、INVLIGHT=BlendFactor/InverseSourceColor、BlendFactor=255*rate。","rust_consumption":"crates/mir-render/src/frame.rs:418-471 只有 BlendMode::Over（blit）与 BlendMode::Add（blit_add）；entities.rs:1923-1927 全部走 Over；无 rate/mode 参数。","unimplemented":"rate→BlendFactor alpha 缩放、INVLIGHT 模式、BlendOperation Add 语义、DrawBlend 入口。","minimal_fix":"frame.rs 增加显式 (rate, mode) 混合函数；entities 增加 blend 绘制入口；不动 wire/时序/魔数。","fail_acceptance":"rate=0/0.5/1 合成断言；INVLIGHT 公式断言；DrawBlend 调用点（Effect/SpellObject 等价物）传 true+rate 的消费断言。"}
+{"id":"GAP-2","title":"混合状态恢复仅 bool（Crystal 自身缺陷，不可泛化）","priority":"P2","owner":"兵部(契约) + 工部(R70 或 R71)","crystal_fact":"MLibrary.cs:704-709 只保存 DXManager.Blending（bool），SetBlend(oldBlend) 恢复时 rate 回到默认 1F、mode 回到 NORMAL；DrawUpBlend:832-837 同病。","rust_consumption":"Rust 无全局混合状态（frame.rs 以参数表达），不存在同款恢复缺陷；但也没有 rate/mode 的保存恢复机制。","unimplemented":"以显式参数替代全局状态（正确方向）；场景级 raw state（GameScene 11085-11087、11264-11273）无对应概念。","minimal_fix":"保持函数式显式参数；禁止为对齐 Crystal 缺陷而发明全局状态；场景状态另立设计。","fail_acceptance":"嵌套/连续 blend 绘制后外层结果不变（无状态泄漏）；rate 默认值语义断言。"}
+{"id":"GAP-3","title":"mask 纹理/MaskX/MaskY 未消费（有读无绘制）","priority":"P1","owner":"兵部(契约) + 工部(R70 后置)","crystal_fact":"MLibrary.cs:792-794 DrawTinted 在 HasMask 时用 mi.MaskImage + 同 point/width/height 再 Draw 一次（Tint 颜色）；MaskX/MaskY 只在 869 声明与 899-900 反序列化读取，绘制不消费。","rust_consumption":"crates/mir-asset/src/image.rs:35-66 ImageInfo.has_mask 有字段；mir-render/mir-client 无 mask 纹理绘制、无 tint 绘制入口；MaskX/MaskY 在 Rust 侧连元数据字段都没有。","unimplemented":"mask 第二层纹理加载（Width/Height 尺寸、skip 12 字节、数据长度怪癖用 Length）与 tint 绘制；MaskX/Y 语义保持『不消费』。","minimal_fix":"image.rs 补 mask 元数据；entities.rs 增加 draw_tinted（主体后 mask、同坐标）；禁止 MaskX/Y 偏移。","fail_acceptance":"has_mask=true 两遍绘制/同坐标断言；mask 纹理尺寸与字节偏移断言；R3 变异（mask 点加 MaskX/Y）必须变红。"}
+{"id":"GAP-4","title":"shadow 元数据无绘制消费（Crystal 亦然，需防回归）","priority":"P3","owner":"兵部(契约/防回归)","crystal_fact":"MLibrary.cs:862 ShadowX/ShadowY 声明、887-888 反序列化读取；Client 全树遮蔽注释/字符串后无其它生效读取（G5：hit_lines=6、other_read=0），即 Crystal 不绘制 shadow。","rust_consumption":"crates/mir-asset/src/image.rs:35-66 解析 shadow_x/shadow_y 入 ImageInfo；mir-render/mir-client 无消费（仅测试合成构造）。","unimplemented":"shadow 渲染（Crystal 也没有）；本轮不实现，只锁定『解析但不消费』。","minimal_fix":"不改渲染；在契约中标注 PARTIAL/不适用；未来若用 shadow 元数据需新增矩阵条目与验收。","fail_acceptance":"G5 全树扫描回归：新增生效 ShadowX/Y 读取 → other_read>0 → 变红；仅在注释/字符串提及 → 保持绿。"}
+{"id":"GAP-5","title":"spellfx 旧居中入口未消费逐帧 signed offset","priority":"P1","owner":"兵部(契约) + 工部(R70 主候选)","crystal_fact":"Effect.cs:129-132/213-216 所有消费点显式传 offSet=true；MLibrary.cs:665 先 Offset(mi.X, mi.Y) 再 667 裁剪；GameScene 10926/10928 条件 offset。","rust_consumption":"crates/mir-client/src/ui/spellfx.rs:248-265 先算 frame_index 再居中（x+(CELL_WIDTH-width)/2, y+(CELL_HEIGHT-height)/2），随后 scene.draw_effect（entities.rs:1816-1831 绝对坐标、Over）；R68 offset 只在 projectile.rs:927/932 的 125/570 路径使用。","unimplemented":"spellfx 路径未消费帧 offset；居中与 Crystal offSet=true 语义不等价（居中量 + 未减去帧 offset）。","minimal_fix":"spellfx.rs:257-265 改用 draw_effect_with_offset（scene.rs:433-443 → entities.rs:1833-1870），offset 来自帧元数据；保持 kind/frame_index/时序/wire 不变。","fail_acceptance":"正/负 offset 合成 RGBA 位置断言；单帧单路径 offset 只应用一次；跨帧不累积；离屏不 panic；R68 125/570 回归不红。"}
+{"id":"GAP-6","title":"GameScene 条件 offset 判据未移植","priority":"P2","owner":"兵部(契约) + 工部(R70/R71 UI 层)","crystal_fact":"GameScene.cs:10921-10928 blend 分支：fileIndex 14/27/100-199 → offSet=true 且 y 额外减 3*CellHeight；否则 offSet=(index>=2723 && index<=2732)。10932-10935 非 blend 分支：fileIndex==28 且 GetOffSet(index)!=Point.Empty → Point+true；否则整数重载（不偏移）。10923 用位与 &。","rust_consumption":"Rust 无对应条件偏移判据/API（mir-render 无『条件 offSet』参数，spellfx 也不走该路径）。","unimplemented":"fileIndex/index 条件偏移矩阵与『本次不偏移』表达。","minimal_fix":"渲染层只提供 offset 可选（Some/None 或 bool+offset）消费点；条件判据保留在 UI 调用方，不复制魔法 index 到渲染层。","fail_acceptance":"Some(offset) → 恰好一次且先裁剪；None → 不偏移；条件表达式在 UI 层断言保留；R1 变异（偏移改到裁剪后）必须让 G2 变红。"}
+```
+
+## 3 r70_candidates 原样引用
+
+```json
+{"id":"R70-C1","title":"spellfx 单路径逐帧 signed offset 消费（主候选）","kind":"A-局部生产落点（仅渲染层消费，不动 magic 映射/时序/wire）","priority":"P1","owner":"工部执行，兵部验契约","landing":{"path":"crates/mir-client/src/ui/spellfx.rs","lines":"257-265","change":"把 scene.draw_effect(frame, kind, frame_index, x, y)（居中入口）替换为 scene.draw_effect_with_offset(...)（scene.rs:433-443 → entities.rs:1833-1870），坐标不再手工居中；offset 来自帧元数据（ImageInfo.offset_x/offset_y）。"},"criteria":["单帧单路径 offset 恰好应用一次，且发生在裁剪/离屏判断之前（等价 Crystal MLibrary 665→667 顺序）。","合成 ImageInfo offset=(+8,-8) 与 (-8,+8) 各断言 RGBA 位置/像素；跨帧不累积（每帧从帧元数据重新取）。","离屏/负坐标不 panic；不可见帧返回 false/skip 语义保持。","spellfx 帧序号与 timing（226-229 MAGIC_FX_FRAMES=10、MAGIC_FX_FRAME_MS=60）不变；ThunderBolt/Lightning kind 映射（252-256）不变；不新增 wire 字段。","R68 已有 125 飞行/570 命中 offset 路径回归不红；变异测试：把 offset 移到裁剪后 → 契约/测试必须失败。"],"non_goals":["不实现 DrawBlend/rate/INVLIGHT。","不实现 mask/shadow 绘制。","不移植 GameScene 条件 offset 判据（留 R70/R71 UI 层）。"]}
+{"id":"R70-C2","title":"渲染层通用『绝对坐标 + 可选 signed offset』单一 API 收敛","kind":"A-局部生产落点（仅渲染层消费）","priority":"P2","owner":"工部执行，兵部验契约","landing":{"path":"crates/mir-render/src/entities.rs","lines":"1833-1870（draw_effect_with_offset 既有）","change":"在渲染层收敛一个统一入口（offset 可选、先偏移后绘制/裁剪），供 spellfx/其他 UI 复用；避免每个调用方各自居中或各自加 offset。"},"criteria":["同一帧两路径（draw_effect_with_offset 与统一入口）结果一致（像素级）。","offset 来源唯一（ImageInfo.offset_x/offset_y），不接受调用方随意叠加；None 语义=不偏移。","越界早退/裁剪语义与 Crystal 667 四条件集合对齐（截图坐标断言：像素中心在屏内/外边界）。","性能不退化（无每帧分配；不引入全局状态）。"],"non_goals":["不动 spellfx 帧序号/时序。","不动 magic 映射与 wire。","不实现混合状态机。"]}
+{"id":"R70-C3","title":"spellfx 帧尺寸/高度基准收敛（CELL_HEIGHT→帧元数据）","kind":"A-局部生产落点（仅渲染层相关，改坐标系而非魔数）","priority":"P3","owner":"工部执行，兵部验契约","landing":{"path":"crates/mir-client/src/ui/spellfx.rs","lines":"257-265","change":"居中/高度计算改用帧元数据（ImageInfo.height/offset_y）而非 CELL_HEIGHT 假设，配合 C1 后不再出现『居中后再叠 offset』的双重修正。"},"criteria":["帧 height ≠ CELL_HEIGHT 的合成样本断言 y 不重复减 CELL_HEIGHT；offset_y 已含在元数据时不再二次减去。","跨帧尺寸变化（大帧/小帧）稳定，无逐帧抖动漂移。","与 C1 兼容：offset 仍在裁剪前、只应用一次。"],"non_goals":["不改 magic 映射与帧数。","不实现 mask/shadow/混合。"]}
+```

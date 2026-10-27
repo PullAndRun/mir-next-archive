@@ -312,10 +312,11 @@
       "bytes": 7636,
       "sha256": "78138d8a7dda5094b84f0d87b7784bff66aa05ab99da475e7e517ca74826eb10",
       "tracked": true,
-      "git_blob": "f2fdd11dc943d1d9e2b4860e1ddb81dce1223ee5",
+      "git_blob": "7c0c1c1e0fe66eadfcd1998a006c0c248f9d4b54",
       "head_sha256": "78138d8a7dda5094b84f0d87b7784bff66aa05ab99da475e7e517ca74826eb10",
       "revision": "3ee24e73ddd28dff089a4768347b2269ec91bbdf",
-      "blob_oid": "7c0c1c1e0fe66eadfcd1998a006c0c248f9d4b54"
+      "blob_oid": "7c0c1c1e0fe66eadfcd1998a006c0c248f9d4b54",
+      "note": "；S-D1 修复：git_blob 对齐 revision 实际 OID（3ee24e7 行尾 CRLF 归一后 blob）。"
     },
     {
       "path": "docs/testing/round73/round73-thunder-contract.md",

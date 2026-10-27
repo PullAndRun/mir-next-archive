@@ -306,7 +306,7 @@ pub fn draw_sprites(
         //
         // * `Duration = 400` 是 Crystal 事实；本实现的「80 ms elapsed + 恰好 400 ms 截止」
         //   是**产品精灵窗近似**，不是 Crystal 的严格 `NextMotion` 时钟（`Effect.cs:81-96`
-        //   的 `CMain.Time <= NextFrame` 才推一帧、每轮 `Process` 至多一步、
+        //   的 `CMain.Time > NextFrame` 才推进一帧（`<=` 时先 `return`、不推进）、每轮 `Process` 至多一步、
         //   `Owner.SkipFrames` 额外加帧；`PlayerObject.cs:2819-2835` 的 `Cast` 帧循环与
         //   `ActionFeed` 起算也未迁移 → PARTIAL）。
         // * 落点：Crystal 有 `ob` 时随 `Owner.DrawLocation`（`Effect.cs:113-130`）；本作

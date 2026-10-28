@@ -3,7 +3,7 @@
   "stage": "pre-audit",
   "task": "JJC-20261028-004",
   "head_snapshot": "24f0826576b4ac724ad44a49870e40153e1d8513",
-  "delivery_head": null,
+  "delivery_head": "1bdbe4a9eb0392b86e9aee771289f98511a53b5a",
   "generated_utc": "2026-10-28T04:48:38.829565Z",
   "verdict": "PASS-WITH-PARTIAL",
   "production_changes": 0,
@@ -103,33 +103,37 @@
     },
     {
       "path": "docs/testing/round77/README.md",
-      "tracked": false,
+      "tracked": true,
       "bytes": 6293,
       "sha256": "a39f06a23f864d95373b458d4efc62f4388e0e936e19bec10008c6f20777e115",
-      "source": "worktree-d-delivery"
+      "source": "worktree-d-delivery",
+      "git_blob": "c06d28f6a2feeaed2d6a9124c367d770bd97b25e"
     },
     {
       "path": "docs/testing/round77/round77-trap-asset-admission.md",
-      "tracked": false,
+      "tracked": true,
       "bytes": 4112,
       "sha256": "9b8fa34d10f91b8f1da9b5a6f7ae614539be2826c6f817c0ab3116ff74811661",
-      "source": "worktree-d-delivery"
+      "source": "worktree-d-delivery",
+      "git_blob": "d5171af878f154146645498577e11bf8eea5278f"
     },
     {
       "path": "docs/client.md",
-      "tracked": false,
+      "tracked": true,
       "bytes": 191434,
       "sha256": "bbc9ba9b2aef68a20f4b5bf57bac7277fd32afc61d63f386c1bb73a0895948a8",
       "source": "worktree-d-delivery",
-      "tracked_note": "Historical tracked document; tracked:false classifies this D worktree delivery per task; not an assertion that the path is absent from Git."
+      "tracked_note": "Historical tracked document; tracked:false classifies this D worktree delivery per task; not an assertion that the path is absent from Git.",
+      "git_blob": "70fef390d293129815ee4c83427f978196ad79e2"
     },
     {
       "path": "docs/roadmap.md",
-      "tracked": false,
+      "tracked": true,
       "bytes": 53216,
       "sha256": "a735704c48abaa59a251389dbe49451b197045f1fa25fb2f4543b6e99def6095",
       "source": "worktree-d-delivery",
-      "tracked_note": "Historical tracked document; tracked:false classifies this D worktree delivery per task; not an assertion that the path is absent from Git."
+      "tracked_note": "Historical tracked document; tracked:false classifies this D worktree delivery per task; not an assertion that the path is absent from Git.",
+      "git_blob": "c97707a10ee8fb1ee5637c2d30a731caf5bb47ed"
     },
     {
       "path": "target/round77/gate/attempt-1.log",

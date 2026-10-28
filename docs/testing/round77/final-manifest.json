@@ -1,9 +1,9 @@
 {
   "schema": "round77-final-manifest-v1",
-  "stage": "pre-audit",
+  "stage": "post-audit",
   "task": "JJC-20261028-004",
   "head_snapshot": "24f0826576b4ac724ad44a49870e40153e1d8513",
-  "delivery_head": "1bdbe4a9eb0392b86e9aee771289f98511a53b5a",
+  "delivery_head": "1affce2fb1167a84e106cbf3a9255a478eab618c",
   "generated_utc": "2026-10-28T04:48:38.829565Z",
   "verdict": "PASS-WITH-PARTIAL",
   "production_changes": 0,
@@ -104,10 +104,10 @@
     {
       "path": "docs/testing/round77/README.md",
       "tracked": true,
-      "bytes": 6293,
-      "sha256": "a39f06a23f864d95373b458d4efc62f4388e0e936e19bec10008c6f20777e115",
+      "bytes": 7290,
+      "sha256": "ad04c2996dc4fd7c1c5a1a5f66a6f8a50ce273de86cdd0b64f0e927adea5d7be",
       "source": "worktree-d-delivery",
-      "git_blob": "c06d28f6a2feeaed2d6a9124c367d770bd97b25e"
+      "git_blob": "72503b9e54e466ee9d83931028585637d02b8f28"
     },
     {
       "path": "docs/testing/round77/round77-trap-asset-admission.md",
@@ -162,7 +162,36 @@
       "bytes": 42060,
       "sha256": "88cff2810ff3c741b3a5721c352556787bd85331c0ebc6176b3e02d0b332afe1",
       "source": "local-evidence"
+    },
+    {
+      "path": "docs/testing/round77/round77-final-audit.md",
+      "kind": "report",
+      "tracked": true,
+      "git_blob": "f577bab55eb582899074b9db59086bd0cc39f80e",
+      "bytes": 5834,
+      "sha256": "b51f62c04c54f9cacecb84f4c2d97f71902bb5c65513b58914e25507c089cb9f",
+      "note": "御史台独立终审（PASS-WITH-PARTIAL，必改0；legacy clippy 历史承接 FAIL 已披露）"
     }
   ],
-  "self_reference_policy": "This manifest and manifest.sha256 are excluded from artifacts."
+  "self_reference_policy": "This manifest and manifest.sha256 are excluded from artifacts.",
+  "audit": {
+    "verdict": "PASS-WITH-PARTIAL",
+    "must_fix": 0,
+    "auditor": "gpt-6.1-sol",
+    "audited_head": "5f304039f819938d3860bc1a2b5f948e46aa893b",
+    "report": "docs/testing/round77/round77-final-audit.md",
+    "report_bytes": 5834,
+    "report_sha256": "b51f62c04c54f9cacecb84f4c2d97f71902bb5c65513b58914e25507c089cb9f",
+    "evidence_root": "target/round77/t/attempt-1/",
+    "notes": [
+      "隔离复跑 R77 7/7、R76 8/8、R72 9/9、R59 6/6、R59 render 16/16、fmt EXIT0",
+      "F1(G5) 与 M6(G6) 真红独立复现；清单16项/12 blob/外置SHA 0 失配；A digest 独立命中",
+      "严格 legacy clippy 实测 EXIT101（minimap.rs:353/tiles.rs:311 历史 needless_return）记历史承接 FAIL，不虚报0",
+      "PARTIAL/M1 OPEN→R78 及历史原号照承；不宣称 R77 通过/READY"
+    ]
+  },
+  "disclosures": [
+    "门禁 workspace 口径不带 legacy clippy；严格 legacy clippy 为历史 FAIL（R71-C7 承接）",
+    "README post-audit 刷新与本清单 post-audit 刷新由 Lead 机械执行，审计只写报告与证据"
+  ]
 }

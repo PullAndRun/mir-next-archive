@@ -1,0 +1,23 @@
+# R76 门下省收口确认
+- Verdict：**PASS-WITH-PARTIAL，收口成立；必改 0；Done achieved=yes**。主单 `JJC-20261028-003`，仅确认 R76 有限切片，不宣称整轮、严格 Crystal 等价或生产寿命通过。
+- 证据：[runs.json](../../target/round76/menxia/attempt-1/runs.json)、[logs](../../target/round76/menxia/attempt-1/logs/)、[逐项实算](../../target/round76/menxia/attempt-1/logs/checks.json)；原始 stdout/stderr 分开保留，UTC 起止及原始 EXIT 逐条登记。
+- 抽核1／尚书报告：亲读全文；30行/5,631B/SHA256 `a82be3c26108437b38787ff845195cd9314b4aa8640292c49744d3c2a221642b`；ACCEPT-WITH-PARTIAL、必改0，复算相符。
+- 抽核2／清单：25 artifacts=20 file+5 inventory，stage=post-audit、delivery_head=`ec6ec0217769323ff659ceae05d2148ec4877a94`；8,562B/SHA256 `8e91292ecaf24aec6b0f763db2e7400f7e5a42223d0aa1b3b149e16c800e7ca7`，外置 manifest.sha256 相符；20/20 bytes/SHA与17/17 git_blob匹配；五inventory实存但聚合不可复算。
+- 抽核3／门禁：attempt-2.log=215,013B/SHA256 `85bdd3e6b5b725dd52d32ec9d0e43f038318f09c2a2208e7d674cc421afb1027`；meta=802B/SHA256 `71c9ca8caad3b18512bd407ce4eac60137835eea8d1b7685282803069007cc67`，独立复算匹配；历史12 OK/0 FAIL/EXIT0、gate_head=41425b1，非无条件全测。
+- 抽核4／T终审：亲读全文；32行/7,362B/SHA256 `2e57ec6fe2c66e7e4d362521775bb66b83558379c3a7bc47525e2d621781f30c`，复算相符；PASS-WITH-PARTIAL、必改0；旧24项清单口径属于pre-refresh历史快照。
+- 抽核5／提交链：实读 `git log --oneline -12`：9da7f45→5aa1960→268b394→9bf6ec6(feat)→23cb621(裁定5)→41425b1(R59 fix)→02c3ea8(C3)→b743c23→72fb0a4→ec6ec02→1eed4ac→521cf08(尚书验收)；HEAD=`521cf08b0d5d88a5c5e493ad7152b4f421e45d13`。
+- 抽核5／范围：`git diff 41425b1..HEAD -- crates tools` 原始EXIT0、stdout=0B；`git diff --check` 原始EXIT0。
+- 抽核6／freeze：before=44,844,165B/SHA256 `70845aefd4dd689a55ab0618b36bbf692a4b33ebb5ee2f3a662dedc17a3dc9de`；current=45,219,533B/SHA256 `c7d896e7f5eee4706b943912c0c564d10d61c98d163143f051c2d632daecde32`；两JSON原字节均匹配尚书基线。
+- 看板亲读：父单初始Review、todos=[]；list定位恰四子单，逐张show实读A=691ce59a/B=05f353fc/C=af9acdec/D=433959ad均Done、todos=[]、delegation_result非空；D flow实值libu/2026-10-28T01:19:09Z。
+- 动态抽证偏差：本次未新建隔离副本/未重跑cargo；采用任务许可的尚书隔离证据复用，亲读其runs与两条原始日志并复算日志SHA，计数为既有实跑，不冒称本次独立动态执行。
+- 复用命令：`cargo test -p mir-client --features mir-render/legacy --test round76_trap_hexagon_mapping`；UTC 2026-10-28T01:24:03.502Z–01:24:38.974Z，原始EXIT0，8 passed/0 failed/0 ignored。
+- 复用命令：`cargo test -p mir-client --features mir-render/legacy --test round59_projectile_assets`；UTC 2026-10-28T01:24:38.976Z–01:24:40.552Z，原始EXIT0，6 passed/0 failed/0 ignored；合计14/0/0。
+- CLI 1：`node C:/Users/diana/.dsh/skills/edict/scripts/edict.mjs state JJC-20261028-003 Done --as menxia`；UTC 2026-10-28T01:32:48.430Z–01:32:48.495Z；原始EXIT0；Review→PendingConfirm。追加show实读confirm_by=menxia、from_state=Review、target_state=Done，EXIT0。
+- CLI 2：`node C:/Users/diana/.dsh/skills/edict/scripts/edict.mjs confirm JJC-20261028-003 approve --as menxia`；UTC 2026-10-28T01:33:02.003Z–01:33:02.072Z；原始EXIT0；原文“✅ JJC-20261028-003 confirm approve → Done”。
+- CLI 3：`node C:/Users/diana/.dsh/skills/edict/scripts/edict.mjs validate --as menxia`；UTC 2026-10-28T01:33:07.337Z–01:33:07.388Z；原始EXIT0；256条符合schema v3.1。
+- CLI 4：`node C:/Users/diana/.dsh/skills/edict/scripts/edict.mjs show JJC-20261028-003`；UTC 2026-10-28T01:33:12.550Z–01:33:12.603Z；原始EXIT0；实读“状态 Done”“当前 确认通过 → Done”。四命令均无非零EXIT，无重试绕过。
+- 残余流程PARTIAL：inventory无生成器/聚合不可复算；D未落盘证据不追认；A sidecar中间稿瑕疵、A R59首败日志覆盖损失；B86条早期日志永久损失；legacy clippy两lint/官方0双口径；素材本地、R72/R59仅有限supersede。
+- 历史原号照承：GAP-1/2/R70-C2、GAP-3/4/6、GAP-5/R70-C1、R70-C3；R71时钟/对象/C7永久、R73-T1、R72 B plan-M4；历史E1/R69条件5、R68/R49–R70/R61–R67、R74 artifacts34、R75-E1/C-M1、R75-E2/C-M2；全部历史PARTIAL不清零。
+- 未验收项照承：完整DrawBlend/rate/Mode、src×0.8、严格寿命/26技能及设备视觉。
+- 其他偏差：任务简写链漏列5aa1960，本次按git实读补列；HEAD已前移至尚书验收提交521cf08；T报告清单24项属历史基线，当前权威为25项post-audit。辅助写入工具曾因空justification参数校验失败，未执行命令/未改文件；不属于CLI失败。
+- 范围声明：仅写本报告与target/round76/menxia/attempt-1/**；未改交付物、实现、测试、素材、既有证据或freeze，未commit/push，未重跑全量ci.ps1；看板仅经授权CLI流转。

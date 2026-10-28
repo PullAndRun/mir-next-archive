@@ -2,8 +2,8 @@
   "schema": "round76-final-manifest-v1",
   "stage": "pre-audit",
   "task": "JJC-20261028-003",
-  "head_snapshot": "02c3ea89b517cfe7e1d1c93582e3905b8d4b8083",
-  "delivery_head": "",
+  "head_snapshot": "b743c238050cea5dee89e9f4c6e99e1fb2de11cb",
+  "delivery_head": "b743c238050cea5dee89e9f4c6e99e1fb2de11cb",
   "artifacts": [
     {
       "path": "crates/mir-client/src/ui/spellfx.rs",
@@ -152,6 +152,34 @@
       "truncated": true,
       "bytes": 36338,
       "sha256": "1396b2b4926b00e45a2e0501f32a091d0650fd6d5f3cdebc959a1e7828bd4148"
+    },
+    {
+      "path": "docs/testing/round76/README.md",
+      "kind": "file",
+      "bytes": 5263,
+      "sha256": "ce128430d1bfc3ffb97da297084ad562c8e57f80f26117d9a37a96e93069f5e9",
+      "git_blob": "fe3fbf932cc84a07c8162777907f20517fa041f8"
+    },
+    {
+      "path": "docs/testing/round76/round76-trap-contract.md",
+      "kind": "file",
+      "bytes": 5472,
+      "sha256": "c9eca1af1f2d66d07c767a5a1c01d86eb4cb70d970e67466ba5d3bbe16e24bff",
+      "git_blob": "8bba6356d900dc96ab30249e4087e15dee37fd10"
+    },
+    {
+      "path": "docs/client.md",
+      "kind": "file",
+      "bytes": 190167,
+      "sha256": "d8c7ccca61b804ff72fc18479d4155b0149302d64ca9235ff072aa1f83eadc99",
+      "git_blob": "a5401fb2f45c56b8c2364ab80ba5c1a97a72f93d"
+    },
+    {
+      "path": "docs/roadmap.md",
+      "kind": "file",
+      "bytes": 51355,
+      "sha256": "7423b82a27d339db4c404ced72c49ed372d0bc53ce23e2d20073404d5ef0cb88",
+      "git_blob": "b1f14278fa45f8c7d77857b0d74a0f729dffdeea"
     }
   ],
   "gate": {
@@ -175,5 +203,6 @@
       "log_bytes": 69152,
       "log_sha256": "979cc747e1a9cea999ac26869bf340b28a5677a54a7fca46342b356895ef8e10"
     }
-  }
+  },
+  "refresh_note": "Lead refresh at b743c238050cea5dee89e9f4c6e99e1fb2de11cb: added README/contract/client/roadmap artifacts, renumbered sections, recomputed hashes; inventories untouched"
 }

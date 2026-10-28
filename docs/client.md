@@ -2321,4 +2321,12 @@ cargo fmt --all -- --check
 - C首核FAIL/必改2→C2 BLOCK/必改1（任务书误引3,216B旧快照）→基线勘误→C3 PASS-WITH-PARTIAL/必改0、基线冲突CLOSED；E1流程/E2声明级PARTIAL保留，A/B补录只增。
 - Lead唯一门禁attempt-1 HEAD30246bc、EXIT0、12/12 OK；log214,417B，SHA e6eec120…；D仅静态自检，不重跑cargo/CI。
 - 七项PARTIAL及历史原号见索引：GAP-1/2/R70-C2、GAP-5/R70-C1/R70-C3/GAP-3/4/6、R71时钟/对象/R73-T1、R72 B plan-M4/legacy lint、R71-C7/历史E1/R69条件5、R68/R49–R70/R61–R67及R75-E1/E2；R74 artifacts=34照承。
-- 不称生产寿命修复、Crystal严格等价或Blizzard生产迁移；真实素材/GPU/设备视觉/全UI/跨后端/Live音频未覆盖。
+
+## 5.41 R76：149 困魔咒十帧映射切片
+
+- 阶段：D 文档批，pre-audit，PASS-WITH-PARTIAL；编号 5.41（历史 R75 为 §5.40）。
+- 149 `S.ObjectSpell` TrapHexagon 仅走 Magic `1390..=1399`，100ms elapsed `%10`，`0<=age<4000`；格锚点与当帧signed offset一次、CPU rate1 Add。
+- 4000ms是从既有700ms变化的新精灵产品窗；公共/非149/文字700ms不变，非149仍通用60ms/帧居中Over。
+- R72 G5仅以Reincarnation替代旧Trap控制组；R59冻结素材有限supersede为116帧，旧106子集不变。game-assets被gitignore，不入git。
+- 门禁attempt-1因R59三测试106/116冲突EXIT1；裁定5授权fix `41425b1`，attempt-2 HEAD41425b1为12/12 EXIT0。不可称整轮通过、严格Crystal等价或生产寿命已修。
+- 严格NextMotion/对象寿命、DrawBlend(true,0.8)/src×0.8、AnimationOffset/Light/DrawColour、其余26技能与设备视觉仍PARTIAL；A sidecar及B早期失败日志损失照实承接。

@@ -1,0 +1,179 @@
+{
+  "schema": "round76-final-manifest-v1",
+  "stage": "pre-audit",
+  "task": "JJC-20261028-003",
+  "head_snapshot": "02c3ea89b517cfe7e1d1c93582e3905b8d4b8083",
+  "delivery_head": "",
+  "artifacts": [
+    {
+      "path": "crates/mir-client/src/ui/spellfx.rs",
+      "kind": "file",
+      "bytes": 25218,
+      "sha256": "84fdb324504d0bffc0638afb35330021defd8acf9a849d8100ab1f1ca3c8e0f1",
+      "git_blob": "50cd9f8d4e2056bd5d408d1e2c5accfd5ae036c8"
+    },
+    {
+      "path": "crates/mir-client/tests/round76_trap_hexagon_mapping.rs",
+      "kind": "file",
+      "bytes": 88756,
+      "sha256": "8b680973a30193113c65e6cc936cccd6cfc8ac33941dbff43d4867419f3562d0",
+      "git_blob": "be4c80f70e51fe17a17fd864acf64fe99083ec12"
+    },
+    {
+      "path": "crates/mir-client/tests/round72_poison_cloud_mapping.rs",
+      "kind": "file",
+      "bytes": 66437,
+      "sha256": "3a9f42bd67a8e57e02d86fb970ad6347687d46991b313c3c7fb2316db97b4bfb",
+      "git_blob": "826cb43a7472449be4667c6d77380f90997e531e"
+    },
+    {
+      "path": "crates/mir-client/tests/round59_projectile_assets.rs",
+      "kind": "file",
+      "bytes": 20596,
+      "sha256": "849770b254ccadeef5e8fce05a5ffd2b01ab67e81e209bbab7457d52faf5fe2a",
+      "git_blob": "cd4d9af10236fd304f2888a35c9a5586d2c1df23"
+    },
+    {
+      "path": "tools/assets/analyze_usage.py",
+      "kind": "file",
+      "bytes": 69060,
+      "sha256": "e32297dabcffff1c8472831309d63111e63dcae44a671fec0319b162ba57cfe6",
+      "git_blob": "60502e77e8808e6642e834144d518c3ed116c7d5"
+    },
+    {
+      "path": "docs/assets/asset-pipeline.md",
+      "kind": "file",
+      "bytes": 31670,
+      "sha256": "2d2fa1008acc32988fe4fdac586011fe4f35ac483ae7723e82277d2eec25020e",
+      "git_blob": "c5eb4f50230ea33d7bfec411efb072c75613b7e5"
+    },
+    {
+      "path": "docs/process/round76-plan.md",
+      "kind": "file",
+      "bytes": 19473,
+      "sha256": "a5161f8afaa5b5bf6460932cedc53f5cf97b74a56da11c44cecea834fd845138",
+      "git_blob": "48c6bc7f7324920db2104bdc9a32e35dcb5a80a1"
+    },
+    {
+      "path": "docs/process/round76-menxia-review.md",
+      "kind": "file",
+      "bytes": 5934,
+      "sha256": "f15e0344e92f674c3ff25079c652a830b505999e0f55808ca11e52ea0b71f0a9",
+      "git_blob": "071eba13ea9c4201d1d2f457619d666d38e91386"
+    },
+    {
+      "path": "docs/process/round76-shangshu-dispatch.md",
+      "kind": "file",
+      "bytes": 11146,
+      "sha256": "1e7b8e3c3d8939e5e123a9887df4c773e79dc378199c1f7487b159e0983349f2",
+      "git_blob": "09b6ec151913f02391a7c10d808916258ac9ea46"
+    },
+    {
+      "path": "docs/process/round76-lead-ruling.md",
+      "kind": "file",
+      "bytes": 6526,
+      "sha256": "ec92c6c72222cf08f04ca2b3ca52f2e86e7094542975c2cd585f065133432be6",
+      "git_blob": "63fe6a29415d7fa3fad7dc89ed01143d6164498d"
+    },
+    {
+      "path": "docs/testing/round76/round76-c-evidence.md",
+      "kind": "file",
+      "bytes": 3350,
+      "sha256": "2b1d5324f99bf70c392105fa374d1a57f498f8d31d7d63d2b555643f93071c5d",
+      "git_blob": "02ad82595954a14b28b4d86fce2bedca38fe2dbc"
+    },
+    {
+      "path": "docs/testing/round76/round76-c-addendum.md",
+      "kind": "file",
+      "bytes": 2814,
+      "sha256": "76010668ee6c2761e15b0487d23103945af19a23aa1c7c3ab6ac45ffd1292504",
+      "git_blob": "2c82e18b463182e6c336bf62d0a49a3dfd417a9d"
+    },
+    {
+      "path": "docs/testing/round76/round76-c-supersede-addendum.md",
+      "kind": "file",
+      "bytes": 2757,
+      "sha256": "183fd18134a3f202dc8d29f75c56606eba33050b0f0cf8eb12088b64d8ffad3f",
+      "git_blob": "4eb1e2654b5b7584d3ccf39d1c27b601c453f808"
+    },
+    {
+      "path": "target/round76/gate/attempt-2.log",
+      "kind": "file",
+      "bytes": 215013,
+      "sha256": "85bdd3e6b5b725dd52d32ec9d0e43f038318f09c2a2208e7d674cc421afb1027"
+    },
+    {
+      "path": "target/round76/gate/attempt-2.meta.txt",
+      "kind": "file",
+      "bytes": 802,
+      "sha256": "71c9ca8caad3b18512bd407ce4eac60137835eea8d1b7685282803069007cc67"
+    },
+    {
+      "path": "target/round76/a/attempt-1",
+      "kind": "inventory",
+      "files": 89,
+      "total_files": 89,
+      "truncated": false,
+      "bytes": 123254,
+      "sha256": "3ed19623c4cb521d07698937cffdc241ccfe210d2ca0e5a10baace4ccebea2a0"
+    },
+    {
+      "path": "target/round76/b/attempt-1",
+      "kind": "inventory",
+      "files": 250,
+      "total_files": 9424,
+      "truncated": true,
+      "bytes": 5722085,
+      "sha256": "7a9e74bdf404f25f1782c6d80c922a030af2813935eb45bb3be9bb822398bbb0"
+    },
+    {
+      "path": "target/round76/c/attempt-1",
+      "kind": "inventory",
+      "files": 250,
+      "total_files": 16742,
+      "truncated": true,
+      "bytes": 43619,
+      "sha256": "2d5f41aef4f66d30346577efad63bf05535e40bd3ab3fdd6aad88145bc9ff947"
+    },
+    {
+      "path": "target/round76/c2/attempt-1",
+      "kind": "inventory",
+      "files": 250,
+      "total_files": 5394,
+      "truncated": true,
+      "bytes": 37457,
+      "sha256": "de0b28962f3e22f433b68008ef602876ae9df9ce8a92e39810ce1ae86e9e0f21"
+    },
+    {
+      "path": "target/round76/c3/attempt-1",
+      "kind": "inventory",
+      "files": 250,
+      "total_files": 9651,
+      "truncated": true,
+      "bytes": 36338,
+      "sha256": "1396b2b4926b00e45a2e0501f32a091d0650fd6d5f3cdebc959a1e7828bd4148"
+    }
+  ],
+  "gate": {
+    "attempt": "attempt-2",
+    "gate_head": "41425b1d2bbe497d15e4e173f65ef7575344279f",
+    "exit_code": 0,
+    "items_ok": 12,
+    "items_fail": 0,
+    "utc_start": "2026-10-28T00:28:12Z",
+    "utc_end": "2026-10-28T00:31:25Z",
+    "log_path": "target/round76/gate/attempt-2.log",
+    "log_bytes": 215013,
+    "log_sha256": "85bdd3e6b5b725dd52d32ec9d0e43f038318f09c2a2208e7d674cc421afb1027",
+    "meta_path": "target/round76/gate/attempt-2.meta.txt",
+    "meta_bytes": 802,
+    "meta_sha256": "71c9ca8caad3b18512bd407ce4eac60137835eea8d1b7685282803069007cc67",
+    "attempt_1": {
+      "head": "9bf6ec6",
+      "exit_code": 1,
+      "failed": "round59_projectile_assets.rs three tests: 106 vs 116",
+      "log_bytes": 69152,
+      "log_sha256": "979cc747e1a9cea999ac26869bf340b28a5677a54a7fca46342b356895ef8e10"
+    }
+  }
+}

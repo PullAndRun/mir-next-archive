@@ -370,4 +370,13 @@ R49–R68历史PARTIAL按原编号承接；125/570已做偏移消费不扩大为
 - Lead唯一全量attempt-1 HEAD30246bc、EXIT0、12/12 OK、UTC20:44:09Z–20:47:52Z（2026-10-27）；log214,417B/SHA e6eec120…；D不重跑cargo/CI/矩阵。
 - 七项PARTIAL与原号照承：GAP-1/2/R70-C2；GAP-5/R70-C1/R70-C3/GAP-3/4/6；R71时钟对象/R73-T1；R72 B plan-M4/legacy lint、R71-C7永久/历史E1仅补救CLOSED/R69条件5；R68/R49–R70/R61–R67；R75-E1；R75-E2，细项见索引。
 - R74 artifacts实数34；两freeze原字节/未跟踪状态保全。完整DrawBlend/rate/Mode、严格寿命及其他技能未清零，不称Crystal严格等价或Blizzard生产迁移。
-- 后续：本批独立终审→尚书验收→门下确认；未来生产修复须显式supersede现状合同，真实素材/GPU/设备视觉/全UI/跨后端/Live音频另立证据。
+
+## 二十四 第76轮：149 困魔咒十帧映射与 PARTIAL
+
+- 阶段：D文档批pre-audit，PASS-WITH-PARTIAL；编号二十四（历史 R75 为二十三）。
+- 有限切片：149 TrapHexagon→Magic1390..1399，100ms elapsed `%10`、4000ms新精灵窗、格锚点+signed offset一次+CPU Add；公共/非149/文字700ms保持。
+- 提交链 `9bf6ec6`→裁定 `23cb621`→R59 fix `41425b1`；9bf6ec6实读5文件4008+/1603−，区间至fix实际含R59与裁定文档2文件，单看fix才仅R59。
+- attempt-1 HEAD9bf6ec6唯一R59 3测试106/116冲突EXIT1；attempt-2 HEAD41425b1 12/12 EXIT0（215,013B，00:28:12–00:31:25Z）。
+- R72 G5仅Trap控制组有限supersede；R59冻结集追加十帧至116，旧106子集指纹与历史证据保全；game-assets被gitignore，不入git。
+- PARTIAL：严格NextMotion/对象寿命/26技能、DrawBlend(true,0.8)/src×0.8、AnimationOffset/Light/DrawColour、素材本地承接与设备视觉；A sidecar、B早期失败日志永久损失、C M7无效红历史均披露。
+- 不称R76整轮通过、严格Crystal等价或生产寿命已修；下一轮须先独立终审/尚书/门下收口，再另立寿命或下一技能合同。

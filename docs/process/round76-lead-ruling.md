@@ -26,3 +26,10 @@
 - 功能白名单与 SHA 不变（spellfx `84fdb324…`、测试 `8b680973…`、R72 `3a9f42bd…`、analyze_usage `e32297da…`、asset-pipeline `2d2fa100…`）；**不得为证据勘误改动测试/生产**（改动会重置红绿同 SHA 链）。
 - 待 C2 追加报告与补证落盘后，Lead 提交功能批并运行唯一全量门禁（12 项）；门禁通过后 D 文档批、独立终审、尚书验收、门下确认、Done、push。
 - 残余 PARTIAL 原号承接：Crystal 严格 NextClock/对象寿命、DrawBlend(true,0.8) 未实施、src×0.8 不可由 BlendFactor 推导、公共/文字 700ms 既有路径、素材本地不入 git、B 失败日志永久损失、A sidecar 流程瑕疵、C M7（若 C2 未闭合）。
+
+## 裁定 5（R76 门禁 attempt-1 唯一失败：R59 素材冻结清单需有限 supersede）
+
+- 事实：功能提交 `9bf6ec6` 后唯一全量门禁 attempt-1 EXIT=1，唯一失败项 `cargo test --workspace` 中的 `crates/mir-client/tests/round59_projectile_assets.rs` 3 个测试：`index_json_lists_exactly_the_frozen_round59_magic_frame_set`（`count` left 116 / right 冻结 106）、`every_indexed_png_matches_its_frozen_sha_and_has_a_real_size`（verified 116/106）、`frameset_fingerprint_matches_the_frozen_round59_value`（lines 116/106）。根因：R76 将 `MAGIC_FRAMES` 扩展 `+range(1390,1400)`（十帧困魔咒），本地 `game-assets/gfx/sprites/effect/magic/` index 由 106→116 帧，而 R59 冻结测试仍写死 106（属预期冻结清单冲突，非实现缺陷）。
+- 裁定：批准对 `round59_projectile_assets.rs` 做**有限 supersede**（唯一允许修改的历史测试），参照 R72 G5 supersede 先例：①`EXPECTED_PNG_COUNT` 106→116；②`frozen_frame_indices()` 规范序追加 `1390..=1399`；③`FROZEN_FRAMESET_SHA256` 更新为 116 帧实测值 `e642330a568402b21528afb04459108f3dc596f7e37ad5c276670ef342940eff`（Lead 独立算得；A 须自行复算校验），并在文件头保留旧值 `e465026a…`（106 帧子集指纹，实测不变）；④注释/断言消息中 106 字样同步；⑤不得改测试语义、样例 4 帧、WZL 哈希、其它文件。
+- 证据要求：旧文件原字节保全（SHA `unverified`：以 `git show 9bf6ec6:crates/mir-client/tests/round59_projectile_assets.rs` 为准）、原/新常量对照、旧 106 子集指纹复算 = `e465026a…`、测试全绿（6 passed/0 failed/0 ignored）、fmt/clippy 记录；修改限该单文件。
+- 门禁：该修改作为 `fix(test)` 单独提交后重跑唯一全量门禁 attempt-2；通过后 B/C 需补一条 supersede 复核，D/T 审计须披露该变化。

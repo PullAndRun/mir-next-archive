@@ -1,0 +1,21 @@
+# R77 C addendum — attempt-1
+- Verdict: **PASS-WITH-PARTIAL**；F1 CLOSED、F2 CLOSED；必改清单：0 项。
+- 范围：指定六步独立核验；无 commit/push/CI、无生产改动；仅本报告与 `target/round77/c2b/attempt-1/` 留证；一次授权工具临时补丁已逐字节恢复。
+- 1：git status EXIT0；5 项既有 untracked（合同、工具、round77 文书目录、两份 monster-native freeze），无 tracked 改动。
+- 1：test SHA256 `f809b5d44966b28dc1dad95d854eda843fefe36aea012e6cced75668f9e6a27e`；tool `10f957e59e3041234ed5a2b64eafe1d6ed343b52a94b4196055fd44f8bba9b5e`，均命中预期。
+- 2：搜索命中 43 处；current=Rust 通用 Trap、target=Crystal Trap；interval=DIFF_TARGET_REQUIRED；三个 reason_codes 完整，禁词仅用于禁止性断言；4809024 无命中。
+- F2：NOT_READY 独立依据为 WZX 2360 槽需 9488..9492 > 5968B；MISSING_INDEX / OUT_OF_INDEX_TABLE / CORPUS_ADDRESS_BEYOND_DEFAULT_WZL_EOF。
+- F2：地址仅 reference_only；起始 13316944、默认 EOF 10290606、超出 3026338B；载荷含头 114739B < 未索引空间 2637986B，不作全库不存在论证。
+- 3：合并 `--matrix --selftest --assert` 实得 EXIT2（参数互斥）；分别执行三模式均 EXIT0，selftest 7/7、assert 82/82；原始日志保留。
+- 矩阵 7 行 current→target：library Magic→Magic2（BLOCKED_BY_ASSET_ADMISSION）；index_range 0..9→2360..2367（DIFF_TARGET_REQUIRED）。
+- frame_count 10→8、interval_ms 60→100（均 DIFF_TARGET_REQUIRED）；duration_ms 700→700（SAME）。
+- blend Over→Blend(true, 0.8F)（DIFF_TARGET_REQUIRED）；anchor centered (CELL_WIDTH/CELL_HEIGHT)→DrawLocation (CurrentLocation*CellWidth/CellHeight)（PARTIAL）。
+- 4：指定 cargo 合同测试 7 passed / 0 failed / EXIT0；素材齐全，无需复制。
+- 5：先备份 tool-backup.py，仅矩阵 interval target 表达式 `str(crystal["interval"])`→`"120"`，其余字节不动。
+- 负控实得 EXIT101、6 passed / 1 failed，唯一 G5；合同 :1395:9，left Some("120") / right Some("100")；外部实测 1.245s。
+- 立即从备份恢复 SHA=`10f957e59e3041234ed5a2b64eafe1d6ed343b52a94b4196055fd44f8bba9b5e`；再跑 7 passed / 0 failed / EXIT0，1.212s；F1 可证伪。
+- 6：B attempt-3 verdicts 8/8 true；m1..m6 的目标 G/left/right 与 red101、restore/green0 记录一致；f1a 120/100、f1b 7/8 均唯一 G5，与 A 两份红日志一致。
+- digest 抽核：oracle 300/300、mismatch=0；oracle 文件 SHA `c8d28554…` 命中清单；A freeze/B 声明均为 `0f66806c5b59c4f9969c27fb0cf822033567871c442f31135471320d3386c881`，dict_sorted 复现声明一致；未重跑全量或另算摘要。
+- 非阻塞文书精度：A notes 将 beyond-by 3026338B 写成 EOF；结构化 freeze/测试正确，本报告采用 EOF 10290606B；不影响 F2 闭合。
+- PARTIAL 承接：门下 M1 Lib→R78 仍 OPEN；2025 解压语义 PARTIAL；本轮不得宣称 READY、已认证或生产改动。
+- 证据：`target/round77/c2b/attempt-1/runs.txt` 记录命令/EXIT/UTC、偏差及成本；同目录包含 matrix/selftest/assert、合同绿红绿日志、备份及恢复校验。

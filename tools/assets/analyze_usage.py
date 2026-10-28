@@ -324,7 +324,14 @@ EFFECT_FRAMES = list(range(0, 3))          # effect.wzl：挥砍 3 帧
 # magic.wzl：Crystal `Effect.cs:196` 的 `index = 410 + f % 6 + dir * 10` —— 16 方向 × 6 帧
 # （410-415 / 420-425 / … / 560-565），加固定段 570-579。**不能写成 `range(410, 566)`**：
 # 416-419、566-569 是 0×0 空帧（wzx 指向 wzl 偏移 48 的全零记录），带进来会拆出 0×0 PNG 并误计 missing。
-MAGIC_FRAMES = [i for d in range(16) for i in range(410 + d * 10, 416 + d * 10)] + list(range(570, 580))
+# R76：149 来源 `TrapHexagon` 走 magic.wzl 1390-1399（10 帧、100ms/帧，见
+# `crates/mir-client/src/ui/spellfx.rs` 的 TRAP_HEXAGON_BASE_INDEX），必须进拆包计划，
+# 否则运行时 `FxKind::Magic` 缺帧会回退/跳过。
+MAGIC_FRAMES = (
+    [i for d in range(16) for i in range(410 + d * 10, 416 + d * 10)]
+    + list(range(570, 580))
+    + list(range(1390, 1400))
+)
 # magic2.wzl：挥砍 3（0-2）+ 雷电术命中 5（10-14，Crystal `SpellObject.cs:57-64`：非149命中
 # 播 `Magic2[10..14]`，R73 起消费）+ 雷电束 10（20-29）。10-14 必须进拆包计划，
 # 否则真实素材缺帧会让 `client_fx` 等真实素材回归在门禁里拿不到可解码特效（R73 门禁修复）。

@@ -1,5 +1,18 @@
 //! Round 72 A：149 `S.ObjectSpell` 来源的 `Spell::PoisonCloud` 二十帧 elapsed 循环映射。
 //!
+//! ## R76 有限 supersede 记录（A 执行，四处改动）
+//!
+//! * 原文件：SHA-256 `58f64ab2d30b69f3aea5c07a8975e988ca842bce45972499a6f93e120958baea`，
+//!   字节数 65,322 B（R72 基线，`cf84e40f1de1f290357e2a73fcb5adafafdf1fc3` 工作树）；
+//! * supersede 原因：R76 将 149（`S.ObjectSpell`）来源的 `Spell::TrapHexagon` 迁入
+//!   `Magic` 图库 `1390..=1399` 的专用分支（`FxKind::Magic`，100ms/帧、10 帧循环、
+//!   4000ms 产品窗），因此本切片 G5 中「149 旧通用路径（`magic[2]` 居中 Over）」的守卫
+//!   改用未被 R76 改写的 `Spell::Reincarnation`（同属旧通用 60ms/帧 clamp 0..=9 路径）；
+//! * 改动范围：仅 :1383/:1404 两处注释与 :1408/:1429 两处枚举 `TrapHexagon`→`Reincarnation`，
+//!   原 expected/fixture/其余断言与数据一律保留未动；
+//! * 迁移后 SHA-256（剔除本记录块后的内容）`c95dd8191c253a5fef4e2dca15aaed0b71970da2bda2b280c0aabf253583b7a9`；含本记录块的整文件 SHA-256
+//!   与字节数记录于 `target/round76/a/attempt-1/supersede-r72.txt`。
+//!
 //! 本文件只验收 [`docs/process/round72-plan.md`] 的有限切片（**不是**完整 Crystal
 //! `PoisonCloud` 迁移）：
 //!
@@ -1380,7 +1393,7 @@ fn r72_g4_add_per_cell() {
 
 /// G5：非 149 来源的 `PoisonCloud`（真实 `S.Magic`(120) / `S.ObjectMagic`(123) wire）
 /// 必须继续走旧通用路径（`magic[0]` 2×2 整帧 Over 居中），不得复用 1650 映射；
-/// 同时 149 `FireWall`（1630）、`Blizzard`/`TrapHexagon`（旧通用 `magic[2]`）与
+/// 同时 149 `FireWall`（1630）、`Blizzard`/`Reincarnation`（旧通用 `magic[2]`）与
 /// `ThunderBolt` 金样（`magic2[20]`）保持 R71/旧行为不变。
 #[test]
 fn r72_g5_legacy_sources() {
@@ -1401,11 +1414,11 @@ fn r72_g5_legacy_sources() {
     // 旧来源（非 149）：真实 S.Magic(120) / S.ObjectMagic(123)，落点取 Target。
     push_magic_via_wire(&mut snapshot, Spell::PoisonCloud, cells[3], 120);
     push_object_magic_via_wire(&mut snapshot, 7_777, Spell::PoisonCloud, cells[4], 120);
-    // 149：FireWall 在 t=120 生效（age=0 → magic[1630]）；Blizzard/TrapHexagon 在
+    // 149：FireWall 在 t=120 生效（age=0 → magic[1630]）；Blizzard/Reincarnation 在
     // t=0 生效（age=120 → 旧通用 magic[2]）。
     push_object_spell_via_wire(&mut snapshot, 9_101, Spell::FireWall, cells[0], 120);
     push_object_spell_via_wire(&mut snapshot, 9_102, Spell::Blizzard, cells[1], 0);
-    push_object_spell_via_wire(&mut snapshot, 9_103, Spell::TrapHexagon, cells[2], 0);
+    push_object_spell_via_wire(&mut snapshot, 9_103, Spell::Reincarnation, cells[2], 0);
     assert_eq!(snapshot.spell_events.len(), 5);
 
     assert_eq!(snapshot.spell_events[0].spell, Spell::PoisonCloud);
@@ -1426,7 +1439,7 @@ fn r72_g5_legacy_sources() {
     for (slot, spell, cell) in [
         (2usize, Spell::FireWall, cells[0]),
         (3, Spell::Blizzard, cells[1]),
-        (4, Spell::TrapHexagon, cells[2]),
+        (4, Spell::Reincarnation, cells[2]),
     ] {
         let event = &snapshot.spell_events[slot];
         assert_eq!(event.spell, spell);

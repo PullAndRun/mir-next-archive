@@ -268,6 +268,22 @@ pub const THUNDER_BOLT_HIT_FRAME_MS: i64 = 80;
 /// `ThunderBolt` 命中精灵窗时长（Crystal `Duration = 400` 毫秒；产品精灵窗截止）。
 pub const THUNDER_BOLT_HIT_DURATION_MS: i64 = 400;
 
+/// 149 `S.ObjectSpell` 来源 `TrapHexagon`（困魔咒）的起始帧（R76 C1 裁决：`Magic` 图库
+/// `1390..=1399`，10 帧 × 100ms = 4000ms 产品瞬态窗；`index = 1390 + (age / 100) % 10`）。
+///
+/// 有限切片（R76-A）：只迁移 elapsed 帧循环 + 格锚点 + 当帧 i16 signed offset 一次 +
+/// Add 混合；Crystal 的严格 `NextMotion`/对象寿命与 `src * 0.8` 调光未迁移（PARTIAL，
+/// 不声称与 Crystal 等价）。**不改变**公共 [`duration_ms`] 对 `TrapHexagon` 的既有
+/// 700ms 产品窗（色块/文字窗），也不是把 `TrapHexagon` 并入 `AREA_MS`。
+pub const TRAP_HEXAGON_BASE_INDEX: u32 = 1_390;
+/// `TrapHexagon` 帧数（R76：10 帧）。
+pub const TRAP_HEXAGON_FRAME_COUNT: i64 = 10;
+/// `TrapHexagon` 每帧时长（R76：100 毫秒/帧）。
+pub const TRAP_HEXAGON_FRAME_MS: i64 = 100;
+/// `TrapHexagon` 精灵瞬态窗（R76：4000 毫秒）；**不是** [`duration_ms`] 的 700ms，
+/// 也不是 Crystal 对象寿命。
+pub const TRAP_HEXAGON_SPRITE_MS: i64 = 4_000;
+
 /// 画技能命中闪光（`magic.wzl` 精灵）。
 ///
 /// 与 [`draw`] 的色块叠加并存：色块给出范围/路径，精灵给出「打中了」的反馈。
@@ -284,6 +300,12 @@ pub const THUNDER_BOLT_HIT_DURATION_MS: i64 = 400;
 /// 非 149 来源、成功施法（`S.Magic`(120) / `S.ObjectMagic`(123) 的 `cast = true`）的
 /// `ThunderBolt` 走 Crystal `PlayerObject.cs:2956-2963` 的命中精灵
 /// `Magic2[10..=14]`（400 ms / 5 帧 = 80 ms/帧）；施法失败或 149 来源仍走通用路径。
+///
+/// 149 `S.ObjectSpell` 来源的 `TrapHexagon`（R76-A）走 `Magic` 图库 `1390..=1399` 的有限
+/// 切片（10 帧、100 ms/帧、4000 ms 产品瞬态窗），落点为格锚点并在 `draw_effect_blend`
+/// 里消费当帧 i16 signed offset 一次；该分支位于公共 `duration_ms` 700ms 过滤**之前**，
+/// 因此 `duration_ms(TrapHexagon)` 的既有 700ms 色块/文字窗不受影响，非 149 来源仍走
+/// 旧通用路径（不播 R76 精灵帧）。
 pub fn draw_sprites(
     frame: &mut Frame,
     events: &[SpellEvent],
@@ -292,6 +314,31 @@ pub fn draw_sprites(
     now_ms: i64,
 ) {
     for event in events {
+        // R76-A：149 `S.ObjectSpell` 来源的 `TrapHexagon`（困魔咒）——`Magic` 图库帧
+        // `1390..=1399`、100 ms/帧、10 帧 elapsed 循环、4000 ms 产品瞬态窗
+        // （`phase = (age / 100) % 10`、`index = 1390 + phase`）。
+        //
+        // 该分支必须先于公共 `duration_ms` 700ms 过滤：`duration_ms(TrapHexagon) = 700`
+        // 是既有产品行为（色块/文字窗），**不是** 4000，也不是把 TrapHexagon 并入
+        // `AREA_MS`；新精灵窗只在本分支内生效。边界 `age == 0` 画首帧 `1390`；
+        // `age < 0` 与 `age >= 4000` 直接 continue（不画，也不回落到既有通用路径）。
+        //
+        // 落点：格锚点 `world_to_screen(center, event.location)`（149 包内 TargetPoint，
+        // 无 owner 不取施法者）；当帧 i16 signed offset 由 `draw_effect_blend(..., true)`
+        // 按 `MLibrary.cs:692-709`「先 offset 后裁剪、恰好一次」消费，Add 混合。
+        // PARTIAL（未实施，不声称 Crystal 等价）：严格 `NextMotion`/对象寿命、
+        // `DrawBlend` 的 `rate = 0.8` 与 `src * 0.8 * alpha` 调光、`Light`/`DrawColour`。
+        if event.spell == Spell::TrapHexagon && event.from_object_spell {
+            let age = now_ms.saturating_sub(event.started_ms);
+            if !(0..TRAP_HEXAGON_SPRITE_MS).contains(&age) {
+                continue;
+            }
+            let phase = (age / TRAP_HEXAGON_FRAME_MS) % TRAP_HEXAGON_FRAME_COUNT;
+            let index = TRAP_HEXAGON_BASE_INDEX + u32::try_from(phase).unwrap_or(0);
+            let (x, y) = scene.world_to_screen(center, event.location);
+            scene.draw_effect_blend(frame, mir_render::FxKind::Magic, index, x, y, true);
+            continue;
+        }
         let duration = duration_ms(event.spell);
         let age = now_ms.saturating_sub(event.started_ms);
         if age < 0 || age >= duration {

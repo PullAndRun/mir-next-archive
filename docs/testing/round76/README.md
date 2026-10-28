@@ -1,8 +1,8 @@
-# R76：149 困魔咒十帧映射（pre-audit）
+# R76：149 困魔咒十帧映射（post-audit）
 
-- 主单 JJC-20261028-003；D 礼部文档批，待独立终审/尚书验收/门下确认；整体证据口径 PASS-WITH-PARTIAL，不称整轮通过。
+- 主单 JJC-20261028-003；D 礼部文档批 + 独立终审 **PASS-WITH-PARTIAL、必改 0**（[终审报告](round76-final-audit.md)）；尚书验收/门下确认待办；整体证据口径 PASS-WITH-PARTIAL，不称整轮通过。
 - DAG：A兵部→B工部→C刑部→Lead提交/门禁→D礼部；[计划](../../process/round76-plan.md)、[门下](../../process/round76-menxia-review.md)、[派发及澄清](../../process/round76-shangshu-dispatch.md)、[裁定1–5](../../process/round76-lead-ruling.md)。
-- 身份：功能 `9bf6ec6` → 裁定5 `23cb621` → R59 fix `41425b1` → C3/当前快照 `02c3ea89b517cfe7e1d1c93582e3905b8d4b8083`；delivery_head 留空，非最终交付提交。
+- 身份：功能 `9bf6ec6` → 裁定5 `23cb621` → R59 fix `41425b1` → C3 `02c3ea8` → D 文档批 `b743c23` → 清单 `72fb0a4`；post-audit 阶段以 `final-manifest.json` 的 `delivery_head` 为准（本页为 D 写作时 pre-audit 历史快照）。
 - 功能提交实读 5 文件、4008增/1603删；素材脚本包含行尾/排版差异，不能报成约76增/6删。fix 提交仅R59、29增/14删；`9bf6ec6..41425b1` 实际含R59与裁定文档2文件。
 - 有限行为见[trap合同](round76-trap-contract.md)：仅149来源困魔咒、Magic1390–1399、100ms elapsed `%10` 回卷；4000ms为从700ms新增的精灵产品窗，公共/非149/文字仍700ms。
 - 素材计划只给MAGIC_FRAMES追加十帧；本地真实十帧可读、旧106帧数据不变，game-assets被gitignore，不入git；合成像素/素材探针不等于设备视觉签核。
@@ -24,6 +24,6 @@
 - 原号PARTIAL：GAP-5/R70-C1其余26技能；R70-C3全局锚点/居中；GAP-1/2/R70-C2完整DrawBlend/rate/Mode及src×0.8未实施且不可从BlendFactor推导；GAP-3/4/6 AnimationOffset/Light/DrawColour/mask/tint/shadow消费未齐。
 - 原号PARTIAL：R71时钟/对象、R73-T1严格NextMotion/Repeat/26寿命/owner/ActionFeed；R72 B plan-M4/legacy lint；R71-C7永久/历史E1仅补救CLOSED；R69条件5；R68/R49–R70/R61–R67；R74 artifacts实数34；R75-E1/C-M1、R75-E2/C-M2不追溯清零。
 - 新流程台账：A sidecar瑕疵PARTIAL、B早期失败日志永久PARTIAL；C原M7无效历史保全，C2只闭合有效复现缺口；不得称生产寿命已修或严格Crystal等价。
-- [pre-audit逐项清单](final-manifest.json)与[单行外置摘要](manifest.sha256)无自引用；本地A/B/C证据inventory有明确排除的构建/源码副本范围，不替代原始证据。
+- [post-audit 逐项清单](final-manifest.json)（含终审报告；T2 记为 producer-declared 无生成器的 inventory 仍 PARTIAL）与[单行外置摘要](manifest.sha256)无自引用；本地A/B/C证据inventory有明确排除的构建/源码副本范围，不替代原始证据。
 - D自检要求的`target/round76/d/attempt-1/checks.json`与`logs/`当前快照不存在，未伪造；已实际执行JSON/逐项SHA/bytes/外置摘要、链接检查、diff检查并回报EXIT。链接工具跳过target证据，A/B/C原始证据另查实存。
 - 编号披露：D 初稿曾按授权在文末追加同号节（client §5.40/roadmap §二十三与 R75 重复）；Lead 复核后重编号为 client §5.41/roadmap §二十四，R75 历史节编号保持不变。

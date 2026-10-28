@@ -1,9 +1,9 @@
 {
   "schema": "round76-final-manifest-v1",
-  "stage": "pre-audit",
+  "stage": "post-audit",
   "task": "JJC-20261028-003",
-  "head_snapshot": "b743c238050cea5dee89e9f4c6e99e1fb2de11cb",
-  "delivery_head": "b743c238050cea5dee89e9f4c6e99e1fb2de11cb",
+  "head_snapshot": "ec6ec0217769323ff659ceae05d2148ec4877a94",
+  "delivery_head": "ec6ec0217769323ff659ceae05d2148ec4877a94",
   "artifacts": [
     {
       "path": "crates/mir-client/src/ui/spellfx.rs",
@@ -156,9 +156,9 @@
     {
       "path": "docs/testing/round76/README.md",
       "kind": "file",
-      "bytes": 5263,
-      "sha256": "ce128430d1bfc3ffb97da297084ad562c8e57f80f26117d9a37a96e93069f5e9",
-      "git_blob": "fe3fbf932cc84a07c8162777907f20517fa041f8"
+      "bytes": 5513,
+      "sha256": "a7a7d287f9c0d1e2d2418f796232c24b1d148b4106298fc41e25f215f39ae640",
+      "git_blob": "c8644816b3b1170e4fe35d46fda0f539e4cac85a"
     },
     {
       "path": "docs/testing/round76/round76-trap-contract.md",
@@ -180,6 +180,13 @@
       "bytes": 51355,
       "sha256": "7423b82a27d339db4c404ced72c49ed372d0bc53ce23e2d20073404d5ef0cb88",
       "git_blob": "b1f14278fa45f8c7d77857b0d74a0f729dffdeea"
+    },
+    {
+      "path": "docs/testing/round76/round76-final-audit.md",
+      "kind": "file",
+      "bytes": 7362,
+      "sha256": "2e57ec6fe2c66e7e4d362521775bb66b83558379c3a7bc47525e2d621781f30c",
+      "git_blob": "2473514a9c4d2302926de15d5c318840dd339922"
     }
   ],
   "gate": {
@@ -204,5 +211,21 @@
       "log_sha256": "979cc747e1a9cea999ac26869bf340b28a5677a54a7fca46342b356895ef8e10"
     }
   },
-  "refresh_note": "Lead refresh at b743c238050cea5dee89e9f4c6e99e1fb2de11cb: added README/contract/client/roadmap artifacts, renumbered sections, recomputed hashes; inventories untouched"
+  "refresh_note": "Lead refresh at b743c238050cea5dee89e9f4c6e99e1fb2de11cb: added README/contract/client/roadmap artifacts, renumbered sections, recomputed hashes; inventories untouched",
+  "status": "post-audit（独立终审 PASS-WITH-PARTIAL、必改 0；尚书验收待办）",
+  "audit": {
+    "verdict": "PASS-WITH-PARTIAL",
+    "must_fix": 0,
+    "baseline_gate_head": "41425b1",
+    "report": "docs/testing/round76/round76-final-audit.md",
+    "report_sha256": "2e57ec6fe2c66e7e4d362521775bb66b83558379c3a7bc47525e2d621781f30c",
+    "inventory_note": "5 项目录 inventory 为 producer-declared，无生成脚本，聚合值不可复现 → 流程 PARTIAL",
+    "scoped_partials": "R72/R59 supersede、素材本地、B 早期日志永久损失、A sidecar 流程瑕疵、D 未留 target 证据、legacy clippy 双口径、历史 PARTIAL 原号承接"
+  },
+  "disclosures": [
+    {
+      "id": "post-audit-refresh",
+      "note": "Lead 于 ec6ec0217769323ff659ceae05d2148ec4877a94 刷新：新增终审报告 artifact、README 阶段/措辞更新、delivery_head 前移；file 类 20/20 按交付头重算，inventory 原样保留"
+    }
+  ]
 }

@@ -1,8 +1,8 @@
 # R77：149 Trap 八帧映射差异与素材准入合同
 
-- 主单 `JJC-20261028-004`；阶段 `pre-audit`，**PASS-WITH-PARTIAL**；这是合同与准入审计层交付，生产零改，待独立终审与后续收口。
+- 主单 `JJC-20261028-004`；阶段 **post-audit**，**PASS-WITH-PARTIAL（御史台独立终审；必改 0）**；这是合同与准入审计层交付，生产零改；仍属 PARTIAL，不作整轮通过结论。
 - 范围：只新增[七 G 合同测试](../../../crates/mir-client/tests/round77_trap_asset_admission_contract.rs)与[只读素材准入工具](../../../tools/testing/round77_asset_admission.py)；没有 crates/src 生产改动、素材变更或新 supersede。
-- 提交链：`0bbc322`（规划/门下/派发）→`0e1be09`（Lead 裁定）→`dcb0c89`（C 首核 FAIL 与 C2b 追加）→`24f0826`（功能 HEAD）；delivery_head 留空，待 Lead 提交刷新。
+- 提交链：`0bbc322`（规划/门下/派发）→`0e1be09`（Lead 裁定）→`dcb0c89`（C 首核 FAIL 与 C2b 追加）→`24f0826`（功能 HEAD）→`1bdbe4a`（文档批）→清单 `delivery_head=1bdbe4a` 已固化；[御史台终审](round77-final-audit.md)两提交 `docs(audit)`/清单 post-audit 见 manifest `delivery_head`。
 - 本轮合同详见[准入合同](round77-trap-asset-admission.md)；[候选清单](final-manifest.json)与[外置摘要](manifest.sha256)记录检出字节和历史 blob，清单不自引用。
 
 ## 准入结论与矩阵
@@ -25,6 +25,9 @@
 - Lead 唯一全量门禁 attempt-1：HEAD `24f0826576b4ac724ad44a49870e40153e1d8513`，`pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale`；2026-10-28T04:36:46Z–04:40:33Z，EXIT0、12/12 OK、0 FAIL。
 - [gate log](../../../target/round77/gate/attempt-1.log)199,530B/SHA `6d9c974f73bc6125bdb270015f846eb188bd754fa226a8dc7bd3f6e822283858`；[meta](../../../target/round77/gate/attempt-1.meta.txt)887B/SHA `c6fa86c6d53fd1d66c2d2c19743fdb2d060a4d99c2b2f22aa84608bc306371ef`。日志GBK，以原字节/SHA为准；13行OK含子行，脚本汇总12项为权威。
 
+- 御史台独立终审：**PASS-WITH-PARTIAL，必改 0**；被审 HEAD `5f30403`；隔离复跑 R77 7/7、R76 8/8、R72 9/9、R59 6/6、R59 render 16/16、fmt EXIT0；F1（G5）与 M6（G6）真红独立复现；清单16项与12个 tracked blob 0 失配、外置 SHA 一致、A digest 独立命中。详见[终审报告](round77-final-audit.md)与 `target/round77/t/attempt-1/**`。
+- 严格 legacy clippy 实测 EXIT101（`mir-render/src/minimap.rs:353`、`tiles.rs:311` 历史 `needless_return`，两文件与 `0bbc322` 原字节一致）→ **历史承接 FAIL，不虚报 0**；门禁 workspace 口径（不带 legacy）仍 EXIT0/12 项。
+- 清单 post-audit 刷新由 Lead 机械执行（新增审计 artifact、README 新 blob、delivery_head 前移、外置 SHA 重算）；不宣称 R77 通过。
 ## 偏差披露与承接
 
 - A 首次补丁脚本非法newline致工具截断0字节；从attempt-1备份恢复后重做，旧证据保留。

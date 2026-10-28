@@ -2330,3 +2330,13 @@ cargo fmt --all -- --check
 - R72 G5仅以Reincarnation替代旧Trap控制组；R59冻结素材有限supersede为116帧，旧106子集不变。game-assets被gitignore，不入git。
 - 门禁attempt-1因R59三测试106/116冲突EXIT1；裁定5授权fix `41425b1`，attempt-2 HEAD41425b1为12/12 EXIT0。不可称整轮通过、严格Crystal等价或生产寿命已修。
 - 严格NextMotion/对象寿命、DrawBlend(true,0.8)/src×0.8、AnimationOffset/Light/DrawColour、其余26技能与设备视觉仍PARTIAL；A sidecar及B早期失败日志损失照实承接。
+
+## 5.42 R77：149 Trap 八帧映射差异与素材准入合同（零生产）
+
+- pre-audit / PASS-WITH-PARTIAL；[R77索引](testing/round77/README.md)与[准入合同](testing/round77/round77-trap-asset-admission.md)；仅新增合同测试与只读工具，crates/src生产零改。
+- F1 CLOSED：矩阵current为通用非149 Trap（Magic/0..9/10帧/60ms/700ms/居中Over），target为Crystal Magic2/2360..2367/8帧/100ms；两负控唯一G5红后恢复七绿。
+- F2 CLOSED：default WZX索引越界独立支撑NOT_READY；2025地址超默认EOF仅reference_only，撤去压缩帧“物理不存在”论证。
+- 准入状态：default NOT_READY；2025同号八帧UNVERIFIED_SEMANTICS；两份Lib候选AWAITING_BINDING。可解压、同号与邻居空帧不构成认证。
+- Lead唯一门禁HEAD24f0826、EXIT0、12/12 OK；A返工→B attempt-3→C2b必改0，具体负控、oracle及偏差见索引；D仅静态自检。
+- 门下M1 OPEN移交R78；2025 RGB565行对齐语义、anchor/严格Crystal等价、设备视觉与全部技能素材准入及历史PARTIAL原号照承；R76十八帧/R59的116帧冻结不变。
+- 不得称R77通过、READY、已认证、生产已修、Crystal严格等价或素材已可用；R78真实绑定与18→26 supersede待审。

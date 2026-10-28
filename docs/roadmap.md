@@ -380,3 +380,16 @@ R49–R68历史PARTIAL按原编号承接；125/570已做偏移消费不扩大为
 - R72 G5仅Trap控制组有限supersede；R59冻结集追加十帧至116，旧106子集指纹与历史证据保全；game-assets被gitignore，不入git。
 - PARTIAL：严格NextMotion/对象寿命/26技能、DrawBlend(true,0.8)/src×0.8、AnimationOffset/Light/DrawColour、素材本地承接与设备视觉；A sidecar、B早期失败日志永久损失、C M7无效红历史均披露。
 - 不称R76整轮通过、严格Crystal等价或生产寿命已修；下一轮须先独立终审/尚书/门下收口，再另立寿命或下一技能合同。
+
+## 二十五 第77轮：149 Trap 八帧映射差异与素材准入合同
+
+- 阶段pre-audit，PASS-WITH-PARTIAL；[R77索引](testing/round77/README.md)、[合同](testing/round77/round77-trap-asset-admission.md)、[候选manifest](testing/round77/final-manifest.json)；待独立终审及后续收口。
+- 提交链0bbc322→0e1be09→dcb0c89→24f0826；仅新增七G合同测试与只读准入工具，生产零改，无本轮supersede。
+- Lead唯一全量门禁attempt-1 HEAD24f0826、2026-10-28T04:36:46Z–04:40:33Z、EXIT0、12/12 OK；日志199530B/SHA6d9c974f…，GBK原字节为准。
+- 验证链：A旧交付→C首核FAIL/必改2→A attempt-2返工→B attempt-3独立复验→C2b PASS-WITH-PARTIAL/必改0，首核历史保全。
+- F1矩阵改为通用非149 Trap对Crystal，100→120/8→7各唯一G5红；F2以WZX索引越界支撑NOT_READY，地址超EOF仅reference_only，撤去解压尺寸证明物理不存在的论证。
+- B六变异M1/G1、M2/G2、M3/G3、M4/G4、M5/G7、M6/G6；oracle300/300、0 mismatch、A摘要canonical独立复现；回归R76/R72/R59为8/9/6绿。
+- 披露：A非法newline补丁截断工具后从备份恢复；B CRLF archive陷阱修为core.autocrlf=false、M5按Lead覆盖G7而非dispatch原G5；C2b三模式互斥合并EXIT2，须分开；C2b未重跑全oracle。
+- default NOT_READY / 2025 UNVERIFIED_SEMANTICS / Lib AWAITING_BINDING；门下M1 OPEN、2025解压语义与anchor PARTIAL；严格Crystal等价、设备视觉与全部技能/素材准入未做。
+- 历史PARTIAL原号照承R68/R49–R70/R61–R67/R71/R72/R73/R74/R75/R76，包括R72 B plan-M4/legacy lint、R71-C7/E1、R69条件5；R76十八帧/R59的116帧冻结不变。
+- R78承接候选真实来源/语义绑定，18→26 supersede待审；不得称R77通过、READY、已认证、生产已修、Crystal严格等价或素材已可用。

@@ -1,0 +1,164 @@
+{
+  "schema": "round77-final-manifest-v1",
+  "stage": "pre-audit",
+  "task": "JJC-20261028-004",
+  "head_snapshot": "24f0826576b4ac724ad44a49870e40153e1d8513",
+  "delivery_head": null,
+  "generated_utc": "2026-10-28T04:48:38.829565Z",
+  "verdict": "PASS-WITH-PARTIAL",
+  "production_changes": 0,
+  "gate": {
+    "head": "24f0826576b4ac724ad44a49870e40153e1d8513",
+    "exit": 0,
+    "items_ok": 12,
+    "items_fail": 0,
+    "log_path": "target/round77/gate/attempt-1.log",
+    "log_bytes": 199530,
+    "log_sha256": "6d9c974f73bc6125bdb270015f846eb188bd754fa226a8dc7bd3f6e822283858",
+    "meta_path": "target/round77/gate/attempt-1.meta.txt",
+    "meta_bytes": 887,
+    "meta_sha256": "c6fa86c6d53fd1d66c2d2c19743fdb2d060a4d99c2b2f22aa84608bc306371ef",
+    "utc_start": "2026-10-28T04:36:46Z",
+    "utc_end": "2026-10-28T04:40:33Z",
+    "command": "pwsh -NoProfile -File tools/dev/ci.ps1 -KillStale",
+    "operator": "lead",
+    "note": "GBK original bytes; 13 OK-prefixed lines include a subitem; authoritative summary is 12 items."
+  },
+  "admission_states": [
+    "NOT_READY",
+    "UNVERIFIED_SEMANTICS",
+    "AWAITING_BINDING"
+  ],
+  "partial": [
+    "Menxia M1 OPEN -> R78 binding",
+    "2025 RGB565 aligned decode semantics",
+    "anchor DrawLocation vs centered",
+    "strict Crystal equivalence / device visual sign-off / all skills and assets not done",
+    "historical PARTIAL identifiers retained in README"
+  ],
+  "artifacts": [
+    {
+      "path": "crates/mir-client/tests/round77_trap_asset_admission_contract.rs",
+      "tracked": true,
+      "bytes": 60061,
+      "sha256": "f809b5d44966b28dc1dad95d854eda843fefe36aea012e6cced75668f9e6a27e",
+      "source": "head-snapshot",
+      "git_blob": "18d163cf91c2fbd269bfa2b25f2526ea90c66618"
+    },
+    {
+      "path": "tools/testing/round77_asset_admission.py",
+      "tracked": true,
+      "bytes": 69755,
+      "sha256": "10f957e59e3041234ed5a2b64eafe1d6ed343b52a94b4196055fd44f8bba9b5e",
+      "source": "head-snapshot",
+      "git_blob": "5f9595e17f46757f7830c907a933e4bbfc52848c"
+    },
+    {
+      "path": "docs/process/round77-plan.md",
+      "tracked": true,
+      "bytes": 19895,
+      "sha256": "d2138698ff4751009775881fa97d2914cc2721005721477683a9a0c6fb6ceaaa",
+      "source": "head-snapshot",
+      "git_blob": "777dfa0014b1c6e9838d9deff1b8b9c534cc4bbf"
+    },
+    {
+      "path": "docs/process/round77-menxia-review.md",
+      "tracked": true,
+      "bytes": 6145,
+      "sha256": "fd8c1b984445d7aaf0cc0d686478f81ae0b7688f80d19a0a914d22fc5c618fe7",
+      "source": "head-snapshot",
+      "git_blob": "12a99a3bcf36dd9a53007ecfe6424ca459884b33"
+    },
+    {
+      "path": "docs/process/round77-shangshu-dispatch.md",
+      "tracked": true,
+      "bytes": 7370,
+      "sha256": "cb3a30a04260a847eb7ab55ae507586a746d6bc4018a8f2c4d25e38fc44443aa",
+      "source": "head-snapshot",
+      "git_blob": "959177cc0fcb341fc88ca29972b4d631d20b88ff"
+    },
+    {
+      "path": "docs/process/round77-lead-ruling.md",
+      "tracked": true,
+      "bytes": 4573,
+      "sha256": "8e96d85e7a7b265da6d72a76c64173226eca25dd95076d77408e63406f0b5f71",
+      "source": "head-snapshot",
+      "git_blob": "f8741ca6ab618408c5b318cef6c7c4212faef7ec"
+    },
+    {
+      "path": "docs/testing/round77/round77-c-evidence.md",
+      "tracked": true,
+      "bytes": 7542,
+      "sha256": "b0f744d10f9d574aaa280c77d59d743ac68ea613423aae933dde7b0a98441a9d",
+      "source": "head-snapshot",
+      "git_blob": "6cbefce769672e99a8dd01bf0bec728e720ebfc1"
+    },
+    {
+      "path": "docs/testing/round77/round77-c-addendum.md",
+      "tracked": true,
+      "bytes": 3161,
+      "sha256": "52144976aedb57a758a2a1207a058ee8eb76c58b7a30812631b1dd79fea6b861",
+      "source": "head-snapshot",
+      "git_blob": "aa74e9e8bcc1760e3484ccf91486243e1b1d7caf"
+    },
+    {
+      "path": "docs/testing/round77/README.md",
+      "tracked": false,
+      "bytes": 6293,
+      "sha256": "a39f06a23f864d95373b458d4efc62f4388e0e936e19bec10008c6f20777e115",
+      "source": "worktree-d-delivery"
+    },
+    {
+      "path": "docs/testing/round77/round77-trap-asset-admission.md",
+      "tracked": false,
+      "bytes": 4112,
+      "sha256": "9b8fa34d10f91b8f1da9b5a6f7ae614539be2826c6f817c0ab3116ff74811661",
+      "source": "worktree-d-delivery"
+    },
+    {
+      "path": "docs/client.md",
+      "tracked": false,
+      "bytes": 191434,
+      "sha256": "bbc9ba9b2aef68a20f4b5bf57bac7277fd32afc61d63f386c1bb73a0895948a8",
+      "source": "worktree-d-delivery",
+      "tracked_note": "Historical tracked document; tracked:false classifies this D worktree delivery per task; not an assertion that the path is absent from Git."
+    },
+    {
+      "path": "docs/roadmap.md",
+      "tracked": false,
+      "bytes": 53216,
+      "sha256": "a735704c48abaa59a251389dbe49451b197045f1fa25fb2f4543b6e99def6095",
+      "source": "worktree-d-delivery",
+      "tracked_note": "Historical tracked document; tracked:false classifies this D worktree delivery per task; not an assertion that the path is absent from Git."
+    },
+    {
+      "path": "target/round77/gate/attempt-1.log",
+      "tracked": false,
+      "bytes": 199530,
+      "sha256": "6d9c974f73bc6125bdb270015f846eb188bd754fa226a8dc7bd3f6e822283858",
+      "source": "local-evidence"
+    },
+    {
+      "path": "target/round77/gate/attempt-1.meta.txt",
+      "tracked": false,
+      "bytes": 887,
+      "sha256": "c6fa86c6d53fd1d66c2d2c19743fdb2d060a4d99c2b2f22aa84608bc306371ef",
+      "source": "local-evidence"
+    },
+    {
+      "path": "target/round77/a/attempt-2/fixtures/expected-freeze.json",
+      "tracked": false,
+      "bytes": 15057,
+      "sha256": "da1e21419e223fb6a8149b0902b563770c535d8352fefe362ef0dfbdabb0db1a",
+      "source": "local-evidence"
+    },
+    {
+      "path": "target/round77/b/attempt-3/manifest.json",
+      "tracked": false,
+      "bytes": 42060,
+      "sha256": "88cff2810ff3c741b3a5721c352556787bd85331c0ebc6176b3e02d0b332afe1",
+      "source": "local-evidence"
+    }
+  ],
+  "self_reference_policy": "This manifest and manifest.sha256 are excluded from artifacts."
+}

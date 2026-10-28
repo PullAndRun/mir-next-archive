@@ -2,16 +2,22 @@
 //!
 //! The frame set is produced by `tools/assets/analyze_usage.py` (`MAGIC_FRAMES`,
 //! dispatch M1): 16 directions x 6 frames starting at 410 (`410-415 / 420-425 / ... /
-//! 560-565`) plus the 10 impact frames `570-579`, 106 PNGs in total. `416-419` and
-//! `566-569` are 0x0 empty frames and must not appear.
+//! 560-565`) plus the 10 impact frames `570-579`（R59 原集 106 PNGs；R76 追加见下段）。
+//! `416-419` and `566-569` are 0x0 empty frames and must not appear.
+//!
+//! R76 有限 supersede（R76 Lead 裁定 5）：R76 的 `MAGIC_FRAMES` 追加 `range(1390, 1400)`
+//! 十帧（`magic` 库困魔咒 / 149 TrapHexagon），本清单按规范序追加 `1390..=1399` 段，
+//! 共 116 PNGs；原 106 帧顺序与数据不变。
 //!
 //! These gates deliberately never skip. Round 59 is executed against real assets, so a
 //! missing `game-assets/` tree or a missing `resource/` corpus must fail loudly instead
 //! of turning into a green run (dispatch C4: logic gates must not SKIP).
 //!
 //! Expected values were measured on the frozen R59 asset tree recorded in
-//! `target/round59/d3/attempt-1/` (`frameset_sha256`
-//! `e465026a50ee6f86d6762e3959386fa0132ffabf63da9c92afeebdf3d52a1e98`).
+//! `target/round59/d3/attempt-1/` (`frameset_sha256`（106 帧子集，R76 后实测不变）
+//! `e465026a50ee6f86d6762e3959386fa0132ffabf63da9c92afeebdf3d52a1e98`）。
+//! R76 有限 supersede（R76 Lead 裁定 5）后整集 116 帧指纹为
+//! `e642330a568402b21528afb04459108f3dc596f7e37ad5c276670ef342940eff`。
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -29,11 +35,18 @@ const DIRECTIONS: u32 = 16;
 const IMPACT_BASE_INDEX: u32 = 570;
 /// Impact frames (`570..=579`).
 const IMPACT_FRAMES: u32 = 10;
-/// Total PNGs in the R59 frame set.
-const EXPECTED_PNG_COUNT: usize = 106;
-/// sha256 of the whole frame set (sorted `<name> <size> <sha256>` lines joined by `\n`).
+/// R76 追加段基址：`magic` 库困魔咒（149 TrapHexagon）十帧（R76 Lead 裁定 5）。
+const TRAP_BASE_INDEX: u32 = 1390;
+/// R76 追加段帧数（`1390..=1399`）。
+const TRAP_FRAMES: u32 = 10;
+/// Total PNGs in the R59 frame set（R76 supersede：106 + `1390..=1399` 十帧 = 116）。
+const EXPECTED_PNG_COUNT: usize = 116;
+/// sha256 of the whole 116-frame set (sorted `<name> <size> <sha256>` lines joined by `\n`).
+/// R76 有限 supersede（R76 Lead 裁定 5）：106 帧子集旧值
+/// `e465026a50ee6f86d6762e3959386fa0132ffabf63da9c92afeebdf3d52a1e98` 实测不变；
+/// 整集（追加 `1390..=1399`）新值为下方 `e642330a…`。
 const FROZEN_FRAMESET_SHA256: &str =
-    "e465026a50ee6f86d6762e3959386fa0132ffabf63da9c92afeebdf3d52a1e98";
+    "e642330a568402b21528afb04459108f3dc596f7e37ad5c276670ef342940eff";
 /// sha256 of `resource/data/magic.wzl` recorded in `index.json.source_sha256`.
 const FROZEN_WZL_SHA256: &str = "3b8a2dba9a1246e90a663e712a84b488fbee924ad6ea70af3be986f00a02ab25";
 /// Byte size of `resource/data/magic.wzl` recorded in `index.json.source_bytes`.
@@ -145,7 +158,8 @@ fn indexed_frames(index: &Value) -> Vec<IndexedFrame<'_>> {
 }
 
 /// The frozen R59 frame set: `410 + direction * 10 + frame` for 16 directions, then
-/// `570..=579`. Returns 106 indices in canonical order.
+/// `570..=579`, then R76 追加段 `1390..=1399`（R76 Lead 裁定 5）。Returns 116 indices in
+/// canonical order（410 段、570 段、1390 段）。
 fn expected_frame_indices() -> Vec<u32> {
     let mut frames = Vec::with_capacity(EXPECTED_PNG_COUNT);
     for direction in 0..DIRECTIONS {
@@ -154,6 +168,7 @@ fn expected_frame_indices() -> Vec<u32> {
         }
     }
     frames.extend(IMPACT_BASE_INDEX..IMPACT_BASE_INDEX + IMPACT_FRAMES);
+    frames.extend(TRAP_BASE_INDEX..TRAP_BASE_INDEX + TRAP_FRAMES);
     frames
 }
 
@@ -183,7 +198,7 @@ fn index_json_lists_exactly_the_frozen_round59_magic_frame_set() {
     assert_eq!(
         u64_field(&index, "count"),
         u64::try_from(EXPECTED_PNG_COUNT).expect("count fits u64"),
-        "index.json `count` must be the frozen 106-frame set"
+        "index.json `count` must be the frozen 116-frame set"
     );
     assert_eq!(
         str_field(&index, "lib"),
@@ -220,7 +235,7 @@ fn index_json_lists_exactly_the_frozen_round59_magic_frame_set() {
     assert_eq!(
         frames.len(),
         EXPECTED_PNG_COUNT,
-        "index.json `images` must list 106 frames"
+        "index.json `images` must list 116 frames"
     );
     let actual: Vec<u32> = frames.iter().map(|frame| frame.index).collect();
     let expected = expected_frame_indices();
@@ -268,7 +283,7 @@ fn index_json_lists_exactly_the_frozen_round59_magic_frame_set() {
     assert_eq!(
         file_names.len(),
         EXPECTED_PNG_COUNT,
-        "magic frame directory must contain exactly 106 PNGs (plus index.json)"
+        "magic frame directory must contain exactly 116 PNGs (plus index.json)"
     );
     assert_eq!(
         file_names, expected_names,
@@ -321,7 +336,7 @@ fn every_indexed_png_matches_its_frozen_sha_and_has_a_real_size() {
     }
     assert_eq!(
         checked, EXPECTED_PNG_COUNT,
-        "every one of the 106 frames must be verified"
+        "every one of the 116 frames must be verified"
     );
 }
 
@@ -381,7 +396,7 @@ fn frameset_fingerprint_matches_the_frozen_round59_value() {
     let fingerprint = sha256_hex(lines.join("\n").as_bytes());
     assert_eq!(
         fingerprint, FROZEN_FRAMESET_SHA256,
-        "the sorted <name> <size> <sha256> fingerprint of the 106 PNGs must be frozen"
+        "the sorted <name> <size> <sha256> fingerprint of the 116 PNGs must be frozen"
     );
 }
 
